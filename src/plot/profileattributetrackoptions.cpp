@@ -42,6 +42,24 @@ QColor seedColorFor(PlotAttribute a)
     }
 }
 
+// Seed color for a species track. qHash(QString) is seeded per process, so
+// a plain character checksum keys the palette instead — the same species
+// gets the same first-run color across sessions.
+QColor speciesSeedColor(const QString &species)
+{
+    static const QColor palette[] = {
+        QColor(0xBC, 0xBD, 0x22),   // olive
+        QColor(0x17, 0xBE, 0xCF),   // cyan
+        QColor(0xE3, 0x77, 0xC2),   // pink
+        QColor(0x2C, 0xA0, 0x2C),   // green
+        QColor(0xFF, 0x7F, 0x0E),   // orange
+        QColor(0x94, 0x67, 0xBD),   // purple
+    };
+    uint sum = 0;
+    for (QChar c : species) sum += c.unicode();
+    return palette[sum % (sizeof(palette) / sizeof(palette[0]))];
+}
+
 } // namespace
 
 ProfileAttributeTrackOptions::ProfileAttributeTrackOptions(QObject *parent)
@@ -93,9 +111,73 @@ QVector<PlotAttribute> ProfileAttributeTrackOptions::visibleAttributes() const
     return out;
 }
 
+// ── Species tracks ─────────────────────────────────────────────────────
+
+QString ProfileAttributeTrackOptions::speciesKey(const QString &species,
+                                                 bool nodeScope)
+{
+    return species + (nodeScope ? QLatin1String("@node")
+                                : QLatin1String("@link"));
+}
+
+bool ProfileAttributeTrackOptions::isSpeciesTrackVisible(
+    const QString &species, bool nodeScope) const
+{
+    return m_speciesVisible.value(speciesKey(species, nodeScope), false);
+}
+
+void ProfileAttributeTrackOptions::setSpeciesTrackVisible(
+    const QString &species, bool nodeScope, bool on)
+{
+    if (species.isEmpty()) return;
+    const QString key = speciesKey(species, nodeScope);
+    if (m_speciesVisible.value(key, false) == on) return;
+    m_speciesVisible.insert(key, on);
+    emit changed();
+}
+
+QPen ProfileAttributeTrackOptions::speciesTrackPenFor(
+    const QString &species, bool nodeScope) const
+{
+    return m_speciesPens.value(speciesKey(species, nodeScope),
+                               QPen(speciesSeedColor(species), 1.6));
+}
+
+void ProfileAttributeTrackOptions::setSpeciesTrackPenFor(
+    const QString &species, bool nodeScope, const QPen &pen)
+{
+    if (species.isEmpty()) return;
+    const QString key = speciesKey(species, nodeScope);
+    if (m_speciesPens.contains(key) && m_speciesPens.value(key) == pen)
+        return;
+    m_speciesPens.insert(key, pen);
+    emit changed();
+}
+
+QVector<QPair<QString, bool>>
+ProfileAttributeTrackOptions::visibleSpeciesTracks() const
+{
+    QVector<QPair<QString, bool>> out;
+    for (auto it = m_speciesVisible.cbegin(); it != m_speciesVisible.cend();
+         ++it) {
+        if (!it.value()) continue;
+        const QString &key = it.key();
+        const bool nodeScope = key.endsWith(QLatin1String("@node"));
+        out.push_back({key.left(key.size() - 5), nodeScope});
+    }
+    std::sort(out.begin(), out.end(),
+              [](const QPair<QString, bool> &a, const QPair<QString, bool> &b) {
+                  if (a.first != b.first) return a.first < b.first;
+                  return a.second && !b.second;   // node before link
+              });
+    return out;
+}
+
 bool ProfileAttributeTrackOptions::anyAttributeVisible() const
 {
     return std::any_of(m_visible.cbegin(), m_visible.cend(),
+                       [](bool v) { return v; })
+        || std::any_of(m_speciesVisible.cbegin(), m_speciesVisible.cend(),
                        [](bool v) { return v; });
 }
 
@@ -140,6 +222,21 @@ void ProfileAttributeTrackOptions::writeTo(QSettings &s) const
         const QMetaProperty p = mo->property(i);
         s.setValue(QLatin1String(p.name()), p.read(this));
     }
+
+    // Species tracks — name-keyed, so they can't be Q_PROPERTYs. Stored
+    // verbatim including entries for species the current run doesn't
+    // carry (Y2b-3 semantic: keep, offer again when a matching run
+    // returns). remove() first so a species toggled off then never
+    // touched again doesn't linger from an older write.
+    s.remove(QStringLiteral("speciesTracks"));
+    s.beginGroup(QStringLiteral("speciesTracks"));
+    for (auto it = m_speciesVisible.cbegin(); it != m_speciesVisible.cend();
+         ++it)
+        s.setValue(QStringLiteral("visible/") + it.key(), it.value());
+    for (auto it = m_speciesPens.cbegin(); it != m_speciesPens.cend(); ++it)
+        s.setValue(QStringLiteral("pens/") + it.key(),
+                   QVariant::fromValue(it.value()));
+    s.endGroup();
 }
 
 void ProfileAttributeTrackOptions::readFrom(QSettings &s)
@@ -155,6 +252,20 @@ void ProfileAttributeTrackOptions::readFrom(QSettings &s)
             if (s.contains(key))
                 p.write(this, s.value(key));
         }
+
+        // allKeys() (not childKeys()) so a species name containing '/'
+        // — which QSettings treats as a group separator — still
+        // round-trips as the original flat key.
+        s.beginGroup(QStringLiteral("speciesTracks"));
+        s.beginGroup(QStringLiteral("visible"));
+        for (const QString &key : s.allKeys())
+            m_speciesVisible.insert(key, s.value(key).toBool());
+        s.endGroup();
+        s.beginGroup(QStringLiteral("pens"));
+        for (const QString &key : s.allKeys())
+            m_speciesPens.insert(key, s.value(key).value<QPen>());
+        s.endGroup();
+        s.endGroup();
     }
     emit changed();
 }

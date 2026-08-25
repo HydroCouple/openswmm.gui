@@ -97,4 +97,41 @@ AttributeProfile fetch(SWMMResultsLayer *resultsLayer,
     return out;
 }
 
+AttributeProfile fetchSpecies(SWMMResultsLayer *resultsLayer,
+                              const ProfileBuilder::PathStatic &path,
+                              const QString &species,
+                              bool nodeScope)
+{
+    AttributeProfile out;
+    out.isNodeAttribute = nodeScope;
+    if (!resultsLayer || species.isEmpty()) return out;
+
+    SWMM_Output handle = resultsLayer->outputHandle();
+    if (!handle) return out;
+
+    const int periodCount = resultsLayer->totalTimeSteps();
+    out.periodCount = periodCount;
+
+    // -1 when the run doesn't carry the species — fillSeries then leaves
+    // every row empty, never zero-filled or pointed at a wrong column.
+    const int var = SwmmOutRunLayer::speciesVariableCodeFor(
+        species, resultsLayer->speciesNames(),
+        nodeScope ? ObjectRef::Kind::Node : ObjectRef::Kind::Link);
+
+    const int count = nodeScope ? path.nodes.size() : path.links.size();
+    out.byPath   .resize(count);
+    out.minByPath.resize(count);
+    out.maxByPath.resize(count);
+
+    for (int i = 0; i < count; ++i) {
+        const QString &name = nodeScope ? path.nodes[i].name
+                                        : path.links[i].name;
+        const int idx = nodeScope ? resultsLayer->nodeOutputIndex(name)
+                                  : resultsLayer->linkOutputIndex(name);
+        fillSeries(handle, nodeScope, idx, var, periodCount, out.byPath[i]);
+        envelope(out.byPath[i], out.minByPath[i], out.maxByPath[i]);
+    }
+    return out;
+}
+
 } // namespace ProfileAttributeSampler

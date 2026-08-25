@@ -105,6 +105,53 @@ enum class OutputKind
     MinWaterSurface,
 };
 
+/*! Sentinel for BranchLink::bearingRad when a link's plan geometry is
+ *  degenerate and no honest bearing exists. Outside [-pi, pi], so a renderer
+ *  that forgets to check draws nothing sensible rather than a plausible-but-
+ *  wrong north spoke. */
+inline constexpr double kNoBearing = 1.0e9;
+
+/*!
+ * \struct BranchLink
+ * \brief One link incident to a path node, described from that node's point
+ *        of view.
+ *
+ *        Every link touching the node is recorded, including the one or two
+ *        the profile itself traverses (`onPath`). The renderer uses the set
+ *        two ways: off-path entries become truncated stubs butting against
+ *        the manhole tube, so a profile shows what else arrives at each
+ *        structure; and the whole set — path links included — becomes the
+ *        per-node plan rose, where the path spokes are what orient the
+ *        reader.
+ *
+ *        `bearingRad` is a MAP bearing measured at this node: 0 = +y (north),
+ *        increasing clockwise, in the layer CRS. It is the direction the link
+ *        leaves this node, taken from the first polyline point away from the
+ *        node, so a curved link reads by its local tangent rather than by the
+ *        straight line to its far end.
+ *
+ *        `intoNode` is the MODEL's flow direction (this node is the link's
+ *        To-node), not the profile traversal direction — a rose arrow should
+ *        show how the network is built, which is independent of which way the
+ *        user happened to draw the profile.
+ */
+struct BranchLink
+{
+    QString  name;
+    LinkKind kind       = LinkKind::Conduit;
+    double   invertElev = 0.0;   /*!< Absolute invert at THIS node — the node
+                                       invert plus the link's offset at this
+                                       end. Sets where the stub attaches. */
+    double   maxDepth   = 0.0;   /*!< Cross-section max depth (crown offset)
+                                       for the stub's thickness; 0 when the
+                                       link has no conduit geometry. */
+    double   bearingRad = 0.0;   /*!< Plan bearing, 0 = north, clockwise. */
+    bool     intoNode   = false; /*!< Model flow arrives at this node. */
+    bool     onPath     = false; /*!< The profile traverses this link, so it
+                                       gets no stub (it is already drawn full
+                                       length) but does get a rose spoke. */
+};
+
 /*!
  * \struct NodeStatic
  * \brief Time-invariant per-node properties needed by the profile plot.
@@ -125,6 +172,11 @@ struct NodeStatic
     double   surchargeDepth  = 0.0;   /*!< extra depth allowed above rim
                                             before flooding occurs */
     NodeKind kind            = NodeKind::Junction;
+    /*! Every link incident to this node, path links included (see
+     *  BranchLink). Empty when the caller built the path from pure-logic
+     *  inputs without geometry — the renderer simply draws no stubs and no
+     *  rose, exactly as before this field existed. */
+    QVector<BranchLink> branches;
 };
 
 /*!

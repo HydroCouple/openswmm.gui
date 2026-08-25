@@ -28,6 +28,7 @@
 #include "plot/profilebuilder.h"
 #include "plot/profilerouter.h"
 
+#include <QPointF>
 #include <QString>
 #include <QVector>
 
@@ -184,6 +185,32 @@ void swapForReversed(PathLinkInfo &link);
 [[nodiscard]] ProfileBuilder::PathStatic buildPathStaticFromModel(
     SWMMModelLayer *model,
     const ProfileRouter::Path &routerPath);
+
+/*!
+ * \brief Map bearing of the direction \p at -> \p away, as the profile's
+ *        plan rose measures it: 0 = +y (north), increasing CLOCKWISE, in
+ *        radians on (-pi, pi].
+ *
+ *        Note the argument order into atan2 is (dx, dy), not the usual
+ *        (dy, dx) — that is what rotates the zero from +x to +y and flips
+ *        the sense to clockwise. Returns ProfileBuilder::kNoBearing when the
+ *        two points coincide, so a caller never publishes a north spoke it
+ *        did not measure.
+ */
+[[nodiscard]] double bearingFromPoints(const QPointF &at, const QPointF &away);
+
+/*!
+ * \brief Fills `PathStatic::nodes[i].branches` with every link incident to
+ *        each path node, path links included (marked `onPath`).
+ *
+ *        Separated from buildPathStaticFromModel() so a caller that only
+ *        wants the hydraulic profile can skip the geometry work, and so the
+ *        incidence pass can be exercised on its own. One pass over the
+ *        model's links; nothing is written when \p model has no engine.
+ */
+void collectNodeBranches(SWMMModelLayer *model,
+                         const ProfileRouter::Path &routerPath,
+                         ProfileBuilder::PathStatic &path);
 
 /*!
  * \brief Resolves an engine node index by name; returns -1 if not found.

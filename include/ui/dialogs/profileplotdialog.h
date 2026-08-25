@@ -18,6 +18,7 @@
 #define PROFILE_PLOT_DIALOG_H
 
 #include "plot/plotattribute.h"
+#include "plot/resultdescriptor.h"
 #include "plot/profileattributesampler.h"
 #include "plot/profilebuilder.h"
 #include "plot/profilerouter.h"
@@ -105,15 +106,16 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 signals:
-    /*! \brief Emitted when the user picks a specific attribute from the
+    /*! \brief Emitted when the user picks a specific variable from the
      *  "Plot Time Series…" submenu on a node / link right-click. Mirrors
      *  the map view's `plotAttributeRequested` so both entry points share
-     *  the same ComparisonPlotDialog routing in `SWMMVis`. When the user
-     *  picks the "All attributes" sentinel, \p attribute is
-     *  `PlotAttribute::Unknown` and the handler fans out one series per
-     *  valid attribute for the object kind. */
+     *  the same ComparisonPlotDialog routing in `SWMMVis`. The descriptor
+     *  carries a fixed attribute or a species BY NAME (Y2b-2, amendment
+     *  D-Y4); an INVALID descriptor is the "All attributes" sentinel and
+     *  the handler fans out one series per variable valid for the kind,
+     *  species included. */
     void plotAttributeRequested(const SWMMObjectRef &ref,
-                                openswmmvis::plot::PlotAttribute attribute);
+                                const openswmmvis::plot::ResultDescriptor &descriptor);
 
 private slots:
     /*!
@@ -206,14 +208,27 @@ private:
     QSplitter                            *m_profileSplit = nullptr;
     QMenu                                *m_tracksMenu   = nullptr;
     QAction                              *m_actShowTracks = nullptr;
+    /*! The "Link attributes" section header — species node-scope entries
+     *  are inserted above it so each scope's species sit with its fixed
+     *  attributes. */
+    QAction                              *m_tracksLinkSection = nullptr;
+    /*! Species entries currently in the Tracks menu — rebuilt whenever
+     *  the source set (and so the union of run species) changes. */
+    QList<QAction *>                      m_speciesTrackActions;
     int                                   m_trackLoadCookie = 0;
     bool                                  m_syncingX     = false;
     QList<int>                            m_lastSplitSizes;    ///< restore target after collapse
 
-    /*! Per-(layer, attribute) sampled-profile cache. Key attribute as int —
-     *  QPair needs qHash for both members. Invalidated by the same signals
-     *  as m_sourceCache (see ensureCacheInvalidationWired). */
-    QHash<QPair<SWMMResultsLayer *, int>,
+    /*! Rebuilds the species entries of the Tracks menu from the union of
+     *  species across the current source layers (Y2b-2 follow-up). */
+    void refreshTracksMenuSpecies();
+
+    /*! Per-(layer, variable) sampled-profile cache. The key's string leg
+     *  is `"a:<int(PlotAttribute)>"` for fixed attributes and the
+     *  scope-qualified species token `"<name>@node"` / `"<name>@link"`
+     *  for species tracks. Invalidated by the same signals as
+     *  m_sourceCache (see ensureCacheInvalidationWired). */
+    QHash<QPair<SWMMResultsLayer *, QString>,
           std::shared_ptr<const ProfileAttributeSampler::AttributeProfile>>
         m_attrCache;
 

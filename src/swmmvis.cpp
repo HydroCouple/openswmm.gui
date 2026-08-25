@@ -2463,7 +2463,6 @@ void SWMMVis::openTimeSeriesPlotFor(const SWMMObjectRef &ref)
     // and MapToolSelect's right-click → "Plot Time Series" entry.
 
     using openswmmvis::plot::ObjectRef;
-    using openswmmvis::plot::PlotAttribute;
 
     // Map SWMMObjectRef kind → plot::ObjectRef::Kind.
     ObjectRef::Kind kind = ObjectRef::Kind::Unknown;
@@ -2483,8 +2482,15 @@ void SWMMVis::openTimeSeriesPlotFor(const SWMMObjectRef &ref)
     const auto units = UnitSystem::instance() && UnitSystem::instance()->isSI()
         ? openswmmvis::plot::UnitSystem::SI
         : openswmmvis::plot::UnitSystem::US;
+    // Y2b-2 follow-up (amendment D-Y4): offer the run's species alongside
+    // the fixed attributes — read from the layer the plot will actually
+    // target (the project window's active 1D results layer).
+    QStringList species;
+    if (auto *pw = activeProjectWindow())
+        if (auto *rl = pw->activeResultsLayer())
+            species = rl->speciesNames();
     QMenu *menu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-        kind, units, this);
+        kind, units, this, species);
     if (!menu) {
         openComparisonPlotFor(ref);
         return;
@@ -2494,20 +2500,16 @@ void SWMMVis::openTimeSeriesPlotFor(const SWMMObjectRef &ref)
     // Pop at the cursor so the menu lands on the user's pointer
     // (works for ObjectBrowserPanel right-click + MapToolSelect both).
     QAction *picked = menu->exec(QCursor::pos());
-    const PlotAttribute attr = picked
-        ? openswmmvis::ui::AttributePickerMenu::attributeFrom(picked)
-        : PlotAttribute::Unknown;
     menu->deleteLater();
 
     if (!picked) return;   // user cancelled
 
-    if (attr == PlotAttribute::Unknown) {
-        // "All attributes" sentinel — fall back to the default-only path
-        // (the dialog handles multi-series itself).
-        openComparisonPlotFor(ref);
-    } else {
-        openComparisonPlotForAttribute(ref, attr);
-    }
+    // descriptorFrom tells fixed / species / "All attributes" apart —
+    // attributeFrom would read a species action as the sentinel. An
+    // INVALID descriptor is the sentinel; the handler fans out across
+    // the run's full descriptor list, species included.
+    openComparisonPlotForDescriptor(
+        ref, openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked));
 }
 
 void SWMMVis::openTimeSeriesPlotForOnLayer(const SWMMObjectRef &ref,
@@ -2518,7 +2520,6 @@ void SWMMVis::openTimeSeriesPlotForOnLayer(const SWMMObjectRef &ref,
     // Object Browser's "Plot Time Series ▸ <layer>" submenu when more
     // than one .out is loaded.
     using openswmmvis::plot::ObjectRef;
-    using openswmmvis::plot::PlotAttribute;
 
     if (!layer) { openTimeSeriesPlotFor(ref); return; }
 
@@ -2538,23 +2539,20 @@ void SWMMVis::openTimeSeriesPlotForOnLayer(const SWMMObjectRef &ref,
         ? openswmmvis::plot::UnitSystem::SI
         : openswmmvis::plot::UnitSystem::US;
     QMenu *menu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-        kind, units, this);
+        kind, units, this, layer->speciesNames());
     if (!menu) { openComparisonPlotForOnLayer(ref, layer); return; }
 
     menu->setTitle(tr("Plot %1 (%2) …").arg(ref.name, layer->name()));
     QAction *picked = menu->exec(QCursor::pos());
-    const PlotAttribute attr = picked
-        ? openswmmvis::ui::AttributePickerMenu::attributeFrom(picked)
-        : PlotAttribute::Unknown;
     menu->deleteLater();
 
     if (!picked) return;
 
-    if (attr == PlotAttribute::Unknown) {
-        openComparisonPlotForOnLayer(ref, layer);
-    } else {
-        openComparisonPlotForAttributeOnLayer(ref, attr, layer);
-    }
+    // Y2b-2 follow-up: descriptor dispatch — species picks route by NAME,
+    // the invalid sentinel fans out (fixed set + this run's species).
+    openComparisonPlotForDescriptorOnLayer(
+        ref, openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked),
+        layer);
 }
 
 openswmmvis::ui::ComparisonPlotDialog *SWMMVis::ensureComparisonPlotDialog()
@@ -2998,8 +2996,8 @@ void SWMMVis::openProfilePlotFor(const ProfileRouter::Path &path)
     // dialog used by the map view.
     connect(dlg, &ProfilePlotDialog::plotAttributeRequested,
             this, [this, dlg](const SWMMObjectRef &ref,
-                              openswmmvis::plot::PlotAttribute attribute) {
-        openComparisonPlotOverlayForProfile(dlg, ref, attribute);
+                              const openswmmvis::plot::ResultDescriptor &d) {
+        openComparisonPlotOverlayForProfile(dlg, ref, d);
     });
     dlg->show();
 }
@@ -3088,9 +3086,10 @@ void SWMMVis::onPlotProfileTriggered(int forceMode)
     else                             pw->activateSelectProfileTool(); // both, no 1D pick → network default (use dropdown for surface)
 }
 
-void SWMMVis::openComparisonPlotOverlayForProfile(ProfilePlotDialog *profileDlg,
-                                                   const SWMMObjectRef &ref,
-                                                   openswmmvis::plot::PlotAttribute attribute)
+void SWMMVis::openComparisonPlotOverlayForProfile(
+    ProfilePlotDialog *profileDlg,
+    const SWMMObjectRef &ref,
+    const openswmmvis::plot::ResultDescriptor &descriptor)
 {
     if (!profileDlg) return;
     auto *pw = activeProjectWindow();
@@ -3137,7 +3136,6 @@ void SWMMVis::openComparisonPlotOverlayForProfile(ProfilePlotDialog *profileDlg,
     }
     const int runIdx = dlg->ensureRunSourceForLayer(resultsLayer);
 
-    using PA = openswmmvis::plot::PlotAttribute;
     using PKind = openswmmvis::plot::ObjectRef::Kind;
     PKind kind = PKind::Unknown;
     switch (ref.objectType) {
@@ -3150,25 +3148,15 @@ void SWMMVis::openComparisonPlotOverlayForProfile(ProfilePlotDialog *profileDlg,
 
     openswmmvis::plot::ObjectRef objRef(kind, ref.name);
 
-    if (attribute == PA::Unknown) {
-        // "All attributes" sentinel — fan out across every attribute valid
-        // for the object kind.
-        const PA nodeAttrs[]   = {PA::NodeDepth, PA::NodeHead, PA::NodeVolume,
-                                  PA::NodeLateralInflow, PA::NodeTotalInflow,
-                                  PA::NodeOverflow};
-        const PA linkAttrs[]   = {PA::LinkFlow, PA::LinkDepth, PA::LinkVelocity,
-                                  PA::LinkVolume, PA::LinkCapacity};
-        const PA subAttrs[]    = {PA::SubcatchRainfall, PA::SubcatchSnowDepth,
-                                  PA::SubcatchEvap, PA::SubcatchInfil,
-                                  PA::SubcatchRunoff};
-        switch (kind) {
-        case PKind::Node:     for (PA a : nodeAttrs) dlg->addSeries(runIdx, objRef, a); break;
-        case PKind::Link:     for (PA a : linkAttrs) dlg->addSeries(runIdx, objRef, a); break;
-        case PKind::Subcatch: for (PA a : subAttrs)  dlg->addSeries(runIdx, objRef, a); break;
-        default: break;
-        }
+    if (!descriptor.isValid()) {
+        // "All attributes" sentinel — fan out across everything THIS run
+        // can plot for the kind: the fixed set plus its species (Y2b-2).
+        const openswmmvis::plot::SwmmOutRunLayer probe(resultsLayer);
+        const auto all = probe.resultDescriptorsForKind(kind);
+        for (const auto &d : all)
+            dlg->addSeries(runIdx, objRef, d);
     } else {
-        dlg->addSeries(runIdx, objRef, attribute);
+        dlg->addSeries(runIdx, objRef, descriptor);
     }
 
     dlg->show();

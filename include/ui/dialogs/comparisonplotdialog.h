@@ -88,7 +88,7 @@ public:
                   const openswmmvis::plot::ObjectRef& ref,
                   openswmmvis::plot::PlotAttribute attr);
 
-    /*! rief Y2b-2 (amendment D-Y4): descriptor-shaped overload — a
+    /*! \brief Y2b-2 (amendment D-Y4): descriptor-shaped overload — a
      *  fixed attribute or a species BY NAME. The enum overload above
      *  forwards here. */
     int addSeries(int runIndex,
@@ -135,6 +135,7 @@ private slots:
     void onModeActionTriggered();
     void onFitClicked();
     void onExportPngClicked();
+    void onExportDataClicked();
     void onAnimationCursorToggled(bool checked);
     void onAddSystemSeriesClicked();
 
@@ -168,6 +169,10 @@ private:
     void equaliseChartSplitterSizes();
     /*! \brief Hook up X-axis rangeChanged on a row's xAxis to mirror across rows. */
     void wireXAxisSync(int rowIndex);
+    /*! \brief Prompt for a CSV / SWMM .dat path and write the given series
+     *  (model indices). Shared by the toolbar Export Data action, the chart
+     *  row context menu, and the series-tree context menu. */
+    void exportSeriesData(const QVector<int>& seriesIndices);
 
     std::unique_ptr<openswmmvis::plot::ComparisonPlotModel> m_model;
 
@@ -195,6 +200,7 @@ private:
     QAction      *m_actZoomOut      = nullptr;
     QAction      *m_actFit          = nullptr;
     QAction      *m_actExport       = nullptr;
+    QAction      *m_actExportData   = nullptr;
     QAction      *m_actAnimCursor   = nullptr;
     QAction      *m_actAddSystem    = nullptr;
     QAction      *m_actAddFromMap   = nullptr;

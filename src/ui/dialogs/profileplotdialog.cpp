@@ -670,6 +670,16 @@ void ProfilePlotDialog::buildLayout()
             ? openswmmvis::plot::unitSystemFromFlowUnits(us->flowUnits())
             : openswmmvis::plot::UnitSystem::US;
     };
+    // Y2b-2 follow-up (amendment D-Y4): the species offered in the picker
+    // come from the project's ACTIVE 1D results layer — the same layer the
+    // overlay ComparisonPlotDialog will plot against — read live at menu
+    // time so a run swap between right-clicks stays honest.
+    auto speciesForMenu = [this]() -> QStringList {
+        if (!m_projectWindow) return {};
+        if (auto *rl = m_projectWindow->activeResultsLayer())
+            return rl->speciesNames();
+        return {};
+    };
 
     // Right-click "Plot Time Series…" mirrors the map view: instead of a
     // flat action we expose the same attribute-picker submenu (depth,
@@ -678,13 +688,13 @@ void ProfilePlotDialog::buildLayout()
     // routes into the ComparisonPlotDialog the same way as map clicks.
     connect(m_plot, &ProfilePlotWidget::nodeRightClicked, this,
             [this, zoomToNode, selectNode, openOptionsDialog,
-             resolvePlotUnitSystem](int idx, const QPoint &globalPos) {
+             resolvePlotUnitSystem, speciesForMenu](int idx, const QPoint &globalPos) {
         if (idx < 0 || idx >= m_pathStatic.nodes.size()) return;
         QMenu menu(this);
         QAction *zoomAct = menu.addAction(tr("Zoom to on map"));
         QMenu *plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
             openswmmvis::plot::ObjectRef::Kind::Node,
-            resolvePlotUnitSystem(), &menu);
+            resolvePlotUnitSystem(), &menu, speciesForMenu());
         if (plotSubmenu) {
             plotSubmenu->setTitle(tr("Plot Time Series…"));
             plotSubmenu->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Chart")));
@@ -700,19 +710,21 @@ void ProfilePlotDialog::buildLayout()
             SWMMObjectRef ref;
             ref.objectType = SWMMObjectRef::Node;
             ref.name       = m_pathStatic.nodes[idx].name;
+            // descriptorFrom tells fixed / species / sentinel apart —
+            // attributeFrom would read a species action as the sentinel.
             emit plotAttributeRequested(
-                ref, openswmmvis::ui::AttributePickerMenu::attributeFrom(chosen));
+                ref, openswmmvis::ui::AttributePickerMenu::descriptorFrom(chosen));
         }
     });
     connect(m_plot, &ProfilePlotWidget::linkRightClicked, this,
             [this, zoomToLink, selectLink, openOptionsDialog,
-             resolvePlotUnitSystem](int idx, const QPoint &globalPos) {
+             resolvePlotUnitSystem, speciesForMenu](int idx, const QPoint &globalPos) {
         if (idx < 0 || idx >= m_pathStatic.links.size()) return;
         QMenu menu(this);
         QAction *zoomAct = menu.addAction(tr("Zoom to on map"));
         QMenu *plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
             openswmmvis::plot::ObjectRef::Kind::Link,
-            resolvePlotUnitSystem(), &menu);
+            resolvePlotUnitSystem(), &menu, speciesForMenu());
         if (plotSubmenu) {
             plotSubmenu->setTitle(tr("Plot Time Series…"));
             plotSubmenu->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Chart")));
@@ -728,8 +740,10 @@ void ProfilePlotDialog::buildLayout()
             SWMMObjectRef ref;
             ref.objectType = SWMMObjectRef::Link;
             ref.name       = m_pathStatic.links[idx].name;
+            // descriptorFrom tells fixed / species / sentinel apart —
+            // attributeFrom would read a species action as the sentinel.
             emit plotAttributeRequested(
-                ref, openswmmvis::ui::AttributePickerMenu::attributeFrom(chosen));
+                ref, openswmmvis::ui::AttributePickerMenu::descriptorFrom(chosen));
         }
     });
     // Right-click on blank profile background still shows a context menu
@@ -877,6 +891,9 @@ void ProfilePlotDialog::populateSourcesPanel()
         ++total;
     }
     m_sourceButton->setText(tr("Sources (%1/%2)").arg(checked).arg(total));
+
+    // The source set defines which species the Tracks menu can offer.
+    refreshTracksMenuSpecies();
 }
 
 void ProfilePlotDialog::subscribeProjectClose(SWMMVisProjectWindow *pw)
@@ -1279,9 +1296,13 @@ void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
     m_cacheWired.insert(layer);
 
     // New `.out` opened on this layer (re-run, "Open Results", etc.) →
-    // the cached SourceDerived is now stale.
+    // the cached SourceDerived is now stale — and the run's species list
+    // may have changed, so the Tracks menu's species entries follow.
     connect(layer, &SWMMResultsLayer::resultsOpened,
-            this, [this, layer]() { invalidateSourceCacheFor(layer); });
+            this, [this, layer]() {
+                invalidateSourceCacheFor(layer);
+                refreshTracksMenuSpecies();
+            });
     // Layer pointed at a different results file.
     connect(layer, &SWMMResultsLayer::resultsFilePathChanged,
             this, [this, layer]() { invalidateSourceCacheFor(layer); });
@@ -1453,9 +1474,11 @@ void ProfilePlotDialog::buildAttributeTracksUi(QToolBar *toolbar)
 
     // Checkable menu entries — one per trackable attribute, grouped.
     // QAction::setData carries the enum so one handler serves all.
+    // (Species entries carry a QString token instead — see
+    // refreshTracksMenuSpecies; the data's variant TYPE tells them apart.)
     auto addAttrActions = [this](const QString &sectionTitle,
                                  const QVector<PlotAttribute> &attrs) {
-        m_tracksMenu->addSection(sectionTitle);
+        QAction *section = m_tracksMenu->addSection(sectionTitle);
         for (PlotAttribute a : attrs) {
             QAction *act = m_tracksMenu->addAction(labelFor(a));
             act->setCheckable(true);
@@ -1467,11 +1490,14 @@ void ProfilePlotDialog::buildAttributeTracksUi(QToolBar *toolbar)
                 m_trackOptions->setAttributeVisible(a, on);
             });
         }
+        return section;
     };
     addAttrActions(tr("Node attributes"),
                    openswmmvis::plot::nodePlotAttributes());
-    addAttrActions(tr("Link attributes"),
-                   openswmmvis::plot::linkPlotAttributes());
+    m_tracksLinkSection =
+        addAttrActions(tr("Link attributes"),
+                       openswmmvis::plot::linkPlotAttributes());
+    refreshTracksMenuSpecies();
 
     // Master show/hide toggle. Named ⇒ its checked state persists via the
     // DialogLayoutWatcher toggle group, like ComparisonPlotDialog's panel
@@ -1545,9 +1571,19 @@ void ProfilePlotDialog::buildAttributeTracksUi(QToolBar *toolbar)
             const auto acts = m_tracksMenu->actions();
             for (QAction *act : acts) {
                 if (!act->isCheckable() || !act->data().isValid()) continue;
-                const auto a = PlotAttribute(act->data().toInt());
                 QSignalBlocker block(act);
-                act->setChecked(m_trackOptions->isAttributeVisible(a));
+                // Species entries carry the scope-qualified token as a
+                // QString; fixed attributes carry the enum as an int.
+                if (act->data().typeId() == QMetaType::QString) {
+                    const QString token = act->data().toString();
+                    const bool nodeScope =
+                        token.endsWith(QLatin1String("@node"));
+                    act->setChecked(m_trackOptions->isSpeciesTrackVisible(
+                        token.left(token.size() - 5), nodeScope));
+                } else {
+                    const auto a = PlotAttribute(act->data().toInt());
+                    act->setChecked(m_trackOptions->isAttributeVisible(a));
+                }
             }
         }
         rebuildTracks();
@@ -1556,6 +1592,55 @@ void ProfilePlotDialog::buildAttributeTracksUi(QToolBar *toolbar)
     syncTracksAxes();
     updateTracksPaneVisibility();
     // Initial data load happens through rebindSources() → rebuildTracks().
+}
+
+void ProfilePlotDialog::refreshTracksMenuSpecies()
+{
+    // Y2b-2 follow-up (amendment D-Y4): one checkable entry per species ×
+    // scope, sitting with its scope's fixed attributes. The offered set is
+    // the union across the current source layers — a species only one
+    // overlay run carries is still trackable (the other sources render an
+    // empty row for it, same as any element they don't know).
+    if (!m_tracksMenu || !m_trackOptions) return;
+
+    for (QAction *act : std::as_const(m_speciesTrackActions)) {
+        m_tracksMenu->removeAction(act);
+        delete act;
+    }
+    m_speciesTrackActions.clear();
+
+    QStringList species;
+    const QList<SWMMResultsLayer *> layers =
+        openswmmvis::ui::profileResultSources(m_anim.data(),
+                                              m_projectWindow.data(),
+                                              m_canvas.data());
+    for (SWMMResultsLayer *l : layers) {
+        if (!l) continue;
+        for (const QString &sp : l->speciesNames())
+            if (!sp.isEmpty() && !species.contains(sp))
+                species.append(sp);
+    }
+    if (species.isEmpty()) return;
+
+    auto addSpeciesAction = [this](const QString &sp, bool nodeScope,
+                                   QAction *before) {
+        const auto d = openswmmvis::plot::ResultDescriptor::forSpecies(sp);
+        auto *act = new QAction(d.label(), m_tracksMenu);
+        act->setCheckable(true);
+        act->setChecked(m_trackOptions->isSpeciesTrackVisible(sp, nodeScope));
+        act->setData(sp + (nodeScope ? QLatin1String("@node")
+                                     : QLatin1String("@link")));
+        connect(act, &QAction::toggled, this, [this, sp, nodeScope](bool on) {
+            m_trackOptions->setSpeciesTrackVisible(sp, nodeScope, on);
+        });
+        if (before) m_tracksMenu->insertAction(before, act);
+        else        m_tracksMenu->addAction(act);
+        m_speciesTrackActions.push_back(act);
+    };
+    for (const QString &sp : std::as_const(species))
+        addSpeciesAction(sp, /*nodeScope=*/true, m_tracksLinkSection);
+    for (const QString &sp : std::as_const(species))
+        addSpeciesAction(sp, /*nodeScope=*/false, nullptr);
 }
 
 void ProfilePlotDialog::updateTracksPaneVisibility()
@@ -1644,7 +1729,9 @@ void ProfilePlotDialog::rebuildTracks()
     updateTracksPaneVisibility();
 
     const QVector<PlotAttribute> attrs = m_trackOptions->visibleAttributes();
-    if (attrs.isEmpty() || !m_sourceMenu) {
+    const QVector<QPair<QString, bool>> speciesTracks =
+        m_trackOptions->visibleSpeciesTracks();
+    if ((attrs.isEmpty() && speciesTracks.isEmpty()) || !m_sourceMenu) {
         m_tracks->setTracks({});
         return;
     }
@@ -1689,20 +1776,48 @@ void ProfilePlotDialog::rebuildTracks()
     if (primaryLayer)
         us = P::unitSystemFromFlowUnits(primaryLayer->flowUnits());
     struct TrackSpec {
-        PlotAttribute attr;
-        bool    isNode;
+        PlotAttribute attr = PlotAttribute::Unknown;
+        QString species;            ///< empty = fixed attribute track
+        bool    isNode = true;
         QString title;
         QPen    pen;
+        QString cacheKey;
     };
     QVector<TrackSpec> specs;
-    specs.reserve(attrs.size());
+    specs.reserve(attrs.size() + speciesTracks.size());
     for (PlotAttribute a : attrs) {
         TrackSpec spec;
-        spec.attr   = a;
-        spec.isNode = ProfileAttributeSampler::isNodeAttribute(a);
-        spec.title  = P::labelWithUnits(a, us);
-        spec.pen    = m_trackOptions->penFor(a);
+        spec.attr     = a;
+        spec.isNode   = ProfileAttributeSampler::isNodeAttribute(a);
+        spec.title    = P::labelWithUnits(a, us);
+        spec.pen      = m_trackOptions->penFor(a);
+        spec.cacheKey = QStringLiteral("a:%1").arg(int(a));
         specs.push_back(spec);
+    }
+    // Species tracks (Y2b-2 follow-up) — name-keyed; a visible species no
+    // checked source carries (e.g. persisted from another model) is
+    // skipped rather than rendered as a permanently-empty track.
+    for (const auto &st : speciesTracks) {
+        const bool known = std::any_of(
+            jobs.cbegin(), jobs.cend(), [&st](const TrackJob &j) {
+                return j.layer && j.layer->speciesNames().contains(st.first);
+            });
+        if (!known) continue;
+        const auto d = P::ResultDescriptor::forSpecies(st.first);
+        TrackSpec spec;
+        spec.species  = st.first;
+        spec.isNode   = st.second;
+        spec.title    = tr("%1 (%2) — %3")
+                            .arg(d.label(), d.unitLabel(us),
+                                 st.second ? tr("nodes") : tr("links"));
+        spec.pen      = m_trackOptions->speciesTrackPenFor(st.first, st.second);
+        spec.cacheKey = st.first + (st.second ? QLatin1String("@node")
+                                              : QLatin1String("@link"));
+        specs.push_back(spec);
+    }
+    if (specs.isEmpty()) {
+        m_tracks->setTracks({});
+        return;
     }
 
     // ── Fetch off-thread; cookie guards stale returns (rebindSources
@@ -1714,7 +1829,7 @@ void ProfilePlotDialog::rebuildTracks()
     using TW = ProfileAttributeTracksWidget;
     struct TracksResult {
         QVector<TW::Track> tracks;
-        QHash<QPair<SWMMResultsLayer *, int>,
+        QHash<QPair<SWMMResultsLayer *, QString>,
               std::shared_ptr<const ProfileAttributeSampler::AttributeProfile>>
             fresh;
     };
@@ -1731,7 +1846,7 @@ void ProfilePlotDialog::rebuildTracks()
             t.pen             = spec.pen;
             for (const TrackJob &j : jobs) {
                 if (!j.layer) continue;
-                const auto key = qMakePair(j.layer.data(), int(spec.attr));
+                const auto key = qMakePair(j.layer.data(), spec.cacheKey);
                 std::shared_ptr<const ProfileAttributeSampler::AttributeProfile>
                     prof;
                 if (const auto it = cacheSnapshot.constFind(key);
@@ -1743,8 +1858,12 @@ void ProfilePlotDialog::rebuildTracks()
                 } else {
                     prof = std::make_shared<
                         const ProfileAttributeSampler::AttributeProfile>(
-                        ProfileAttributeSampler::fetch(j.layer, pathSnapshot,
-                                                       spec.attr));
+                        spec.species.isEmpty()
+                            ? ProfileAttributeSampler::fetch(
+                                  j.layer, pathSnapshot, spec.attr)
+                            : ProfileAttributeSampler::fetchSpecies(
+                                  j.layer, pathSnapshot, spec.species,
+                                  spec.isNode));
                     res.fresh.insert(key, prof);
                 }
                 TW::SourceProfile sp;
