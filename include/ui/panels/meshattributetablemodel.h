@@ -31,6 +31,7 @@
 #ifndef OPENSWMMVIS_UI_PANELS_MESHATTRIBUTETABLEMODEL_H
 #define OPENSWMMVIS_UI_PANELS_MESHATTRIBUTETABLEMODEL_H
 
+#include "mesh/meshinfil.h"                      // mesh::InfilProvenance
 #include "selection/selectionmanager.h"
 #include "ui/panels/swmmattributetablemodel.h"   // openswmmvis::ColumnSpec
 
@@ -123,6 +124,19 @@ private:
      *  columns render "—" and refuse edits everywhere else. Always false for
      *  the Vertex / Cell kinds. */
     [[nodiscard]] bool rowIsBoundaryEdge(int row) const;
+
+    /*! True when infiltration parameter \p key carries a value for the method
+     *  resolved on cell \p row — the same per-row masking idiom
+     *  rowIsBoundaryEdge() applies to the BC columns. A parameter the row's
+     *  method does not read renders "—" and refuses edits, so a Curve Number
+     *  cell cannot be left carrying a Horton decay constant nothing reads.
+     *  Always false for the Vertex / Edge kinds. */
+    [[nodiscard]] bool cellInfilParamApplies(int row, const QByteArray &key) const;
+
+    /*! Where cell \p row's infiltration row came from. Drives the muted /
+     *  italic rendering that tells an inherited (region tag or '*' default)
+     *  value apart from a per-cell override. */
+    [[nodiscard]] mesh::InfilProvenance cellInfilProvenance(int row) const;
 
     /*! Flat slot (`tri * 3 + edgeLocal`) for an Edge row, or -1. */
     [[nodiscard]] int slotForRow(int row) const;

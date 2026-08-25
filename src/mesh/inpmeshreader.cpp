@@ -6,6 +6,7 @@
  */
 #include "mesh/inpmeshreader.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshinfil.h"
 
 #include <QChar>
 #include <QDir>
@@ -13,7 +14,6 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QPair>
-#include <QRegularExpression>
 
 #include <algorithm>
 
@@ -28,6 +28,9 @@ constexpr const char *kSecVertexNodeMap  = "[2D_VERTEX_NODE_MAP]";      // 1D<->
 constexpr const char *kSecTriangleNodeMap = "[2D_TRIANGLE_NODE_MAP]";   // node→cell coupling (Part C)
 constexpr const char *kSecBC             = "[2D_BOUNDARY_CONDITIONS]";  // §V.VD.1
 constexpr const char *kSecConveyance     = "[2D_EDGE_CONVEYANCE]";       // Engine §11A
+constexpr const char *kSecInfilOptions   = "[2D_INFILTRATION_OPTIONS]";  // GG0a
+constexpr const char *kSecInfilDefaults  = "[2D_INFILTRATION_DEFAULTS]"; // GG0a
+constexpr const char *kSecInfil          = "[2D_INFILTRATION]";          // GG0a
 
 /*! Per-row pre-mesh BC accumulator: (flat-index, value). Resolved to a
  *  sized QVector<MeshEdgeBC> after the mesh is known. */
@@ -57,21 +60,104 @@ bool readTextFile(const QString &path, QString *out, QString *err)
     return true;
 }
 
-/*! Strip an inline trailing comment ("X Y Z ; comment" → "X Y Z"). */
-QString stripComment(QString line)
-{
-    const int semi = line.indexOf(QChar(';'));
-    if (semi >= 0) line.truncate(semi);
-    return line;
-}
-
-/*! Token-split a data line. Returns empty vector for comment/blank lines. */
+/*! Token-split a data line. Returns empty vector for comment/blank lines.
+ *
+ *  Hand-rolled rather than `split(QRegularExpression("\\s+"))`: this runs once
+ *  per line, i.e. ~2.3M times on a 1.5M-triangle `.2dm`, and the regex path
+ *  allocated a fresh QStringList plus a match context every time. Splitting on
+ *  QChar::isSpace over a view of the original string is behaviourally
+ *  identical (`\s` and isSpace agree on the whitespace this format uses) and
+ *  allocates only the tokens themselves. */
 QStringList tokenize(const QString &raw)
 {
-    const QString line = stripComment(raw).trimmed();
-    if (line.isEmpty()) return {};
-    static const QRegularExpression ws(QStringLiteral(R"(\s+)"));
-    return line.split(ws, Qt::SkipEmptyParts);
+    const QStringView line = QStringView(raw).left(
+        [&raw] {
+            const qsizetype semi = raw.indexOf(QChar(';'));
+            return semi >= 0 ? semi : raw.size();
+        }());
+
+    QStringList out;
+    qsizetype i = 0;
+    const qsizetype n = line.size();
+    while (i < n) {
+        while (i < n && line[i].isSpace()) ++i;
+        if (i >= n) break;
+        const qsizetype start = i;
+        while (i < n && !line[i].isSpace()) ++i;
+        out.append(line.mid(start, i - start).toString());
+    }
+    return out;
+}
+
+/*! GG0a — parse `METHOD [P1..P5] [DEST]` starting at \p first into \p row.
+ *
+ *  Mirrors the engine's `parseInfil2DRowTail` (SectionHandlers2D.cpp):
+ *  parameter columns are POSITIONAL and in PROJECT units, `-` means unset
+ *  (left as NaN here rather than 0, so the GUI can tell "not written" from
+ *  "written as zero"), trailing unused columns may be omitted, and DEST is
+ *  the final token when it is neither numeric nor `-`. Returns an empty
+ *  string on success, an error message otherwise. */
+QString parseInfilRowTail(const QStringList &tok, int first,
+                          const char *secName, InfilRow &row)
+{
+    const QString sec = QString::fromLatin1(secName);
+    if (tok.size() <= first)
+        return QStringLiteral("%1 missing METHOD").arg(sec);
+
+    bool okm = false;
+    row.method = infilMethodFromToken(tok[first], &okm);
+    if (!okm)
+        return QStringLiteral("%1 unknown METHOD: %2").arg(sec, tok[first]);
+
+    int end = int(tok.size());
+    if (end > first + 1) {
+        const QString &last = tok[end - 1];
+        bool numeric = false;
+        (void)last.toDouble(&numeric);
+        if (!numeric && last != QLatin1String("-")) {
+            bool okd = false;
+            row.dest = infilDestFromToken(last, &okd);
+            if (!okd)
+                return QStringLiteral("%1 unknown DEST: %2").arg(sec, last);
+            --end;
+        }
+    }
+
+    for (int k = first + 1; k < end; ++k) {
+        const int idx = k - (first + 1);
+        if (idx >= kInfilMaxParams)
+            return QStringLiteral("%1 too many parameter columns (max %2)")
+                .arg(sec).arg(kInfilMaxParams);
+        if (tok[k] == QLatin1String("-")) continue;   // unset
+        bool okv = false;
+        const double v = tok[k].toDouble(&okv);
+        if (!okv)
+            return QStringLiteral("%1 invalid parameter: %2").arg(sec, tok[k]);
+        row.p[idx] = v;
+    }
+    return {};
+}
+
+/*! GG0a — `INFIL_STEP` value: `h:mm:ss`, `h:mm`, or plain seconds. Matches
+ *  the engine's `openswmm::input::parse_time_seconds`. Returns a negative
+ *  value when the token is not a duration at all. */
+double parseInfilStepSeconds(const QString &token)
+{
+    bool ok = false;
+    const double plain = token.toDouble(&ok);
+    if (ok) return plain;                     // plain number = seconds
+
+    const QStringList parts = token.split(QChar(':'));
+    if (parts.isEmpty()) return -1.0;
+    double secs = 0.0;
+    const double scale[3] = {3600.0, 60.0, 1.0};
+    for (int i = 0; i < parts.size() && i < 3; ++i) {
+        bool okp = false;
+        const double v = parts[i].toDouble(&okp);
+        if (!okp) return -1.0;
+        secs += v * scale[i];
+    }
+    return secs;
 }
 
 /*! Parse the body lines of a section into the mesh result.
@@ -154,6 +240,9 @@ QString parseSection(const QString &sectionName,
     if (sectionName.compare(QLatin1String(kSecVertexNodeMap),
                             Qt::CaseInsensitive) == 0)
     {
+        // Lazily built on the first tag-form row (see below). Stays empty for
+        // an all-index-form map, so index-form files pay nothing.
+        QHash<QString, int> tagToVertex;
         for (const QString &raw : bodyLines)
         {
             const QStringList tok = tokenize(raw);
@@ -170,9 +259,21 @@ QString parseSection(const QString &sectionName,
                 okv = false;   // numeric but not a valid index — try as tag
             if (!okv)
             {
-                v = -1;
-                for (int i = 0; i < out.vertices.size(); ++i)
-                    if (out.vertices[i].tag == tok[0]) { v = i; break; }
+                // Tag form. The old code scanned every vertex per row — and
+                // did NOT break on a miss — so a saved mesh (the writer
+                // PREFERS tag form) cost nCoupled x nVertices string compares:
+                // ~66 s at 100k coupled rows over 760k vertices, inside the
+                // worker with no progress output, i.e. indistinguishable from
+                // a hang. Build the index once, lazily, on the first tag row.
+                if (tagToVertex.isEmpty() && !out.vertices.isEmpty())
+                {
+                    tagToVertex.reserve(out.vertices.size());
+                    // First occurrence wins, matching the old forward scan.
+                    for (int i = out.vertices.size() - 1; i >= 0; --i)
+                        if (!out.vertices[i].tag.isEmpty())
+                            tagToVertex.insert(out.vertices[i].tag, i);
+                }
+                v = tagToVertex.value(tok[0], -1);
                 if (v < 0) continue;
             }
             out.vertices[v].coupledNode = tok[1];
@@ -199,6 +300,11 @@ QString parseSection(const QString &sectionName,
     if (sectionName.compare(QLatin1String(kSecTriangleNodeMap),
                             Qt::CaseInsensitive) == 0)
     {
+        // Same lazy tag index as [2D_VERTEX_NODE_MAP]. This scan is latent
+        // today (patchAttributeSections leaves triangleToNode empty, so only
+        // index-form rows get written) but fires the moment triangle coupling
+        // is emitted — over 1.5M triangles.
+        QHash<QString, int> tagToTriangle;
         for (const QString &raw : bodyLines)
         {
             const QStringList tok = tokenize(raw);
@@ -209,9 +315,15 @@ QString parseSection(const QString &sectionName,
                 okt = false;
             if (!okt)
             {
-                t = -1;
-                for (int i = 0; i < out.triangles.size(); ++i)
-                    if (out.triangles[i].tag == tok[0]) { t = i; break; }
+                if (tagToTriangle.isEmpty() && !out.triangles.isEmpty())
+                {
+                    // First triangle carrying the tag wins — same rule as the
+                    // engine parser and as the old forward scan.
+                    for (int i = out.triangles.size() - 1; i >= 0; --i)
+                        if (!out.triangles[i].tag.isEmpty())
+                            tagToTriangle.insert(out.triangles[i].tag, i);
+                }
+                t = tagToTriangle.value(tok[0], -1);
                 if (t < 0) continue;
             }
             CellCoupling cc;
@@ -228,6 +340,81 @@ QString parseSection(const QString &sectionName,
                 if (oka) cc.area = a;
             }
             out.cellCouplings.append(cc);
+        }
+        return {};
+    }
+
+    // GG0a — [2D_INFILTRATION_OPTIONS] — PARAMETER VALUE. Only INFIL_STEP is
+    // defined; anything else is ignored rather than rejected, so a file
+    // written by a newer engine still loads.
+    if (sectionName.compare(QLatin1String(kSecInfilOptions),
+                            Qt::CaseInsensitive) == 0)
+    {
+        for (const QString &raw : bodyLines)
+        {
+            const QStringList tok = tokenize(raw);
+            if (tok.size() < 2) continue;
+            if (tok[0].compare(QLatin1String("INFIL_STEP"),
+                               Qt::CaseInsensitive) != 0)
+                continue;
+            const double s = parseInfilStepSeconds(tok[1]);
+            if (s < 0.0)
+                return QStringLiteral("[2D_INFILTRATION_OPTIONS] invalid "
+                                      "INFIL_STEP (expected hh:mm:ss >= 0): %1")
+                    .arg(tok[1]);
+            out.infilOptions.infilStep = s;
+        }
+        return {};
+    }
+
+    // GG0a — [2D_INFILTRATION_DEFAULTS] — TAG METHOD [P1..P5] [DEST].
+    // `*` is the mesh-wide fallback and may appear anywhere in the section;
+    // rows are kept in file order so a save re-emits the same shape.
+    if (sectionName.compare(QLatin1String(kSecInfilDefaults),
+                            Qt::CaseInsensitive) == 0)
+    {
+        for (const QString &raw : bodyLines)
+        {
+            const QStringList tok = tokenize(raw);
+            if (tok.isEmpty()) continue;
+            if (tok.size() < 2)
+                return QStringLiteral("[2D_INFILTRATION_DEFAULTS] needs TAG "
+                                      "METHOD [P1..P5] [DEST] (got: %1)")
+                    .arg(raw.trimmed());
+            InfilDefaultRow d;
+            d.tag = tok[0];
+            const QString err =
+                parseInfilRowTail(tok, 1, kSecInfilDefaults, d.row);
+            if (!err.isEmpty()) return err;
+            out.infilDefaults.append(d);
+        }
+        return {};
+    }
+
+    // GG0a — [2D_INFILTRATION] — CELL METHOD [P1..P5] [DEST]. CELL is
+    // 1-BASED in the file and 0-based in MeshResult::infilOverrides. The
+    // upper bound is not checked here: the section may precede
+    // [2D_TRIANGLES] in the file (and, for an external mesh, live in a
+    // different file altogether), so out.triangles is not populated yet.
+    if (sectionName.compare(QLatin1String(kSecInfil), Qt::CaseInsensitive) == 0)
+    {
+        for (const QString &raw : bodyLines)
+        {
+            const QStringList tok = tokenize(raw);
+            if (tok.isEmpty()) continue;
+            if (tok.size() < 2)
+                return QStringLiteral("[2D_INFILTRATION] needs CELL METHOD "
+                                      "[P1..P5] [DEST] (got: %1)")
+                    .arg(raw.trimmed());
+            bool okc = false;
+            const int cell = tok[0].toInt(&okc);
+            if (!okc || cell < 1)
+                return QStringLiteral("[2D_INFILTRATION] invalid CELL index "
+                                      "(1-based): %1").arg(tok[0]);
+            InfilRow row;
+            const QString err = parseInfilRowTail(tok, 1, kSecInfil, row);
+            if (!err.isEmpty()) return err;
+            out.infilOverrides.insert(cell - 1, row);
         }
         return {};
     }
@@ -583,6 +770,18 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
             result.sourcePath = absMeshPath;
             result.isExternal = true;
             result.hasMesh    = true;
+
+            // GG0a — [2D_INFILTRATION*] follow the mesh, so the sidecar is
+            // authoritative: a section the .2dm carries REPLACES the .inp's
+            // (which is what the engine's load2DMeshExternalFile does, so a
+            // stale inline copy can never be counted twice), and a section
+            // the .2dm omits keeps whatever the .inp supplied.
+            if (result.mesh.infilDefaults.isEmpty())
+                result.mesh.infilDefaults = inlineMesh.infilDefaults;
+            if (result.mesh.infilOverrides.isEmpty())
+                result.mesh.infilOverrides = inlineMesh.infilOverrides;
+            if (!(result.mesh.infilOptions.infilStep > 0.0))
+                result.mesh.infilOptions = inlineMesh.infilOptions;
 
             // Resolve BCs: start Wall-defaults of size n_triangles * 3,
             // then overlay external rows first, then .inp rows (so .inp

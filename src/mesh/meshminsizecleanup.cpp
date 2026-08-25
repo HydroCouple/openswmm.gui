@@ -30,7 +30,22 @@ QString CleanupReport::summary() const
                           "%4 protected sub-scale cell(s) left; min area %5 -> %6")
         .arg(edgesCollapsed).arg(cellsRemoved).arg(passesUsed)
         .arg(skippedProtected)
-        .arg(minAreaBefore, 0, 'g', 4).arg(minAreaAfter, 0, 'g', 4);
+        .arg(minAreaBefore, 0, 'g', 4).arg(minAreaAfter, 0, 'g', 4)
+        // Appended only when aggressive mode actually did something, so the
+        // default line stays byte-identical.
+        + ((identityAbsorptions || interiorConstraintsLost || ringEdgesShortened
+            || identityConflictsSkipped || ringGuardSkipped || candidatesDropped
+            || exhaustedPasses)
+               ? QStringLiteral("; aggressive: %1 absorbed into identities, "
+                                "%2 interior constraint(s) lost, %3 ring edge(s) "
+                                "shortened, %4 identity conflict(s) skipped, "
+                                "%5 ring-guard skip(s), %6 candidate(s) dropped%7")
+                     .arg(identityAbsorptions).arg(interiorConstraintsLost)
+                     .arg(ringEdgesShortened).arg(identityConflictsSkipped)
+                     .arg(ringGuardSkipped).arg(candidatesDropped)
+                     .arg(exhaustedPasses ? QStringLiteral(", PASS BUDGET EXHAUSTED")
+                                          : QString())
+               : QString());
 }
 
 namespace {
@@ -72,6 +87,9 @@ struct Topo
     QSet<int>                   boundaryVerts;
     QSet<VKey>                  constrained; ///< edges that must survive
     QVector<bool>               protectedVert;
+    QVector<bool>               isIdentityVert; ///< tag/coupledNode only — see build()
+    QVector<int>                ringId;         ///< hull-cycle id, -1 = interior
+    QHash<int, int>             ringVertexCount;
 
     void build(const MeshResult &m)
     {
@@ -128,6 +146,49 @@ struct Topo
             const MeshVertex &v = m.vertices[i];
             if (v.marker != 0 || !v.tag.isEmpty() || !v.coupledNode.isEmpty())
                 protectedVert[i] = true;
+        }
+
+        // A GENUINE coupling identity, which is NOT the same test as
+        // protectedVert.  MeshGenerator gives every domain/hole boundary
+        // vertex the same generic kBoundaryMarker (meshgenerator.cpp:273)
+        // whether or not it couples anything, and only attaches a tag when a
+        // Steiner point really carries one (:304, :585).  Treating a bare
+        // marker as an identity would make every pair of adjacent ring
+        // vertices look like "two distinct identities" and the aggressive pass
+        // would refuse to shrink any ring at all.
+        isIdentityVert.clear();
+        isIdentityVert.resize(nv);
+        isIdentityVert.fill(false);
+        for (int i = 0; i < nv; ++i)
+        {
+            const MeshVertex &v = m.vertices[i];
+            isIdentityVert[i] = !v.tag.isEmpty() || !v.coupledNode.isEmpty();
+        }
+
+        // Ring components: union-find over HULL edges only (exactly one
+        // incident triangle), which is the same edge set boundaryVerts uses.
+        // Each domain/hole outline is one disjoint cycle, so this gives every
+        // ring vertex a ring id and a starting vertex count.
+        ringId.clear();
+        ringId.resize(nv);
+        ringId.fill(-1);
+        {
+            QVector<int> rp(nv);
+            for (int i = 0; i < nv; ++i) rp[i] = i;
+            auto rf = [&rp](int i) {
+                while (rp[i] != i) { rp[i] = rp[rp[i]]; i = rp[i]; }
+                return i;
+            };
+            for (auto it = edgeTris.constBegin(); it != edgeTris.constEnd(); ++it)
+                if (it.value().size() == 1)
+                    rp[rf(it.key().first)] = rf(it.key().second);
+            ringVertexCount.clear();
+            for (const int bv : std::as_const(boundaryVerts))
+            {
+                const int r = rf(bv);
+                ringId[bv] = r;
+                ++ringVertexCount[r];
+            }
         }
 
         // Endpoints of EVERY constrained edge, not just the marked ones.
@@ -208,11 +269,32 @@ bool collapseSubScaleCells(MeshResult *mesh, const CleanupPolicy &policy,
         // since the first collapse of a pair `touched`-blocks its neighbours,
         // the whole collapse set differed run to run.  Tie-break on the edge
         // key, which is (min,max) vertex index and therefore canonical.
+        // Relaxing the default protections multiplies how many edges qualify,
+        // so aggressive mode gets a budget.  nth_element keeps the shortest N
+        // without paying to sort the discarded tail.
+        if (policy.allowIdentityCollapse
+            && policy.maxCandidatesPerPass > 0
+            && cands.size() > policy.maxCandidatesPerPass)
+        {
+            const auto keep = cands.begin() + policy.maxCandidatesPerPass;
+            std::nth_element(cands.begin(), keep, cands.end(),
+                             [](const auto &x, const auto &y) {
+                                 if (x.first != y.first) return x.first < y.first;
+                                 return x.second < y.second;
+                             });
+            report->candidatesDropped += int(cands.size() - policy.maxCandidatesPerPass);
+            cands.resize(policy.maxCandidatesPerPass);
+        }
+
         std::sort(cands.begin(), cands.end(),
                   [](const auto &x, const auto &y) {
                       if (x.first != y.first) return x.first < y.first;
                       return x.second < y.second;
                   });
+
+        // Live per-pass ring sizes, decremented as ring collapses commit, so
+        // two collapses in one pass cannot jointly breach minRingVertices.
+        QHash<int, int> liveRingCount = topo.ringVertexCount;
 
         // Union-find over vertices: b merges into a.
         QVector<int> parent(mesh->vertices.size());
@@ -248,17 +330,54 @@ bool collapseSubScaleCells(MeshResult *mesh, const CleanupPolicy &policy,
                 }
             };
 
-            if (topo.constrained.contains(c.second))          { reject(); continue; }
-            if (topo.protectedVert[a] || topo.protectedVert[b]) { reject(); continue; }
+            const bool aggressive = policy.allowIdentityCollapse;
+            const bool aId = aggressive && topo.isIdentityVert[a];
+            const bool bId = aggressive && topo.isIdentityVert[b];
+
+            if (!aggressive)
+            {
+                if (topo.constrained.contains(c.second))            { reject(); continue; }
+                if (topo.protectedVert[a] || topo.protectedVert[b]) { reject(); continue; }
+            }
+            else
+            {
+                // Never fuse two distinct coupling identities — the same rule
+                // pslgminsize's invariant (1) enforces on the input side.
+                if (aId && bId)
+                {
+                    ++report->identityConflictsSkipped;
+                    reject();
+                    continue;
+                }
+            }
             if (touched.contains(a) || touched.contains(b))     continue;
 
             const QVector<int> &inc = topo.edgeTris[c.second];
             if (inc.size() != 1 && inc.size() != 2)            { reject(); continue; }
 
+            // Ring guard (aggressive only): shortening a ring below
+            // minRingVertices leaves a boundary that bounds no area — the
+            // mesh-side twin of the PSLG fold this feature already guards.
+            const bool ringEdge = aggressive && inc.size() == 1;
+            int ringKey = -1;
+            if (ringEdge)
+            {
+                ringKey = topo.ringId[a] >= 0 ? topo.ringId[a] : topo.ringId[b];
+                if (ringKey >= 0
+                    && liveRingCount.value(ringKey, 0) - 1 < policy.minRingVertices)
+                {
+                    ++report->ringGuardSkipped;
+                    reject();
+                    continue;
+                }
+            }
+
             // Pinch guard: both endpoints on the mesh boundary but the edge
             // itself interior would fuse two boundary curves.
             const bool aB = topo.boundaryVerts.contains(a);
             const bool bB = topo.boundaryVerts.contains(b);
+            // Unchanged in BOTH modes: fusing two boundary curves through an
+            // interior edge pinches the surface, which no opt-in should allow.
             if (aB && bB && inc.size() == 2)                   { reject(); continue; }
 
             // ── Link condition ────────────────────────────────────────
@@ -280,7 +399,14 @@ bool collapseSubScaleCells(MeshResult *mesh, const CleanupPolicy &policy,
             // ── Target position and orientation check ─────────────────
             const QPointF &pa = mesh->vertices[a].xy;
             const QPointF &pb = mesh->vertices[b].xy;
-            const QPointF target((pa.x() + pb.x()) / 2.0, (pa.y() + pb.y()) / 2.0);
+            // With exactly one identity endpoint the identity does not move at
+            // all — its position is authoritative (it is a coupling location,
+            // and a rim elevation goes with it).  Averaging would drag the
+            // coupling point off the node it represents.
+            const QPointF target =
+                  aId ? pa
+                : bId ? pb
+                : QPointF((pa.x() + pb.x()) / 2.0, (pa.y() + pb.y()) / 2.0);
 
             bool flips = false;
             for (const int end : {a, b})
@@ -306,9 +432,28 @@ bool collapseSubScaleCells(MeshResult *mesh, const CleanupPolicy &policy,
             if (flips)                                         { reject(); continue; }
 
             // ── Commit this collapse ─────────────────────────────────
-            parent[find(b)] = find(a);
-            newPos[a] = target;
-            newZ[a]   = 0.5 * (newZ[a] + newZ[b]);
+            // The identity must be the SURVIVOR, so the rebuild carries its
+            // marker/tag/coupledNode through with no separate migration step.
+            const int keep = bId ? b : a;
+            const int gone = (keep == a) ? b : a;
+
+            parent[find(gone)] = find(keep);
+            newPos[keep] = target;
+            // An identity's elevation is authoritative too — do not average it.
+            if (!(aId || bId)) newZ[keep] = 0.5 * (newZ[a] + newZ[b]);
+
+            if (aggressive)
+            {
+                if (aId || bId) ++report->identityAbsorptions;
+                if (topo.constrained.contains(c.second) && inc.size() == 2)
+                    ++report->interiorConstraintsLost;
+                if (ringEdge)
+                {
+                    ++report->ringEdgesShortened;
+                    if (ringKey >= 0) --liveRingCount[ringKey];
+                }
+            }
+
             touched.insert(a);
             touched.insert(b);
             for (const int n : std::as_const(topo.vertNbrs[a])) touched.insert(n);
@@ -372,8 +517,14 @@ bool collapseSubScaleCells(MeshResult *mesh, const CleanupPolicy &policy,
         }
 
         // ── Validate, or roll the whole pass back ─────────────────────
+        // In aggressive mode losing interior constrained edges and ring edges
+        // is the POINT — each one was counted and guarded per candidate above,
+        // so this whole-pass check would just undo the requested work.
         const bool lostConstrainedEdge =
-            out.boundaryEdges.size() != mesh->boundaryEdges.size();
+            !policy.allowIdentityCollapse
+            && out.boundaryEdges.size() != mesh->boundaryEdges.size();
+        // NEVER relaxed, in either mode: a silently dropped 1D-2D coupling is
+        // worse than any sliver.
         const bool lostCoupling =
             out.cellCouplings.size() != mesh->cellCouplings.size();
         if (!indicesValid(out) || out.triangles.isEmpty()
@@ -390,6 +541,12 @@ bool collapseSubScaleCells(MeshResult *mesh, const CleanupPolicy &policy,
         report->edgesCollapsed += collapsed;
         *mesh = std::move(out);
     }
+
+    // passesUsed is set at the top of every pass and only ever DECREMENTED by
+    // an early break ("no candidates" / "nothing collapsed").  So reaching
+    // maxPasses means the loop never ran out of work — it ran out of budget.
+    report->exhaustedPasses =
+        policy.allowIdentityCollapse && report->passesUsed >= policy.maxPasses;
 
     report->minAreaAfter = minTriangleArea(*mesh);
     return true;

@@ -524,12 +524,13 @@ QWidget *PreferencesDialog::buildRenderingPage()
 
     auto *bcIntro = new QLabel(
         tr("Default colour and width for the mesh's Boundary Conditions "
-           "sublayer, one entry per BC type. \"Colour by type\" sets whether "
-           "the sublayer starts visible. Wall edges are the interior "
-           "wireframe and use the layer's own edge width.\n\n"
-           "These are defaults for meshes opened from now on — a layer you "
-           "have already styled keeps its own settings, which are saved with "
-           "the project."),
+           "sublayer, one entry per BC type. \"Colour by type\" shows or "
+           "hides the sublayer on open meshes immediately. Wall edges are "
+           "the interior wireframe and use the layer's own edge width.\n\n"
+           "Edits here apply live to open meshes you have not styled "
+           "individually; a layer styled through its own Boundary "
+           "Conditions tab keeps those settings, which are saved with the "
+           "project."),
         bcGroup);
     bcIntro->setWordWrap(true);
     bcv->addWidget(bcIntro);

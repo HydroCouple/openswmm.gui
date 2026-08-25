@@ -30,6 +30,7 @@ private slots:
     void meshBc_identity_static_hiddenByDefault();
     void meshBc_typeVisibility_defaults_and_folding();
     void meshBc_json_roundTrip();
+    void meshBc_customized_flag();
     void meshBc_legacy_edgeJson_seeding();
     void meshBc_legend_gates_on_present_and_visible();
 
@@ -97,6 +98,41 @@ void TestMeshBcCoupledNodeSublayers::meshBc_json_roundTrip()
     // Untouched defaults survive.
     QCOMPARE(b.normalFlowColor(), a.normalFlowColor());
     QCOMPARE(b.ratingCurveWidthPx(), a.ratingCurveWidthPx());
+}
+
+void TestMeshBcCoupledNodeSublayers::meshBc_customized_flag()
+{
+    // Fresh style: not customized — live Preferences re-seeding applies.
+    MeshBcStyle a;
+    QVERIFY(!a.isCustomized());
+
+    // The flag round-trips through JSON (a saved per-layer edit stays an
+    // explicit choice across project reloads).
+    a.setCustomized(true);
+    MeshBcStyle b;
+    b.fromJson(a.toJson());
+    QVERIFY(b.isCustomized());
+
+    // An old-format JSON without the key leaves the receiver's flag alone.
+    MeshBcStyle c;
+    QJsonObject old;
+    old[QStringLiteral("stageConstColor")] =
+        QColor(1, 2, 3, 4).name(QColor::HexArgb);
+    c.fromJson(old);
+    QVERIFY(!c.isCustomized());
+
+    // Legacy MeshEdgeStyle seeding with explicit bc* keys marks customized.
+    MeshBcStyle d;
+    QJsonObject legacy;
+    legacy[QStringLiteral("bcStageConstColor")] =
+        QColor(11, 22, 33, 44).name(QColor::HexArgb);
+    d.seedFromLegacyEdgeJson(legacy);
+    QVERIFY(d.isCustomized());
+
+    // ...but a legacy object with no bc styling does not.
+    MeshBcStyle e;
+    e.seedFromLegacyEdgeJson(QJsonObject());
+    QVERIFY(!e.isCustomized());
 }
 
 void TestMeshBcCoupledNodeSublayers::meshBc_legacy_edgeJson_seeding()

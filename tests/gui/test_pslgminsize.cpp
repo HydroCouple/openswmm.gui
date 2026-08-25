@@ -847,6 +847,200 @@ private slots:
 
     /*! Cancelling mid-conditioning must leave NO partial state: the same
      *  fail-safe restore as any other abandonment. */
+    /*!
+     * A narrow ring welded under a large h folds onto itself and encloses
+     * NOTHING.  Conditioning used to commit that and Triangle then failed --
+     * the reported "check PSLG for degenerate geometry" crash.
+     *
+     * The fold must have intermediate vertices to be a real reproducer.  With
+     * only four corners the ring collapses to two representatives and the
+     * pre-existing `nv.size() < 3` test already caught it; with intermediate
+     * vertices the ring runs out and back through five or more distinct
+     * representatives, keeps its vertex count (only CONSECUTIVE duplicates are
+     * collapsed, and an out-and-back path has none), and so slips past every
+     * count-based test.  It is invisible to the crossing test too, because a
+     * fold has a zero orientation determinant.
+     */
+    void condition_narrowDomainFoldIsAbandonedNotPassedToTriangle_data()
+    {
+        QTest::addColumn<int>("nMid");
+        QTest::newRow("1 intermediate")  << 1;
+        QTest::newRow("3 intermediate")  << 3;
+        QTest::newRow("7 intermediate")  << 7;
+    }
+
+    void condition_narrowDomainFoldIsAbandonedNotPassedToTriangle()
+    {
+        QFETCH(int, nMid);
+        const double W = 100.0, H = 0.5;
+
+        QVector<QPointF> ring;
+        for (int i = 0; i <= nMid + 1; ++i) ring.append(QPointF(W * i / (nMid + 1), 0));
+        for (int i = nMid + 1; i >= 0; --i) ring.append(QPointF(W * i / (nMid + 1), H));
+        ring.append(ring.first());
+
+        Pslg g;  g.domains = {QPolygonF(ring)};
+        const Pslg before = g;
+
+        MinSizePolicy pol; pol.minCellSize = 1.0;   // weld radius 1 > height 0.5
+        pol.resolveDefaults();
+        ConditionReport rep;
+
+        QVERIFY2(!condition(&g, pol, &rep),
+                 "a domain ring that encloses no area must NOT be committed");
+        QVERIFY(rep.conditioningAbandoned);
+        QVERIFY2(!rep.abandonReason.isEmpty(),
+                 "an abandon the user cannot explain is not much better than a crash");
+
+        // Restored exactly, and the restored geometry still meshes -- the
+        // caller's contract is "log it and mesh unconditioned".
+        QVERIFY2(g == before, "every argument must be restored on abandon");
+        QString err;
+        QVERIFY2(meshable(g, &err), qPrintable(err));
+    }
+
+    /*! A hole that folds is dropped, not escalated -- losing one building is a
+     *  modelling change worth reporting; losing the whole conditioning pass
+     *  over it is not. */
+    void condition_foldedHoleRingIsDroppedNotAbandoned()
+    {
+        Pslg g;
+        g.domains = {square(-10, -10, 220)};
+        QVector<QPointF> hole;
+        const double x0 = 20, y0 = 20, W = 40.0, H = 0.4;
+        for (int i = 0; i <= 4; ++i) hole.append(QPointF(x0 + W * i / 4.0, y0));
+        for (int i = 4; i >= 0; --i) hole.append(QPointF(x0 + W * i / 4.0, y0 + H));
+        g.holes = {hole};
+
+        MinSizePolicy pol; pol.minCellSize = 1.0;
+        pol.dropSubScaleHoles = false;      // isolate the weld-time path
+        pol.resolveDefaults();
+        ConditionReport rep;
+
+        VERIFY_CONDITIONED(&g, pol, &rep);
+        QVERIFY(!rep.conditioningAbandoned);
+        // A dropped ring is EMPTIED, not erased: holeRings stays index-parallel
+        // with the caller's seed/validity arrays (pslgminsize.cpp:1036).
+        QCOMPARE(g.holes.size(), 1);
+        QVERIFY2(g.holes.first().isEmpty(), "the folded ring must be emptied");
+        QVERIFY(rep.holesDropped >= 1);
+        QString err;
+        QVERIFY2(meshable(g, &err), qPrintable(err));
+    }
+
+    /*!
+     * The discrimination that makes the guard usable: a legitimately THIN ring
+     * still encloses area and must survive untouched.  Scaling the tolerance
+     * to the ring's own extent is what separates the two -- a 100 x 0.05 ring
+     * has area 5, eleven orders above the floor, while a fold is exactly 0.
+     */
+    void condition_thinButRealRingIsNotMistakenForAFold()
+    {
+        Pslg g;
+        QVector<QPointF> ring;
+        const double W = 100.0, H = 0.05;
+        for (int i = 0; i <= 8; ++i) ring.append(QPointF(W * i / 8.0, 0));
+        for (int i = 8; i >= 0; --i) ring.append(QPointF(W * i / 8.0, H));
+        ring.append(ring.first());
+        g.domains = {QPolygonF(ring)};
+
+        // h far below the ring's thickness, so nothing welds across it.
+        MinSizePolicy pol; pol.minCellSize = 0.005; pol.resolveDefaults();
+        ConditionReport rep;
+
+        VERIFY_CONDITIONED(&g, pol, &rep);
+        QVERIFY(!rep.conditioningAbandoned);
+        QVERIFY(!g.domains.isEmpty());
+        const QVector<QPointF> out(g.domains.first().toVector());
+        QVERIFY2(std::abs(mesh::pslg::ringSignedArea(out)) > 1.0,
+                 "a thin but real ring must keep its area");
+    }
+
+    // ── Opt-in: identity merging ────────────────────────────────────────
+    // Invariant (1) says two coupling identities never merge into one another.
+    // That is correct by default and is also why the feature barely fires on a
+    // real model: nearly every crowded vertex IS an identity. These pin both
+    // sides of the opt-in that relaxes it.
+
+    /*! Two SWMM nodes 0.4 apart, h = 4 — far inside the weld radius. */
+    static Pslg twoCrowdedNodes(double gap = 0.4)
+    {
+        Pslg g;
+        g.domains = {square(-10, -10, 220)};
+        g.pts = {{QPointF(100, 100), 1, QStringLiteral("J1"), 0.0, false},
+                 {QPointF(100 + gap, 100), 2, QStringLiteral("J2"), 0.0, false}};
+        g.segs = {{{{100, 100}, {170, 100}}, 3, QStringLiteral("C1")},
+                  {{{100 + gap, 100}, {170, 160}}, 4, QStringLiteral("C2")}};
+        return g;
+    }
+
+    /*! Regression pin: the DEFAULT must be exactly what it always was. */
+    void condition_identityMergeIsOffByDefault()
+    {
+        Pslg g = twoCrowdedNodes();
+        MinSizePolicy pol; pol.minCellSize = 4.0; pol.resolveDefaults();
+        QVERIFY2(!pol.allowIdentityMerge, "the opt-in must default to off");
+
+        ConditionReport rep;
+        VERIFY_CONDITIONED(&g, pol, &rep);
+        QCOMPARE(rep.identitiesMerged, 0);
+
+        // Both node positions survive untouched — that is the invariant.
+        QCOMPARE(g.pts.size(), 2);
+        QCOMPARE(g.pts[0].xy, QPointF(100, 100));
+        QCOMPARE(g.pts[1].xy, QPointF(100.4, 100));
+        QVERIFY(!rep.summary().contains(QStringLiteral("identities merged")));
+    }
+
+    void condition_identityMergeOptInMergesAndReportsBothTags()
+    {
+        Pslg g = twoCrowdedNodes();
+        MinSizePolicy pol;
+        pol.minCellSize = 4.0;
+        pol.allowIdentityMerge = true;
+        pol.resolveDefaults();
+
+        ConditionReport rep;
+        VERIFY_CONDITIONED(&g, pol, &rep);
+        QVERIFY2(rep.identitiesMerged >= 1,
+                 "the whole point of the opt-in is that the merge now happens");
+
+        // The merge must be reported by NAME, not as an anonymous count: a
+        // silently relocated coupling point is exactly what a reviewer needs
+        // to be able to find.
+        bool named = false;
+        for (const Violation &v : rep.residuals)
+            if (v.cause == ViolationCause::IdentityMerged
+                && !v.tagA.isEmpty() && !v.tagB.isEmpty() && v.tagA != v.tagB)
+                named = true;
+        QVERIFY2(named, "every merge must name both identities");
+        QVERIFY(rep.summary().contains(QStringLiteral("identities merged")));
+
+        QString err;
+        QVERIFY2(meshable(g, &err), qPrintable(err));
+    }
+
+    /*! identityMergeRadius is a SEPARATE, tighter leash than weldRadius:
+     *  merging plain geometry at h is fine while merging coupling points at h
+     *  may not be. */
+    void condition_identityMergeRespectsItsOwnRadius()
+    {
+        Pslg g = twoCrowdedNodes(2.0);          // 2.0 apart
+        MinSizePolicy pol;
+        pol.minCellSize = 4.0;                  // weld radius 4 -> would merge
+        pol.allowIdentityMerge = true;
+        pol.identityMergeRadius = 0.5;          // ...but this forbids it
+        pol.resolveDefaults();
+        QCOMPARE(pol.identityMergeRadius, 0.5); // resolveDefaults must not stomp it
+
+        ConditionReport rep;
+        VERIFY_CONDITIONED(&g, pol, &rep);
+        QCOMPARE(rep.identitiesMerged, 0);
+        QCOMPARE(g.pts.size(), 2);
+        QCOMPARE(g.pts[0].xy, QPointF(100, 100));
+        QCOMPARE(g.pts[1].xy, QPointF(102, 100));
+    }
+
     void condition_cancellationLeavesNoPartialState()
     {
         Pslg base;

@@ -6,6 +6,7 @@
  */
 #include "ui/dialogs/meshgenerationdialog.h"
 #include "ui/theme/themehelpers.h"
+#include "ui/widgets/meshregiondefaultswidget.h"
 
 #include "ui/uiscrollhelpers.h"
 
@@ -2263,11 +2264,29 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // the toolbar / properties panel read and what a later save patches, so
     // leaving them unset (NaN) makes a generated mesh report defaults it never
     // agreed to and drops the file's values on the next attribute rewrite.
+    // GG0d — a region row that was given its own roughness / depth overrides
+    // the '*' values on that region's cells. regionHydraulics is empty unless
+    // the user edited one, in which case this loop is exactly the loop it has
+    // always been.
     for (mesh::MeshTriangle &t : result.triangles)
     {
         t.mannings  = in.manningsN;
         t.initDepth = in.initDepth;
+
+        if (in.regionHydraulics.isEmpty() || t.tag.isEmpty()) continue;
+        const auto rh = in.regionHydraulics.constFind(t.tag);
+        if (rh == in.regionHydraulics.constEnd()) continue;
+        t.mannings  = rh->manningsN;
+        t.initDepth = rh->initDepth;
     }
+
+    // ── Region infiltration defaults (GG0d, GUI plan §3.3) ───────────
+    // Copied across as ROWS, not stamped per cell: engine decision D-I3 has
+    // the engine resolve `override > tag row > '*' row > none` itself, and
+    // materialising a per-cell row for every triangle here would flatten that
+    // inheritance and freeze the assignment. result.infilOverrides stays
+    // untouched — mesh generation authors no per-cell infiltration at all.
+    result.infilDefaults = in.infilDefaults;
 
     // ── Write ────────────────────────────────────────────────────────
     progress(85, QObject::tr("Writing mesh file…"));
@@ -2985,8 +3004,9 @@ void MeshGenerationDialog::buildUi()
 
     {
         auto *g   = new QGroupBox(tr("Initial cell values"), hydraulicsPage);
-        g->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
-        auto *form = new QFormLayout(g);
+        auto *groupVBox = new QVBoxLayout(g);
+        auto *form = new QFormLayout;
+        groupVBox->addLayout(form);
 
         m_manningsValueSpin = new QDoubleSpinBox(g);
         m_manningsValueSpin->setRange(0.001, 1.0);
@@ -3010,6 +3030,29 @@ void MeshGenerationDialog::buildUi()
                "([2D_TRIANGLES] INIT_DEPTH). 0 starts the surface dry."));
         form->addRow(tr("Initial depth:"), m_initDepthSpin);
 
+        // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────
+        // The two spin boxes above remain the '*' row's editors — the table
+        // mirrors them read-only — so a user who never touches the table
+        // produces exactly the mesh and the file this dialog produced before
+        // the table existed.
+        m_regionDefaults = new MeshRegionDefaultsWidget(g);
+        m_regionDefaults->setDepthUnit(dLbl);
+        m_regionDefaults->setStarHydraulics(m_manningsValueSpin->value(),
+                                            m_initDepthSpin->value());
+        connect(m_manningsValueSpin, &QDoubleSpinBox::valueChanged, this,
+                [this](double v) {
+                    m_regionDefaults->setStarHydraulics(v, m_initDepthSpin->value());
+                });
+        connect(m_initDepthSpin, &QDoubleSpinBox::valueChanged, this,
+                [this](double v) {
+                    m_regionDefaults->setStarHydraulics(m_manningsValueSpin->value(), v);
+                });
+        // Subcatchments are the only source of mesh::RegionMarker today, so
+        // that one checkbox decides whether the table has region rows at all.
+        connect(m_includeSubcatch, &QCheckBox::toggled,
+                this, &MeshGenerationDialog::refreshRegionRows);
+        groupVBox->addWidget(m_regionDefaults, 1);
+
         auto *hint = new QLabel(
             tr("Assign spatially varying values after generation from the "
                "Mesh 2D tab: select cells and edit them directly, or use "
@@ -3017,12 +3060,11 @@ void MeshGenerationDialog::buildUi()
             g);
         hint->setWordWrap(true);
         hint->setEnabled(false);
-        form->addRow(hint);
+        groupVBox->addWidget(hint);
 
-        hydraulicsVBox->addWidget(g);
+        hydraulicsVBox->addWidget(g, 1);
     }
 
-    hydraulicsVBox->addStretch();
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(hydraulicsPage, tabs),
                  tr("Hydraulics"));
 
@@ -3245,6 +3287,7 @@ void MeshGenerationDialog::seedDefaults()
     updateUnitDisplay();   // set suffixes and tooltip after values are seeded
     populateLayerCombos();
     updateZFactor();       // seed factor from current DTM + mesh vertical unit
+    refreshRegionRows();   // GG0d — region rows follow m_includeSubcatch
 
     if (m_pw && m_pw->modelLayer())
     {
@@ -3263,6 +3306,40 @@ void MeshGenerationDialog::seedDefaults()
                 fi.absoluteDir().filePath(fi.completeBaseName() + QStringLiteral(".2dm")));
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// GG0d — region tags for the region-defaults table (GUI plan §3.3)
+// ---------------------------------------------------------------------------
+
+/*! Same enumeration collectInputs() runs for PipelineInputs::subcatchSeeds,
+ *  carrying the "subcatch_%1" spelling the worker gives mesh::RegionMarker::tag
+ *  (and therefore MeshTriangle::tag). The table has to key on the FINAL tag or
+ *  its rows would never match a triangle. */
+QStringList MeshGenerationDialog::regionTags() const
+{
+    QStringList tags;
+    if (!m_includeSubcatch || !m_includeSubcatch->isChecked()) return tags;
+    if (!m_pw || !m_pw->modelLayer())                          return tags;
+
+    SWMMModelLayer *layer = m_pw->modelLayer();
+    const auto      cat   = SWMMModelLayer::CatSubcatchments;
+    for (int row = 0; row < layer->categoryCount(cat); ++row)
+    {
+        const QString name = layer->objectNameAt(cat, row);
+        if (name.isEmpty()) continue;
+        // A subcatchment with no extent gets no region marker, so it would
+        // never tag a triangle — leaving it out keeps the table honest.
+        if (!layer->objectExtent(name).isValid()) continue;
+        tags << QStringLiteral("subcatch_%1").arg(name);
+    }
+    return tags;
+}
+
+void MeshGenerationDialog::refreshRegionRows()
+{
+    if (m_regionDefaults)
+        m_regionDefaults->setRegionTags(regionTags());
 }
 
 void MeshGenerationDialog::populateLayerCombos()
@@ -3903,6 +3980,37 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->meshOutputPath = m_meshPathEdit->text().trimmed();
     out->manningsN      = m_manningsValueSpin->value();
     out->initDepth      = m_initDepthSpin->value();
+
+    // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────────
+    // Read on the GUI thread and copied BY VALUE — the worker never touches
+    // the widget. Both containers stay empty for a dialog whose table was
+    // never edited, so the pipeline below behaves exactly as it did before
+    // the table existed.
+    if (m_regionDefaults)
+    {
+        QString regionErr;
+        if (!m_regionDefaults->validate(&regionErr))
+            return fail(regionErr);
+
+        out->infilDefaults = m_regionDefaults->infilDefaults();
+
+        const auto rows = m_regionDefaults->rows();
+        for (const auto &r : rows)
+        {
+            // Row 0 is '*', whose values are already in manningsN/initDepth
+            // above; a region row with both cells blank is still inheriting
+            // and must not be materialised.
+            if (r.tag == QLatin1String("*")) continue;
+            const bool hasN = !std::isnan(r.manningsN);
+            const bool hasD = !std::isnan(r.initDepth);
+            if (!hasN && !hasD) continue;
+
+            PipelineInputs::RegionHydraulics rh;
+            rh.manningsN = hasN ? r.manningsN : out->manningsN;
+            rh.initDepth = hasD ? r.initDepth : out->initDepth;
+            out->regionHydraulics.insert(r.tag, rh);
+        }
+    }
 
     // ── Vertical Z conversion factor ─────────────────────────────────
     out->zConversionFactor = m_zFactorSpin ? m_zFactorSpin->value() : 1.0;
