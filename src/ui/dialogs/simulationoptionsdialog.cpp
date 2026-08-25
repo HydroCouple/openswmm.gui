@@ -6,6 +6,7 @@
  */
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/wateragesourcesdialog.h"
+#include "ui/dialogs/initialqualitydialog.h"
 #include "ui/theme/themehelpers.h"
 
 #include "ui/uiscrollhelpers.h"
@@ -1265,6 +1266,20 @@ QWidget *SimulationOptionsDialog::buildQualityTransportTab()
         dlg.exec();   // writes straight to the engine; OK/Cancel is its own
     });
     resLay->addWidget(ageSrcBtn);
+
+    // G-A1: the per-element Initial Quality editor, reachable from the
+    // page that configures the quality run it seeds.
+    auto *initQualBtn = new QPushButton(tr("Edit Initial Quality..."),
+                                        resGroup);
+    initQualBtn->setObjectName(QStringLiteral("qt_editInitialQualityBtn"));
+    initQualBtn->setToolTip(
+        tr("Per-node and per-link initial concentrations "
+           "(INITIAL_QUALITY), overriding the global Cinit."));
+    connect(initQualBtn, &QPushButton::clicked, this, [this]() {
+        OpenSWMMVis::InitialQualityDialog dlg(m_engine, this);
+        dlg.exec();   // writes straight to the engine; OK/Cancel is its own
+    });
+    resLay->addWidget(initQualBtn);
     vlay->addWidget(resGroup);
 
     vlay->addStretch();

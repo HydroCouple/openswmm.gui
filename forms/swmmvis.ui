@@ -679,6 +679,7 @@
     <addaction name="separator"/>
     <addaction name="actionOptions"/>
     <addaction name="actionEditWaterAgeSources"/>
+    <addaction name="actionEditInitialQuality"/>
     <addaction name="actionUserFlags"/>
     <addaction name="separator"/>
     <addaction name="actionGenerateMesh"/>
@@ -1396,6 +1397,17 @@
    </property>
    <property name="toolTip">
     <string>Initial age of water entering by each source pathway (WATER_AGE_SOURCES)</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionEditInitialQuality">
+   <property name="text">
+    <string>Initial Quality...</string>
+   </property>
+   <property name="toolTip">
+    <string>Per-node and per-link initial concentrations (INITIAL_QUALITY)</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>
