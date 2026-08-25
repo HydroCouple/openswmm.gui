@@ -271,6 +271,20 @@ void SimulationRunner::start()
                 // ===== REFACTORED ENGINE PATH =====
             SWMM_Engine eng = swmm_engine_create();
 
+            // Specific failure text. The engine records the actual cause
+            // ("ERROR 209: ...", "USE HOTSTART: ...") retrievable via
+            // swmm_get_last_error_msg; swmm_error_message(code) is only the
+            // generic category ("Input file parse error") — same reason the
+            // end-of-run capture below reads the engine message first. Must
+            // be read BEFORE close/destroy.
+            auto engineFailureText = [](SWMM_Engine e, int code) -> QString {
+                QString msg =
+                    QString::fromUtf8(swmm_get_last_error_msg(e)).trimmed();
+                if (msg.isEmpty())
+                    msg = QString::fromUtf8(swmm_error_message(code));
+                return msg;
+            };
+
             // Open
             int rc = swmm_engine_open(eng,
                                       inp.constData(),
@@ -278,7 +292,16 @@ void SimulationRunner::start()
                                       out.constData(),
                                       nullptr);
             if (rc != SWMM_OK) {
-                const QString msg = QString::fromUtf8(swmm_error_message(rc));
+                QString msg = engineFailureText(eng, rc);
+                // A failed parse usually records several errors — surface
+                // them all in the log, not just the first.
+                const int nErr = swmm_get_error_count(eng);
+                for (int i = 0; i < nErr; ++i) {
+                    const QString e =
+                        QString::fromUtf8(swmm_get_error_at(eng, i)).trimmed();
+                    if (!e.isEmpty() && e != msg)
+                        msg += QLatin1Char('\n') + e;
+                }
                 swmm_engine_destroy(eng);
                 return {false, rc, msg, 0.0, 0.0};
             }
@@ -286,7 +309,7 @@ void SimulationRunner::start()
             // Initialize
             rc = swmm_engine_initialize(eng);
             if (rc != SWMM_OK) {
-                const QString msg = QString::fromUtf8(swmm_error_message(rc));
+                const QString msg = engineFailureText(eng, rc);
                 swmm_engine_close(eng);
                 swmm_engine_destroy(eng);
                 return {false, rc, msg, 0.0, 0.0};
@@ -369,7 +392,7 @@ void SimulationRunner::start()
             // Start
             rc = swmm_engine_start(eng, 1 /* save_results */);
             if (rc != SWMM_OK) {
-                const QString msg = QString::fromUtf8(swmm_error_message(rc));
+                const QString msg = engineFailureText(eng, rc);
                 swmm_engine_close(eng);
                 swmm_engine_destroy(eng);
                 return {false, rc, msg, 0.0, 0.0};
