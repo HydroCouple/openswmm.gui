@@ -408,6 +408,9 @@ private slots:
     /*! \brief Open the per-element Initial Quality editor (G-A1). */
     void onEditInitialQuality();
 
+    /*! \brief Open the Reaction System editor (G-B3). */
+    void onEditReactionSystem();
+
     // ── Toolbar quick-wins (Phase 2) ────────────────────────────────────────
     /*! \brief Show + focus the Object Browser search box. */
     void onSearch();

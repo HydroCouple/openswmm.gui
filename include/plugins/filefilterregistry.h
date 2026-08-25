@@ -49,7 +49,8 @@ enum class FilterKind {
     VectorRead,       ///< GIS vector layer (Shapefile, GeoJSON, GeoPackage, …). GUI-only.
     RasterRead,       ///< GIS raster layer (GeoTIFF, ASCII grid, NetCDF, …). GUI-only.
     TabularRead,      ///< Observed / tabular data (`*.csv`, `*.tsv`, …). GUI-only.
-    MapExportWrite    ///< Map export (`*.png`, `*.svg`, `*.dxf`, `*.emf`, …). GUI-only.
+    MapExportWrite,   ///< Map export (`*.png`, `*.svg`, `*.dxf`, `*.emf`, …). GUI-only.
+    ComponentConfigRead ///< Process-component config sidecars (`*.rxn`, `*.ard`, `*.lard`, `*.heat`, `*.age`, `*.i2d`). GUI-only (G-D1).
 };
 
 /**
