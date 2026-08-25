@@ -476,6 +476,8 @@ set(
         include/ui/dialogs/climatologydialog.h
         include/ui/dialogs/wateragesourcesdialog.h
         include/ui/dialogs/initialqualitydialog.h
+        include/ui/dialogs/reactionsystemeditordialog.h
+        include/ui/widgets/reactionexpressionedit.h
 
         # ── Transect (Slice BQ Phase 6.7.4) ──────────────────────────────────
         include/transect/transectprovider.h
@@ -1121,6 +1123,8 @@ set(
         src/ui/dialogs/climatologydialog.cpp
         src/ui/dialogs/wateragesourcesdialog.cpp
         src/ui/dialogs/initialqualitydialog.cpp
+        src/ui/dialogs/reactionsystemeditordialog.cpp
+        src/ui/widgets/reactionexpressionedit.cpp
 
         # ── Transect (Slice BQ Phase 6.7.4) ──────────────────────────────────
         src/transect/transectprovider.cpp

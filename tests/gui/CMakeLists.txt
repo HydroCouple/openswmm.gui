@@ -1449,6 +1449,17 @@ add_swmmvis_gui_test(test_initialqualitydialog
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/initialqualitydialog.cpp
 )
 
+# G-B2/G-C1 — the Reaction System editor (structured tabs + raw text tab),
+# driven against a synthetic BUILDING engine through the swmm_reaction_* /
+# swmm_process_component_* ABI.
+add_swmmvis_gui_test(test_reactionsystemeditor
+    test_reactionsystemeditor.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/reactionsystemeditordialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/reactionsystemeditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/reactionexpressionedit.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/reactionexpressionedit.cpp
+)
+
 # Pins the [2D_OPTIONS] VFR-closure ABI (CELL_CLOSURE / FACE_RECONSTRUCTION /
 # VFR_MIN_WET_FRAC) that SimulationOptionsDialog's new closure controls persist
 # through swmm_options_*_ext + swmm_model_write. Engine-ABI only (no dialog).

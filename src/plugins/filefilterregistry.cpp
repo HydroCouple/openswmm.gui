@@ -98,6 +98,21 @@ void FileFilterRegistry::registerBuiltinFilters()
                      FilterKind::MapExportWrite, {}, false, true, true});
     entries_.append({tr("EPA SWMM Map"), {QStringLiteral("*.map")},
                      FilterKind::MapExportWrite, {}, false, true, true});
+
+    // Process-component config sidecars (G-D1; GUI plan §4.1).
+    entries_.append({tr("Reaction System Config"), {QStringLiteral("*.rxn")},
+                     FilterKind::ComponentConfigRead, {}, true, false, true});
+    entries_.append({tr("ARD Transport Config"), {QStringLiteral("*.ard")},
+                     FilterKind::ComponentConfigRead, {}, true, false, true});
+    entries_.append({tr("Lagrangian Transport Config"),
+                     {QStringLiteral("*.lard")},
+                     FilterKind::ComponentConfigRead, {}, true, false, true});
+    entries_.append({tr("Heat Transport Config"), {QStringLiteral("*.heat")},
+                     FilterKind::ComponentConfigRead, {}, true, false, true});
+    entries_.append({tr("Water Age Config"), {QStringLiteral("*.age")},
+                     FilterKind::ComponentConfigRead, {}, true, false, true});
+    entries_.append({tr("Integrated 2D Config"), {QStringLiteral("*.i2d")},
+                     FilterKind::ComponentConfigRead, {}, true, false, true});
 }
 
 void FileFilterRegistry::registerEngineFilters()
@@ -265,6 +280,8 @@ const char *FileFilterRegistry::kindLabel(FilterKind kind) noexcept
         case FilterKind::RasterRead:     return "Raster (read)";
         case FilterKind::TabularRead:    return "Tabular (read)";
         case FilterKind::MapExportWrite: return "Map Export (write)";
+        case FilterKind::ComponentConfigRead:
+            return "Component Config (read)";
     }
     return "Unknown";
 }

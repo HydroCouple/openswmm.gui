@@ -126,6 +126,7 @@
 #include "ui/dialogs/climatologydialog.h"
 #include "ui/dialogs/wateragesourcesdialog.h"
 #include "ui/dialogs/initialqualitydialog.h"
+#include "ui/dialogs/reactionsystemeditordialog.h"
 #include "ui/dialogs/statisticsdashboarddialog.h"
 #include "ui/dialogs/userflagsdialog.h"
 #include "layers/tabulardatalayer.h"
@@ -3889,6 +3890,11 @@ void SWMMVis::initializeMenus()
         connect(ui->actionEditInitialQuality, &QAction::triggered,
                 this, &SWMMVis::onEditInitialQuality);
 
+    // Reaction System editor (G-B3) — species, kinetics, the .rxn file.
+    if (ui->actionEditReactionSystem)
+        connect(ui->actionEditReactionSystem, &QAction::triggered,
+                this, &SWMMVis::onEditReactionSystem);
+
     // Toolbar quick-wins (Phase 2).
     if (ui->actionSearch)
         connect(ui->actionSearch, &QAction::triggered, this, &SWMMVis::onSearch);
@@ -6809,6 +6815,24 @@ void SWMMVis::onEditInitialQuality()
 
     OpenSWMMVis::InitialQualityDialog dlg(pw->modelLayer()->engine(), this);
     if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
+        pw->setHasChanges(true);
+}
+
+void SWMMVis::onEditReactionSystem()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
+    {
+        onLogMessage(tr("Open a SWMM project first to edit the reaction "
+                        "system."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+
+    OpenSWMMVis::ReactionSystemEditorDialog dlg(pw->modelLayer()->engine(),
+                                                this);
+    dlg.exec();
+    if (dlg.wroteAnyChanges())
         pw->setHasChanges(true);
 }
 
