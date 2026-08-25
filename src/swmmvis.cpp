@@ -125,6 +125,7 @@
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/climatologydialog.h"
 #include "ui/dialogs/wateragesourcesdialog.h"
+#include "ui/dialogs/initialqualitydialog.h"
 #include "ui/dialogs/statisticsdashboarddialog.h"
 #include "ui/dialogs/userflagsdialog.h"
 #include "layers/tabulardatalayer.h"
@@ -3895,6 +3896,11 @@ void SWMMVis::initializeMenus()
         connect(ui->actionEditWaterAgeSources, &QAction::triggered,
                 this, &SWMMVis::onEditWaterAgeSources);
 
+    // Initial Quality editor (G-A1) — per-element initial concentrations.
+    if (ui->actionEditInitialQuality)
+        connect(ui->actionEditInitialQuality, &QAction::triggered,
+                this, &SWMMVis::onEditInitialQuality);
+
     // Toolbar quick-wins (Phase 2).
     if (ui->actionSearch)
         connect(ui->actionSearch, &QAction::triggered, this, &SWMMVis::onSearch);
@@ -6799,6 +6805,21 @@ void SWMMVis::onEditWaterAgeSources()
     }
 
     OpenSWMMVis::WaterAgeSourcesDialog dlg(pw->modelLayer()->engine(), this);
+    if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
+        pw->setHasChanges(true);
+}
+
+void SWMMVis::onEditInitialQuality()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
+    {
+        onLogMessage(tr("Open a SWMM project first to edit initial quality."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+
+    OpenSWMMVis::InitialQualityDialog dlg(pw->modelLayer()->engine(), this);
     if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
         pw->setHasChanges(true);
 }
