@@ -19,6 +19,21 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Water quality and transport reach the GUI.** Simulation Options gains a
+  **Quality & Transport** page exposing the quality solver choice (legacy,
+  Eulerian ARD, Lagrangian) and the transport keys — water age, quality
+  substepping, dispersion — that the engine grew alongside it. Species become
+  first-class result attributes: themeable on the map like any built-in
+  quantity, and present in every plotting surface (the variable pickers, the
+  time-series charts, the comparison plots), with a saved species selection
+  that warns and degrades gracefully when the run it reloads against no
+  longer carries that species. Water age gets its editors: a **Water Age
+  Sources** dialog for the initial state and boundary ages, reachable from
+  the model menus, and an age constituent in the node inflow editor —
+  hours-labelled, with the MASS units choice gated off and a CONCEN fallback,
+  since an age inflow is a concentration statement. (`ebf28ae`, `dcc20e6`,
+  `f5e0d9b`, `bc4e07c`, `dae4bad`, `7a5f732`, `9e63357`, `94ff3b5`.)
+
 - **Minimum cell size for mesh generation.** Constraining lines and polylines
   force Triangle to emit cells at whatever scale the input geometry contains —
   GIS vertices centimetres apart, two alignments passing within a hair, conduits
