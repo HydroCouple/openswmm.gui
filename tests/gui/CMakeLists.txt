@@ -1430,6 +1430,16 @@ add_swmmvis_gui_test(test_wateragesourcesdialog
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/wateragesourcesdialog.cpp
 )
 
+# G-A1 — the per-element Initial Quality editor. Same dependency-light
+# contract as the water-age dialog above: Qt Widgets + the
+# swmm_init_quality_* engine ABI, driven against a synthetic BUILDING
+# engine, so the dialog's wiring has an automated observer.
+add_swmmvis_gui_test(test_initialqualitydialog
+    test_initialqualitydialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/initialqualitydialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/initialqualitydialog.cpp
+)
+
 # Pins the [2D_OPTIONS] VFR-closure ABI (CELL_CLOSURE / FACE_RECONSTRUCTION /
 # VFR_MIN_WET_FRAC) that SimulationOptionsDialog's new closure controls persist
 # through swmm_options_*_ext + swmm_model_write. Engine-ABI only (no dialog).

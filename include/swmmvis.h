@@ -405,6 +405,9 @@ private slots:
     /*! \brief Open the Water Age Sources editor (Y3b — subplan G3g wiring). */
     void onEditWaterAgeSources();
 
+    /*! \brief Open the per-element Initial Quality editor (G-A1). */
+    void onEditInitialQuality();
+
     // ── Toolbar quick-wins (Phase 2) ────────────────────────────────────────
     /*! \brief Show + focus the Object Browser search box. */
     void onSearch();
