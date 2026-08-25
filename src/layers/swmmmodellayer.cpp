@@ -23,6 +23,7 @@
 #include "ui/models/userflagsmodel.h"
 #include "transect/transectprovider.h"
 #include "timeseries/timeseriesprovider.h"
+#include "core/crsreproject.h"
 #include "core/editgeometry.h"
 #include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
@@ -3982,7 +3983,9 @@ void SWMMModelLayer::populateScene(QGraphicsScene *scene,
                                     const MapExtent &canvasExtent,
                                     const SpatialReferenceSystem * /*canvasSRS*/)
 {
-    qDebug().noquote() << QStringLiteral("[populateScene] visible=%1 nodes=%2 links=%3 catch=%4 gages=%5 needsRebuild=%6 show(N/L/S/G)=%7/%8/%9/%10 hidden=%11")
+    // Gated: this builds an 11-argument QString BEFORE the isVisible()
+    // early-out below, so it ran in full on every populate of every model.
+    qCDebug(lcLoadModel).noquote() << QStringLiteral("[populateScene] visible=%1 nodes=%2 links=%3 catch=%4 gages=%5 needsRebuild=%6 show(N/L/S/G)=%7/%8/%9/%10 hidden=%11")
                               .arg(isVisible() ? "yes" : "no")
                               .arg(m_nodes.size()).arg(m_links.size())
                               .arg(m_catchments.size()).arg(m_gages.size())
@@ -7114,21 +7117,34 @@ void SWMMModelLayer::rebuildSceneCoords()
     // scene Y-flip up front, so SWMMLayerItem::paint can hand the cached
     // QPointF straight to QPainter without per-frame math. This is the
     // hot path on big-model paints (121k links × N vertices each).
-    auto applyTransform = [this](double &x, double &y) {
-        if (m_transform) m_transform->Transform(1, &x, &y);
+    // Batched reprojection: gather into flat arrays, one OGR call per 64k
+    // points (CRSReproject::transformPointsInPlace), scatter back with the
+    // scene Y-flip. The old code called Transform(1, &x, &y) PER POINT — about
+    // 1.5M individual PROJ calls on a 100k-node / 280k-link model, which was
+    // the bulk of the geometry-cache stage. Failure semantics are preserved by
+    // the helper (an unprojectable point keeps its input value).
+    auto projectAll = [this](std::vector<double> &xs, std::vector<double> &ys) {
+        CRSReproject::transformPointsInPlace(m_transform, xs.data(), ys.data(),
+                                             int(xs.size()));
     };
-    auto toScenePt = [&](double mx, double my) {
-        applyTransform(mx, my);
-        return QPointF(mx, -my);  // matches toScene() in swmmlayeritem.cpp
-    };
+
+    std::vector<double> bx, by;   // reused scratch across all four passes
 
     m_nodeScenePts.resize(m_nodes.size());
+    bx.resize(m_nodes.size());
+    by.resize(m_nodes.size());
+    for (int i = 0; i < m_nodes.size(); ++i) { bx[i] = m_nodes[i].x; by[i] = m_nodes[i].y; }
+    projectAll(bx, by);
     for (int i = 0; i < m_nodes.size(); ++i)
-        m_nodeScenePts[i] = toScenePt(m_nodes[i].x, m_nodes[i].y);
+        m_nodeScenePts[i] = QPointF(bx[i], -by[i]);   // matches toScene() in swmmlayeritem.cpp
 
     m_gageScenePts.resize(m_gages.size());
+    bx.resize(m_gages.size());
+    by.resize(m_gages.size());
+    for (int i = 0; i < m_gages.size(); ++i) { bx[i] = m_gages[i].x; by[i] = m_gages[i].y; }
+    projectAll(bx, by);
     for (int i = 0; i < m_gages.size(); ++i)
-        m_gageScenePts[i] = toScenePt(m_gages[i].x, m_gages[i].y);
+        m_gageScenePts[i] = QPointF(bx[i], -by[i]);
 
     // Pack every link's vertices into one big float buffer. Pre-pass to
     // compute total vertex count + offsets so a single resize covers
@@ -7138,46 +7154,124 @@ void SWMMModelLayer::rebuildSceneCoords()
     m_linkVertexOffset.assign(m_links.size(), 0);
     m_linkVertexCount .assign(m_links.size(), 0);
     uint32_t totalVerts = 0;
-    for (int i = 0; i < m_links.size(); ++i) {
-        const QVector<QPointF> full = cachedLinkPolyline(i);
-        const uint32_t n = uint32_t(full.size());
-        m_linkVertexOffset[i] = totalVerts;
-        m_linkVertexCount [i] = n;
-        totalVerts += n;
+    {
+        // Offsets are pure arithmetic — the polyline is from-node + interior
+        // bends + to-node — so the old counting pre-pass, which materialised a
+        // fresh QVector<QPointF> per link via cachedLinkPolyline() just to read
+        // its size(), is not needed. On a 280k-link model that alone was 280k
+        // throwaway heap allocations before any projection happened.
+        const int nNodes = m_nodes.size();
+        for (int i = 0; i < m_links.size(); ++i) {
+            const LinkGeom &lg = m_links[i];
+            const bool fromOk = (lg.fromNodeIdx >= 0 && lg.fromNodeIdx < nNodes);
+            const bool toOk   = (lg.toNodeIdx   >= 0 && lg.toNodeIdx   < nNodes);
+            const uint32_t n  = uint32_t(lg.vertices.size())
+                              + (fromOk ? 1u : 0u) + (toOk ? 1u : 0u);
+            m_linkVertexOffset[i] = totalVerts;
+            m_linkVertexCount [i] = n;
+            totalVerts += n;
+        }
     }
     m_linkSceneFlat.assign(size_t(totalVerts) * 2, 0.0);
     m_linkSceneBBoxes.resize(m_links.size());
-    for (int i = 0; i < m_links.size(); ++i)
-        refreshSceneCoordsForLink(i);
+    {
+        // Gather every link vertex, project the whole set in batches, then
+        // scatter into the flat buffer and derive bboxes. Replaces
+        // refreshSceneCoordsForLink() per link, which transformed one point at
+        // a time — the single largest source of PROJ calls in this function.
+        const int nNodes = m_nodes.size();
+        bx.resize(totalVerts);
+        by.resize(totalVerts);
+        size_t w = 0;
+        for (int i = 0; i < m_links.size(); ++i) {
+            const LinkGeom &lg = m_links[i];
+            if (lg.fromNodeIdx >= 0 && lg.fromNodeIdx < nNodes) {
+                bx[w] = m_nodes[lg.fromNodeIdx].x;
+                by[w] = m_nodes[lg.fromNodeIdx].y;
+                ++w;
+            }
+            for (const QPointF &v : lg.vertices) { bx[w] = v.x(); by[w] = v.y(); ++w; }
+            if (lg.toNodeIdx >= 0 && lg.toNodeIdx < nNodes) {
+                bx[w] = m_nodes[lg.toNodeIdx].x;
+                by[w] = m_nodes[lg.toNodeIdx].y;
+                ++w;
+            }
+        }
+
+        projectAll(bx, by);
+
+        for (int i = 0; i < m_links.size(); ++i) {
+            const uint32_t off = m_linkVertexOffset[i];
+            const uint32_t n   = m_linkVertexCount[i];
+            QRectF bbox;
+            for (uint32_t v = 0; v < n; ++v) {
+                const double sx =  bx[off + v];
+                const double sy = -by[off + v];
+                m_linkSceneFlat[size_t(off + v) * 2 + 0] = sx;
+                m_linkSceneFlat[size_t(off + v) * 2 + 1] = sy;
+                const QPointF p(sx, sy);
+                if (v == 0) bbox = QRectF(p, QSizeF(0, 0));
+                else {
+                    if (p.x() < bbox.left())   bbox.setLeft  (p.x());
+                    if (p.x() > bbox.right())  bbox.setRight (p.x());
+                    if (p.y() < bbox.top())    bbox.setTop   (p.y());
+                    if (p.y() > bbox.bottom()) bbox.setBottom(p.y());
+                }
+            }
+            // Axis-aligned 2-point links (orifices/weirs whose from/to nodes
+            // share an x or y) collapse to a zero-extent rect; QRectF::isEmpty()
+            // then trips the spatial-grid skip and the link disappears from the
+            // map. Same sub-pixel inflation refreshSceneCoordsForLink applies —
+            // it must stay in BOTH paths.
+            if (bbox.width()  == 0.0) bbox.adjust(-1e-3, 0.0, 1e-3, 0.0);
+            if (bbox.height() == 0.0) bbox.adjust(0.0, -1e-3, 0.0, 1e-3);
+            m_linkSceneBBoxes[i] = bbox;
+        }
+    }
 
     m_catchScenePts.resize(m_catchments.size());
     m_catchSceneBBoxes.resize(m_catchments.size());
-    for (int i = 0; i < m_catchments.size(); ++i)
     {
-        const auto &verts = m_catchments[i].vertices;
-        QVector<QPointF> sp;
-        sp.reserve(verts.size());
-        QRectF bbox;
-        for (int v = 0; v < verts.size(); ++v) {
-            const QPointF p = toScenePt(verts[v].x(), verts[v].y());
-            sp.append(p);
-            if (v == 0) bbox = QRectF(p, QSizeF(0, 0));
-            else {
-                if (p.x() < bbox.left())   bbox.setLeft  (p.x());
-                if (p.x() > bbox.right())  bbox.setRight (p.x());
-                if (p.y() < bbox.top())    bbox.setTop   (p.y());
-                if (p.y() > bbox.bottom()) bbox.setBottom(p.y());
+        // One gather across EVERY catchment ring, one batched projection, then
+        // one scatter — rather than a projection call per polygon vertex.
+        size_t total = 0;
+        for (const CatchGeom &c : m_catchments) total += size_t(c.vertices.size());
+        bx.resize(total);
+        by.resize(total);
+        size_t w = 0;
+        for (const CatchGeom &c : m_catchments)
+            for (const QPointF &v : c.vertices) { bx[w] = v.x(); by[w] = v.y(); ++w; }
+
+        projectAll(bx, by);
+
+        size_t rd = 0;
+        for (int i = 0; i < m_catchments.size(); ++i) {
+            const int nv = m_catchments[i].vertices.size();
+            QVector<QPointF> sp;
+            sp.reserve(nv);
+            QRectF bbox;
+            for (int v = 0; v < nv; ++v, ++rd) {
+                const QPointF p(bx[rd], -by[rd]);
+                sp.append(p);
+                if (v == 0) bbox = QRectF(p, QSizeF(0, 0));
+                else {
+                    if (p.x() < bbox.left())   bbox.setLeft  (p.x());
+                    if (p.x() > bbox.right())  bbox.setRight (p.x());
+                    if (p.y() < bbox.top())    bbox.setTop   (p.y());
+                    if (p.y() > bbox.bottom()) bbox.setBottom(p.y());
+                }
             }
+            m_catchScenePts[i]    = std::move(sp);
+            m_catchSceneBBoxes[i] = bbox;
         }
-        m_catchScenePts[i]    = std::move(sp);
-        m_catchSceneBBoxes[i] = bbox;
     }
 
     // Rebuild the link spatial grid from the freshly-computed bboxes.
     // Paint queries this directly — see SWMMLayerItem::paint().
     QElapsedTimer gt; gt.start();
     m_linkGrid.rebuild(m_linkSceneBBoxes);
-    qDebug().noquote() << "[LinkSpatialGrid::rebuild] links=" << m_links.size()
+    qCDebug(lcLoadModel).noquote()
+                       << "[LinkSpatialGrid::rebuild] links=" << m_links.size()
                        << " cols=" << m_linkGrid.cols
                        << " rows=" << m_linkGrid.rows
                        << " elapsed_ms=" << gt.elapsed();

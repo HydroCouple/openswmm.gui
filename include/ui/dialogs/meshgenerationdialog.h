@@ -31,10 +31,12 @@
 #include <QDialog>
 #include <QFutureWatcher>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 class SWMMVisProjectWindow;
 class GISVectorLayer;
+class MeshRegionDefaultsWidget;
 
 class QCheckBox;
 class QComboBox;
@@ -225,6 +227,27 @@ public:
         // Mesh 2D ribbon (cell editor / Cell Data assignment).
         double               manningsN     = 0.035;
         double               initDepth     = 0.0;   // mesh length units
+
+        // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────────
+        // Read out of MeshRegionDefaultsWidget by collectInputs() and copied
+        // here BY VALUE — the worker must never touch the widget.
+        //
+        // infilDefaults goes straight to MeshResult::infilDefaults: the '*'
+        // row and the per-tag rows, unflattened. The pipeline deliberately
+        // writes NO per-cell infiltration rows, because materialising tag rows
+        // per triangle would destroy the inheritance engine decision D-I3 is
+        // built on. Empty unless a row names a method, so an untouched dialog
+        // emits no [2D_INFILTRATION*] section at all.
+        QVector<mesh::InfilDefaultRow> infilDefaults;
+
+        // Manning's n / initial depth are per-TRIANGLE data (MeshTriangle
+        // carries the fields), so region values for them are stamped onto the
+        // cells exactly as manningsN/initDepth above are — only infiltration
+        // uses the inheritance model. Keyed by MeshTriangle::tag, and empty
+        // until a region row is given a value of its own — while it is empty
+        // every triangle takes manningsN/initDepth exactly as it does today.
+        struct RegionHydraulics { double manningsN = 0.0; double initDepth = 0.0; };
+        QHash<QString, RegionHydraulics> regionHydraulics;
     };
 
     /*! \brief Result produced by the pipeline worker and consumed on the
@@ -260,6 +283,13 @@ private:
     /*! Refreshes the read-only "min triangle area / max vertex shift" line
      *  under the Minimum Cell Size group. */
     void updateMinCellDerivedLabel();
+
+    /*! Region tags the generated mesh will carry, in the order collectInputs()
+     *  creates their markers. Empty when no region source is selected, which
+     *  is what degenerates the region-defaults table to its single '*' row. */
+    [[nodiscard]] QStringList regionTags() const;
+    /*! Pushes regionTags() into the region-defaults table. */
+    void refreshRegionRows();
 
     /*! Collect all inputs from widgets + SWMMModelLayer on the main thread.
      *  Returns false and sets *errOut on any early-out condition (no project,
@@ -341,8 +371,13 @@ private:
     QDoubleSpinBox *m_boundaryBufferSpin = nullptr;
 
     // ── Uniform per-cell hydraulic seeds ────────────────────────────
+    // These two stay the editors for the '*' row; the region-defaults table
+    // below mirrors them read-only (GG0d, GUI plan §3.3).
     QDoubleSpinBox *m_manningsValueSpin  = nullptr;
     QDoubleSpinBox *m_initDepthSpin      = nullptr;
+
+    // ── Region defaults table (GG0d) ────────────────────────────────
+    MeshRegionDefaultsWidget *m_regionDefaults = nullptr;
 
     // ── Output ──────────────────────────────────────────────────────
     QRadioButton  *m_outputExternal = nullptr;

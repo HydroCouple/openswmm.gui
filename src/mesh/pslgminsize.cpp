@@ -46,6 +46,7 @@ void MinSizePolicy::resolveDefaults()
     if (weldRadius    <= 0.0) weldRadius    = h;
     if (minSegmentLen <= 0.0) minSegmentLen = h;
     if (maxDeviation  <  0.0) maxDeviation  = 0.5 * h;
+    if (identityMergeRadius <= 0.0) identityMergeRadius = weldRadius;
     if (maxIterations < 1)   maxIterations = 1;
     if (maxResiduals  < 0)   maxResiduals  = 0;
 }
@@ -72,6 +73,7 @@ QString violationCauseName(ViolationCause c)
     case ViolationCause::CloseFeatures: return QStringLiteral("close features");
     case ViolationCause::SmallAngle:    return QStringLiteral("small angle");
     case ViolationCause::SubScaleRing:  return QStringLiteral("sub-scale ring");
+    case ViolationCause::IdentityMerged:return QStringLiteral("identity merged");
     }
     return QStringLiteral("unknown");
 }
@@ -98,7 +100,12 @@ QString ConditionReport::summary() const
         .arg(domainAreaBefore, 0, 'g', 8).arg(domainAreaAfter, 0, 'g', 8)
         .arg(predictedMinLfs, 0, 'g', 4)
         .arg(residuals.size())
-        .arg(duplicateSegments);
+        .arg(duplicateSegments)
+        // Appended, not interleaved, so the default (opt-in off) line is
+        // byte-identical to what it has always been.
+        + (identitiesMerged > 0
+               ? QStringLiteral(", identities merged %1").arg(identitiesMerged)
+               : QString());
 }
 
 // ---------------------------------------------------------------------------
@@ -508,6 +515,36 @@ double ringPerimeter(const QVector<QPointF> &ring)
  *  for convex shapes and a reasonable lower-bound proxy otherwise.  Used only
  *  to decide "this ring is narrower than one cell", where being approximate
  *  is fine because the alternative is an exact medial axis. */
+/*!
+ * \brief Does this closed ring enclose (essentially) no area?
+ *
+ * Welding under a large radius can fold a narrow ring back onto itself.  The
+ * result is invisible to every other check in this file: a fold has a ZERO
+ * orientation determinant, so the proper-crossing test cannot see it, and its
+ * repeated edges look exactly like the benign duplicate alignments the census
+ * deliberately tolerates.  Triangle, however, cannot mesh a boundary that
+ * bounds nothing.
+ *
+ * The tolerance is scaled by the ring's own extent so the test is
+ * dimensionless.  A legitimately thin 100 x 0.001 ring has area 0.1 — eight
+ * orders above the floor — while a fold is exactly zero, because the shoelace
+ * sum of any out-and-back sequence cancels term by term.
+ */
+bool ringEnclosesNoArea(const QVector<QPointF> &ring, double radius)
+{
+    if (ring.size() < 3) return true;
+    double xmin = ring.first().x(), xmax = xmin;
+    double ymin = ring.first().y(), ymax = ymin;
+    for (const QPointF &q : ring)
+    {
+        xmin = std::min(xmin, q.x()); xmax = std::max(xmax, q.x());
+        ymin = std::min(ymin, q.y()); ymax = std::max(ymax, q.y());
+    }
+    const double w = xmax - xmin, hgt = ymax - ymin;
+    const double scale2 = std::max(w * w + hgt * hgt, radius * radius);
+    return std::abs(ringSignedArea(ring)) <= 1.0e-12 * scale2;
+}
+
 double ringWidthProxy(const QVector<QPointF> &ring)
 {
     const double per = ringPerimeter(ring);
@@ -615,6 +652,7 @@ struct PslgCensus
     int  duplicates = 0;   ///< the same undirected vertex pair emitted twice
     int  zeroLength = 0;
     int  overlaps   = 0;   ///< collinear and sharing more than a point
+    int  degenerateRings = 0;  ///< closed paths that enclose no area
     bool verified   = false;   ///< false when the broad phase gave up
 
     /*!
@@ -634,14 +672,19 @@ struct PslgCensus
     {
         return crossings  > base.crossings
             || zeroLength > base.zeroLength
-            || overlaps   > base.overlaps;
+            || overlaps   > base.overlaps
+            // A ring folded onto itself IS gated, unlike a plain duplicate:
+            // the duplicated edges are the same tolerated shape, but the
+            // boundary has stopped enclosing anything and Triangle fails.
+            || degenerateRings > base.degenerateRings;
     }
 
     [[nodiscard]] QString describe() const
     {
         return QStringLiteral("crossings %1, duplicate segs %2, zero-length %3, "
-                              "collinear overlaps %4")
-            .arg(crossings).arg(duplicates).arg(zeroLength).arg(overlaps);
+                              "collinear overlaps %4, degenerate rings %5")
+            .arg(crossings).arg(duplicates).arg(zeroLength).arg(overlaps)
+            .arg(degenerateRings);
     }
 };
 
@@ -666,6 +709,18 @@ PslgCensus censusPslg(const QVector<Path> &paths, const Pool &pool, double radiu
             if (seenEdges.contains(k)) ++c.duplicates;
             else                       seenEdges.insert(k);
         }
+    }
+
+    // The only member of the census that looks at a whole path rather than a
+    // pair of edges.  It has to run before the grid, because it is the one
+    // check that stays valid even when the broad phase gives up below.
+    for (const Path &p : paths)
+    {
+        if (p.dropped || !p.closed) continue;
+        QVector<QPointF> ring;
+        ring.reserve(p.v.size());
+        for (const int vi : p.v) ring.append(pool.pos[pool.findConst(vi)]);
+        if (ringEnclosesNoArea(ring, radius)) ++c.degenerateRings;
     }
 
     EdgeGrid grid;
@@ -891,7 +946,20 @@ bool conditionMinSize(QVector<QPolygonF>         *domains,
         ring.reserve(d.size());
         for (const QPointF &q : d) ring.append(q);
         report->domainAreaBefore += std::abs(ringSignedArea(ring));
+
+        // Diagnostic only -- this deliberately does NOT clamp the weld radius.
+        // A user who asks for a large h is asking for it; the point is to say
+        // in the log, BEFORE conditioning runs, why the abandon they are about
+        // to see was likely. ringWidthProxy is 4A/P, the width of the
+        // equivalent rectangle, which is what a fold actually depends on.
+        const double w = ringWidthProxy(ring);
+        if (w > 0.0 && (report->domainNarrowestExtent <= 0.0
+                        || w < report->domainNarrowestExtent))
+            report->domainNarrowestExtent = w;
     }
+    report->weldRadiusDominatesDomain =
+        report->domainNarrowestExtent > 0.0
+        && wr >= 0.5 * report->domainNarrowestExtent;
 
     // Baseline census on the UNTOUCHED input.  It has to be measured here, not
     // after resampling: dropping vertices can itself introduce a degeneracy,
@@ -1012,6 +1080,25 @@ bool conditionMinSize(QVector<QPolygonF>         *domains,
     buildPool(&b, *domains, *holeRings, *segs, *pts, &steinerVertex,
               policy.ringsReadOnly);
 
+    // Pool vertex -> the identity it carries, for the IdentityMerged residual.
+    // Built once; only consulted when allowIdentityMerge actually fires.
+    QHash<int, QString> identityTag;
+    if (policy.allowIdentityMerge)
+    {
+        for (int i = 0; i < pts->size() && i < steinerVertex.size(); ++i)
+            if (!(*pts)[i].tag.isEmpty() && steinerVertex[i] >= 0)
+                identityTag.insert(steinerVertex[i], (*pts)[i].tag);
+        for (const Path &p : std::as_const(b.paths))
+        {
+            if (p.tag.isEmpty() || p.v.isEmpty() || p.closed) continue;
+            identityTag.insert(p.v.first(), p.tag);
+            identityTag.insert(p.v.last(),  p.tag);
+        }
+    }
+    auto tagOf = [&](int v) {
+        return identityTag.value(b.pool.find(v), QStringLiteral("(untagged)"));
+    };
+
     // ── Stage 3: weld / fix-up / crossing repair to a fixed point ───────
     for (int iter = 0; iter < policy.maxIterations; ++iter)
     {
@@ -1038,14 +1125,36 @@ bool conditionMinSize(QVector<QPolygonF>         *domains,
                     ? -1     // locked vertices cannot move; always their own rep
                     : accepted.nearest(p, wr, b.pool.pos, [&](int j) {
                           // Two distinct identities (nodes / conduit ends) must
-                          // never merge into one another.
-                          return !(b.pool.isIdentity(v) && b.pool.isIdentity(j));
+                          // never merge into one another -- unless the caller
+                          // has explicitly opted in, and then only within
+                          // identityMergeRadius, which may be tighter than the
+                          // outer weld radius this search used.
+                          if (!(b.pool.isIdentity(v) && b.pool.isIdentity(j)))
+                              return true;
+                          if (!policy.allowIdentityMerge) return false;
+                          const double dx = b.pool.pos[j].x() - b.pool.pos[v].x();
+                          const double dy = b.pool.pos[j].y() - b.pool.pos[v].y();
+                          return std::hypot(dx, dy) <= policy.identityMergeRadius;
                       });
                 if (rep >= 0)
                 {
                     const double d = std::hypot(b.pool.pos[rep].x() - p.x(),
                                                 b.pool.pos[rep].y() - p.y());
                     report->maxDisplacement = std::max(report->maxDisplacement, d);
+
+                    // Instrumented HERE, at the one place that sees all three
+                    // merge shapes (node-node, node-conduit-end, end-end).
+                    // The priority order already guarantees the survivor is the
+                    // higher-ranked identity, so `rep` is never subsumed.
+                    if (policy.allowIdentityMerge
+                        && b.pool.isIdentity(v) && b.pool.isIdentity(rep))
+                    {
+                        ++report->identitiesMerged;
+                        addResidual(report, cap,
+                            {b.pool.pos[rep], d, ViolationCause::IdentityMerged,
+                             tagOf(v), tagOf(rep)});
+                    }
+
                     b.pool.link(v, rep);
                     ++report->verticesWelded;
                     changed = true;
@@ -1083,12 +1192,32 @@ bool conditionMinSize(QVector<QPolygonF>         *domains,
             if (p.closed && nv.size() >= 2 && nv.first() == nv.last())
                 nv.removeLast();
 
-            if (p.closed && nv.size() < 3)
+            // Two ways a ring dies here.  Too few vertices is the obvious
+            // one.  The other is a FOLD: welding maps the ring's two sides
+            // onto each other, so it runs out and back through the same
+            // representatives and encloses nothing.  A fold keeps its vertex
+            // count -- only CONSECUTIVE duplicates were collapsed above, and
+            // an out-and-back path has none -- so a count test cannot see it.
+            bool ringDead = p.closed && nv.size() < 3;
+            if (p.closed && !ringDead)
+            {
+                QVector<QPointF> rr;
+                rr.reserve(nv.size());
+                for (const int r : std::as_const(nv)) rr.append(b.pool.pos[r]);
+                ringDead = ringEnclosesNoArea(rr, wr);
+            }
+            if (ringDead)
             {
                 if (p.kind == PathKind::Domain)
                 {
                     // The minimum size is too coarse for this domain: welding
                     // collapsed its outline.  Nothing safe to hand Triangle.
+                    report->abandonReason =
+                        QStringLiteral("welding collapsed a domain ring at "
+                                       "weld radius %1 (it encloses no area); "
+                                       "the minimum cell size is too coarse "
+                                       "for this domain")
+                            .arg(wr, 0, 'g', 4);
                     restore();
                     return false;
                 }

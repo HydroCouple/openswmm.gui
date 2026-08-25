@@ -423,6 +423,9 @@ int main(int argc, char **argv)
 
         mesh::pslg::MinSizePolicy pol;
         pol.minCellSize = h;
+        // The two opt-ins from the 2026-08-21 crash-fix/enforcement handoff.
+        pol.allowIdentityMerge =
+            !qEnvironmentVariableIsEmpty("MINSIZE_PROBE_IDENTITY_MERGE");
         pol.resolveDefaults();
         const double aMin = pol.minTriangleArea();
 
@@ -438,6 +441,8 @@ int main(int argc, char **argv)
 
         mesh::CleanupPolicy cpol;
         cpol.minCellSize = h;
+        cpol.allowIdentityCollapse =
+            !qEnvironmentVariableIsEmpty("MINSIZE_PROBE_AGGRESSIVE_CLEANUP");
         row.cleanOk = mesh::collapseSubScaleCells(&r, cpol, &row.clean);
 
         row.s = measure(r, aMin, t);

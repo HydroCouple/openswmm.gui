@@ -194,6 +194,10 @@ add_swmmvis_unit_test(test_inpmeshwriter_relpath
     ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshwriter.h
     ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
+    # The writer emits the GG0a [2D_INFILTRATION*] family, so it needs the
+    # mesh::infil* token/mask helpers.
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
 )
 
 add_swmmvis_unit_test(test_meshinpbcroundtrip

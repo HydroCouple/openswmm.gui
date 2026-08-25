@@ -2509,6 +2509,20 @@ add_swmmvis_gui_test(test_selectionops
 )
 swmmvis_link_full_app_deps(test_selectionops)
 
+# LOAD_PERF Phase 3 — batched OGR/PROJ transform equivalence + timing.
+# Needs GDAL/OGR for a real OGRCoordinateTransformation, so it links the
+# full app deps rather than a lean source list.
+add_swmmvis_gui_test(test_batchtransform
+    test_batchtransform.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/crsreproject.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/crsreproject.h
+    # reprojectModel() in the same TU reaches SpatialReferenceSystem.
+    ${CMAKE_SOURCE_DIR}/src/map/spatialreferencesystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/map/spatialreferencesystem.h
+)
+swmmvis_link_full_app_deps(test_batchtransform)
+
+
 # Bulk delete — SWMMModelLayer::BulkEdit + BulkEditCommand. Deleting a
 # selection must run the derived-cache rebuild ONCE for the whole batch, in
 # both directions, and must resync link endpoint indices from the engine

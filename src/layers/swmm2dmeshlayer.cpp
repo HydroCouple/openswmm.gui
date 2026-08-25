@@ -10,6 +10,7 @@
  * (m_sceneTris / m_sceneEdges / m_sceneNodes); the graphics item reads them
  * and calls update() on itself whenever repaintRequested() fires.
  */
+#include "core/crsreproject.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "core/preferencesmanager.h"
 
@@ -459,22 +460,80 @@ public:
         const float invSlope = (maxSlope > 0.f) ? 1.0f / maxSlope : 0.0f;
         constexpr float kSlopeBreak = 0.35f;
 
+        // BC state (Pass 2b parity with SWMM2DMeshQSGRenderer): the CPU
+        // fallback previously ignored the Boundary Conditions sublayer
+        // entirely, so BC styling looked dead whenever the QSG renderer did
+        // not own the layer. Same slot-vector guard as the QSG path — a
+        // short/absent slot vector (progressive load) means every edge is
+        // *unknown*, not Wall.
+        const auto *bcSub    = m_layer->meshBcSublayer();
+        const auto *bcStyle  = bcSub ? bcSub->bcStyle() : nullptr;
+        const bool  bcVisible = bcSub && bcSub->isVisible() && bcStyle;
+        const qreal bcOpacity = bcSub ? bcSub->opacity() : 1.0;
+        const auto &edgeSlots = m_layer->m_sceneEdgeSlot;
+        const auto &edgeBCs   = m_layer->edgeBCs();
+        const bool  slotsUsable = bcVisible
+                               && edgeSlots.size() == edges.size()
+                               && !edgeBCs.isEmpty();
+        constexpr int kBcTypes = OpenSWMM::Render::MeshBcStyle::kBcTypeCount;
+
         if (edgesVisible && !useLod) {
             for (int i = 0; i < edgeCount; ++i) {
-                const SWMM2DMeshLayer::SceneEdge &e =
-                    useEdgeIdx ? edges[visibleEdges[i]] : edges[i];
+                const int ei = useEdgeIdx ? visibleEdges[i] : i;
+                const SWMM2DMeshLayer::SceneEdge &e = edges[ei];
+
+                // BC-typed edges are drawn by the ring pass below (a hidden
+                // BC type degrades to a plain wireframe edge, QSG parity).
+                if (slotsUsable) {
+                    const qint32 slot = edgeSlots[ei];
+                    const int t = (slot >= 0 && slot < edgeBCs.size())
+                                ? int(edgeBCs[slot].type) : 0;
+                    if (t > 0 && t < kBcTypes && bcStyle->bcTypeVisible(t))
+                        continue;
+                }
 
                 const bool wide = hasElev && (e.slope * invSlope > kSlopeBreak);
                 const int  alpha = wide ? 210 : 130;
                 const qreal lw  = wide ? (active ? 0.9 : 0.6) : (active ? 0.35 : 0.25);
 
+                // Wall governs the mesh interior: recolour the wireframe
+                // with the Wall colour when the BC sublayer asks for it.
+                const QColor base = (slotsUsable && bcStyle->wallVisible())
+                                  ? bcStyle->wallColor()
+                                  : QColor(0, 0, 0, alpha);
+
                 // Use a cosmetic pen so width is in pixels regardless of zoom
-                QPen pen(withOpacity(QColor(0, 0, 0, alpha), edgeOpacity));
+                QPen pen(withOpacity(base, edgeOpacity));
                 pen.setWidthF(lw);
                 pen.setCosmetic(true);
                 p->setPen(pen);
                 p->setBrush(Qt::NoBrush);
                 p->drawLine(e.line);
+            }
+        }
+
+        // ---- Pass 2b: boundary-condition ring (MeshBcSublayer) ---------------
+        // Drawn even when the wireframe is zoom-gated or LOD-suppressed:
+        // the ring is O(boundary) and carries the information the user
+        // turned the sublayer ON to see (QSG-renderer parity).
+        if (slotsUsable) {
+            p->setBrush(Qt::NoBrush);
+            int lastType = -1;
+            for (const qint32 ei : m_layer->bcSceneEdges()) {
+                if (ei < 0 || ei >= edges.size()) continue;
+                const qint32 slot = edgeSlots[ei];
+                const int t = (slot >= 0 && slot < edgeBCs.size())
+                            ? int(edgeBCs[slot].type) : 0;
+                if (t <= 0 || t >= kBcTypes || !bcStyle->bcTypeVisible(t))
+                    continue;
+                if (t != lastType) {
+                    QPen pen(withOpacity(bcStyle->bcColorForType(t), bcOpacity));
+                    pen.setWidthF(bcStyle->bcWidthForType(t));
+                    pen.setCosmetic(true);
+                    p->setPen(pen);
+                    lastType = t;
+                }
+                p->drawLine(edges[ei].line);
             }
         }
 
@@ -671,6 +730,31 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
             if (t > 0) bs->setBcWidth(t, pm->meshBcWidthPx(t));
         }
     }
+    // Live preference propagation: BC default edits in the Preferences
+    // dialog re-seed open layers whose BC style the user has NOT edited
+    // directly (isCustomized()); "Colour by type" toggles the sublayer's
+    // visibility unconditionally — it's an explicit show/hide action.
+    connect(PreferencesManager::instance(),
+            &PreferencesManager::preferenceChanged, this,
+            [this](const QString &group, const QString &key) {
+                if (group != QLatin1String("Mesh2D") || !m_meshBcSublayer)
+                    return;
+                auto *bs = m_meshBcSublayer->bcStyle();
+                auto *pm = PreferencesManager::instance();
+                if (key == QLatin1String("BcColorByType")) {
+                    m_meshBcSublayer->setVisible(pm->meshBcColorByType());
+                    return;
+                }
+                if (!bs || bs->isCustomized()) return;
+                if (key.startsWith(QLatin1String("BcColor/"))
+                    || key.startsWith(QLatin1String("BcWidthPx/"))) {
+                    for (int t = 0;
+                         t < OpenSWMM::Render::MeshBcStyle::kBcTypeCount; ++t) {
+                        bs->setBcColor(t, pm->meshBcColor(t));
+                        if (t > 0) bs->setBcWidth(t, pm->meshBcWidthPx(t));
+                    }
+                }
+            });
     m_meshNodeSublayer    = new OpenSWMM::Render::MeshNodeSublayer(
         QStringLiteral("mesh.vertices"), this);
     m_coupledNodeSublayer = new OpenSWMM::Render::CoupledNodeSublayer(
@@ -1079,18 +1163,24 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
         if (v.z != 0.0) { hasElevation = true; break; }
 
     // ── Scene-space vertex positions (with OGR reprojection + Y-flip) ──────
+    // Batched reprojection (see rebuildSceneGeometryLight) — one OGR call per
+    // 64k vertices rather than one per vertex.
     QVector<QPointF> scenePts;
-    scenePts.reserve(nVerts);
-    for (const auto &v : m_mesh.vertices)
+    scenePts.resize(nVerts);
     {
-        double x = v.xy.x(), y = v.xy.y();
-        if (m_transform) m_transform->Transform(1, &x, &y);
-        scenePts.append(QPointF(x, -y));  // Y-flip: scene grows downward
-        if (hasElevation)
-        {
-            if (v.z < m_zMin) m_zMin = v.z;
-            if (v.z > m_zMax) m_zMax = v.z;
+        std::vector<double> bx(nVerts), by(nVerts);
+        for (int i = 0; i < nVerts; ++i) {
+            const auto &v = m_mesh.vertices[i];
+            bx[i] = v.xy.x();
+            by[i] = v.xy.y();
+            if (hasElevation) {
+                if (v.z < m_zMin) m_zMin = v.z;
+                if (v.z > m_zMax) m_zMax = v.z;
+            }
         }
+        CRSReproject::transformPointsInPlace(m_transform, bx.data(), by.data(), nVerts);
+        for (int i = 0; i < nVerts; ++i)
+            scenePts[i] = QPointF(bx[i], -by[i]);   // Y-flip: scene grows downward
     }
     if (!hasElevation) { m_zMin = 0.0; m_zMax = 0.0; }
 
@@ -1171,18 +1261,25 @@ void SWMM2DMeshLayer::rebuildSceneGeometryLight()
     for (const auto &v : m_mesh.vertices)
         if (v.z != 0.0) { hasElevation = true; break; }
 
+    // Batched reprojection — one OGR call per 64k vertices instead of one per
+    // vertex. At 750k vertices (and 4.7M on the user's real deck) the per-point
+    // form dominated this function.
     QVector<QPointF> scenePts;
-    scenePts.reserve(nVerts);
-    for (const auto &v : m_mesh.vertices)
+    scenePts.resize(nVerts);
     {
-        double x = v.xy.x(), y = v.xy.y();
-        if (m_transform) m_transform->Transform(1, &x, &y);
-        scenePts.append(QPointF(x, -y));
-        if (hasElevation)
-        {
-            if (v.z < m_zMin) m_zMin = v.z;
-            if (v.z > m_zMax) m_zMax = v.z;
+        std::vector<double> bx(nVerts), by(nVerts);
+        for (int i = 0; i < nVerts; ++i) {
+            const auto &v = m_mesh.vertices[i];
+            bx[i] = v.xy.x();
+            by[i] = v.xy.y();
+            if (hasElevation) {
+                if (v.z < m_zMin) m_zMin = v.z;
+                if (v.z > m_zMax) m_zMax = v.z;
+            }
         }
+        CRSReproject::transformPointsInPlace(m_transform, bx.data(), by.data(), nVerts);
+        for (int i = 0; i < nVerts; ++i)
+            scenePts[i] = QPointF(bx[i], -by[i]);
     }
     if (!hasElevation) { m_zMin = 0.0; m_zMax = 0.0; }
 
@@ -1236,12 +1333,16 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
         // Rare re-run path (e.g. a CRS change forced a full synchronous
         // rebuild mid-defer): re-project here so the worker matches the
         // current transform.
-        ptsSnap.reserve(meshSnap.vertices.size());
-        for (const auto &v : meshSnap.vertices) {
-            double x = v.xy.x(), y = v.xy.y();
-            if (m_transform) m_transform->Transform(1, &x, &y);
-            ptsSnap.append(QPointF(x, -y));
+        const int nv = meshSnap.vertices.size();
+        ptsSnap.resize(nv);
+        std::vector<double> bx(nv), by(nv);
+        for (int i = 0; i < nv; ++i) {
+            bx[i] = meshSnap.vertices[i].xy.x();
+            by[i] = meshSnap.vertices[i].xy.y();
         }
+        CRSReproject::transformPointsInPlace(m_transform, bx.data(), by.data(), nv);
+        for (int i = 0; i < nv; ++i)
+            ptsSnap[i] = QPointF(bx[i], -by[i]);
     }
 
     struct DeferredGeom {
