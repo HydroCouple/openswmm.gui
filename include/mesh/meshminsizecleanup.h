@@ -50,6 +50,30 @@ struct CleanupPolicy
 
     int maxPasses    = 2;
     int maxUnfixable = 200;   ///< cap on the reported list
+
+    /*!
+     * \brief Collapse slivers the default pass refuses to touch.
+     *
+     * OFF by default.  The default pass freezes the endpoints of EVERY
+     * constrained edge, which on a conduit-dense model is essentially every
+     * interior vertex of consequence — so it declines far more than it fixes.
+     * With this on, an interior constrained edge may collapse, and a sliver
+     * touching ONE identity vertex may be absorbed INTO that vertex.
+     *
+     * Two rules are never relaxed: two distinct identities are never merged
+     * into each other, and a 1D-2D coupling is never lost (a dropped coupling
+     * is worse than a sliver, and still aborts the whole pass).
+     */
+    bool allowIdentityCollapse = false;
+
+    /*! A ring may not be shortened below this many vertices.  The mesh-output
+     *  side of the same self-folding hazard pslgminsize guards on the input
+     *  side: a ring collapsed to two vertices bounds no area. */
+    int minRingVertices = 3;
+
+    /*! Relaxing the default protections multiplies how many edges qualify on a
+     *  large mesh.  Only consulted in aggressive mode. */
+    int maxCandidatesPerPass = 2000000;
 };
 
 /*! What cleanup did. */
@@ -62,6 +86,15 @@ struct CleanupReport
      *  failure, or an orientation flip.  These are the ones conditioning
      *  should have prevented. */
     int skippedProtected = 0;
+
+    // ── Aggressive mode only; all zero/false when the opt-in is off ──────
+    int  identityAbsorptions      = 0;  ///< sliver absorbed into an identity
+    int  interiorConstraintsLost  = 0;  ///< interior constrained edges collapsed
+    int  ringEdgesShortened       = 0;
+    int  identityConflictsSkipped = 0;  ///< two identities, declined
+    int  ringGuardSkipped         = 0;  ///< would breach minRingVertices
+    int  candidatesDropped        = 0;  ///< over maxCandidatesPerPass
+    bool exhaustedPasses          = false;  ///< ran out of budget mid-work
 
     double minAreaBefore = 0.0;
     double minAreaAfter  = 0.0;

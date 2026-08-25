@@ -134,3 +134,83 @@ Conditioning time is also worth noting: 18.4 s at `h = 0.5` and 8.8 s at
   strictly inside it, plus an adjacency claim against the mirror insertion.
 - A hole ring emptied by the sub-scale drop was counted a second time when the
   weld stage saw it empty, so `holesDropped` double-reported.
+
+---
+
+## 2026-08-21 — pinched-ring crash fix, and the two enforcement opt-ins measured
+
+Verification of the `MIN_CELL_SIZE_CRASH_FIX_AND_ENFORCEMENT_OPTINS_2026-08-21`
+handoff. Its diagnosis is correct; two of its claims are not.
+
+### The crash: real, but its own reproducer does not reproduce it
+
+A ring welded under a large `h` can fold onto itself and enclose **zero area**.
+Every existing check is blind to it: a fold has a zero orientation determinant
+(so the crossing test cannot see it), and its repeated edges look exactly like
+the benign duplicate alignments `PslgCensus::worseThan` deliberately tolerates.
+
+The handoff's flagship case — a 100 x 0.5 domain rectangle at `h = 1` — **does
+not reproduce it**. That ring collapses to two representatives and the
+pre-existing `nv.size() < 3` test already caught it; measured, it abandons
+cleanly and restores geometry that still meshes. A test asserting that outcome
+passes with or without the fix.
+
+The real reproducer needs **intermediate vertices** on the long sides. Each
+bottom vertex welds to the one above it, leaving a path that runs out and back
+through five or more distinct representatives. Only *consecutive* duplicates are
+collapsed, and an out-and-back path has none, so no count-based test can see it:
+
+| ring | conditioning | resulting domain area | meshable |
+|---|---|---|---|
+| 100 x 0.5, 4 corners, `h=1` | abandoned (pre-existing check) | 50 (restored) | yes |
+| 100 x 0.5, **1 mid vertex**, `h=1` | **succeeded** | **0** | **NO** |
+| 100 x 0.5, **3 mid vertices**, `h=1` | **succeeded** | **0** | **NO** |
+| 100 x 0.5, **7 mid vertices**, `h=1` | **succeeded** | **0** | **NO** |
+
+Fixed with an area test at two independent layers (each verified to catch it
+with the other disabled): a per-ring check in stage 3b, and `degenerateRings` in
+the whole-PSLG census, which is the authority because 3c/3d/4 can fold a ring
+after 3b has run. The census output on the reproducer shows the original blind
+spot exactly — `duplicate segs 8` (tolerated) plus `degenerate rings 1` (gated).
+
+### `allowIdentityMerge`: one large win, two losses — regime-dependent
+
+`2300_H&H_Elements`, `maxArea` 2371.7; `2383_H&H_Link_Elements`, 11750.2.
+`W` is the LTS work proxy (lower is better); unconditioned `W` is the reference.
+
+| model / h | config | min `L_char` | `W` | vs unconditioned |
+|---|---|---|---|---|
+| 2300 | unconditioned | 6.25e-03 | 3.28e+06 | — |
+| 2300 h=5 | opt-ins off | 5.93e-03 | 3.55e+06 | x1.08 |
+| 2300 h=5 | **+identityMerge** (4 merges) | **7.79e-02** | **2.56e+05** | **÷12.8** |
+| 2300 h=10 | opt-ins off | 4.00e-03 | 5.29e+06 | x1.61 |
+| 2300 h=10 | +identityMerge (8 merges) | 1.79e-03 | 1.30e+07 | **x4.0** |
+| 2383 h=4 | +identityMerge (1 merge) | 3.87e-03 | 9.80e+06 | unchanged |
+| 2383 h=8 | +identityMerge (70 merges) | 2.35e-06 | 1.48e+11 | **x1.4 worse** |
+
+Four merges bought a **12.8x** reduction in `W` at `2300 h=5`, which is the
+strongest evidence yet for the identity-crowding thesis in §2 above. But the
+same switch is **4x worse** at `h=10` on the same model, and worse again at
+`2383 h=8`. This is the displacement-dependent pattern already recorded for
+welding generally: beneficial while the merge distance stays small, catastrophic
+once it grows, because displacement creates the sharp corners Ruppert answers
+with a shell cascade. It is not a general fix and must stay opt-in.
+
+### `allowIdentityCollapse`: negative on every row measured
+
+| model / h | min area before -> after | `W` | vs opt-in off |
+|---|---|---|---|
+| 2300 h=5 | 8.47e-05 -> **7.89e-05** | 4.19e+06 | worse |
+| 2300 h=10 | 7.03e-05 -> **5.74e-05** | 4.84e+06 | better than off, still worse than unconditioned |
+
+Aggressive cleanup collapsed 730-1333 edges and lost 16-22 interior constrained
+edges per run, and in both cases it **lowered the minimum cell area** — the
+opposite of the pass's stated purpose. Collapsing an edge relocates vertices,
+which can produce a thinner triangle than the one removed. It also exhausted its
+pass budget (`maxPasses = 2`) on every run, so these numbers are a floor on the
+damage, not a converged result.
+
+**Recommendation:** ship the crash fix. Keep both opt-ins default-off. Do not
+surface `allowIdentityCollapse` in the UI on this evidence; `allowIdentityMerge`
+is worth exposing only alongside the measured `W`, because a user cannot tell
+from the dialog which regime they are in.

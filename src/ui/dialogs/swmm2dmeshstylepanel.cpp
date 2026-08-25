@@ -559,13 +559,24 @@ QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
                 gl->addWidget(new QLabel(tr("(wireframe width)"), grid), row, 2);
             }
 
+            // setCustomized: a direct panel edit locks this layer's BC style
+            // against live re-seeding from the Preferences defaults.
             connect(vis, &QCheckBox::toggled, this,
-                    [st, t](bool on) { st->setBcTypeVisible(t, on); });
+                    [st, t](bool on) {
+                        st->setCustomized(true);
+                        st->setBcTypeVisible(t, on);
+                    });
             connect(color, &ColorButton::colorChanged, this,
-                    [st, t](const QColor &c) { st->setBcColor(t, c); });
+                    [st, t](const QColor &c) {
+                        st->setCustomized(true);
+                        st->setBcColor(t, c);
+                    });
             if (width)
                 connect(width, qOverload<double>(&QDoubleSpinBox::valueChanged),
-                        this, [st, t](double v) { st->setBcWidth(t, v); });
+                        this, [st, t](double v) {
+                            st->setCustomized(true);
+                            st->setBcWidth(t, v);
+                        });
         }
         gl->setColumnStretch(0, 1);
         lay->addWidget(grid);

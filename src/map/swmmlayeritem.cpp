@@ -244,24 +244,55 @@ void SWMMLayerItem::refreshBoundingRect()
         }
     };
 
-    for (const auto &n : m_layer->m_nodes) {
-        double x = n.x, y = n.y; applyTransform(x, y);
-        extend(toScene(x, y));
-    }
-    for (const auto &g : m_layer->m_gages) {
-        double x = g.x, y = g.y; applyTransform(x, y);
-        extend(toScene(x, y));
-    }
-    for (const auto &l : m_layer->m_links) {
-        for (QPointF v : l.vertices) {
-            double x = v.x(), y = v.y(); applyTransform(x, y);
+    // rebuildSceneCoords() has already projected every one of these points
+    // into scene space and cached them; re-running OGR over the whole model
+    // here doubled the projection cost of every open. Read the caches instead
+    // — but only when they are demonstrably in step with the SoA arrays, since
+    // this also runs from the item ctor. Otherwise fall back to computing.
+    const auto &nodePts   = m_layer->m_nodeScenePts;
+    const auto &gagePts   = m_layer->m_gageScenePts;
+    const auto &linkBoxes = m_layer->m_linkSceneBBoxes;
+    const auto &catchBoxes = m_layer->m_catchSceneBBoxes;
+    const bool cachesFresh =
+           nodePts.size()    == m_layer->m_nodes.size()
+        && gagePts.size()    == m_layer->m_gages.size()
+        && linkBoxes.size()  == m_layer->m_links.size()
+        && catchBoxes.size() == m_layer->m_catchments.size();
+
+    if (cachesFresh) {
+        for (const QPointF &p : nodePts) extend(p);
+        for (const QPointF &p : gagePts) extend(p);
+        // Link boxes span the FULL polyline (endpoints included), a superset of
+        // the interior-vertex-only loop below; the endpoints are nodes, already
+        // covered, so the union is unchanged.
+        for (const QRectF &b : linkBoxes) {
+            if (b.isNull()) continue;
+            extend(b.topLeft()); extend(b.bottomRight());
+        }
+        for (const QRectF &b : catchBoxes) {
+            if (b.isNull()) continue;
+            extend(b.topLeft()); extend(b.bottomRight());
+        }
+    } else {
+        for (const auto &n : m_layer->m_nodes) {
+            double x = n.x, y = n.y; applyTransform(x, y);
             extend(toScene(x, y));
         }
-    }
-    for (const auto &c : m_layer->m_catchments) {
-        for (QPointF v : c.vertices) {
-            double x = v.x(), y = v.y(); applyTransform(x, y);
+        for (const auto &g : m_layer->m_gages) {
+            double x = g.x, y = g.y; applyTransform(x, y);
             extend(toScene(x, y));
+        }
+        for (const auto &l : m_layer->m_links) {
+            for (QPointF v : l.vertices) {
+                double x = v.x(), y = v.y(); applyTransform(x, y);
+                extend(toScene(x, y));
+            }
+        }
+        for (const auto &c : m_layer->m_catchments) {
+            for (QPointF v : c.vertices) {
+                double x = v.x(), y = v.y(); applyTransform(x, y);
+                extend(toScene(x, y));
+            }
         }
     }
 

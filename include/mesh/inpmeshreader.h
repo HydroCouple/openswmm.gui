@@ -4,10 +4,13 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * Read the four `[2D_*]` mesh sections — `[2D_VERTICES]`, `[2D_TRIANGLES]`,
- * `[2D_VERTEX_NODE_MAP]`, `[2D_TRIANGLE_NODE_MAP]` — from a SWMM `.inp`,
- * resolving the `[2D_MESH_FILE]` indirection when present. Mirrors the
- * format produced by \ref mesh::InpMeshWriter.
+ * Read the `[2D_*]` mesh sections — `[2D_VERTICES]`, `[2D_TRIANGLES]`,
+ * `[2D_VERTEX_NODE_MAP]`, `[2D_TRIANGLE_NODE_MAP]`, the per-edge
+ * `[2D_BOUNDARY_CONDITIONS]` / `[2D_EDGE_CONVEYANCE]` pair and the GG0a
+ * per-cell `[2D_INFILTRATION_OPTIONS]` / `[2D_INFILTRATION_DEFAULTS]` /
+ * `[2D_INFILTRATION]` family — from a SWMM `.inp`, resolving the
+ * `[2D_MESH_FILE]` indirection when present. Mirrors the format produced by
+ * \ref mesh::InpMeshWriter.
  */
 #ifndef OPENSWMMVIS_MESH_INPMESHREADER_H
 #define OPENSWMMVIS_MESH_INPMESHREADER_H

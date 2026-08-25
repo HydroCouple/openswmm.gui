@@ -119,6 +119,28 @@ struct MinSizePolicy
      *  were computed against those exact vertices. */
     bool ringsReadOnly = false;
 
+    /*!
+     * \brief Let two coupling identities merge into one another.
+     *
+     * OFF by default, and turning it on relaxes invariant (1).  It exists
+     * because on a real SWMM model nearly every crowded vertex IS an identity
+     * — a node Steiner point or a tagged conduit endpoint — so the crowding
+     * that forces the small cells is exactly the crowding conditioning is
+     * otherwise forbidden to remove (3 to 200 welds fired against thousands of
+     * reported violations; see tests/manual/mesh_minsize/README.md).
+     *
+     * Coupling is NOT lost: \ref mesh::mapNodesToMesh falls through to the
+     * containing triangle when a vertex is already claimed, so the second node
+     * becomes cell-coupled rather than vertex-coupled.  That is a real change
+     * — different exchange area and flux stencil — so every merge is counted
+     * in \ref ConditionReport::identitiesMerged and reported as a residual.
+     */
+    bool allowIdentityMerge = false;
+
+    /*! Identities further apart than this never merge, even with
+     *  \ref allowIdentityMerge on.  <0 resolves to \ref weldRadius. */
+    double identityMergeRadius = -1.0;
+
     int maxIterations = 3;        ///< Weld / fix-up / crossing-repair fixed-point cap.
     int maxResiduals  = 200;      ///< Cap on ConditionReport::residuals.
 
@@ -154,7 +176,8 @@ enum class ViolationCause
     ShortSegment,   ///< A constrained edge shorter than h.
     CloseFeatures,  ///< Two non-incident features within h of each other.
     SmallAngle,     ///< Two segments meeting at an angle that forces apex slivers.
-    SubScaleRing    ///< A ring (hole or domain notch) narrower than h.
+    SubScaleRing,   ///< A ring (hole or domain notch) narrower than h.
+    IdentityMerged  ///< Two coupling identities were merged (opt-in only).
 };
 
 [[nodiscard]] QString violationCauseName(ViolationCause c);
@@ -193,6 +216,17 @@ struct ConditionReport
      *  change, not a failure, and the reason this is counted separately from
      *  the degeneracies that trip the fail-safe. */
     int duplicateSegments = 0;
+
+    /*! Coupling identities merged into another identity.  Non-zero only under
+     *  \ref MinSizePolicy::allowIdentityMerge.  Each one also emits an
+     *  \ref ViolationCause::IdentityMerged residual naming both tags. */
+    int identitiesMerged = 0;
+
+    /*! Diagnostic: the weld radius is at least half the narrowest domain
+     *  extent, so a ring fold is likely.  Reported BEFORE conditioning runs so
+     *  the log can explain an abandon the user is about to see. */
+    bool   weldRadiusDominatesDomain = false;
+    double domainNarrowestExtent     = 0.0;
 
     double maxDisplacement  = 0.0;
     double domainAreaBefore = 0.0;

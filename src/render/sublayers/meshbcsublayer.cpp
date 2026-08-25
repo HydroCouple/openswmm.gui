@@ -109,6 +109,7 @@ QJsonObject MeshBcStyle::toJson() const
         if (kWidthKeys[i])
             j[QLatin1String(kWidthKeys[i])] = m_widths[i];
     }
+    j[QLatin1String("customized")] = m_customized;
     return j;
 }
 
@@ -128,6 +129,7 @@ void MeshBcStyle::fromJson(const QJsonObject &j)
         if (j.contains(wkey))
             m_widths[i] = qBound(0.1, j.value(wkey).toDouble(m_widths[i]), 20.0);
     }
+    m_customized = j.value(QLatin1String("customized")).toBool(m_customized);
     setDirty();
 }
 
@@ -138,17 +140,20 @@ void MeshBcStyle::seedFromLegacyEdgeJson(const QJsonObject &j)
         const double legacy =
             qBound(0.1, j.value(QStringLiteral("bcWidthPx")).toDouble(1.60), 20.0);
         for (int i = 1; i < kBcTypeCount; ++i) m_widths[i] = legacy;
+        m_customized = true;
     }
     for (int i = 0; i < kBcTypeCount; ++i) {
         const QLatin1String ckey(kLegacyColorKeys[i]);
         if (j.contains(ckey)) {
             const QColor c(j.value(ckey).toString());
-            if (c.isValid()) m_colors[i] = c;
+            if (c.isValid()) { m_colors[i] = c; m_customized = true; }
         }
         if (!kLegacyWidthKeys[i]) continue;
         const QLatin1String wkey(kLegacyWidthKeys[i]);
-        if (j.contains(wkey))
+        if (j.contains(wkey)) {
             m_widths[i] = qBound(0.1, j.value(wkey).toDouble(m_widths[i]), 20.0);
+            m_customized = true;
+        }
     }
     // Legacy styles had no per-type visibility — everything shown.
     for (int i = 0; i < kBcTypeCount; ++i) m_typeVisible[i] = true;
