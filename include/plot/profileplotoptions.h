@@ -100,6 +100,13 @@ public:
     // ── Ground / terrain ────────────────────────────────────────────────
     Q_PROPERTY(bool useTerrainGround READ useTerrainGround WRITE setUseTerrainGround NOTIFY changed)
 
+    // ── Node connectivity ───────────────────────────────────────────────
+    // What ELSE meets each node on the path: truncated stubs of the links
+    // the profile does not follow, and a small plan rose giving every
+    // connected link's map bearing and flow direction.
+    Q_PROPERTY(bool showBranchStubs  READ showBranchStubs  WRITE setShowBranchStubs  NOTIFY changed)
+    Q_PROPERTY(bool showNodeRoses    READ showNodeRoses    WRITE setShowNodeRoses    NOTIFY changed)
+
     // ── Flooding indicator (animated wedge above the rim) ───────────────
     Q_PROPERTY(double floodRadiusPx  READ floodRadiusPx   WRITE setFloodRadiusPx   NOTIFY changed)
     Q_PROPERTY(int    floodSweepDeg  READ floodSweepDeg   WRITE setFloodSweepDeg   NOTIFY changed)
@@ -212,6 +219,8 @@ public:
     openswmmvis::plot::NumberFormat yFormat() const
     { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision, m_yLabelFormatStr }; }
     bool     useTerrainGround() const { return m_useTerrainGround; }
+    bool     showBranchStubs()  const { return m_showBranchStubs; }
+    bool     showNodeRoses()    const { return m_showNodeRoses; }
 
     double   floodRadiusPx()    const { return m_floodRadiusPx; }
     int      floodSweepDeg()    const { return m_floodSweepDeg; }
@@ -283,6 +292,8 @@ public slots:
     void setYLabelPrecision (int count);
     void setYLabelFormat    (const QString &spec);
     void setUseTerrainGround(bool v);
+    void setShowBranchStubs (bool v);
+    void setShowNodeRoses   (bool v);
     void setFloodRadiusPx (double r);
     void setFloodSweepDeg (int deg);
     void setFloodColor    (const QColor &c);
@@ -355,6 +366,8 @@ private:
     int              m_yLabelPrecision  = 2;
     QString          m_yLabelFormatStr;           // optional printf override; empty = use mode+precision
     bool             m_useTerrainGround = false;
+    bool             m_showBranchStubs  = true;
+    bool             m_showNodeRoses    = true;
 
     // Flooding-glyph defaults: a 60° wedge with a 15 px radius reads at
     // small zoom levels without crowding adjacent rim glyphs.  Colour is

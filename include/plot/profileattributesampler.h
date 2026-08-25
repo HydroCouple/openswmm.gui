@@ -106,6 +106,24 @@ struct AttributeProfile
                                      const ProfileBuilder::PathStatic &path,
                                      openswmmvis::plot::PlotAttribute attr);
 
+/*!
+ * \brief Species variant (Y2b-2 follow-up, amendment D-Y4): fetches the
+ *        along-the-path profile of one species — a pollutant or the
+ *        reserved water-age column — BY NAME, in node or link scope.
+ *
+ * The name resolves against the run's live species list at call time
+ * (SwmmOutRunLayer::speciesVariableCodeFor), so a reordered model can't
+ * repoint the track at a different column. A run that doesn't carry the
+ * species leaves every row EMPTY — same "no data ≠ 0.0" contract as the
+ * enum overload. `attribute` in the result stays `Unknown`; the species
+ * identity lives with the caller.
+ */
+[[nodiscard]] AttributeProfile fetchSpecies(
+    SWMMResultsLayer *resultsLayer,
+    const ProfileBuilder::PathStatic &path,
+    const QString &species,
+    bool nodeScope);
+
 } // namespace ProfileAttributeSampler
 
 #endif // OPENSWMMVIS_PLOT_PROFILEATTRIBUTESAMPLER_H

@@ -525,9 +525,10 @@ private slots:
      *  Qt::Tool flags so it floats above the profile. Reused across multiple
      *  right-click "Plot Time Series" picks from the same profile; dies with
      *  the profile dialog. */
-    void openComparisonPlotOverlayForProfile(ProfilePlotDialog *profileDlg,
-                                              const SWMMObjectRef &ref,
-                                              openswmmvis::plot::PlotAttribute attribute);
+    void openComparisonPlotOverlayForProfile(
+        ProfilePlotDialog *profileDlg,
+        const SWMMObjectRef &ref,
+        const openswmmvis::plot::ResultDescriptor &descriptor);
 
     /*! Slice AT.2 — open / focus the dialog and add a system-wide series
      *  (rainfall, runoff, flooding, …). Resolved against the active

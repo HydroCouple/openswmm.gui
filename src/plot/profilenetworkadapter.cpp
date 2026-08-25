@@ -10,6 +10,8 @@
 
 #include "plot/profilenetworkadapter.h"
 
+#include <cmath>
+
 #include <algorithm>
 
 namespace ProfileNetworkAdapter
@@ -102,6 +104,15 @@ ProfileBuilder::PathStatic buildPathStatic(
     }
     out.chainage = ProfileBuilder::computeChainage(out.links);
     return out;
+}
+
+double bearingFromPoints(const QPointF &at, const QPointF &away)
+{
+    const double dx = away.x() - at.x();
+    const double dy = away.y() - at.y();
+    if (dx == 0.0 && dy == 0.0) return ProfileBuilder::kNoBearing;
+    // (dx, dy) rather than (dy, dx): puts 0 at +y and grows clockwise.
+    return std::atan2(dx, dy);
 }
 
 } // namespace ProfileNetworkAdapter

@@ -186,6 +186,8 @@ void ProfilePlotOptions::setYLabelPrecision (int count) {
 }
 void ProfilePlotOptions::setYLabelFormat    (const QString &spec) { SET_OBJ(m_yLabelFormatStr, spec); }
 void ProfilePlotOptions::setUseTerrainGround(bool v)   { SET_PRIM(m_useTerrainGround, v); }
+void ProfilePlotOptions::setShowBranchStubs (bool v)  { SET_PRIM(m_showBranchStubs, v); }
+void ProfilePlotOptions::setShowNodeRoses   (bool v)  { SET_PRIM(m_showNodeRoses, v); }
 void ProfilePlotOptions::setFloodRadiusPx (double r) {
     r = std::clamp(r, 4.0, 60.0);
     SET_PRIM(m_floodRadiusPx, r);
