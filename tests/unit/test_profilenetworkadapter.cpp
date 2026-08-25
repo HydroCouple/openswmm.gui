@@ -12,8 +12,11 @@
 #include "plot/profilebuilder.h"
 #include "plot/profilerouter.h"
 
+#include <QPointF>
 #include <QString>
 #include <QVector>
+
+#include <cmath>
 
 using namespace ProfileNetworkAdapter;
 
@@ -189,4 +192,71 @@ TEST(ProfileNetworkAdapter, BuildPathStatic_PassesThroughReversedFlagAndKind)
     EXPECT_TRUE (p.links[0].reversed);
     EXPECT_EQ(p.links[0].kind, ProfileBuilder::LinkKind::Pump);
     EXPECT_DOUBLE_EQ(p.chainage[1], 7.0);
+}
+
+// ---------------------------------------------------------------------------
+// Plan-rose bearing convention
+// ---------------------------------------------------------------------------
+//
+// The profile's per-node rose draws each connected link as a spoke at this
+// bearing, so the convention has to be pinned: 0 = +y (north), growing
+// CLOCKWISE. Getting atan2's argument order backwards yields a rose that is
+// rotated 90 degrees and mirrored — a plausible-looking picture that points
+// every branch the wrong way, which no amount of eyeballing reliably catches.
+
+namespace
+{
+constexpr double kPi = 3.14159265358979323846;
+
+// Bearings are angles: compare on the circle so -pi and +pi agree.
+::testing::AssertionResult BearingNear(double got, double want, double tol)
+{
+    double d = std::fmod(got - want + 3.0 * kPi, 2.0 * kPi) - kPi;
+    if (std::abs(d) <= tol) return ::testing::AssertionSuccess();
+    return ::testing::AssertionFailure()
+           << "bearing " << got << " rad is not within " << tol
+           << " of " << want << " rad (delta " << d << ")";
+}
+} // namespace
+
+TEST(ProfileNetworkAdapter, BearingFromPoints_ZeroIsNorthAndGrowsClockwise)
+{
+    const QPointF o(0.0, 0.0);
+    constexpr double tol = 1e-9;
+
+    // +y is north = 0.
+    EXPECT_TRUE(BearingNear(ProfileNetworkAdapter::bearingFromPoints(o, {0.0, 1.0}),
+                            0.0, tol));
+    // Clockwise from north: east = +pi/2.
+    EXPECT_TRUE(BearingNear(ProfileNetworkAdapter::bearingFromPoints(o, {1.0, 0.0}),
+                            kPi / 2.0, tol));
+    // South = pi.
+    EXPECT_TRUE(BearingNear(ProfileNetworkAdapter::bearingFromPoints(o, {0.0, -1.0}),
+                            kPi, tol));
+    // West = -pi/2 (equivalently 3pi/2).
+    EXPECT_TRUE(BearingNear(ProfileNetworkAdapter::bearingFromPoints(o, {-1.0, 0.0}),
+                            -kPi / 2.0, tol));
+    // North-east = +pi/4 — catches a mirrored (counter-clockwise) convention,
+    // which the four cardinal points alone would not.
+    EXPECT_TRUE(BearingNear(ProfileNetworkAdapter::bearingFromPoints(o, {1.0, 1.0}),
+                            kPi / 4.0, tol));
+}
+
+TEST(ProfileNetworkAdapter, BearingFromPoints_IsTranslationAndScaleInvariant)
+{
+    // The rose only cares about direction: a link leaving the same way from a
+    // different origin, or drawn longer, must give the same spoke.
+    const double a = ProfileNetworkAdapter::bearingFromPoints({0.0, 0.0}, {3.0, 4.0});
+    const double b = ProfileNetworkAdapter::bearingFromPoints({10.0, -7.0}, {13.0, -3.0});
+    const double c = ProfileNetworkAdapter::bearingFromPoints({0.0, 0.0}, {300.0, 400.0});
+    EXPECT_TRUE(BearingNear(a, b, 1e-12));
+    EXPECT_TRUE(BearingNear(a, c, 1e-12));
+}
+
+TEST(ProfileNetworkAdapter, BearingFromPoints_CoincidentPointsYieldNoBearing)
+{
+    // A zero-length link has no honest direction. The sentinel keeps it out
+    // of the rose instead of publishing an accidental north spoke.
+    EXPECT_EQ(ProfileNetworkAdapter::bearingFromPoints({5.0, 5.0}, {5.0, 5.0}),
+              ProfileBuilder::kNoBearing);
 }

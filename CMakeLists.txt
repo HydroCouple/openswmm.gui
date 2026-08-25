@@ -357,6 +357,7 @@ set(
         include/plot/irunlayer.h
         include/plot/resultdescriptor.h
         include/plot/comparisonplotmodel.h
+        include/plot/seriesdataexport.h
         include/plot/swmmoutrunlayer.h
         include/plot/mesh2drunlayer.h
         include/plot/observedcsvrunlayer.h
@@ -995,6 +996,7 @@ set(
         src/plot/fitmetrics.cpp
         src/plot/seriespairing.cpp
         src/plot/comparisonplotmodel.cpp
+        src/plot/seriesdataexport.cpp
         src/plot/resultdescriptor.cpp
         src/plot/swmmoutrunlayer.cpp
         src/plot/swmmoutrunlayer_codes.cpp

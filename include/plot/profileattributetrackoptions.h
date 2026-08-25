@@ -80,8 +80,32 @@ public:
      *  each in plotattribute.h presentation order). */
     [[nodiscard]] QVector<openswmmvis::plot::PlotAttribute> visibleAttributes() const;
 
-    /*! True when at least one attribute is visible — drives whether the
-     *  tracks pane is shown at all. */
+    // ── Species tracks (Y2b-2 follow-up, amendment D-Y4) ────────────────
+    // A species (pollutant or the reserved water-age column) is carried BY
+    // NAME, never by enum — the run's live list resolves it at fetch time.
+    // Each species can be tracked in node scope and link scope
+    // independently (concentration at the path's nodes vs in its links),
+    // so every accessor takes the scope alongside the name. State for a
+    // species the current run doesn't carry is kept verbatim (the Y2b-3
+    // save-then-reopen semantic): it simply isn't offered until a run
+    // with that species is loaded again.
+
+    [[nodiscard]] bool isSpeciesTrackVisible(const QString &species,
+                                             bool nodeScope) const;
+    void setSpeciesTrackVisible(const QString &species, bool nodeScope,
+                                bool on);
+    [[nodiscard]] QPen speciesTrackPenFor(const QString &species,
+                                          bool nodeScope) const;
+    void setSpeciesTrackPenFor(const QString &species, bool nodeScope,
+                               const QPen &pen);
+
+    /*! Visible species tracks as (name, nodeScope) pairs, sorted by name
+     *  then node-before-link — a deterministic display order regardless
+     *  of toggle history. */
+    [[nodiscard]] QVector<QPair<QString, bool>> visibleSpeciesTracks() const;
+
+    /*! True when at least one attribute or species track is visible —
+     *  drives whether the tracks pane is shown at all. */
     [[nodiscard]] bool anyAttributeVisible() const;
 
     // ── Chrome ──────────────────────────────────────────────────────────
@@ -161,8 +185,17 @@ signals:
     void changed();
 
 private:
+    /*! Scope-qualified species key: `<name>@node` / `<name>@link`. The
+     *  name is the identity (D-G1); '@' never appears in SWMM ids and '/'
+     *  is avoided because QSettings treats it as a group separator. */
+    [[nodiscard]] static QString speciesKey(const QString &species,
+                                            bool nodeScope);
+
     QHash<int, bool> m_visible;   ///< key = int(PlotAttribute)
     QHash<int, QPen> m_pens;      ///< key = int(PlotAttribute)
+
+    QHash<QString, bool> m_speciesVisible;   ///< key = speciesKey()
+    QHash<QString, QPen> m_speciesPens;      ///< key = speciesKey()
 
     int    m_trackHeightPx    = 110;
     bool   m_showTrackTitles  = true;
