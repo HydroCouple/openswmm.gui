@@ -47,6 +47,14 @@ public:
                                   QWidget *parent = nullptr);
     ~InitialQualityDialog() override = default;
 
+    /*! \brief Restrict the dialog to one node (\p isLink 0) or link
+     *         (\p isLink 1). The Scope / Element columns collapse, rows
+     *         for other elements are neither shown nor touched on OK,
+     *         and Add creates rows pinned to the element. No-op when
+     *         the element is unknown to the engine. Used by the
+     *         Property Browser's per-element "Initial Quality" cell. */
+    void setElementScope(int isLink, const QString &elementName);
+
     /*! \brief True once OK has written at least one change to the engine. */
     [[nodiscard]] bool wroteAnyChanges() const { return m_wroteAnyChanges; }
 
@@ -70,6 +78,8 @@ private:
     QLabel       *m_hintLabel       = nullptr;
     bool          m_wroteAnyChanges = false;
     int           m_lastWriteCount  = 0;
+    int           m_scopeIsLink     = -1;   ///< -1 = whole-model mode
+    int           m_scopeElemIdx    = -1;   ///< engine index of the scoped element
 };
 
 } // namespace OpenSWMMVis

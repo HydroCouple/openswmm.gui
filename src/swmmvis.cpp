@@ -6815,7 +6815,14 @@ void SWMMVis::onEditInitialQuality()
 
     OpenSWMMVis::InitialQualityDialog dlg(pw->modelLayer()->engine(), this);
     if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
+    {
         pw->setHasChanges(true);
+        // The Attribute Table surfaces the same [INITIAL_QUALITY] rows as
+        // per-constituent columns — reload it so a whole-model edit shows
+        // up without switching categories (CLAUDE.md §5.1 sync).
+        if (mAttributeTablePanel)
+            mAttributeTablePanel->refresh();
+    }
 }
 
 void SWMMVis::onEditReactionSystem()

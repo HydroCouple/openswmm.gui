@@ -116,6 +116,32 @@ void InitialQualityDialog::buildUi()
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
 
+void InitialQualityDialog::setElementScope(int isLink, const QString &elementName)
+{
+    if (!m_engine || elementName.isEmpty()) return;
+    const QByteArray nameUtf8 = elementName.toUtf8();
+    const int idx = isLink ? swmm_link_index(m_engine, nameUtf8.constData())
+                           : swmm_node_index(m_engine, nameUtf8.constData());
+    if (idx < 0) return;
+
+    m_scopeIsLink  = isLink ? 1 : 0;
+    m_scopeElemIdx = idx;
+
+    setWindowTitle(tr("Initial Quality — %1 %2")
+                       .arg(isLink ? tr("Link") : tr("Node"), elementName));
+    m_hintLabel->setText(
+        tr("Initial concentrations for %1 <b>%2</b>, applied at the start "
+           "of the run over the global initial concentration from the "
+           "pollutant editor. Water age is in <b>hours</b> (negative "
+           "extracts age), temperature in <b>°C</b>. A value on a dry "
+           "element takes effect when the element wets.")
+            .arg(isLink ? tr("link") : tr("node"), elementName));
+    m_table->setColumnHidden(kColScope, true);
+    m_table->setColumnHidden(kColElement, true);
+
+    readFromEngine();
+}
+
 void InitialQualityDialog::populateElementCombo(int row)
 {
     auto *scopeCombo = qobject_cast<QComboBox *>(
@@ -186,6 +212,18 @@ void InitialQualityDialog::onAddRow()
             [applyFloor]() { applyFloor(); });
     populateElementCombo(r);
     applyFloor();
+
+    // Element-scoped mode: pin the (hidden) Scope / Element combos to the
+    // scoped element so every row the user adds belongs to it.
+    if (m_scopeIsLink >= 0) {
+        const int si = scopeCombo->findData(m_scopeIsLink);
+        if (si >= 0) scopeCombo->setCurrentIndex(si);
+        populateElementCombo(r);
+        const int ei = elemCombo->findData(m_scopeElemIdx);
+        if (ei >= 0) elemCombo->setCurrentIndex(ei);
+        scopeCombo->setEnabled(false);
+        elemCombo->setEnabled(false);
+    }
 }
 
 void InitialQualityDialog::onRemoveRow()
@@ -206,6 +244,9 @@ void InitialQualityDialog::readFromEngine()
         if (swmm_init_quality_get(m_engine, i, &is_link, &elem,
                                   cons, sizeof(cons), &value) != SWMM_OK)
             continue;
+        if (m_scopeIsLink >= 0 &&
+            (is_link != m_scopeIsLink || elem != m_scopeElemIdx))
+            continue;                        // element-scoped: other elements stay put
         onAddRow();                          // builds the row's widgets
         const int r = m_table->rowCount() - 1;
         if (auto *c = qobject_cast<QComboBox *>(
@@ -250,8 +291,10 @@ int InitialQualityDialog::writeToEngine()
         }
     };
 
-    // Snapshot the engine rows (key + value + entry index).
-    struct EngineRow { Key key; double value; };
+    // Snapshot the engine rows (key + value + entry index). In element-
+    // scoped mode only the scoped element's rows enter the diff, so rows
+    // belonging to other elements can never be removed by this dialog.
+    struct EngineRow { Key key; double value; int entry; };
     QVector<EngineRow> engineRows;
     const int count = swmm_init_quality_count(m_engine);
     for (int i = 0; i < count; ++i) {
@@ -259,9 +302,13 @@ int InitialQualityDialog::writeToEngine()
         char cons[128] = {0};
         double value = 0.0;
         if (swmm_init_quality_get(m_engine, i, &is_link, &elem,
-                                  cons, sizeof(cons), &value) == SWMM_OK)
-            engineRows.append(
-                { { is_link, elem, QString::fromUtf8(cons) }, value });
+                                  cons, sizeof(cons), &value) != SWMM_OK)
+            continue;
+        if (m_scopeIsLink >= 0 &&
+            (is_link != m_scopeIsLink || elem != m_scopeElemIdx))
+            continue;
+        engineRows.append(
+            { { is_link, elem, QString::fromUtf8(cons) }, value, i });
     }
 
     // Collect the table rows.
@@ -289,7 +336,7 @@ int InitialQualityDialog::writeToEngine()
         for (const auto &t : tableRows)
             if (t.key == engineRows[i].key) { kept = true; break; }
         if (!kept &&
-            swmm_init_quality_remove(m_engine, i) == SWMM_OK)
+            swmm_init_quality_remove(m_engine, engineRows[i].entry) == SWMM_OK)
             ++writes;
     }
 

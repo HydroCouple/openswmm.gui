@@ -538,6 +538,8 @@ set(
         include/ui/dialogs/userflagvaluesdialog.h
         include/ui/properties/userflagseditref.h
         include/ui/properties/userflagseditbutton.h
+        include/ui/properties/initialqualityeditref.h
+        include/ui/properties/initialqualityeditbutton.h
 
         # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
         include/timeseries/timeseriesprovider.h
@@ -1185,6 +1187,8 @@ set(
         src/ui/dialogs/userflagvaluesdialog.cpp
         src/ui/properties/userflagseditref.cpp
         src/ui/properties/userflagseditbutton.cpp
+        src/ui/properties/initialqualityeditref.cpp
+        src/ui/properties/initialqualityeditbutton.cpp
 
         # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
         src/timeseries/timeseriesprovider.cpp
