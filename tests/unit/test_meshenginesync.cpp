@@ -299,3 +299,92 @@ TEST(MeshEngineSync, EditsPersistInOpenedState)
     EXPECT_TRUE(text.contains(QStringLiteral("88.8")))
         << "edge stage BC edit not saved in OPENED state";
 }
+
+// SVBC A8 — GUI/engine BC parity, per slot, read back through the engine's
+// OPENED-state getters (the setters' new mirror image). Against a pre-A8
+// engine every getter refuses with SWMM_ERR_BADPARAM (they carried the
+// solver-state guard) and the first ASSERT below goes red — that IS the
+// falsifier for this gate.
+TEST(MeshEngineSync, PushedBcStateReadsBackFromEngine)
+{
+    const QString inPath = QStringLiteral("mesh_sync_fixture.inp");
+    const mesh::InpMeshReadResult rr = mesh::InpMeshReader::read(inPath);
+    ASSERT_TRUE(rr.hasMesh) << rr.errorMsg.toStdString();
+    mesh::MeshResult          meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs       = rr.edgeBCs;
+
+    SWMM_Engine e = swmm_engine_create();
+    ASSERT_NE(e, nullptr);
+    // Deliberately NO swmm_engine_initialize: the GUI holds its engine in
+    // the plain OPENED state, and initialize activates the 2D router —
+    // which would let the pre-A8 solver-state guard pass and blunt this
+    // gate (the EditsPersistInOpenedState convention).
+    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
+                               "mesh_sync_parity.rpt", "mesh_sync_parity.out",
+                               nullptr), 0);
+    int nt = 0;
+    ASSERT_EQ(swmm_2d_triangle_count(e, &nt), 0);
+    ASSERT_EQ(bcs.size(), nt * 3);
+    ASSERT_GT(nt, 7);
+    // Pre-drain gate: before prepare_for_edit runs (inside
+    // pushMeshEditsToEngine), BoundaryData's live arrays are UNSIZED even
+    // for a deck with authored BC rows — the getter must refuse cleanly,
+    // not read past the end (unchecked indexing here segfaulted when this
+    // gate was first written; the CHECK_BC_SIZED guard is the fix).
+    { int et0 = -1;
+      EXPECT_NE(swmm_2d_get_edge_bc_type(e, 0, 0, &et0), 0)
+          << "pre-drain BC getter must refuse, not read unsized arrays"; }
+
+    // Name-carrying edits on the two slots the fixture keeps as boundary
+    // BCs; the names need not resolve — the setters store them verbatim
+    // with deferred resolution, so a missing-TS warning is acceptable.
+    bcs[5 * 3 + 0].type    = mesh::MeshBCTypes::Type::SpecifiedStageTS;
+    bcs[5 * 3 + 0].tseries = QStringLiteral("TS_PARITY");
+    bcs[7 * 3 + 0].type    = mesh::MeshBCTypes::Type::SpecifiedFlowTS;
+    bcs[7 * 3 + 0].tseries = QStringLiteral("TS_PARITY_Q");
+
+    QStringList warnings;
+    ASSERT_TRUE(mesh::pushMeshEditsToEngine(e, meshState, bcs, &warnings));
+
+    using T = mesh::MeshBCTypes::Type;
+    const auto engTypeOf = [](T t) {
+        switch (t) {
+        case T::Wall:                return SWMM_2D_BC_WALL;
+        case T::NormalFlow:          return SWMM_2D_BC_NORMAL_FLOW;
+        case T::SpecifiedStageConst:
+        case T::SpecifiedStageTS:    return SWMM_2D_BC_SPECIFIED_STAGE;
+        case T::SpecifiedFlowConst:
+        case T::SpecifiedFlowTS:     return SWMM_2D_BC_SPECIFIED_FLOW;
+        case T::RatingCurve:         return SWMM_2D_BC_RATING_CURVE;
+        }
+        return SWMM_2D_BC_WALL;
+    };
+
+    char buf[128];
+    for (int t = 0; t < nt; ++t) {
+        for (int k = 0; k < 3; ++k) {
+            const mesh::MeshEdgeBC &b = bcs[t * 3 + k];
+            int et = -1;
+            ASSERT_EQ(swmm_2d_get_edge_bc_type(e, t, k, &et), 0)
+                << "OPENED-state BC getter refused (pre-A8 solver guard?)";
+            EXPECT_EQ(et, engTypeOf(b.type)) << "type mismatch at " << t
+                                             << ":" << k;
+            ASSERT_EQ(swmm_2d_get_edge_bc_tseries_name(e, t, k, buf,
+                                                       sizeof buf), 0);
+            EXPECT_EQ(QString::fromUtf8(buf),
+                      b.type == T::SpecifiedStageTS ? b.tseries : QString())
+                << "stage-TS name mismatch at " << t << ":" << k;
+            ASSERT_EQ(swmm_2d_get_edge_bc_flow_tseries_name(e, t, k, buf,
+                                                            sizeof buf), 0);
+            EXPECT_EQ(QString::fromUtf8(buf),
+                      b.type == T::SpecifiedFlowTS ? b.tseries : QString())
+                << "flow-TS name mismatch at " << t << ":" << k;
+            ASSERT_EQ(swmm_2d_get_edge_bc_rating_curve_name(e, t, k, buf,
+                                                            sizeof buf), 0);
+            EXPECT_EQ(QString::fromUtf8(buf),
+                      b.type == T::RatingCurve ? b.curve : QString())
+                << "curve name mismatch at " << t << ":" << k;
+        }
+    }
+    swmm_engine_destroy(e);
+}
