@@ -452,19 +452,20 @@ void AnimationController::onTimerTick()
     }
 
     // Slice Z.13-controller — end-of-range behaviour comes from the
-    // primary's TemporalSpec when enabled. Three behaviours:
-    //   - default (spec disabled OR loop=false, pingPong=false): pause
-    //     on reaching the end. Preserves the legacy UX.
-    //   - loop=true, pingPong=false: wrap to rangeMin and keep playing.
+    // toolbar Cycle checkbox (m_loop, default on) OR the primary's
+    // TemporalSpec when enabled. Three behaviours:
+    //   - m_loop=false AND (spec disabled OR loop=false, pingPong=false):
+    //     pause on reaching the end. Preserves the legacy UX.
+    //   - loop: wrap to rangeMin and keep playing.
     //   - pingPong=true (implies loop=true per the spec doc): reverse
     //     direction and step backwards until hitting rangeMin, then
     //     reverse again. Forward-and-back forever.
-    bool loop     = false;
+    bool loop     = m_loop;
     bool pingPong = false;
     if (m_primaryLayer) {
         const auto &spec = m_primaryLayer->temporalSpec();
         if (spec.enabled) {
-            loop     = spec.loop || spec.pingPong;
+            loop     = loop || spec.loop || spec.pingPong;
             pingPong = spec.pingPong;
         }
     } else if (m_fallback2D) {
@@ -473,7 +474,7 @@ void AnimationController::onTimerTick()
         // handled in updateTimerInterval below.
         const auto &spec = m_fallback2D->temporalSpec();
         if (spec.enabled) {
-            loop     = spec.loop || spec.pingPong;
+            loop     = loop || spec.loop || spec.pingPong;
             pingPong = spec.pingPong;
         }
     }
