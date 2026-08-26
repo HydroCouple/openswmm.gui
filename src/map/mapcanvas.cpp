@@ -17,6 +17,7 @@
 #include "map/profilepathoverlay.h"
 #include "map/selectionbeaconoverlay.h"
 #include "map/tools/maptool.h"
+#include "layers/gisvectorlayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmm2dmeshlayer.h"
@@ -980,6 +981,16 @@ QVector<QPointF> MapCanvas::resolveSelectionAnchors() const
         if (!l || !l->isVisible()) continue;
         if (auto *ml = qobject_cast<SWMM2DMeshLayer *>(l)) {
             appendMeshSelectionAnchors(ml, anchors);
+            if (anchors.size() >= SelectionBeacon::kMaxBeacons + 1) break;
+            continue;
+        }
+        if (auto *gl = qobject_cast<GISVectorLayer *>(l)) {
+            // Items are already scene-space, so NO y-negation here (the
+            // SWMM branch below negates because it starts from map coords).
+            for (const QPointF &c : gl->selectedFeatureAnchors()) {
+                anchors.push_back(c);
+                if (anchors.size() >= SelectionBeacon::kMaxBeacons + 1) break;
+            }
             if (anchors.size() >= SelectionBeacon::kMaxBeacons + 1) break;
             continue;
         }

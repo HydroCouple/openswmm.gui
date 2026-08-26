@@ -197,6 +197,7 @@ set(
         include/core/swmmdatetime.h
         include/core/swmmdatetimeformat.h
         include/selection/selectionmanager.h
+        include/selection/gisselectionbridge.h
         include/selection/selectionops.h
 
         # ── Animation ────────────────────────────────────────────────────────
@@ -366,6 +367,7 @@ set(
         include/layers/openswmmvislayer.h
         include/layers/tilepyramidlayer.h
         include/layers/gisvectorlayer.h
+        include/layers/gisobjectref.h
         include/layers/gisvectorsymboladapter.h
         include/layers/gisrasterlayer.h
         include/layers/wcslayer.h
@@ -875,6 +877,7 @@ set(
 
         # Selection
         src/selection/selectionmanager.cpp
+        src/selection/gisselectionbridge.cpp
         src/selection/selectionops.cpp
 
         # Animation
@@ -1011,6 +1014,7 @@ set(
         src/layers/openswmmvislayer.cpp
         src/layers/tilepyramidlayer.cpp
         src/layers/gisvectorlayer.cpp
+        src/layers/gisobjectref.cpp
         src/layers/gisrasterlayer.cpp
         src/layers/wcslayer.cpp
         src/layers/wmslayer.cpp

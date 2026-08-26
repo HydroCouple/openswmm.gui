@@ -6193,6 +6193,13 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                         return;
                     }
 
+                    // SVBC round B — GIS feature refs are not SWMM network
+                    // objects either; identifyByName would mis-resolve the
+                    // encoded name. Feature attributes live in the Attribute
+                    // Table (a Properties adapter is future work).
+                    if (first.objectType == SWMMObjectRef::ObjectType::Feature)
+                        return;
+
                     // Slice DA.2 — non-spatial Data Object kinds bypass
                     // identifyByName (which only handles spatial features
                     // with map coordinates) and dispatch straight to the

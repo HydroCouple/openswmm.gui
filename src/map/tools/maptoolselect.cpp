@@ -1093,12 +1093,14 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel,
 
             vl->setSelectedFeatureIds(ids);
             emit selectionChanged(vl);
+            return;   // one click selects one object across all layers
         }
     }
 
     // Clicked on empty space with no modifier → clear selections across
-    // all SWMM layers so the Attribute Panel empties out. Ignore when
-    // Shift/Ctrl is held so partial selections don't vanish on a miss.
+    // all SWMM and GIS layers so the Attribute Panel / Table empty out.
+    // Ignore when Shift/Ctrl is held so partial selections don't vanish
+    // on a miss.
     if (!(mods & (Qt::ShiftModifier | Qt::ControlModifier)))
     {
         for (OpenSWMMVisLayer *l : m_canvas->layers()) {
@@ -1106,6 +1108,11 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel,
                 if (!sl->selectedElementNames().isEmpty()) {
                     sl->clearSelection();
                     emit selectionChanged(sl);
+                }
+            } else if (auto *vl = qobject_cast<GISVectorLayer *>(l)) {
+                if (!vl->selectedFeatureIds().isEmpty()) {
+                    vl->clearSelection();
+                    emit selectionChanged(vl);
                 }
             }
         }
@@ -1215,10 +1222,22 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
 
         if (auto *vl = qobject_cast<GISVectorLayer *>(l))
         {
-            // TODO: implement rect-based selection via GDAL spatial filter
-            // For now use a simple extent-overlap check
-            Q_UNUSED(selection)
-            emit selectionChanged(vl);
+            // Precise geometry hit-test in the layer (bbox prefilter via
+            // OGR spatial filter, then OGRGeometry::Intersects), with the
+            // SWMM modifier semantics: Shift = union, Ctrl = subtract,
+            // plain = replace.
+            const QSet<long long> hit = vl->featureIdsInRect(selection);
+            QSet<long long> ids;
+            if (mods & Qt::ControlModifier)
+                ids = vl->selectedFeatureIds() - hit;
+            else if (mods & Qt::ShiftModifier)
+                ids = vl->selectedFeatureIds() + hit;
+            else
+                ids = hit;
+            if (ids != vl->selectedFeatureIds()) {
+                vl->setSelectedFeatureIds(ids);
+                emit selectionChanged(vl);
+            }
         }
     }
 }

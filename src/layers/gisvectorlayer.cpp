@@ -17,6 +17,7 @@
 #include "render/rule.h"
 #include "render/rulelist.h"
 #include "render/symbollayer.h"
+#include "core/preferencesmanager.h"
 #include "render/symbolstyle.h"
 #include "render/featureref.h"
 
@@ -711,6 +712,84 @@ QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
     return results;
 }
 
+QSet<long long> GISVectorLayer::featureIdsInRect(
+    const MapExtent &rectCanvasCrs) const
+{
+    QSet<long long> out;
+    if (!m_ogrLayer) return out;
+
+    // Rect corners → layer CRS when reprojected. The 4-corner bbox is fine
+    // HERE (unlike the old populate filter) because it is only a prefilter —
+    // the precise Intersects below decides membership.
+    double xMin = rectCanvasCrs.xMin(), yMin = rectCanvasCrs.yMin();
+    double xMax = rectCanvasCrs.xMax(), yMax = rectCanvasCrs.yMax();
+    if (m_transform) {
+        if (auto *inv = m_transform->GetInverse()) {
+            double xs[4] = {xMin, xMax, xMax, xMin};
+            double ys[4] = {yMin, yMin, yMax, yMax};
+            if (inv->Transform(4, xs, ys)) {
+                xMin = xs[0]; xMax = xs[0]; yMin = ys[0]; yMax = ys[0];
+                for (int i = 1; i < 4; ++i) {
+                    xMin = qMin(xMin, xs[i]); xMax = qMax(xMax, xs[i]);
+                    yMin = qMin(yMin, ys[i]); yMax = qMax(yMax, ys[i]);
+                }
+            }
+            OGRCoordinateTransformation::DestroyCT(inv);
+        }
+    }
+
+    OGRLinearRing ring;
+    ring.addPoint(xMin, yMin);
+    ring.addPoint(xMax, yMin);
+    ring.addPoint(xMax, yMax);
+    ring.addPoint(xMin, yMax);
+    ring.addPoint(xMin, yMin);
+    OGRPolygon rectGeom;
+    rectGeom.addRing(&ring);
+
+    // Save/restore any pre-existing spatial filter (clone first —
+    // SetSpatialFilter deletes the layer's internal filter, dangling the
+    // GetSpatialFilter return; the attribute-model reload discipline).
+    OGRGeometry *saved      = m_ogrLayer->GetSpatialFilter();
+    OGRGeometry *savedClone = saved ? saved->clone() : nullptr;
+
+    m_ogrLayer->SetSpatialFilterRect(xMin, yMin, xMax, yMax);
+    m_ogrLayer->ResetReading();
+    OGRFeature *feat = nullptr;
+    while ((feat = m_ogrLayer->GetNextFeature()) != nullptr) {
+        const OGRGeometry *g = feat->GetGeometryRef();
+        if (g && g->Intersects(&rectGeom))
+            out.insert(static_cast<long long>(feat->GetFID()));
+        OGRFeature::DestroyFeature(feat);
+    }
+
+    m_ogrLayer->SetSpatialFilter(savedClone);
+    if (savedClone) OGRGeometryFactory::destroyGeometry(savedClone);
+    m_ogrLayer->ResetReading();
+    return out;
+}
+
+QVector<QPointF> GISVectorLayer::selectedFeatureAnchors() const
+{
+    QVector<QPointF> out;
+    if (m_selectedIds.isEmpty()) return out;
+    const auto fidOf = [](QGraphicsItem *it) -> long long {
+        if (auto *p  = dynamic_cast<VectorPolygonPathItem *>(it))
+            return p->featureId();
+        if (auto *ln = dynamic_cast<VectorLineItem *>(it))
+            return ln->featureId();
+        if (auto *pt = dynamic_cast<VectorPointItem *>(it))
+            return pt->featureId();
+        return -1;
+    };
+    for (QGraphicsItem *it : m_sceneItems) {
+        const long long fid = fidOf(it);
+        if (fid >= 0 && m_selectedIds.contains(fid))
+            out.append(it->sceneBoundingRect().center());
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Scene population (QGraphicsScene / QGraphicsItems)
 // ---------------------------------------------------------------------------
@@ -749,9 +828,18 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
 
     const double baseZ = layerZValue();
 
+    // Selection highlight follows the configured selection pen (the canvas
+    // beacon's convention) instead of hardcoded yellow; yellow stays the
+    // fallback when no preference is set.
+    QColor selColor = PreferencesManager::instance()
+                          ->selectionPen(QStringLiteral("node")).color();
+    if (!selColor.isValid()) selColor = Qt::yellow;
+    QColor selFill = selColor;
+    selFill.setAlpha(100);
+
     auto addPoint = [&](double mx, double my, qint64 fid, bool selected) {
         auto *item = new VectorPointItem(fid, mx, -my, m_symbol.markerSize / 2.0);
-        item->setBrush(QBrush(selected ? Qt::yellow : m_symbol.markerFill));
+        item->setBrush(QBrush(selected ? selColor : m_symbol.markerFill));
         item->setPen(QPen(m_symbol.markerOutline, m_symbol.markerOutlineW));
         item->setMarkerShape(int(m_symbol.markerShape));   // G-1 — canonical shape
         item->setHighlighted(selected);
@@ -767,7 +855,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         if (scenePts.size() < 2)
             return;
         auto *item = new VectorLineItem(fid, scenePts);
-        QPen pen = selected ? QPen(Qt::yellow, m_symbol.linePen.widthF() + 2)
+        QPen pen = selected ? QPen(selColor, m_symbol.linePen.widthF() + 2)
                             : m_symbol.linePen;
         // Cosmetic pen → width stays in screen pixels regardless of zoom.
         // Without this, a layer in a projected CRS (e.g. coords ~1e7) at
@@ -793,7 +881,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
             return;
         // Path-based item so interior rings render as holes (odd-even fill).
         auto *item = new VectorPolygonPathItem(fid, exterior, interiors);
-        QBrush brush = selected ? QBrush(QColor(255, 255, 0, 100)) : m_symbol.polygonFill;
+        QBrush brush = selected ? QBrush(selFill) : m_symbol.polygonFill;
         item->setBrush(brush);
         QPen polyPen = m_symbol.polygonOutline;
         polyPen.setCosmetic(true);
@@ -924,6 +1012,12 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         << "[populate] " << name() << ": "
         << (m_sceneItems.size() - itemsBefore) << " items in "
         << populateTimer.elapsed() << " ms";
+
+    // A populate IS a rebuild: the scene now matches layer state, so the
+    // next refreshScene() must not churn the items. Without this, the
+    // constructor's `true` survives the canvas's add-time populate and the
+    // first refresh rebuilds every item for nothing.
+    m_needsRebuild = false;
 }
 
 void GISVectorLayer::depopulateScene(QGraphicsScene *scene)
