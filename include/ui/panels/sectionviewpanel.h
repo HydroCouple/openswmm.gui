@@ -65,9 +65,11 @@ public:
     [[nodiscard]] Mode mode() const noexcept { return m_mode; }
     void setMode(Mode mode);
 
-    /*! Vertical exaggeration applied to profiles: 0 = automatic (capped and
-     *  stated on the drawing), >0 = an explicit V:H ratio, 1.0 being true
-     *  scale. Cross-sections are always true shape and ignore this. */
+    /*! Scale (V:H) applied to LINK drawings — section and profile alike:
+     *  0 = automatic (fill the pane, ratio stated on the drawing), >0 = an
+     *  explicit V:H ratio, 1.0 being true shape / true scale. Node drawings
+     *  always fill the pane and ignore this (SVX: fill-canvas default with
+     *  a link-only scale override). */
     [[nodiscard]] double verticalExaggeration() const noexcept
     { return m_verticalExaggeration; }
     void setVerticalExaggeration(double ve);
