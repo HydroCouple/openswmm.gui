@@ -401,6 +401,7 @@ private:
     // so updateQualitySolverFieldsEnabled() can gate whole sections on the
     // solver selection — the updateFvFieldsEnabled() idiom.
     QComboBox      *m_qualitySolverCombo  = nullptr;   // QUALITY_SOLVER
+    QComboBox      *m_outfallBackflowCombo = nullptr;  // OUTFALL_BACKFLOW_QUALITY
     class QGroupBox *m_ardGroup           = nullptr;   // EULERIAN_ARD only
     class QGroupBox *m_lardGroup          = nullptr;   // LAGRANGIAN only
     QDoubleSpinBox *m_qualityStepSpin     = nullptr;   // QUALITY_STEP (s)
