@@ -296,8 +296,11 @@ public:
 
     /*! \brief Mutable BC view — used by INP reader to bulk-populate after
      *  load. Prefer the apply* helpers for user-driven edits so views
-     *  receive the attributeChanged signal. */
-    QVector<mesh::MeshEdgeBC> &edgeBCsMutable() { return m_bc; }
+     *  receive the attributeChanged signal. Bumps the BC revision on
+     *  every access: both callers assign the whole vector through this
+     *  reference, and without the bump the bcSceneEdges() render cache
+     *  keyed on m_bcRevision served stale geometry after a bulk reload. */
+    QVector<mesh::MeshEdgeBC> &edgeBCsMutable() { ++m_bcRevision; return m_bc; }
 
     /*! \brief Vertex pick. Returns the closest vertex index to scene
      *  point (sx,sy) within \p tolPx screen-pixels, or -1 if none.
