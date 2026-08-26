@@ -155,6 +155,15 @@ public:
     [[nodiscard]] static bool optionValueEquals(const QString &a,
                                                 const QString &b);
 
+    /*! \brief Distinct selected row indices of \a table, sorted descending
+     *         (safe order for removeRow()).  Reads the selection MODEL first —
+     *         the [EVENTS] table populates cells exclusively with
+     *         setCellWidget() editors, so item-based queries like
+     *         selectedItems() see an always-empty selection — then falls back
+     *         to selectedItems() for plain cell selections. */
+    [[nodiscard]] static QList<int> selectedRowsDescending(
+        const QTableWidget *table);
+
 private slots:
     void onApply();
     void onAccept();
