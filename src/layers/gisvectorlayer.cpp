@@ -727,51 +727,25 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
                                     const MapExtent &canvasExtent,
                                     const SpatialReferenceSystem * /*canvasSRS*/)
 {
+    Q_UNUSED(canvasExtent);
     if (!m_ogrLayer || !isVisible())
         return;
 
-    // Spatial filter must be in LAYER CRS (OGR layer holds layer-CRS data).
-    // Two cases:
-    //   - layer CRS == canvas CRS  →  m_transform is null  →  use canvas
-    //     extent directly (matching CRSes).
-    //   - layer CRS != canvas CRS  →  m_transform exists   →  inverse-
-    //     transform the four corners of canvasExtent into layer CRS, take
-    //     their bounding box. Without this, the filter rejects every
-    //     feature and the shapefile "doesn't render".
-    if (!m_transform)
-    {
-        m_ogrLayer->SetSpatialFilterRect(canvasExtent.xMin(), canvasExtent.yMin(),
-                                         canvasExtent.xMax(), canvasExtent.yMax());
-    }
-    else if (auto *inv = m_transform->GetInverse())
-    {
-        double xs[4] = {canvasExtent.xMin(), canvasExtent.xMax(),
-                        canvasExtent.xMax(), canvasExtent.xMin()};
-        double ys[4] = {canvasExtent.yMin(), canvasExtent.yMin(),
-                        canvasExtent.yMax(), canvasExtent.yMax()};
-        if (inv->Transform(4, xs, ys))
-        {
-            double xMin = xs[0], xMax = xs[0], yMin = ys[0], yMax = ys[0];
-            for (int i = 1; i < 4; ++i)
-            {
-                xMin = qMin(xMin, xs[i]); xMax = qMax(xMax, xs[i]);
-                yMin = qMin(yMin, ys[i]); yMax = qMax(yMax, ys[i]);
-            }
-            m_ogrLayer->SetSpatialFilterRect(xMin, yMin, xMax, yMax);
-        }
-        else
-        {
-            // Inverse transform failed (e.g. PROJ-side error) — fall back
-            // to no filter rather than silently dropping features.
-            m_ogrLayer->SetSpatialFilter(nullptr);
-        }
-        OGRCoordinateTransformation::DestroyCT(inv);
-    }
-    else
-    {
-        m_ogrLayer->SetSpatialFilter(nullptr);
-    }
+    // NO spatial filter: the item set lives for the layer's lifetime and the
+    // scene culls per frame (BSP index + render sourceRect), the same way
+    // SWMMLayerItem's exposed-rect cull works. Filtering here to the viewport
+    // froze the feature set to whatever extent was current at the last
+    // rebuild — refreshScene() ignores extent by design — so polygons only
+    // partially in view (or panned to later) simply vanished, and on
+    // reprojected layers the 4-corner inverse bbox additionally dropped
+    // edge-straddling features. The clear is defensive: identifyAt or an
+    // attribute reload may have left a filter behind.
+    m_ogrLayer->SetSpatialFilter(nullptr);
     m_ogrLayer->ResetReading();
+
+    QElapsedTimer populateTimer;
+    populateTimer.start();
+    const int itemsBefore = m_sceneItems.size();
 
     const double baseZ = layerZValue();
 
@@ -942,6 +916,14 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
 
     // Remove spatial filter when done
     m_ogrLayer->SetSpatialFilter(nullptr);
+
+    // Perf evidence for any future batched-item port: full-populate is the
+    // correctness-bearing design (see header comment), and this line prices
+    // it per layer.
+    qCInfo(lcLoadVector).nospace()
+        << "[populate] " << name() << ": "
+        << (m_sceneItems.size() - itemsBefore) << " items in "
+        << populateTimer.elapsed() << " ms";
 }
 
 void GISVectorLayer::depopulateScene(QGraphicsScene *scene)

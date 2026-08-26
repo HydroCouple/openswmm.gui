@@ -51,6 +51,12 @@ void OpenSWMMVisScene::removeItemsForLayer(OpenSWMMVisLayer *layer)
         {
             if (vg->ownerLayer() == layer) toRemove.append(item);
         }
+        else if (auto *vpp = dynamic_cast<VectorPolygonPathItem *>(item))
+        {
+            // The class every GIS polygon has actually used since the
+            // holes work — without this branch polygon items leaked here.
+            if (vpp->ownerLayer() == layer) toRemove.append(item);
+        }
         else if (auto *rt = dynamic_cast<RasterTileItem *>(item))
         {
             if (rt->ownerLayer() == layer) toRemove.append(item);
