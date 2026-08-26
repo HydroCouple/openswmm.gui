@@ -108,15 +108,23 @@ private slots:
         GISVectorLayer layer(gpkgPath(), QStringLiteral("polys"));
         OpenSWMMVisScene scene;
         layer.populateScene(&scene, MapExtent(0.0, 0.0, 1.5, 1.5), nullptr);
-        QSet<QGraphicsItem *> before;
-        for (auto *p : polygonItems(scene)) before.insert(p);
+        const auto before = polygonItems(scene);
         QCOMPARE(before.size(), 3);
+
+        // Churn probe: a rebuilt item set cannot carry this tag. Raw
+        // pointer-set equality is NOT a valid churn gate here — the
+        // allocator routinely hands the freed blocks straight back, and a
+        // failed compare would stringify dangling QGraphicsItem*s.
+        constexpr int kChurnProbe = 7;
+        for (auto *p : before) p->setData(kChurnProbe, true);
 
         layer.refreshScene(&scene, MapExtent(19.0, -1.0, 22.0, 2.0), nullptr);
 
-        QSet<QGraphicsItem *> after;
-        for (auto *p : polygonItems(scene)) after.insert(p);
-        QCOMPARE(after, before);
+        const auto after = polygonItems(scene);
+        QCOMPARE(after.size(), 3);
+        for (auto *p : after)
+            QVERIFY2(p->data(kChurnProbe).toBool(),
+                     "refreshScene rebuilt the item set after a plain pan");
     }
 
     /*! Selection arms a rebuild; the rebuild at an extent that EXCLUDES the
