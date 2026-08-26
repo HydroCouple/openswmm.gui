@@ -506,6 +506,8 @@ void TestOptionsHydrationContract::transportOptions_engineRoundTripsValues()
     QCOMPARE(getOptionString(e, "MAX_SEGMENTS_PER_LINK"), QStringLiteral("100"));
     QCOMPARE(getOptionString(e, "DISPERSION"),     QStringLiteral("OFF"));
     QCOMPARE(getOptionString(e, "RWPT_SEED"),      QStringLiteral("0"));
+    QCOMPARE(getOptionString(e, "OUTFALL_BACKFLOW_QUALITY"),
+             QStringLiteral("LAST"));
 
     // Set → get in the exact string forms writeToEngine() produces:
     // combo tokens, QString::number(v,'f',2) for the step, plain ints.
@@ -517,12 +519,14 @@ void TestOptionsHydrationContract::transportOptions_engineRoundTripsValues()
         { "RWPT_SEED",             "7",            "7"            },
         { "WATER_AGE",             "YES",          "YES"          },
         { "HEAT_TRANSPORT",        "YES",          "YES"          },
+        { "OUTFALL_BACKFLOW_QUALITY", "ZERO",      "ZERO"         },
         // The OFF/NO directions too — a one-way table would pass a setter
         // that can only ever turn things on.
         { "QUALITY_SOLVER",        "EULERIAN_ARD", "EULERIAN_ARD" },
         { "DISPERSION",            "OFF",          "OFF"          },
         { "WATER_AGE",             "NO",           "NO"           },
         { "HEAT_TRANSPORT",        "NO",           "NO"           },
+        { "OUTFALL_BACKFLOW_QUALITY", "LAST",      "LAST"         },
         { "QUALITY_SOLVER",        "LEGACY",       "LEGACY"       },
     };
     for (const auto &r : rows) {
