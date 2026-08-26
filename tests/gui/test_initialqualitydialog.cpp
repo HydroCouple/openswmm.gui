@@ -18,6 +18,10 @@
  *             than surviving as a stale key.
  *          5. Reserved species are gated: with WATER_AGE off the combo
  *             omits the age entry; on, it offers it (and heat likewise).
+ *          6. Element-scoped mode (the Property Browser's per-element
+ *             "Initial Quality" cell): only the scoped element's rows are
+ *             shown, added rows are pinned to it, and OK never touches
+ *             another element's rows.
  */
 
 #include "ui/dialogs/initialqualitydialog.h"
@@ -79,6 +83,9 @@ private slots:
     void noOpOkWritesNothing();
     void deletedRowIsRemovedFromEngine();
     void reservedSpeciesAreOptionGated();
+    void elementScopeShowsOnlyThatElementsRows();
+    void elementScopeEditPreservesOtherElements();
+    void elementScopeAddAndRemoveStayScoped();
 };
 
 void TestInitialQualityDialog::constructsWithNullEngine()
@@ -239,6 +246,114 @@ void TestInitialQualityDialog::reservedSpeciesAreOptionGated()
         QVERIFY(val->minimum() < 0.0);
         swmm_engine_destroy(e);
     }
+}
+
+void TestInitialQualityDialog::elementScopeShowsOnlyThatElementsRows()
+{
+    SWMM_Engine e = makeEngine();
+    QCOMPARE(swmm_init_quality_set(e, 0, 0, "TSS", 5.0),  SWMM_OK);  // J0
+    QCOMPARE(swmm_init_quality_set(e, 0, 1, "TSS", 12.5), SWMM_OK);  // J1
+    QCOMPARE(swmm_init_quality_set(e, 1, 0, "TSS", 9.0),  SWMM_OK);  // C1
+
+    InitialQualityDialog dlg(e, nullptr);
+    dlg.setElementScope(0, QStringLiteral("J1"));
+
+    auto *tbl = table(dlg);
+    QVERIFY(tbl);
+    QCOMPARE(tbl->rowCount(), 1);
+    QVERIFY(tbl->isColumnHidden(0));            // Scope collapsed
+    QVERIFY(tbl->isColumnHidden(1));            // Element collapsed
+    auto *val = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(0, 3));
+    QVERIFY(val);
+    QCOMPARE(val->value(), 12.5);
+    swmm_engine_destroy(e);
+}
+
+void TestInitialQualityDialog::elementScopeEditPreservesOtherElements()
+{
+    SWMM_Engine e = makeEngine();
+    QCOMPARE(swmm_init_quality_set(e, 0, 0, "TSS", 5.0),  SWMM_OK);  // J0
+    QCOMPARE(swmm_init_quality_set(e, 0, 1, "TSS", 12.5), SWMM_OK);  // J1
+    QCOMPARE(swmm_init_quality_set(e, 1, 0, "TSS", 9.0),  SWMM_OK);  // C1
+
+    InitialQualityDialog dlg(e, nullptr);
+    dlg.setElementScope(0, QStringLiteral("J1"));
+    auto *tbl = table(dlg);
+    QVERIFY(tbl);
+    auto *val = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(0, 3));
+    QVERIFY(val);
+    val->setValue(20.0);
+    clickOk(dlg);
+
+    QCOMPARE(dlg.lastWriteCount(), 1);
+    QCOMPARE(swmm_init_quality_count(e), 3);    // nobody else was removed
+    int found = 0;
+    for (int i = 0; i < 3; ++i) {
+        int is_link = 0, elem = -1;
+        char buf[64];
+        double v = 0.0;
+        QCOMPARE(swmm_init_quality_get(e, i, &is_link, &elem, buf, 64, &v),
+                 SWMM_OK);
+        if (!is_link && elem == 0) { QCOMPARE(v, 5.0);  ++found; }
+        if (!is_link && elem == 1) { QCOMPARE(v, 20.0); ++found; }
+        if (is_link  && elem == 0) { QCOMPARE(v, 9.0);  ++found; }
+    }
+    QCOMPARE(found, 3);
+    swmm_engine_destroy(e);
+}
+
+void TestInitialQualityDialog::elementScopeAddAndRemoveStayScoped()
+{
+    SWMM_Engine e = makeEngine();
+    QCOMPARE(swmm_init_quality_set(e, 0, 0, "TSS", 5.0), SWMM_OK);   // J0
+
+    // Add in scope: the new row is pinned to J1 (combos locked) and lands
+    // on the engine as a NODE J1 row.
+    {
+        InitialQualityDialog dlg(e, nullptr);
+        dlg.setElementScope(0, QStringLiteral("J1"));
+        auto *tbl = table(dlg);
+        QVERIFY(tbl);
+        QCOMPARE(tbl->rowCount(), 0);
+        auto *add = dlg.findChild<QPushButton *>(QStringLiteral("iq_addBtn"));
+        QVERIFY(add);
+        add->click();
+        auto *scope = qobject_cast<QComboBox *>(tbl->cellWidget(0, 0));
+        auto *elem  = qobject_cast<QComboBox *>(tbl->cellWidget(0, 1));
+        auto *val   = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(0, 3));
+        QVERIFY(scope && elem && val);
+        QVERIFY(!scope->isEnabled());
+        QVERIFY(!elem->isEnabled());
+        QCOMPARE(elem->currentText(), QStringLiteral("J1"));
+        val->setValue(7.5);
+        clickOk(dlg);
+        QCOMPARE(dlg.lastWriteCount(), 1);
+        QCOMPARE(swmm_init_quality_count(e), 2);
+    }
+    // Remove in scope: only J1's row goes; J0's survives.
+    {
+        InitialQualityDialog dlg(e, nullptr);
+        dlg.setElementScope(0, QStringLiteral("J1"));
+        auto *tbl = table(dlg);
+        QVERIFY(tbl);
+        QCOMPARE(tbl->rowCount(), 1);
+        tbl->setCurrentCell(0, 3);
+        auto *rem = dlg.findChild<QPushButton *>(
+            QStringLiteral("iq_removeBtn"));
+        QVERIFY(rem);
+        rem->click();
+        clickOk(dlg);
+        QCOMPARE(swmm_init_quality_count(e), 1);
+        int is_link = 0, elem = -1;
+        char buf[64];
+        double v = 0.0;
+        QCOMPARE(swmm_init_quality_get(e, 0, &is_link, &elem, buf, 64, &v),
+                 SWMM_OK);
+        QCOMPARE(is_link, 0);
+        QCOMPARE(elem, 0);                      // J0's row survived
+        QCOMPARE(v, 5.0);
+    }
+    swmm_engine_destroy(e);
 }
 
 QTEST_MAIN(TestInitialQualityDialog)

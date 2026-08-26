@@ -25,12 +25,14 @@
 #include <QUndoStack>
 
 #include <cmath>
+#include <cstring>
 #include <optional>
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_inflows.h>
+#include <openswmm/engine/openswmm_initial_quality.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_model.h>    // gage data-file path registry
 #include <openswmm/engine/openswmm_nodes.h>
@@ -110,6 +112,20 @@ int engineIndexFor(SWMMModelLayer *layer, SWMMModelLayer::Category cat,
 // per-flag columns. Categories without a token (none today) get no
 // flag columns.
 const QString kUserFlagKeyPrefix = QStringLiteral("userflag:");
+
+// Initial-quality UI round — column-key prefix for the per-constituent
+// [INITIAL_QUALITY] override columns on node / link categories.
+const QString kInitQualityKeyPrefix = QStringLiteral("initq:");
+
+// YES/NO [OPTIONS] probe — gates the reserved water-age / temperature
+// initial-quality columns (mirrors InitialQualityDialog::optionOn).
+bool optionYes(SWMM_Engine engine, const char *key) {
+    char buf[16] = {0};
+    if (!engine ||
+        swmm_options_get(engine, key, buf, sizeof(buf)) != SWMM_OK)
+        return false;
+    return std::strcmp(buf, "YES") == 0;
+}
 
 QString userFlagObjectType(SWMMModelLayer::Category cat) {
     switch (cat) {
@@ -2083,11 +2099,13 @@ void SWMMAttributeTableModel::setResultsSource(SWMMResultsLayer *layer)
 void SWMMAttributeTableModel::rebuildColumnSchema()
 {
     m_columnSpecs = schemaForCategory(m_category);
+    appendInitialQualityColumns();
     appendUserFlagColumns();
-    // Dynamics last — after the user-flag columns, which appendUserFlagColumns
-    // tacks on. Ordering the whole table as [inputs | user flags | results]
-    // means the editable model never drifts rightwards as a project defines
-    // more flags, and the run output is always found at the same end.
+    // Dynamics last — after the initial-quality and user-flag columns the
+    // two append calls above tack on. Ordering the whole table as
+    // [inputs | initial quality | user flags | results] means the editable
+    // model never drifts rightwards as a project defines more flags, and
+    // the run output is always found at the same end.
     appendDynamicsColumns();
     m_columnKeys.clear();
     m_columnLabels.clear();
@@ -2107,6 +2125,54 @@ void SWMMAttributeTableModel::reload()
     m_rowCacheValid.assign(n, false);
     invalidateCompoundCache();
     endResetModel();
+}
+
+void SWMMAttributeTableModel::appendInitialQualityColumns()
+{
+    if (!m_layer) return;
+    const QString objType = userFlagObjectType(m_category);
+    if (objType != QStringLiteral("NODE") && objType != QStringLiteral("LINK"))
+        return;                 // [INITIAL_QUALITY] scopes are NODE | LINK only
+    SWMM_Engine eng = m_layer->engine();
+    if (!eng) return;
+
+    auto makeCol = [](const QString &cons, const QString &label,
+                      const QString &tooltip) {
+        ColumnSpec spec;
+        spec.key     = kInitQualityKeyPrefix + cons;
+        spec.label   = label;
+        spec.editor  = EditorKind::Text;  // blank commit clears the override
+        spec.setter  = QStringLiteral("initquality");  // marks editable;
+                                                       // commit dispatches
+                                                       // on the key
+        spec.tooltip = tooltip;
+        return spec;
+    };
+
+    const int np = swmm_pollutant_count(eng);
+    for (int p = 0; p < np; ++p) {
+        const char *id = swmm_pollutant_id(eng, p);
+        if (!id) continue;
+        const QString cons = QString::fromUtf8(id);
+        m_columnSpecs.append(makeCol(
+            cons, tr("Init. %1").arg(cons),
+            tr("[INITIAL_QUALITY] override — the element starts the run at "
+               "this %1 concentration instead of the pollutant's global "
+               "initial value. Blank = no override.").arg(cons)));
+    }
+    // Reserved species, offered only while their option is on — a value
+    // for an off species would be stored-but-inert (the engine warns), so
+    // the table does not invite it.
+    if (optionYes(eng, "WATER_AGE"))
+        m_columnSpecs.append(makeCol(
+            QStringLiteral("__WATER_AGE__"), tr("Init. Water Age (hr)"),
+            tr("[INITIAL_QUALITY] initial water age in hours (negative "
+               "extracts age). Blank = no override.")));
+    if (optionYes(eng, "HEAT_TRANSPORT"))
+        m_columnSpecs.append(makeCol(
+            QStringLiteral("__TEMPERATURE__"), tr("Init. Temperature (°C)"),
+            tr("[INITIAL_QUALITY] initial temperature in °C. Blank = no "
+               "override.")));
 }
 
 void SWMMAttributeTableModel::appendUserFlagColumns()
@@ -2165,6 +2231,32 @@ void SWMMAttributeTableModel::invalidateCompoundCache()
     m_treatmentActiveByNode.clear();
     m_compoundPollutantCount = 0;
     m_compoundCacheBuilt     = false;
+    m_initQualityByElem.clear();
+    m_initQualityCacheBuilt  = false;
+}
+
+void SWMMAttributeTableModel::ensureInitQualityCacheBuilt() const
+{
+    if (m_initQualityCacheBuilt) return;
+    m_initQualityCacheBuilt = true;
+    m_initQualityByElem.clear();
+    if (!m_layer) return;
+    SWMM_Engine eng = m_layer->engine();
+    if (!eng) return;
+
+    const int wantLink =
+        userFlagObjectType(m_category) == QStringLiteral("LINK") ? 1 : 0;
+    const int total = swmm_init_quality_count(eng);
+    for (int i = 0; i < total; ++i) {
+        int is_link = 0, elem = -1;
+        char cons[128] = {0};
+        double value = 0.0;
+        if (swmm_init_quality_get(eng, i, &is_link, &elem,
+                                  cons, sizeof(cons), &value) != SWMM_OK)
+            continue;
+        if (is_link != wantLink) continue;
+        m_initQualityByElem[elem].insert(QString::fromUtf8(cons), value);
+    }
 }
 
 void SWMMAttributeTableModel::ensureCompoundCacheBuilt() const
@@ -2705,6 +2797,29 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         return v;  // blank when unset (both Display and Edit roles)
     }
 
+    // Initial-quality columns (initial-quality UI round): values live in
+    // the engine's [INITIAL_QUALITY] row store, keyed (scope, element,
+    // constituent). Unset reads as blank — the pollutant's global initial
+    // concentration then applies at run start.
+    if (spec.key.startsWith(kInitQualityKeyPrefix) && m_layer) {
+        SWMM_Engine eng = m_layer->engine();
+        const QString name = objectNameAt(row);
+        if (!eng || name.isEmpty()) return {};
+        const bool link =
+            userFlagObjectType(m_category) == QStringLiteral("LINK");
+        const int elemIdx = link
+            ? swmm_link_index(eng, name.toUtf8().constData())
+            : swmm_node_index(eng, name.toUtf8().constData());
+        if (elemIdx < 0) return {};
+        ensureInitQualityCacheBuilt();
+        const auto it = m_initQualityByElem.constFind(elemIdx);
+        if (it == m_initQualityByElem.constEnd()) return QString();
+        const auto vit =
+            it->constFind(spec.key.mid(kInitQualityKeyPrefix.size()));
+        if (vit == it->constEnd()) return QString();
+        return QString::number(*vit);  // blank when unset (both roles)
+    }
+
     // Columns with an engine tag read through that tag's getter so the
     // value reflects post-commit state (the identifyByName cache doesn't
     // track per-attribute updates).
@@ -2945,6 +3060,63 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         }
         if (!ok) return false;
 
+        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+        emit objectEdited(name);
+        return true;
+    }
+
+    // Initial-quality columns (initial-quality UI round). A numeric commit
+    // upserts the element's [INITIAL_QUALITY] row for the column's
+    // constituent; a blank commit removes it (back to "no override"). The
+    // engine setter validates the value (e.g. rejects a negative pollutant
+    // concentration), so a bad keystroke leaves the store untouched.
+    if (spec.key.startsWith(kInitQualityKeyPrefix)) {
+        SWMM_Engine eng = m_layer->engine();
+        const QString name = objectNameAt(row);
+        if (!eng || name.isEmpty()) return false;
+        const bool link =
+            userFlagObjectType(m_category) == QStringLiteral("LINK");
+        const int isLink = link ? 1 : 0;
+        const int elemIdx = link
+            ? swmm_link_index(eng, name.toUtf8().constData())
+            : swmm_node_index(eng, name.toUtf8().constData());
+        if (elemIdx < 0) return false;
+        const QString cons = spec.key.mid(kInitQualityKeyPrefix.size());
+        const QString s = value.toString().trimmed();
+
+        if (s.isEmpty()) {
+            // Find the element's row for this constituent and remove it.
+            // No row → nothing changed, refuse the commit (keeps the undo
+            // stack free of no-op commands).
+            const int total = swmm_init_quality_count(eng);
+            for (int i = 0; i < total; ++i) {
+                int rowIsLink = 0, rowElem = -1;
+                char rowCons[128] = {0};
+                double rowValue = 0.0;
+                if (swmm_init_quality_get(eng, i, &rowIsLink, &rowElem,
+                                          rowCons, sizeof(rowCons),
+                                          &rowValue) != SWMM_OK)
+                    continue;
+                if (rowIsLink != isLink || rowElem != elemIdx ||
+                    QString::fromUtf8(rowCons) != cons)
+                    continue;
+                if (swmm_init_quality_remove(eng, i) != SWMM_OK) return false;
+                invalidateCompoundCache();
+                emit dataChanged(index, index,
+                                 {Qt::DisplayRole, Qt::EditRole});
+                emit objectEdited(name);
+                return true;
+            }
+            return false;
+        }
+
+        bool numeric = false;
+        const double v = s.toDouble(&numeric);
+        if (!numeric) return false;
+        if (swmm_init_quality_set(eng, isLink, elemIdx,
+                                  cons.toUtf8().constData(), v) != SWMM_OK)
+            return false;
+        invalidateCompoundCache();
         emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
         emit objectEdited(name);
         return true;

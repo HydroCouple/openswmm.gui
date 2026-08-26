@@ -17,8 +17,10 @@
 #include "ui/properties/swmmnodepropertyadapter.h"
 
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_initial_quality.h>  // Initial-quality UI round
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_pollutants.h>       // Initial-quality UI round
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_tables.h>  // Slice AG.4 — storage curve
 
@@ -404,6 +406,44 @@ private slots:
         {
             SWMMDividerPropertyAdapter a(e, QStringLiteral("J1"));
             checkAdvertises(a, "Divider");
+        }
+
+        swmm_engine_destroy(e);
+    }
+
+    // ====================================================================
+    // Initial-quality UI round — per-element "Initial Quality" cell
+    // ====================================================================
+
+    void initialQualityRefTracksEngineRows()
+    {
+        SWMM_Engine e = buildFixture();
+        QVERIFY(e);
+        QCOMPARE(swmm_pollutant_add(e, "TSS", 0 /*MG/L*/), SWMM_OK);
+        const int jIdx = swmm_node_index(e, "J1");
+        QVERIFY(jIdx >= 0);
+
+        SWMMJunctionPropertyAdapter a(e, QStringLiteral("J1"));
+        auto ref = a.initialQualityRef();
+        QCOMPARE(ref.engine, e);
+        QCOMPARE(ref.isLink, 0);
+        QCOMPARE(ref.elementName, QStringLiteral("J1"));
+        QCOMPARE(ref.summary, QStringLiteral("(none)"));
+
+        // A row on ANOTHER node must not leak into J1's summary.
+        const int oIdx = swmm_node_index(e, "O1");
+        QCOMPARE(swmm_init_quality_set(e, 0, oIdx, "TSS", 3.0), SWMM_OK);
+        QCOMPARE(a.initialQualityRef().summary, QStringLiteral("(none)"));
+
+        QCOMPARE(swmm_init_quality_set(e, 0, jIdx, "TSS", 12.5), SWMM_OK);
+        QCOMPARE(a.initialQualityRef().summary, QStringLiteral("1 set"));
+
+        // The Q_PROPERTY surfaces on the node kinds that carry quality
+        // state (virtual junctions stay minimal by design).
+        QVERIFY(a.metaObject()->indexOfProperty("initialQuality") >= 0);
+        {
+            SWMMStoragePropertyAdapter s(e, QStringLiteral("J1"));
+            QVERIFY(s.metaObject()->indexOfProperty("initialQuality") >= 0);
         }
 
         swmm_engine_destroy(e);

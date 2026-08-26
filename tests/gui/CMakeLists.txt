@@ -1552,6 +1552,10 @@ add_swmmvis_gui_test(test_nodepropertyadapter
     ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/properties/swmmnodepropertyadapter.h
     ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    # The adapter's initialQualityRef() row references
+    # initialQualitySummaryFor (engine-only helper, no further deps).
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditref.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditref.h
 )
 
 # TODO(Slice Z follow-up) — disabled. linkcompoundeditdialog.cpp now
@@ -1661,6 +1665,9 @@ add_swmmvis_gui_test(test_xsectgeominline
     ${CMAKE_SOURCE_DIR}/src/ui/models/userflagsmodel.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/models/userflagsmodel.h
     swmmmodellayer_userflags_linkstub.cpp
+    # Likewise initialQualityRef() → initialQualitySummaryFor.
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditref.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditref.h
 )
 
 # Slice BC, Phase 8.7.2 — pins the engine-ABI contract that

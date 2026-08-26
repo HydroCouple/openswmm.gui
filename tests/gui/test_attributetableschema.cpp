@@ -31,8 +31,11 @@
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_initial_quality.h>  // Initial-quality UI round
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_model.h>            // swmm_options_set
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_pollutants.h>       // Initial-quality UI round
 #include <openswmm/engine/openswmm_subcatchments.h>
 
 #include <algorithm>   // std::reverse — ordering-override pin
@@ -658,6 +661,97 @@ private slots:
             QVERIFY(idx >= 0);
             QCOMPARE(QString::fromUtf8(engineIdFor(eng, cat, idx)), name);
         }
+    }
+
+    // =====================================================================
+    // 5 — [INITIAL_QUALITY] override columns (initial-quality UI round)
+    // =====================================================================
+
+    void initialQualityColumnsFollowConstituentsAndScope()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        SWMM_Engine eng = layer->engine();
+        QCOMPARE(swmm_pollutant_add(eng, "TSS", 0 /*MG/L*/), SWMM_OK);
+
+        SWMMAttributeTableModel model;
+        const QString tssKey = QStringLiteral("initq:TSS");
+        const QString ageKey = QStringLiteral("initq:__WATER_AGE__");
+
+        // Node and link categories carry one editable Text column per
+        // pollutant; the reserved age column stays hidden while the
+        // option is off.
+        for (auto cat : { SWMMModelLayer::CatJunctions,
+                          SWMMModelLayer::CatConduits }) {
+            model.setSource(layer.get(), cat);
+            const auto specs = model.columnSpecs();
+            const int c = colFor(specs, tssKey);
+            QVERIFY2(c >= 0, "initq:TSS column missing");
+            QCOMPARE(specs[c].editor, EditorKind::Text);
+            QVERIFY(!specs[c].setter.isEmpty());
+            QCOMPARE(colFor(specs, ageKey), -1);
+        }
+
+        // Non-node/link categories get no initial-quality columns —
+        // [INITIAL_QUALITY] scopes are NODE | LINK only.
+        model.setSource(layer.get(), SWMMModelLayer::CatSubcatchments);
+        QCOMPARE(colFor(model.columnSpecs(), tssKey), -1);
+        model.setSource(layer.get(), SWMMModelLayer::CatRainGages);
+        QCOMPARE(colFor(model.columnSpecs(), tssKey), -1);
+
+        // Turning WATER_AGE on surfaces the reserved age column on the
+        // next schema rebuild.
+        QCOMPARE(swmm_options_set(eng, "WATER_AGE", "YES"), SWMM_OK);
+        model.setSource(layer.get(), SWMMModelLayer::CatJunctions);
+        QVERIFY(colFor(model.columnSpecs(), ageKey) >= 0);
+    }
+
+    void initialQualityCellRoundTripsThroughEngine()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        SWMM_Engine eng = layer->engine();
+        QCOMPARE(swmm_pollutant_add(eng, "TSS", 0 /*MG/L*/), SWMM_OK);
+
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), SWMMModelLayer::CatJunctions);
+        const int col = colFor(model.columnSpecs(),
+                               QStringLiteral("initq:TSS"));
+        QVERIFY(col >= 0);
+        const int row = model.rowForName(QStringLiteral("J1"));
+        QVERIFY(row >= 0);
+        const QModelIndex idx = model.index(row, col);
+        QVERIFY(model.flags(idx) & Qt::ItemIsEditable);
+
+        // Unset reads blank — the global initial concentration applies.
+        QVERIFY(model.data(idx, Qt::EditRole).toString().isEmpty());
+
+        // Numeric commit upserts the element's [INITIAL_QUALITY] row.
+        QVERIFY(model.commitValueDirect(idx, QStringLiteral("12.5")));
+        QCOMPARE(swmm_init_quality_count(eng), 1);
+        int is_link = 0, elem = -1;
+        char cons[64];
+        double v = 0.0;
+        QCOMPARE(swmm_init_quality_get(eng, 0, &is_link, &elem,
+                                       cons, sizeof(cons), &v), SWMM_OK);
+        QCOMPARE(is_link, 0);
+        QCOMPARE(elem, swmm_node_index(eng, "J1"));
+        QCOMPARE(QString::fromUtf8(cons), QStringLiteral("TSS"));
+        QCOMPARE(v, 12.5);
+        QCOMPARE(model.data(idx, Qt::EditRole).toString(),
+                 QStringLiteral("12.5"));
+
+        // Garbage and negative pollutant commits are refused and leave
+        // the store untouched (the engine setter validates the sign).
+        QVERIFY(!model.commitValueDirect(idx, QStringLiteral("abc")));
+        QVERIFY(!model.commitValueDirect(idx, QStringLiteral("-5")));
+        QCOMPARE(swmm_init_quality_count(eng), 1);
+
+        // Blank commit clears the override; a second blank is a no-op.
+        QVERIFY(model.commitValueDirect(idx, QString()));
+        QCOMPARE(swmm_init_quality_count(eng), 0);
+        QVERIFY(model.data(idx, Qt::EditRole).toString().isEmpty());
+        QVERIFY(!model.commitValueDirect(idx, QString()));
     }
 
 };

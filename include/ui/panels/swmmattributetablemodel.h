@@ -199,6 +199,14 @@ signals:
 
 private:
     void rebuildColumnSchema();
+    /*! Initial-quality UI round — append one editable column per
+     *  constituent (key "initq:<NAME>": every pollutant, plus water age /
+     *  temperature while their [OPTIONS] toggle is on) when the bound
+     *  category is a node or link kind. Cells read/write the engine's
+     *  [INITIAL_QUALITY] row store; blank = no override (the global
+     *  initial concentration applies), and clearing a cell removes the
+     *  element's row. */
+    void appendInitialQualityColumns();
     /*! Phase 3 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — append one
      *  editable column per defined user flag (key "userflag:<NAME>")
      *  when the bound category maps to an engine object type. */
@@ -264,6 +272,14 @@ private:
     mutable bool            m_compoundCacheBuilt     = false;
     void ensureCompoundCacheBuilt() const;
     void invalidateCompoundCache();
+
+    // Initial-quality UI round — element engine index → (constituent →
+    // value) for the bound category's scope (NODE or LINK), filled by one
+    // engine-wide scan so per-cell paints don't rescan the row store.
+    // Invalidated together with the compound caches.
+    mutable QHash<int, QHash<QString, double>> m_initQualityByElem;
+    mutable bool                               m_initQualityCacheBuilt = false;
+    void ensureInitQualityCacheBuilt() const;
 };
 
 #endif // SWMMATTRIBUTETABLEMODEL_H
