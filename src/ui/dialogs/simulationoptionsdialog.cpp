@@ -74,13 +74,11 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QAction>
+#include <QEvent>
 
 #include <openswmm/engine/openswmm_hotstart.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_spatial.h>
-
-#include <algorithm>
-#include <functional>
 
 // ---------------------------------------------------------------------------
 // Pure-helpers (parseEngineBool / engineBoolString / format/parse DateTime)
@@ -737,9 +735,12 @@ QWidget *SimulationOptionsDialog::buildDatesTab()
             this, &SimulationOptionsDialog::addEventRow);
     connect(m_eventsRemoveBtn, &QPushButton::clicked,
             this, &SimulationOptionsDialog::removeSelectedEventRows);
+    // Gate on the selection MODEL, not selectedItems(): the cells hold only
+    // setCellWidget() editors (no QTableWidgetItems), so selectedItems() is
+    // always empty and an item-based gate leaves Remove permanently disabled.
     connect(m_eventsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
         m_eventsRemoveBtn->setEnabled(
-            !m_eventsTable->selectedItems().isEmpty());
+            !selectedRowsDescending(m_eventsTable).isEmpty());
     });
 
     vlay->addWidget(evGroup);
@@ -2243,6 +2244,37 @@ QString SimulationOptionsDialog::getOption(const char *key,
 
 namespace {
 
+// Clicking a cell WIDGET never reaches the table's mousePressEvent, so the
+// row under the click is not selected and row-based actions (Remove) see no
+// selection.  Mirror the editor's focus into a row selection instead: on
+// FocusIn, find the row owning this editor and select it.
+class EventEditorFocusFilter : public QObject
+{
+public:
+    EventEditorFocusFilter(QTableWidget *table, QObject *parent)
+        : QObject(parent), m_table(table) {}
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *ev) override
+    {
+        if (ev->type() == QEvent::FocusIn && m_table) {
+            auto *w = qobject_cast<QWidget *>(watched);
+            for (int r = 0; w && r < m_table->rowCount(); ++r) {
+                for (int c = 0; c < m_table->columnCount(); ++c) {
+                    if (m_table->cellWidget(r, c) == w) {
+                        m_table->selectRow(r);
+                        return false;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+private:
+    QTableWidget *m_table;
+};
+
 // Wrap a QDateTimeEdit inside a QTableWidget cell.  Centralised so every
 // row uses the same display format / calendar policy.  HH:MM precision
 // (legacy SWMM 5 parity, decided 2026-05-21).
@@ -2252,6 +2284,8 @@ QDateTimeEdit *makeEventCellEditor(const QDateTime &dt, QWidget *parent)
     edit->setCalendarPopup(true);
     edit->setDisplayFormat(QStringLiteral("MM/dd/yyyy HH:mm"));
     edit->setFrame(false);
+    if (auto *table = qobject_cast<QTableWidget *>(parent))
+        edit->installEventFilter(new EventEditorFocusFilter(table, edit));
     return edit;
 }
 
@@ -2276,24 +2310,10 @@ void SimulationOptionsDialog::addEventRow()
 void SimulationOptionsDialog::removeSelectedEventRows()
 {
     if (!m_eventsTable) return;
-    // Collect distinct row indices.  selectedRows() returns one QModelIndex
-    // per selected row regardless of which column the click landed on.
-    // Sort descending so removeRow() doesn't shift the indices we still
-    // need to delete.
-    QList<int> rows;
-    const auto idxs = m_eventsTable->selectionModel()->selectedRows();
-    rows.reserve(idxs.size());
-    for (const auto &idx : idxs)
-        rows.append(idx.row());
-    // Fallback: if no full-row selection (user clicked a single cell),
-    // fall back to selectedItems() which covers cell selection.
-    if (rows.isEmpty()) {
-        const auto items = m_eventsTable->selectedItems();
-        for (auto *it : items)
-            if (!rows.contains(it->row()))
-                rows.append(it->row());
-    }
-    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    // Distinct rows, descending, so removeRow() doesn't shift the indices
+    // we still need to delete. Shares the query with the Remove-button
+    // enable gate so the two can't disagree about what counts as selected.
+    const QList<int> rows = selectedRowsDescending(m_eventsTable);
     for (int r : rows)
         m_eventsTable->removeRow(r);
 }
