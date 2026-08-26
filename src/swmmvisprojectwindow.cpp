@@ -48,6 +48,7 @@
 #include "core/unitsystem.h"
 #include "map/openswmmvisscene.h"
 #include "plugins/filefilterregistry.h"
+#include "selection/gisselectionbridge.h"
 #include "selection/selectionmanager.h"
 #include "mesh/meshobjectref.h"             // MeshCell ref parsing for cell highlight
 
@@ -127,6 +128,13 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // Canvas
     mCanvas = new MapCanvas(this);
     setWidget(mCanvas);
+
+    // SVBC round B — GIS feature layers ↔ selection bus, both directions.
+    // A small owned QObject rather than inline lambdas (the SWMM bridge
+    // below) so it is testable with a bare canvas + manager fixture. It
+    // subscribes to layerAdded/layerRemoved itself, covering layers loaded
+    // at any point in the window's life.
+    new GisSelectionBridge(mSelectionManager, mCanvas, this);
 
     // Slice QA.2 — keep the stats registry in lockstep with the
     // canvas's SWMMResultsLayer set. layerAdded fires after the layer
