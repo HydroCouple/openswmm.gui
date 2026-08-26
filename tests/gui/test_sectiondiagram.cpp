@@ -103,6 +103,7 @@ private slots:
 
     // Plan-view inset placement.
     void planInsetsNeverReachIntoTheHeader();
+    void planInsetsNeverReachIntoTheFooterStrip();
     void planInsetsCostNoWidthWhenTheFitHasVerticalSlack();
     void planInsetsAreParkedInTheLabelMarginNotCarvedOutOfTheDrawing();
     void planSpokeLabelsGetRoomForARealLinkName();
@@ -740,6 +741,22 @@ QImage paintAt(const SectionDiagramModel &m, const QSize &pane, QRectF *fitOut)
     return img;
 }
 
+//! The row range where two same-size renders differ. When the two models
+//! differ only in one piece of text, these rows ARE the band holding that
+//! text — found rather than assumed, so the probe survives the dials moving.
+QPair<int, int> diffRows(const QImage &a, const QImage &b)
+{
+    int y0 = a.height(), y1 = -1;
+    for (int y = 0; y < a.height(); ++y)
+        for (int x = 0; x < a.width(); ++x)
+            if (a.pixelColor(x, y) != b.pixelColor(x, y)) {
+                y0 = std::min(y0, y);
+                y1 = std::max(y1, y);
+                break;
+            }
+    return { y0, y1 };
+}
+
 //! A reach with leader labels on both ends — what actually sets the margins.
 SectionDiagramModel makeLabelledReachModel()
 {
@@ -761,11 +778,10 @@ SectionDiagramModel makeLabelledReachModel()
 
 void TestSectionDiagram::planInsetsNeverReachIntoTheHeader()
 {
-    // The dials are drawn as a ring with its spoke labels OUTSIDE the ring, so
-    // a dial flush against the top of the drawing area writes those labels
-    // over the subtitle. Nothing above the drawing area may change when the
-    // insets are added — which is a stronger claim than "they start below the
-    // subtitle", and the only one that catches an overhanging label.
+    // The dials live at the BOTTOM of the pane now, so nothing they draw has
+    // any business near the title or subtitle. Nothing above the drawing area
+    // may change when the insets are added — the same whole-strip claim that
+    // caught overhanging spoke labels when the dials lived up here.
     const QSize pane(560, 480);
     const SectionDiagramModel bare = makeLabelledReachModel();
 
@@ -786,6 +802,42 @@ void TestSectionDiagram::planInsetsNeverReachIntoTheHeader()
             QVERIFY2(without.pixelColor(x, y) == with.pixelColor(x, y),
                      qPrintable(QStringLiteral("header pixel (%1,%2) changed "
                                                "when the plan insets were added")
+                                    .arg(x).arg(y)));
+}
+
+void TestSectionDiagram::planInsetsNeverReachIntoTheFooterStrip()
+{
+    // The mirror of the header gate, for the dials' new home: the band is
+    // carved off the BOTTOM of the drawing area, so the furniture at risk
+    // from an overhanging spoke label is now the V:H note and the bottom
+    // margin below the band. Nothing in that strip may change when the
+    // insets are added.
+    const QSize pane(560, 480);
+    const SectionDiagramModel bare = makeLabelledReachModel();
+
+    const QImage without = paintAt(bare, pane, nullptr);
+    const QImage with    = paintAt(withPlanInsets(bare), pane, nullptr);
+
+    // Vacuity guard, same as the header gate: a dropped inset changes no
+    // pixel anywhere and would pass the strip comparison for the wrong
+    // reason.
+    int drawn = 0;
+    for (int y = 0; y < pane.height() - 6; ++y)
+        for (int x = 0; x < pane.width(); ++x)
+            if (without.pixelColor(x, y) != with.pixelColor(x, y)) ++drawn;
+    QVERIFY2(drawn > 100, "no plan dials were drawn at all");
+
+    // Only the bottom MARGIN is invariant down here: the V:H note directly
+    // above it legitimately re-renders when the band changes the drawing
+    // height (a different fitted ratio is a different string), so the probe
+    // stays below it. A label that punches through the note row into the
+    // margin is still caught.
+    for (int y = pane.height() - 6; y < pane.height(); ++y)
+        for (int x = 0; x < pane.width(); ++x)
+            QVERIFY2(without.pixelColor(x, y) == with.pixelColor(x, y),
+                     qPrintable(QStringLiteral("bottom-margin pixel (%1,%2) "
+                                               "changed when the plan insets "
+                                               "were added")
                                     .arg(x).arg(y)));
 }
 
@@ -870,11 +922,11 @@ void TestSectionDiagram::planSpokeLabelsGetRoomForARealLinkName()
         return paintAt(m, pane, nullptr);
     };
 
-    // Rows above the drawing hold the dial and nothing else, so the rightmost
-    // ink in the pane's left half IS the end of the label.
-    auto labelReach = [&](const QImage &img) {
+    // The dial band below the drawing holds the label and nothing else in the
+    // pane's left half, so the rightmost ink in its rows IS the label's end.
+    auto labelReach = [&](const QImage &img, QPair<int, int> rows) {
         int maxX = 0;
-        for (int y = 45; y < 165; ++y)
+        for (int y = rows.first; y <= rows.second; ++y)
             for (int x = 0; x < 280; ++x)
                 if (img.pixelColor(x, y) != img.pixelColor(0, 0)) maxX = std::max(maxX, x);
         return maxX;
@@ -883,8 +935,22 @@ void TestSectionDiagram::planSpokeLabelsGetRoomForARealLinkName()
     const QString kShort = QStringLiteral("C1");
     const QString kLong  = QStringLiteral("TRUNK_MAIN_1234");
 
-    const int shortReach = labelReach(renderWith(kShort));
-    const int longReach  = labelReach(renderWith(kLong));
+    const QImage shortImg = renderWith(kShort);
+    const QImage longImg  = renderWith(kLong);
+    // The dial band sits at the bottom of the pane; find its label rows
+    // rather than assume them — the two renders differ only where the label
+    // text (characters, plate, leader) lands.
+    const auto rows = diffRows(shortImg, longImg);
+    QVERIFY2(rows.second >= rows.first, "no spoke label was drawn to measure");
+    // The placement contract itself: the cardinal-direction dials live at
+    // the BOTTOM of the pane, so their label rows sit in its lower half.
+    QVERIFY2(rows.first > pane.height() / 2,
+             qPrintable(QStringLiteral("the dial's label rows start at y=%1 "
+                                       "of %2 — the compass is not at the "
+                                       "bottom")
+                            .arg(rows.first).arg(pane.height())));
+    const int shortReach = labelReach(shortImg, rows);
+    const int longReach  = labelReach(longImg, rows);
 
     // The bar is the string's OWN width, measured in the font the painter
     // uses. Anything less means characters were dropped — a fixed pixel bar
@@ -916,11 +982,12 @@ void TestSectionDiagram::planInsetTitleIsNotCutToTheDialWidth()
         return paintAt(m, pane, nullptr);
     };
 
-    // The caption band sits below the dial's box and above the drawing, so
-    // the rightmost ink in these rows IS the end of the caption.
-    auto captionReach = [&](const QImage &img) {
+    // The caption strip sits below the dial's box in the bottom band; its
+    // rows are found from the render pair rather than assumed, and the
+    // rightmost ink in them IS the end of the caption.
+    auto captionReach = [&](const QImage &img, QPair<int, int> rows) {
         int maxX = 0;
-        for (int y = 148; y < 162; ++y)
+        for (int y = rows.first; y <= rows.second; ++y)
             for (int x = 0; x < 400; ++x)
                 if (img.pixelColor(x, y) != img.pixelColor(0, 0)) maxX = std::max(maxX, x);
         return maxX;
@@ -933,8 +1000,12 @@ void TestSectionDiagram::planInsetTitleIsNotCutToTheDialWidth()
     const QString kShort = QStringLiteral("Inlet · MANHOLE_1234");
     const QString kLong  = QStringLiteral("Inlet · MANHOLE_1234567890");
 
-    const int shortReach = captionReach(renderWith(kShort));
-    const int longReach  = captionReach(renderWith(kLong));
+    const QImage shortImg = renderWith(kShort);
+    const QImage longImg  = renderWith(kLong);
+    const auto rows = diffRows(shortImg, longImg);
+    QVERIFY2(rows.second >= rows.first, "no caption was drawn to measure");
+    const int shortReach = captionReach(shortImg, rows);
+    const int longReach  = captionReach(longImg, rows);
 
     QImage probe(1, 1, QImage::Format_ARGB32_Premultiplied);
     QPainter pp(&probe);

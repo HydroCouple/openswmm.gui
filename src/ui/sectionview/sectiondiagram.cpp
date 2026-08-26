@@ -720,12 +720,12 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     // node section one. A compass is an aid to the profile, so it is put where
     // the drawing is not, in this order:
     //
-    //   band    a full-width strip off the top, when the fit left vertical
+    //   band    a full-width strip off the bottom, when the fit left vertical
     //           slack to pay for it. Costs the drawing nothing at all.
-    //   margin  parked in the annotation margin already reserved for leader
-    //           labels, widening it only if the dial does not fit — so the
-    //           bill is the shortfall, not the dial. Labels on a side that
-    //           carries a dial start below it.
+    //   margin  parked at the bottom of the annotation margin already
+    //           reserved for leader labels, widening it only if the dial does
+    //           not fit — so the bill is the shortfall, not the dial. Labels
+    //           on a side that carries a dial stop above it.
     //
     // If neither leaves the drawing a workable width the dials are dropped:
     // they are an aid, and this used to carve their full width out of the
@@ -733,7 +733,7 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     // third. The pair is placed or dropped together — half a compass pair is
     // worse than none, because the reader cannot tell which end is missing.
     QVector<QRectF> planRects(model.planInsets.size());
-    double leaderFloorL = 0.0, leaderFloorR = 0.0;   // 0 = no dial on that side
+    double leaderCeilL = 0.0, leaderCeilR = 0.0;     // 0 = no dial on that side
     if (!model.planInsets.isEmpty()) {
         int nLeft = 0, nRight = 0;
         for (const PlanInset &pi : model.planInsets)
@@ -741,8 +741,8 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
 
         const int    tallest = std::max(nLeft, nRight);
         const double cellH   = kPlanInsetSize + kPlanInsetTitleH;
-        // The leading gap is the buffer that keeps the topmost dial's spoke
-        // labels off the title/subtitle written directly above it.
+        // The leading gap is the buffer that keeps the first dial's spoke
+        // labels off the drawing directly above it.
         const double bandH   = kPlanInsetGap + tallest * (cellH + kPlanInsetGap);
         const double colW    = kPlanInsetSize + kPlanInsetGap;
         // A drawing narrower than this is not worth keeping a compass for.
@@ -754,30 +754,35 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
                               && area.width()  > (nLeft ? colW : 0.0)
                                                  + (nRight ? colW : 0.0) + keepW;
 
-        Fit trial = band ? layoutFor(area.adjusted(0.0, bandH, 0.0, 0.0), &fit)
+        Fit trial = band ? layoutFor(area.adjusted(0.0, 0.0, 0.0, -bandH), &fit)
                          : layoutFor(area, &fit, nLeft ? colW : 0.0,
                                                  nRight ? colW : 0.0);
 
         if (trial.fitRect.width() >= keepW && trial.fitRect.height() >= 20.0
             && area.height() > bandH + 40.0) {
-            if (band) area.setTop(area.top() + bandH);
+            if (band) area.setBottom(area.bottom() - bandH);
             fit = trial;
 
             int usedL = 0, usedR = 0;
             for (int i = 0; i < model.planInsets.size(); ++i) {
                 const bool left = model.planInsets[i].side == PlanInset::Side::Left;
                 const int  row  = left ? usedL++ : usedR++;
-                // In band mode the dials sit above the (already lowered) area;
-                // in margin mode they sit in the margin beside it. Both anchor
-                // to the pane edge, one gap in from the top of their strip.
-                const double top = (band ? area.top() - bandH : area.top())
-                                   + kPlanInsetGap + row * (cellH + kPlanInsetGap);
+                // In band mode the dials sit below the (already raised) area
+                // bottom, filling the freed strip downward; in margin mode
+                // they stack upward from the bottom of the margin beside it.
+                // Both anchor to the pane edge.
+                const double top =
+                    band ? area.bottom() + kPlanInsetGap
+                               + row * (cellH + kPlanInsetGap)
+                         : area.bottom() - kPlanInsetGap - cellH
+                               - row * (cellH + kPlanInsetGap);
                 const QRectF r(left ? area.left() : area.right() - kPlanInsetSize,
                                top, kPlanInsetSize, kPlanInsetSize);
                 planRects[i] = r;
                 if (!band) {
-                    double &floor = left ? leaderFloorL : leaderFloorR;
-                    floor = std::max(floor, r.bottom() + kPlanInsetTitleH + 4.0);
+                    double &ceil = left ? leaderCeilL : leaderCeilR;
+                    ceil = (ceil <= 0.0) ? r.top() - 4.0
+                                         : std::min(ceil, r.top() - 4.0);
                 }
             }
         }
@@ -1078,17 +1083,22 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         // the footer. Clamp the elbow into the band and let the leader line
         // stretch to reach it.
         const double halfLine = fm.height() * 0.5;
-        // Per side, because a dial parked in this side's margin owns the top
-        // of it: labels that ignored it would be written across the compass.
-        const double bandTopL = std::max(area.top(), leaderFloorL) + halfLine;
-        const double bandTopR = std::max(area.top(), leaderFloorR) + halfLine;
-        const double bandBottom = area.bottom() - halfLine;
+        // Per side, because a dial parked in this side's margin owns the
+        // bottom of it: labels that ignored it would be written across the
+        // compass.
+        const double bandTop = area.top() + halfLine;
+        const double bandBottomL =
+            (leaderCeilL > 0.0 ? std::min(area.bottom(), leaderCeilL)
+                               : area.bottom()) - halfLine;
+        const double bandBottomR =
+            (leaderCeilR > 0.0 ? std::min(area.bottom(), leaderCeilR)
+                               : area.bottom()) - halfLine;
         // One label per line: a node with several links at similar inverts
         // lands their leaders on the same y and writes them over each other.
         // Remember what each side has used and push a colliding label clear.
         QVector<double> usedL, usedR;
         auto deconflict = [&](double y, bool right) {
-            const double bandTop = right ? bandTopR : bandTopL;
+            const double bandBottom = right ? bandBottomR : bandBottomL;
             QVector<double> &used = right ? usedR : usedL;
             const double step = fm.height() + 2.0;
             bool moved = true;
@@ -1114,7 +1124,7 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         for (const DiagramLeader &l : model.leaders) {
             if (l.text.isEmpty()) continue;
             const bool    right   = l.pixelOffset.x() >= 0.0;
-            const double  bandTop = right ? bandTopR : bandTopL;
+            const double  bandBottom = right ? bandBottomR : bandBottomL;
             const QPointF a   = toPx(l.anchor);
             QPointF       end = a + l.pixelOffset;
             if (bandBottom > bandTop)
