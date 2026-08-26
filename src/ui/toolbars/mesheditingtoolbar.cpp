@@ -32,6 +32,9 @@
 #include <QLabel>
 #include <QLayout>
 #include <QLineEdit>
+#include <QScopedValueRollback>
+
+#include <algorithm>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSizePolicy>
@@ -285,6 +288,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
 
     // BC type combo.
     m_bcTypeCombo = new QComboBox(this);
+    m_bcTypeCombo->setObjectName(QStringLiteral("meshBcTypeCombo"));
     m_bcTypeCombo->setMinimumWidth(200);
     m_bcTypeCombo->setToolTip(tr(
         "Boundary condition type for the selected edge(s).\n"
@@ -366,6 +370,15 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     // 6 RatingCurve — curve combo.
     makeNamePage(&m_curveCombo, tr("Curve:"));
 
+    // objectNames so tests (and Squish-style tooling) can findChild the
+    // param widgets — they are created inside the page lambdas above.
+    m_slopeSpin->setObjectName(QStringLiteral("meshBcSlopeSpin"));
+    m_stageSpin->setObjectName(QStringLiteral("meshBcStageSpin"));
+    m_stageTSCombo->setObjectName(QStringLiteral("meshBcStageTSCombo"));
+    m_flowSpin->setObjectName(QStringLiteral("meshBcFlowSpin"));
+    m_flowTSCombo->setObjectName(QStringLiteral("meshBcFlowTSCombo"));
+    m_curveCombo->setObjectName(QStringLiteral("meshBcCurveCombo"));
+
     m_actBCParamStack = m_barEdges->addWidget(m_bcParamStack);
 
     // Shared Browse button — only relevant for the TS / Curve types.
@@ -392,6 +405,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         lay->setContentsMargins(0, 0, 0, 0);
         lay->addWidget(new QLabel(QStringLiteral("ψ:"), page));
         m_conveySpin = new QDoubleSpinBox(page);
+        m_conveySpin->setObjectName(QStringLiteral("meshBcConveySpin"));
         m_conveySpin->setRange(0.0, 1.0);
         m_conveySpin->setDecimals(3);
         m_conveySpin->setSingleStep(0.05);
@@ -905,20 +919,52 @@ void MeshEditingToolbar::refreshEdgeEditor()
         m_edgeInfoLbl->setText(tr("Edges: (none)"));
         return;
     }
+    // Every widget write below is display-only. commitBCParam /
+    // commitConveyance / onBCTypeChanged early-return while this is set, so
+    // the per-slot attributeChanged emissions of a RUNNING bulk command
+    // cannot re-enter here and push a nested edit that rewrites
+    // already-updated edges with their old values (§V.VC.3).
+    const QScopedValueRollback<bool> refreshing(m_refreshingEdgeEditor, true);
+
     const auto edges = currentSelectedEdges();
     int nBoundary = 0;
     for (const auto &pr : edges)
         if (m_activeMesh->isBoundaryEdge(pr.first, pr.second)) ++nBoundary;
 
-    // Seed ψ from the first selected edge whenever there IS a selection —
-    // works for both single- and multi-edge selections, boundary or interior.
-    if (!edges.isEmpty() && m_conveySpin) {
-        const auto &bcs = m_activeMesh->edgeBCs();
-        const int flat0 = edges.front().first * 3 + edges.front().second;
-        if (flat0 >= 0 && flat0 < bcs.size()) {
-            QSignalBlocker block(m_conveySpin);
-            m_conveySpin->setValue(bcs[flat0].conveyance);
-        }
+    // Aggregate across the selection (refreshVertexEditor's same-flag
+    // convention): the BC fields aggregate over BOUNDARY edges — interior
+    // slots hold the default Wall value the engine ignores, and folding them
+    // in would report "mixed" for a perfectly uniform boundary run — while
+    // ψ aggregates over every selected edge (it applies to interior edges
+    // too).
+    const auto &bcs = m_activeMesh->edgeBCs();
+    bool typeSame = true, slopeSame = true, headSame = true, flowSame = true,
+         tsSame = true, curveSame = true, conveySame = true;
+    mesh::MeshEdgeBC first;
+    bool haveFirst = false;         // first BOUNDARY edge in sorted order
+    double convey0 = 1.0;
+    bool haveConvey = false;        // first edge of any kind
+    for (const auto &pr : edges) {
+        const int flat = pr.first * 3 + pr.second;
+        if (flat < 0 || flat >= bcs.size()) continue;
+        const mesh::MeshEdgeBC &bc = bcs[flat];
+        if (!haveConvey) { convey0 = bc.conveyance; haveConvey = true; }
+        else if (bc.conveyance != convey0) conveySame = false;
+        if (!m_activeMesh->isBoundaryEdge(pr.first, pr.second)) continue;
+        if (!haveFirst) { first = bc; haveFirst = true; continue; }
+        if (bc.type    != first.type)    typeSame  = false;
+        if (bc.slope   != first.slope)   slopeSame = false;
+        if (bc.head    != first.head)    headSame  = false;
+        if (bc.flow    != first.flow)    flowSame  = false;
+        if (bc.tseries != first.tseries) tsSame    = false;
+        if (bc.curve   != first.curve)   curveSame = false;
+    }
+
+    // ψ: the uniform value, or the 1.000 default on disagreement (the
+    // vertex editor's Cd/Area convention).
+    if (m_conveySpin) {
+        QSignalBlocker block(m_conveySpin);
+        m_conveySpin->setValue((haveConvey && conveySame) ? convey0 : 1.000);
     }
 
     if (edges.isEmpty()) {
@@ -952,36 +998,48 @@ void MeshEditingToolbar::refreshEdgeEditor()
     } else {
         m_edgeInfoLbl->setText(tr("Edges: %1 (%2 boundary)")
                                 .arg(edges.size()).arg(nBoundary));
+    }
 
-        // Populate combo + param widgets from the first selected edge's
-        // current BC value, so the user sees the existing state before
-        // editing. Mixed values across the multi-selection: combo flips
-        // to the first edge's type; spinboxes show its values; the user
-        // can Apply to overwrite all. (Slice §V.VC.2 will surface a
-        // "mixed" placeholder per the §V.VC plan once we have a
-        // dedicated "indeterminate" UI primitive.)
-        const auto &bcs = m_activeMesh->edgeBCs();
-        const int flat0 = edges.front().first * 3 + edges.front().second;
-        if (flat0 >= 0 && flat0 < bcs.size()) {
-            const mesh::MeshEdgeBC &bc = bcs[flat0];
-            const int comboIdx = m_bcTypeCombo
-                ? m_bcTypeCombo->findData(static_cast<int>(bc.type))
-                : -1;
-            if (comboIdx >= 0) {
-                QSignalBlocker block(m_bcTypeCombo);
-                m_bcTypeCombo->setCurrentIndex(comboIdx);
-                m_bcParamStack->setCurrentIndex(comboIdx);
-            }
-            if (m_slopeSpin)  { QSignalBlocker b(m_slopeSpin);  m_slopeSpin->setValue(bc.slope); }
-            if (m_stageSpin)  { QSignalBlocker b(m_stageSpin);  m_stageSpin->setValue(bc.head); }
-            if (m_flowSpin)   { QSignalBlocker b(m_flowSpin);   m_flowSpin->setValue(bc.flow); }
-            if (m_stageTSCombo && bc.type == mesh::MeshBCTypes::Type::SpecifiedStageTS)
-                m_stageTSCombo->setCurrentText(bc.tseries);
-            if (m_flowTSCombo && bc.type == mesh::MeshBCTypes::Type::SpecifiedFlowTS)
-                m_flowTSCombo->setCurrentText(bc.tseries);
-            if (m_curveCombo && bc.type == mesh::MeshBCTypes::Type::RatingCurve)
-                m_curveCombo->setCurrentText(bc.curve);
+    // Hydrate the BC widgets for ANY selection with at least one boundary
+    // edge — a single edge is just the N=1 uniform case (§V.VC.2, the
+    // "mixed" gap, closed with the existing placeholder idiom). Uniform
+    // fields show their value; a mixed type renders the combo empty
+    // (index -1 → updateEnabledState hides the param stack); a uniform
+    // type with mixed params shows type defaults in the spins and a
+    // <multiple> placeholder in the name combos. Every setter runs under
+    // a QSignalBlocker: these combos commit on currentTextChanged, so an
+    // unblocked display refresh WAS a bulk write of an arbitrary edge's
+    // value onto the whole selection.
+    if (haveFirst) {
+        const int comboIdx = (typeSame && m_bcTypeCombo)
+            ? m_bcTypeCombo->findData(static_cast<int>(first.type))
+            : -1;
+        if (m_bcTypeCombo) {
+            QSignalBlocker block(m_bcTypeCombo);
+            m_bcTypeCombo->setCurrentIndex(comboIdx);   // -1 renders empty
         }
+        if (m_bcParamStack && comboIdx >= 0
+            && comboIdx < m_bcParamStack->count())
+            m_bcParamStack->setCurrentIndex(comboIdx);
+        if (m_slopeSpin) { QSignalBlocker b(m_slopeSpin);
+            m_slopeSpin->setValue(slopeSame ? first.slope : 0.0); }
+        if (m_stageSpin) { QSignalBlocker b(m_stageSpin);
+            m_stageSpin->setValue(headSame ? first.head : 0.0); }
+        if (m_flowSpin)  { QSignalBlocker b(m_flowSpin);
+            m_flowSpin->setValue(flowSame ? first.flow : 0.0); }
+        const auto setNameCombo = [](QComboBox *combo, bool same,
+                                     const QString &value,
+                                     const QString &placeholder) {
+            if (!combo) return;
+            QSignalBlocker b(combo);
+            combo->setCurrentText(same ? value : QString());
+            if (combo->lineEdit())
+                combo->lineEdit()->setPlaceholderText(same ? QString()
+                                                           : placeholder);
+        };
+        setNameCombo(m_stageTSCombo, tsSame, first.tseries, tr("<multiple>"));
+        setNameCombo(m_flowTSCombo,  tsSame, first.tseries, tr("<multiple>"));
+        setNameCombo(m_curveCombo,   curveSame, first.curve, tr("<multiple>"));
     }
     updateEnabledState();
 }
@@ -1575,11 +1633,17 @@ QList<QPair<int,int>> MeshEditingToolbar::currentSelectedEdges() const
         if (lk != wantKey) continue;
         out.append(qMakePair(tri, e));
     }
+    // SelectionManager holds a QSet, whose iteration order is hash-seeded
+    // per process — sort so "the first selected edge", command slot order,
+    // and everything displayed from this list are deterministic.
+    std::sort(out.begin(), out.end());
     return out;
 }
 
 void MeshEditingToolbar::onBCTypeChanged(int index)
 {
+    // Display-only refresh in progress — never commit from it (§V.VC.3).
+    if (m_refreshingEdgeEditor) return;
     // Stack index alignment matches the combo: see buildUi.
     if (m_bcParamStack && index >= 0 && index < m_bcParamStack->count())
         m_bcParamStack->setCurrentIndex(index);
@@ -1593,7 +1657,12 @@ void MeshEditingToolbar::onBCTypeChanged(int index)
 
 void MeshEditingToolbar::commitBCParam()
 {
+    if (m_refreshingEdgeEditor) return;   // display-only refresh (§V.VC.3)
     if (!m_activeMesh || !m_bcTypeCombo) return;
+    // Mixed-type display parks the combo at index -1, where currentData()
+    // is an invalid variant whose toInt() is 0 == Wall — committing from
+    // that state would silently wall off every selected edge.
+    if (m_bcTypeCombo->currentIndex() < 0) return;
     const auto edges = currentSelectedEdges();
     if (edges.isEmpty()) return;
 
@@ -1638,6 +1707,7 @@ void MeshEditingToolbar::commitBCParam()
 
 void MeshEditingToolbar::commitConveyance()
 {
+    if (m_refreshingEdgeEditor) return;   // display-only refresh (§V.VC.3)
     if (!m_activeMesh || !m_conveySpin) return;
     const auto edges = currentSelectedEdges();
     if (edges.isEmpty()) return;
