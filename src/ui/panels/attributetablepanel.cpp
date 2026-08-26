@@ -34,6 +34,7 @@
 #include "layers/swmmmodellayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/tabulardatalayer.h"
+#include "layers/gisobjectref.h"
 #include "layers/gisvectorlayer.h"
 #include "mesh/meshobjectref.h"
 #include "map/mapcanvas.h"
@@ -97,10 +98,13 @@ Q_LOGGING_CATEGORY(lcAttrTbl, "openswmm.attr-table")
 // so the Attribute Table view can display feature attributes the same way it
 // shows SWMM categories and tabular (CSV/TSV) layers. Mirrors
 // TabularDataTableModel: attributes are cached in memory on setLayer() and
-// served read-only. Selection ops + cross-view selection are no-ops when this
-// source is active (the layer has no SWMM object refs) — the panel already
-// guards those on `sourceModel() == m_model`. No Q_OBJECT: it declares no new
-// signals/slots, so no moc/CMake change is required.
+// served read-only. SVBC round B: display column 0 is a synthetic FID and
+// the model carries the row↔fid mapping (fidForRow / rowForFid, the
+// MeshAttributeTableModel idiom), which is what lets the panel's gis branch
+// pair sync selection with the bus — and lets show-selected-only work
+// through FilteringProxy's display-text filter on column 0 unchanged. No
+// Q_OBJECT: it declares no new signals/slots, so no moc/CMake change is
+// required.
 // ---------------------------------------------------------------------------
 class GISVectorAttributeTableModel : public QAbstractTableModel
 {
@@ -122,12 +126,15 @@ public:
         beginResetModel();
         m_headers.clear();
         m_rows.clear();
+        m_fids.clear();
+        m_rowByFid.clear();
 
         OGRLayer *ol = m_layer ? m_layer->ogrLayer() : nullptr;
         OGRFeatureDefn *defn = ol ? ol->GetLayerDefn() : nullptr;
         if (ol && defn) {
             const int nFields = defn->GetFieldCount();
-            m_headers.reserve(nFields);
+            m_headers.reserve(nFields + 1);
+            m_headers << QStringLiteral("FID");
             for (int i = 0; i < nFields; ++i)
                 m_headers << QString::fromUtf8(defn->GetFieldDefn(i)->GetNameRef());
 
@@ -145,7 +152,11 @@ public:
             OGRFeature *f = nullptr;
             while ((f = ol->GetNextFeature()) != nullptr) {
                 QVector<QVariant> row;
-                row.reserve(nFields);
+                row.reserve(nFields + 1);
+                const long long fid = static_cast<long long>(f->GetFID());
+                m_rowByFid.insert(fid, static_cast<int>(m_rows.size()));
+                m_fids.push_back(fid);
+                row.push_back(QVariant::fromValue<qlonglong>(fid));
                 for (int i = 0; i < nFields; ++i) {
                     if (!f->IsFieldSetAndNotNull(i)) { row.push_back(QVariant()); continue; }
                     switch (defn->GetFieldDefn(i)->GetType()) {
@@ -171,6 +182,13 @@ public:
     }
 
     [[nodiscard]] QStringList columnHeaders() const { return m_headers; }
+
+    /*! Row↔fid mapping for the selection bridge (MeshAttributeTableModel's
+     *  refForRow/rowForRef idiom). -1 on either miss. */
+    [[nodiscard]] long long fidForRow(int row) const
+    { return (row >= 0 && row < m_fids.size()) ? m_fids[row] : -1; }
+    [[nodiscard]] int rowForFid(long long fid) const
+    { return m_rowByFid.value(fid, -1); }
 
     int rowCount(const QModelIndex &parent = {}) const override
     { return parent.isValid() ? 0 : static_cast<int>(m_rows.size()); }
@@ -203,6 +221,8 @@ private:
     QPointer<GISVectorLayer>   m_layer;
     QStringList                m_headers;
     QVector<QVector<QVariant>> m_rows;
+    QVector<long long>         m_fids;      //!< row → OGR FID
+    QHash<long long, int>      m_rowByFid;  //!< OGR FID → row
 };
 
 namespace {
@@ -1521,10 +1541,80 @@ void AttributeTablePanel::meshSelectionFromBus(const QSet<SWMMObjectRef> &curren
     m_applyingFromBus = false;
 }
 
+bool AttributeTablePanel::gisSourceActive() const
+{
+    return m_proxy && m_gisModel && m_proxy->sourceModel() == m_gisModel
+           && m_gisModel->layer();
+}
+
+void AttributeTablePanel::gisSelectionToBus()
+{
+    if (!m_selMgr || !gisSourceActive() || !m_view) return;
+    auto *sel = m_view->selectionModel();
+    if (!sel) return;
+
+    const QString layerId = m_gisModel->layer()->layerId();
+    QSet<SWMMObjectRef> refs;
+    for (const QModelIndex &proxyIdx : sel->selectedRows()) {
+        const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
+        const long long fid = m_gisModel->fidForRow(srcIdx.row());
+        if (fid >= 0) refs.insert(GisObjectRef::feature(layerId, fid));
+    }
+    // The GisSelectionBridge convention: replace only the FEATURE portion
+    // of the bus, keeping other kinds — so a table pick behaves exactly
+    // like a map pick, and removing refs never clobbers a SWMM selection.
+    for (const SWMMObjectRef &r : m_selMgr->selection())
+        if (r.objectType != SWMMObjectRef::Feature) refs.insert(r);
+    m_selMgr->select(refs, SelectionManager::Replace);
+    // See meshSelectionToBus: raise the beacon so the pick is findable.
+    if (m_canvas) m_canvas->flashSelection();
+}
+
+void AttributeTablePanel::gisSelectionFromBus(const QSet<SWMMObjectRef> &current)
+{
+    if (!gisSourceActive() || !m_view) return;
+    auto *sel = m_view->selectionModel();
+    if (!sel) return;
+
+    m_applyingFromBus = true;
+
+    const QString layerId = m_gisModel->layer()->layerId();
+    QList<int> rows;
+    for (const auto &ref : current) {
+        QString lid;
+        long long fid = -1;
+        if (!GisObjectRef::parseFeature(ref, &lid, &fid)) continue;
+        if (lid != layerId) continue;
+        const int row = m_gisModel->rowForFid(fid);
+        if (row >= 0) rows << row;
+    }
+
+    // "Show selected only" rides the synthetic FID display column 0 —
+    // the same display-text mechanism every other source uses.
+    auto *fp = static_cast<FilteringProxy *>(m_proxy);
+    if (m_showSelectedOnly) {
+        QSet<QString> ids;
+        ids.reserve(rows.size());
+        for (int row : std::as_const(rows)) {
+            ids.insert(m_gisModel->data(m_gisModel->index(row, 0),
+                                        Qt::DisplayRole).toString());
+        }
+        fp->setNameFilter(ids, true);
+    } else {
+        fp->setNameFilter({}, false);
+    }
+
+    selectSourceRows(sel, m_proxy, m_gisModel, rows);
+
+    m_applyingFromBus = false;
+}
+
 void AttributeTablePanel::onTableSelectionChanged()
 {
-    if (m_applyingFromBus || !m_selMgr || !m_model || !m_view || !m_proxy) return;
+    if (m_applyingFromBus || !m_selMgr || !m_view || !m_proxy) return;
     if (meshSourceActive()) { meshSelectionToBus(); return; }
+    if (gisSourceActive())  { gisSelectionToBus();  return; }
+    if (!m_model) return;
     // Z.4.3 — only the SWMM model carries object refs; tabular
     // source has no canvas-linked selection.
     if (m_proxy->sourceModel() != m_model) return;
@@ -1553,6 +1643,7 @@ void AttributeTablePanel::onSelectionManagerChanged(
 {
     if (!m_view || !m_proxy) return;
     if (meshSourceActive()) { meshSelectionFromBus(current); return; }
+    if (gisSourceActive())  { gisSelectionFromBus(current);  return; }
     if (!m_layer || !m_model) return;
     // Z.4.3 — when a tabular source is active, the bus selection
     // doesn't apply (no SWMMObjectRef → row mapping).

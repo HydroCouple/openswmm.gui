@@ -226,6 +226,12 @@ private:
     void meshSelectionToBus();
     void meshSelectionFromBus(const QSet<SWMMObjectRef> &current);
 
+    /*! SVBC round B — the same pair for the GIS feature-layer source,
+     *  keyed by FID through GisObjectRef ("gis::<layerId>#f<fid>"). */
+    [[nodiscard]] bool gisSourceActive() const;
+    void gisSelectionToBus();
+    void gisSelectionFromBus(const QSet<SWMMObjectRef> &current);
+
     /*! Slice Z.3 — collect the SWMMObjectRefs of all source rows
      *  whose identify map satisfies the current query predicate.
      *  Ignores the "show selected only" filter so the selection

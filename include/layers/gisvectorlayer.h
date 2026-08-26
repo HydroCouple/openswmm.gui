@@ -305,6 +305,22 @@ public:
      */
     void clearSelection();
 
+    /*!
+     * \brief SVBC round B — fids of every feature whose GEOMETRY intersects
+     *        \p rectCanvasCrs (OGR bbox prefilter, then precise Intersects).
+     *        The rect arrives in canvas CRS and is inverse-transformed when
+     *        the layer is reprojected. Any pre-existing spatial filter is
+     *        saved and restored (clone dance).
+     */
+    [[nodiscard]] QSet<long long> featureIdsInRect(
+        const MapExtent &rectCanvasCrs) const;
+
+    /*!
+     * \brief Scene-space centres of the selected features' items — beacon
+     *        anchors for MapCanvas::flashSelection.
+     */
+    [[nodiscard]] QVector<QPointF> selectedFeatureAnchors() const;
+
     // ----- Identify -------------------------------------------------------
 
     /*!
