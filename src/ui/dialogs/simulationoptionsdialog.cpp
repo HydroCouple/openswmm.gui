@@ -210,6 +210,13 @@ void SimulationOptionsDialog::applyEngineConstraints()
             m_qualitySolverCombo->setEnabled(false);
             m_qualitySolverCombo->setToolTip(ttip);
         }
+        // OUTFALL_BACKFLOW_QUALITY exists in BOTH engines, but a legacy
+        // build predating it would drop the key on save — same gate as
+        // the rest of the quality surface.
+        if (m_outfallBackflowCombo) {
+            m_outfallBackflowCombo->setEnabled(false);
+            m_outfallBackflowCombo->setToolTip(ttip);
+        }
         // Disable the groups directly: with the solver combo frozen,
         // updateQualitySolverFieldsEnabled() would re-enable whichever group
         // matches its (stale) selection.
@@ -1183,6 +1190,24 @@ QWidget *SimulationOptionsDialog::buildQualityTransportTab()
         tr("Transport engine for pollutants and reserved species "
            "(option QUALITY_SOLVER)."));
     solForm->addRow(tr("Sol&ver:"), m_qualitySolverCombo);
+
+    // Boundary re-entry quality at outfalls — solver-independent (both
+    // engines honor it), so it lives with the solver selection rather
+    // than in a per-solver group.
+    m_outfallBackflowCombo = new QComboBox(solGroup);
+    m_outfallBackflowCombo->addItem(tr("Hold last concentration (legacy)"),
+                                    QStringLiteral("LAST"));
+    m_outfallBackflowCombo->addItem(tr("Fresh (zero concentration and age)"),
+                                    QStringLiteral("ZERO"));
+    m_outfallBackflowCombo->setToolTip(
+        tr("Quality carried by reverse flow at outfalls (option "
+           "OUTFALL_BACKFLOW_QUALITY). \"Hold last\" re-injects the "
+           "outfall's held state — under water age that water keeps aging "
+           "with the clock, so a permanently supplying outfall grows old "
+           "without bound. \"Fresh\" makes a supplying outfall an "
+           "EPANET-style reservoir: backflow enters with zero "
+           "concentration and zero age."));
+    solForm->addRow(tr("Outfall &backflow:"), m_outfallBackflowCombo);
     vlay->addWidget(solGroup);
 
     // ── Eulerian ARD ───────────────────────────────────────────────────
@@ -2996,6 +3021,9 @@ void SimulationOptionsDialog::readFromEngine()
     // for a resync — the same contract the FV group above carries.
     selectComboByData(m_qualitySolverCombo,
                       getOption("QUALITY_SOLVER", QStringLiteral("LEGACY")));
+    selectComboByData(m_outfallBackflowCombo,
+                      getOption("OUTFALL_BACKFLOW_QUALITY",
+                                QStringLiteral("LAST")));
     m_qualityStepSpin->setValue(optDouble("QUALITY_STEP", 0.0));
     m_maxSegmentsSpin->setValue(optInt("MAX_SEGMENTS_PER_LINK", 100));
     selectComboByData(m_dispersionCombo,
@@ -4259,6 +4287,9 @@ int SimulationOptionsDialog::writeToEngine()
     // from churning against the engine's "0.000000" rendering.
     writeIfChanged("QUALITY_SOLVER",      getOption("QUALITY_SOLVER"),
                    m_qualitySolverCombo->currentData().toString());
+    writeIfChanged("OUTFALL_BACKFLOW_QUALITY",
+                   getOption("OUTFALL_BACKFLOW_QUALITY"),
+                   m_outfallBackflowCombo->currentData().toString());
     writeIfChanged("QUALITY_STEP",        getOption("QUALITY_STEP"),
                    QString::number(m_qualityStepSpin->value(), 'f', 2));
     writeIfChanged("MAX_SEGMENTS_PER_LINK", getOption("MAX_SEGMENTS_PER_LINK"),
