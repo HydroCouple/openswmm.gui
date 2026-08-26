@@ -321,6 +321,11 @@ private:
     QAction       *m_actConveySpin  = nullptr;
 
     bool           m_suppressZSignal = false;
+    /*! True while refreshEdgeEditor() hydrates the BC widgets — the
+     *  commit slots early-return on it so a display refresh (including a
+     *  re-entrant one fired by a running bulk command's per-slot
+     *  attributeChanged) can never push an edit. */
+    bool           m_refreshingEdgeEditor = false;
 
     PickerFn       m_stageTSPicker;
     PickerFn       m_flowTSPicker;
