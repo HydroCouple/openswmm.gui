@@ -28,6 +28,7 @@
 #include <openswmm/engine/openswmm_engine.h>
 
 #include "ui/properties/dataobjectref.h"
+#include "ui/properties/initialqualityeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/userflagseditref.h"
 
@@ -165,6 +166,11 @@ public:
      *  UserFlagsModel; without a layer the cell disables gracefully. */
     [[nodiscard]] UserFlagsEditRef userFlagsRef() const;
 
+    /*! Initial-quality UI round — per-element [INITIAL_QUALITY] overrides
+     *  row. Same compound-ref pattern; the InitialQualityEditButton editor
+     *  opens InitialQualityDialog scoped to this node. */
+    [[nodiscard]] InitialQualityEditRef initialQualityRef() const;
+
     // Slice DA.4.3 — outfall stage-data accessors. Live on the base class
     // (rather than only on the outfall subclass) so the cpp can use the
     // same `nodeIdx() / m_engine` helpers as every other accessor. Only
@@ -245,6 +251,7 @@ public slots:
     void setRdiiRef(const NodeCompoundEditRef &)      { emit changed(); }
     void setTreatmentRef(const NodeCompoundEditRef &) { emit changed(); }
     void setUserFlagsRef(const UserFlagsEditRef &)    { emit changed(); }
+    void setInitialQualityRef(const InitialQualityEditRef &) { emit changed(); }
 
     // Slice DA.4.3 — outfall stage-data setters. Each calls the matching
     // swmm_node_set_outfall_* engine setter, which also flips the outfall
@@ -376,6 +383,8 @@ class SWMMJunctionPropertyAdapter : public SWMMNodePropertyAdapter
                READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
     Q_PROPERTY(NodeCompoundEditRef treatment
                READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
+    Q_PROPERTY(InitialQualityEditRef initialQuality
+               READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
@@ -451,6 +460,8 @@ class SWMMOutfallPropertyAdapter : public SWMMNodePropertyAdapter
                READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
     Q_PROPERTY(NodeCompoundEditRef treatment
                READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
+    Q_PROPERTY(InitialQualityEditRef initialQuality
+               READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
@@ -506,6 +517,8 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
                READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
     Q_PROPERTY(NodeCompoundEditRef treatment
                READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
+    Q_PROPERTY(InitialQualityEditRef initialQuality
+               READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
@@ -542,6 +555,8 @@ class SWMMDividerPropertyAdapter : public SWMMNodePropertyAdapter
                READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
     Q_PROPERTY(NodeCompoundEditRef treatment
                READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
+    Q_PROPERTY(InitialQualityEditRef initialQuality
+               READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:

@@ -30,8 +30,10 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_initial_quality.h>  // Initial-quality UI round
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_pollutants.h>       // Initial-quality UI round
 
 #include <QObject>
 #include <QSignalSpy>
@@ -269,6 +271,40 @@ private slots:
                 QCOMPARE(a.metaObject()->indexOfProperty(p.toUtf8().constData()), -1);
             swmm_engine_destroy(e);
         }
+    }
+
+    // ====================================================================
+    // Initial-quality UI round — link-side "Initial Quality" cell
+    // ====================================================================
+
+    void initialQualityRefTracksEngineRows()
+    {
+        SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
+        QVERIFY(e);
+        QCOMPARE(swmm_pollutant_add(e, "TSS", 0 /*MG/L*/), SWMM_OK);
+        const int li = swmm_link_index(e, "C1");
+        QVERIFY(li >= 0);
+
+        SWMMConduitPropertyAdapter a(e, QStringLiteral("C1"));
+        auto ref = a.initialQualityRef();
+        QCOMPARE(ref.engine, e);
+        QCOMPARE(ref.isLink, 1);
+        QCOMPARE(ref.elementName, QStringLiteral("C1"));
+        QCOMPARE(ref.summary, QStringLiteral("(none)"));
+
+        // A NODE row for the same engine index must not leak into the
+        // LINK-scoped summary.
+        const int j1 = swmm_node_index(e, "J1");
+        QCOMPARE(swmm_init_quality_set(e, 0, j1, "TSS", 3.0), SWMM_OK);
+        QCOMPARE(a.initialQualityRef().summary, QStringLiteral("(none)"));
+
+        QCOMPARE(swmm_init_quality_set(e, 1, li, "TSS", 4.5), SWMM_OK);
+        QCOMPARE(a.initialQualityRef().summary, QStringLiteral("1 set"));
+
+        QVERIFY(a.metaObject()->indexOfProperty("initialQuality") >= 0);
+        QVERIFY(!a.displayLabelFor(
+            QStringLiteral("initialQuality")).isEmpty());
+        swmm_engine_destroy(e);
     }
 };
 

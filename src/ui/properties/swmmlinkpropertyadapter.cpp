@@ -87,6 +87,8 @@ QString SWMMLinkPropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QLatin1String("inletUsage"))      return tr("Inlets");
     // USER_FLAGS Phase 4.
     if (property == QLatin1String("userFlags"))       return tr("User Flags");
+    // Initial-quality UI round.
+    if (property == QLatin1String("initialQuality"))  return tr("Initial Quality");
 
     return {};
 }
@@ -414,6 +416,15 @@ UserFlagsEditRef SWMMLinkPropertyAdapter::userFlagsRef() const {
     r.objectName = m_name;
     r.model      = m_layer ? m_layer->ensureUserFlagsModel() : nullptr;
     r.summary    = userFlagsSummaryFor(r.model, r.objectType, r.objectName);
+    return r;
+}
+
+InitialQualityEditRef SWMMLinkPropertyAdapter::initialQualityRef() const {
+    InitialQualityEditRef r;
+    r.engine      = m_engine;
+    r.isLink      = 1;
+    r.elementName = m_name;
+    r.summary     = initialQualitySummaryFor(m_engine, 1, m_name);
     return r;
 }
 
