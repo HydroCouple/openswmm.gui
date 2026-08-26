@@ -12,7 +12,10 @@
 #include "ui/dialogs/simulationoptionsdialog.h"
 
 #include <QDateTime>
+#include <QDateTimeEdit>
+#include <QItemSelectionModel>
 #include <QObject>
+#include <QTableWidget>
 #include <QTest>
 
 class TestSimulationOptionsDialog : public QObject
@@ -41,6 +44,13 @@ private slots:
     // writeIfChanged — formatting drift must not read as an edit.
     void optionValueEqualsNumericForms();
     void optionValueEqualsNonNumeric();
+
+    // [EVENTS] table row-selection query behind the Remove button. The table
+    // populates cells exclusively with setCellWidget() editors — NO
+    // QTableWidgetItems — so this must read the selection model, not
+    // selectedItems() (the bug that left Remove permanently disabled).
+    void selectedRowsDescendingWidgetOnlyTable();
+    void selectedRowsDescendingItemFallback();
 };
 
 void TestSimulationOptionsDialog::parseEngineBoolKnownValues()
@@ -261,6 +271,58 @@ void TestSimulationOptionsDialog::optionValueEqualsNonNumeric()
     // empty engine value followed by a numeric write is a real edit.
     QVERIFY(!eq(QString(),               QStringLiteral("0")));
     QVERIFY(!eq(QStringLiteral("AUTO"),  QStringLiteral("0")));
+}
+
+void TestSimulationOptionsDialog::selectedRowsDescendingWidgetOnlyTable()
+{
+    // Mirror the [EVENTS] table exactly: row selection, cell WIDGETS only,
+    // no QTableWidgetItem anywhere.
+    QTableWidget table(3, 2);
+    table.setSelectionBehavior(QAbstractItemView::SelectRows);
+    table.setSelectionMode(QAbstractItemView::ExtendedSelection);
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 2; ++c)
+            table.setCellWidget(r, c, new QDateTimeEdit(&table));
+
+    // No selection → empty (Remove stays disabled).
+    QVERIFY(SimulationOptionsDialog::selectedRowsDescending(&table).isEmpty());
+
+    // Single row selected → that row, even though selectedItems() is empty.
+    table.selectRow(1);
+    QVERIFY(table.selectedItems().isEmpty());  // the premise of the old bug
+    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table),
+             (QList<int>{1}));
+
+    // Multi-row selection → distinct rows, DESCENDING (removeRow-safe).
+    auto *sel = table.selectionModel();
+    sel->clearSelection();
+    sel->select(table.model()->index(0, 0),
+                QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    sel->select(table.model()->index(2, 0),
+                QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table),
+             (QList<int>{2, 0}));
+
+    // Null table → empty, no crash.
+    QVERIFY(SimulationOptionsDialog::selectedRowsDescending(nullptr).isEmpty());
+}
+
+void TestSimulationOptionsDialog::selectedRowsDescendingItemFallback()
+{
+    // A table with real items and plain cell selection (no full-row spans):
+    // selectedRows() reports nothing, the selectedItems() fallback kicks in.
+    QTableWidget table(3, 2);
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 2; ++c)
+            table.setItem(r, c, new QTableWidgetItem(QStringLiteral("x")));
+
+    auto *sel = table.selectionModel();
+    sel->select(table.model()->index(1, 0), QItemSelectionModel::Select);
+    sel->select(table.model()->index(0, 1), QItemSelectionModel::Select);
+
+    QVERIFY(sel->selectedRows().isEmpty());   // no full row selected
+    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table),
+             (QList<int>{1, 0}));
 }
 
 QTEST_MAIN(TestSimulationOptionsDialog)
