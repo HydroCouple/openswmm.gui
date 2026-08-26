@@ -15,12 +15,15 @@
 
 #include <QDate>
 #include <QDateTime>
+#include <QItemSelectionModel>
 #include <QString>
 #include <QStringList>
+#include <QTableWidget>
 #include <QTime>
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 int SimulationOptionsDialog::parseEngineBool(const QString &s)
 {
@@ -147,4 +150,31 @@ bool SimulationOptionsDialog::optionValueEquals(const QString &a,
     // parsing; the relative tolerance only absorbs last-digit rounding.
     const double scale = std::max({1.0, std::abs(da), std::abs(db)});
     return std::abs(da - db) <= 1e-9 * scale;
+}
+
+QList<int> SimulationOptionsDialog::selectedRowsDescending(
+    const QTableWidget *table)
+{
+    QList<int> rows;
+    if (!table) return rows;
+
+    // The selection model sees row selections even when the cells hold only
+    // setCellWidget() editors and no QTableWidgetItems (the [EVENTS] table).
+    if (const auto *sel = table->selectionModel()) {
+        const auto idxs = sel->selectedRows();
+        rows.reserve(idxs.size());
+        for (const auto &idx : idxs)
+            rows.append(idx.row());
+    }
+
+    // Fallback for plain cell selections that don't span a full row.
+    if (rows.isEmpty()) {
+        const auto items = table->selectedItems();
+        for (const auto *it : items)
+            if (!rows.contains(it->row()))
+                rows.append(it->row());
+    }
+
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    return rows;
 }
