@@ -674,6 +674,7 @@ private:
     QDateTimeEdit *mDateTimeEditAnimationTime         = nullptr;
     QLabel        *mLabelAnimationSpeed               = nullptr;
     QComboBox     *mComboAnimationSpeed               = nullptr;
+    QCheckBox     *mCheckBoxAnimationCycle            = nullptr;  // loop playback at end-of-range (default on)
     // Causal "as-of within timespan" sync controls (look-back window).
     QLabel        *mLabelAnimationWindow              = nullptr;
     QDoubleSpinBox *mSpinAnimationWindow              = nullptr;

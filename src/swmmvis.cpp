@@ -1438,6 +1438,23 @@ void SWMMVis::initializeAnimationToolBar()
 
     mGroupTimeline->addWidget(mLabelAnimationSpeed);
     mGroupTimeline->addWidget(mComboAnimationSpeed);
+
+    // Cycle toggle — sits after the speed selector. Checked (the default)
+    // wraps playback to the start of the range on reaching the end;
+    // unchecked restores the legacy pause-at-end behaviour.
+    mCheckBoxAnimationCycle = new QCheckBox(tr("Cycle"), this);
+    mCheckBoxAnimationCycle->setChecked(true);
+    mCheckBoxAnimationCycle->setContentsMargins(6, 0, 4, 0);
+    mCheckBoxAnimationCycle->setToolTip(
+        tr("Restart the animation from the beginning when it reaches the end."));
+    mCheckBoxAnimationCycle->setStatusTip(
+        tr("Cycle animation playback (restart at the end)"));
+    mAnimationController->setLooping(mCheckBoxAnimationCycle->isChecked());
+    connect(mCheckBoxAnimationCycle, &QCheckBox::toggled,
+            this, [this](bool checked) {
+        mAnimationController->setLooping(checked);
+    });
+    mGroupTimeline->addWidget(mCheckBoxAnimationCycle);
     mToolBarAnimation->addWidget(mGroupTimeline);
 
     auto *groupDisplay =
