@@ -1302,9 +1302,17 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     // short for the footer: the caveat matters more than the readout it would
     // otherwise sit beside.
     if (showVeNote) {
-        const QString note = (std::abs(fit.ve - 1.0) < 1.0e-9)
-            ? tr_("true scale (V:H 1:1)")
-            : tr_("vertical exaggeration V:H %1:1").arg(fit.ve, 0, 'g', 3);
+        // SVX: fill-canvas fits in a wide pane stretch the HORIZONTAL
+        // (ve < 1); state that as an H:V ratio rather than a sub-unit V:H.
+        QString note;
+        if (std::abs(fit.ve - 1.0) < 1.0e-9)
+            note = tr_("true scale (V:H 1:1)");
+        else if (fit.ve > 1.0)
+            note = tr_("vertical exaggeration V:H %1:1")
+                       .arg(fit.ve, 0, 'g', 3);
+        else
+            note = tr_("horizontal exaggeration H:V %1:1")
+                       .arg(1.0 / fit.ve, 0, 'g', 3);
 
         p.setPen(mutedColor);
         // The band reserved above sits just below `area`'s new bottom edge.
