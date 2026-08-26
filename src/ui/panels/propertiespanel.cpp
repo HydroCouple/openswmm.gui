@@ -30,6 +30,9 @@
 // USER_FLAGS Phase 4 — per-object "User Flags" row ref + cell editor.
 #include "ui/properties/userflagseditbutton.h"
 #include "ui/properties/userflagseditref.h"
+// Initial-quality UI round — per-element "Initial Quality" row ref + cell editor.
+#include "ui/properties/initialqualityeditbutton.h"
+#include "ui/properties/initialqualityeditref.h"
 // Slice BM.0-Browse-Edit — right-click menu dispatches to editors via the registry.
 #include "ui/editors/comprehensiveeditorregistry.h"
 #include "ui/dialogs/curveeditordialog.h"
@@ -364,6 +367,16 @@ void PropertiesPanel::setupUi()
     delegate->registerCustomTypeEditorCreator(
         QMetaType::Type(qMetaTypeId<UserFlagsEditRef>()),
         new QStandardItemEditorCreator<UserFlagsEditButton>());
+
+    // Initial-quality UI round — same dance for the per-element
+    // "Initial Quality" row (InitialQualityEditRef): converter shows the
+    // "n set" summary, editor creator hands out the button that opens
+    // InitialQualityDialog scoped to the element.
+    qRegisterMetaType<InitialQualityEditRef>("InitialQualityEditRef");
+    registerInitialQualityEditRefConverter();
+    delegate->registerCustomTypeEditorCreator(
+        QMetaType::Type(qMetaTypeId<InitialQualityEditRef>()),
+        new QStandardItemEditorCreator<InitialQualityEditButton>());
 #else
     m_model    = new QStandardItemModel(this);
 #endif

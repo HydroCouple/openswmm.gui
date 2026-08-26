@@ -22,6 +22,7 @@
 
 #include "ui/properties/culvertcoderef.h"        // ATTRIBUTE_EDITOR_WIRING Phase 0
 #include "ui/properties/dataobjectref.h"
+#include "ui/properties/initialqualityeditref.h" // Initial-quality UI round
 #include "ui/properties/linkcompoundeditref.h"   // Slice SC.1
 #include "ui/properties/userflagseditref.h"      // USER_FLAGS Phase 4
 
@@ -174,6 +175,10 @@ public:
      *  user-flag assignments row (see SWMMNodePropertyAdapter). */
     [[nodiscard]] UserFlagsEditRef userFlagsRef() const;
 
+    /*! Initial-quality UI round — per-element [INITIAL_QUALITY] overrides
+     *  row (see SWMMNodePropertyAdapter). */
+    [[nodiscard]] InitialQualityEditRef initialQualityRef() const;
+
     /*! See SWMMNodePropertyAdapter::displayLabelFor — same contract,
      *  returns "" for unknown property names. */
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
@@ -236,6 +241,7 @@ public slots:
      *  and the registered `LinkCompoundEditButton` creator never fires. */
     void setXsectionRef(const LinkCompoundEditRef &)    { emit changed(); }
     void setUserFlagsRef(const UserFlagsEditRef &)      { emit changed(); }
+    void setInitialQualityRef(const InitialQualityEditRef &) { emit changed(); }
     void setCulvertCodeRef(const CulvertCodeRef &)      { emit changed(); }
     void setInletUsageRef(const LinkCompoundEditRef &)  { emit changed(); }
 
@@ -299,6 +305,8 @@ class SWMMConduitPropertyAdapter : public SWMMLinkPropertyAdapter
                READ culvertCodeRef WRITE setCulvertCodeRef NOTIFY changed)
     Q_PROPERTY(LinkCompoundEditRef inletUsage
                READ inletUsageRef  WRITE setInletUsageRef  NOTIFY changed)
+    Q_PROPERTY(InitialQualityEditRef initialQuality
+               READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
@@ -323,6 +331,8 @@ class SWMMPumpPropertyAdapter : public SWMMLinkPropertyAdapter
                READ pumpStartupDepth WRITE setPumpStartupDepth NOTIFY changed)
     Q_PROPERTY(double shutoffDepth
                READ pumpShutoffDepth WRITE setPumpShutoffDepth NOTIFY changed)
+    Q_PROPERTY(InitialQualityEditRef initialQuality
+               READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
@@ -361,6 +371,8 @@ class SWMMOrificePropertyAdapter : public SWMMLinkPropertyAdapter
     Q_PROPERTY(double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed)
     Q_PROPERTY(double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed)
     Q_PROPERTY(double geom4 READ xsectGeom4 WRITE setXsectGeom4 NOTIFY changed)
+    Q_PROPERTY(InitialQualityEditRef initialQuality
+               READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
@@ -397,6 +409,8 @@ class SWMMWeirPropertyAdapter : public SWMMLinkPropertyAdapter
     Q_PROPERTY(double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed)
     Q_PROPERTY(double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed)
     Q_PROPERTY(double geom4 READ xsectGeom4 WRITE setXsectGeom4 NOTIFY changed)
+    Q_PROPERTY(InitialQualityEditRef initialQuality
+               READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
@@ -429,6 +443,8 @@ class SWMMOutletPropertyAdapter : public SWMMLinkPropertyAdapter
                READ pumpCurveRef WRITE setPumpCurveRef NOTIFY changed)
     Q_PROPERTY(SWMMLinkPropertyAdapter::FlapGate flapGate
                READ flapGate WRITE setFlapGate NOTIFY changed)
+    Q_PROPERTY(InitialQualityEditRef initialQuality
+               READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
