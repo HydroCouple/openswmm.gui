@@ -73,7 +73,9 @@ void SectionViewPanel::buildUi()
     m_sectionBtn->setText(tr("&Section"));
     m_sectionBtn->setCheckable(true);
     m_sectionBtn->setChecked(true);
-    m_sectionBtn->setToolTip(tr("Show the true-shape cross-section."));
+    m_sectionBtn->setToolTip(
+        tr("Show the cross-section (scale set by the V:H control; "
+           "1:1 is true shape)."));
     m_sectionBtn->setAccessibleName(tr("Show cross-section"));
 
     m_profileBtn = new QToolButton(central);
@@ -87,16 +89,17 @@ void SectionViewPanel::buildUi()
     modeRow->addWidget(m_profileBtn);
     modeRow->addStretch(1);
 
-    // Vertical exaggeration. A profile pane is far wider than it is tall, so
-    // fitting both axes independently silently adopts a large exaggeration and
-    // makes shallow pipes look steep. The automatic setting caps and states the
-    // ratio; this combo lets the user pin it — 1:1 being the honest picture.
+    // Link scale (V:H). SVX: the drawing fills the pane by default — a
+    // letterboxed true-shape section or a capped profile wastes most of a
+    // non-square dock — and whatever ratio the fill implies is STATED on the
+    // drawing, so the stretch is never silent. This combo pins the ratio for
+    // LINK drawings (section and profile alike); 1:1 is the true picture.
+    // Nodes always fill and carry no control.
     m_veLabel = new QLabel(tr("V:&H"), central);
     m_veCombo = new QComboBox(central);
     m_veCombo->setToolTip(
-        tr("Vertical exaggeration of the profile. Automatic caps the ratio at "
-           "%1:1 and states it on the drawing; 1:1 draws true scale.")
-            .arg(sectionview::profileMaxExaggeration(), 0, 'g', 3));
+        tr("Scale of the link drawing (V:H). Auto fills the pane and states "
+           "the achieved ratio on the drawing; 1:1 draws the true shape."));
     m_veCombo->setAccessibleName(tr("Vertical exaggeration"));
     m_veLabel->setBuddy(m_veCombo);
     m_veCombo->addItem(tr("Auto"), 0.0);
@@ -166,11 +169,10 @@ void SectionViewPanel::updateModeButtons()
     m_sectionBtn->setChecked(isLink && m_mode == Mode::Section);
     m_profileBtn->setChecked(isLink && m_mode == Mode::Profile);
 
-    // Exaggeration applies to the profile only — a cross-section is drawn true
-    // shape, where the control would be a lie.
-    const bool profileShown = isLink && m_mode == Mode::Profile;
-    m_veLabel->setVisible(profileShown);
-    m_veCombo->setVisible(profileShown);
+    // The scale control governs LINK drawings in both modes (SVX). Nodes
+    // always fill the pane, so for them it would be a dead control.
+    m_veLabel->setVisible(isLink);
+    m_veCombo->setVisible(isLink);
 }
 
 void SectionViewPanel::setVerticalExaggeration(double ve)
@@ -244,13 +246,28 @@ void SectionViewPanel::refresh()
         if (idx < 0) { clearSelection(); return; }
         if (m_mode == Mode::Profile) {
             SectionDiagramModel m = sectionview::buildLinkProfile(engine, idx, units);
-            // The builder asks for the capped automatic ratio; an explicit user
-            // choice overrides it.
-            if (m_verticalExaggeration > 0.0)
+            if (m_verticalExaggeration > 0.0) {
+                // An explicit user choice overrides the builder's automatic.
                 m.verticalExaggeration = m_verticalExaggeration;
+            } else {
+                // SVX fill-canvas default: drop the builder's aspect target
+                // and cap so the fit stretches to the pane; the achieved
+                // ratio is still stated on the drawing.
+                m.targetDrawnAspect       = 0.0;
+                m.maxVerticalExaggeration = 0.0;
+            }
             m_preview->setModel(std::move(m));
         } else {
-            m_preview->setModel(sectionview::buildLinkSection(engine, idx, units));
+            SectionDiagramModel m = sectionview::buildLinkSection(engine, idx, units);
+            // SVX: the true-shape fit letterboxes in a non-square pane. Fill
+            // the pane by default and STATE the achieved V:H on the drawing;
+            // the combo pins the ratio, 1:1 being the old true-shape picture.
+            m.uniformScale            = false;
+            m.verticalExaggeration    = m_verticalExaggeration;   // 0 = fill
+            m.targetDrawnAspect       = 0.0;
+            m.maxVerticalExaggeration = 0.0;
+            m.annotateExaggeration    = true;
+            m_preview->setModel(std::move(m));
         }
         break;
     }
