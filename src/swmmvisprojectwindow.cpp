@@ -1429,11 +1429,27 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
 
     QByteArray utf8 = newPath.toUtf8();
     QByteArray idUtf8 = pluginId.toUtf8();
+    // The engine's warning list is cumulative, so the count taken here brackets
+    // exactly what THIS write appends. The writer reports data loss through it
+    // ("embedded [REACTION_*] sections are ... lost from this save", engine
+    // 7d43a1ff) — before that fix the sink was never wired and the loss was
+    // silent all the way to the user; reading the delta here is the GUI half.
+    const int engineWarnsBefore =
+        swmm_get_warning_count(mModelLayer->engine());
     int rc = swmm_model_write_with_plugin(
         mModelLayer->engine(),
         utf8.constData(),
         pluginId.isEmpty() ? nullptr : idUtf8.constData());
     engineWriteMs = stage.restart();
+    mLastSaveWarnings.clear();
+    if (rc == 0)
+    {
+        const int engineWarnsAfter =
+            swmm_get_warning_count(mModelLayer->engine());
+        for (int i = engineWarnsBefore; i < engineWarnsAfter; ++i)
+            mLastSaveWarnings.append(QString::fromUtf8(
+                swmm_get_warning_at(mModelLayer->engine(), i)).trimmed());
+    }
     // The engine emits the external sidecar itself when [2D_MESH_FILE] resolves.
     if (!extMeshPath.isEmpty()) ++dmWrites;
     if (rc != 0)
@@ -1598,6 +1614,13 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         << " dmReads=" << dmReads
         << " dmWrites=" << dmWrites
         << " total=" << total.elapsed() << " ms";
+
+    // Emitted last so subscribers see the save fully settled (sidecars
+    // written, mesh references patched). Every save path funnels through
+    // here — Save, Save As, auto-save-before-run, the 2D OUTPUT_FILE
+    // default — so one connection in SWMMVis covers them all.
+    if (!mLastSaveWarnings.isEmpty())
+        emit saveCompletedWithEngineWarnings(mLastSaveWarnings);
     return true;
 }
 
