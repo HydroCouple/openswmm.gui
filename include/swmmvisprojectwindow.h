@@ -161,6 +161,14 @@ public:
     bool save(QString *errorOut = nullptr);
     bool saveAs(const QString &newPath, QString *errorOut = nullptr);
 
+    /*! Engine warnings the LAST successful saveAs() produced (empty when the
+     *  save was clean, or none has run). The writer reports through the
+     *  engine's warning list — notably "embedded [REACTION_*] sections are
+     *  lost from this save" (engine 7d43a1ff) — and saveAs() captures the
+     *  delta across the write so callers and tests can see exactly what THIS
+     *  save said, not the whole accumulated history. */
+    QStringList lastSaveWarnings() const { return mLastSaveWarnings; }
+
     /** Whether the project has unsaved changes. */
     bool hasChanges() const { return mHasChanges; }
 
@@ -408,6 +416,12 @@ signals:
      *  loadModel() returns via out-params. */
     void modelLoadFinished(bool ok, const QList<QString> &warnings,
                            const QList<QString> &errors);
+    /*! Fired after a SUCCESSFUL save whose engine write emitted warnings —
+     *  the save-time analogue of the open path's warning routing. The list is
+     *  the delta across this write only. Data-loss notices (embedded
+     *  [REACTION_*] dropped) arrive here; SWMMVis routes every entry to the
+     *  log panel and escalates the data-loss family to a modal. */
+    void saveCompletedWithEngineWarnings(const QStringList &warnings);
     /*! Completion signal for importMeshFileAsync(): fired exactly once per
      *  call, on the GUI thread. \p meshPath is the file the new layer reads
      *  (the copy inside the project folder, when one was made) and is empty
@@ -507,6 +521,7 @@ private:
     bool                 mElevationOffsetMode = false;  // OPTIONS LINK_OFFSETS = ELEVATION
     bool                 mUntitled            = false;  // Slice Y — never saved
     bool                 mClosePromptActive   = false;  // re-entrancy guard for closeEvent's prompt
+    QStringList          mLastSaveWarnings;   // delta across the last successful engine write
     QString              mEngineVersion       = "6.0.0";  // Default to newest version
     QString              mNotesHtml;                      // [TITLE] notes (rich HTML)
     QJsonArray           mPending2DResultsRestore;        // .oswp 2D results entries

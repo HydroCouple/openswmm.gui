@@ -4678,6 +4678,29 @@ SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
     connect(window, &SWMMVisProjectWindow::modelLoadError,
             this, &SWMMVis::onModelLoadError);
 
+    // Save-time engine warnings — the save-side twin of the open path's
+    // routing in finalizeSingleINPOpen. Everything goes to the log panel;
+    // the data-loss family ("lost from this save" — the exact phrase the
+    // engine's own gate pins, see test_process_components.cpp in the engine
+    // repo) additionally gets a modal, because a dropped [REACTION_*] block
+    // is destroyed user data, not an advisory. Queued: saveAs is called from
+    // inside flows like auto-save-before-run, and a modal must not re-enter
+    // them mid-call.
+    connect(window, &SWMMVisProjectWindow::saveCompletedWithEngineWarnings,
+            this, [this](const QStringList &warnings) {
+                QStringList dataLoss;
+                for (const QString &w : warnings)
+                {
+                    onLogMessage(w, OpenSWMMVisLogMessage::LogMessageType::Warning);
+                    if (w.contains(QStringLiteral("lost from this save")))
+                        dataLoss.append(w);
+                }
+                if (!dataLoss.isEmpty())
+                    QMessageBox::warning(this, tr("Save dropped model data"),
+                                         dataLoss.join(QStringLiteral("\n\n")));
+            },
+            Qt::QueuedConnection);
+
     // Clear the cached active-window pointer if this window is the one being
     // destroyed — otherwise activeProjectWindow() would return a dangling ptr
     // and the next focus event would try to rebind to dead memory. Routes
