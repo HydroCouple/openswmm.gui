@@ -2492,6 +2492,19 @@ add_swmmvis_gui_test(test_gisselectionsync
 )
 swmmvis_link_full_app_deps(test_gisselectionsync)
 
+# Save-time engine warnings reach the GUI (engine 7d43a1ff's other half).
+# The writer's "embedded [REACTION_*] sections are lost from this save"
+# notice now lands in ctx.warnings; these gates pin that saveAs() captures
+# the delta across the write and emits saveCompletedWithEngineWarnings, that
+# a clean save stays silent, and that consecutive saves report per-save
+# deltas rather than the cumulative history.
+add_swmmvis_gui_test(test_savewarnings
+    test_savewarnings.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_savewarnings)
+
 # Phase GG0 — per-cell 2D infiltration. The two gates that discriminate:
 # undo of an assignment over an INHERITING cell must restore inheritance (not a
 # materialized copy that silently stops tracking its region), and every
