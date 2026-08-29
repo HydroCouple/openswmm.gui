@@ -12,15 +12,18 @@ Disabled when no project is open.
 
 ## Step-by-step
 
-The dialog is a tabbed editor (a 7-tab layout is planned; the first cut
-ships Tabs 1–2 and the rest land in subsequent slices).
+The dialog is a category list on the left with one page per category:
+Title / Notes, Models / Processes, Dates & Times, Routing & Hydraulics,
+Quality & Transport, System / Performance, Spatial & CRS, Mesh, 2D Surface
+Routing (2D builds only) and Files / Output / Plugins. The sections below
+keep their historical "Tab" numbering.
 
 ### Tab 1 — Models / Processes
 
 | Control | Engine option | Notes |
 |---------|---------------|-------|
 | **Infiltration model** | `INFILTRATION` | Horton / ModHorton / Green-Ampt / ModGreenAmpt / CurveNumber. |
-| **Flow routing** | `FLOW_ROUTING`  | Steady / Kinwave / Dynwave. |
+| **Flow routing** | `FLOW_ROUTING`  | Steady / Kinwave / Dynwave / FV (explicit finite volume — enables the two finite-volume groups on Tab 3). |
 | **Allow ponding** | `ALLOW_PONDING` | When checked, surcharged junctions accumulate ponded volume. |
 | **Skip steady-periods** | `SKIP_STEADY_STATE` | Speeds up simulations dominated by long dry periods. |
 | **Ignore Rainfall** | `IGNORE_RAINFALL` | Skip rainfall ingest entirely. |
@@ -75,7 +78,10 @@ SWMM 5.2 column order.
 
 ### Tab 3 — Routing & Hydraulics
 
-Three groups: **Surcharge handling**, **Solver**, and **Conduit / channel**.
+Five groups: **Surcharge handling**, **Solver**, **Finite volume solver**,
+**Finite volume performance**, and **Conduit / channel**. The two
+finite-volume groups are enabled only while **Flow routing** (Tab 1) is
+**FV**; the engine accepts their keys as inert under any other router.
 
 **Surcharge handling**
 
@@ -99,6 +105,38 @@ Three groups: **Surcharge handling**, **Solver**, and **Conduit / channel**.
 | **Lengthening step** | `LENGTHENING_STEP` | Conduit lengthening time step (s). |
 | **Variable step factor** | `VARIABLE_STEP` | Courant-number safety fraction (0 disables). |
 
+**Finite volume solver** (`FLOW_ROUTING FV` only)
+
+| Control | Engine option | Notes |
+|---------|---------------|-------|
+| **Cell length** | `FV_CELL_LENGTH` | Target cell length in project units; 0 = no target, each conduit gets **Min cells**. |
+| **Min cells** | `FV_MIN_CELLS` | Floor on cells per conduit. |
+| **CFL** | `FV_CFL` | Courant number for the explicit substep. |
+| **Riemann solver** | `FV_RIEMANN` | HLLC (default) or HLL. |
+| **Order** | `FV_ORDER` | 1 or 2 (MUSCL reconstruction). |
+| **Limiter** | `FV_LIMITER` | MINMOD / VANLEER / SUPERBEE — the momentum slope limiter; enabled only with **Order** 2. |
+| **Time integration** | `FV_TIME_INTEGRATION` | EULER or RK2. RK2 disables local time stepping. |
+| **Slot celerity** | `FV_SLOT_CELERITY` | Preissmann-slot pressure-wave celerity (project length units / s). |
+| **Structure coupling** | `FV_STRUCTURE_COUPLING` | Refresh weir / orifice / pump flows every substep or once per routing step. |
+| **Implicit pressurized head solve (experimental)** | `FV_PRESSURIZED_IMPLICIT` | Integrates the slot's acoustic pair implicitly on surcharged cells. Experimental until the slot program's next round: local time stepping stands down while the solve engages, and it forces the CPU backend. |
+
+Not on this page, on purpose: the water-quality **scalar scheme** lives on
+the Quality & Transport page (below), and `FV_DISPERSION` is inert on
+every path. Older projects that set the retired `FV_NODE_COUPLING`,
+`FV_NODE_DT` or `FV_NODE_PICARD` keys still open — the engine warns once
+at open and uses the built-in behaviour.
+
+**Finite volume performance** (`FLOW_ROUTING FV` only)
+
+| Control | Engine option | Notes |
+|---------|---------------|-------|
+| **Backend** | `FV_BACKEND` | AUTO / CPU / OMP / CUDA / HIP / SYCL. |
+| **Min parallel cells** | `FV_MIN_PARALLEL_CELLS` | Mesh size below which AUTO stays on the CPU. |
+| **Compaction** | `FV_COMPACTION` | Skip dry, inactive parts of the network (results-transparent). |
+| **Local time stepping** | `FV_LTS` | Stiff cells substep at their own rate. |
+| **Max tiers** | `FV_LTS_MAX_TIERS` | Cap on the tier spread; enabled only while local time stepping is on. |
+| **CFL census interval** | `FV_CFL_CENSUS_INTERVAL` | Substeps between full Courant censuses. |
+
 **Conduit / channel**
 
 | Control | Engine option | Notes |
@@ -108,6 +146,47 @@ Three groups: **Surcharge handling**, **Solver**, and **Conduit / channel**.
 | **Inertial damping** | `INERTIAL_DAMPING` | None / Partial / Full — applies only to dynamic-wave routing. |
 | **Min surface area** | `MIN_SURFAREA` | Lower clamp on nodal surface area. |
 | **Min conduit slope** | `MIN_SLOPE` | Lower clamp on conduit slope (percent). |
+
+### Quality & Transport
+
+Four groups. The **Eulerian ARD** and **Lagrangian (LARD)** groups are
+enabled only while the matching **Water quality solver** is selected.
+
+**Water quality solver**
+
+| Control | Engine option | Notes |
+|---------|---------------|-------|
+| **Solver** | `QUALITY_SOLVER` | LEGACY (CSTR mixing) / EULERIAN_ARD (on the finite-volume cell mesh, any routing model) / LAGRANGIAN (segment transport). |
+| **Outfall backflow quality** | `OUTFALL_BACKFLOW_QUALITY` | LAST (legacy: water re-entering from an outfall carries the last concentration) or ZERO (fresh boundary). |
+
+**Eulerian ARD**
+
+| Control | Engine option | Notes |
+|---------|---------------|-------|
+| **Scalar scheme** | `FV_SCALAR_SCHEME` | MUSCL / Upwind / QUICKEST-ULTIMATE advection for water-quality scalars on the ARD transport mesh. A bound component file's `[TRANSPORT_OPTIONS] SCALAR_SCHEME` overrides it. |
+
+Dispersion and transport mesh spacing for ARD are configured in the
+component file (`model.ard`: `[TRANSPORT_OPTIONS]`, `[CONDUIT_DISPERSION]`),
+bound on the Files / Output / Plugins page.
+
+**Lagrangian (LARD)**
+
+| Control | Engine option | Notes |
+|---------|---------------|-------|
+| **Quality step** | `QUALITY_STEP` | Transport substep (s); 0 = follow the routing step. |
+| **Max segments per link** | `MAX_SEGMENTS_PER_LINK` | Segment-store cap. |
+| **Dispersion** | `DISPERSION` | OFF or RWPT (random-walk particle tracking). |
+| **RWPT seed** | `RWPT_SEED` | Enabled only with RWPT. |
+
+**Reserved species**
+
+| Control | Engine option | Notes |
+|---------|---------------|-------|
+| **Water age** | `WATER_AGE` | Adds the reserved `__WATER_AGE__` constituent. **Edit Source Ages…** opens the per-source initial-age editor. |
+| **Heat transport** | `HEAT_TRANSPORT` | Adds the reserved `__TEMPERATURE__` constituent; meteorology is configured in the heat component file. |
+
+**Edit Initial Quality…** opens the per-element initial-concentration
+editor for every constituent, reserved species included.
 
 ### Tab 4 — System / Performance
 
