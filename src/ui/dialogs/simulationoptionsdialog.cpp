@@ -919,6 +919,24 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
            "per second (FV_SLOT_CELERITY)."));
     fvForm->addRow(tr("Slot celerity:"), m_fvSlotCeleritySpin);
 
+    // Surfaced as experimental by explicit decision (2026-08-29): the solve
+    // cannot yet compose with local time stepping (tiering stands down on
+    // any substep where it engages) and slot program R2b is expected to
+    // revise it, but it is fully functional and gated, and needed to
+    // experiment with pressurized transmission mains from the GUI.
+    m_fvPressImplicitBox = new QCheckBox(
+        tr("Implicit pressurized head solve (FV_PRESSURIZED_IMPLICIT, experimental)"),
+        m_fvGroup);
+    m_fvPressImplicitBox->setToolTip(
+        tr("Experimental. Solve surcharged-cell heads implicitly so "
+           "pressurized reaches stop binding the CFL substep and full-bore "
+           "head loss is Manning-exact regardless of slot celerity "
+           "(FV_PRESSURIZED_IMPLICIT). CPU backend only; local time "
+           "stepping stands down while the solve engages; free-to-"
+           "pressurized transition faces stay explicit. Subject to change "
+           "in slot program R2b."));
+    fvForm->addRow(QString(), m_fvPressImplicitBox);
+
     m_fvScalarSchemeCombo = new QComboBox(m_fvGroup);
     m_fvScalarSchemeCombo->addItem(tr("MUSCL"),              QStringLiteral("MUSCL"));
     m_fvScalarSchemeCombo->addItem(tr("Upwind"),             QStringLiteral("UPWIND"));
@@ -3022,6 +3040,9 @@ void SimulationOptionsDialog::readFromEngine()
     selectComboByData(m_fvLimiterCombo,  getOption("FV_LIMITER",  QStringLiteral("MINMOD")));
     selectComboByData(m_fvTimeIntCombo,  getOption("FV_TIME_INTEGRATION", QStringLiteral("EULER")));
     m_fvSlotCeleritySpin->setValue(optDouble("FV_SLOT_CELERITY", 100.0));
+    m_fvPressImplicitBox->setChecked(
+        parseEngineBool(getOption("FV_PRESSURIZED_IMPLICIT",
+                                  QStringLiteral("NO"))) == Qt::Checked);
     selectComboByData(m_fvScalarSchemeCombo,
                       getOption("FV_SCALAR_SCHEME", QStringLiteral("MUSCL")));
     m_fvDispersionSpin->setValue(optDouble("FV_DISPERSION", 0.0));
@@ -4284,6 +4305,8 @@ int SimulationOptionsDialog::writeToEngine()
                    m_fvTimeIntCombo->currentData().toString());
     writeIfChanged("FV_SLOT_CELERITY",    getOption("FV_SLOT_CELERITY"),
                    QString::number(m_fvSlotCeleritySpin->value(), 'f', 1));
+    writeIfChanged("FV_PRESSURIZED_IMPLICIT", getOption("FV_PRESSURIZED_IMPLICIT"),
+                   engineBoolString(m_fvPressImplicitBox->isChecked()));
     writeIfChanged("FV_SCALAR_SCHEME",    getOption("FV_SCALAR_SCHEME"),
                    m_fvScalarSchemeCombo->currentData().toString());
     writeIfChanged("FV_DISPERSION",       getOption("FV_DISPERSION"),
