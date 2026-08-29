@@ -722,16 +722,13 @@ add_swmmvis_gui_test(test_meshbc_couplednode_sublayers
     ${CMAKE_SOURCE_DIR}/include/render/isublayer.h
 )
 
-# NOTE — test_2dresults_vizfixes.cpp (2D viz refinement, PLAN_2D_VIZ_REFINEMENT.md)
-# is intentionally NOT registered. It drives the real SWMM2DResultsLayer, whose
-# link closure transitively pulls the QObject base (OpenSWMMVisLayer →
-# OpenSWMMVisWorkspace → SWMMModelLayer), the mask-clip resolver → GISVectorLayer
-# → GDAL/OGR, the HDF5 mesh reader, and the full symbol/renderer/sublayer graph —
-# i.e. a large fraction of the app, disproportionate for a leaf test. The four
-# behaviours it would pin are already covered by registered tests:
-#   Issue 1 → test_cursorwindowslider ; Issue 3 → test_meshedgecount ;
-#   Issue 4 → test_meshprofileinterp.  Re-enabling it cleanly needs an extracted
-# SWMMVis object library to link against (see PLAN_2D_VIZ_REFINEMENT §3).
+# test_2dresults_vizfixes.cpp (2D viz refinement, PLAN_2D_VIZ_REFINEMENT.md)
+# drives the real SWMM2DResultsLayer, whose link closure is most of the app, so
+# it was left unregistered until the full-app test pattern existed. It is now
+# registered below alongside the other full-app tests (see
+# swmmvis_link_full_app_deps): issue #155 added the coordinate-scale cases
+# (declared /crs factor, metric no-op, caller fallback, no-guess default) and
+# those pin the layer's placement — nothing else covers them.
 
 # Slice U-0 — the old test_sublayer_persistence test relied on the
 # deleted NodeMarkerSublayer; FeatureSublayer JSON round-trip is now
@@ -2354,6 +2351,17 @@ add_swmmvis_gui_test(test_meshimport
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_meshimport)
+
+# 2D results layer placement (issue #155) plus the earlier viz-refinement pins:
+# edge dedup, live scrub vs follow-live, peak-frame depth == max envelope,
+# velocity false without flux. Drives the real SWMM2DResultsLayer (QTEST_MAIN,
+# offscreen QPA like every other gui test).
+add_swmmvis_gui_test(test_2dresults_vizfixes
+    test_2dresults_vizfixes.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_2dresults_vizfixes)
 
 # Minimum Cell Size group on the mesh-generation dialog's Quality tab. Needs
 # the full app: the dialog takes a live SWMMVisProjectWindow. The default-OFF
