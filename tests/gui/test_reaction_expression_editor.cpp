@@ -153,13 +153,16 @@ private slots:
         for (const QString &f : ReactionSyntaxHighlighter::functionNames())
             engineSourced.insert(f);
 
+        // The validator (like swmm_reaction_expr_set and the [REACTION_*]
+        // rows themselves — `RATE <species> <expr>`) takes the EXPRESSION
+        // alone; the species and form are separate columns in the dialog. A
+        // bare identifier is a complete expression, so probe each word as-is.
         char err[256] = {};
         int  col = -1;
         for (const QString &w : completerWords(edit)) {
             if (engineSourced.contains(w)) continue;
-            const QString expr = QStringLiteral("AS3 = %1").arg(w);
             const int rc = swmm_reaction_validate_expression(
-                e, SWMM_RXN_SCOPE_PIPE, expr.toUtf8().constData(),
+                e, SWMM_RXN_SCOPE_PIPE, w.toUtf8().constData(),
                 err, sizeof(err), &col);
             QVERIFY2(rc == SWMM_OK,
                      qPrintable(QStringLiteral(
@@ -185,13 +188,15 @@ private slots:
         ReactionExpressionEdit edit(e, SWMM_RXN_SCOPE_PIPE);
         QSignalSpy spy(&edit, &ReactionExpressionEdit::validationChanged);
 
-        edit.setExpression(QStringLiteral("AS3 = -0.5 * AS3"));
+        // The editor holds the right-hand side only (the RATE/EQUIL/FORMULA
+        // form and the species live in their own columns).
+        edit.setExpression(QStringLiteral("-0.5 * AS3"));
         QVERIFY(spy.count() >= 1);
         QVERIFY2(spy.takeLast().at(0).toBool(),
                  "a well-formed rate expression was reported invalid");
 
         spy.clear();
-        edit.setExpression(QStringLiteral("AS3 = NOT_A_SPECIES * 2"));
+        edit.setExpression(QStringLiteral("NOT_A_SPECIES * 2"));
         auto bad = spy.takeLast();
         QVERIFY2(!bad.at(0).toBool(),
                  "an unknown identifier was reported valid");
