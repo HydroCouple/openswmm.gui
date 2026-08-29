@@ -32,6 +32,7 @@
 #include <QMessageBox>
 #include <QObject>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
 
@@ -260,6 +261,63 @@ private slots:
             delete window;
         }
 
+        delete workspace;
+    }
+
+    // 5b. LINK_OFFSETS ELEVATION must survive the async load into the project
+    //     window's offset-mode flag — the status bar's Offset Mode toggle
+    //     reads exactly SWMMVisProjectWindow::isElevationOffsetMode(). DEPTH
+    //     cannot detect a failure here (it is SimulationOptions' default, so
+    //     the assertion passes even if the value never arrives), so this
+    //     fixture declares ELEVATION.
+    void elevationOffsetModeReachesTheProjectWindow()
+    {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+
+        // Same fixture, one token swapped — keeps the network identical to the
+        // DEPTH case above so only the option under test differs.
+        QFile src(fixturePath());
+        QVERIFY(src.open(QIODevice::ReadOnly | QIODevice::Text));
+        QString deck = QString::fromUtf8(src.readAll());
+        src.close();
+        QVERIFY2(deck.contains(QStringLiteral("LINK_OFFSETS         DEPTH")),
+                 "fixture no longer declares LINK_OFFSETS DEPTH — update this swap");
+        deck.replace(QStringLiteral("LINK_OFFSETS         DEPTH"),
+                     QStringLiteral("LINK_OFFSETS         ELEVATION"));
+
+        const QString elevPath = tmp.filePath(QStringLiteral("offsets_elevation.inp"));
+        QFile out(elevPath);
+        QVERIFY(out.open(QIODevice::WriteOnly | QIODevice::Text));
+        out.write(deck.toUtf8());
+        out.close();
+
+        auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+        auto *window = new SWMMVisProjectWindow(workspace, elevPath, nullptr);
+        QSignalSpy spy(window, &SWMMVisProjectWindow::modelLoadFinished);
+        QVERIFY(spy.isValid());
+
+        window->loadModelAsync();
+        QVERIFY2(spy.wait(20000), "modelLoadFinished did not fire within 20s");
+        QCOMPARE(spy.count(), 1);
+        QVERIFY2(spy.takeFirst().at(0).toBool(), "ELEVATION deck failed to load");
+
+        // The engine parsed it...
+        char buf[32] = {};
+        QVERIFY(window->modelLayer() != nullptr);
+        QVERIFY(window->modelLayer()->engine() != nullptr);
+        QCOMPARE(swmm_options_get(window->modelLayer()->engine(),
+                                  "LINK_OFFSETS", buf, sizeof(buf)), 0);
+        QCOMPARE(QString::fromLatin1(buf).trimmed().toUpper(),
+                 QStringLiteral("ELEVATION"));
+
+        // ...and the project window's flag agrees, which is what the status
+        // bar hydrates from.
+        QVERIFY2(window->isElevationOffsetMode(),
+                 "engine says ELEVATION but the project window still reports "
+                 "depth offsets — the status-bar toggle will show Depth");
+
+        delete window;
         delete workspace;
     }
 
