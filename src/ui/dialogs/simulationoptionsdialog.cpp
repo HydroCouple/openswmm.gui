@@ -937,22 +937,12 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
            "in slot program R2b."));
     fvForm->addRow(QString(), m_fvPressImplicitBox);
 
-    m_fvScalarSchemeCombo = new QComboBox(m_fvGroup);
-    m_fvScalarSchemeCombo->addItem(tr("MUSCL"),              QStringLiteral("MUSCL"));
-    m_fvScalarSchemeCombo->addItem(tr("Upwind"),             QStringLiteral("UPWIND"));
-    m_fvScalarSchemeCombo->addItem(tr("QUICKEST-ULTIMATE"),  QStringLiteral("QUICKEST_ULTIMATE"));
-    m_fvScalarSchemeCombo->setToolTip(
-        tr("Advection scheme for water-quality scalars (FV_SCALAR_SCHEME)."));
-    fvForm->addRow(tr("Scalar scheme:"), m_fvScalarSchemeCombo);
-
-    m_fvDispersionSpin = new QDoubleSpinBox(m_fvGroup);
-    m_fvDispersionSpin->setRange(0.0, 100000.0);
-    m_fvDispersionSpin->setDecimals(3);
-    m_fvDispersionSpin->setSpecialValueText(tr("off"));
-    m_fvDispersionSpin->setToolTip(
-        tr("Longitudinal dispersion coefficient for scalars, in project "
-           "length units squared per second (FV_DISPERSION). 0 disables."));
-    fvForm->addRow(tr("Dispersion:"), m_fvDispersionSpin);
+    // Not surfaced here on purpose: FV_DISPERSION (inert on every path — the
+    // engine warns at open),
+    // and the retired FV_NODE_COUPLING / FV_NODE_DT / FV_NODE_PICARD, which
+    // the engine hardwires to their former defaults. FV_SCALAR_SCHEME lives
+    // on the Quality & Transport page: its only live consumer is the
+    // Eulerian ARD engine.
 
     m_fvStructCouplingCombo = new QComboBox(m_fvGroup);
     m_fvStructCouplingCombo->addItem(tr("Every substep"),      QStringLiteral("SUBSTEP"));
@@ -961,28 +951,6 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
         tr("How often weir/orifice/pump flows are re-evaluated "
            "(FV_STRUCTURE_COUPLING)."));
     fvForm->addRow(tr("Structure coupling:"), m_fvStructCouplingCombo);
-
-    m_fvNodeCouplingCombo = new QComboBox(m_fvGroup);
-    m_fvNodeCouplingCombo->addItem(tr("Semi-implicit"), QStringLiteral("SEMI_IMPLICIT"));
-    m_fvNodeCouplingCombo->addItem(tr("Explicit"),      QStringLiteral("EXPLICIT"));
-    m_fvNodeCouplingCombo->setToolTip(
-        tr("Node continuity coupling at junctions (FV_NODE_COUPLING)."));
-    fvForm->addRow(tr("Node coupling:"), m_fvNodeCouplingCombo);
-
-    m_fvNodeDtCombo = new QComboBox(m_fvGroup);
-    m_fvNodeDtCombo->addItem(tr("Stability limited"), QStringLiteral("STABILITY"));
-    m_fvNodeDtCombo->addItem(tr("None"),              QStringLiteral("NONE"));
-    m_fvNodeDtCombo->setToolTip(
-        tr("Whether node storage limits the local substep (FV_NODE_DT). "
-           "Stability limited is strongly recommended."));
-    fvForm->addRow(tr("Node time-step limit:"), m_fvNodeDtCombo);
-
-    m_fvNodePicardSpin = new QSpinBox(m_fvGroup);
-    m_fvNodePicardSpin->setRange(1, 100);
-    m_fvNodePicardSpin->setToolTip(
-        tr("Picard sweeps of the semi-implicit node correction per substep "
-           "(FV_NODE_PICARD). 1 = single sweep."));
-    fvForm->addRow(tr("Node Picard sweeps:"), m_fvNodePicardSpin);
 
     vlay->addWidget(m_fvGroup);
 
@@ -1042,8 +1010,6 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
             this, [this](int){ updateFvFieldsEnabled(); });
     connect(m_fvLtsBox, &QCheckBox::toggled,
             this, [this](bool){ updateFvFieldsEnabled(); });
-    connect(m_fvNodeCouplingCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int){ updateFvFieldsEnabled(); });
 
     // ── Conduit / channel group ────────────────────────────────────────
     auto *condGroup = new QGroupBox(tr("Conduit / channel"), page);
@@ -1171,11 +1137,6 @@ void SimulationOptionsDialog::updateFvFieldsEnabled()
             m_fvOrderCombo->currentData().toString() == QStringLiteral("2"));
     if (m_fvLtsTiersSpin && m_fvLtsBox)
         m_fvLtsTiersSpin->setEnabled(m_fvLtsBox->isChecked());
-    // Picard sweeps only act on the semi-implicit node correction.
-    if (m_fvNodePicardSpin && m_fvNodeCouplingCombo)
-        m_fvNodePicardSpin->setEnabled(
-            m_fvNodeCouplingCombo->currentData().toString()
-                == QStringLiteral("SEMI_IMPLICIT"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1232,14 +1193,31 @@ QWidget *SimulationOptionsDialog::buildQualityTransportTab()
     m_ardGroup = new QGroupBox(tr("Eulerian ARD"), page);
     auto *ardLay = new QVBoxLayout(m_ardGroup);
     auto *ardNote = new QLabel(
-        tr("Dispersion, scalar scheme and transport mesh spacing for the "
-           "Eulerian ARD engine are configured in its component file "
-           "(<i>model.ard</i>), bound on the Files / Output / Plugins page. "
-           "Numerical scheme settings shared with the finite-volume solver "
-           "are edited on the Routing &amp; Hydraulics page."),
+        tr("Dispersion and transport mesh spacing for the Eulerian ARD "
+           "engine are configured in its component file (<i>model.ard</i>: "
+           "[TRANSPORT_OPTIONS], [CONDUIT_DISPERSION]), bound on the Files / "
+           "Output / Plugins page; a component file also overrides the "
+           "scalar scheme below. The Lagrangian solver's dispersion is the "
+           "DISPERSION option in its own group."),
         m_ardGroup);
     ardNote->setWordWrap(true);
     ardLay->addWidget(ardNote);
+
+    // FV_SCALAR_SCHEME lives here, not on the Routing & Hydraulics page: its
+    // only live consumer is the ARD engine, which reads it under any routing
+    // model (FV routing itself transports no species). Gated with the group
+    // on QUALITY_SOLVER == EULERIAN_ARD by updateQualitySolverFieldsEnabled.
+    auto *ardForm = new QFormLayout();
+    m_fvScalarSchemeCombo = new QComboBox(m_ardGroup);
+    m_fvScalarSchemeCombo->addItem(tr("MUSCL"),              QStringLiteral("MUSCL"));
+    m_fvScalarSchemeCombo->addItem(tr("Upwind"),             QStringLiteral("UPWIND"));
+    m_fvScalarSchemeCombo->addItem(tr("QUICKEST-ULTIMATE"),  QStringLiteral("QUICKEST_ULTIMATE"));
+    m_fvScalarSchemeCombo->setToolTip(
+        tr("Advection scheme for water-quality scalars on the ARD transport "
+           "mesh (FV_SCALAR_SCHEME). Read under any routing model; a bound "
+           "component file's [TRANSPORT_OPTIONS] SCALAR_SCHEME overrides it."));
+    ardForm->addRow(tr("Scalar scheme:"), m_fvScalarSchemeCombo);
+    ardLay->addLayout(ardForm);
     vlay->addWidget(m_ardGroup);
 
     // ── Lagrangian (LARD) ──────────────────────────────────────────────
@@ -3045,14 +3023,8 @@ void SimulationOptionsDialog::readFromEngine()
                                   QStringLiteral("NO"))) == Qt::Checked);
     selectComboByData(m_fvScalarSchemeCombo,
                       getOption("FV_SCALAR_SCHEME", QStringLiteral("MUSCL")));
-    m_fvDispersionSpin->setValue(optDouble("FV_DISPERSION", 0.0));
     selectComboByData(m_fvStructCouplingCombo,
                       getOption("FV_STRUCTURE_COUPLING", QStringLiteral("SUBSTEP")));
-    selectComboByData(m_fvNodeCouplingCombo,
-                      getOption("FV_NODE_COUPLING", QStringLiteral("SEMI_IMPLICIT")));
-    selectComboByData(m_fvNodeDtCombo,
-                      getOption("FV_NODE_DT", QStringLiteral("STABILITY")));
-    m_fvNodePicardSpin->setValue(optInt("FV_NODE_PICARD", 1));
     m_fvCompactionBox->setChecked(
         parseEngineBool(getOption("FV_COMPACTION", QStringLiteral("YES"))) == Qt::Checked);
     selectComboByData(m_fvBackendCombo,  getOption("FV_BACKEND",  QStringLiteral("AUTO")));
@@ -4307,18 +4279,13 @@ int SimulationOptionsDialog::writeToEngine()
                    QString::number(m_fvSlotCeleritySpin->value(), 'f', 1));
     writeIfChanged("FV_PRESSURIZED_IMPLICIT", getOption("FV_PRESSURIZED_IMPLICIT"),
                    engineBoolString(m_fvPressImplicitBox->isChecked()));
+    // FV_SCALAR_SCHEME is edited on the Quality & Transport page (ARD group)
+    // but is an FV_* key; written with its siblings so the engine sees one
+    // coherent FV block.
     writeIfChanged("FV_SCALAR_SCHEME",    getOption("FV_SCALAR_SCHEME"),
                    m_fvScalarSchemeCombo->currentData().toString());
-    writeIfChanged("FV_DISPERSION",       getOption("FV_DISPERSION"),
-                   QString::number(m_fvDispersionSpin->value(), 'f', 3));
     writeIfChanged("FV_STRUCTURE_COUPLING", getOption("FV_STRUCTURE_COUPLING"),
                    m_fvStructCouplingCombo->currentData().toString());
-    writeIfChanged("FV_NODE_COUPLING",    getOption("FV_NODE_COUPLING"),
-                   m_fvNodeCouplingCombo->currentData().toString());
-    writeIfChanged("FV_NODE_DT",          getOption("FV_NODE_DT"),
-                   m_fvNodeDtCombo->currentData().toString());
-    writeIfChanged("FV_NODE_PICARD",      getOption("FV_NODE_PICARD"),
-                   QString::number(m_fvNodePicardSpin->value()));
     writeIfChanged("FV_COMPACTION",       getOption("FV_COMPACTION"),
                    engineBoolString(m_fvCompactionBox->isChecked()));
     writeIfChanged("FV_BACKEND",          getOption("FV_BACKEND"),

@@ -410,6 +410,7 @@ private:
     QSpinBox       *m_rwptSeedSpin        = nullptr;   // RWPT_SEED (RWPT only)
     QCheckBox      *m_waterAgeBox         = nullptr;   // WATER_AGE
     QCheckBox      *m_heatTransportBox    = nullptr;   // HEAT_TRANSPORT
+    QComboBox      *m_fvScalarSchemeCombo = nullptr;   // FV_SCALAR_SCHEME — on the Q&T page; the ARD engine reads it under any routing model
 
     // Tab 3 — Finite volume solver (FLOW_ROUTING FV). Both groups are kept
     // as members so updateFvFieldsEnabled() can gate whole sections on the
@@ -425,12 +426,7 @@ private:
     QComboBox      *m_fvTimeIntCombo      = nullptr;
     QDoubleSpinBox *m_fvSlotCeleritySpin  = nullptr;   // project length units / s
     QCheckBox      *m_fvPressImplicitBox  = nullptr;   // FV_PRESSURIZED_IMPLICIT (experimental)
-    QComboBox      *m_fvScalarSchemeCombo = nullptr;
-    QDoubleSpinBox *m_fvDispersionSpin    = nullptr;   // project length² / s; 0 = off
     QComboBox      *m_fvStructCouplingCombo = nullptr;
-    QComboBox      *m_fvNodeCouplingCombo = nullptr;
-    QComboBox      *m_fvNodeDtCombo       = nullptr;
-    QSpinBox       *m_fvNodePicardSpin    = nullptr;
     QCheckBox      *m_fvCompactionBox     = nullptr;
     QComboBox      *m_fvBackendCombo      = nullptr;
     QSpinBox       *m_fvMinParallelSpin   = nullptr;
