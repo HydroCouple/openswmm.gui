@@ -144,9 +144,23 @@ private slots:
 
         ReactionExpressionEdit edit(e, SWMM_RXN_SCOPE_PIPE);
 
-        // Only the MODEL identifiers are under test: hydvars and functions
-        // are read straight out of the engine by hydVarNames()/functionNames(),
-        // so asserting them here would be the engine agreeing with itself.
+        // Only the MODEL identifiers are under test. The two excluded families
+        // are excluded for DIFFERENT reasons, and conflating them is how a
+        // later reader "restores missing coverage" and then misreads the
+        // result as a widget defect:
+        //
+        //   hydvars   — a genuine tautology. hydVarNames() reads them straight
+        //               out of the engine, so validating them against that
+        //               same engine is the engine agreeing with itself. Drop
+        //               this half of the exclusion and the suite still passes
+        //               (measured 2026-08-29).
+        //   functions — NOT a tautology; excluded on GRAMMAR. A bare function
+        //               name is not an operand: the validator answers
+        //               "function 'ABS' needs '('". Drop this half and the
+        //               suite FAILS on ABS — correctly. The completer offers
+        //               function names because you type them before their
+        //               parenthesis, which is a completion concern, not a
+        //               claim that the bare token is a valid expression.
         QSet<QString> engineSourced;
         for (const QString &v : ReactionSyntaxHighlighter::hydVarNames())
             engineSourced.insert(v);
