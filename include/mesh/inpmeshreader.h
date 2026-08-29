@@ -49,6 +49,17 @@ struct InpMeshReadResult
     QVector<MeshEdgeBC> edgeBCs;
 };
 
+/*! \brief True when \p unitsHeader (the verbatim `;; UNITS:` value) declares a
+ *  metric mesh, i.e. one the engine will NOT rescale.
+ *
+ *  Mirrors the engine's `prescan2DUnitsHeader` keyword set exactly — "SI (m)",
+ *  "m", "metre(s)", "meter(s)", case-insensitive. Anything else, including an
+ *  absent or explicitly imperial header, is not metric. Callers that need to
+ *  know whether the engine converted the mesh to SI (issue #155) must apply
+ *  this together with FLOW_UNITS: the engine scales only when FLOW_UNITS is
+ *  US-customary AND this returns false. */
+[[nodiscard]] bool unitsHeaderIsSI(const QString &unitsHeader);
+
 class InpMeshReader
 {
 public:

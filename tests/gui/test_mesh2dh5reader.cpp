@@ -170,6 +170,48 @@ QString writeFixture(bool withNodeHead = false, int startIndex = 0)
     return path;
 }
 
+/*!
+ * \brief Add the engine 6.0+ `/crs` variable to an existing fixture.
+ *
+ * Issue #155 — the coordinates in a `.2d.h5` are always SI metres, so a
+ * foot-CRS model needs the file to say so. Written as a separate step so the
+ * base fixture keeps standing in for a pre-6.0 file.
+ */
+void appendCrsVariable(const QString& path,
+                        const char* modelCrs,
+                        double metresPerModelUnit)
+{
+    hid_t fid = H5Fopen(path.toUtf8().constData(), H5F_ACC_RDWR, H5P_DEFAULT);
+    Q_ASSERT(fid >= 0);
+
+    hid_t sp = H5Screate(H5S_SCALAR);
+    hid_t ds = H5Dcreate2(fid, "crs", H5T_NATIVE_INT, sp,
+                           H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    writeStringAttr(ds, "units", "m");
+    if (modelCrs) writeStringAttr(ds, "model_crs", modelCrs);
+    {
+        hid_t asp  = H5Screate(H5S_SCALAR);
+        hid_t attr = H5Acreate2(ds, "metres_per_model_unit", H5T_NATIVE_DOUBLE,
+                                asp, H5P_DEFAULT, H5P_DEFAULT);
+        H5Awrite(attr, H5T_NATIVE_DOUBLE, &metresPerModelUnit);
+        H5Aclose(attr);
+        H5Sclose(asp);
+    }
+    int dummy = 0;
+    H5Dwrite(ds, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, &dummy);
+    H5Dclose(ds);
+    H5Sclose(sp);
+
+    // The engine also tags the coordinate variables' storage unit.
+    hid_t nx = H5Dopen2(fid, "Mesh2_node_x", H5P_DEFAULT);
+    if (nx >= 0) {
+        writeStringAttr(nx, "units", "m");
+        H5Dclose(nx);
+    }
+
+    H5Fclose(fid);
+}
+
 } // namespace
 
 class TestMesh2DH5Reader : public QObject
@@ -186,12 +228,55 @@ private slots:
         fixtureWithHeadsPath_ = writeFixture(/*withNodeHead=*/true);
         QVERIFY(!fixtureWithHeadsPath_.isEmpty());
         QVERIFY(QFile::exists(fixtureWithHeadsPath_));
+
+        // Issue #155 — a second copy carrying the engine 6.0+ /crs variable,
+        // so the same suite covers both the declared and the pre-6.0 file.
+        fixtureWithCrsPath_ = writeFixture();
+        QVERIFY(!fixtureWithCrsPath_.isEmpty());
+        appendCrsVariable(fixtureWithCrsPath_, "EPSG:2249", 0.3048);
     }
 
     void cleanupTestCase()
     {
-        if (!fixturePath_.isEmpty()) QFile::remove(fixturePath_);
+        if (!fixturePath_.isEmpty())        QFile::remove(fixturePath_);
+        if (!fixtureWithCrsPath_.isEmpty()) QFile::remove(fixtureWithCrsPath_);
         // The with-heads fixture stays on disk for review (transparent-IO).
+    }
+
+    // ----- Issue #155: coordinate reference --------------------------------
+
+    void coordinateReferenceReadsDeclaredCrs()
+    {
+        Mesh2DH5Reader r;
+        QVERIFY2(r.open(fixtureWithCrsPath_), qPrintable(r.lastError()));
+
+        openswmmvis::io::CoordinateReference ref;
+        QVERIFY(r.readCoordinateReference(ref));
+        QVERIFY(ref.declared);
+        QCOMPARE(ref.crs, QStringLiteral("EPSG:2249"));
+        QCOMPARE(ref.metresPerModelUnit, 0.3048);
+        QCOMPARE(ref.storedUnits, QStringLiteral("m"));
+
+        // readMeshGeometry still returns the raw stored metres — the factor is
+        // metadata for the caller, never applied behind its back.
+        std::vector<double> vx, vy, vz;
+        QVERIFY(r.readMeshGeometry(vx, vy, vz));
+        QCOMPARE(vx[1], 1.0);
+    }
+
+    void coordinateReferenceUndeclaredOnLegacyFile()
+    {
+        Mesh2DH5Reader r;
+        QVERIFY2(r.open(fixturePath_), qPrintable(r.lastError()));
+
+        openswmmvis::io::CoordinateReference ref;
+        // A pre-6.0 file has no /crs — reported as undeclared, not as an
+        // error, and never as a fabricated 1.0 that the caller can't tell
+        // apart from a genuine metric declaration.
+        QVERIFY(!r.readCoordinateReference(ref));
+        QVERIFY(!ref.declared);
+        QVERIFY(ref.crs.isEmpty());
+        QCOMPARE(ref.metresPerModelUnit, 1.0);
     }
 
     void opensAndReportsCounts()
@@ -364,6 +449,7 @@ private slots:
 private:
     QString fixturePath_;
     QString fixtureWithHeadsPath_;
+    QString fixtureWithCrsPath_;
 };
 
 QTEST_GUILESS_MAIN(TestMesh2DH5Reader)

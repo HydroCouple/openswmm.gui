@@ -678,6 +678,23 @@ void applyConveyanceRows(const MeshResult &mesh,
 
 } // namespace
 
+bool unitsHeaderIsSI(const QString &unitsHeader)
+{
+    // Keyword set copied from the engine's prescan2DUnitsHeader
+    // (openswmm.engine/src/engine/2d/input/SectionHandlers2D.cpp). Keep the
+    // two in step: a divergence silently changes whether the GUI thinks the
+    // engine rescaled the mesh. Issue #155.
+    static const QStringList kMetric = {
+        QStringLiteral("SI (m)"), QStringLiteral("m"),
+        QStringLiteral("metre"),  QStringLiteral("metres"),
+        QStringLiteral("meter"),  QStringLiteral("meters"),
+    };
+    const QString v = unitsHeader.trimmed();
+    for (const QString &k : kMetric)
+        if (v.compare(k, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
 InpMeshReadResult InpMeshReader::read(const QString &inpPath)
 {
     InpMeshReadResult result;

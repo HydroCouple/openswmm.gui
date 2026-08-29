@@ -13,11 +13,13 @@
 
 #include "contour/contourchain.h"
 #include "contour/marchingtriangles.h"
+#include "core/crsreproject.h"
 #include "core/swmmdatetime.h"
 #include "io/mesh2dh5reader.h"
 #include "layers/cellsurfaceinterp.h"
 #include "layers/vertexdepthreconstruct.h"
 #include "map/mapextent.h"
+#include "map/spatialreferencesystem.h"
 
 #include "render/ifeaturerenderer.h"
 #include "render/labelpainter.h"
@@ -1052,6 +1054,15 @@ bool HDF5Mesh2DSource::readMeshGeometry(std::vector<double>& vx,
     return reader_->readTriangles(tris);
 }
 
+openswmmvis::io::CoordinateReference
+HDF5Mesh2DSource::coordinateReference() const
+{
+    openswmmvis::io::CoordinateReference ref;
+    if (reader_)
+        reader_->readCoordinateReference(ref);   // leaves ref undeclared on old files
+    return ref;
+}
+
 bool HDF5Mesh2DSource::readDepthsAt(int timeIdx, std::vector<float>& depths)
 {
     return reader_->readDepthsAt(timeIdx, depths);
@@ -1194,7 +1205,11 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     wireArrowRepaint(m_velocityVectorSublayer);
 }
 
-SWMM2DResultsLayer::~SWMM2DResultsLayer() = default;
+SWMM2DResultsLayer::~SWMM2DResultsLayer()
+{
+    OGRCoordinateTransformation::DestroyCT(m_transform);
+    m_transform = nullptr;
+}
 
 QList<OpenSWMM::Render::ISublayer *> SWMM2DResultsLayer::sublayers() const
 {
@@ -2245,9 +2260,6 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         return;
     }
 
-    // Scene-space points: identity transform + Y-flip (scene grows downward,
-    // matching the mesh layer's convention). CRS transforms come later via
-    // onCanvasCRSChanged when the layer SRS framework is wired.
     const int nVerts = static_cast<int>(vx_.size());
     const int normalizedStartIndex = normalizeOneBasedConnectivity(tris_, nVerts);
     if (normalizedStartIndex != 0) {
@@ -2255,24 +2267,72 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
                  "to zero-based vertex ids");
     }
 
+    // Scene-space points, in three steps (issue #155):
+    //
+    //   1. metres → model-CRS linear unit. Every 2D source hands us SI metres
+    //      because the solver runs in SI; the model CRS may be foot-based
+    //      (EPSG:2249 & friends), in which case skipping this shrinks the
+    //      results ~0.3048x toward the CRS origin while the .2dm-backed
+    //      SWMM2DMeshLayer — which never leaves model units — sits correctly.
+    //   2. model CRS → canvas CRS, batched through OGR exactly as
+    //      SWMM2DMeshLayer::rebuildSceneGeometry does. m_transform is null
+    //      when the two match, which CRSReproject treats as a pass-through.
+    //   3. Y-flip, because the scene grows downward.
+    //
+    // Non-finite vertices are excluded from both bounds and pinned to (0,0),
+    // but still occupy a slot so triangle indices stay valid.
+    const double invScale = resolveCoordinateScale_();
+
     QVector<QPointF> scenePts;
     scenePts.reserve(nVerts);
     std::vector<char> validVerts(static_cast<size_t>(nVerts), 1);
+    // Scene-space bounds (canvas CRS, Y-flipped) → m_sceneBBox.
     double minX = std::numeric_limits<double>::max();
     double maxX = std::numeric_limits<double>::lowest();
     double minY = std::numeric_limits<double>::max();
     double maxY = std::numeric_limits<double>::lowest();
+    // Layer-CRS bounds (model units, NOT flipped) → setExtent. MapCanvas
+    // reprojects layer->extent() into the canvas CRS itself
+    // (MapCanvas::layerExtentInCanvasCRS), so handing it scene coordinates
+    // would transform them a second time — SWMM2DMeshLayer likewise keeps its
+    // extent in model coordinates.
+    double lMinX = std::numeric_limits<double>::max();
+    double lMaxX = std::numeric_limits<double>::lowest();
+    double lMinY = std::numeric_limits<double>::max();
+    double lMaxY = std::numeric_limits<double>::lowest();
     int badVerts = 0;
     bool haveValidVertex = false;
+
+    std::vector<double> bx(static_cast<size_t>(nVerts));
+    std::vector<double> by(static_cast<size_t>(nVerts));
     for (int i = 0; i < nVerts; ++i) {
-        double sx = vx_[i];
-        double sy = -vy_[i];
         if (!std::isfinite(vx_[i]) || !std::isfinite(vy_[i])
             || !std::isfinite(vz_[i])) {
             validVerts[size_t(i)] = 0;
-            sx = sy = 0.0;
             ++badVerts;
+            // Reprojecting garbage can throw OGR errors, so feed the transform
+            // a benign in-domain point; the slot is discarded below anyway.
+            bx[size_t(i)] = 0.0;
+            by[size_t(i)] = 0.0;
+            continue;
         }
+        const double mx = vx_[i] * invScale;
+        const double my = vy_[i] * invScale;
+        bx[size_t(i)] = mx;
+        by[size_t(i)] = my;
+        if (mx < lMinX) lMinX = mx;
+        if (mx > lMaxX) lMaxX = mx;
+        if (my < lMinY) lMinY = my;
+        if (my > lMaxY) lMaxY = my;
+    }
+    CRSReproject::transformPointsInPlace(m_transform, bx.data(), by.data(),
+                                         nVerts);
+
+    for (int i = 0; i < nVerts; ++i) {
+        double sx = bx[size_t(i)];
+        double sy = -by[size_t(i)];
+        if (!validVerts[size_t(i)])
+            sx = sy = 0.0;
         scenePts.append(QPointF(sx, sy));
         if (!validVerts[size_t(i)]) continue;
         haveValidVertex = true;
@@ -2295,7 +2355,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
                  badVerts);
     }
     m_sceneBBox = QRectF(QPointF(minX, minY), QPointF(maxX, maxY));
-    setExtent(MapExtent(minX, -maxY, maxX, -minY));  // un-flip Y for layer extent
+    setExtent(MapExtent(lMinX, lMinY, lMaxX, lMaxY));  // layer CRS, not scene
     // QSG-2D-1M — shared-vertex cache for the renderer. If any source
     // vertex was non-finite, leave this empty so indexed fill/unique-marker
     // paths fall back to the validated per-triangle buffers below.
@@ -2677,12 +2737,86 @@ void SWMM2DResultsLayer::refreshScene(QGraphicsScene* scene,
     if (arrows_item_) arrows_item_->geometryChanged();
 }
 
-void SWMM2DResultsLayer::onCanvasCRSChanged(
-        const SpatialReferenceSystem* /*newCanvasSRS*/)
+void SWMM2DResultsLayer::setFallbackCoordinateScale(double metresPerModelUnit)
 {
-    // Reprojection seam — mirror SWMM2DMeshLayer's transform path when the
-    // layer gains an explicit SRS. For the MVP demo case (no reprojection)
-    // the identity transform set up in rebuildSceneGeometry_() is sufficient.
+    if (!(metresPerModelUnit > 0.0) || !std::isfinite(metresPerModelUnit))
+        return;
+    if (qFuzzyCompare(m_fallbackMetresPerModelUnit, metresPerModelUnit))
+        return;
+
+    m_fallbackMetresPerModelUnit = metresPerModelUnit;
+    m_warnedUndeclaredCrs = false;   // a new fallback deserves a fresh notice
+
+    if (source_) {
+        rebuildSceneGeometry_();
+        applyCurrentDepths_();
+        applyCurrentFlux_();
+        if (graphics_item_) graphics_item_->geometryChanged();
+        if (arrows_item_)   arrows_item_->geometryChanged();
+        emit repaintRequested();
+    }
+}
+
+double SWMM2DResultsLayer::resolveCoordinateScale_() const
+{
+    // Divisor that takes the source's SI metres back to the model CRS's own
+    // linear unit, so the OGR transform is fed coordinates in the unit its
+    // source CRS actually declares. Issue #155.
+    if (source_) {
+        const auto ref = source_->coordinateReference();
+        if (ref.declared && ref.metresPerModelUnit > 0.0
+            && std::isfinite(ref.metresPerModelUnit)) {
+            // Engine 6.0+ states the exact factor it applied, so this inverts
+            // the conversion precisely — including the engine's international
+            // foot, which is ~2 ppm off a US-survey-foot CRS's own unit.
+            return 1.0 / ref.metresPerModelUnit;
+        }
+    }
+
+    // Undeclared source: a pre-6.0 .2d.h5, or the live in-process engine
+    // source, which has no metadata channel. The caller supplies the factor
+    // via setFallbackCoordinateScale() because the authority is the engine's
+    // own rule (FLOW_UNITS, suppressed by a `;; UNITS: SI (m)` mesh header) —
+    // NOT the layer CRS's linear unit, which disagrees with the engine on
+    // exactly the models where the mesh and CRS units differ.
+    //
+    // The default of 1.0 is deliberate: unset, this leaves the coordinates
+    // untouched, which is what the layer did before #155 and keeps it in
+    // agreement with SWMM2DMeshLayer rather than inventing a new offset.
+    if (m_fallbackMetresPerModelUnit > 0.0
+        && !qFuzzyCompare(m_fallbackMetresPerModelUnit, 1.0)
+        && !m_warnedUndeclaredCrs) {
+        m_warnedUndeclaredCrs = true;
+        qWarning("[2D-render] %s: 2D result source declares no /crs variable; "
+                 "assuming engine SI metres and dividing by %.10f m per model "
+                 "unit. Re-run with OpenSWMM Engine 6.0+ for an exact, "
+                 "self-describing factor.",
+                 qUtf8Printable(name()),
+                 m_fallbackMetresPerModelUnit);
+    }
+    return 1.0 / m_fallbackMetresPerModelUnit;
+}
+
+void SWMM2DResultsLayer::onCanvasCRSChanged(
+        const SpatialReferenceSystem* newCanvasSRS)
+{
+    // Same transform path as SWMM2DMeshLayer::onCanvasCRSChanged — without it
+    // the results sat in model coordinates on a reprojected canvas while the
+    // mesh layer moved, separating terrain from inundation. Issue #155.
+    OGRCoordinateTransformation::DestroyCT(m_transform);
+    m_transform = nullptr;
+
+    if (srs() && newCanvasSRS
+        && srs()->ogrSpatialReference()
+        && newCanvasSRS->ogrSpatialReference()
+        && !srs()->ogrSpatialReference()->IsSame(
+                newCanvasSRS->ogrSpatialReference()))
+    {
+        m_transform = OGRCreateCoordinateTransformation(
+            srs()->ogrSpatialReference(),
+            newCanvasSRS->ogrSpatialReference());
+    }
+
     rebuildSceneGeometry_();
     applyCurrentDepths_();
     applyCurrentFlux_();

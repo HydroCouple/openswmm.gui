@@ -83,6 +83,52 @@ bool readStartIndexAttr(hid_t dataset, int& out)
     return true;
 }
 
+/*! \brief Read a string attribute off \p loc. Returns false when absent. */
+bool readStringAttr(hid_t loc, const char* name, QString& out)
+{
+    hid_t attr = -1;
+    H5E_BEGIN_TRY {
+        attr = H5Aopen(loc, name, H5P_DEFAULT);
+    } H5E_END_TRY;
+    if (attr < 0) return false;
+    AttributeGuard attrGuard(attr);
+
+    const hid_t type = H5Aget_type(attr);
+    if (type < 0) return false;
+    DataTypeGuard typeGuard(type);
+    if (H5Tget_class(type) != H5T_STRING) return false;
+
+    if (H5Tis_variable_str(type) > 0) {
+        char *raw = nullptr;
+        if (H5Aread(attr, type, &raw) < 0 || !raw) return false;
+        out = QString::fromUtf8(raw).trimmed();
+        H5free_memory(raw);
+        return true;
+    }
+
+    const size_t n = H5Tget_size(type);
+    std::vector<char> buf(n + 1, '\0');
+    if (H5Aread(attr, type, buf.data()) < 0) return false;
+    out = QString::fromUtf8(buf.data()).trimmed();
+    return true;
+}
+
+/*! \brief Read a floating-point attribute off \p loc. False when absent. */
+bool readDoubleAttr(hid_t loc, const char* name, double& out)
+{
+    hid_t attr = -1;
+    H5E_BEGIN_TRY {
+        attr = H5Aopen(loc, name, H5P_DEFAULT);
+    } H5E_END_TRY;
+    if (attr < 0) return false;
+    AttributeGuard attrGuard(attr);
+
+    double value = 0.0;
+    if (H5Aread(attr, H5T_NATIVE_DOUBLE, &value) < 0) return false;
+    out = value;
+    return true;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -199,6 +245,48 @@ bool Mesh2DH5Reader::readMeshGeometry(std::vector<double>& vx,
     if (!readVec("Mesh2_node_x", vx.data())) return false;
     if (!readVec("Mesh2_node_y", vy.data())) return false;
     if (!readVec("Mesh2_node_z", vz.data())) return false;
+    return true;
+}
+
+bool Mesh2DH5Reader::readCoordinateReference(CoordinateReference& out) const
+{
+    out = CoordinateReference{};
+    if (file_id_ < 0) {
+        setError_(QStringLiteral("Mesh2DH5Reader: not open"));
+        return false;
+    }
+    const hid_t fid = static_cast<hid_t>(file_id_);
+
+    // Units of the coordinates as stored. Present since the first engine that
+    // wrote this file format, so it is read whether or not /crs exists.
+    {
+        hid_t ds = -1;
+        H5E_BEGIN_TRY {
+            ds = H5Dopen2(fid, "Mesh2_node_x", H5P_DEFAULT);
+        } H5E_END_TRY;
+        if (ds >= 0) {
+            DataSetGuard g(ds);
+            readStringAttr(ds, "units", out.storedUnits);
+        }
+    }
+
+    hid_t crs = -1;
+    H5E_BEGIN_TRY {
+        crs = H5Dopen2(fid, "crs", H5P_DEFAULT);
+    } H5E_END_TRY;
+    if (crs < 0)
+        return false;   // pre-6.0 file: undeclared, caller falls back
+    DataSetGuard crsGuard(crs);
+
+    readStringAttr(crs, "model_crs", out.crs);
+
+    double factor = 0.0;
+    if (readDoubleAttr(crs, "metres_per_model_unit", factor)
+        && std::isfinite(factor) && factor > 0.0) {
+        out.metresPerModelUnit = factor;
+    }
+
+    out.declared = true;
     return true;
 }
 

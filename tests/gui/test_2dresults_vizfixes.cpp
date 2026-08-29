@@ -16,14 +16,14 @@
  *     (maxDepthAtSceneInterp) — they share one reduction.
  *   - Issue 5: velocityAtScene returns false with no flux data and off-mesh.
  *
- * NB (link wiring — ACTION REQUIRED): this test drives the real
- * SWMM2DResultsLayer, whose link closure is large (layer base, mesh spatial
- * grid, all render sublayers, value-type specs, io/mesh2dh5reader, …). It is
- * NOT yet registered in tests/gui/CMakeLists.txt so the build stays green until
- * the closure is completed. To enable it, add an add_swmmvis_gui_test() entry
- * and resolve the undefined-reference list the linker prints (start from the
- * source list in PLAN_2D_VIZ_REFINEMENT.md → "Enabling the layer test").
- * Pure assertions — writes no temp files.
+ * Issue #155 adds the coordinate-scale cases: a declared /crs factor scales
+ * the source's SI metres to model units, a metric declaration is a no-op, an
+ * undeclared source takes the caller's fallback, and no declaration + no
+ * fallback leaves the coordinates alone.
+ *
+ * Registered in tests/gui/CMakeLists.txt with the full-app link pattern
+ * (swmmvis_link_full_app_deps) — it drives the real SWMM2DResultsLayer, whose
+ * link closure is most of the app. Pure assertions — writes no temp files.
  */
 #include "layers/swmm2dresultslayer.h"
 
@@ -81,10 +81,26 @@ public:
         return m_t0.addSecs(qint64(t) * 60);          // 1-minute frames
     }
 
+    // Issue #155 — lets a case declare the metres-per-model-unit factor the
+    // engine's /crs variable would carry. Default: undeclared (pre-6.0 file).
+    void declareCoordinateReference(const QString& crs, double metresPerModelUnit)
+    {
+        m_ref.crs                = crs;
+        m_ref.metresPerModelUnit = metresPerModelUnit;
+        m_ref.storedUnits        = QStringLiteral("m");
+        m_ref.declared           = true;
+    }
+
+    openswmmvis::io::CoordinateReference coordinateReference() const override
+    {
+        return m_ref;
+    }
+
 private:
     bool               m_live;
     std::vector<float> m_frameDepth;
     QDateTime          m_t0 = QDateTime(QDate(2026, 1, 1), QTime(0, 0));
+    openswmmvis::io::CoordinateReference m_ref;
 };
 
 } // namespace
@@ -98,7 +114,70 @@ private slots:
     void liveSeekToLastReArmsFollow();
     void maxDepthMatchesAnimatedAtPeak();
     void velocityFalseWithoutFlux();
+    void declaredMetreFactorScalesToModelUnits();
+    void metricModelIsUnscaled();
+    void undeclaredSourceUsesCallerFallback();
+    void undeclaredSourceDefaultsToNoScaling();
 };
+
+// Issue #155 — the source hands over SI metres; a foot-based model CRS needs
+// them divided by metres_per_model_unit before they mean anything on a canvas
+// in that CRS. The unit square (0..1 m) must land at 0..3.2808 ft, matching
+// where the .2dm-backed SWMM2DMeshLayer draws the same terrain.
+void Test2DResultsVizFixes::declaredMetreFactorScalesToModelUnits()
+{
+    auto src = std::make_unique<FakeSource>(false, std::vector<float>{0.5f});
+    src->declareCoordinateReference(QStringLiteral("EPSG:2249"), 0.3048);
+
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::move(src));
+
+    const MapExtent e = layer.extent();
+    QVERIFY(qAbs(e.width()  - 1.0 / 0.3048) < 1e-9);
+    QVERIFY(qAbs(e.height() - 1.0 / 0.3048) < 1e-9);
+}
+
+// The same path must be a no-op for a metric model — a factor of 1.0 leaves
+// the coordinates exactly as stored, with no round-trip drift.
+void Test2DResultsVizFixes::metricModelIsUnscaled()
+{
+    auto src = std::make_unique<FakeSource>(false, std::vector<float>{0.5f});
+    src->declareCoordinateReference(QStringLiteral("EPSG:26986"), 1.0);
+
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::move(src));
+
+    const MapExtent e = layer.extent();
+    QCOMPARE(e.width(),  1.0);
+    QCOMPARE(e.height(), 1.0);
+}
+
+// A pre-6.0 .2d.h5 and the live engine source declare nothing, so the caller
+// supplies the factor (swmmvis.cpp derives it from FLOW_UNITS + the mesh's
+// `;; UNITS:` header, the same rule the engine applies).
+void Test2DResultsVizFixes::undeclaredSourceUsesCallerFallback()
+{
+    SWMM2DResultsLayer layer;
+    layer.setFallbackCoordinateScale(0.3048);
+    layer.setSource(std::make_unique<FakeSource>(false, std::vector<float>{0.5f}));
+
+    const MapExtent e = layer.extent();
+    QVERIFY(qAbs(e.width() - 1.0 / 0.3048) < 1e-9);
+}
+
+// With no declaration and no fallback the layer must leave the coordinates
+// alone — the pre-#155 behaviour, which at least agrees with SWMM2DMeshLayer.
+// Guessing here (e.g. from the layer CRS's linear unit) would invent a new
+// offset on models whose mesh units and CRS units disagree.
+void Test2DResultsVizFixes::undeclaredSourceDefaultsToNoScaling()
+{
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::make_unique<FakeSource>(false, std::vector<float>{0.5f}));
+
+    const MapExtent e = layer.extent();
+    QCOMPARE(e.width(),  1.0);
+    QCOMPARE(e.height(), 1.0);
+}
 
 // Issue 3 — a 2-triangle mesh sharing one diagonal has 5 unique edges
 // (4 boundary + 1 diagonal), not 6 (2 tris × 3). The dedup is what stops the

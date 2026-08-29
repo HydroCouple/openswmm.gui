@@ -55,6 +55,23 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Fixed
 
+- **2D results land on top of the 2D mesh in a foot-based CRS.** Two faults
+  stacked. The engine writes 2D result coordinates in SI metres whatever the
+  model's unit, and the results layer treated them as model units — so a model
+  in EPSG:2249 (US survey foot) drew its inundation at ~0.3048x scale, pulled
+  toward the CRS origin, while the `.2dm`-backed mesh layer sat correctly. And
+  the results layer never reprojected at all: `onCanvasCRSChanged` discarded
+  its argument and the geometry rebuild applied only a Y-flip, so terrain and
+  inundation also separated whenever the canvas CRS differed from the model's.
+  The layer now divides by the `metres_per_model_unit` factor the engine 6.0+
+  `/crs` variable declares, then reprojects model CRS → canvas CRS through the
+  same batched OGR path `SWMM2DMeshLayer` uses. Results written by an older
+  engine (and the live in-process source, which has no metadata channel) carry
+  no declaration; for those the factor is derived the way the engine derives
+  it — `FLOW_UNITS`, suppressed by a `;; UNITS: SI (m)` mesh header — and one
+  warning is logged, so existing `.2d.h5` files render correctly without
+  re-running. (Issue #155.)
+
 - **External file references are now relative for every kind of file.** Saving a
   model already rebased rainfall, timeseries, climate, interface and hot-start
   paths against the destination directory, but four slots were written verbatim:
