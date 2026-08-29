@@ -655,10 +655,13 @@ QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
 }
 
 QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
-                                               const SpatialReferenceSystem * /*canvasSRS*/,
+                                               const SpatialReferenceSystem *canvasSRS,
                                                double tolerance) const
 {
     QList<QVariantMap> results;
+
+    // Pick against the same projected geometry the user is looking at.
+    ensureTransform(canvasSRS);
 
     if (!m_ogrLayer)
         return results;
@@ -804,11 +807,16 @@ static inline QPointF toScene(double mapX, double mapY)
 
 void GISVectorLayer::populateScene(QGraphicsScene *scene,
                                     const MapExtent &canvasExtent,
-                                    const SpatialReferenceSystem * /*canvasSRS*/)
+                                    const SpatialReferenceSystem *canvasSRS)
 {
     Q_UNUSED(canvasExtent);
     if (!m_ogrLayer || !isVisible())
         return;
+
+    // Reproject to the canvas CRS. Cheap after the first call (cached on the
+    // canvas WKT); without it the raw file coordinates are drawn as though
+    // they were already in the canvas CRS.
+    ensureTransform(canvasSRS);
 
     // NO spatial filter: the item set lives for the layer's lifetime and the
     // scene culls per frame (BSP index + render sourceRect), the same way
@@ -1036,7 +1044,9 @@ void GISVectorLayer::depopulateScene(QGraphicsScene *scene)
 
 void GISVectorLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS)
 {
-    rebuildTransform(newCanvasSRS);
+    // Drop the cache key so ensureTransform() rebuilds against the new CRS.
+    m_transformCanvasWkt.clear();
+    ensureTransform(newCanvasSRS);
     m_needsRebuild = true;
 }
 
@@ -1267,6 +1277,10 @@ void GISVectorLayer::closeDataset()
         OGRCoordinateTransformation::DestroyCT(m_transform);
         m_transform = nullptr;
     }
+    // Clear with the transform: a stale key would make ensureTransform() skip
+    // the rebuild after a re-open, leaving the new dataset unprojected.
+    m_transformCanvasWkt.clear();
+    m_warnedNoCRS = false;
 
     m_ogrLayer = nullptr;
 
@@ -1277,7 +1291,45 @@ void GISVectorLayer::closeDataset()
     }
 }
 
-void GISVectorLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS)
+void GISVectorLayer::ensureTransform(const SpatialReferenceSystem *canvasSRS) const
+{
+    if (!m_ogrLayer)
+        return;
+
+    // No canvas CRS to target — leave whatever transform exists alone.
+    if (!canvasSRS || !canvasSRS->ogrSpatialReference())
+        return;
+
+    // File declares no CRS: its coordinates are taken to be in the canvas CRS
+    // already. Say so once; a layer sitting in the wrong place should not be a
+    // mystery.
+    if (!m_ogrLayer->GetSpatialRef()) {
+        if (!m_warnedNoCRS) {
+            m_warnedNoCRS = true;
+            qCWarning(lcLoadVector).noquote()
+                << QStringLiteral("%1: file declares no CRS — assuming it is "
+                                  "already in the canvas CRS (%2). Supply a "
+                                  ".prj / CRS if the layer lands in the wrong "
+                                  "place.")
+                       .arg(QFileInfo(m_filePath).fileName(),
+                            canvasSRS->toAuthority());
+            emit const_cast<GISVectorLayer *>(this)->crsAssumed(m_filePath);
+        }
+        return;
+    }
+
+    // Rebuild only when the target CRS actually changes: populateScene() runs
+    // per repaint and OGRCreateCoordinateTransformation is far too costly to
+    // redo per frame.
+    const QString wkt = canvasSRS->toWkt();
+    if (!m_transformCanvasWkt.isEmpty() && m_transformCanvasWkt == wkt)
+        return;
+
+    rebuildTransform(canvasSRS);
+    m_transformCanvasWkt = wkt;
+}
+
+void GISVectorLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS) const
 {
     if (m_transform)
     {
