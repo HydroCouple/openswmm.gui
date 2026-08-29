@@ -424,6 +424,7 @@ private:
     QComboBox      *m_fvLimiterCombo      = nullptr;   // 2nd order only
     QComboBox      *m_fvTimeIntCombo      = nullptr;
     QDoubleSpinBox *m_fvSlotCeleritySpin  = nullptr;   // project length units / s
+    QCheckBox      *m_fvPressImplicitBox  = nullptr;   // FV_PRESSURIZED_IMPLICIT (experimental)
     QComboBox      *m_fvScalarSchemeCombo = nullptr;
     QDoubleSpinBox *m_fvDispersionSpin    = nullptr;   // project length² / s; 0 = off
     QComboBox      *m_fvStructCouplingCombo = nullptr;
