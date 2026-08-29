@@ -540,6 +540,7 @@ private:
     QDoubleSpinBox *m_hMoveSpin         = nullptr;
     QDoubleSpinBox *m_froudeMaxSpin     = nullptr;
     QCheckBox      *m_advection2DBox    = nullptr;
+    QComboBox      *m_backend2DCombo    = nullptr;   ///< [2D_OPTIONS] BACKEND
     QCheckBox      *m_couplingAreaAutoBox = nullptr;
     QDoubleSpinBox *m_dryDepthSpin      = nullptr;
     QDoubleSpinBox *m_limiterEpsSpin    = nullptr;

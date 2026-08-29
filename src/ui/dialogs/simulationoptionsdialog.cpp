@@ -1953,6 +1953,31 @@ QWidget *SimulationOptionsDialog::build2DTab()
 
     vlay->addWidget(m_marcherGroup);
 
+    // Same shape as the FV tab's "Finite volume performance" group: the
+    // model's own backend request, persisted as [2D_OPTIONS] BACKEND.
+    auto *perfGroup = new QGroupBox(tr("Performance"), page);
+    auto *perfForm  = new QFormLayout(perfGroup);
+
+    m_backend2DCombo = new QComboBox(perfGroup);
+    m_backend2DCombo->addItem(tr("Auto"),                   QStringLiteral("AUTO"));
+    m_backend2DCombo->addItem(tr("CPU (built-in marcher)"), QStringLiteral("CPU"));
+    m_backend2DCombo->addItem(tr("OpenMP (Kokkos)"),        QStringLiteral("OMP"));
+    m_backend2DCombo->addItem(tr("CUDA"),                   QStringLiteral("CUDA"));
+    m_backend2DCombo->addItem(tr("HIP"),                    QStringLiteral("HIP"));
+    m_backend2DCombo->addItem(tr("SYCL"),                   QStringLiteral("SYCL"));
+    m_backend2DCombo->setToolTip(
+        tr("Which marcher implementation runs the 2D mesh (BACKEND). Auto "
+           "prefers an installed GPU plugin above the device mesh-size floor, "
+           "then the OpenMP plugin above its own floor, else the built-in "
+           "CPU marcher. A named backend loads that plugin outright, "
+           "regardless of mesh size; if it is not installed or has no usable "
+           "device the run falls back to CPU with a notice. Pin CPU when a "
+           "model measures slower on the accelerator. The OPENSWMM_2D_BACKEND "
+           "environment variable overrides this setting when set."));
+    perfForm->addRow(tr("Backend:"), m_backend2DCombo);
+
+    vlay->addWidget(perfGroup);
+
     auto *meshGroup = new QGroupBox(tr("Mesh"), page);
     auto *meshForm  = new QFormLayout(meshGroup);
 
@@ -2169,6 +2194,8 @@ void SimulationOptionsDialog::read2DFromEngine()
     m_froudeMaxSpin->setValue(extDouble("FROUDE_MAX", t.froudeMax));
     m_advection2DBox->setChecked(parseEngineBool(
         getExt("ADVECTION", t.advection ? "YES" : "NO")) == Qt::Checked);
+    // No preferences default: the engine's AUTO is the only sensible seed.
+    selectComboByData(m_backend2DCombo, getExt("BACKEND", QStringLiteral("AUTO")));
     m_couplingAreaAutoBox->setChecked(
         getExt("COUPLING_AREA", t.couplingAreaAuto ? "AUTO" : "DEFAULT")
             .compare(QStringLiteral("AUTO"), Qt::CaseInsensitive) == 0);
@@ -2233,6 +2260,8 @@ int SimulationOptionsDialog::write2DToEngine(int &n)
                    QString::number(m_froudeMaxSpin->value(), 'g', 6));
     writeIfChanged("ADVECTION",     getExt("ADVECTION"),
                    engineBoolString(m_advection2DBox->isChecked()));
+    writeIfChanged("BACKEND",       getExt("BACKEND"),
+                   m_backend2DCombo->currentData().toString());
     writeIfChanged("COUPLING_AREA", getExt("COUPLING_AREA"),
                    m_couplingAreaAutoBox->isChecked()
                        ? QStringLiteral("AUTO")
