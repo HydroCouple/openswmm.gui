@@ -2481,6 +2481,17 @@ add_swmmvis_gui_test(test_gisvectorpopulate
 )
 swmmvis_link_full_app_deps(test_gisvectorpopulate)
 
+# GIS raster layers adopt the CRS their file declares and reproject onto a
+# canvas in a different CRS. The raster warp path was never affected by the
+# vector transform-lifecycle defect, but nothing covered raster CRS at all.
+# Needs GDAL to synthesize its GeoTIFF fixture, hence the full-app link.
+add_swmmvis_gui_test(test_gisrastercrs
+    test_gisrastercrs.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gisrastercrs)
+
 # GIS feature layers ↔ SelectionManager ↔ Attribute Table, both directions
 # (SVBC round B): the GisObjectRef codec, the GisSelectionBridge, the
 # panel's gis branch pair with its FID display column, precise rubber-band

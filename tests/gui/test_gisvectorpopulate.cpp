@@ -20,6 +20,7 @@
 #include "layers/gisvectorlayer.h"
 #include "map/graphicsitems.h"
 #include "map/mapextent.h"
+#include "map/spatialreferencesystem.h"
 #include "map/openswmmvisscene.h"
 
 #include <gdal_priv.h>
@@ -28,6 +29,8 @@
 #include <QDir>
 #include <QSet>
 #include <QTest>
+
+#include <cmath>
 
 namespace {
 
@@ -38,6 +41,42 @@ QString outDir()
 }
 
 QString gpkgPath() { return outDir() + QStringLiteral("/three_polys.gpkg"); }
+QString crsGpkgPath() { return outDir() + QStringLiteral("/crs_utm33n.gpkg"); }
+
+/*! One square, stamped with EPSG:32633 (UTM 33N) — a PROJECTED CRS that is
+ *  unmistakably not the CRS-less fixture above and not WGS84. Used to prove
+ *  the layer adopts the file's CRS rather than inheriting the canvas/project
+ *  one. Idempotent. */
+bool buildCrsFixture()
+{
+    GDALAllRegister();
+    GDALDriver *gpkg = GetGDALDriverManager()->GetDriverByName("GPKG");
+    if (!gpkg) return false;
+    const QByteArray gp = crsGpkgPath().toUtf8();
+    if (QFile::exists(crsGpkgPath())) gpkg->Delete(gp.constData());
+
+    GDALDataset *ds = gpkg->Create(gp.constData(), 0, 0, 0, GDT_Unknown, nullptr);
+    if (!ds) return false;
+    OGRSpatialReference srs;
+    if (srs.importFromEPSG(32633) != OGRERR_NONE) { GDALClose(ds); return false; }
+    OGRLayer *layer = ds->CreateLayer("utm_polys", &srs, wkbPolygon, nullptr);
+    if (!layer) { GDALClose(ds); return false; }
+
+    OGRLinearRing ring;
+    ring.addPoint(500000.0, 4600000.0);
+    ring.addPoint(501000.0, 4600000.0);
+    ring.addPoint(501000.0, 4601000.0);
+    ring.addPoint(500000.0, 4601000.0);
+    ring.addPoint(500000.0, 4600000.0);
+    OGRPolygon poly;
+    poly.addRing(&ring);
+    OGRFeature *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
+    f->SetGeometry(&poly);
+    const bool ok = (layer->CreateFeature(f) == OGRERR_NONE);
+    OGRFeature::DestroyFeature(f);
+    GDALClose(ds);
+    return ok;
+}
 
 /*! Three disjoint unit squares at x = [0,1], [10,11], [20,21] (y = [0,1]).
  *  Idempotent — deletes any prior fixture. */
@@ -89,7 +128,60 @@ class TestGisVectorPopulate : public QObject
     Q_OBJECT
 private slots:
 
-    void initTestCase() { QVERIFY(buildFixture()); }
+    void initTestCase() { QVERIFY(buildFixture()); QVERIFY(buildCrsFixture()); }
+
+    /*! A layer must adopt the CRS its file declares. */
+    void vectorLayerAdoptsFileCRS()
+    {
+        GISVectorLayer layer(crsGpkgPath(), QStringLiteral("utm_polys"));
+        SpatialReferenceSystem *s = layer.srs();
+        QVERIFY2(s != nullptr,
+                 "layer has no SRS after opening a file declaring EPSG:32633");
+        QCOMPARE(s->code(), 32633);
+        QVERIFY(s->isProjected());
+    }
+
+    /*! And it must REPROJECT to the canvas CRS when they differ.
+     *
+     *  The regression: rebuildTransform() was reachable only from
+     *  onCanvasCRSChanged(), so a layer added to a canvas whose CRS never
+     *  subsequently changed kept a null transform and drew raw file
+     *  coordinates as though they were already in the canvas CRS. A UTM-33N
+     *  square then rendered at x≈500000 on a WGS84 canvas instead of lon≈15.
+     */
+    void vectorLayerReprojectsToCanvasCRS()
+    {
+        GISVectorLayer layer(crsGpkgPath(), QStringLiteral("utm_polys"));
+        SpatialReferenceSystem canvas(QStringLiteral("EPSG"), 4326);
+        OpenSWMMVisScene scene;
+        layer.populateScene(&scene, MapExtent(-180.0, -90.0, 180.0, 90.0), &canvas);
+
+        const auto items = polygonItems(scene);
+        QCOMPARE(items.size(), 1);
+        const QRectF b = items.first()->sceneBoundingRect();
+
+        // 500000 E, 4600000 N in UTM 33N is ≈ 15°E, 41.5°N. Scene Y is
+        // inverted, so latitude arrives negated — compare |y|.
+        QVERIFY2(std::abs(b.left()) < 180.0 && std::abs(b.top()) < 180.0,
+                 qPrintable(QStringLiteral("geometry not reprojected — bounds %1,%2")
+                                .arg(b.left()).arg(b.top())));
+        QVERIFY(std::abs(b.left() - 15.0) < 1.5);
+        QVERIFY(std::abs(std::abs(b.top()) - 41.5) < 1.5);
+    }
+
+    /*! A file with NO CRS keeps a null SRS and is assumed to be in the canvas
+     *  CRS — the long-standing behaviour local-coordinate data relies on.
+     *  Its coordinates must therefore pass through untouched. */
+    void vectorLayerWithoutFileCRSPassesThrough()
+    {
+        GISVectorLayer layer(gpkgPath(), QStringLiteral("polys"));
+        QVERIFY(layer.srs() == nullptr);
+
+        SpatialReferenceSystem canvas(QStringLiteral("EPSG"), 4326);
+        OpenSWMMVisScene scene;
+        layer.populateScene(&scene, MapExtent(-1.0, -1.0, 30.0, 30.0), &canvas);
+        QCOMPARE(polygonItems(scene).size(), 3);
+    }
 
     /*! The core fix: an extent covering only polygon 1 must still populate
      *  all three features — the viewport is a CULL, not a feature gate. */
