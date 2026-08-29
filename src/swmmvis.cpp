@@ -3369,6 +3369,7 @@ void SWMMVis::initializeMenus()
     connect(ui->actionAddRasterData, &QAction::triggered, this, &SWMMVis::onAddRasterLayer);
     connect(ui->actionAddSWMMOutput, &QAction::triggered, this, &SWMMVis::onAddSWMMResultsLayer);
     connect(ui->actionAddMesh2D,     &QAction::triggered, this, &SWMMVis::onAddMesh2DLayer);
+    connect(ui->actionAdd2DResults, &QAction::triggered, this, &SWMMVis::onAdd2DResultsLayer);
     connect(ui->actionExecute,       &QAction::triggered, this, &SWMMVis::onRunSimulation);
 
     // Helper: resolve the runner the user wants to act on.  If the
@@ -5370,18 +5371,39 @@ void SWMMVis::showMeshCellProperties(SWMMVisProjectWindow *window,
 }
 
 void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
-                                 const QString &filePath)
+                                 const QString &filePath,
+                                 const QString &h5Override)
 {
     // The .h5 comes from [2D_OPTIONS] OUTPUT_FILE; when that is absent or
     // stale, fall back to the entry the project sidecar persisted (stashed
     // on the window by ProjectSerializer::applySession).
     const QJsonArray pending = window->pending2DResultsRestore();
-    QString h5Path = SimulationRunner::parseTwoDOutputFile(filePath);
-    if (h5Path.isEmpty() || !QFileInfo::exists(h5Path)) {
-        for (const QJsonValue &v : pending) {
-            const QString p =
-                v.toObject().value(QStringLiteral("path")).toString();
-            if (!p.isEmpty() && QFileInfo::exists(p)) { h5Path = p; break; }
+    QString h5Path = h5Override;
+    if (!explicitAdd) {
+        h5Path = SimulationRunner::parseTwoDOutputFile(filePath);
+        if (h5Path.isEmpty() || !QFileInfo::exists(h5Path)) {
+            for (const QJsonValue &v : pending) {
+                const QString p =
+                    v.toObject().value(QStringLiteral("path")).toString();
+                if (!p.isEmpty() && QFileInfo::exists(p)) { h5Path = p; break; }
+            }
+        }
+    }
+
+    // One results layer per file: re-adding an open .h5 focuses it instead of
+    // stacking a duplicate that would fight it for the animation slider.
+    if (explicitAdd && window->canvas()) {
+        const QString wanted = QFileInfo(h5Path).absoluteFilePath();
+        for (OpenSWMMVisLayer *l : window->canvas()->layers()) {
+            auto *r2d = qobject_cast<SWMM2DResultsLayer *>(l);
+            if (!r2d) continue;
+            auto *src = dynamic_cast<HDF5Mesh2DSource *>(r2d->source());
+            if (!src || QFileInfo(src->path()).absoluteFilePath() != wanted)
+                continue;
+            window->setActive2DResultsLayer(r2d);
+            onLogMessage(tr("2D results already loaded: %1")
+                             .arg(QFileInfo(h5Path).fileName()));
+            return;
         }
     }
     if (h5Path.isEmpty()) {
@@ -5438,6 +5460,10 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
                 // Properties window shows a real CRS and any
                 // reprojection logic matches the input.
                 if (window->modelLayer() && window->modelLayer()->srs())
+    // An explicit add (Import ▸ Add 2D Results…) names its own file; the
+    // project-open pass resolves one from the model instead.
+    const bool explicitAdd = !h5Override.isEmpty();
+
                     resLayer->setSRS(
                         new SpatialReferenceSystem(*window->modelLayer()->srs(),
                                                    resLayer),
@@ -5570,12 +5596,17 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
                     onLogMessage(tr("2D results style restored from project."));
                     break;
                 }
-                window->clearPending2DResultsRestore();
+                // Only the project-open pass consumes the sidecar's pending
+                // restore; an explicit add must leave it for the auto-load.
+                if (!explicitAdd) window->clearPending2DResultsRestore();
 
-                // Make this the tab's active 2D results layer
-                // (default-only) so the 2D analysis combo + cell-pick
-                // tool + mesh profile target it.
-                if (!window->active2DResultsLayer())
+                // Make this the tab's active 2D results layer so the 2D
+                // analysis combo + cell-pick tool + mesh profile target it.
+                // An auto-load only claims the slot when it is still empty;
+                // an explicit add is the user naming what they want to look
+                // at, so it takes the slot outright (matching the 1D
+                // Add SWMM Results behaviour).
+                if (explicitAdd || !window->active2DResultsLayer())
                     window->setActive2DResultsLayer(resLayer);
 
                 // CF.MVP-fix.1 — register the 2D layer as the
@@ -8719,4 +8750,53 @@ void SWMMVis::onAddMesh2DLayer()
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
 
     pw->importMeshFileAsync(path);
+}
+
+void SWMMVis::onAdd2DResultsLayer()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->canvas())
+    {
+        onLogMessage(tr("Open a SWMM project first; 2D results attach to a model."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+
+    // Start where the run would have written: the model's folder, which is
+    // where [2D_OPTIONS] OUTPUT_FILE lands for a relative path.
+    const QString modelPath = pw->modelLayer()->modelFilePath();
+    const QString startDir =
+        !modelPath.isEmpty() ? QFileInfo(modelPath).absolutePath()
+        : mRecentFiles.isEmpty() ? QDir::homePath()
+                                 : QFileInfo(mRecentFiles.first()).absolutePath();
+
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Add 2D Results"), startDir,
+        tr("OpenSWMM 2D Results (*.h5);;All Files (*)"));
+    if (path.isEmpty()) return;
+
+    beginFileOpen(path);
+    QElapsedTimer t;
+    t.start();
+
+    // maybeLoad2DResults owns the whole build: HDF5 open, the simulation-start
+    // time anchor, CRS inheritance, the peak-frame + ramp-percentile scan and
+    // the DRY_DEPTH resolution. Handing it the explicit path keeps this the
+    // same layer an auto-load or a live run would have produced. modelPath is
+    // still passed so the model's DRY_DEPTH is read from the .inp.
+    const int before = pw->canvas()->layers().size();
+    maybeLoad2DResults(pw, modelPath, path);
+
+    // maybeLoad2DResults reports its own failure reason to the log; the layer
+    // count tells us whether one was actually built (a re-add of an already
+    // open file focuses the existing layer and adds none, which is success).
+    const bool added = pw->canvas()->layers().size() > before;
+    const bool present = added || pw->active2DResultsLayer() != nullptr;
+    if (present) {
+        endFileOpen(path, true, added ? tr("2D results layer") : tr("already open"),
+                    t.elapsed());
+    } else {
+        endFileOpen(path, false, QString(), t.elapsed(),
+                    tr("could not open as OpenSWMM 2D results"));
+    }
 }
