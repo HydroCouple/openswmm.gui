@@ -48,6 +48,27 @@
 
 namespace openswmmvis::io {
 
+/*!
+ * \brief How a 2D result source's XY coordinates relate to the model's CRS.
+ *
+ * The engine's 2D solver runs in SI, so every x/y it writes is in **metres**
+ * — even when the model (and its `.2dm` mesh, and its `[OPTIONS] CRS`) is
+ * authored in feet. Consumers must divide by \ref metresPerModelUnit before
+ * reprojecting out of \ref crs, or the results land ~0.3048x toward the CRS
+ * origin while the `.2dm`-backed mesh layer renders correctly (issue #155).
+ *
+ * Engine 6.0+ states this explicitly in the file's `/crs` variable. Older
+ * files (and the live in-process source) declare nothing — \ref declared is
+ * then false and the caller falls back to the layer CRS's own linear unit.
+ */
+struct CoordinateReference
+{
+    QString crs;                        ///< model CRS, verbatim; empty if undeclared
+    double  metresPerModelUnit = 1.0;   ///< stored = model x this
+    QString storedUnits;                ///< unit of the stored coords, e.g. "m"
+    bool    declared = false;           ///< true when read from a `/crs` variable
+};
+
 class Mesh2DH5Reader
 {
 public:
@@ -93,6 +114,18 @@ public:
 
     /*! \brief Read triangle connectivity. \p tris[i] = {v0,v1,v2}. */
     bool readTriangles(std::vector<std::array<int, 3>>& tris) const;
+
+    /*!
+     * \brief Read the `/crs` georeferencing variable (engine 6.0+).
+     *
+     * Never fails on a file that predates `/crs`: \p out is left with
+     * \c declared == false and \c metresPerModelUnit == 1.0, and \c storedUnits
+     * is still filled from the `units` attribute on `/Mesh2_node_x` when
+     * present. Callers treat undeclared files with the layer-CRS fallback.
+     *
+     * \returns true if a `/crs` variable was found and parsed.
+     */
+    bool readCoordinateReference(CoordinateReference& out) const;
 
     // ----- Time-series queries ---------------------------------------------
 

@@ -21,9 +21,12 @@
 #ifndef OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
 #define OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
 
+#include "io/mesh2dh5reader.h"       // openswmmvis::io::CoordinateReference
 #include "layers/openswmmvislayer.h"
 #include "layers/meshspatialgrid.h"
 #include "map/mapextent.h"
+
+#include <ogr_spatialref.h>          // OGRCoordinateTransformation (issue #155)
 
 #include <QDateTime>
 #include <QLineF>
@@ -95,6 +98,21 @@ public:
                                    std::vector<double>& vy,
                                    std::vector<double>& vz,
                                    std::vector<std::array<int, 3>>& tris) = 0;
+
+    /*!
+     * \brief How the coordinates from \ref readMeshGeometry relate to the
+     *        model CRS — see openswmmvis::io::CoordinateReference.
+     *
+     * Every source delivers SI metres (the 2D solver's internal unit), which
+     * for a foot-based model CRS is NOT the unit the coordinates must be
+     * reprojected from. The default returns an undeclared reference, so a
+     * source that cannot state the factor makes the layer fall back to the
+     * layer CRS's own linear unit rather than silently assuming 1.0.
+     */
+    virtual openswmmvis::io::CoordinateReference coordinateReference() const
+    {
+        return {};
+    }
 
     /*! \brief Fetch per-triangle depth at \p timeIdx. Resizes \p depths to triangleCount(). */
     virtual bool readDepthsAt(int timeIdx, std::vector<float>& depths) = 0;
@@ -285,6 +303,7 @@ public:
                           std::vector<float>& nx,
                           std::vector<float>& ny) override;
     bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths) override;
+    openswmmvis::io::CoordinateReference coordinateReference() const override;
 
     /*! \brief Anchor wall-clock time for the simulation start (so /time
      *  (seconds since start) maps back to a QDateTime for the global slider). */
@@ -331,6 +350,28 @@ public:
 
     IMesh2DSource* source() noexcept { return source_.get(); }
     const IMesh2DSource* source() const noexcept { return source_.get(); }
+
+    /*!
+     * \brief Metres per model-CRS linear unit, for sources that declare none.
+     *
+     * The 2D solver runs in SI, so every result source hands this layer
+     * **metres** — which for a foot-based model CRS is not the unit the
+     * coordinates must be reprojected from (issue #155). Engine 6.0+ states
+     * the exact factor in the file's `/crs` variable and that always wins.
+     * A pre-6.0 `.2d.h5`, and the live in-process `EngineMesh2DSource`, carry
+     * no such statement, so the caller supplies it here.
+     *
+     * Use the engine's own rule, not the layer CRS's linear unit: the engine
+     * scales the mesh when `FLOW_UNITS` is US-customary **and** the mesh file
+     * did not declare `;; UNITS: SI (m)` — a condition the CRS cannot report,
+     * and which the engine's own `InpWriter` makes reachable on round-trip.
+     *
+     * \param metresPerModelUnit  0.3048 when the engine scaled, else 1.0.
+     *                            Non-positive / non-finite values are ignored.
+     *                            The default is 1.0, i.e. leave the
+     *                            coordinates alone.
+     */
+    void setFallbackCoordinateScale(double metresPerModelUnit);
 
     /*!
      * \brief Current time index displayed on the canvas. -1 = no frame yet.
@@ -730,8 +771,32 @@ private:
     void applyCurrentDepths_();     ///< Copy `current_depths_` into the SceneTri buffer.
     void applyCurrentFlux_();       ///< Run RT0 reconstruction → write vx/vy/vmag into SceneTri.
 
+    /*!
+     * \brief Metres-to-model-CRS-unit divisor for the source coordinates.
+     *
+     * Resolved in rebuildSceneGeometry_() from the source's
+     * CoordinateReference, falling back to setFallbackCoordinateScale()'s
+     * value for sources that declare nothing. 1.0 for a metric model, and the
+     * default when nobody supplied a fallback. Issue #155.
+     */
+    [[nodiscard]] double resolveCoordinateScale_() const;
+
     /*! QSG-2D-1M — see geomRevision(). */
     quint64 m_geomRevision = 0;
+
+    /*! Layer-CRS → canvas-CRS transform, rebuilt in onCanvasCRSChanged().
+     *  nullptr means "no reprojection needed" — CRSReproject treats a null
+     *  transform as a documented pass-through. Mirrors SWMM2DMeshLayer. */
+    OGRCoordinateTransformation *m_transform = nullptr;
+
+    /*! One-shot guard: the undeclared-CRS fallback warns once, not on every
+     *  geometry rebuild. Reset by setFallbackCoordinateScale(). */
+    mutable bool m_warnedUndeclaredCrs = false;
+
+    /*! Metres per model-CRS linear unit for sources that declare no `/crs`
+     *  variable — see setFallbackCoordinateScale(). 1.0 = leave coordinates
+     *  alone, the pre-#155 behaviour and the safe default. */
+    double m_fallbackMetresPerModelUnit = 1.0;
 
     std::unique_ptr<IMesh2DSource> source_;
     std::vector<double>            vx_, vy_, vz_;

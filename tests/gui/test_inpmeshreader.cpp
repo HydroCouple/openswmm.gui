@@ -82,6 +82,7 @@ class TestInpMeshReader : public QObject
 private slots:
     void parsesBaseMesh();
     void unitsAndCrsHeaders();
+    void unitsHeaderIsSI_matchesEngineKeywords();
     void vertexNodeMap_indexForm();
     void vertexNodeMap_tagForm();
     void vertexNodeMap_indexAndTagAgree();
@@ -117,6 +118,26 @@ void TestInpMeshReader::unitsAndCrsHeaders()
     QVERIFY(r.hasMesh);
     QCOMPARE(r.unitsHeader, QStringLiteral("SI (m)"));
     QCOMPARE(r.sourceCrsTag, QStringLiteral("EPSG:32617"));
+}
+
+// Issue #155 — whether the engine rescaled the mesh to SI turns on this
+// keyword set. It is duplicated from the engine's prescan2DUnitsHeader
+// (openswmm.engine SectionHandlers2D.cpp); if the two drift, 2D results land
+// in the wrong place with no error anywhere. Pin the whole set.
+void TestInpMeshReader::unitsHeaderIsSI_matchesEngineKeywords()
+{
+    for (const QString &si : {QStringLiteral("SI (m)"), QStringLiteral("m"),
+                              QStringLiteral("metre"), QStringLiteral("metres"),
+                              QStringLiteral("meter"), QStringLiteral("meters"),
+                              QStringLiteral("si (M)"), QStringLiteral("  m  ")})
+        QVERIFY2(mesh::unitsHeaderIsSI(si), qPrintable(si));
+
+    for (const QString &notSi : {QString(), QStringLiteral("ft"),
+                                 QStringLiteral("US survey foot"),
+                                 QStringLiteral("feet"),
+                                 QStringLiteral("millimetres"),
+                                 QStringLiteral("SI")})
+        QVERIFY2(!mesh::unitsHeaderIsSI(notSi), qPrintable(notSi));
 }
 
 void TestInpMeshReader::vertexNodeMap_indexForm()

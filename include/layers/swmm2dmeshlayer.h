@@ -159,6 +159,15 @@ public:
     [[nodiscard]] bool isExternalMesh() const { return m_isExternal; }
     void setExternalMesh(bool external)      { m_isExternal = external; }
 
+    /*! \brief True when the mesh file declared `;; UNITS: SI (m)` (or an
+     *  equivalent metric keyword). The engine then SKIPS its FLOW_UNITS-based
+     *  ft→m mesh scaling, so 2D results coordinates come back in the same
+     *  values as the mesh. Consumed by the 2D results layer's coordinate
+     *  fallback — see SWMM2DResultsLayer::setFallbackCoordinateScale and
+     *  issue #155. */
+    [[nodiscard]] bool meshUnitsSI() const { return m_meshUnitsSI; }
+    void setMeshUnitsSI(bool si)           { m_meshUnitsSI = si; }
+
     /*! Number of triangles in the loaded mesh — exposed as metadata in
      *  the Properties window. */
     [[nodiscard]] int triangleCount() const { return int(m_mesh.triangles.size()); }
@@ -799,6 +808,7 @@ private:
     mesh::MeshResult             m_mesh;
     QString                      m_sourcePath;
     bool                         m_isExternal    = false;
+    bool                         m_meshUnitsSI   = false;  ///< `;; UNITS: SI (m)` (#155)
     bool                         m_active        = false;
 
     // Mesh Tiled LOD plan P1.1 — see qsgOwnsRendering().
