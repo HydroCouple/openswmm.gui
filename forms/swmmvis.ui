@@ -578,6 +578,7 @@
       <string>&amp;Import</string>
      </property>
      <addaction name="actionAddSWMMOutput"/>
+     <addaction name="actionAdd2DResults"/>
      <addaction name="separator"/>
      <addaction name="actionAddVectorData"/>
      <addaction name="actionAddRasterData"/>
@@ -1845,6 +1846,21 @@
    </property>
    <property name="toolTip">
     <string>Browse for an existing OpenSWMM 2D mesh (.2dm) and load it into this project</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAdd2DResults">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AddSWMMOutput</normaloff>:/swmmvis/AddSWMMOutput</iconset>
+   </property>
+   <property name="text">
+    <string>Add 2D Results…</string>
+   </property>
+   <property name="toolTip">
+    <string>Browse for an OpenSWMM 2D results file (.h5) and load it into this project</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>

@@ -286,9 +286,18 @@ private slots:
      *         settings and sublayer styles stashed on the window by
      *         ProjectSerializer::applySession are applied after the source
      *         opens. Runs whether or not a mesh layer was built — the HDF5
-     *         source carries its own geometry. */
+     *         source carries its own geometry.
+     *
+     *  \param h5Override when non-empty, load THIS .h5 instead of resolving
+     *         one from the model — the explicit path the Import menu's
+     *         "Add 2D Results…" browsed to. An explicit add also becomes the
+     *         active 2D layer unconditionally (an auto-load only claims the
+     *         slot when it is still empty) and leaves any pending sidecar
+     *         restore alone, since it is not the project-open pass. \p
+     *         filePath is still read for the model's DRY_DEPTH. */
     void maybeLoad2DResults(SWMMVisProjectWindow *window,
-                            const QString &filePath);
+                            const QString &filePath,
+                            const QString &h5Override = QString());
 
     /*! \brief Mount one selected 2D mesh cell in the Properties panel.
      *
@@ -395,6 +404,12 @@ private slots:
      *         disk and load it into the active project as the active mesh.
      *         Delegates to SWMMVisProjectWindow::importMeshFileAsync. */
     void onAddMesh2DLayer();
+
+    /*! \brief Prompt for an OpenSWMM 2D results file (`.h5`) anywhere on disk
+     *         and add it as a SWMM2DResultsLayer, becoming the active 2D
+     *         results layer. Delegates the build to maybeLoad2DResults so an
+     *         explicitly added layer is identical to an auto-loaded one. */
+    void onAdd2DResultsLayer();
 
     /*! \brief Open the Simulation Options dialog for the active project. */
     void onSimulationOptions();
