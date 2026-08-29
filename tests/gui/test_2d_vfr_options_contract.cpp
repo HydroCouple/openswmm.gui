@@ -56,6 +56,7 @@ private slots:
     void setExtThenSaveReopenRoundTrips();
     void faceReconIndependentOfCellClosure();
     void vfrMinWetFracRejectsOutOfRange();
+    void backendRoundTripsAndRejectsUnknown();
 };
 
 // read2DFromEngine() hydrates the combos from these — an opened model with no
@@ -163,4 +164,42 @@ void Test2DVfrOptionsContract::vfrMinWetFracRejectsOutOfRange()
 }
 
 QTEST_MAIN(Test2DVfrOptionsContract)
+
+
+// The 2D tab's Backend combo persists through the same generic surface as the
+// VFR keys: an opened model with no BACKEND line reads the engine default
+// (AUTO), a set_ext survives Save → reopen, and an accelerator the engine does
+// not know is refused (so a typo fails the write instead of silently running
+// on AUTO).
+void Test2DVfrOptionsContract::backendRoundTripsAndRejectsUnknown()
+{
+    const QString inp = dataDir() + "/mini_2d.inp";
+    SWMM_Engine e = swmm_engine_create();
+    QVERIFY(e != nullptr);
+    const QString rpt = QDir::tempPath() + "/backend_contract_rt.rpt";
+    QCOMPARE(swmm_engine_open(e, inp.toUtf8().constData(),
+                             rpt.toUtf8().constData(), nullptr, nullptr), 0);
+
+    QCOMPARE(getExt(e, "BACKEND"), QStringLiteral("AUTO"));
+    QVERIFY(swmm_options_set_ext(e, "BACKEND", "METAL") != 0);
+    QCOMPARE(getExt(e, "BACKEND"), QStringLiteral("AUTO"));   // untouched
+
+    // Exactly what write2DToEngine() does when the user pins the CPU marcher.
+    QCOMPARE(swmm_options_set_ext(e, "BACKEND", "CPU"), 0);
+    QCOMPARE(getExt(e, "BACKEND"), QStringLiteral("CPU"));
+
+    const QString outInp = QDir::tempPath() + "/backend_contract_saved.inp";
+    QCOMPARE(swmm_model_write(e, outInp.toUtf8().constData()), 0);
+    swmm_engine_close(e);
+    swmm_engine_destroy(e);
+
+    SWMM_Engine e2 = swmm_engine_create();
+    const QString rpt2 = QDir::tempPath() + "/backend_contract_rt2.rpt";
+    QCOMPARE(swmm_engine_open(e2, outInp.toUtf8().constData(),
+                             rpt2.toUtf8().constData(), nullptr, nullptr), 0);
+    QCOMPARE(getExt(e2, "BACKEND"), QStringLiteral("CPU"));
+    swmm_engine_close(e2);
+    swmm_engine_destroy(e2);
+}
+
 #include "test_2d_vfr_options_contract.moc"
