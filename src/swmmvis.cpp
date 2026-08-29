@@ -5392,6 +5392,10 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
                                  const QString &filePath,
                                  const QString &h5Override)
 {
+    // An explicit add (Import ▸ Add 2D Results…) names its own file; the
+    // project-open pass resolves one from the model instead.
+    const bool explicitAdd = !h5Override.isEmpty();
+
     // The .h5 comes from [2D_OPTIONS] OUTPUT_FILE; when that is absent or
     // stale, fall back to the entry the project sidecar persisted (stashed
     // on the window by ProjectSerializer::applySession).
@@ -5478,10 +5482,6 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
                 // Properties window shows a real CRS and any
                 // reprojection logic matches the input.
                 if (window->modelLayer() && window->modelLayer()->srs())
-    // An explicit add (Import ▸ Add 2D Results…) names its own file; the
-    // project-open pass resolves one from the model instead.
-    const bool explicitAdd = !h5Override.isEmpty();
-
                     resLayer->setSRS(
                         new SpatialReferenceSystem(*window->modelLayer()->srs(),
                                                    resLayer),
@@ -8561,6 +8561,23 @@ void SWMMVis::onAddVectorLayer()
         auto *added     = new int(0);
         for (const QString &name : toOpen) {
             auto *vl = new GISVectorLayer(QString());
+            // A file with no CRS is assumed to be in the canvas CRS already.
+            // That is the long-standing behaviour and is usually right for
+            // local-coordinate data, but it is the reason a layer occasionally
+            // lands in the wrong place — so say it out loud rather than only
+            // in the openswmm.load.vector logging category, which is off by
+            // default. (Matches how the raster layer's pyramid notices are
+            // surfaced: from the interactive add path.)
+            connect(vl, &GISVectorLayer::crsAssumed, this,
+                    [this](const QString &f) {
+                        onLogMessage(tr("%1 declares no coordinate reference "
+                                        "system — assuming it is already in the "
+                                        "project CRS. Supply a .prj / CRS if it "
+                                        "lands in the wrong place.")
+                                         .arg(QFileInfo(f).fileName()),
+                                     OpenSWMMVisLogMessage::Warning);
+                    },
+                    static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
             connect(vl, &GISVectorLayer::openFinished, this,
                     [this, vl, path, t, canvas, remaining, added](bool ok) {
                         if (ok && canvas) { canvas->addLayer(vl, true); ++(*added); }
@@ -8668,23 +8685,6 @@ void SWMMVis::onAddSWMMResultsLayer()
 
     // Dedup — every output file is only loaded once per project canvas.
     // If a layer already points at this path, focus it as the primary
-            // A file with no CRS is assumed to be in the canvas CRS already.
-            // That is the long-standing behaviour and is usually right for
-            // local-coordinate data, but it is the reason a layer occasionally
-            // lands in the wrong place — so say it out loud rather than only
-            // in the openswmm.load.vector logging category, which is off by
-            // default. (Matches how the raster layer's pyramid notices are
-            // surfaced: from the interactive add path.)
-            connect(vl, &GISVectorLayer::crsAssumed, this,
-                    [this](const QString &f) {
-                        onLogMessage(tr("%1 declares no coordinate reference "
-                                        "system — assuming it is already in the "
-                                        "project CRS. Supply a .prj / CRS if it "
-                                        "lands in the wrong place.")
-                                         .arg(QFileInfo(f).fileName()),
-                                     OpenSWMMVisLogMessage::Warning);
-                    },
-                    static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
     // and reload its handle rather than appending a duplicate.
     const QString canon = QFileInfo(path).absoluteFilePath();
     SWMMResultsLayer *layer = nullptr;
