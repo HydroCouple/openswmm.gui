@@ -1460,6 +1460,16 @@ add_swmmvis_gui_test(test_reactionsystemeditor
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/reactionexpressionedit.cpp
 )
 
+# The reaction-expression editing stack itself (completer vocabulary, the
+# drift guard against the engine grammar, the validation signal). The plan
+# asked for this alongside test_treatment_expression_editor and it was never
+# written, so the widget shipped unobserved.
+add_swmmvis_gui_test(test_reaction_expression_editor
+    test_reaction_expression_editor.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/reactionexpressionedit.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/reactionexpressionedit.cpp
+)
+
 # Pins the [2D_OPTIONS] VFR-closure ABI (CELL_CLOSURE / FACE_RECONSTRUCTION /
 # VFR_MIN_WET_FRAC) that SimulationOptionsDialog's new closure controls persist
 # through swmm_options_*_ext + swmm_model_write. Engine-ABI only (no dialog).
