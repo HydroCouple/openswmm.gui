@@ -4155,6 +4155,24 @@ void SWMMVis::closeEvent(QCloseEvent *event)
             }
         }
     }
+
+    // Flush save-time engine warnings posted by the prompts above BEFORE we
+    // tear anything down. Each "Save before closing?" answered with Save runs
+    // saveAs(), which emits saveCompletedWithEngineWarnings over a QUEUED
+    // connection (deliberately — a modal must not re-enter auto-save-before-
+    // run). A queued emit is a metacall posted to us, delivered only when
+    // control next reaches the event loop — and on THIS path control never
+    // gets there: we go on to close dialogs, save settings, accept, and the
+    // app exits. So the data-loss notice for the very last save a user makes,
+    // on the way out, would be posted and never shown: the original silent
+    // loss (engine 7d43a1ff) surviving in the quit path.
+    //
+    // sendPostedEvents delivers exactly those pending metacalls to us now,
+    // synchronously, with every window already settled. This is correct
+    // whether or not Qt would otherwise have drained the queue before exit —
+    // the event is consumed either way, so the modal cannot double-fire.
+    QCoreApplication::sendPostedEvents(this, QEvent::MetaCall);
+
     // Gracefully close every open top-level dialog so their own closeEvent
     // runs (geometry/state persistence) before teardown. This is required
     // for the application to actually quit: QApplication::quitOnLastWindow
