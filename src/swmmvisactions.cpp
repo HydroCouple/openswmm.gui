@@ -170,6 +170,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionSelectDownstream",      QT_TR_NOOP("Downstream")},
         {"actionSelectByPolygon",       QT_TR_NOOP("Select by\nPolygon")},
         {"actionAddSWMMOutput",         QT_TR_NOOP("SWMM\nOutput")},
+        {"actionAdd2DResults",          QT_TR_NOOP("2D\nResults")},
         {"actionAddVectorData",         QT_TR_NOOP("Vector\nData")},
         {"actionAddRasterData",         QT_TR_NOOP("Raster\nData")},
         {"actionAddWMSData",            QT_TR_NOOP("Web\nLayers")},
@@ -269,10 +270,10 @@ void SWMMVis::initializeCompactToolbar()
     // Iteration 3 — import sources unstacked: every source is its own
     // button (auto-compact still demotes the group when width demands).
     addGroup(mToolBarHome, tr("Import"),
-             {"actionAddSWMMOutput", "actionAddVectorData",
-              "actionAddRasterData", "actionAddWMSData",
-              "actionAddDelimeteredData", "actionAddBasemap",
-              "actionAddMesh2D"});
+             {"actionAddSWMMOutput", "actionAdd2DResults",
+              "actionAddVectorData", "actionAddRasterData",
+              "actionAddWMSData", "actionAddDelimeteredData",
+              "actionAddBasemap", "actionAddMesh2D"});
     addGroup(mToolBarHome, tr("Run"),
              {"actionExecute", "actionPauseExecution", "actionCancelExecution"});
 
