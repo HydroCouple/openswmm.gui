@@ -370,6 +370,16 @@ signals:
     /*! \brief Emitted on the GUI thread when \ref openAsync() completes. */
     void openFinished(bool ok);
 
+    /*!
+     * \brief Emitted once when this layer's file declares no CRS and its
+     *        coordinates are therefore assumed to already be in the canvas CRS.
+     *
+     * \details Not an error — local-coordinate data legitimately has no CRS,
+     *          and this is what the layer has always done. It is surfaced so a
+     *          layer that lands in the wrong place has a stated reason.
+     */
+    void crsAssumed(const QString &filePath);
+
 private:
     // Worker-thread payload for openAsync(): GDALOpenEx + GetLayer + extent +
     // CRS produce this POD (no QObject state), folded into the layer on the
@@ -381,7 +391,29 @@ private:
 
     void openDataset(const QString &filePath, const QString &layerName);
     void closeDataset();
-    void rebuildTransform(const SpatialReferenceSystem *canvasSRS);
+    void rebuildTransform(const SpatialReferenceSystem *canvasSRS) const;
+
+    /*!
+     * \brief Make \ref m_transform current for \p canvasSRS, building it on
+     *        first use.
+     *
+     * \details rebuildTransform() used to be reachable only from
+     *          onCanvasCRSChanged(), so a layer added to a canvas whose CRS
+     *          never subsequently changed — the ordinary case — kept a null
+     *          transform and drew its raw file coordinates as though they were
+     *          already in the canvas CRS. Every entry point that is handed a
+     *          canvas CRS calls this first, so the transform exists from the
+     *          first paint. The canvas WKT is cached because populateScene()
+     *          runs per repaint and OGRCreateCoordinateTransformation is far
+     *          too expensive to redo per frame.
+     *
+     *          A layer whose file declares no CRS keeps a null transform: its
+     *          coordinates are assumed to be in the canvas CRS already (the
+     *          long-standing behaviour, and what local-coordinate data needs).
+     *          That assumption is announced once via \ref crsAssumed so a
+     *          misplaced layer is explicable instead of mysterious.
+     */
+    void ensureTransform(const SpatialReferenceSystem *canvasSRS) const;
 
     /*! \brief Derive a GISVectorSymbol from the active Rule's renderer
      *         and feed it through setSymbol(). Called when the Rule's
@@ -403,7 +435,14 @@ private:
 
     GDALDataset                 *m_dataset   = nullptr; /*!< Owned GDAL dataset. */
     OGRLayer                    *m_ogrLayer  = nullptr; /*!< Non-owning pointer into dataset. */
-    OGRCoordinateTransformation *m_transform = nullptr; /*!< Owned; layer CRS → canvas CRS. */
+    mutable OGRCoordinateTransformation *m_transform = nullptr; /*!< Owned; layer CRS → canvas CRS. */
+
+    /*! WKT of the canvas CRS \ref m_transform was built for; empty when none
+     *  has been built. Guards the per-repaint rebuild. */
+    mutable QString m_transformCanvasWkt;
+
+    /*! One-shot latch for the "file declares no CRS" notice (\ref crsAssumed). */
+    mutable bool m_warnedNoCRS = false;
 
     // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialised eagerly in
     // the ctor (default SingleSymbolRenderer) so renderer() never returns
