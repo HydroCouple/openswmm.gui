@@ -15,10 +15,13 @@
  * Self-contained: pulls in only UnitSystem + the swmm_options_* engine ABI
  * (link to openswmm_engine via the CMake helper). No MDI / MainWindow.
  *
- * Coverage today: FLOW_UNITS (Flow Units combo).  The LINK_OFFSETS leg lives
- * on SWMMVisProjectWindow and is exercised through that class once the
- * `swmmvis_core` extraction unblocks instantiating-the-app tests; the audit
- * entry is kept in swmmvis_hydration_audit.h so it isn't lost.
+ * Coverage today: FLOW_UNITS (Flow Units combo) at all three triggers, and
+ * LINK_OFFSETS (Offset Mode checkbox) at the engine layer — both the bare-ABI
+ * round-trip and the file → engine → file leg the toggle actually drives.
+ * What still needs SWMMVisProjectWindow is the widget binding itself (does the
+ * checkbox reflect the engine at open / tab switch / external mutation); that
+ * is parked behind the `swmmvis_core` extraction, and the audit entry is kept
+ * in swmmvis_hydration_audit.h so it isn't lost.
  */
 
 #include "core/unitsystem.h"
@@ -27,9 +30,12 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
 
+#include <QDir>
+#include <QFile>
 #include <QObject>
 #include <QSignalSpy>
 #include <QString>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include <cstring>
@@ -82,6 +88,7 @@ private slots:
     // leg lives on SWMMVisProjectWindow and is parked under the swmmvis_core
     // extraction blocker (see KNOWN GAPS).
     void linkOffsets_engineRoundTripsValue();
+    void linkOffsets_fileRoundTripsThroughSave();
 
     // Simulation Options persistence fixes (2026-08-06): keys whose broken
     // C-API round-trip made dialog edits silently revert on reload.
@@ -96,6 +103,10 @@ private slots:
     void flowRouting_fvRoundTripsValue();
     void fvOptions_engineRoundTripsValues();
     void fvOptions_rejectBadEnumTokens();
+    // FV_NODE_COUPLING / FV_NODE_DT / FV_NODE_PICARD retired (2026-08-29):
+    // widgets gone; the engine must still accept and freeze them so older
+    // projects and scripts keep working.
+    void fvOptions_retiredNodeKeysAcceptAndFreeze();
 
     // QUALITY_SOLVER + the transport option family (Y1 / G1g, 2026-08-23).
     // The Quality & Transport page hydrates and writes through exactly
@@ -269,6 +280,103 @@ void TestOptionsHydrationContract::linkOffsets_engineRoundTripsValue()
 }
 
 // ---------------------------------------------------------------------------
+// LINK_OFFSETS — file → engine → file, the leg the Offset Mode toggle drives
+// ---------------------------------------------------------------------------
+//
+// linkOffsets_engineRoundTripsValue above proves the ABI on a BARE engine; it
+// never parses or writes a deck. Two halves of the toggle's contract are only
+// observable through a file:
+//
+//   Read  — a deck declaring ELEVATION must arrive at the engine as ELEVATION.
+//           ELEVATION is the discriminating token here: DEPTH is also the
+//           SimulationOptions default (link_offsets = 0), so asserting DEPTH
+//           after a load (as test_asyncload does) passes even if the parser
+//           dropped the key entirely. Only ELEVATION can fail that way.
+//   Save  — flipping the option (what SWMMVisProjectWindow::
+//           setElevationOffsetMode does via swmm_options_set) must reach the
+//           written .inp, and survive re-parsing it.
+//
+void TestOptionsHydrationContract::linkOffsets_fileRoundTripsThroughSave()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    // Offsets are declared as elevations here (Z1/Z2 above the inverts), which
+    // is what LINK_OFFSETS ELEVATION means; the option is what is under test,
+    // not the values.
+    const auto writeDeck = [&dir](const QString &name, const char *token) {
+        const QString path = dir.filePath(name);
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return QString();
+        f.write(QStringLiteral(
+                    "[OPTIONS]\n"
+                    "FLOW_UNITS           CFS\n"
+                    "FLOW_ROUTING         DYNWAVE\n"
+                    "LINK_OFFSETS         %1\n"
+                    "START_DATE           01/01/2026\n"
+                    "END_DATE             01/01/2026\n"
+                    "END_TIME             00:30:00\n"
+                    "ROUTING_STEP         1\n"
+                    "\n[JUNCTIONS]\n J1  10.0  5.0\n"
+                    "\n[OUTFALLS]\n O1  8.0  FREE  NO\n"
+                    "\n[CONDUITS]\n C1  J1  O1  200.0  0.013  11.0  9.0\n"
+                    "\n[XSECTIONS]\n C1  CIRCULAR  1.0  0  0  0  1\n"
+                    "\n[COORDINATES]\n J1  0.0  0.0\n O1  200.0  0.0\n")
+                    .arg(QString::fromLatin1(token)).toUtf8());
+        f.close();
+        return path;
+    };
+
+    const auto optionOf = [](SWMM_Engine e) {
+        char buf[32] = {};
+        if (swmm_options_get(e, "LINK_OFFSETS", buf, sizeof(buf)) != 0)
+            return QString();
+        return QString::fromLatin1(buf).trimmed().toUpper();
+    };
+
+    const QString src = writeDeck(QStringLiteral("offsets_elev.inp"), "ELEVATION");
+    QVERIFY(!src.isEmpty());
+
+    // ---- Read: the parser must honour ELEVATION, not fall back to default.
+    SWMM_Engine e = swmm_engine_create();
+    QVERIFY(e != nullptr);
+    QCOMPARE(swmm_engine_open(e, src.toUtf8().constData(),
+                              dir.filePath(QStringLiteral("r.rpt")).toUtf8().constData(),
+                              dir.filePath(QStringLiteral("r.out")).toUtf8().constData(),
+                              nullptr), 0);
+    QCOMPARE(optionOf(e), QStringLiteral("ELEVATION"));
+
+    // ---- Save: flip it the way the Offset Mode toggle does, then write.
+    QCOMPARE(swmm_options_set(e, "LINK_OFFSETS", "DEPTH"), 0);
+    const QString out = dir.filePath(QStringLiteral("offsets_saved.inp"));
+    QCOMPARE(swmm_model_write(e, out.toUtf8().constData()), 0);
+    swmm_engine_close(e);
+    swmm_engine_destroy(e);
+
+    // The written deck carries the NEW token — a save that dropped the edit
+    // would still say ELEVATION here.
+    QFile written(out);
+    QVERIFY(written.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString text = QString::fromUtf8(written.readAll());
+    written.close();
+    QVERIFY2(text.contains(QStringLiteral("LINK_OFFSETS")),
+             "written deck has no LINK_OFFSETS row");
+    QVERIFY2(!text.contains(QStringLiteral("LINK_OFFSETS         ELEVATION")),
+             "save did not apply the flip to DEPTH");
+
+    // ---- And it survives a full re-parse of what was written.
+    SWMM_Engine e2 = swmm_engine_create();
+    QVERIFY(e2 != nullptr);
+    QCOMPARE(swmm_engine_open(e2, out.toUtf8().constData(),
+                              dir.filePath(QStringLiteral("r2.rpt")).toUtf8().constData(),
+                              dir.filePath(QStringLiteral("r2.out")).toUtf8().constData(),
+                              nullptr), 0);
+    QCOMPARE(optionOf(e2), QStringLiteral("DEPTH"));
+    swmm_engine_close(e2);
+    swmm_engine_destroy(e2);
+}
+
+// ---------------------------------------------------------------------------
 // Simulation Options persistence fixes (2026-08-06) — engine ABI round-trips
 // for the keys whose broken get/set made dialog edits revert on reload.
 // ---------------------------------------------------------------------------
@@ -407,14 +515,14 @@ void TestOptionsHydrationContract::fvOptions_engineRoundTripsValues()
     QCOMPARE(getOptionString(e, "FV_RIEMANN"),     QStringLiteral("HLLC"));
     QCOMPARE(getOptionString(e, "FV_ORDER"),       QStringLiteral("1"));
     QCOMPARE(getOptionString(e, "FV_LIMITER"),     QStringLiteral("MINMOD"));
-    QCOMPARE(getOptionString(e, "FV_SCALAR_SCHEME"), QStringLiteral("MUSCL"));
     QCOMPARE(getOptionString(e, "FV_TIME_INTEGRATION"), QStringLiteral("EULER"));
     QCOMPARE(getOptionDouble(e, "FV_SLOT_CELERITY"), 100.0);
+    // No widget edits these two any more (FV_PRESSURIZED_IMPLICIT is hidden
+    // until slot program R2b; FV_DISPERSION is inert on every path). The
+    // pins stay: nothing else would notice an engine-side removal.
+    QCOMPARE(getOptionString(e, "FV_PRESSURIZED_IMPLICIT"), QStringLiteral("NO"));
     QCOMPARE(getOptionDouble(e, "FV_DISPERSION"),  0.0);
     QCOMPARE(getOptionString(e, "FV_STRUCTURE_COUPLING"), QStringLiteral("SUBSTEP"));
-    QCOMPARE(getOptionString(e, "FV_NODE_COUPLING"), QStringLiteral("SEMI_IMPLICIT"));
-    QCOMPARE(getOptionString(e, "FV_NODE_DT"),     QStringLiteral("STABILITY"));
-    QCOMPARE(getOptionString(e, "FV_NODE_PICARD"), QStringLiteral("1"));
     QCOMPARE(getOptionString(e, "FV_COMPACTION"),  QStringLiteral("YES"));
     QCOMPARE(getOptionString(e, "FV_BACKEND"),     QStringLiteral("AUTO"));
     QCOMPARE(getOptionString(e, "FV_MIN_PARALLEL_CELLS"), QStringLiteral("20000"));
@@ -433,12 +541,10 @@ void TestOptionsHydrationContract::fvOptions_engineRoundTripsValues()
         { "FV_LIMITER",             "VANLEER",      "VANLEER"      },
         { "FV_TIME_INTEGRATION",    "RK2",          "RK2"          },
         { "FV_SLOT_CELERITY",       "150.0",        "150"          },
-        { "FV_SCALAR_SCHEME",       "QUICKEST_ULTIMATE", "QUICKEST_ULTIMATE" },
-        { "FV_DISPERSION",          "1.500",        "1.5"          },
+        { "FV_PRESSURIZED_IMPLICIT","YES",          "YES"          },  // engine pin only
+        { "FV_PRESSURIZED_IMPLICIT","NO",           "NO"           },
+        { "FV_DISPERSION",          "1.500",        "1.5"          },  // engine pin only
         { "FV_STRUCTURE_COUPLING",  "ROUTING_STEP", "ROUTING_STEP" },
-        { "FV_NODE_COUPLING",       "EXPLICIT",     "EXPLICIT"     },
-        { "FV_NODE_DT",             "NONE",         "NONE"         },
-        { "FV_NODE_PICARD",         "3",            "3"            },
         { "FV_COMPACTION",          "NO",           "NO"           },
         { "FV_BACKEND",             "CPU",          "CPU"          },
         { "FV_MIN_PARALLEL_CELLS",  "5000",         "5000"         },
@@ -476,13 +582,39 @@ void TestOptionsHydrationContract::fvOptions_rejectBadEnumTokens()
     QVERIFY(swmm_options_set(e, "FV_SCALAR_SCHEME",   "WENO")    != 0);
     QVERIFY(swmm_options_set(e, "FV_TIME_INTEGRATION","RK4")     != 0);
     QVERIFY(swmm_options_set(e, "FV_STRUCTURE_COUPLING", "NEVER") != 0);
-    QVERIFY(swmm_options_set(e, "FV_NODE_DT",         "MAYBE")   != 0);
     QVERIFY(swmm_options_set(e, "FV_BACKEND",         "METAL")   != 0);
 
     // ...and a rejected set must leave the previous value untouched.
     QCOMPARE(swmm_options_set(e, "FV_RIEMANN", "HLL"), 0);
     QVERIFY(swmm_options_set(e, "FV_RIEMANN", "ROE") != 0);
     QCOMPARE(getOptionString(e, "FV_RIEMANN"), QStringLiteral("HLL"));
+
+    swmm_engine_destroy(e);
+}
+
+void TestOptionsHydrationContract::fvOptions_retiredNodeKeysAcceptAndFreeze()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // Retired engine-side and removed from the dialog in the same round.
+    // Older projects and scripts still write them, so the C API must accept
+    // ANY value (never fail the set) and keep reporting the built-in
+    // behaviour (never echo the value) — exactly the FV_JUNCTION_MODEL
+    // convention. Against the pre-retirement engine every row here fails,
+    // because the values used to round-trip.
+    const struct { const char *key; const char *frozen; const char *attempt; } rows[] = {
+        { "FV_NODE_COUPLING", "SEMI_IMPLICIT", "EXPLICIT" },
+        { "FV_NODE_DT",       "STABILITY",     "NONE"     },
+        { "FV_NODE_PICARD",   "1",             "3"        },
+    };
+    for (const auto &r : rows) {
+        QCOMPARE(getOptionString(e, r.key), QString::fromLatin1(r.frozen));
+        QCOMPARE(swmm_options_set(e, r.key, r.attempt), 0);
+        QCOMPARE(getOptionString(e, r.key), QString::fromLatin1(r.frozen));
+        QCOMPARE(swmm_options_set(e, r.key, "GARBAGE"), 0);
+        QCOMPARE(getOptionString(e, r.key), QString::fromLatin1(r.frozen));
+    }
 
     swmm_engine_destroy(e);
 }
@@ -508,11 +640,16 @@ void TestOptionsHydrationContract::transportOptions_engineRoundTripsValues()
     QCOMPARE(getOptionString(e, "RWPT_SEED"),      QStringLiteral("0"));
     QCOMPARE(getOptionString(e, "OUTFALL_BACKFLOW_QUALITY"),
              QStringLiteral("LAST"));
+    // FV_SCALAR_SCHEME is edited on this page (ARD group) since the FV
+    // simplification round — its only live consumer is the ARD engine.
+    QCOMPARE(getOptionString(e, "FV_SCALAR_SCHEME"), QStringLiteral("MUSCL"));
 
     // Set → get in the exact string forms writeToEngine() produces:
     // combo tokens, QString::number(v,'f',2) for the step, plain ints.
     const struct { const char *key; const char *set; const char *expect; } rows[] = {
         { "QUALITY_SOLVER",        "LAGRANGIAN",   "LAGRANGIAN"   },
+        { "FV_SCALAR_SCHEME",      "QUICKEST_ULTIMATE", "QUICKEST_ULTIMATE" },
+        { "FV_SCALAR_SCHEME",      "MUSCL",        "MUSCL"        },
         { "QUALITY_STEP",          "5.00",         "5"            },
         { "MAX_SEGMENTS_PER_LINK", "50",           "50"           },
         { "DISPERSION",            "RWPT",         "RWPT"         },
