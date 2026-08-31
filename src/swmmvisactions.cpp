@@ -203,6 +203,8 @@ void SWMMVis::initializeCompactToolbar()
         {"actionNewLidControl",         QT_TR_NOOP("LID\nControl")},
         {"actionNewPollutant",          QT_TR_NOOP("Pollutant")},
         {"actionNewLandUse",            QT_TR_NOOP("Land\nUse")},
+        {"actionEditReactionSystem",    QT_TR_NOOP("Reaction\nSystem")},
+        {"actionEditHeatConfig",        QT_TR_NOOP("Heat")},
         {"actionOptions",               QT_TR_NOOP("Simulation\nOptions")},
         {"actionUserFlags",             QT_TR_NOOP("User\nFlags")},
         {"actionImportFeatureLayer",    QT_TR_NOOP("Import\nFeature Layer")},
@@ -304,7 +306,8 @@ void SWMMVis::initializeCompactToolbar()
              {"actionNewTimeSeries", "actionNewCurve", "actionNewPattern",
               "actionNewControlRule", "actionNewTransect",
               "actionNewLidControl", "actionNewPollutant",
-              "actionNewLandUse"});
+              "actionNewLandUse", "actionEditReactionSystem",
+              "actionEditHeatConfig"});
     addGroup(mToolBarModel, tr("Setup"),
              {"actionOptions", "actionUserFlags", "actionImportFeatureLayer"});
     addGroup(mToolBarModel, tr("Tools"), {"actionAssignRainGages"});
