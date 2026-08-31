@@ -87,6 +87,8 @@
         <file alias="Inlet">images/inlet.svg</file>
         <file alias="LidControl">images/lid_control.svg</file>
         <file alias="Pollutant">images/pollutant.svg</file>
+        <file alias="ReactionSystem">images/reaction_system.svg</file>
+        <file alias="HeatConfig">images/heat_config.svg</file>
         <file alias="StyleManager">images/style_manager.svg</file>
         <file alias="LayerStyling">images/layer_styling.svg</file>
         <file alias="DockLayers">images/dock_layers.svg</file>
