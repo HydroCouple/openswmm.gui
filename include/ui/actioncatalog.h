@@ -112,6 +112,8 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"model.assignRainGages", "actionAssignRainGages", "Model", "", "AssignRainGages", "model", "Model", RequiresProject},
     {"model.simulationOptions",  "actionOptions",       "Model", "",  "Options", "model", "Model", NoTags},
     {"model.userFlags",       "actionUserFlags",        "Model", "",  "UserFlags", "model", "Model", NoTags},
+    {"model.editReactionSystem", "actionEditReactionSystem", "Model", "", "ReactionSystem", "model", "Model", NoTags},
+    {"model.editHeatConfig",  "actionEditHeatConfig",   "Model", "",  "HeatConfig", "model", "Model", NoTags},
     {"model.generateMesh",    "actionGenerateMesh",     "Model", "",  "CreateMesh", "mesh2d", "Model", NoTags},
 
     // ── Climatology ─────────────────────────────────────────────────────
