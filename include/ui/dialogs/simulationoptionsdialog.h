@@ -382,6 +382,7 @@ private:
     QDoubleSpinBox *m_dpsCelerSpin      = nullptr;
     QDoubleSpinBox *m_dpsAlphaSpin      = nullptr;
     QDoubleSpinBox *m_dpsDecaySpin      = nullptr;
+    QDoubleSpinBox *m_tpaCeleritySpin   = nullptr;   // TPA_CELERITY (TPA only)
     QComboBox      *m_nodeContinuityCombo = nullptr;
     QCheckBox      *m_andersonAccelBox  = nullptr;
     QComboBox      *m_forceMainCombo    = nullptr;
@@ -425,6 +426,7 @@ private:
     QComboBox      *m_fvLimiterCombo      = nullptr;   // 2nd order only
     QComboBox      *m_fvTimeIntCombo      = nullptr;
     QDoubleSpinBox *m_fvSlotCeleritySpin  = nullptr;   // project length units / s
+    QComboBox      *m_fvPressureClosureCombo = nullptr; // FV_PRESSURE_CLOSURE (SLOT|TPA)
     QCheckBox      *m_fvPressImplicitBox  = nullptr;   // FV_PRESSURIZED_IMPLICIT (experimental)
     QComboBox      *m_fvStructCouplingCombo = nullptr;
     QCheckBox      *m_fvCompactionBox     = nullptr;
@@ -433,6 +435,17 @@ private:
     QCheckBox      *m_fvLtsBox            = nullptr;
     QSpinBox       *m_fvLtsTiersSpin      = nullptr;   // needs LTS on
     QSpinBox       *m_fvCflCensusSpin     = nullptr;
+
+    // Tab 3 — Unsteady friction (engine issue #156; GUI issue #10). Applies
+    // to BOTH dynamic-wave and FV routing, so it is a separate group gated
+    // on FLOW_ROUTING ∈ {DYNWAVE, FV} in updateFvFieldsEnabled(). The
+    // m_ufSupported flag carries the applyEngineConstraints() capability
+    // probe into that gate so a routing-combo change cannot re-enable the
+    // group on an engine that lacks the keys.
+    class QGroupBox *m_ufGroup            = nullptr;
+    QComboBox      *m_ufMethodCombo       = nullptr;   // UNSTEADY_FRICTION (NONE|VITKOVSKY)
+    QDoubleSpinBox *m_ufK3Spin            = nullptr;   // UF_K3 (method != NONE only)
+    bool            m_ufSupported         = true;
 
     // Tab 4 — System / Performance
     QSpinBox       *m_threadsSpin       = nullptr;
@@ -458,6 +471,11 @@ private:
     // lists.  Round-trips via the engine's RPT_* keys exposed through
     // swmm_options_get / swmm_options_set.
     QCheckBox      *m_rptDisabledBox    = nullptr;
+    // REPORT_SIGNED_HEADS ([OPTIONS], engine issue #156 O-6): .out HEAD
+    // carries signed piezometric head; DEPTH stays floored. Lives with the
+    // report-contents toggles but is NOT part of the RPT_DISABLED
+    // short-circuit — it shapes the binary output, not the .rpt report.
+    QCheckBox      *m_signedHeadsCheck  = nullptr;
     QCheckBox      *m_rptInputBox       = nullptr;
     QCheckBox      *m_rptContinuityBox  = nullptr;
     QCheckBox      *m_rptFlowstatsBox   = nullptr;

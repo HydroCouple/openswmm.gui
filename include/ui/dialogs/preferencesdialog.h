@@ -189,6 +189,8 @@ private:
     QComboBox      *m_simNodeContinuityCombo  = nullptr;
     QCheckBox      *m_simAndersonAccelBox     = nullptr;
     QSpinBox       *m_simThreadsSpin          = nullptr;
+    QComboBox      *m_simUnsteadyFrictionCombo = nullptr;    // UNSTEADY_FRICTION
+    QDoubleSpinBox *m_simUfK3Spin             = nullptr;     // UF_K3 (0–0.05)
 
     // 2D Defaults — [2D_OPTIONS] solver keys + mesh-generation seeds.
     QDoubleSpinBox *m_twoDMaxTimestepSpin     = nullptr;   // seconds

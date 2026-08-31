@@ -116,6 +116,14 @@ private slots:
     void transportOptions_engineRoundTripsValues();
     void transportOptions_rejectBadEnumTokens();
 
+    // Mixed-flow option surface (engine issue #156; GUI issue #10). The
+    // Routing & Hydraulics tab hydrates and writes through exactly these
+    // keys, and the capability gates in applyEngineConstraints() probe
+    // TPA_CELERITY / FV_PRESSURE_CLOSURE / UNSTEADY_FRICTION /
+    // REPORT_SIGNED_HEADS individually.
+    void mixedFlowOptions_engineRoundTripsValues();
+    void mixedFlowOptions_rejectBadEnumTokens();
+
     // §M.3 sanity — controls explicitly out of scope must not appear in the
     // audit list (canary against future drift).
     void auditList_excludesOutOfScopeWidgets();
@@ -710,6 +718,81 @@ void TestOptionsHydrationContract::transportOptions_rejectBadEnumTokens()
     QCOMPARE(getOptionString(e, "QUALITY_SOLVER"), QStringLiteral("LAGRANGIAN"));
     QCOMPARE(swmm_options_set(e, "QUALITY_SOLVER", "ARD"), 0);
     QCOMPARE(getOptionString(e, "QUALITY_SOLVER"), QStringLiteral("EULERIAN_ARD"));
+
+    swmm_engine_destroy(e);
+}
+
+// ---------------------------------------------------------------------------
+// Mixed-flow options (engine issue #156; GUI issue #10) — the five new keys
+// plus the SURCHARGE_METHOD=TPA enum value
+// ---------------------------------------------------------------------------
+
+void TestOptionsHydrationContract::mixedFlowOptions_engineRoundTripsValues()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // Defaults — these are the fallbacks readFromEngine() passes to
+    // getOption(); if the engine's defaults drift this case flags the
+    // dialog for a resync (the fvOptions case's contract, same rule).
+    QCOMPARE(getOptionString(e, "SURCHARGE_METHOD"),    QStringLiteral("EXTRAN"));
+    QCOMPARE(getOptionDouble(e, "TPA_CELERITY"),        100.0);
+    QCOMPARE(getOptionString(e, "FV_PRESSURE_CLOSURE"), QStringLiteral("SLOT"));
+    QCOMPARE(getOptionString(e, "UNSTEADY_FRICTION"),   QStringLiteral("NONE"));
+    QCOMPARE(getOptionDouble(e, "UF_K3"),               0.015);
+    QCOMPARE(getOptionString(e, "REPORT_SIGNED_HEADS"), QStringLiteral("NO"));
+
+    // Set → get in the exact string forms writeToEngine() produces:
+    // combo tokens, QString::number(v,'f',1) for the celerity,
+    // QString::number(v,'f',3) for k3, YES/NO for the checkbox.
+    const struct { const char *key; const char *set; const char *expect; } rows[] = {
+        { "SURCHARGE_METHOD",    "TPA",       "TPA"       },
+        { "TPA_CELERITY",        "250.0",     "250"       },
+        { "FV_PRESSURE_CLOSURE", "TPA",       "TPA"       },
+        { "UNSTEADY_FRICTION",   "VITKOVSKY", "VITKOVSKY" },
+        { "UF_K3",               "0.010",     "0.01"      },
+        { "REPORT_SIGNED_HEADS", "YES",       "YES"       },
+        // The default-restoring directions too — a one-way table would pass
+        // a setter that can only ever turn things on.
+        { "SURCHARGE_METHOD",    "EXTRAN",    "EXTRAN"    },
+        { "FV_PRESSURE_CLOSURE", "SLOT",      "SLOT"      },
+        { "UNSTEADY_FRICTION",   "NONE",      "NONE"      },
+        { "REPORT_SIGNED_HEADS", "NO",        "NO"        },
+    };
+    for (const auto &r : rows) {
+        QVERIFY2(swmm_options_set(e, r.key, r.set) == 0, r.key);
+        const QString got = getOptionString(e, r.key);
+        bool gotNum = false, expNum = false;
+        const double g = got.toDouble(&gotNum);
+        const double x = QString::fromLatin1(r.expect).toDouble(&expNum);
+        if (gotNum && expNum)
+            QCOMPARE(g, x);
+        else
+            QCOMPARE(got, QString::fromLatin1(r.expect));
+    }
+
+    swmm_engine_destroy(e);
+}
+
+void TestOptionsHydrationContract::mixedFlowOptions_rejectBadEnumTokens()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // Enum keys must reject unknown tokens (SWMM_ERR_BADPARAM) so a typo
+    // surfaces through a failed setOption() rather than a silently lost
+    // edit. REPORT_SIGNED_HEADS is deliberately absent: it takes the
+    // engine's lenient bool grammar and never rejects.
+    QVERIFY(swmm_options_set(e, "SURCHARGE_METHOD",    "PIPE")    != 0);
+    QVERIFY(swmm_options_set(e, "UNSTEADY_FRICTION",   "BRUNONE") != 0);
+    // EXTRAN is a valid SURCHARGE_METHOD token but not a closure — the
+    // discriminating typo for this key.
+    QVERIFY(swmm_options_set(e, "FV_PRESSURE_CLOSURE", "EXTRAN")  != 0);
+
+    // ...and a rejected set leaves the previous value untouched.
+    QCOMPARE(swmm_options_set(e, "SURCHARGE_METHOD", "TPA"), 0);
+    QVERIFY(swmm_options_set(e, "SURCHARGE_METHOD", "PIPE") != 0);
+    QCOMPARE(getOptionString(e, "SURCHARGE_METHOD"), QStringLiteral("TPA"));
 
     swmm_engine_destroy(e);
 }

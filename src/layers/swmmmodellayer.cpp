@@ -905,6 +905,14 @@ SWMM_Engine SWMMModelLayer::createBlankEngine(const NewProjectSpec &spec,
     if (spec.forNewEngine) {
         set("NODE_CONTINUITY", d.nodeContinuity);
         set("ANDERSON_ACCEL",  yn(d.andersonAccel));
+        // Unsteady friction (engine issue #156; GUI issue #10). Seeded only
+        // when the preference departs from the engine default (NONE) so a
+        // 6.x engine predating the #156 surface can still create blank
+        // projects — set() failures are fatal here, unlike the 2D block.
+        if (d.unsteadyFriction != QLatin1String("NONE")) {
+            set("UNSTEADY_FRICTION", d.unsteadyFriction);
+            set("UF_K3",             QString::number(d.ufK3, 'g', 6));
+        }
     }
 
     // [2D_OPTIONS] seed — warn-don't-fail: an engine built without the 2D

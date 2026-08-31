@@ -453,6 +453,15 @@ public:
         QString nodeContinuity      = QStringLiteral("SEMI_IMPLICIT");
         bool    andersonAccel       = true;
 
+        // Mixed-flow options (engine issue #156; GUI issue #10). Applies to
+        // dynamic-wave and FV routing; new-engine only like nodeContinuity.
+        // The sibling #156 keys deliberately do NOT live here:
+        // TPA_CELERITY follows the DPS_* rule (method-specific, engine-side
+        // default), FV_PRESSURE_CLOSURE follows the FV_* gap, and
+        // REPORT_SIGNED_HEADS follows the RPT_* rule (no report keys here).
+        QString unsteadyFriction    = QStringLiteral("NONE");  ///< UNSTEADY_FRICTION
+        double  ufK3                = 0.015;                   ///< UF_K3 (Vitkovsky k3)
+
         /*! THREADS option. 0 = let the engine auto-pick (default in INP). The
          *  GUI defaults the live value to QThread::idealThreadCount() so a
          *  fresh project starts maxed out, but the persisted preference is 0
