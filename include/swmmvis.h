@@ -391,6 +391,16 @@ private slots:
     /*! \brief Open the Add Basemap dialog pre-selected on the WMS/WMTS tab. */
     void onAddWMSLayer();
 
+    /*!
+     * \brief Add features from an OGC Web Feature Service.
+     *
+     * The feature half of the OGC family, which this program has not had:
+     * WMS, WMTS and WCS all answer with pictures, and a WFS answers with
+     * the data — so what it returns joins the layer tree as a vector layer
+     * that can be queried, classified and labelled.
+     */
+    void onAddWFSLayer();
+
     /*! \brief Prompt for an OGR vector file and add it as a GISVectorLayer. */
     void onAddVectorLayer();
 

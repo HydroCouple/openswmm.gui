@@ -111,6 +111,7 @@ include(FetchQPropertyModel)
 
 # ── openswmm.engine (hard dependency — sibling checkout or GitHub fetch) ─────
 include(FetchOpenSWMMEngine)
+include(FetchHydroCoupleOgc)
 
 # ── Triangle (Shewchuk) — vendored at vendor/triangle/. Compiled as a small
 #    static C library and linked into SWMMVis. See Slice AU. License is
@@ -374,6 +375,7 @@ set(
         include/layers/wmslayer.h
         include/layers/wmtslayer.h
         include/layers/swmm_category.h
+        include/layers/wfslayer.h
         include/layers/swmmmodellayer.h
         include/layers/swmmelementsymboladapter.h
         include/layers/hydrographmodels.h
@@ -779,6 +781,7 @@ set(
         include/ui/dialogs/kindtreesymbologypanel.h
         include/ui/dialogs/layerstyledialog.h
         include/ui/dialogs/sublayerselectiondialog.h
+        include/ui/dialogs/wfsservicedialog.h
         # FEATURE_LAYER_TO_SWMM_IMPORT — feature layer → SWMM objects
         # import dialog (workplans/FEATURE_LAYER_TO_SWMM_IMPORT_DIALOG_
         # PLAN_2026-07-18.md).
@@ -1019,6 +1022,8 @@ set(
         src/layers/wcslayer.cpp
         src/layers/wmslayer.cpp
         src/layers/wmtslayer.cpp
+        src/layers/wfslayer.cpp
+        src/ui/dialogs/wfsservicedialog.cpp
         src/layers/swmmmodellayer.cpp
         src/layers/hydrographmodels.cpp
         src/layers/speciesattributes.cpp
@@ -1538,6 +1543,7 @@ target_link_libraries(SWMMVis
         Qt${QT_VERSION_MAJOR}::QuickWidgets
         Qt${QT_VERSION_MAJOR}::PrintSupport
         GDAL::GDAL
+        HydroCoupleOgc::HydroCoupleOgc
         OpenSSL::SSL
         OpenSSL::Crypto
         nanoflann::nanoflann
