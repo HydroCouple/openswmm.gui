@@ -583,6 +583,7 @@
      <addaction name="actionAddVectorData"/>
      <addaction name="actionAddRasterData"/>
      <addaction name="actionAddWMSData"/>
+     <addaction name="actionAddWFSData"/>
      <addaction name="actionAddBasemap"/>
      <addaction name="actionAddDelimeteredData"/>
      <addaction name="separator"/>
@@ -1891,6 +1892,17 @@
    </property>
    <property name="toolTip">
     <string>Add Vector Data</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAddWFSData">
+   <property name="text">
+    <string>Add WFS Data</string>
+   </property>
+   <property name="toolTip">
+    <string>Add features from a Web Feature Service</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>
