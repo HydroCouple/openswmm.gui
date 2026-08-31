@@ -228,6 +228,68 @@ void SimulationOptionsDialog::applyEngineConstraints()
                                   m_heatTransportBox->setToolTip(ttip); }
     }
 
+    // ── Mixed-flow options (engine issue #156; GUI issue #10) ──────────────
+    // Same capability-probe rule again: a 6.x engine installed before the
+    // TPA / unsteady-friction surface landed refuses the keys, and is only
+    // detectable by asking it. The #156 keys landed across engine phases,
+    // so each control probes its own key rather than one family sentinel.
+    const QString mixedFlowTip =
+        legacy ? tr("Not available in SWMM 5 (legacy engine).")
+               : tr("This engine build predates the mixed-flow "
+                    "(TPA / unsteady-friction) option surface.");
+
+    // TPA surcharge method + its celerity (SURCHARGE_METHOD=TPA and
+    // TPA_CELERITY landed together — one probe covers both).
+    if (legacy || getOption("TPA_CELERITY").isEmpty()) {
+        // Disable the TPA surcharge item the way the FV routing item is
+        // disabled above — the value cannot exist on this engine.
+        if (m_surchargeCombo) {
+            auto *model = qobject_cast<QStandardItemModel *>(m_surchargeCombo->model());
+            if (model) {
+                for (int i = 0; i < m_surchargeCombo->count(); ++i) {
+                    if (m_surchargeCombo->itemData(i).toString() == QLatin1String("TPA")) {
+                        model->item(i)->setEnabled(false);
+                        model->item(i)->setToolTip(mixedFlowTip);
+                        if (m_surchargeCombo->currentIndex() == i)
+                            m_surchargeCombo->setCurrentIndex(0); // fall back to EXTRAN
+                        break;
+                    }
+                }
+            }
+        }
+        if (m_tpaCeleritySpin) {
+            m_tpaCeleritySpin->setEnabled(false);
+            m_tpaCeleritySpin->setToolTip(mixedFlowTip);
+        }
+        updateSurchargeFieldsEnabled();
+    }
+
+    // FV pressure closure. Explicit child disable is sticky in Qt, so
+    // updateFvFieldsEnabled() re-enabling m_fvGroup cannot resurrect it.
+    if (legacy || getOption("FV_PRESSURE_CLOSURE").isEmpty()) {
+        if (m_fvPressureClosureCombo) {
+            m_fvPressureClosureCombo->setEnabled(false);
+            m_fvPressureClosureCombo->setToolTip(mixedFlowTip);
+        }
+    }
+
+    // Unsteady friction. The UF group is gated by updateFvFieldsEnabled()
+    // on every routing-combo change — carry the probe through the flag
+    // instead of a direct setEnabled it would overwrite.
+    if (legacy || getOption("UNSTEADY_FRICTION").isEmpty()) {
+        m_ufSupported = false;
+        if (m_ufGroup) m_ufGroup->setToolTip(mixedFlowTip);
+        updateFvFieldsEnabled();
+    }
+
+    // Signed-heads output option.
+    if (legacy || getOption("REPORT_SIGNED_HEADS").isEmpty()) {
+        if (m_signedHeadsCheck) {
+            m_signedHeadsCheck->setEnabled(false);
+            m_signedHeadsCheck->setToolTip(mixedFlowTip);
+        }
+    }
+
     if (!legacy)
         return;   // new engine: everything else already enabled
 
@@ -769,6 +831,8 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
     m_surchargeCombo->addItem(tr("EXTRAN (legacy)"),  QStringLiteral("EXTRAN"));
     m_surchargeCombo->addItem(tr("SLOT (Preissmann)"), QStringLiteral("SLOT"));
     m_surchargeCombo->addItem(tr("DYNAMIC_SLOT"),     QStringLiteral("DYNAMIC_SLOT"));
+    m_surchargeCombo->addItem(tr("TPA (two-component pressure, experimental)"),
+                              QStringLiteral("TPA"));
     m_surchargeCombo->setToolTip(
         tr("Method for handling surcharged conduits (option SURCHARGE_METHOD)."));
     surForm->addRow(tr("Method:"), m_surchargeCombo);
@@ -793,6 +857,17 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
     m_dpsDecaySpin->setSuffix(QStringLiteral(" s"));
     m_dpsDecaySpin->setToolTip(tr("DYNAMIC_SLOT decay time (DPS_DECAY_TIME)."));
     surForm->addRow(tr("DPS decay:"), m_dpsDecaySpin);
+
+    // TPA_CELERITY — only meaningful for the TPA surcharge method
+    // (engine issue #156; GUI issue #10).
+    m_tpaCeleritySpin = new QDoubleSpinBox(surGroup);
+    m_tpaCeleritySpin->setRange(1.0, 5000.0);
+    m_tpaCeleritySpin->setDecimals(1);
+    m_tpaCeleritySpin->setToolTip(
+        tr("Acoustic (pressure-wave) celerity a for the TPA surcharge "
+           "method, in project length units per second (TPA_CELERITY). "
+           "Sets the pressurized wall compliance w = g·A_full/a²."));
+    surForm->addRow(tr("TPA celerity:"), m_tpaCeleritySpin);
 
     vlay->addWidget(surGroup);
     connect(m_surchargeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
@@ -919,6 +994,20 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
            "per second (FV_SLOT_CELERITY)."));
     fvForm->addRow(tr("Slot celerity:"), m_fvSlotCeleritySpin);
 
+    // FV_PRESSURE_CLOSURE (engine issue #156; GUI issue #10). FV-only key;
+    // the engine accepts it as inert under other routing, matching the FV_*
+    // posture above.
+    m_fvPressureClosureCombo = new QComboBox(m_fvGroup);
+    m_fvPressureClosureCombo->addItem(tr("SLOT (Preissmann)"), QStringLiteral("SLOT"));
+    m_fvPressureClosureCombo->addItem(tr("TPA (two-component pressure)"),
+                                      QStringLiteral("TPA"));
+    m_fvPressureClosureCombo->setToolTip(
+        tr("Pressure closure for surcharged FV cells (FV_PRESSURE_CLOSURE). "
+           "TPA carries a signed pressure head so sub-atmospheric "
+           "full-pipe flow is representable; SLOT is the one-sided "
+           "Preissmann slot."));
+    fvForm->addRow(tr("Pressure closure:"), m_fvPressureClosureCombo);
+
     // Surfaced as experimental by explicit decision (2026-08-29): the solve
     // cannot yet compose with local time stepping (tiering stands down on
     // any substep where it engages) and slot program R2b is expected to
@@ -1004,12 +1093,43 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
 
     vlay->addWidget(m_fvPerfGroup);
 
+    // ── Unsteady friction (engine issue #156; GUI issue #10) ───────────
+    // Consumed by BOTH the dynamic-wave and FV solvers, so it is its own
+    // group gated on FLOW_ROUTING ∈ {DYNWAVE, FV} in updateFvFieldsEnabled().
+    m_ufGroup = new QGroupBox(tr("Unsteady friction"), page);
+    auto *ufForm = new QFormLayout(m_ufGroup);
+
+    m_ufMethodCombo = new QComboBox(m_ufGroup);
+    m_ufMethodCombo->addItem(tr("None"),      QStringLiteral("NONE"));
+    m_ufMethodCombo->addItem(tr("Vitkovsky"), QStringLiteral("VITKOVSKY"));
+    m_ufMethodCombo->setToolTip(
+        tr("Unsteady (transient) friction model added to the steady friction "
+           "slope during rapid transients (UNSTEADY_FRICTION). Applies to "
+           "dynamic-wave and finite-volume routing. Vitkovsky "
+           "instantaneous-acceleration model per Pinto, Vasconcelos & "
+           "Soares (2025)."));
+    ufForm->addRow(tr("Method:"), m_ufMethodCombo);
+
+    m_ufK3Spin = new QDoubleSpinBox(m_ufGroup);
+    m_ufK3Spin->setRange(0.0, 0.05);
+    m_ufK3Spin->setDecimals(3);
+    m_ufK3Spin->setSingleStep(0.005);
+    m_ufK3Spin->setToolTip(
+        tr("Vitkovsky (Brunone-type) coefficient k3 (UF_K3). Used only when "
+           "an unsteady-friction method is selected; paper range "
+           "0.005–0.020."));
+    ufForm->addRow(tr("Coefficient k3:"), m_ufK3Spin);
+
+    vlay->addWidget(m_ufGroup);
+
     connect(m_routingCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, [this](int){ updateFvFieldsEnabled(); });
     connect(m_fvOrderCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, [this](int){ updateFvFieldsEnabled(); });
     connect(m_fvLtsBox, &QCheckBox::toggled,
             this, [this](bool){ updateFvFieldsEnabled(); });
+    connect(m_ufMethodCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this](int){ updateFvFieldsEnabled(); });
 
     // ── Conduit / channel group ────────────────────────────────────────
     auto *condGroup = new QGroupBox(tr("Conduit / channel"), page);
@@ -1117,9 +1237,12 @@ void SimulationOptionsDialog::updateSurchargeFieldsEnabled()
     if (!m_surchargeCombo) return;
     const bool dyn = m_surchargeCombo->currentData().toString()
                         == QStringLiteral("DYNAMIC_SLOT");
+    const bool tpa = m_surchargeCombo->currentData().toString()
+                        == QStringLiteral("TPA");
     if (m_dpsCelerSpin) m_dpsCelerSpin->setEnabled(dyn);
     if (m_dpsAlphaSpin) m_dpsAlphaSpin->setEnabled(dyn);
     if (m_dpsDecaySpin) m_dpsDecaySpin->setEnabled(dyn);
+    if (m_tpaCeleritySpin) m_tpaCeleritySpin->setEnabled(tpa);
 }
 
 void SimulationOptionsDialog::updateFvFieldsEnabled()
@@ -1137,6 +1260,17 @@ void SimulationOptionsDialog::updateFvFieldsEnabled()
             m_fvOrderCombo->currentData().toString() == QStringLiteral("2"));
     if (m_fvLtsTiersSpin && m_fvLtsBox)
         m_fvLtsTiersSpin->setEnabled(m_fvLtsBox->isChecked());
+    // Unsteady friction applies to both dynamic-wave and FV routing;
+    // m_ufSupported carries the applyEngineConstraints() capability probe
+    // so a routing-combo change cannot re-enable the group on an engine
+    // without the keys. k3 on a disabled group is harmless (Qt ANDs
+    // enabled state down the tree, same as the limiter above).
+    const bool ufRouting = fv || m_routingCombo->currentData().toString()
+                                     == QStringLiteral("DYNWAVE");
+    if (m_ufGroup) m_ufGroup->setEnabled(m_ufSupported && ufRouting);
+    if (m_ufK3Spin && m_ufMethodCombo)
+        m_ufK3Spin->setEnabled(m_ufMethodCombo->currentData().toString()
+                                   != QStringLiteral("NONE"));
 }
 
 // ---------------------------------------------------------------------------
@@ -2634,6 +2768,19 @@ void SimulationOptionsDialog::buildReportContentsGroup(QVBoxLayout *parentLayout
 
     vlay->addWidget(flagsGroup);
 
+    // REPORT_SIGNED_HEADS ([OPTIONS], engine issue #156 O-6; GUI issue #10).
+    // Output option for any routing model; deliberately outside the
+    // RPT_DISABLED short-circuit — it shapes the .out, not the .rpt.
+    m_signedHeadsCheck = new QCheckBox(
+        tr("Report signed piezometric heads (sub-atmospheric)"), grp);
+    m_signedHeadsCheck->setToolTip(
+        tr("When on, the binary output's HEAD variable carries the signed "
+           "piezometric head, so sub-atmospheric full-pipe pressure (e.g. "
+           "under the TPA closure) is visible; DEPTH stays floored at zero "
+           "(REPORT_SIGNED_HEADS). Off (the default) keeps legacy "
+           "bit-parity."));
+    vlay->addWidget(m_signedHeadsCheck);
+
     // ---- selectors -----------------------------------------------------
     // Per-kind: a row with [○ None] [○ All] [○ Selected] [name list edit].
     // The line-edit greys out unless Selected is chosen.
@@ -2702,6 +2849,7 @@ void SimulationOptionsDialog::readReportContentsFromEngine()
     setBox(m_rptFlowstatsBox,  "RPT_FLOWSTATS",  true);
     setBox(m_rptControlsBox,   "RPT_CONTROLS",   false);
     setBox(m_rptAveragesBox,   "RPT_AVERAGES",   false);
+    setBox(m_signedHeadsCheck, "REPORT_SIGNED_HEADS", false);
 
     // Sync the disabled-short-circuit state once after the initial read.
     if (m_rptDisabledBox) {
@@ -2763,6 +2911,7 @@ int SimulationOptionsDialog::writeReportContentsToEngine()
     writeIfChanged("RPT_FLOWSTATS",  boolStr(m_rptFlowstatsBox,  true));
     writeIfChanged("RPT_CONTROLS",   boolStr(m_rptControlsBox,   false));
     writeIfChanged("RPT_AVERAGES",   boolStr(m_rptAveragesBox,   false));
+    writeIfChanged("REPORT_SIGNED_HEADS", boolStr(m_signedHeadsCheck, false));
 
     auto selectorStr = [](QRadioButton *noneR, QRadioButton *allR,
                           QRadioButton *someR, QLineEdit *listE) {
@@ -2990,6 +3139,15 @@ void SimulationOptionsDialog::readFromEngine()
     m_dpsCelerSpin->setValue(optDouble("DPS_CELERITY",   25.0));
     m_dpsAlphaSpin->setValue(optDouble("DPS_ALPHA",      3.0));
     m_dpsDecaySpin->setValue(optDouble("DPS_DECAY_TIME", 0.5));
+    // TPA_CELERITY follows the DPS_* rule: method-specific, not surfaced in
+    // PreferencesManager — fallback is the engine-side default.
+    m_tpaCeleritySpin->setValue(optDouble("TPA_CELERITY", 100.0));
+
+    // Unsteady friction (engine issue #156) — prefs-backed like the other
+    // method combos on this tab.
+    selectComboByData(m_ufMethodCombo,
+                      getOption("UNSTEADY_FRICTION", sim.unsteadyFriction));
+    m_ufK3Spin->setValue(optDouble("UF_K3", sim.ufK3));
 
     m_lengtheningSpin->setValue(
         optDouble("LENGTHENING_STEP", sim.lengtheningStepSec));
@@ -3018,6 +3176,8 @@ void SimulationOptionsDialog::readFromEngine()
     selectComboByData(m_fvLimiterCombo,  getOption("FV_LIMITER",  QStringLiteral("MINMOD")));
     selectComboByData(m_fvTimeIntCombo,  getOption("FV_TIME_INTEGRATION", QStringLiteral("EULER")));
     m_fvSlotCeleritySpin->setValue(optDouble("FV_SLOT_CELERITY", 100.0));
+    selectComboByData(m_fvPressureClosureCombo,
+                      getOption("FV_PRESSURE_CLOSURE", QStringLiteral("SLOT")));
     m_fvPressImplicitBox->setChecked(
         parseEngineBool(getOption("FV_PRESSURIZED_IMPLICIT",
                                   QStringLiteral("NO"))) == Qt::Checked);
@@ -4227,6 +4387,14 @@ int SimulationOptionsDialog::writeToEngine()
                    QString::number(m_dpsAlphaSpin->value(), 'f', 4));
     writeIfChanged("DPS_DECAY_TIME",      getOption("DPS_DECAY_TIME"),
                    QString::number(m_dpsDecaySpin->value(), 'f', 4));
+    writeIfChanged("TPA_CELERITY",        getOption("TPA_CELERITY"),
+                   QString::number(m_tpaCeleritySpin->value(), 'f', 1));
+    // Unsteady friction (engine issue #156) — consumed by DW and FV; the
+    // engine accepts the keys under any routing model.
+    writeIfChanged("UNSTEADY_FRICTION",   getOption("UNSTEADY_FRICTION"),
+                   m_ufMethodCombo->currentData().toString());
+    writeIfChanged("UF_K3",               getOption("UF_K3"),
+                   QString::number(m_ufK3Spin->value(), 'f', 3));
     writeIfChanged("NODE_CONTINUITY",     getOption("NODE_CONTINUITY"),
                    m_nodeContinuityCombo->currentData().toString());
     writeIfChanged("ANDERSON_ACCEL",      getOption("ANDERSON_ACCEL"),
@@ -4277,6 +4445,8 @@ int SimulationOptionsDialog::writeToEngine()
                    m_fvTimeIntCombo->currentData().toString());
     writeIfChanged("FV_SLOT_CELERITY",    getOption("FV_SLOT_CELERITY"),
                    QString::number(m_fvSlotCeleritySpin->value(), 'f', 1));
+    writeIfChanged("FV_PRESSURE_CLOSURE", getOption("FV_PRESSURE_CLOSURE"),
+                   m_fvPressureClosureCombo->currentData().toString());
     writeIfChanged("FV_PRESSURIZED_IMPLICIT", getOption("FV_PRESSURIZED_IMPLICIT"),
                    engineBoolString(m_fvPressImplicitBox->isChecked()));
     // FV_SCALAR_SCHEME is edited on the Quality & Transport page (ARD group)
