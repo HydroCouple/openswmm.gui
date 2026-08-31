@@ -74,7 +74,6 @@
 #include "ui/theme/themehelpers.h"
 #include "io/gdaldrivers.h"
 #include "ui/dialogs/sublayerselectiondialog.h"
-#include "ui/dialogs/wfsservicedialog.h"
 #include <QScreen>
 
 #include "ui/dialogs/dialoglayoutpersistence.h"
@@ -8533,7 +8532,7 @@ void SWMMVis::onCRSButtonClicked()
 void SWMMVis::onAddBasemapLayer()
 {
     AddBasemapDialog dlg(this);
-    dlg.setInitialTab(4); // Local File tab — this button is its only entry
+    dlg.setInitialTab(AddBasemapDialog::LocalFile); // this button is its only entry
                           // point; the service tabs have their own actions.
     if (dlg.exec() != QDialog::Accepted) return;
 
@@ -8548,7 +8547,7 @@ void SWMMVis::onAddBasemapLayer()
 void SWMMVis::onAddWMSLayer()
 {
     AddBasemapDialog dlg(this);
-    dlg.setInitialTab(1); // WMS / WMTS tab
+    dlg.setInitialTab(AddBasemapDialog::WmsWmts);
     if (dlg.exec() != QDialog::Accepted) return;
 
     OpenSWMMVisLayer *layer = dlg.createLayer(nullptr);
@@ -8561,11 +8560,12 @@ void SWMMVis::onAddWMSLayer()
 
 void SWMMVis::onAddWFSLayer()
 {
-    WFSServiceDialog dlg(this);
+    AddBasemapDialog dlg(this);
+    dlg.setInitialTab(AddBasemapDialog::Wfs);
 
     // What the map is looking at, in degrees, so the service is asked about
-    // that ground rather than about the whole region it holds. A canvas in
-    // a system that cannot be expressed in degrees — a local grid, say —
+    // that ground rather than about the whole region it holds. A canvas in a
+    // system that cannot be expressed in degrees -- a local grid, say --
     // simply does not limit the request.
     if (MapCanvas *c = activeCanvas()) {
         if (SpatialReferenceSystem *canvasSRS = c->canvasSRS()) {
@@ -8599,15 +8599,14 @@ void SWMMVis::onAddWFSLayer()
 
     if (dlg.exec() != QDialog::Accepted) return;
 
-    WFSLayer *layer = dlg.takeLayer();
+    MapCanvas *c = activeCanvas();
+    if (!c) return;
+
+    OpenSWMMVisLayer *layer = dlg.createLayer(c);
     if (!layer) return;
 
-    if (MapCanvas *c = activeCanvas())
-        c->addLayer(layer, true);
-
-    onLogMessage(tr("Added WFS layer: %1 (%2 features)")
-                     .arg(layer->name())
-                     .arg(layer->featureCount()));
+    c->addLayer(layer, true);
+    onLogMessage(tr("Added WFS layer: %1").arg(layer->name()));
 }
 
 void SWMMVis::onAddVectorLayer()

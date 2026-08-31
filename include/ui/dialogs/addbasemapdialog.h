@@ -28,6 +28,15 @@
 
 #include "connections/basemapconnection.h"
 
+#include <hydrocoupleogc/httpclient.h>
+#include <hydrocoupleogc/servicecredentials.h>
+#include <hydrocoupleogc/wfscapabilities.h>
+
+#include <QList>
+#include <QPair>
+#include <QRectF>
+#include <QString>
+
 #include <QDialog>
 
 #include <memory>
@@ -39,6 +48,7 @@ class QSpinBox;
 class QCheckBox;
 class QPushButton;
 class QLabel;
+class QListWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QGroupBox;
@@ -47,6 +57,7 @@ class QNetworkAccessManager;
 class QNetworkReply;
 class BasemapHttpHeadersWidget;
 class OpenSWMMVisLayer;
+class WFSLayer;
 struct WMSServiceInfo;
 struct WMTSServiceInfo;
 
@@ -54,18 +65,70 @@ struct WMTSServiceInfo;
 
 /*!
  * \class AddBasemapDialog
- * \brief Unified add-basemap dialog (3 tabs).
+ * \brief Unified dialog for adding a layer from a web service or a file.
  */
 class AddBasemapDialog : public QDialog
 {
     Q_OBJECT
 
 public:
+    /*!
+     * \enum Tab
+     * \brief The dialog's pages, in the order they appear.
+     *
+     * Named because createLayer() dispatches on the current page and callers
+     * open the dialog on a chosen one; bare indices in two files is how that
+     * goes wrong quietly.
+     *
+     * Wfs is last rather than beside the other OGC services, which would read
+     * better, because DialogLayoutPersistence remembers the selected page by
+     * index -- renumbering would silently open somebody's saved dialog on a
+     * different service.
+     */
+    enum Tab {
+        XyzTiles   = 0,
+        WmsWmts    = 1,
+        Wcs        = 2,
+        ArcGisRest = 3,
+        LocalFile  = 4,
+        Wfs        = 5
+    };
+
     explicit AddBasemapDialog(QWidget *parent = nullptr);
     ~AddBasemapDialog() override;
 
     /*!
-     * \brief Creates and returns a configured basemap layer.
+     * \brief Limits a feature request to the ground the map is looking at.
+     *
+     * Longitude and latitude. Only the WFS page uses it: a feature service
+     * holds a country and a model needs one catchment, so without this the
+     * request is bounded only by a feature count and returns an arbitrary few
+     * thousand from wherever the service starts counting.
+     *
+     * \param lonLatBounds The map's current extent, or a null rectangle.
+     */
+    void setPreferredExtent(const QRectF &lonLatBounds);
+
+    /*!
+     * \brief Asks the WFS at the address now entered what it holds.
+     *
+     * Public because it is what the page's Connect button does, and a test
+     * should press the button rather than reach past it.
+     */
+    void connectToWFS();
+
+    //! What the WFS page is currently saying. Empty until it has said
+    //! something.
+    [[nodiscard]] QString wfsStatus() const;
+
+    /*!
+     * \brief Creates and returns the layer the current page describes.
+     *
+     * Not always a basemap. The WFS page yields a vector layer of features
+     * for the layer tree rather than a picture to sit behind the model, and
+     * that layer has already been fetched by the time this is called -- see
+     * fetchWFSThenAccept().
+     *
      * \details Caller owns the returned object.  Returns nullptr on failure.
      * \param parent  Qt parent for the new layer object.
      */
@@ -99,6 +162,12 @@ private slots:
     void onWCSCapabilitiesFetched(const struct WCSServiceInfo &info);
     void onWCSCapabilitiesError(const QString &error);
     void onWCSCoverageSelectionChanged();
+
+    // WFS tab
+    void onWFSConnectionSelected(const QString &name);
+    void onWFSNew();
+    void onWFSDelete();
+    void onWFSConnect();
 
     // ArcGIS tab
     void onArcGISConnectionSelected(const QString &name);
@@ -226,6 +295,20 @@ private:
     QPushButton *m_wcsEye        = nullptr;
     BasemapHttpHeadersWidget *m_wcsHeaders = nullptr;
 
+    // ------ WFS tab ---------------------------------------------------
+    QComboBox   *m_wfsCombo      = nullptr;
+    QPushButton *m_wfsNew        = nullptr;
+    QPushButton *m_wfsDel        = nullptr;
+    QLineEdit   *m_wfsUrl        = nullptr;
+    QPushButton *m_wfsConnect    = nullptr;
+    QLabel      *m_wfsStatus     = nullptr;
+    QListWidget *m_wfsTypes      = nullptr;
+    QGroupBox   *m_wfsAuthBox    = nullptr;
+    QLineEdit   *m_wfsUser       = nullptr;
+    QLineEdit   *m_wfsPass       = nullptr;
+    QPushButton *m_wfsEye        = nullptr;
+    BasemapHttpHeadersWidget *m_wfsHeaders = nullptr;
+
     // ArcGIS
     QComboBox   *m_arcCombo       = nullptr;
     QPushButton *m_arcNew         = nullptr;
@@ -267,6 +350,58 @@ private:
 
     // WCS runtime
     struct WCSServiceInfo    *m_wcsInfo      = nullptr;
+
+    // ------ WFS state -------------------------------------------------
+    void setupUiWFS(QWidget *page);
+    void refreshWFSCombo();
+    void populateWFS(const WFSConnection &conn, const BasemapAuth &auth);
+    void showWFSCollections(const QByteArray &body);
+
+    /*!
+     * \brief Fetches the chosen collection, then accepts the dialog.
+     *
+     * The WFS page accepts differently from the others. Every other page
+     * describes a request that will be made later, each time the canvas
+     * moves, so nothing can fail while the dialog is open. A feature request
+     * is made once and can fail after the user has chosen -- the collection
+     * exists, the request is well formed, and the service still answers that
+     * it holds nothing over that ground. Fetching before accepting is what
+     * lets that be said where the user is looking.
+     */
+    void fetchWFSThenAccept();
+
+    /*!
+     * \brief Enables OK only when the active page can actually produce a
+     *        layer.
+     *
+     * Every other page can: its request is built from form fields and is
+     * never wrong enough to refuse. The WFS page can only once the service
+     * has answered and a readable collection is chosen, so OK stays off
+     * until then rather than accepting into an empty layer.
+     */
+    void updateOkEnabled();
+
+    [[nodiscard]] OpenSWMMVisLayer *buildWFSLayer(QObject *parent) const;
+
+    [[nodiscard]] HydroCouple::Ogc::ServiceCredentials wfsCredentials() const;
+
+    HydroCouple::Ogc::HttpClient   *m_wfsClient = nullptr;
+    HydroCouple::Ogc::WfsCapabilities m_wfsCaps;
+
+    //! Type name, and why it cannot be used. Empty reason means it can.
+    QList<QPair<QString, QString>> m_wfsChoices;
+
+    QRectF   m_preferredExtent;
+    QString  m_wfsStatusText;
+
+    /*!
+     * \brief The fetched layer, awaiting collection by createLayer().
+     *
+     * Mutable because createLayer() is const across every other page, where
+     * building a layer really is a pure read of the form. Here the layer
+     * already exists and is being handed over.
+     */
+    mutable WFSLayer *m_wfsLayer = nullptr;
 
     // ArcGIS runtime — derived XYZ connection built after Connect
     XYZConnection             m_arcDerivedXYZ;

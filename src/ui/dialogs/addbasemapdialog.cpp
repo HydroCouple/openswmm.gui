@@ -20,6 +20,12 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QInputDialog>
+#include <QListWidget>
+#include <QSignalBlocker>
+#include "layers/wfslayer.h"
+#include <hydrocoupleogc/servicediscovery.h>
+#include <hydrocoupleogc/wfsrequest.h>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -94,13 +100,38 @@ AddBasemapDialog::AddBasemapDialog(QWidget *parent)
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(arcPage, m_tabs), tr("A&rcGIS REST"));
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(localPage, m_tabs), tr("Local File"));
 
+    // Last, not beside the other OGC services where it would read better.
+    // DialogLayoutPersistence remembers the selected page by index, so
+    // renumbering would open somebody's saved dialog on a different service.
+    auto *wfsPage = new QWidget(m_tabs);
+    setupUiWFS(wfsPage);
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(wfsPage, m_tabs), tr("W&FS"));
+
     root->addWidget(m_tabs);
 
     m_buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     root->addWidget(m_buttonBox);
 
-    connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    // Every page but one describes a request made later, each time the
+    // canvas moves, so OK can accept immediately. A feature request is made
+    // once and can fail after the user has chosen, so the WFS page fetches
+    // first and accepts only if something came back.
+    connect(m_buttonBox, &QDialogButtonBox::accepted, this, [this] {
+        if (m_tabs->currentIndex() == Wfs) {
+            fetchWFSThenAccept();
+            return;
+        }
+
+        accept();
+    });
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+    // OK means something different per page, so its availability follows the
+    // page.
+    connect(m_tabs, &QTabWidget::currentChanged,
+            this, [this](int) { updateOkEnabled(); });
+
+    updateOkEnabled();
 
     refreshXYZCombo();
     refreshWMSCombo();
@@ -117,6 +148,11 @@ void AddBasemapDialog::setInitialTab(int index)
 
 AddBasemapDialog::~AddBasemapDialog()
 {
+    // A layer fetched but never collected -- the dialog was accepted and
+    // then the caller took nothing, or it was rejected after a fetch.
+    delete m_wfsLayer;
+    m_wfsLayer = nullptr;
+
     // m_wmsInfo / m_wmtsInfo are unique_ptr — released automatically.
     delete m_wcsInfo;
 }
@@ -1237,14 +1273,383 @@ void AddBasemapDialog::onLocalSelectCrs()
 // createLayer() — factory
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// WFS tab
+// ---------------------------------------------------------------------------
+
+void AddBasemapDialog::setupUiWFS(QWidget *page)
+{
+    auto *vlay = new QVBoxLayout(page);
+    vlay->setSpacing(6);
+
+    // Saved-connections bar (New + Delete, as WCS and ArcGIS have)
+    auto *connRow = new QHBoxLayout;
+    connRow->addWidget(new QLabel(tr("Saved connections:"), page));
+    m_wfsCombo = new QComboBox(page);
+    m_wfsCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    connRow->addWidget(m_wfsCombo);
+    m_wfsNew = new QPushButton(tr("New"),    page);
+    m_wfsDel = new QPushButton(tr("Delete"), page);
+    connRow->addWidget(m_wfsNew);
+    connRow->addWidget(m_wfsDel);
+    vlay->addLayout(connRow);
+
+    // URL + Connect
+    auto *urlRow = new QHBoxLayout;
+    m_wfsUrl = new QLineEdit(page);
+    m_wfsUrl->setObjectName(QStringLiteral("wfsUrlEdit"));
+    m_wfsUrl->setPlaceholderText(QStringLiteral("https://example.org/wfs"));
+    m_wfsConnect = new QPushButton(tr("Connect"), page);
+    m_wfsConnect->setObjectName(QStringLiteral("wfsConnectButton"));
+    urlRow->addWidget(new QLabel(tr("URL:"), page));
+    urlRow->addWidget(m_wfsUrl);
+    urlRow->addWidget(m_wfsConnect);
+    vlay->addLayout(urlRow);
+
+    m_wfsStatus = new QLabel(page);
+    m_wfsStatus->setObjectName(QStringLiteral("wfsStatusLabel"));
+    m_wfsStatus->setWordWrap(true);
+    vlay->addWidget(m_wfsStatus);
+
+    m_wfsTypes = new QListWidget(page);
+    m_wfsTypes->setObjectName(QStringLiteral("wfsCollectionList"));
+    vlay->addWidget(m_wfsTypes, 1);
+
+    // No format or resolution options, unlike the other service pages. What
+    // a collection can be read in is the service's answer, not the user's
+    // choice, and it is settled at Connect from what the service advertises.
+    auto *note = new QLabel(
+        tr("Features are fetched once, in the area the map is showing, and "
+           "join the layer tree where they can be queried and styled."),
+        page);
+    note->setWordWrap(true);
+    note->setEnabled(false);
+    vlay->addWidget(note);
+
+    buildAuthGroup(page, m_wfsAuthBox, m_wfsUser, m_wfsPass, m_wfsEye);
+
+    m_wfsHeaders = new BasemapHttpHeadersWidget(page);
+    vlay->addWidget(m_wfsHeaders);
+
+    // Wiring
+    connect(m_wfsCombo, &QComboBox::currentTextChanged,
+            this, &AddBasemapDialog::onWFSConnectionSelected);
+    connect(m_wfsNew,     &QPushButton::clicked, this, &AddBasemapDialog::onWFSNew);
+    connect(m_wfsDel,     &QPushButton::clicked, this, &AddBasemapDialog::onWFSDelete);
+    connect(m_wfsConnect, &QPushButton::clicked, this, &AddBasemapDialog::onWFSConnect);
+    connect(m_wfsTypes, &QListWidget::currentRowChanged,
+            this, [this](int) { updateOkEnabled(); });
+    connect(m_wfsEye, &QPushButton::toggled, this, [this](bool on) {
+        m_wfsPass->setEchoMode(on ? QLineEdit::Normal : QLineEdit::Password);
+    });
+
+    refreshWFSCombo();
+}
+
+void AddBasemapDialog::refreshWFSCombo()
+{
+    if (!m_wfsCombo) return;
+
+    const QString current = m_wfsCombo->currentText();
+
+    QSignalBlocker block(m_wfsCombo);
+    m_wfsCombo->clear();
+    m_wfsCombo->addItem(QString());
+    m_wfsCombo->addItems(
+        BasemapConnectionStore::instance()->wfsConnectionNames());
+
+    const int idx = m_wfsCombo->findText(current);
+    m_wfsCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+}
+
+void AddBasemapDialog::populateWFS(const WFSConnection &conn,
+                                    const BasemapAuth   &auth)
+{
+    m_wfsUrl->setText(conn.url);
+    m_wfsHeaders->setHeaders(conn.httpHeaders);
+
+    m_wfsAuthBox->setChecked(!auth.username.isEmpty());
+    m_wfsUser->setText(auth.username);
+    m_wfsPass->setText(auth.password);
+}
+
+HydroCouple::Ogc::ServiceCredentials AddBasemapDialog::wfsCredentials() const
+{
+    HydroCouple::Ogc::ServiceCredentials credentials;
+
+    if (m_wfsAuthBox->isChecked()) {
+        credentials.username = m_wfsUser->text();
+        credentials.password = m_wfsPass->text();
+    }
+
+    const BasemapHttpHeaders headers = m_wfsHeaders->headers();
+
+    for (auto it = headers.cbegin(); it != headers.cend(); ++it)
+        credentials.headers.insert(it.key(), it.value());
+
+    return credentials;
+}
+
+QString AddBasemapDialog::wfsStatus() const
+{
+    return m_wfsStatusText;
+}
+
+void AddBasemapDialog::setPreferredExtent(const QRectF &lonLatBounds)
+{
+    m_preferredExtent = lonLatBounds;
+}
+
+void AddBasemapDialog::onWFSConnectionSelected(const QString &name)
+{
+    if (name.isEmpty()) return;
+
+    populateWFS(BasemapConnectionStore::instance()->loadWFS(name),
+                BasemapConnectionStore::instance()->loadWFSAuth(name));
+}
+
+void AddBasemapDialog::onWFSNew()
+{
+    bool ok = false;
+    const QString name = QInputDialog::getText(
+        this, tr("Save WFS Connection"), tr("Name:"), QLineEdit::Normal,
+        QString(), &ok);
+
+    if (!ok || name.trimmed().isEmpty()) return;
+
+    WFSConnection conn;
+    conn.name        = name.trimmed();
+    conn.url         = m_wfsUrl->text().trimmed();
+    conn.version     = m_wfsCaps.version;
+    conn.httpHeaders = m_wfsHeaders->headers();
+
+    const int row = m_wfsTypes->currentRow();
+    if (row >= 0 && row < m_wfsChoices.size())
+        conn.typeName = m_wfsChoices.at(row).first;
+
+    BasemapAuth auth;
+    if (m_wfsAuthBox->isChecked()) {
+        auth.username = m_wfsUser->text();
+        auth.password = m_wfsPass->text();
+    }
+
+    BasemapConnectionStore::instance()->saveWFS(conn, auth);
+    refreshWFSCombo();
+    m_wfsCombo->setCurrentText(conn.name);
+}
+
+void AddBasemapDialog::onWFSDelete()
+{
+    const QString name = m_wfsCombo->currentText();
+    if (name.isEmpty()) return;
+
+    BasemapConnectionStore::instance()->removeWFS(name);
+    refreshWFSCombo();
+}
+
+void AddBasemapDialog::onWFSConnect()
+{
+    connectToWFS();
+}
+
+void AddBasemapDialog::connectToWFS()
+{
+    m_wfsTypes->clear();
+    m_wfsChoices.clear();
+    m_wfsCaps = {};
+    delete m_wfsLayer;
+    m_wfsLayer = nullptr;
+
+    const QString url = HydroCouple::Ogc::buildCapabilitiesUrl(
+        m_wfsUrl->text(), HydroCouple::Ogc::ServiceKind::Wfs);
+
+    if (url.isEmpty()) {
+        m_wfsStatusText = tr("That is not a web address.");
+        m_wfsStatus->setText(m_wfsStatusText);
+        return;
+    }
+
+    m_wfsStatusText = tr("Asking %1…").arg(m_wfsUrl->text());
+    m_wfsStatus->setText(m_wfsStatusText);
+
+    if (!m_wfsClient)
+        m_wfsClient = new HydroCouple::Ogc::HttpClient(this);
+
+    m_wfsClient->get(QUrl(url), wfsCredentials(),
+                     [this](const HydroCouple::Ogc::HttpResponse &response) {
+                         showWFSCollections(response.body);
+                     });
+}
+
+void AddBasemapDialog::showWFSCollections(const QByteArray &body)
+{
+    m_wfsCaps = HydroCouple::Ogc::parseWfsCapabilities(body);
+
+    if (!m_wfsCaps.ok) {
+        // The service's own account of what is wrong, which it sends in the
+        // body under an HTTP 200 as often as not.
+        m_wfsStatusText = m_wfsCaps.message.isEmpty()
+                              ? tr("That address is not a WFS.")
+                              : m_wfsCaps.message;
+        m_wfsStatus->setText(m_wfsStatusText);
+        return;
+    }
+
+    const QString service = m_wfsCaps.title.isEmpty() ? m_wfsUrl->text()
+                                                      : m_wfsCaps.title;
+    int usable = 0;
+
+    for (const HydroCouple::Ogc::WfsFeatureType &type : m_wfsCaps.featureTypes) {
+        const QString title = type.title.isEmpty() ? type.name : type.title;
+        QString reason;
+
+        if (HydroCouple::Ogc::preferredOutputFormat(type,
+                                                    m_wfsCaps.outputFormats)
+                .isEmpty()) {
+            reason = tr("“%1” is offered only in formats this program cannot "
+                        "read.").arg(title);
+        }
+
+        m_wfsChoices.append({type.name, reason});
+
+        auto *item = new QListWidgetItem(title, m_wfsTypes);
+
+        if (!reason.isEmpty()) {
+            // Shown rather than hidden: a user looking for a collection that
+            // is there needs to be told why it cannot be used.
+            item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+            item->setToolTip(reason);
+        } else {
+            ++usable;
+        }
+    }
+
+    m_wfsStatusText =
+        usable > 0
+            ? tr("%1: %2 of %3 collections can be read.")
+                  .arg(service).arg(usable).arg(m_wfsChoices.size())
+            : tr("%1 holds nothing this program can read.").arg(service);
+    m_wfsStatus->setText(m_wfsStatusText);
+
+    for (int row = 0; row < m_wfsChoices.size(); ++row) {
+        if (m_wfsChoices.at(row).second.isEmpty()) {
+            m_wfsTypes->setCurrentRow(row);
+            break;
+        }
+    }
+
+    updateOkEnabled();
+}
+
+void AddBasemapDialog::fetchWFSThenAccept()
+{
+    const int row = m_wfsTypes->currentRow();
+
+    if (row < 0 || row >= m_wfsChoices.size()) return;
+
+    const HydroCouple::Ogc::WfsFeatureType *type =
+        m_wfsCaps.featureType(m_wfsChoices.at(row).first);
+
+    if (!type) return;
+
+    HydroCouple::Ogc::WfsGetFeatureRequest request;
+    request.typeName = type->name;
+    request.outputFormat =
+        HydroCouple::Ogc::preferredOutputFormat(*type, m_wfsCaps.outputFormats);
+
+    // Asked for in longitude and latitude when the collection publishes them,
+    // so the ground the map is looking at can be named in the same terms. A
+    // collection published in a projected grid alone is fetched whole, up to
+    // the feature limit.
+    request.crs = type->spellingOf(QStringLiteral("EPSG:4326"));
+
+    if (!request.crs.isEmpty() && !m_preferredExtent.isNull())
+        request.extent = m_preferredExtent;
+
+    const QString url =
+        HydroCouple::Ogc::buildGetFeatureUrl(m_wfsCaps, request);
+
+    if (url.isEmpty()) {
+        m_wfsStatusText = tr("That collection cannot be asked for.");
+        m_wfsStatus->setText(m_wfsStatusText);
+        return;
+    }
+
+    const QString title    = m_wfsTypes->item(row)->text();
+    const QString typeName = type->name;
+    const QString service  = m_wfsUrl->text();
+
+    m_wfsStatusText = tr("Fetching %1…").arg(title);
+    m_wfsStatus->setText(m_wfsStatusText);
+    m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
+
+    if (!m_wfsClient)
+        m_wfsClient = new HydroCouple::Ogc::HttpClient(this);
+
+    m_wfsClient->get(
+        QUrl(url), wfsCredentials(),
+        [this, title, typeName, service](
+            const HydroCouple::Ogc::HttpResponse &response) {
+            auto *layer = new WFSLayer(title);
+            QString message;
+
+            if (!layer->adoptResponse(response.body, message)) {
+                delete layer;
+
+                // Said here, where the user is looking, rather than after the
+                // dialog has closed on an empty layer.
+                m_wfsStatusText = message.isEmpty() ? response.error : message;
+                m_wfsStatus->setText(m_wfsStatusText);
+                m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(true);
+                return;
+            }
+
+            layer->setServiceUrl(service);
+            layer->setTypeName(typeName);
+
+            delete m_wfsLayer;
+            m_wfsLayer = layer;
+
+            accept();
+        });
+}
+
+void AddBasemapDialog::updateOkEnabled()
+{
+    if (!m_buttonBox) return;
+
+    bool ready = true;
+
+    if (m_tabs->currentIndex() == Wfs) {
+        const int row = m_wfsTypes ? m_wfsTypes->currentRow() : -1;
+
+        ready = row >= 0 && row < m_wfsChoices.size()
+                && m_wfsChoices.at(row).second.isEmpty();
+    }
+
+    m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(ready);
+}
+
+OpenSWMMVisLayer *AddBasemapDialog::buildWFSLayer(QObject *parent) const
+{
+    // Already fetched by fetchWFSThenAccept(); this hands it over.
+    WFSLayer *layer = m_wfsLayer;
+    m_wfsLayer = nullptr;
+
+    if (layer) layer->setParent(parent);
+
+    return layer;
+}
+
 OpenSWMMVisLayer *AddBasemapDialog::createLayer(QObject *parent) const
 {
     switch (m_tabs->currentIndex()) {
-    case 0: return buildXYZLayer(parent);
-    case 1: return m_isWMTS ? buildWMTSLayer(parent) : buildWMSLayer(parent);
-    case 2: return buildWCSLayer(parent);
-    case 3: return buildArcGISLayer(parent);
-    case 4: return buildLocalRasterLayer(parent);
+    case XyzTiles:   return buildXYZLayer(parent);
+    case WmsWmts:    return m_isWMTS ? buildWMTSLayer(parent) : buildWMSLayer(parent);
+    case Wcs:        return buildWCSLayer(parent);
+    case ArcGisRest: return buildArcGISLayer(parent);
+    case LocalFile:  return buildLocalRasterLayer(parent);
+    case Wfs:        return buildWFSLayer(parent);
     default: return nullptr;
     }
 }
