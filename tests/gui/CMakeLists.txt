@@ -2270,7 +2270,8 @@ function(swmmvis_link_full_app_deps TEST_NAME)
     target_link_libraries(${TEST_NAME} PRIVATE
         Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets Qt6::Network Qt6::Concurrent
         Qt6::Svg Qt6::Charts Qt6::Qml Qt6::Quick Qt6::QuickWidgets Qt6::PrintSupport
-        GDAL::GDAL OpenSSL::SSL OpenSSL::Crypto nanoflann::nanoflann
+        GDAL::GDAL HydroCoupleOgc::HydroCoupleOgc
+        OpenSSL::SSL OpenSSL::Crypto nanoflann::nanoflann
         $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>
         openswmm_engine triangle_lib ${HDF5_C_LIBRARIES}
     )
@@ -2278,6 +2279,17 @@ function(swmmvis_link_full_app_deps TEST_NAME)
         target_link_libraries(${TEST_NAME} PRIVATE "-framework AppKit")
     endif()
 endfunction()
+
+# Phase 7 — the WFS service dialog and its layer. The first tests this
+# program has for any of its OGC services: WMS, WMTS and WCS have none.
+# Needs the full app sources because WFSLayer derives from GISVectorLayer,
+# which reaches the whole render/rule/attribute stack.
+add_swmmvis_gui_test(test_wfsservice
+    test_wfsservice.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_wfsservice)
 
 # a35798e — typed per-kind selection/visibility on SWMMModelLayer.
 add_swmmvis_gui_test(test_typedselection
