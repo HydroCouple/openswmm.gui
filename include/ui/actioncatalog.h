@@ -123,19 +123,19 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
 
     // ── Data objects (programmatic Data menu; objectNames assigned at
     //    creation in initializeMenus) ─────────────────────────────────────
-    {"data.newTimeSeries",    "actionNewTimeSeries",    "Data", "", "AddTimeSeries", "model", "Model/Add Data Object", NoTags},
-    {"data.newCurve",         "actionNewCurve",         "Data", "", "AddCurve", "model", "Model/Add Data Object", NoTags},
-    {"data.newPattern",       "actionNewPattern",       "Data", "", "AddPattern", "model", "Model/Add Data Object", NoTags},
-    {"data.newLidControl",    "actionNewLidControl",    "Data", "", "LidControl", "model", "Model/Add Data Object", NoTags},
-    {"data.newPollutant",     "actionNewPollutant",     "Data", "", "Pollutant", "model", "Model/Add Data Object", NoTags},
-    {"data.newLandUse",       "actionNewLandUse",       "Data", "", "LandUse",      "", "Model/Add Data Object", NoTags},
-    {"data.newAquifer",       "actionNewAquifer",       "Data", "", "Aquifer",      "", "Model/Add Data Object", NoTags},
-    {"data.newSnowpack",      "actionNewSnowpack",      "Data", "", "Snowpack",      "", "Model/Add Data Object", NoTags},
-    {"data.newControlRule",   "actionNewControlRule",   "Data", "", "AddControlRule", "model", "Model/Add Data Object", NoTags},
-    {"data.newTransect",      "actionNewTransect",      "Data", "", "AddTransect", "model", "Model/Add Data Object", NoTags},
-    {"data.newUnitHydrograph","actionNewUnitHydrograph","Data", "", "UnitHydrograph",      "", "Model/Add Data Object", NoTags},
-    {"data.newStreet",        "actionNewStreet",        "Data", "", "Street",      "", "Model/Add Data Object", NoTags},
-    {"data.newInlet",         "actionNewInlet",         "Data", "", "Inlet",      "", "Model/Add Data Object", NoTags},
+    {"data.newTimeSeries",    "actionNewTimeSeries",    "Data", "", "AddTimeSeries", "model", "Model/Data Objects", NoTags},
+    {"data.newCurve",         "actionNewCurve",         "Data", "", "AddCurve", "model", "Model/Data Objects", NoTags},
+    {"data.newPattern",       "actionNewPattern",       "Data", "", "AddPattern", "model", "Model/Data Objects", NoTags},
+    {"data.newLidControl",    "actionNewLidControl",    "Data", "", "LidControl", "model", "Model/Data Objects", NoTags},
+    {"data.newPollutant",     "actionNewPollutant",     "Data", "", "Pollutant", "model", "Model/Data Objects", NoTags},
+    {"data.newLandUse",       "actionNewLandUse",       "Data", "", "LandUse",      "", "Model/Data Objects", NoTags},
+    {"data.newAquifer",       "actionNewAquifer",       "Data", "", "Aquifer",      "", "Model/Data Objects", NoTags},
+    {"data.newSnowpack",      "actionNewSnowpack",      "Data", "", "Snowpack",      "", "Model/Data Objects", NoTags},
+    {"data.newControlRule",   "actionNewControlRule",   "Data", "", "AddControlRule", "model", "Model/Data Objects", NoTags},
+    {"data.newTransect",      "actionNewTransect",      "Data", "", "AddTransect", "model", "Model/Data Objects", NoTags},
+    {"data.newUnitHydrograph","actionNewUnitHydrograph","Data", "", "UnitHydrograph",      "", "Model/Data Objects", NoTags},
+    {"data.newStreet",        "actionNewStreet",        "Data", "", "Street",      "", "Model/Data Objects", NoTags},
+    {"data.newInlet",         "actionNewInlet",         "Data", "", "Inlet",      "", "Model/Data Objects", NoTags},
 
     // ── Layer / data import ─────────────────────────────────────────────
     {"import.swmmOutput",     "actionAddSWMMOutput",    "Import", "", "AddSWMMOutput", "home", "File/Import", NoTags},
