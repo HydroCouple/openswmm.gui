@@ -19,6 +19,19 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Heat Configuration editor (G4g)** — Model ▸ Heat Configuration… edits
+  `[HEAT_SOURCES]` inlet temperatures (with per-node DWF/external-inflow
+  overrides), `[HEAT_FLUXES]` module toggles, and the H6a
+  `[RADIATIVE_FLUXES]` / `[SOLAR_RADIATION]` / `[CLOUD_COVER]` forcing
+  across five tabs. Dependency-light against `openswmm_heat.h`, the
+  writeIfChanged discipline throughout (an untouched OK writes nothing and
+  invents neither `[HEAT_SOURCES]` rows nor cloud cover), authoring limits
+  mirror the engine parser, and the COMPUTED-shortwave option is gated on
+  an explicit site. Unblocked by the engine's IO3a–IO3c save chain: edits
+  survive `swmm_model_write` on every model. Known gap recorded: the
+  engine exposes no getter for a bound shortwave/cloud timeseries NAME, so
+  those combos rebind behind a "(keep current series)" placeholder.
+
 - **Water quality and transport reach the GUI.** Simulation Options gains a
   **Quality & Transport** page exposing the quality solver choice (legacy,
   Eulerian ARD, Lagrangian) and the transport keys — water age, quality

@@ -436,6 +436,9 @@ private slots:
     /*! \brief Open the Reaction System editor (G-B3). */
     void onEditReactionSystem();
 
+    //! G4g: [HEAT_SOURCES] / [HEAT_FLUXES] / radiative-solar-cloud editor.
+    void onEditHeatConfig();
+
     // ── Toolbar quick-wins (Phase 2) ────────────────────────────────────────
     /*! \brief Show + focus the Object Browser search box. */
     void onSearch();
