@@ -1436,6 +1436,15 @@ add_swmmvis_gui_test(test_wateragesourcesdialog
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/wateragesourcesdialog.cpp
 )
 
+# G4g — the Heat Configuration editor. Same dependency-light contract:
+# Qt Widgets + the swmm_heat_* engine ABI, driven against a synthetic
+# BUILDING engine, so the dialog's wiring has an automated observer.
+add_swmmvis_gui_test(test_heatconfigdialog
+    test_heatconfigdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/heatconfigdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/heatconfigdialog.cpp
+)
+
 # G-A1 — the per-element Initial Quality editor. Same dependency-light
 # contract as the water-age dialog above: Qt Widgets + the
 # swmm_init_quality_* engine ABI, driven against a synthetic BUILDING
