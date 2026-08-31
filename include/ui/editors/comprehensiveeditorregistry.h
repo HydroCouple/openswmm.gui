@@ -58,6 +58,11 @@ public:
         QString      editorTitle;     ///< User-visible name, e.g. "Curve Editor".
         QString      gapSliceLabel;   ///< Populated only when openCreateNew is null.
         OpenCreateFn openCreateNew;   ///< Null iff editor is not yet shipped.
+        /*! Opens the editor in review/browse mode — no object is created;
+         *  the user picks from the editor's own list and creates via its
+         *  Add/New button. Same signature as `openCreateNew`. Null iff the
+         *  editor is not yet shipped. */
+        OpenCreateFn openBrowse;
     };
 
     static ComprehensiveEditorRegistry &instance();

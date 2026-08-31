@@ -77,14 +77,47 @@ void openTimeseriesCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *
     dlg->show();
 }
 
+// Review/browse launch (2026-08-31) — the Data-menu / ribbon "data object"
+// actions open the editor without creating anything; the user picks from
+// the editor's own list and creates via its Add/New button. Each
+// openXxxBrowse below mirrors its openXxxCreateNew sibling's construction
+// and engine-flush wiring, minus the create-card / invokeNew() step.
+
+void openTimeseriesBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<TimeseriesRegistry *>(layer->ensureTimeseriesRegistry());
+    if (!reg) return;
+    auto *dlg = new TimeseriesEditorDialog(reg, stack,
+                                           /*initialSelection=*/nullptr, parent);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<TimeseriesRegistry> regPtr(reg);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr]() {
+        if (regPtr) regPtr->saveToEngine();
+    });
+    dlg->show();
+}
+
+// Singleton-raise: opening from two surfaces must reuse one dialog
+// instance ([[feedback_mvc_synchronized_uis]]). Shared between the
+// create-new and browse launches so they never spawn parallel windows.
+static QPointer<HydrographGroupEditor> sHydrographEditor;
+
 void openHydrographsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
 {
     if (!layer) return;
-    // Singleton-raise: opening from two surfaces must reuse one dialog
-    // instance ([[feedback_mvc_synchronized_uis]]).
-    static QPointer<HydrographGroupEditor> editor;
-    if (!editor) editor = new HydrographGroupEditor(layer, parent);
-    editor->beginNewGroup();
+    if (!sHydrographEditor)
+        sHydrographEditor = new HydrographGroupEditor(layer, parent);
+    sHydrographEditor->beginNewGroup();
+}
+
+void openHydrographsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    if (!sHydrographEditor)
+        sHydrographEditor = new HydrographGroupEditor(layer, parent);
+    // Empty name = show without selecting or creating anything.
+    sHydrographEditor->openForGroup(QString());
 }
 
 void openPatternsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
@@ -98,6 +131,16 @@ void openPatternsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *pa
     dlg->show();
 }
 
+void openPatternsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<PatternRegistry *>(layer->ensurePatternRegistry());
+    if (!reg) return;
+    auto *dlg = new PatternEditorDialog(reg, stack, parent);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+}
+
 void openCurvesCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer) return;
@@ -105,6 +148,16 @@ void openCurvesCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *pare
     if (!reg) return;
     auto *dlg = CurveEditorDialog::createNew(reg, stack, parent);
     if (!dlg) return;
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+}
+
+void openCurvesBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<CurveRegistry *>(layer->ensureCurveRegistry());
+    if (!reg) return;
+    auto *dlg = new CurveEditorDialog(reg, stack, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }
@@ -121,6 +174,22 @@ void openTransectsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *p
     // existing apply* helpers already mutate the engine inline, so this is
     // belt-and-braces for paths that mutate the provider directly (drags,
     // grid edits, etc.) bypassing the layer.
+    QPointer<TransectRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>   layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr)
+            regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
+void openTransectsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<TransectRegistry *>(layer->ensureTransectRegistry());
+    if (!reg) return;
+    auto *dlg = new TransectEditorDialog(reg, layer, stack, parent);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
     QPointer<TransectRegistry> regPtr(reg);
     QPointer<SWMMModelLayer>   layerPtr(layer);
     QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
@@ -150,6 +219,22 @@ void openStreetsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget
     dlg->show();
 }
 
+void openStreetsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<StreetRegistry *>(layer->ensureStreetRegistry());
+    if (!reg) return;
+    auto *dlg = new StreetEditorDialog(reg, layer, parent);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<StreetRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>  layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr)
+            regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
 void openPollutantsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
 {
     if (!layer) return;
@@ -167,6 +252,22 @@ void openPollutantsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWid
     dlg->show();
 }
 
+void openPollutantsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<PollutantRegistry *>(layer->ensurePollutantRegistry());
+    if (!reg) return;
+    auto *dlg = new PollutantEditorDialog(reg, layer, parent);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<PollutantRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>     layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr)
+            regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
 void openAquifersCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
 {
     if (!layer) return;
@@ -174,6 +275,22 @@ void openAquifersCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
     if (!reg) return;
     auto *dlg = AquiferEditorDialog::createNew(reg, layer, parent);
     if (!dlg) return;
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<AquiferRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>   layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr)
+            regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
+void openAquifersBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<AquiferRegistry *>(layer->ensureAquiferRegistry());
+    if (!reg) return;
+    auto *dlg = new AquiferEditorDialog(reg, layer, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     QPointer<AquiferRegistry> regPtr(reg);
     QPointer<SWMMModelLayer>   layerPtr(layer);
@@ -204,6 +321,25 @@ void openLandUsesCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
     dlg->show();
 }
 
+void openLandUsesBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<LandUseRegistry *>(layer->ensureLandUseRegistry());
+    if (!reg) return;
+    auto *dlg = new LandUseEditorDialog(reg, layer, parent);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    // Buildup/Washoff rows re-dimension live with the pollutant set.
+    dlg->trackPollutantRegistry(
+        qobject_cast<PollutantRegistry *>(layer->ensurePollutantRegistry()));
+    QPointer<LandUseRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>   layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr)
+            regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
 void openSnowpacksCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
 {
     if (!layer) return;
@@ -211,6 +347,21 @@ void openSnowpacksCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidg
     if (!reg) return;
     auto *dlg = SnowpackEditorDialog::createNew(reg, layer, parent);
     if (!dlg) return;
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<SnowpackRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>    layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr) regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
+void openSnowpacksBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<SnowpackRegistry *>(layer->ensureSnowpackRegistry());
+    if (!reg) return;
+    auto *dlg = new SnowpackEditorDialog(reg, layer, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     QPointer<SnowpackRegistry> regPtr(reg);
     QPointer<SWMMModelLayer>    layerPtr(layer);
@@ -236,6 +387,21 @@ void openInletsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget 
     dlg->show();
 }
 
+void openInletsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<InletRegistry *>(layer->ensureInletRegistry());
+    if (!reg) return;
+    auto *dlg = new InletEditorDialog(reg, layer, parent);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<InletRegistry>  regPtr(reg);
+    QPointer<SWMMModelLayer> layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr) regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
 void openLidControlsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
 {
     if (!layer) return;
@@ -252,26 +418,54 @@ void openLidControlsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWi
     dlg->show();
 }
 
+void openLidControlsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<LidControlRegistry *>(layer->ensureLidControlRegistry());
+    if (!reg) return;
+    auto *dlg = new LidControlEditorDialog(reg, layer, parent);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<LidControlRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>     layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr) regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
+// Per-session singleton: once the dialog closes (WA_DeleteOnClose),
+// the QPointer auto-nullifies and the next launch constructs a fresh
+// instance. Simultaneous entry points (Object Browser Add-New,
+// PropertiesPanel browse, Data-menu browse) raise the same window
+// ([[feedback_mvc_synchronized_uis]]).
+static QPointer<RulesEditorDialog> sRulesEditor;
+
 void openControlsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer) return;
-    // Per-session singleton: once the dialog closes (WA_DeleteOnClose),
-    // the QPointer auto-nullifies and the next Add-New click constructs
-    // a fresh instance. Two simultaneous entry points (Object Browser
-    // Add-New, PropertiesPanel browse) raise the same window
-    // ([[feedback_mvc_synchronized_uis]]).
-    static QPointer<RulesEditorDialog> editor;
-    if (!editor) {
-        editor = RulesEditorDialog::createNew(layer, stack, parent);
-        if (editor) editor->setAttribute(Qt::WA_DeleteOnClose);
+    if (!sRulesEditor) {
+        sRulesEditor = RulesEditorDialog::createNew(layer, stack, parent);
+        if (sRulesEditor) sRulesEditor->setAttribute(Qt::WA_DeleteOnClose);
     } else {
-        editor->invokeNew();
+        sRulesEditor->invokeNew();
     }
-    if (editor) {
-        editor->show();
-        editor->raise();
-        editor->activateWindow();
+    if (sRulesEditor) {
+        sRulesEditor->show();
+        sRulesEditor->raise();
+        sRulesEditor->activateWindow();
     }
+}
+
+void openControlsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
+{
+    if (!layer) return;
+    if (!sRulesEditor) {
+        sRulesEditor = new RulesEditorDialog(layer, stack, parent);
+        sRulesEditor->setAttribute(Qt::WA_DeleteOnClose);
+    }
+    sRulesEditor->show();
+    sRulesEditor->raise();
+    sRulesEditor->activateWindow();
 }
 
 /*! Populates the registry with every non-spatial category in
@@ -287,27 +481,27 @@ void populateOnce(ComprehensiveEditorRegistry &reg)
     reg.registerEditor(DC::DataTimeSeries,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Time Series Editor"),
-              QString(), &openTimeseriesCreateNew});
+              QString(), &openTimeseriesCreateNew, &openTimeseriesBrowse});
 
     reg.registerEditor(DC::DataHydrographs,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Hydrograph Group Editor"),
-              QString(), &openHydrographsCreateNew});
+              QString(), &openHydrographsCreateNew, &openHydrographsBrowse});
 
     reg.registerEditor(DC::DataPatterns,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Pattern Editor"),
-              QString(), &openPatternsCreateNew});
+              QString(), &openPatternsCreateNew, &openPatternsBrowse});
 
     reg.registerEditor(DC::DataCurves,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Curve Editor"),
-              QString(), &openCurvesCreateNew});
+              QString(), &openCurvesCreateNew, &openCurvesBrowse});
 
     reg.registerEditor(DC::DataControls,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Rules Editor"),
-              QString(), &openControlsCreateNew});
+              QString(), &openControlsCreateNew, &openControlsBrowse});
 
     // Every non-spatial data category now ships a comprehensive editor — no
     // gap placeholders remain. (gapTooltip()/gapSliceLabel stay in the API for
@@ -315,35 +509,35 @@ void populateOnce(ComprehensiveEditorRegistry &reg)
     reg.registerEditor(DC::DataTransects,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Transect Editor"),
-              QString(), &openTransectsCreateNew});
+              QString(), &openTransectsCreateNew, &openTransectsBrowse});
     reg.registerEditor(DC::DataLIDControls,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "LID Control Editor"),
-              QString(), &openLidControlsCreateNew});
+              QString(), &openLidControlsCreateNew, &openLidControlsBrowse});
     reg.registerEditor(DC::DataPollutants,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Pollutant Editor"),
-              QString(), &openPollutantsCreateNew});
+              QString(), &openPollutantsCreateNew, &openPollutantsBrowse});
     reg.registerEditor(DC::DataLandUses,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Land Use Editor"),
-              QString(), &openLandUsesCreateNew});
+              QString(), &openLandUsesCreateNew, &openLandUsesBrowse});
     reg.registerEditor(DC::DataAquifers,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Aquifer Editor"),
-              QString(), &openAquifersCreateNew});
+              QString(), &openAquifersCreateNew, &openAquifersBrowse});
     reg.registerEditor(DC::DataSnowpacks,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Snowpack Editor"),
-              QString(), &openSnowpacksCreateNew});
+              QString(), &openSnowpacksCreateNew, &openSnowpacksBrowse});
     reg.registerEditor(DC::DataStreets,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Street Editor"),
-              QString(), &openStreetsCreateNew});
+              QString(), &openStreetsCreateNew, &openStreetsBrowse});
     reg.registerEditor(DC::DataInlets,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Inlet Editor"),
-              QString(), &openInletsCreateNew});
+              QString(), &openInletsCreateNew, &openInletsBrowse});
 }
 
 } // anonymous namespace

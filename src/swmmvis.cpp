@@ -157,6 +157,7 @@
 #include "ui/widgets/legendoverlay.h"
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/legenddock.h"
+#include "ui/editors/comprehensiveeditorregistry.h"
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/panels/propertiespanel.h"
 #include "ui/panels/sectionviewpanel.h"
@@ -3563,29 +3564,25 @@ void SWMMVis::initializeMenus()
         }
     }
 
-    // ── Slice BM.0 / DA.3 — Data menu + Add-New shortcut wiring ─────────────
+    // ── Slice BM.0 / DA.3 — Data menu + editor-launch wiring ────────────────
     //
-    // Inserts a new top-level "Data" menu between "View" and "Tools" so the
-    // user has a keyboard-accelerated path to "Add New <Type>…" without
-    // hunting through the Object Browser context menu. Per Slice
-    // BM.0-Add-New (2026-05-24), each menu item dispatches through
-    // `ObjectBrowserPanel::launchAddNewEditor` — which launches the
-    // category's complex MVC editor in create mode (Time Series / Unit
-    // Hydrographs) or is disabled for gap categories with a tooltip
-    // naming the future editor slice. The legacy `NewDataObjectDialog`
-    // is removed.
-    //
-    // The toolbar strip (BM.0.4) lives at the right end of the existing
-    // Edit toolbar with the five most-used types: Time Series, Curve,
-    // Time Pattern, LID Control, Pollutant.
+    // Inserts a "Data Objects" submenu so the user has a keyboard-
+    // accelerated path to each data-object editor without hunting through
+    // the Object Browser context menu. 2026-08-31 — these entries (and the
+    // ribbon buttons that reuse the same QActions) dispatch through
+    // `ObjectBrowserPanel::launchBrowseEditor`, which opens the category's
+    // complex MVC editor in review/browse mode: nothing is auto-created,
+    // and new objects come from the editor's own Add/New button. Explicit
+    // create-mode launches (`launchAddNewEditor`) remain on the Object
+    // Browser category-header "Add New…" context-menu action.
     {
         // Helper closure capturing `this`; reused by both the menu and the
         // toolbar so the dispatch path stays consistent.
-        auto launchAddNew = [this](SWMMModelLayer::DataCategory dc) {
-            if (mObjectBrowserPanel) mObjectBrowserPanel->launchAddNewEditor(dc);
+        auto launchBrowse = [this](SWMMModelLayer::DataCategory dc) {
+            if (mObjectBrowserPanel) mObjectBrowserPanel->launchBrowseEditor(dc);
         };
 
-        auto *menuData = new QMenu(tr("Add &Data Object"), this);
+        auto *menuData = new QMenu(tr("&Data Objects"), this);
         menuData->setObjectName(QStringLiteral("menuData"));
 
         struct DataEntry {
@@ -3599,20 +3596,20 @@ void SWMMVis::initializeMenus()
         // and finally streets/inlets. nullptr label means "separator
         // here, no menu item".
         static const DataEntry kEntries[] = {
-            {SWMMModelLayer::DataTimeSeries,  QT_TR_NOOP("New Time &Series…"),  "actionNewTimeSeries",     false},
-            {SWMMModelLayer::DataCurves,      QT_TR_NOOP("New &Curve…"),        "actionNewCurve",          false},
-            {SWMMModelLayer::DataPatterns,    QT_TR_NOOP("New Time &Pattern…"), "actionNewPattern",        true},
-            {SWMMModelLayer::DataLIDControls, QT_TR_NOOP("New &LID Control…"),  "actionNewLidControl",     false},
-            {SWMMModelLayer::DataPollutants,  QT_TR_NOOP("New Po&llutant…"),    "actionNewPollutant",      false},
-            {SWMMModelLayer::DataLandUses,    QT_TR_NOOP("New L&and Use…"),     "actionNewLandUse",        true},
-            {SWMMModelLayer::DataAquifers,    QT_TR_NOOP("New A&quifer…"),      "actionNewAquifer",        false},
-            {SWMMModelLayer::DataSnowpacks,   QT_TR_NOOP("New S&nowpack…"),     "actionNewSnowpack",       true},
+            {SWMMModelLayer::DataTimeSeries,  QT_TR_NOOP("Time &Series…"),      "actionNewTimeSeries",     false},
+            {SWMMModelLayer::DataCurves,      QT_TR_NOOP("&Curves…"),           "actionNewCurve",          false},
+            {SWMMModelLayer::DataPatterns,    QT_TR_NOOP("Time &Patterns…"),    "actionNewPattern",        true},
+            {SWMMModelLayer::DataLIDControls, QT_TR_NOOP("&LID Controls…"),     "actionNewLidControl",     false},
+            {SWMMModelLayer::DataPollutants,  QT_TR_NOOP("Po&llutants…"),       "actionNewPollutant",      false},
+            {SWMMModelLayer::DataLandUses,    QT_TR_NOOP("L&and Uses…"),        "actionNewLandUse",        true},
+            {SWMMModelLayer::DataAquifers,    QT_TR_NOOP("A&quifers…"),         "actionNewAquifer",        false},
+            {SWMMModelLayer::DataSnowpacks,   QT_TR_NOOP("S&nowpacks…"),        "actionNewSnowpack",       true},
             // DA.3 — Control Rules + Unit Hydrographs land in the menu.
-            {SWMMModelLayer::DataControls,    QT_TR_NOOP("New Control &Rule…"), "actionNewControlRule",    false},
-            {SWMMModelLayer::DataTransects,   QT_TR_NOOP("New &Transect…"),     "actionNewTransect",       false},
-            {SWMMModelLayer::DataHydrographs, QT_TR_NOOP("New Unit &Hydrograph…"), "actionNewUnitHydrograph", true},
-            {SWMMModelLayer::DataStreets,     QT_TR_NOOP("New St&reet…"),       "actionNewStreet",         false},
-            {SWMMModelLayer::DataInlets,      QT_TR_NOOP("New &Inlet…"),        "actionNewInlet",          false},
+            {SWMMModelLayer::DataControls,    QT_TR_NOOP("Control &Rules…"),    "actionNewControlRule",    false},
+            {SWMMModelLayer::DataTransects,   QT_TR_NOOP("&Transects…"),        "actionNewTransect",       false},
+            {SWMMModelLayer::DataHydrographs, QT_TR_NOOP("Unit &Hydrographs…"), "actionNewUnitHydrograph", true},
+            {SWMMModelLayer::DataStreets,     QT_TR_NOOP("St&reets…"),          "actionNewStreet",         false},
+            {SWMMModelLayer::DataInlets,      QT_TR_NOOP("&Inlets…"),           "actionNewInlet",          false},
         };
         for (const auto &e : kEntries) {
             auto *act = menuData->addAction(tr(e.menuLabel));
@@ -3623,16 +3620,22 @@ void SWMMVis::initializeMenus()
             if (!ObjectBrowserPanel::hasComplexEditor(e.dc)) {
                 act->setEnabled(false);
                 act->setToolTip(ObjectBrowserPanel::gapTooltipFor(e.dc));
+            } else {
+                act->setToolTip(tr("Open the %1 — review or edit existing "
+                                   "entries; use its Add/New button to "
+                                   "create new ones")
+                                    .arg(ComprehensiveEditorRegistry::instance()
+                                             .editorTitle(e.dc)));
             }
             connect(act, &QAction::triggered, this,
-                    [launchAddNew, dc = e.dc] {
-                launchAddNew(dc);
+                    [launchBrowse, dc = e.dc] {
+                launchBrowse(dc);
             });
             if (e.separatorAfter) menuData->addSeparator();
         }
 
         // Menu IA (UI redesign P5): the former top-level "Data" menu is a
-        // "Model → Add Data Object" submenu, placed with the other model
+        // "Model → Data Objects" submenu, placed with the other model
         // authoring entries (before Import Feature Layer).
         if (ui->menuModel) {
             ui->menuModel->insertMenu(ui->actionImportFeatureLayer, menuData);
