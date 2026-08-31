@@ -1547,6 +1547,8 @@ PreferencesManager::simulationDefaults() const
 
     d.nodeContinuity     = readSetting<QString>(s, QStringLiteral("NodeContinuity"),     d.nodeContinuity);
     d.andersonAccel      = readSetting<bool>(s,    QStringLiteral("AndersonAccel"),      d.andersonAccel);
+    d.unsteadyFriction   = readSetting<QString>(s, QStringLiteral("UnsteadyFriction"),   d.unsteadyFriction);
+    d.ufK3               = readSetting<double>(s,  QStringLiteral("UfK3"),               d.ufK3);
 
     d.threads            = readSetting<int>(s,    QStringLiteral("Threads"),             d.threads);
 
@@ -1601,6 +1603,8 @@ void PreferencesManager::setSimulationDefaults(const SimulationDefaults &d)
 
     put(QStringLiteral("NodeContinuity"),     d.nodeContinuity);
     put(QStringLiteral("AndersonAccel"),      d.andersonAccel);
+    put(QStringLiteral("UnsteadyFriction"),   d.unsteadyFriction);
+    put(QStringLiteral("UfK3"),               d.ufK3);
 
     put(QStringLiteral("Threads"),            d.threads);
 
