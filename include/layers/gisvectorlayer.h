@@ -389,8 +389,20 @@ private:
                                                const QString &layerName);
     void applyOpenResult(const OpenResult &r);
 
+protected:
+    /*!
+     * \brief Open \p filePath / \p layerName synchronously.
+     *
+     * Protected rather than private because a subclass may produce its own
+     * dataset — WFSLayer fetches one over the network and hands GDAL the
+     * bytes — and has to open and close it itself.
+     */
     void openDataset(const QString &filePath, const QString &layerName);
+
+    //! Closes whatever is open, releasing the dataset.
     void closeDataset();
+
+private:
     void rebuildTransform(const SpatialReferenceSystem *canvasSRS) const;
 
     /*!

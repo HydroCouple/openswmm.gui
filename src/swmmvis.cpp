@@ -74,6 +74,7 @@
 #include "ui/theme/themehelpers.h"
 #include "io/gdaldrivers.h"
 #include "ui/dialogs/sublayerselectiondialog.h"
+#include "ui/dialogs/wfsservicedialog.h"
 #include <QScreen>
 
 #include "ui/dialogs/dialoglayoutpersistence.h"
@@ -184,6 +185,9 @@
 #include <QTimer>
 #include "layers/openswmmvislayer.h"
 #include "layers/gisvectorlayer.h"
+#include "layers/wfslayer.h"
+
+#include <ogr_spatialref.h>
 #include "layers/gisrasterlayer.h"
 #include "layers/swmmresultslayer.h"
 #include "output/outputstatsregistry.h"
@@ -3361,6 +3365,7 @@ void SWMMVis::initializeMenus()
     connect(ui->actionShowWelcome, &QAction::triggered, this, &SWMMVis::onShowWelcomeScreen);
 
     connect(ui->actionAddWMSData,    &QAction::triggered, this, &SWMMVis::onAddWMSLayer);
+    connect(ui->actionAddWFSData,    &QAction::triggered, this, &SWMMVis::onAddWFSLayer);
     connect(ui->actionAddBasemap,    &QAction::triggered, this, &SWMMVis::onAddBasemapLayer);
     // Hidden 2026-06-04 as a duplicate of the Add WMS/WCS flow; re-enabled
     // 2026-08-09 — the dialog's Local File tab (local raster basemaps) has
@@ -8552,6 +8557,57 @@ void SWMMVis::onAddWMSLayer()
     if (MapCanvas *c = activeCanvas())
         c->addLayer(layer, true);
     onLogMessage(tr("Added WMS/WMTS layer: %1").arg(layer->name()));
+}
+
+void SWMMVis::onAddWFSLayer()
+{
+    WFSServiceDialog dlg(this);
+
+    // What the map is looking at, in degrees, so the service is asked about
+    // that ground rather than about the whole region it holds. A canvas in
+    // a system that cannot be expressed in degrees — a local grid, say —
+    // simply does not limit the request.
+    if (MapCanvas *c = activeCanvas()) {
+        if (SpatialReferenceSystem *canvasSRS = c->canvasSRS()) {
+            std::unique_ptr<SpatialReferenceSystem> wgs84(
+                SpatialReferenceSystem::fromAuthCode(QStringLiteral("EPSG"),
+                                                     4326));
+
+            if (wgs84) {
+                std::unique_ptr<OGRCoordinateTransformation,
+                                void (*)(OGRCoordinateTransformation *)>
+                    toGeographic(canvasSRS->createTransformationTo(*wgs84),
+                                 [](OGRCoordinateTransformation *t) {
+                                     if (t)
+                                         OGRCoordinateTransformation::DestroyCT(t);
+                                 });
+
+                if (toGeographic) {
+                    const QRectF box = c->extent().toRectF();
+                    double x[2] = {box.left(), box.right()};
+                    double y[2] = {box.top(), box.bottom()};
+
+                    if (toGeographic->Transform(2, x, y)) {
+                        dlg.setPreferredExtent(
+                            QRectF(QPointF(x[0], y[0]), QPointF(x[1], y[1]))
+                                .normalized());
+                    }
+                }
+            }
+        }
+    }
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    WFSLayer *layer = dlg.takeLayer();
+    if (!layer) return;
+
+    if (MapCanvas *c = activeCanvas())
+        c->addLayer(layer, true);
+
+    onLogMessage(tr("Added WFS layer: %1 (%2 features)")
+                     .arg(layer->name())
+                     .arg(layer->featureCount()));
 }
 
 void SWMMVis::onAddVectorLayer()
