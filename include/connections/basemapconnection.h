@@ -189,6 +189,45 @@ struct WCSConnection
 };
 
 // ---------------------------------------------------------------------------
+// WFS connection
+// ---------------------------------------------------------------------------
+
+/*!
+ * \struct WFSConnection
+ * \brief Parameters for an OGC Web Feature Service (WFS 1.x / 2.0) source.
+ *
+ * The odd one out among the entries in this file, and worth saying why. Every
+ * other connection here names a source of pictures, fetched afresh for each
+ * viewport and painted behind the model. A WFS answers with the features
+ * themselves, fetched once and held as a vector layer that can be queried,
+ * classified and labelled like any shapefile.
+ *
+ * What that changes for this struct: there is no format or resolution to
+ * remember, because the format is whatever the collection can be read in and
+ * is decided at connect time from what the server advertises. What is worth
+ * remembering is where the service is and which collection was taken from it.
+ */
+struct WFSConnection
+{
+    QString            name;
+    QString            url;         /*!< Base service URL (no query string). */
+
+    /*!
+     * \brief Version string the service answered in ("1.1.0", "2.0.0").
+     *
+     * Read from the capabilities document rather than assumed: a server
+     * without the requested version answers in the newest it has, and the
+     * spelling of the request parameters follows the answer.
+     */
+    QString            version;
+
+    //! Selected feature type, prefixed as the service spells it ("bag:pand").
+    QString            typeName;
+
+    BasemapHttpHeaders httpHeaders;
+};
+
+// ---------------------------------------------------------------------------
 // ArcGIS REST connection
 // ---------------------------------------------------------------------------
 

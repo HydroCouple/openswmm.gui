@@ -15,6 +15,7 @@ static constexpr char kTopGroup[]       = "BasemapConnections";
 static constexpr char kXYZGroup[]       = "XYZ";
 static constexpr char kWMSGroup[]       = "WMS";
 static constexpr char kWCSGroup[]       = "WCS";
+static constexpr char kWFSGroup[]       = "WFS";
 static constexpr char kArcGISGroup[]    = "ArcGIS";
 static constexpr char kLocalRasterGroup[] = "localraster";
 static constexpr char kHeaderPrefix[]   = "http-header/";
@@ -357,6 +358,99 @@ void BasemapConnectionStore::removeWCS(const QString &name)
     QSettings s;
     s.beginGroup(kTopGroup);
     s.beginGroup(kWCSGroup);
+    s.remove(name);
+    s.endGroup();
+    s.endGroup();
+    emit connectionsChanged();
+}
+
+// ---------------------------------------------------------------------------
+// WFS
+// ---------------------------------------------------------------------------
+
+void BasemapConnectionStore::saveWFS(const WFSConnection &conn,
+                                      const BasemapAuth   &auth)
+{
+    QSettings s;
+    s.beginGroup(kTopGroup);
+    s.beginGroup(kWFSGroup);
+    s.beginGroup(conn.name);
+
+    s.setValue("url",      conn.url);
+    s.setValue("version",  conn.version);
+    s.setValue("typeName", conn.typeName);
+    writeHeaders(s, conn.httpHeaders);
+
+    s.setValue("username", auth.username);
+    if (!auth.password.isEmpty())
+        s.setValue(kPassword, BasemapCrypto::encrypt(auth.password));
+    else
+        s.remove(kPassword);
+
+    s.endGroup();
+    s.endGroup();
+    s.endGroup();
+    emit connectionsChanged();
+}
+
+WFSConnection BasemapConnectionStore::loadWFS(const QString &name) const
+{
+    QSettings s;
+    s.beginGroup(kTopGroup);
+    s.beginGroup(kWFSGroup);
+    s.beginGroup(name);
+
+    WFSConnection c;
+    c.name        = name;
+    c.url         = s.value("url").toString();
+    // No default version. Which one the service speaks is its answer to
+    // give, and a remembered guess would be written into the next request
+    // before the service has said anything.
+    c.version     = s.value("version").toString();
+    c.typeName    = s.value("typeName").toString();
+    c.httpHeaders = readHeaders(s);
+
+    s.endGroup();
+    s.endGroup();
+    s.endGroup();
+    return c;
+}
+
+BasemapAuth BasemapConnectionStore::loadWFSAuth(const QString &name) const
+{
+    QSettings s;
+    s.beginGroup(kTopGroup);
+    s.beginGroup(kWFSGroup);
+    s.beginGroup(name);
+
+    BasemapAuth auth;
+    auth.username = s.value("username").toString();
+    const QByteArray enc = s.value(kPassword).toByteArray();
+    if (!enc.isEmpty())
+        auth.password = BasemapCrypto::decrypt(enc);
+
+    s.endGroup();
+    s.endGroup();
+    s.endGroup();
+    return auth;
+}
+
+QStringList BasemapConnectionStore::wfsConnectionNames() const
+{
+    QSettings s;
+    s.beginGroup(kTopGroup);
+    s.beginGroup(kWFSGroup);
+    const QStringList names = s.childGroups();
+    s.endGroup();
+    s.endGroup();
+    return names;
+}
+
+void BasemapConnectionStore::removeWFS(const QString &name)
+{
+    QSettings s;
+    s.beginGroup(kTopGroup);
+    s.beginGroup(kWFSGroup);
     s.remove(name);
     s.endGroup();
     s.endGroup();

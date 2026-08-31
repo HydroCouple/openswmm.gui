@@ -17,7 +17,7 @@
  */
 
 #include "layers/wfslayer.h"
-#include "ui/dialogs/wfsservicedialog.h"
+#include "ui/dialogs/addbasemapdialog.h"
 
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
@@ -176,7 +176,9 @@ void TestWfsService::anAddressIsEnoughToListWhatTheServiceHolds()
 {
     LocalWfs server;
 
-    WFSServiceDialog dialog;
+    AddBasemapDialog dialog;
+
+    dialog.setInitialTab(AddBasemapDialog::Wfs);
     dialog.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))
         ->setText(server.endpoint());
     dialog.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))
@@ -186,12 +188,15 @@ void TestWfsService::anAddressIsEnoughToListWhatTheServiceHolds()
         QStringLiteral("wfsCollectionList"));
 
     QVERIFY2(waitFor([&] { return list->count() > 0; }),
-             qPrintable(dialog.status()));
+             qPrintable(dialog.wfsStatus()));
 
     // The user said nothing about the version or what it holds; both are
     // answers, not questions.
     QCOMPARE(list->count(), 5);
-    QVERIFY(!dialog.serviceTitle().isEmpty());
+    // The service names itself, and that name is what the user is shown --
+    // not the address they typed.
+    QVERIFY2(dialog.wfsStatus().contains(QStringLiteral("BAG WFS")),
+             qPrintable(dialog.wfsStatus()));
 
     // Something readable is already chosen, so Add is available without
     // hunting through the list first.
@@ -205,7 +210,9 @@ void TestWfsService::choosingACollectionFetchesItOverTheGroundInView()
     LocalWfs server;
     server.answerFeaturesWith(catchments());
 
-    WFSServiceDialog dialog;
+    AddBasemapDialog dialog;
+
+    dialog.setInitialTab(AddBasemapDialog::Wfs);
 
     // What the map is looking at: one catchment's worth, not a country's.
     dialog.setPreferredExtent(QRectF(QPointF(4.0, 51.0), QPointF(6.0, 53.0)));
@@ -227,7 +234,7 @@ void TestWfsService::choosingACollectionFetchesItOverTheGroundInView()
     // Accepted only once the features are in hand, because a request that
     // is well formed can still come back holding nothing.
     QVERIFY2(waitFor([&] { return dialog.result() == QDialog::Accepted; }),
-             qPrintable(dialog.status()));
+             qPrintable(dialog.wfsStatus()));
 
     const QUrlQuery query(QUrl(server.lastRequest()).query());
 
@@ -248,7 +255,8 @@ void TestWfsService::choosingACollectionFetchesItOverTheGroundInView()
     QVERIFY(query.queryItemValue(QStringLiteral("OUTPUTFORMAT"))
                 .contains(QStringLiteral("json")));
 
-    std::unique_ptr<WFSLayer> layer(dialog.takeLayer());
+    std::unique_ptr<WFSLayer> layer(
+        qobject_cast<WFSLayer *>(dialog.createLayer(nullptr)));
 
     QVERIFY(layer != nullptr);
     QCOMPARE(layer->featureCount(), 2);
@@ -266,7 +274,9 @@ void TestWfsService::aCollectionHoldingNothingThereSaysSoAndStaysOpen()
     server.answerFeaturesWith(
         R"({"type":"FeatureCollection","features":[]})");
 
-    WFSServiceDialog dialog;
+    AddBasemapDialog dialog;
+
+    dialog.setInitialTab(AddBasemapDialog::Wfs);
     dialog.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))
         ->setText(server.endpoint());
     dialog.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))
@@ -283,15 +293,15 @@ void TestWfsService::aCollectionHoldingNothingThereSaysSoAndStaysOpen()
         ->click();
 
     QVERIFY2(waitFor([&] {
-                 return dialog.status().contains(QStringLiteral("no features"));
+                 return dialog.wfsStatus().contains(QStringLiteral("no features"));
              }),
-             qPrintable(dialog.status()));
+             qPrintable(dialog.wfsStatus()));
 
     // Said where the user is looking, rather than after the dialog has
     // closed on an empty layer — and they can pick another without
     // starting again.
     QVERIFY(dialog.result() != QDialog::Accepted);
-    QVERIFY(dialog.takeLayer() == nullptr);
+    QVERIFY(dialog.createLayer(nullptr) == nullptr);
     QVERIFY(dialog.findChild<QDialogButtonBox *>()
                 ->button(QDialogButtonBox::Ok)
                 ->isEnabled());
@@ -302,32 +312,35 @@ void TestWfsService::anAddressThatIsNotAFeatureServiceSaysWhatItSaid()
     LocalWfs server;
     server.refuseCapabilities();
 
-    WFSServiceDialog dialog;
+    AddBasemapDialog dialog;
+
+    dialog.setInitialTab(AddBasemapDialog::Wfs);
     dialog.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))
         ->setText(server.endpoint());
     dialog.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))
         ->click();
 
     QVERIFY(waitFor([&] {
-        return !dialog.status().contains(QStringLiteral("Asking"));
+        return !dialog.wfsStatus().contains(QStringLiteral("Asking"));
     }));
 
     // The server said why, and that is more use than this program's guess.
-    QVERIFY2(dialog.status().contains(QStringLiteral("not supported")),
-             qPrintable(dialog.status()));
+    QVERIFY2(dialog.wfsStatus().contains(QStringLiteral("not supported")),
+             qPrintable(dialog.wfsStatus()));
     QCOMPARE(dialog.findChild<QListWidget *>(
                  QStringLiteral("wfsCollectionList"))
                  ->count(),
              0);
 
     // And nothing typed that is not an address is fetched at all.
-    WFSServiceDialog nowhere;
+    AddBasemapDialog nowhere;
+    nowhere.setInitialTab(AddBasemapDialog::Wfs);
     nowhere.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))
         ->setText(QStringLiteral("this is not a url"));
     nowhere.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))
         ->click();
 
-    QVERIFY(nowhere.status().contains(QStringLiteral("not a web address")));
+    QVERIFY(nowhere.wfsStatus().contains(QStringLiteral("not a web address")));
 }
 
 void TestWfsService::aLayerKeepsItsFeaturesReadableForItsWholeLife()
