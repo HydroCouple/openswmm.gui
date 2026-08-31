@@ -124,6 +124,7 @@
 #include "ui/panels/layerstylingdock.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/climatologydialog.h"
+#include "ui/dialogs/heatconfigdialog.h"
 #include "ui/dialogs/wateragesourcesdialog.h"
 #include "ui/dialogs/initialqualitydialog.h"
 #include "ui/dialogs/reactionsystemeditordialog.h"
@@ -3919,6 +3920,11 @@ void SWMMVis::initializeMenus()
     if (ui->actionEditReactionSystem)
         connect(ui->actionEditReactionSystem, &QAction::triggered,
                 this, &SWMMVis::onEditReactionSystem);
+    // Heat configuration editor (G4g) — [HEAT_SOURCES], [HEAT_FLUXES],
+    // and H6a's radiative / solar / cloud forcing.
+    if (ui->actionEditHeatConfig)
+        connect(ui->actionEditHeatConfig, &QAction::triggered,
+                this, &SWMMVis::onEditHeatConfig);
 
     // Toolbar quick-wins (Phase 2).
     if (ui->actionSearch)
@@ -6979,6 +6985,22 @@ void SWMMVis::onEditInitialQuality()
         if (mAttributeTablePanel)
             mAttributeTablePanel->refresh();
     }
+}
+
+void SWMMVis::onEditHeatConfig()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
+    {
+        onLogMessage(tr("Open a SWMM project first to edit the heat "
+                        "configuration."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+
+    OpenSWMMVis::HeatConfigDialog dlg(pw->modelLayer()->engine(), this);
+    if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
+        pw->setHasChanges(true);
 }
 
 void SWMMVis::onEditReactionSystem()
