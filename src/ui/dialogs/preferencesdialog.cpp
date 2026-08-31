@@ -781,7 +781,35 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
     m_simSurchargeCombo->addItem(tr("EXTRAN (legacy)"),    QStringLiteral("EXTRAN"));
     m_simSurchargeCombo->addItem(tr("SLOT (Preissmann)"),  QStringLiteral("SLOT"));
     m_simSurchargeCombo->addItem(tr("DYNAMIC_SLOT"),       QStringLiteral("DYNAMIC_SLOT"));
+    m_simSurchargeCombo->addItem(tr("TPA (experimental)"), QStringLiteral("TPA"));
     condForm->addRow(tr("Surcharge method"), m_simSurchargeCombo);
+
+    m_simUnsteadyFrictionCombo = new QComboBox(condGroup);
+    m_simUnsteadyFrictionCombo->addItem(tr("None"),      QStringLiteral("NONE"));
+    m_simUnsteadyFrictionCombo->addItem(tr("Vitkovsky"), QStringLiteral("VITKOVSKY"));
+    m_simUnsteadyFrictionCombo->setToolTip(tr(
+        "UNSTEADY_FRICTION. Consumed by dynamic-wave and finite-volume "
+        "routing; requires the refactored engine."));
+    condForm->addRow(tr("Unsteady friction"), m_simUnsteadyFrictionCombo);
+
+    m_simUfK3Spin = new QDoubleSpinBox(condGroup);
+    m_simUfK3Spin->setRange(0.0, 0.05);
+    m_simUfK3Spin->setDecimals(3);
+    m_simUfK3Spin->setSingleStep(0.005);
+    m_simUfK3Spin->setToolTip(tr(
+        "UF_K3. Vitkovsky coefficient; used only when an unsteady-friction "
+        "method is selected."));
+    condForm->addRow(tr("Unsteady friction k3 (UF_K3)"), m_simUfK3Spin);
+
+    auto syncUfK3 = [this]() {
+        m_simUfK3Spin->setEnabled(
+            m_simUnsteadyFrictionCombo->currentData().toString()
+                != QStringLiteral("NONE"));
+    };
+    connect(m_simUnsteadyFrictionCombo,
+            qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [syncUfK3](int) { syncUfK3(); });
+    syncUfK3();
 
     outer->addWidget(condGroup);
 
@@ -1522,6 +1550,8 @@ void PreferencesDialog::readFromManager()
         selData(m_simNormalFlowCombo,       d.normalFlowLimited);
         selData(m_simForceMainCombo,        d.forceMainEquation);
         selData(m_simSurchargeCombo,        d.surchargeMethod);
+        selData(m_simUnsteadyFrictionCombo, d.unsteadyFriction);
+        m_simUfK3Spin            ->setValue(d.ufK3);
 
         m_simVariableStepBox     ->setChecked(d.variableStepOn);
         m_simVariableStepFactorSpin->setValue(d.variableStepFactor);
@@ -1746,6 +1776,8 @@ void PreferencesDialog::writeToManager()
         d.normalFlowLimited  =  m_simNormalFlowCombo     ->currentData().toString();
         d.forceMainEquation  =  m_simForceMainCombo      ->currentData().toString();
         d.surchargeMethod    =  m_simSurchargeCombo      ->currentData().toString();
+        d.unsteadyFriction   =  m_simUnsteadyFrictionCombo->currentData().toString();
+        d.ufK3               =  m_simUfK3Spin            ->value();
         d.variableStepOn     =  m_simVariableStepBox     ->isChecked();
         d.variableStepFactor =  m_simVariableStepFactorSpin->value();
         d.minRoutingStepSec  =  m_simMinRoutingStepSpin  ->value();
@@ -2022,6 +2054,8 @@ void PreferencesDialog::onResetToDefaults()
         sel(m_simNormalFlowCombo,   d.normalFlowLimited);
         sel(m_simForceMainCombo,    d.forceMainEquation);
         sel(m_simSurchargeCombo,    d.surchargeMethod);
+        sel(m_simUnsteadyFrictionCombo, d.unsteadyFriction);
+        m_simUfK3Spin            ->setValue(d.ufK3);
 
         m_simVariableStepBox     ->setChecked(d.variableStepOn);
         m_simVariableStepFactorSpin->setValue(d.variableStepFactor);
