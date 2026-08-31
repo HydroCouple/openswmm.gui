@@ -781,7 +781,6 @@ set(
         include/ui/dialogs/kindtreesymbologypanel.h
         include/ui/dialogs/layerstyledialog.h
         include/ui/dialogs/sublayerselectiondialog.h
-        include/ui/dialogs/wfsservicedialog.h
         # FEATURE_LAYER_TO_SWMM_IMPORT — feature layer → SWMM objects
         # import dialog (workplans/FEATURE_LAYER_TO_SWMM_IMPORT_DIALOG_
         # PLAN_2026-07-18.md).
@@ -1023,7 +1022,6 @@ set(
         src/layers/wmslayer.cpp
         src/layers/wmtslayer.cpp
         src/layers/wfslayer.cpp
-        src/ui/dialogs/wfsservicedialog.cpp
         src/layers/swmmmodellayer.cpp
         src/layers/hydrographmodels.cpp
         src/layers/speciesattributes.cpp
