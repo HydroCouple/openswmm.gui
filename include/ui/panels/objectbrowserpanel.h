@@ -114,6 +114,12 @@ public:
      *  production paths). */
     void launchAddNewEditor(SWMMModelLayer::DataCategory dc);
 
+    /*! 2026-08-31 — launch the per-category complex editor in review/browse
+     *  mode: nothing is created, the user picks from the editor's own list
+     *  (and can create via its Add/New button). Used by the Data menu and
+     *  the ribbon's Data Objects buttons. No-op for gap categories. */
+    void launchBrowseEditor(SWMMModelLayer::DataCategory dc);
+
     /*! 2026-05-29 — Open the comprehensive editor for an existing data
      *  object referenced by \p ref, with that object pre-selected for
      *  editing. Shared between three surfaces: the object-browser leaf

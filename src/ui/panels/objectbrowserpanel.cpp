@@ -955,3 +955,12 @@ void ObjectBrowserPanel::launchAddNewEditor(SWMMModelLayer::DataCategory dc)
     entry->openCreateNew(m_layer, stack, this);
 }
 
+void ObjectBrowserPanel::launchBrowseEditor(SWMMModelLayer::DataCategory dc)
+{
+    if (!m_layer) return;
+    const auto *entry = ComprehensiveEditorRegistry::instance().find(dc);
+    if (!entry || !entry->openBrowse) return;
+    QUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
+    entry->openBrowse(m_layer, stack, this);
+}
+
