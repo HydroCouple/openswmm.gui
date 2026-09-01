@@ -30,6 +30,7 @@
 #include <QHeaderView>
 #include <QMetaEnum>
 #include <QElapsedTimer>
+#include <QScopeGuard>
 #include <QLoggingCategory>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
@@ -238,6 +239,10 @@ Q_LOGGING_CATEGORY(lcLoadProject, "openswmm.load.project")
 // 2D mesh auto-load breakdown (INP/.2dm parse vs scene-geometry build) —
 // Mesh Tiled LOD plan Phase 0/1.
 Q_LOGGING_CATEGORY(lcLoadMesh, "openswmm.load.mesh")
+// GUI-thread tail of a file open (BULK_DELETE_AND_WINDOWS_OPEN_PERF_PLAN
+// Phase 0): dock rebinds, warning drains, settings writes, .inp re-reads —
+// everything the worker-side categories above cannot see.
+Q_LOGGING_CATEGORY(lcLoadGui, "openswmm.load.gui")
 
 namespace {
 
@@ -4855,8 +4860,15 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
     // Real warnings first (Phase-0 counts/timing no longer land here — they
     // go to the openswmm.load.model category), then the single success/error
     // summary via endFileOpen (also clears the spinner + status bar).
-    for (const QString &w : warnings)
-        onLogMessage(w, OpenSWMMVisLogMessage::LogMessageType::Warning);
+    {
+        QElapsedTimer drainTimer;
+        drainTimer.start();
+        for (const QString &w : warnings)
+            onLogMessage(w, OpenSWMMVisLogMessage::LogMessageType::Warning);
+        if (!warnings.isEmpty())
+            qCDebug(lcLoadGui) << "warning drain:" << warnings.size()
+                               << "rows in" << drainTimer.elapsed() << "ms";
+    }
 
     QString summary;
     if (ok && window && window->modelLayer()) {
@@ -4885,7 +4897,13 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
         mRecentFiles.removeAll(filePath);
         mRecentFiles.prepend(filePath);
         onRecentFilesSizeChanged();
-        saveSettings();
+        {
+            QElapsedTimer settingsTimer;
+            settingsTimer.start();
+            saveSettings();
+            qCDebug(lcLoadGui) << "saveSettings (per-open):"
+                               << settingsTimer.elapsed() << "ms";
+        }
 
         // Slice X — apply the co-located .oswp sidecar if one exists.
         // Hydrates GUI-only state (layer CRS, category / object order,
@@ -5463,7 +5481,11 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
     const QJsonArray pending = window->pending2DResultsRestore();
     QString h5Path = h5Override;
     if (!explicitAdd) {
+        QElapsedTimer twoDScanTimer;
+        twoDScanTimer.start();
         h5Path = SimulationRunner::parseTwoDOutputFile(filePath);
+        qCDebug(lcLoadGui) << "parseTwoDOutputFile (GUI-thread .inp scan):"
+                           << twoDScanTimer.elapsed() << "ms";
         if (h5Path.isEmpty() || !QFileInfo::exists(h5Path)) {
             for (const QJsonValue &v : pending) {
                 const QString p =
@@ -5799,6 +5821,17 @@ void SWMMVis::onOpenRecentFile(QAction *action)
 
 void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
 {
+    // Perf-plan Phase 0: this rebind pass runs 3x per file open and touches
+    // every dock — time each invocation so the tail is visible in profiles.
+    QElapsedTimer rebindTimer;
+    rebindTimer.start();
+    const auto logRebind = qScopeGuard([&rebindTimer, window] {
+        qCDebug(lcLoadGui) << "onActiveSubWindowChanged:"
+                           << rebindTimer.elapsed() << "ms"
+                           << (window ? window->metaObject()->className()
+                                      : "null");
+    });
+
     auto *pw = qobject_cast<SWMMVisProjectWindow *>(window);
 
     // Main-window title follows the active MDI tab so macOS / Linux
