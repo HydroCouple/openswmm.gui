@@ -394,12 +394,23 @@ void HeatConfigDialog::readFromEngine()
 {
     if (!m_engine) return;
 
-    // Timeseries combos: the model's table names, behind a "keep" row —
-    // the engine has no getter for the bound series NAME (recorded gap),
-    // so selecting a name REBINDS and the placeholder is the no-op.
-    const QString keep = tr("(keep current series)");
-    m_swTsCombo->addItem(keep, QString());
-    m_cloudTsCombo->addItem(keep, QString());
+    // Timeseries combos: the model's table names, DISPLAYING the bound
+    // series by name (swmm_heat_get_*_timeseries — the getters that closed
+    // G4g's recorded gap). The placeholder row exists only while nothing is
+    // bound; with a binding the bound name is preselected, and the OK path
+    // writes only when the selection moved off the hydrated value.
+    char tsbuf[256] = {0};
+    if (swmm_heat_get_shortwave_timeseries(m_engine, tsbuf, sizeof tsbuf)
+            == SWMM_OK)
+        m_swTsInitial = QString::fromUtf8(tsbuf);
+    tsbuf[0] = '\0';
+    if (swmm_heat_get_cloud_timeseries(m_engine, tsbuf, sizeof tsbuf)
+            == SWMM_OK)
+        m_cloudTsInitial = QString::fromUtf8(tsbuf);
+
+    const QString none = tr("(none bound)");
+    if (m_swTsInitial.isEmpty()) m_swTsCombo->addItem(none, QString());
+    if (m_cloudTsInitial.isEmpty()) m_cloudTsCombo->addItem(none, QString());
     const int nt = swmm_table_count(m_engine);
     for (int i = 0; i < nt; ++i) {
         const char *id = swmm_table_id(m_engine, i);
@@ -407,6 +418,14 @@ void HeatConfigDialog::readFromEngine()
         m_swTsCombo->addItem(QString::fromUtf8(id), QString::fromUtf8(id));
         m_cloudTsCombo->addItem(QString::fromUtf8(id),
                                 QString::fromUtf8(id));
+    }
+    if (!m_swTsInitial.isEmpty()) {
+        const int at = m_swTsCombo->findData(m_swTsInitial);
+        if (at >= 0) m_swTsCombo->setCurrentIndex(at);
+    }
+    if (!m_cloudTsInitial.isEmpty()) {
+        const int at = m_cloudTsCombo->findData(m_cloudTsInitial);
+        if (at >= 0) m_cloudTsCombo->setCurrentIndex(at);
     }
 
     // Sources
@@ -620,7 +639,11 @@ int HeatConfigDialog::writeRadiative()
     const QString pickedTs = m_swTsCombo->currentData().toString();
 
     if (m_swTimeseries->isChecked()) {
-        if (!pickedTs.isEmpty()) {
+        // Rebind only when the selection moved off the hydrated binding OR
+        // the mode itself must flip to TIMESERIES — reselecting the bound
+        // name in TIMESERIES mode is the no-op position.
+        if (!pickedTs.isEmpty() &&
+            (pickedTs != m_swTsInitial || mode != SWMM_HEAT_SW_TIMESERIES)) {
             if (swmm_heat_set_shortwave_timeseries(
                     m_engine, pickedTs.toUtf8().constData()) == SWMM_OK)
                 ++writes;
@@ -680,7 +703,7 @@ int HeatConfigDialog::writeCloud()
             ++writes;
     }
     const QString pickedTs = m_cloudTsCombo->currentData().toString();
-    if (!pickedTs.isEmpty() &&
+    if (!pickedTs.isEmpty() && pickedTs != m_cloudTsInitial &&
         swmm_heat_set_cloud_timeseries(m_engine,
                                        pickedTs.toUtf8().constData())
             == SWMM_OK)

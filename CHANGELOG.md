@@ -28,9 +28,12 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
   invents neither `[HEAT_SOURCES]` rows nor cloud cover), authoring limits
   mirror the engine parser, and the COMPUTED-shortwave option is gated on
   an explicit site. Unblocked by the engine's IO3a–IO3c save chain: edits
-  survive `swmm_model_write` on every model. Known gap recorded: the
+  survive `swmm_model_write` on every model. ~~Known gap recorded: the
   engine exposes no getter for a bound shortwave/cloud timeseries NAME, so
-  those combos rebind behind a "(keep current series)" placeholder.
+  those combos rebind behind a "(keep current series)" placeholder.~~
+  **Gap closed (2026-09-01):** the engine gained the name getters
+  (`d868b2c3`), and the shortwave/cloud combos now display and preselect
+  the bound series; OK rebinds only when the selection actually moves.
 
 - **Water quality and transport reach the GUI.** Simulation Options gains a
   **Quality & Transport** page exposing the quality solver choice (legacy,

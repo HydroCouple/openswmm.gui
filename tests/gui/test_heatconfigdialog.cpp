@@ -27,6 +27,7 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_heat.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_tables.h>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -34,6 +35,7 @@
 #include <QDoubleSpinBox>
 #include <QObject>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QTableWidget>
 #include <QTest>
 
@@ -82,6 +84,7 @@ private slots:
     void uncheckingClearsAConfiguredSource();
     void overrideSourcesAreParserScoped();
     void cloudEnableConfiguresAndUncheckClears();
+    void boundTimeseriesNamesDisplayAndRebindOnlyOnChange();
 };
 
 void TestHeatConfigDialog::constructsWithNullEngine()
@@ -245,6 +248,52 @@ void TestHeatConfigDialog::cloudEnableConfiguresAndUncheckClears()
     QCOMPARE(swmm_heat_get_cloud_configured(e, &configured), SWMM_OK);
     QCOMPARE(configured, 0);
 
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::boundTimeseriesNamesDisplayAndRebindOnlyOnChange()
+{
+    // The G4g gap, closed end to end: the engine getters (d868b2c3) hand
+    // the dialog the bound series NAME, the combo displays and preselects
+    // it, and OK rebinds only when the selection moved off it.
+    SWMM_Engine e = makeHeatEngine();
+    QCOMPARE(swmm_timeseries_add(e, "sw_series"), SWMM_OK);
+    QCOMPARE(swmm_timeseries_add(e, "alt_series"), SWMM_OK);
+    QCOMPARE(swmm_heat_set_shortwave_timeseries(e, "sw_series"), SWMM_OK);
+
+    {   // Displays the binding, and an untouched OK is still a no-op —
+        // reselecting what was shown must not count as a rebind.
+        HeatConfigDialog dlg(e);
+        auto *combo = dlg.findChild<QComboBox *>(
+            QStringLiteral("hc_swTsCombo"));
+        QVERIFY(combo);
+        QCOMPARE(combo->currentData().toString(),
+                 QStringLiteral("sw_series"));
+        // No binding on the cloud side: the placeholder row is selected.
+        auto *cloud = dlg.findChild<QComboBox *>(
+            QStringLiteral("hc_cloudTsCombo"));
+        QVERIFY(cloud);
+        QVERIFY(cloud->currentData().toString().isEmpty());
+        clickOk(dlg);
+        QVERIFY(!dlg.wroteAnyChanges());
+    }
+
+    {   // A real rebind writes, and the getter sees the new name.
+        HeatConfigDialog dlg(e);
+        auto *radio = dlg.findChild<QRadioButton *>(
+            QStringLiteral("hc_swTimeseries"));
+        QVERIFY(radio);
+        radio->setChecked(true);
+        auto *combo = dlg.findChild<QComboBox *>(
+            QStringLiteral("hc_swTsCombo"));
+        combo->setCurrentIndex(combo->findData(QStringLiteral("alt_series")));
+        clickOk(dlg);
+        QVERIFY(dlg.wroteAnyChanges());
+        char buf[64] = {0};
+        QCOMPARE(swmm_heat_get_shortwave_timeseries(e, buf, sizeof buf),
+                 SWMM_OK);
+        QCOMPARE(QString::fromUtf8(buf), QStringLiteral("alt_series"));
+    }
     swmm_engine_destroy(e);
 }
 

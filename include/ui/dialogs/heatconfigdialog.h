@@ -102,6 +102,10 @@ private:
     QRadioButton *m_swComputed = nullptr;
     QDoubleSpinBox *m_swConstSpin = nullptr;
     QComboBox *m_swTsCombo = nullptr;
+    /// Bound series names as hydrated (swmm_heat_get_*_timeseries), so the
+    /// OK path can tell a real rebind from reselecting what was shown.
+    QString m_swTsInitial;
+    QString m_cloudTsInitial;
     QDoubleSpinBox *m_radSpin[8] = {};        ///< index = param enum; [0] unused
 
     // Solar tab
