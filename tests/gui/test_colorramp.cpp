@@ -129,9 +129,11 @@ private slots:
     void builtin_names_lists_all_entries()
     {
         // Slice BB-α shipped 13 entries; Slice BB-β added 10 Plotly
-        // continuous palettes; the mesh terrain palette adds one — total 24.
+        // continuous palettes; the mesh terrain palette adds one; the
+        // 2026-09-01 water-depth ramp adds one — total 25.
         const QStringList names = RasterColorRamp::builtinNames();
-        QCOMPARE(names.size(), 24);
+        QCOMPARE(names.size(), 25);
+        QVERIFY(names.contains(QStringLiteral("Water Depth")));
         QVERIFY(names.contains(QStringLiteral("Viridis")));
         QVERIFY(names.contains(QStringLiteral("Plasma")));
         QVERIFY(names.contains(QStringLiteral("RdBu")));
@@ -162,6 +164,35 @@ private slots:
         for (int i = 0; i < expected.size(); ++i) {
             QCOMPARE(r.stops[i].first,  expected[i].first);
             QCOMPARE(r.stops[i].second, expected[i].second);
+        }
+    }
+
+    void builtin_waterDepth_carries_alpha_gradient()
+    {
+        // 2026-09-01 — the 2D depth-fill default, in the user's stated
+        // direction: deeper water = dark blue, shallower = lighter shade.
+        // Translucent near-white blue at the shallow end (the shoreline
+        // fades into the terrain), fully opaque deep navy at maximum depth.
+        // The alpha gradient is the point of the ramp, so pin both ends
+        // and the interpolation.
+        const RasterColorRamp r =
+            RasterColorRamp::builtin(QStringLiteral("Water Depth"));
+        QCOMPARE(r.interp, RampInterp::Rgb);
+        QCOMPARE(r.stops.first().first, 0.0);
+        QCOMPARE(r.stops.last().first,  1.0);
+        QCOMPARE(r.stops.first().second, QColor(0xf7, 0xfb, 0xff, 100));
+        QCOMPARE(r.stops.last().second,  QColor(0x08, 0x30, 0x6b, 255));
+        // Alpha interpolates through the middle rather than jumping.
+        const int aMid = r.colorAt(0.5).alpha();
+        QVERIFY2(aMid > 100 && aMid < 255,
+                 qPrintable(QStringLiteral("mid alpha %1 not interpolated")
+                                .arg(aMid)));
+        // Deeper is never more transparent.
+        int prev = r.colorAt(0.0).alpha();
+        for (double t = 0.1; t <= 1.0001; t += 0.1) {
+            const int a = r.colorAt(t).alpha();
+            QVERIFY(a >= prev);
+            prev = a;
         }
     }
 

@@ -51,20 +51,23 @@
 #include <utility>
 
 // ---------------------------------------------------------------------------
-// Inundation colour ramp — dry → light cyan → cyan → blue → magenta → yellow
-// Stops chosen so wet areas pop visually against the terrain-ramped mesh
-// layer below (which is heavily green/brown).
+// Inundation colour ramp (2026-09-01) — mirrors the "Water Depth" builtin
+// (RasterColorRamp::waterDepth): translucent near-white blue at barely-wet
+// deepening to a fully opaque navy at maximum depth (user direction: deeper
+// water = dark blue, shallower = lighter shade; the shoreline fades into
+// the terrain beneath). Keep the two in sync — this copy serves the CPU
+// paint path and the legend swatches.
 // ---------------------------------------------------------------------------
 
 namespace {
 
-struct Stop { double t; int r, g, b; };
+struct Stop { double t; int r, g, b, a; };
 constexpr Stop kInundationStops[] = {
-    {0.00, 0x9d, 0xe2, 0xf2},  // light cyan — barely wet
-    {0.20, 0x1e, 0x88, 0xe5},  // bright blue
-    {0.50, 0x05, 0x3c, 0x8a},  // deep navy
-    {0.75, 0xc6, 0x28, 0x28},  // crimson — danger
-    {1.00, 0xff, 0xeb, 0x3b},  // yellow — saturated
+    {0.00, 0xf7, 0xfb, 0xff, 100},  // near-white blue, translucent
+    {0.25, 0xc6, 0xdb, 0xef, 160},  // pale blue
+    {0.50, 0x6b, 0xae, 0xd6, 210},  // mid blue
+    {0.75, 0x21, 0x71, 0xb5, 240},  // strong blue
+    {1.00, 0x08, 0x30, 0x6b, 255},  // deep navy, fully opaque
 };
 
 void inundationColorRgba(double depth, double dry_depth, double max_depth,
@@ -86,7 +89,8 @@ void inundationColorRgba(double depth, double dry_depth, double max_depth,
     r = int(std::lround(lo.r + f * (hi.r - lo.r)));
     g = int(std::lround(lo.g + f * (hi.g - lo.g)));
     b = int(std::lround(lo.b + f * (hi.b - lo.b)));
-    a = 210;
+    // Alpha rides the ramp too: the shallow end is translucent by design.
+    a = int(std::lround(lo.a + f * (hi.a - lo.a)));
 }
 
 // CF.2 — sequential velocity-magnitude ramp (Viridis-inspired). Distinct
@@ -1166,6 +1170,15 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     // the basemap underneath. Users can still switch from the layer tree.
     if (m_smoothDepthFillSublayer) m_smoothDepthFillSublayer->setVisible(false);
     if (m_contourBandSublayer)     m_contourBandSublayer->setVisible(true);
+
+    // 2026-09-01 — the depth contour bands default to the "Water Depth" ramp
+    // (translucent near-white blue → opaque deep navy). Overridden HERE, not
+    // in the ContourBandStyle constructor, because that style bag is shared
+    // with the mesh layer's ELEVATION bands, which must keep viridis. A
+    // project-saved style loads after construction and still wins.
+    if (m_contourBandSublayer)
+        if (auto *bs = m_contourBandSublayer->bandStyle())
+            bs->setColorRampName(QStringLiteral("Water Depth"));
 
     // Phase 9 (2026-05-25) — sublayer.invalidated() routes to the existing
     // graphics-item update path. This is what makes the layer-tree

@@ -584,6 +584,27 @@ RasterColorRamp RasterColorRamp::bluered(double min, double max)
     return r;
 }
 
+RasterColorRamp RasterColorRamp::waterDepth(double min, double max)
+{
+    RasterColorRamp r;
+    r.minValue = min;
+    r.maxValue = max;
+    r.interp   = RampInterp::Rgb;
+    // ColorBrewer "Blues" hues with an alpha gradient, low → high depth:
+    // barely-wet cells are a translucent near-white blue (the shoreline
+    // fades into the terrain beneath), deepening to a fully opaque navy at
+    // maximum depth (user direction 2026-09-01: deeper water = dark blue,
+    // shallower = lighter shade).
+    r.stops    = {
+        {0.00, QColor(0xf7, 0xfb, 0xff, 100)},  // near-white blue, translucent
+        {0.25, QColor(0xc6, 0xdb, 0xef, 160)},  // pale blue
+        {0.50, QColor(0x6b, 0xae, 0xd6, 210)},  // mid blue
+        {0.75, QColor(0x21, 0x71, 0xb5, 240)},  // strong blue
+        {1.00, QColor(0x08, 0x30, 0x6b, 255)},  // deep navy, fully opaque
+    };
+    return r;
+}
+
 namespace
 {
 
@@ -594,9 +615,9 @@ struct BuiltinEntry
     RasterColorRamp (*factory)(double, double);
 };
 
-const std::array<BuiltinEntry, 24> &builtinTable()
+const std::array<BuiltinEntry, 25> &builtinTable()
 {
-    static const std::array<BuiltinEntry, 24> table = {{
+    static const std::array<BuiltinEntry, 25> table = {{
         {QStringLiteral("grayscale"),             QStringLiteral("Grayscale"),             &RasterColorRamp::grayscale},
         {QStringLiteral("viridis"),               QStringLiteral("Viridis"),               &RasterColorRamp::viridis},
         {QStringLiteral("plasma"),                QStringLiteral("Plasma"),                &RasterColorRamp::plasma},
@@ -622,6 +643,9 @@ const std::array<BuiltinEntry, 24> &builtinTable()
         {QStringLiteral("portland"),              QStringLiteral("Portland"),              &RasterColorRamp::portland},
         {QStringLiteral("rainbow"),               QStringLiteral("Rainbow"),               &RasterColorRamp::rainbow},
         {QStringLiteral("bluered"),               QStringLiteral("Bluered"),               &RasterColorRamp::bluered},
+        // 2026-09-01 — depth-fill default: translucent near-white blue →
+        // opaque deep navy (the one builtin with an alpha gradient).
+        {QStringLiteral("water-depth"),           QStringLiteral("Water Depth"),           &RasterColorRamp::waterDepth},
     }};
     return table;
 }
