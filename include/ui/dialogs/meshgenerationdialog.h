@@ -169,6 +169,24 @@ public:
         mesh::pslg::MinSizePolicy minSizePolicy;
         bool                      minSizeCleanup = true;
 
+        // 2026-09-01 — V2 enforcement mode
+        // (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN_2026-09-01.md Track A).
+        // When on (requires minSizePolicy.enabled()): coupling identities may
+        // merge within the weld radius (the merged node couples via its
+        // containing cell, the nodeMinSeparation demotion idiom), the
+        // effective node separation is raised to at least h, and the
+        // post-mesh cleanup may absorb slivers into identity vertices.
+        // Default off = V1 "advisory" behaviour, bit-identical meshes.
+        bool minSizeEnforce = false;
+
+        // 2026-09-01 — graded sizing (V2 plan Track B).  > 0 replaces the
+        // uniform maxArea cap with a size field that keeps maxArea AT the
+        // constrained features and lets the permitted area grow with distance
+        // at this Lipschitz slope — strictly fewer cells, smooth transitions.
+        // Requires genOpts.maxArea > 0 (there is no uniform cap to relax
+        // otherwise).  0 = off (uniform cap, existing behaviour).
+        double sizeGradation = 0.0;
+
         // Terrain-adaptive thinning
         bool                    doThinning = false;
         mesh::DTMThinnerOptions thinnerOpts;
@@ -342,6 +360,7 @@ private:
     // ── Quality ─────────────────────────────────────────────────────
     QDoubleSpinBox *m_maxAreaSpin      = nullptr;
     QDoubleSpinBox *m_minAngleSpin     = nullptr;
+    QDoubleSpinBox *m_gradationSpin    = nullptr;  ///< size gradation g; (uniform) at 0
     QSpinBox       *m_maxSteinerSpin   = nullptr;
     // PSLG optimizations
     QDoubleSpinBox *m_simplifyEpsSpin  = nullptr; ///< RDP tolerance (map units; 0 = off)
@@ -353,6 +372,7 @@ private:
 
     // ── Minimum cell size (MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17) ──
     QDoubleSpinBox *m_minCellSizeSpin      = nullptr; ///< h, map units; (off) at 0
+    QCheckBox      *m_minSizeEnforceBox    = nullptr; ///< V2 enforcement mode
     QPushButton    *m_minCellSuggestBtn    = nullptr;
     QDoubleSpinBox *m_trimAngleSpin        = nullptr; ///< corner trim threshold (deg)
     QCheckBox      *m_trimAtNodesBox       = nullptr;
