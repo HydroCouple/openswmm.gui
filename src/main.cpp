@@ -11,7 +11,12 @@
  * \warning
  * \todo
  */
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QLocale>
+#include <QMutex>
+#include <QStandardPaths>
 #include <QTranslator>
 #include <QScopedPointer>
 #include <QCommandLineParser>
@@ -19,11 +24,90 @@
 #include <QSurfaceFormat>
 #include <QtQml/qqml.h>
 
+#include <cstdio>
+
 #include "swmmvisapplication.h"
 #include "swmmvis.h"
 #include "map/swmmlayerqsgrenderer.h"
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
+
+// ── File-tee message handler ─────────────────────────────────────────────
+// BULK_DELETE_AND_WINDOWS_OPEN_PERF_PLAN Phase 0.  On Windows the app is a
+// WIN32_EXECUTABLE with no console and no message handler, so every
+// qDebug/qCInfo — including the openswmm.load.* profiling categories — goes
+// only to OutputDebugString and is unreachable without DebugView.  This
+// opt-in tee writes every message to a file the user can actually read.
+//
+// Opt in with SWMM_LOG_FILE=<path>, or SWMM_LOG_FILE=1 for the default
+// location under AppDataLocation/logs.  The chosen path is printed to
+// stderr and written as the file's first line, so the location is always
+// discoverable.  The previous handler is chained so platform behaviour
+// (and any handler a test installs LATER, which replaces this one) is
+// unchanged.  Messages arrive from worker threads too, hence the mutex.
+
+namespace {
+
+QtMessageHandler g_prevMessageHandler = nullptr;
+FILE            *g_logFileHandle      = nullptr;
+QBasicMutex      g_logFileMutex;
+
+void fileTeeMessageHandler(QtMsgType type, const QMessageLogContext &ctx,
+                           const QString &msg)
+{
+    {
+        QMutexLocker lock(&g_logFileMutex);
+        if (g_logFileHandle)
+        {
+            const QByteArray line =
+                QDateTime::currentDateTime()
+                    .toString(QStringLiteral("hh:mm:ss.zzz "))
+                    .toUtf8()
+                + (ctx.category ? QByteArray(ctx.category) + ": "
+                                : QByteArray())
+                + msg.toUtf8() + '\n';
+            std::fwrite(line.constData(), 1, size_t(line.size()),
+                        g_logFileHandle);
+            std::fflush(g_logFileHandle);
+        }
+    }
+    if (g_prevMessageHandler) g_prevMessageHandler(type, ctx, msg);
+}
+
+void installFileTeeIfRequested()
+{
+    const QByteArray req = qgetenv("SWMM_LOG_FILE");
+    if (req.isEmpty()) return;
+
+    QString path = QString::fromLocal8Bit(req);
+    if (path == QLatin1String("1") || path.compare(QLatin1String("auto"),
+                                                   Qt::CaseInsensitive) == 0)
+    {
+        const QString dir = QStandardPaths::writableLocation(
+                                QStandardPaths::AppDataLocation)
+                            + QStringLiteral("/logs");
+        QDir().mkpath(dir);
+        path = dir + QStringLiteral("/swmmvis-")
+             + QDateTime::currentDateTime().toString(
+                   QStringLiteral("yyyyMMdd-hhmmss"))
+             + QStringLiteral(".log");
+    }
+
+    g_logFileHandle = std::fopen(QFile::encodeName(path).constData(), "a");
+    if (!g_logFileHandle)
+    {
+        std::fprintf(stderr, "SWMM_LOG_FILE: cannot open '%s' for append\n",
+                     qPrintable(path));
+        return;
+    }
+    std::fprintf(g_logFileHandle, "== SWMMVis log %s ==\n",
+                 qPrintable(QDateTime::currentDateTime().toString(Qt::ISODate)));
+    std::fflush(g_logFileHandle);
+    std::fprintf(stderr, "SWMM_LOG_FILE: logging to %s\n", qPrintable(path));
+    g_prevMessageHandler = qInstallMessageHandler(fileTeeMessageHandler);
+}
+
+} // namespace
 
 /*!
  * \brief main
@@ -33,6 +117,10 @@
  */
 int main(int argc, char *argv[])
     {
+    // Perf-plan Phase 0 — opt-in file logging (SWMM_LOG_FILE).  Installed
+    // before anything can log so early open phases are captured.
+    installFileTeeIfRequested();
+
     // §QSG-3 — Force the Qt Scene Graph onto the OpenGL RHI backend on
     // macOS instead of the default Metal. Symptom that drove this:
     // geometry uploaded to certain QSGGeometryNodes (specifically the

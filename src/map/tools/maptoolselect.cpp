@@ -26,6 +26,7 @@
 #include <QAction>
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QLoggingCategory>
 #include <QIcon>
 #include <QKeyEvent>
 #include <QMenu>
@@ -42,6 +43,12 @@
 #include <openswmm/engine/openswmm_engine.h>
 
 #include <algorithm>
+
+// Bulk-delete timings (BULK_DELETE_AND_WINDOWS_OPEN_PERF_PLAN Phase 0) —
+// per-file definition of the shared "openswmm.bulkdelete" category (the
+// lcTsLoad* idiom; swmmmodellayer.cpp times the endBulkEdit close under the
+// same name). Enable with QT_LOGGING_RULES="openswmm.bulkdelete=true".
+Q_LOGGING_CATEGORY(lcBulkDelTool, "openswmm.bulkdelete")
 
 namespace {
 // identifyAt "elementType" string → SWMMModelLayer kind bit. SWMM names
@@ -650,6 +657,12 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     const QVector<SWMMModelLayer::SelectedElement> selected = sl->selectedElements();
     if (selected.isEmpty()) return;
 
+    // Perf-plan Phase 0: split the delete pipeline — cascade/classify
+    // (impact analysis per node), then command build + execution (the
+    // undo-stack push runs every engine delete synchronously).
+    QElapsedTimer deleteTimer;
+    deleteTimer.start();
+
     // Classify each selected object from its TYPED kind bits — SWMM names
     // are per-type namespaces, so classifying by name (findObjectLocation,
     // a single-keyed hash) could delete a same-named object of the wrong
@@ -812,6 +825,8 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     }
 
     // Confirm.
+    const qint64 classifyMs = deleteTimer.elapsed();
+
     const int n = toDelete.size();
     const QString msg = (n == 1)
         ? QObject::tr("Delete \"%1\"? This cannot be undone by simple Ctrl+Z "
@@ -830,14 +845,24 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
 
     // Group all deletes under one parent so Ctrl+Z undoes them together, and
     // so the whole batch shares a single cache rebuild in both directions.
+    // (The confirm dialog above sat between the two timing sections, so the
+    // user's think time never pollutes the numbers.)
+    QElapsedTimer execTimer;
+    execTimer.start();
     auto *macro = new BulkEditCommand(sl, QObject::tr("Delete Objects"));
     for (const ObjInfo &obj : toDelete)
         new DeleteObjectCommand(sl, obj.name, obj.kind, m_canvas, macro);
+    const qint64 snapshotMs = execTimer.elapsed();
 
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(macro);
     else
         delete macro;
+    qCInfo(lcBulkDelTool) << "deleteSelectedObjects:" << n << "object(s) —"
+                          << "classify" << classifyMs
+                          << "ms, snapshots" << snapshotMs
+                          << "ms, execute+close"
+                          << (execTimer.elapsed() - snapshotMs) << "ms";
 }
 
 void OpenSWMMVisMapToolSelect::paint(QPainter *painter,
