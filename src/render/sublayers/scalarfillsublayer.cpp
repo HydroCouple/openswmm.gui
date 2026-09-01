@@ -17,15 +17,19 @@ namespace OpenSWMM::Render
 // ===========================================================================
 ScalarFillStyle::ScalarFillStyle(QObject *parent) : SublayerStyle(parent)
 {
-    // Default to a smooth continuous viridis ramp — the seam-free look the
-    // marching-squares bands struggled with. Classified mode (set via the
-    // style panel) reuses the same ramp binned into bandCount classes.
+    // Default to the smooth continuous "Water Depth" ramp (2026-09-01):
+    // translucent near-white blue at barely-wet deepening to a fully opaque
+    // navy at maximum depth (user direction: deeper water = dark blue,
+    // shallower = lighter shade). Classified mode (set via the style panel)
+    // reuses the same ramp binned into bandCount classes. The display name
+    // is stored (not the "water-depth" key) so the ramp combo shows it —
+    // the MeshFillStyle "Terrain" precedent.
     m_scheme.setMode(ClassificationScheme::ClassMode::Continuous);
     m_scheme.setMethod(BinMethod::EqualInterval);
     m_scheme.setClassCount(8);
-    m_scheme.setRampName(QStringLiteral("viridis"));
-    m_scheme.setLowColor(QColor( 60, 100, 200, 255));
-    m_scheme.setHighColor(QColor(200, 220, 255, 255));
+    m_scheme.setRampName(QStringLiteral("Water Depth"));
+    m_scheme.setLowColor(QColor(0xf7, 0xfb, 0xff, 100));
+    m_scheme.setHighColor(QColor(0x08, 0x30, 0x6b, 255));
 }
 
 void ScalarFillStyle::setAttribute(const QString &v)
