@@ -41,6 +41,7 @@
 
 #include <QComboBox>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QObject>
 #include <QSignalSpy>
 #include <QString>
@@ -48,7 +49,9 @@
 #include <QTest>
 #include <QUndoCommand>
 
+#include <algorithm>
 #include <memory>
+#include <utility>
 
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -358,6 +361,56 @@ private slots:
         for (const SWMMObjectRef &r : selMgr.selection())
             QVERIFY2(r.name != QLatin1String("J1") && r.name != QLatin1String("J2"),
                      qPrintable(QStringLiteral("phantom ref survived: %1").arg(r.name)));
+    }
+
+    // ── Profiling probe (perf-plan Phase 0; skipped unless env-gated) ──────
+
+    //! Bulk-delete baseline on a REAL model: set SWMM_PROFILE_INP=<path.inp>
+    //! (the profileExternalModel idiom) and optionally
+    //! SWMM_PROFILE_DELETE_N=<count> (default 1000). Reports snapshot vs
+    //! execute+close ms; enable QT_LOGGING_RULES="openswmm.bulkdelete=true"
+    //! for the endBulkEdit sub-splits. Never runs in CI.
+    void profileBulkDelete()
+    {
+        const QString inp = qEnvironmentVariable("SWMM_PROFILE_INP");
+        if (inp.isEmpty())
+            QSKIP("set SWMM_PROFILE_INP=<path.inp> to run the bulk-delete profile");
+
+        auto layer = std::make_unique<SWMMModelLayer>(inp, nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY2(layer->loadModel(warnings, errors),
+                 qPrintable(errors.join(QStringLiteral("; "))));
+
+        const int junctions =
+            layer->categoryCount(SWMMModelLayer::CatJunctions);
+        const int wanted =
+            qEnvironmentVariable("SWMM_PROFILE_DELETE_N",
+                                 QStringLiteral("1000")).toInt();
+        const int k = std::min(wanted, junctions);
+        QVERIFY2(k > 0, "profile model has no junctions to delete");
+
+        QStringList names;
+        names.reserve(k);
+        for (int i = 0; i < k; ++i)
+            names.append(layer->objectNameAt(SWMMModelLayer::CatJunctions, i));
+
+        QElapsedTimer timer;
+        timer.start();
+        MapUndoStack stack;
+        auto *macro = new BulkEditCommand(layer.get(),
+                                          QStringLiteral("Profile Delete"));
+        for (const QString &n : std::as_const(names))
+            new DeleteObjectCommand(layer.get(), n,
+                                    DeleteObjectCommand::DeleteNode, nullptr,
+                                    macro);
+        const qint64 snapshotMs = timer.elapsed();
+        stack.push(macro);
+        const qint64 totalMs = timer.elapsed();
+
+        qInfo().nospace() << "[profileBulkDelete] " << k << " node(s) of "
+                          << junctions << " — snapshots " << snapshotMs
+                          << " ms, execute+close " << (totalMs - snapshotMs)
+                          << " ms, total " << totalMs << " ms";
     }
 };
 

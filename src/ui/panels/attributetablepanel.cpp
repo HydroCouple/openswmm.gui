@@ -49,6 +49,7 @@
 #include <QCryptographicHash>
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QScopeGuard>
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
@@ -91,6 +92,10 @@
 #include <utility>     // std::move — GIS attribute-row caching
 
 Q_LOGGING_CATEGORY(lcAttrTbl, "openswmm.attr-table")
+// Per-file definition of the shared open-tail profiling category (the
+// lcTsLoad* idiom): same category NAME as swmmvis.cpp's lcLoadGui, local
+// symbol to avoid a cross-TU export for a log category.
+Q_LOGGING_CATEGORY(lcLoadGuiAtp, "openswmm.load.gui")
 
 // ---------------------------------------------------------------------------
 // GISVectorAttributeTableModel — read-only QAbstractTableModel over an
@@ -959,6 +964,19 @@ void AttributeTablePanel::refresh()
     qCDebug(lcAttrTbl) << "refresh() layer=" << m_layer
                        << "model=" << m_model
                        << "combo=" << m_categoryCombo;
+    // Perf-plan Phase 0: refresh() fires from five signals (modelLoaded,
+    // geometryChanged, dataObjectsChanged, layerAdded, layerRemoved) and
+    // runs many times per file open — record duration + which signal
+    // triggered this pass so the open-tail profile can attribute the cost.
+    QElapsedTimer refreshTimer;
+    refreshTimer.start();
+    const QObject *trigger = sender();
+    const auto logRefresh = qScopeGuard([&refreshTimer, trigger] {
+        qCDebug(lcLoadGuiAtp) << "AttributeTablePanel::refresh:"
+                              << refreshTimer.elapsed() << "ms, trigger="
+                              << (trigger ? trigger->metaObject()->className()
+                                          : "direct");
+    });
     if (!m_categoryCombo || !m_model) {
         // Should never happen — buildUi() creates both unconditionally.
         // Guarded anyway so a stale invocation during teardown doesn't
