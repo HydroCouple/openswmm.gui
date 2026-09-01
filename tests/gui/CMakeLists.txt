@@ -1847,6 +1847,14 @@ add_swmmvis_gui_test(test_meshminsizecleanup
     ${CMAKE_SOURCE_DIR}/include/mesh/meshminsizecleanup.h
 )
 
+# Graded size field: near-feature cap parity, Lipschitz growth bound, floor
+# rule, determinism, budget coarsening.
+add_swmmvis_gui_test(test_meshsizefield
+    test_meshsizefield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/sizefield.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/sizefield.h
+)
+
 # Hilbert renumbering: permutation validity, locality gain, idempotence.
 add_swmmvis_gui_test(test_meshreorder
     test_meshreorder.cpp

@@ -568,6 +568,7 @@ set(
         include/mesh/meshstagecache.h
         include/mesh/pslgminsize.h
         include/mesh/pslgprep.h
+        include/mesh/sizefield.h
         include/mesh/meshhoverprobe.h
         include/mesh/meshobjectref.h
         include/mesh/meshresult.h
@@ -1221,6 +1222,7 @@ set(
         src/mesh/meshstagecache.cpp
         src/mesh/pslgminsize.cpp
         src/mesh/pslgprep.cpp
+        src/mesh/sizefield.cpp
         src/mesh/trirefinehook.cpp
         src/mesh/meshhoverprobe.cpp
         src/mesh/meshnodemapper.cpp

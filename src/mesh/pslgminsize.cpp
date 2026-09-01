@@ -985,6 +985,22 @@ bool conditionMinSize(QVector<QPolygonF>         *domains,
         }
     }
 
+    // Baseline WORST FEATURE SCALE on the untouched input (V2 plan Phase 0
+    // guard).  Conditioning exists to RAISE the local feature size; measured
+    // on real models it can instead create features smaller than anything in
+    // the input (weld/split interactions — the h = 8 "6× vertices with a
+    // SMALLER minimum cell" result in MIN_CELL_SIZE_TESTING_RESULTS_2026-08-18
+    // §4), and Triangle then refines to the new, worse scale.  So the same
+    // no-worse contract the census enforces for degeneracies is enforced for
+    // the feature scale: commit only when the conditioned worst lfs is at
+    // least the input's worst lfs.
+    double beforeWorstLfs = h;
+    {
+        const QVector<Violation> worst = analyseLocalFeatureSize(
+            domains0, holeRings0, segs0, pts0, h, 1);
+        if (!worst.isEmpty()) beforeWorstLfs = worst.first().lfs;
+    }
+
     // ── Stage 1/2 on the caller's vectors: length resampling, collapse ───
     // Done before the pool is built so the pool never contains vertices that
     // resampling is about to delete.
@@ -1744,6 +1760,21 @@ bool conditionMinSize(QVector<QPolygonF>         *domains,
             analyseLocalFeatureSize(*domains, *holeRings, *segs, *pts, h, cap);
         report->predictedMinLfs = resid.isEmpty() ? h : resid.first().lfs;
         for (const Violation &v : resid) addResidual(report, cap, v);
+    }
+
+    // No-worse contract on the feature scale (see beforeWorstLfs above).  A
+    // tiny relative slack absorbs pure floating-point jitter in a violation
+    // conditioning left untouched.
+    if (report->predictedMinLfs < beforeWorstLfs * (1.0 - 1e-9))
+    {
+        report->abandonReason =
+            QStringLiteral("conditioning made the worst feature scale WORSE "
+                           "(%1 -> %2) — it would create smaller cells than "
+                           "the input demanded")
+                .arg(beforeWorstLfs, 0, 'g', 6)
+                .arg(report->predictedMinLfs, 0, 'g', 6);
+        restore();
+        return false;
     }
 
     return true;

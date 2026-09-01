@@ -150,6 +150,12 @@ private slots:
                      ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 2.0),
                  MeshStageCache::boundaryKey(
                      ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 2.0));
+        // 2026-09-01 — enforcement mode changes what conditioning may do to
+        // the stored rings, so it is part of the identity too.
+        QVERIFY(MeshStageCache::boundaryKey(
+                    ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0, true)
+                != MeshStageCache::boundaryKey(
+                    ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0, false));
 
         mesh::DTMThinnerOptions o;
         const QRectF bb(QPointF(0, 0), QPointF(10, 10));

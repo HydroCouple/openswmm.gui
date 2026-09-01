@@ -33,6 +33,7 @@
 #include "mesh/meshstagecache.h"
 #include "mesh/pslgprep.h"
 #include "mesh/pslgminsize.h"
+#include "mesh/sizefield.h"
 #include "mesh/meshminsizecleanup.h"
 
 #include <openswmm/engine/openswmm_nodes.h>
@@ -231,7 +232,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         boundaryCacheKey = mesh::MeshStageCache::boundaryKey(
             srcId, subHash, in.boundaryLayerName, in.boundaryCRSWkt,
             in.meshCRSWkt, in.pslgSimplifyEps, in.maxBoundaryEdgeLen,
-            in.minSizePolicy.minCellSize);
+            in.minSizePolicy.minCellSize, in.minSizeEnforce);
 
         QElapsedTimer cacheClock;
         cacheClock.start();
@@ -566,8 +567,18 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // constrained triangulation, before any quality pass can act).
             // Demoted nodes stay in couplingNodes, so the post-generation
             // mapper couples them via their containing CELL instead.
+            //
+            // Under V2 enforcement the separation is at least h: two pinned
+            // nodes closer than the minimum cell size are exactly what the
+            // conditioner downstream would otherwise be asked to fix, and
+            // demotion here is the cheaper, already-proven answer.
+            const double effNodeSep =
+                (in.minSizeEnforce && in.minSizePolicy.enabled())
+                    ? std::max(in.nodeMinSeparation,
+                               in.minSizePolicy.minCellSize)
+                    : in.nodeMinSeparation;
             const QVector<bool> keepNode =
-                mesh::pslg::greedyMinSeparation(nodeXY, in.nodeMinSeparation);
+                mesh::pslg::greedyMinSeparation(nodeXY, effNodeSep);
 
             int demoted = 0;
             for (int k = 0; k < nodeIdx.size(); ++k)
@@ -594,7 +605,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
             if (demoted > 0)
                 qCInfo(lcMeshPerf) << "[Mesh] node min separation"
-                                   << in.nodeMinSeparation << "-"
+                                   << effNodeSep << "-"
                                    << demoted << "node(s) demoted to cell coupling,"
                                    << (nodeIdx.size() - demoted) << "pinned as vertices";
         }
@@ -1742,6 +1753,62 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     progress(40, QObject::tr("Running Triangle…"));
     if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
+    // Graded size field (V2 plan Track B).  Keeps the uniform cap AT the
+    // constrained features and lets the permitted area grow with distance at
+    // the user's Lipschitz slope — strictly fewer cells than the uniform cap,
+    // with the slope itself the smooth-transition guarantee.  Built from the
+    // CONDITIONED geometry so the field grades away from what Triangle will
+    // actually see.  Must outlive generate(): the hook samples it per
+    // candidate triangle.
+    mesh::SizeField sizeField;
+    bool useGrading = false;
+    if (in.sizeGradation > 0.0 && in.genOpts.maxArea > 0.0)
+    {
+        QRectF bbox;
+        for (const QPolygonF &d : std::as_const(in.domains))
+            bbox = bbox.isValid() ? bbox.united(d.boundingRect())
+                                  : d.boundingRect();
+
+        // Seeds: constraint segments, valid hole rings, tagged (SWMM node)
+        // Steiner points.  The outer domain ring is deliberately not a seed
+        // (see sizefield.h).
+        QVector<QVector<QPointF>> ringSeeds;
+        ringSeeds.reserve(bprep.holeRings.size());
+        for (int k = 0; k < bprep.holeRings.size(); ++k)
+            if (k < bprep.holeValid.size() && bprep.holeValid[k])
+                ringSeeds.append(bprep.holeRings[k]);
+
+        mesh::SizeFieldOptions sfo;
+        // Side of the equilateral triangle of maxArea — the near-feature size.
+        sfo.nearSize  = std::sqrt(4.0 * in.genOpts.maxArea / std::sqrt(3.0));
+        sfo.gradation = in.sizeGradation;
+        sfo.areaFloor = areaFloor;
+        useGrading = sizeField.build(bbox, in.constraintSegs, ringSeeds,
+                                     in.steinerPoints, sfo);
+        if (useGrading)
+        {
+            qCInfo(lcMeshPerf) << "[Mesh][grading] size field"
+                               << sizeField.cols() << "x" << sizeField.rows()
+                               << "at pitch" << sizeField.pitch()
+                               << "| near size" << sfo.nearSize
+                               << "| gradation" << sfo.gradation;
+            // Installing a size function switches Triangle to the bare `a`
+            // switch, which ACTIVATES per-region area bounds that a numeric
+            // `a<maxArea>` leaves inert (trirefinehook.h).  The clamp above
+            // bounds them to the refinement floor when one exists; either way
+            // a mesh that gains cells needs a traceable cause in the log.
+            if (!in.regionMarkers.isEmpty())
+                qCInfo(lcMeshPerf)
+                    << "[Mesh][grading]" << in.regionMarkers.size()
+                    << "region area bound(s) are ACTIVE under graded sizing "
+                       "(they are inert under a uniform cap)";
+        }
+        else
+            qWarning() << "[Mesh][grading] size field could not be built "
+                          "(no seed features?) — falling back to the uniform "
+                          "area cap.";
+    }
+
     // Triangle's refinement pass is otherwise uninterruptible — the Stop button
     // is dead for its entire duration, which on a large PSLG can be minutes.
     // The `-u` user-test hook is the only place Triangle calls back into us
@@ -1765,7 +1832,16 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         //
         // Triangle never coarsens, so this cannot enlarge a cell the input
         // demanded — that is the conditioning pass's job, not this one.
-        if (areaFloor > 0.0)
+        if (useGrading)
+        {
+            // The graded field already folds in the floor (SizeFieldOptions::
+            // areaFloor) and the near-feature cap, so it replaces both the
+            // uniform `-a` switch and the constant-floor lambda below.
+            hook.targetAreaAt = [&sizeField](double x, double y) {
+                return sizeField.targetAreaAt(x, y);
+            };
+        }
+        else if (areaFloor > 0.0)
         {
             // Constant across the domain, so resolve it once rather than per
             // triangle test.  MinSizePolicy::refinementAreaCap owns the rule
@@ -1803,6 +1879,15 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         progress(52, QObject::tr("Removing sub-scale cells…"));
         mesh::CleanupPolicy cpol;
         cpol.minCellSize = in.minSizePolicy.minCellSize;
+        // V2 enforcement (plan Track A): let cleanup absorb slivers into a
+        // single identity vertex and collapse interior constrained edges.
+        // Distinct identities still never merge and a lost coupling still
+        // aborts the pass — those two rules are cleanup's own, not ours.
+        if (in.minSizeEnforce)
+        {
+            cpol.allowIdentityCollapse = true;
+            cpol.beta                  = 0.45;
+        }
         mesh::CleanupReport crep;
         const bool ok = mesh::collapseSubScaleCells(&result, cpol, &crep);
         qCInfo(lcMeshPerf) << "[Mesh][minsize] cleanup:" << crep.summary();
@@ -1818,6 +1903,37 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         for (const QPointF &p : std::as_const(crep.unfixable))
             qCDebug(lcMeshPerf) << "[Mesh][minsize]  protected sliver at" << p;
         stageMark("sub-scale cell cleanup");
+    }
+
+    // Enforcement contract (V2 plan Track A): say plainly what was achieved
+    // against what was requested — "enforced" must never be a silent miss.
+    if (in.minSizePolicy.enabled() && !result.triangles.isEmpty())
+    {
+        double minArea = std::numeric_limits<double>::max();
+        for (const mesh::MeshTriangle &t : std::as_const(result.triangles))
+        {
+            if (t.v0 < 0 || t.v1 < 0 || t.v2 < 0) continue;
+            const QPointF &a = result.vertices[t.v0].xy;
+            const QPointF &b = result.vertices[t.v1].xy;
+            const QPointF &c = result.vertices[t.v2].xy;
+            const double ar = 0.5 * std::abs(
+                (b.x() - a.x()) * (c.y() - a.y())
+                - (c.x() - a.x()) * (b.y() - a.y()));
+            if (ar < minArea) minArea = ar;
+        }
+        // Side of the equilateral triangle of the smallest cell — comparable
+        // to the requested h.
+        const double side = std::sqrt(4.0 * minArea / std::sqrt(3.0));
+        qCInfo(lcMeshPerf).nospace()
+            << "[Mesh][minsize] requested h = "
+            << in.minSizePolicy.minCellSize
+            << (in.minSizeEnforce ? " (enforce)" : " (advisory)")
+            << " | achieved min cell side ~ " << side
+            << " (area " << minArea << ")";
+        if (side < 0.5 * in.minSizePolicy.minCellSize)
+            qWarning() << "[Mesh][minsize] the smallest cell is well below the"
+                       << "requested minimum — check the residual list above"
+                       << "for the features that could not be conditioned.";
     }
 
     // ── Hilbert renumbering — locality for the engine's explicit marcher ──
@@ -2710,6 +2826,32 @@ void MeshGenerationDialog::buildUi()
         m_minAngleSpin->setToolTip(tr("Minimum triangle angle (0–33° reliable; above 33° may not terminate)."));
         f->addRow(tr("Min angle:"), m_minAngleSpin);
 
+        // V2 graded sizing (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN).
+        m_gradationSpin = new QDoubleSpinBox(g);
+        m_gradationSpin->setRange(0.0, 2.0);
+        m_gradationSpin->setDecimals(2);
+        m_gradationSpin->setSingleStep(0.05);
+        m_gradationSpin->setSpecialValueText(tr("(uniform)"));
+        m_gradationSpin->setToolTip(tr(
+            "How fast cells may grow with distance from constrained features "
+            "(conduits, hole edges, SWMM nodes).\n\n"
+            "0 = uniform: the max-area cap applies EVERYWHERE, however far a "
+            "cell is from anything that needs resolution.\n\n"
+            "> 0 = graded: cells at the features keep exactly the max-area "
+            "cap; away from them the permitted size grows at this slope, so "
+            "the mesh stays fine where it matters and coarsens smoothly "
+            "elsewhere — typically far fewer cells for the same feature "
+            "resolution.  0.25 is a good starting value.\n\n"
+            "Requires a max triangle area cap."));
+        f->addRow(tr("Size gradation:"), m_gradationSpin);
+
+        auto syncGradation = [this] {
+            if (m_gradationSpin && m_maxAreaSpin)
+                m_gradationSpin->setEnabled(m_maxAreaSpin->value() > 0.0);
+        };
+        connect(m_maxAreaSpin, &QDoubleSpinBox::valueChanged, this, syncGradation);
+        syncGradation();
+
         m_maxSteinerSpin = new QSpinBox(g);
         m_maxSteinerSpin->setRange(-1, 10'000'000);
         m_maxSteinerSpin->setSpecialValueText(tr("(unlimited)"));
@@ -2821,6 +2963,26 @@ void MeshGenerationDialog::buildUi()
             m_minCellSizeSpin->setValue(side / 3.0);
         });
 
+        // V2 enforcement mode (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN
+        // Track A).  Measured on real SWMM models, the default (advisory)
+        // conditioning is nearly inert: the crowded vertices are almost all
+        // coupling identities it is forbidden to touch.
+        m_minSizeEnforceBox = new QCheckBox(
+            tr("Enforce — may move or merge SWMM coupling points"), g);
+        m_minSizeEnforceBox->setToolTip(tr(
+            "Off (advisory): tagged SWMM nodes and conduit endpoints never "
+            "move and never merge.  On real models nearly every crowded "
+            "vertex IS such an identity, so the minimum is rarely achieved.\n\n"
+            "On (enforce): two coupling identities closer than the minimum "
+            "cell size may merge into one mesh vertex, nodes closer than the "
+            "minimum are not pinned as vertices at all, and the post-mesh "
+            "cleanup may absorb slivers into an identity vertex.  No coupling "
+            "is ever LOST — a merged or demoted node couples to the 2D mesh "
+            "via its containing cell instead of a dedicated vertex (a "
+            "different exchange stencil, reported in the log).  No point "
+            "moves further than the weld radius shown below."));
+        f->addRow(QString(), m_minSizeEnforceBox);
+
         m_trimAngleSpin = new QDoubleSpinBox(g);
         m_trimAngleSpin->setRange(0.0, 60.0);
         m_trimAngleSpin->setDecimals(1);
@@ -2868,12 +3030,15 @@ void MeshGenerationDialog::buildUi()
 
         auto syncMinCell = [this] {
             const bool on = m_minCellSizeSpin && m_minCellSizeSpin->value() > 0.0;
+            if (m_minSizeEnforceBox)    m_minSizeEnforceBox->setEnabled(on);
             if (m_trimAngleSpin)        m_trimAngleSpin->setEnabled(on);
             if (m_trimAtNodesBox)       m_trimAtNodesBox->setEnabled(on);
             if (m_dropSubScaleHolesBox) m_dropSubScaleHolesBox->setEnabled(on);
             if (m_cleanupBox)           m_cleanupBox->setEnabled(on);
             updateMinCellDerivedLabel();
         };
+        connect(m_minSizeEnforceBox, &QCheckBox::toggled, this,
+                [this] { updateMinCellDerivedLabel(); });
         connect(m_minCellSizeSpin, &QDoubleSpinBox::valueChanged, this, syncMinCell);
         connect(m_minAngleSpin,    &QDoubleSpinBox::valueChanged, this,
                 [this] { updateMinCellDerivedLabel(); });
@@ -3211,13 +3376,24 @@ void MeshGenerationDialog::updateMinCellDerivedLabel()
     p.minCellSize = h;
     p.resolveDefaults();
 
-    QString txt = tr("Refinement floor ≈ %1 %2 per cell; vertices closer than "
-                     "%3 %4 are merged; no vertex moves further than %3 %4. "
-                     "Tagged SWMM nodes never move.")
-                      .arg(p.minTriangleArea(), 0, 'g', 4)
-                      .arg(len2)
-                      .arg(p.weldRadius, 0, 'g', 4)
-                      .arg(len);
+    const bool enforce =
+        m_minSizeEnforceBox && m_minSizeEnforceBox->isChecked();
+    QString txt = enforce
+        ? tr("Refinement floor ≈ %1 %2 per cell; vertices closer than %3 %4 "
+             "are merged; no vertex moves further than %3 %4. Enforce: SWMM "
+             "coupling points closer than %3 %4 may merge or demote — the "
+             "affected nodes couple via their containing cell.")
+              .arg(p.minTriangleArea(), 0, 'g', 4)
+              .arg(len2)
+              .arg(p.weldRadius, 0, 'g', 4)
+              .arg(len)
+        : tr("Refinement floor ≈ %1 %2 per cell; vertices closer than "
+             "%3 %4 are merged; no vertex moves further than %3 %4. "
+             "Tagged SWMM nodes never move.")
+              .arg(p.minTriangleArea(), 0, 'g', 4)
+              .arg(len2)
+              .arg(p.weldRadius, 0, 'g', 4)
+              .arg(len);
 
     // The angle bound is a real lever on sliver count near unavoidable sharp
     // input angles, and 33° costs 2-4x the vertices of 26° for no practical
@@ -3275,6 +3451,11 @@ void MeshGenerationDialog::seedDefaults()
     // current mesh exactly; the rest of the group carries the policy defaults
     // from MinSizePolicy and only bites once a size is entered.
     if (m_minCellSizeSpin)      m_minCellSizeSpin->setValue(0.0);
+    if (m_minSizeEnforceBox)    m_minSizeEnforceBox->setChecked(false);
+    // Gradation defaults OFF (uniform cap) for the same regression-safety
+    // reason: an untouched project reproduces its current mesh exactly.
+    // 0.25 is the recommended value once turned on (tooltip).
+    if (m_gradationSpin)        m_gradationSpin->setValue(0.0);
     if (m_trimAngleSpin)        m_trimAngleSpin->setValue(
                                     mesh::pslg::MinSizePolicy{}.trimAngleDeg);
     if (m_trimAtNodesBox)       m_trimAtNodesBox->setChecked(false);
@@ -3956,8 +4137,19 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         m_trimAtNodesBox && m_trimAtNodesBox->isChecked();
     out->minSizePolicy.dropSubScaleHoles =
         m_dropSubScaleHolesBox && m_dropSubScaleHolesBox->isChecked();
+    // V2 enforcement: identity merges inside the conditioner ride the same
+    // policy the weld stage already consults.
+    out->minSizeEnforce = m_minSizeEnforceBox && m_minSizeEnforceBox->isChecked()
+                          && out->minSizePolicy.minCellSize > 0.0;
+    out->minSizePolicy.allowIdentityMerge = out->minSizeEnforce;
     out->minSizePolicy.resolveDefaults();
     out->minSizeCleanup = m_cleanupBox && m_cleanupBox->isChecked();
+
+    // V2 graded sizing; meaningful only with a uniform cap to relax.
+    out->sizeGradation =
+        (m_gradationSpin && m_maxAreaSpin && m_maxAreaSpin->value() > 0.0)
+            ? m_gradationSpin->value()
+            : 0.0;
 
     // ── Thinning ─────────────────────────────────────────────────────
     out->doThinning                      = m_thinningBox->isChecked();
