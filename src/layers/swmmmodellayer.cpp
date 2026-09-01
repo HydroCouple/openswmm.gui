@@ -98,6 +98,10 @@ Q_LOGGING_CATEGORY(lcLoadModel, "openswmm.load.model")
 // Selection-path timings — off by default; enable with
 // QT_LOGGING_RULES="openswmm.selection.perf.debug=true".
 Q_LOGGING_CATEGORY(lcSelPerf, "openswmm.selection.perf")
+// Bulk-delete timings (BULK_DELETE_AND_WINDOWS_OPEN_PERF_PLAN Phase 0):
+// the one-shot endBulkEdit close, split by sub-step. Enable with
+// QT_LOGGING_RULES="openswmm.bulkdelete=true".
+Q_LOGGING_CATEGORY(lcBulkDelLayer, "openswmm.bulkdelete")
 
 // ---------------------------------------------------------------------------
 // nanoflann adaptor + KD-tree types (private to this translation unit)
@@ -1246,7 +1250,13 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
                 // finishModelLoad never opens the CRS picker for File → New.
                 QString mapUnits;
                 if (!m_modelFilePath.isEmpty()) {
+                    // Perf-plan Phase 0: this is a GUI-thread re-read of the
+                    // whole .inp (second read of the open) — time it.
+                    QElapsedTimer inpScanTimer;
+                    inpScanTimer.start();
                     mapUnits = readMapUnitsFromInp(m_modelFilePath);
+                    qCInfo(lcLoadModel) << "crs_inp_scan"
+                                        << inpScanTimer.elapsed() << "ms";
                 } else {
                     char fu[16] = {};
                     swmm_options_get(m_engine, "FLOW_UNITS", fu, sizeof(fu));
@@ -5489,16 +5499,27 @@ void SWMMModelLayer::endBulkEdit()
     if (!m_bulkDirty) return;           // nothing mutated — nothing to say
     m_bulkDirty = false;
 
+    // Perf-plan Phase 0: the one-shot batch close is where a bulk delete
+    // pays its O(model) costs — split them so profiles can rank the fixes.
+    QElapsedTimer bulkCloseTimer;
+    bulkCloseTimer.start();
+
     // MUST precede buildGeometryCache(): rebuildSceneCoords() resolves every
     // link polyline through fromNodeIdx/toNodeIdx, and the incremental
     // renumber that normally maintains them was skipped for the whole batch.
     syncLinkEndpointIndicesFromEngine();
+    const qint64 syncMs = bulkCloseTimer.elapsed();
 
     buildGeometryCache();
+    const qint64 geomMs = bulkCloseTimer.elapsed() - syncMs;
+
     m_needsRebuild = true;
     if (m_batchedItem) m_batchedItem->refreshBoundingRect();
     emit repaintRequested();
     emit geometryChanged();
+    qCInfo(lcBulkDelLayer) << "endBulkEdit: endpoint_sync" << syncMs
+                           << "ms, geometry_cache" << geomMs
+                           << "ms, total" << bulkCloseTimer.elapsed() << "ms";
 }
 
 void SWMMModelLayer::syncLinkEndpointIndicesFromEngine()
