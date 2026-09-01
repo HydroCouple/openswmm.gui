@@ -1041,6 +1041,46 @@ private slots:
         QCOMPARE(g.pts[1].xy, QPointF(102, 100));
     }
 
+    /*!
+     * V2 no-worse contract (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN
+     * Track A, Phase 0): a COMMITTED conditioning pass must never leave the
+     * worst feature scale smaller than the input's — that is the measured
+     * h = 8 failure mode (6x the vertices with a SMALLER minimum cell,
+     * MIN_CELL_SIZE_TESTING_RESULTS_2026-08-18 §4).  Property-checked over
+     * the fixtures in this file, with and without the identity opt-in.
+     */
+    void condition_neverWorsensTheWorstFeatureScale()
+    {
+        const auto worstOf = [](const Pslg &g, double h) {
+            const QVector<Violation> w = mesh::pslg::analyseLocalFeatureSize(
+                g.domains, g.holes, g.segs, g.pts, h, 1);
+            return w.isEmpty() ? h : w.first().lfs;
+        };
+
+        for (const bool merge : {false, true})
+        {
+            for (const double gap : {0.4, 1.5, 3.0})
+            {
+                Pslg g = twoCrowdedNodes(gap);
+                MinSizePolicy pol;
+                pol.minCellSize = 4.0;
+                pol.allowIdentityMerge = merge;
+                pol.resolveDefaults();
+
+                const double before = worstOf(g, pol.minCellSize);
+                ConditionReport rep;
+                const bool ok = condition(&g, pol, &rep);
+                if (!ok) continue;   // an abandon restores the input — fine
+                QVERIFY2(rep.predictedMinLfs >= before * (1.0 - 1e-9),
+                         qPrintable(QStringLiteral(
+                             "merge=%1 gap=%2: worst lfs %3 -> %4 (worse)")
+                                        .arg(merge).arg(gap)
+                                        .arg(before)
+                                        .arg(rep.predictedMinLfs)));
+            }
+        }
+    }
+
     void condition_cancellationLeavesNoPartialState()
     {
         Pslg base;

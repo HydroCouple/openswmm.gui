@@ -102,10 +102,13 @@ private slots:
         m_boxes  = m_group->findChildren<QCheckBox *>();
         m_button = m_group->findChild<QPushButton *>();
         QCOMPARE(m_spins.size(), 2);      // minimum cell size, trim angle
-        QCOMPARE(m_boxes.size(), 3);      // trim at nodes, drop holes, cleanup
+        QCOMPARE(m_boxes.size(), 4);      // enforce, trim at nodes, drop holes, cleanup
         QVERIFY(m_button != nullptr);
         m_minCell   = m_spins[0];
         m_trimAngle = m_spins[1];
+        for (QCheckBox *b : std::as_const(m_boxes))
+            if (b->text().startsWith(QLatin1String("Enforce"))) m_enforce = b;
+        QVERIFY2(m_enforce != nullptr, "the Enforce checkbox is missing");
     }
 
     void cleanupTestCase()
@@ -191,6 +194,49 @@ private slots:
                  qPrintable(lab->text()));
     }
 
+    /*! V2 — Enforce defaults OFF (advisory), and the derived read-out says
+     *  what turning it on means. */
+    void enforceDefaultsOffAndUpdatesTheDerivedLabel()
+    {
+        QLabel *lab = derivedLabel(m_group);
+        QVERIFY(lab != nullptr);
+
+        QVERIFY2(!m_enforce->isChecked(), "Enforce must default off");
+
+        m_minCell->setValue(4.0);
+        QVERIFY(m_enforce->isEnabled());
+        QVERIFY2(lab->text().contains(QLatin1String("never move")),
+                 qPrintable(lab->text()));
+
+        m_enforce->setChecked(true);
+        QVERIFY2(lab->text().contains(QLatin1String("Enforce")),
+                 qPrintable(lab->text()));
+        QVERIFY(!lab->text().contains(QLatin1String("never move")));
+
+        m_enforce->setChecked(false);
+        m_minCell->setValue(0.0);
+    }
+
+    /*! V2 — the size-gradation spin (Triangle quality group) defaults to
+     *  uniform and is live only when a max-area cap exists to relax. */
+    void gradationDefaultsUniformAndNeedsAMaxArea()
+    {
+        QDoubleSpinBox *grad = nullptr;
+        for (QDoubleSpinBox *s : m_dlg->findChildren<QDoubleSpinBox *>())
+            if (s->specialValueText() == QLatin1String("(uniform)"))
+            { grad = s; break; }
+        QVERIFY2(grad != nullptr, "size-gradation spin not found");
+        QCOMPARE(grad->value(), 0.0);
+
+        QDoubleSpinBox *area = maxAreaSpin(m_dlg);
+        QVERIFY(area != nullptr);
+        area->setValue(0.0);
+        QVERIFY2(!grad->isEnabled(), "gradation live with no area cap");
+        area->setValue(50.0);
+        QVERIFY(grad->isEnabled());
+        area->setValue(0.0);
+    }
+
     /*! Item 3 — Suggest derives h from the max triangle area. */
     void suggestComputesFromMaxArea()
     {
@@ -224,6 +270,7 @@ private:
     QPushButton           *m_button    = nullptr;
     QDoubleSpinBox        *m_minCell   = nullptr;
     QDoubleSpinBox        *m_trimAngle = nullptr;
+    QCheckBox             *m_enforce   = nullptr;
 };
 
 QTEST_MAIN(TestMeshMinCellDialog)
