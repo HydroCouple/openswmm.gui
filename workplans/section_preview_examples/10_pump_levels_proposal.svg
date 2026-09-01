@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="400" viewBox="0 0 660 400">
+<rect width="660" height="400" fill="#fdfdfc" stroke="#d8dde2"/>
+<text x="14.0" y="22.0" font-family="Helvetica,Arial,sans-serif" font-size="12.5" fill="#2c3e50" text-anchor="start" font-weight="bold">PUMP  P-3  —  Profile  (PROPOSAL)</text>
+<text x="14.0" y="38.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#6b7a88" text-anchor="start" font-weight="normal">wet well with start / stop control levels</text>
+<rect x="80.0" y="92.0" width="180.0" height="218.0" fill="#e0ddd8" stroke="#2c3e50" stroke-width="1.2"/>
+<rect x="90.0" y="96.0" width="160.0" height="204.0" fill="#d9e9f7" stroke="#2c3e50" stroke-width="1.2"/>
+<line x1="22.0" y1="92.0" x2="80.0" y2="92.0" stroke="#8a7357" stroke-width="1.4"/>
+<line x1="25.0" y1="92.0" x2="20.0" y2="100.0" stroke="#8a7357" stroke-width="0.8"/>
+<line x1="34.0" y1="92.0" x2="29.0" y2="100.0" stroke="#8a7357" stroke-width="0.8"/>
+<line x1="43.0" y1="92.0" x2="38.0" y2="100.0" stroke="#8a7357" stroke-width="0.8"/>
+<line x1="52.0" y1="92.0" x2="47.0" y2="100.0" stroke="#8a7357" stroke-width="0.8"/>
+<line x1="61.0" y1="92.0" x2="56.0" y2="100.0" stroke="#8a7357" stroke-width="0.8"/>
+<line x1="70.0" y1="92.0" x2="65.0" y2="100.0" stroke="#8a7357" stroke-width="0.8"/>
+<line x1="79.0" y1="92.0" x2="74.0" y2="100.0" stroke="#8a7357" stroke-width="0.8"/>
+<rect x="90.0" y="176.0" width="160.0" height="74.0" fill="#a8cdec" stroke="none" stroke-width="0"/>
+<rect x="90" y="250" width="160" height="24" fill="#a8cdec" fill-opacity="0.45"/>
+<line x1="76.0" y1="176.0" x2="264.0" y2="176.0" stroke="#1a6fb5" stroke-width="1.4"/>
+<text x="270.0" y="179.5" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#1a6fb5" text-anchor="start" font-weight="normal">START  depth 2.20 m</text>
+<line x1="76.0" y1="250.0" x2="264.0" y2="250.0" stroke="#1a6fb5" stroke-width="1.4" stroke-dasharray="6 3"/>
+<text x="270.0" y="253.5" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#1a6fb5" text-anchor="start" font-weight="normal">STOP   depth 0.80 m</text>
+<line x1="76.0" y1="274.0" x2="264.0" y2="274.0" stroke="#6b7a88" stroke-width="1.4" stroke-dasharray="3 3"/>
+<text x="270.0" y="277.5" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#6b7a88" text-anchor="start" font-weight="normal">SHUT-OFF depth 0.45 m</text>
+<line x1="90.0" y1="176.0" x2="56.0" y2="176.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="90.0" y1="300.0" x2="56.0" y2="300.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="56.0" y1="176.0" x2="56.0" y2="300.0" stroke="#1a6fb5" stroke-width="1.0"/>
+<polygon points="56.0,176.0 58.5,183.0 53.5,183.0" fill="#1a6fb5" stroke="#1a6fb5" stroke-width="0"/>
+<polygon points="56.0,300.0 53.5,293.0 58.5,293.0" fill="#1a6fb5" stroke="#1a6fb5" stroke-width="0"/>
+<text x="52.0" y="238.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#1a6fb5" text-anchor="middle" font-weight="normal" transform="rotate(-90 52 238.0)">start 2.20</text>
+<line x1="90.0" y1="250.0" x2="28.0" y2="250.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="90.0" y1="300.0" x2="28.0" y2="300.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="28.0" y1="250.0" x2="28.0" y2="300.0" stroke="#1a6fb5" stroke-width="1.0"/>
+<polygon points="28.0,250.0 30.4,257.0 25.6,257.0" fill="#1a6fb5" stroke="#1a6fb5" stroke-width="0"/>
+<polygon points="28.0,300.0 25.6,293.0 30.4,293.0" fill="#1a6fb5" stroke="#1a6fb5" stroke-width="0"/>
+<text x="24.0" y="275.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#1a6fb5" text-anchor="middle" font-weight="normal" transform="rotate(-90 24 275.0)">stop 0.80</text>
+<rect x="18.0" y="196.0" width="62.0" height="26.0" fill="#d9e9f7" stroke="#2c3e50" stroke-width="1.2"/>
+<text x="20.0" y="190.0" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#2c3e50" text-anchor="start" font-weight="bold">C-21 in</text>
+<circle cx="170.0" cy="292.0" r="15.0" fill="#b9c2cb" stroke="#2c3e50" stroke-width="1.4"/>
+<text x="170.0" y="296.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2c3e50" text-anchor="middle" font-weight="bold">P</text>
+<polyline points="170.0,277.0 170.0,138.0 350.0,138.0" fill="none" stroke="#2c3e50" stroke-width="3.0"/>
+<polygon points="350.0,138.0 342.0,140.8 342.0,135.2" fill="#2c3e50" stroke="#2c3e50" stroke-width="0"/>
+<text x="354.0" y="134.0" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#2c3e50" text-anchor="start" font-weight="normal">rising main → J-12</text>
+<line x1="80.0" y1="92.0" x2="90.0" y2="68.0" stroke="#1a6fb5" stroke-width="0.8"/>
+<line x1="90.0" y1="68.0" x2="96.0" y2="68.0" stroke="#1a6fb5" stroke-width="0.8"/>
+<circle cx="80.0" cy="92.0" r="1.8" fill="#1a6fb5" stroke="#1a6fb5" stroke-width="0"/>
+<text x="99.0" y="71.4" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#1a6fb5" text-anchor="start" font-weight="normal">Rim El. 104.60</text>
+<line x1="170.0" y1="300.0" x2="204.0" y2="320.0" stroke="#1a6fb5" stroke-width="0.8"/>
+<line x1="204.0" y1="320.0" x2="210.0" y2="320.0" stroke="#1a6fb5" stroke-width="0.8"/>
+<circle cx="170.0" cy="300.0" r="1.8" fill="#1a6fb5" stroke="#1a6fb5" stroke-width="0"/>
+<text x="213.0" y="323.4" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#1a6fb5" text-anchor="start" font-weight="normal">Well invert 100.10</text>
+<rect x="460.0" y="226.0" width="176.0" height="104.0" fill="#f3f6f9" stroke="#c3ccd4" stroke-width="1"/>
+<text x="466.0" y="240.0" font-family="Helvetica,Arial,sans-serif" font-size="8.5" fill="#6b7a88" text-anchor="start" font-weight="normal">Pump curve (TYPE3)</text>
+<polyline points="472.0,242.0 502.4,246.8 532.8,257.6 563.2,273.1 593.6,292.6 624.0,316.0" fill="none" stroke="#1a6fb5" stroke-width="1.8"/>
+<text x="548.0" y="327.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#6b7a88" text-anchor="middle" font-weight="normal">head vs flow</text>
+<line x1="14.0" y1="360.0" x2="646.0" y2="360.0" stroke="#d8dde2" stroke-width="1"/>
+<text x="14.0" y="374.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#6b7a88" text-anchor="start" font-weight="normal">PUMP1 · startup 2.20 m · shutoff 0.45 m · initial status ON</text>
+<text x="10" y="392" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#6b7a88">Mockup 10 — PROPOSAL: pump wet well with start / stop levels</text>
+</svg>

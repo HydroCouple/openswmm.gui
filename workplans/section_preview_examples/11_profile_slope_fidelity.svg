@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="560" viewBox="0 0 940 560">
+<rect width="940" height="560" fill="#fdfdfc" stroke="#d8dde2"/>
+<text x="14.0" y="22.0" font-family="Helvetica,Arial,sans-serif" font-size="12.5" fill="#2c3e50" text-anchor="start" font-weight="bold">Profile slope fidelity</text>
+<text x="14.0" y="38.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#6b7a88" text-anchor="start" font-weight="normal">identical pipe (120 m at 0.25 %) — the old fit changes the apparent gradient with the pane; the new one does not</text>
+<rect x="14.0" y="62.0" width="430.0" height="150.0" fill="#ffffff" stroke="#dde3e8" stroke-width="1"/>
+<rect x="26.2" y="96.7" width="21.5" height="90.0" fill="#e0ddd8" stroke="#2c3e50" stroke-width="1.2"/>
+<rect x="410.2" y="96.7" width="21.5" height="97.0" fill="#e0ddd8" stroke="#2c3e50" stroke-width="1.2"/>
+<polygon points="47.8,169.7 410.2,176.8 410.2,190.9 47.8,183.9" fill="#d9e9f7" stroke="#2c3e50" stroke-width="1.2"/>
+<text x="24.0" y="79.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#2c3e50" text-anchor="start" font-weight="bold">Before — fill both axes · short dock</text>
+<text x="434.0" y="79.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#b5651d" text-anchor="end" font-weight="normal">V:H 7.36111:1   reads 1.95 %</text>
+<rect x="460.0" y="62.0" width="430.0" height="150.0" fill="#ffffff" stroke="#dde3e8" stroke-width="1"/>
+<rect x="472.2" y="118.8" width="21.5" height="48.9" fill="#e0ddd8" stroke="#2c3e50" stroke-width="1.2"/>
+<rect x="856.2" y="118.8" width="21.5" height="52.7" fill="#e0ddd8" stroke="#2c3e50" stroke-width="1.2"/>
+<polygon points="493.8,158.4 856.2,162.3 856.2,170.0 493.8,166.1" fill="#d9e9f7" stroke="#2c3e50" stroke-width="1.2"/>
+<text x="470.0" y="79.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#2c3e50" text-anchor="start" font-weight="bold">After — automatic · short dock</text>
+<text x="880.0" y="79.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#1a6fb5" text-anchor="end" font-weight="normal">V:H 4:1   reads 1.06 %</text>
+<rect x="14.0" y="252.0" width="430.0" height="250.0" fill="#ffffff" stroke="#dde3e8" stroke-width="1"/>
+<rect x="26.2" y="291.2" width="21.5" height="174.9" fill="#e0ddd8" stroke="#2c3e50" stroke-width="1.2"/>
+<rect x="410.2" y="291.2" width="21.5" height="188.6" fill="#e0ddd8" stroke="#2c3e50" stroke-width="1.2"/>
+<polygon points="47.8,433.1 410.2,446.8 410.2,474.3 47.8,460.5" fill="#d9e9f7" stroke="#2c3e50" stroke-width="1.2"/>
+<text x="24.0" y="269.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#2c3e50" text-anchor="start" font-weight="bold">Before — fill both axes · tall dock</text>
+<text x="434.0" y="269.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#b5651d" text-anchor="end" font-weight="normal">V:H 14.3056:1   reads 3.79 %</text>
+<rect x="460.0" y="252.0" width="430.0" height="250.0" fill="#ffffff" stroke="#dde3e8" stroke-width="1"/>
+<rect x="472.2" y="358.8" width="21.5" height="48.9" fill="#e0ddd8" stroke="#2c3e50" stroke-width="1.2"/>
+<rect x="856.2" y="358.8" width="21.5" height="52.7" fill="#e0ddd8" stroke="#2c3e50" stroke-width="1.2"/>
+<polygon points="493.8,398.4 856.2,402.3 856.2,410.0 493.8,406.1" fill="#d9e9f7" stroke="#2c3e50" stroke-width="1.2"/>
+<text x="470.0" y="269.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#2c3e50" text-anchor="start" font-weight="bold">After — automatic · tall dock</text>
+<text x="880.0" y="269.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#1a6fb5" text-anchor="end" font-weight="normal">V:H 4:1   reads 1.06 %</text>
+<line x1="14.0" y1="506.0" x2="926.0" y2="506.0" stroke="#d8dde2" stroke-width="1"/>
+<text x="14.0" y="524.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#6b7a88" text-anchor="start" font-weight="normal">True gradient 0.25 %. Filling both axes ties the exaggeration to the pane, so the same pipe reads steeper in a taller dock.</text>
+<text x="14.0" y="540.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#6b7a88" text-anchor="start" font-weight="normal">The new fit derives the ratio from the model's own proportions (a 6:1 drawn aspect), caps at 10:1, and states the ratio on the drawing. 1:1 is selectable for the true picture.</text>
+<text x="10" y="552" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#6b7a88">Mockup 11 — profile slope fidelity (implemented)</text>
+</svg>

@@ -1,0 +1,104 @@
+ninja: warning: premature end of file; recovering
+[0/2] Re-checking globbed directories...
+[1/2] Re-running CMake...
+-- Running vcpkg install
+Detecting compiler hash for triplet arm64-osx...
+Compiler found: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/c++
+The following packages are already installed:
+  * curl[core,ssl,openssl,non-http]:arm64-osx@8.16.0
+    gdal[core,geos,sqlite3,png,jpeg]:arm64-osx@3.11.4
+  * geos:arm64-osx@3.14.0
+    gtest:arm64-osx@1.17.0#2
+    hdf5:arm64-osx@1.14.6
+  * json-c:arm64-osx@0.18-20240915
+  * libgeotiff:arm64-osx@1.7.4
+  * libjpeg-turbo:arm64-osx@3.1.2
+  * liblzma:arm64-osx@5.8.1
+  * libpng:arm64-osx@1.6.50
+    nanoflann:arm64-osx@1.7.1
+  * nlohmann-json:arm64-osx@3.12.0#1
+    openssl:arm64-osx@3.6.0#2
+  * pkgconf:arm64-osx@2.5.1#3
+  * proj[core,tiff,net]:arm64-osx@9.7.0
+  * sqlite3[core,tool,rtree,json1]:arm64-osx@3.50.4
+  * tiff[core,zip,lzma,jpeg]:arm64-osx@4.7.1
+    vcpkg-cmake:arm64-osx@2024-04-23
+    vcpkg-cmake-config:arm64-osx@2024-05-23
+  * vcpkg-cmake-get-vars:arm64-osx@2025-05-29
+  * vcpkg-pkgconfig-get-modules:arm64-osx@2024-04-03
+  * vcpkg-tool-meson:arm64-osx@1.9.0#2
+  * zlib:arm64-osx@1.3.1
+openssl is compatible with built-in CMake targets:
+
+  find_package(OpenSSL REQUIRED)
+  target_link_libraries(main PRIVATE OpenSSL::SSL)
+  target_link_libraries(main PRIVATE OpenSSL::Crypto)
+
+The package GDAL provides CMake targets:
+
+    find_package(GDAL CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE GDAL::GDAL)
+
+The package gtest is compatible with built-in CMake targets:
+
+    enable_testing()
+    
+    find_package(GTest CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
+    
+    add_test(AllTestsInMain main)
+
+hdf5 provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(hdf5 CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE hdf5::hdf5-static hdf5::hdf5_hl-static)
+
+hdf5 provides pkg-config modules:
+
+  # HDF5 (Hierarchical Data Format 5) Software Library
+  hdf5
+
+  # HDF5 (Hierarchical Data Format 5) Software Library
+  hdf5_hl
+
+nanoflann provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(nanoflann CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE nanoflann::nanoflann)
+
+nanoflann provides pkg-config modules:
+
+  # nanoflann - A C++11 header-only library for kd-trees
+  nanoflann
+
+All requested installations completed successfully in: 353 us
+-- Running vcpkg install - done
+-- Failed to find all ICU components (missing: ICU_LIBRARY uc i18n) (found version "78.1")
+-- Found OpenSSL: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/debug/lib/libcrypto.a (found suitable version "3.6.0", minimum required is "3")
+-- Found ZLIB: optimized;/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/lib/libz.a;debug;/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/debug/lib/libz.a (found suitable version "1.3.1", minimum required is "1")
+-- Reading /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/geotiff/geotiff-config.cmake
+-- GeoTIFF configuration, version 1.7.4
+--   include directory: ${GeoTIFF_INCLUDE_DIRS}
+--   ${GeoTIFF_LIBRARIES} set to static libraries
+-- Found ZLIB: optimized;/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/lib/libz.a;debug;/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/debug/lib/libz.a (found version "1.3.1")
+-- Found OpenSSL: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/debug/lib/libcrypto.a (found version "3.6.0")
+-- QPropertyModel: using local checkout at /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/../QPropertyModel
+-- openswmm.engine: using prebuilt package at /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/install/Darwin/lib/cmake/OpenSWMMEngine
+resources/shaders/scalarfill.vert -> resources/shaders/scalarfill.vert.qsb exposed as ://resources/shaders/scalarfill.vert.qsb
+resources/shaders/scalarfill.frag -> resources/shaders/scalarfill.frag.qsb exposed as ://resources/shaders/scalarfill.frag.qsb
+-- Test runtime env modifications: PROJ_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj;PROJ_LIB=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj;GDAL_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/gdal
+-- Configuring done (5.7s)
+-- Generating done (3.8s)
+-- Build files have been written to: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build
+ninja: warning: premature end of file; recovering
+[0/4] Re-checking globbed directories...
+[1/11] Automatic MOC and UIC for target test_2d_sublayers
+[2/11] Building CXX object tests/gui/CMakeFiles/test_2d_sublayers.dir/__/__/src/render/sublayers/meshfillsublayer.cpp.o
+[3/11] Building CXX object tests/gui/CMakeFiles/test_2d_sublayers.dir/test_2d_sublayers_autogen/mocs_compilation.cpp.o
+[4/11] Building CXX object tests/gui/CMakeFiles/test_2d_sublayers.dir/__/__/src/render/sublayers/meshedgesublayer.cpp.o
+[5/11] Building CXX object tests/gui/CMakeFiles/test_2d_sublayers.dir/test_2d_sublayers.cpp.o
+[6/11] Building CXX object tests/gui/CMakeFiles/test_2d_sublayers.dir/__/__/src/mesh/meshbctype.cpp.o
+[7/11] Building CXX object tests/gui/CMakeFiles/test_2d_sublayers.dir/__/__/src/mesh/meshcellparams.cpp.o
+[8/11] Linking CXX executable tests/gui/test_2d_sublayers

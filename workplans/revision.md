@@ -1,0 +1,7 @@
+- In the analysis tab, I want to vertically stack the 1d result selection combobox and the 2d. That will allow increasing the layer combobox lengths 
+On the mesh 2d tab, I want the coupling group to be the last in the tab. Generate an appropriate svg icon for the remap 1d<>2d menu.
+I want to add the profile plotting option as a seperate group in the terrain tab.
+On the mesh tab, I want to separate the cell selection and its contextual attributes from the profile plotter. The profile plotter needs to be in its own standalone group
+Z coordinate for the tarrain does not render on hover. The terrain works. I want both to show up on hover in the statusbar coordinates section. Expand length if warranted.
+It appears one gap I have not implemented for the dataobjects in the land use and coverage specification. Once landuses are created. I want to configure properties of subcatchments to specify the percent coverage for each subcatchment. The api may need to be expanded to handle this. Dynamically and and remove sections as landuse is added or removed. Also missing are pollutant build up and washoff dialogs. I want to fuse the land use specification and washoff and buildup as well as street sweeping in a unified editing dialog seamlessly with correct referential integrity. Develop a plan for review,
+For the preferences dialog, I want to add default options for the 2d model.

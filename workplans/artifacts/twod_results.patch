@@ -1,0 +1,8 @@
+STALE — DO NOT USE. Superseded 2026-08-27.
+
+The "Add 2D Results…" work this patch carried was committed by the concurrent
+session as 95f81ec ("feat(import): Add 2D Results -- browse for a run's .h5 and
+load it"), under its own message. Applying this would fail or duplicate.
+
+This file could not be deleted: the sandbox mount that wrote it denies unlink.
+Overwritten with this notice instead. Safe to remove by hand.

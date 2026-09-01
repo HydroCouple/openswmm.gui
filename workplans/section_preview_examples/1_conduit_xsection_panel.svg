@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="320" viewBox="0 0 400 320">
+<rect width="400" height="320" fill="#fdfdfc" stroke="#d8dde2"/>
+<text x="14.0" y="22.0" font-family="Helvetica,Arial,sans-serif" font-size="12.5" fill="#2c3e50" text-anchor="start" font-weight="bold">C-12  —  Cross-Section</text>
+<text x="14.0" y="38.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#6b7a88" text-anchor="start" font-weight="normal">CIRCULAR</text>
+<rect x="270" y="12" width="58" height="20" rx="4" fill="#1a6fb5"/>
+<rect x="330" y="12" width="58" height="20" rx="4" fill="none" stroke="#c3ccd4"/>
+<text x="299.0" y="26.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#ffffff" text-anchor="middle" font-weight="normal">Section</text>
+<text x="359.0" y="26.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#6b7a88" text-anchor="middle" font-weight="normal">Profile</text>
+<circle cx="175" cy="180" r="67.0" fill="#b7c4cf" stroke="#2c3e50" stroke-width="1.4"/>
+<circle cx="175" cy="180" r="57.0" fill="#d9e9f7" stroke="#2c3e50" stroke-width="1.4"/>
+<line x1="100.0" y1="180.0" x2="250.0" y2="180.0" stroke="#6b7a88" stroke-width="0.7" stroke-dasharray="8 3 2 3"/>
+<line x1="175.0" y1="105.0" x2="175.0" y2="255.0" stroke="#6b7a88" stroke-width="0.7" stroke-dasharray="8 3 2 3"/>
+<line x1="177.8" y1="123.0" x2="272.0" y2="123.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="177.8" y1="237.0" x2="272.0" y2="237.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="276.0" y1="123.0" x2="276.0" y2="237.0" stroke="#1a6fb5" stroke-width="1.0"/>
+<polygon points="276.0,123.0 278.4,130.0 273.6,130.0" fill="#1a6fb5"/>
+<polygon points="276.0,237.0 273.6,230.0 278.4,230.0" fill="#1a6fb5"/>
+<text x="286.0" y="180.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#1a6fb5" text-anchor="middle" font-weight="normal" transform="rotate(-90 286.0 180.0)">D = 1.200 m</text>
+<line x1="175.0" y1="237.0" x2="74.0" y2="271.0" stroke="#1a6fb5" stroke-width="0.8"/>
+<line x1="74.0" y1="271.0" x2="80.0" y2="271.0" stroke="#1a6fb5" stroke-width="0.8"/>
+<circle cx="175.0" cy="237.0" r="2" fill="#1a6fb5"/>
+<text x="83.0" y="274.5" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#1a6fb5" text-anchor="start" font-weight="normal">Invert  El. 101.25 m</text>
+<line x1="175.0" y1="123.0" x2="74.0" y2="93.0" stroke="#1a6fb5" stroke-width="0.8"/>
+<line x1="74.0" y1="93.0" x2="80.0" y2="93.0" stroke="#1a6fb5" stroke-width="0.8"/>
+<circle cx="175.0" cy="123.0" r="2" fill="#1a6fb5"/>
+<text x="83.0" y="96.5" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#1a6fb5" text-anchor="start" font-weight="normal">Crown  El. 102.45 m</text>
+<line x1="14.0" y1="278.0" x2="386.0" y2="278.0" stroke="#d8dde2" stroke-width="1"/>
+<text x="14.0" y="294.0" font-family="Helvetica,Arial,sans-serif" font-size="9.5" fill="#6b7a88" text-anchor="start" font-weight="normal">A 1.131 m²      Rh 0.300 m      Wmax 1.200 m      Barrels 1</text>
+<text x="10" y="312" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#6b7a88">Mockup 1 — property-grid preview panel: conduit, Section view</text>
+</svg>

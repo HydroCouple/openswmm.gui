@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="530" height="420" viewBox="0 0 530 420">
+<rect width="530" height="420" fill="#fdfdfc" stroke="#d8dde2"/>
+<text x="14.0" y="22.0" font-family="Helvetica,Arial,sans-serif" font-size="12.5" fill="#2c3e50" text-anchor="start" font-weight="bold">LID Editor — Bio-Retention Cell</text>
+<text x="14.0" y="38.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#6b7a88" text-anchor="start" font-weight="normal">layer diagram tracks the active tab and values</text>
+<rect x="60" y="78" width="270" height="46" fill="#dff0d8" stroke="#2c3e50" stroke-width="1.1"/>
+<rect x="60" y="124" width="270" height="92" fill="#d8c49a" stroke="#2c3e50" stroke-width="1.1"/>
+<rect x="60" y="216" width="270" height="66" fill="#cfd6dd" stroke="#2c3e50" stroke-width="1.1"/>
+<rect x="60" y="282" width="270" height="44" fill="#c9b99a" stroke="#2c3e50" stroke-width="1.1"/>
+<line x1="72.0" y1="78.0" x2="72.0" y2="66.0" stroke="#7fae6e" stroke-width="1.6"/>
+<line x1="72.0" y1="72.0" x2="67.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="72.0" y1="72.0" x2="77.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="96.0" y1="78.0" x2="96.0" y2="66.0" stroke="#7fae6e" stroke-width="1.6"/>
+<line x1="96.0" y1="72.0" x2="91.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="96.0" y1="72.0" x2="101.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="120.0" y1="78.0" x2="120.0" y2="66.0" stroke="#7fae6e" stroke-width="1.6"/>
+<line x1="120.0" y1="72.0" x2="115.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="120.0" y1="72.0" x2="125.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="144.0" y1="78.0" x2="144.0" y2="66.0" stroke="#7fae6e" stroke-width="1.6"/>
+<line x1="144.0" y1="72.0" x2="139.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="144.0" y1="72.0" x2="149.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="168.0" y1="78.0" x2="168.0" y2="66.0" stroke="#7fae6e" stroke-width="1.6"/>
+<line x1="168.0" y1="72.0" x2="163.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="168.0" y1="72.0" x2="173.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="192.0" y1="78.0" x2="192.0" y2="66.0" stroke="#7fae6e" stroke-width="1.6"/>
+<line x1="192.0" y1="72.0" x2="187.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="192.0" y1="72.0" x2="197.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="216.0" y1="78.0" x2="216.0" y2="66.0" stroke="#7fae6e" stroke-width="1.6"/>
+<line x1="216.0" y1="72.0" x2="211.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="216.0" y1="72.0" x2="221.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="240.0" y1="78.0" x2="240.0" y2="66.0" stroke="#7fae6e" stroke-width="1.6"/>
+<line x1="240.0" y1="72.0" x2="235.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="240.0" y1="72.0" x2="245.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="264.0" y1="78.0" x2="264.0" y2="66.0" stroke="#7fae6e" stroke-width="1.6"/>
+<line x1="264.0" y1="72.0" x2="259.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="264.0" y1="72.0" x2="269.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="288.0" y1="78.0" x2="288.0" y2="66.0" stroke="#7fae6e" stroke-width="1.6"/>
+<line x1="288.0" y1="72.0" x2="283.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="288.0" y1="72.0" x2="293.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="312.0" y1="78.0" x2="312.0" y2="66.0" stroke="#7fae6e" stroke-width="1.6"/>
+<line x1="312.0" y1="72.0" x2="307.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="312.0" y1="72.0" x2="317.0" y2="66.0" stroke="#7fae6e" stroke-width="1.2"/>
+<line x1="60.0" y1="92.0" x2="330.0" y2="92.0" stroke="#1a6fb5" stroke-width="0.9" stroke-dasharray="5 3"/>
+<text x="324.0" y="89.0" font-family="Helvetica,Arial,sans-serif" font-size="8.5" fill="#1a6fb5" text-anchor="end" font-weight="normal">berm</text>
+<circle cx="68" cy="132" r="1.1" fill="#9a835a"/>
+<circle cx="121" cy="161" r="1.1" fill="#9a835a"/>
+<circle cx="174" cy="190" r="1.1" fill="#9a835a"/>
+<circle cx="227" cy="141" r="1.1" fill="#9a835a"/>
+<circle cx="280" cy="170" r="1.1" fill="#9a835a"/>
+<circle cx="79" cy="199" r="1.1" fill="#9a835a"/>
+<circle cx="132" cy="150" r="1.1" fill="#9a835a"/>
+<circle cx="185" cy="179" r="1.1" fill="#9a835a"/>
+<circle cx="238" cy="208" r="1.1" fill="#9a835a"/>
+<circle cx="291" cy="159" r="1.1" fill="#9a835a"/>
+<circle cx="90" cy="188" r="1.1" fill="#9a835a"/>
+<circle cx="143" cy="139" r="1.1" fill="#9a835a"/>
+<circle cx="196" cy="168" r="1.1" fill="#9a835a"/>
+<circle cx="249" cy="197" r="1.1" fill="#9a835a"/>
+<circle cx="302" cy="148" r="1.1" fill="#9a835a"/>
+<circle cx="101" cy="177" r="1.1" fill="#9a835a"/>
+<circle cx="154" cy="206" r="1.1" fill="#9a835a"/>
+<circle cx="207" cy="157" r="1.1" fill="#9a835a"/>
+<circle cx="260" cy="186" r="1.1" fill="#9a835a"/>
+<circle cx="313" cy="137" r="1.1" fill="#9a835a"/>
+<circle cx="112" cy="166" r="1.1" fill="#9a835a"/>
+<circle cx="165" cy="195" r="1.1" fill="#9a835a"/>
+<circle cx="218" cy="146" r="1.1" fill="#9a835a"/>
+<circle cx="271" cy="175" r="1.1" fill="#9a835a"/>
+<circle cx="70" cy="204" r="1.1" fill="#9a835a"/>
+<circle cx="123" cy="155" r="1.1" fill="#9a835a"/>
+<circle cx="176" cy="184" r="1.1" fill="#9a835a"/>
+<circle cx="229" cy="135" r="1.1" fill="#9a835a"/>
+<circle cx="282" cy="164" r="1.1" fill="#9a835a"/>
+<circle cx="81" cy="193" r="1.1" fill="#9a835a"/>
+<circle cx="134" cy="144" r="1.1" fill="#9a835a"/>
+<circle cx="187" cy="173" r="1.1" fill="#9a835a"/>
+<circle cx="240" cy="202" r="1.1" fill="#9a835a"/>
+<circle cx="293" cy="153" r="1.1" fill="#9a835a"/>
+<circle cx="92" cy="182" r="1.1" fill="#9a835a"/>
+<circle cx="145" cy="133" r="1.1" fill="#9a835a"/>
+<circle cx="198" cy="162" r="1.1" fill="#9a835a"/>
+<circle cx="251" cy="191" r="1.1" fill="#9a835a"/>
+<circle cx="304" cy="142" r="1.1" fill="#9a835a"/>
+<circle cx="103" cy="171" r="1.1" fill="#9a835a"/>
+<circle cx="72" cy="226" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="113" cy="243" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="154" cy="260" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="195" cy="229" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="236" cy="246" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="277" cy="263" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="72" cy="232" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="113" cy="249" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="154" cy="266" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="195" cy="235" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="236" cy="252" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="277" cy="269" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="72" cy="238" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="113" cy="255" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="154" cy="272" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="195" cy="241" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="236" cy="258" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="277" cy="227" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="72" cy="244" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="113" cy="261" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="154" cy="230" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="195" cy="247" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="236" cy="264" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="277" cy="233" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="72" cy="250" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="113" cy="267" r="4" fill="none" stroke="#8b97a3" stroke-width="1"/>
+<circle cx="195.0" cy="257.0" r="9" fill="#fdfdfc" stroke="#2c3e50" stroke-width="1.3"/>
+<line x1="201.0" y1="263.0" x2="348.0" y2="287.0" stroke="#1a6fb5" stroke-width="0.8"/>
+<line x1="348.0" y1="287.0" x2="354.0" y2="287.0" stroke="#1a6fb5" stroke-width="0.8"/>
+<circle cx="201.0" cy="263.0" r="2" fill="#1a6fb5"/>
+<text x="357.0" y="290.5" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#1a6fb5" text-anchor="start" font-weight="normal">Underdrain · offset 75 mm</text>
+<line x1="32.0" y1="64.0" x2="54.0" y2="86.0" stroke="#1a6fb5" stroke-width="1.6"/>
+<polygon points="54.0,86.0 46.4,82.3 50.3,78.4" fill="#1a6fb5"/>
+<text x="14.0" y="58.0" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#1a6fb5" text-anchor="start" font-weight="normal">runoff in</text>
+<line x1="330.0" y1="78.0" x2="346.0" y2="78.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="330.0" y1="124.0" x2="346.0" y2="124.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="350.0" y1="78.0" x2="350.0" y2="124.0" stroke="#1a6fb5" stroke-width="1.0"/>
+<polygon points="350.0,78.0 352.4,85.0 347.6,85.0" fill="#1a6fb5"/>
+<polygon points="350.0,124.0 347.6,117.0 352.4,117.0" fill="#1a6fb5"/>
+<text x="360.0" y="101.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#1a6fb5" text-anchor="middle" font-weight="normal" transform="rotate(-90 360 101.0)">150 mm</text>
+<line x1="330.0" y1="124.0" x2="346.0" y2="124.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="330.0" y1="216.0" x2="346.0" y2="216.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="350.0" y1="124.0" x2="350.0" y2="216.0" stroke="#1a6fb5" stroke-width="1.0"/>
+<polygon points="350.0,124.0 352.4,131.0 347.6,131.0" fill="#1a6fb5"/>
+<polygon points="350.0,216.0 347.6,209.0 352.4,209.0" fill="#1a6fb5"/>
+<text x="360.0" y="170.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#1a6fb5" text-anchor="middle" font-weight="normal" transform="rotate(-90 360 170.0)">500 mm</text>
+<line x1="330.0" y1="216.0" x2="346.0" y2="216.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="330.0" y1="282.0" x2="346.0" y2="282.0" stroke="#7fa8cc" stroke-width="0.7"/>
+<line x1="350.0" y1="216.0" x2="350.0" y2="282.0" stroke="#1a6fb5" stroke-width="1.0"/>
+<polygon points="350.0,216.0 352.4,223.0 347.6,223.0" fill="#1a6fb5"/>
+<polygon points="350.0,282.0 347.6,275.0 352.4,275.0" fill="#1a6fb5"/>
+<text x="360.0" y="249.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#1a6fb5" text-anchor="middle" font-weight="normal" transform="rotate(-90 360 249.0)">300 mm</text>
+<text x="50.0" y="104.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2c3e50" text-anchor="end" font-weight="bold">Surface</text>
+<text x="50.0" y="173.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2c3e50" text-anchor="end" font-weight="bold">Soil</text>
+<text x="50.0" y="252.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2c3e50" text-anchor="end" font-weight="bold">Storage</text>
+<text x="50.0" y="307.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2c3e50" text-anchor="end" font-weight="bold">Native soil</text>
+<rect x="58" y="122" width="274" height="96" fill="none" stroke="#1a6fb5" stroke-width="2" stroke-dasharray="6 3"/>
+<text x="426.0" y="152.0" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#6b7a88" text-anchor="middle" font-weight="normal">active tab:</text>
+<text x="426.0" y="165.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#1a6fb5" text-anchor="middle" font-weight="bold">Soil</text>
+<line x1="14.0" y1="386.0" x2="516.0" y2="386.0" stroke="#d8dde2" stroke-width="1"/>
+<text x="14.0" y="400.0" font-family="Helvetica,Arial,sans-serif" font-size="8.6" fill="#6b7a88" text-anchor="start" font-weight="normal">Storage depth 150 mm · n 0.10 · Thickness 500 mm · por 0.45 · K 25 mm/h · Thickness 300 mm · void 0.60</text>
+<text x="10" y="412" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#6b7a88">Mockup 5 — LID editor layer diagram (per-type layer stack, active tab highlighted)</text>
+</svg>

@@ -1,0 +1,180 @@
+diff --git a/src/swmmvis.cpp b/src/swmmvis.cpp
+index 2eb7cbe..af4b3ac 100644
+--- a/src/swmmvis.cpp
++++ b/src/swmmvis.cpp
+@@ -4155,6 +4155,24 @@ void SWMMVis::closeEvent(QCloseEvent *event)
+             }
+         }
+     }
++
++    // Flush save-time engine warnings posted by the prompts above BEFORE we
++    // tear anything down. Each "Save before closing?" answered with Save runs
++    // saveAs(), which emits saveCompletedWithEngineWarnings over a QUEUED
++    // connection (deliberately — a modal must not re-enter auto-save-before-
++    // run). A queued emit is a metacall posted to us, delivered only when
++    // control next reaches the event loop — and on THIS path control never
++    // gets there: we go on to close dialogs, save settings, accept, and the
++    // app exits. So the data-loss notice for the very last save a user makes,
++    // on the way out, would be posted and never shown: the original silent
++    // loss (engine 7d43a1ff) surviving in the quit path.
++    //
++    // sendPostedEvents delivers exactly those pending metacalls to us now,
++    // synchronously, with every window already settled. This is correct
++    // whether or not Qt would otherwise have drained the queue before exit —
++    // the event is consumed either way, so the modal cannot double-fire.
++    QCoreApplication::sendPostedEvents(this, QEvent::MetaCall);
++
+     // Gracefully close every open top-level dialog so their own closeEvent
+     // runs (geometry/state persistence) before teardown. This is required
+     // for the application to actually quit: QApplication::quitOnLastWindow
+@@ -5324,6 +5342,10 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
+                  "2D mesh display geometry + LOD pyramid ready (%1 s) — "
+                  "adding layer to the map …")
+                  .arg(out.buildMs / 1000.0, 0, 'f', 1));
++        // Issue #155 — remember whether the mesh file declared SI. The engine
++        // skips its FLOW_UNITS ft→m mesh scaling when it did, which decides
++        // how 2D RESULTS coordinates relate to the model's units.
++        meshLayer->setMeshUnitsSI(mesh::unitsHeaderIsSI(meshRead.unitsHeader));
+         meshLayer->setExternalMesh(meshRead.isExternal);
+         meshLayer->setActiveMesh(meshRead.isExternal);
+         // Slice §V.VD.1 — preload any parsed [2D_BOUNDARY_CONDITIONS] into
+@@ -5370,10 +5392,58 @@ void SWMMVis::showMeshCellProperties(SWMMVisProjectWindow *window,
+     }
+ }
+ 
++namespace {
++
++/*!
++ * \brief Metres per model-CRS linear unit for a 2D result source that carries
++ *        no `/crs` variable (a pre-6.0 `.2d.h5`, or the live in-process
++ *        `EngineMesh2DSource`). Issue #155.
++ *
++ * Mirrors `SurfaceRouter2D::initialize` exactly: the engine converts the
++ * authored mesh to the solver's SI metres only when `FLOW_UNITS` is
++ * US-customary AND the mesh file did not declare `;; UNITS: SI (m)`. Result
++ * coordinates therefore need that same factor divided back out before they can
++ * be reprojected out of the model CRS.
++ *
++ * Returns 1.0 — leave the coordinates alone — whenever we cannot establish
++ * that the engine scaled. That is the pre-#155 behaviour and keeps the results
++ * layer in agreement with SWMM2DMeshLayer rather than inventing a new offset.
++ */
++double undeclared2DCoordinateScale(SWMMVisProjectWindow *window)
++{
++    if (!window || !window->modelLayer() || !window->modelLayer()->engine())
++        return 1.0;
++
++    int unitSystem = 1;   // 0 = US/imperial, 1 = SI/metric
++    if (swmm_get_unit_system(window->modelLayer()->engine(), &unitSystem) != 0)
++        return 1.0;
++    if (unitSystem != 0)
++        return 1.0;       // SI project: the engine applied no mesh scaling
++
++    // A metric mesh file suppresses the scaling even on a US project — and the
++    // engine's own InpWriter emits `;; UNITS: SI (m)` once the mesh has been
++    // scaled, so this is the round-trip path, not an exotic one.
++    if (window->canvas()) {
++        for (OpenSWMMVisLayer *l : window->canvas()->layers()) {
++            if (auto *m = qobject_cast<SWMM2DMeshLayer *>(l))
++                return m->meshUnitsSI() ? 1.0 : 0.3048;
++        }
++    }
++    // No mesh layer to consult (results loaded without one): FLOW_UNITS alone
++    // is the engine's rule in the overwhelmingly common case.
++    return 0.3048;
++}
++
++} // namespace
++
+ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
+                                  const QString &filePath,
+                                  const QString &h5Override)
+ {
++    // An explicit add (Import ▸ Add 2D Results…) names its own file; the
++    // project-open pass resolves one from the model instead.
++    const bool explicitAdd = !h5Override.isEmpty();
++
+     // The .h5 comes from [2D_OPTIONS] OUTPUT_FILE; when that is absent or
+     // stale, fall back to the entry the project sidecar persisted (stashed
+     // on the window by ProjectSerializer::applySession).
+@@ -5455,15 +5525,16 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
+                 // per file — see the twoDInitialized handler).
+                 resLayer->setProperty("snoopy_h5_path",
+                                       QFileInfo(h5Path).absoluteFilePath());
++                // Issue #155 — set BEFORE setSource so the first geometry
++                // build already uses it. A file written by engine 6.0+ carries
++                // its own /crs factor and ignores this.
++                resLayer->setFallbackCoordinateScale(
++                    undeclared2DCoordinateScale(window));
+                 resLayer->setSource(std::move(h5Src));
+                 // Outputs inherit the model's CRS so the
+                 // Properties window shows a real CRS and any
+                 // reprojection logic matches the input.
+                 if (window->modelLayer() && window->modelLayer()->srs())
+-    // An explicit add (Import ▸ Add 2D Results…) names its own file; the
+-    // project-open pass resolves one from the model instead.
+-    const bool explicitAdd = !h5Override.isEmpty();
+-
+                     resLayer->setSRS(
+                         new SpatialReferenceSystem(*window->modelLayer()->srs(),
+                                                    resLayer),
+@@ -7852,6 +7923,11 @@ void SWMMVis::onRunSimulation()
+                         QStringLiteral("2D Results (live)"), nullptr);
+                 else
+                     layer->setName(QStringLiteral("2D Results (live)"));
++                // Issue #155 — the live engine source hands over the solver's
++                // SI metres and has no metadata channel to say so; set the
++                // factor before setSource so the first build already uses it.
++                layer->setFallbackCoordinateScale(
++                    undeclared2DCoordinateScale(pwGuard.data()));
+                 layer->setSource(std::move(source));
+                 // Outputs inherit the model's CRS so the Properties
+                 // window shows a real CRS for the live results layer.
+@@ -8543,6 +8619,23 @@ void SWMMVis::onAddVectorLayer()
+         auto *added     = new int(0);
+         for (const QString &name : toOpen) {
+             auto *vl = new GISVectorLayer(QString());
++            // A file with no CRS is assumed to be in the canvas CRS already.
++            // That is the long-standing behaviour and is usually right for
++            // local-coordinate data, but it is the reason a layer occasionally
++            // lands in the wrong place — so say it out loud rather than only
++            // in the openswmm.load.vector logging category, which is off by
++            // default. (Matches how the raster layer's pyramid notices are
++            // surfaced: from the interactive add path.)
++            connect(vl, &GISVectorLayer::crsAssumed, this,
++                    [this](const QString &f) {
++                        onLogMessage(tr("%1 declares no coordinate reference "
++                                        "system — assuming it is already in the "
++                                        "project CRS. Supply a .prj / CRS if it "
++                                        "lands in the wrong place.")
++                                         .arg(QFileInfo(f).fileName()),
++                                     OpenSWMMVisLogMessage::Warning);
++                    },
++                    static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+             connect(vl, &GISVectorLayer::openFinished, this,
+                     [this, vl, path, t, canvas, remaining, added](bool ok) {
+                         if (ok && canvas) { canvas->addLayer(vl, true); ++(*added); }
+@@ -8650,23 +8743,6 @@ void SWMMVis::onAddSWMMResultsLayer()
+ 
+     // Dedup — every output file is only loaded once per project canvas.
+     // If a layer already points at this path, focus it as the primary
+-            // A file with no CRS is assumed to be in the canvas CRS already.
+-            // That is the long-standing behaviour and is usually right for
+-            // local-coordinate data, but it is the reason a layer occasionally
+-            // lands in the wrong place — so say it out loud rather than only
+-            // in the openswmm.load.vector logging category, which is off by
+-            // default. (Matches how the raster layer's pyramid notices are
+-            // surfaced: from the interactive add path.)
+-            connect(vl, &GISVectorLayer::crsAssumed, this,
+-                    [this](const QString &f) {
+-                        onLogMessage(tr("%1 declares no coordinate reference "
+-                                        "system — assuming it is already in the "
+-                                        "project CRS. Supply a .prj / CRS if it "
+-                                        "lands in the wrong place.")
+-                                         .arg(QFileInfo(f).fileName()),
+-                                     OpenSWMMVisLogMessage::Warning);
+-                    },
+-                    static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+     // and reload its handle rather than appending a duplicate.
+     const QString canon = QFileInfo(path).absoluteFilePath();
+     SWMMResultsLayer *layer = nullptr;
