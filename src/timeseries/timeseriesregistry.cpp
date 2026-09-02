@@ -16,6 +16,7 @@
 #include <openswmm/engine/openswmm_tables.h>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_edit.h>   // swmm_table_delete
 
 #include <QFileInfo>
 
@@ -65,6 +66,19 @@ void TimeseriesRegistry::remove(TimeseriesProvider *p)
 {
     if (!p || !m_providers.contains(p)) return;
     emit providerAboutToBeRemoved(p);
+
+    // Delete the ENGINE table too (perf-plan Phase A3, and a bug fix: this
+    // registry's saveToEngine only ever adds/updates, so a "deleted" series
+    // survived in the engine and reappeared in the written INP — see the
+    // dropEngineTable workaround in timeseriesseriescommands.cpp, which this
+    // makes redundant).
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx =
+            swmm_table_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0) swmm_table_delete(eng, idx, nullptr);
+    }
+
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
     p->deleteLater();

@@ -8,6 +8,7 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_tables.h>
+#include <openswmm/engine/openswmm_edit.h>   // swmm_table_delete
 
 namespace openswmmvis::curve {
 
@@ -49,6 +50,17 @@ void CurveRegistry::remove(CurveProvider *p)
 {
     if (!p || !m_providers.contains(p)) return;
     emit providerAboutToBeRemoved(p);
+
+    // Delete the ENGINE table too (perf-plan Phase A3, and a bug fix: this
+    // registry's saveToEngine only ever adds/updates, so a "deleted" curve
+    // survived in the engine and reappeared in the written INP).
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx =
+            swmm_table_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0) swmm_table_delete(eng, idx, nullptr);
+    }
+
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
     p->deleteLater();
@@ -70,6 +82,7 @@ int CurveRegistry::loadFromEngine(void *engineHandle)
 {
     if (!engineHandle) return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
+    m_engineHandle = engineHandle;  // remember so remove() can delete engine-side
 
     const int n = swmm_table_count(eng);
     int added = 0;
@@ -111,6 +124,7 @@ int CurveRegistry::saveToEngine(void *engineHandle)
 {
     if (!engineHandle) return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
+    m_engineHandle = engineHandle;  // remember so remove() can delete engine-side
     int written = 0;
 
     for (CurveProvider *p : std::as_const(m_providers)) {

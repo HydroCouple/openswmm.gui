@@ -8,6 +8,7 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_edit.h>   // swmm_transect_delete
 
 #include <QDebug>   // qWarning for setAllPoints rejection
 
@@ -67,6 +68,19 @@ void TransectRegistry::remove(TransectProvider *p)
 {
     if (!p || !m_providers.contains(p)) return;
     emit providerAboutToBeRemoved(p);
+
+    // Delete the ENGINE copy too (perf-plan Phase A3, and a bug fix: without
+    // this the engine kept the transect forever — saveToEngine only ever
+    // adds/updates — so a "deleted" transect reappeared in the written INP).
+    // Same engine-first pattern as rename() above; swmm_transect_delete also
+    // resets IRREGULAR links that referenced it.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx =
+            swmm_transect_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0) swmm_transect_delete(eng, idx, nullptr);
+    }
+
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
     p->deleteLater();

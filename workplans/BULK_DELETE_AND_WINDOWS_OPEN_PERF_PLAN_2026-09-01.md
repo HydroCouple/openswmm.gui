@@ -39,7 +39,7 @@ New `BatchDeleteCommand` (in [mapundostack.cpp](src/map/mapundostack.cpp)) repla
 ### Phase A3 — Data-object deletes (GUI; independent of A1/A2)
 1. **Bug fix**: `TransectRegistry::remove` calls `swmm_transect_delete` when engine-bound (follow `rename()`'s pattern at [transectregistry.cpp:85-92](src/transect/transectregistry.cpp)); audit curve/timeseries/pattern registries for the same gap.
 2. With remove engine-authoritative, drop the full `saveToEngine()` reflush from `DeleteDataObjectCommand::redo` — O(total data) → O(1) per delete.
-3. Editor dialogs' deletes ([transecteditordialog.cpp:643](src/ui/dialogs/transecteditordialog.cpp), curveeditordialog.cpp:1158, timeserieseditordialog.cpp:2081) go through `DeleteDataObjectCommand` in a `BulkEditCommand` — batching AND undo in one move.
+3. ~~Editor dialogs' deletes through `DeleteDataObjectCommand` in a `BulkEditCommand`~~ — **DEFERRED at implementation (2026-09-01)**: the dialogs delete ONE object at a time (`m_current`), so there is nothing to batch, and steps 1–2 already make their deletes engine-correct and O(1). The remaining value is undo support, which requires plumbing `SWMMModelLayer*` into the curve/timeseries dialog constructors (the transect dialog already has one) — a UX change, not a perf one. Recorded as debt.
 - **Gate**: regression pinning engine transect count drops on remove + survives save/reload; dialog multi-delete undo test; full GUI ctest. Separate commits for 1/2/3 (2 depends on 1).
 
 ### Phase B1 — Windows RHI backend guard (GUI; 2 lines + smoke)
