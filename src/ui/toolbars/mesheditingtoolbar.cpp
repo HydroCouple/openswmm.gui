@@ -200,8 +200,8 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         "Map SWMM model nodes onto the active mesh.\n"
         "Nodes coincident with a mesh vertex use vertex coupling; other\n"
         "nodes inside the mesh couple to their containing cell (several\n"
-        "nodes may share one cell). Existing couplings are preserved unless\n"
-        "you choose a full re-map."));
+        "nodes may share one cell). All existing couplings are cleared\n"
+        "first (you will be asked to confirm)."));
     m_barCoupling->addAction(m_actRemap);
     connect(m_actRemap, &QAction::triggered,
             this, &MeshEditingToolbar::onRemapClicked);
@@ -1316,51 +1316,47 @@ void MeshEditingToolbar::onRemapClicked()
         return;
     }
 
-    // Preserve existing couplings by default; offer the full re-map.
-    bool preserve = true;
+    // Full re-map: every existing vertex and cell coupling is cleared first.
     {
         QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
         box.setWindowTitle(tr("Remap 1D↔2D"));
-        box.setText(tr("Map %1 SWMM node(s) onto the active mesh?").arg(nodes.size()));
+        box.setText(tr("Re-map %1 SWMM node(s) onto the active mesh?").arg(nodes.size()));
         box.setInformativeText(tr(
-            "\"Add missing\" keeps every existing coupling and maps only\n"
-            "nodes that are not yet coupled. \"Re-map all\" clears the cell\n"
-            "couplings and re-maps every node (manually edited vertex\n"
-            "couplings are kept)."));
-        QPushButton *addBtn   = box.addButton(tr("Add missing"), QMessageBox::AcceptRole);
-        QPushButton *remapBtn = box.addButton(tr("Re-map all"),  QMessageBox::DestructiveRole);
-        box.addButton(QMessageBox::Cancel);
-        box.setDefaultButton(addBtn);
+            "All existing 1D↔2D couplings on this mesh (vertex and cell,\n"
+            "including manually edited ones) will be cleared and rebuilt."));
+        QPushButton *remapBtn = box.addButton(tr("Clear && Re-map"), QMessageBox::DestructiveRole);
+        QPushButton *cancelBtn = box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(cancelBtn);
         box.exec();
-        if (box.clickedButton() == remapBtn)      preserve = false;
-        else if (box.clickedButton() != addBtn)   return;   // cancelled
+        if (box.clickedButton() != remapBtn) return;   // cancelled
     }
 
     mesh::MeshResult working = m_activeMesh->mesh();
-    if (!preserve)
-        working.cellCouplings.clear();
+    working.cellCouplings.clear();
+    for (mesh::MeshVertex &v : working.vertices)
+        v.coupledNode.clear();
 
-    const auto r = mesh::mapNodesToMesh(working, nodes, -1.0, preserve);
+    const auto r = mesh::mapNodesToMesh(working, nodes, -1.0, false);
 
-    // Apply — vertex couplings through the existing per-vertex mutator,
-    // cell rows wholesale (previous set returned for a future undo command).
+    // Apply — clear every vertex coupling, then set the new matches through
+    // the per-vertex mutator; cell rows wholesale (previous set returned for
+    // a future undo command).
+    const int nVerts = m_activeMesh->mesh().vertices.size();
+    for (int vi = 0; vi < nVerts; ++vi)
+        if (!r.vertexMatches.contains(vi))
+            m_activeMesh->applyMeshVertexCoupledNode(vi, QString());
     int vApplied = 0;
     for (auto it = r.vertexMatches.cbegin(); it != r.vertexMatches.cend(); ++it)
         if (m_activeMesh->applyMeshVertexCoupledNode(it.key(), it.value())) ++vApplied;
 
-    QVector<mesh::CellCoupling> rows =
-        preserve ? m_activeMesh->cellCouplings() : QVector<mesh::CellCoupling>{};
-    rows += r.cellMatches;
-    m_activeMesh->applyCellCouplings(rows);
+    m_activeMesh->applyCellCouplings(r.cellMatches);
 
     QString msg = tr("Vertex-coupled %1 node(s); cell-coupled %2 node(s).")
                       .arg(vApplied).arg(r.cellMatches.size());
     if (r.sharedCells > 0)
         msg += tr("\n%1 cell(s) received more than one node (e.g. weir/orifice "
                   "endpoints).").arg(r.sharedCells);
-    if (!r.skippedExisting.isEmpty())
-        msg += tr("\n%1 node(s) already coupled were left unchanged.")
-                   .arg(r.skippedExisting.size());
     if (!r.unmatched.isEmpty()) {
         QStringList head = r.unmatched.mid(0, 8);
         msg += tr("\n%1 node(s) fall outside the mesh: %2%3")
