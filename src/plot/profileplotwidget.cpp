@@ -372,6 +372,7 @@ ProfilePlotWidget::ProfilePlotWidget(QWidget *parent)
 void ProfilePlotWidget::setPath(const ProfileBuilder::PathStatic &path)
 {
     m_path = path;
+    m_surface2DMaxWse = std::numeric_limits<double>::quiet_NaN();
     recomputeBounds();
     update();
 }
@@ -445,6 +446,20 @@ void ProfilePlotWidget::setCurrentDateTime(const QDateTime &dt)
 void ProfilePlotWidget::setLayerToggles(const LayerToggles &toggles)
 {
     m_toggles = toggles;
+    update();
+}
+
+void ProfilePlotWidget::setSurface2DSamples(const QVector<Surface2DSample> &samples)
+{
+    m_surface2D = samples;
+    // Track the wettest station seen so the fitted y-extent doesn't jump
+    // frame to frame as the flood rises (only ever widens; setPath resets).
+    double mx = m_surface2DMaxWse;
+    for (const auto &s : m_surface2D)
+        if (isFinite(s.wse) && (!isFinite(mx) || s.wse > mx)) mx = s.wse;
+    const bool widen = isFinite(mx) && (!isFinite(m_surface2DMaxWse) || mx > m_surface2DMaxWse);
+    m_surface2DMaxWse = mx;
+    if (widen) recomputeBounds();
     update();
 }
 
@@ -661,6 +676,10 @@ void ProfilePlotWidget::recomputeBounds()
             yMax = std::max(yMax, s.y());
         }
     }
+    // 2D overlay: only the wettest WSE seen so far widens the extent — the
+    // mesh bed itself is not part of the 1D profile's ground reference.
+    if (isFinite(m_surface2DMaxWse) && (!m_options || m_options->show2DInundation()))
+        yMax = std::max(yMax, m_surface2DMaxWse);
     if (!isFinite(yMin) || !isFinite(yMax) || yMax <= yMin) {
         yMin = 0.0; yMax = 1.0;
     }
@@ -1159,6 +1178,9 @@ void ProfilePlotWidget::paintEvent(QPaintEvent *)
     if (m_path.nodes.isEmpty()) return;
 
     paintSoilFill(p);
+    // 2D inundation overlay sits on the ground, under every 1D element so
+    // the network's structures and HGL remain fully legible above it.
+    paintSurface2D(p);
     // Stubs before the conduits and the node tubes: they butt against the
     // tube, so the tube must paint over their inner end.
     paintBranchStubs(p);
@@ -1582,6 +1604,82 @@ void ProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
     p.restore();
 }
 
+double ProfilePlotWidget::realChainageToVirtualX(double realX) const
+{
+    if (m_path.chainage.size() < 2 || m_virtualChainage.size() < 2)
+        return realX;
+    if (realX <= m_path.chainage.first()) return m_virtualChainage.first();
+    if (realX >= m_path.chainage.last())  return m_virtualChainage.last();
+    for (int i = 0; i + 1 < m_path.chainage.size(); ++i) {
+        const double ra = m_path.chainage[i];
+        const double rb = m_path.chainage[i + 1];
+        if (realX >= ra && realX <= rb) {
+            const double span = rb - ra;
+            const double t = (span > 0.0) ? (realX - ra) / span : 0.0;
+            const double va = m_virtualChainage[i];
+            const double vb = m_virtualChainage[i + 1];
+            return va + t * (vb - va);
+        }
+    }
+    return realX;
+}
+
+void ProfilePlotWidget::paintSurface2D(QPainter &p) const
+{
+    if (m_surface2D.isEmpty()) return;
+    if (m_options && !m_options->show2DInundation()) return;
+
+    const QPen   pen   = m_options ? m_options->inundation2DLinePen()
+                                   : QPen(QColor(0x00, 0x8B, 0x8B), 1.6);
+    const QBrush brush = m_options ? m_options->inundation2DFillBrush()
+                                   : QBrush(QColor(0x20, 0xB2, 0xAA, 90));
+
+    p.save();
+    p.setClipRect(plotRect());
+
+    // Walk contiguous wet runs (finite bed + finite wse, wse above bed).
+    // Each run becomes one polygon: WSE polyline forward, bed polyline back.
+    auto wet = [](const Surface2DSample &s) {
+        return isFinite(s.bed) && isFinite(s.wse) && s.wse > s.bed;
+    };
+    int i = 0;
+    const int n = m_surface2D.size();
+    while (i < n) {
+        if (!wet(m_surface2D[i])) { ++i; continue; }
+        int j = i;
+        while (j < n && wet(m_surface2D[j])) ++j;
+        // [i, j) is a wet run.
+        QPolygonF band;
+        QVector<QPointF> top;
+        band.reserve((j - i) * 2);
+        top.reserve(j - i);
+        for (int k = i; k < j; ++k) {
+            const double vx = realChainageToVirtualX(m_surface2D[k].chainage);
+            top.push_back(dataToPixel(vx, m_surface2D[k].wse));
+        }
+        band.append(top);
+        for (int k = j - 1; k >= i; --k) {
+            const double vx = realChainageToVirtualX(m_surface2D[k].chainage);
+            band.push_back(dataToPixel(vx, m_surface2D[k].bed));
+        }
+        if (brush.style() != Qt::NoBrush && band.size() >= 3) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(brush);
+            p.drawPolygon(band);
+        }
+        if (pen.style() != Qt::NoPen && top.size() >= 2) {
+            p.setBrush(Qt::NoBrush);
+            p.setPen(pen);
+            p.drawPolyline(top.constData(), top.size());
+        } else if (pen.style() != Qt::NoPen && top.size() == 1) {
+            p.setPen(pen);
+            p.drawPoint(top.first());
+        }
+        i = j;
+    }
+    p.restore();
+}
+
 void ProfilePlotWidget::paintSoilFill(QPainter &p) const
 {
     // Two soil regions:
@@ -1688,22 +1786,7 @@ void ProfilePlotWidget::paintSoilFill(QPainter &p) const
     // contains it; otherwise the terrain ground line and the node row drift
     // apart whenever a zero-length link sits in between.
     auto terrainSampleToVirtualX = [&](double realX) -> double {
-        if (m_path.chainage.size() < 2 || m_virtualChainage.size() < 2)
-            return realX;
-        if (realX <= m_path.chainage.first()) return m_virtualChainage.first();
-        if (realX >= m_path.chainage.last())  return m_virtualChainage.last();
-        for (int i = 0; i + 1 < m_path.chainage.size(); ++i) {
-            const double ra = m_path.chainage[i];
-            const double rb = m_path.chainage[i + 1];
-            if (realX >= ra && realX <= rb) {
-                const double span = rb - ra;
-                const double t = (span > 0.0) ? (realX - ra) / span : 0.0;
-                const double va = m_virtualChainage[i];
-                const double vb = m_virtualChainage[i + 1];
-                return va + t * (vb - va);
-            }
-        }
-        return realX;
+        return realChainageToVirtualX(realX);
     };
 
     // ---- Top edge: terrain samples if the user opted in and the path
@@ -2879,6 +2962,18 @@ void ProfilePlotWidget::paintLegend(QPainter &p) const
         if (!pen.color().isValid()) pen.setColor(s.color);
         r.linePen   = pen;
         rows.push_back(r);
+    }
+    // 2D inundation overlay — one row whenever it is on and has stations.
+    if (!m_surface2D.isEmpty() && (!m_options || m_options->show2DInundation())) {
+        Row r;
+        r.text      = tr("2D water surface");
+        r.fillBrush = m_options ? m_options->inundation2DFillBrush()
+                                : QBrush(QColor(0x20, 0xB2, 0xAA, 90));
+        r.linePen   = m_options ? m_options->inundation2DLinePen()
+                                : QPen(QColor(0x00, 0x8B, 0x8B), 1.6);
+        r.hasFill   = (r.fillBrush.style() != Qt::NoBrush);
+        r.hasLine   = (r.linePen.style()   != Qt::NoPen);
+        if (r.hasFill || r.hasLine) rows.push_back(r);
     }
     if (rows.isEmpty()) return;
 
