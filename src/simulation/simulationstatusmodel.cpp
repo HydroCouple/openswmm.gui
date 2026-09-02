@@ -97,6 +97,32 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
     return jobId;
 }
 
+int SimulationStatusModel::ensureJobForModel(SWMMVisProjectWindow *model,
+                                             const QString &instanceName,
+                                             const QString &inpPath,
+                                             const QString &engineVersion)
+{
+    if (!model) return -1;
+
+    auto &versionMap = m_modelToJobId[model];
+    if (versionMap.contains(engineVersion)) {
+        const int jobId = versionMap[engineVersion];
+        if (jobIndexById(jobId) >= 0) return jobId;
+    }
+
+    const int jobId = addJob(instanceName, inpPath, engineVersion);
+    versionMap[engineVersion] = jobId;
+
+    auto &rec     = m_jobs.last();
+    rec.status    = SimulationJobStatus::Idle;
+    rec.startedAt = QDateTime();
+    const int row = m_jobs.size() - 1;
+    emit dataChanged(createIndex(row, 0, kRootId),
+                     createIndex(row, NumColumns - 1, kRootId),
+                     {Qt::DisplayRole, Qt::ForegroundRole});
+    return jobId;
+}
+
 void SimulationStatusModel::updateProgress(int jobId, double fraction,
                                            const QDateTime &currentSimDate,
                                            double runoffErrFrac, double routingErrFrac,
@@ -135,8 +161,9 @@ void SimulationStatusModel::setSimulationDates(int jobId,
     auto &rec        = m_jobs[row];
     rec.startSimDate = startSimDate;
     rec.endSimDate   = endSimDate;
-    // Initial current = start until the first progress tick arrives.
-    if (!rec.currentSimDate.isValid())
+    // Initial current = start until the first progress tick arrives. An
+    // Idle row (no run yet) always tracks the start so option edits show.
+    if (!rec.currentSimDate.isValid() || rec.status == SimulationJobStatus::Idle)
         rec.currentSimDate = startSimDate;
 
     const QModelIndex tl = createIndex(row, ColStartDate,   kRootId);
@@ -327,6 +354,7 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             return rec.instanceName;
         case ColStatus:
             switch (rec.status) {
+            case SimulationJobStatus::Idle:      return tr("Idle");
             case SimulationJobStatus::Running:   return tr("Running");
             case SimulationJobStatus::Success:   return tr("Success");
             case SimulationJobStatus::Failed:    return tr("Failed");
@@ -353,6 +381,8 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
                 return QStringLiteral("—");
             return QStringLiteral("%1 %").arg(rec.twoDErrPct, 0, 'f', 3);
         case ColDuration: {
+            if (!rec.startedAt.isValid())
+                return QStringLiteral("—");
             if (!rec.finishedAt.isValid())
                 return QStringLiteral("%1 s")
                     .arg(rec.startedAt.secsTo(QDateTime::currentDateTime()));
@@ -373,6 +403,7 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
 
     if (role == Qt::ForegroundRole) {
         switch (rec.status) {
+        case SimulationJobStatus::Idle:      return {};
         case SimulationJobStatus::Running:   return QBrush(QColor(0x00, 0x70, 0xC0));
         case SimulationJobStatus::Success:   return QBrush(QColor(0x00, 0x80, 0x00));
         case SimulationJobStatus::Failed:    return QBrush(QColor(0xC0, 0x00, 0x00));

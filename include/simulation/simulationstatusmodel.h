@@ -19,6 +19,7 @@ class SWMMVisProjectWindow;  // Forward declaration
  * @brief Status of a single simulation job.
  */
 enum class SimulationJobStatus {
+    Idle,       ///< Row exists for an open model; no run yet.
     Running,
     Success,
     Failed,
@@ -121,6 +122,16 @@ public:
                                const QString &instanceName,
                                const QString &inpPath,
                                const QString &engineVersion = QString());
+
+    /**
+     * @brief Return the job row bound to (model, engine version), creating
+     *        an Idle row if none exists yet. Used so an opened model shows
+     *        its simulation start / end dates before any run.
+     */
+    int  ensureJobForModel(SWMMVisProjectWindow *model,
+                           const QString &instanceName,
+                           const QString &inpPath,
+                           const QString &engineVersion);
 
     /**
      * @brief Update progress for a running job.
