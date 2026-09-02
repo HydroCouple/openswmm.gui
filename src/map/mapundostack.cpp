@@ -975,6 +975,11 @@ void DeleteObjectCommand::snapshotSubcatch(const QString &name)
 
 void DeleteObjectCommand::redo()
 {
+    // Batch mode: the owning BatchDeleteCommand's swmm_*_delete_many call
+    // already deleted this object — this child exists for its snapshot and
+    // its undo() only.
+    if (m_engineAppliedByBatch) return;
+
     switch (m_kind) {
     case DeleteNode:    m_layer->applyNodeDelete(m_node.name);       break;
     case DeleteLink:    m_layer->applyLinkDelete(m_link.name);       break;
@@ -1128,6 +1133,42 @@ void AddAnnotationCommand::undo()
         if (m_canvas)
             m_canvas->invalidate(MapCanvas::Scene, QStringLiteral("addtext-undo"));
     }
+}
+
+// ===========================================================================
+// BatchDeleteCommand  (perf-plan Phase A2)
+// ===========================================================================
+
+BatchDeleteCommand::BatchDeleteCommand(SWMMModelLayer *layer,
+                                       const QList<Target> &targets,
+                                       MapCanvas *canvas, const QString &text)
+    : BulkEditCommand(layer, text)
+    , m_layer(layer)
+{
+    // Children snapshot in construction order, BEFORE anything is deleted,
+    // so every snapshot (and its cascade-link analysis) sees pre-batch
+    // indices.  Their redo() are no-ops; undo() restores per-object in
+    // reverse creation order under the inherited BulkEdit scope.
+    for (const Target &t : targets) {
+        auto *child = new DeleteObjectCommand(layer, t.name, t.kind, canvas,
+                                              this);
+        child->setEngineAppliedByBatch(true);
+        switch (t.kind) {
+        case DeleteObjectCommand::DeleteNode:     m_nodeNames << t.name;     break;
+        case DeleteObjectCommand::DeleteLink:     m_linkNames << t.name;     break;
+        case DeleteObjectCommand::DeleteGage:     m_gageNames << t.name;     break;
+        case DeleteObjectCommand::DeleteSubcatch: m_subcatchNames << t.name; break;
+        }
+    }
+}
+
+void BatchDeleteCommand::redo()
+{
+    if (!m_layer) return;
+    SWMMModelLayer::BulkEdit guard(m_layer);
+    m_layer->applyDeleteMany(m_nodeNames, m_linkNames, m_subcatchNames,
+                             m_gageNames);
+    QUndoCommand::redo();   // children are snapshot-only no-ops
 }
 
 // ===========================================================================

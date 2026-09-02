@@ -845,13 +845,19 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
 
     // Group all deletes under one parent so Ctrl+Z undoes them together, and
     // so the whole batch shares a single cache rebuild in both directions.
+    // BatchDeleteCommand (perf-plan Phase A2) snapshots every target first,
+    // then deletes through ONE swmm_*_delete_many engine call per kind.
     // (The confirm dialog above sat between the two timing sections, so the
     // user's think time never pollutes the numbers.)
     QElapsedTimer execTimer;
     execTimer.start();
-    auto *macro = new BulkEditCommand(sl, QObject::tr("Delete Objects"));
+    QList<BatchDeleteCommand::Target> targets;
+    targets.reserve(toDelete.size());
     for (const ObjInfo &obj : toDelete)
-        new DeleteObjectCommand(sl, obj.name, obj.kind, m_canvas, macro);
+        targets.append({obj.name, obj.kind});
+    auto *macro =
+        new BatchDeleteCommand(sl, targets, m_canvas,
+                               QObject::tr("Delete Objects"));
     const qint64 snapshotMs = execTimer.elapsed();
 
     if (m_canvas->undoStack())
@@ -1942,15 +1948,21 @@ void OpenSWMMVisMapToolSelect::deleteSelectedEditHandles()
 
             if (btn != QMessageBox::Yes) return;
 
-            // Delete the whole subcatchment.
-            auto *cmd = new DeleteObjectCommand(
-                m_editLayer, m_editName,
-                DeleteObjectCommand::DeleteSubcatch, m_canvas);
+            // Delete the whole subcatchment.  Wrapped in a BulkEditCommand
+            // (the previously unguarded delete site — perf-plan Phase A2):
+            // the macro is what keeps a later Ctrl+Z from replaying the
+            // restore storm unguarded.
+            auto *macro =
+                new BulkEditCommand(m_editLayer,
+                                    QObject::tr("Delete Subcatchment"));
+            new DeleteObjectCommand(m_editLayer, m_editName,
+                                    DeleteObjectCommand::DeleteSubcatch,
+                                    m_canvas, macro);
             clearEditMode(); // exit edit mode before the object disappears
             if (m_canvas->undoStack())
-                m_canvas->undoStack()->push(cmd);
+                m_canvas->undoStack()->push(macro);
             else
-                delete cmd;
+                delete macro;
         }
     }
 }

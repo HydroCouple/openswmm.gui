@@ -28,6 +28,8 @@
 
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_gages.h>
+#include <openswmm/engine/openswmm_subcatchments.h>
 
 #include "core/queryparser.h"
 #include "ui/dialogs/typeconversionflow.h"
@@ -2602,34 +2604,50 @@ int AttributeTablePanel::deleteObjects(const QStringList &names)
     int deleted = 0;
 
     if (stack) {
-        // Undoable path — one macro so Ctrl+Z reverses the whole batch. A
-        // deleted node cascades its links inside DeleteObjectCommand, exactly
-        // as the map's right-click delete does.
-        auto *macro = new BulkEditCommand(
-            m_layer,
-            names.size() == 1 ? tr("Delete \"%1\"").arg(names.first())
-                              : tr("Delete %1 objects").arg(names.size()));
+        // Undoable path — one BatchDeleteCommand (perf-plan Phase A2): every
+        // target snapshots first, then ONE swmm_*_delete_many engine call
+        // deletes the batch. Ctrl+Z reverses the whole batch, and a deleted
+        // node's cascade links restore exactly as the map's delete does.
+        QList<BatchDeleteCommand::Target> targets;
+        targets.reserve(names.size());
         for (const QString &name : names)
-            new DeleteObjectCommand(m_layer, name, kind, m_canvas, macro);
-        stack->push(macro);
+            targets.append({name, kind});
+        stack->push(new BatchDeleteCommand(
+            m_layer, targets, m_canvas,
+            names.size() == 1 ? tr("Delete \"%1\"").arg(names.first())
+                              : tr("Delete %1 objects").arg(names.size())));
         deleted = names.size();
     } else {
         // No canvas/undo stack (headless / tests): perform the SAME mutation
-        // DeleteObjectCommand::redo() performs, minus the undo record.
-        // Guarded too, so the headless path coalesces exactly like the UI one
-        // and tests exercise the same code — the terminal geometryChanged()
-        // still fires synchronously before deleteObjects() returns.
-        SWMMModelLayer::BulkEdit guard(m_layer);
+        // BatchDeleteCommand::redo() performs, minus the undo record.  The
+        // return contract counts objects that actually existed, so resolve
+        // before the batch (names that don't resolve are skipped by
+        // applyDeleteMany exactly as the per-object path skipped them).
+        SWMM_Engine eng = m_layer->engine();
+        int resolvable = 0;
+        QStringList nodeNames, linkNames, subcatchNames, gageNames;
         for (const QString &name : names) {
-            bool ok = false;
+            const QByteArray utf8 = name.toUtf8();
+            int idx = -1;
             switch (kind) {
-            case DeleteObjectCommand::DeleteNode:     ok = m_layer->applyNodeDelete(name);     break;
-            case DeleteObjectCommand::DeleteLink:     ok = m_layer->applyLinkDelete(name);     break;
-            case DeleteObjectCommand::DeleteGage:     ok = m_layer->applyGageDelete(name);     break;
-            case DeleteObjectCommand::DeleteSubcatch: ok = m_layer->applySubcatchDelete(name); break;
+            case DeleteObjectCommand::DeleteNode:
+                idx = eng ? swmm_node_index(eng, utf8.constData()) : -1;
+                nodeNames << name; break;
+            case DeleteObjectCommand::DeleteLink:
+                idx = eng ? swmm_link_index(eng, utf8.constData()) : -1;
+                linkNames << name; break;
+            case DeleteObjectCommand::DeleteGage:
+                idx = eng ? swmm_gage_index(eng, utf8.constData()) : -1;
+                gageNames << name; break;
+            case DeleteObjectCommand::DeleteSubcatch:
+                idx = eng ? swmm_subcatch_index(eng, utf8.constData()) : -1;
+                subcatchNames << name; break;
             }
-            if (ok) ++deleted;
+            if (idx >= 0) ++resolvable;
         }
+        if (m_layer->applyDeleteMany(nodeNames, linkNames, subcatchNames,
+                                     gageNames))
+            deleted = resolvable;
     }
     return deleted;
 }

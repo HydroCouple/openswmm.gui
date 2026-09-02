@@ -1740,6 +1740,26 @@ public:
     /*! Delete a subcatchment. */
     bool applySubcatchDelete(const QString &name);
 
+    /*!
+     * \brief Batch deletion (perf-plan Phase A2): one swmm_*_delete_many
+     *        engine call per kind, one order-preserving SoA sweep per vector.
+     * \details Replaces K per-object deletes whose dominant cost was the
+     *          engine's per-delete name-index rehash plus K O(N) removeAt
+     *          calls.  Nodes delete first (cascading their links); link names
+     *          are resolved AFTER that batch, so a selected link the cascade
+     *          already removed is skipped, matching the per-object path.
+     *          Opens its own nestable BulkEdit scope — inside a
+     *          BulkEditCommand it joins the outer scope; called bare it
+     *          supplies the single rebuild+repaint itself.
+     * \param[out] cascadeLinkNames Names of links the node batch cascaded.
+     * \returns true when anything was deleted.
+     */
+    bool applyDeleteMany(const QStringList &nodeNames,
+                         const QStringList &linkNames,
+                         const QStringList &subcatchNames,
+                         const QStringList &gageNames,
+                         QStringList *cascadeLinkNames = nullptr);
+
     // ===== Slice BS Phase 6.9.2 — hydrograph + RDII decay MVC layer ======
     //
     // Every mutation to [HYDROGRAPHS] / [RDII_DECAY] data routes through one
