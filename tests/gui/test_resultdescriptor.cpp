@@ -121,10 +121,11 @@ void TestResultDescriptor::systemAndMeshKindsCarryNoSpecies()
     QCOMPARE(resultDescriptorsForKind(ObjectRef::Kind::System,
                                       kRunSpecies).size(),
              systemPlotAttributes().size());
-    // Mesh kinds have no fixed list here (capability-gated in the layer)
-    // and no species columns either.
-    QVERIFY(resultDescriptorsForKind(ObjectRef::Kind::Mesh2DCell,
-                                     kRunSpecies).isEmpty());
+    // Mesh kinds carry their fixed list (per-layer availability is gated by
+    // supportsAttribute) but no species columns.
+    QCOMPARE(resultDescriptorsForKind(ObjectRef::Kind::Mesh2DCell,
+                                      kRunSpecies).size(),
+             mesh2DCellPlotAttributes().size());
     QVERIFY(resultDescriptorsForKind(ObjectRef::Kind::Observed,
                                      kRunSpecies).isEmpty());
 }

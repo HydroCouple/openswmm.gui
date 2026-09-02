@@ -1077,6 +1077,17 @@ bool HDF5Mesh2DSource::readEdgeFluxAt(int timeIdx, std::vector<float>& flux)
     return reader_->readEdgeFluxAt(timeIdx, flux);
 }
 
+bool HDF5Mesh2DSource::hasFaceField(const char* dataset) const
+{
+    return reader_ && reader_->hasFaceField(dataset);
+}
+
+bool HDF5Mesh2DSource::readFaceFieldAt(const char* dataset, int timeIdx,
+                                       std::vector<float>& values)
+{
+    return reader_->readFaceFieldAt(dataset, timeIdx, values);
+}
+
 bool HDF5Mesh2DSource::readEdgeGeometry(std::vector<float>& length,
                                          std::vector<float>& nx,
                                          std::vector<float>& ny)

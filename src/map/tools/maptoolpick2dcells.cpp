@@ -11,7 +11,9 @@
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
 #include "mesh/meshobjectref.h"
+#include "plot/mesh2drunlayer.h"
 #include "selection/selectionmanager.h"
+#include "ui/widgets/attributepickermenu.h"
 
 #include <QCursor>
 #include <QKeyEvent>
@@ -133,7 +135,7 @@ void MapToolPick2DCells::applySelection_(const QVector<int> &hits,
     m_selection->select(set, mode);
 }
 
-void MapToolPick2DCells::requestPlotAt_(const QPoint &pixel)
+void MapToolPick2DCells::requestPlotAt_(const QPoint &pixel, const QPoint &globalPos)
 {
     SWMM2DResultsLayer *layer = m_targetLayer.data();
     if (!layer) layer = findResultsLayer_();
@@ -148,8 +150,20 @@ void MapToolPick2DCells::requestPlotAt_(const QPoint &pixel)
             targets.push_back(idx);
         }
     }
-    if (!targets.isEmpty())
-        emit cellsPicked(layer, targets);
+    if (targets.isEmpty()) return;
+
+    // Same context-menu picker the 1D select tool uses; entries the layer
+    // can't serve (no edge flux → no velocity; no rainfall datasets) are
+    // greyed out via Mesh2DRunLayer::supportsAttribute.
+    using namespace openswmmvis;
+    const plot::Mesh2DRunLayer availability(layer);
+    const QVector<plot::PlotAttribute> attrs =
+        ui::AttributePickerMenu::execForMeshKind(
+            plot::ObjectRef::Kind::Mesh2DCell, globalPos, &availability,
+            tr("Not present in this run's 2D results — re-run with the "
+               "current engine."));
+    if (!attrs.isEmpty())
+        emit cellsPicked(layer, targets, attrs);
 }
 
 QPointF MapToolPick2DCells::pixelToScene_(int px, int py) const
@@ -256,7 +270,7 @@ void MapToolPick2DCells::mouseReleaseEvent(QMouseEvent *event)
     if (event->button() == Qt::RightButton) {
         if (m_pendingRightPlot) {
             m_pendingRightPlot = false;
-            requestPlotAt_(event->pos());
+            requestPlotAt_(event->pos(), event->globalPosition().toPoint());
         }
         return;
     }

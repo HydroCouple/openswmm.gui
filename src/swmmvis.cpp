@@ -2838,9 +2838,10 @@ void SWMMVis::onAddFromMapToggled(bool active)
 }
 
 void SWMMVis::openComparisonPlotForCells(SWMM2DResultsLayer *layer,
-                                          const QVector<int> &triIdxList)
+                                          const QVector<int> &triIdxList,
+                                          const QVector<openswmmvis::plot::PlotAttribute> &attrs)
 {
-    if (!layer || triIdxList.isEmpty())
+    if (!layer || triIdxList.isEmpty() || attrs.isEmpty())
         return;
 
     auto *pw = activeProjectWindow();
@@ -2854,53 +2855,6 @@ void SWMMVis::openComparisonPlotForCells(SWMM2DResultsLayer *layer,
             tr("Couldn't attach the 2D mesh layer to the comparison plot."));
         return;
     }
-
-    // Ask the user which attributes to plot — small modal popover. Defaults
-    // to Depth only (cheapest path; velocity reconstruction is per-tick).
-    QDialog popover(this);
-    popover.setWindowTitle(tr("Plot cell time series"));
-    auto *vbox = new QVBoxLayout(&popover);
-    vbox->addWidget(new QLabel(
-        tr("Plot %1 selected cell(s) — choose attributes:").arg(triIdxList.size()),
-        &popover));
-    auto *cbDepth = new QCheckBox(tr("Depth"),              &popover);  cbDepth->setChecked(true);
-    auto *cbHGL   = new QCheckBox(tr("HGL / water surface"),&popover);
-    auto *cbVMag  = new QCheckBox(tr("|V| (velocity magnitude)"), &popover);
-    auto *cbVx    = new QCheckBox(tr("Vx (velocity east)"), &popover);
-    auto *cbVy    = new QCheckBox(tr("Vy (velocity north)"),&popover);
-    cbVMag->setEnabled(layer->hasVelocityData());
-    cbVx  ->setEnabled(layer->hasVelocityData());
-    cbVy  ->setEnabled(layer->hasVelocityData());
-    if (!layer->hasVelocityData()) {
-        const QString tip = tr("Edge-flux data not present — re-run with "
-                               "current engine to enable velocity series.");
-        cbVMag->setToolTip(tip);
-        cbVx  ->setToolTip(tip);
-        cbVy  ->setToolTip(tip);
-    }
-    vbox->addWidget(cbDepth);
-    vbox->addWidget(cbHGL);
-    vbox->addWidget(cbVMag);
-    vbox->addWidget(cbVx);
-    vbox->addWidget(cbVy);
-    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &popover);
-    QObject::connect(bb, &QDialogButtonBox::accepted, &popover, &QDialog::accept);
-    QObject::connect(bb, &QDialogButtonBox::rejected, &popover, &QDialog::reject);
-    vbox->addWidget(bb);
-
-    if (popover.exec() != QDialog::Accepted)
-        return;
-
-    using PA = openswmmvis::plot::PlotAttribute;
-    QVector<PA> attrs;
-    if (cbDepth->isChecked()) attrs.push_back(PA::Mesh2DDepth);
-    if (cbHGL  ->isChecked()) attrs.push_back(PA::Mesh2DHGL);
-    if (cbVMag ->isChecked()) attrs.push_back(PA::Mesh2DVelocityMag);
-    if (cbVx   ->isChecked()) attrs.push_back(PA::Mesh2DVelocityX);
-    if (cbVy   ->isChecked()) attrs.push_back(PA::Mesh2DVelocityY);
-
-    if (attrs.isEmpty())
-        return;
 
     // Warn on large selections (per CF.3 edge case: 500-cell threshold).
     const int total = triIdxList.size() * attrs.size();
@@ -2960,12 +2914,13 @@ void SWMMVis::openMeshEdgeFluxPlotFor(SWMM2DMeshLayer *mesh, int triIdx, int edg
 }
 
 void SWMMVis::openMeshVertexSeriesFor(SWMM2DMeshLayer *mesh,
-                                       const QVector<int> &vertexIdxList)
+                                       const QVector<int> &vertexIdxList,
+                                       const QVector<openswmmvis::plot::PlotAttribute> &attrs)
 {
     Q_UNUSED(mesh);  // vertex indices reference the shared engine mesh; the
                      // results layer's source carries the depth feed.
     auto *pw = activeProjectWindow();
-    if (!pw || vertexIdxList.isEmpty()) return;
+    if (!pw || vertexIdxList.isEmpty() || attrs.isEmpty()) return;
 
     SWMM2DResultsLayer *layer = pw->active2DResultsLayer();
     if (!layer || !layer->source()) {
@@ -2984,21 +2939,19 @@ void SWMMVis::openMeshVertexSeriesFor(SWMM2DMeshLayer *mesh,
         return;
     }
 
-    // Warn on large multi-selections (2 series per vertex).
-    const int total = vertexIdxList.size() * 2;
+    // Warn on large multi-selections.
+    const int total = vertexIdxList.size() * attrs.size();
     if (total > 500) {
         const auto choice = QMessageBox::question(this, tr("Many series"),
-            tr("This will create %1 series (%2 vertices × depth + HGL). Continue?")
-                .arg(total).arg(vertexIdxList.size()));
+            tr("This will create %1 series (%2 vertices × %3 attributes). Continue?")
+                .arg(total).arg(vertexIdxList.size()).arg(attrs.size()));
         if (choice != QMessageBox::Yes) return;
     }
 
     using openswmmvis::plot::ObjectRef;
-    using openswmmvis::plot::PlotAttribute;
-    for (int v : vertexIdxList) {
-        dlg->addSeries(runIdx, ObjectRef::forMesh2DVertex(v), PlotAttribute::Mesh2DDepth);
-        dlg->addSeries(runIdx, ObjectRef::forMesh2DVertex(v), PlotAttribute::Mesh2DHGL);
-    }
+    for (int v : vertexIdxList)
+        for (const auto attr : attrs)
+            dlg->addSeries(runIdx, ObjectRef::forMesh2DVertex(v), attr);
     dlg->show();
     dlg->raise();
     dlg->activateWindow();
@@ -6218,12 +6171,13 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     }
 
     // Slice CF.3 — Pick 2D Cells tool: project window forwards cellsPicked
-    // here, and we open / focus the Comparison Plot Dialog seeded with the
-    // selected cells. Queued: the signal is emitted from inside the canvas
-    // tool's mousePressEvent, and openComparisonPlotForCells spins a modal
-    // attribute popover — exec()ing a dialog while the press is still being
-    // delivered swallows the matching release and can wedge Qt's implicit
-    // mouse grab. The hop lets the press/release pair finish first.
+    // (cells + attributes chosen from the tool's context menu) here, and we
+    // open / focus the Comparison Plot Dialog seeded with them. Queued: the
+    // signal is emitted from inside the canvas tool's mouse handler, and
+    // openComparisonPlotForCells may exec() a "many series" QMessageBox —
+    // the hop lets the press/release pair finish first.
+    qRegisterMetaType<QVector<openswmmvis::plot::PlotAttribute>>(
+        "QVector<openswmmvis::plot::PlotAttribute>");
     connect(pw, &SWMMVisProjectWindow::pick2DCellsPicked,
             this, &SWMMVis::openComparisonPlotForCells,
             static_cast<Qt::ConnectionType>(Qt::QueuedConnection |

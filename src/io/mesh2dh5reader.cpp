@@ -386,10 +386,29 @@ bool Mesh2DH5Reader::readTimes(std::vector<double>& times) const
 
 bool Mesh2DH5Reader::readDepthsAt(int timeIdx, std::vector<float>& depths) const
 {
+    return readFaceFieldAt("Mesh2_face_depth", timeIdx, depths);
+}
+
+bool Mesh2DH5Reader::hasFaceField(const char* dataset) const
+{
+    if (file_id_ < 0 || !dataset) return false;
+    auto it = cached_has_face_field_.find(dataset);
+    if (it == cached_has_face_field_.end()) {
+        const htri_t ex = H5Lexists(static_cast<hid_t>(file_id_), dataset, H5P_DEFAULT);
+        it = cached_has_face_field_.emplace(dataset, ex > 0).first;
+    }
+    return it->second;
+}
+
+bool Mesh2DH5Reader::readFaceFieldAt(const char* dataset, int timeIdx,
+                                     std::vector<float>& values) const
+{
     if (file_id_ < 0)
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
     if (timeIdx < 0)
         return setError_(QStringLiteral("Negative timeIdx"));
+    if (!hasFaceField(dataset))
+        return setError_(QStringLiteral("%1 not in file").arg(QLatin1String(dataset)));
 
     const int n_face = triangleCount();
     const int n_time = timeCount();
@@ -397,13 +416,12 @@ bool Mesh2DH5Reader::readDepthsAt(int timeIdx, std::vector<float>& depths) const
         return setError_(QStringLiteral("timeIdx %1 >= n_time %2")
                           .arg(timeIdx).arg(n_time));
 
-    depths.assign(n_face, 0.0f);
+    values.assign(n_face, 0.0f);
     if (n_face == 0) return true;
 
-    hid_t ds = H5Dopen2(static_cast<hid_t>(file_id_),
-                         "Mesh2_face_depth", H5P_DEFAULT);
+    hid_t ds = H5Dopen2(static_cast<hid_t>(file_id_), dataset, H5P_DEFAULT);
     if (ds < 0)
-        return setError_(QStringLiteral("H5Dopen2 failed: Mesh2_face_depth"));
+        return setError_(QStringLiteral("H5Dopen2 failed: %1").arg(QLatin1String(dataset)));
     DataSetGuard g(ds);
 
     hid_t fsp = H5Dget_space(ds);
@@ -427,8 +445,9 @@ bool Mesh2DH5Reader::readDepthsAt(int timeIdx, std::vector<float>& depths) const
     // Read as float for downstream RGB packing — engine writes double, HDF5
     // does the type conversion automatically.
     herr_t r = H5Dread(ds, H5T_NATIVE_FLOAT, msp, fsp, H5P_DEFAULT,
-                       depths.data());
-    return r >= 0 || setError_(QStringLiteral("H5Dread depth slice failed"));
+                       values.data());
+    return r >= 0 || setError_(QStringLiteral("H5Dread %1 slice failed")
+                                   .arg(QLatin1String(dataset)));
 }
 
 bool Mesh2DH5Reader::readVertexHeadsAt(int timeIdx,

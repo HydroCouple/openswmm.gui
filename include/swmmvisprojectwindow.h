@@ -444,7 +444,8 @@ signals:
     /*! Slice CF.3 — forwards MapToolPick2DCells::cellsPicked up to the
      *  main window so it can open the Comparison Plot Dialog. */
     void pick2DCellsPicked(class SWMM2DResultsLayer *layer,
-                            const QVector<int> &triIdxList);
+                            const QVector<int> &triIdxList,
+                            const QVector<openswmmvis::plot::PlotAttribute> &attrs);
 
     /*! Forwards MapToolMeshProfile::profilePathTraced up to the main window
      *  so it can open the MeshProfilePlotDialog. The polyline is in scene
@@ -471,8 +472,10 @@ signals:
     void meshEdgeStatusMessage(const QString &message);
 
     /*! Forwards MapToolMeshSelectVertex::plotVertexSeriesRequested up to the
-     *  main window so it can plot interpolated depth/HGL for the vertices. */
-    void meshVertexSeriesRequested(class SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList);
+     *  main window so it can plot the chosen interpolated attributes
+     *  (depth / HGL) for the vertices. */
+    void meshVertexSeriesRequested(class SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList,
+                                   const QVector<openswmmvis::plot::PlotAttribute> &attrs);
 
     /*! Slice BC — fires whenever the active terrain raster changes
      *  (set / cleared / swapped) or its vertical-unit conversion
