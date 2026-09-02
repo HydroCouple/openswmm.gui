@@ -1185,33 +1185,33 @@ DeleteDataObjectCommand::DeleteDataObjectCommand(SWMMModelLayer      *layer,
 
 void DeleteDataObjectCommand::redo()
 {
+    // remove() is engine-authoritative since perf-plan Phase A3 (it deletes
+    // the engine table/transect itself), so the old full saveToEngine()
+    // reflush — which rewrote EVERY remaining provider's contents per
+    // delete, O(total data) — is gone.  The undo direction still reflushes
+    // (restore* below): re-creating one object is the rare path and the
+    // registries have no single-provider save.
     if (!m_layer) return;
     switch (m_ref.objectType) {
     case SWMMObjectRef::Curve: {
         auto *reg = dd_curveReg(m_layer);
         if (!reg) return;
-        if (auto *p = reg->findByName(m_ref.name)) {
-            reg->remove(p);                      // deletes the provider
-            reg->saveToEngine(m_layer->engine());
-        }
+        if (auto *p = reg->findByName(m_ref.name))
+            reg->remove(p);
         break;
     }
     case SWMMObjectRef::TimeSeries: {
         auto *reg = dd_tsReg(m_layer);
         if (!reg) return;
-        if (auto *p = reg->findByName(m_ref.name)) {
+        if (auto *p = reg->findByName(m_ref.name))
             reg->remove(p);
-            reg->saveToEngine(m_layer->engine());
-        }
         break;
     }
     case SWMMObjectRef::Transect: {
         auto *reg = dd_txReg(m_layer);
         if (!reg) return;
-        if (auto *p = reg->findByName(m_ref.name)) {
+        if (auto *p = reg->findByName(m_ref.name))
             reg->remove(p);
-            reg->saveToEngine(m_layer->engine());
-        }
         break;
     }
     default: break;
