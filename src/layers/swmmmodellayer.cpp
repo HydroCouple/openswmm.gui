@@ -818,6 +818,14 @@ SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path,
                   .arg(path, detail));
     }
 
+    // The parser reverses adverse-slope conduits in place (From/To, offsets,
+    // losses, InitFlow sign) for DYNWAVE/FV routing. That is a solver
+    // convention, not an edit: the user must see and save the orientation they
+    // authored — legacy SWMM-GUI never shows the reversal because it saves its
+    // own object model. Runs use a separate strict open (SimulationRunner), so
+    // restoring the edit context does not affect hydraulics.
+    swmm_links_restore_authored_orientation(eng, nullptr);
+
     if (openMs) *openMs = timer.elapsed();
     return eng;
 }
@@ -4572,21 +4580,37 @@ namespace {
 // legacy GetOffsetElevation / GetOffsetDepth (Uupdate.pas):
 //   Depth  -> Elevation:  elev  = depth + invert  (depth 0 yields the invert).
 //   Elevation -> Depth:   depth = max(0, elev - invert)  (clamp inverts below).
-double convertedOffset(double value, double invert, bool toElevation)
+// The engine always stores offsets as DEPTHS above the node invert, whatever
+// LINK_OFFSETS says (PostParseResolver normalises elevations at open; the
+// .inp writer re-adds the invert on save). So the numbers the engine holds
+// are the same physical geometry in either mode, and legacy's two answers to
+// "Should all link offsets be converted?" map onto the depth store as:
+//   Yes  — same physics, new representation → nothing to do here; the option
+//          flip alone changes what the file and the editors show.
+//   No   — keep the displayed NUMBERS, so their meaning changes → reinterpret
+//          the current depth as the other convention's value:
+//            → ELEVATION: the depth d is now an elevation, depth' = max(0, d − invert)
+//            → DEPTH:     the elevation (d + invert) is now a depth, depth' = d + invert
+// Legacy rules (Uupdate.pas GetOffsetDepth/GetOffsetElevation) clamp at 0.
+double reinterpretedDepth(double depth, double invert, bool toElevation)
 {
     if (toElevation)
-        return value + invert;
-    const double depth = value - invert;
-    return depth > 0.0 ? depth : 0.0;
+    {
+        const double d = depth - invert;
+        return d > 0.0 ? d : 0.0;
+    }
+    return depth + invert;
 }
 } // namespace
 
-void SWMMModelLayer::convertLinkOffsets(bool toElevation)
+void SWMMModelLayer::convertLinkOffsets(bool toElevation, bool convertValues)
 {
     if (!m_engine)
         return;
 
-    const int n = swmm_link_count(m_engine);
+    // "Yes": the depth store is already right; only the presentation changes.
+    // The editors derive display values from the mode, so still refresh.
+    const int n = convertValues ? 0 : swmm_link_count(m_engine);
     for (int i = 0; i < n; ++i)
     {
         int type = 0;
@@ -4595,20 +4619,27 @@ void SWMMModelLayer::convertLinkOffsets(bool toElevation)
         if (type == SWMM_LINK_PUMP)   // pumps carry no offset — legacy skips them
             continue;
 
-        // Upstream offset (from-node invert) applies to conduits, orifices,
-        // weirs and outlets.
         int fromIdx = -1;
         double fromInvert = 0.0;
         swmm_link_get_from_node(m_engine, i, &fromIdx);
         if (fromIdx >= 0)
             swmm_node_get_invert_elev(m_engine, fromIdx, &fromInvert);
 
+        if (type == SWMM_LINK_WEIR || type == SWMM_LINK_OUTLET)
+        {
+            // Crest lives in the weir/outlet side table, not offset_up.
+            double crest = 0.0;
+            if (swmm_link_get_crest_height(m_engine, i, &crest) == SWMM_OK)
+                swmm_link_set_crest_height(m_engine, i,
+                                           reinterpretedDepth(crest, fromInvert, toElevation));
+            continue;
+        }
+
         double up = 0.0;
         if (swmm_link_get_offset_up(m_engine, i, &up) == SWMM_OK)
             swmm_link_set_offset_up(m_engine, i,
-                                    convertedOffset(up, fromInvert, toElevation));
+                                    reinterpretedDepth(up, fromInvert, toElevation));
 
-        // Downstream offset (to-node invert) is conduit-only.
         if (type == SWMM_LINK_CONDUIT)
         {
             int toIdx = -1;
@@ -4620,7 +4651,7 @@ void SWMMModelLayer::convertLinkOffsets(bool toElevation)
             double dn = 0.0;
             if (swmm_link_get_offset_dn(m_engine, i, &dn) == SWMM_OK)
                 swmm_link_set_offset_dn(m_engine, i,
-                                        convertedOffset(dn, toInvert, toElevation));
+                                        reinterpretedDepth(dn, toInvert, toElevation));
         }
     }
 

@@ -76,11 +76,11 @@ public:
     bool isElevationOffsetMode() const { return mElevationOffsetMode; }
     void setElevationOffsetMode(bool elevation);
 
-    /*! Convert all link offsets between Depth and Elevation conventions
-     *  (legacy UpdateOffsets → ComputeDepth/ElevationOffsets parity) and mark
-     *  the project dirty. \param toElevation true → to Elevation, false → to
-     *  Depth. */
-    void convertLinkOffsets(bool toElevation);
+    /*! Apply the answer to the legacy UpdateOffsets convert prompt after the
+     *  mode flip (see SWMMModelLayer::convertLinkOffsets) and mark the project
+     *  dirty. \param toElevation the mode switched TO; \param convertValues the
+     *  prompt answer (true = Yes). */
+    void convertLinkOffsets(bool toElevation, bool convertValues);
 
     /*! Re-read LINK_OFFSETS from the engine into the cached
      *  mElevationOffsetMode flag. Used by the main-window listener for
