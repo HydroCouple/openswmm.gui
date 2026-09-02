@@ -69,6 +69,10 @@ QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
         { QStringLiteral("yLabelFormat"),      QObject::tr("Y Axis — Custom format") },
         // Ground
         { QStringLiteral("useTerrainGround"), QObject::tr("Use terrain DEM for ground") },
+        // 2D inundation overlay
+        { QStringLiteral("show2DInundation"),      QObject::tr("Show 2D inundation (active 2D results)") },
+        { QStringLiteral("inundation2DLinePen"),   QObject::tr("2D water surface line pen") },
+        { QStringLiteral("inundation2DFillBrush"), QObject::tr("2D inundation fill brush") },
         // Flooding indicator
         { QStringLiteral("floodRadiusPx"),    QObject::tr("Flooding glyph radius (px)") },
         { QStringLiteral("floodSweepDeg"),    QObject::tr("Flooding glyph sweep angle (°)") },
@@ -186,6 +190,9 @@ void ProfilePlotOptions::setYLabelPrecision (int count) {
 }
 void ProfilePlotOptions::setYLabelFormat    (const QString &spec) { SET_OBJ(m_yLabelFormatStr, spec); }
 void ProfilePlotOptions::setUseTerrainGround(bool v)   { SET_PRIM(m_useTerrainGround, v); }
+void ProfilePlotOptions::setShow2DInundation(bool v)   { SET_PRIM(m_show2DInundation, v); }
+void ProfilePlotOptions::setInundation2DLinePen  (const QPen   &p) { SET_OBJ(m_inundation2DLinePen, p); }
+void ProfilePlotOptions::setInundation2DFillBrush(const QBrush &b) { SET_OBJ(m_inundation2DFillBrush, b); }
 void ProfilePlotOptions::setShowBranchStubs (bool v)  { SET_PRIM(m_showBranchStubs, v); }
 void ProfilePlotOptions::setShowNodeRoses   (bool v)  { SET_PRIM(m_showNodeRoses, v); }
 void ProfilePlotOptions::setFloodRadiusPx (double r) {

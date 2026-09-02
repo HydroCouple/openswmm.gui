@@ -31,10 +31,12 @@
 #include <QBrush>
 #include <QHash>
 #include <QPen>
+#include <QPointF>
 #include <QPointer>
 #include <QSet>
 #include <QVector>
 
+#include <functional>
 #include <memory>
 
 class AnimationController;
@@ -174,6 +176,44 @@ private:
      *        user hasn't opted in to terrain ground.
      */
     void rebuildTerrainSamples();
+
+    /*!
+     * \brief Walks each path link's polyline (oriented along traversal),
+     *        densified every ~5 model units (≤ 20 samples per segment), and
+     *        calls \p fn(realChainage, modelX, modelY) at each station. Shared
+     *        by the terrain ground line and the 2D inundation overlay.
+     */
+    void forEachPathStation(
+        const std::function<void(double, double, double)> &fn) const;
+
+    // ── 2D inundation overlay ───────────────────────────────────────────
+
+    /*! One station where the path crosses the active 2D results mesh:
+     *  static geometry cached once, depth re-read every animation tick. */
+    struct Surface2DStation
+    {
+        double  chainage = 0.0;   ///< real path chainage
+        QPointF scenePt;          ///< 2D layer scene coords (x, -y of canvas CRS)
+        int     triIdx   = -1;    ///< containing results cell
+        double  bed      = 0.0;   ///< mesh bed elevation at the station
+    };
+
+    /*!
+     * \brief Rebinds the overlay to the project's active 2D results layer:
+     *        resolves the mesh, transforms every path station into the 2D
+     *        scene, caches its containing cell + bed, then refreshes the
+     *        depths for the current frame. Clears everything when the
+     *        option is off or no 2D layer / mesh is available.
+     */
+    void rebuildSurface2DStations();
+
+    /*! Re-reads the current-frame interpolated depth at every cached station
+     *  and pushes bed / WSE samples to the plot. Cheap (no cell search). */
+    void refreshSurface2DDepths();
+
+    QVector<Surface2DStation>             m_surface2D;
+    QPointer<class SWMM2DResultsLayer>    m_surface2DLayer;
+    QAction                              *m_actShow2D = nullptr;
 
     QPointer<SWMMModelLayer>              m_model;
     QPointer<MapCanvas>                   m_canvas;
