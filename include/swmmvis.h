@@ -211,7 +211,7 @@ private:
     void applyEditSessionToActions(bool active);
     void applyProjectOpenToActions(bool open);
 
-    /*! Bold the active side of the "Offset Mode: Elevation [ ] Depth" status-bar
+    /*! Bold the active side of the "Offset Mode: Depth [ ] Elevation" status-bar
      *  toggle so the current LINK_OFFSETS convention is legible at a glance. */
     void updateOffsetModeLabels(bool elevation);
 

@@ -11,6 +11,7 @@
 #include "ui/properties/xsectshapegeom.h"  // xsectGeomApplies (inline geom edits)
 
 #include <openswmm/engine/openswmm_links.h>
+#include "ui/linkoffsetdisplay.h"   // offsets shown in the LINK_OFFSETS convention
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_tables.h>
 
@@ -140,9 +141,9 @@ double SWMMLinkPropertyAdapter::method() const {                    \
 }
 GETTER_D(length,           swmm_link_get_length)
 GETTER_D(roughness,        swmm_link_get_roughness)
-GETTER_D(offsetUp,         swmm_link_get_offset_up)
-GETTER_D(offsetDn,         swmm_link_get_offset_dn)
-GETTER_D(crestHeight,      swmm_link_get_crest_height)
+GETTER_D(offsetUp,         linkoffsetdisplay::getOffsetUp)
+GETTER_D(offsetDn,         linkoffsetdisplay::getOffsetDn)
+GETTER_D(crestHeight,      linkoffsetdisplay::getCrestHeight)
 GETTER_D(dischargeCoeff,   swmm_link_get_discharge_coeff)
 GETTER_D(endContractions,  swmm_link_get_end_contractions)
 // Slice SB — scalar parity getters. initialFlow / maxFlow rely on the
@@ -436,9 +437,9 @@ void SWMMLinkPropertyAdapter::method(double v) {                    \
 }
 SETTER_D(setLength,           swmm_link_set_length)
 SETTER_D(setRoughness,        swmm_link_set_roughness)
-SETTER_D(setOffsetUp,         swmm_link_set_offset_up)
-SETTER_D(setOffsetDn,         swmm_link_set_offset_dn)
-SETTER_D(setCrestHeight,      swmm_link_set_crest_height)
+SETTER_D(setOffsetUp,         linkoffsetdisplay::setOffsetUp)
+SETTER_D(setOffsetDn,         linkoffsetdisplay::setOffsetDn)
+SETTER_D(setCrestHeight,      linkoffsetdisplay::setCrestHeight)
 SETTER_D(setDischargeCoeff,   swmm_link_set_discharge_coeff)
 SETTER_D(setEndContractions,  swmm_link_set_end_contractions)
 // Slice SB — scalar setters. Init / max flow + seepage round-trip

@@ -82,7 +82,7 @@ Units, offset mode, and CRS button to the active project.
 |--------|---------|
 | Progress bar | Indeterminate spinner while loading or saving a model. |
 | **Flow Units** combo | CFS / GPM / MGD / CMS / LPS / MLD. Changing it writes the engine's `FLOW_UNITS` option for the **active project** and marks that project dirty. Disabled when no project is open. |
-| **Offset Mode** toggle | Elevation vs Depth interpretation for link offsets — writes the engine's `LINK_OFFSETS` option for the active project. The label shows "Elevation" when on, "Depth" when off. Disabled when no project is open. |
+| **Offset Mode** toggle | Elevation vs Depth interpretation for link offsets — writes the engine's `LINK_OFFSETS` option for the active project. Reads `Depth [toggle] Elevation`: off/left is Depth (the SWMM default), on/right is Elevation, and the active side is bold. Switching offers to convert existing offsets, as in EPA SWMM. Offsets in the Properties panel and Attribute Table are shown in the selected convention. Disabled when no project is open. |
 | **Coordinates** | Live cursor coordinates in the canvas CRS. |
 | **Map Scale** | Approximate display scale (1:N). |
 | **CRS button** | Click to open the CRS picker. |

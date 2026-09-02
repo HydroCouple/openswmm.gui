@@ -35,6 +35,7 @@
 #include <openswmm/engine/openswmm_initial_quality.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_model.h>    // gage data-file path registry
+#include "ui/linkoffsetdisplay.h"              // mode-aware offset accessors
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_pollutants.h>
 #include <openswmm/engine/openswmm_quality.h>
@@ -1606,12 +1607,14 @@ SetterEntry setterForUncached(const QString &tag) {
         return {EntityKind::Link, &swmm_link_set_length,    &swmm_link_get_length};
     if (tag == QStringLiteral("link_roughness"))
         return {EntityKind::Link, &swmm_link_set_roughness, &swmm_link_get_roughness};
+    // Offsets are shown/edited in the LINK_OFFSETS convention (elevation when
+    // the mode is ELEVATION); the engine store stays in depths.
     if (tag == QStringLiteral("link_offset_up"))
-        return {EntityKind::Link, &swmm_link_set_offset_up, &swmm_link_get_offset_up};
+        return {EntityKind::Link, &linkoffsetdisplay::setOffsetUp, &linkoffsetdisplay::getOffsetUp};
     if (tag == QStringLiteral("link_offset_dn"))
-        return {EntityKind::Link, &swmm_link_set_offset_dn, &swmm_link_get_offset_dn};
+        return {EntityKind::Link, &linkoffsetdisplay::setOffsetDn, &linkoffsetdisplay::getOffsetDn};
     if (tag == QStringLiteral("link_crest_height"))
-        return {EntityKind::Link, &swmm_link_set_crest_height,    &swmm_link_get_crest_height};
+        return {EntityKind::Link, &linkoffsetdisplay::setCrestHeight, &linkoffsetdisplay::getCrestHeight};
     if (tag == QStringLiteral("link_discharge_coeff"))
         return {EntityKind::Link, &swmm_link_set_discharge_coeff, &swmm_link_get_discharge_coeff};
     if (tag == QStringLiteral("link_end_contractions"))
