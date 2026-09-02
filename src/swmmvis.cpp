@@ -1913,12 +1913,15 @@ void SWMMVis::initializeStatusBar()
 
     // Offset mode (LINK_OFFSETS option). Disabled until a project is active;
     // toggling rebinds via activeProjectWindow().
-    // Layout: "Offset Mode: Elevation [toggle] Depth". The toggle is checked
-    // for ELEVATION (matching isElevationOffsetMode); the flanking labels are
-    // static and the active side is bolded via updateOffsetModeLabels().
+    // Layout: "Offset Mode: Depth [toggle] Elevation". The toggle is checked
+    // (knob right) for ELEVATION, matching isElevationOffsetMode, so the
+    // label on each side names the position the knob sits at. DEPTH is the
+    // SWMM default (legacy DefOptions) and is the unchecked/left position.
+    // The flanking labels are static and the active side is bolded via
+    // updateOffsetModeLabels().
     ui->statusBar->addPermanentWidget(new QLabel("Offset Mode:", ui->statusBar));
-    mLabelOffsetElevation = new QLabel("Elevation", ui->statusBar);
-    ui->statusBar->addPermanentWidget(mLabelOffsetElevation);
+    mLabelOffsetDepth = new QLabel("Depth", ui->statusBar);
+    ui->statusBar->addPermanentWidget(mLabelOffsetDepth);
     mCheckBoxLevelOffsetMode = new QCheckBox(ui->statusBar);
     mCheckBoxLevelOffsetMode->setAccessibleName(tr("Link offset mode"));
     mCheckBoxLevelOffsetMode->setStyleSheet(
@@ -1958,13 +1961,14 @@ void SWMMVis::initializeStatusBar()
             this, tr("Convert Link Offsets"), msg,
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
 
-        if (choice == QMessageBox::Yes)
-            pw->convertLinkOffsets(on);   // on == true → convert to Elevation
-        // No → leave the stored offset values untouched (switch without changes).
+        // The engine keeps offsets as depths in both modes, so "Yes" (same
+        // physics) needs no value change and "No" (same numbers) reinterprets
+        // them — see SWMMModelLayer::convertLinkOffsets.
+        pw->convertLinkOffsets(on, choice == QMessageBox::Yes);
     });
     ui->statusBar->addPermanentWidget(mCheckBoxLevelOffsetMode);
-    mLabelOffsetDepth = new QLabel("Depth", ui->statusBar);
-    ui->statusBar->addPermanentWidget(mLabelOffsetDepth);
+    mLabelOffsetElevation = new QLabel("Elevation", ui->statusBar);
+    ui->statusBar->addPermanentWidget(mLabelOffsetElevation);
     addSep();
 
     // Auto-length toggle (Phase 2). Conduit length recalculates from the

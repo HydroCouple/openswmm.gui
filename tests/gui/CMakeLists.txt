@@ -2684,6 +2684,17 @@ add_swmmvis_gui_test(test_linkflip
 )
 swmmvis_link_full_app_deps(test_linkflip)
 
+# Offset mode / link direction round-trip — Open -> Save must keep the
+# authored LINK_OFFSETS convention (elevations stay elevations) and the
+# authored From/To of adverse-slope conduits, which the engine normalises at
+# open (see workplans/OFFSET_MODE_AND_LINK_DIRECTION_FIX_PLAN_2026-09-02.md).
+add_swmmvis_gui_test(test_offsetmode_roundtrip
+    test_offsetmode_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_offsetmode_roundtrip)
+
 # Object-creation defaults — drawn objects must land with the configured
 # ObjectDefaults for the active unit system; geometry-derived overrides win;
 # undo rolls the whole object back (see

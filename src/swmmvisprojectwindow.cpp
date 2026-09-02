@@ -559,11 +559,11 @@ void SWMMVisProjectWindow::setElevationOffsetMode(bool elevation)
     emit offsetModeChanged(elevation);
 }
 
-void SWMMVisProjectWindow::convertLinkOffsets(bool toElevation)
+void SWMMVisProjectWindow::convertLinkOffsets(bool toElevation, bool convertValues)
 {
     if (!mModelLayer)
         return;
-    mModelLayer->convertLinkOffsets(toElevation);
+    mModelLayer->convertLinkOffsets(toElevation, convertValues);
     setHasChanges(true);
 }
 

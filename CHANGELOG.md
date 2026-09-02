@@ -96,6 +96,19 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Fixed
 
+- **Offset Mode toggle and ELEVATION-mode round-trip.** The status-bar
+  toggle read `Elevation [ ] Depth` while its checked state meant ELEVATION,
+  so the knob sat beside the wrong label; it now reads `Depth [ ] Elevation`
+  (DEPTH = default = left/off, matching legacy `DefOptions`). Offsets and
+  crests in the Attribute Table and Properties panel are now shown and edited
+  in the file's convention (`ui/linkoffsetdisplay.h` adds/removes the node
+  invert; the engine store stays in depths), the convert prompt maps onto
+  that store the way legacy `UpdateOffsets` does (Yes = same physics, No =
+  same numbers reinterpreted) and covers weir/outlet crests, and the model
+  layer restores authored From/To on adverse-slope conduits after open so a
+  save no longer flips them. New `test_offsetmode_roundtrip` on
+  `offset_authored_fixture.inp`.
+
 - **2D results land on top of the 2D mesh in a foot-based CRS.** Two faults
   stacked. The engine writes 2D result coordinates in SI metres whatever the
   model's unit, and the results layer treated them as model units — so a model

@@ -1428,19 +1428,21 @@ public:
     bool applyLinkLength(int linkIdx, double length);
 
     /*!
-     * \brief Convert every link's offsets between Depth and Elevation
-     *        conventions, mirroring the legacy SWMM-GUI ComputeDepthOffsets /
-     *        ComputeElevationOffsets (Uupdate.pas). Conduits convert both the
-     *        upstream (from-node) and downstream (to-node) offsets; orifices,
-     *        weirs and outlets convert only the upstream offset; pumps carry no
-     *        offset and are skipped. Setting the LINK_OFFSETS option only flips
-     *        a flag in the engine — the stored offset values must be recomputed
-     *        here. Emits `geometryChanged()` once so the Attribute Table and
-     *        Object Browser refresh in a single tick.
-     * \param toElevation  true  → Depth offsets become Elevation offsets;
-     *                      false → Elevation offsets become Depth offsets.
+     * \brief Apply the user's answer to legacy UpdateOffsets' "convert all
+     *        link offsets?" prompt after LINK_OFFSETS has been flipped.
+     *
+     * The engine stores offsets as depths in BOTH modes (the parser
+     * normalises elevations; the .inp writer re-adds the invert), so:
+     * - convertValues == true  (legacy "Yes": same physics, new numbers) is a
+     *   no-op on the store — the option flip alone changes file and display.
+     * - convertValues == false (legacy "No": same numbers, new meaning)
+     *   reinterprets each stored depth under the new convention. Conduits use
+     *   both ends, orifices offset_up, weirs/outlets the crest, pumps skipped.
+     * Emits `geometryChanged()` once when values were touched.
+     * \param toElevation   The mode just switched TO.
+     * \param convertValues The prompt answer (true = Yes).
      */
-    void convertLinkOffsets(bool toElevation);
+    void convertLinkOffsets(bool toElevation, bool convertValues);
 
     /*!
      * \brief Slice SC.1 — Write a cross-section to a link via
