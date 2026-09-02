@@ -19,6 +19,17 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **2D inundation overlay on the 1D profile plot.** When the project has
+  an active 2D results layer, the profile samples its water surface (mesh
+  bed + barycentric depth) at the same densified stations the terrain
+  ground line uses, and draws a translucent band from the bed up to the
+  2D WSE with a line on top — beneath every 1D element so the network's
+  own HGL stays intact. Animates with the profile cursor (the dialog steps
+  the 2D layer itself, so a hidden layer still updates). Toggle via the
+  toolbar's "2D Inundation" button or Display Options ▸ "Show 2D
+  inundation" (`ProfilePlotOptions::show2DInundation`, plus pen/brush
+  properties); default on. Dry / off-mesh / no-data stations leave gaps.
+
 - **2D right-click plotting uses the 1D-style context menu.** Right-clicking
   a 2D cell selection, a mesh edge, or a mesh vertex now pops the same
   `AttributePickerMenu` used for nodes/links (one entry per attribute plus
