@@ -88,6 +88,33 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    //! Perf-plan Phase A3 bug fix: remove() must delete the ENGINE table too
+    //! (saveToEngine only adds/updates, so before the fix a "deleted" series
+    //! survived in the engine and reappeared in the written INP).
+    void remove_DeletesTheEngineTableToo()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng != nullptr);
+        addSeries(eng, "GONE", {{t(2026, 1, 1, 0), 1.0}});
+        addSeries(eng, "KEPT", {{t(2026, 1, 1, 0), 2.0}});
+
+        TimeseriesRegistry reg;
+        QCOMPARE(reg.loadFromEngine(eng), 2);
+        TimeseriesProvider *p = reg.findByName(QStringLiteral("GONE"));
+        QVERIFY(p);
+        reg.remove(p);
+
+        // The engine copy is gone, the sibling untouched…
+        QCOMPARE(swmm_table_index(eng, "GONE"), -1);
+        QVERIFY(swmm_table_index(eng, "KEPT") >= 0);
+
+        // …and a later full flush cannot resurrect it.
+        reg.saveToEngine(eng);
+        QCOMPARE(swmm_table_index(eng, "GONE"), -1);
+
+        swmm_engine_destroy(eng);
+    }
+
     void loadFromEngine_SkipsDuplicates()
     {
         SWMM_Engine eng = swmm_engine_new();
