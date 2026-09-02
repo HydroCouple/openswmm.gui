@@ -13,10 +13,9 @@
 #include "mesh/meshobjectref.h"
 #include "mesh/meshresult.h"
 #include "selection/selectionmanager.h"
+#include "ui/widgets/attributepickermenu.h"
 
-#include <QAction>
 #include <QKeyEvent>
-#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QRectF>
@@ -234,16 +233,14 @@ void MapToolMeshSelectEdge::mousePressEvent(QMouseEvent *event)
             m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                                  QStringLiteral("mesh-edge-rclick"));
 
-        QMenu menu;
-        QAction *flowAct = menu.addAction(tr("Plot edge flow"));
-        QAction *fluxAct = menu.addAction(tr("Plot edge flux"));
-        QAction *picked = menu.exec(event->globalPosition().toPoint());
-        if (picked == flowAct)
-            emit plotEdgeFluxRequested(m_target, tri, eLocal,
-                                       openswmmvis::plot::PlotAttribute::Mesh2DEdgeFlow);
-        else if (picked == fluxAct)
-            emit plotEdgeFluxRequested(m_target, tri, eLocal,
-                                       openswmmvis::plot::PlotAttribute::Mesh2DEdgeFlux);
+        // Same attribute picker as the 1D select tool. No availability
+        // gating here (the tool only knows the mesh layer); the host checks
+        // hasEdgeFluxData() on the active results layer.
+        const auto attrs = openswmmvis::ui::AttributePickerMenu::execForMeshKind(
+            openswmmvis::plot::ObjectRef::Kind::Mesh2DEdge,
+            event->globalPosition().toPoint(), nullptr);
+        for (const auto attr : attrs)
+            emit plotEdgeFluxRequested(m_target, tri, eLocal, attr);
         return;
     }
 

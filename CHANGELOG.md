@@ -19,6 +19,20 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **2D right-click plotting uses the 1D-style context menu.** Right-clicking
+  a 2D cell selection, a mesh edge, or a mesh vertex now pops the same
+  `AttributePickerMenu` used for nodes/links (one entry per attribute plus
+  "All attributes") instead of the cell checkbox dialog / the fixed two-item
+  edge menu / the depth+HGL-only vertex entry. Entries the results source
+  can't serve are greyed out with a tooltip.
+
+- **2D cell rainfall series.** New plot attributes `Rainfall (2D cell)`
+  (mm/hr, from `/Mesh2_face_rainfall`) and `Rainfall volume (2D cell)`
+  (cumulative m³, from the engine's new `/Mesh2_face_rain_cum`).
+  `Mesh2DH5Reader::readFaceFieldAt` / `hasFaceField` read any named
+  per-face dataset with a probe-once presence cache; older files grey the
+  entries out.
+
 - **Heat Configuration editor (G4g)** — Model ▸ Heat Configuration… edits
   `[HEAT_SOURCES]` inlet temperatures (with per-node DWF/external-inflow
   overrides), `[HEAT_FLUXES]` module toggles, and the H6a

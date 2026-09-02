@@ -139,7 +139,9 @@ void TestPlotVariablePickerDialog::attributesForKindDispatch()
     QCOMPARE(&attributesForKind(ObjectRef::Kind::Subcatch), &subcatchPlotAttributes());
     QCOMPARE(&attributesForKind(ObjectRef::Kind::System),   &systemPlotAttributes());
     QVERIFY(attributesForKind(ObjectRef::Kind::Unknown).isEmpty());
-    QVERIFY(attributesForKind(ObjectRef::Kind::Mesh2DCell).isEmpty());
+    QCOMPARE(&attributesForKind(ObjectRef::Kind::Mesh2DCell),   &mesh2DCellPlotAttributes());
+    QCOMPARE(&attributesForKind(ObjectRef::Kind::Mesh2DEdge),   &mesh2DEdgePlotAttributes());
+    QCOMPARE(&attributesForKind(ObjectRef::Kind::Mesh2DVertex), &mesh2DVertexPlotAttributes());
     QVERIFY(attributesForKind(ObjectRef::Kind::Observed).isEmpty());
 }
 

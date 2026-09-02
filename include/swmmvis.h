@@ -567,10 +567,11 @@ private slots:
     void openComparisonPlotForSystemAttribute(openswmmvis::plot::PlotAttribute attribute);
 
     /*! Slice CF.3 — open / focus the Comparison Plot dialog and add one
-     *  Mesh2D-cell series per (cell, ticked-attribute) on the given 2D
-     *  results layer. Called by MapToolPick2DCells. */
+     *  Mesh2D-cell series per (cell, attribute) on the given 2D results
+     *  layer. \p attrs comes from MapToolPick2DCells' context menu. */
     void openComparisonPlotForCells(class SWMM2DResultsLayer *layer,
-                                    const QVector<int> &triIdxList);
+                                    const QVector<int> &triIdxList,
+                                    const QVector<openswmmvis::plot::PlotAttribute> &attrs);
 
     /*! Slice AT.2 — toggle the MapToolPlotPick on/off in response to
      *  the dialog's "Add from Map…" action. Saves the previously active
@@ -614,9 +615,11 @@ private slots:
     void openMeshEdgeFluxPlotFor(class SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal,
                                  openswmmvis::plot::PlotAttribute attr);
 
-    /*! Open the comparison plot with interpolated depth + HGL time series for
-     *  the selected mesh vertices (right-clicked in the vertex-select tool). */
-    void openMeshVertexSeriesFor(class SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList);
+    /*! Open the comparison plot with the chosen interpolated series (depth
+     *  and/or HGL) for the selected mesh vertices (right-clicked in the
+     *  vertex-select tool). */
+    void openMeshVertexSeriesFor(class SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList,
+                                 const QVector<openswmmvis::plot::PlotAttribute> &attrs);
 
     void onActiveSubWindowChanged(QMdiSubWindow *window);
 

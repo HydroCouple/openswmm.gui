@@ -65,6 +65,14 @@ QMenu *AttributePickerMenu::createForObjectKind(ObjectRef::Kind kind,
         }
         break;
 
+    // 2D mesh kinds: fixed list, no species. Callers grey out entries the
+    // layer can't serve (IRunLayer::supportsAttribute) after construction.
+    case ObjectRef::Kind::Mesh2DCell:
+    case ObjectRef::Kind::Mesh2DEdge:
+    case ObjectRef::Kind::Mesh2DVertex:
+        addAttrActions(menu, attributesForKind(kind), u);
+        break;
+
     case ObjectRef::Kind::System:
         delete menu;
         return createForSystem(u, parent);
@@ -76,6 +84,37 @@ QMenu *AttributePickerMenu::createForObjectKind(ObjectRef::Kind kind,
 
     addAllAttributesEntry(menu);
     return menu;
+}
+
+QVector<PlotAttribute> AttributePickerMenu::execForMeshKind(
+    ObjectRef::Kind kind,
+    const QPoint &globalPos,
+    const IRunLayer *availability,
+    const QString &unavailableTip)
+{
+    // The 2D mesh stores SI internally (Mesh2DRunLayer::unitSystem).
+    QMenu *menu = createForObjectKind(kind, UnitSystem::SI);
+    if (!menu) return {};
+
+    QVector<PlotAttribute> enabled;
+    for (QAction *act : menu->actions()) {
+        const PlotAttribute a = attributeFrom(act);
+        if (a == PlotAttribute::Unknown) continue;    // separator / "All"
+        const bool ok = !availability || availability->supportsAttribute(a);
+        act->setEnabled(ok);
+        if (ok) enabled.push_back(a);
+        else if (!unavailableTip.isEmpty()) act->setToolTip(unavailableTip);
+    }
+    menu->setToolTipsVisible(true);
+
+    QVector<PlotAttribute> chosen;
+    if (QAction *picked = menu->exec(globalPos)) {
+        const PlotAttribute a = attributeFrom(picked);
+        if (a == PlotAttribute::Unknown) chosen = enabled;   // "All attributes"
+        else                             chosen.push_back(a);
+    }
+    delete menu;
+    return chosen;
 }
 
 QMenu *AttributePickerMenu::createForSystem(UnitSystem u, QWidget *parent)
