@@ -19,9 +19,11 @@ Picked cells get a 2 px gold outline on the canvas. The outline width stays cons
 
 ## Attribute picker
 
-After cell selection a small modal asks which time-series attributes to plot. **Depth** is on by default; **HGL / water surface**, **|V|**, **Vx**, and **Vy** are tickable. Velocity attributes are greyed out with a tooltip when the layer's underlying source lacks edge-flux data (older `.h5` files written before the engine grew the bulk-flux API).
+Right-clicking the selection (or a single cell when nothing is selected) pops the same attribute context menu the 1D Select tool uses for nodes and links: **Depth**, **HGL**, **|V|**, **Vx**, **Vy**, **Rainfall** (intensity, mm/hr), **Rainfall volume** (cumulative m³ applied to the cell), and a trailing **All attributes** entry. Entries the layer's source can't serve are greyed out with a tooltip — velocity when the file lacks edge-flux data, rainfall when it predates the `Mesh2_face_rainfall` / `Mesh2_face_rain_cum` datasets.
 
-A selection of `N` cells × `M` ticked attributes produces `N × M` series in `M` chart rows. Selections producing more than 500 series trigger a confirmation prompt — RT0 velocity reconstruction is per-cell-per-tick and big selections can take seconds on large meshes.
+Mesh edges (**Edge flow**, **Edge flux**) and mesh vertices (**Depth**, **HGL**, interpolated) get the same menu style from their own select tools.
+
+A selection of `N` cells × `M` chosen attributes produces `N × M` series in `M` chart rows. Selections producing more than 500 series trigger a confirmation prompt — RT0 velocity reconstruction is per-cell-per-tick and big selections can take seconds on large meshes.
 
 ## How the data is computed
 
@@ -30,6 +32,9 @@ A selection of `N` cells × `M` ticked attributes produces `N × M` series in `M
 | **Depth** | Hyperslab read of `/Mesh2_face_depth[:, triIdx]` from the HDF5 source. Cheap. |
 | **HGL** | `depth + z_bed`, where `z_bed[triIdx]` is the mean of the three triangle vertex elevations from `/Mesh2_node_z`. Cached on the adapter on first use. |
 | **\|V\|, Vx, Vy** | Closed-form 2 × 2 Raviart–Thomas (RT0) least-squares solve over the three signed edge-normal fluxes (`/Mesh2_edge_flux`) and the time-invariant edge geometry (`/Mesh2_edge_length`, `/Mesh2_edge_nx`, `/Mesh2_edge_ny`). Per-edge speed is clamped to ±10 m/s before assembly to suppress wet/dry-front spikes (same convention as the §43 velocity arrows). |
+
+| **Rainfall** | Hyperslab read of `/Mesh2_face_rainfall[:, triIdx]` (engine m/s, spatially interpolated per cell from the rain gages) × 3.6e6 → mm/hr. |
+| **Rainfall volume** | Hyperslab read of `/Mesh2_face_rain_cum[:, triIdx]` — cumulative m³ the engine booked onto the cell; summed over all cells it equals the 2D mass balance's `rainfall_in`. |
 
 Dry cells (`depth < dry_depth`) render the value as `NaN` — appears as gaps in the chart.
 

@@ -81,6 +81,14 @@ bool Mesh2DRunLayer::supportsAttribute(PlotAttribute attr) const
     if (attr == PlotAttribute::Mesh2DEdgeFlux || attr == PlotAttribute::Mesh2DEdgeFlow)
         return m_layer && m_layer->source() && m_layer->hasEdgeFluxData();
     if (!isMesh2DAttribute(attr)) return false;
+    // Rainfall series come straight from the per-face HDF5 datasets; the live
+    // in-process source doesn't stream them, and older files lack rain_cum.
+    if (attr == PlotAttribute::Mesh2DRainfall)
+        return m_layer && m_layer->source()
+            && m_layer->source()->hasFaceField("Mesh2_face_rainfall");
+    if (attr == PlotAttribute::Mesh2DRainVolume)
+        return m_layer && m_layer->source()
+            && m_layer->source()->hasFaceField("Mesh2_face_rain_cum");
     // Depth/HGL are also valid for a vertex ref (interpolated); the kind is
     // checked in getSeriesAt, so just allow the attribute here.
     // Velocity attributes require edge flux + edge geometry. Older HDF5
@@ -342,11 +350,21 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
 
     const double dryDepth = m_layer->dryDepth();
 
+    // Rainfall: intensity is stored m/s → report mm/hr (unitSystem() is SI);
+    // cumulative volume is stored m³ and reported as-is.
+    const bool wantRain = (attr == PlotAttribute::Mesh2DRainfall ||
+                           attr == PlotAttribute::Mesh2DRainVolume);
+    const char *rainDataset = (attr == PlotAttribute::Mesh2DRainfall)
+                                  ? "Mesh2_face_rainfall" : "Mesh2_face_rain_cum";
+    const double rainScale = (attr == PlotAttribute::Mesh2DRainfall)
+                                 ? 1000.0 * 3600.0 : 1.0;
+
     out.timesJulian.reserve(static_cast<std::size_t>(nT));
     out.values.reserve(static_cast<std::size_t>(nT));
 
     std::vector<float> depths;
     std::vector<float> flux;
+    std::vector<float> rain;
 
     for (int t = 0; t < nT; ++t) {
         const QDateTime dt = src->simTimeAt(t);
@@ -354,7 +372,12 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
 
         double value = std::nan("");
 
-        if (attr == PlotAttribute::Mesh2DDepth || attr == PlotAttribute::Mesh2DHGL) {
+        if (wantRain) {
+            if (!src->readFaceFieldAt(rainDataset, t, rain)) continue;
+            if (triIdx >= static_cast<int>(rain.size())) continue;
+            value = static_cast<double>(rain[triIdx]) * rainScale;
+        }
+        else if (attr == PlotAttribute::Mesh2DDepth || attr == PlotAttribute::Mesh2DHGL) {
             if (!src->readDepthsAt(t, depths)) continue;
             if (triIdx >= static_cast<int>(depths.size())) continue;
             const double d = static_cast<double>(depths[triIdx]);

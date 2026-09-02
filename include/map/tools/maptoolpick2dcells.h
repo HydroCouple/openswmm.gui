@@ -26,6 +26,7 @@
 #define OPENSWMMVIS_MAP_TOOLS_MAPTOOLPICK2DCELLS_H
 
 #include "map/tools/maptool.h"
+#include "plot/plotattribute.h"
 
 #include <QPoint>
 #include <QPolygon>
@@ -72,10 +73,13 @@ public:
                const SpatialReferenceSystem *canvasSRS) override;
 
 signals:
-    /*! \brief Emitted on Box release / Lasso completion / single click.
+    /*! \brief Emitted when the user picks an entry from the right-click
+     *  "plot" context menu.
      *  \param layer       The active 2D results layer (non-owning).
-     *  \param triIdxList  Picked triangle indices. Empty for nothing-hit. */
-    void cellsPicked(SWMM2DResultsLayer *layer, const QVector<int> &triIdxList);
+     *  \param triIdxList  Selected triangle indices (never empty).
+     *  \param attrs       Attributes chosen from the menu (never empty). */
+    void cellsPicked(SWMM2DResultsLayer *layer, const QVector<int> &triIdxList,
+                     const QVector<openswmmvis::plot::PlotAttribute> &attrs);
 
 private:
     /*! \brief Find the first SWMM2DResultsLayer on the active canvas. */
@@ -95,9 +99,10 @@ private:
      *  the active mesh layer. */
     [[nodiscard]] QVector<int> selectedCells_() const;
 
-    /*! \brief Right-click handler: plot the current cell selection (or the
-     *  cell under \p pixel when nothing is selected) by emitting cellsPicked. */
-    void requestPlotAt_(const QPoint &pixel);
+    /*! \brief Right-click handler: pop the attribute context menu at
+     *  \p globalPos for the current cell selection (or the cell under
+     *  \p pixel when nothing is selected) and emit cellsPicked. */
+    void requestPlotAt_(const QPoint &pixel, const QPoint &globalPos);
 
     /*! \brief Map (px,py) → scene (sx,sy) via the layer's Y-flip convention
      *  (sx = mx, sy = -my). */
@@ -128,8 +133,8 @@ private:
     QVector<QPointF>                m_lassoMapPts;     // map coords
     QPoint                          m_cursorPixel;
 
-    // Right-click plot is armed on press but fired on RELEASE: the plot
-    // handler opens a modal popover, and starting a modal session while the
+    // Right-click plot is armed on press but fired on RELEASE: the handler
+    // exec()s the context menu, and starting a modal session while the
     // physical button is still down makes AppKit discard the pending
     // mouse-up for the (now modally blocked) canvas window — Qt's per-view
     // button state then latches RightButton forever and its implicit grab

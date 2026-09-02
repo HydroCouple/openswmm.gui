@@ -446,6 +446,25 @@ private slots:
         QVERIFY(!r.readVertexSignedDepthsAt(99, d));
     }
 
+    // ── Generic per-face field reader (rainfall / rain_cum plotting) ─────
+
+    void readsNamedFaceFieldAndProbesAbsence()
+    {
+        Mesh2DH5Reader r;
+        QVERIFY(r.open(fixturePath_));
+        // Present dataset via the generic path matches readDepthsAt.
+        QVERIFY(r.hasFaceField("Mesh2_face_depth"));
+        std::vector<float> v, d;
+        QVERIFY2(r.readFaceFieldAt("Mesh2_face_depth", 2, v), qPrintable(r.lastError()));
+        QVERIFY(r.readDepthsAt(2, d));
+        QCOMPARE(v, d);
+        // Absent datasets (older engine): false, cached probe, no fallout.
+        QVERIFY(!r.hasFaceField("Mesh2_face_rain_cum"));
+        QVERIFY(!r.readFaceFieldAt("Mesh2_face_rain_cum", 0, v));
+        QVERIFY(!r.readFaceFieldAt("Mesh2_face_rainfall", 0, v));
+        QVERIFY(r.readDepthsAt(1, d));
+    }
+
 private:
     QString fixturePath_;
     QString fixtureWithHeadsPath_;

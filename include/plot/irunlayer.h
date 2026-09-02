@@ -90,15 +90,19 @@ struct ObjectRef {
  *  order), dispatching to the shared lists in plotattribute.h. Lives here
  *  rather than there because the nested ObjectRef::Kind cannot be named in
  *  plotattribute.h without an include cycle. Empty for kinds with no
- *  fixed list (mesh kinds are gated on layer capabilities; Observed and
- *  Unknown have none). */
+ *  fixed list (Observed and Unknown). Mesh kinds return their full list;
+ *  per-layer availability (edge flux, rainfall datasets) is gated by
+ *  `IRunLayer::supportsAttribute`. */
 inline const QVector<PlotAttribute> &attributesForKind(ObjectRef::Kind k)
 {
     switch (k) {
-    case ObjectRef::Kind::Node:     return nodePlotAttributes();
-    case ObjectRef::Kind::Link:     return linkPlotAttributes();
-    case ObjectRef::Kind::Subcatch: return subcatchPlotAttributes();
-    case ObjectRef::Kind::System:   return systemPlotAttributes();
+    case ObjectRef::Kind::Node:         return nodePlotAttributes();
+    case ObjectRef::Kind::Link:         return linkPlotAttributes();
+    case ObjectRef::Kind::Subcatch:     return subcatchPlotAttributes();
+    case ObjectRef::Kind::System:       return systemPlotAttributes();
+    case ObjectRef::Kind::Mesh2DCell:   return mesh2DCellPlotAttributes();
+    case ObjectRef::Kind::Mesh2DEdge:   return mesh2DEdgePlotAttributes();
+    case ObjectRef::Kind::Mesh2DVertex: return mesh2DVertexPlotAttributes();
     default: {
         static const QVector<PlotAttribute> kEmpty;
         return kEmpty;
