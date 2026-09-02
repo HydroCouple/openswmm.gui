@@ -169,8 +169,12 @@ Smoke check (coupled 1D/2D model with a 2D results layer active):
    editing the pen/brush restyles immediately.
 4. Switch the Analysis toolbar's 2D results selector to another run /
    none → overlay re-samples / clears.
-5. Terrain ground on + overlay on: band's lower edge is the MESH bed
-   (may differ slightly from the DEM line) — expected, documented.
+5. Overlay on (terrain off): the soil's top edge is the mesh bed sampled
+   at the stations — a smooth surface between nodes, not straight rim-to-rim
+   segments; the band's lower edge coincides with it exactly. Terrain on:
+   the DEM stays the ground line and the band fills up from the DEM
+   (`groundElevAtReal`), still hidden wherever WSE ≤ ground. Overlay off:
+   the rim-to-rim ground line returns unchanged.
 6. Model authored in feet with a metre mesh: WSE = bed + depth adds mesh z
    and depth without unit conversion, matching the existing 2D mesh
    profile's behaviour. If it visibly mismatches, that is a pre-existing
