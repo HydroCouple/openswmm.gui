@@ -169,6 +169,33 @@ public:
     [[nodiscard]] LayerToggles layerToggles() const;
 
     /*!
+     * \struct Surface2DSample
+     * \brief One station of the 2D inundation overlay: the active 2D results
+     *        layer's water surface sampled where the path crosses the mesh.
+     *        `chainage` is REAL path chainage (converted to virtual x when
+     *        painting, like terrain samples). `bed` is the mesh bed elevation
+     *        at the station; `wse` is bed + interpolated depth, or NaN when
+     *        the station is dry / off-mesh / has no data (a gap).
+     */
+    struct Surface2DSample
+    {
+        double chainage = 0.0;
+        double bed      = std::numeric_limits<double>::quiet_NaN();
+        double wse      = std::numeric_limits<double>::quiet_NaN();
+    };
+
+    /*!
+     * \brief Replaces the 2D inundation overlay stations (static geometry +
+     *        the current frame's WSE). Pass an empty vector to clear. The
+     *        host re-sends the vector with fresh `wse` values on every
+     *        animation tick; `ProfilePlotOptions::show2DInundation` gates
+     *        drawing. Widens the y-extent to the wettest station.
+     */
+    void setSurface2DSamples(const QVector<Surface2DSample> &samples);
+    [[nodiscard]] const QVector<Surface2DSample> &surface2DSamples() const
+    { return m_surface2D; }
+
+    /*!
      * \brief Binds a ProfilePlotOptions object — the widget's theming
      *        (per-type fills/outlines, soil colours, line widths,
      *        legend position/font/opacity) is read from it.  Pass
@@ -445,6 +472,14 @@ private:
     // WaterSurface-series only — in-pipe fill from invert to free-surface
     // depth (caps at rim under pressurization, unlike HGL).
     void paintWaterSurfaceFill   (QPainter &p, int seriesIdx) const;
+    // 2D inundation overlay — translucent band from the mesh bed up to the
+    // 2D water surface plus a WSE line, per contiguous wet run of stations.
+    // Drawn after the soil so it reads as water standing on the ground,
+    // and before the 1D fills/lines so the network's own HGL stays on top.
+    void paintSurface2D          (QPainter &p) const;
+    // Real path chainage → virtual x (zero-length links get a visual gap).
+    // Shared by the terrain ground line and the 2D overlay.
+    [[nodiscard]] double realChainageToVirtualX(double realX) const;
 
     void paintLegend             (QPainter &p) const;
     void paintTimeLabel          (QPainter &p) const;
@@ -465,6 +500,8 @@ private:
 
     ProfileBuilder::PathStatic   m_path;
     QVector<SeriesBinding>       m_series;
+    QVector<Surface2DSample>     m_surface2D;      /*!< 2D inundation overlay stations */
+    double                       m_surface2DMaxWse = std::numeric_limits<double>::quiet_NaN();
     LayerToggles                 m_toggles;
     QPointer<ProfilePlotOptions> m_options;        /*!< theming/legend source */
     QSet<QString>                m_selectedNames;  /*!< highlight set */

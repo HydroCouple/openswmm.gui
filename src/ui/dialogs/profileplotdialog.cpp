@@ -11,6 +11,8 @@
 #include "animation/animationcontroller.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/openswmmvislayer.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "layers/swmm2dresultslayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "map/mapcanvas.h"
@@ -268,6 +270,20 @@ void ProfilePlotDialog::buildLayout()
     m_sourceMenu = new QMenu(m_sourceButton);
     m_sourceButton->setMenu(m_sourceMenu);
     toolbar->addWidget(m_sourceButton);
+    // Quick toggle for the 2D inundation overlay; mirrors the
+    // show2DInundation option (also in Display Options).
+    m_actShow2D = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("Remap1D2D")),
+        tr("2D Inundation"));
+    m_actShow2D->setObjectName(QStringLiteral("show2DInundation"));
+    m_actShow2D->setToolTip(tr("Overlay the active 2D results layer's water "
+                               "surface (mesh bed + interpolated depth) along "
+                               "the profile, animated with the cursor."));
+    m_actShow2D->setCheckable(true);
+    m_actShow2D->setChecked(m_options->show2DInundation());
+    connect(m_actShow2D, &QAction::toggled, this, [this](bool on) {
+        m_options->setShow2DInundation(on);   // options.changed → rebuild
+    });
     toolbar->addSeparator();
     auto *actExport  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportImage")),
                                           tr("Export PNG…"));
@@ -432,6 +448,15 @@ void ProfilePlotDialog::buildLayout()
             // setPath rebuilt the virtual-chainage table — re-share it.
             syncTracksAxes();
         }
+        // 2D inundation overlay follows its option (Display Options tree or
+        // the toolbar toggle — both write the same property).
+        const bool want2D = m_options->show2DInundation();
+        if (m_actShow2D && m_actShow2D->isChecked() != want2D) {
+            QSignalBlocker b(m_actShow2D);
+            m_actShow2D->setChecked(want2D);
+        }
+        if (want2D != (m_surface2DLayer != nullptr))
+            rebuildSurface2DStations();
         // A plot-level line style the user just edited has to reach the
         // sources before the series are rebuilt from them — otherwise the
         // edit is invisible (see pushEditedPlotStylesToSources).
@@ -584,7 +609,14 @@ void ProfilePlotDialog::buildLayout()
             rebuildTerrainSamples();
             m_plot->setPath(m_pathStatic);
         });
+        // 2D inundation overlay follows the Analysis toolbar's active 2D
+        // results layer (swap / clear / load-after-open all re-sample).
+        connect(m_projectWindow, &SWMMVisProjectWindow::active2DResultsLayerChanged,
+                this, [this](SWMM2DResultsLayer *) {
+            rebuildSurface2DStations();
+        });
     }
+    rebuildSurface2DStations();
 
     // Double-click in the plot → zoom the main map to that element.
     auto zoomCanvasToBounds = [this](double xMin, double yMin,
@@ -1330,8 +1362,6 @@ void ProfilePlotDialog::rebuildTerrainSamples()
     m_pathStatic.terrainSamples.clear();
     if (!m_options || !m_options->useTerrainGround()) return;
     if (!m_projectWindow || !m_model)                                   return;
-    if (m_routerPath.linkIds.size() + 1 != m_routerPath.nodes.size())   return;
-    if (m_pathStatic.chainage.size() != m_pathStatic.nodes.size())      return;
 
     // Live-look up the *current* terrain + vertical factor + canvas SRS
     // from the project window so the ground line always reflects the
@@ -1342,9 +1372,6 @@ void ProfilePlotDialog::rebuildTerrainSamples()
     const double terrainFactor  = m_projectWindow->terrainVertFactor();
     const SpatialReferenceSystem *canvasSRS =
         m_canvas ? m_canvas->canvasSRS() : nullptr;
-
-    constexpr int    kMaxSamplesPerSegment = 20;
-    constexpr double kSampleStepHint       = 5.0;  // model units
 
     // The model's cached node / polyline coords live in the *model layer*
     // CRS.  GISRasterLayer::valueAt expects coords in the *canvas* CRS
@@ -1369,6 +1396,29 @@ void ProfilePlotDialog::rebuildTerrainSamples()
         }
         return terrain->valueAt(cx, cy, canvasSRS, /*band=*/1, &ok);
     };
+
+    forEachPathStation([&](double chain, double x, double y) {
+        bool ok = false;
+        const double zRaw = sampleZ(x, y, ok);
+        if (!ok || !std::isfinite(zRaw)) return;   // outside DEM
+        // Convert raster vertical unit → model vertical unit so
+        // the ground line lines up with the node inverts / rims.
+        const double z = zRaw * terrainFactor;
+        m_pathStatic.terrainSamples.push_back(QPointF(chain, z));
+    });
+
+    if (modelToCanvas) OGRCoordinateTransformation::DestroyCT(modelToCanvas);
+}
+
+void ProfilePlotDialog::forEachPathStation(
+    const std::function<void(double, double, double)> &fn) const
+{
+    if (!m_model) return;
+    if (m_routerPath.linkIds.size() + 1 != m_routerPath.nodes.size())   return;
+    if (m_pathStatic.chainage.size() != m_pathStatic.nodes.size())      return;
+
+    constexpr int    kMaxSamplesPerSegment = 20;
+    constexpr double kSampleStepHint       = 5.0;  // model units
 
     for (int li = 0; li < m_routerPath.linkIds.size(); ++li) {
         const int engLink = m_routerPath.linkIds[li];
@@ -1421,19 +1471,103 @@ void ProfilePlotDialog::rebuildTerrainSamples()
                 const double x  = a.x() + t * (b.x() - a.x());
                 const double y  = a.y() + t * (b.y() - a.y());
                 const double pd = cumPoly[v] + t * segLen;
-                bool ok = false;
-                const double zRaw = sampleZ(x, y, ok);
-                if (!ok || !std::isfinite(zRaw)) continue;   // outside DEM
-                // Convert raster vertical unit → model vertical unit so
-                // the ground line lines up with the node inverts / rims.
-                const double z = zRaw * terrainFactor;
-                m_pathStatic.terrainSamples.push_back(
-                    QPointF(chainForPoly(pd), z));
+                fn(chainForPoly(pd), x, y);
             }
         }
     }
+}
 
+// ---------------------------------------------------------------------------
+// 2D inundation overlay
+// ---------------------------------------------------------------------------
+
+void ProfilePlotDialog::rebuildSurface2DStations()
+{
+    m_surface2D.clear();
+    if (m_surface2DLayer)
+        disconnect(m_surface2DLayer.data(), nullptr, this, nullptr);
+    m_surface2DLayer = nullptr;
+
+    auto clearPlot = [this] { m_plot->setSurface2DSamples({}); };
+    if (!m_options || !m_options->show2DInundation()) { clearPlot(); return; }
+    if (!m_projectWindow || !m_model || !m_canvas)   { clearPlot(); return; }
+
+    SWMM2DResultsLayer *results = m_projectWindow->active2DResultsLayer();
+    if (!results || !results->source())               { clearPlot(); return; }
+
+    // Bed elevation comes from the mesh layer's triangulation (the same
+    // sampler the 2D mesh profile uses); the results layer has no z field.
+    // First mesh on the canvas — same resolution rule as the 2D mesh
+    // profile (SWMMVis::openMeshProfileDialog).
+    SWMM2DMeshLayer *mesh = nullptr;
+    for (OpenSWMMVisLayer *l : m_canvas->layers())
+        if (auto *m = qobject_cast<SWMM2DMeshLayer *>(l)) { mesh = m; break; }
+    if (!mesh)                                        { clearPlot(); return; }
+
+    // Model-layer CRS → canvas CRS (same as the terrain sampler); the 2D
+    // scene is the canvas CRS with Y negated (SWMM2DResultsLayer scene
+    // convention, see rebuildSceneGeometry_ / MapToolMeshProfile).
+    const SpatialReferenceSystem *canvasSRS = m_canvas->canvasSRS();
+    SpatialReferenceSystem *modelSRS = m_model->srs();
+    OGRCoordinateTransformation *modelToCanvas = nullptr;
+    if (modelSRS && canvasSRS && !modelSRS->equals(*canvasSRS))
+        modelToCanvas = modelSRS->createTransformationTo(*canvasSRS);
+
+    forEachPathStation([&](double chain, double mx, double my) {
+        double cx = mx, cy = my;
+        if (modelToCanvas) {
+            double tx = mx, ty = my;
+            if (modelToCanvas->Transform(1, &tx, &ty)) { cx = tx; cy = ty; }
+        }
+        const QPointF sp(cx, -cy);
+        const double bed = mesh->sampleZAt(sp.x(), sp.y());
+        if (!std::isfinite(bed)) return;                 // off the mesh
+        const int tri = results->pickCellAt(sp);
+        if (tri < 0) return;
+        Surface2DStation st;
+        st.chainage = chain;
+        st.scenePt  = sp;
+        st.triIdx   = tri;
+        st.bed      = bed;
+        m_surface2D.push_back(st);
+    });
     if (modelToCanvas) OGRCoordinateTransformation::DestroyCT(modelToCanvas);
+
+    if (m_surface2D.isEmpty())                        { clearPlot(); return; }
+
+    m_surface2DLayer = results;
+    // Frame changes (canvas animation of a visible layer, or our own
+    // setCurrentSimTimeAsOf from onAnimationTimeChanged) → re-read depths.
+    connect(results, &SWMM2DResultsLayer::currentTimeChanged,
+            this, [this](int) { refreshSurface2DDepths(); });
+    connect(results, &QObject::destroyed, this, [this] {
+        m_surface2D.clear();
+        m_surface2DLayer = nullptr;
+        m_plot->setSurface2DSamples({});
+    });
+    refreshSurface2DDepths();
+}
+
+void ProfilePlotDialog::refreshSurface2DDepths()
+{
+    QVector<ProfilePlotWidget::Surface2DSample> out;
+    if (m_surface2DLayer && !m_surface2D.isEmpty()) {
+        out.reserve(m_surface2D.size());
+        for (const Surface2DStation &st : m_surface2D) {
+            ProfilePlotWidget::Surface2DSample s;
+            s.chainage = st.chainage;
+            s.bed      = st.bed;
+            // WSE = bed + barycentric depth, only where the cell carries a
+            // valid free surface this frame; dry / no-data stations stay
+            // NaN and render as gaps (same rule as the 2D mesh profile).
+            if (m_surface2DLayer->cellHasSurface(st.triIdx)) {
+                const double d = m_surface2DLayer->depthAtCellInterp(st.triIdx, st.scenePt);
+                if (std::isfinite(d) && d > 0.0) s.wse = st.bed + d;
+            }
+            out.push_back(s);
+        }
+    }
+    m_plot->setSurface2DSamples(out);
 }
 
 void ProfilePlotDialog::onAnimationTimeChanged(const QDateTime &dt)
@@ -1446,6 +1580,11 @@ void ProfilePlotDialog::onAnimationTimeChanged(const QDateTime &dt)
     m_plot->setCurrentDateTime(dt);
     if (m_tracks)
         m_tracks->setCurrentPeriod(period);
+    // Advance the 2D layer ourselves: the canvas only steps VISIBLE 2D
+    // layers, so a hidden layer's overlay would otherwise freeze. No-op
+    // when already on that frame; currentTimeChanged → refreshSurface2DDepths.
+    if (m_surface2DLayer)
+        m_surface2DLayer->setCurrentSimTimeAsOf(dt);
 }
 
 // ---------------------------------------------------------------------------

@@ -100,6 +100,15 @@ public:
     // ── Ground / terrain ────────────────────────────────────────────────
     Q_PROPERTY(bool useTerrainGround READ useTerrainGround WRITE setUseTerrainGround NOTIFY changed)
 
+    // ── 2D inundation overlay ───────────────────────────────────────────
+    // Water surface of the active 2D results layer sampled along the path
+    // (mesh bed + interpolated depth), drawn as a band above the ground with
+    // a WSE line, animated with the profile cursor. Nothing draws when the
+    // project has no active 2D results layer.
+    Q_PROPERTY(bool   show2DInundation   READ show2DInundation   WRITE setShow2DInundation   NOTIFY changed)
+    Q_PROPERTY(QPen   inundation2DLinePen   READ inundation2DLinePen   WRITE setInundation2DLinePen   NOTIFY changed)
+    Q_PROPERTY(QBrush inundation2DFillBrush READ inundation2DFillBrush WRITE setInundation2DFillBrush NOTIFY changed)
+
     // ── Node connectivity ───────────────────────────────────────────────
     // What ELSE meets each node on the path: truncated stubs of the links
     // the profile does not follow, and a small plan rose giving every
@@ -219,6 +228,9 @@ public:
     openswmmvis::plot::NumberFormat yFormat() const
     { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision, m_yLabelFormatStr }; }
     bool     useTerrainGround() const { return m_useTerrainGround; }
+    bool     show2DInundation() const { return m_show2DInundation; }
+    QPen     inundation2DLinePen()   const { return m_inundation2DLinePen; }
+    QBrush   inundation2DFillBrush() const { return m_inundation2DFillBrush; }
     bool     showBranchStubs()  const { return m_showBranchStubs; }
     bool     showNodeRoses()    const { return m_showNodeRoses; }
 
@@ -292,6 +304,9 @@ public slots:
     void setYLabelPrecision (int count);
     void setYLabelFormat    (const QString &spec);
     void setUseTerrainGround(bool v);
+    void setShow2DInundation(bool v);
+    void setInundation2DLinePen  (const QPen   &p);
+    void setInundation2DFillBrush(const QBrush &b);
     void setShowBranchStubs (bool v);
     void setShowNodeRoses   (bool v);
     void setFloodRadiusPx (double r);
@@ -366,6 +381,12 @@ private:
     int              m_yLabelPrecision  = 2;
     QString          m_yLabelFormatStr;           // optional printf override; empty = use mode+precision
     bool             m_useTerrainGround = false;
+    // On by default: the overlay is inert without an active 2D results
+    // layer, and a coupled model's user expects the surface water shown.
+    bool             m_show2DInundation = true;
+    // Teal, distinct from the HGL blues so the two water surfaces read apart.
+    QPen             m_inundation2DLinePen   = QPen(QColor(0x00, 0x8B, 0x8B), 1.6, Qt::SolidLine);
+    QBrush           m_inundation2DFillBrush {QColor(0x20, 0xB2, 0xAA, 90), Qt::SolidPattern};
     bool             m_showBranchStubs  = true;
     bool             m_showNodeRoses    = true;
 
