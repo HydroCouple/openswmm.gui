@@ -363,6 +363,80 @@ private slots:
                      qPrintable(QStringLiteral("phantom ref survived: %1").arg(r.name)));
     }
 
+    // ── Phase A2 — BatchDeleteCommand parity with the per-object path ─────
+
+    //! The batched delete (one swmm_*_delete_many per kind) must land on
+    //! exactly the state the per-object reference path produces, and its
+    //! undo must restore exactly what per-object undo restores.
+    void batchDeleteMatchesPerObjectReference()
+    {
+        auto batchLayer = openLayer();
+        auto refLayer   = openLayer();
+        QVERIFY(batchLayer);
+        QVERIFY(refLayer);
+
+        const QStringList victims{QStringLiteral("J1"), QStringLiteral("J2"),
+                                  QStringLiteral("J4")};
+
+        MapUndoStack batchStack;
+        QList<BatchDeleteCommand::Target> targets;
+        for (const QString &n : victims)
+            targets.append({n, DeleteObjectCommand::DeleteNode});
+        QSignalSpy geom(batchLayer.get(), &SWMMModelLayer::geometryChanged);
+        batchStack.push(new BatchDeleteCommand(batchLayer.get(), targets,
+                                               nullptr,
+                                               QStringLiteral("Batch")));
+        // The batch keeps the one-notification contract.
+        QCOMPARE(geom.count(), 1);
+
+        MapUndoStack refStack;
+        auto *refMacro = new BulkEditCommand(refLayer.get(),
+                                             QStringLiteral("Ref"));
+        for (const QString &n : victims)
+            new DeleteObjectCommand(refLayer.get(), n,
+                                    DeleteObjectCommand::DeleteNode, nullptr,
+                                    refMacro);
+        refStack.push(refMacro);
+
+        const auto sameState = [](SWMMModelLayer *a, SWMMModelLayer *b) {
+            const int nn = swmm_node_count(a->engine());
+            if (nn != swmm_node_count(b->engine())) return false;
+            for (int i = 0; i < nn; ++i)
+                if (QString::fromUtf8(swmm_node_id(a->engine(), i))
+                    != QString::fromUtf8(swmm_node_id(b->engine(), i)))
+                    return false;
+            const int nl = swmm_link_count(a->engine());
+            if (nl != swmm_link_count(b->engine())) return false;
+            for (int i = 0; i < nl; ++i)
+                if (QString::fromUtf8(swmm_link_id(a->engine(), i))
+                    != QString::fromUtf8(swmm_link_id(b->engine(), i)))
+                    return false;
+            // The SoA mirrors must agree with their engines too.
+            if (a->cachedNodeCount() != nn || b->cachedNodeCount() != nn)
+                return false;
+            if (a->cachedLinkCount() != nl || b->cachedLinkCount() != nl)
+                return false;
+            return true;
+        };
+
+        QVERIFY2(sameState(batchLayer.get(), refLayer.get()),
+                 "post-delete state diverged from the per-object reference");
+
+        // Undo restores identically on both paths…
+        batchStack.undo();
+        refStack.undo();
+        QVERIFY2(sameState(batchLayer.get(), refLayer.get()),
+                 "post-undo state diverged from the per-object reference");
+        QCOMPARE(swmm_node_index(batchLayer->engine(), "J1") >= 0, true);
+
+        // …and redo re-deletes identically.
+        batchStack.redo();
+        refStack.redo();
+        QVERIFY2(sameState(batchLayer.get(), refLayer.get()),
+                 "post-redo state diverged from the per-object reference");
+        QCOMPARE(swmm_node_index(batchLayer->engine(), "J1"), -1);
+    }
+
     // ── Profiling probe (perf-plan Phase 0; skipped unless env-gated) ──────
 
     //! Bulk-delete baseline on a REAL model: set SWMM_PROFILE_INP=<path.inp>
@@ -397,12 +471,12 @@ private slots:
         QElapsedTimer timer;
         timer.start();
         MapUndoStack stack;
-        auto *macro = new BulkEditCommand(layer.get(),
-                                          QStringLiteral("Profile Delete"));
+        QList<BatchDeleteCommand::Target> targets;
+        targets.reserve(names.size());
         for (const QString &n : std::as_const(names))
-            new DeleteObjectCommand(layer.get(), n,
-                                    DeleteObjectCommand::DeleteNode, nullptr,
-                                    macro);
+            targets.append({n, DeleteObjectCommand::DeleteNode});
+        auto *macro = new BatchDeleteCommand(layer.get(), targets, nullptr,
+                                             QStringLiteral("Profile Delete"));
         const qint64 snapshotMs = timer.elapsed();
         stack.push(macro);
         const qint64 totalMs = timer.elapsed();

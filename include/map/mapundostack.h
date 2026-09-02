@@ -721,6 +721,11 @@ public:
                         TargetKind kind, MapCanvas *canvas,
                         QUndoCommand *parent = nullptr);
 
+    /*! Batch mode (perf-plan Phase A2): the owning BatchDeleteCommand's one
+     *  swmm_*_delete_many call performs the deletion, so this child keeps
+     *  only its snapshot + undo role and redo() becomes a no-op. */
+    void setEngineAppliedByBatch(bool b) { m_engineAppliedByBatch = b; }
+
     void undo() override;
     void redo() override;
     int  id()   const override { return 16; }
@@ -737,11 +742,40 @@ private:
 
     SWMMModelLayer      *m_layer = nullptr;
     TargetKind           m_kind;
+    bool                 m_engineAppliedByBatch = false;
     NodeSnapshot         m_node;
     QVector<LinkSnapshot> m_cascadeLinks; // cascade-deleted links when a node is deleted
     LinkSnapshot         m_link;
     GageSnapshot         m_gage;
     SubcatchSnapshot     m_subcatch;
+};
+
+/*!
+ * \class BatchDeleteCommand
+ * \brief Undoable bulk deletion (perf-plan Phase A2): one engine
+ *        swmm_*_delete_many call per kind instead of K per-object deletes.
+ * \details The constructor creates one snapshot-only DeleteObjectCommand
+ *          child per target — every snapshot is taken BEFORE anything is
+ *          deleted, while all indices are still pre-batch — with
+ *          setEngineAppliedByBatch(true) so the children's redo() are
+ *          no-ops.  redo() performs the whole deletion through
+ *          SWMMModelLayer::applyDeleteMany inside the inherited BulkEdit
+ *          scope; undo() is inherited: children restore per-object in
+ *          reverse order (the rare direction — documented as O(K·N)).
+ */
+class BatchDeleteCommand : public BulkEditCommand
+{
+public:
+    struct Target { QString name; DeleteObjectCommand::TargetKind kind; };
+
+    BatchDeleteCommand(SWMMModelLayer *layer, const QList<Target> &targets,
+                       MapCanvas *canvas, const QString &text);
+
+    void redo() override;
+
+private:
+    QPointer<SWMMModelLayer> m_layer;
+    QStringList m_nodeNames, m_linkNames, m_subcatchNames, m_gageNames;
 };
 
 /*!
