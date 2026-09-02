@@ -44,6 +44,8 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
+#include <string>
 #include <vector>
 
 namespace openswmmvis::io {
@@ -149,6 +151,21 @@ public:
     bool readDepthsAt(int timeIdx, std::vector<float>& depths) const;
 
     /*!
+     * \brief Read one time slice of any per-face \c [nTime, nFace] dataset
+     *        (e.g. \c Mesh2_face_rainfall, \c Mesh2_face_rain_cum).
+     * \param dataset Dataset name at the file root.
+     * \param timeIdx 0-based time index (must be < timeCount()).
+     * \param values  Output, resized to triangleCount(); engine SI units.
+     * \returns true on success; false (presence probed once per name and
+     *          cached, no HDF5 error spam) when the file lacks the dataset.
+     */
+    bool readFaceFieldAt(const char* dataset, int timeIdx,
+                         std::vector<float>& values) const;
+
+    /*! \brief True iff \p dataset exists at the file root (probe cached). */
+    bool hasFaceField(const char* dataset) const;
+
+    /*!
      * \brief Read one time slice of \c /Mesh2_node_head — the engine's
      *        pseudo-Laplacian vertex-head reconstruction.
      * \param timeIdx 0-based time index (must be < timeCount()).
@@ -213,6 +230,7 @@ private:
     mutable int   cached_n_face_ = -1;
     mutable int   cached_has_node_head_ = -1;  ///< -1 unknown, 0 absent, 1 present
     mutable int   cached_has_node_depth_ = -1; ///< -1 unknown, 0 absent, 1 present
+    mutable std::map<std::string, bool> cached_has_face_field_; ///< per-dataset presence
     mutable QString last_error_;
 
     bool readDim_(const char* dataset, int axis, int& out) const;

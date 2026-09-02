@@ -18,6 +18,8 @@
  *   - Mesh2DVelocityX  → RT0 reconstruction from edge fluxes
  *   - Mesh2DVelocityY  → "
  *   - Mesh2DVelocityMag→ sqrt(Vx² + Vy²)
+ *   - Mesh2DRainfall   → /Mesh2_face_rainfall (m/s → mm/hr)
+ *   - Mesh2DRainVolume → /Mesh2_face_rain_cum (cumulative m³ per cell)
  *
  * Time axis: simulated wall-clock times are pulled from the source's
  * `simTimeAt(timeIdx)`. The adapter converts back to SWMM Julian days

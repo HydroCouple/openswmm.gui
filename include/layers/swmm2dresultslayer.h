@@ -168,6 +168,27 @@ public:
         (void)timeIdx; (void)vdepths;
         return false;
     }
+
+    /*!
+     * \brief Whether the source carries a named per-face \c [nTime, nFace]
+     *        field beyond depth (e.g. \c "Mesh2_face_rainfall",
+     *        \c "Mesh2_face_rain_cum"). Default: none — the live in-process
+     *        source streams depth/flux only.
+     */
+    virtual bool hasFaceField(const char* dataset) const
+    {
+        (void)dataset;
+        return false;
+    }
+
+    /*! \brief Fetch one time slice of a named per-face field (engine SI
+     *  units). Resized to \c triangleCount(). Default returns false. */
+    virtual bool readFaceFieldAt(const char* dataset, int timeIdx,
+                                 std::vector<float>& values)
+    {
+        (void)dataset; (void)timeIdx; (void)values;
+        return false;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -303,6 +324,9 @@ public:
                           std::vector<float>& nx,
                           std::vector<float>& ny) override;
     bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths) override;
+    bool hasFaceField(const char* dataset) const override;
+    bool readFaceFieldAt(const char* dataset, int timeIdx,
+                         std::vector<float>& values) override;
     openswmmvis::io::CoordinateReference coordinateReference() const override;
 
     /*! \brief Anchor wall-clock time for the simulation start (so /time

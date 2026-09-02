@@ -25,6 +25,7 @@
 #define OPENSWMMVIS_MAP_TOOLS_MAPTOOLMESHSELECTVERTEX_H
 
 #include "map/tools/maptool.h"
+#include "plot/plotattribute.h"
 
 #include <QPoint>
 #include <QPointer>
@@ -54,11 +55,13 @@ public:
                const SpatialReferenceSystem *canvasSRS) override;
 
 signals:
-    /*! \brief Emitted when the user right-clicks and chooses "Plot time
-     *  series". Carries every selected vertex of the active mesh (or the
-     *  right-clicked vertex when nothing was selected). The host plots the
-     *  interpolated depth/HGL series for each. */
-    void plotVertexSeriesRequested(SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList);
+    /*! \brief Emitted when the user right-clicks and picks an entry from
+     *  the "Plot Time Series" submenu. Carries every selected vertex of the
+     *  active mesh (or the right-clicked vertex when nothing was selected)
+     *  and the chosen attributes (depth and/or HGL). The host plots the
+     *  interpolated series for each (vertex, attribute). */
+    void plotVertexSeriesRequested(SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList,
+                                   const QVector<openswmmvis::plot::PlotAttribute> &attrs);
 
 private:
     SWMM2DMeshLayer *findActiveMeshLayer_() const;
