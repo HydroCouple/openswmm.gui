@@ -22,9 +22,12 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 - **2D inundation overlay on the 1D profile plot.** When the project has
   an active 2D results layer, the profile samples its water surface (mesh
   bed + barycentric depth) at the same densified stations the terrain
-  ground line uses, and draws a translucent band from the bed up to the
-  2D WSE with a line on top — beneath every 1D element so the network's
-  own HGL stays intact. Animates with the profile cursor (the dialog steps
+  ground line uses. While the overlay is on, the drawn ground line is the
+  mesh bed interpolated at those stations (not the rim-to-rim line; an
+  enabled terrain DEM still takes precedence), and a translucent band
+  fills from that ground line up to the 2D WSE with a line on top — only
+  where the water surface stands above the ground, and beneath every 1D
+  element so the network's own HGL stays intact. Animates with the profile cursor (the dialog steps
   the 2D layer itself, so a hidden layer still updates). Toggle via the
   toolbar's "2D Inundation" button or Display Options ▸ "Show 2D
   inundation" (`ProfilePlotOptions::show2DInundation`, plus pen/brush
