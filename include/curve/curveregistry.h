@@ -60,6 +60,9 @@ signals:
 private:
     QVector<CurveProvider *>          m_providers;
     QHash<QString, CurveProvider *>   m_byLowerName;
+    /*! Engine bound by loadFromEngine/saveToEngine, so remove() can delete
+     *  the engine table too (the transect/timeseries registries' idiom). */
+    void                             *m_engineHandle = nullptr;
 };
 
 } // namespace openswmmvis::curve

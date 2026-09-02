@@ -1169,6 +1169,20 @@ add_swmmvis_gui_test(test_timeseries_registry_engine
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
 )
 
+# Perf-plan Phase A3 — the transect/curve registries' remove() deletes the
+# ENGINE copy too (the timeseries twin rides test_timeseries_registry_engine).
+add_swmmvis_gui_test(test_dataobject_engine_delete
+    test_dataobject_engine_delete.cpp
+    ${CMAKE_SOURCE_DIR}/include/transect/transectprovider.h
+    ${CMAKE_SOURCE_DIR}/include/transect/transectregistry.h
+    ${CMAKE_SOURCE_DIR}/src/transect/transectprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/transect/transectregistry.cpp
+    ${CMAKE_SOURCE_DIR}/include/curve/curveprovider.h
+    ${CMAKE_SOURCE_DIR}/include/curve/curveregistry.h
+    ${CMAKE_SOURCE_DIR}/src/curve/curveprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/curve/curveregistry.cpp
+)
+
 # SWMM DateTime Consolidation Phase 1 (workplans/
 # SWMM_DATETIME_CONSOLIDATION_PLAN_2026-07-10.md) — golden round-trip for
 # the time-series minute-truncation fix (GH #1) against a real fixture
