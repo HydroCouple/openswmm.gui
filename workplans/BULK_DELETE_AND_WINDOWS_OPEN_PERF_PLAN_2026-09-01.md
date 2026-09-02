@@ -93,3 +93,18 @@ one run captures everything:
 - Phase A2 — SHIPPED gui `2fc139e`: BatchDeleteCommand + SWMMModelLayer::applyDeleteMany (order-preserving name-sweep SoA sync); snapshot-only children keep per-object undo; unguarded vertex-delete site wrapped.
 - Phase B1 — SHIPPED (this commit): QSG_RHI_BACKEND=opengl scoped to macOS; Windows returns to D3D11. Windows verification pending a box (protocol in the appendix).
 - Phase B2 — items shipped: log-scroll coalescing (one relayout per burst), attribute-table delegate leak fix, per-open saveSettings deferred off the open path. **Deferred pending Phase-0 numbers** (macOS log shows whether they matter): refresh() signal coalescing across its 5 triggers (async-semantics risk for programmatic model readers), per-refresh QSettings caching, readMapUnitsFromInp to the load worker + .inp read dedupe (worker-prefetch design sketched in plan).
+
+## Real-model result (West Whiteland 2024: 103,821 nodes / 281,049 links)
+
+`profileBulkDelete`, 2000 junction deletes through the shipped batch path:
+**snapshots 0.5 s, execute+close 9.1 s, total ~9.6 s** — with endBulkEdit
+(endpoint sync + full geometry cache) only 0.16 s of that. The remaining
+~9 s is inside the engine batch: delete_many still runs the per-object
+cascade scans (O(links) per node = 2000 x 281k compares), which Phase A1
+deliberately kept for parity safety after eliminating the name-index
+rehash (previously O(all names) per delete — sequential at this scale is
+estimated in minutes; the 6k-node micro-benchmark measured 6.7x and the
+ratio grows with model size). NEXT LEVER (recorded, not scheduled): fuse
+the cascade discovery into one link scan per batch via the mark-bitmask
+design the plan sketched — an engine-only change behind the same
+delete_many API, so the GUI is untouched.
