@@ -6241,6 +6241,11 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         connect(layer, &SWMMModelLayer::optionsChanged, this,
                 [this, pw](const QStringList &keys) {
                     if (pw != mActiveProjectWindow) return;
+                    if (keys.contains(QStringLiteral("START_DATE")) ||
+                        keys.contains(QStringLiteral("START_TIME")) ||
+                        keys.contains(QStringLiteral("END_DATE"))   ||
+                        keys.contains(QStringLiteral("END_TIME")))
+                        refreshSimulationDatesForProject(pw);
                     if (keys.contains(QStringLiteral("FLOW_UNITS"))) {
                         pw->unitSystem()->syncFromEngine(pw->modelLayer()->engine());
                         QSignalBlocker b(mComboBoxFlowUnits);
@@ -6470,6 +6475,27 @@ void SWMMVis::onModelLoaded()
         mObjectBrowserPanel->setProject(pw->modelLayer(),
                                         pw->selectionManager(),
                                         pw->canvas());
+
+    refreshSimulationDatesForProject(pw);
+}
+
+void SWMMVis::refreshSimulationDatesForProject(SWMMVisProjectWindow *pw)
+{
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine() || !mSimStatusModel)
+        return;
+    auto *layer = pw->modelLayer();
+    const QString inpPath = layer->modelFilePath();
+    const int jobId = mSimStatusModel->ensureJobForModel(
+        pw, QFileInfo(inpPath).fileName(), inpPath, pw->engineVersion());
+    if (jobId < 0 || mActiveRunners.contains(jobId))
+        return;   // a run owns the dates until it finishes
+
+    const QDateTime start = SimulationOptionsDialog::parseEngineDateTime(
+        layer->getOption("START_DATE"), layer->getOption("START_TIME", "00:00:00"));
+    const QDateTime end = SimulationOptionsDialog::parseEngineDateTime(
+        layer->getOption("END_DATE"),   layer->getOption("END_TIME",   "00:00:00"));
+    if (start.isValid() && end.isValid())
+        mSimStatusModel->setSimulationDates(jobId, start, end);
 }
 
 void SWMMVis::onModelLoadError(const QString &msg)
