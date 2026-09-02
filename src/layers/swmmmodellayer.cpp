@@ -5638,6 +5638,108 @@ bool SWMMModelLayer::applyGageDelete(const QString &name)
     return true;
 }
 
+bool SWMMModelLayer::applyDeleteMany(const QStringList &nodeNames,
+                                      const QStringList &linkNames,
+                                      const QStringList &subcatchNames,
+                                      const QStringList &gageNames,
+                                      QStringList *cascadeLinkNames)
+{
+    // Perf-plan Phase A2: one swmm_*_delete_many engine call per kind (one
+    // name-index rebuild per batch instead of one per delete — the measured
+    // dominant cost), then ONE order-preserving sweep per SoA vector instead
+    // of K O(N) removeAt calls.  The engine compacts without reordering, so
+    // its survivors are an exact subsequence of the pre-batch SoA: a
+    // two-pointer name walk identifies precisely the dropped rows — cascade
+    // deletions included — with no index bookkeeping across the batch.
+    if (!m_engine) return false;
+
+    // Nestable: inside a BulkEditCommand this joins the outer scope; called
+    // bare it supplies the single rebuild+repaint itself.
+    BulkEdit guard(this);
+
+    const auto resolve = [this](const QStringList &names, auto indexFn) {
+        QVector<int> idxs;
+        idxs.reserve(names.size());
+        for (const QString &n : names) {
+            const int i = indexFn(m_engine, n.toUtf8().constData());
+            if (i >= 0) idxs.append(i);
+        }
+        return idxs;
+    };
+    // Drop SoA rows whose name is gone from the engine.  `idFn(i)` is the
+    // engine's post-batch name at index i; survivors keep relative order.
+    const auto sweep = [](auto &vec, int engineCount, auto idFn,
+                          QStringList *dropped) {
+        int w = 0, ei = 0;
+        for (int r = 0; r < vec.size(); ++r) {
+            const char *id = (ei < engineCount) ? idFn(ei) : nullptr;
+            if (id && vec[r].name == QString::fromUtf8(id)) {
+                if (w != r) vec[w] = std::move(vec[r]);
+                ++w; ++ei;
+            } else if (dropped) {
+                *dropped << vec[r].name;
+            }
+        }
+        vec.resize(w);
+    };
+
+    bool any = false;
+
+    // Nodes first — their cascade removes links, so the link list below is
+    // resolved AFTER this batch (a cascade-deleted selected link resolves to
+    // -1 and is skipped, matching the per-object path's skipLinks rule).
+    if (!nodeNames.isEmpty()) {
+        const QVector<int> idxs = resolve(nodeNames, swmm_node_index);
+        if (!idxs.isEmpty()
+            && swmm_node_delete_many(m_engine, idxs.constData(),
+                                     idxs.size(), nullptr) == 0) {
+            sweep(m_nodes, swmm_node_count(m_engine),
+                  [this](int i) { return swmm_node_id(m_engine, i); },
+                  nullptr);
+            sweep(m_links, swmm_link_count(m_engine),
+                  [this](int i) { return swmm_link_id(m_engine, i); },
+                  cascadeLinkNames);
+            any = true;
+        }
+    }
+    if (!linkNames.isEmpty()) {
+        const QVector<int> idxs = resolve(linkNames, swmm_link_index);
+        if (!idxs.isEmpty()
+            && swmm_link_delete_many(m_engine, idxs.constData(),
+                                     idxs.size(), nullptr) == 0) {
+            sweep(m_links, swmm_link_count(m_engine),
+                  [this](int i) { return swmm_link_id(m_engine, i); },
+                  nullptr);
+            any = true;
+        }
+    }
+    if (!subcatchNames.isEmpty()) {
+        const QVector<int> idxs = resolve(subcatchNames, swmm_subcatch_index);
+        if (!idxs.isEmpty()
+            && swmm_subcatch_delete_many(m_engine, idxs.constData(),
+                                         idxs.size(), nullptr) == 0) {
+            sweep(m_catchments, swmm_subcatch_count(m_engine),
+                  [this](int i) { return swmm_subcatch_id(m_engine, i); },
+                  nullptr);
+            any = true;
+        }
+    }
+    if (!gageNames.isEmpty()) {
+        const QVector<int> idxs = resolve(gageNames, swmm_gage_index);
+        if (!idxs.isEmpty()
+            && swmm_gage_delete_many(m_engine, idxs.constData(),
+                                     idxs.size(), nullptr) == 0) {
+            sweep(m_gages, swmm_gage_count(m_engine),
+                  [this](int i) { return swmm_gage_id(m_engine, i); },
+                  nullptr);
+            any = true;
+        }
+    }
+
+    if (any) m_bulkDirty = true;
+    return any;
+}
+
 bool SWMMModelLayer::applySubcatchDelete(const QString &name)
 {
     if (!m_engine) return false;
