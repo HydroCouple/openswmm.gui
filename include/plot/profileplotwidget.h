@@ -477,6 +477,12 @@ private:
     // Drawn after the soil so it reads as water standing on the ground,
     // and before the 1D fills/lines so the network's own HGL stays on top.
     void paintSurface2D          (QPainter &p) const;
+    // True when the 2D overlay is on and has stations: the mesh bed then
+    // replaces the rim-to-rim line as the drawn ground (a DEM still wins).
+    [[nodiscard]] bool surface2DGroundActive() const;
+    // Elevation of the DRAWN ground line at a real chainage — DEM samples,
+    // 2D mesh bed, or rim-to-rim — so the 2D band fills exactly to it.
+    [[nodiscard]] double groundElevAtReal(double realX) const;
     // Real path chainage → virtual x (zero-length links get a visual gap).
     // Shared by the terrain ground line and the 2D overlay.
     [[nodiscard]] double realChainageToVirtualX(double realX) const;
