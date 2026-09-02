@@ -834,6 +834,13 @@ private:
     void updateSimulationProgressBar();
 
     /**
+     * Push the model's START/END date options into its Simulation Status
+     * row (creating an Idle row if needed). No-op while a run is in flight
+     * for that (model, engine version) — the runner owns the dates then.
+     */
+    void refreshSimulationDatesForProject(class SWMMVisProjectWindow *pw);
+
+    /**
      * Drop every simulation-status / progress-bar trace bound to @p pw —
      * cancel any still-running runners for that project, purge the
      * per-job hashes, remove the rows from the status model, and refresh
