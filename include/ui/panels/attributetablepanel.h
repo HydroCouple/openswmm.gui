@@ -32,6 +32,7 @@ class QLineEdit;
 class QPushButton;
 class QRadioButton;
 class QSortFilterProxyModel;
+class QStyledItemDelegate;
 class QTableView;
 class QToolBar;
 class SWMMAttributeTableModel;
@@ -206,6 +207,11 @@ private:
      *  SWMM source and the 2D-mesh source share one implementation. */
     void installColumnDelegates(const QList<openswmmvis::ColumnSpec> &specs,
                                 int clearUpTo);
+
+    /*! Delegates currently installed on the view — the outgoing set is
+     *  deleted (not just detached) on the next install, closing the
+     *  one-leaked-delegate-per-column-per-refresh hole (perf plan B2). */
+    QList<QStyledItemDelegate *> m_installedDelegates;
 
     /*! Bind the table to a mesh layer's vertices / edges / cells.
      *  `key` is the combo's `"mesh:<layerId>:<v|e|c>"` payload; a key that no

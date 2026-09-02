@@ -419,7 +419,18 @@ void SWMMVis::onLogMessage(const QString &message,
         << new QStandardItem(name)
         << new QStandardItem(message));
 
-    ui->treeViewMessageLogs->scrollToBottom();
+    // Perf-plan Phase B2: scrollToBottom() forces a full view relayout, and
+    // adoptOpenEngine drains every engine diagnostic through this slot — a
+    // messy model paid one relayout PER warning row.  Coalesce to one scroll
+    // per event-loop turn; the burst still ends pinned to the newest row.
+    if (!mLogScrollPending) {
+        mLogScrollPending = true;
+        QTimer::singleShot(0, this, [this] {
+            mLogScrollPending = false;
+            if (ui && ui->treeViewMessageLogs)
+                ui->treeViewMessageLogs->scrollToBottom();
+        });
+    }
 }
 
 void SWMMVis::beginFileOpen(const QString &path)
@@ -4897,13 +4908,18 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
         mRecentFiles.removeAll(filePath);
         mRecentFiles.prepend(filePath);
         onRecentFilesSizeChanged();
-        {
+        // Perf-plan Phase B2: the per-open settings write (dock state +
+        // geometry + recent files — HKCU registry IO on Windows) moves off
+        // the open-critical path.  A short defer keeps recent-files fresh
+        // without paying registry latency between the user's click and the
+        // model appearing; close still writes via the normal shutdown path.
+        QTimer::singleShot(3000, this, [this] {
             QElapsedTimer settingsTimer;
             settingsTimer.start();
             saveSettings();
-            qCDebug(lcLoadGui) << "saveSettings (per-open):"
+            qCDebug(lcLoadGui) << "saveSettings (deferred post-open):"
                                << settingsTimer.elapsed() << "ms";
-        }
+        });
 
         // Slice X — apply the co-located .oswp sidecar if one exists.
         // Hydrates GUI-only state (layer CRS, category / object order,

@@ -753,6 +753,9 @@ private:
 
     QSettings          mSettings;
     QStandardItemModel *mLogMessagesModel   = nullptr;
+    /*! Perf plan B2 — one Message-Log scrollToBottom per event-loop turn,
+     *  not one per appended row (engine-warning drains are bursts). */
+    bool                mLogScrollPending   = false;
     LayerTreePanel        *mLayerTreePanel        = nullptr;
     ObjectBrowserPanel    *mObjectBrowserPanel    = nullptr;
     PropertiesPanel        *mPropertiesPanel        = nullptr;
