@@ -131,8 +131,21 @@ int main(int argc, char *argv[])
     // matching pixels in the grabbed FBO). The OpenGL backend doesn't
     // exhibit this bug. Must be set BEFORE QGuiApplication is constructed
     // or the env var has no effect.
-    qputenv("QSG_RHI_BACKEND", "opengl");
-    qputenv("QSG_RENDER_LOOP", "threaded");
+    //
+    // macOS ONLY (perf plan Phase B1, 2026-09-01): applied unconditionally
+    // this workaround forced Windows off Qt's D3D11 default onto desktop
+    // GL — and onto opengl32sw.dll software rasterization on weak-GL boxes
+    // (RDP, VMs, hybrid-GPU laptops), the prime "open is extremely laggy
+    // on Windows" suspect. Shaders ship HLSL 5.0 (qsb defaults) and no
+    // GL-only scenegraph code exists, so other platforms take Qt's native
+    // backend. Respect a pre-set env var so any platform can override for
+    // diagnostics (QSG_INFO=1 prints the active backend).
+#ifdef Q_OS_MACOS
+    if (!qEnvironmentVariableIsSet("QSG_RHI_BACKEND"))
+        qputenv("QSG_RHI_BACKEND", "opengl");
+    if (!qEnvironmentVariableIsSet("QSG_RENDER_LOOP"))
+        qputenv("QSG_RENDER_LOOP", "threaded");
+#endif
     // QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL); // or Qt::AA_UseOpenGLES
     // Alternatively, for Qt 6, force Metal:
     // qputenv("QSG_RHI_BACKEND", "metal");
