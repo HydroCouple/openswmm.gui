@@ -1387,6 +1387,14 @@ void AttributeTablePanel::installColumnDelegates(
         clearTo = std::max(clearTo, header->count());
     for (int col = 0; col < clearTo; ++col)
         m_view->setItemDelegateForColumn(col, nullptr);
+    // Perf-plan Phase B2: detaching alone leaked one delegate per column per
+    // refresh (panel-parented, so they piled up until the panel died — and
+    // refresh() runs many times per file open).  Delete the outgoing set now
+    // that no column references it; deleteLater so an editor mid-commit on
+    // this event-loop turn can finish first.
+    for (QStyledItemDelegate *old : std::as_const(m_installedDelegates))
+        if (old) old->deleteLater();
+    m_installedDelegates.clear();
 
     for (int col = 0; col < specs.size(); ++col) {
         const auto &spec = specs[col];
@@ -1430,6 +1438,7 @@ void AttributeTablePanel::installColumnDelegates(
         // Delegate column index is the *proxy* column; since proxy
         // doesn't reorder columns, source-col == proxy-col here.
         m_view->setItemDelegateForColumn(col, del);
+        m_installedDelegates.append(del);
     }
 }
 

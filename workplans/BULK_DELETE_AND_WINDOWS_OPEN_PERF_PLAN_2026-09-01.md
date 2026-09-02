@@ -84,3 +84,12 @@ one run captures everything:
    `set SWMM_PROFILE_INP=<path.inp>` then run `test_bulkdelete profileBulkDelete`
    and `test_asyncload profileExternalModel`.
 5. Send back the log file.
+
+## Execution record (2026-09-01/02)
+
+- Phase 0 — SHIPPED gui `4985f8c` (telemetry + probes; macOS bulk-delete baseline via `profileBulkDelete`).
+- Phase A3 — SHIPPED gui `72d188e` (registries' remove() deletes engine-side — transect/curve/timeseries bug fix) + `8cc8e2e` (delete commands drop the O(total-data) reflush). Step 3 (dialog undo plumbing) deferred: dialogs delete single objects, so only the undo nicety remains and it needs layer injection into two dialog constructors.
+- Phase A1 — SHIPPED engine `1af1db1a`: swmm_*_delete_many with NameIndex begin/end_bulk_remove (one rehash per batch). Measured 6.7x (2k deletes on a 6k-node chain: 201 ms vs 1338 ms sequential); the ratio grows with model size. Parity + all-or-nothing pinned by test_object_deletion_many. Full ctest: every landed test green (the one red was a peer session's uncommitted 2D-transport-S2 WIP, not in HEAD).
+- Phase A2 — SHIPPED gui `2fc139e`: BatchDeleteCommand + SWMMModelLayer::applyDeleteMany (order-preserving name-sweep SoA sync); snapshot-only children keep per-object undo; unguarded vertex-delete site wrapped.
+- Phase B1 — SHIPPED (this commit): QSG_RHI_BACKEND=opengl scoped to macOS; Windows returns to D3D11. Windows verification pending a box (protocol in the appendix).
+- Phase B2 — items shipped: log-scroll coalescing (one relayout per burst), attribute-table delegate leak fix, per-open saveSettings deferred off the open path. **Deferred pending Phase-0 numbers** (macOS log shows whether they matter): refresh() signal coalescing across its 5 triggers (async-semantics risk for programmatic model readers), per-refresh QSettings caching, readMapUnitsFromInp to the load worker + .inp read dedupe (worker-prefetch design sketched in plan).
