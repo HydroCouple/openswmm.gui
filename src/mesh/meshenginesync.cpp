@@ -52,10 +52,11 @@ constexpr int kEngSpecifiedStage = 2;
 constexpr int kEngSpecifiedFlow  = 3;
 constexpr int kEngRatingCurve    = 4;
 
-// Display flow unit -> m³/s. The engine's SPECIFIED_FLOW BC is stored in SI
-// (m³/s per metre of edge) regardless of FLOW_UNITS, while the layer carries
-// the BC discharge in the project's display flow units. Index by the
-// swmm_get_flow_units() enum: CFS, GPM, MGD, CMS, LPS, MLD.
+// Display flow unit -> m³/s. The engine's SPECIFIED_FLOW BC is stored in
+// display flow units per metre until initialize() scales it to m³/s/m in
+// place; the layer always carries the project's display flow units. Applied
+// only for an initialized (mesh-scaled) engine — see pushMeshEditsToEngine.
+// Index by the swmm_get_flow_units() enum: CFS, GPM, MGD, CMS, LPS, MLD.
 double flowUnitToCms(int flowUnits)
 {
     switch (flowUnits) {
@@ -132,10 +133,24 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     }
 
     const double factor = deriveLengthFactor(engine, mesh);
+    // The engine holds BC constants in DISPLAY units until swmm_engine_initialize
+    // scales them into SI alongside the mesh (SurfaceRouter2D::initialize). The
+    // GUI's editing engine is only OPENED, so the engine expects — and its
+    // writer emits — display flow units per metre; pushing m³/s/m here made a
+    // US project's constant SPECIFIED_FLOW shrink by 0.0283 on every
+    // save/reopen. Convert only once the engine has been initialized (the
+    // flow scaling is FLOW_UNITS-driven and independent of the mesh's
+    // `;; UNITS: SI (m)` tag, so the lifecycle state — not the length factor
+    // — is the right discriminator).
     double flowFactor = 1.0;
     {
+        int state = SWMM_STATE_NONE;
+        swmm_engine_get_state(engine, &state);
+        const bool initialized = state >= SWMM_STATE_INITIALIZED
+                              && state != SWMM_STATE_BUILDING;
         int fu = 3;  // default CMS
-        if (swmm_get_flow_units(engine, &fu) == 0) flowFactor = flowUnitToCms(fu);
+        if (initialized && swmm_get_flow_units(engine, &fu) == 0)
+            flowFactor = flowUnitToCms(fu);
     }
 
     // ---- Vertex elevation --------------------------------------------------

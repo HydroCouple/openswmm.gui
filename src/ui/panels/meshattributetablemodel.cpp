@@ -323,13 +323,18 @@ void MeshAttributeTableModel::rebuildColumns()
                    0.001, 1.0, 3, UnitKind::None,
                    tr("Coupling discharge coefficient ([2D_VERTEX_NODE_MAP] CD "
                       "column). Coupled vertices only; default 0.65."))
-            // The AREA column is metres² regardless of the project's flow
-            // units, so the unit is spelled into the label rather than
-            // resolved through UnitKind (which would read ft² in US units).
-            << num(QStringLiteral("couplingArea"), tr("Coupling Area (m²)"),
+            // The AREA column is mesh-length² — the engine scales it with the
+            // mesh coordinates (ft² on a US project unless the mesh file is
+            // tagged `;; UNITS: SI (m)`), so the label follows the layer.
+            << num(QStringLiteral("couplingArea"),
+                   tr("Coupling Area (%1)").arg(
+                       (m_layer && m_layer->meshUnitsSI())
+                           ? QStringLiteral("m²")
+                           : unitLabel(UnitKind::Length) + QStringLiteral("²")),
                    0.0001, 1.0e6, 3, UnitKind::None,
-                   tr("Coupling exchange area in m² ([2D_VERTEX_NODE_MAP] AREA "
-                      "column). Coupled vertices only; default 1.0."));
+                   tr("Coupling exchange area in the mesh's length units squared "
+                      "([2D_VERTEX_NODE_MAP] AREA column). Coupled vertices only; "
+                      "default 1.0."));
         break;
 
     case Kind::Edge:

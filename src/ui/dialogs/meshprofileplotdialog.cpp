@@ -200,8 +200,11 @@ void MeshProfilePlotDialog::refreshCurrentDepths()
     // cellHasSurface is frame-dependent (it reads the per-vertex signed-depth
     // field), so it must travel with the depth column — it gates which dry
     // gaps the painter may bridge.
+    // SI metres → mesh units, same factor buildMeshProfile applied to the
+    // initial depth column (see MeshProfileSampler).
+    const double dToMesh = m_results->depthToMeshUnits();
     for (const auto &s : m_profile.samples) {
-        depths.push_back(m_results->depthAtCellInterp(s.triIdx, s.scenePt));
+        depths.push_back(m_results->depthAtCellInterp(s.triIdx, s.scenePt) * dToMesh);
         hasSurface.push_back(m_results->cellHasSurface(s.triIdx));
     }
     m_plot->setCurrentDepths(depths, hasSurface);
