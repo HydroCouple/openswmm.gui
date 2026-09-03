@@ -1338,10 +1338,10 @@
     <string>&amp;Plot Profile</string>
    </property>
    <property name="toolTip">
-    <string>Plot a longitudinal profile. Picks a network (pipe HGL) profile when a SWMM model is loaded, or a 2D-surface (terrain + water depth) profile for a mesh. Use the dropdown to force either.</string>
+    <string>Plot a network (pipe HGL) longitudinal profile: pick a path of nodes and links on the map. For a 2D-surface profile use Plot 2D Profile.</string>
    </property>
    <property name="statusTip">
-    <string>Plot a network or 2D-surface longitudinal profile</string>
+    <string>Plot a network longitudinal profile</string>
    </property>
    <property name="whatsThis">
     <string>Plot Profile</string>
