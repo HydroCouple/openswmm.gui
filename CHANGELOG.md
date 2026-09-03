@@ -19,6 +19,24 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Profile ground-line source option.** `ProfilePlotOptions::groundSource`
+  (Auto / NodeRims / Mesh2D / TerrainDEM) replaces the "Use terrain DEM"
+  checkbox. Auto — the default — samples the 2D mesh vertex elevations
+  (barycentric) at the path stations whenever the project has a mesh
+  layer, else falls back to the rim-to-rim line; explicit choices override.
+  The line re-samples when a mesh layer is added/removed or its vertices
+  are edited. The 2D inundation band fills up from whichever ground is
+  drawn.
+
+- **More axis number-format styles.** The axis format enumerator (profile
+  Display Options, chart properties, Preferences ▸ Plots) gains
+  Scientific (2/3/4 decimals), Engineering (12.35e+03; 2/3 decimals) and
+  Thousands (locale group separators; integer/1/2 decimals) presets on top
+  of the decimals / significant-figure ones. `NumberFormat::format`
+  renders every style exactly; `printfSpec()` (Qt `QValueAxis` labels)
+  degrades Engineering to `%e` and Thousands to `%f`, since Qt axis labels
+  are printf-only.
+
 - **2D inundation overlay on the 1D profile plot.** When the project has
   an active 2D results layer, the profile samples its water surface (mesh
   bed + barycentric depth) at the same densified stations the terrain

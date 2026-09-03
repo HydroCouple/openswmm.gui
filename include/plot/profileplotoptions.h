@@ -33,8 +33,10 @@ public:
     Q_ENUM(LabelOrientation)
 
     /*! \brief Axis label number mode; values mirror
-     *  openswmmvis::plot::NumberFormatMode (0=Decimals, 1=SignificantFigures). */
-    enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
+     *  openswmmvis::plot::NumberFormatMode (0=Decimals, 1=SignificantFigures,
+     *  2=Scientific, 3=Engineering, 4=Thousands). */
+    enum LabelFormatMode { Decimals = 0, SignificantFigures = 1,
+                           Scientific = 2, Engineering = 3, Thousands = 4 };
     Q_ENUM(LabelFormatMode)
 
     /*! Combined axis number format offered to the user as ONE dropdown.
@@ -52,7 +54,15 @@ public:
         Decimals6 = 5,
         SigFigs3  = 6,
         SigFigs4  = 7,
-        SigFigs6  = 8
+        SigFigs6  = 8,
+        Scientific2      = 9,
+        Scientific3      = 10,
+        Scientific4      = 11,
+        Engineering2     = 12,
+        Engineering3     = 13,
+        ThousandsInteger = 14,
+        Thousands1       = 15,
+        Thousands2       = 16
     };
     Q_ENUM(AxisNumberFormat)
 
@@ -63,6 +73,11 @@ public:
     enum TimeLabelPosition { TimeTopRight = 0, TimeTopLeft = 1,
                              TimeBottomLeft = 2, TimeBottomRight = 3 };
     Q_ENUM(TimeLabelPosition)
+
+    /*! \brief Ground-line source. `Auto` resolves to `Mesh2D` when the
+     *  project has a 2D mesh layer, else `NodeRims`. */
+    enum GroundSource { Auto = 0, NodeRims = 1, Mesh2D = 2, TerrainDEM = 3 };
+    Q_ENUM(GroundSource)
 
     // ── Layer visibility ────────────────────────────────────────────────
     // Live HGL is split into two independent toggles: the stroked line
@@ -97,8 +112,12 @@ public:
     Q_PROPERTY(QString yLabelFormat
                READ yLabelFormat     WRITE setYLabelFormat     NOTIFY changed)
 
-    // ── Ground / terrain ────────────────────────────────────────────────
-    Q_PROPERTY(bool useTerrainGround READ useTerrainGround WRITE setUseTerrainGround NOTIFY changed)
+    // ── Ground line source ──────────────────────────────────────────────
+    // Where the soil's top edge comes from. Auto (default) = the 2D mesh
+    // vertex elevations interpolated at the path stations whenever the
+    // project has a mesh layer, else the node rims (invert + max depth).
+    Q_PROPERTY(ProfilePlotOptions::GroundSource groundSource
+               READ groundSource WRITE setGroundSource NOTIFY changed)
 
     // ── 2D inundation overlay ───────────────────────────────────────────
     // Water surface of the active 2D results layer sampled along the path
@@ -227,7 +246,7 @@ public:
     { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode), m_xLabelPrecision, m_xLabelFormatStr }; }
     openswmmvis::plot::NumberFormat yFormat() const
     { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision, m_yLabelFormatStr }; }
-    bool     useTerrainGround() const { return m_useTerrainGround; }
+    GroundSource groundSource() const { return m_groundSource; }
     bool     show2DInundation() const { return m_show2DInundation; }
     QPen     inundation2DLinePen()   const { return m_inundation2DLinePen; }
     QBrush   inundation2DFillBrush() const { return m_inundation2DFillBrush; }
@@ -303,7 +322,7 @@ public slots:
     void setYLabelFormatMode(LabelFormatMode m);
     void setYLabelPrecision (int count);
     void setYLabelFormat    (const QString &spec);
-    void setUseTerrainGround(bool v);
+    void setGroundSource(GroundSource s);
     void setShow2DInundation(bool v);
     void setInundation2DLinePen  (const QPen   &p);
     void setInundation2DFillBrush(const QBrush &b);
@@ -380,7 +399,7 @@ private:
     LabelFormatMode  m_yLabelMode       = Decimals;
     int              m_yLabelPrecision  = 2;
     QString          m_yLabelFormatStr;           // optional printf override; empty = use mode+precision
-    bool             m_useTerrainGround = false;
+    GroundSource     m_groundSource     = Auto;
     // On by default: the overlay is inert without an active 2D results
     // layer, and a coupled model's user expects the surface water shown.
     bool             m_show2DInundation = true;

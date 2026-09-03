@@ -410,9 +410,8 @@ void ChartProperties::setStatisticsFormat(const QString &spec)
 
 void ChartProperties::setStatisticsNumberFormat(const NumberFormat &format)
 {
-    const auto mode = format.mode == NumberFormatMode::SignificantFigures
-        ? SignificantFigures
-        : Decimals;
+    // LabelFormatMode mirrors NumberFormatMode value-for-value.
+    const auto mode = static_cast<LabelFormatMode>(format.mode);
     const int precision = std::clamp(format.count, 0, 10);
 
     const bool modeChanged = m_statisticsMode != mode;
