@@ -9,6 +9,7 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
+#include "core/unitsystem.h"
 #include "map/mapcanvas.h"
 #include "map/meshcommands.h"
 #include "mesh/meshautocouple.h"
@@ -241,12 +242,17 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         m_vertexAreaSpin->setDecimals(3);
         m_vertexAreaSpin->setSingleStep(0.1);
         m_vertexAreaSpin->setValue(1.0);
+        // Suffix follows the active mesh's units (refreshVertexEditor): the
+        // AREA column is mesh-length² — ft² on a US project unless the mesh
+        // file is tagged `;; UNITS: SI (m)` — and the engine scales it with
+        // the mesh. It is NOT always m².
         m_vertexAreaSpin->setSuffix(tr(" m²"));
         m_vertexAreaSpin->setKeyboardTracking(false);
         m_vertexAreaSpin->setToolTip(tr(
             "Coupling exchange area ([2D_VERTEX_NODE_MAP] AREA column), the\n"
-            "orifice-throat area of the 1D↔2D exchange in m².\n"
-            "Default 1.0 m². Applies to every selected coupled vertex."));
+            "orifice-throat area of the 1D↔2D exchange, in the mesh's length\n"
+            "units squared (project units unless the mesh file is tagged SI).\n"
+            "Default 1.0. Applies to every selected coupled vertex."));
         lay->addWidget(m_vertexAreaSpin);
         m_actVertexArea = m_barVertices->addWidget(page);
     }
@@ -822,8 +828,17 @@ QList<int> MeshEditingToolbar::currentSelectedVertices() const
     return out;
 }
 
+QString MeshEditingToolbar::meshAreaUnitLabel() const
+{
+    if (m_activeMesh && m_activeMesh->meshUnitsSI()) return QStringLiteral("m²");
+    auto *us = UnitSystem::instance();
+    return (us ? us->lengthLabel() : QStringLiteral("ft")) + QStringLiteral("²");
+}
+
 void MeshEditingToolbar::refreshVertexEditor()
 {
+    if (m_vertexAreaSpin)
+        m_vertexAreaSpin->setSuffix(QStringLiteral(" ") + meshAreaUnitLabel());
     const QList<int> verts = currentSelectedVertices();
     // The coupled-node dropdown's item list is refreshed on rebind; here we
     // only set the current value. Visibility/enablement is owned by

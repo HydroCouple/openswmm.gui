@@ -187,6 +187,10 @@ private slots:
     void onVertexAreaCommit();       // coupling area → selected coupled vertices
     void onAutoCoupleClicked();      // couple vertices to coincident SWMM nodes
     void onRemapClicked();           // Remap 1D↔2D: vertex + cell coupling (Plan C.4)
+
+    /*! Unit label for the coupling AREA column: the active mesh's length
+     *  units squared ("m²" for an SI-tagged mesh, else project length²). */
+    [[nodiscard]] QString meshAreaUnitLabel() const;
     void onCellParamCommit();        // selected parameter → selected cells
     void onCellEnumCommit(int index); // Kind::Enum editor → selected cells
     void onCellParamChanged(int index); // reconfigure the value editor
