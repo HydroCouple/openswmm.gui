@@ -1670,6 +1670,10 @@ void ProfilePlotDialog::refreshSurface2DDepths()
     QVector<ProfilePlotWidget::Surface2DSample> out;
     if (m_surface2DLayer && !m_surface2D.isEmpty()) {
         out.reserve(m_surface2D.size());
+        // 2D depths are engine SI metres; the bed (mesh layer) and the 1D
+        // profile are in project units (feet on a US model). Bring the depth
+        // onto the mesh's vertical units before adding it to the bed.
+        const double dToMesh = m_surface2DLayer->depthToMeshUnits();
         for (const Surface2DStation &st : m_surface2D) {
             ProfilePlotWidget::Surface2DSample s;
             s.chainage = st.chainage;
@@ -1678,7 +1682,8 @@ void ProfilePlotDialog::refreshSurface2DDepths()
             // valid free surface this frame; dry / no-data stations stay
             // NaN and render as gaps (same rule as the 2D mesh profile).
             if (m_surface2DLayer->cellHasSurface(st.triIdx)) {
-                const double d = m_surface2DLayer->depthAtCellInterp(st.triIdx, st.scenePt);
+                const double d = m_surface2DLayer->depthAtCellInterp(st.triIdx, st.scenePt)
+                                 * dToMesh;
                 if (std::isfinite(d) && d > 0.0) s.wse = st.bed + d;
             }
             out.push_back(s);

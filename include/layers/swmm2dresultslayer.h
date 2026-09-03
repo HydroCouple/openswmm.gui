@@ -643,6 +643,16 @@ public:
      *  the mesh-profile cross-section to sample the animated depth column. */
     [[nodiscard]] float depthAtSceneNow(const QPointF& scenePt) const;
 
+    /*! \brief Factor that takes a 2D result DEPTH (engine SI metres — every
+     *  depth accessor on this layer returns metres) into the mesh layer's
+     *  vertical units, so `bed + depth * depthToMeshUnits()` is a valid water
+     *  surface elevation against `SWMM2DMeshLayer::sampleZAt` and the 1D
+     *  profile (project units). 1.0 for a metric project or an SI-tagged mesh;
+     *  1/0.3048 for a US project whose mesh is in feet. Same factor the XY
+     *  coordinates use (the mesh's linear unit is shared by all three axes) —
+     *  see resolveCoordinateScale_ / setFallbackCoordinateScale. */
+    [[nodiscard]] double depthToMeshUnits() const { return resolveCoordinateScale_(); }
+
     /*! \brief Current-frame water depth (m) at \p scenePt, **barycentrically
      *  interpolated** from the containing cell's per-vertex depths
      *  (`dv0/dv1/dv2`) — the same continuous field the marching-triangles
