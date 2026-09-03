@@ -91,13 +91,19 @@ void TestSimulationOptionsDialog::engineBoolStringRoundTrip()
 void TestSimulationOptionsDialog::fastPresetHasBalancedRecipe()
 {
     // Locks the benchmarked "conservative fast" recipe (FAST_RUN_RECIPE.md) so a
-    // future edit can't silently drift it. THREADS=8 uses the M-series P-cores;
+    // future edit can't silently drift it. THREADS = the machine's performance
+    // cores (the benchmark's 8 M-series P-cores), else its logical CPUs;
     // MINIMUM_STEP=1.0 s floors the 1D step the 2D coupling would collapse, while
     // keeping mass balance as good as or better than the as-shipped default.
     int    threads = -1;
     double minStep = -1.0;
     SimulationOptionsDialog::fastPresetValues(threads, minStep);
-    QCOMPARE(threads, 8);
+    SWMM_ThreadInfo ti{};
+    QCOMPARE(swmm_get_thread_info(&ti), int(SWMM_OK));
+    const int expected = ti.perf_cores > 0 ? ti.perf_cores
+                       : ti.logical_cpus > 0 ? ti.logical_cpus : 8;
+    QCOMPARE(threads, expected);
+    QVERIFY(threads >= 1);
     QCOMPARE(minStep, 1.0);
     // Must sit inside the per-project spin range [0.01, 60.0] s.
     QVERIFY(minStep >= 0.01 && minStep <= 60.0);

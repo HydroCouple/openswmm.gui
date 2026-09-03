@@ -2117,6 +2117,39 @@ void SWMMVis::initializeDockWidgets()
     initializeSimulationStatusDockWidget();
     initializeMessageLogDockWidget();
     initializeLegendDockWidget();
+    logInheritedThreadEnvironment();
+}
+
+void SWMMVis::logInheritedThreadEnvironment()
+{
+    // Thread-count environment variables inherited from the launching shell
+    // (conda, HPC modules, IDEs) silently cap or force the engine's OpenMP /
+    // Kokkos teams. Make them visible once at startup; never unset them —
+    // the user may have set them on purpose.
+    // (THREAD_LIMITS_AND_OVERSUBSCRIPTION_PLAN step 7.)
+    SWMM_ThreadInfo ti{};
+    swmm_get_thread_info(&ti);
+    const struct { const char *name; QString effect; } vars[] = {
+        { "OMP_NUM_THREADS",
+          tr("caps the OpenMP thread limit for every solver; [OPTIONS] THREADS "
+             "above it oversubscribes") },
+        { "OMP_THREAD_LIMIT",
+          tr("hard-caps every OpenMP team regardless of THREADS") },
+        { "OPENSWMM_2D_THREADS",
+          tr("forces the 2D Kokkos backend thread count, overriding THREADS") },
+        { "SWMM_DW_THREADS",
+          tr("forces the dynamic-wave thread count, overriding THREADS") },
+    };
+    for (const auto &v : vars) {
+        if (!qEnvironmentVariableIsSet(v.name)) continue;
+        onLogMessage(tr("Environment variable %1=%2 is set: it %3 "
+                        "(this machine has %4 logical processors; the OpenMP "
+                        "limit in this process is %5).")
+                         .arg(QString::fromLatin1(v.name),
+                              qEnvironmentVariable(v.name), v.effect)
+                         .arg(ti.logical_cpus).arg(ti.omp_max_threads),
+                     OpenSWMMVisLogMessage::Warning);
+    }
 }
 
 void SWMMVis::initializeLegendDockWidget()

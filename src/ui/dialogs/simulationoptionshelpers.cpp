@@ -38,12 +38,25 @@ int SimulationOptionsDialog::parseEngineBool(const QString &s)
 void SimulationOptionsDialog::fastPresetValues(int &out_threads,
                                                double &out_min_step_sec)
 {
-    // Conservative fast recipe (see FAST_RUN_RECIPE.md): all 8 P-cores + a 1.0 s
-    // step floor so the 2D coupling can't collapse the 1D adaptive step.
-    // ~2.6x on the Bellinge 1D/2D benchmark with BETTER mass balance than the
-    // as-shipped run (+2.8% vs -3.4% flow-routing continuity at 24h).
-    out_threads      = 8;
+    // Conservative fast recipe (see FAST_RUN_RECIPE.md): every PERFORMANCE
+    // core + a 1.0 s step floor so the 2D coupling can't collapse the 1D
+    // adaptive step. ~2.6x on the Bellinge 1D/2D benchmark (8 P-cores) with
+    // BETTER mass balance than the as-shipped run (+2.8% vs -3.4%
+    // flow-routing continuity at 24h). Efficiency cores are excluded on
+    // purpose: the barrier-synchronised solvers run at E-core speed when one
+    // joins the team (THREAD_LIMITS_AND_OVERSUBSCRIPTION_PLAN §5.1).
+    out_threads = fastPresetThreads();
     out_min_step_sec = 1.0;
+}
+
+int SimulationOptionsDialog::fastPresetThreads()
+{
+    SWMM_ThreadInfo ti{};
+    if (swmm_get_thread_info(&ti) == SWMM_OK) {
+        if (ti.perf_cores   > 0) return ti.perf_cores;
+        if (ti.logical_cpus > 0) return ti.logical_cpus;
+    }
+    return 8;   // benchmark machine fallback when the hardware query fails
 }
 
 QString SimulationOptionsDialog::engineBoolString(bool on)
