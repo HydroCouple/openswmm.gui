@@ -70,6 +70,11 @@ namespace {
  *  app-wide group (not per-model): which attributes an engineer inspects is
  *  a personal working preference, like the profile's layer toggles. */
 const char *const kTrackSettingsGroup = "ProfilePlot/AttributeTracks";
+
+/*! Smallest height the attribute-tracks pane can be dragged to, and the
+ *  threshold below which a shown pane counts as "not really visible" and is
+ *  re-expanded. Roughly one track row plus its axis. */
+constexpr int kTracksPaneMinHeightPx = 72;
 } // namespace
 
 namespace {
@@ -347,11 +352,15 @@ void ProfilePlotDialog::buildLayout()
     // The scrollbar comes and goes as tracks are added / the pane is dragged;
     // the tracks widget resizes exactly when it does, so watch that.
     m_tracks->installEventFilter(this);
-    // The profile must never collapse; the tracks pane may (drag-to-
-    // collapse is one of the three collapse affordances — see the master
-    // toggle wiring in buildAttributeTracksUi).
+    // Neither pane collapses by dragging. The tracks pane used to be
+    // collapsible, with the master toggle unchecked once it hit zero — but
+    // a mere click on the handle grip could snap the pane to zero and hide
+    // it, and a persisted zero-height split made "Show tracks" appear to do
+    // nothing. The toggle is now the only hide affordance; the drag floor is
+    // the pane's minimum height.
     m_profileSplit->setCollapsible(0, false);
-    m_profileSplit->setCollapsible(1, true);
+    m_profileSplit->setCollapsible(1, false);
+    m_tracksScroll->setMinimumHeight(kTracksPaneMinHeightPx);
     m_profileSplit->setStretchFactor(0, 3);
     m_profileSplit->setStretchFactor(1, 1);
     centre->addWidget(m_profileSplit, /*stretch=*/1);
@@ -1707,32 +1716,18 @@ void ProfilePlotDialog::buildAttributeTracksUi(QToolBar *toolbar)
             && m_tracksScroll->isVisible()) {
             // Remember the expanded proportions for the re-show.
             const QList<int> sizes = m_profileSplit->sizes();
-            if (sizes.size() == 2 && sizes[1] > 0)
+            if (sizes.size() == 2 && sizes[1] >= kTracksPaneMinHeightPx)
                 m_lastSplitSizes = sizes;
         }
-        updateTracksPaneVisibility();
-        if (on && m_profileSplit && m_lastSplitSizes.size() == 2)
-            m_profileSplit->setSizes(m_lastSplitSizes);
+        updateTracksPaneVisibility();   // re-show also re-expands the pane
     });
 
-    // Drag-to-collapse: dragging the handle until the pane hits zero height
-    // unchecks the master toggle so the two affordances never disagree
-    // (unchecking hides the pane entirely; re-checking restores the last
-    // expanded sizes). The uncheck is DEFERRED — it hides the pane, and
-    // yanking a splitter child out from under an in-progress drag ends the
-    // gesture abruptly.
+    // Remember the user's split so a hide/re-show round-trips it.
     connect(m_profileSplit, &QSplitter::splitterMoved, this, [this]() {
-        if (!m_actShowTracks || !m_tracksScroll
-            || !m_tracksScroll->isVisible())
-            return;
+        if (!m_tracksScroll || !m_tracksScroll->isVisible()) return;
         const QList<int> sizes = m_profileSplit->sizes();
-        if (sizes.size() == 2 && sizes[1] == 0) {
-            QTimer::singleShot(0, this, [this]() {
-                if (m_actShowTracks) m_actShowTracks->setChecked(false);
-            });
-        } else if (sizes.size() == 2 && sizes[1] > 0) {
+        if (sizes.size() == 2 && sizes[1] >= kTracksPaneMinHeightPx)
             m_lastSplitSizes = sizes;
-        }
     });
 
     // ── X-axis sync, both directions, one re-entrancy guard ────────────
@@ -1846,25 +1841,40 @@ void ProfilePlotDialog::updateTracksPaneVisibility()
     // Hiding the pane also hides the splitter handle — with no attribute
     // selected the dialog looks exactly as it did before this feature.
     m_tracksScroll->setVisible(show);
+    if (show) ensureTracksPaneExpanded();
     syncTracksGutter();   // hidden pane ⇒ give the plot its full width back
+}
+
+void ProfilePlotDialog::ensureTracksPaneExpanded()
+{
+    if (!m_profileSplit || !m_tracksScroll) return;
+    QList<int> sizes = m_profileSplit->sizes();
+    if (sizes.size() != 2) return;
+    // A zero / sliver pane is what a persisted collapsed split (older
+    // sessions could drag it to zero) or a fresh show() leaves behind, and
+    // it reads as "the tracks never appeared". Restore the last good split,
+    // else fall back to the 3:1 default.
+    if (sizes[1] >= kTracksPaneMinHeightPx) return;
+    if (m_lastSplitSizes.size() == 2 && m_lastSplitSizes[1] >= kTracksPaneMinHeightPx) {
+        m_profileSplit->setSizes(m_lastSplitSizes);
+        return;
+    }
+    const int total = std::max(sizes[0] + sizes[1], 4 * kTracksPaneMinHeightPx);
+    const int tracks = std::max(kTracksPaneMinHeightPx, total / 4);
+    m_profileSplit->setSizes({ total - tracks, tracks });
 }
 
 void ProfilePlotDialog::showEvent(QShowEvent *event)
 {
     QDialog::showEvent(event);
     // DialogLayoutWatcher restores the named splitter's state synchronously
-    // during this same Show (including a drag-collapsed pane), and
-    // restoreState() emits no splitterMoved — reconcile the master toggle
-    // once the restore has settled.
+    // during this same Show — possibly a zero-height tracks pane persisted
+    // by an older session that could still drag-collapse it. The toggle is
+    // the source of truth: if it says shown, make sure the pane actually
+    // has height once the restore has settled.
     QTimer::singleShot(0, this, [this]() {
-        if (!m_profileSplit || !m_actShowTracks || !m_tracksScroll) return;
-        if (!m_tracksScroll->isVisible()) return;
-        const QList<int> sizes = m_profileSplit->sizes();
-        if (sizes.size() == 2 && sizes[1] == 0 && m_actShowTracks->isChecked()) {
-            // Restored collapsed but toggle restored checked — believe the
-            // splitter (it is what the user last saw) and sync the action.
-            m_actShowTracks->setChecked(false);
-        }
+        if (!m_tracksScroll || !m_tracksScroll->isVisible()) return;
+        ensureTracksPaneExpanded();
     });
 }
 
