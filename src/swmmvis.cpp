@@ -72,6 +72,7 @@
 
 #include "swmmvis.h"
 #include "ui/mdiworkspacechrome.h"
+#include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
 #include "io/gdaldrivers.h"
 #include "ui/dialogs/sublayerselectiondialog.h"
@@ -1113,8 +1114,11 @@ void SWMMVis::initializeMeshEditingToolBar()
     // Icon-only on the toolbar — like Edit Vertex / Edit Edge above, the
     // QAction text is left empty so only the icon shows; the descriptive
     // label lives in the tooltip set below.
-    auto *actMeshProfile = new QAction(QIcon(QStringLiteral(":/swmmvis/Profile")),
-                                       QString(), mMeshEditingToolbar);
+    // Same glyph as the Analysis tab's "2D Profile" (themed, unlike a raw
+    // QIcon from the resource path).
+    auto *actMeshProfile = new QAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("Profile2D")),
+        QString(), mMeshEditingToolbar);
     actMeshProfile->setObjectName(QStringLiteral("actionMeshProfile"));
     actMeshProfile->setCheckable(true);
     actMeshProfile->setToolTip(tr(
@@ -1709,6 +1713,7 @@ void SWMMVis::initializeMapTools()
         QStringLiteral("actionZoomOut"), QStringLiteral("actionSelect"),
         QStringLiteral("actionSelectByPolygon"),
         QStringLiteral("actionMeasure"), QStringLiteral("actionPlotProfile"),
+        QStringLiteral("actionPlotProfile2D"),
         QStringLiteral("actionAddJunction"), QStringLiteral("actionAddVirtualJunction"),
         QStringLiteral("actionAddOutfall"),
         QStringLiteral("actionAddStorage"), QStringLiteral("actionAddFlowDivider"),
@@ -1754,12 +1759,40 @@ void SWMMVis::initializeMapTools()
     connect(ui->actionMeasure,&QAction::triggered, this, [this]() {
         if (auto *w = activeProjectWindow()) w->activateMeasureTool();
     });
-    connect(ui->actionPlotProfile, &QAction::triggered, this, [this]() {
-        onPlotProfileTriggered(/*forceMode=*/0);
+    connect(ui->actionPlotProfile, &QAction::triggered, this,
+            &SWMMVis::onPlotProfileTriggered);
+    // 2D surface profile is its own Analysis action (it used to be a
+    // dropdown override on Plot Profile). Created here — before
+    // registerActions() — so the catalog sweep adopts it, themes its icon
+    // and puts it on the ribbon / Analysis menu; the objectName matches
+    // SWMMVisProjectWindow::toolActionKeys() so the active-tool sync keeps
+    // it checked while the trace tool is live.
+    auto *actPlotProfile2D = new QAction(tr("Plot &2D Profile"), this);
+    actPlotProfile2D->setObjectName(QStringLiteral("actionPlotProfile2D"));
+    actPlotProfile2D->setCheckable(true);
+    actPlotProfile2D->setToolTip(tr(
+        "Draw a polyline across the 2D mesh to plot a surface profile: "
+        "terrain plus the active 2D results layer's animated water depth "
+        "and maximum-depth envelope. Click to add vertices, double-click "
+        "or Enter to finish, right-click to undo, Esc to cancel."));
+    actPlotProfile2D->setStatusTip(tr("Plot a 2D-surface longitudinal profile"));
+    connect(actPlotProfile2D, &QAction::triggered, this, [this]() {
+        auto *pw = activeProjectWindow();
+        if (!pw) return;
+        if (!pw->hasMeshLayer()) {
+            QMessageBox::information(this, tr("No 2D mesh"),
+                tr("Load or generate a 2D mesh before plotting a 2D profile."));
+            return;
+        }
+        pw->activateAnalysisMeshProfileTool();
     });
-    // US.A2 — the explicit override dropdown on the Plot Profile button
-    // moved to initializeCompactToolbar() (iteration 2, R3): the ribbon
-    // Plots group and its button don't exist yet when this runs.
+    if (ui->menuAnalysis) {
+        // Right after Plot Profile in the Analysis menu.
+        const auto acts = ui->menuAnalysis->actions();
+        const int i = acts.indexOf(ui->actionPlotProfile);
+        QAction *before = (i >= 0 && i + 1 < acts.size()) ? acts[i + 1] : nullptr;
+        ui->menuAnalysis->insertAction(before, actPlotProfile2D);
+    }
     // Slice GUI-2026-05-30 §6 — Analysis toolbar Report action opens the
     // two-panel Report Viewer over the active project's .rpt sibling.
     connect(ui->actionReport, &QAction::triggered, this, &SWMMVis::onShowReport);
@@ -3048,38 +3081,20 @@ void SWMMVis::openMeshBedProfilePlotFor(const QVector<QPointF> &scenePolyline)
                           tr("2D Mesh Bed Profile"));
 }
 
-void SWMMVis::onPlotProfileTriggered(int forceMode)
+void SWMMVis::onPlotProfileTriggered()
 {
-    // Slice US.A2 — context-sensitive dispatch. The single Analysis "Plot
-    // Profile" entry plots a network (pipe HGL) profile or a 2D surface
-    // profile depending on selection + what's loaded. The toolbar button's
-    // dropdown passes forceMode 1 / 2 for an explicit override.
+    // Analysis "Plot Profile" = the network (pipe HGL) profile. The 2D
+    // surface profile is its own action (actionPlotProfile2D) — the two
+    // used to share this button through a dropdown override.
     auto *pw = activeProjectWindow();
     if (!pw) return;
-
-    if (forceMode == 1) { pw->activateSelectProfileTool();        return; }
-    if (forceMode == 2) { pw->activateAnalysisMeshProfileTool();  return; }
-
-    const bool hasModel = pw->hasModelLayer();
-    const bool hasMesh  = pw->hasMeshLayer();
-
-    if (!hasModel && !hasMesh) {
-        QMessageBox::information(this, tr("Nothing to profile"),
-            tr("Load a SWMM network or a 2D mesh before plotting a profile."));
+    if (!pw->hasModelLayer()) {
+        QMessageBox::information(this, tr("No network"),
+            tr("Load a SWMM network before plotting a profile."));
+        if (ui->actionPlotProfile) ui->actionPlotProfile->setChecked(false);
         return;
     }
-
-    // Explicit 1D selection wins — the user pointed at pipes/nodes.
-    bool oneDSelected = false;
-    if (auto *canvas = pw->canvas())
-        for (OpenSWMMVisLayer *l : canvas->layers())
-            if (auto *m = qobject_cast<SWMMModelLayer *>(l))
-                if (!m->selectedElementNames().isEmpty()) { oneDSelected = true; break; }
-
-    if (hasMesh && !hasModel)        pw->activateAnalysisMeshProfileTool();
-    else if (hasModel && !hasMesh)   pw->activateSelectProfileTool();
-    else if (oneDSelected)           pw->activateSelectProfileTool();
-    else                             pw->activateSelectProfileTool(); // both, no 1D pick → network default (use dropdown for surface)
+    pw->activateSelectProfileTool();
 }
 
 void SWMMVis::openComparisonPlotOverlayForProfile(

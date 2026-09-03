@@ -32,7 +32,6 @@
 #include <QAction>
 #include <QMenu>
 #include <QToolBar>
-#include <QToolButton>
 
 void SWMMVis::registerActions()
 {
@@ -224,6 +223,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionShowMassBalance",       QT_TR_NOOP("Mass\nBalance")},
         {"actionPlotTimeSeries",        QT_TR_NOOP("Time\nSeries")},
         {"actionPlotProfile",           QT_TR_NOOP("Profile")},
+        {"actionPlotProfile2D",         QT_TR_NOOP("2D Profile")},
         // Results
         {"actionSkipBack",              QT_TR_NOOP("Skip\nBack")},
         {"actionSkipForward",           QT_TR_NOOP("Skip\nForward")},
@@ -351,29 +351,12 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarAnalysis, tr("Report"),
              {"actionSummarizeResults", "actionReport", "actionTabularView"});
     mGroupPlots = addGroup(mToolBarAnalysis, tr("Plots"),
-                           {"actionPlotTimeSeries", "actionPlotProfile"});
+                           {"actionPlotTimeSeries", "actionPlotProfile",
+                            "actionPlotProfile2D"});
     addGroup(mToolBarAnalysis, tr("Network Analysis"),
              {"actionFlowBalanceDownstream", "actionFlowBalanceUpstream",
               "actionTravelTimeDownstream", "actionTravelTimeUpstream",
               "actionShowMassBalance"});
-
-    // US.A2 — explicit override dropdown on the Plot Profile face: force
-    // a Network or 2D-Surface profile even when both are loaded. Moved
-    // here from initializeMapTools() (R3): the ribbon button must exist
-    // before a menu can be attached to it.
-    {
-        auto *menu = new QMenu(this);
-        QAction *net  = menu->addAction(tr("Network Profile…"));
-        QAction *surf = menu->addAction(tr("Surface (2D mesh) Profile…"));
-        connect(net,  &QAction::triggered, this,
-                [this]() { onPlotProfileTriggered(1); });
-        connect(surf, &QAction::triggered, this,
-                [this]() { onPlotProfileTriggered(2); });
-        if (auto *btn = mGroupPlots->buttonForAction(ui->actionPlotProfile)) {
-            btn->setMenu(menu);
-            btn->setPopupMode(QToolButton::MenuButtonPopup);
-        }
-    }
 
     // Left-pack (iteration 3): groups are horizontally Fixed, so an
     // Expanding zero-min trailing spacer absorbs the leftover row width

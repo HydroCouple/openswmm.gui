@@ -51,6 +51,8 @@
         <!-- Profile plot toolbar toggles -->
         <file alias="AttributeTracks">images/attribute_tracks.svg</file>
         <file alias="Inundation2D">images/inundation_2d.svg</file>
+        <!-- 2D surface profile — Analysis "2D Profile" and the Mesh 2D tab's trace tool. -->
+        <file alias="Profile2D">images/profile_2d.svg</file>
         <file alias="ExportImage">images/export_image.svg</file>
         <file alias="PlotStyle">images/plot_style.svg</file>
         <file alias="LockX">images/lock_x.svg</file>

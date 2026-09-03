@@ -168,6 +168,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"analysis.tabularView",     "actionTabularView",          "Analysis", "Ctrl+Shift+A", "TableView", "analysis", "Analysis", NoTags},
     {"analysis.plotTimeSeries",  "actionPlotTimeSeries",       "Analysis", "Ctrl+T",       "Chart", "analysis", "Analysis", NoTags},
     {"analysis.plotProfile",     "actionPlotProfile",          "Analysis", "Ctrl+Shift+T", "Profile", "analysis", "Analysis", NoTags},
+    {"analysis.plotProfile2D",   "actionPlotProfile2D",        "Analysis", "",             "Profile2D", "analysis", "Analysis", NoTags},
     {"analysis.flowBalanceDown", "actionFlowBalanceDownstream","Analysis", "",             "FlowBalanceDownstream", "analysis", "Analysis", NoTags},
     {"analysis.flowBalanceUp",   "actionFlowBalanceUpstream",  "Analysis", "",             "FlowBalanceUpstream", "analysis", "Analysis", NoTags},
     {"analysis.travelTimeDown",  "actionTravelTimeDownstream", "Analysis", "",             "TravelTimeDownstream", "analysis", "Analysis", NoTags},
