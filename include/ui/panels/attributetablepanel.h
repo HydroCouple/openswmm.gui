@@ -74,6 +74,11 @@ public:
      *  SWMMAttributeTableModel::setResultsSource). */
     void setResultsSource(SWMMResultsLayer *layer);
 
+    /*! Re-query the header strip without touching the data or the user's
+     *  selection. Used when a render-time label changes (LINK_OFFSETS mode
+     *  flips the offset columns to "… Elevation"). */
+    void refreshHeaders();
+
     /*! Switch the source combo to \p layer's entry (a GIS feature layer
      *  or tabular layer). Model / results layers keep the current SWMM
      *  category selection — the panel is already bound to the model.

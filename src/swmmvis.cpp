@@ -1991,6 +1991,7 @@ void SWMMVis::initializeStatusBar()
         // the convert choice below (legacy UpdateOffsets parity).
         pw->setElevationOffsetMode(on);
         updateOffsetModeLabels(on);
+        refreshOffsetModeViews();
 
         // Offer to convert existing link offsets, but only when the model has
         // links to convert (matches EPA SWMM-GUI, which skips the prompt for an
@@ -6381,6 +6382,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                         const bool elev = pw->isElevationOffsetMode();
                         mCheckBoxLevelOffsetMode->setChecked(elev);
                         updateOffsetModeLabels(elev);
+                        refreshOffsetModeViews();
                     }
                 });
     }
@@ -6599,6 +6601,15 @@ void SWMMVis::onModelLoaded()
                                         pw->canvas());
 
     refreshSimulationDatesForProject(pw);
+}
+
+void SWMMVis::refreshOffsetModeViews()
+{
+    // The Properties panel captures its row labels at bind time and the
+    // Attribute Table resolves its headers at render time; both show
+    // "… Offset" vs "… Elevation" according to LINK_OFFSETS.
+    if (mPropertiesPanel) mPropertiesPanel->onOffsetModeChanged();
+    if (mAttributeTablePanel) mAttributeTablePanel->refreshHeaders();
 }
 
 void SWMMVis::refreshSimulationDatesForProject(SWMMVisProjectWindow *pw)

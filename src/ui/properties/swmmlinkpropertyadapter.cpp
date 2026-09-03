@@ -41,9 +41,17 @@ QString SWMMLinkPropertyAdapter::displayLabelFor(const QString &property) const
 
     if (property == QLatin1String("length"))          return tr("Length (%1)").arg(L);
     if (property == QLatin1String("roughness"))       return tr("Manning's n");
-    if (property == QLatin1String("offsetUp"))        return tr("Inlet Offset (%1)").arg(L);
-    if (property == QLatin1String("offsetDn"))        return tr("Outlet Offset (%1)").arg(L);
-    if (property == QLatin1String("offset"))          return tr("Offset (%1)").arg(L);
+    // LINK_OFFSETS = ELEVATION: the value shown IS an elevation (the mode-
+    // aware accessors add the end-node invert), so say so in the label.
+    const bool elev = linkoffsetdisplay::elevationMode(m_engine);
+    if (property == QLatin1String("offsetUp"))
+        return (elev ? tr("Inlet Elevation (%1)")  : tr("Inlet Offset (%1)")).arg(L);
+    if (property == QLatin1String("offsetDn"))
+        return (elev ? tr("Outlet Elevation (%1)") : tr("Outlet Offset (%1)")).arg(L);
+    // Orifices / outlets carry a single offset, measured from the upstream
+    // node — "Elevation" without a side qualifier in elevation mode.
+    if (property == QLatin1String("offset"))
+        return (elev ? tr("Elevation (%1)") : tr("Offset (%1)")).arg(L);
     if (property == QLatin1String("crestHeight"))     return tr("Crest Height (%1)").arg(L);
     if (property == QLatin1String("dischargeCoeff"))  return tr("Discharge Coeff.");
     if (property == QLatin1String("endContractions")) return tr("End Contractions");
