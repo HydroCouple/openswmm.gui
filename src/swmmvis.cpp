@@ -8121,6 +8121,26 @@ void SWMMVis::onRunSimulation()
                 layer->refreshCurrentFrame();
             });
 
+    // Per-tick rainfall intensity + cumulative volume — makes the Rainfall /
+    // Rainfall volume cell series plottable while the run is live, the same
+    // way the HDF5 Mesh2_face_rainfall / _rain_cum datasets serve them
+    // post-run. No frame repaint: rainfall isn't rendered on the canvas.
+    connect(runner, &SimulationRunner::twoDRainfallAvailable, this,
+            [self](int twoDJobId, QVector<float> rainfall, QVector<float> rainCum,
+                   QDateTime simTime, double elapsedSec) {
+                if (!self) return;
+                auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
+                if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
+                    return;
+                auto *engineSrc =
+                    dynamic_cast<EngineMesh2DSource *>(it.value()->source());
+                if (!engineSrc) return;
+                engineSrc->pushRainfall(
+                    std::vector<float>(rainfall.begin(), rainfall.end()),
+                    std::vector<float>(rainCum.begin(),  rainCum.end()),
+                    simTime, elapsedSec);
+            });
+
     // On finished (success path), swap the layer's source from the live
     // EngineMesh2DSource to an HDF5Mesh2DSource so the user can scrub back.
     // The .h5 path was stashed on the layer in the twoDInitialized handler.
