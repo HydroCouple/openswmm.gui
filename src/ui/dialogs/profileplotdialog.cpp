@@ -1211,8 +1211,11 @@ void ProfilePlotDialog::rebindSources()
         QVector<ProfilePlotWidget::SeriesBinding> bindings;
         QHash<SWMMResultsLayer *,
               std::shared_ptr<ProfileBuilder::SourceDerived>> freshEntries;
+        QHash<SWMMResultsLayer *,
+              std::shared_ptr<ProfileBuilder::SourceSeries>> freshSeries;
     };
 
+    ++m_rebindsInFlight;
     auto future = QtConcurrent::run(
         [jobs, pathSnapshot, gravity, cacheSnapshot,
          optCurrentHglLine, optCurrentHglFill, optCurrentEgl,
@@ -1233,11 +1236,12 @@ void ProfilePlotDialog::rebindSources()
             if (cacheIt != cacheSnapshot.constEnd() && *cacheIt) {
                 derived = *cacheIt;
             } else {
-                auto series = ProfileSourceFetcher::fetch(j.layer, pathSnapshot,
-                                                            j.sourceId);
+                auto series = std::make_shared<ProfileBuilder::SourceSeries>(
+                    ProfileSourceFetcher::fetch(j.layer, pathSnapshot, j.sourceId));
                 derived = std::make_shared<ProfileBuilder::SourceDerived>(
-                    ProfileBuilder::compute(pathSnapshot, series, gravity));
+                    ProfileBuilder::compute(pathSnapshot, *series, gravity));
                 result.freshEntries.insert(j.layer.data(), derived);
+                result.freshSeries.insert(j.layer.data(), series);
             }
 
             auto pushSeries = [&](K kind, const QString &suffix,
@@ -1312,6 +1316,7 @@ void ProfilePlotDialog::rebindSources()
     auto *watcher = new QFutureWatcher<RebindResult>(this);
     connect(watcher, &QFutureWatcher<RebindResult>::finished,
             this, [this, watcher, cookie]() {
+        --m_rebindsInFlight;
         if (cookie == m_loadCookie) {
             const RebindResult r = watcher->result();
             // Merge newly-fetched entries into the live cache and wire
@@ -1320,6 +1325,7 @@ void ProfilePlotDialog::rebindSources()
             for (auto it = r.freshEntries.constBegin();
                  it != r.freshEntries.constEnd(); ++it) {
                 m_sourceCache.insert(it.key(), it.value());
+                m_sourceSeriesCache.insert(it.key(), r.freshSeries.value(it.key()));
                 ensureCacheInvalidationWired(it.key());
             }
             m_plot->setSeries(r.bindings);
@@ -1345,6 +1351,7 @@ void ProfilePlotDialog::invalidateSourceCacheFor(SWMMResultsLayer *layer)
 {
     if (!layer) return;
     m_sourceCache.remove(layer);
+    m_sourceSeriesCache.remove(layer);
     // Attribute-tracks cache entries for this layer are equally stale.
     for (auto it = m_attrCache.begin(); it != m_attrCache.end();) {
         if (it.key().first == layer) it = m_attrCache.erase(it);
@@ -1369,6 +1376,11 @@ void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
     // Layer pointed at a different results file.
     connect(layer, &SWMMResultsLayer::resultsFilePathChanged,
             this, [this, layer]() { invalidateSourceCacheFor(layer); });
+    // Live 1D results: the run is still writing this layer's .out and new
+    // periods just became readable — append them in place rather than
+    // dropping the cache (which would refetch the whole file every tick).
+    connect(layer, &SWMMResultsLayer::periodsAppended,
+            this, [this, layer](int, int) { appendLivePeriods(layer); });
     // Layer destroyed → drop the cache entry AND the wired flag so the
     // hash never holds a dangling key.
     connect(layer, &QObject::destroyed,
@@ -1382,6 +1394,47 @@ void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
                 ++m_loadCookie;
                 ++m_trackLoadCookie;
             });
+}
+
+void ProfilePlotDialog::appendLivePeriods(SWMMResultsLayer *layer)
+{
+    if (!layer || !m_plot) return;
+    // A worker may be reading the cached SourceDerived right now; mutating
+    // it here would race. Skip — the next tick's appendTail starts from
+    // series.periodCount and catches up on everything missed.
+    if (m_rebindsInFlight > 0) return;
+
+    auto series  = m_sourceSeriesCache.value(layer);
+    auto derived = m_sourceCache.value(layer);
+    if (!series || !derived) {
+        // Nothing cached (layer not checked as a source yet, or evicted):
+        // a full rebind is the correct path and is cheap for a short file.
+        invalidateSourceCacheFor(layer);
+        rebindSources();
+        return;
+    }
+
+    const bool grew =
+        ProfileSourceFetcher::appendTail(layer, m_pathStatic, *series) &&
+        ProfileBuilder::appendPeriods(m_pathStatic, *series,
+                                      ProfileBuilder::kGravityFps2, *derived);
+    if (!grew) {
+        invalidateSourceCacheFor(layer);
+        rebindSources();
+        return;
+    }
+
+    // Every SeriesBinding holds a shared_ptr to the derived we just grew;
+    // re-set the same bindings so the widget refits its bounds and repaints.
+    m_plot->setSeries(m_plot->series());
+    syncTracksAxes();
+    // Attribute tracks read their own series from the layer — drop this
+    // layer's cached tracks so the pane re-reads the grown file.
+    for (auto it = m_attrCache.begin(); it != m_attrCache.end();) {
+        if (it.key().first == layer) it = m_attrCache.erase(it);
+        else                         ++it;
+    }
+    rebuildTracks();
 }
 
 // ---------------------------------------------------------------------------

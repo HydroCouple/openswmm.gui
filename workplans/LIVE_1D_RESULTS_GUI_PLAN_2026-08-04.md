@@ -1,6 +1,12 @@
 # Live 1D Results (Profile + Comparison Plots) — GUI Plan (2026-08-04)
 
-**Status:** PLANNED. **Blocked on** `openswmm.engine/plans/LIVE_RESULTS_HOST_PLUGIN_PLAN_2026-08-04.md` Phase 1 (`swmm_engine_add_output_plugin`).
+**Status:** SUPERSEDED (pending review) by `LIVE_1D_RESULTS_PLAN_V2_2026-09-03.md`
+— audited 2026-09-03: nothing here was implemented, the file:line citations are
+stale, and the legacy-engine exclusion was found to be architectural (separate
+worker process), so v2 switches to tailing the `.out` for both engines. Kept
+for the record; do not implement from this document.
+
+~~**Status:** PLANNED. **Blocked on** `openswmm.engine/plans/LIVE_RESULTS_HOST_PLUGIN_PLAN_2026-08-04.md` Phase 1 (`swmm_engine_add_output_plugin`).~~
 
 **Decisions (user-approved 2026-08-04):**
 1. **Sampling:** report-step aligned, via a host-registered `IOutputPlugin` — *not* polling bulk getters. Guarantees the live curve equals the post-run `.out` curve.

@@ -442,3 +442,93 @@ TEST(ProfileBuilder, WaterSurface_MissingDepthLeavesNaN)
     EXPECT_TRUE(std::isinf(d.minWaterSurface[0]));
     EXPECT_TRUE(std::isinf(d.maxWaterSurface[0]));
 }
+
+// ---- Live results: appendPeriods() ≡ compute() over the same periods ------
+
+namespace {
+
+// Varying heads/velocities so every envelope slot and EGL term is exercised.
+SourceSeries varyingSource(const PathStatic &path, int periodCount)
+{
+    SourceSeries s;
+    s.sourceId      = QStringLiteral("live");
+    s.reportStepSec = 300;
+    s.periodCount   = periodCount;
+    s.nodeHead.resize(path.nodes.size());
+    s.nodeDepth.resize(path.nodes.size());
+    s.linkVelocity.resize(path.links.size());
+    for (int n = 0; n < path.nodes.size(); ++n) {
+        s.nodeHead[n].resize(periodCount);
+        s.nodeDepth[n].resize(periodCount);
+        for (int p = 0; p < periodCount; ++p) {
+            const float h = 100.0f + float((n * 7 + p * 3) % 11) * 0.37f;
+            s.nodeHead[n][p]  = h;
+            s.nodeDepth[n][p] = h - 100.0f;
+        }
+    }
+    for (int l = 0; l < path.links.size(); ++l) {
+        s.linkVelocity[l].resize(periodCount);
+        for (int p = 0; p < periodCount; ++p)
+            s.linkVelocity[l][p] = float((l + 1) * ((p % 5) - 2)) * 0.5f;   // signed
+    }
+    return s;
+}
+
+// Truncate a series to its first `n` periods (what an earlier live tick saw).
+SourceSeries prefix(const SourceSeries &full, int n)
+{
+    SourceSeries s = full;
+    s.periodCount = n;
+    for (auto &row : s.nodeHead)     row.resize(n);
+    for (auto &row : s.nodeDepth)    row.resize(n);
+    for (auto &row : s.linkVelocity) row.resize(n);
+    return s;
+}
+
+void expectDerivedEqual(const SourceDerived &a, const SourceDerived &b)
+{
+    ASSERT_EQ(a.hglByPeriod.size(), b.hglByPeriod.size());
+    for (int p = 0; p < a.hglByPeriod.size(); ++p) {
+        ASSERT_EQ(a.hglByPeriod[p], b.hglByPeriod[p]) << "hgl period " << p;
+        ASSERT_EQ(a.eglByPeriod[p], b.eglByPeriod[p]) << "egl period " << p;
+        ASSERT_EQ(a.waterSurfaceByPeriod[p], b.waterSurfaceByPeriod[p]) << "ws period " << p;
+    }
+    EXPECT_EQ(a.minHgl, b.minHgl);
+    EXPECT_EQ(a.maxHgl, b.maxHgl);
+    EXPECT_EQ(a.minEgl, b.minEgl);
+    EXPECT_EQ(a.maxEgl, b.maxEgl);
+    EXPECT_EQ(a.minWaterSurface, b.minWaterSurface);
+    EXPECT_EQ(a.maxWaterSurface, b.maxWaterSurface);
+}
+
+} // namespace
+
+TEST(ProfileBuilder, AppendPeriods_MatchesFullComputeExactly)
+{
+    const auto path = linearPath(5);
+    const auto full = varyingSource(path, 12);
+    const auto reference = compute(path, full, kGravityFps2);
+
+    // Grow in uneven chunks: 0 → 1 → 4 → 4 (no-op) → 9 → 12.
+    SourceDerived live = compute(path, prefix(full, 0), kGravityFps2);
+    for (int n : {1, 4, 4, 9, 12}) {
+        ASSERT_TRUE(appendPeriods(path, prefix(full, n), kGravityFps2, live)) << "n=" << n;
+        expectDerivedEqual(live, compute(path, prefix(full, n), kGravityFps2));
+    }
+    expectDerivedEqual(live, reference);   // bit-for-bit: same kernel
+}
+
+TEST(ProfileBuilder, AppendPeriods_RejectsShrunkOrForeignInput)
+{
+    const auto path = linearPath(4);
+    const auto full = varyingSource(path, 6);
+    SourceDerived live = compute(path, prefix(full, 4), kGravityFps2);
+    const SourceDerived before = live;
+
+    EXPECT_FALSE(appendPeriods(path, prefix(full, 2), kGravityFps2, live));   // shrank
+    expectDerivedEqual(live, before);
+
+    auto other = varyingSource(linearPath(3), 6);                            // wrong path
+    EXPECT_FALSE(appendPeriods(path, other, kGravityFps2, live));
+    expectDerivedEqual(live, before);
+}

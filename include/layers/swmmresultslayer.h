@@ -238,6 +238,31 @@ public:
      */
     void openResultsAsync();
 
+    /*!
+     * \brief Open a results file the engine is still writing (live tail).
+     *
+     * Uses swmm_output_open_live: only the header needs to be on disk; the
+     * period count comes from the file size and grows via \ref refreshLive.
+     * Returns false WITHOUT emitting resultsError when the header is not
+     * there yet — the caller retries on the next progress tick. Zero
+     * periods is a valid live state (totalTimeSteps() == 0 until the first
+     * report step is flushed).
+     */
+    bool openResultsLive(QList<QString> &errors);
+
+    /*!
+     * \brief Re-count periods on a live file. Grows totalTimeSteps(), extends
+     *        endDateTime(), drops whole-file aggregate caches, and emits
+     *        totalTimeStepsChanged + \ref periodsAppended when new periods
+     *        appeared. When the writer's closing records have landed the
+     *        layer leaves live mode and emits \ref resultsFinalized.
+     * \returns the current period count (unchanged when not live).
+     */
+    int refreshLive();
+
+    /*! \brief True between openResultsLive() and the footer's arrival. */
+    [[nodiscard]] bool isLive() const noexcept { return m_live; }
+
     void closeResults();
 
     // ----- Per-output node summary statistics (Slice QA.3 + QA-01) -------
@@ -649,6 +674,12 @@ signals:
     void currentTimeStepChanged(int step);
     void currentDateTimeChanged(const QDateTime &dt);
     void totalTimeStepsChanged(int count);
+    /*! Live tail: periods [firstNew, firstNew+count) are now readable. Views
+     *  that keep incremental state (plot tails) append from here; the
+     *  animation range follows totalTimeStepsChanged as before. */
+    void periodsAppended(int firstNew, int count);
+    /*! Live tail: the writer's closing records arrived; the file is final. */
+    void resultsFinalized();
     void variableChanged(SWMMResultVariable var);
     void showLegendChanged(bool show);
     void resultsOpened();
@@ -741,6 +772,7 @@ private:
     // Animation state -----------------------------------------------------
     int                  m_currentStep    = 0;
     int                  m_totalSteps     = 0;
+    bool                 m_live           = false;   ///< openResultsLive() until the footer lands
     QDateTime            m_startDateTime;
     QDateTime            m_endDateTime;
     // 2026-07-19 — period 0's report time; see reportedStartDateTime().
