@@ -44,6 +44,19 @@ namespace ProfileSourceFetcher
     const ProfileBuilder::PathStatic &path,
     const QString &sourceId);
 
+/*!
+ * \brief Live results: extends a series previously returned by \ref fetch
+ *        for the same \p path with the periods \p resultsLayer has gained
+ *        since (`[series.periodCount, totalTimeSteps())`), reading only that
+ *        tail from the `.out`. Rows the initial fetch left empty (object
+ *        absent from the output) stay empty. Updates `series.periodCount`.
+ * \returns false when the layer has no handle, shrank, or \p series was not
+ *          fetched for this path; true otherwise (including nothing new).
+ */
+bool appendTail(SWMMResultsLayer *resultsLayer,
+                const ProfileBuilder::PathStatic &path,
+                ProfileBuilder::SourceSeries &series);
+
 } // namespace ProfileSourceFetcher
 
 #endif // PROFILE_SOURCE_FETCHER_H

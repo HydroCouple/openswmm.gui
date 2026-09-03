@@ -89,4 +89,58 @@ ProfileBuilder::SourceSeries fetch(SWMMResultsLayer *resultsLayer,
     return out;
 }
 
+namespace {
+
+// Appends periods [start, periodCount) of one (object, var) to `row`. A row
+// left empty by the initial fetch means the object is absent from the
+// output — keep it empty rather than start a series mid-run. `getter` is
+// swmm_output_get_node_series / _link_series.
+template <typename Getter>
+void appendRange(SWMM_Output handle, int outputIdx, int var,
+                 int start, int periodCount, QVector<float> &row, Getter getter)
+{
+    if (!handle || outputIdx < 0 || periodCount <= start) return;
+    if (start > 0 && row.size() != start) return;     // absent (empty) or foreign
+    const int n = periodCount - start;
+    QVector<float> tail(n);
+    if (getter(handle, outputIdx, var, start, periodCount - 1, tail.data()) != 0)
+        return;
+    row.append(tail);
+}
+
+} // namespace
+
+bool appendTail(SWMMResultsLayer *resultsLayer,
+                const ProfileBuilder::PathStatic &path,
+                ProfileBuilder::SourceSeries &series)
+{
+    if (!resultsLayer) return false;
+    SWMM_Output handle = resultsLayer->outputHandle();
+    if (!handle) return false;
+
+    const int periodCount = resultsLayer->totalTimeSteps();
+    const int start       = series.periodCount;
+    if (periodCount < start) return false;              // not a growth
+    if (series.nodeHead.size()     != path.nodes.size() ||
+        series.nodeDepth.size()    != path.nodes.size() ||
+        series.linkVelocity.size() != path.links.size())
+        return false;                                   // not fetched for this path
+    if (periodCount == start) return true;
+
+    for (int i = 0; i < path.nodes.size(); ++i) {
+        const int idx = resultsLayer->nodeOutputIndex(path.nodes[i].name);
+        appendRange(handle, idx, SWMM_OUT_NODE_HEAD,  start, periodCount,
+                    series.nodeHead[i],  swmm_output_get_node_series);
+        appendRange(handle, idx, SWMM_OUT_NODE_DEPTH, start, periodCount,
+                    series.nodeDepth[i], swmm_output_get_node_series);
+    }
+    for (int i = 0; i < path.links.size(); ++i) {
+        const int idx = resultsLayer->linkOutputIndex(path.links[i].name);
+        appendRange(handle, idx, SWMM_OUT_LINK_VELOCITY, start, periodCount,
+                    series.linkVelocity[i], swmm_output_get_link_series);
+    }
+    series.periodCount = periodCount;
+    return true;
+}
+
 } // namespace ProfileSourceFetcher

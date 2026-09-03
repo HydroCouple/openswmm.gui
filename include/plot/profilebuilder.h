@@ -380,6 +380,33 @@ struct Diagnostic
                                     const SourceSeries &src,
                                     double gravity);
 
+/*!
+ * \brief Live results: extend a `SourceDerived` built over the first
+ *        `derived.hglByPeriod.size()` periods of `src` with the periods
+ *        `src` has gained since. `src` must be the full (grown) series.
+ *        Appends one period-major row per new period and updates the
+ *        running envelopes; the result is identical to `compute()` over the
+ *        whole series (both use `accumulatePeriod`). Returns false and
+ *        leaves `derived` untouched when `src` does not validate, has fewer
+ *        periods than `derived`, or `derived` is not a compute() of this
+ *        path. A no-op success when nothing was appended.
+ */
+bool appendPeriods(const PathStatic &path,
+                   const SourceSeries &src,
+                   double gravity,
+                   SourceDerived &derived);
+
+/*!
+ * \brief The per-period kernel shared by `compute()` and `appendPeriods()`:
+ *        fills period `p`'s rows of `out` (which must already be sized and
+ *        NaN-filled for `p`) and folds the values into the envelopes.
+ */
+void accumulatePeriod(const PathStatic &path,
+                      const SourceSeries &src,
+                      int p,
+                      double gravity,
+                      SourceDerived &out);
+
 } // namespace ProfileBuilder
 
 #endif // PROFILE_BUILDER_H

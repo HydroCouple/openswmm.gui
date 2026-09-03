@@ -770,6 +770,89 @@ bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &err
     return finishOpen(openTimer.elapsed(), warnings, errors);
 }
 
+bool SWMMResultsLayer::openResultsLive(QList<QString> &errors)
+{
+    // Tail a .out the engine is still writing (LIVE_1D_RESULTS_PLAN_V2 §4.1).
+    // swmm_output_open_live parses the header forward and counts whole
+    // periods from the file size; refreshLive() re-counts on demand. Fails
+    // quietly (return false, no resultsError) while the header is not yet
+    // on disk so the caller can simply retry on the next progress tick.
+    QElapsedTimer openTimer;
+    openTimer.start();
+
+    closeResults();
+
+    if (!QFile::exists(m_resultsFilePath))
+        return false;
+
+    m_handle = swmm_output_open_live(m_resultsFilePath.toUtf8().constData());
+    if (!m_handle)
+        return false;
+
+    m_live = true;
+    QList<QString> warnings;
+    if (!finishOpen(openTimer.elapsed(), warnings, errors)) {
+        m_live = false;
+        return false;
+    }
+    return true;
+}
+
+int SWMMResultsLayer::refreshLive()
+{
+    if (!m_handle || !m_live) return m_totalSteps;
+
+    int periods = 0;
+    if (swmm_output_refresh(m_handle, &periods) != 0)
+        return m_totalSteps;
+    const bool finalized = (swmm_output_is_live(m_handle) == 0);
+
+    const int oldSteps = m_totalSteps;
+    if (periods > oldSteps) {
+        m_totalSteps = periods;
+
+        // The reported origin is only knowable once period 0 exists.
+        if (oldSteps == 0) {
+            double reportedStartJulian = 0.0;
+            swmm_output_get_period_time(m_handle, 0, &reportedStartJulian);
+            m_reportedStartDateTime =
+                openswmmvis::core::swmmDateTimeToQDateTime(reportedStartJulian);
+        }
+        double endJulian = 0.0;
+        swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
+        m_endDateTime = openswmmvis::core::swmmDateTimeToQDateTime(endJulian);
+
+        // Whole-file aggregates are stale the moment a period is appended.
+        // Per-step result buffers are keyed by step and stay valid.
+        m_nodeAttributeRange.clear();
+        m_linkAttributeRange.clear();
+        m_subcatchAttributeRange.clear();
+        m_linkStats.clear();
+        m_subcatchStats.clear();
+        m_nodeStats.clear();
+
+        if (oldSteps == 0) {
+            // First data: the open-time prefetch had nothing to fetch.
+            m_currentStep = 0;
+            fetchResultsForStep(0);
+            escalateSceneDirty(SceneDirty::Structural);
+        }
+
+        emit totalTimeStepsChanged(m_totalSteps);
+        emit periodsAppended(oldSteps, m_totalSteps - oldSteps);
+        if (oldSteps == 0) {
+            emit currentTimeStepChanged(m_currentStep);
+            emit currentDateTimeChanged(currentDateTime());
+        }
+    }
+
+    if (finalized) {
+        m_live = false;
+        emit resultsFinalized();
+    }
+    return m_totalSteps;
+}
+
 bool SWMMResultsLayer::finishOpen(qint64 msOpen,
                                   QList<QString> &warnings, QList<QString> &errors)
 {
@@ -787,7 +870,9 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen,
     m_totalSteps    = swmm_output_get_period_count(m_handle);
     m_reportStepSec = swmm_output_get_report_step(m_handle);
 
-    if (m_totalSteps <= 0)
+    // A live open may legitimately see zero periods (header on disk, first
+    // report step not yet flushed); refreshLive() fills the time range in.
+    if (m_totalSteps <= 0 && !m_live)
     {
         errors.append(QStringLiteral("Results file contains no output periods."));
         emit resultsError(errors.last());
@@ -807,14 +892,16 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen,
     // Feeds reportedStartDateTime(), which anchors the animation slider
     // span and the period-index grid so the slider's left edge is frame 0
     // instead of a dead zone.
-    double reportedStartJulian = 0.0;
-    swmm_output_get_period_time(m_handle, 0, &reportedStartJulian);
+    double reportedStartJulian = startJulian;
+    if (m_totalSteps > 0)
+        swmm_output_get_period_time(m_handle, 0, &reportedStartJulian);
     m_reportedStartDateTime =
         openswmmvis::core::swmmDateTimeToQDateTime(reportedStartJulian);
 
     // End datetime from last period time.
-    double endJulian = 0.0;
-    swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
+    double endJulian = reportedStartJulian;
+    if (m_totalSteps > 0)
+        swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
     m_endDateTime = openswmmvis::core::swmmDateTimeToQDateTime(endJulian);
 
     const qint64 msMeta = loadTimer.elapsed();  // header scalars read
@@ -842,7 +929,8 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen,
     // install so the fetch collects each renderer's classify attribute and
     // the trailing rebuildAllActiveKindFeatureOverrides sees real data.)
     m_currentStep = 0;
-    fetchResultsForStep(0);
+    if (m_totalSteps > 0)
+        fetchResultsForStep(0);
     const qint64 msFetch = loadTimer.elapsed() - msMeta - msMaps;
 
     // Slice §Y.2 — new results file: every cached item from any previous
@@ -926,6 +1014,7 @@ void SWMMResultsLayer::closeResults()
     m_totalSteps    = 0;
     m_currentStep   = 0;
     m_reportStepSec = 0;
+    m_live          = false;
     m_nodeResults.clear();
     m_linkResults.clear();
     m_subcatchResults.clear();

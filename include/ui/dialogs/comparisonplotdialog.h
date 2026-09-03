@@ -121,6 +121,12 @@ private slots:
     void onRowsChanged();
     void onAnimationTimeChanged(QDateTime t);
 
+    /*! Live results: append the points a growing run source gained since
+     *  the last build/append to every affected series, extending axes
+     *  outward only. Keeps every chart widget alive (no rebuildCharts).
+     *  Falls back to rebuildCharts() when the row layout changed. */
+    void appendChartTails();
+
     void onAddSeriesClicked();
     void onLoadObservedClicked();
     void onRemoveSelectedClicked();
