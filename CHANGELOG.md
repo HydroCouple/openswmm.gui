@@ -19,6 +19,14 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Separate "Profile" and "2D Profile" on the Analysis tab.** The 2D
+  surface profile is now its own action (`actionPlotProfile2D`, Analysis
+  menu ▸ Plot 2D Profile, ribbon Plots group) instead of a dropdown
+  override on Plot Profile, which is network-only again. New themed
+  `Profile2D` glyph — the Profile sectional block with a triangulated
+  surface — shared with the Mesh 2D tab's profile-trace tool, which was
+  using an unthemed raw resource icon.
+
 - **Profile ground-line source option.** `ProfilePlotOptions::groundSource`
   (Auto / NodeRims / Mesh2D / TerrainDEM) replaces the "Use terrain DEM"
   checkbox. Auto — the default — samples the 2D mesh vertex elevations

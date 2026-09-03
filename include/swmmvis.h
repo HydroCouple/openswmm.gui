@@ -599,10 +599,10 @@ private slots:
      *  TerrainToolbar::activeTerrain() with its vertical conversion factor. */
     void openTerrainProfilePlotFor(const QVector<QPointF> &scenePolyline);
 
-    /*! Slice US.A2 — context-sensitive Analysis "Plot Profile": dispatch to a
-     *  network (pipe HGL) profile or a 2D-surface profile based on selection +
-     *  what's loaded. \p forceMode: 0 = auto, 1 = network, 2 = mesh surface. */
-    void onPlotProfileTriggered(int forceMode = 0);
+    /*! Analysis "Plot Profile" — arms the network (pipe HGL) profile path
+     *  picker. The 2D surface profile is the separate actionPlotProfile2D
+     *  (created in initializeMapTools). */
+    void onPlotProfileTriggered();
 
     /*! Shared mesh-profile dialog builder. \p results may be null (bed-only). */
     void openMeshProfileDialog(const QVector<QPointF> &scenePolyline,
