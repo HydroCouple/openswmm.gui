@@ -23,6 +23,8 @@
  */
 #include "layers/swmmmodellayer.h"
 #include "ui/linkoffsetdisplay.h"
+#include "ui/panels/swmmattributetablemodel.h"
+#include "ui/properties/swmmlinkpropertyadapter.h"
 
 #include <QDir>
 #include <QFile>
@@ -217,6 +219,61 @@ private slots:
         layer->convertLinkOffsets(false, false);
         swmm_link_get_offset_up(e, ok, &up);
         QCOMPARE(up, 12.0);
+    }
+
+    //! 2026-09-03 — the labels must say what the value IS. In ELEVATION mode
+    //! the property browser and the attribute table both show elevations
+    //! (linkoffsetdisplay adds the end-node invert), so "Inlet/Outlet Offset"
+    //! and "Upstream/Downstream Offset" read "… Elevation" instead.
+    void offsetLabelsFollowTheOffsetMode()
+    {
+        auto layer = openLayer(QStringLiteral("offset_authored_fixture.inp"));
+        QVERIFY(layer);
+        SWMM_Engine e = layer->engine();
+        QVERIFY(linkoffsetdisplay::elevationMode(e));
+
+        // ---- Property browser ------------------------------------------
+        SWMMLinkPropertyAdapter conduit(e, QStringLiteral("C_OK"));
+        QVERIFY(conduit.displayLabelFor(QStringLiteral("offsetUp"))
+                    .startsWith(QStringLiteral("Inlet Elevation")));
+        QVERIFY(conduit.displayLabelFor(QStringLiteral("offsetDn"))
+                    .startsWith(QStringLiteral("Outlet Elevation")));
+        // Orifices carry a single offset — no side qualifier.
+        SWMMLinkPropertyAdapter orifice(e, QStringLiteral("OR1"));
+        QVERIFY(orifice.displayLabelFor(QStringLiteral("offset"))
+                    .startsWith(QStringLiteral("Elevation")));
+        // The unit suffix survives.
+        QVERIFY(conduit.displayLabelFor(QStringLiteral("offsetUp")).contains('('));
+
+        // ---- Attribute table -------------------------------------------
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), SWMMModelLayer::CatConduits);
+        const auto headerFor = [&model](const QString &setter) {
+            const auto specs = model.columnSpecs();
+            for (int c = 0; c < specs.size(); ++c)
+                if (specs[c].setter == setter)
+                    return model.headerData(c, Qt::Horizontal, Qt::DisplayRole).toString();
+            return QString();
+        };
+        QVERIFY(headerFor(QStringLiteral("link_offset_up"))
+                    .startsWith(QStringLiteral("Upstream Elevation")));
+        QVERIFY(headerFor(QStringLiteral("link_offset_dn"))
+                    .startsWith(QStringLiteral("Downstream Elevation")));
+
+        // ---- Flip to DEPTH: both surfaces go back to "Offset" ----------
+        QCOMPARE(swmm_options_set(e, "LINK_OFFSETS", "DEPTH"), 0);
+        QVERIFY(!linkoffsetdisplay::elevationMode(e));
+        QVERIFY(conduit.displayLabelFor(QStringLiteral("offsetUp"))
+                    .startsWith(QStringLiteral("Inlet Offset")));
+        QVERIFY(conduit.displayLabelFor(QStringLiteral("offsetDn"))
+                    .startsWith(QStringLiteral("Outlet Offset")));
+        QVERIFY(orifice.displayLabelFor(QStringLiteral("offset"))
+                    .startsWith(QStringLiteral("Offset")));
+        // Headers resolve at render time, so no schema rebuild is needed.
+        QVERIFY(headerFor(QStringLiteral("link_offset_up"))
+                    .startsWith(QStringLiteral("Upstream Offset")));
+        QVERIFY(headerFor(QStringLiteral("link_offset_dn"))
+                    .startsWith(QStringLiteral("Downstream Offset")));
     }
 };
 
