@@ -343,7 +343,8 @@ public:
     /*! App-wide default for how chart plots render numbers, separately for
      *  the X and Y axes. A plot inherits these unless its own properties
      *  dialog overrides them. `*FormatMode` is `NumberFormatMode` as int
-     *  (0=Decimals, 1=SignificantFigures); `*Precision` is the digit count
+     *  (0=Decimals, 1=SignificantFigures, 2=Scientific, 3=Engineering,
+     *  4=Thousands); `*Precision` is the digit count
      *  (decimals 0–10, sig figs 1–10). Time/date axes are unaffected. */
     [[nodiscard]] int  plotXAxisFormatMode() const;  ///< Default 0 (Decimals)
     void setPlotXAxisFormatMode(int mode);

@@ -8,6 +8,8 @@
 
 #include "plot/numberformat.h"
 
+#include <QLocale>
+
 using openswmmvis::plot::NumberFormat;
 using openswmmvis::plot::NumberFormatMode;
 using openswmmvis::plot::axisNumberFormatPresetCount;
@@ -122,10 +124,36 @@ TEST(NumberFormatPresets, EveryPresetRendersItsDocumentedExample)
         { SigFigs3,  "12.3"      },
         { SigFigs4,  "12.35"     },
         { SigFigs6,  "12.3457"   },
+        { Scientific2,  "1.23e+01"   },
+        { Scientific3,  "1.235e+01"  },
+        { Scientific4,  "1.2346e+01" },
+        { Engineering2, "12.35e+00"  },
+        { Engineering3, "12.346e+00" },
     };
     for (const auto &c : kCases)
         EXPECT_EQ(numberFormatForPreset(c.preset).format(v).toStdString(), c.shown)
             << "preset " << c.preset;
+}
+
+TEST(NumberFormat, EngineeringSnapsExponentToMultipleOfThree)
+{
+    const NumberFormat e2{ NumberFormatMode::Engineering, 2 };
+    EXPECT_EQ(e2.format(12345.678).toStdString(), "12.35e+03");
+    EXPECT_EQ(e2.format(0.00123).toStdString(),   "1.23e-03");
+    EXPECT_EQ(e2.format(-999999.0).toStdString(), "-1.00e+06");  // rounds up past 1000
+    EXPECT_EQ(e2.format(0.0).toStdString(),       "0.00e+00");
+    // QValueAxis can't do engineering notation: printf spec degrades to 'e'.
+    EXPECT_EQ(e2.printfSpec().toStdString(), "%.2e");
+}
+
+TEST(NumberFormat, ThousandsUsesLocaleGroupSeparators)
+{
+    const NumberFormat t1{ NumberFormatMode::Thousands, 1 };
+    // Locale-dependent separators: compare against QLocale itself.
+    EXPECT_EQ(t1.format(12345.67), QLocale().toString(12345.67, 'f', 1));
+    EXPECT_EQ(numberFormatForPreset(ThousandsInteger).format(1234567.0),
+              QLocale().toString(1234567.0, 'f', 0));
+    EXPECT_EQ(t1.printfSpec().toStdString(), "%.1f");   // QValueAxis fallback
 }
 
 TEST(NumberFormatPresets, PresetRoundTripsThroughModeAndCount)

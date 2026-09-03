@@ -201,6 +201,35 @@ continue seamlessly and match the file's datasets. Older engine without the
 symbols → link error, not a runtime fallback (intentional: the repos are
 co-developed).
 
+## Addendum — ground-source option + number-format styles (GUI, fifth commit)
+
+Uncompiled as well.
+
+Ground source: `ProfilePlotOptions::groundSource` (enum `GroundSource`
+Auto/NodeRims/Mesh2D/TerrainDEM) replaces `useTerrainGround`.
+`ProfilePlotDialog::resolvedGroundSource()` / `firstMeshLayer()` /
+`forEachPathStationScene()`; `rebuildTerrainSamples()` fills
+`m_pathStatic.terrainSamples` from the mesh (`SWMM2DMeshLayer::sampleZAt`) or
+DEM; re-samples on `MapCanvas::layerAdded/Removed` (mesh layers only) and
+on the bound mesh's `meshEditsChanged` / `sceneGeometryReady` /
+`attributeChanged`. The widget's temporary `surface2DGroundActive` override is
+gone — the option is the single rule. Smoke: open a profile in a model with a
+mesh → ground follows the mesh between nodes by default; Display Options ▸
+"Ground line source" = NodeRims restores rims, TerrainDEM the DEM; add a
+mesh to a project after the profile is open → ground switches to it.
+
+Number formats: `NumberFormatMode` gains Scientific/Engineering/Thousands;
+`AxisNumberFormatPreset` appends 9..16 (`axisNumberFormatPresetCount = 17`);
+mirror enums in `ProfilePlotOptions` and `ChartProperties`; Preferences ▸
+Plots combo items; `ChartProperties::setStatisticsNumberFormat` and
+`StatsSummaryPanel::loadNumberFormat` no longer collapse modes to two.
+`tests/unit/test_numberformat.cpp` covers the new presets; the Thousands
+test compares against `QLocale()` so it is locale-independent. Run
+`ctest -R numberformat`. Smoke: profile Display Options ▸ "Y Axis — Number
+format" shows the new entries and hand-drawn ticks render them; a
+comparison-plot Chart Properties ▸ Y axis = Engineering2 shows `%e`-style
+labels (documented degradation), Thousands2 shows plain `%f`.
+
 ## Step 5 — Report
 
 Append results (build/ctest status, the rain_cum-vs-ledger numbers, smoke

@@ -22,10 +22,19 @@
 
 namespace openswmmvis::plot {
 
-/*! \brief Interpretation of `NumberFormat::count`. */
+/*! \brief Interpretation of `NumberFormat::count`.
+ *
+ *  Values are persisted (QSettings / project files): append, never renumber.
+ *  Scientific maps 1:1 onto printf 'e'. Engineering and Thousands have no
+ *  printf equivalent, so on a `QValueAxis` (printf-only labels) they degrade
+ *  to 'e' / 'f' respectively via `printfSpec()`; hand-drawn ticks, tooltips
+ *  and stats use `format()` and render them exactly. */
 enum class NumberFormatMode {
     Decimals = 0,            ///< Fixed-point: `count` digits after the point ('f').
-    SignificantFigures = 1   ///< General: `count` significant figures ('g').
+    SignificantFigures = 1,  ///< General: `count` significant figures ('g').
+    Scientific = 2,          ///< 1.23e+04: `count` mantissa decimals ('e').
+    Engineering = 3,         ///< 12.3e+03: exponent a multiple of 3, `count` mantissa decimals.
+    Thousands = 4            ///< 12,345.68: locale group separators, `count` decimals.
 };
 
 /*! \brief A mode + count describing how to render a double. */
@@ -42,7 +51,8 @@ struct NumberFormat {
     /*! \brief Effective, clamped digit count for the current mode. */
     int effectiveCount() const noexcept;
 
-    /*! \brief 'f' for Decimals, 'g' for SignificantFigures. */
+    /*! \brief printf conversion the mode maps onto: 'f' (Decimals,
+     *  Thousands), 'g' (SignificantFigures), 'e' (Scientific, Engineering). */
     char fmtChar() const noexcept;
 
     /*! \brief True when `custom` is a single, safe floating-point printf
@@ -84,11 +94,19 @@ enum AxisNumberFormatPreset {
     Decimals6 = 5,   ///< 12.345679
     SigFigs3  = 6,   ///< 12.3
     SigFigs4  = 7,   ///< 12.35
-    SigFigs6  = 8    ///< 12.3457
+    SigFigs6  = 8,   ///< 12.3457
+    Scientific2      = 9,    ///< 1.23e+01
+    Scientific3      = 10,   ///< 1.235e+01
+    Scientific4      = 11,   ///< 1.2346e+01
+    Engineering2     = 12,   ///< 12.35e+00 / 1.23e+03
+    Engineering3     = 13,   ///< 12.346e+00
+    ThousandsInteger = 14,   ///< 12,346
+    Thousands1       = 15,   ///< 12,345.7
+    Thousands2       = 16    ///< 12,345.68
 };
 
 /*! \brief Number of presets; the valid range is [0, axisNumberFormatPresetCount). */
-inline constexpr int axisNumberFormatPresetCount = 9;
+inline constexpr int axisNumberFormatPresetCount = 17;
 
 /*! \brief The mode + count a preset stands for. Out-of-range input falls back
  *  to two decimals, which is the historic default. */

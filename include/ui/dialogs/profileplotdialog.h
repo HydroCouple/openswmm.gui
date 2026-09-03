@@ -169,11 +169,11 @@ private:
     void syncTracksGutter();
 
     /*!
-     * \brief Walks each path link's polyline (via SWMMModelLayer's cached
-     *        geometry), samples the active terrain raster at densified
-     *        positions, and stores the results in
-     *        `m_pathStatic.terrainSamples`.  Clears the array when the
-     *        user hasn't opted in to terrain ground.
+     * \brief Rebuilds `m_pathStatic.terrainSamples` — the sampled ground
+     *        line — per `resolvedGroundSource()`: the 2D mesh vertex
+     *        elevations interpolated at the path stations (Mesh2D), the
+     *        active terrain raster (TerrainDEM), or nothing (NodeRims, the
+     *        widget then draws the rim-to-rim line).
      */
     void rebuildTerrainSamples();
 
@@ -185,6 +185,23 @@ private:
      */
     void forEachPathStation(
         const std::function<void(double, double, double)> &fn) const;
+
+    /*! Same walk, with each station projected into the canvas CRS and
+     *  delivered as a 2D SCENE point (canvas x, −canvas y) — the frame the
+     *  mesh / 2D results layers sample in. `fn(realChainage, scenePt)`. */
+    void forEachPathStationScene(
+        const std::function<void(double, const QPointF &)> &fn) const;
+
+    /*! First SWMM2DMeshLayer on the canvas (the 2D mesh profile's rule), or
+     *  nullptr. */
+    class SWMM2DMeshLayer *firstMeshLayer() const;
+
+    /*! The option's ground source with `Auto` resolved: 2D mesh when the
+     *  project has a mesh layer, else node rims. */
+    ProfilePlotOptions::GroundSource resolvedGroundSource() const;
+
+    QPointer<class SWMM2DMeshLayer>       m_groundMesh;        ///< mesh the ground line is sampled from
+    ProfilePlotOptions::GroundSource      m_lastGroundSource = ProfilePlotOptions::NodeRims;
 
     // ── 2D inundation overlay ───────────────────────────────────────────
 
