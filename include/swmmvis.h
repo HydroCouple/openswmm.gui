@@ -864,6 +864,10 @@ private:
      */
     void refreshSimulationDatesForProject(class SWMMVisProjectWindow *pw);
 
+    /** Re-label the Properties panel / Attribute Table offset fields after a
+     *  LINK_OFFSETS (depth ↔ elevation) change. */
+    void refreshOffsetModeViews();
+
     /**
      * Drop every simulation-status / progress-bar trace bound to @p pw —
      * cancel any still-running runners for that project, purge the

@@ -155,6 +155,11 @@ public:
      *  (e.g. AttributeTablePanel) can install delegates. */
     QList<openswmmvis::ColumnSpec> columnSpecs() const { return m_columnSpecs; }
 
+    /*! Re-query every horizontal header. Call after a change that alters a
+     *  render-time label without touching the schema (LINK_OFFSETS mode →
+     *  offset columns read "… Elevation"). */
+    void refreshHeaders();
+
     /*! Slice Z.5.5 — optional QUndoStack for cell-edit commands.
      *  When set, `setData()` wraps each commit in an `EditCommand`
      *  pushed onto this stack so Ctrl+Z / Ctrl+Y round-trip.  Pass
@@ -199,6 +204,9 @@ signals:
 
 private:
     void rebuildColumnSchema();
+    /*! Header label for \p spec with the LINK_OFFSETS mode applied: the
+     *  offset columns read "Upstream/Downstream Elevation" in ELEVATION mode. */
+    QString offsetModeLabel(const openswmmvis::ColumnSpec &spec) const;
     /*! Initial-quality UI round — append one editable column per
      *  constituent (key "initq:<NAME>": every pollutant, plus water age /
      *  temperature while their [OPTIONS] toggle is on) when the bound

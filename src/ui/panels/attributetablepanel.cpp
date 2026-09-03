@@ -961,6 +961,11 @@ void AttributeTablePanel::setResultsSource(SWMMResultsLayer *layer)
     if (m_model) m_model->setResultsSource(layer);
 }
 
+void AttributeTablePanel::refreshHeaders()
+{
+    if (m_model) m_model->refreshHeaders();
+}
+
 void AttributeTablePanel::refresh()
 {
     qCDebug(lcAttrTbl) << "refresh() layer=" << m_layer

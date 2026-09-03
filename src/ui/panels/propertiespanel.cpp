@@ -535,6 +535,12 @@ void PropertiesPanel::onObjectEditedExternally(const QString &name)
     m_suppressEditForward = false;
 }
 
+void PropertiesPanel::onOffsetModeChanged()
+{
+    if (!m_linkAdapter || !m_layerCombo) return;
+    onLayerComboIndexChanged(m_layerCombo->currentIndex());
+}
+
 void PropertiesPanel::setProject(SWMMModelLayer *layer)
 {
     if (m_swmmLayer == layer) return;

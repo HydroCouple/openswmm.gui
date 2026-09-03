@@ -2099,6 +2099,31 @@ void SWMMAttributeTableModel::setResultsSource(SWMMResultsLayer *layer)
     }
 }
 
+QString SWMMAttributeTableModel::offsetModeLabel(const ColumnSpec &spec) const
+{
+    // LINK_OFFSETS = ELEVATION: the offset columns read/write through the
+    // mode-aware linkoffsetdisplay accessors (setter tags link_offset_up /
+    // link_offset_dn) and therefore show elevations — label them as such.
+    // Resolved at render time, like the unit suffix, so a mode flip only
+    // needs a headerDataChanged.
+    const bool isUp = spec.setter == QLatin1String("link_offset_up");
+    const bool isDn = spec.setter == QLatin1String("link_offset_dn");
+    if (!isUp && !isDn) return spec.label;
+    if (!m_layer || !linkoffsetdisplay::elevationMode(m_layer->engine()))
+        return spec.label;
+    if (isDn) return tr("Downstream Elevation");
+    // Conduits / weirs label the upstream slot "Upstream Offset"; orifices
+    // and outlets carry a single "Offset" (also measured upstream).
+    return spec.label == QLatin1String("Offset") ? tr("Elevation")
+                                                 : tr("Upstream Elevation");
+}
+
+void SWMMAttributeTableModel::refreshHeaders()
+{
+    if (columnCount() > 0)
+        emit headerDataChanged(Qt::Horizontal, 0, columnCount() - 1);
+}
+
 void SWMMAttributeTableModel::rebuildColumnSchema()
 {
     m_columnSpecs = schemaForCategory(m_category);
@@ -2360,8 +2385,9 @@ QVariant SWMMAttributeTableModel::headerData(int section,
             return u.isEmpty() ? QVariant() : QVariant(tr("Units: %1").arg(u));
         }
         if (role == Qt::DisplayRole) {
-            if (u.isEmpty()) return spec.label;
-            return tr("%1 (%2)").arg(spec.label, u);
+            const QString label = offsetModeLabel(spec);
+            if (u.isEmpty()) return label;
+            return tr("%1 (%2)").arg(label, u);
         }
     }
     if (orientation == Qt::Vertical && role == Qt::DisplayRole)

@@ -121,6 +121,11 @@ public slots:
      *  bound or the name doesn't match. */
     void onObjectEditedExternally(const QString &name);
 
+    /*! LINK_OFFSETS mode changed: a bound link's offset rows are labelled
+     *  "Inlet/Outlet Offset" vs "… Elevation", and the label is captured when
+     *  the adapter is bound, so replay the bind. No-op unless a link is shown. */
+    void onOffsetModeChanged();
+
 signals:
 
     /*!
