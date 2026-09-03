@@ -165,6 +165,15 @@ signals:
     void twoDFluxAvailable(int jobId, QVector<float> flux,
                             QDateTime simTime, double elapsedSec);
 
+    // Per-tick rainfall intensity (m/s) + cumulative rainfall volume (m³)
+    // per cell from swmm_2d_get_rainfall_bulk / swmm_2d_get_rain_volume_bulk.
+    // Same cadence/pairing as twoDFluxAvailable; pushed into
+    // EngineMesh2DSource::pushRainfall so the Rainfall / Rainfall volume
+    // cell series are plottable live.
+    void twoDRainfallAvailable(int jobId, QVector<float> rainfall,
+                               QVector<float> rainCum,
+                               QDateTime simTime, double elapsedSec);
+
     // Per-tick SIGNED vertex render depths from
     // swmm_2d_vertex_get_render_depths_bulk (the engine's wet-masked,
     // depth-weighted η_v − z_v reconstruction — dry-cell bed elevations never
