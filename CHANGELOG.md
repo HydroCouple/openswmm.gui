@@ -26,7 +26,9 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
   layer, else falls back to the rim-to-rim line; explicit choices override.
   The line re-samples when a mesh layer is added/removed or its vertices
   are edited. The 2D inundation band fills up from whichever ground is
-  drawn.
+  drawn. Sampled ground (mesh or DEM) only shapes the soil BETWEEN nodes:
+  every node keeps its 1D rim (invert + max depth, crown-clamped) and
+  manhole notch exactly as in the pure-1D profile.
 
 - **More axis number-format styles.** The axis format enumerator (profile
   Display Options, chart properties, Preferences ▸ Plots) gains

@@ -1834,18 +1834,23 @@ void ProfilePlotWidget::paintSoilFill(QPainter &p) const
         return realChainageToVirtualX(realX);
     };
 
-    // ---- Top edge: terrain samples if the user opted in and the path
-    // has DEM coverage, otherwise the rim line clamped to not dip below
-    // adjacent crowns.  For nodes with no max depth (typical outfalls)
+    // ---- Top edge: the rim line clamped to not dip below adjacent
+    // crowns, with the sampled ground (2D mesh / DEM) filling in between
+    // nodes when present.  For nodes with no max depth (typical outfalls)
     // the rim sits below the conduit crown — clamp so the polygon
     // pinches to zero rather than reaching into the pipe.
+    // Sampled ground (2D mesh / DEM) is woven BETWEEN the nodes: every node
+    // still contributes its own rim (invert + max depth, clamped to the
+    // adjacent crowns) with the manhole U-notch exactly as in the pure-1D
+    // profile, and the samples only shape the ground from one node to the
+    // next. The node crowns / maximum depths therefore render with 1D
+    // fidelity whatever the ground source.
+    const bool sampledGround =
+        m_toggles.useTerrainGround && !m_path.terrainSamples.isEmpty();
     QVector<QPointF> rimPx;
-    if (m_toggles.useTerrainGround && !m_path.terrainSamples.isEmpty()) {
-        rimPx.reserve(m_path.terrainSamples.size());
-        for (const QPointF &s : m_path.terrainSamples)
-            rimPx.push_back(dataToPixel(terrainSampleToVirtualX(s.x()), s.y()));
-    } else {
-        rimPx.reserve(m_path.nodes.size() * 3);
+    {
+        rimPx.reserve(m_path.nodes.size() * 3 + m_path.terrainSamples.size());
+        int sampleIdx = 0;   // cursor into the chainage-ordered samples
         for (int i = 0; i < m_path.nodes.size(); ++i) {
             const bool incomingExcavated =
                 (i > 0 && isExcavatedLink(i - 1));
@@ -1905,6 +1910,24 @@ void ProfilePlotWidget::paintSoilFill(QPainter &p) const
                                             m_path.nodes[i].invertElev));
                 rimPx.push_back(dataToPixel(chainAt(i),
                                             linkBottomOf(i)));
+            }
+            // ── Sampled ground strictly between this node and the next
+            //    (real chainage; stations coinciding with a node are the
+            //    node's business and are skipped).
+            if (sampledGround && i + 1 < m_path.nodes.size()
+                && i + 1 < m_path.chainage.size()) {
+                const double ra = m_path.chainage[i];
+                const double rb = m_path.chainage[i + 1];
+                const double eps = 1e-9 * std::max(1.0, std::fabs(rb));
+                while (sampleIdx < m_path.terrainSamples.size()
+                       && m_path.terrainSamples[sampleIdx].x() <= ra + eps)
+                    ++sampleIdx;
+                for (; sampleIdx < m_path.terrainSamples.size(); ++sampleIdx) {
+                    const QPointF &s = m_path.terrainSamples[sampleIdx];
+                    if (s.x() >= rb - eps) break;
+                    if (!std::isfinite(s.y())) continue;
+                    rimPx.push_back(dataToPixel(terrainSampleToVirtualX(s.x()), s.y()));
+                }
             }
         }
     }
