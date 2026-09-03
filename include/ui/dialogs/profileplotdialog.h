@@ -92,11 +92,10 @@ public:
 
 protected:
     /*!
-     * \brief  Reconciles the attribute-tracks master toggle with the
-     *         splitter state that DialogLayoutWatcher restored on this
-     *         first Show — restoreState() does not emit splitterMoved, so
-     *         a persisted drag-collapsed pane would otherwise disagree
-     *         with a restored-checked toggle action.
+     * \brief  After DialogLayoutWatcher restores the splitter state on this
+     *         first Show, makes sure a shown attribute-tracks pane actually
+     *         has height (a persisted zero-height split would otherwise
+     *         read as the tracks never appearing).
      */
     void showEvent(QShowEvent *event) override;
 
@@ -156,6 +155,11 @@ private:
     /*! Shows/collapses the pane per options + master toggle, keeping the
      *  splitter, the toggle action, and auto-hide in agreement. */
     void updateTracksPaneVisibility();
+
+    /*! Gives a shown tracks pane real height: restores the last user split
+     *  when the current one is zero / a sliver (persisted collapsed state,
+     *  first show), else a 3:1 default. No-op when already expanded. */
+    void ensureTracksPaneExpanded();
 
     /*! Pushes the profile widget's virtual-chainage table, margins, x-label
      *  and current range into the tracks widget (call after any setPath). */

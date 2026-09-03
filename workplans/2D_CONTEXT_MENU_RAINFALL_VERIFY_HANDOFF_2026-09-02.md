@@ -236,3 +236,15 @@ Append results (build/ctest status, the rain_cum-vs-ledger numbers, smoke
 outcomes, any fixes made) to this file under `## Results`, and commit fixes as
 `fix(2d): …` in the respective repo — again without sweeping the unrelated
 uncommitted hunks (`git add -p`, or apply a filtered patch).
+
+## Addendum — attribute-tracks pane hide/collapse artifact (GUI, sixth commit)
+
+`ProfilePlotDialog`: tracks pane no longer collapsible by drag
+(`setCollapsible(1,false)` + `kTracksPaneMinHeightPx` minimum); the
+splitterMoved → uncheck-toggle handler is gone; `ensureTracksPaneExpanded()`
+re-expands a zero/sliver pane whenever it is shown (toggle on, attribute
+enabled, first show after a persisted collapsed split). Smoke: enable an
+attribute → pane appears with height; click / drag the splitter grip → pane
+never vanishes, drags floor at ~72 px; toggle off/on → previous split
+restored; delete `Dialogs/ProfilePlotDialog/splitter/*` from QSettings and
+confirm a fresh 3:1 default.
