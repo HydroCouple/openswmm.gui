@@ -9,6 +9,7 @@
 #include "plot/numberformat.h"
 
 #include "ui/dialogs/objectdefaultspage.h"
+#include "ui/dialogs/simulationoptionsdialog.h"
 
 #include "core/linkrenderingprefs.h"
 #include "core/noderenderingprefs.h"
@@ -880,10 +881,26 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
     m_simThreadsSpin = new QSpinBox(solvGroup);
     m_simThreadsSpin->setRange(0, 256);
     m_simThreadsSpin->setSpecialValueText(tr("auto"));
-    m_simThreadsSpin->setToolTip(tr(
-        "Number of OpenMP worker threads written to [OPTIONS] THREADS for "
-        "new projects. 0 = engine auto. The Reset button maxes this to the "
-        "machine's logical-processor count."));
+    {
+        SWMM_ThreadInfo ti{};
+        swmm_get_thread_info(&ti);
+        m_simThreadsSpin->setToolTip(
+            tr("Number of OpenMP worker threads written to [OPTIONS] THREADS for "
+               "new projects. 0 = engine auto. Values above the machine's logical "
+               "processors are allowed but oversubscribe the CPU. The Reset button "
+               "sets this to the machine's logical-processor count.\n\n%1")
+                .arg(SimulationOptionsDialog::threadLimitsSummary(ti)));
+        // Suffix shows the hardware limit next to the value (0 = auto has none).
+        const int logical = ti.logical_cpus;
+        auto updateSuffix = [this, logical](int v) {
+            if (v == 0 || logical <= 0) { m_simThreadsSpin->setSuffix(QString()); return; }
+            m_simThreadsSpin->setSuffix(v > logical
+                ? tr(" / %1 logical — oversubscribed").arg(logical)
+                : tr(" / %1 logical").arg(logical));
+        };
+        connect(m_simThreadsSpin, qOverload<int>(&QSpinBox::valueChanged), this, updateSuffix);
+        updateSuffix(m_simThreadsSpin->value());
+    }
     solvForm->addRow(tr("Worker threads (THREADS)"), m_simThreadsSpin);
 
     outer->addWidget(solvGroup);
@@ -2074,7 +2091,11 @@ void PreferencesDialog::onResetToDefaults()
         sel(m_simNodeContinuityCombo, d.nodeContinuity);
         m_simAndersonAccelBox    ->setChecked(d.andersonAccel);
 
-        const int hwThreads = QThread::idealThreadCount();
+        // Engine's view of the hardware first (same number the Simulation
+        // Options dialog shows); QThread as fallback when it reports 0.
+        SWMM_ThreadInfo ti{};
+        int hwThreads = (swmm_get_thread_info(&ti) == SWMM_OK) ? ti.logical_cpus : 0;
+        if (hwThreads <= 0) hwThreads = QThread::idealThreadCount();
         m_simThreadsSpin         ->setValue(hwThreads > 0 ? hwThreads : 0);
     }
 
