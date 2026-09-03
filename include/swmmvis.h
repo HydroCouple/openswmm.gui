@@ -852,6 +852,11 @@ private:
     /** Recompute the status-bar progress bar from mRunningSimProgress. */
     void updateSimulationProgressBar();
 
+    /** Log (once, at startup) any inherited OMP_* / OPENSWMM_2D_THREADS /
+     *  SWMM_DW_THREADS environment variable that limits or forces the
+     *  engine's thread counts. */
+    void logInheritedThreadEnvironment();
+
     /**
      * Push the model's START/END date options into its Simulation Status
      * row (creating an Idle row if needed). No-op while a run is in flight

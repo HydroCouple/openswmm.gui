@@ -115,6 +115,14 @@ public:
      *         Kept as a static so the recipe values are locked by a unit test. */
     static void fastPresetValues(int &out_threads, double &out_min_step_sec);
 
+    /*! \brief THREADS the fast preset uses: the machine's performance-core
+     *         count (macOS), else its logical-CPU count, else 8. */
+    static int fastPresetThreads();
+
+    /*! \brief Human-readable summary of the machine / OpenMP thread limits
+     *         (from swmm_get_thread_info) for tooltips. */
+    static QString threadLimitsSummary(const SWMM_ThreadInfo &ti);
+
     /*! \brief Format a Qt date+time as the engine's expected MM/DD/YYYY +
      *         HH:MM:SS pair (returned as `out_date` and `out_time`). */
     static void formatEngineDateTime(const QDateTime &dt,
@@ -449,6 +457,9 @@ private:
 
     // Tab 4 — System / Performance
     QSpinBox       *m_threadsSpin       = nullptr;
+    QLabel         *m_threadsEffective  = nullptr;   // "Effective: 1D N · 2D N" + oversubscription flag
+    SWMM_ThreadInfo m_threadInfo{};                  // machine / OpenMP limits (filled once)
+    void refreshThreadsEffectiveLabel();
 
     // Tab 5 — Spatial & CRS
     QLabel         *m_crsLabel          = nullptr;
