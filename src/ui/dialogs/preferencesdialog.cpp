@@ -1360,6 +1360,14 @@ QWidget *PreferencesDialog::buildPlotsPage()
         formatCombo->addItem(tr("3 significant figures"),      openswmmvis::plot::SigFigs3);
         formatCombo->addItem(tr("4 significant figures"),      openswmmvis::plot::SigFigs4);
         formatCombo->addItem(tr("6 significant figures"),      openswmmvis::plot::SigFigs6);
+        formatCombo->addItem(tr("1.23e+01  (scientific, 2 decimals)"),   openswmmvis::plot::Scientific2);
+        formatCombo->addItem(tr("1.235e+01  (scientific, 3 decimals)"),  openswmmvis::plot::Scientific3);
+        formatCombo->addItem(tr("1.2346e+01  (scientific, 4 decimals)"), openswmmvis::plot::Scientific4);
+        formatCombo->addItem(tr("12.35e+00  (engineering, 2 decimals)"), openswmmvis::plot::Engineering2);
+        formatCombo->addItem(tr("12.346e+00  (engineering, 3 decimals)"),openswmmvis::plot::Engineering3);
+        formatCombo->addItem(tr("12,346  (thousands, integer)"),         openswmmvis::plot::ThousandsInteger);
+        formatCombo->addItem(tr("12,345.7  (thousands, 1 decimal)"),     openswmmvis::plot::Thousands1);
+        formatCombo->addItem(tr("12,345.68  (thousands, 2 decimals)"),   openswmmvis::plot::Thousands2);
         formatCombo->setToolTip(tr(
             "Default number format for this axis on newly-opened plots. "
             "Each plot can override it in its own options."));

@@ -389,7 +389,7 @@ void ProfilePlotDialog::buildLayout()
     // Helpers: marshall LayerToggles ⇄ ProfilePlotOptions so the panel,
     // the plot widget, and the property-model-driven Display Options
     // dialog stay in sync.
-    auto togglesFromOptions = [](ProfilePlotOptions *o) {
+    auto togglesFromOptions = [this](ProfilePlotOptions *o) {
         ProfilePlotWidget::LayerToggles t;
         t.currentHglLine   = o->currentHglLine();
         t.currentHglFill   = o->currentHglFill();
@@ -402,7 +402,9 @@ void ProfilePlotDialog::buildLayout()
         t.inlineNodeLabels = o->inlineNodeLabels();
         t.labelOrientation = static_cast<ProfilePlotWidget::LayerToggles::LabelOrientation>(o->labelOrientation());
         t.labelAngleDeg    = o->labelAngleDeg();
-        t.useTerrainGround = o->useTerrainGround();
+        // The widget draws `terrainSamples` as the ground whenever this is
+        // set — DEM or 2D mesh alike; only NodeRims falls back to rims.
+        t.useTerrainGround = (resolvedGroundSource() != ProfilePlotOptions::NodeRims);
         return t;
     };
     auto applyTogglesToOptions = [](ProfilePlotOptions *o,
@@ -418,12 +420,17 @@ void ProfilePlotDialog::buildLayout()
         o->setInlineNodeLabels(t.inlineNodeLabels);
         o->setLabelOrientation(static_cast<ProfilePlotOptions::LabelOrientation>(t.labelOrientation));
         o->setLabelAngleDeg   (t.labelAngleDeg);
-        o->setUseTerrainGround(t.useTerrainGround);
+        o->setGroundSource    (t.useTerrainGround ? ProfilePlotOptions::TerrainDEM
+                                                  : ProfilePlotOptions::Auto);
     };
 
     Q_UNUSED(applyTogglesToOptions);  // panel-side sync removed; kept the
                                        // lambda for future use.
 
+    // Initial ground line: Auto samples the 2D mesh when the project has
+    // one, so the first paint already shows the mesh surface between nodes.
+    rebuildTerrainSamples();
+    m_plot->setPath(m_pathStatic);
     // Initial push: options → plot widget (visibility / labels / terrain).
     m_plot->setLayerToggles(togglesFromOptions(m_options));
     // Record the plot-level styles as they stand now, so the FIRST edit is
@@ -432,15 +439,16 @@ void ProfilePlotDialog::buildLayout()
     pushEditedPlotStylesToSources();
 
     // Options → plot.  Drives visibility, label rendering, and the
-    // terrain re-sample whenever the user toggles "Use terrain DEM".
+    // ground re-sample whenever the resolved ground source changes.
     // Also reruns rebindSources so per-output visibility flips propagate
     // to the series list (the widget reads visibility from series, not
     // from LayerToggles).
     connect(m_options, &ProfilePlotOptions::changed, this,
             [this, togglesFromOptions]() {
         const auto t = togglesFromOptions(m_options);
-        const bool terrainChanged =
-            (t.useTerrainGround != m_plot->layerToggles().useTerrainGround);
+        // Re-sample when the RESOLVED source moves (rims ⇄ mesh ⇄ DEM) —
+        // mesh and DEM both set useTerrainGround, so compare the source.
+        const bool terrainChanged = (resolvedGroundSource() != m_lastGroundSource);
         m_plot->setLayerToggles(t);
         if (terrainChanged) {
             rebuildTerrainSamples();
@@ -615,6 +623,20 @@ void ProfilePlotDialog::buildLayout()
                 this, [this](SWMM2DResultsLayer *) {
             rebuildSurface2DStations();
         });
+    }
+    // A mesh layer appearing / disappearing flips what `Auto` resolves to
+    // (and what an explicit Mesh2D can sample): re-derive the ground line.
+    if (m_canvas) {
+        auto onLayersChanged = [this, togglesFromOptions](OpenSWMMVisLayer *l) {
+            if (!qobject_cast<SWMM2DMeshLayer *>(l)) return;
+            rebuildTerrainSamples();
+            m_plot->setLayerToggles(togglesFromOptions(m_options));
+            m_plot->setPath(m_pathStatic);
+            syncTracksAxes();
+            rebuildSurface2DStations();
+        };
+        connect(m_canvas, &MapCanvas::layerAdded,   this, onLayersChanged);
+        connect(m_canvas, &MapCanvas::layerRemoved, this, onLayersChanged);
     }
     rebuildSurface2DStations();
 
@@ -1357,11 +1379,61 @@ void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
 // Animation-cursor sync
 // ---------------------------------------------------------------------------
 
+SWMM2DMeshLayer *ProfilePlotDialog::firstMeshLayer() const
+{
+    if (!m_canvas) return nullptr;
+    for (OpenSWMMVisLayer *l : m_canvas->layers())
+        if (auto *m = qobject_cast<SWMM2DMeshLayer *>(l)) return m;
+    return nullptr;
+}
+
+ProfilePlotOptions::GroundSource ProfilePlotDialog::resolvedGroundSource() const
+{
+    using GS = ProfilePlotOptions::GroundSource;
+    const GS s = m_options ? m_options->groundSource() : GS::Auto;
+    if (s != GS::Auto) return s;
+    return firstMeshLayer() ? GS::Mesh2D : GS::NodeRims;
+}
+
 void ProfilePlotDialog::rebuildTerrainSamples()
 {
+    using GS = ProfilePlotOptions::GroundSource;
     m_pathStatic.terrainSamples.clear();
-    if (!m_options || !m_options->useTerrainGround()) return;
-    if (!m_projectWindow || !m_model)                                   return;
+    if (m_groundMesh)
+        disconnect(m_groundMesh.data(), nullptr, this, nullptr);
+    m_groundMesh = nullptr;
+    if (!m_options || !m_projectWindow || !m_model) return;
+
+    const GS source = resolvedGroundSource();
+    m_lastGroundSource = source;
+
+    if (source == GS::Mesh2D) {
+        // Ground = 2D mesh vertex elevations, barycentrically interpolated at
+        // every path station (same sampler as the 2D mesh profile). Stations
+        // off the mesh are skipped, so partial coverage leaves the node row
+        // to carry the rest.
+        SWMM2DMeshLayer *mesh = firstMeshLayer();
+        if (!mesh) return;
+        forEachPathStationScene([&](double chain, const QPointF &sp) {
+            const double z = mesh->sampleZAt(sp.x(), sp.y());
+            if (std::isfinite(z))
+                m_pathStatic.terrainSamples.push_back(QPointF(chain, z));
+        });
+        // Vertex-Z edits / remesh / deferred geometry → re-sample.
+        m_groundMesh = mesh;
+        auto resample = [this] {
+            rebuildTerrainSamples();
+            m_plot->setPath(m_pathStatic);
+            syncTracksAxes();
+        };
+        connect(mesh, &SWMM2DMeshLayer::meshEditsChanged,   this, resample);
+        connect(mesh, &SWMM2DMeshLayer::sceneGeometryReady, this, resample);
+        connect(mesh, &SWMM2DMeshLayer::attributeChanged,   this,
+                [resample](const QString &) { resample(); });
+        return;
+    }
+
+    if (source != GS::TerrainDEM) return;   // NodeRims: no samples
 
     // Live-look up the *current* terrain + vertical factor + canvas SRS
     // from the project window so the ground line always reflects the
@@ -1373,40 +1445,43 @@ void ProfilePlotDialog::rebuildTerrainSamples()
     const SpatialReferenceSystem *canvasSRS =
         m_canvas ? m_canvas->canvasSRS() : nullptr;
 
-    // The model's cached node / polyline coords live in the *model layer*
-    // CRS.  GISRasterLayer::valueAt expects coords in the *canvas* CRS
-    // (it does its own canvas→raster transform internally).  When the
-    // two differ we have to project each model-CRS sample into canvas-CRS
-    // first, otherwise we'd sample the raster at the wrong pixel and the
-    // ground line ends up misaligned with the network.
-    SpatialReferenceSystem *modelSRS = m_model->srs();
-    OGRCoordinateTransformation *modelToCanvas = nullptr;
-    const bool needTransform =
-        (modelSRS && canvasSRS && !modelSRS->equals(*canvasSRS));
-    if (needTransform)
-        modelToCanvas = modelSRS->createTransformationTo(*canvasSRS);
-
-    auto sampleZ = [terrain, canvasSRS, modelToCanvas](double mx, double my, bool &ok) {
-        double cx = mx, cy = my;
-        if (modelToCanvas) {
-            double tx = mx, ty = my;
-            if (modelToCanvas->Transform(1, &tx, &ty)) {
-                cx = tx; cy = ty;
-            }
-        }
-        return terrain->valueAt(cx, cy, canvasSRS, /*band=*/1, &ok);
-    };
-
-    forEachPathStation([&](double chain, double x, double y) {
+    // GISRasterLayer::valueAt expects coords in the *canvas* CRS (it does
+    // its own canvas→raster transform internally); forEachPathStationScene
+    // delivers canvas-CRS x and NEGATED y, so undo the flip here.
+    forEachPathStationScene([&](double chain, const QPointF &sp) {
         bool ok = false;
-        const double zRaw = sampleZ(x, y, ok);
+        const double zRaw = terrain->valueAt(sp.x(), -sp.y(), canvasSRS, /*band=*/1, &ok);
         if (!ok || !std::isfinite(zRaw)) return;   // outside DEM
         // Convert raster vertical unit → model vertical unit so
         // the ground line lines up with the node inverts / rims.
         const double z = zRaw * terrainFactor;
         m_pathStatic.terrainSamples.push_back(QPointF(chain, z));
     });
+}
 
+void ProfilePlotDialog::forEachPathStationScene(
+    const std::function<void(double, const QPointF &)> &fn) const
+{
+    if (!m_canvas || !m_model) return;
+    // The model's cached node / polyline coords live in the *model layer*
+    // CRS. Project each station into the canvas CRS when the two differ,
+    // otherwise DEM / mesh samples land at the wrong place and the ground
+    // line ends up misaligned with the network. The 2D scene is the canvas
+    // CRS with Y negated (SWMM2DResultsLayer / SWMM2DMeshLayer convention).
+    const SpatialReferenceSystem *canvasSRS = m_canvas->canvasSRS();
+    SpatialReferenceSystem *modelSRS = m_model->srs();
+    OGRCoordinateTransformation *modelToCanvas = nullptr;
+    if (modelSRS && canvasSRS && !modelSRS->equals(*canvasSRS))
+        modelToCanvas = modelSRS->createTransformationTo(*canvasSRS);
+
+    forEachPathStation([&](double chain, double mx, double my) {
+        double cx = mx, cy = my;
+        if (modelToCanvas) {
+            double tx = mx, ty = my;
+            if (modelToCanvas->Transform(1, &tx, &ty)) { cx = tx; cy = ty; }
+        }
+        fn(chain, QPointF(cx, -cy));
+    });
     if (modelToCanvas) OGRCoordinateTransformation::DestroyCT(modelToCanvas);
 }
 
@@ -1497,29 +1572,10 @@ void ProfilePlotDialog::rebuildSurface2DStations()
 
     // Bed elevation comes from the mesh layer's triangulation (the same
     // sampler the 2D mesh profile uses); the results layer has no z field.
-    // First mesh on the canvas — same resolution rule as the 2D mesh
-    // profile (SWMMVis::openMeshProfileDialog).
-    SWMM2DMeshLayer *mesh = nullptr;
-    for (OpenSWMMVisLayer *l : m_canvas->layers())
-        if (auto *m = qobject_cast<SWMM2DMeshLayer *>(l)) { mesh = m; break; }
+    SWMM2DMeshLayer *mesh = firstMeshLayer();
     if (!mesh)                                        { clearPlot(); return; }
 
-    // Model-layer CRS → canvas CRS (same as the terrain sampler); the 2D
-    // scene is the canvas CRS with Y negated (SWMM2DResultsLayer scene
-    // convention, see rebuildSceneGeometry_ / MapToolMeshProfile).
-    const SpatialReferenceSystem *canvasSRS = m_canvas->canvasSRS();
-    SpatialReferenceSystem *modelSRS = m_model->srs();
-    OGRCoordinateTransformation *modelToCanvas = nullptr;
-    if (modelSRS && canvasSRS && !modelSRS->equals(*canvasSRS))
-        modelToCanvas = modelSRS->createTransformationTo(*canvasSRS);
-
-    forEachPathStation([&](double chain, double mx, double my) {
-        double cx = mx, cy = my;
-        if (modelToCanvas) {
-            double tx = mx, ty = my;
-            if (modelToCanvas->Transform(1, &tx, &ty)) { cx = tx; cy = ty; }
-        }
-        const QPointF sp(cx, -cy);
+    forEachPathStationScene([&](double chain, const QPointF &sp) {
         const double bed = mesh->sampleZAt(sp.x(), sp.y());
         if (!std::isfinite(bed)) return;                 // off the mesh
         const int tri = results->pickCellAt(sp);
@@ -1531,7 +1587,6 @@ void ProfilePlotDialog::rebuildSurface2DStations()
         st.bed      = bed;
         m_surface2D.push_back(st);
     });
-    if (modelToCanvas) OGRCoordinateTransformation::DestroyCT(modelToCanvas);
 
     if (m_surface2D.isEmpty())                        { clearPlot(); return; }
 

@@ -68,7 +68,7 @@ QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
         { QStringLiteral("yAxisNumberFormat"), QObject::tr("Y Axis — Number format") },
         { QStringLiteral("yLabelFormat"),      QObject::tr("Y Axis — Custom format") },
         // Ground
-        { QStringLiteral("useTerrainGround"), QObject::tr("Use terrain DEM for ground") },
+        { QStringLiteral("groundSource"),     QObject::tr("Ground line source (Auto = 2D mesh if present, else node rims)") },
         // 2D inundation overlay
         { QStringLiteral("show2DInundation"),      QObject::tr("Show 2D inundation (active 2D results)") },
         { QStringLiteral("inundation2DLinePen"),   QObject::tr("2D water surface line pen") },
@@ -189,7 +189,7 @@ void ProfilePlotOptions::setYLabelPrecision (int count) {
     SET_PRIM(m_yLabelPrecision, c);
 }
 void ProfilePlotOptions::setYLabelFormat    (const QString &spec) { SET_OBJ(m_yLabelFormatStr, spec); }
-void ProfilePlotOptions::setUseTerrainGround(bool v)   { SET_PRIM(m_useTerrainGround, v); }
+void ProfilePlotOptions::setGroundSource(GroundSource s) { SET_PRIM(m_groundSource, s); }
 void ProfilePlotOptions::setShow2DInundation(bool v)   { SET_PRIM(m_show2DInundation, v); }
 void ProfilePlotOptions::setInundation2DLinePen  (const QPen   &p) { SET_OBJ(m_inundation2DLinePen, p); }
 void ProfilePlotOptions::setInundation2DFillBrush(const QBrush &b) { SET_OBJ(m_inundation2DFillBrush, b); }

@@ -76,8 +76,9 @@ void StatsSummaryPanel::loadNumberFormat()
     s.beginGroup(QStringLiteral("ComparisonPlotDialog/StatsFormat"));
     const int defaultMode = static_cast<int>(m_valueFormat.mode);
     const int mode = s.value(QStringLiteral("mode"), defaultMode).toInt();
-    m_valueFormat.mode = mode == static_cast<int>(NumberFormatMode::SignificantFigures)
-                             ? NumberFormatMode::SignificantFigures
+    m_valueFormat.mode = (mode >= static_cast<int>(NumberFormatMode::Decimals)
+                          && mode <= static_cast<int>(NumberFormatMode::Thousands))
+                             ? static_cast<NumberFormatMode>(mode)
                              : NumberFormatMode::Decimals;
     m_valueFormat.count = s.value(QStringLiteral("precision"), m_valueFormat.count).toInt();
     m_valueFormat.custom = s.value(QStringLiteral("custom"), m_valueFormat.custom).toString();

@@ -460,7 +460,7 @@ void ProfilePlotWidget::setSurface2DSamples(const QVector<Surface2DSample> &samp
         if (isFinite(s.wse) && (!isFinite(mx) || s.wse > mx)) mx = s.wse;
     const bool widen = isFinite(mx) && (!isFinite(m_surface2DMaxWse) || mx > m_surface2DMaxWse);
     m_surface2DMaxWse = mx;
-    // A new station set also swaps the drawn ground line (mesh bed ⇄ rims).
+    // A cleared / new station set changes what the legend and extent show.
     if (widen || stationsChanged) recomputeBounds();
     update();
 }
@@ -678,17 +678,10 @@ void ProfilePlotWidget::recomputeBounds()
             yMax = std::max(yMax, s.y());
         }
     }
-    // 2D overlay: the wettest WSE seen so far widens the extent, and so does
-    // the mesh bed whenever it is the drawn ground line (overlay on, no DEM).
+    // 2D overlay: only the wettest WSE seen so far widens the extent (the
+    // sampled ground, mesh or DEM, is already in terrainSamples above).
     if (isFinite(m_surface2DMaxWse) && (!m_options || m_options->show2DInundation()))
         yMax = std::max(yMax, m_surface2DMaxWse);
-    if (surface2DGroundActive() && !(m_toggles.useTerrainGround && !m_path.terrainSamples.isEmpty())) {
-        for (const Surface2DSample &s : m_surface2D) {
-            if (!isFinite(s.bed)) continue;
-            yMin = std::min(yMin, s.bed);
-            yMax = std::max(yMax, s.bed);
-        }
-    }
     if (!isFinite(yMin) || !isFinite(yMax) || yMax <= yMin) {
         yMin = 0.0; yMax = 1.0;
     }
@@ -1633,16 +1626,11 @@ double ProfilePlotWidget::realChainageToVirtualX(double realX) const
     return realX;
 }
 
-bool ProfilePlotWidget::surface2DGroundActive() const
-{
-    return !m_surface2D.isEmpty()
-        && (!m_options || m_options->show2DInundation());
-}
-
 double ProfilePlotWidget::groundElevAtReal(double realX) const
 {
     // Piecewise-linear lookup into whichever polyline paintSoilFill draws as
-    // the ground: DEM samples, the 2D mesh bed, or the node rims.
+    // the ground: the sampled ground (DEM or 2D mesh, per the dialog's
+    // ground-source option) or the node rims.
     auto interp = [realX](auto begin, auto end, auto xOf, auto yOf) -> double {
         double px = std::numeric_limits<double>::quiet_NaN();
         double py = px;
@@ -1662,10 +1650,6 @@ double ProfilePlotWidget::groundElevAtReal(double realX) const
         return interp(m_path.terrainSamples.begin(), m_path.terrainSamples.end(),
                       [](const QPointF &s) { return s.x(); },
                       [](const QPointF &s) { return s.y(); });
-    if (surface2DGroundActive())
-        return interp(m_surface2D.begin(), m_surface2D.end(),
-                      [](const Surface2DSample &s) { return s.chainage; },
-                      [](const Surface2DSample &s) { return s.bed; });
     // Rim mode: straight rim-to-rim between path nodes (real chainage).
     struct RimPt { double x, y; };
     QVector<RimPt> rims;
@@ -1860,13 +1844,6 @@ void ProfilePlotWidget::paintSoilFill(QPainter &p) const
         rimPx.reserve(m_path.terrainSamples.size());
         for (const QPointF &s : m_path.terrainSamples)
             rimPx.push_back(dataToPixel(terrainSampleToVirtualX(s.x()), s.y()));
-    } else if (surface2DGroundActive()) {
-        // 2D overlay on: the ground IS the mesh bed the water stands on,
-        // sampled where the path crosses the mesh — not a rim-to-rim line.
-        rimPx.reserve(m_surface2D.size());
-        for (const Surface2DSample &s : m_surface2D)
-            if (isFinite(s.bed))
-                rimPx.push_back(dataToPixel(realChainageToVirtualX(s.chainage), s.bed));
     } else {
         rimPx.reserve(m_path.nodes.size() * 3);
         for (int i = 0; i < m_path.nodes.size(); ++i) {
