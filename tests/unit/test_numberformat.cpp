@@ -24,6 +24,12 @@ using openswmmvis::plot::Decimals6;
 using openswmmvis::plot::SigFigs3;
 using openswmmvis::plot::SigFigs4;
 using openswmmvis::plot::SigFigs6;
+using openswmmvis::plot::Scientific2;
+using openswmmvis::plot::Scientific3;
+using openswmmvis::plot::Scientific4;
+using openswmmvis::plot::Engineering2;
+using openswmmvis::plot::Engineering3;
+using openswmmvis::plot::ThousandsInteger;
 
 namespace {
 NumberFormat decimals(int n) { return { NumberFormatMode::Decimals, n }; }
