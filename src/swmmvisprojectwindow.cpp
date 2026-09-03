@@ -1966,10 +1966,9 @@ QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() cons
         { mAddTextTool,          QStringLiteral("actionAddText")          },
         { mPick2DCellsTool,      QStringLiteral("actionPick2DCells")      },
         { mMeshProfileTool,      QStringLiteral("actionMeshProfile")      },
-        // US.A1 — analysis mesh-profile tool shares the Plot Profile action's
-        // checked state with the network select-profile tool (two tools per
-        // key is safe in the checked-state sync).
-        { mAnalysisMeshProfileTool, QStringLiteral("actionPlotProfile")   },
+        // Analysis "Plot 2D Profile" — its own action since the 1D / 2D
+        // profile entries were split apart.
+        { mAnalysisMeshProfileTool, QStringLiteral("actionPlotProfile2D") },
         // Terrain-toolbar DEM profile-trace — its own action, so picking Select
         // (or any other canvas tool) unchecks it like the mesh variants.
         { mTerrainProfileTool,   QStringLiteral("actionTerrainProfile")   },

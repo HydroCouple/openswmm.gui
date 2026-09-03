@@ -248,3 +248,18 @@ attribute → pane appears with height; click / drag the splitter grip → pane
 never vanishes, drags floor at ~72 px; toggle off/on → previous split
 restored; delete `Dialogs/ProfilePlotDialog/splitter/*` from QSettings and
 confirm a fresh 3:1 default.
+
+## Addendum — Analysis "2D Profile" split + Profile2D icon (GUI)
+
+`actionPlotProfile2D` is created in `SWMMVis::initializeMapTools` (before
+`registerActions`), catalogued as `analysis.plotProfile2D` (icon `Profile2D`,
+tab analysis), added to the ribbon Plots group and inserted after Plot Profile
+in the Analysis menu; `toolActionKeys` maps `mAnalysisMeshProfileTool` to it.
+`onPlotProfileTriggered()` lost its forceMode and is network-only; the
+MenuButtonPopup dropdown in `initializeCompactToolbar` is gone. Mesh 2D tab's
+`actionMeshProfile` now uses `IconFactory::icon("Profile2D")`.
+Smoke: Analysis tab shows Profile and 2D Profile as separate buttons with
+distinct glyphs; 2D Profile arms the surface-trace tool and stays checked
+while tracing; Profile with no network shows the "No network" notice; the
+Mesh 2D tab's trace tool shows the same 2D glyph; Command Palette lists
+"Plot 2D Profile". Check the ribbon still fits (Plots group gained a button).
