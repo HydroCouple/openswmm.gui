@@ -24,9 +24,13 @@
 namespace mesh {
 
 /*! Defaults for mapper-authored cell couplings (plan decision 2026-07-28).
- *  Vertex couplings keep the engine defaults (0.65 / 1.0 m²). */
+ *  Vertex couplings keep the engine defaults (0.65 / 1.0). AREA is in the
+ *  MESH's length units squared — the engine scales it with the mesh
+ *  coordinates, so on a US project without an SI mesh tag this is 2.0 ft²
+ *  (0.186 m²), not 2.0 m². [2D_OPTIONS] COUPLING_AREA AUTO overrides it from
+ *  the connected conduit area either way. */
 constexpr double kCellCouplingDefaultCd   = 0.65;
-constexpr double kCellCouplingDefaultArea = 2.0;   ///< m²
+constexpr double kCellCouplingDefaultArea = 2.0;   ///< mesh length units²
 
 /*! \brief Result of \ref mapNodesToMesh. */
 struct NodeMapResult

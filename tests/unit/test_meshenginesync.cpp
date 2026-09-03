@@ -388,3 +388,80 @@ TEST(MeshEngineSync, PushedBcStateReadsBackFromEngine)
     }
     swmm_engine_destroy(e);
 }
+
+// 2026-09-03 — 1D↔2D unit exchange. On a US-customary project the GUI's
+// editing engine is only OPENED, so the engine holds BC constants in DISPLAY
+// units (feet / CFS per metre) and scales them itself at initialize. The push
+// therefore has to send display units too; sending m³/s/m here made a constant
+// SPECIFIED_FLOW shrink by 0.0283 on every save → reopen of a US model.
+TEST(MeshEngineSync, UsProjectFlowBcRoundTripsInDisplayUnits)
+{
+    // Derive a CFS variant of the SI fixture on the fly: swap FLOW_UNITS and
+    // drop the `;; UNITS: SI (m)` mesh header so the engine treats the mesh
+    // (and its BC constants) as project feet.
+    const QString srcPath = QStringLiteral("mesh_sync_fixture.inp");
+    const QString inPath  = QStringLiteral("mesh_sync_fixture_cfs.inp");
+    const QString outPath = QStringLiteral("mesh_sync_cfs_out.inp");
+    {
+        QString text = readAll(srcPath);
+        ASSERT_FALSE(text.isEmpty());
+        text.replace(QStringLiteral("FLOW_UNITS           CMS"),
+                     QStringLiteral("FLOW_UNITS           CFS"));
+        text.remove(QRegularExpression(QStringLiteral("^;; UNITS: SI \\(m\\)\\s*\\n"),
+                                       QRegularExpression::MultilineOption));
+        ASSERT_TRUE(text.contains(QStringLiteral("FLOW_UNITS           CFS")));
+        ASSERT_FALSE(text.contains(QStringLiteral(";; UNITS: SI (m)")));
+        QFile f(inPath);
+        ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
+        f.write(text.toUtf8());
+    }
+
+    const mesh::InpMeshReadResult rr = mesh::InpMeshReader::read(inPath);
+    ASSERT_TRUE(rr.hasMesh) << rr.errorMsg.toStdString();
+    mesh::MeshResult          meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs       = rr.edgeBCs;
+
+    SWMM_Engine e = swmm_engine_create();
+    ASSERT_NE(e, nullptr);
+    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
+                               "mesh_sync_cfs.rpt", "mesh_sync_cfs.out", nullptr), 0);
+    // OPENED only — mirrors the GUI's editing engine.
+
+    const double kFlowCfsPerM = 1.25;   // display units, as the toolbar shows
+    const double kStageFt     = 97.7;
+    bcs[7 * 3 + 0].type  = mesh::MeshBCTypes::Type::SpecifiedFlowConst;
+    bcs[7 * 3 + 0].flow  = kFlowCfsPerM;
+    bcs[7 * 3 + 0].tseries.clear();
+    bcs[5 * 3 + 0].type  = mesh::MeshBCTypes::Type::SpecifiedStageConst;
+    bcs[5 * 3 + 0].head  = kStageFt;
+    bcs[5 * 3 + 0].tseries.clear();
+
+    QStringList warnings;
+    ASSERT_TRUE(mesh::pushMeshEditsToEngine(e, meshState, bcs, &warnings));
+
+    // The engine (pre-initialize) must hold the display value verbatim…
+    double engFlow = 0.0, engHead = 0.0;
+    ASSERT_EQ(swmm_2d_get_edge_bc_flow(e, 7, 0, &engFlow), 0);
+    ASSERT_EQ(swmm_2d_get_edge_bc_head(e, 5, 0, &engHead), 0);
+    EXPECT_NEAR(engFlow, kFlowCfsPerM, 1e-12) << "flow pushed in m³/s/m into an OPENED engine";
+    EXPECT_NEAR(engHead, kStageFt,     1e-12);
+
+    // …and write it back verbatim.
+    ASSERT_EQ(swmm_model_write(e, outPath.toUtf8().constData()), 0);
+    swmm_engine_destroy(e);
+    const QString text = readAll(outPath);
+    EXPECT_TRUE(text.contains(QStringLiteral("1.25"))) << "SPECIFIED_FLOW not written in CFS/m";
+    EXPECT_FALSE(text.contains(QStringLiteral("0.0353")))   // 1.25 × 0.02832
+        << "SPECIFIED_FLOW written in m³/s/m — will be converted again on reopen";
+
+    // Reopen + initialize: the engine converts exactly once.
+    SWMM_Engine e2 = swmm_engine_create();
+    ASSERT_EQ(swmm_engine_open(e2, outPath.toUtf8().constData(),
+                               "mesh_sync_cfs2.rpt", "mesh_sync_cfs2.out", nullptr), 0);
+    ASSERT_EQ(swmm_engine_initialize(e2), 0);
+    ASSERT_EQ(swmm_2d_get_edge_bc_flow(e2, 7, 0, &engFlow), 0);
+    ASSERT_EQ(swmm_2d_get_edge_bc_head(e2, 5, 0, &engHead), 0);
+    EXPECT_NEAR(engFlow, kFlowCfsPerM * 0.028316846592, 1e-9);
+    EXPECT_NEAR(engHead, kStageFt * 0.3048, 1e-6);
+    swmm_engine_destroy(e2);
+}
