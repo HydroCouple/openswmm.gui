@@ -180,6 +180,27 @@ Smoke check (coupled 1D/2D model with a 2D results layer active):
    profile's behaviour. If it visibly mismatches, that is a pre-existing
    unit gap shared with `MeshProfileSampler` — note it, don't patch it here.
 
+## Addendum — live rainfall series (engine + GUI, fourth pair of commits)
+
+Engine: `swmm_2d_get_rainfall_bulk` / `swmm_2d_get_rain_volume_bulk`
+(`openswmm_2d.h`, `Api2D.cpp`, mirror `swmm_2d_get_depths_bulk`). The
+Python bindings (`python/openswmm/engine/_2d.pxd/.pyx`) were NOT extended —
+optional follow-up. Rebuild + **install** the engine before the GUI: the
+runner links these symbols directly.
+
+GUI: `SimulationRunner::twoDRainfallAvailable(jobId, rainfall, rainCum, dt,
+elapsed)` emitted per tick after the flux packet (both bulk calls must return
+SWMM_OK); `SWMMVis` forwards to `EngineMesh2DSource::pushRainfall`; the source
+stores both per `Tick` and answers `hasFaceField` / `readFaceFieldAt` for
+`"Mesh2_face_rainfall"` / `"Mesh2_face_rain_cum"` once any tick carried them.
+
+Smoke: start a 2D run with a rain gage; while it is still running, right-click
+a cell → Rainfall and Rainfall volume are ENABLED (after the first tick) and
+plot a growing series; after the run finishes (HDF5 swap-in) the same series
+continue seamlessly and match the file's datasets. Older engine without the
+symbols → link error, not a runtime fallback (intentional: the repos are
+co-developed).
+
 ## Step 5 — Report
 
 Append results (build/ctest status, the rain_cum-vs-ledger numbers, smoke

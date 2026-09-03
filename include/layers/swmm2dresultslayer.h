@@ -248,6 +248,19 @@ public:
                                 double elapsedSec);
 
     /*!
+     * \brief Append one tick's per-cell rainfall intensity (m/s) and
+     * cumulative rainfall volume (m³) — the live counterparts of the HDF5
+     * \c Mesh2_face_rainfall / \c Mesh2_face_rain_cum datasets, served back
+     * through \ref readFaceFieldAt under those names so rainfall plots work
+     * during a run exactly as they do post-run. Pairs with the tick whose
+     * elapsed time matches (same convention as \ref pushFlux).
+     */
+    void pushRainfall(std::vector<float> rainfall,
+                      std::vector<float> rainCum,
+                      QDateTime simTime,
+                      double elapsedSec);
+
+    /*!
      * \brief Install time-invariant edge geometry queried via
      * \c swmm_2d_edge_get_geometry_bulk once at twoDInitialized. Sizes are
      * \c triangleCount()*3 each. Optional — when not called, the source
@@ -274,6 +287,9 @@ public:
                           std::vector<float>& nx,
                           std::vector<float>& ny) override;
     bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths) override;
+    bool hasFaceField(const char* dataset) const override;
+    bool readFaceFieldAt(const char* dataset, int timeIdx,
+                         std::vector<float>& values) override;
 
 private:
     std::vector<double>              vx_, vy_, vz_;
@@ -283,10 +299,13 @@ private:
         std::vector<float> depths;
         std::vector<float> flux;       ///< [tri*3 + localEdge]; empty when source has no flux feed.
         std::vector<float> vertex_depths; ///< [vertex]; empty when engine lacks the heads API.
+        std::vector<float> rainfall;   ///< [tri] m/s; empty when engine lacks the rainfall bulk API.
+        std::vector<float> rain_cum;   ///< [tri] m³ cumulative; paired with rainfall.
         QDateTime          sim_time;
         double             elapsed_sec = 0.0;
     };
     std::vector<Tick> history_;
+    bool              has_rainfall_ = false;   ///< any tick carried rainfall
 
     // Time-invariant edge geometry; populated once at twoDInitialized via
     // setEdgeGeometry. Empty when the engine lacks the bulk geometry API.

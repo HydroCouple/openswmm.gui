@@ -560,6 +560,30 @@ void SimulationRunner::start()
                             Qt::QueuedConnection);
                     }
 
+                    // Per-tick rainfall intensity + cumulative volume per
+                    // cell. Both calls must succeed (older engines lack
+                    // them) or nothing is emitted and the GUI keeps the
+                    // Rainfall entries greyed out until the HDF5 swap-in.
+                    {
+                        std::vector<double> rawRain(twoD_n_tri), rawCum(twoD_n_tri);
+                        if (swmm_2d_get_rainfall_bulk(eng, rawRain.data()) == SWMM_OK
+                            && swmm_2d_get_rain_volume_bulk(eng, rawCum.data()) == SWMM_OK)
+                        {
+                            QVector<float> rain(twoD_n_tri), cum(twoD_n_tri);
+                            for (int t = 0; t < twoD_n_tri; ++t) {
+                                rain[t] = static_cast<float>(rawRain[t]);
+                                cum[t]  = static_cast<float>(rawCum[t]);
+                            }
+                            QMetaObject::invokeMethod(rawSelf,
+                                [rawSelf, jobId, rain = std::move(rain),
+                                 cum = std::move(cum), curQDT, curTSec]() mutable {
+                                    emit rawSelf->twoDRainfallAvailable(
+                                        jobId, rain, cum, curQDT, curTSec);
+                                },
+                                Qt::QueuedConnection);
+                        }
+                    }
+
                     // Per-tick SIGNED vertex render depths (wet-masked
                     // η_v − z_v) — drives the smooth (Gouraud) depth fill +
                     // contour interpolation. Replaces the solver vertex-head

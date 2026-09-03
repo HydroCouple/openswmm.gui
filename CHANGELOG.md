@@ -45,7 +45,11 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
   (cumulative m³, from the engine's new `/Mesh2_face_rain_cum`).
   `Mesh2DH5Reader::readFaceFieldAt` / `hasFaceField` read any named
   per-face dataset with a probe-once presence cache; older files grey the
-  entries out.
+  entries out. Live runs serve the same two fields from
+  `EngineMesh2DSource` (per-tick `SimulationRunner::twoDRainfallAvailable`
+  via the engine's `swmm_2d_get_rainfall_bulk` /
+  `swmm_2d_get_rain_volume_bulk`), so the entries are enabled during
+  rendering, not only after the HDF5 swap-in.
 
 - **Heat Configuration editor (G4g)** — Model ▸ Heat Configuration… edits
   `[HEAT_SOURCES]` inlet temperatures (with per-node DWF/external-inflow

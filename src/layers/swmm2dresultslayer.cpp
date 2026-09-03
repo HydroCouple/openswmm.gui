@@ -47,6 +47,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <utility>
 
@@ -947,6 +948,56 @@ void EngineMesh2DSource::pushVertexSignedDepths(std::vector<double> depths,
     t.sim_time      = simTime;
     t.elapsed_sec   = elapsedSec;
     history_.emplace_back(std::move(t));
+}
+
+void EngineMesh2DSource::pushRainfall(std::vector<float> rainfall,
+                                       std::vector<float> rainCum,
+                                       QDateTime simTime,
+                                       double elapsedSec)
+{
+    // Same tick-pairing convention as pushFlux.
+    if (!history_.empty() &&
+        std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
+    {
+        history_.back().rainfall = std::move(rainfall);
+        history_.back().rain_cum = std::move(rainCum);
+        has_rainfall_ = true;
+        return;
+    }
+    Tick t;
+    t.rainfall    = std::move(rainfall);
+    t.rain_cum    = std::move(rainCum);
+    t.sim_time    = simTime;
+    t.elapsed_sec = elapsedSec;
+    history_.emplace_back(std::move(t));
+    has_rainfall_ = true;
+}
+
+bool EngineMesh2DSource::hasFaceField(const char* dataset) const
+{
+    if (!has_rainfall_ || !dataset) return false;
+    return std::strcmp(dataset, "Mesh2_face_rainfall") == 0
+        || std::strcmp(dataset, "Mesh2_face_rain_cum") == 0;
+}
+
+bool EngineMesh2DSource::readFaceFieldAt(const char* dataset, int timeIdx,
+                                          std::vector<float>& values)
+{
+    if (!hasFaceField(dataset)) return false;
+    if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size())) {
+        values.assign(tris_.size(), 0.0f);
+        return false;
+    }
+    const Tick& t = history_[timeIdx];
+    const auto& src = (std::strcmp(dataset, "Mesh2_face_rainfall") == 0)
+                          ? t.rainfall : t.rain_cum;
+    if (src.empty()) {
+        // Tick pushed before the rainfall message landed — caller skips it.
+        values.assign(tris_.size(), 0.0f);
+        return false;
+    }
+    values = src;
+    return true;
 }
 
 void EngineMesh2DSource::setEdgeGeometry(std::vector<float> length,
