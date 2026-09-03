@@ -278,7 +278,7 @@ void ProfilePlotDialog::buildLayout()
     // Quick toggle for the 2D inundation overlay; mirrors the
     // show2DInundation option (also in Display Options).
     m_actShow2D = toolbar->addAction(
-        openswmmvis::ui::IconFactory::icon(QStringLiteral("Remap1D2D")),
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("Inundation2D")),
         tr("2D Inundation"));
     m_actShow2D->setObjectName(QStringLiteral("show2DInundation"));
     m_actShow2D->setToolTip(tr("Overlay the active 2D results layer's water "
@@ -1706,7 +1706,7 @@ void ProfilePlotDialog::buildAttributeTracksUi(QToolBar *toolbar)
     // DialogLayoutWatcher toggle group, like ComparisonPlotDialog's panel
     // toggles.
     m_actShowTracks = toolbar->addAction(
-        openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")),
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("AttributeTracks")),
         tr("Show Attribute Tracks"));
     m_actShowTracks->setObjectName(QStringLiteral("showAttributeTracks"));
     m_actShowTracks->setCheckable(true);
