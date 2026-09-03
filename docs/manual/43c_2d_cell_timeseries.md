@@ -46,7 +46,7 @@ Note that triangle indices are mesh-specific — comparing two runs with differe
 
 ## Live mode
 
-While a simulation is running, cell picks land on the existing live-tick stream. New series start empty and grow tick-by-tick as the engine emits `twoDDepthsAvailable` / `twoDFluxAvailable`. The animation cursor (when enabled) sweeps across all chart rows in lockstep with the canvas heatmap.
+While a simulation is running, cell picks land on the existing live-tick stream. New series start empty and grow tick-by-tick as the engine emits `twoDDepthsAvailable` / `twoDFluxAvailable` / `twoDRainfallAvailable` (the last carries per-cell rainfall intensity + cumulative volume from `swmm_2d_get_rainfall_bulk` / `swmm_2d_get_rain_volume_bulk`, so the Rainfall entries are enabled live, not only after the HDF5 swap-in). The animation cursor (when enabled) sweeps across all chart rows in lockstep with the canvas heatmap.
 
 ## Limitations
 
