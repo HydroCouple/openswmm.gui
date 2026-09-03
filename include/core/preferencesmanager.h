@@ -253,6 +253,13 @@ public:
     [[nodiscard]] int progressTickMs() const;
     void setProgressTickMs(int ms);
 
+    /*! Live 1D results: open the run's .out while the engine writes it and
+     *  grow the results layer (map animation, profile + comparison plots)
+     *  on every progress tick. Applies to the 6.x engine and the legacy
+     *  workers alike (both flush per report period). Default true. */
+    [[nodiscard]] bool liveResults1DEnabled() const;
+    void setLiveResults1DEnabled(bool on);
+
     /*! Default animation playback speed multiplier restored at startup.
      *  Valid values: 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 (mirrors the
      *  animation toolbar's Speed combo). Default 1.0. Per-session

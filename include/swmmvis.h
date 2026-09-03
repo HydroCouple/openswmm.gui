@@ -731,6 +731,7 @@ private:
     QLabel        *mLabelActiveResults2D              = nullptr;
     QComboBox     *mComboActiveResults2D              = nullptr;
     QCheckBox     *mCheckBoxLive2D                    = nullptr;  // live 2D render on/off (Issue 2)
+    QCheckBox     *mCheckBoxLive1D                    = nullptr;  // live 1D results pref (LIVE_1D_RESULTS_PLAN_V2)
     class AnimationController *mAnimationController  = nullptr;
     class TerrainToolbar      *mTerrainToolbar       = nullptr;
     class MeshEditingToolbar  *mMeshEditingToolbar   = nullptr;   // Slice §V.VB
@@ -787,6 +788,24 @@ private:
     // QPointer so the entry is auto-cleared if the layer is destroyed (e.g.
     // the user closes the project window mid-run).
     QHash<int, QPointer<class SWMM2DResultsLayer>> mActive2DResultsLayers;
+
+    /*! Live 1D results (LIVE_1D_RESULTS_PLAN_V2 §4.3): per running job, the
+     *  SWMMResultsLayer tailing its .out. Filled on the first progress tick
+     *  whose header is on disk, refreshed on every later tick, released in
+     *  the finished handler (which finalises the same layer in place). */
+    QHash<int, QPointer<class SWMMResultsLayer>> mLive1DLayers;
+
+    /*! Find the results layer bound to \p outPath on \p pw's canvas, or
+     *  create + add one. Shared by the live tick and the finish handler so
+     *  both bind the SAME layer object. */
+    class SWMMResultsLayer *findOrCreateResultsLayer(SWMMVisProjectWindow *pw,
+                                                     const QString &outPath,
+                                                     const QString &rptPath);
+
+    /*! Live 1D tick: open the job's .out live on first sight, else refresh
+     *  it; promotes the layer to active/primary once it holds data. */
+    void tickLive1DResults(int jobId, SWMMVisProjectWindow *pw,
+                           const QString &outPath, const QString &rptPath);
 
     // Per-job simulation start time captured from simulationDatesKnown so the
     // post-run HDF5Mesh2DSource can map its /time (days-since-start) to

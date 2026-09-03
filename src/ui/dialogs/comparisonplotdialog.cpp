@@ -783,6 +783,10 @@ int ComparisonPlotDialog::ensureRunSourceForLayer(SWMMResultsLayer *layer,
     const int idx = m_model->addRunSource(std::move(rs));
     if (makeBaseline)
         m_model->setBaseline(idx);
+    // Live 1D results: the layer grows while its run writes the .out;
+    // append the new points instead of rebuilding every chart.
+    connect(layer, &SWMMResultsLayer::periodsAppended, this,
+            [this](int, int) { appendChartTails(); }, Qt::UniqueConnection);
     return idx;
 }
 
@@ -824,6 +828,10 @@ int ComparisonPlotDialog::ensureRunSourceForMeshLayer(SWMM2DResultsLayer *layer)
 
     RunSource rs;
     rs.layer = std::make_shared<Mesh2DRunLayer>(layer);
+    // Live 2D: frames stream in during the run; the run layer re-polls the
+    // source, so appending the tail is all that is needed.
+    connect(layer, &SWMM2DResultsLayer::timeRangeChanged, this,
+            [this](int, int) { appendChartTails(); }, Qt::UniqueConnection);
     return m_model->addRunSource(std::move(rs));
 }
 
@@ -1302,6 +1310,83 @@ void ComparisonPlotDialog::onAddSeriesClicked()
 // ---------------------------------------------------------------------------
 // Charts area
 // ---------------------------------------------------------------------------
+
+void ComparisonPlotDialog::appendChartTails()
+{
+    // Incremental refresh for a growing run source (live 1D tail, live 2D
+    // stream). Every QChart / axis / QLineSeries stays alive; each series
+    // gets only the points newer than its last one, and axes are extended
+    // outward — never shrunk — so the plot does not jump under the user.
+    // If the row set changed shape since the last build, fall back to a
+    // full rebuild.
+    const QVector<AttributeRow> &rows = m_model->rows();
+    if (rows.size() != m_rowWidgets.size()) { rebuildCharts(); return; }
+
+    for (int r = 0; r < rows.size(); ++r) {
+        const AttributeRow &row = rows.at(r);
+        RowWidgets &rw = m_rowWidgets[r];
+        if (!rw.chart || !rw.xAxis || !rw.yAxis
+            || rw.series.size() != row.seriesIndices.size()) {
+            rebuildCharts();
+            return;
+        }
+
+        // A row built with no data carries the [0,1] placeholder range;
+        // the first real points replace it instead of merging with it.
+        const bool hadPoints = std::any_of(rw.series.cbegin(), rw.series.cend(),
+                                           [](QLineSeries *s) { return s && s->count() > 0; });
+        double yMin = hadPoints ? rw.yAxis->min() :  std::numeric_limits<double>::infinity();
+        double yMax = hadPoints ? rw.yAxis->max() : -std::numeric_limits<double>::infinity();
+        qint64 xMinMs = hadPoints ? rw.xAxis->min().toMSecsSinceEpoch()
+                                  : std::numeric_limits<qint64>::max();
+        qint64 xMaxMs = hadPoints ? rw.xAxis->max().toMSecsSinceEpoch()
+                                  : std::numeric_limits<qint64>::min();
+        bool grew = false;
+
+        for (int k = 0; k < row.seriesIndices.size(); ++k) {
+            QLineSeries *line = rw.series[k];
+            if (!line) continue;
+            const int sIdx = row.seriesIndices[k];
+
+            SeriesData data;
+            m_model->resolveSeries(sIdx, data);
+            if (!data.ok) continue;
+
+            // Newest point already on the chart; append strictly after it.
+            const qint64 lastMs = line->count() > 0
+                ? static_cast<qint64>(line->at(line->count() - 1).x())
+                : std::numeric_limits<qint64>::min();
+            QList<QPointF> tail;
+            for (std::size_t i = 0; i < data.timesJulian.size(); ++i) {
+                const QDateTime dt =
+                    openswmmvis::core::swmmDateTimeToQDateTime(data.timesJulian[i]);
+                const double v = data.values[i];
+                if (!dt.isValid() || !std::isfinite(v)) continue;
+                const qint64 ms = dt.toMSecsSinceEpoch();
+                if (ms <= lastMs) continue;
+                tail.append(QPointF(static_cast<double>(ms), v));
+                if (v < yMin) yMin = v;
+                if (v > yMax) yMax = v;
+                if (ms < xMinMs) xMinMs = ms;
+                if (ms > xMaxMs) xMaxMs = ms;
+            }
+            if (!tail.isEmpty()) { line->append(tail); grew = true; }
+        }
+        if (!grew) continue;
+
+        // Extend outward only (yMin/yMax already include the old range when
+        // the row had points).
+        if (std::isfinite(yMin) && std::isfinite(yMax) && yMax > yMin) {
+            const double pad = 0.05 * (yMax - yMin);
+            rw.yAxis->setRange(std::min(yMin - pad, hadPoints ? rw.yAxis->min() : yMin - pad),
+                               std::max(yMax + pad, hadPoints ? rw.yAxis->max() : yMax + pad));
+        }
+        if (xMinMs < xMaxMs)
+            rw.xAxis->setRange(QDateTime::fromMSecsSinceEpoch(xMinMs),
+                                QDateTime::fromMSecsSinceEpoch(xMaxMs));
+    }
+    applyAnimationCursorToCharts();
+}
 
 void ComparisonPlotDialog::rebuildCharts()
 {
