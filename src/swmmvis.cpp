@@ -1507,6 +1507,25 @@ void SWMMVis::initializeAnimationToolBar()
             layer->setLiveRenderEnabled(checked);
     });
     groupDisplay->addWidget(mCheckBoxLive2D);
+
+    // Live 1D results — a persisted preference (unlike the per-layer 2D
+    // gate above): while a run is in progress the .out is opened as it is
+    // written and the results layer grows on every progress tick, so the
+    // map animation, profile and comparison plots follow the run for both
+    // the 6.x engine and the legacy workers. Off = today's behaviour (the
+    // .out is opened when the run finishes).
+    mCheckBoxLive1D = new QCheckBox(tr("Live 1D"), this);
+    mCheckBoxLive1D->setChecked(PreferencesManager::instance()->liveResults1DEnabled());
+    mCheckBoxLive1D->setContentsMargins(8, 0, 4, 0);
+    mCheckBoxLive1D->setToolTip(tr(
+        "Load the run's 1D results while the simulation is still writing "
+        "them: the results layer, animation range, profile and comparison "
+        "plots grow with every progress tick. Applies to the next run "
+        "started (any engine version)."));
+    connect(mCheckBoxLive1D, &QCheckBox::toggled, this, [](bool checked) {
+        PreferencesManager::instance()->setLiveResults1DEnabled(checked);
+    });
+    groupDisplay->addWidget(mCheckBoxLive1D);
     mToolBarAnimation->addWidget(groupDisplay);
 
     // Restore cross-launch default speed from PreferencesManager and push it
@@ -3079,6 +3098,61 @@ void SWMMVis::openMeshBedProfilePlotFor(const QVector<QPointF> &scenePolyline)
     // results is null.
     openMeshProfileDialog(scenePolyline, /*results=*/nullptr,
                           tr("2D Mesh Bed Profile"));
+}
+
+SWMMResultsLayer *SWMMVis::findOrCreateResultsLayer(SWMMVisProjectWindow *pw,
+                                                    const QString &outPath,
+                                                    const QString &rptPath)
+{
+    if (!pw || !pw->canvas() || !pw->modelLayer()) return nullptr;
+    // Reuse any existing layer pointing at this .out (typical case: same
+    // model re-run — the overwrite-confirm path already closed its handle).
+    const QString outCanon = QFileInfo(outPath).absoluteFilePath();
+    for (OpenSWMMVisLayer *l : pw->canvas()->layers()) {
+        if (auto *existing = qobject_cast<SWMMResultsLayer *>(l)) {
+            if (QFileInfo(existing->resultsFilePath()).absoluteFilePath() == outCanon) {
+                existing->setReportFilePath(rptPath);
+                return existing;
+            }
+        }
+    }
+    auto *rl = new SWMMResultsLayer(outPath, pw->modelLayer());
+    rl->setName(QFileInfo(outPath).fileName());
+    rl->setReportFilePath(rptPath);
+    pw->canvas()->addLayer(rl, true);
+    return rl;
+}
+
+void SWMMVis::tickLive1DResults(int jobId, SWMMVisProjectWindow *pw,
+                                const QString &outPath, const QString &rptPath)
+{
+    SWMMResultsLayer *rl = mLive1DLayers.value(jobId).data();
+    const bool hadData = rl && rl->totalTimeSteps() > 0;
+
+    if (!rl) {
+        // First sight of this job: open live. Silently retried next tick
+        // while the engine has not flushed the header yet.
+        rl = findOrCreateResultsLayer(pw, outPath, rptPath);
+        if (!rl) return;
+        if (rl->isLive()) {
+            mLive1DLayers.insert(jobId, rl);          // opened by an earlier tick
+        } else {
+            QList<QString> errs;
+            if (!rl->openResultsLive(errs)) return;
+            mLive1DLayers.insert(jobId, rl);
+        }
+    } else {
+        rl->refreshLive();
+    }
+
+    // Promote once the file carries data: colour ramp, active 1D layer,
+    // animation primary — the same promotion the finish handler does, just
+    // earlier, so the map/animation/plots follow the run.
+    if (!hadData && rl->totalTimeSteps() > 0) {
+        rl->autoStretchColorRamp();
+        pw->setActiveResultsLayer(rl);
+        mAnimationController->setPrimaryLayer(rl);
+    }
 }
 
 void SWMMVis::onPlotProfileTriggered()
@@ -7839,6 +7913,20 @@ void SWMMVis::onRunSimulation()
     QString outPathCopy  = outPath;
     QString rptPathCopy  = rptPath;
 
+    // Live 1D results (LIVE_1D_RESULTS_PLAN_V2): every progress tick is a
+    // chance to open the .out live (first tick whose header is on disk) or
+    // to re-count its periods. Both engine branches emit progressChanged
+    // at progressTickMs, so no extra runner signal is needed. The pref is
+    // read per tick so unchecking "Live 1D" mid-run stops further growth
+    // (the finish handler still finalises the layer).
+    connect(runner, &SimulationRunner::progressChanged, this,
+            [self, pwGuard, outPathCopy, rptPathCopy]
+            (int tickJobId, double, const QDateTime &, double, double) {
+                if (!self || !pwGuard) return;
+                if (!PreferencesManager::instance()->liveResults1DEnabled()) return;
+                self->tickLive1DResults(tickJobId, pwGuard, outPathCopy, rptPathCopy);
+            });
+
     connect(runner, &SimulationRunner::finished, this,
             [self, runner, pwGuard, outPathCopy, rptPathCopy, instanceName]
             (int finishedJobId, bool success, int errCode, QString errMsg,
@@ -7906,36 +7994,39 @@ void SWMMVis::onRunSimulation()
                 // either way, and the user explicitly asked for Cancel to
                 // save results. Only skip on engine-error with no output.
                 const bool hasResults = (success || cancelled) && outHasData;
+                // The layer this job was tailing live, if any. Finalising it
+                // in place keeps its identity, so open plots / the animation
+                // controller bound to it never see a swap.
+                SWMMResultsLayer *liveLayer = self->mLive1DLayers.take(finishedJobId).data();
                 if (hasResults && pwGuard && pwGuard->canvas() && pwGuard->modelLayer()) {
-                    // Reuse any existing layer pointing at this .out
-                    // (typical case: same model re-run, or the
-                    // overwrite-confirm path closed an open layer above
-                    // — reopen its handle now that the engine has
-                    // finished writing).  Otherwise create a fresh one.
-                    const QString outCanon = QFileInfo(outPathCopy).absoluteFilePath();
-                    SWMMResultsLayer *rl = nullptr;
-                    for (OpenSWMMVisLayer *l : pwGuard->canvas()->layers()) {
-                        if (auto *existing = qobject_cast<SWMMResultsLayer *>(l)) {
-                            if (QFileInfo(existing->resultsFilePath()).absoluteFilePath() == outCanon) {
-                                rl = existing;
-                                rl->closeResults();
-                                break;
-                            }
-                        }
-                    }
-                    const bool freshlyCreated = (rl == nullptr);
-                    if (freshlyCreated) {
-                        rl = new SWMMResultsLayer(outPathCopy,
-                                                  pwGuard->modelLayer());
-                        rl->setName(QFileInfo(outPathCopy).fileName());
-                        pwGuard->canvas()->addLayer(rl, true);
-                    }
+                    SWMMResultsLayer *rl = liveLayer
+                        ? liveLayer
+                        : self->findOrCreateResultsLayer(pwGuard, outPathCopy, rptPathCopy);
                     // Remember which .rpt this run wrote so the Report
                     // Viewer can list it (persisted in the .oswp sidecar).
                     rl->setReportFilePath(rptPathCopy);
 
-                    QList<QString> rlWarnings, rlErrors;
-                    if (rl->openResults(rlWarnings, rlErrors))
+                    bool opened = false;
+                    if (rl->isLive()) {
+                        // The footer is on disk now: adopt it. If the writer
+                        // never wrote one (killed mid-run) the reader stays
+                        // live with whatever whole periods exist — still
+                        // usable, so keep it rather than reopening.
+                        rl->refreshLive();
+                        opened = rl->totalTimeSteps() > 0;
+                    }
+                    if (!opened) {
+                        // Not tailed (pref off / header never seen): the
+                        // classic post-run open. closeResults() first in case
+                        // a stale handle is bound (overwrite-confirm path).
+                        rl->closeResults();
+                        QList<QString> rlWarnings, rlErrors;
+                        opened = rl->openResults(rlWarnings, rlErrors);
+                        if (!opened)
+                            for (const QString &e : rlErrors)
+                                self->onLogMessage(e, OpenSWMMVisLogMessage::Error);
+                    }
+                    if (opened)
                     {
                         rl->autoStretchColorRamp();
                         // A just-finished run is an explicit user action — make
@@ -7944,11 +8035,9 @@ void SWMMVis::onRunSimulation()
                         pwGuard->setActiveResultsLayer(rl);
                         self->mAnimationController->setPrimaryLayer(rl);
                     }
-                    else
-                    {
-                        for (const QString &e : rlErrors)
-                            self->onLogMessage(e, OpenSWMMVisLogMessage::Error);
-                    }
+                } else if (liveLayer) {
+                    // Engine error with no usable output: drop the tail.
+                    liveLayer->closeResults();
                 }
 
                 runner->deleteLater();

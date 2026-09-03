@@ -907,6 +907,22 @@ void PreferencesManager::setProgressTickMs(int ms)
                            QStringLiteral("ProgressTickMs"));
 }
 
+bool PreferencesManager::liveResults1DEnabled() const
+{
+    return m_settings.value(QStringLiteral("%1/Simulation/LiveResults1D")
+                                .arg(kGroupRoot),
+                            true).toBool();
+}
+
+void PreferencesManager::setLiveResults1DEnabled(bool on)
+{
+    if (on == liveResults1DEnabled()) return;
+    m_settings.setValue(QStringLiteral("%1/Simulation/LiveResults1D")
+                            .arg(kGroupRoot), on);
+    emit preferenceChanged(QStringLiteral("Simulation"),
+                           QStringLiteral("LiveResults1D"));
+}
+
 // ---------------------------------------------------------------------------
 // 2D mesh boundary-condition edge styling defaults
 // ---------------------------------------------------------------------------

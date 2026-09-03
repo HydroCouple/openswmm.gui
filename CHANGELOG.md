@@ -19,6 +19,19 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Live 1D results (6.x engine and legacy workers).** While a run is in
+  progress the `.out` is opened live (`SWMMResultsLayer::openResultsLive`,
+  engine `swmm_output_open_live`) on the first progress tick whose header is
+  on disk and re-counted on every later tick (`refreshLive`, emitting
+  `totalTimeStepsChanged` + `periodsAppended`). The results layer, animation
+  range, comparison plots (`ComparisonPlotDialog::appendChartTails`, also
+  wired to 2D `timeRangeChanged`) and profile plots
+  (`ProfileSourceFetcher::appendTail` + `ProfileBuilder::appendPeriods`) grow
+  with the run; on finish the same layer adopts the footer in place — no
+  swap, no jump. Toggle: Results toolbar "Live 1D" checkbox → preference
+  `liveResults1DEnabled` (default on). Plan:
+  `workplans/LIVE_1D_RESULTS_PLAN_V2_2026-09-03.md`.
+
 - **Separate "Profile" and "2D Profile" on the Analysis tab.** The 2D
   surface profile is now its own action (`actionPlotProfile2D`, Analysis
   menu ▸ Plot 2D Profile, ribbon Plots group) instead of a dropdown

@@ -305,9 +305,25 @@ private:
     // duplicate connections.
     QHash<SWMMResultsLayer *,
           std::shared_ptr<ProfileBuilder::SourceDerived>> m_sourceCache;
+    /*! The fetched series each cached SourceDerived was computed from —
+     *  kept so a live layer's new periods can be appended
+     *  (ProfileSourceFetcher::appendTail + ProfileBuilder::appendPeriods)
+     *  instead of refetching the whole .out on every progress tick. */
+    QHash<SWMMResultsLayer *,
+          std::shared_ptr<ProfileBuilder::SourceSeries>> m_sourceSeriesCache;
+    /*! Rebinds in flight on the worker thread. While non-zero the cached
+     *  SourceDerived may be read off-thread, so live appends (which mutate
+     *  it in place) are skipped; the next tick catches up. */
+    int m_rebindsInFlight = 0;
     QSet<SWMMResultsLayer *> m_cacheWired;
     void invalidateSourceCacheFor(SWMMResultsLayer *layer);
     void ensureCacheInvalidationWired(SWMMResultsLayer *layer);
+
+    /*! Live 1D results: extend \p layer's cached series + derived with the
+     *  periods it just gained, then repaint the plot and refresh the
+     *  attribute tracks. Falls back to a full rebind when nothing is cached
+     *  for the layer or the append cannot be applied. */
+    void appendLivePeriods(SWMMResultsLayer *layer);
 
     /*!
      * \brief Push a plot-level line style the user just edited onto every
