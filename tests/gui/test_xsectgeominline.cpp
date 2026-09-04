@@ -306,6 +306,92 @@ private slots:
             QStringLiteral("initialQuality")).isEmpty());
         swmm_engine_destroy(e);
     }
+
+    // ====================================================================
+    // Post-run summary rows (Attribute Table dynamics parity)
+    // ====================================================================
+
+    // Every link subclass carries the five shared stat* rows read-only;
+    // pumps additionally carry the utilisation trio, which the other kinds
+    // must NOT expose. Reading through the meta-object catches READ-
+    // accessor typos moc only surfaces at runtime; the never-run editing
+    // engine yields zeros.
+    void statRowsPerSubclassReadOnlyZeroPreRun()
+    {
+        const QStringList shared = {
+            QStringLiteral("statMaxFlow"),     QStringLiteral("statMaxVelocity"),
+            QStringLiteral("statMaxFilling"),  QStringLiteral("statVolFlow"),
+            QStringLiteral("statSurchargeTime"),
+        };
+        const QStringList pumpOnly = {
+            QStringLiteral("statPumpCycles"), QStringLiteral("statPumpOnTime"),
+            QStringLiteral("statPumpVolume"),
+        };
+
+        auto checkProps = [](SWMMLinkPropertyAdapter &a, const QStringList &props) {
+            const auto *mo = a.metaObject();
+            for (const QString &prop : props) {
+                const QByteArray p = prop.toLatin1();
+                const int idx = mo->indexOfProperty(p.constData());
+                QVERIFY2(idx >= 0, p.constData());
+                QVERIFY2(!mo->property(idx).isWritable(), p.constData());
+                const QVariant v = mo->property(idx).read(&a);
+                QVERIFY2(v.isValid(), p.constData());
+                QCOMPARE(v.toDouble(), 0.0);
+                QVERIFY2(!a.displayLabelFor(prop).isEmpty(), p.constData());
+            }
+        };
+
+        {
+            SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
+            QVERIFY(e);
+            SWMMConduitPropertyAdapter a(e, QStringLiteral("C1"));
+            checkProps(a, shared);
+            for (const QString &prop : pumpOnly)
+                QVERIFY2(a.metaObject()->indexOfProperty(
+                             prop.toLatin1().constData()) < 0,
+                         "pump utilisation rows must stay pump-only");
+            swmm_engine_destroy(e);
+        }
+        {
+            SWMM_Engine e = buildLinkFixture("P1", /*Pump=*/1);
+            QVERIFY(e);
+            SWMMPumpPropertyAdapter a(e, QStringLiteral("P1"));
+            checkProps(a, shared + pumpOnly);
+            swmm_engine_destroy(e);
+        }
+        {
+            SWMM_Engine e = buildLinkFixture("O1", /*Orifice=*/2);
+            QVERIFY(e);
+            SWMMOrificePropertyAdapter a(e, QStringLiteral("O1"));
+            checkProps(a, shared);
+            swmm_engine_destroy(e);
+        }
+        {
+            SWMM_Engine e = buildLinkFixture("T1", /*Outlet=*/4);
+            QVERIFY(e);
+            SWMMOutletPropertyAdapter a(e, QStringLiteral("T1"));
+            checkProps(a, shared);
+            swmm_engine_destroy(e);
+        }
+        {
+            SWMM_Engine e = buildLinkFixture("W1", /*Weir=*/3);
+            QVERIFY(e);
+            SWMMWeirPropertyAdapter a(e, QStringLiteral("W1"));
+            checkProps(a, shared);
+
+            // Stats-source plumbing: changed() fires once per new id, and a
+            // non-null id with no registry bound stays on the engine path.
+            QSignalSpy spy(&a, &SWMMLinkPropertyAdapter::changed);
+            const QUuid someRun = QUuid::createUuid();
+            a.setStatsSource(someRun);
+            QCOMPARE(spy.count(), 1);
+            a.setStatsSource(someRun);
+            QCOMPARE(spy.count(), 1);
+            QCOMPARE(a.statMaxFlow(), 0.0);
+            swmm_engine_destroy(e);
+        }
+    }
 };
 
 QTEST_MAIN(TestXsectGeomInline)
