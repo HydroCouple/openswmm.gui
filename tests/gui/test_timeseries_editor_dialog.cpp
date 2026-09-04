@@ -29,6 +29,7 @@
 #include <QFile>
 #include <QItemSelectionModel>
 #include <QLineSeries>
+#include <QLabel>
 #include <QListView>
 #include <QObject>
 #include <QPushButton>
@@ -1027,7 +1028,9 @@ private slots:
         QVERIFY2(!toolbar->isEnabled(),
                  "createNew binds no provider, so the toolbar starts disabled");
 
-        auto *list = dlg->findChild<QListView *>();
+        // By name: a bare findChild<QListView*> can land on a QComboBox's
+        // internal popup view (the source card now hosts a time-mode combo).
+        auto *list = dlg->findChild<QListView *>(QStringLiteral("seriesListView"));
         QVERIFY(list);
         QVERIFY(list->model());
         QCOMPARE(list->model()->rowCount(), 1);
@@ -1056,6 +1059,125 @@ private slots:
         list->selectionModel()->clearCurrentIndex();
         QVERIFY2(!toolbar->isEnabled(),
                  "with no series bound the toolbar must go back to disabled");
+    }
+
+    // ── Time modes (relative / absolute authoring form) ─────────────────────
+
+    void addRow_SeedsFromSimulationStart()
+    {
+        TimeseriesRegistry reg;
+        reg.setSimulationStart(t(2007, 1, 1, 6));
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QTest::qWait(20);
+
+        for (auto *a : dlg.findChildren<QAction *>())
+            if (a->text() == QStringLiteral("Add Row")) { a->trigger(); break; }
+        QCOMPARE(p.pointCount(), 1);
+        QCOMPARE(p.pointAt(0).time, t(2007, 1, 1, 6));
+    }
+
+    void timeModeCombo_SwitchesWithUndoAndBadge()
+    {
+        TimeseriesRegistry reg;
+        reg.setSimulationStart(t(2026, 1, 1, 0));
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QVERIFY(p.timeMode() == TimeseriesProvider::TimeMode::Absolute);
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QTest::qWait(20);
+
+        auto *holder = dlg.findChild<QWidget *>(QStringLiteral("timeModeRowHolder"));
+        QVERIFY(holder);
+        QVERIFY2(holder->isVisibleTo(&dlg), "time-mode row visible for Inline series");
+        auto *combo = holder->findChild<QComboBox *>();
+        QVERIFY(combo);
+        QCOMPARE(combo->currentData().toInt(), 0);   // Absolute
+
+        // Switch to Relative through the combo → provider follows, undoable.
+        combo->setCurrentIndex(combo->findData(1));
+        QCOMPARE(p.timeMode(), TimeseriesProvider::TimeMode::Relative);
+        QCOMPARE(p.relativeCount(), p.pointCount());
+        QCOMPARE(p.relativeAnchor(), t(2026, 1, 1, 0));
+        auto *badge = holder->findChild<QLabel *>(QStringLiteral("timeModeBadge"));
+        QVERIFY(badge && badge->isVisibleTo(&dlg) && !badge->text().isEmpty());
+
+        stack.undo();
+        QCOMPARE(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+        QTest::qWait(10);
+        QCOMPARE(combo->currentData().toInt(), 0);
+    }
+
+    void timeModeCombo_RefusedWhenPointsPrecedeStart()
+    {
+        TimeseriesRegistry reg;
+        reg.setSimulationStart(t(2026, 6, 1, 0));   // AFTER the fixture points
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QTest::qWait(20);
+
+        auto *holder = dlg.findChild<QWidget *>(QStringLiteral("timeModeRowHolder"));
+        QVERIFY(holder);
+        auto *combo = holder->findChild<QComboBox *>();
+        QVERIFY(combo);
+        combo->setCurrentIndex(combo->findData(1));
+        QTest::qWait(10);
+        // Refused: first point precedes the anchor → elapsed would be negative.
+        QCOMPARE(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+        QCOMPARE(combo->currentData().toInt(), 0);   // snapped back
+    }
+
+    void mixedProvider_ShowsReadOnlyMixedItem()
+    {
+        TimeseriesRegistry reg;
+        reg.setSimulationStart(t(2026, 1, 1, 0));
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        p.setRelativeInfo(2, t(2026, 1, 1, 0));   // loaded Mixed form
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QTest::qWait(20);
+
+        auto *holder = dlg.findChild<QWidget *>(QStringLiteral("timeModeRowHolder"));
+        QVERIFY(holder);
+        auto *combo = holder->findChild<QComboBox *>();
+        QVERIFY(combo);
+        QCOMPARE(combo->currentData().toInt(), 2);   // Mixed selected
+        QCOMPARE(combo->count(), 3);
+    }
+
+    void paste_ElapsedHoursFollowTimeMode()
+    {
+        TimeseriesRegistry reg;
+        reg.setSimulationStart(t(2026, 1, 1, 0));
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QTest::qWait(20);
+
+        // Absolute mode: a bare-number time cell must NOT paste.
+        QApplication::clipboard()->setText(QStringLiteral("1\t5.0"));
+        for (auto *a : dlg.findChildren<QAction *>())
+            if (a->text() == QStringLiteral("Paste")) { a->trigger(); break; }
+        QCOMPARE(p.pointCount(), 0);
+
+        // Relative mode: "1" is one elapsed hour from the anchor.
+        p.setTimeMode(TimeseriesProvider::TimeMode::Relative, t(2026, 1, 1, 0));
+        QTest::qWait(10);
+        for (auto *a : dlg.findChildren<QAction *>())
+            if (a->text() == QStringLiteral("Paste")) { a->trigger(); break; }
+        QCOMPARE(p.pointCount(), 1);
+        QCOMPARE(p.pointAt(0).time, t(2026, 1, 1, 1));
+        QCOMPARE(p.pointAt(0).value, 5.0);
     }
 };
 

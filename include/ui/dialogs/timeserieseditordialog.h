@@ -198,6 +198,7 @@ private slots:
     void onColumnSelectorChanged_(int index);
     void onReloadExternalFile_();
     void onDetachToInline_();
+    void onTimeModeComboChanged_(int index);
 
     // ── Transform panel (Phase 6.7.3.5 follow-up) ───────────────────────────
     void onApplyRotateClicked_();
@@ -227,6 +228,10 @@ private:
     // ── Source-mode card helpers ────────────────────────────────────────────
     void buildSourceModeCard_();
     void refreshSourceModeCardForProvider_();
+    /*! \brief Sync the time-mode combo + badge to the bound provider.
+     *  The row is visible only for Inline series (the relative/absolute
+     *  distinction is an `.inp` [TIMESERIES] authoring form). */
+    void refreshTimeModeRow_();
     /*! \brief Repopulate the column-selector combo (B3). Items carry the real
      *  header name as userData (the headerless placeholder carries an empty
      *  string); \a columnSelector is re-selected case-insensitively.
@@ -324,6 +329,8 @@ private:
     QPushButton  *m_extReloadBtn        = nullptr;
     QPushButton  *m_extDetachBtn        = nullptr;   ///< One-way Convert-to-Inline.
     QLabel       *m_gpkgPlaceholderLbl  = nullptr;   ///< Stubbed in this cut.
+    QComboBox    *m_timeModeCombo       = nullptr;   ///< Absolute / Relative (+ read-only Mixed).
+    QLabel       *m_timeModeBadge       = nullptr;   ///< "saved as elapsed time from …" hint.
 
     // ── Transform panel (Phase 6.7.3.5 follow-up) ───────────────────────────
     QFrame          *m_transformPanel       = nullptr;   ///< Wrapper; show/hide per EditMode.

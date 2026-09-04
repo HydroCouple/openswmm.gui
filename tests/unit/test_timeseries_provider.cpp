@@ -177,3 +177,119 @@ TEST(TimeseriesProvider, SourceModeFlipEmitsSignal)
     EXPECT_EQ(spy.first().at(1).value<TimeseriesProvider::SourceMode>(),
               TimeseriesProvider::SourceMode::ExternalFile);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Time mode (relative / absolute authoring form)
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(TimeseriesProviderTimeMode, DefaultsToAbsolute)
+{
+    TimeseriesProvider p(QStringLiteral("TS"));
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+    EXPECT_EQ(p.relativeCount(), 0);
+    EXPECT_FALSE(p.relativeAnchor().isValid());
+}
+
+TEST(TimeseriesProviderTimeMode, SetTimeModeRelativeCoversAllPoints)
+{
+    TimeseriesProvider p(QStringLiteral("TS"));
+    ASSERT_TRUE(p.setAllPoints(ascendingFixture()));
+    QSignalSpy spy(&p, &TimeseriesProvider::timeModeChanged);
+
+    const QDateTime anchor = t(2026, 1, 1, 0);
+    p.setTimeMode(TimeseriesProvider::TimeMode::Relative, anchor);
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Relative);
+    EXPECT_EQ(p.relativeCount(), 3);
+    EXPECT_EQ(p.relativeAnchor(), anchor);
+    EXPECT_EQ(spy.count(), 1);
+
+    // Back to Absolute clears the prefix; anchor is retained for undo.
+    p.setTimeMode(TimeseriesProvider::TimeMode::Absolute);
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+    EXPECT_EQ(p.relativeCount(), 0);
+    EXPECT_EQ(spy.count(), 2);
+
+    // Requesting Mixed is a no-op (loaded state, not a target).
+    p.setTimeMode(TimeseriesProvider::TimeMode::Mixed);
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+    EXPECT_EQ(spy.count(), 2);
+}
+
+TEST(TimeseriesProviderTimeMode, EmptySeriesCarriesRelativeIntent)
+{
+    TimeseriesProvider p(QStringLiteral("TS"));
+    const QDateTime anchor = t(2026, 1, 1, 0);
+    p.setTimeMode(TimeseriesProvider::TimeMode::Relative, anchor);
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Relative);
+    EXPECT_EQ(p.relativeCount(), 0);   // no points yet
+
+    // First inserted point joins the relative prefix.
+    EXPECT_GE(p.insertPoint(t(2026, 1, 1, 1), 5.0), 0);
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Relative);
+    EXPECT_EQ(p.relativeCount(), 1);
+}
+
+TEST(TimeseriesProviderTimeMode, SetRelativeInfoRestoresMixedExactly)
+{
+    TimeseriesProvider p(QStringLiteral("TS"));
+    ASSERT_TRUE(p.setAllPoints(ascendingFixture()));
+    const QDateTime anchor = t(2026, 1, 1, 0);
+
+    p.setRelativeInfo(2, anchor);   // 2 of 3 relative → Mixed
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Mixed);
+    EXPECT_EQ(p.relativeCount(), 2);
+    EXPECT_EQ(p.relativeAnchor(), anchor);
+
+    // Count clamps to the point range.
+    p.setRelativeInfo(99, anchor);
+    EXPECT_EQ(p.relativeCount(), 3);
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Relative);
+}
+
+TEST(TimeseriesProviderTimeMode, MutationsMaintainThePrefix)
+{
+    TimeseriesProvider p(QStringLiteral("TS"));
+    ASSERT_TRUE(p.setAllPoints(ascendingFixture()));
+    p.setRelativeInfo(2, t(2026, 1, 1, 0));   // Mixed: 2 of 3
+
+    // Insert INSIDE the prefix (between points 0 and 1) → prefix grows.
+    EXPECT_GE(p.insertPoint(t(2026, 1, 1, 3), 1.5), 0);
+    EXPECT_EQ(p.relativeCount(), 3);
+    EXPECT_EQ(p.pointCount(), 4);
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Mixed);
+
+    // Insert AFTER the prefix → prefix unchanged.
+    EXPECT_GE(p.insertPoint(t(2026, 1, 1, 18), 9.0), 0);
+    EXPECT_EQ(p.relativeCount(), 3);
+    EXPECT_EQ(p.pointCount(), 5);
+
+    // Remove a prefix row → prefix shrinks; remove a tail row → unchanged.
+    p.removePointsAt({0});
+    EXPECT_EQ(p.relativeCount(), 2);
+    p.removePointsAt({p.pointCount() - 1});
+    EXPECT_EQ(p.relativeCount(), 2);
+
+    // A fully-relative provider keeps covering every point through edits.
+    p.setTimeMode(TimeseriesProvider::TimeMode::Relative, t(2026, 1, 1, 0));
+    EXPECT_GE(p.insertPoint(t(2026, 1, 2, 0), 4.0), 0);
+    EXPECT_EQ(p.relativeCount(), p.pointCount());
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Relative);
+}
+
+TEST(TimeseriesProviderTimeMode, SignalOnlyWhenDerivedModeFlips)
+{
+    TimeseriesProvider p(QStringLiteral("TS"));
+    ASSERT_TRUE(p.setAllPoints(ascendingFixture()));
+    p.setRelativeInfo(3, t(2026, 1, 1, 0));   // Relative
+    QSignalSpy spy(&p, &TimeseriesProvider::timeModeChanged);
+
+    // Appending to an all-relative series keeps mode Relative → no signal.
+    EXPECT_GE(p.insertPoint(t(2026, 1, 2, 0), 4.0), 0);
+    EXPECT_EQ(spy.count(), 0);
+
+    // Replacing with an empty set flips Relative(points) → Relative(intent)?
+    // Derived mode stays Relative (intent survives) → still no signal.
+    ASSERT_TRUE(p.setAllPoints({}));
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Relative);
+    EXPECT_EQ(spy.count(), 0);
+}

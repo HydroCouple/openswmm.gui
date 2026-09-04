@@ -161,6 +161,29 @@ private:
     TimeseriesProvider::SourceMode       m_newMode;
 };
 
+/*! \brief Switch the series between Absolute (dated) and Relative
+ *  (elapsed-from-simulation-start) time modes. The prior state is captured
+ *  exactly — count, anchor and the sticky all-relative intent — so undoing
+ *  from a loaded Mixed series restores Mixed, not merely Absolute. */
+class SetTimeModeCommand : public QUndoCommand
+{
+public:
+    SetTimeModeCommand(TimeseriesProvider *provider,
+                       TimeseriesProvider::TimeMode newMode,
+                       QDateTime anchorForRelative,
+                       QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    TimeseriesProvider              *m_provider;
+    int                              m_oldCount;
+    QDateTime                        m_oldAnchor;
+    bool                             m_oldAllRelative;
+    TimeseriesProvider::TimeMode     m_newMode;
+    QDateTime                        m_anchor;
+};
+
 } // namespace openswmmvis::timeseries
 
 #endif // OPENSWMMVIS_TIMESERIES_TIMESERIESUNDOCOMMANDS_H
