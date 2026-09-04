@@ -30,8 +30,17 @@ namespace {
 QString dataDir()
 {
     // Provided by the CTest ENVIRONMENT in tests/gui/CMakeLists.txt.
+    //
+    // This used to append "/output_simstatus2derr" and read mini_2d.inp from
+    // there. That directory is test_simstatus_2derr's scratch output dir: it
+    // is gitignored, and the .inp only exists once that test (which runs
+    // later — #158 vs this one's #117) has written it inline. So the fixture
+    // was present only on machines that had already run the full suite, and
+    // absent on every fresh clone, i.e. always in CI. Same trap, and same
+    // resolution, as tests/unit/test_rptparser.cpp's kTwoDFixture: read a
+    // tracked fixture from the test data dir instead.
     const QByteArray env = qgetenv("SWMMVIS_GUI_TEST_DATA");
-    return QString::fromUtf8(env) + "/output_simstatus2derr";
+    return QString::fromUtf8(env);
 }
 
 // Reviewable artifact directory under the test's working dir (the build
