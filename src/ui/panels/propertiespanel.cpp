@@ -261,6 +261,20 @@ void PropertiesPanel::setupUi()
     connect(m_openEditorButton, &QPushButton::clicked,
             this,                &PropertiesPanel::onOpenInEditorClicked);
 
+    // Rain gage extra: plot/compare rainfall series. Visible only while a
+    // rain gage adapter is bound (see showObject's gage block).
+    m_plotRainGageButton = new QPushButton(tr("Plot Rainfall…"), central);
+    m_plotRainGageButton->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
+    m_plotRainGageButton->setToolTip(
+        tr("Visualize and compare rain gage rainfall series."));
+    m_plotRainGageButton->hide();
+    vlay->addWidget(m_plotRainGageButton);
+    connect(m_plotRainGageButton, &QPushButton::clicked, this, [this] {
+        // Carry the bound gage so the dialog opens focused on it.
+        emit rainfallPlotRequested(m_dataAdapter ? m_dataAdapter->name()
+                                                 : QString());
+    });
+
     // Slice QA.2 — Stats source row. Hidden by default; surfaces only
     // when the bound registry has at least one loaded output and the
     // current adapter exposes stat rows (today: SWMMNodePropertyAdapter
@@ -416,6 +430,7 @@ void PropertiesPanel::showObject(QObject *object, const QString &title)
     // generic-QObject views.
     m_dataObjectCategory = SWMMModelLayer::NumDataCategories;
     if (m_openEditorButton) m_openEditorButton->hide();
+    if (m_plotRainGageButton) m_plotRainGageButton->hide();
 
 #ifdef HAVE_QPROPERTYMODEL
     auto *pm = qobject_cast<QPropertyModel*>(m_model);
@@ -441,6 +456,7 @@ void PropertiesPanel::showIdentifyResults(const QList<IdentifyResult> &results)
     // prior data-object view.
     m_dataObjectCategory = SWMMModelLayer::NumDataCategories;
     if (m_openEditorButton) m_openEditorButton->hide();
+    if (m_plotRainGageButton) m_plotRainGageButton->hide();
 
     for (const auto &r : results)
         m_layerCombo->addItem(r.layerName);
@@ -469,6 +485,7 @@ void PropertiesPanel::clear()
     // 2026-05-29 — Panel is empty; no data-object to open.
     m_dataObjectCategory = SWMMModelLayer::NumDataCategories;
     if (m_openEditorButton) m_openEditorButton->hide();
+    if (m_plotRainGageButton) m_plotRainGageButton->hide();
 }
 
 // ---------------------------------------------------------------------------
@@ -902,6 +919,7 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
         if (auto *pm = qobject_cast<QPropertyModel *>(m_model)) pm->clear();
         m_dataObjectCategory = SWMMModelLayer::NumDataCategories;
         if (m_openEditorButton) m_openEditorButton->hide();
+        if (m_plotRainGageButton) m_plotRainGageButton->hide();
         return;
     }
     if (m_dataAdapter) { m_dataAdapter->deleteLater(); m_dataAdapter = nullptr; }
@@ -1040,6 +1058,7 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
         // Unknown; not our job — let the identify-result path handle it.
         if (auto *pm = qobject_cast<QPropertyModel *>(m_model)) pm->clear();
         if (m_openEditorButton) m_openEditorButton->hide();
+        if (m_plotRainGageButton) m_plotRainGageButton->hide();
         return;
     }
 
@@ -1080,6 +1099,7 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
     if (auto *gageAdapter =
             qobject_cast<SWMMRainGagePropertyAdapter*>(m_dataAdapter))
     {
+        if (m_plotRainGageButton) m_plotRainGageButton->show();
         if (auto *pm = qobject_cast<QPropertyModel*>(m_model)) {
             auto applyGageRowFlags = [pm, gageAdapter]() {
                 if (!pm) return;
