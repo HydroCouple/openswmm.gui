@@ -8,6 +8,8 @@
 
 #include "core/unitsystem.h"
 #include "layers/swmmmodellayer.h"   // USER_FLAGS Phase 4 — ensureUserFlagsModel()
+#include "layers/swmmresultslayer.h"        // stats dispatch (QA.2 mirror)
+#include "output/outputstatsregistry.h"     // stats dispatch (QA.2 mirror)
 
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_nodes.h>   // outlet node resolution
@@ -68,6 +70,14 @@ QString SWMMSubcatchPropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QLatin1String("loadings"))    return tr("Initial Loadings");
     // USER_FLAGS Phase 4.
     if (property == QLatin1String("userFlags")) return tr("User Flags");
+    // Read-only post-run summary block (Attribute Table dynamics parity).
+    {
+        const QString F = (u ? u->flowUnitLabel()
+                             : QStringLiteral("CFS")).toLower();
+        if (property == QLatin1String("statPrecip"))    return tr("Total Precipitation (%1³)").arg(L);
+        if (property == QLatin1String("statRunoffVol")) return tr("Total Runoff Volume (%1³)").arg(L);
+        if (property == QLatin1String("statMaxRunoff")) return tr("Peak Runoff (%1)").arg(F);
+    }
 
     return {};
 }
@@ -95,6 +105,43 @@ G(nImperv,   swmm_subcatch_get_n_imperv)
 G(nPerv,     swmm_subcatch_get_n_perv)
 G(dsImperv,  swmm_subcatch_get_ds_imperv)
 G(dsPerv,    swmm_subcatch_get_ds_perv)
+
+// Post-run statistics — dispatch on m_statsSourceId (see the node adapter's
+// Slice QA.2 STAT_GETTER for the contract). Null id → the editing engine's
+// ambient stats; non-null → the registry-resolved SWMMResultsLayer.
+#define STAT_GETTER(METHOD, ENGINE_GET, LAYER_GET)                  \
+double SWMMSubcatchPropertyAdapter::METHOD() const {                \
+    if (m_statsSourceId.isNull() || !m_statsRegistry) {             \
+        const int i = idx();                                        \
+        if (i < 0) return 0.0;                                      \
+        double v = 0.0;                                             \
+        ENGINE_GET(m_engine, i, &v);                                \
+        return v;                                                   \
+    }                                                               \
+    const auto id = m_statsRegistry->identityFor(m_statsSourceId);  \
+    if (!id.layer) return 0.0; /* layer destroyed since combo set */ \
+    return id.layer->LAYER_GET(m_name);                             \
+}
+
+STAT_GETTER(statPrecip,    swmm_subcatch_get_stat_precip,     subcatchStatPrecip)
+STAT_GETTER(statRunoffVol, swmm_subcatch_get_stat_runoff_vol, subcatchStatRunoffVol)
+STAT_GETTER(statMaxRunoff, swmm_subcatch_get_stat_max_runoff, subcatchStatMaxRunoff)
+
+#undef STAT_GETTER
+
+void SWMMSubcatchPropertyAdapter::setStatsRegistry(
+        openswmmvis::OutputStatsRegistry *registry)
+{
+    m_statsRegistry = registry;
+    // No emit changed() — see SWMMNodePropertyAdapter::setStatsRegistry.
+}
+
+void SWMMSubcatchPropertyAdapter::setStatsSource(const QUuid &id)
+{
+    if (m_statsSourceId == id) return;
+    m_statsSourceId = id;
+    emit changed();
+}
 
 void SWMMSubcatchPropertyAdapter::setName(const QString &newName)
 {
