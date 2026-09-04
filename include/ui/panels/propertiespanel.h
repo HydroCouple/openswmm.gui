@@ -15,6 +15,7 @@
 
 #include <QDockWidget>
 #include <QList>
+#include <QPointer>
 #include <QVariantMap>
 
 class QTreeView;
@@ -28,6 +29,7 @@ class QPropertyItemDelegate;
 #endif
 class OpenSWMMVisLayer;
 class SWMMModelLayer;
+class SWMMResultsLayer;
 class SWMMNodePropertyAdapter;
 class SWMMLinkPropertyAdapter;
 class SWMMSubcatchPropertyAdapter;
@@ -98,6 +100,17 @@ public:
      *  (matches today's behaviour for projects with no results loaded
      *  yet). Idempotent — repeated calls re-wire signals safely. */
     void setStatsRegistry(openswmmvis::OutputStatsRegistry *registry);
+
+    /*! Bind the project's ACTIVE 1D results layer so the panel's post-run
+     *  summary rows follow the active run the same way the Attribute
+     *  Table's dynamics columns do (SWMMVis calls this on tab activation
+     *  and on every activeResultsLayerChanged). Selects the layer's row in
+     *  the Stats-source combo — the combo remains a manual override until
+     *  the active layer next changes — and re-reads the stat rows whenever
+     *  the bound layer's results are (re)opened or finalized, so a re-run
+     *  into the same .out refreshes in place. Pass nullptr to fall back to
+     *  the "(editing engine)" sentinel. */
+    void setActiveResultsLayer(SWMMResultsLayer *layer);
 
     /*! Slice DA.2 — show a non-spatial Data Object (curve, time series,
      *  pattern, LID control, pollutant, land use, aquifer, snowpack,
@@ -182,10 +195,20 @@ private:
      *  current selection by stableId when possible. */
     void refreshStatsSourceCombo();
 
-    /*! Slice QA.2 — push the combo's current selection into the bound
-     *  node adapter (idempotent; no-op when the node adapter is null
-     *  or the combo's payload is missing). */
+    /*! Slice QA.2 — push the combo's current selection into every bound
+     *  typed adapter (node / link / subcatchment; idempotent; no-op when
+     *  no adapter is bound or the combo's payload is missing), then
+     *  re-read the property values. Edit-forwarding is suppressed for
+     *  the duration — a stats-source change is a view change, not a
+     *  model edit. */
     void applyStatsSourceToAdapter();
+
+    /*! Re-read every property row from the bound adapters without
+     *  forwarding objectEdited (the values changed because a RUN
+     *  produced new statistics, not because the user edited the model).
+     *  Connected to the active results layer's resultsOpened /
+     *  resultsFinalized signals. */
+    void refreshAdapterStatValues();
 
     QTreeView                *m_treeView       = nullptr;
     QComboBox                *m_layerCombo     = nullptr;
@@ -231,6 +254,11 @@ private:
     /// Slice QA.2 — bound registry; null when no project is active. The
     /// panel never owns the registry (SWMMVisProjectWindow does).
     openswmmvis::OutputStatsRegistry *m_statsRegistry = nullptr;
+
+    /// The project's active 1D results layer (the run the Attribute
+    /// Table's dynamics columns read). QPointer — the layer may be
+    /// closed/destroyed at any time.
+    QPointer<SWMMResultsLayer> m_activeStatsLayer;
 };
 
 #endif // PROPERTIESPANEL_H

@@ -8,6 +8,8 @@
 
 #include "core/unitsystem.h"
 #include "layers/swmmmodellayer.h"   // USER_FLAGS Phase 4 — ensureUserFlagsModel()
+#include "layers/swmmresultslayer.h"        // stats dispatch (QA.2 mirror)
+#include "output/outputstatsregistry.h"     // stats dispatch (QA.2 mirror)
 #include "ui/properties/xsectshapegeom.h"  // xsectGeomApplies (inline geom edits)
 
 #include <openswmm/engine/openswmm_links.h>
@@ -83,6 +85,20 @@ QString SWMMLinkPropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QLatin1String("lossAvg"))         return tr("Avg. Loss Coeff.");
     if (property == QLatin1String("seepRate"))        return tr("Seepage Rate (%1/hr)").arg(L);
     if (property == QLatin1String("barrels"))         return tr("Barrels");
+    // Read-only post-run summary block (Attribute Table dynamics parity).
+    {
+        const QString F = (u ? u->flowUnitLabel()
+                             : QStringLiteral("CFS")).toLower();
+        const QString V = u ? u->velocityLabel() : QStringLiteral("ft/s");
+        if (property == QLatin1String("statMaxFlow"))       return tr("Max Flow, Sim. (%1)").arg(F);
+        if (property == QLatin1String("statMaxVelocity"))   return tr("Max Velocity (%1)").arg(V);
+        if (property == QLatin1String("statMaxFilling"))    return tr("Max/Full Depth");
+        if (property == QLatin1String("statVolFlow"))       return tr("Total Flow Volume (%1³)").arg(L);
+        if (property == QLatin1String("statSurchargeTime")) return tr("Time Surcharged (hr)");
+        if (property == QLatin1String("statPumpCycles"))    return tr("Pump Cycles");
+        if (property == QLatin1String("statPumpOnTime"))    return tr("Pump On Time (hr)");
+        if (property == QLatin1String("statPumpVolume"))    return tr("Volume Pumped (%1³)").arg(L);
+    }
     // Generic inline cross-section geom labels. The shape-specific meaning
     // (Diameter / Max Depth / …) is surfaced as a per-row tooltip by
     // PropertiesPanel via openswmmvis::xsectGeomLabel().
@@ -159,6 +175,72 @@ GETTER_D(endContractions,  swmm_link_get_end_contractions)
 GETTER_D(initialFlow,      swmm_link_get_initial_flow)
 GETTER_D(maxFlow,          swmm_link_get_max_flow)
 GETTER_D(seepRate,         swmm_link_get_seep_rate)
+
+// Post-run statistics — dispatch on m_statsSourceId (see the node adapter's
+// Slice QA.2 STAT_GETTER for the contract). Null id → the editing engine's
+// ambient stats; non-null → the registry-resolved SWMMResultsLayer, which
+// reads the bound run's .out file (the source the Attribute Table uses).
+#define STAT_GETTER(METHOD, ENGINE_GET, LAYER_GET)                  \
+double SWMMLinkPropertyAdapter::METHOD() const {                    \
+    if (m_statsSourceId.isNull() || !m_statsRegistry) {             \
+        const int idx = linkIdx();                                  \
+        if (idx < 0) return 0.0;                                    \
+        double v = 0.0;                                             \
+        ENGINE_GET(m_engine, idx, &v);                              \
+        return v;                                                   \
+    }                                                               \
+    const auto id = m_statsRegistry->identityFor(m_statsSourceId);  \
+    if (!id.layer) return 0.0; /* layer destroyed since combo set */ \
+    return id.layer->LAYER_GET(m_name);                             \
+}
+
+STAT_GETTER(statMaxFlow,     swmm_link_get_stat_max_flow,     linkStatMaxFlow)
+STAT_GETTER(statMaxVelocity, swmm_link_get_stat_max_velocity, linkStatMaxVelocity)
+STAT_GETTER(statMaxFilling,  swmm_link_get_stat_max_filling,  linkStatMaxFilling)
+STAT_GETTER(statVolFlow,     swmm_link_get_stat_vol_flow,     linkStatVolFlow)
+
+// The engine accumulates the time stats in SECONDS (+= dt_routing) while
+// the labels and SWMMResultsLayer accessors are in hours — convert on the
+// engine path only.
+static int linkSurchargeHoursGet(SWMM_Engine e, int idx, double *v) {
+    double seconds = 0.0;
+    const int rc = swmm_link_get_stat_surcharge_time(e, idx, &seconds);
+    *v = seconds / 3600.0;
+    return rc;
+}
+static int pumpOnTimeHoursGet(SWMM_Engine e, int idx, double *v) {
+    double seconds = 0.0;
+    const int rc = swmm_link_get_stat_pump_on_time(e, idx, &seconds);
+    *v = seconds / 3600.0;
+    return rc;
+}
+static int pumpCyclesGet(SWMM_Engine e, int idx, double *v) {
+    int cycles = 0;
+    const int rc = swmm_link_get_stat_pump_cycles(e, idx, &cycles);
+    *v = cycles;
+    return rc;
+}
+
+STAT_GETTER(statSurchargeTime, linkSurchargeHoursGet, linkStatSurchargeTime)
+STAT_GETTER(statPumpCycles,    pumpCyclesGet,         linkStatPumpCycles)
+STAT_GETTER(statPumpOnTime,    pumpOnTimeHoursGet,    linkStatPumpOnTime)
+STAT_GETTER(statPumpVolume,    swmm_link_get_stat_pump_volume, linkStatPumpVolume)
+
+#undef STAT_GETTER
+
+void SWMMLinkPropertyAdapter::setStatsRegistry(
+        openswmmvis::OutputStatsRegistry *registry)
+{
+    m_statsRegistry = registry;
+    // No emit changed() — see SWMMNodePropertyAdapter::setStatsRegistry.
+}
+
+void SWMMLinkPropertyAdapter::setStatsSource(const QUuid &id)
+{
+    if (m_statsSourceId == id) return;
+    m_statsSourceId = id;
+    emit changed();
+}
 
 // Loss coefficients share one engine call (`swmm_link_get_loss_coeff`
 // returns the triple by reference). Each per-coefficient accessor pulls

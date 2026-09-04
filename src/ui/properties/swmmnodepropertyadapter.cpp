@@ -257,7 +257,17 @@ double SWMMNodePropertyAdapter::METHOD() const {                    \
 STAT_GETTER(statMaxDepth,    swmm_node_get_stat_max_depth,    nodeStatMaxDepth)
 STAT_GETTER(statMaxOverflow, swmm_node_get_stat_max_overflow, nodeStatMaxOverflow)
 STAT_GETTER(statVolFlooded,  swmm_node_get_stat_vol_flooded,  nodeStatVolFlooded)
-STAT_GETTER(statTimeFlooded, swmm_node_get_stat_time_flooded, nodeStatTimeFlooded)
+
+// The engine accumulates flooded time in SECONDS (+= dt_routing) while the
+// "(hr)" label and SWMMResultsLayer::nodeStatTimeFlooded are hours — convert
+// on the engine path (same wrapper the Attribute Table uses).
+static int nodeTimeFloodedHoursGet(SWMM_Engine e, int idx, double *v) {
+    double seconds = 0.0;
+    const int rc = swmm_node_get_stat_time_flooded(e, idx, &seconds);
+    *v = seconds / 3600.0;
+    return rc;
+}
+STAT_GETTER(statTimeFlooded, nodeTimeFloodedHoursGet, nodeStatTimeFlooded)
 
 #undef STAT_GETTER
 
