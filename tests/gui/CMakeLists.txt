@@ -1628,6 +1628,10 @@ add_swmmvis_gui_test(test_subcatchpropertyadapter
     ${CMAKE_SOURCE_DIR}/src/ui/models/userflagsmodel.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/models/userflagsmodel.h
     swmmmodellayer_userflags_linkstub.cpp
+    # The adapter's post-run stat* rows reference SWMMResultsLayer getters +
+    # OutputStatsRegistry::identityFor — unreachable here (no stats source
+    # is ever set), so link the trivial stubs instead of the results chain.
+    test_propertyadapter_stats_stubs.cpp
 )
 
 # ── Slice SP — section / profile preview panels ─────────────────────────────
@@ -1698,6 +1702,9 @@ add_swmmvis_gui_test(test_xsectgeominline
     # Likewise initialQualityRef() → initialQualitySummaryFor.
     ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditref.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditref.h
+    # Post-run stat* rows → SWMMResultsLayer getters + identityFor stubs
+    # (unreachable here — no stats source is ever set).
+    test_propertyadapter_stats_stubs.cpp
 )
 
 # Slice BC, Phase 8.7.2 — pins the engine-ABI contract that

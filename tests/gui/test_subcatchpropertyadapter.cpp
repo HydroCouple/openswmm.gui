@@ -240,6 +240,46 @@ private slots:
 
         swmm_engine_destroy(e);
     }
+
+    // ====================================================================
+    // Post-run summary rows (Attribute Table dynamics parity)
+    // ====================================================================
+
+    // The three stat* rows must be advertised READ-ONLY (no WRITE →
+    // QPropertyModel renders non-editable), readable through the meta-
+    // object (catches READ-accessor typos moc only surfaces at runtime),
+    // zero on the never-run editing engine, and labelled.
+    void statRowsReadOnlyZeroPreRun()
+    {
+        SWMM_Engine e = buildTwoSubcatchFixture();
+        QVERIFY(e);
+
+        SWMMSubcatchPropertyAdapter a(e, QStringLiteral("S1"));
+        const auto *mo = a.metaObject();
+        for (const char *prop : {"statPrecip", "statRunoffVol", "statMaxRunoff"}) {
+            const int idx = mo->indexOfProperty(prop);
+            QVERIFY2(idx >= 0, prop);
+            QVERIFY2(!mo->property(idx).isWritable(), prop);
+            const QVariant v = mo->property(idx).read(&a);
+            QVERIFY2(v.isValid(), prop);
+            QCOMPARE(v.toDouble(), 0.0);
+            QVERIFY(!a.displayLabelFor(QString::fromLatin1(prop)).isEmpty());
+        }
+
+        // A stats-source change re-prompts the view via changed(); the
+        // same id twice must not re-emit.
+        QSignalSpy spy(&a, &SWMMSubcatchPropertyAdapter::changed);
+        const QUuid someRun = QUuid::createUuid();
+        a.setStatsSource(someRun);
+        QCOMPARE(spy.count(), 1);
+        a.setStatsSource(someRun);
+        QCOMPARE(spy.count(), 1);
+        // With a non-null id but NO registry bound, the getters stay on
+        // the safe engine path (null-registry branch) — still zero.
+        QCOMPARE(a.statPrecip(), 0.0);
+
+        swmm_engine_destroy(e);
+    }
 };
 
 QTEST_MAIN(TestSubcatchPropertyAdapter)

@@ -6049,7 +6049,10 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         if (mLayerTreePanel)        mLayerTreePanel->setCanvas(nullptr);
         if (mLegendDock)            mLegendDock->setCanvas(nullptr);
         if (mObjectBrowserPanel)    mObjectBrowserPanel->setProject(nullptr, nullptr, nullptr);
-        if (mPropertiesPanel)      { mPropertiesPanel->setProject(nullptr); mPropertiesPanel->clear(); }
+        if (mPropertiesPanel)      { mPropertiesPanel->setProject(nullptr);
+                                     mPropertiesPanel->setStatsRegistry(nullptr);
+                                     mPropertiesPanel->setActiveResultsLayer(nullptr);
+                                     mPropertiesPanel->clear(); }
         if (mAttributeTablePanel)   mAttributeTablePanel->setProject(nullptr, nullptr, nullptr);
         if (mTerrainToolbar)        mTerrainToolbar->rebindCanvas(nullptr);
         if (mMeshEditingToolbar) {
@@ -6120,6 +6123,8 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                 // active run, so switching runs re-reads them from the new
                 // .out file instead of the (always-empty) editing engine.
                 if (mAttributeTablePanel) mAttributeTablePanel->setResultsSource(layer);
+                // The Property Browser's summary rows follow the same run.
+                if (mPropertiesPanel) mPropertiesPanel->setActiveResultsLayer(layer);
                 refreshActiveResultsCombos();
             });
     QObject::disconnect(pw, &SWMMVisProjectWindow::active2DResultsLayerChanged,
@@ -6474,8 +6479,14 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
 
     // Bind the property browser to the engine layer so typed adapters
     // (SWMMJunctionPropertyAdapter, etc.) can be constructed on identify.
-    if (mPropertiesPanel)
+    // Also rebind this tab's stats registry + active run so the panel's
+    // post-run summary rows read the same source as the Attribute Table's
+    // dynamics columns.
+    if (mPropertiesPanel) {
         mPropertiesPanel->setProject(pw->modelLayer());
+        mPropertiesPanel->setStatsRegistry(pw->statsRegistry());
+        mPropertiesPanel->setActiveResultsLayer(pw->activeResultsLayer());
+    }
 
     // Slice SP.4 — same binding for the Section View dock.
     if (mSectionViewPanel)

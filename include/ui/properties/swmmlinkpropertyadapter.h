@@ -17,6 +17,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QUuid>                            // Stats-source identity (QA.2 mirror)
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -27,6 +28,8 @@
 #include "ui/properties/userflagseditref.h"      // USER_FLAGS Phase 4
 
 class SWMMModelLayer;
+
+namespace openswmmvis { class OutputStatsRegistry; }    // QA.2 mirror
 
 /*! Base link adapter — exposes the attributes that ALL link types
  *  share (name, kind, endpoints).  Per-type Q_PROPERTYs live on
@@ -152,6 +155,19 @@ public:
     [[nodiscard]] double xsectGeom3()   const;
     [[nodiscard]] double xsectGeom4()   const;
 
+    // Read-only post-run summary statistics (mirror of the node adapter's
+    // Slice QA.2 block and the Attribute Table's link dynamics columns).
+    // Zero until a run's results are bound via setStatsSource; the three
+    // pump utilisation getters are meaningful only on pumps.
+    [[nodiscard]] double statMaxFlow()       const;
+    [[nodiscard]] double statMaxVelocity()   const;
+    [[nodiscard]] double statMaxFilling()    const;
+    [[nodiscard]] double statVolFlow()       const;
+    [[nodiscard]] double statSurchargeTime() const;
+    [[nodiscard]] double statPumpCycles()    const;
+    [[nodiscard]] double statPumpOnTime()    const;
+    [[nodiscard]] double statPumpVolume()    const;
+
     /*! Slice BM.0-Browse-Edit — `DataObjectRef`-typed accessor for the
      *  pump curve, used by the `Q_PROPERTY` on `SWMMPumpPropertyAdapter`.
      *  Constructs the ref with `kind=AnyCurve` (pump curves accept
@@ -251,6 +267,14 @@ public slots:
     /*! See SWMMNodePropertyAdapter::updateStoredName. */
     void updateStoredName(const QString &newName) { m_name = newName; }
 
+    /*! Stats-source dispatch — see SWMMNodePropertyAdapter (Slice QA.2)
+     *  for the full contract. The stat* getters read the editing engine's
+     *  ambient stats while the id is null, and the registry-resolved
+     *  SWMMResultsLayer's linkStat*() accessors otherwise. */
+    void setStatsRegistry(openswmmvis::OutputStatsRegistry *registry);
+    void setStatsSource(const QUuid &id);
+    [[nodiscard]] QUuid statsSourceId() const { return m_statsSourceId; }
+
 signals:
     void changed();
     void renameRequested(const QString &oldName, const QString &newName);
@@ -265,6 +289,10 @@ protected:
     SWMM_Engine     m_engine;
     QString         m_name;
     SWMMModelLayer *m_layer = nullptr;  ///< Bound via setModelLayer.
+
+    /// Stats-source dispatch state — see SWMMNodePropertyAdapter.
+    QUuid                              m_statsSourceId;
+    openswmmvis::OutputStatsRegistry  *m_statsRegistry = nullptr;
 };
 
 /*! Conduit adapter — `[CONDUITS]` columns:
@@ -305,6 +333,14 @@ class SWMMConduitPropertyAdapter : public SWMMLinkPropertyAdapter
                READ culvertCodeRef WRITE setCulvertCodeRef NOTIFY changed)
     Q_PROPERTY(LinkCompoundEditRef inletUsage
                READ inletUsageRef  WRITE setInletUsageRef  NOTIFY changed)
+    // Read-only post-run summary (no WRITE → non-editable). Mirrors the
+    // Attribute Table's link dynamics columns; values follow the bound
+    // stats source (see the base class).
+    Q_PROPERTY(double statMaxFlow       READ statMaxFlow       NOTIFY changed)
+    Q_PROPERTY(double statMaxVelocity   READ statMaxVelocity   NOTIFY changed)
+    Q_PROPERTY(double statMaxFilling    READ statMaxFilling    NOTIFY changed)
+    Q_PROPERTY(double statVolFlow       READ statVolFlow       NOTIFY changed)
+    Q_PROPERTY(double statSurchargeTime READ statSurchargeTime NOTIFY changed)
     Q_PROPERTY(InitialQualityEditRef initialQuality
                READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
@@ -331,6 +367,16 @@ class SWMMPumpPropertyAdapter : public SWMMLinkPropertyAdapter
                READ pumpStartupDepth WRITE setPumpStartupDepth NOTIFY changed)
     Q_PROPERTY(double shutoffDepth
                READ pumpShutoffDepth WRITE setPumpShutoffDepth NOTIFY changed)
+    // Read-only post-run summary — the shared link block plus the pump
+    // utilisation trio (Attribute Table parity; see the base class).
+    Q_PROPERTY(double statMaxFlow       READ statMaxFlow       NOTIFY changed)
+    Q_PROPERTY(double statMaxVelocity   READ statMaxVelocity   NOTIFY changed)
+    Q_PROPERTY(double statMaxFilling    READ statMaxFilling    NOTIFY changed)
+    Q_PROPERTY(double statVolFlow       READ statVolFlow       NOTIFY changed)
+    Q_PROPERTY(double statSurchargeTime READ statSurchargeTime NOTIFY changed)
+    Q_PROPERTY(double statPumpCycles    READ statPumpCycles    NOTIFY changed)
+    Q_PROPERTY(double statPumpOnTime    READ statPumpOnTime    NOTIFY changed)
+    Q_PROPERTY(double statPumpVolume    READ statPumpVolume    NOTIFY changed)
     Q_PROPERTY(InitialQualityEditRef initialQuality
                READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
@@ -371,6 +417,12 @@ class SWMMOrificePropertyAdapter : public SWMMLinkPropertyAdapter
     Q_PROPERTY(double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed)
     Q_PROPERTY(double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed)
     Q_PROPERTY(double geom4 READ xsectGeom4 WRITE setXsectGeom4 NOTIFY changed)
+    // Read-only post-run summary (Attribute Table parity; see base class).
+    Q_PROPERTY(double statMaxFlow       READ statMaxFlow       NOTIFY changed)
+    Q_PROPERTY(double statMaxVelocity   READ statMaxVelocity   NOTIFY changed)
+    Q_PROPERTY(double statMaxFilling    READ statMaxFilling    NOTIFY changed)
+    Q_PROPERTY(double statVolFlow       READ statVolFlow       NOTIFY changed)
+    Q_PROPERTY(double statSurchargeTime READ statSurchargeTime NOTIFY changed)
     Q_PROPERTY(InitialQualityEditRef initialQuality
                READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
@@ -409,6 +461,12 @@ class SWMMWeirPropertyAdapter : public SWMMLinkPropertyAdapter
     Q_PROPERTY(double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed)
     Q_PROPERTY(double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed)
     Q_PROPERTY(double geom4 READ xsectGeom4 WRITE setXsectGeom4 NOTIFY changed)
+    // Read-only post-run summary (Attribute Table parity; see base class).
+    Q_PROPERTY(double statMaxFlow       READ statMaxFlow       NOTIFY changed)
+    Q_PROPERTY(double statMaxVelocity   READ statMaxVelocity   NOTIFY changed)
+    Q_PROPERTY(double statMaxFilling    READ statMaxFilling    NOTIFY changed)
+    Q_PROPERTY(double statVolFlow       READ statVolFlow       NOTIFY changed)
+    Q_PROPERTY(double statSurchargeTime READ statSurchargeTime NOTIFY changed)
     Q_PROPERTY(InitialQualityEditRef initialQuality
                READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
@@ -443,6 +501,12 @@ class SWMMOutletPropertyAdapter : public SWMMLinkPropertyAdapter
                READ pumpCurveRef WRITE setPumpCurveRef NOTIFY changed)
     Q_PROPERTY(SWMMLinkPropertyAdapter::FlapGate flapGate
                READ flapGate WRITE setFlapGate NOTIFY changed)
+    // Read-only post-run summary (Attribute Table parity; see base class).
+    Q_PROPERTY(double statMaxFlow       READ statMaxFlow       NOTIFY changed)
+    Q_PROPERTY(double statMaxVelocity   READ statMaxVelocity   NOTIFY changed)
+    Q_PROPERTY(double statMaxFilling    READ statMaxFilling    NOTIFY changed)
+    Q_PROPERTY(double statVolFlow       READ statVolFlow       NOTIFY changed)
+    Q_PROPERTY(double statSurchargeTime READ statSurchargeTime NOTIFY changed)
     Q_PROPERTY(InitialQualityEditRef initialQuality
                READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags

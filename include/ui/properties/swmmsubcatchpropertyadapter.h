@@ -12,6 +12,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QUuid>                            // Stats-source identity (QA.2 mirror)
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -20,6 +21,8 @@
 #include "ui/properties/subcatchcompoundeditref.h" // Phase 3 — landuse/GW/LID
 
 class SWMMModelLayer;
+
+namespace openswmmvis { class OutputStatsRegistry; }    // QA.2 mirror
 
 class SWMMSubcatchPropertyAdapter : public QObject
 {
@@ -85,6 +88,13 @@ class SWMMSubcatchPropertyAdapter : public QObject
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 
+    // Read-only post-run summary (no WRITE → non-editable). Mirrors the
+    // Attribute Table's subcatchment dynamics columns; values follow the
+    // bound stats source (see setStatsSource below).
+    Q_PROPERTY(double statPrecip    READ statPrecip    NOTIFY changed)
+    Q_PROPERTY(double statRunoffVol READ statRunoffVol NOTIFY changed)
+    Q_PROPERTY(double statMaxRunoff READ statMaxRunoff NOTIFY changed)
+
 public:
     /*! Infiltration model codes (engine [INFILTRATION] order). */
     enum InfilModel { Horton = 0, ModHorton = 1, GreenAmpt = 2,
@@ -134,6 +144,18 @@ public:
     [[nodiscard]] SubcatchCompoundEditRef groundwaterRef() const;
     [[nodiscard]] SubcatchCompoundEditRef lidUsageRef()    const;
     [[nodiscard]] SubcatchCompoundEditRef loadingsRef()    const;
+
+    // Read-only post-run summary getters. Zero until a run's results are
+    // bound via setStatsSource (mirror of SWMMNodePropertyAdapter QA.2).
+    [[nodiscard]] double statPrecip()    const;
+    [[nodiscard]] double statRunoffVol() const;
+    [[nodiscard]] double statMaxRunoff() const;
+
+    /*! Stats-source dispatch — see SWMMNodePropertyAdapter (Slice QA.2)
+     *  for the full contract. */
+    void setStatsRegistry(openswmmvis::OutputStatsRegistry *registry);
+    void setStatsSource(const QUuid &id);
+    [[nodiscard]] QUuid statsSourceId() const { return m_statsSourceId; }
 
     /*! See SWMMNodePropertyAdapter::displayLabelFor. */
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
@@ -194,6 +216,10 @@ private:
     SWMM_Engine     m_engine;
     QString         m_name;
     SWMMModelLayer *m_layer = nullptr;   ///< USER_FLAGS Phase 4 — borrow.
+
+    /// Stats-source dispatch state — see SWMMNodePropertyAdapter.
+    QUuid                              m_statsSourceId;
+    openswmmvis::OutputStatsRegistry  *m_statsRegistry = nullptr;
 };
 
 #endif // SWMMSUBCATCHPROPERTYADAPTER_H
