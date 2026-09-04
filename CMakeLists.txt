@@ -353,6 +353,7 @@ set(
         include/plot/numberformat.h
         include/plot/chartproperties.h
         include/plot/seriesstatistics.h
+        include/plot/rainfallseriesmodel.h
         include/plot/seriesstyle.h
         include/plot/seriesstyleobject.h
         include/plot/fitmetrics.h
@@ -763,6 +764,7 @@ set(
         include/ui/dialogs/pathbrowsedelegate.h
         include/ui/dialogs/pluginstablemodel.h
         include/ui/dialogs/comparisonplotdialog.h
+        include/ui/dialogs/rainfallvisualizationdialog.h
         include/ui/dialogs/comparisonpairsdialog.h
         include/ui/dialogs/plotvariablepickerdialog.h
         include/ui/dialogs/chartpropertiesdialog.h
@@ -1002,6 +1004,7 @@ set(
         src/plot/numberformat.cpp
         src/plot/chartproperties.cpp
         src/plot/seriesstatistics.cpp
+        src/plot/rainfallseriesmodel.cpp
         src/plot/seriesstyle.cpp
         src/plot/seriesstyleobject.cpp
         src/plot/fitmetrics.cpp
@@ -1359,6 +1362,7 @@ set(
         src/ui/dialogs/pathbrowsedelegate.cpp
         src/ui/dialogs/pluginstablemodel.cpp
         src/ui/dialogs/comparisonplotdialog.cpp
+        src/ui/dialogs/rainfallvisualizationdialog.cpp
         src/ui/dialogs/comparisonpairsdialog.cpp
         src/ui/dialogs/plotvariablepickerdialog.cpp
         src/ui/dialogs/chartpropertiesdialog.cpp

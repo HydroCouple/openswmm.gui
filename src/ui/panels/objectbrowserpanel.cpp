@@ -487,6 +487,11 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             }
         }
     }
+    QAction *actRainViz = nullptr;
+    if (ref.objectType == SWMMObjectRef::RainGage) {
+        actRainViz = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Chart")),
+                                    tr("Rainfall Visualization…"));
+    }
     QAction *actZoom = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
                                       tr("Zoom to Object"));
     actZoom->setEnabled(!m_canvas.isNull());
@@ -521,6 +526,10 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
 
     if (picked == actPlot) {
         emit plotTimeSeriesRequested(ref);
+        return;
+    }
+    if (actRainViz && picked == actRainViz) {
+        emit rainfallVisualizationRequested(ref);
         return;
     }
     if (resultsActs.contains(picked)) {

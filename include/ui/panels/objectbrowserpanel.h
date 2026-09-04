@@ -95,6 +95,11 @@ signals:
     void plotTimeSeriesForLayerRequested(const SWMMObjectRef &object,
                                           SWMMResultsLayer *layer);
 
+    /*! \brief Emitted when the user picks "Rainfall Visualization…" from a
+     *  rain gage's right-click menu. The dialog shows every gage; \p object
+     *  is carried for a future pre-highlight. */
+    void rainfallVisualizationRequested(const SWMMObjectRef &object);
+
 public:
     /*! Slice BM.0-Add-New (2026-05-24) — does this data category have a
      *  complex MVC editor wired into Add-New today? Returns true only for

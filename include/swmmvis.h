@@ -41,6 +41,7 @@ QT_END_NAMESPACE
 
 namespace openswmmvis::ui { class CompactToolbarController; }
 namespace openswmmvis::ui { class ComparisonPlotDialog; }
+namespace openswmmvis::ui { class RainfallVisualizationDialog; }
 namespace openswmmvis::ui { class RibbonGroup; }
 namespace openswmmvis::project::examples { struct ExampleInfo; }
 
@@ -512,6 +513,17 @@ private slots:
      *  plot entry point goes through this so the wiring exists exactly
      *  once. */
     openswmmvis::ui::ComparisonPlotDialog *ensureComparisonPlotDialog();
+
+    /*! Find-or-create the shared Rainfall Visualization dialog
+     *  (WA_DeleteOnClose, parented to this main window). Re-binds the
+     *  active project's model layer on reuse. */
+    openswmmvis::ui::RainfallVisualizationDialog *ensureRainfallVisualizationDialog();
+
+    /*! Open / raise the Rainfall Visualization dialog for the active
+     *  project. Funnel for every entry point: the Analysis menu action,
+     *  the object browser's Rain Gages context menu, and the rain gage
+     *  property editor's "Plot Rainfall…" button. */
+    void openRainfallVisualization();
 
     /*! Slice BL — open / focus the Comparison Plot dialog and add a
      *  series for \p ref on the active project's first SWMMResultsLayer.

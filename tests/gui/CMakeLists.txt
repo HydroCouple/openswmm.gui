@@ -2633,6 +2633,16 @@ add_swmmvis_gui_test(test_raingagefilecolumn
 )
 swmmvis_link_full_app_deps(test_raingagefilecolumn)
 
+# Rainfall Visualization dialog — engine-resolved gage series across all three
+# source kinds (inline [TIMESERIES], standard .dat rain file, multi-column
+# CSV), failed-file surfacing, basis switching, shared per-gage time axis.
+add_swmmvis_gui_test(test_rainfallvisualizationdialog
+    test_rainfallvisualizationdialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_rainfallvisualizationdialog)
+
 # Toolbar selection ops — SelectionOps::invert (category-scoped Invert
 # Selection), SelectionOps::trace (Select Upstream / Downstream with
 # subcatchment outlet chaining), and AttributeTablePanel::selectionAsTsv
