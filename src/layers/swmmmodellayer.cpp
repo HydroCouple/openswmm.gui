@@ -8,6 +8,7 @@
 #include "layers/swmmelementsymboladapter.h"
 #include "layers/hydrographmodels.h"
 #include "ui/dialogs/ilayerstylesubject.h"
+#include "ui/dialogs/simulationoptionsdialog.h"
 #include "timeseries/timeseriesregistry.h"
 #include "pattern/patternregistry.h"
 #include "curve/curveregistry.h"
@@ -6033,9 +6034,22 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
             connect(p, &TimeseriesProvider::pointsRemoved,   this, &SWMMModelLayer::markEdited);
             connect(p, &TimeseriesProvider::metadataChanged, this, &SWMMModelLayer::markEdited);
             connect(p, &TimeseriesProvider::sourceModeChanged, this, &SWMMModelLayer::markEdited);
+            connect(p, &TimeseriesProvider::timeModeChanged, this, &SWMMModelLayer::markEdited);
         };
         for (auto *p : reg->providers()) watch(p);
         connect(reg, &TimeseriesRegistry::providerAdded, this, watch);
+
+        // Keep the registry's cached simulation start live while an editor
+        // is open: START_DATE / START_TIME edits land through setOption(),
+        // which emits optionsChanged. (The tail of this function re-seeds on
+        // every call as well, covering paths that bypass setOption.)
+        connect(this, &SWMMModelLayer::optionsChanged, reg, [this, reg] {
+            reg->setSimulationStart(
+                SimulationOptionsDialog::parseEngineDateTime(
+                    getOption(QByteArrayLiteral("START_DATE"), QString()),
+                    getOption(QByteArrayLiteral("START_TIME"),
+                              QStringLiteral("00:00:00"))));
+        });
 
         // Deliberately NOT wired to the registry's saveToEngine flush: the
         // signals above already fire at edit time, so dirty tracking is
@@ -6047,6 +6061,13 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
     // Outside the construction branch so the anchor follows a Save As, which
     // moves modelFilePath() without rebuilding the registry.
     reg->setProjectAnchor(QFileInfo(modelFilePath()).absolutePath());
+    // Ditto for the simulation start (anchor for Relative-mode series and the
+    // seed time for a new series' first point).
+    reg->setSimulationStart(
+        SimulationOptionsDialog::parseEngineDateTime(
+            getOption(QByteArrayLiteral("START_DATE"), QString()),
+            getOption(QByteArrayLiteral("START_TIME"),
+                      QStringLiteral("00:00:00"))));
     return reg;
 }
 

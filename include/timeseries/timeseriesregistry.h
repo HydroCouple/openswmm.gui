@@ -21,6 +21,7 @@
 #ifndef OPENSWMMVIS_TIMESERIES_TIMESERIESREGISTRY_H
 #define OPENSWMMVIS_TIMESERIES_TIMESERIESREGISTRY_H
 
+#include <QDateTime>
 #include <QHash>
 #include <QObject>
 #include <QString>
@@ -139,7 +140,25 @@ public:
     QString projectAnchor() const { return m_projectAnchor; }
     void setProjectAnchor(const QString &dir) { m_projectAnchor = dir; }
 
+    /*! \brief Simulation start (START_DATE + START_TIME), the anchor for
+     *  Relative-mode series and the seed time for a new series' first point.
+     *
+     *  Lives on the registry for the same reason projectAnchor does: every
+     *  timeseries dialog already receives the registry. Seeded (and
+     *  re-seeded) by SWMMModelLayer::ensureTimeseriesRegistry(), which also
+     *  forwards START_DATE / START_TIME option edits. Invalid = unknown. */
+    QDateTime simulationStart() const { return m_simulationStart; }
+    void setSimulationStart(const QDateTime &start)
+    {
+        if (start == m_simulationStart) return;
+        m_simulationStart = start;
+        emit simulationStartChanged(m_simulationStart);
+    }
+
 signals:
+    /*! \brief The cached simulation start date/time changed. */
+    void simulationStartChanged(const QDateTime &now);
+
     /*! \brief A provider was created and added to the registry. */
     void providerAdded(openswmmvis::timeseries::TimeseriesProvider *provider);
 
@@ -155,6 +174,7 @@ private:
     QHash<QString, TimeseriesProvider *> m_byLowerName;    ///< Case-insensitive index.
     void                          *m_engineHandle = nullptr; ///< Cached for the no-arg saveToEngine().
     QString                        m_projectAnchor;          ///< .inp dir for relative display.
+    QDateTime                      m_simulationStart;        ///< START_DATE+TIME; anchor for relative series.
 
     void onProviderRenamed_(const QString& prev, const QString& now);
 };

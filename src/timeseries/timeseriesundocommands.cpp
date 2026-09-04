@@ -187,4 +187,31 @@ ChangeSourceModeCommand::ChangeSourceModeCommand(TimeseriesProvider *provider,
 void ChangeSourceModeCommand::redo() { m_provider->setSourceMode(m_newMode); }
 void ChangeSourceModeCommand::undo() { m_provider->setSourceMode(m_oldMode); }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SetTimeModeCommand
+// ─────────────────────────────────────────────────────────────────────────────
+
+SetTimeModeCommand::SetTimeModeCommand(TimeseriesProvider *provider,
+                                       TimeseriesProvider::TimeMode newMode,
+                                       QDateTime anchorForRelative,
+                                       QUndoCommand *parent)
+    : QUndoCommand(parent)
+    , m_provider(provider)
+    , m_oldCount(provider->relativeCount())
+    , m_oldAnchor(provider->relativeAnchor())
+    , m_oldAllRelative(provider->timeMode()
+                       == TimeseriesProvider::TimeMode::Relative)
+    , m_newMode(newMode)
+    , m_anchor(std::move(anchorForRelative))
+{
+    setText(QObject::tr("Change timeseries time mode"));
+}
+
+void SetTimeModeCommand::redo() { m_provider->setTimeMode(m_newMode, m_anchor); }
+void SetTimeModeCommand::undo()
+{
+    m_provider->setRelativeInfo(m_oldCount, m_oldAnchor,
+                                m_oldAllRelative ? 1 : 0);
+}
+
 } // namespace openswmmvis::timeseries

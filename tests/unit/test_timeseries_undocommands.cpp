@@ -141,3 +141,42 @@ TEST(TimeseriesUndoCommands, ChangeSourceMode_RoundTrip)
     stack.undo();
     EXPECT_EQ(p.sourceMode(), TimeseriesProvider::SourceMode::Inline);
 }
+
+TEST(TimeseriesUndoCommands, SetTimeMode_UndoRestoresMixedExactly)
+{
+    using openswmmvis::timeseries::SetTimeModeCommand;
+    TimeseriesProvider p(QStringLiteral("X"));
+    const QDateTime anchor(QDate(2026, 1, 1), QTime(6, 0), Qt::UTC);
+    ASSERT_TRUE(p.setAllPoints({
+        {QDateTime(QDate(2026, 1, 1), QTime(6, 0),  Qt::UTC), 1.0},
+        {QDateTime(QDate(2026, 1, 1), QTime(7, 0),  Qt::UTC), 2.0},
+        {QDateTime(QDate(2026, 1, 2), QTime(0, 0),  Qt::UTC), 3.0},
+        {QDateTime(QDate(2026, 1, 2), QTime(1, 0),  Qt::UTC), 4.0},
+        {QDateTime(QDate(2026, 1, 2), QTime(2, 0),  Qt::UTC), 5.0},
+    }));
+    p.setRelativeInfo(2, anchor);   // loaded Mixed state: 2 of 5 relative
+    ASSERT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Mixed);
+
+    QUndoStack stack;
+    stack.push(new SetTimeModeCommand(
+        &p, TimeseriesProvider::TimeMode::Absolute, QDateTime()));
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+    EXPECT_EQ(p.relativeCount(), 0);
+
+    stack.undo();   // must restore Mixed EXACTLY, not merely Absolute
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Mixed);
+    EXPECT_EQ(p.relativeCount(), 2);
+    EXPECT_EQ(p.relativeAnchor(), anchor);
+
+    stack.redo();
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+
+    // Relative round-trip captures/restores the anchor too.
+    stack.push(new SetTimeModeCommand(
+        &p, TimeseriesProvider::TimeMode::Relative, anchor));
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Relative);
+    EXPECT_EQ(p.relativeCount(), 5);
+    stack.undo();
+    EXPECT_EQ(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+    EXPECT_EQ(p.relativeCount(), 0);
+}
