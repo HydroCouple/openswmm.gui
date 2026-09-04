@@ -146,6 +146,11 @@ signals:
      *  `changed()` was triggered by `onObjectEditedExternally`. */
     void objectEdited(const QString &name);
 
+    /*! \brief The rain gage "Plot Rainfall…" button was clicked; the main
+     *  window opens the shared Rainfall Visualization dialog focused on
+     *  \a gageId (the bound gage — empty if no adapter is bound). */
+    void rainfallPlotRequested(const QString &gageId);
+
 private slots:
     void onLayerComboIndexChanged(int index);
 
@@ -190,6 +195,9 @@ private:
      *  category in its dedicated CRUD editor. Hidden unless a data
      *  adapter is bound to a category with a shipped editor. */
     QPushButton              *m_openEditorButton = nullptr;
+    /*! Rain gage extra — opens the Rainfall Visualization dialog. Visible
+     *  only while a rain gage adapter is bound. */
+    QPushButton              *m_plotRainGageButton = nullptr;
     /*! 2026-05-29 — DataCategory of the currently shown data adapter,
      *  or `NumDataCategories` when the panel is not showing a data
      *  object (spatial selection, layer properties, identify, or

@@ -405,6 +405,17 @@ if(TARGET openswmm_engine)
     target_link_libraries(test_timeseries_registry PRIVATE openswmm_engine)
 endif()
 
+# Rainfall Visualization data model: pure series/stats math + an
+# engine-backed gage assembly case (needs the engine like the registry test).
+add_swmmvis_unit_test(test_rainfallseriesmodel
+    test_rainfallseriesmodel.cpp
+    ${PROJECT_SOURCE_DIR}/include/plot/rainfallseriesmodel.h
+    ${PROJECT_SOURCE_DIR}/src/plot/rainfallseriesmodel.cpp
+)
+if(TARGET openswmm_engine)
+    target_link_libraries(test_rainfallseriesmodel PRIVATE openswmm_engine)
+endif()
+
 add_swmmvis_unit_test(test_timeseries_table_model
     test_timeseries_table_model.cpp
     ${PROJECT_SOURCE_DIR}/include/timeseries/timeseriesprovider.h

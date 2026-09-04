@@ -153,6 +153,7 @@
 #include "ui/dialogs/meshprofileplotdialog.h"
 #include "ui/dialogs/rasterprofileplotdialog.h"
 #include "ui/dialogs/comparisonplotdialog.h"
+#include "ui/dialogs/rainfallvisualizationdialog.h"
 #include "ui/dialogs/plotvariablepickerdialog.h"
 #include "plot/swmmoutrunlayer.h"
 #include "plot/comparisonplotmodel.h"
@@ -1812,6 +1813,22 @@ void SWMMVis::initializeMapTools()
         QAction *before = (i >= 0 && i + 1 < acts.size()) ? acts[i + 1] : nullptr;
         ui->menuAnalysis->insertAction(before, actPlotProfile2D);
     }
+
+    // Rainfall Visualization — compare every rain gage's series (inline
+    // [TIMESERIES] and rain files) on one chart. Programmatic like
+    // actPlotProfile2D above; also reachable from the object browser's
+    // Rain Gages context menu and the gage property editor's Plot button.
+    auto *actRainfallViz = new QAction(tr("Rainfall &Visualization…"), this);
+    actRainfallViz->setObjectName(QStringLiteral("actionRainfallVisualization"));
+    actRainfallViz->setStatusTip(tr("Visualize and compare rain gage rainfall series"));
+    connect(actRainfallViz, &QAction::triggered,
+            this, &SWMMVis::openRainfallVisualization);
+    if (ui->menuAnalysis) {
+        const auto acts = ui->menuAnalysis->actions();
+        const int i = acts.indexOf(actPlotProfile2D);
+        QAction *before = (i >= 0 && i + 1 < acts.size()) ? acts[i + 1] : nullptr;
+        ui->menuAnalysis->insertAction(before, actRainfallViz);
+    }
     // Slice GUI-2026-05-30 §6 — Analysis toolbar Report action opens the
     // two-panel Report Viewer over the active project's .rpt sibling.
     connect(ui->actionReport, &QAction::triggered, this, &SWMMVis::onShowReport);
@@ -2576,6 +2593,16 @@ void SWMMVis::initializeObjectBrowserDockWidget()
     // results-layer choice so we plot against that one explicitly.
     connect(mObjectBrowserPanel, &ObjectBrowserPanel::plotTimeSeriesForLayerRequested,
             this, &SWMMVis::openTimeSeriesPlotForOnLayer);
+    // Right-click "Rainfall Visualization…" on a rain gage — the picked
+    // gage opens as the only visible series; the stats table's checkboxes
+    // toggle the rest on.
+    connect(mObjectBrowserPanel, &ObjectBrowserPanel::rainfallVisualizationRequested,
+            this, [this](const SWMMObjectRef &ref) {
+                openRainfallVisualization();
+                if (auto *dlg = findChild<openswmmvis::ui::RainfallVisualizationDialog *>(
+                        QString(), Qt::FindDirectChildrenOnly))
+                    dlg->setFocusGage(ref.name);
+            });
 
     // Slice S — per-object visibility no longer goes through the panel's
     // signals. The virtualised SWMMObjectTreeModel's setData() calls the
@@ -2710,6 +2737,38 @@ openswmmvis::ui::ComparisonPlotDialog *SWMMVis::ensureComparisonPlotDialog()
         }
     }
     return dlg;
+}
+
+openswmmvis::ui::RainfallVisualizationDialog *SWMMVis::ensureRainfallVisualizationDialog()
+{
+    // Find-or-create the shared dialog (same singleton-raise pattern as
+    // ensureComparisonPlotDialog; FindDirectChildrenOnly keeps any future
+    // nested instances out of the lookup).
+    auto *dlg = findChild<openswmmvis::ui::RainfallVisualizationDialog *>(
+        QString(), Qt::FindDirectChildrenOnly);
+    auto *pw = activeProjectWindow();
+    SWMMModelLayer *layer = pw ? pw->modelLayer() : nullptr;
+    if (!dlg) {
+        dlg = new openswmmvis::ui::RainfallVisualizationDialog(layer, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+    } else if (layer) {
+        dlg->setLayer(layer);
+    }
+    return dlg;
+}
+
+void SWMMVis::openRainfallVisualization()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer()) {
+        onLogMessage(tr("Rainfall Visualization: open a SWMM project first."),
+                     OpenSWMMVisLogMessage::LogMessageType::Warning);
+        return;
+    }
+    auto *dlg = ensureRainfallVisualizationDialog();
+    dlg->show();
+    dlg->raise();
+    dlg->activateWindow();
 }
 
 void SWMMVis::openComparisonPlotFor(const SWMMObjectRef &ref)
@@ -3306,6 +3365,17 @@ void SWMMVis::initializePropertiesPanelDockWidget()
     tableDock->setObjectName(QStringLiteral("dockWidgetAttributeTable"));
     tableDock->setWidget(mAttributeTablePanel);
     addDockWidget(Qt::BottomDockWidgetArea, tableDock);
+
+    // Rain gage "Plot Rainfall…" button → shared Rainfall Visualization
+    // dialog, focused on the bound gage (same funnel as the Analysis menu
+    // and object-browser routes).
+    connect(mPropertiesPanel, &PropertiesPanel::rainfallPlotRequested,
+            this, [this](const QString &gageId) {
+                openRainfallVisualization();
+                if (auto *dlg = findChild<openswmmvis::ui::RainfallVisualizationDialog *>(
+                        QString(), Qt::FindDirectChildrenOnly))
+                    dlg->setFocusGage(gageId);
+            });
 
     // Two-way sync between property browser and attribute table so an edit
     // in either view immediately reflects in the other without a full refresh.
