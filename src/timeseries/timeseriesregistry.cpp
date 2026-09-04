@@ -164,6 +164,21 @@ int TimeseriesRegistry::loadFromEngine(void *engineHandle)
         // and we keep the empty provider rather than drop it (so the user
         // can see the problem in the UI).
         p->setAllPoints(std::move(pts));
+
+        // Time mode: leading rows authored as elapsed-time-from-start (the
+        // time-only [TIMESERIES] form). The engine reports how many, plus
+        // the start_date offset baked into their x-values, so the provider
+        // can badge the format and saveToEngine can round-trip it.
+        // FILE-backed series report 0 — the guard leaves them Absolute.
+        {
+            int nRel = 0;
+            double anchorOA = 0.0;
+            if (swmm_timeseries_get_relative_info(eng, i, &nRel, &anchorOA)
+                    == SWMM_OK && nRel > 0) {
+                p->setRelativeInfo(
+                    nRel, openswmmvis::core::swmmDateTimeToQDateTime(anchorOA));
+            }
+        }
         ++added;
     }
     return added;
@@ -250,7 +265,23 @@ int TimeseriesRegistry::saveToEngine(void *engineHandle)
                 break;
             }
         }
-        if (allOk) ++written;
+        if (allOk) {
+            // Re-declare the time-only prefix AFTER the clear + re-add above
+            // (swmm_table_clear resets it). NaN guard: an invalid anchor
+            // would serialize as NaN and poison the writer's elapsed-time
+            // subtraction, so such a series downgrades to Absolute — not
+            // reachable through the UI, which requires a valid simulation
+            // start to enter Relative mode.
+            int    nRel     = p->relativeCount();
+            double anchorOA = 0.0;
+            if (nRel > 0 && p->relativeAnchor().isValid())
+                anchorOA = openswmmvis::core::qDateTimeToSwmmDateTime(
+                    p->relativeAnchor());
+            else
+                nRel = 0;
+            swmm_timeseries_set_relative_info(eng, idx, nRel, anchorOA);
+            ++written;
+        }
     }
     return written;
 }
