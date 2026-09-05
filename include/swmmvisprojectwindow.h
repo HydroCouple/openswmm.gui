@@ -252,6 +252,11 @@ public:
     class OpenSWMMVisMapToolAddVirtualNode *addVirtualJunctionTool() const
     { return mAddVirtualJunctionTool; }
 
+    /*! Inlet-junction insertion tool (click-a-street-conduit split). Exposed
+     *  for the same reason as the virtual-junction tool above. */
+    class OpenSWMMVisMapToolAddInletNode *addInletJunctionTool() const
+    { return mAddInletJunctionTool; }
+
     /*! Slice CF.3 — Pick 2D mesh cells tool (box + lasso). Returns null
      *  until a SWMM2DResultsLayer exists on the canvas (created lazily
      *  on first access via activatePick2DCellsTool). */
@@ -313,6 +318,7 @@ public:
     QHash<class OpenSWMMVisMapTool *, QString> toolActionKeys() const;
     void activateAddJunctionTool();
     void activateAddVirtualJunctionTool();
+    void activateAddInletJunctionTool();
     void activateAddOutfallTool();
     void activateAddStorageTool();
     void activateAddDividerTool();
@@ -538,6 +544,7 @@ private:
     class OpenSWMMVisMapToolSelectProfile *mSelectProfileTool = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddJunctionTool   = nullptr;
     OpenSWMMVisMapToolAddVirtualNode *mAddVirtualJunctionTool = nullptr;
+    class OpenSWMMVisMapToolAddInletNode *mAddInletJunctionTool = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddOutfallTool    = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddStorageTool    = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddDividerTool    = nullptr;

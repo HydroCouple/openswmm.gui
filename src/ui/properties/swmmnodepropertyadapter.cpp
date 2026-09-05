@@ -12,7 +12,13 @@
 #include "layers/swmmresultslayer.h"        // Slice QA.2 — stats dispatch
 #include "output/outputstatsregistry.h"     // Slice QA.2
 
+#include "ui/properties/xsectshapegeom.h"   // kXsectStreetId (approachStreet)
+
+#include <cmath>
+
 #include <openswmm/engine/openswmm_inflows.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_pollutants.h>
 #include <openswmm/engine/openswmm_quality.h>
@@ -53,7 +59,13 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     // Virtual junctions: the solver's max depth is the derived pipe crown, so
     // the editable depth here is the ground surface used for drawing only.
     // The property browser has no per-row tooltip, so the label says it.
-    if (property == QLatin1String("rimDepth"))       return tr("Max Depth, Display (%1)").arg(L);
+    // …and on an inlet junction the same field is the street's flood
+    // threshold (the optional [INLET_JUNCTIONS] MaxDepth), so it gets the
+    // name a street-drainage modeller expects.
+    if (property == QLatin1String("rimDepth"))
+        return (nodeKind() == InletJunction)
+            ? tr("Street Max Depth (%1)").arg(L)
+            : tr("Max Depth, Display (%1)").arg(L);
     if (property == QLatin1String("initialDepth"))   return tr("Initial Depth (%1)").arg(L);
     if (property == QLatin1String("surchargeDepth")) return tr("Surcharge Depth (%1)").arg(L);
     if (property == QLatin1String("pondedArea"))     return tr("Ponded Area (%1)").arg(L2);
@@ -104,6 +116,20 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     // Divider.
     if (property == QLatin1String("dividerType"))     return tr("Divider Type");
 
+    // Inlet junction (§3.4). Depression height/width are the LOCAL gutter
+    // depression at this inlet, distinct from the street's own gutter.
+    if (property == QLatin1String("inletDesign"))      return tr("Inlet Design");
+    if (property == QLatin1String("captureNode"))      return tr("Capture Node");
+    if (property == QLatin1String("numInlets"))        return tr("Number of Inlets");
+    if (property == QLatin1String("pctClogged"))       return tr("% Clogged");
+    if (property == QLatin1String("flowRestriction"))
+        return tr("Flow Restriction (%1)").arg(u ? u->flowUnitLabel()
+                                                 : QStringLiteral("CFS"));
+    if (property == QLatin1String("depressionHeight")) return tr("Local Depression Height (%1)").arg(L);
+    if (property == QLatin1String("depressionWidth"))  return tr("Local Depression Width (%1)").arg(L);
+    if (property == QLatin1String("placement"))        return tr("Placement");
+    if (property == QLatin1String("approachStreet"))   return tr("Approach Street");
+
     // Compound editors (Slice DB.2).
     if (property == QLatin1String("inflows"))         return tr("External Inflows");
     if (property == QLatin1String("dwf"))             return tr("Dry Weather Flow");
@@ -131,11 +157,244 @@ SWMMNodePropertyAdapter::NodeKind SWMMNodePropertyAdapter::nodeKind() const
     int t = 0;
     if (swmm_node_get_type(m_engine, idx, &t) != SWMM_OK) return Junction;
     if (t == 0) {
+        // An inlet junction carries BOTH flags, so it is tested first.
+        int isInlet = 0;
+        if (swmm_node_is_inlet(m_engine, idx, &isInlet) == SWMM_OK && isInlet)
+            return InletJunction;
         int isVirtual = 0;
         if (swmm_node_is_virtual(m_engine, idx, &isVirtual) == SWMM_OK && isVirtual)
             return VirtualJunction;
     }
     return static_cast<NodeKind>(t);
+}
+
+// ---------------------------------------------------------------------------
+// Inlet junction — one SWMM_InletUsage row per node, read and written whole
+// (INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md §3.4).
+// ---------------------------------------------------------------------------
+
+namespace {
+/*! Read the node's usage row. Returns false when the node has none — every
+ *  getter below then reports the engine's own defaults so the rows are
+ *  readable on a half-configured node instead of blank. */
+bool readNodeUsage(SWMM_Engine engine, int nodeIdx, SWMM_InletUsage *out)
+{
+    if (!engine || nodeIdx < 0 || !out) return false;
+    const int row = swmm_inlet_usage_find_node(engine, nodeIdx);
+    if (row < 0) return false;
+    return swmm_inlet_usage_get(engine, row, out) == SWMM_OK;
+}
+} // namespace
+
+// Read-modify-write of the node's row, pushed as ONE undoable command. The
+// mutator receives the current row (or an engine-default one when the node
+// has none yet) and returns false to cancel — which is how an unresolvable
+// name pick (design / capture node) leaves the model untouched.
+void SWMMNodePropertyAdapter::writeInletUsage(
+        const std::function<bool(SWMM_InletUsage &)> &mutate)
+{
+    const int idx = nodeIdx();
+    if (idx < 0 || !m_layer) return;
+
+    SWMM_InletUsage u{};
+    if (!readNodeUsage(m_engine, idx, &u)) {
+        // Defaults match swmm_conduit_split_inlet's: one inlet, unclogged,
+        // no flow limit, no local depression, AUTOMATIC placement.
+        u.host_kind        = SWMM_INLET_HOST_NODE;
+        u.host_idx         = idx;
+        u.design_idx       = -1;
+        u.capture_node_idx = -1;
+        u.num_inlets       = 1;
+        u.placement        = SWMM_INLET_AUTOMATIC;
+    }
+    u.host_kind = SWMM_INLET_HOST_NODE;
+    u.host_idx  = idx;
+
+    if (!mutate(u)) return;
+    // The engine rejects an incomplete row; hold the edit until both
+    // identity fields are resolved (the setup dialog fills them at insert).
+    if (u.design_idx < 0 || u.capture_node_idx < 0) return;
+
+    m_layer->pushInletUsageEdit(u);
+    emit changed();
+}
+
+DataObjectRef SWMMNodePropertyAdapter::inletDesignRef() const
+{
+    DataObjectRef r;
+    r.engine = m_engine;
+    r.layer  = m_layer;
+    r.kind   = DataObjectRef::Inlet;
+    // typeLock carries the host's cross-section shape so "…" can open the
+    // Inlets editor filtered to compatible designs. An inlet junction sits
+    // between two STREET conduits, so that is what it advertises.
+    r.typeLock = openswmmvis::kXsectStreetId;
+    SWMM_InletUsage u{};
+    if (readNodeUsage(m_engine, nodeIdx(), &u))
+        if (const char *id = swmm_inlet_id(m_engine, u.design_idx))
+            r.currentName = QString::fromUtf8(id);
+    return r;
+}
+
+void SWMMNodePropertyAdapter::setInletDesignRef(const DataObjectRef &r)
+{
+    const QByteArray id = r.currentName.toUtf8();
+    const int design = r.currentName.isEmpty()
+        ? -1 : swmm_inlet_index(m_engine, id.constData());
+    if (design < 0) return;                      // unknown / cleared → no-op
+    writeInletUsage([design](SWMM_InletUsage &u) {
+        if (u.design_idx == design) return false;
+        u.design_idx = design;
+        return true;
+    });
+}
+
+DataObjectRef SWMMNodePropertyAdapter::captureNodeRef() const
+{
+    DataObjectRef r;
+    r.engine = m_engine;
+    r.layer  = m_layer;
+    r.kind   = DataObjectRef::CaptureNode;
+    SWMM_InletUsage u{};
+    if (readNodeUsage(m_engine, nodeIdx(), &u))
+        if (const char *id = swmm_node_id(m_engine, u.capture_node_idx))
+            r.currentName = QString::fromUtf8(id);
+    return r;
+}
+
+void SWMMNodePropertyAdapter::setCaptureNodeRef(const DataObjectRef &r)
+{
+    const QByteArray id = r.currentName.toUtf8();
+    const int capture = r.currentName.isEmpty()
+        ? -1 : swmm_node_index(m_engine, id.constData());
+    if (capture < 0) return;                     // unknown / cleared → no-op
+    writeInletUsage([capture](SWMM_InletUsage &u) {
+        if (u.capture_node_idx == capture) return false;
+        u.capture_node_idx = capture;
+        return true;
+    });
+}
+
+int SWMMNodePropertyAdapter::numInlets() const
+{
+    SWMM_InletUsage u{};
+    return readNodeUsage(m_engine, nodeIdx(), &u) ? u.num_inlets : 1;
+}
+
+void SWMMNodePropertyAdapter::setNumInlets(int v)
+{
+    const int n = qBound(1, v, 5);
+    writeInletUsage([n](SWMM_InletUsage &u) {
+        if (u.num_inlets == n) return false;
+        u.num_inlets = n;
+        return true;
+    });
+}
+
+double SWMMNodePropertyAdapter::pctClogged() const
+{
+    SWMM_InletUsage u{};
+    return readNodeUsage(m_engine, nodeIdx(), &u) ? u.pct_clogged : 0.0;
+}
+
+void SWMMNodePropertyAdapter::setPctClogged(double v)
+{
+    const double p = qBound(0.0, v, 99.0);
+    writeInletUsage([p](SWMM_InletUsage &u) {
+        if (qFuzzyCompare(u.pct_clogged + 1.0, p + 1.0)) return false;
+        u.pct_clogged = p;
+        return true;
+    });
+}
+
+double SWMMNodePropertyAdapter::flowRestriction() const
+{
+    SWMM_InletUsage u{};
+    return readNodeUsage(m_engine, nodeIdx(), &u) ? u.flow_limit : 0.0;
+}
+
+void SWMMNodePropertyAdapter::setFlowRestriction(double v)
+{
+    const double f = qMax(0.0, v);
+    writeInletUsage([f](SWMM_InletUsage &u) {
+        if (qFuzzyCompare(u.flow_limit + 1.0, f + 1.0)) return false;
+        u.flow_limit = f;
+        return true;
+    });
+}
+
+double SWMMNodePropertyAdapter::depressionHeight() const
+{
+    SWMM_InletUsage u{};
+    return readNodeUsage(m_engine, nodeIdx(), &u) ? u.local_depress : 0.0;
+}
+
+void SWMMNodePropertyAdapter::setDepressionHeight(double v)
+{
+    const double d = qMax(0.0, v);
+    writeInletUsage([d](SWMM_InletUsage &u) {
+        if (qFuzzyCompare(u.local_depress + 1.0, d + 1.0)) return false;
+        u.local_depress = d;
+        return true;
+    });
+}
+
+double SWMMNodePropertyAdapter::depressionWidth() const
+{
+    SWMM_InletUsage u{};
+    return readNodeUsage(m_engine, nodeIdx(), &u) ? u.local_width : 0.0;
+}
+
+void SWMMNodePropertyAdapter::setDepressionWidth(double v)
+{
+    const double w = qMax(0.0, v);
+    writeInletUsage([w](SWMM_InletUsage &u) {
+        if (qFuzzyCompare(u.local_width + 1.0, w + 1.0)) return false;
+        u.local_width = w;
+        return true;
+    });
+}
+
+SWMMNodePropertyAdapter::InletPlacement
+SWMMNodePropertyAdapter::placement() const
+{
+    SWMM_InletUsage u{};
+    if (!readNodeUsage(m_engine, nodeIdx(), &u)) return AUTOMATIC;
+    return static_cast<InletPlacement>(u.placement);
+}
+
+void SWMMNodePropertyAdapter::setPlacement(InletPlacement v)
+{
+    const int p = static_cast<int>(v);
+    writeInletUsage([p](SWMM_InletUsage &u) {
+        if (u.placement == p) return false;
+        u.placement = p;
+        return true;
+    });
+}
+
+QString SWMMNodePropertyAdapter::approachStreet() const
+{
+    const int idx = nodeIdx();
+    if (!m_engine || idx < 0) return {};
+    // The upstream conduit of the pair — its STREET cross section names the
+    // gutter the inlet drains. geom1 is the street INDEX for SWMM_XSECT_STREET.
+    const int nLinks = swmm_link_count(m_engine);
+    for (int i = 0; i < nLinks; ++i) {
+        int to = -1;
+        if (swmm_link_get_to_node(m_engine, i, &to) != SWMM_OK || to != idx)
+            continue;
+        int shape = 0;
+        double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
+        if (swmm_link_get_xsect(m_engine, i, &shape, &g1, &g2, &g3, &g4) != SWMM_OK)
+            continue;
+        if (shape != openswmmvis::kXsectStreetId) continue;
+        const int sIdx = static_cast<int>(std::lround(g1));
+        if (sIdx < 0 || sIdx >= swmm_street_count(m_engine)) continue;
+        if (const char *id = swmm_street_id(m_engine, sIdx))
+            return QString::fromUtf8(id);
+    }
+    return {};
 }
 
 SWMMNodePropertyAdapter::OutfallType SWMMNodePropertyAdapter::outfallType() const

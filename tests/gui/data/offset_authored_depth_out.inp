@@ -1,0 +1,140 @@
+
+[TITLE]
+;;Project Title/Notes
+InpWriter round-trip fixture: authored form must survive Open -> Save
+LINK_OFFSETS is ELEVATION, so every offset/crest below is an absolute
+elevation that the parser rewrites as a depth above the node invert. C_ADV is
+an adverse-slope conduit (J1 invert 10, J2 invert 12) that the parser reverses
+under DYNWAVE. Before the fix the writer emitted the parser's depths under an
+ELEVATION header and C_ADV with From/To swapped, so a second open clamped the
+offsets to zero and the conduit pointed the wrong way in the file.
+
+[OPTIONS]
+;;Option               Value
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         DYNWAVE
+LINK_OFFSETS         DEPTH
+MIN_SLOPE            0
+ALLOW_PONDING        NO
+SKIP_STEADY_STATE    NO
+
+IGNORE_RAINFALL      NO
+IGNORE_SNOWMELT      YES
+IGNORE_GROUNDWATER   YES
+IGNORE_RDII          NO
+IGNORE_ROUTING       NO
+IGNORE_QUALITY       NO
+
+START_DATE           01/01/2020
+START_TIME           00:00:00
+REPORT_START_DATE    01/01/2020
+REPORT_START_TIME    00:00:00
+END_DATE             01/02/2020
+END_TIME             00:00:00
+SWEEP_START          1/1
+SWEEP_END            12/31
+DRY_DAYS             0
+REPORT_STEP          0:15:00
+WET_STEP             0:05:00
+DRY_STEP             1:00:00
+ROUTING_STEP         0:00:30
+RULE_STEP            0:00:00
+
+INERTIAL_DAMPING     PARTIAL
+NORMAL_FLOW_LIMITED  BOTH
+FORCE_MAIN_EQUATION  H-W
+SURCHARGE_METHOD     EXTRAN
+UNSTEADY_FRICTION    NONE
+UF_K3                0.015
+VARIABLE_STEP        0.75
+LENGTHENING_STEP     0
+MIN_SURFAREA         0
+MAX_TRIALS           8
+HEAD_TOLERANCE       0.005
+SYS_FLOW_TOL         5
+LAT_FLOW_TOL         5
+MINIMUM_STEP         0.5
+THREADS              1
+
+[EVAPORATION]
+;;Type       Parameters
+;;---------- ----------
+CONSTANT     0.0000
+DRY_ONLY     NO
+
+[JUNCTIONS]
+;;Name             Elev         MaxDepth     InitDepth    SurDepth     Aponded     
+;;---------------- ------------ ------------ ------------ ------------ ------------
+J1                    10.0000       5.0000       0.0000       0.0000       0.0000
+J2                    12.0000       5.0000       0.0000       0.0000       0.0000
+J3                    11.0000       5.0000       0.0000       0.0000       0.0000
+
+[OUTFALLS]
+;;Name             Elev         Type         Stage Data       Gated    Route To        
+;;---------------- ------------ ------------ ---------------- -------- ----------------
+O1                     8.0000 FREE         NO      
+
+[CONDUITS]
+;;Name             FromNode         ToNode           Length       Roughness    InOffset     OutOffset    InitFlow   MaxFlow   
+;;---------------- ---------------- ---------------- ------------ ------------ ------------ ------------ ---------- ----------
+C_ADV            J1               J2                           300           0.013       0.5000       0.2500     0.7500     0.0000
+C_OK             J2               J3                           300           0.013       0.5000       0.0000     0.0000     0.0000
+
+[ORIFICES]
+;;Name             FromNode         ToNode           Type       Offset     Cd         Gated    CloseTime 
+;;---------------- ---------------- ---------------- ---------- ---------- ---------- -------- ----------
+OR1              J3               O1               SIDE           0.5000     0.6500 NO           0.0000
+
+[WEIRS]
+;;Name             FromNode         ToNode           Type         CrestHt    Cd         Gated    EndCon     EndCoeff   Surcharge 
+;;---------------- ---------------- ---------------- ------------ ---------- ---------- -------- ---------- ---------- ----------
+W1               J3               O1               TRANSVERSE       1.0000     3.3300 NO           0.0000     0.0000 YES
+
+[OUTLETS]
+;;Name             FromNode         ToNode           Offset     Type             Coeff      Expon     
+;;---------------- ---------------- ---------------- ---------- ---------------- ---------- ----------
+L1               J3               O1                   0.2500 FUNCTIONAL/HEAD          10        0.5 NO
+
+[XSECTIONS]
+;;Link             Shape            Geom1        Geom2        Geom3        Geom4        Barrels 
+;;---------------- ---------------- ------------ ------------ ------------ ------------ --------
+C_ADV            CIRCULAR         1 0 0 0        1
+C_OK             CIRCULAR         1 0 0 0        1
+OR1              CIRCULAR         0.5 0 0 0        1
+W1               RECT_OPEN        1 2 0 0        1
+
+[LOSSES]
+;;Link             Kentry     Kexit      Kavg       Flap     Seepage   
+;;---------------- ---------- ---------- ---------- -------- ----------
+C_ADV                0.1000     0.2000     0.0000 NO         0.000000
+
+[REPORT]
+;;Keyword          Value
+DISABLED             NO
+INPUT                NO
+CONTINUITY           YES
+FLOWSTATS            YES
+CONTROLS             NO
+AVERAGES             NO
+SUBCATCHMENTS        ALL
+NODES                ALL
+LINKS                ALL
+
+[MAP]
+DIMENSIONS 0.0000             0.0000             0.0000             0.0000            
+Units      None
+
+[COORDINATES]
+;;Node           X-Coord            Y-Coord           
+;;-------------- ------------------ ------------------
+J1               0.0000             0.0000            
+J2               300.0000           0.0000            
+J3               600.0000           0.0000            
+O1               900.0000           0.0000            
+
+[VERTICES]
+;;Link           X-Coord            Y-Coord           
+;;-------------- ------------------ ------------------
+C_ADV            100.0000           10.0000           
+C_ADV            200.0000           -10.0000          

@@ -13,14 +13,17 @@
 #include "layers/gisvectorlayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
+#include "layers/vjsourcesummary.h"
 #include "layers/gwsourcesummary.h"
 
 #include "core/editgeometry.h"
 #include "core/unitsystem.h"
 #include "ui/widgets/attributepickermenu.h"
 #include "ui/dialogs/typeconversionflow.h"
+#include "ui/dialogs/inletjunctionsetupdialog.h"
 
 #include <openswmm/engine/openswmm_subcatchments.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_gages.h>
 
@@ -752,15 +755,46 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
         && toDelete.first().kind == DeleteObjectCommand::DeleteNode) {
         const int ni = sl->nodeIndex(toDelete.first().name);
         if (ni >= 0 && sl->nodeIsVirtual(ni)) {
+            // An inlet junction is also virtual; it gets the same three
+            // buttons, a matching title, and one extra sentence naming the
+            // inlet that goes away with it.
+            const bool isInlet = sl->nodeIsInlet(ni);
             auto *widget = qobject_cast<QWidget *>(m_canvas);
             QMessageBox box(widget);
-            box.setWindowTitle(QObject::tr("Delete Virtual Junction"));
-            box.setText(QObject::tr("\"%1\" is a virtual junction.")
-                            .arg(toDelete.first().name));
-            box.setInformativeText(QObject::tr(
+            box.setWindowTitle(isInlet
+                ? QObject::tr("Delete Inlet Junction")
+                : QObject::tr("Delete Virtual Junction"));
+            box.setText(isInlet
+                ? QObject::tr("\"%1\" is an inlet junction.")
+                      .arg(toDelete.first().name)
+                : QObject::tr("\"%1\" is a virtual junction.")
+                      .arg(toDelete.first().name));
+            QString info = QObject::tr(
                 "Re-fuse merges its two conduits back into one (the upstream "
                 "conduit's name survives). Delete removes the node and both "
-                "conduits."));
+                "conduits.");
+            if (isInlet) {
+                // Both choices drop the usage row, so name what is lost.
+                SWMM_InletUsage u{};
+                if (sl->inletUsageFor(SWMM_INLET_HOST_NODE, ni, &u)) {
+                    QString design, capture;
+                    if (const char *d = swmm_inlet_id(eng, u.design_idx))
+                        design = QString::fromUtf8(d);
+                    if (const char *c = swmm_node_id(eng, u.capture_node_idx))
+                        capture = QString::fromUtf8(c);
+                    info += QLatin1Char(' ')
+                        + QObject::tr("Inlet %1 → %2 will be removed.")
+                              .arg(design, capture);
+                }
+            }
+            // A fed virtual junction loses its sources either way (engine
+            // node-delete cascade) — say so before the choice is made.
+            const QString sources =
+                OpenSWMMVis::VirtualJunction::lateralSourceSummary(eng, ni);
+            if (!sources.isEmpty()) info += QLatin1Char(' ') + sources;
+            const QString gw = groundwaterSourcesNote(eng, {ni});
+            if (!gw.isEmpty()) info += QLatin1Char(' ') + gw;
+            box.setInformativeText(info);
             auto *fuseBtn = box.addButton(QObject::tr("Re-fuse Conduits"),
                                           QMessageBox::AcceptRole);
             auto *delBtn  = box.addButton(QObject::tr("Delete Node && Conduits"),
@@ -772,9 +806,20 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             if (box.clickedButton() == fuseBtn) {
                 sl->setSelectedElementNames({});
                 emit selectionChanged(sl);
-                auto *cmd = new FuseVirtualJunctionCommand(
-                    sl, toDelete.first().name, m_canvas);
-                if (!cmd->valid()) { delete cmd; return; }
+                // The inlet variant snapshots the usage row too, so undo
+                // brings the inlet back with the node.
+                QUndoCommand *cmd = nullptr;
+                if (isInlet) {
+                    auto *ic = new FuseInletJunctionCommand(
+                        sl, toDelete.first().name, m_canvas);
+                    if (!ic->valid()) { delete ic; return; }
+                    cmd = ic;
+                } else {
+                    auto *vc = new FuseVirtualJunctionCommand(
+                        sl, toDelete.first().name, m_canvas);
+                    if (!vc->valid()) { delete vc; return; }
+                    cmd = vc;
+                }
                 if (m_canvas->undoStack())
                     m_canvas->undoStack()->push(cmd);
                 else
@@ -813,17 +858,45 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             if (n2 >= 0 && sl->nodeIsVirtual(n2)) vjNode = n2;
         }
         if (vjNode >= 0) {
+            const bool vjIsInlet = sl->nodeIsInlet(vjNode);
             const QString vjName = QString::fromUtf8(swmm_node_id(eng, vjNode));
             auto *widget = qobject_cast<QWidget *>(m_canvas);
             QMessageBox box(widget);
-            box.setWindowTitle(QObject::tr("Conduit Belongs to a Virtual Junction"));
-            box.setText(QObject::tr("\"%1\" is one of the two conduits of "
-                                    "virtual junction \"%2\".")
-                            .arg(toDelete.first().name, vjName));
-            box.setInformativeText(QObject::tr(
+            box.setWindowTitle(vjIsInlet
+                ? QObject::tr("Conduit Belongs to an Inlet Junction")
+                : QObject::tr("Conduit Belongs to a Virtual Junction"));
+            box.setText(vjIsInlet
+                ? QObject::tr("\"%1\" is one of the two conduits of "
+                              "inlet junction \"%2\".")
+                      .arg(toDelete.first().name, vjName)
+                : QObject::tr("\"%1\" is one of the two conduits of "
+                              "virtual junction \"%2\".")
+                      .arg(toDelete.first().name, vjName));
+            QString info = QObject::tr(
                 "Re-fuse merges the pair back into one conduit. Delete removes "
                 "this conduit and demotes \"%1\" to a regular junction.")
-                    .arg(vjName));
+                    .arg(vjName);
+            if (vjIsInlet) {
+                SWMM_InletUsage u{};
+                if (sl->inletUsageFor(SWMM_INLET_HOST_NODE, vjNode, &u)) {
+                    QString design, capture;
+                    if (const char *d = swmm_inlet_id(eng, u.design_idx))
+                        design = QString::fromUtf8(d);
+                    if (const char *c = swmm_node_id(eng, u.capture_node_idx))
+                        capture = QString::fromUtf8(c);
+                    info += QLatin1Char(' ')
+                        + QObject::tr("Inlet %1 → %2 will be removed.")
+                              .arg(design, capture);
+                }
+            }
+            // Re-fusing drops the node's sources (engine node-delete
+            // cascade); demoting keeps them on the regular junction.
+            const QString sources =
+                OpenSWMMVis::VirtualJunction::lateralSourceSummary(eng, vjNode);
+            if (!sources.isEmpty()) info += QLatin1Char(' ') + sources;
+            const QString gw = groundwaterSourcesNote(eng, {vjNode});
+            if (!gw.isEmpty()) info += QLatin1Char(' ') + gw;
+            box.setInformativeText(info);
             auto *fuseBtn = box.addButton(QObject::tr("Re-fuse Conduits"),
                                           QMessageBox::AcceptRole);
             auto *delBtn  = box.addButton(QObject::tr("Delete Conduit"),
@@ -835,8 +908,16 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             if (box.clickedButton() == fuseBtn) {
                 sl->setSelectedElementNames({});
                 emit selectionChanged(sl);
-                auto *cmd = new FuseVirtualJunctionCommand(sl, vjName, m_canvas);
-                if (!cmd->valid()) { delete cmd; return; }
+                QUndoCommand *cmd = nullptr;
+                if (vjIsInlet) {
+                    auto *ic = new FuseInletJunctionCommand(sl, vjName, m_canvas);
+                    if (!ic->valid()) { delete ic; return; }
+                    cmd = ic;
+                } else {
+                    auto *vc = new FuseVirtualJunctionCommand(sl, vjName, m_canvas);
+                    if (!vc->valid()) { delete vc; return; }
+                    cmd = vc;
+                }
                 if (m_canvas->undoStack())
                     m_canvas->undoStack()->push(cmd);
                 else
@@ -846,7 +927,10 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             if (box.clickedButton() != delBtn)
                 return;   // cancelled
             // Demote the node so the model stays valid, then fall through to
-            // the standard confirm + delete path.
+            // the standard confirm + delete path. The inlet role has to go
+            // first: swmm_node_set_virtual(0) on an inlet junction would
+            // leave a usage row pointing at a plain junction.
+            if (vjIsInlet) sl->applySetInlet(vjName, false);
             sl->applySetVirtual(vjName, false);
         }
     }
@@ -1465,18 +1549,31 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
             // node reports kVirtualNodeType so "Junction" (demote) becomes
             // an offered target, and the "Virtual Junction" target is
             // greyed out with the violated rule when the engine's usage
-            // rules (two identical conduits, no inflows, …) aren't met.
+            // rules (two identical conduits, zero offsets, no 2D coupling,
+            // …) aren't met — point inflows do not disqualify a node.
             constexpr int kVJ = openswmmvis::ui::TypeConversionFlow::kVirtualNodeType;
-            int vjRule = 0;
+            // Inlet junctions are the same story one level down: they carry
+            // BOTH flags, so the probe order is inlet → virtual, and the
+            // "Inlet Junction" target is offered only when the engine's inlet
+            // rules hold (all the VJ rules plus 623: both conduits STREET).
+            constexpr int kIJ = openswmmvis::ui::TypeConversionFlow::kInletNodeType;
+            const bool inletSupported = hitLayer->engineSupportsInletJunctions();
+            int vjRule = 0, ijRule = 0;
             if (isNode) {
+                int isInlet = 0;
+                swmm_node_is_inlet(eng, idx, &isInlet);
                 int isVirtual = 0;
                 swmm_node_is_virtual(eng, idx, &isVirtual);
-                if (isVirtual) currentType = kVJ;
+                if      (isInlet)   currentType = kIJ;
+                else if (isVirtual) currentType = kVJ;
                 swmm_node_virtual_eligible(eng, idx, &vjRule);
+                swmm_node_inlet_eligible(eng, idx, /*for_drop_inlet=*/0, &ijRule);
             }
             QMenu *convertMenu = menu.addMenu(QObject::tr("Convert To"));
             convertMenu->setToolTipsVisible(true);
-            const int nKinds = 5;
+            // 5 SWMM kinds + Virtual Junction (+ Inlet Junction when the
+            // engine supports it, and only for nodes).
+            const int nKinds = (isNode && inletSupported) ? 6 : 5;
             for (int t = 0; t < nKinds; ++t) {
                 if (t == currentType) continue;
                 const QString label = isNode
@@ -1486,6 +1583,10 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
                 if (isNode && t == kVJ && vjRule != 0) {
                     act->setEnabled(false);
                     act->setToolTip(SWMMModelLayer::virtualJunctionRuleText(vjRule));
+                }
+                if (isNode && t == kIJ && ijRule != 0) {
+                    act->setEnabled(false);
+                    act->setToolTip(SWMMModelLayer::virtualJunctionRuleText(ijRule));
                 }
                 convertTargets.insert(act, t);
             }
@@ -1513,9 +1614,27 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     // element (e.g. conduit handles after a convert to pump).
     if (convertTargets.contains(picked) && hitLayer) {
         const bool isNode = (ref.objectType == SWMMObjectRef::Node);
+        const int target = convertTargets.value(picked);
+        // Promoting to an inlet junction needs an inlet design and a capture
+        // node up front (D-G6), so it takes the setup dialog and its own
+        // entry point rather than the generic flow.
+        if (isNode
+            && target == openswmmvis::ui::TypeConversionFlow::kInletNodeType) {
+            const int ni = hitLayer->nodeIndex(ref.name);
+            openswmmvis::ui::InletJunctionSetupDialog dlg(
+                hitLayer, ni >= 0 ? QVector<int>{ni} : QVector<int>{}, widget);
+            if (dlg.exec() != QDialog::Accepted) return;
+            if (openswmmvis::ui::TypeConversionFlow::runToInletJunction(
+                    widget, hitLayer, ref.name, currentType,
+                    dlg.inletDesign(), dlg.captureNode(), dlg.placement())) {
+                if (m_editKind != EditKind::None && m_editName == ref.name)
+                    clearEditMode();
+            }
+            return;
+        }
         if (openswmmvis::ui::TypeConversionFlow::run(
                 widget, hitLayer, isNode, ref.name,
-                currentType, convertTargets.value(picked))) {
+                currentType, target)) {
             if (m_editKind != EditKind::None && m_editName == ref.name)
                 clearEditMode();
         }
@@ -1656,6 +1775,12 @@ void OpenSWMMVisMapToolSelect::mouseDoubleClickEvent(QMouseEvent *event)
             return;
         }
 
+        if (r.cat == SWMMModelLayer::CatRainGages)
+        {
+            enterEditMode(sl, r.name, EditKind::Gage, r.soaIndex);
+            return;
+        }
+
         if (r.cat == SWMMModelLayer::CatConduits
          || r.cat == SWMMModelLayer::CatPumps
          || r.cat == SWMMModelLayer::CatOrifices
@@ -1663,12 +1788,6 @@ void OpenSWMMVisMapToolSelect::mouseDoubleClickEvent(QMouseEvent *event)
          || r.cat == SWMMModelLayer::CatOutlets)
         {
             enterEditMode(sl, r.name, EditKind::Link, r.soaIndex);
-            return;
-        }
-
-        if (r.cat == SWMMModelLayer::CatRainGages)
-        {
-            enterEditMode(sl, r.name, EditKind::Gage, r.soaIndex);
             return;
         }
 

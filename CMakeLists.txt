@@ -434,6 +434,7 @@ set(
         include/map/tools/maptoolidentify.h
         include/map/tools/maptooladdnode.h
         include/map/tools/maptooladdvirtualnode.h
+        include/map/tools/maptooladdinletnode.h
         include/map/tools/maptooladdlink.h
         include/map/tools/maptooladdgage.h
         include/map/tools/maptooladdsubcatchment.h
@@ -529,8 +530,11 @@ set(
         # ── Inlet ([INLETS]) ─────────────────────────────────────────────────
         include/inlet/inletprovider.h
         include/inlet/inletregistry.h
+        include/inlet/inletundocommands.h
         include/ui/models/inletlistmodel.h
+        include/ui/dialogs/inletpropertybag.h
         include/ui/dialogs/inleteditordialog.h
+        include/ui/widgets/inletdrawingview.h
 
         # ── LID control ([LID_CONTROLS]) ─────────────────────────────────────
         include/lid/lidcontrolprovider.h
@@ -759,6 +763,7 @@ set(
         include/ui/dialogs/nodecompoundeditdialog.h
         include/ui/dialogs/subcatchcompoundeditdialog.h
         include/ui/dialogs/linkcompoundeditdialog.h
+        include/ui/dialogs/inletjunctionsetupdialog.h
         include/ui/dialogs/hydrographgroupeditor.h
         include/ui/dialogs/newprojectdialog.h
         include/ui/dialogs/pluginsdialog.h
@@ -1036,6 +1041,7 @@ set(
         src/layers/swmmmodellayer.cpp
         src/layers/hydrographmodels.cpp
         src/layers/speciesattributes.cpp
+        src/layers/vjsourcesummary.cpp
         src/layers/gwsourcesummary.cpp
         src/layers/swmmresultslayer.cpp
         src/layers/tabulardatalayer.cpp
@@ -1090,6 +1096,7 @@ set(
         src/map/tools/maptoolidentify.cpp
         src/map/tools/maptooladdnode.cpp
         src/map/tools/maptooladdvirtualnode.cpp
+        src/map/tools/maptooladdinletnode.cpp
         src/map/tools/maptooladdlink.cpp
         src/map/tools/maptooladdgage.cpp
         src/map/tools/maptooladdsubcatchment.cpp
@@ -1193,8 +1200,11 @@ set(
         # ── Inlet ([INLETS]) ─────────────────────────────────────────────────
         src/inlet/inletprovider.cpp
         src/inlet/inletregistry.cpp
+        src/inlet/inletundocommands.cpp
         src/ui/models/inletlistmodel.cpp
+        src/ui/dialogs/inletpropertybag.cpp
         src/ui/dialogs/inleteditordialog.cpp
+        src/ui/widgets/inletdrawingview.cpp
 
         # ── LID control ([LID_CONTROLS]) ─────────────────────────────────────
         src/lid/lidcontrolprovider.cpp
@@ -1362,6 +1372,7 @@ set(
         src/ui/dialogs/nodecompoundeditdialog.cpp
         src/ui/dialogs/subcatchcompoundeditdialog.cpp
         src/ui/dialogs/linkcompoundeditdialog.cpp
+        src/ui/dialogs/inletjunctionsetupdialog.cpp
         src/ui/dialogs/hydrographgroupeditor.cpp
         src/ui/dialogs/newprojectdialog.cpp
         src/ui/dialogs/pluginsdialog.cpp

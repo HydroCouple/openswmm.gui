@@ -32,6 +32,7 @@ struct SWMMKdTrees;
 #include <QDateTime>
 
 #include <openswmm/engine/openswmm_callbacks.h>  // SWMM_Engine typedef
+#include <openswmm/engine/openswmm_infrastructure.h>  // SWMM_InletUsage (by value)
 #include <QFont>
 #include <QMap>
 #include <QPen>
@@ -43,6 +44,7 @@ struct SWMMKdTrees;
 
 class OpenSWMMVisWorkspace;
 class SpatialReferenceSystem;
+class MapCanvas;   // setEditCanvas() — undo-stack host for mediated edits
 
 namespace OpenSWMM::Render {
 class IFeatureRenderer;
@@ -689,6 +691,16 @@ public:
 
     [[nodiscard]] SWMMElementSymbol virtualJunctionSymbol() const;
     void setVirtualJunctionSymbol(const SWMMElementSymbol &s);
+
+    /*! Inlet junctions — same CatJunctions bucket as virtual junctions
+     *  (D-G1), distinct glyph. */
+    [[nodiscard]] SWMMElementSymbol inletJunctionSymbol() const;
+    void setInletJunctionSymbol(const SWMMElementSymbol &s);
+
+    /*! Dashed host → capture-node connector overlay (§3.2). Category-less:
+     *  it draws no features of its own, only the relation lines. */
+    [[nodiscard]] SWMMElementSymbol inletConnectorSymbol() const;
+    void setInletConnectorSymbol(const SWMMElementSymbol &s);
 
     [[nodiscard]] SWMMElementSymbol conduitSymbol()    const;
     void setConduitSymbol(const SWMMElementSymbol &s);
@@ -1579,8 +1591,105 @@ public:
     bool applyFuseVirtualJunction(const QString &nodeName,
                                   QString *outError = nullptr);
 
-    /*! \brief Actionable text for a virtual-junction rule code (609..621). */
+    /*! \brief Actionable text for a virtual-junction / inlet-junction rule
+     *         code (609..621 VJ, 623..635 inlet). */
     static QString virtualJunctionRuleText(int engineErrorCode);
+
+    // ===== Inlet junctions and inlet usage ================================
+    // Engine surface: swmm_node_is_inlet / _inlet_eligible / _set_inlet
+    // (openswmm_nodes.h), swmm_inlet_usage_* (openswmm_infrastructure.h),
+    // swmm_conduit_split_inlet / swmm_inlet_junction_fuse (openswmm_edit.h).
+    // See workplans/INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md.
+
+    /*! \brief True when cached node \p soaIdx is an inlet junction. An inlet
+     *         junction is also a virtual junction, so callers that branch on
+     *         both must test this one FIRST. */
+    [[nodiscard]] bool nodeIsInlet(int soaIdx) const {
+        return soaIdx >= 0 && soaIdx < m_nodes.size() &&
+               m_nodes[soaIdx].isInlet != 0;
+    }
+
+    /*! \brief Tri-state capability probe, cached for the layer's lifetime:
+     *         true when the bound engine exposes the inlet-junction surface.
+     *         Callers hide the add tool / Convert-To entries / usage page
+     *         when this is false. */
+    [[nodiscard]] bool engineSupportsInletJunctions() const;
+
+    /*! \brief Read the inlet-usage row hosted by (\p hostKind, \p hostIdx).
+     *  \param hostKind SWMM_INLET_HOST_LINK (0) or SWMM_INLET_HOST_NODE (1).
+     *  \returns false when no row exists (\p out untouched). */
+    [[nodiscard]] bool inletUsageFor(int hostKind, int hostIdx,
+                                     SWMM_InletUsage *out) const;
+
+    /*! \brief Create or replace the usage row for \p usage's host via
+     *         `swmm_inlet_usage_set`. Emits attributeChanged for the host
+     *         object + repaintRequested (the connector overlay follows). */
+    bool applySetInletUsage(const SWMM_InletUsage &usage,
+                            QString *outError = nullptr);
+
+    /*! \brief Remove the usage row hosted by (\p hostKind, \p hostIdx).
+     *         A missing row is a successful no-op. */
+    bool applyRemoveInletUsage(int hostKind, int hostIdx,
+                               QString *outError = nullptr);
+
+    /*! \brief Set or clear a node's inlet-junction flag via
+     *         `swmm_node_set_inlet`. Clearing leaves the node a virtual
+     *         junction and drops its usage row (engine contract). */
+    bool applySetInlet(const QString &name, bool makeInlet,
+                       QString *outError = nullptr);
+
+    /*! \brief Split STREET conduit \p linkName at \p t, inserting an inlet
+     *         junction wired to \p inletId / \p captureNode, via
+     *         `swmm_conduit_split_inlet` (atomic engine-side). Cache sync is
+     *         identical to applyInsertVirtualJunction. */
+    bool applyInsertInletJunction(const QString &linkName, double t,
+                                  const QString &newNodeName,
+                                  const QString &newLinkName,
+                                  const QString &inletId,
+                                  const QString &captureNode,
+                                  int *outNodeIdx = nullptr,
+                                  int *outLinkIdx = nullptr,
+                                  QString *outError = nullptr);
+
+    /*! \brief Inverse of applyInsertInletJunction — drops the usage row and
+     *         re-fuses the conduit pair (`swmm_inlet_junction_fuse`). */
+    bool applyFuseInletJunction(const QString &nodeName,
+                                QString *outError = nullptr);
+
+    /*! One dashed host → capture-node overlay line, in SCENE coordinates
+     *  (same space as m_nodeScenePts / the catchment outlet lines, so the
+     *  paint loops draw it with no extra transform). Rebuilt lazily from the
+     *  engine's usage rows; see inletConnectors(). */
+    struct InletConnector {
+        QPointF host;      ///< conduit midpoint (link host) or node position
+        QPointF capture;   ///< capture (underdrain) node position
+    };
+
+    /*! \brief The connector overlay geometry, rebuilt on demand when the
+     *         usage rows or the geometry changed. Empty when the engine has
+     *         no usage rows or predates the inlet-usage API. */
+    [[nodiscard]] const QVector<InletConnector> &inletConnectors() const;
+
+    /*! \brief Bind the canvas whose undo stack mediated edits push onto.
+     *  \details Property adapters have no canvas of their own, but an inlet
+     *           usage edit must be undoable exactly like the map-tool edits
+     *           (MVC contract: one mutation = one MapCommand). The project
+     *           window calls this once with its canvas; without it the layer
+     *           still applies edits, just not undoably (headless tests).
+     *
+     *           Both are defined out-of-line: Qt 6's QPointer<T> instantiates
+     *           a static_cast to/from QObject*, so it needs the COMPLETE
+     *           MapCanvas — which this header only forward-declares (same
+     *           reason as include/ui/panels/legenddock.h). */
+    void setEditCanvas(MapCanvas *canvas);
+    [[nodiscard]] MapCanvas *editCanvas() const;
+
+    /*! \brief Apply one inlet-usage row as a single undoable step. Pushes a
+     *         SetInletUsageCommand on the edit canvas's stack when one is
+     *         bound; falls back to applySetInletUsage() otherwise. */
+    bool pushInletUsageEdit(const SWMM_InletUsage &usage);
+    /*! \brief Undoable counterpart of applyRemoveInletUsage(). */
+    bool pushInletUsageRemoval(int hostKind, int hostIdx);
 
     /*!
      * \brief Apply interior vertices to a link: engine + cache, rebuilding
@@ -2128,7 +2237,12 @@ private:
                               QString *innerOut) const;
 
     struct NodeGeom    { double x, y; int objectType; int nodeType;
-                         int isVirtual = 0; QString name; };
+                         int isVirtual = 0;
+                         /*! Inlet junction (implies isVirtual). Mirrors
+                          *  swmm_node_is_inlet; the renderers bucket on it
+                          *  BEFORE isVirtual. */
+                         int isInlet = 0;
+                         QString name; };
     struct LinkGeom {
         QVector<QPointF> vertices;   // interior bend points only (no node endpoints)
         int              linkType    = -1;
@@ -2474,6 +2588,39 @@ private:
     /*! Marker override for virtual junctions — same CatJunctions bucket
      *  (decision D-G1: no 5th persisted category), distinct glyph. */
     SWMMElementSymbol            m_virtualJunctionSym;
+    /*! Marker override for inlet junctions — same CatJunctions bucket,
+     *  tested BEFORE the virtual override (an inlet junction is virtual). */
+    SWMMElementSymbol            m_inletJunctionSym;
+    /*! Style of the dashed host → capture-node overlay (§3.2). Only
+     *  fillColor (line colour) and outlineWidth (line width) are read. */
+    SWMMElementSymbol            m_inletConnectorSym;
+
+    /*! Lazily-rebuilt overlay geometry; invalidated by attributeChanged /
+     *  geometryChanged self-connections in the ctor. */
+    mutable QVector<InletConnector> m_inletConnectors;
+    mutable bool                    m_inletConnectorsDirty = true;
+    /*! Tri-state engine capability cache: -1 unknown, 0 no, 1 yes. */
+    mutable int                     m_inletJunctionSupport = -1;
+    /*! Canvas whose undo stack mediated (non-map-tool) edits push onto.
+     *  Non-owning; see setEditCanvas(). */
+    QPointer<MapCanvas>             m_editCanvas;
+    /*! Rebuild m_inletConnectors from the engine's usage rows. */
+    void rebuildInletConnectors() const;
+
+    /*! Cache sync shared by every conduit-split entry point (plain virtual
+     *  split and the inlet-junction split). Appends the inserted node and
+     *  the new downstream conduit, re-reads the partitioned interior
+     *  vertices of both conduits, and emits the geometry signal set. */
+    void syncSplitCaches(int li, int newNode, int newLink,
+                         const QString &newNodeName,
+                         const QString &newLinkName,
+                         const QString &origLinkName,
+                         int isVirtual, int isInlet);
+
+    /*! Cache sync shared by both fuse entry points. Removes the node and the
+     *  retired downstream conduit, then re-reads the surviving conduit's
+     *  downstream end and merged interior vertices. */
+    void syncFuseCaches(int ni, int dn, int surviving);
     SWMMElementSymbol            m_outfallSym;
     SWMMElementSymbol            m_storageSym;
     SWMMElementSymbol            m_dividerSym;

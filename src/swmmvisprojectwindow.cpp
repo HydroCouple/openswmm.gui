@@ -29,6 +29,7 @@
 #include "map/tools/maptoolselectprofile.h"
 #include "map/tools/maptooladdnode.h"
 #include "map/tools/maptooladdvirtualnode.h"
+#include "map/tools/maptooladdinletnode.h"
 #include "map/tools/maptooladdlink.h"
 #include "map/tools/maptooladdgage.h"
 #include "map/tools/maptooladdsubcatchment.h"
@@ -160,6 +161,10 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                              ? QStringLiteral("Untitled")
                              : QFileInfo(filePath).baseName());
     mModelLayer->setVisible(!filePath.isEmpty());
+    // Undo host for mediated edits made outside a map tool (the property
+    // panel's inlet-usage rows), so they land on the same stack as every
+    // map edit rather than mutating the engine unrecoverably.
+    mModelLayer->setEditCanvas(mCanvas);
 
     // Mirror the prefs' link colours into the layer's per-link-type
     // symbol structs. The painter / GL renderers read the full QPen
@@ -197,21 +202,23 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // below match the canonical "Junction" / "Outfall" / … forms.
     auto applyNodeStyleFromPreferences = [this]() {
         auto *prefs = PreferencesManager::instance();
-        const QString kinds[5] = {
+        const QString kinds[6] = {
             QStringLiteral("junction"),
             QStringLiteral("outfall"),
             QStringLiteral("storage"),
             QStringLiteral("divider"),
             QStringLiteral("virtual_junction"),
+            QStringLiteral("inlet_junction"),
         };
-        SWMMElementSymbol syms[5] = {
+        SWMMElementSymbol syms[6] = {
             mModelLayer->junctionSymbol(),
             mModelLayer->outfallSymbol(),
             mModelLayer->storageSymbol(),
             mModelLayer->dividerSymbol(),
             mModelLayer->virtualJunctionSymbol(),
+            mModelLayer->inletJunctionSymbol(),
         };
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 6; ++i) {
             const QBrush fill    = prefs->nodeBrush(kinds[i]);
             const QPen   outline = prefs->nodePen(kinds[i]);
             const double sizePx  = prefs->nodeSize(kinds[i]);
@@ -225,6 +232,13 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
         mModelLayer->setStorageSymbol(syms[2]);
         mModelLayer->setDividerSymbol(syms[3]);
         mModelLayer->setVirtualJunctionSymbol(syms[4]);
+        mModelLayer->setInletJunctionSymbol(syms[5]);
+        // The dashed connector overlay follows the inlet-junction colour so
+        // the relation and its node read as one thing (§3.2).
+        auto connector = mModelLayer->inletConnectorSymbol();
+        connector.fillColor    = syms[5].fillColor;
+        connector.outlineColor = syms[5].fillColor;
+        mModelLayer->setInletConnectorSymbol(connector);
     };
     applyNodeStyleFromPreferences();
 
@@ -336,6 +350,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // Pass element-kind keys so tools read the configurable prefix from PreferencesManager.
     mAddJunctionTool  = new OpenSWMMVisMapToolAddNode(mCanvas, 0, QStringLiteral("junction"),     this);
     mAddVirtualJunctionTool = new OpenSWMMVisMapToolAddVirtualNode(mCanvas, this);
+    mAddInletJunctionTool   = new OpenSWMMVisMapToolAddInletNode(mCanvas, this);
     mAddOutfallTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 1, QStringLiteral("outfall"),      this);
     mAddStorageTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 2, QStringLiteral("storage"),      this);
     mAddDividerTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 3, QStringLiteral("divider"),      this);
@@ -1906,6 +1921,7 @@ bool SWMMVisProjectWindow::hasMeshLayer() const
 }
 void SWMMVisProjectWindow::activateAddJunctionTool()    { mCanvas->setActiveTool(mAddJunctionTool); }
 void SWMMVisProjectWindow::activateAddVirtualJunctionTool() { mCanvas->setActiveTool(mAddVirtualJunctionTool); }
+void SWMMVisProjectWindow::activateAddInletJunctionTool()   { mCanvas->setActiveTool(mAddInletJunctionTool); }
 void SWMMVisProjectWindow::activateAddOutfallTool()     { mCanvas->setActiveTool(mAddOutfallTool); }
 void SWMMVisProjectWindow::activateAddStorageTool()     { mCanvas->setActiveTool(mAddStorageTool); }
 void SWMMVisProjectWindow::activateAddDividerTool()     { mCanvas->setActiveTool(mAddDividerTool); }
@@ -1950,6 +1966,7 @@ QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() cons
         { mSelectProfileTool,  QStringLiteral("actionPlotProfile")    },
         { mAddJunctionTool,    QStringLiteral("actionAddJunction")    },
         { mAddVirtualJunctionTool, QStringLiteral("actionAddVirtualJunction") },
+        { mAddInletJunctionTool,   QStringLiteral("actionAddInletJunction")   },
         { mAddOutfallTool,     QStringLiteral("actionAddOutfall")     },
         { mAddStorageTool,     QStringLiteral("actionAddStorage")     },
         { mAddDividerTool,     QStringLiteral("actionAddFlowDivider") },
