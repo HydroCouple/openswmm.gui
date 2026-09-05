@@ -14,6 +14,7 @@ const QString kOutfall  = QStringLiteral("outfall");
 const QString kStorage  = QStringLiteral("storage");
 const QString kDivider  = QStringLiteral("divider");
 const QString kVirtualJunction = QStringLiteral("virtual_junction");
+const QString kInletJunction   = QStringLiteral("inlet_junction");
 } // anonymous
 
 NodeRenderingPrefs::NodeRenderingPrefs(QObject *parent)
@@ -40,6 +41,10 @@ double NodeRenderingPrefs::dividerSize()  const { return PreferencesManager::ins
 QPen   NodeRenderingPrefs::virtualJunctionPen()  const { return PreferencesManager::instance()->nodePen(kVirtualJunction); }
 QBrush NodeRenderingPrefs::virtualJunctionFill() const { return PreferencesManager::instance()->nodeBrush(kVirtualJunction); }
 double NodeRenderingPrefs::virtualJunctionSize() const { return PreferencesManager::instance()->nodeSize(kVirtualJunction); }
+
+QPen   NodeRenderingPrefs::inletJunctionPen()  const { return PreferencesManager::instance()->nodePen(kInletJunction); }
+QBrush NodeRenderingPrefs::inletJunctionFill() const { return PreferencesManager::instance()->nodeBrush(kInletJunction); }
+double NodeRenderingPrefs::inletJunctionSize() const { return PreferencesManager::instance()->nodeSize(kInletJunction); }
 
 void NodeRenderingPrefs::setJunctionPen(const QPen &pen)
 {
@@ -134,4 +139,23 @@ void NodeRenderingPrefs::setVirtualJunctionSize(double sizePx)
     if (qFuzzyCompare(virtualJunctionSize(), sizePx)) return;
     PreferencesManager::instance()->setNodeSize(kVirtualJunction, sizePx);
     emit virtualJunctionSizeChanged(sizePx);
+}
+
+void NodeRenderingPrefs::setInletJunctionPen(const QPen &pen)
+{
+    if (inletJunctionPen() == pen) return;
+    PreferencesManager::instance()->setNodePen(kInletJunction, pen);
+    emit inletJunctionPenChanged(pen);
+}
+void NodeRenderingPrefs::setInletJunctionFill(const QBrush &brush)
+{
+    if (inletJunctionFill() == brush) return;
+    PreferencesManager::instance()->setNodeBrush(kInletJunction, brush);
+    emit inletJunctionFillChanged(brush);
+}
+void NodeRenderingPrefs::setInletJunctionSize(double sizePx)
+{
+    if (qFuzzyCompare(inletJunctionSize(), sizePx)) return;
+    PreferencesManager::instance()->setNodeSize(kInletJunction, sizePx);
+    emit inletJunctionSizeChanged(sizePx);
 }

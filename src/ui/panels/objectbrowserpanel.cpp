@@ -8,6 +8,7 @@
 #include "ui/panels/swmmobjecttreemodel.h"
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
+#include "ui/dialogs/inleteditordialog.h"
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/dialogs/ruleseditordialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
@@ -16,6 +17,7 @@
 #include "controls/controlruleregistry.h"
 #include "curve/curveprovider.h"
 #include "curve/curveregistry.h"
+#include "inlet/inletregistry.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "map/mapcanvas.h"
@@ -603,6 +605,7 @@ void ObjectBrowserPanel::onItemDoubleClicked(const QModelIndex &proxyIdx)
     case SWMMObjectRef::Curve:
     case SWMMObjectRef::TimePattern:
     case SWMMObjectRef::Transect:
+    case SWMMObjectRef::Inlet:
     case SWMMObjectRef::Control:
     case SWMMObjectRef::TimeSeries:
         openComprehensiveEditorFor(
@@ -687,6 +690,21 @@ void ObjectBrowserPanel::openComprehensiveEditorFor(SWMMModelLayer    *layer,
         if (!editor)
             editor = new TransectEditorDialog(reg, layer, undoStack, parent);
         editor->openForTransect(ref.name);
+        return;
+    }
+
+    // Inlets plan §2.2 — INLET leaves open the InletEditorDialog (modeless,
+    // MVC). Registry is owned by the layer; the dialog is kept alive across
+    // calls so the user can flick between designs via the left-pane list.
+    if (ref.objectType == SWMMObjectRef::Inlet) {
+        using openswmmvis::inlet::InletRegistry;
+        using openswmmvis::ui::InletEditorDialog;
+        auto *reg = qobject_cast<InletRegistry *>(layer->ensureInletRegistry());
+        if (!reg) return;
+        static QPointer<InletEditorDialog> editor;
+        if (!editor)
+            editor = new InletEditorDialog(reg, layer, undoStack, parent);
+        editor->openForInlet(ref.name);
         return;
     }
 

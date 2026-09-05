@@ -97,6 +97,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     // ── Model authoring (enabled while a project is open) ───────────────
     {"model.addJunction",     "actionAddJunction",      "Model", "",  "Junction", "model", "Model/Add Node", RequiresProject},
     {"model.addVirtualJunction", "actionAddVirtualJunction", "Model", "",  "VirtualJunction", "model", "Model/Add Node", RequiresProject},
+    {"model.addInletJunction", "actionAddInletJunction", "Model", "",  "InletJunction", "model", "Model/Add Node", RequiresProject},
     {"model.addOutfall",      "actionAddOutfall",       "Model", "",  "Outfall", "model", "Model/Add Node", RequiresProject},
     {"model.addFlowDivider",  "actionAddFlowDivider",   "Model", "",  "Divider", "model", "Model/Add Node", RequiresProject},
     {"model.addStorage",      "actionAddStorage",       "Model", "",  "Storage", "model", "Model/Add Node", RequiresProject},
@@ -136,8 +137,8 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"data.newControlRule",   "actionNewControlRule",   "Data", "", "AddControlRule", "model", "Model/Data Objects", NoTags},
     {"data.newTransect",      "actionNewTransect",      "Data", "", "AddTransect", "model", "Model/Data Objects", NoTags},
     {"data.newUnitHydrograph","actionNewUnitHydrograph","Data", "", "UnitHydrograph",      "", "Model/Data Objects", NoTags},
-    {"data.newStreet",        "actionNewStreet",        "Data", "", "Street",      "", "Model/Data Objects", NoTags},
-    {"data.newInlet",         "actionNewInlet",         "Data", "", "Inlet",      "", "Model/Data Objects", NoTags},
+    {"data.newStreet",        "actionNewStreet",        "Data", "", "Street", "model", "Model/Data Objects", NoTags},
+    {"data.newInlet",         "actionNewInlet",         "Data", "", "Inlet", "model", "Model/Data Objects", NoTags},
 
     // ── Layer / data import ─────────────────────────────────────────────
     {"import.swmmOutput",     "actionAddSWMMOutput",    "Import", "", "AddSWMMOutput", "home", "File/Import", NoTags},

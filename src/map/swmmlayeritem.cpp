@@ -811,6 +811,45 @@ void SWMMLayerItem::paint(QPainter *painter,
         }
     }
 
+    // ------------------------------------------------ Inlet connectors
+    // Dashed host → capture-node relation lines, one per inlet-usage row
+    // (§3.2 of INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md; legacy
+    // parity with TMap.DrawInletSymbol). Painted here — after the link pass,
+    // before the node pass — so they sit above links and beneath node glyphs.
+    // Non-hydraulic and non-selectable: the capture node is changed from the
+    // property panel, never by clicking the line.
+    //
+    // This is the ONLY path that draws them: the QSG renderer owns no
+    // connector buffer, and because the GPU overlay blits over this painter
+    // the "beneath nodes" ordering holds on the QSG path too.
+    {
+        const auto &connectors = m_layer->inletConnectors();
+        if (!connectors.isEmpty()) {
+            const auto &csym = m_layer->m_inletConnectorSym;
+            QPen cpen(csym.fillColor,
+                      csym.outlineWidth > 0.0 ? csym.outlineWidth : 1.5,
+                      Qt::CustomDashLine);
+            cpen.setDashPattern({4.0, 3.0});   // matches profileplotoptions.cpp
+            cpen.setCosmetic(true);            // constant width at every zoom
+            painter->save();
+            painter->setPen(cpen);
+            painter->setBrush(Qt::NoBrush);
+            // Inflate by a pixel so an axis-aligned connector (zero-height
+            // bbox) is not culled by QRectF::intersects, which is false for
+            // an empty rect.
+            const double pad = invViewScale;
+            for (const auto &c : connectors) {
+                if (!exposed.isNull()
+                    && !exposed.intersects(QRectF(c.host, c.capture)
+                                               .normalized()
+                                               .adjusted(-pad, -pad, pad, pad)))
+                    continue;
+                painter->drawLine(c.host, c.capture);
+            }
+            painter->restore();
+        }
+    }
+
     // ---------------------------------------------------------------- Nodes
     // §QSG-1: when QsgNodes is set the GPU overlay owns the node draw,
     // including the yellow selection halo (the QSG renderer's
@@ -833,14 +872,16 @@ void SWMMLayerItem::paint(QPainter *painter,
             QVector<QPointF>                 selPts;
             QVector<int>                     selIndices;
         };
-        // Bucket 4: virtual junctions — same CatJunctions category (D-G1:
-        // no persisted 5th category) with a distinct marker override.
-        Bucket buckets[5] = {
+        // Bucket 4: virtual junctions, bucket 5: inlet junctions — both in
+        // the CatJunctions category (D-G1: no persisted 5th category) with
+        // distinct marker overrides.
+        Bucket buckets[6] = {
             {&m_layer->m_junctionSym, 0, SWMMModelLayer::CatJunctions, {}, {}, {}, {}},
             {&m_layer->m_outfallSym,  1, SWMMModelLayer::CatOutfalls,  {}, {}, {}, {}},
             {&m_layer->m_storageSym,  2, SWMMModelLayer::CatStorage,   {}, {}, {}, {}},
             {&m_layer->m_dividerSym,  3, SWMMModelLayer::CatDividers,  {}, {}, {}, {}},
             {&m_layer->m_virtualJunctionSym, 0, SWMMModelLayer::CatJunctions, {}, {}, {}, {}},
+            {&m_layer->m_inletJunctionSym,   0, SWMMModelLayer::CatJunctions, {}, {}, {}, {}},
         };
 
         // Expand the cull window by the largest marker radius (in scene
@@ -860,7 +901,9 @@ void SWMMLayerItem::paint(QPainter *painter,
                 if (!e.contains(sp)) continue;
             }
             int t = (n.nodeType >= 0 && n.nodeType < 4) ? n.nodeType : 0;
-            if (t == 0 && n.isVirtual) t = 4;   // virtual-junction marker override
+            // An inlet junction is ALSO virtual, so it must be tested first.
+            if      (t == 0 && n.isInlet)   t = 5;   // inlet-junction override
+            else if (t == 0 && n.isVirtual) t = 4;   // virtual-junction override
             auto &b = buckets[t];
             const bool sel = size_t(i) < nodeSel.size() && nodeSel[i];
             if (sel) { b.selPts.append(sp);   b.selIndices.append(i); }

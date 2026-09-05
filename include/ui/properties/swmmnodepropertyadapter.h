@@ -25,7 +25,10 @@
 #include <QString>
 #include <QUuid>                            // Slice QA.2 — stats-source identity
 
+#include <functional>                       // writeInletUsage() mutator
+
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_infrastructure.h>   // SWMM_InletUsage
 
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/initialqualityeditref.h"
@@ -59,11 +62,16 @@ public:
     /*! Junction/Outfall/Storage/Divider match SWMM_NodeType ordinals; the
      *  GUI presents VirtualJunction as a distinct kind even though the
      *  engine stores it as a JUNCTION with the is_virtual flag set. */
+    /*! An inlet junction is a virtual junction that additionally carries the
+     *  is_inlet flag and one [INLET_USAGE] row, so nodeKind() tests it FIRST. */
     enum NodeKind    { Junction = 0, Outfall = 1, Storage = 2, Divider = 3,
-                       VirtualJunction = 4 };
+                       VirtualJunction = 4, InletJunction = 5 };
     enum OutfallType { FREE = 0, NORMAL = 1, FIXED = 2, TIDAL = 3, TIMESERIES = 4 };
     enum DividerType { CUTOFF = 0, OVERFLOW_ = 1, TABULAR = 2, WEIR = 3 };
     enum FlapGate    { NO = 0, YES = 1 };
+    /*! Inlet placement mode — ordinals match `SWMM_InletPlacement`, so the
+     *  int round-trips through SWMM_InletUsage::placement unchanged. */
+    enum InletPlacement { AUTOMATIC = 0, ON_GRADE = 1, ON_SAG = 2 };
     /*! Storage geometry form — ordinals match the engine's `SWMM_StorageShape`
      *  (and the legacy solver's `enum StorageType`), so the int round-trips
      *  through `swmm_node_get/set_storage_shape` unchanged.
@@ -88,6 +96,7 @@ public:
     Q_ENUM(DividerType)
     Q_ENUM(FlapGate)
     Q_ENUM(StorageShape)
+    Q_ENUM(InletPlacement)
 
     // Common to every node type — Name + Type + Invert + Coords + Tag.
     Q_PROPERTY(QString  name        READ name  WRITE setName)
@@ -208,6 +217,28 @@ public:
     //   Functional         → storageCoeffA/ExpB/ConstC()   (A·d^B + C)
     //   geometric shapes   → storageParam1/2/3()           (raw L/W/Z)
     // The panel greys the inapplicable rows; see storageshapegeom.h.
+    // Inlet-junction accessors (INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN
+    // §3.4). Like the outfall / storage blocks they live on the base class so
+    // the cpp reuses nodeIdx() / m_engine; only
+    // SWMMInletJunctionPropertyAdapter declares them as Q_PROPERTY.
+    //
+    // All of them read and write ONE engine row — the node's SWMM_InletUsage
+    // (host_kind = SWMM_INLET_HOST_NODE). Every setter is a read-modify-write
+    // of that row pushed as a SetInletUsageCommand through the model layer, so
+    // each edit is one undo step and every view refreshes from attributeChanged.
+    // Without a bound layer the setters are no-ops (the command needs one).
+    [[nodiscard]] DataObjectRef inletDesignRef()  const;
+    [[nodiscard]] DataObjectRef captureNodeRef()  const;
+    [[nodiscard]] int           numInlets()       const;
+    [[nodiscard]] double        pctClogged()      const;
+    [[nodiscard]] double        flowRestriction() const;
+    [[nodiscard]] double        depressionHeight() const;
+    [[nodiscard]] double        depressionWidth() const;
+    [[nodiscard]] InletPlacement placement()      const;
+    /*! Read-only: the name of the upstream STREET conduit's street section,
+     *  i.e. the gutter the inlet sits in. Empty when not resolvable. */
+    [[nodiscard]] QString       approachStreet()  const;
+
     [[nodiscard]] StorageShape   storageShape()      const;
     [[nodiscard]] DataObjectRef  storageCurveRef()   const;
     [[nodiscard]] double         storageCoeffA()     const;
@@ -286,6 +317,17 @@ public slots:
     //     rejects invalid dimensions (L<=0, W<=0, Z<0, or Z==0 on a paraboloid)
     //     and leaves the node on its previous geometry, so a bad keystroke
     //     cannot wedge the model.
+    // Inlet-junction setters — each is a read-modify-write of the node's one
+    // SWMM_InletUsage row pushed as a SetInletUsageCommand (see the getters).
+    void setInletDesignRef(const DataObjectRef &r);
+    void setCaptureNodeRef(const DataObjectRef &r);
+    void setNumInlets(int v);
+    void setPctClogged(double v);
+    void setFlowRestriction(double v);
+    void setDepressionHeight(double v);
+    void setDepressionWidth(double v);
+    void setPlacement(InletPlacement v);
+
     void setStorageShape(StorageShape v);
     void setStorageCurveRef(const DataObjectRef &r);
     void setStorageCoeffA(double v);
@@ -350,6 +392,14 @@ signals:
 protected:
     [[nodiscard]] int nodeIdx() const;
 
+    /*! Read-modify-write of this node's SWMM_InletUsage row as ONE undoable
+     *  step (SetInletUsageCommand via SWMMModelLayer::pushInletUsageEdit).
+     *  \p mutate receives the current row — or an engine-default one when
+     *  the node has none yet — and returns false to cancel the write (a
+     *  no-op edit, or a name that did not resolve). Requires a bound model
+     *  layer; without one it does nothing. */
+    void writeInletUsage(const std::function<bool(SWMM_InletUsage &)> &mutate);
+
     SWMM_Engine     m_engine;
     QString         m_name;
     SWMMModelLayer *m_layer = nullptr;  ///< DB.4c — for compound-cell pickers
@@ -402,13 +452,18 @@ public:
 
 /*! Virtual-junction adapter — `[VIRTUAL_JUNCTIONS]` carries only Name and
  *  Elev; everything else is derived from the two attached conduits (max
- *  depth = pipe crown, zero surcharge depth / ponded area) and lateral
- *  inflows are prohibited, so this adapter intentionally exposes NO depth /
- *  ponding attributes and NO Inflows/DWF/RDII/Treatment compound rows. The
- *  invert stays editable on the base adapter — with zero offsets the two
- *  conduit end elevations follow the node invert directly, so editing it IS
- *  the grade-break write-through. Read-only summary mirrors the junction
+ *  depth = pipe crown, zero surcharge depth / ponded area), so this adapter
+ *  intentionally exposes NO depth / ponding attributes. The invert stays
+ *  editable on the base adapter — with zero offsets the two conduit end
+ *  elevations follow the node invert directly, so editing it IS the
+ *  grade-break write-through. Read-only summary mirrors the junction
  *  adapter's computed block.
+ *
+ *  Point lateral inflows are allowed at a virtual junction (engine plan
+ *  VJ_LATERAL_INFLOW_PLAN_2026-09-04: the zero-storage update integrates
+ *  them; only 2D surface coupling stays prohibited), so the Inflows / DWF /
+ *  RDII / Treatment compound rows are exposed exactly as on a junction —
+ *  the attribute table already showed them on virtual-junction rows.
  *
  *  The one editable depth is `rimDepth` — the optional `[VIRTUAL_JUNCTIONS]`
  *  MaxDepth, which supplies the ground elevation profile views draw. It feeds
@@ -420,12 +475,66 @@ class SWMMVirtualJunctionPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)
     Q_PROPERTY(int    degree          READ degree          NOTIFY changed)
     Q_PROPERTY(double statMaxDepth    READ statMaxDepth    NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef inflows
+               READ inflowsRef   WRITE setInflowsRef   NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef dwf
+               READ dwfRef       WRITE setDwfRef       NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef rdii
+               READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef treatment
+               READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
     Q_PROPERTY(NodeCompoundEditRef groundwaterSources
                READ groundwaterSourcesRef WRITE setGroundwaterSourcesRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
     using SWMMNodePropertyAdapter::SWMMNodePropertyAdapter;
+};
+
+/*! Inlet-junction adapter — a virtual junction that additionally owns one
+ *  `[INLET_USAGE]` row (host_kind = node). It inherits the whole
+ *  virtual-junction surface (derived depths, editable invert, the lateral
+ *  inflow / DWF / RDII / treatment compound rows) and adds the eight editable
+ *  usage fields plus a read-only context block.
+ *
+ *  `rimDepth` is re-labelled "Street Max Depth": unlike a sealed virtual
+ *  junction, an inlet junction floods above the street section's full depth,
+ *  and this is the optional `[INLET_JUNCTIONS]` MaxDepth override for it (see
+ *  displayLabelFor). It is still not read by the solver's routing — it is the
+ *  flood threshold and the ground line profile views draw.
+ *
+ *  Every editable row writes ONE SWMM_InletUsage through
+ *  `SWMMModelLayer::applySetInletUsage` wrapped in a SetInletUsageCommand,
+ *  so an edit here and the same edit made from a conduit's Inlets page are
+ *  literally the same undoable operation. */
+class SWMMInletJunctionPropertyAdapter : public SWMMVirtualJunctionPropertyAdapter
+{
+    Q_OBJECT
+    // rimDepth / crownElev / degree are INHERITED from the virtual-junction
+    // adapter and deliberately not redeclared: QPropertyModel builds its rows
+    // from the whole metaObject, so a redeclaration would render the row
+    // twice. rimDepth's inlet-specific label ("Street Max Depth") comes from
+    // displayLabelFor(), which branches on nodeKind().
+    Q_PROPERTY(DataObjectRef inletDesign
+               READ inletDesignRef  WRITE setInletDesignRef  NOTIFY changed)
+    Q_PROPERTY(DataObjectRef captureNode
+               READ captureNodeRef  WRITE setCaptureNodeRef  NOTIFY changed)
+    Q_PROPERTY(int    numInlets        READ numInlets        WRITE setNumInlets        NOTIFY changed)
+    Q_PROPERTY(double pctClogged       READ pctClogged       WRITE setPctClogged       NOTIFY changed)
+    Q_PROPERTY(double flowRestriction  READ flowRestriction  WRITE setFlowRestriction  NOTIFY changed)
+    Q_PROPERTY(double depressionHeight READ depressionHeight WRITE setDepressionHeight NOTIFY changed)
+    Q_PROPERTY(double depressionWidth  READ depressionWidth  WRITE setDepressionWidth  NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::InletPlacement placement
+               READ placement WRITE setPlacement NOTIFY changed)
+    // Read-only context (no WRITE → QPropertyModel renders non-editable).
+    Q_PROPERTY(QString approachStreet READ approachStreet NOTIFY changed)
+public:
+    /*! Spelled out rather than `using Base::Base` because the direct base
+     *  only INHERITS its constructor; re-inheriting an inherited constructor
+     *  is legal but reads as an accident. */
+    SWMMInletJunctionPropertyAdapter(SWMM_Engine engine, QString name,
+                                     QObject *parent = nullptr)
+        : SWMMVirtualJunctionPropertyAdapter(engine, name, parent) {}
 };
 
 /*! Outfall adapter — `[OUTFALLS]` columns:

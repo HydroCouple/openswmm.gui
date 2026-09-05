@@ -28,6 +28,12 @@ double SWMMResultsLayer::nodeStatTimeFlooded(const QString &) const { return 0.0
 
 openswmmvis::ui::UserFlagsModel *SWMMModelLayer::ensureUserFlagsModel() { return nullptr; }
 
+// The inlet-junction setters route their one undoable write through the layer
+// (SetInletUsageCommand). Unreachable here for the same reason as the rest of
+// this file: the test never binds a layer, and writeInletUsage() returns early
+// without one.
+bool SWMMModelLayer::pushInletUsageEdit(const SWMM_InletUsage &) { return false; }
+
 openswmmvis::OutputIdentity
 openswmmvis::OutputStatsRegistry::identityFor(const QUuid &) const { return {}; }
 

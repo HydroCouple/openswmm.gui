@@ -98,6 +98,10 @@ QString OpenSWMMVisMapToolAddLink::snapToNode(SWMMModelLayer *layer,
     // Virtual junctions accept exactly two conduits, both fixed by the split
     // that created them — never a drawn endpoint (non-conduits are outright
     // illegal there, and a third conduit would violate the pair rule).
+    //
+    // Inlet junctions need no test of their own: every inlet junction is a
+    // virtual junction (swmm_node_set_inlet sets is_virtual too), so this
+    // check already rejects them — and it must, for the same pair rule.
     if (layer->nodeIsVirtual(idx)) return {};
 
     // cachedNodeCoord returns layer-CRS coords; the caller compares

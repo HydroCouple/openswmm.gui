@@ -63,9 +63,10 @@ private slots:
 private:
     void buildTree();
     void mountEditorForCategory(OpenSWMMVis::SwmmCategory cat);
-    /*! Mount the SwmmElementSymbolEditor for the category-less
-     *  "Virtual junctions" row (model layers only). */
-    void mountVirtualJunctionsEditor();
+    /*! Mount the SwmmElementSymbolEditor for a category-less subject row
+     *  ("model.virtualjunctions" / "model.inletjunctions" /
+     *  "model.inletconnectors") — model layers only. */
+    void mountSubjectEditor(const QString &routingId);
     [[nodiscard]] QString rendererBadgeFor(OpenSWMMVis::SwmmCategory cat) const;
     [[nodiscard]] QString routingIdFor(OpenSWMMVis::SwmmCategory cat) const;
     [[nodiscard]] static QString suffixFor(OpenSWMMVis::SwmmCategory cat);

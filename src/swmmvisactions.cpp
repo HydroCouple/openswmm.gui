@@ -182,6 +182,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionEditExisting",          QT_TR_NOOP("Edit\nExisting")},
         {"actionAddJunction",           QT_TR_NOOP("Junction")},
         {"actionAddVirtualJunction",    QT_TR_NOOP("Virtual\nJunction")},
+        {"actionAddInletJunction",      QT_TR_NOOP("Inlet\nJunction")},
         {"actionAddOutfall",            QT_TR_NOOP("Outfall")},
         {"actionAddFlowDivider",        QT_TR_NOOP("Flow\nDivider")},
         {"actionAddStorage",            QT_TR_NOOP("Storage")},
@@ -199,6 +200,8 @@ void SWMMVis::initializeCompactToolbar()
         {"actionNewPattern",            QT_TR_NOOP("Pattern")},
         {"actionNewControlRule",        QT_TR_NOOP("Control\nRule")},
         {"actionNewTransect",           QT_TR_NOOP("Transect")},
+        {"actionNewStreet",             QT_TR_NOOP("Street")},
+        {"actionNewInlet",              QT_TR_NOOP("Inlet")},
         {"actionNewAquifer",            QT_TR_NOOP("Aquifer")},
         {"actionNewLidControl",         QT_TR_NOOP("LID\nControl")},
         {"actionNewPollutant",          QT_TR_NOOP("Pollutant")},
@@ -287,13 +290,14 @@ void SWMMVis::initializeCompactToolbar()
     // Iteration 3 — node/link tools unstacked into captioned groups so
     // every draw tool is a visible, individually-toggled button.
     addGroup(mToolBarModel, tr("Nodes"),
-             {"actionAddJunction", "actionAddVirtualJunction", "actionAddOutfall",
-              "actionAddFlowDivider", "actionAddStorage"});
+             {"actionAddJunction", "actionAddVirtualJunction", "actionAddInletJunction",
+              "actionAddOutfall", "actionAddFlowDivider", "actionAddStorage"});
     addGroup(mToolBarModel, tr("Links"),
              {"actionAddPipe", "actionAddPump", "actionAddOrifice",
               "actionAddWeir", "actionAddOutlet"});
-    addGroup(mToolBarModel, tr("Draw"),
-             {"actionAddSubcatchment", "actionRainGauge", "actionAddText"});
+    addGroup(mToolBarModel, tr("Subcatchments"), {"actionAddSubcatchment"});
+    addGroup(mToolBarModel, tr("Rain Gages"),    {"actionRainGauge"});
+    addGroup(mToolBarModel, tr("Annotation"),    {"actionAddText"});
     {
         auto *group = new RibbonGroup(tr("Climate"), this);
         group->addFamily(QStringLiteral("climate"),
@@ -306,6 +310,7 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarModel, tr("Data Objects"),
              {"actionNewTimeSeries", "actionNewCurve", "actionNewPattern",
               "actionNewControlRule", "actionNewTransect",
+              "actionNewStreet", "actionNewInlet",
               "actionNewAquifer", "actionNewLidControl", "actionNewPollutant",
               "actionNewLandUse", "actionEditReactionSystem",
               "actionEditHeatConfig"});

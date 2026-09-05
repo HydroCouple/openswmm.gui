@@ -68,8 +68,7 @@ QVariant InletListModel::data(const QModelIndex &index, int role) const
     case Qt::EditRole:
         return p->name();
     case Qt::ToolTipRole:
-        return tr("Type %1, %2 × %3").arg(p->type())
-                 .arg(p->length(), 0, 'g', 6).arg(p->width(), 0, 'g', 6);
+        return openswmmvis::inlet::inletTypeLabel(p->type());
     default:
         return {};
     }

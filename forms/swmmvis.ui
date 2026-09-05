@@ -645,6 +645,7 @@
      </property>
      <addaction name="actionAddJunction"/>
      <addaction name="actionAddVirtualJunction"/>
+     <addaction name="actionAddInletJunction"/>
      <addaction name="actionAddOutfall"/>
      <addaction name="actionAddFlowDivider"/>
      <addaction name="actionAddStorage"/>
@@ -1493,6 +1494,21 @@
     <enum>QAction::TextHeuristicRole</enum>
    </property>
   </action>
+  <action name="actionAddInletJunction">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/InletJunction</normaloff>:/swmmvis/InletJunction</iconset>
+   </property>
+   <property name="text">
+    <string>Add Inlet Junction</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Inlet Junction (split a street conduit at the picked point)</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
   <action name="actionAddPipe">
    <property name="icon">
     <iconset resource="../resources/swmmvis.qrc">
@@ -1858,7 +1874,7 @@
     <string>Add 2D Mesh…</string>
    </property>
    <property name="toolTip">
-    <string>Browse for an existing OpenSWMM 2D mesh (.2dm) and load it into this project</string>
+    <string>Browse for an existing SWMM 2D mesh (.2dm) and load it into this project</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>
@@ -1873,7 +1889,7 @@
     <string>Add 2D Results…</string>
    </property>
    <property name="toolTip">
-    <string>Browse for an OpenSWMM 2D results file (.h5) and load it into this project</string>
+    <string>Browse for an SWMM 2D results file (.h5) and load it into this project</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>

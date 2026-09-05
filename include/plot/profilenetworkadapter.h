@@ -68,6 +68,8 @@ struct NodeInfo
     double                    maxDepth       = 0.0;
     double                    surchargeDepth = 0.0;
     ProfileBuilder::NodeKind  kind           = ProfileBuilder::NodeKind::Junction;
+    /*! Inlet junction — see ProfileBuilder::NodeStatic::isInlet. */
+    bool                      isInlet        = false;
 };
 
 /*!

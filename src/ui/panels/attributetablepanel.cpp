@@ -2065,7 +2065,9 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     } else if (metaId == qMetaTypeId<DataObjectRef>()) {
         const DataObjectRef ref = cellValue.value<DataObjectRef>();
         if (ref.layer && ref.kind != DataObjectRef::RainGage
-            && ref.kind != DataObjectRef::SubcatchOutlet) {
+            && ref.kind != DataObjectRef::SubcatchOutlet
+            // Capture nodes are picked from existing nodes — no editor.
+            && ref.kind != DataObjectRef::CaptureNode) {
             SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
             switch (ref.kind) {
             case DataObjectRef::TidalCurve:
@@ -2076,9 +2078,11 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
             case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
             case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
+            case DataObjectRef::Inlet:          dc = SWMMModelLayer::DataInlets;      break;
             case DataObjectRef::RainGage:       /* handled above */                   break;
             case DataObjectRef::SubcatchOutlet: /* handled above */                   break;
             case DataObjectRef::Node:           /* handled above */                   break;
+            case DataObjectRef::CaptureNode:    /* handled above */                   break;
             }
             const auto &reg = ComprehensiveEditorRegistry::instance();
             const QString title  = reg.editorTitle(dc);

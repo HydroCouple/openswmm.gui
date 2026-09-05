@@ -48,7 +48,7 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
   wired to 2D `timeRangeChanged`) and profile plots
   (`ProfileSourceFetcher::appendTail` + `ProfileBuilder::appendPeriods`) grow
   with the run; on finish the same layer adopts the footer in place — no
-  swap, no jump. Toggle: Results toolbar "Live 1D" checkbox → preference
+  swap, no jump. Toggle: Results toolbar " 1D" checkbox → preference
   `liveResults1DEnabled` (default on). Plan:
   `workplans/LIVE_1D_RESULTS_PLAN_V2_2026-09-03.md`.
 

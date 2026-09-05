@@ -43,6 +43,14 @@ struct NodeSnapshot
     // junction (and the drawn ground line with it).
     int     isVirtual      = 0;
     double  rimDepth       = 0;
+    // inlet junction: the second flag plus the [INLET_USAGE] row it owns.
+    // Without them, undoing the delete of an inlet junction resurrected a
+    // plain virtual junction and silently dropped the inlet.
+    int             isInlet      = 0;
+    bool            hasInletUsage = false;
+    SWMM_InletUsage inletUsage{};
+    QString         inletDesignId;   ///< resolved by name — indices shift
+    QString         captureNodeId;   ///< resolved by name — indices shift
     // outfall-specific
     int     outfallType    = 0;
     int     outfallFlapGate = 0;
@@ -1047,6 +1055,113 @@ private:
     double  m_t = 0.5;       ///< L_up / (L_up + L_dn)
     double  m_invert = 0.0;  ///< node invert (grade break — not derivable)
     double  m_x = 0.0, m_y = 0.0;
+    bool    m_valid   = false;
+    bool    m_present = false;   ///< true iff the fuse is currently applied
+};
+
+/*!
+ * \class SetInletUsageCommand
+ * \brief Records a change to one inlet-usage row (conduit host or inlet
+ *        junction host — the same command serves both, per §2.4/§3.4 of
+ *        workplans/INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md).
+ * \details The constructor snapshots the host's PRIOR row (or its absence),
+ *          so undo restores the previous design / capture node / counts, or
+ *          removes the row again when there was none. redo() applies the new
+ *          row; passing an "absent" new state makes this a removal command.
+ */
+class SetInletUsageCommand : public MapCommand
+{
+public:
+    /*! \param newUsage   Row to install on redo.
+     *  \param removing   true to REMOVE the host's row instead of setting it
+     *                    (only newUsage.host_kind / host_idx are then read). */
+    SetInletUsageCommand(SWMMModelLayer *layer,
+                         const SWMM_InletUsage &newUsage,
+                         bool removing,
+                         MapCanvas *canvas,
+                         QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 24; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    SWMM_InletUsage m_new{};
+    SWMM_InletUsage m_old{};
+    bool m_removing  = false;   ///< redo removes rather than sets
+    bool m_hadOld    = false;   ///< a row existed before this command
+};
+
+/*!
+ * \class InsertInletJunctionCommand
+ * \brief Records a STREET-conduit split that inserts a configured inlet
+ *        junction (`swmm_conduit_split_inlet`).
+ * \details Like InsertVirtualJunctionCommand, undo is the engine's exact
+ *          inverse (`swmm_inlet_junction_fuse`), which removes the usage row
+ *          and re-fuses the pair — so no snapshot machinery is needed.
+ */
+class InsertInletJunctionCommand : public MapCommand
+{
+public:
+    InsertInletJunctionCommand(SWMMModelLayer *layer,
+                               QString linkName, double t,
+                               QString nodeName, QString newLinkName,
+                               QString inletId, QString captureNode,
+                               MapCanvas *canvas,
+                               QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 25; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QString m_linkName;      ///< conduit being split (name survives upstream)
+    double  m_t = 0.5;       ///< normalized split position
+    QString m_nodeName;      ///< inserted inlet junction
+    QString m_newLinkName;   ///< new downstream conduit
+    QString m_inletId;       ///< inlet design name
+    QString m_captureNode;   ///< receiving (underdrain) node name
+    bool    m_present = false;
+};
+
+/*!
+ * \class FuseInletJunctionCommand
+ * \brief Records the re-fusion (deletion) of an inlet junction.
+ * \details Snapshots what FuseVirtualJunctionCommand does (conduit names,
+ *          split ratio, invert, coordinate) PLUS the usage row, because the
+ *          fuse drops it. undo() re-splits through `swmm_conduit_split_inlet`
+ *          — which recreates a default usage row — then restores the exact
+ *          snapshot row via `swmm_inlet_usage_set`.
+ */
+class FuseInletJunctionCommand : public MapCommand
+{
+public:
+    FuseInletJunctionCommand(SWMMModelLayer *layer,
+                             QString nodeName,
+                             MapCanvas *canvas,
+                             QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 26; }
+
+    /*! \brief False when the node is not a two-conduit through inlet junction
+     *         with a readable usage row; the command must not be pushed. */
+    bool valid() const { return m_valid; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QString m_nodeName;
+    QString m_upLinkName;    ///< surviving conduit
+    QString m_dnLinkName;    ///< retired conduit (re-created on undo)
+    double  m_t = 0.5;       ///< L_up / (L_up + L_dn)
+    double  m_invert = 0.0;  ///< node invert (grade break — not derivable)
+    double  m_x = 0.0, m_y = 0.0;
+    QString m_inletId;       ///< design name at snapshot time
+    QString m_captureNode;   ///< capture node name at snapshot time
+    SWMM_InletUsage m_usage{};   ///< full row (counts, clogging, placement, …)
     bool    m_valid   = false;
     bool    m_present = false;   ///< true iff the fuse is currently applied
 };

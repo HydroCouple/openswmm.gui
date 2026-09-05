@@ -371,12 +371,12 @@ void openSnowpacksBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget 
     dlg->show();
 }
 
-void openInletsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openInletsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer) return;
     auto *reg = qobject_cast<InletRegistry *>(layer->ensureInletRegistry());
     if (!reg) return;
-    auto *dlg = InletEditorDialog::createNew(reg, layer, parent);
+    auto *dlg = InletEditorDialog::createNew(reg, layer, stack, parent);
     if (!dlg) return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     QPointer<InletRegistry>  regPtr(reg);
@@ -387,12 +387,12 @@ void openInletsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget 
     dlg->show();
 }
 
-void openInletsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openInletsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer) return;
     auto *reg = qobject_cast<InletRegistry *>(layer->ensureInletRegistry());
     if (!reg) return;
-    auto *dlg = new InletEditorDialog(reg, layer, parent);
+    auto *dlg = new InletEditorDialog(reg, layer, stack, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     QPointer<InletRegistry>  regPtr(reg);
     QPointer<SWMMModelLayer> layerPtr(layer);

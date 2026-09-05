@@ -644,10 +644,20 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             default: {
                 // Virtual junctions are JUNCTION-typed; key off the flag
                 // BEFORE the kind so they get the trimmed adapter (no depth/
-                // ponding fields, no inflow compound rows).
+                // ponding fields; the inflow compound rows are kept — point
+                // laterals are allowed at a virtual junction).
+                //
+                // An inlet junction carries BOTH flags (it IS a virtual
+                // junction plus an [INLET_USAGE] row), so its probe must come
+                // first or it would never get the inlet rows.
+                int isInlet = 0;
+                swmm_node_is_inlet(m_swmmLayer->engine(), nodeIdx, &isInlet);
                 int isVirtual = 0;
                 swmm_node_is_virtual(m_swmmLayer->engine(), nodeIdx, &isVirtual);
-                if (isVirtual)
+                if (isInlet)
+                    m_nodeAdapter = new SWMMInletJunctionPropertyAdapter(
+                        m_swmmLayer->engine(), name, this);
+                else if (isVirtual)
                     m_nodeAdapter = new SWMMVirtualJunctionPropertyAdapter(
                         m_swmmLayer->engine(), name, this);
                 else
@@ -1310,7 +1320,10 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         // editor — skip the menu entirely (combo selection on the cell is
         // sufficient; right-click adds no value).
         if (ref.kind == DataObjectRef::RainGage
-            || ref.kind == DataObjectRef::SubcatchOutlet) return;
+            || ref.kind == DataObjectRef::SubcatchOutlet
+            // A capture node is picked from the existing nodes; there is no
+            // "Nodes" comprehensive editor to route the menu at.
+            || ref.kind == DataObjectRef::CaptureNode) return;
 
         // Kind → category (mirrors dataobjectpickereditor.cpp).
         SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
@@ -1323,8 +1336,10 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
         case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
         case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
+        case DataObjectRef::Inlet:          dc = SWMMModelLayer::DataInlets;      break;
         case DataObjectRef::RainGage:       /* unreachable, handled above */      break;
         case DataObjectRef::SubcatchOutlet: /* unreachable, handled above */      break;
+        case DataObjectRef::CaptureNode:    /* unreachable, handled above */      break;
         }
 
         const auto &reg = ComprehensiveEditorRegistry::instance();
