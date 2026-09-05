@@ -2597,12 +2597,7 @@ void SWMMVis::initializeObjectBrowserDockWidget()
     // gage opens as the only visible series; the stats table's checkboxes
     // toggle the rest on.
     connect(mObjectBrowserPanel, &ObjectBrowserPanel::rainfallVisualizationRequested,
-            this, [this](const SWMMObjectRef &ref) {
-                openRainfallVisualization();
-                if (auto *dlg = findChild<openswmmvis::ui::RainfallVisualizationDialog *>(
-                        QString(), Qt::FindDirectChildrenOnly))
-                    dlg->setFocusGage(ref.name);
-            });
+            this, &SWMMVis::openRainfallVisualizationFor);
 
     // Slice S — per-object visibility no longer goes through the panel's
     // signals. The virtualised SWMMObjectTreeModel's setData() calls the
@@ -2769,6 +2764,16 @@ void SWMMVis::openRainfallVisualization()
     dlg->show();
     dlg->raise();
     dlg->activateWindow();
+}
+
+void SWMMVis::openRainfallVisualizationFor(const SWMMObjectRef &ref)
+{
+    openRainfallVisualization();
+    // Re-find rather than trusting a return value: openRainfallVisualization
+    // early-returns (no dialog) when no project is open.
+    if (auto *dlg = findChild<openswmmvis::ui::RainfallVisualizationDialog *>(
+            QString(), Qt::FindDirectChildrenOnly))
+        dlg->setFocusGage(ref.name);
 }
 
 void SWMMVis::openComparisonPlotFor(const SWMMObjectRef &ref)
@@ -6337,6 +6342,11 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                 Qt::UniqueConnection);
         connect(st, &OpenSWMMVisMapToolSelect::plotSystemRequested,
                 this, &SWMMVis::openComparisonPlotForSystemAttribute,
+                Qt::UniqueConnection);
+        // Rain-gage right-click → shared Rainfall Visualization dialog
+        // focused on that gage (same funnel as the Object Browser route).
+        connect(st, &OpenSWMMVisMapToolSelect::rainfallVisualizationRequested,
+                this, &SWMMVis::openRainfallVisualizationFor,
                 Qt::UniqueConnection);
     }
 

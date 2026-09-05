@@ -521,9 +521,15 @@ private slots:
 
     /*! Open / raise the Rainfall Visualization dialog for the active
      *  project. Funnel for every entry point: the Analysis menu action,
-     *  the object browser's Rain Gages context menu, and the rain gage
-     *  property editor's "Plot Rainfall…" button. */
+     *  the object browser's Rain Gages context menu, the map canvas's
+     *  gage right-click, and the rain gage property editor's
+     *  "Plot Rainfall…" button. */
     void openRainfallVisualization();
+
+    /*! \ref openRainfallVisualization, then focus the dialog on the gage
+     *  \p ref names — the gage-scoped entry points (object browser, map
+     *  right-click) route here so only the picked gage plots. */
+    void openRainfallVisualizationFor(const SWMMObjectRef &ref);
 
     /*! Slice BL — open / focus the Comparison Plot dialog and add a
      *  series for \p ref on the active project's first SWMMResultsLayer.
