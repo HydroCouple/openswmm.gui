@@ -159,6 +159,12 @@ public:
     [[nodiscard]] NodeCompoundEditRef rdiiRef()     const;
     [[nodiscard]] NodeCompoundEditRef treatmentRef() const;
 
+    /*! AQUIFER_GROUNDWATER_EXCHANGE plan G5 — read-only navigation row
+     *  listing the subcatchments that discharge groundwater to this node
+     *  ("from S1, S3" / "(none)"); the button opens
+     *  GroundwaterExchangeDialog for the picked subcatchment. */
+    [[nodiscard]] NodeCompoundEditRef groundwaterSourcesRef() const;
+
     /*! Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — per-object
      *  user-flag assignments row. Same compound-ref pattern as the
      *  accessors above; the UserFlagsEditButton editor opens
@@ -250,6 +256,7 @@ public slots:
     void setDwfRef(const NodeCompoundEditRef &)       { emit changed(); }
     void setRdiiRef(const NodeCompoundEditRef &)      { emit changed(); }
     void setTreatmentRef(const NodeCompoundEditRef &) { emit changed(); }
+    void setGroundwaterSourcesRef(const NodeCompoundEditRef &) { emit changed(); }
     void setUserFlagsRef(const UserFlagsEditRef &)    { emit changed(); }
     void setInitialQualityRef(const InitialQualityEditRef &) { emit changed(); }
 
@@ -383,6 +390,8 @@ class SWMMJunctionPropertyAdapter : public SWMMNodePropertyAdapter
                READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
     Q_PROPERTY(NodeCompoundEditRef treatment
                READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef groundwaterSources
+               READ groundwaterSourcesRef WRITE setGroundwaterSourcesRef NOTIFY changed)
     Q_PROPERTY(InitialQualityEditRef initialQuality
                READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
@@ -411,6 +420,8 @@ class SWMMVirtualJunctionPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)
     Q_PROPERTY(int    degree          READ degree          NOTIFY changed)
     Q_PROPERTY(double statMaxDepth    READ statMaxDepth    NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef groundwaterSources
+               READ groundwaterSourcesRef WRITE setGroundwaterSourcesRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
@@ -460,6 +471,8 @@ class SWMMOutfallPropertyAdapter : public SWMMNodePropertyAdapter
                READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
     Q_PROPERTY(NodeCompoundEditRef treatment
                READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef groundwaterSources
+               READ groundwaterSourcesRef WRITE setGroundwaterSourcesRef NOTIFY changed)
     Q_PROPERTY(InitialQualityEditRef initialQuality
                READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
@@ -517,6 +530,8 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
                READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
     Q_PROPERTY(NodeCompoundEditRef treatment
                READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef groundwaterSources
+               READ groundwaterSourcesRef WRITE setGroundwaterSourcesRef NOTIFY changed)
     Q_PROPERTY(InitialQualityEditRef initialQuality
                READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
@@ -555,6 +570,8 @@ class SWMMDividerPropertyAdapter : public SWMMNodePropertyAdapter
                READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
     Q_PROPERTY(NodeCompoundEditRef treatment
                READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef groundwaterSources
+               READ groundwaterSourcesRef WRITE setGroundwaterSourcesRef NOTIFY changed)
     Q_PROPERTY(InitialQualityEditRef initialQuality
                READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags

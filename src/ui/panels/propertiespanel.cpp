@@ -1322,6 +1322,7 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;
         case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
         case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
+        case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
         case DataObjectRef::RainGage:       /* unreachable, handled above */      break;
         case DataObjectRef::SubcatchOutlet: /* unreachable, handled above */      break;
         }
@@ -1403,6 +1404,10 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
     if (metaId == qMetaTypeId<NodeCompoundEditRef>()) {
         const NodeCompoundEditRef ref = value.value<NodeCompoundEditRef>();
         if (!ref.engine || ref.nodeName.isEmpty()) return;
+        // Groundwater Sources is a navigational row (opens the owning
+        // subcatchment's GroundwaterExchangeDialog from its cell button);
+        // NodeCompoundEditDialog has no page for it.
+        if (ref.kind == NodeCompoundEditRef::GroundwaterSources) return;
 
         QAction *actEdit = menu.addAction(tr("Edit…"));
         QAction *picked  = menu.exec(m_treeView->viewport()->mapToGlobal(pos));

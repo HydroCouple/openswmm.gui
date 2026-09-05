@@ -6,10 +6,12 @@
 
 #include "ui/properties/dataobjectpickereditor.h"
 
+#include "aquifer/aquiferregistry.h"
 #include "curve/curveregistry.h"
 #include "layers/swmmmodellayer.h"
 #include "pattern/patternregistry.h"
 #include "timeseries/timeseriesregistry.h"
+#include "ui/dialogs/aquifereditordialog.h"
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
 #include "ui/dialogs/patterneditordialog.h"
@@ -159,6 +161,14 @@ void DataObjectPickerEditor::repopulate()
                     if (*id) items << QString::fromUtf8(id);
             break;
         }
+        case DataObjectRef::Aquifer: {
+            // [AQUIFERS] live in their own engine array (no table type).
+            const int n = swmm_aquifer_count(m_ref.engine);
+            for (int i = 0; i < n; ++i)
+                if (const char *id = swmm_aquifer_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            break;
+        }
         }
     }
 
@@ -227,6 +237,7 @@ void DataObjectPickerEditor::onPickerClicked()
     case DataObjectRef::SubcatchOutlet: /* handled above */                   break;
     case DataObjectRef::Node:           /* handled above */                   break;
     case DataObjectRef::Subcatchment:   /* handled above */                   break;
+    case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
     }
 
     // Slice BM.0-Add-New (2026-05-24) — gap categories (Transects / LID /
@@ -282,6 +293,18 @@ void DataObjectPickerEditor::onPickerClicked()
         if (!reg) return;
         chosen = CurveEditorDialog::pickCurve(
             reg, /*undoStack=*/nullptr, m_ref.currentName, this);
+        break;
+    }
+
+    case SWMMModelLayer::DataAquifers: {
+        using openswmmvis::aquifer::AquiferRegistry;
+        using openswmmvis::ui::AquiferEditorDialog;
+        auto *reg = qobject_cast<AquiferRegistry *>(m_ref.layer->ensureAquiferRegistry());
+        if (!reg) return;
+        // pickAquifer flushes the registry to the engine before returning,
+        // so the adapter's setter can resolve the name via swmm_aquifer_index.
+        chosen = AquiferEditorDialog::pickAquifer(
+            reg, m_ref.layer, m_ref.currentName, this);
         break;
     }
 

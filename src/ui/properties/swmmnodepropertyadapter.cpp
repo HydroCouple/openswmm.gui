@@ -7,6 +7,7 @@
 #include "ui/properties/swmmnodepropertyadapter.h"
 
 #include "core/unitsystem.h"
+#include "layers/gwsourcesummary.h"        // G5 — groundwaterSourcesRef()
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"        // Slice QA.2 — stats dispatch
 #include "output/outputstatsregistry.h"     // Slice QA.2
@@ -108,6 +109,7 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QLatin1String("dwf"))             return tr("Dry Weather Flow");
     if (property == QLatin1String("rdii"))            return tr("RDII");
     if (property == QLatin1String("treatment"))       return tr("Pollutant Treatment");
+    if (property == QLatin1String("groundwaterSources")) return tr("Groundwater Sources");
     // USER_FLAGS Phase 4.
     if (property == QLatin1String("userFlags"))       return tr("User Flags");
     // Initial-quality UI round.
@@ -476,6 +478,23 @@ NodeCompoundEditRef SWMMNodePropertyAdapter::treatmentRef() const {
         r.summary = (active > 0)
             ? tr("%1 / %2 pollutants").arg(active).arg(nPollut)
             : tr("(none)");
+    }
+    return r;
+}
+
+NodeCompoundEditRef SWMMNodePropertyAdapter::groundwaterSourcesRef() const {
+    NodeCompoundEditRef r;
+    r.engine   = m_engine;
+    r.nodeName = m_name;
+    r.layer    = m_layer;
+    r.kind     = NodeCompoundEditRef::GroundwaterSources;
+    const int idx = nodeIdx();
+    if (m_engine && idx >= 0) {
+        const QStringList subs =
+            OpenSWMMVis::Groundwater::groundwaterSourceSubcatchments(m_engine, idx);
+        r.summary = subs.isEmpty()
+            ? tr("(none)")
+            : tr("from %1").arg(subs.join(QStringLiteral(", ")));
     }
     return r;
 }
