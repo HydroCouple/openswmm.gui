@@ -537,6 +537,10 @@ set(
         include/lid/lidcontrolregistry.h
         include/ui/models/lidcontrollistmodel.h
         include/ui/dialogs/lidcontroleditordialog.h
+        # AQUIFER_GROUNDWATER_EXCHANGE G4/G5 — groundwater exchange editor
+        include/ui/dialogs/groundwaterexchangedialog.h
+        include/ui/properties/groundwatersummary.h
+        include/layers/gwsourcesummary.h
 
         # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
         include/ui/models/userflagsmodel.h
@@ -590,6 +594,7 @@ set(
         include/ui/sectionview/sectionpreviewwidget.h
         include/ui/sectionview/sectionmodelbuilders.h
         include/ui/sectionview/lidlayerdiagram.h
+        include/ui/sectionview/aquiferdiagram.h
         include/ui/sectionview/xsecticonrenderer.h
 
         # ── UI utilities ─────────────────────────────────────────────────────
@@ -726,6 +731,7 @@ set(
         include/ui/widgets/statssummarypanel.h
         include/ui/widgets/labeledcontrols.h
         include/ui/widgets/treatmentexpressionedit.h
+        include/ui/widgets/gwfexpressionedit.h
         # Slice BB-α — colour-ramp combobox with gradient-swatch dropdown.
         include/ui/widgets/colorrampcombobox.h
         # Slice US.1 — shared classification editor (UNIFIED_STYLING plan S1).
@@ -1030,6 +1036,7 @@ set(
         src/layers/swmmmodellayer.cpp
         src/layers/hydrographmodels.cpp
         src/layers/speciesattributes.cpp
+        src/layers/gwsourcesummary.cpp
         src/layers/swmmresultslayer.cpp
         src/layers/tabulardatalayer.cpp
         src/layers/xyztilelayer.cpp
@@ -1132,6 +1139,7 @@ set(
         # Iteration 4 — treatment-expression editing stack (highlighter +
         # completing editor + cell delegate; NodeCompoundEditDialog Treatment).
         src/ui/widgets/treatmentexpressionedit.cpp
+        src/ui/widgets/gwfexpressionedit.cpp
 
         # ── Climatology ([TEMPERATURE]/[EVAPORATION]/[ADJUSTMENTS]) ───────────
         src/ui/dialogs/climatologydialog.cpp
@@ -1193,6 +1201,9 @@ set(
         src/lid/lidcontrolregistry.cpp
         src/ui/models/lidcontrollistmodel.cpp
         src/ui/dialogs/lidcontroleditordialog.cpp
+        # AQUIFER_GROUNDWATER_EXCHANGE G4 — groundwater exchange editor
+        src/ui/dialogs/groundwaterexchangedialog.cpp
+        src/ui/properties/groundwatersummary.cpp
 
         # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
         src/ui/models/userflagsmodel.cpp
@@ -1255,6 +1266,7 @@ set(
         src/ui/sectionview/sectionpreviewwidget.cpp
         src/ui/sectionview/sectionmodelbuilders.cpp
         src/ui/sectionview/lidlayerdiagram.cpp
+        src/ui/sectionview/aquiferdiagram.cpp
         src/ui/sectionview/xsecticonrenderer.cpp
         src/ui/panels/attributetablepanel.cpp
         src/ui/panels/layertreepanel.cpp

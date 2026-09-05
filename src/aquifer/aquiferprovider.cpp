@@ -37,4 +37,11 @@ void AquiferProvider::setParam(int k, double v)
     emit paramsChanged();
 }
 
+void AquiferProvider::setEvapPattern(QString pattern)
+{
+    if (pattern == m_evapPattern) return;
+    m_evapPattern = std::move(pattern);
+    emit paramsChanged();
+}
+
 } // namespace openswmmvis::aquifer

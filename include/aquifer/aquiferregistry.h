@@ -7,7 +7,9 @@
  *
  * Mirrors PollutantRegistry. Engine I/O walks `swmm_aquifer_*` from
  * openswmm_subcatchments.h (add / count / index / id + get/set_param over the
- * SWMM_AquiferParam codes, which align with AquiferProvider::Param indices).
+ * SWMM_AquiferParam codes, which align with AquiferProvider::Param indices,
+ * plus get/set_evap_pattern for the ETupat column). Deletion goes through
+ * swmm_aquifer_delete so referencing subcatchments are cleared engine-side.
  */
 #ifndef OPENSWMMVIS_AQUIFER_AQUIFERREGISTRY_H
 #define OPENSWMMVIS_AQUIFER_AQUIFERREGISTRY_H
@@ -38,6 +40,12 @@ public:
     AquiferProvider *create(const QString &name);
     void remove(AquiferProvider *p);
     bool rename(AquiferProvider *p, const QString &newName);
+
+    /*! Human-readable summary of what deleting \p p would affect, from
+     *  swmm_aquifer_analyze_impact (e.g. "3 subcatchment(s) reference this
+     *  aquifer and will lose it."). Empty when nothing references it or
+     *  there is no engine. */
+    QString impactSummary(AquiferProvider *p) const;
 
     int loadFromEngine(void *engineHandle);
     int saveToEngine(void *engineHandle);

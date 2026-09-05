@@ -6,6 +6,7 @@
  */
 #include "aquifer/aquiferregistry.h"
 
+#include <openswmm/engine/openswmm_edit.h>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
 
@@ -47,10 +48,46 @@ AquiferProvider *AquiferRegistry::create(const QString &name)
     return p;
 }
 
+QString AquiferRegistry::impactSummary(AquiferProvider *p) const
+{
+    if (!p || !m_engineHandle) return {};
+    auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+    const int idx = swmm_aquifer_index(eng, p->name().toUtf8().constData());
+    if (idx < 0) return {};
+
+    SWMM_ImpactReport report{};
+    if (swmm_aquifer_analyze_impact(eng, idx, &report) != SWMM_OK) return {};
+
+    int subcatch = 0, other = 0;
+    for (int i = 0; i < report.n_entries; ++i) {
+        if (report.entries[i].obj_type == SWMM_REF_SUBCATCH) ++subcatch;
+        else                                                 ++other;
+    }
+    swmm_impact_report_free(&report);
+
+    QStringList parts;
+    if (subcatch)
+        parts << tr("%n subcatchment(s) reference this aquifer and will lose it.",
+                    nullptr, subcatch);
+    if (other)
+        parts << tr("%n other reference(s) will be cleared.", nullptr, other);
+    return parts.join(QLatin1Char(' '));
+}
+
 void AquiferRegistry::remove(AquiferProvider *p)
 {
     if (!p || !m_providers.contains(p)) return;
     emit providerAboutToBeRemoved(p);
+
+    // The engine-side object goes too; otherwise the aquifer survived in the
+    // saved .inp and reappeared on the next loadFromEngine.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = swmm_aquifer_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0)
+            swmm_aquifer_delete(eng, idx, nullptr);
+    }
+
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
     p->deleteLater();
@@ -103,6 +140,9 @@ int AquiferRegistry::loadFromEngine(void *engineHandle)
             if (swmm_aquifer_get_param(eng, i, k, &v) == SWMM_OK)
                 p->setParam(k, v);
         }
+        char pat[256] = {};
+        if (swmm_aquifer_get_evap_pattern(eng, i, pat, sizeof pat) == SWMM_OK)
+            p->setEvapPattern(QString::fromUtf8(pat));
         ++added;
     }
     return added;
@@ -130,6 +170,10 @@ int AquiferRegistry::saveToEngine(void *engineHandle)
         }
         for (int k = 0; k < AquiferProvider::ParamCount; ++k)
             swmm_aquifer_set_param(eng, idx, k, p->param(k));
+        const QByteArray patUtf8 = p->evapPattern().toUtf8();
+        swmm_aquifer_set_evap_pattern(eng, idx,
+                                      patUtf8.isEmpty() ? nullptr
+                                                        : patUtf8.constData());
         ++written;
     }
     return written;

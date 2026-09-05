@@ -38,6 +38,11 @@ struct NodeCompoundEditRef
         Dwf,           ///< `[DWF]` per-node entries (per constituent)
         Rdii,          ///< `[RDII]` per-node UH-group assignment + area
         Treatment,     ///< `[TREATMENT]` per-node per-pollutant expression
+        /*! Read-only navigation: subcatchments whose `[GROUNDWATER]`
+         *  receiving node is this node (AQUIFER_GROUNDWATER_EXCHANGE plan
+         *  G5). The button opens GroundwaterExchangeDialog for the pick;
+         *  the data is owned by the subcatchment. */
+        GroundwaterSources,
     };
 
     SWMM_Engine     engine   = nullptr;  ///< Engine handle (borrow, not owned)
