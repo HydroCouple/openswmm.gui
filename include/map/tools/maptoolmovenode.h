@@ -18,13 +18,15 @@ class SWMMModelLayer;
 
 /*!
  * \class OpenSWMMVisMapToolMoveNode
- * \brief Drag a SWMM node to a new location.
- * \details Left-click a node to start a drag; release the mouse to commit.
- *          The commit mutates engine + cache through SWMMModelLayer and
- *          pushes a MoveNodeCommand on the canvas' MapUndoStack. When
+ * \brief Drag a SWMM node or rain gage to a new location.
+ * \details Left-click a node (or rain gage) to start a drag; release the
+ *          mouse to commit. The commit mutates engine + cache through
+ *          SWMMModelLayer and pushes a MoveNodeCommand (MoveGageCommand
+ *          for a gage) on the canvas' MapUndoStack. When
  *          auto-length is enabled on the active project window, every
  *          conduit whose endpoint is the moved node has its length
- *          recomputed from the new polyline as part of the same command.
+ *          recomputed from the new polyline as part of the same command;
+ *          gages have no links, so no auto-length leg.
  *
  *          Press Escape during a drag to cancel.
  *
@@ -60,17 +62,21 @@ signals:
                    int autoLengthedCount);
 
 private:
-    /*! Layer + SoA node index hit by the current drag, or invalid. */
+    /*! Layer + SoA index hit by the current drag, or invalid. `isGage`
+     *  distinguishes the rain-gage cache from the node cache — the two
+     *  are separate SoAs with separate move APIs. */
     struct NodeHit {
         SWMMModelLayer *layer    = nullptr;
         int             nodeIdx  = -1;
         QString         nodeName;
+        bool            isGage   = false;
         bool valid() const { return layer && nodeIdx >= 0; }
     };
 
-    /*! Pick the top-most SWMM node under the pixel through the layer's
-     *  `pickAt` API. Rain-gage hits are filtered out — the MoveNode
-     *  tool only edits network nodes. */
+    /*! Pick the top-most SWMM node or rain gage under the pixel through
+     *  the layer's `pickAt` API (same tier/priority as identifyAt —
+     *  gages sit above nodes, matching what the user sees). Links and
+     *  subcatchments are ignored. */
     NodeHit pickNode(const QPoint &pixel) const;
 
     /*! Live preview update: rewrites the cached SoA position for the
@@ -85,6 +91,7 @@ private:
     SWMMModelLayer    *m_layer     = nullptr;
     int                m_nodeIdx   = -1;
     QString            m_nodeName;
+    bool               m_isGage    = false;
 
     // Pre-drag map-CRS coord (for Escape / cancel rollback).
     double             m_originalMapX = 0.0;

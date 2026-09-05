@@ -1400,6 +1400,14 @@ public:
      *  the index is out of range or no node cache exists. */
     bool previewNodeMove(int idx, double newX, double newY);
 
+    /*! Rain-gage twin of \ref previewNodeMove: rewrite the gage's cached
+     *  map coord + scene point only (no engine write, no modelEdited) so
+     *  the symbol follows the cursor during a drag. MoveGageCommand::redo
+     *  commits the final position via \ref applyGageMove on release.
+     *  Gages have no attached links or outlet lines, so this is just the
+     *  coord + scene-point rewrite and a repaint. */
+    bool previewGageMove(int idx, double newX, double newY);
+
     /*!
      * \brief Indices of links whose from/to endpoint is the given node.
      */

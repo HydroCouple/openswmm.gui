@@ -4385,6 +4385,28 @@ bool SWMMModelLayer::previewNodeMove(int idx, double newX, double newY)
     return true;
 }
 
+bool SWMMModelLayer::previewGageMove(int idx, double newX, double newY)
+{
+    if (idx < 0 || idx >= m_gages.size()) return false;
+
+    m_gages[idx].x = newX;
+    m_gages[idx].y = newY;
+
+    // Same scene-point rewrite as applyGageMove (CRS transform + the
+    // scene-space Y flip). Engine state is UNTOUCHED — MoveGageCommand::redo
+    // commits via applyGageMove on release.
+    if (idx < m_gageScenePts.size())
+    {
+        double sx = newX, sy = newY;
+        if (m_transform) m_transform->Transform(1, &sx, &sy);
+        m_gageScenePts[idx] = QPointF(sx, -sy);
+    }
+
+    // Repaint only — same rationale as previewNodeMove above.
+    emit repaintRequested();
+    return true;
+}
+
 double SWMMModelLayer::engineLinkLength(int linkIdx) const
 {
     if (!m_engine || !isConduit(linkIdx))
