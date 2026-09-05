@@ -59,6 +59,10 @@ struct DataObjectRef
                              ///  target. Selection only (subcatchments are
                              ///  drawn on the map); an empty pick clears the
                              ///  routing.
+        Aquifer        = 11, ///< [AQUIFERS] entries — the subcatchment's
+                             ///  receiving aquifer ([GROUNDWATER]). "…"
+                             ///  opens AquiferEditorDialog::pickAquifer; an
+                             ///  empty pick clears the assignment.
     };
 
     SWMM_Engine     engine      = nullptr;  ///< Engine handle (borrow)

@@ -994,6 +994,37 @@ add_swmmvis_gui_test(test_treatment_expression_editor
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/treatmentexpressionedit.cpp
 )
 
+# AQUIFER_GROUNDWATER_EXCHANGE G4 — [GWF] expression editor (engine vocabulary,
+# completer, engine-backed validation).
+add_swmmvis_gui_test(test_gwfexpressionedit
+    test_gwfexpressionedit.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/gwfexpressionedit.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/gwfexpressionedit.cpp
+)
+
+# AQUIFER_GROUNDWATER_EXCHANGE G4 — GroundwaterExchangeDialog round-trip
+# against tests/gui/data/gw_exchange_fixture.inp. The dialog reaches the
+# layer only via QMetaObject::invokeMethod, so no SWMMModelLayer link.
+add_swmmvis_gui_test(test_groundwaterexchangedialog
+    test_groundwaterexchangedialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/groundwaterexchangedialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/groundwaterexchangedialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/gwfexpressionedit.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/gwfexpressionedit.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/groundwatersummary.h
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/groundwatersummary.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+)
+
+# AQUIFER_GROUNDWATER_EXCHANGE G5 — node-side groundwater source list, a pure
+# engine query (peer of test_vjsourcesummary).
+add_swmmvis_gui_test(test_gwsourcesummary
+    test_gwsourcesummary.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/gwsourcesummary.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/gwsourcesummary.h
+)
+
 # Iteration 4 — SubcatchCompoundEditDialog: editable coverage matrix +
 # initial-loadings page ([LOADINGS]).
 add_swmmvis_gui_test(test_subcatch_coverage_loadings
@@ -1027,6 +1058,46 @@ add_swmmvis_gui_test(test_landuse_unified_editor
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 target_link_libraries(test_landuse_unified_editor PRIVATE Qt6::Svg)
+
+# AQUIFER_GROUNDWATER_EXCHANGE G2 — the rebuilt Aquifer editor (grouped form,
+# evap-pattern combo, soft validation, live two-zone diagram, impact-aware
+# delete).
+add_swmmvis_gui_test(test_aquifer_editor_dialog
+    test_aquifer_editor_dialog.cpp
+    # Link stubs for the layer-backed "…" pattern picker path (never taken
+    # without a layer): SWMMModelLayer::ensurePatternRegistry,
+    # PatternEditorDialog::pickPattern.
+    test_aquifer_editor_dialog_stubs.cpp
+    ${CMAKE_SOURCE_DIR}/include/aquifer/aquiferprovider.h
+    ${CMAKE_SOURCE_DIR}/include/aquifer/aquiferregistry.h
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/aquifereditordialog.h
+    ${CMAKE_SOURCE_DIR}/include/ui/models/aquiferlistmodel.h
+    ${CMAKE_SOURCE_DIR}/src/aquifer/aquiferprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/aquifer/aquiferregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/aquifereditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/models/aquiferlistmodel.cpp
+    # qobject_cast<PatternRegistry*> needs the pattern metaobjects.
+    ${CMAKE_SOURCE_DIR}/include/pattern/patternprovider.h
+    ${CMAKE_SOURCE_DIR}/include/pattern/patternregistry.h
+    ${CMAKE_SOURCE_DIR}/src/pattern/patternprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/pattern/patternregistry.cpp
+    # Third pane: the two-zone diagram.
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/aquiferdiagram.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectiondiagram.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectionpreviewwidget.h
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/aquiferdiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectiondiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectionpreviewwidget.cpp
+    # Unit suffixes.
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    # Dialog buttons go through IconFactory (themed SVG icons).
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+target_link_libraries(test_aquifer_editor_dialog PRIVATE Qt6::Svg)
 
 add_swmmvis_gui_test(test_pattern_editor_dialog
     test_pattern_editor_dialog.cpp
@@ -1586,6 +1657,9 @@ add_swmmvis_gui_test(test_nodepropertyadapter
     # initialQualitySummaryFor (engine-only helper, no further deps).
     ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditref.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditref.h
+    # G5 — groundwaterSourcesRef() row (pure engine query).
+    ${CMAKE_SOURCE_DIR}/src/layers/gwsourcesummary.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/gwsourcesummary.h
 )
 
 # TODO(Slice Z follow-up) — disabled. linkcompoundeditdialog.cpp now
@@ -1619,6 +1693,9 @@ add_swmmvis_gui_test(test_subcatchpropertyadapter
     ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/properties/swmmsubcatchpropertyadapter.h
     ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    # G3/G4 — groundwaterRef() summary text.
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/groundwatersummary.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/groundwatersummary.h
     # The adapter's row builder references the USER_FLAGS surface
     # (userFlagsSummaryFor + SWMMModelLayer::ensureUserFlagsModel). Pull in the
     # two small real helpers; resolve the heavy layer method with a link stub
@@ -1674,6 +1751,17 @@ add_swmmvis_gui_test(test_sectionmodelbuilders
     ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectiondiagram.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectionmodelbuilders.h
     ${CMAKE_SOURCE_DIR}/include/ui/sectionview/xsectsampler.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectiondiagram.h
+)
+
+# AQUIFER_GROUNDWATER_EXCHANGE G2 — the two-zone aquifer illustration
+# builder. Pure value → value: no engine, no widget, links the diagram model
+# alone.
+add_swmmvis_gui_test(test_aquiferdiagram
+    test_aquiferdiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/aquiferdiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectiondiagram.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/aquiferdiagram.h
     ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectiondiagram.h
 )
 

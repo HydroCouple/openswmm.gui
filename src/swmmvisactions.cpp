@@ -199,6 +199,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionNewPattern",            QT_TR_NOOP("Pattern")},
         {"actionNewControlRule",        QT_TR_NOOP("Control\nRule")},
         {"actionNewTransect",           QT_TR_NOOP("Transect")},
+        {"actionNewAquifer",            QT_TR_NOOP("Aquifer")},
         {"actionNewLidControl",         QT_TR_NOOP("LID\nControl")},
         {"actionNewPollutant",          QT_TR_NOOP("Pollutant")},
         {"actionNewLandUse",            QT_TR_NOOP("Land\nUse")},
@@ -305,7 +306,7 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarModel, tr("Data Objects"),
              {"actionNewTimeSeries", "actionNewCurve", "actionNewPattern",
               "actionNewControlRule", "actionNewTransect",
-              "actionNewLidControl", "actionNewPollutant",
+              "actionNewAquifer", "actionNewLidControl", "actionNewPollutant",
               "actionNewLandUse", "actionEditReactionSystem",
               "actionEditHeatConfig"});
     addGroup(mToolBarModel, tr("Setup"),

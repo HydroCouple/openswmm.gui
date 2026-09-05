@@ -50,8 +50,13 @@ public:
     /*! \returns parameter \p k (0..ParamCount-1), or 0 if out of range. */
     double param(int k) const noexcept;
 
+    /*! Upper-zone evaporation pattern name (the `[AQUIFERS]` ETupat column);
+     *  empty when none is assigned. Changes are folded into paramsChanged. */
+    QString evapPattern() const noexcept { return m_evapPattern; }
+
     void setName(QString newName);
     void setParam(int k, double v);
+    void setEvapPattern(QString pattern);
 
 signals:
     void nameChanged(QString prev, QString now);
@@ -60,6 +65,7 @@ signals:
 private:
     QString m_name;
     double  m_param[ParamCount] = {};
+    QString m_evapPattern;
 };
 
 } // namespace openswmmvis::aquifer

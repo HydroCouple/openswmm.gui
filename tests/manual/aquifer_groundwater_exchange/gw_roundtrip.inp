@@ -1,0 +1,102 @@
+[TITLE]
+;;Manual round-trip deck for the Aquifer / Groundwater Exchange editors
+;;(workplans/AQUIFER_GROUNDWATER_EXCHANGE_VERIFY_HANDOFF_2026-09-05.md, step 4).
+;;
+;;S1 sits on AQ1 (monthly ET pattern EVAP1) and discharges groundwater to J1
+;;through the standard A1/B1 term plus a LATERAL [GWF] expression. A run
+;;must show non-zero groundwater inflow at J1.
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         DYNWAVE
+START_DATE           01/01/2020
+START_TIME           00:00:00
+END_DATE             01/03/2020
+END_TIME             00:00:00
+REPORT_STEP          00:15:00
+WET_STEP             00:05:00
+DRY_STEP             01:00:00
+ROUTING_STEP         0:00:20
+
+[EVAPORATION]
+CONSTANT             0.1
+DRY_ONLY             NO
+
+[RAINGAGES]
+;;Name           Format    Interval SCF      Source
+RG1              INTENSITY 0:15     1.0      TIMESERIES TS1
+
+[SUBCATCHMENTS]
+;;Name           Rain Gage        Outlet           Area     %Imperv  Width    %Slope   CurbLen
+S1               RG1              J1               5        25       500      0.5      0
+
+[SUBAREAS]
+;;Subcatchment   N-Imperv   N-Perv     S-Imperv   S-Perv     PctZero    RouteTo
+S1               0.01       0.1        0.05       0.05       25         OUTLET
+
+[INFILTRATION]
+S1               3.0        0.5        4          7          0
+
+[PATTERNS]
+EVAP1            MONTHLY  1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+
+[AQUIFERS]
+;;Name           Por    WP     FC     Ksat   Kslope Tslope ETu    ETs    Seep   Ebot   Egw    Umc    ETupat
+AQ1              0.5    0.15   0.3    5      10     15     0.35   0      0.002  0      10     0.3    EVAP1
+
+[GROUNDWATER]
+;;Subcatchment   Aquifer          Node             SurfElev   A1         B1         A2         B2         A3         Tw         Hstar
+S1               AQ1              J1               12         0.001      1          0          0          0          0          0
+
+[GWF]
+;;Subcatchment   Type       Expression
+S1               LATERAL    0.001*(HGW-10)
+
+[JUNCTIONS]
+;;Name           Elevation  MaxDepth   InitDepth  SurDepth   Aponded
+J1               100        5          0          0          0
+
+[OUTFALLS]
+;;Name           Elevation  Type       Stage Data       Gated
+O1               95         FREE                        NO
+
+[CONDUITS]
+;;Name           From Node        To Node          Length     Roughness  InOffset   OutOffset  InitFlow   MaxFlow
+C1               J1               O1               400        0.01       0          0          0          0
+
+[XSECTIONS]
+;;Link           Shape        Geom1            Geom2      Geom3      Geom4      Barrels
+C1               CIRCULAR     1                0          0          0          1
+
+[TIMESERIES]
+;;Name           Date       Time       Value
+TS1              01/01/2020 00:00      0.0
+TS1                         00:15      2.0
+TS1                         00:30      4.0
+TS1                         00:45      0.0
+
+[REPORT]
+SUBCATCHMENTS    ALL
+NODES            ALL
+LINKS            ALL
+
+[MAP]
+DIMENSIONS       -100.000 -100.000 1100.000 1100.000
+Units            None
+
+[COORDINATES]
+;;Node           X-Coord            Y-Coord
+J1               500.000            500.000
+O1               500.000            0.000
+
+[Polygons]
+;;Subcatchment   X-Coord            Y-Coord
+S1               0.000              800.000
+S1               400.000            800.000
+S1               400.000            1000.000
+S1               0.000              1000.000
+
+[SYMBOLS]
+;;Gage           X-Coord            Y-Coord
+RG1              0.000              500.000

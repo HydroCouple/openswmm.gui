@@ -5,9 +5,10 @@
  * \license GPL-3.0-or-later
  *
  * Phase 3 — compound editor for subcatchment attributes that don't fit a
- * single property row: land-use coverage, groundwater configuration, and LID
- * usage. Mirror of NodeCompoundEditDialog: one QStackedWidget page per Kind,
- * apply-as-you-go engine writes, summary tracked in m_ref.
+ * single property row: land-use coverage, LID usage and initial loadings
+ * (groundwater exchange lives in GroundwaterExchangeDialog). Mirror of
+ * NodeCompoundEditDialog: one QStackedWidget page per Kind, apply-as-you-go
+ * engine writes, summary tracked in m_ref.
  */
 
 #ifndef SUBCATCHCOMPOUNDEDITDIALOG_H
@@ -37,10 +38,13 @@ public:
 
 private:
     void buildLandUsePage();
-    void buildGroundwaterPage();
     void buildLidUsagePage();
     void buildLoadingsPage();
     void refreshActivePage();
+
+    /*! Stack page for a Kind (Groundwater has no page here — it opens
+     *  GroundwaterExchangeDialog instead). */
+    [[nodiscard]] static int pageIndexFor(SubcatchCompoundEditRef::Kind kind);
 
     [[nodiscard]] int subIdx() const;   // swmm_subcatch_index, or -1
 
@@ -56,19 +60,6 @@ private:
     QLabel       *m_loadSummary = nullptr;
     QTableWidget *m_loadTable   = nullptr;
     bool          m_loadRefreshing = false;
-
-    // Groundwater page
-    QLabel         *m_gwSummary = nullptr;
-    QComboBox      *m_gwAquifer = nullptr;
-    QComboBox      *m_gwNode    = nullptr;
-    QDoubleSpinBox *m_gwSurfEl  = nullptr;
-    QDoubleSpinBox *m_gwA1      = nullptr;
-    QDoubleSpinBox *m_gwB1      = nullptr;
-    QDoubleSpinBox *m_gwA2      = nullptr;
-    QDoubleSpinBox *m_gwB2      = nullptr;
-    QDoubleSpinBox *m_gwA3      = nullptr;
-    QDoubleSpinBox *m_gwTw      = nullptr;
-    QDoubleSpinBox *m_gwHstar   = nullptr;
 
     // LID usage page
     QLabel       *m_lidSummary   = nullptr;

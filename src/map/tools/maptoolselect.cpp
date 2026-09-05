@@ -13,6 +13,7 @@
 #include "layers/gisvectorlayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
+#include "layers/gwsourcesummary.h"
 
 #include "core/editgeometry.h"
 #include "core/unitsystem.h"
@@ -74,6 +75,21 @@ quint8 kindBitForObjectType(int objectType)
     case SWMMObjectRef::RainGage:     return SWMMModelLayer::kKindGage;
     default:                          return SWMMModelLayer::kKindAll;
     }
+}
+
+// G5 — delete-prompt sentence for nodes that receive groundwater from
+// subcatchments ([GROUNDWATER] Node). Empty when none of `nodeIdxs` does.
+QString groundwaterSourcesNote(SWMM_Engine eng, const QList<int> &nodeIdxs)
+{
+    int n = 0;
+    for (int ni : nodeIdxs)
+        n += OpenSWMMVis::Groundwater::groundwaterSourceSubcatchments(eng, ni).size();
+    if (n == 0) return {};
+    return (nodeIdxs.size() == 1)
+        ? QObject::tr("%n subcatchment(s) discharge groundwater to this node "
+                      "and will lose their receiving node.", nullptr, n)
+        : QObject::tr("%n subcatchment(s) discharge groundwater to the selected "
+                      "nodes and will lose their receiving node.", nullptr, n);
 }
 } // namespace
 
@@ -839,10 +855,20 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     const qint64 classifyMs = deleteTimer.elapsed();
 
     const int n = toDelete.size();
-    const QString msg = (n == 1)
+    QString msg = (n == 1)
         ? QObject::tr("Delete \"%1\"? This cannot be undone by simple Ctrl+Z "
                       "if other edits follow.").arg(toDelete.first().name)
         : QObject::tr("Delete %1 selected objects?").arg(n);
+    // G5 — a node that receives groundwater: the engine nulls the
+    // subcatchments' gw_node on delete, so say so up front.
+    {
+        QList<int> nodeIdxs;
+        for (const ObjInfo &obj : toDelete)
+            if (obj.kind == DeleteObjectCommand::DeleteNode)
+                nodeIdxs.append(sl->nodeIndex(obj.name));
+        const QString gw = groundwaterSourcesNote(eng, nodeIdxs);
+        if (!gw.isEmpty()) msg += QLatin1Char(' ') + gw;
+    }
 
     auto *widget = qobject_cast<QWidget *>(m_canvas);
     const auto btn = QMessageBox::question(

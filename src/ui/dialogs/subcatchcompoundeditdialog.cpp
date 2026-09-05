@@ -11,7 +11,6 @@
 #include <openswmm/engine/openswmm_pollutants.h>      // loadings rows
 #include <openswmm/engine/openswmm_quality.h>        // land uses
 #include <openswmm/engine/openswmm_infrastructure.h>  // LID
-#include <openswmm/engine/openswmm_nodes.h>           // gw receiving node
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -45,10 +44,9 @@ SubcatchCompoundEditDialog::SubcatchCompoundEditDialog(SubcatchCompoundEditRef r
 
     m_stack = new QStackedWidget(this);
     buildLandUsePage();      // index 0
-    buildGroundwaterPage();  // index 1
-    buildLidUsagePage();     // index 2
-    buildLoadingsPage();     // index 3
-    m_stack->setCurrentIndex(int(m_ref.kind));
+    buildLidUsagePage();     // index 1
+    buildLoadingsPage();     // index 2
+    m_stack->setCurrentIndex(pageIndexFor(m_ref.kind));
 
     m_buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
     connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -59,6 +57,19 @@ SubcatchCompoundEditDialog::SubcatchCompoundEditDialog(SubcatchCompoundEditRef r
     lay->addWidget(m_buttons);
 
     refreshActivePage();
+}
+
+int SubcatchCompoundEditDialog::pageIndexFor(SubcatchCompoundEditRef::Kind kind)
+{
+    // Groundwater moved to GroundwaterExchangeDialog (AQUIFER_GROUNDWATER_
+    // EXCHANGE plan D2), so Kind values no longer map 1:1 onto stack pages.
+    switch (kind) {
+    case SubcatchCompoundEditRef::LandUse:  return 0;
+    case SubcatchCompoundEditRef::LidUsage: return 1;
+    case SubcatchCompoundEditRef::Loadings: return 2;
+    case SubcatchCompoundEditRef::Groundwater: break;
+    }
+    return 0;
 }
 
 int SubcatchCompoundEditDialog::subIdx() const
@@ -173,72 +184,6 @@ void SubcatchCompoundEditDialog::buildLoadingsPage()
         refreshActivePage();
     });
 
-    m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
-}
-
-// ---------------------------------------------------------------------------
-// Groundwater page
-// ---------------------------------------------------------------------------
-void SubcatchCompoundEditDialog::buildGroundwaterPage()
-{
-    auto *page = new QWidget(this);
-    auto *vlay = new QVBoxLayout(page);
-
-    m_gwSummary = new QLabel(page);
-    m_gwSummary->setWordWrap(true);
-    vlay->addWidget(m_gwSummary);
-
-    auto *grp  = new QGroupBox(tr("[GROUNDWATER]"), page);
-    auto *form = new QFormLayout(grp);
-
-    m_gwAquifer = new QComboBox(grp);
-    m_gwNode    = new QComboBox(grp);
-    auto mkSpin = [grp]() {
-        auto *s = new QDoubleSpinBox(grp);
-        s->setRange(-kBig, kBig);
-        s->setDecimals(4);
-        return s;
-    };
-    m_gwSurfEl = mkSpin();
-    m_gwA1 = mkSpin(); m_gwB1 = mkSpin();
-    m_gwA2 = mkSpin(); m_gwB2 = mkSpin();
-    m_gwA3 = mkSpin();
-    m_gwTw = mkSpin(); m_gwHstar = mkSpin();
-
-    form->addRow(tr("Aq&uifer"),          m_gwAquifer);
-    form->addRow(tr("&Receiving Node"),   m_gwNode);
-    form->addRow(tr("Surfa&ce Elev."),    m_gwSurfEl);
-    form->addRow(tr("A1 (&GW coeff.)"),   m_gwA1);
-    form->addRow(tr("B1 (GW &expon.)"),   m_gwB1);
-    form->addRow(tr("A2 (Surf. c&oeff.)"),m_gwA2);
-    form->addRow(tr("B2 (Surf. e&xpon.)"),m_gwB2);
-    form->addRow(tr("A3 (interaction)"), m_gwA3);
-    form->addRow(tr("Threshold Twgr"),   m_gwTw);
-    form->addRow(tr("Hstar"),            m_gwHstar);
-
-    auto *applyBtn = new QPushButton(tr("Apply"), grp);
-    form->addRow(QString(), applyBtn);
-    connect(applyBtn, &QPushButton::clicked, this, [this]() {
-        const int s = subIdx();
-        if (s < 0) return;
-        // Combo index 0 is "(none)" → -1; otherwise the object index.
-        const int aq = m_gwAquifer->currentIndex() - 1;
-        const int nd = m_gwNode->currentIndex() - 1;
-        swmm_subcatch_set_aquifer(m_ref.engine, s, aq);
-        swmm_subcatch_set_gw_node(m_ref.engine, s, nd);
-        const int rc = swmm_subcatch_set_gw_params(m_ref.engine, s,
-            m_gwSurfEl->value(), m_gwA1->value(), m_gwB1->value(),
-            m_gwA2->value(), m_gwB2->value(), m_gwA3->value(),
-            m_gwTw->value(), m_gwHstar->value());
-        if (rc != SWMM_OK) {
-            QMessageBox::warning(this, tr("Apply Groundwater"),
-                tr("Engine rejected groundwater set (error %1).").arg(rc));
-            return;
-        }
-        refreshActivePage();
-    });
-
-    vlay->addWidget(grp);
     m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
 }
 
@@ -404,41 +349,6 @@ void SubcatchCompoundEditDialog::refreshActivePage()
                                      : tr("(none)");
         break;
     }
-    case SubcatchCompoundEditRef::Groundwater: {
-        // Aquifer + node combos: "(none)" then every object, once.
-        if (m_gwAquifer->count() == 0) {
-            m_gwAquifer->addItem(tr("(none)"));
-            const int nA = swmm_aquifer_count(e);
-            for (int i = 0; i < nA; ++i)
-                if (const char *id = swmm_aquifer_id(e, i))
-                    m_gwAquifer->addItem(QString::fromUtf8(id));
-        }
-        if (m_gwNode->count() == 0) {
-            m_gwNode->addItem(tr("(none)"));
-            const int nN = swmm_node_count(e);
-            for (int i = 0; i < nN; ++i)
-                if (const char *id = swmm_node_id(e, i))
-                    m_gwNode->addItem(QString::fromUtf8(id));
-        }
-        int aq = -1, nd = -1;
-        swmm_subcatch_get_aquifer(e, s, &aq);
-        swmm_subcatch_get_gw_node(e, s, &nd);
-        m_gwAquifer->setCurrentIndex(aq >= 0 ? aq + 1 : 0);
-        m_gwNode->setCurrentIndex(nd >= 0 ? nd + 1 : 0);
-        double surf=0,a1=0,b1=0,a2=0,b2=0,a3=0,tw=0,hstar=0;
-        swmm_subcatch_get_gw_params(e, s, &surf, &a1, &b1, &a2, &b2, &a3, &tw, &hstar);
-        m_gwSurfEl->setValue(surf);
-        m_gwA1->setValue(a1); m_gwB1->setValue(b1);
-        m_gwA2->setValue(a2); m_gwB2->setValue(b2);
-        m_gwA3->setValue(a3);
-        m_gwTw->setValue(tw); m_gwHstar->setValue(hstar);
-        const bool has = aq >= 0;
-        m_gwSummary->setText(has
-            ? tr("Aquifer assigned; edit and Apply to update routing.")
-            : tr("No aquifer assigned. Pick one and Apply to enable groundwater."));
-        m_ref.summary = has ? tr("aquifer set") : tr("(none)");
-        break;
-    }
     case SubcatchCompoundEditRef::LidUsage: {
         // LID control combo once.
         if (m_lidCombo->count() == 0) {
@@ -475,5 +385,7 @@ void SubcatchCompoundEditDialog::refreshActivePage()
         m_ref.summary = mine > 0 ? tr("%1 LID(s)").arg(mine) : tr("(none)");
         break;
     }
+    case SubcatchCompoundEditRef::Groundwater:
+        break;   // handled by GroundwaterExchangeDialog
     }
 }

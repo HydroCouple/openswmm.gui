@@ -131,7 +131,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"data.newLidControl",    "actionNewLidControl",    "Data", "", "LidControl", "model", "Model/Data Objects", NoTags},
     {"data.newPollutant",     "actionNewPollutant",     "Data", "", "Pollutant", "model", "Model/Data Objects", NoTags},
     {"data.newLandUse",       "actionNewLandUse",       "Data", "", "LandUse",      "", "Model/Data Objects", NoTags},
-    {"data.newAquifer",       "actionNewAquifer",       "Data", "", "Aquifer",      "", "Model/Data Objects", NoTags},
+    {"data.newAquifer",       "actionNewAquifer",       "Data", "", "Aquifer", "model", "Model/Data Objects", NoTags},
     {"data.newSnowpack",      "actionNewSnowpack",      "Data", "", "Snowpack",      "", "Model/Data Objects", NoTags},
     {"data.newControlRule",   "actionNewControlRule",   "Data", "", "AddControlRule", "model", "Model/Data Objects", NoTags},
     {"data.newTransect",      "actionNewTransect",      "Data", "", "AddTransect", "model", "Model/Data Objects", NoTags},

@@ -48,6 +48,7 @@ NodeCompoundEditDialog::NodeCompoundEditDialog(NodeCompoundEditRef ref,
 {
     const char *titles[] = {
         "External Inflows", "Dry Weather Flow", "RDII", "Pollutant Treatment",
+        "Groundwater Sources",   // no page here (G5); keeps titles[kind] in range
     };
     // Iteration 2 (D2) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("NodeCompoundEditDialog"));
@@ -961,5 +962,7 @@ void NodeCompoundEditDialog::refreshActivePage()
             : tr("(none)");
         break;
     }
+    case NodeCompoundEditRef::GroundwaterSources:
+        break;   // no page here — NodeCompoundEditButton routes it elsewhere
     }
 }
