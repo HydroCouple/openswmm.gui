@@ -3566,7 +3566,8 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
     return identifyAt(mapX, mapY, nullptr, tolerance);
 }
 
-QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
+QVariantMap SWMMModelLayer::identifyByName(const QString &name,
+                                           quint8 kindMask) const
 {
     QVariantMap m;
     if (name.isEmpty()) return m;
@@ -3578,14 +3579,18 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
     // reproduce the old semantics exactly: same kind precedence (node →
     // link → catchment → gage, enforced by the order of the tests below),
     // same lowest-index winner within a kind.
-    auto lookup = [&name](const QHash<QString, int> &h) -> int {
+    // kindMask gates each map so a category-scoped caller isn't shadowed by
+    // a same-named object of an earlier kind (SWMM namespaces are per-type).
+    auto lookup = [&name, kindMask](const QHash<QString, int> &h,
+                                    quint8 kindBit) -> int {
+        if (!(kindMask & kindBit)) return -1;
         const auto it = h.constFind(name);
         return (it == h.constEnd()) ? -1 : it.value();
     };
-    auto findNode  = [&]() { return lookup(m_nodeByName);  };
-    auto findLink  = [&]() { return lookup(m_linkByName);  };
-    auto findCatch = [&]() { return lookup(m_catchByName); };
-    auto findGage  = [&]() { return lookup(m_gageByName);  };
+    auto findNode  = [&]() { return lookup(m_nodeByName,  kKindNode);  };
+    auto findLink  = [&]() { return lookup(m_linkByName,  kKindLink);  };
+    auto findCatch = [&]() { return lookup(m_catchByName, kKindCatch); };
+    auto findGage  = [&]() { return lookup(m_gageByName,  kKindGage);  };
 
     if (int i = findNode(); i >= 0)
     {
@@ -5288,6 +5293,42 @@ bool SWMMModelLayer::rollbackTailLinkAdd(const QString &name)
 // ---------------------------------------------------------------------------
 // Gage add / rollback
 // ---------------------------------------------------------------------------
+
+bool SWMMModelLayer::applyGageMove(int idx, double newX, double newY)
+{
+    if (idx < 0 || idx >= m_gages.size())
+        return false;
+
+    if (m_engine)
+    {
+        if (swmm_spatial_set_gage_coord(m_engine, idx, newX, newY) != 0)
+            return false;
+    }
+
+    m_gages[idx].x = newX;
+    m_gages[idx].y = newY;
+
+    // Refresh this gage's cached scene point the same way
+    // appendGageSceneEntry does for a fresh tail entry (CRS transform +
+    // the scene-space Y flip), so the canvas tracks the edit without a
+    // full rebuildSceneCoords().
+    if (idx < m_gageScenePts.size())
+    {
+        double sx = newX, sy = newY;
+        if (m_transform) m_transform->Transform(1, &sx, &sy);
+        m_gageScenePts[idx] = QPointF(sx, -sy);
+    }
+
+    m_kdDirty      = true;
+    m_needsRebuild = true;
+    ++m_geomRevision;
+    recomputeExtentFromCaches();   // keep cached model extent in sync
+    emit repaintRequested();
+    // [SYMBOLS] is authored data, so the model no longer matches the .inp
+    // even though only a repaint is needed.
+    emit modelEdited();
+    return true;
+}
 
 bool SWMMModelLayer::applyGageAdd(const QString &name, double x, double y,
                                    int *outIdx)
