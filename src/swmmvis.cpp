@@ -220,6 +220,7 @@
 #include "map/tools/maptoolplotpick.h"
 #include "map/tools/maptoolselectprofile.h"
 #include "map/tools/maptooladdvirtualnode.h"
+#include "map/tools/maptooladdinletnode.h"
 
 #include <QDesktopServices>
 #include <QDockWidget>
@@ -882,6 +883,7 @@ void SWMMVis::applyProjectOpenToActions(bool open)
     // even before a project is bound.
     static const QStringList kProjectOnlyActions = {
         QStringLiteral("actionAddJunction"),   QStringLiteral("actionAddVirtualJunction"),
+        QStringLiteral("actionAddInletJunction"),
         QStringLiteral("actionAddOutfall"),
         QStringLiteral("actionAddStorage"),    QStringLiteral("actionAddFlowDivider"),
         QStringLiteral("actionAddPipe"),       QStringLiteral("actionAddPump"),
@@ -1493,7 +1495,7 @@ void SWMMVis::initializeAnimationToolBar()
     // jumps to the newest frame. Only meaningful for a live/streaming
     // source, so it is disabled otherwise (see refreshActiveResultsCombos,
     // which manages the enabled/checked state via the member pointer).
-    mCheckBoxLive2D = new QCheckBox(tr("Live render"), this);
+    mCheckBoxLive2D = new QCheckBox(tr("Live 2D"), this);
     mCheckBoxLive2D->setChecked(true);
     mCheckBoxLive2D->setContentsMargins(8, 0, 4, 0);
     mCheckBoxLive2D->setToolTip(tr(
@@ -1735,6 +1737,7 @@ void SWMMVis::initializeMapTools()
         QStringLiteral("actionMeasure"), QStringLiteral("actionPlotProfile"),
         QStringLiteral("actionPlotProfile2D"),
         QStringLiteral("actionAddJunction"), QStringLiteral("actionAddVirtualJunction"),
+        QStringLiteral("actionAddInletJunction"),
         QStringLiteral("actionAddOutfall"),
         QStringLiteral("actionAddStorage"), QStringLiteral("actionAddFlowDivider"),
         QStringLiteral("actionAddPipe"),  QStringLiteral("actionAddPump"),
@@ -3764,9 +3767,10 @@ void SWMMVis::initializeMenus()
             bool                         separatorAfter;
         };
         // DA.3 / BM.0.3 ordering: tables first, then quality, then
-        // subsurface, then dynamic-behaviour (rules + RDII + climate),
-        // and finally streets/inlets. nullptr label means "separator
-        // here, no menu item".
+        // subsurface, then dynamic-behaviour (rules + street drainage),
+        // and finally unit hydrographs. Streets precede Inlets and both
+        // follow Transects because an inlet design is only meaningful
+        // against a street cross-section (Inlets plan §2.1).
         static const DataEntry kEntries[] = {
             {SWMMModelLayer::DataTimeSeries,  QT_TR_NOOP("Time &Series…"),      "actionNewTimeSeries",     false},
             {SWMMModelLayer::DataCurves,      QT_TR_NOOP("&Curves…"),           "actionNewCurve",          false},
@@ -3779,9 +3783,9 @@ void SWMMVis::initializeMenus()
             // DA.3 — Control Rules + Unit Hydrographs land in the menu.
             {SWMMModelLayer::DataControls,    QT_TR_NOOP("Control &Rules…"),    "actionNewControlRule",    false},
             {SWMMModelLayer::DataTransects,   QT_TR_NOOP("&Transects…"),        "actionNewTransect",       false},
-            {SWMMModelLayer::DataHydrographs, QT_TR_NOOP("Unit &Hydrographs…"), "actionNewUnitHydrograph", true},
             {SWMMModelLayer::DataStreets,     QT_TR_NOOP("St&reets…"),          "actionNewStreet",         false},
-            {SWMMModelLayer::DataInlets,      QT_TR_NOOP("&Inlets…"),           "actionNewInlet",          false},
+            {SWMMModelLayer::DataInlets,      QT_TR_NOOP("&Inlets…"),           "actionNewInlet",          true},
+            {SWMMModelLayer::DataHydrographs, QT_TR_NOOP("Unit &Hydrographs…"), "actionNewUnitHydrograph", false},
         };
         for (const auto &e : kEntries) {
             auto *act = menuData->addAction(tr(e.menuLabel));
@@ -4002,6 +4006,10 @@ void SWMMVis::initializeMenus()
     if (ui->actionAddVirtualJunction)
         connect(ui->actionAddVirtualJunction, &QAction::triggered, this, [this]() {
             if (auto *pw = activeProjectWindow()) pw->activateAddVirtualJunctionTool();
+        });
+    if (ui->actionAddInletJunction)
+        connect(ui->actionAddInletJunction, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddInletJunctionTool();
         });
     if (ui->actionAddOutfall)
         connect(ui->actionAddOutfall, &QAction::triggered, this, [this]() {
@@ -6380,6 +6388,26 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                 statusBar(), [this](const QString &msg) {
                     statusBar()->showMessage(msg, 5000);
                 });
+    }
+
+    // Inlet-junction tool status hints (non-street conduit, empty canvas).
+    if (auto *it = pw->addInletJunctionTool()) {
+        QObject::disconnect(it, &OpenSWMMVisMapToolAddInletNode::statusMessageChanged,
+                            statusBar(), nullptr);
+        connect(it, &OpenSWMMVisMapToolAddInletNode::statusMessageChanged,
+                statusBar(), [this](const QString &msg) {
+                    statusBar()->showMessage(msg, 5000);
+                });
+    }
+
+    // Capability gate (§3.6) — an engine without the inlet-junction surface
+    // hides the add tool rather than offering a button that cannot work.
+    if (auto *act = findChild<QAction *>(QStringLiteral("actionAddInletJunction"))) {
+        const bool supported = pw->modelLayer()
+            && pw->modelLayer()->engineSupportsInletJunctions();
+        act->setVisible(supported);
+        if (!supported)
+            act->setToolTip(tr("Requires an engine with inlet-junction support."));
     }
 
     // Slice CF.3 — Pick 2D Cells tool: project window forwards cellsPicked

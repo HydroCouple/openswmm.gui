@@ -1722,7 +1722,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                 QElapsedTimer sceneTimer;
                 if (perfOn)
                     sceneTimer.start();
-                // Live render (also refreshes the cache for the next gesture).
+                // `develop` (also refreshes the cache for the next gesture).
                 renderSceneBuffer();
                 if (perfOn)
                     qCDebug(lcRenderPerf).noquote()

@@ -14,6 +14,8 @@
 #include "street/streetprovider.h"
 #include "street/streetregistry.h"
 #include "ui/dialogs/streeteditordialog.h"
+#include "inlet/inletregistry.h"
+#include "ui/dialogs/inleteditordialog.h"
 #include "ui/properties/xsectshapegeom.h"   // shared shape/geom metadata
 #include "ui/sectionview/sectionmodelbuilders.h"
 #include "ui/sectionview/sectionpreviewwidget.h"
@@ -26,10 +28,12 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_nodes.h>
 
 #include <cmath>
 #include <utility>
 
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFontMetrics>
@@ -38,6 +42,8 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QPalette>
+#include <QPushButton>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -715,21 +721,279 @@ void LinkCompoundEditDialog::applyXsect()
 }
 
 // ---------------------------------------------------------------------------
-// Inlet usage page (placeholder per §S.2 — BO Phase 6.5.8 deepens)
+// Inlet usage page — the legacy 8-row form (Dinletusage.pas:72-98), backed by
+// swmm_inlet_usage_* through SWMMModelLayer (§2.4; closes BN-LINK-11).
 // ---------------------------------------------------------------------------
 
 void LinkCompoundEditDialog::buildInletUsagePage()
 {
     auto *page = new QWidget(m_stack);
     auto *lay  = new QVBoxLayout(page);
-    auto *info = new QLabel(
-        tr("Inlet usage editing is provided by Slice BO Phase 6.5.8\n"
-           "(InletUsageEditor). This row currently displays the\n"
-           "engine state read-only. Use the Inlets data category in\n"
-           "the Object Browser to manage inlet definitions today."),
-        page);
-    info->setWordWrap(true);
-    lay->addWidget(info);
+
+    // Capability gate: an engine without the inlet-usage surface gets the
+    // explanation instead of controls that could not write anything.
+    if (m_ref.layer && !m_ref.layer->engineSupportsInletJunctions()) {
+        auto *info = new QLabel(
+            tr("Requires an engine with inlet-junction support."), page);
+        info->setWordWrap(true);
+        lay->addWidget(info);
+        lay->addStretch(1);
+        m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
+        return;
+    }
+
+    auto *form = new QFormLayout();
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+
+    auto *u = UnitSystem::instance();
+    const QString L = u ? u->lengthLabel()   : QStringLiteral("ft");
+    const QString F = u ? u->flowUnitLabel() : QStringLiteral("CFS");
+
+    // 1 — Inlet design. Picker + "..." into the Inlets editor, filtered by
+    //     this conduit's cross-section shape (STREET for the gutter types,
+    //     RECT_OPEN / TRAPEZOIDAL for the drop types, CUSTOM anywhere). The
+    //     engine re-checks compatibility on write and reports rule 635.
+    m_iuDesignPicker = new LabeledPickerCombo(QString(), page);
+    form->addRow(tr("Inlet Design"), m_iuDesignPicker);
+
+    // 2 — Capture node. Same node list the subcatchment-outlet picker uses,
+    //     minus virtual / inlet junctions and this conduit's own end nodes
+    //     (engine rule 627).
+    m_iuCaptureCombo = new QComboBox(page);
+    form->addRow(tr("Capture Node"), m_iuCaptureCombo);
+
+    // 3..7 — numeric parameters.
+    m_iuNumInlets = new QSpinBox(page);
+    m_iuNumInlets->setRange(1, 5);
+    form->addRow(tr("Number of Inlets"), m_iuNumInlets);
+
+    m_iuPctClogged = new QDoubleSpinBox(page);
+    m_iuPctClogged->setRange(0.0, 99.0);
+    m_iuPctClogged->setDecimals(1);
+    form->addRow(tr("% Clogged"), m_iuPctClogged);
+
+    m_iuFlowLimit = new QDoubleSpinBox(page);
+    m_iuFlowLimit->setRange(0.0, 1.0e9);
+    m_iuFlowLimit->setDecimals(4);
+    m_iuFlowLimit->setSpecialValueText(tr("(none)"));   // 0 = unrestricted
+    form->addRow(tr("Flow Restriction (%1)").arg(F), m_iuFlowLimit);
+
+    m_iuDepressHeight = new QDoubleSpinBox(page);
+    m_iuDepressHeight->setRange(0.0, 1.0e6);
+    m_iuDepressHeight->setDecimals(4);
+    form->addRow(tr("Local Depression Height (%1)").arg(L), m_iuDepressHeight);
+
+    m_iuDepressWidth = new QDoubleSpinBox(page);
+    m_iuDepressWidth->setRange(0.0, 1.0e6);
+    m_iuDepressWidth->setDecimals(4);
+    form->addRow(tr("Local Depression Width (%1)").arg(L), m_iuDepressWidth);
+
+    // 8 — Placement. Ordinals match SWMM_InletPlacement.
+    m_iuPlacement = new QComboBox(page);
+    m_iuPlacement->addItem(tr("Automatic"), int(SWMM_INLET_AUTOMATIC));
+    m_iuPlacement->addItem(tr("On Grade"),  int(SWMM_INLET_ON_GRADE));
+    m_iuPlacement->addItem(tr("On Sag"),    int(SWMM_INLET_ON_SAG));
+    form->addRow(tr("Placement"), m_iuPlacement);
+
+    lay->addLayout(form);
+
+    m_iuStatus = new QLabel(page);
+    m_iuStatus->setWordWrap(true);
+    lay->addWidget(m_iuStatus);
+
+    m_iuRemoveBtn = new QPushButton(tr("Remove Inlet"), page);
+    auto *btnRow = new QHBoxLayout();
+    btnRow->addStretch(1);
+    btnRow->addWidget(m_iuRemoveBtn);
+    lay->addLayout(btnRow);
     lay->addStretch(1);
+
+    // Apply-as-you-go, exactly like the xsection page.
+    connect(m_iuDesignPicker, &LabeledPickerCombo::currentTextChanged,
+            this, [this](const QString &) { applyInletUsage(); });
+    connect(m_iuDesignPicker, &LabeledPickerCombo::pickerClicked,
+            this, &LinkCompoundEditDialog::onInletDesignPickerClicked);
+    connect(m_iuCaptureCombo, &QComboBox::currentTextChanged,
+            this, [this](const QString &) { applyInletUsage(); });
+    connect(m_iuNumInlets, &QSpinBox::valueChanged,
+            this, [this](int) { applyInletUsage(); });
+    for (QDoubleSpinBox *s : { m_iuPctClogged, m_iuFlowLimit,
+                               m_iuDepressHeight, m_iuDepressWidth })
+        connect(s, &QDoubleSpinBox::valueChanged,
+                this, [this](double) { applyInletUsage(); });
+    connect(m_iuPlacement, &QComboBox::currentIndexChanged,
+            this, [this](int) { applyInletUsage(); });
+    connect(m_iuRemoveBtn, &QPushButton::clicked,
+            this, &LinkCompoundEditDialog::removeInletUsage);
+
+    loadInletUsage();
     m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
+}
+
+void LinkCompoundEditDialog::refreshInletDesignItems(const QString &selected)
+{
+    if (!m_iuDesignPicker || !m_ref.engine) return;
+    QStringList items;
+    const int n = swmm_inlet_count(m_ref.engine);
+    for (int i = 0; i < n; ++i)
+        if (const char *id = swmm_inlet_id(m_ref.engine, i))
+            if (*id) items << QString::fromUtf8(id);
+    m_iuDesignPicker->setItems(items, selected);
+}
+
+void LinkCompoundEditDialog::refreshCaptureNodeItems(const QString &selected)
+{
+    if (!m_iuCaptureCombo || !m_ref.engine) return;
+    const int li = linkIdx();
+    int end1 = -1, end2 = -1;
+    if (li >= 0) {
+        swmm_link_get_from_node(m_ref.engine, li, &end1);
+        swmm_link_get_to_node  (m_ref.engine, li, &end2);
+    }
+
+    QStringList items;
+    const int n = swmm_node_count(m_ref.engine);
+    for (int i = 0; i < n; ++i) {
+        if (i == end1 || i == end2) continue;   // an inlet cannot feed its own conduit
+        int isVirtual = 0;
+        swmm_node_is_virtual(m_ref.engine, i, &isVirtual);
+        if (isVirtual) continue;                // rule 627: no zero-storage host
+        if (const char *id = swmm_node_id(m_ref.engine, i))
+            if (*id) items << QString::fromUtf8(id);
+    }
+    items.sort(Qt::CaseInsensitive);
+    items.prepend(QString());                   // "" = unassigned
+
+    QSignalBlocker block(m_iuCaptureCombo);
+    m_iuCaptureCombo->clear();
+    m_iuCaptureCombo->addItems(items);
+    const int at = m_iuCaptureCombo->findText(selected);
+    m_iuCaptureCombo->setCurrentIndex(at >= 0 ? at : 0);
+}
+
+void LinkCompoundEditDialog::loadInletUsage()
+{
+    if (!m_iuDesignPicker || !m_ref.engine) return;
+    const int li = linkIdx();
+
+    SWMM_InletUsage usage{};
+    bool has = false;
+    if (li >= 0 && m_ref.layer)
+        has = m_ref.layer->inletUsageFor(SWMM_INLET_HOST_LINK, li, &usage);
+
+    QString design, capture;
+    if (has) {
+        if (const char *d = swmm_inlet_id(m_ref.engine, usage.design_idx))
+            design = QString::fromUtf8(d);
+        if (const char *c = swmm_node_id(m_ref.engine, usage.capture_node_idx))
+            capture = QString::fromUtf8(c);
+    }
+
+    m_iuSuppressApply = true;
+    refreshInletDesignItems(design);
+    refreshCaptureNodeItems(capture);
+    m_iuNumInlets    ->setValue(has ? usage.num_inlets    : 1);
+    m_iuPctClogged   ->setValue(has ? usage.pct_clogged   : 0.0);
+    m_iuFlowLimit    ->setValue(has ? usage.flow_limit    : 0.0);
+    m_iuDepressHeight->setValue(has ? usage.local_depress : 0.0);
+    m_iuDepressWidth ->setValue(has ? usage.local_width   : 0.0);
+    const int placeAt = m_iuPlacement->findData(
+        has ? usage.placement : int(SWMM_INLET_AUTOMATIC));
+    m_iuPlacement->setCurrentIndex(placeAt >= 0 ? placeAt : 0);
+    m_iuSuppressApply = false;
+
+    if (m_iuRemoveBtn) m_iuRemoveBtn->setEnabled(has);
+    if (m_iuStatus)
+        m_iuStatus->setText(has
+            ? tr("This conduit has an inlet.")
+            : tr("No inlet on this conduit. Pick a design and a capture node "
+                 "to add one."));
+    // Only the page the dialog was opened FOR owns m_ref.summary — both pages
+    // are built in the ctor, so an xsection edit must not come back with the
+    // inlet page's text in updatedSummary().
+    if (m_ref.kind == LinkCompoundEditRef::InletUsage)
+        m_ref.summary = has ? tr("%1 → %2").arg(design, capture) : tr("(none)");
+}
+
+void LinkCompoundEditDialog::applyInletUsage()
+{
+    if (m_iuSuppressApply || !m_ref.engine || !m_ref.layer) return;
+    const int li = linkIdx();
+    if (li < 0) return;
+
+    const QString design  = m_iuDesignPicker->currentText();
+    const QString capture = m_iuCaptureCombo->currentText();
+    // A partial row is rejected by the engine, so hold the edit until both
+    // identity fields are set rather than surfacing an error per keystroke.
+    if (design.isEmpty() || capture.isEmpty()) {
+        if (m_iuStatus)
+            m_iuStatus->setText(tr("Pick both an inlet design and a capture "
+                                   "node to add an inlet."));
+        return;
+    }
+    const int designIdx  = swmm_inlet_index(m_ref.engine, design.toUtf8().constData());
+    const int captureIdx = swmm_node_index (m_ref.engine, capture.toUtf8().constData());
+    if (designIdx < 0 || captureIdx < 0) return;
+
+    SWMM_InletUsage usage{};
+    usage.host_kind        = SWMM_INLET_HOST_LINK;
+    usage.host_idx         = li;
+    usage.design_idx       = designIdx;
+    usage.capture_node_idx = captureIdx;
+    usage.num_inlets       = m_iuNumInlets->value();
+    usage.pct_clogged      = m_iuPctClogged->value();
+    usage.flow_limit       = m_iuFlowLimit->value();
+    usage.local_depress    = m_iuDepressHeight->value();
+    usage.local_width      = m_iuDepressWidth->value();
+    usage.placement        = m_iuPlacement->currentData().toInt();
+
+    // One undoable step per edit (SetInletUsageCommand, id 24); the layer
+    // emits attributeChanged so the map overlay and the attribute table follow.
+    if (!m_ref.layer->pushInletUsageEdit(usage)) {
+        if (m_iuStatus)
+            m_iuStatus->setText(tr("The engine rejected this inlet — check the "
+                                   "design's compatibility with the conduit's "
+                                   "cross section."));
+        return;
+    }
+    if (m_iuRemoveBtn) m_iuRemoveBtn->setEnabled(true);
+    if (m_iuStatus)    m_iuStatus->setText(tr("This conduit has an inlet."));
+    m_ref.summary = tr("%1 → %2").arg(design, capture);
+}
+
+void LinkCompoundEditDialog::removeInletUsage()
+{
+    if (!m_ref.layer) return;
+    const int li = linkIdx();
+    if (li < 0) return;
+    m_ref.layer->pushInletUsageRemoval(SWMM_INLET_HOST_LINK, li);
+    loadInletUsage();
+}
+
+void LinkCompoundEditDialog::onInletDesignPickerClicked()
+{
+    if (!m_ref.layer || !m_ref.engine) return;
+    using openswmmvis::inlet::InletRegistry;
+    using openswmmvis::ui::InletEditorDialog;
+    auto *reg = qobject_cast<InletRegistry *>(m_ref.layer->ensureInletRegistry());
+    if (!reg) return;
+
+    // Filter the editor's list by this conduit's shape so a drop-inlet design
+    // is not offered for a STREET gutter (and vice versa).
+    int shape = -1;
+    const int li = linkIdx();
+    if (li >= 0) {
+        double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
+        if (swmm_link_get_xsect(m_ref.engine, li, &shape, &g1, &g2, &g3, &g4)
+                != SWMM_OK)
+            shape = -1;
+    }
+
+    const QString chosen = InletEditorDialog::pickInlet(
+        reg, m_ref.layer, /*undoStack=*/nullptr, this, shape);
+    if (chosen.isEmpty()) return;
+    m_iuSuppressApply = true;
+    refreshInletDesignItems(chosen);
+    m_iuSuppressApply = false;
+    applyInletUsage();
 }

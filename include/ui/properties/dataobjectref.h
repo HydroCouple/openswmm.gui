@@ -63,6 +63,15 @@ struct DataObjectRef
                              ///  receiving aquifer ([GROUNDWATER]). "…"
                              ///  opens AquiferEditorDialog::pickAquifer; an
                              ///  empty pick clears the assignment.
+        Inlet          = 12, ///< [INLETS] designs — an inlet junction's or a
+                             ///  conduit's inlet design. "…" opens
+                             ///  InletEditorDialog::pickInlet, filtered by
+                             ///  the host's cross-section shape (`typeLock`
+                             ///  carries the SWMM_XSectShape id, -1 = any).
+        CaptureNode    = 13, ///< Receiving (underdrain) node of an inlet.
+                             ///  Every node EXCEPT virtual / inlet junctions
+                             ///  (engine rule 627). Selection only — nodes
+                             ///  are created on the map.
     };
 
     SWMM_Engine     engine      = nullptr;  ///< Engine handle (borrow)

@@ -1228,6 +1228,30 @@ target_link_libraries(test_transect_editor_dialog PRIVATE Qt6::Svg
     $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>
 )
 
+# Inlets plan Phase G2 (workplans/
+# INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md) — InletProvider +
+# InletRegistry (engine round-trip for every type) + the undo commands +
+# InletPropertyBag's group-visibility table + InletSceneBuilder's callout
+# counts. Deliberately excludes InletEditorDialog: that TU reaches into
+# SWMMModelLayer / CurveEditorDialog and would pull the whole app in.
+add_swmmvis_gui_test(test_inlet_editor
+    test_inlet_editor.cpp
+    ${CMAKE_SOURCE_DIR}/include/inlet/inletprovider.h
+    ${CMAKE_SOURCE_DIR}/include/inlet/inletregistry.h
+    ${CMAKE_SOURCE_DIR}/include/inlet/inletundocommands.h
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/inletpropertybag.h
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/inletdrawingview.h
+    ${CMAKE_SOURCE_DIR}/src/inlet/inletprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/inlet/inletregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/inlet/inletundocommands.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/inletpropertybag.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/inletdrawingview.cpp
+    # The bag's labels and the drawing's callouts carry the project's unit
+    # suffixes, which come from the UnitSystem facade.
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+)
+
 # Slice BQ Phase 6.7.3.8 — TimeseriesRegistry::loadFromEngine round-trips a
 # BUILDING-state engine with two Tseries (point values + times). Links the
 # engine target (via add_swmmvis_gui_test helper) to drive swmm_engine_new
@@ -1660,6 +1684,14 @@ add_swmmvis_gui_test(test_nodepropertyadapter
     # G5 — groundwaterSourcesRef() row (pure engine query).
     ${CMAKE_SOURCE_DIR}/src/layers/gwsourcesummary.cpp
     ${CMAKE_SOURCE_DIR}/include/layers/gwsourcesummary.h
+)
+
+# Virtual-junction delete / re-fuse prompt text for a fed node — a pure
+# engine query (VJ_LATERAL_INFLOW_GUI_PLAN_2026-09-04), no layer dependencies.
+add_swmmvis_gui_test(test_vjsourcesummary
+    test_vjsourcesummary.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/vjsourcesummary.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/vjsourcesummary.h
 )
 
 # TODO(Slice Z follow-up) — disabled. linkcompoundeditdialog.cpp now
@@ -2444,6 +2476,12 @@ add_swmmvis_gui_test(test_asyncload
     test_asyncload.cpp
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES}
+    # The app's resource bundle carries qrc:/openswmm/qml/swmmlayer.qml, which
+    # MapCanvas loads into its QQuickWidget. It is attached to the SWMMVis
+    # executable only, so every other gui test runs with NO QSG renderers and
+    # can never exercise the GPU overlay. blankProjectAddedObjectsRender's
+    # qsg-overlay row needs the real thing.
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
 )
 swmmvis_link_full_app_deps(test_asyncload)
 
@@ -2727,6 +2765,17 @@ add_swmmvis_gui_test(test_raingagefilecolumn
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_raingagefilecolumn)
+
+# Simulation Options no-edit round trip — Apply with no edits must write
+# nothing (dirty count false AND the dialog-owned .inp sections unchanged) on
+# a DYNWAVE, a 2D and an FV deck. Safety net for the dialog restructure
+# (EXECUTION_PLAN_OPTIONS_TRANSPORT_OUTPUT_2026-09-04.md P0/P3).
+add_swmmvis_gui_test(test_simulationoptions_roundtrip
+    test_simulationoptions_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_simulationoptions_roundtrip)
 
 # Rain-gage map position ([SYMBOLS] X/Y) — the Property Browser exposes it and
 # the Attribute Table columns are editable, both routed through

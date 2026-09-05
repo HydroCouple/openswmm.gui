@@ -1,0 +1,469 @@
+[0/2] Re-checking globbed directories...
+[1/6] Automatic MOC and UIC for target test_wfsservice
+[2/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/layers/wfslayer.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[3/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/ui/dialogs/addbasemapdialog.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[4/5] Linking CXX executable tests/gui/test_wfsservice
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+=== 1-borrow-the-buffer ===
+MUTATION 1-borrow-the-buffer: *** SURVIVED ***
+[0/2] Re-checking globbed directories...
+[1/6] Automatic MOC and UIC for target test_wfsservice
+[2/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/ui/dialogs/addbasemapdialog.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[3/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/layers/wfslayer.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[4/5] Linking CXX executable tests/gui/test_wfsservice
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+=== 2-shared-vsimem-name ===
+MUTATION 2-shared-vsimem-name: *** SURVIVED ***
+[0/2] Re-checking globbed directories...
+[1/6] Automatic MOC and UIC for target test_wfsservice
+[2/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/layers/wfslayer.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[3/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/ui/dialogs/addbasemapdialog.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[4/5] Linking CXX executable tests/gui/test_wfsservice
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+=== 3-accept-empty ===
+FAIL!  : TestWfsService::aCollectionHoldingNothingThereSaysSoAndStaysOpen() 'waitFor([&] { return dialog.wfsStatus().contains(QStringLiteral("no features")); })' returned FALSE. (Fetching pand…)
+MUTATION 3-accept-empty: CAUGHT -- aCollectionHoldingNothingThereSaysSoAndStaysOpen() 'waitFor( 
+[0/2] Re-checking globbed directories...
+[1/6] Automatic MOC and UIC for target test_wfsservice
+[2/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/layers/wfslayer.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[3/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/ui/dialogs/addbasemapdialog.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[4/5] Linking CXX executable tests/gui/test_wfsservice
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+=== 4-lose-the-refusal ===
+FAIL!  : TestWfsService::aLayerKeepsItsFeaturesReadableForItsWholeLife() 'message.contains(QStringLiteral("bag:nonesuch"))' returned FALSE. (The service's answer was not features this program can read.)
+MUTATION 4-lose-the-refusal: CAUGHT -- aLayerKeepsItsFeaturesReadableForItsWholeLife() 'message.con 
+[0/2] Re-checking globbed directories...
+[1/6] Automatic MOC and UIC for target test_wfsservice
+[2/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/layers/wfslayer.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[3/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/ui/dialogs/addbasemapdialog.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[4/5] Linking CXX executable tests/gui/test_wfsservice
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+=== 5-expose-vsimem-path ===
+FAIL!  : TestWfsService::choosingACollectionFetchesItOverTheGroundInView() '!layer->sourceDescription().contains(QStringLiteral("vsimem"))' returned FALSE. ()
+MUTATION 5-expose-vsimem-path: CAUGHT -- choosingACollectionFetchesItOverTheGroundInView() '!layer->s 
+[0/2] Re-checking globbed directories...
+[1/6] Automatic MOC and UIC for target test_wfsservice
+[2/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/layers/wfslayer.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[3/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/ui/dialogs/addbasemapdialog.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[4/5] Linking CXX executable tests/gui/test_wfsservice
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+=== 6-ignore-the-view ===
+FAIL!  : TestWfsService::choosingACollectionFetchesItOverTheGroundInView() 'query.queryItemValue(QStringLiteral("BBOX")) .startsWith(QStringLiteral("51"))' returned FALSE. ()
+MUTATION 6-ignore-the-view: CAUGHT -- choosingACollectionFetchesItOverTheGroundInView() 'query.que 
+[0/2] Re-checking globbed directories...
+[1/6] Automatic MOC and UIC for target test_wfsservice
+[2/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/layers/wfslayer.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[3/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/ui/dialogs/addbasemapdialog.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[4/5] Linking CXX executable tests/gui/test_wfsservice
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+=== 7-no-format-preference ===
+FAIL!  : TestWfsService::choosingACollectionFetchesItOverTheGroundInView() 'query.queryItemValue(QStringLiteral("OUTPUTFORMAT")) .contains(QStringLiteral("json"))' returned FALSE. ()
+MUTATION 7-no-format-preference: CAUGHT -- choosingACollectionFetchesItOverTheGroundInView() 'query.que 
+[0/2] Re-checking globbed directories...
+[1/6] Automatic MOC and UIC for target test_wfsservice
+[2/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/layers/wfslayer.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[3/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/ui/dialogs/addbasemapdialog.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[4/5] Linking CXX executable tests/gui/test_wfsservice
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+=== 8-accept-before-fetching ===
+FAIL!  : TestWfsService::choosingACollectionFetchesItOverTheGroundInView() Compared values are not the same
+FAIL!  : TestWfsService::aCollectionHoldingNothingThereSaysSoAndStaysOpen() 'waitFor([&] { return dialog.wfsStatus().contains(QStringLiteral("no features")); })' returned FALSE. (BAG WFS: 5 of 5 collections can be read.)
+MUTATION 8-accept-before-fetching: CAUGHT -- choosingACollectionFetchesItOverTheGroundInView() Compared v aCollectionHoldingNothingThereSaysSoAndStaysOpen() 'waitFor( 
+[0/2] Re-checking globbed directories...
+[1/6] Automatic MOC and UIC for target test_wfsservice
+[2/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/layers/wfslayer.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[3/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/ui/dialogs/addbasemapdialog.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[4/5] Linking CXX executable tests/gui/test_wfsservice
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+=== 9-fetch-anything-typed ===
+FAIL!  : TestWfsService::anAddressThatIsNotAFeatureServiceSaysWhatItSaid() 'nowhere.wfsStatus().contains(QStringLiteral("not a web address"))' returned FALSE. ()
+MUTATION 9-fetch-anything-typed: CAUGHT -- anAddressThatIsNotAFeatureServiceSaysWhatItSaid() 'nowhere.w 
+[0/2] Re-checking globbed directories...
+[1/6] Automatic MOC and UIC for target test_wfsservice
+[2/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/layers/wfslayer.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[3/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/ui/dialogs/addbasemapdialog.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[4/5] Linking CXX executable tests/gui/test_wfsservice
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+=== 10-ignore-capabilities-failure ===
+FAIL!  : TestWfsService::anAddressThatIsNotAFeatureServiceSaysWhatItSaid() 'dialog.wfsStatus().contains(QStringLiteral("not supported"))' returned FALSE. (http://127.0.0.1:54648/wfs holds nothing this program can read.)
+MUTATION 10-ignore-capabilities-failure: CAUGHT -- anAddressThatIsNotAFeatureServiceSaysWhatItSaid() 'dialog.wf 
+[0/2] Re-checking globbed directories...
+[1/6] Automatic MOC and UIC for target test_wfsservice
+[2/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/layers/wfslayer.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/layers/wfslayer.cpp:6:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[3/5] Building CXX object tests/gui/CMakeFiles/test_wfsservice.dir/__/__/src/ui/dialogs/addbasemapdialog.cpp.o
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:270:55: warning: 'renderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  270 |     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+      |                                                       ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:434:63: note: overridden virtual function is here
+  434 |     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+      |                                                               ^
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/addbasemapdialog.cpp:26:
+In file included from /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/wfslayer.h:27:
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/gisvectorlayer.h:278:10: warning: 'setRenderer' overrides a member function but is not marked 'override' [-Winconsistent-missing-override]
+  278 |     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+      |          ^
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/layers/openswmmvislayer.h:440:18: note: overridden virtual function is here
+  440 |     virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
+      |                  ^
+2 warnings generated.
+[4/5] Linking CXX executable tests/gui/test_wfsservice
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'

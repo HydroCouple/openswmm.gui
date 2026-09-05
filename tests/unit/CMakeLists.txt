@@ -534,3 +534,18 @@ add_swmmvis_unit_test(test_importplanning
     ${PROJECT_SOURCE_DIR}/src/ui/dialogs/import/importmapping.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/dialogs/import/importplanning.cpp
 )
+
+# INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN phase G5 — the engine contract the
+# GUI's inlet-junction commands stand on (split/fuse inverse, usage-row
+# round-trip, capture-node rule). Engine-only by necessity: SWMMModelLayer
+# cannot be linked headlessly. Fixture and artefacts live in reviewable
+# directories rather than a temp dir (CLAUDE.md §4.1).
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_inlet_junction_layer
+        test_inlet_junction_layer.cpp
+    )
+    target_link_libraries(test_inlet_junction_layer PRIVATE openswmm_engine)
+    target_compile_definitions(test_inlet_junction_layer PRIVATE
+        SWMMVIS_INLET_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/data/inlets"
+        SWMMVIS_INLET_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/inlets")
+endif()

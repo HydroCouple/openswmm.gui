@@ -18,10 +18,21 @@
 #include <openswmm/engine/openswmm_engine.h>
 
 #include "core/preferencesmanager.h"
+#include "map/mapcanvas.h"
 #include "map/spatialreferencesystem.h"
+#include "map/swmm2dmeshqsgrenderer.h"
+#include "map/swmm2dresultsqsgrenderer.h"
+#include "map/swmmlayerqsgrenderer.h"
+#include "map/tools/maptooladdlink.h"
+#include "map/tools/maptooladdnode.h"
 #include "selection/selectionmanager.h"
 #include "ui/panels/objectbrowserpanel.h"
 
+#include <QImage>
+#include <QQmlEngine>
+#include <QQuickWidget>
+#include <QQuickWindow>
+#include <QSurfaceFormat>
 #include <QTreeView>
 
 #include <QAbstractButton>
@@ -107,6 +118,30 @@ private slots:
                  "typed_selection_malformed_fixture.inp missing from the gui-test data dir");
         QVERIFY2(!QFile::exists(nonexistentPath()),
                  "nonexistent-path fixture name unexpectedly exists on disk");
+
+        // main.cpp registers these before any MapCanvas exists; the test
+        // binary has no main.cpp, and without them swmmlayer.qml's
+        // `import OpenSWMM 1.0` fails and the canvas silently has no GPU
+        // renderers — blankProjectAddedObjectsRender's QSG row would then
+        // fail for a harness reason rather than the one it pins.
+        qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0,
+                                               "SWMMLayerQSGRenderer");
+        qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0,
+                                                "SWMM2DMeshQSGRenderer");
+        qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0,
+                                                   "SWMM2DResultsQSGRenderer");
+        // main.cpp §QSG-5 sets a 6-sample default surface format before any
+        // overlay QQuickWidget exists; MapCanvas inherits it. Mirror that so
+        // the overlay's FBO matches the app's (SWMMVIS_TEST_QSG_SAMPLES
+        // overrides for diagnostics).
+        {
+            bool ok = false;
+            int samples = qEnvironmentVariableIntValue("SWMMVIS_TEST_QSG_SAMPLES", &ok);
+            if (!ok) samples = 6;
+            QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();
+            fmt.setSamples(samples);
+            QSurfaceFormat::setDefaultFormat(fmt);
+        }
     }
 
     // 1. openEngineForPath error paths: empty path and a nonexistent path.
@@ -466,6 +501,338 @@ private slots:
         clickButton(QMessageBox::Discard, "Discard");
         QVERIFY(window->close());         // Discard → closes
 
+        delete window;
+        delete workspace;
+    }
+
+    // 8b. File → New, then draw with the real map tools. The junctions and
+    //     the conduit must reach PIXELS on the canvas, on both render paths
+    //     (CPU SWMMLayerItem and the QSG overlay the Preferences default
+    //     selects). Reported 2026-09-05: on a fresh Local-CRS project, added
+    //     nodes and links "do not render". Baseline/after grabs are written
+    //     next to the binary (CLAUDE.md §4.1) so a failure can be eyeballed.
+    void blankProjectAddedObjectsRender_data()
+    {
+        QTest::addColumn<bool>("qsg");
+        QTest::newRow("cpu-layeritem") << false;
+        QTest::newRow("qsg-overlay")   << true;
+    }
+    void blankProjectAddedObjectsRender()
+    {
+        QFETCH(bool, qsg);
+        const QString tag = QString::fromLatin1(QTest::currentDataTag());
+
+        // Pixels that differ from the corner background inside the central
+        // 80% of a grab — decorations (scale bar, coordinates) live at the
+        // edges, so this counts drawn network geometry only.
+        auto nonBackground = [](const QImage &img) {
+            if (img.isNull()) return -1;
+            const QRgb bg = img.pixel(5, 5);
+            const int x0 = img.width()  / 10, x1 = img.width()  - x0;
+            const int y0 = img.height() / 10, y1 = img.height() - y0;
+            int n = 0;
+            for (int y = y0; y < y1; ++y)
+                for (int x = x0; x < x1; ++x)
+                    if (img.pixel(x, y) != bg) ++n;
+            return n;
+        };
+
+        // Control for the GPU row: the offscreen QPA has no guarantee of a
+        // working QQuickWidget scene graph. Render a LOADED model through the
+        // same QSG overlay first; if that draws nothing while the CPU path
+        // draws the network, the harness cannot see the overlay and the row is
+        // skipped instead of reporting a bug it cannot observe.
+        if (qsg) {
+            auto *ws2 = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+            auto *w2  = new SWMMVisProjectWindow(ws2, fixturePath(), nullptr);
+            QList<QString> lw, le;
+            QVERIFY2(w2->loadModel(lw, le), qPrintable(le.join(QStringLiteral("; "))));
+            w2->resize(900, 700);
+            w2->show();
+            QVERIFY(QTest::qWaitForWindowExposed(w2));
+            QTest::qWait(300);
+            MapCanvas *c2 = w2->canvas();
+            c2->zoomToFullExtent();
+            using K2 = SWMMModelLayer;
+            w2->modelLayer()->setQsgRenderKinds(K2::QsgKinds(K2::QsgNone));
+            QTest::qWait(150);
+            const int cpuPx = nonBackground(c2->grab().toImage());
+            w2->modelLayer()->setQsgRenderKinds(K2::QsgKinds(
+                K2::QsgNodes | K2::QsgLinks | K2::QsgCatch | K2::QsgGages));
+            QTest::qWait(150);
+            const QImage qsgImg = c2->grab().toImage();
+            qsgImg.save(QDir::current().filePath(
+                QStringLiteral("newproject_render_control_loaded_qsg.png")));
+            const int qsgPx = nonBackground(qsgImg);
+            qInfo().noquote() << QStringLiteral(
+                "[control] loaded fixture non-background pixels: cpu=%1 qsg=%2")
+                .arg(cpuPx).arg(qsgPx);
+            // Why the overlay is (in)visible here: MapCanvas parks its
+            // QQuickWidget as an off-screen top-level, so it is reachable
+            // through the top-level list. Its scene-graph state says whether
+            // a grab can ever contain pixels in this process.
+            for (QWidget *tl : QApplication::topLevelWidgets()) {
+                auto *qw = qobject_cast<QQuickWidget *>(tl);
+                if (!qw) continue;
+                const QImage fb = qw->grabFramebuffer();
+                qInfo().noquote() << QStringLiteral(
+                    "[control] QQuickWidget status=%1 root=%2 sgInit=%3 size=%4x%5 "
+                    "grab=%6x%7 grabNonBg=%8")
+                    .arg(int(qw->status()))
+                    .arg(qw->rootObject() ? "yes" : "no")
+                    .arg(qw->quickWindow() && qw->quickWindow()->isSceneGraphInitialized()
+                             ? "yes" : "no")
+                    .arg(qw->width()).arg(qw->height())
+                    .arg(fb.width()).arg(fb.height())
+                    .arg(nonBackground(fb));
+                qInfo().noquote() << QStringLiteral(
+                    "[control] screens=%1 overlayScreen=%2 canvasScreen=%3 overlayDpr=%4 canvasDpr=%5")
+                    .arg(QGuiApplication::screens().size())
+                    .arg(qw->windowHandle() ? qw->windowHandle()->screen()->name() : QStringLiteral("?"))
+                    .arg(c2->window()->windowHandle()
+                             ? c2->window()->windowHandle()->screen()->name()
+                             : QStringLiteral("?"))
+                    .arg(qw->devicePixelRatioF()).arg(c2->devicePixelRatioF());
+                if (QQuickItem *root = qw->rootObject()) {
+                    auto *r = root->findChild<SWMMLayerQSGRenderer *>(
+                        QStringLiteral("swmmRenderer"));
+                    // Drive MapCanvas's OWN overlay widget exactly like the
+                    // stand-alone probe below — same layer, same extent, same
+                    // repaint+grab — bypassing MapCanvas::paintEvent.
+                    if (r) {
+                        r->setLayer(w2->modelLayer());
+                        r->setMapExtent(c2->extent().scaled(1.05));
+                        qw->repaint();
+                        const QImage g = qw->grabFramebuffer();
+                        g.save(QDir::current().filePath(
+                            QStringLiteral("newproject_render_control_canvaswidget_direct.png")));
+                        qInfo().noquote() << QStringLiteral(
+                            "[control] MapCanvas-owned overlay driven directly: grab=%1x%2 nonBg=%3")
+                            .arg(g.width()).arg(g.height()).arg(nonBackground(g));
+                    }
+                    qInfo().noquote() << QStringLiteral(
+                        "[control] root %1x%2 visible=%3; swmmRenderer %4 %5x%6 "
+                        "visible=%7 opacity=%8 rev=%9")
+                        .arg(root->width()).arg(root->height())
+                        .arg(root->isVisible() ? "yes" : "no")
+                        .arg(r ? "found" : "MISSING")
+                        .arg(r ? r->width() : -1.0).arg(r ? r->height() : -1.0)
+                        .arg(r && r->isVisible() ? "yes" : "no")
+                        .arg(r ? r->opacity() : -1.0)
+                        .arg(r ? r->contentRevision() : 0ULL);
+                }
+            }
+            // Can this process grab ANY off-screen QQuickWidget? A plain red
+            // rectangle in the same WA_DontShowOnScreen top-level setup as
+            // MapCanvas's overlay separates "the SWMM renderer drew nothing"
+            // from "no scene-graph readback works here". Then the real overlay
+            // QML + SWMMLayerQSGRenderer, driven directly with the loaded
+            // layer, separates the renderer from MapCanvas's paint plumbing.
+            auto makeProbe = [](QQuickWidget &probe, bool msaa) {
+                probe.setAttribute(Qt::WA_DontShowOnScreen);
+                probe.setAttribute(Qt::WA_QuitOnClose, false);
+                probe.setClearColor(Qt::transparent);
+                probe.setResizeMode(QQuickWidget::SizeRootObjectToView);
+                if (msaa) {
+                    QSurfaceFormat f = probe.format();
+                    if (f.samples() < 4) f.setSamples(4);
+                    probe.setFormat(f);
+                }
+            };
+            for (int msaa = 0; msaa <= 1; ++msaa) {
+                const QString qmlPath = QDir::current().filePath(
+                    QStringLiteral("newproject_render_probe.qml"));
+                QFile qf(qmlPath);
+                QVERIFY(qf.open(QIODevice::WriteOnly | QIODevice::Text));
+                qf.write("import QtQuick\nRectangle { color: \"red\" }\n");
+                qf.close();
+                QQuickWidget probe(nullptr);
+                makeProbe(probe, msaa == 1);
+                probe.setSource(QUrl::fromLocalFile(qmlPath));
+                probe.resize(200, 150);
+                probe.show();
+                QTest::qWait(100);
+                probe.repaint();
+                const QImage g = probe.grabFramebuffer();
+                int red = 0;
+                for (int y = 0; y < g.height(); ++y)
+                    for (int x = 0; x < g.width(); ++x)
+                        if (qRed(g.pixel(x, y)) > 200 && qGreen(g.pixel(x, y)) < 50) ++red;
+                qInfo().noquote() << QStringLiteral(
+                    "[control] plain QQuickWidget probe msaa=%1: status=%2 grab=%3x%4 redPixels=%5")
+                    .arg(msaa).arg(int(probe.status())).arg(g.width()).arg(g.height()).arg(red);
+            }
+            {
+                QQuickWidget probe(nullptr);
+                makeProbe(probe, true);
+                probe.setSource(QUrl(QStringLiteral("qrc:/openswmm/qml/swmmlayer.qml")));
+                probe.resize(900, 700);
+                probe.show();
+                QTest::qWait(100);
+                auto *r = probe.rootObject()
+                    ? probe.rootObject()->findChild<SWMMLayerQSGRenderer *>(
+                          QStringLiteral("swmmRenderer"))
+                    : nullptr;
+                int px = -1;
+                if (r) {
+                    r->setLayer(w2->modelLayer());
+                    r->setMapExtent(c2->extent());
+                    QTest::qWait(100);
+                    probe.repaint();
+                    const QImage g = probe.grabFramebuffer();
+                    g.save(QDir::current().filePath(
+                        QStringLiteral("newproject_render_control_direct_qsg.png")));
+                    px = nonBackground(g);
+                }
+                qInfo().noquote() << QStringLiteral(
+                    "[control] direct swmmlayer.qml probe: status=%1 renderer=%2 nonBg=%3")
+                    .arg(int(probe.status())).arg(r ? "found" : "MISSING").arg(px);
+                // MapCanvas's exact regrab sequence: (re)size the overlay to a
+                // NEW size, synchronous repaint(), immediate grabFramebuffer()
+                // — no event-loop turn in between.
+                if (r) {
+                    r->setMapExtent(c2->extent().scaled(1.1));   // content dirty
+                    probe.resize(901, 701);
+                    probe.repaint();
+                    const QImage g1 = probe.grabFramebuffer();
+                    const int px1 = nonBackground(g1);
+                    // Same again, but let one event-loop turn pass before grabbing.
+                    r->setMapExtent(c2->extent().scaled(1.2));
+                    probe.resize(902, 702);
+                    probe.repaint();
+                    QTest::qWait(50);
+                    const QImage g2 = probe.grabFramebuffer();
+                    const int px2 = nonBackground(g2);
+                    // And: no resize at all, content dirty, immediate grab.
+                    r->setMapExtent(c2->extent().scaled(1.3));
+                    probe.repaint();
+                    const QImage g3 = probe.grabFramebuffer();
+                    const int px3 = nonBackground(g3);
+                    qInfo().noquote() << QStringLiteral(
+                        "[control] canvas-sequence probe: resize+repaint+grab=%1 "
+                        "resize+repaint+wait+grab=%2 repaint+grab(no resize)=%3")
+                        .arg(px1).arg(px2).arg(px3);
+                    r->setLayer(nullptr);
+                }
+            }
+            delete w2;
+            delete ws2;
+            QVERIFY2(cpuPx > 0, "control: CPU path drew nothing for a loaded model");
+            if (qsgPx * 10 < cpuPx)
+                QSKIP("QSG overlay renders nothing under this platform (offscreen "
+                      "QQuickWidget) — GPU row cannot be observed here");
+        }
+
+        auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+        QVERIFY(workspace != nullptr);
+
+        SWMMModelLayer::NewProjectSpec spec;
+        spec.name          = QStringLiteral("Untitled");
+        spec.forNewEngine  = true;
+        spec.startDateTime = QDateTime(QDate(2026, 9, 5), QTime(0, 0));
+        spec.endDateTime   = spec.startDateTime.addSecs(3600);
+        spec.sim           = PreferencesManager::SimulationDefaults{};
+        spec.sim.flowUnits = QStringLiteral("CFS");     // → Local (ft)
+        spec.twoD          = PreferencesManager::TwoDDefaults{};
+
+        auto *window = new SWMMVisProjectWindow(workspace, QString(), nullptr);
+        window->markUntitled();
+        QList<QString> warnings, errors;
+        QVERIFY2(window->initializeBlankModel(spec, warnings, errors),
+                 qPrintable(errors.join(QStringLiteral("; "))));
+
+        window->resize(900, 700);
+        window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QTest::qWait(150);   // finishModelLoad's canvas-sized retry + refresh timers
+
+        MapCanvas       *canvas = window->canvas();
+        SWMMModelLayer  *layer  = window->modelLayer();
+        QVERIFY(canvas && layer);
+        QVERIFY2(canvas->width() > 200 && canvas->height() > 200,
+                 qPrintable(QStringLiteral("canvas %1x%2")
+                                .arg(canvas->width()).arg(canvas->height())));
+        QVERIFY(canvas->extent().isValid());
+        QVERIFY(canvas->canvasSRS() != nullptr);
+        QCOMPARE(canvas->canvasSRS()->description(), QStringLiteral("Local (ft)"));
+        QVERIFY(layer->isVisible());
+
+        using K = SWMMModelLayer;
+        layer->setQsgRenderKinds(qsg ? K::QsgKinds(K::QsgNodes | K::QsgLinks
+                                                   | K::QsgCatch | K::QsgGages)
+                                     : K::QsgKinds(K::QsgNone));
+        QTest::qWait(100);
+        const QImage before = canvas->grab().toImage();
+        before.save(QDir::current().filePath(
+            QStringLiteral("newproject_render_%1_before.png").arg(tag)));
+
+        // Two junctions + one conduit, exactly as the toolbar does it.
+        const QPoint pA(int(canvas->width() * 0.30), int(canvas->height() * 0.40));
+        const QPoint pB(int(canvas->width() * 0.70), int(canvas->height() * 0.60));
+        {
+            OpenSWMMVisMapToolAddNode addJ(canvas, 0, QStringLiteral("junction"));
+            canvas->setActiveTool(&addJ);
+            QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, pA);
+            QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, pB);
+            canvas->setActiveTool(nullptr);
+        }
+        QCOMPARE(layer->cachedNodeCount(), 2);
+        {
+            // The stored coordinate is the click, in the (Local) canvas CRS.
+            double mx = 0, my = 0, nx = 0, ny = 0;
+            canvas->toMapCoords(pA.x(), pA.y(), mx, my);
+            QVERIFY(layer->cachedNodeCoord(0, &nx, &ny));
+            QVERIFY2(qAbs(nx - mx) < 1e-6 * qMax(1.0, qAbs(mx))
+                     && qAbs(ny - my) < 1e-6 * qMax(1.0, qAbs(my)),
+                     qPrintable(QStringLiteral("node (%1,%2) vs click (%3,%4)")
+                                    .arg(nx).arg(ny).arg(mx).arg(my)));
+        }
+        {
+            OpenSWMMVisMapToolAddLink addC(canvas, 0, QStringLiteral("conduit"));
+            canvas->setActiveTool(&addC);
+            QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, pA);
+            QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, pB);
+            canvas->setActiveTool(nullptr);
+        }
+        QCOMPARE(layer->cachedLinkCount(), 1);
+
+        QTest::qWait(250);   // Scene-channel debounce + refresh timer
+        const QImage after = canvas->grab().toImage();
+        after.save(QDir::current().filePath(
+            QStringLiteral("newproject_render_%1_after.png").arg(tag)));
+        QCOMPARE(after.size(), before.size());
+
+        // Count pixels that changed inside a box around each click and at the
+        // conduit's midpoint. Decorations (scale bar, north arrow) are in both
+        // grabs, so only the added objects can differ.
+        auto changedAround = [&](const QPoint &c, int half) {
+            int n = 0;
+            for (int y = c.y() - half; y <= c.y() + half; ++y)
+                for (int x = c.x() - half; x <= c.x() + half; ++x) {
+                    if (x < 0 || y < 0 || x >= after.width() || y >= after.height())
+                        continue;
+                    if (after.pixel(x, y) != before.pixel(x, y)) ++n;
+                }
+            return n;
+        };
+        const int dpr = qMax(1, int(after.devicePixelRatio()));
+        const QPoint dA = pA * dpr, dB = pB * dpr, dM = (pA + pB) / 2 * dpr;
+        const int nA = changedAround(dA, 12 * dpr);
+        const int nB = changedAround(dB, 12 * dpr);
+        const int nM = changedAround(dM, 6 * dpr);
+        const QString why = QStringLiteral(
+            "[%1] changed pixels: nodeA=%2 nodeB=%3 conduitMid=%4 "
+            "(canvas %5x%6, extent %7)")
+            .arg(tag).arg(nA).arg(nB).arg(nM)
+            .arg(canvas->width()).arg(canvas->height())
+            .arg(canvas->extent().toString());
+        qInfo().noquote() << why;
+        QVERIFY2(nA > 0, qPrintable("junction A never reached the canvas: " + why));
+        QVERIFY2(nB > 0, qPrintable("junction B never reached the canvas: " + why));
+        QVERIFY2(nM > 0, qPrintable("conduit never reached the canvas: " + why));
+
+        // No close(): the edits made the project dirty and close() would park
+        // on the save prompt. Deleting skips closeEvent, which is all we need.
         delete window;
         delete workspace;
     }

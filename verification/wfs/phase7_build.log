@@ -1,0 +1,69 @@
+[0/2] Re-checking globbed directories...
+[1/43] Linking CXX executable tests/gui/test_a11y_scene_exposure
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[2/43] Linking CXX executable tests/gui/test_attrtableperf_baseline
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[3/43] Linking CXX executable tests/gui/test_meshmincelldialog
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[4/43] Linking CXX executable tests/gui/test_meshasyncload
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[5/43] Linking CXX executable tests/gui/test_namelookup_precedence
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[6/43] Linking CXX executable tests/gui/test_meshperf_baseline
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[7/43] Linking CXX executable tests/gui/test_gageassignintegration
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[8/43] Linking CXX executable tests/gui/test_linkgrid_outliers
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[9/43] Linking CXX executable tests/gui/test_mesheditingtoolbar_bc
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[10/43] Linking CXX executable tests/gui/test_meshboundarypath
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[11/43] Linking CXX executable tests/gui/test_meshcommands_vertex_edge
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[12/43] Linking CXX executable tests/gui/test_gisvectorpopulate
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[13/43] Linking CXX executable tests/gui/test_gisrastercrs
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[14/43] Linking CXX executable tests/gui/test_meshinfil
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[15/43] Linking CXX executable tests/gui/test_gisselectionsync
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[16/43] Linking CXX executable tests/gui/test_savewarnings
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[17/43] Linking CXX executable tests/gui/test_batchtransform
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[18/43] Linking CXX executable tests/gui/test_render_invalidation
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[19/43] Linking CXX executable tests/gui/test_linkflip
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[20/43] Linking CXX executable tests/gui/test_bulkdelete
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[21/43] Linking CXX executable tests/gui/test_ui_form_audit
+[22/43] Linking CXX executable tests/gui/test_action_catalog
+[23/43] Linking CXX executable tests/gui/test_meshattributetable
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[24/43] Linking CXX executable tests/gui/test_raingagefilecolumn
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[25/43] Linking CXX executable tests/gui/test_action_registry
+[26/43] Linking CXX executable tests/gui/test_selectionops
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[27/43] Linking CXX executable tests/gui/test_attributetableschema
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+[28/43] Linking CXX executable tests/gui/test_theme_contrast
+[29/43] Linking CXX executable tests/gui/test_theme_manager
+[30/43] Linking CXX executable tests/gui/test_mdi_tab_maximize
+[31/43] Linking CXX executable tests/gui/test_shortcut_editor
+[32/43] Linking CXX executable tests/gui/test_compact_toolbar
+[33/43] Linking CXX executable tests/gui/test_dialog_layout_persistence
+[34/43] Linking CXX executable tests/gui/test_icon_factory
+[35/43] Linking CXX executable tests/gui/test_command_palette
+[36/43] Linking CXX executable tests/tools/mesh_perf_generator
+[37/43] Linking CXX executable tests/gui/test_profile_attribute_tracks
+[38/43] Linking CXX executable tests/gui/test_dialog_registry
+[39/43] Linking CXX executable tests/gui/test_dialog_a11y_standalone
+[40/43] Linking CXX executable tests/gui/test_ribbongroup
+[41/43] Linking CXX executable tests/tools/profile_attribute_tracks_verify
+[42/43] Linking CXX executable tests/gui/test_object_creation_defaults
+ld: warning: ignoring duplicate libraries: '-ldl', '-lm', 'vcpkg_installed/arm64-osx/debug/lib/libcrypto.a', 'vcpkg_installed/arm64-osx/debug/lib/libssl.a', 'vcpkg_installed/arm64-osx/lib/libz.a'
+BUILD_EXIT=0

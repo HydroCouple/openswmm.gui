@@ -1,0 +1,51 @@
+[TITLE]
+Legacy FILE timeseries repro — inflow driven by external .dat file
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         KINWAVE
+START_DATE           01/02/2024
+START_TIME           06:00:00
+REPORT_START_DATE    01/02/2024
+REPORT_START_TIME    06:00:00
+END_DATE             01/02/2024
+END_TIME             18:00:00
+SWEEP_START          01/01
+SWEEP_END            12/31
+DRY_DAYS             0
+REPORT_STEP          00:05:00
+WET_STEP             00:05:00
+DRY_STEP             01:00:00
+ROUTING_STEP         0:00:30
+
+[JUNCTIONS]
+;;Name           Elevation  MaxDepth   InitDepth  SurDepth   Aponded
+J1               100        10         0          0          0
+
+[OUTFALLS]
+;;Name           Elevation  Type       Stage Data       Gated
+O1               95         FREE                        NO
+
+[CONDUITS]
+;;Name           From Node        To Node          Length     Roughness  InOffset   OutOffset  InitFlow   MaxFlow
+C1               J1               O1               400        0.01       0          0          0          0
+
+[XSECTIONS]
+;;Link           Shape        Geom1            Geom2      Geom3      Geom4      Barrels    Culvert
+C1               CIRCULAR     1.5              0          0          0          1
+
+[INFLOWS]
+;;Node           Constituent      Time Series      Type     Mfactor  Sfactor  Baseline Pattern
+J1               FLOW             TS_FILE          FLOW     1.0      1.0
+
+[TIMESERIES]
+;;Name           Date       Time       Value
+TS_FILE          FILE       "inflow_hours.dat"
+
+[REPORT]
+INPUT      NO
+CONTROLS   NO
+SUBCATCHMENTS ALL
+NODES ALL
+LINKS ALL

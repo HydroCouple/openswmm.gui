@@ -208,8 +208,8 @@ picking the DTM in the Terrain combo (Model tab) then hovering.
   "Nodes" / "Links" / "Draw" groups (Model), Data Objects (7 buttons). Select and
   Climate split-buttons KEPT (not in the user's list). RibbonSplitButton machinery
   retained for those two.
-- Live render toggle moved from Analysis "Results Layers" group to the Results tab's
-  "Display" group (Show Legend / Set Style / Live render) — the during-run display
+- `develop` toggle moved from Analysis "Results Layers" group to the Results tab's
+  "Display" group (Show Legend / Set Style / `develop`) — the during-run display
   controls' home. State management (refreshActiveResultsCombos) unchanged via the
   member pointer; Display group becomes a rigid widget host (won't collapse).
 Gate: 112/112 + lint + relaunch.

@@ -2451,6 +2451,23 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
             p.setPen(vjPen);
             p.drawRect(QRectF(QPointF(vrim.x() - kShaftHalfWidthPx, vrim.y()),
                               QPointF(vrim.x() + kShaftHalfWidthPx, vinv.y())));
+            // An inlet junction is a virtual junction that also captures
+            // street flow to an off-profile underdrain node. The capture node
+            // is not on this profile, so mark the capture itself: a small
+            // downward-pointing filled triangle at the street surface.
+            if (vn.isInlet) {
+                constexpr qreal kInletGlyphHalfPx = 4.0;
+                const QPolygonF glyph({
+                    QPointF(vrim.x() - kInletGlyphHalfPx, vrim.y()),
+                    QPointF(vrim.x() + kInletGlyphHalfPx, vrim.y()),
+                    QPointF(vrim.x(), vrim.y() + 2.0 * kInletGlyphHalfPx) });
+                QPen glyphPen(vjPen.color());
+                glyphPen.setWidthF(1.0);
+                p.setPen(glyphPen);
+                p.setBrush(QBrush(vjPen.color()));
+                p.drawPolygon(glyph);
+                p.setBrush(Qt::NoBrush);
+            }
             continue;
         }
 

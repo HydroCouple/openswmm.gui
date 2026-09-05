@@ -39,6 +39,8 @@ INERTIAL_DAMPING     PARTIAL
 NORMAL_FLOW_LIMITED  BOTH
 FORCE_MAIN_EQUATION  H-W
 SURCHARGE_METHOD     EXTRAN
+UNSTEADY_FRICTION    NONE
+UF_K3                0.015
 VARIABLE_STEP        0.75
 LENGTHENING_STEP     0
 MIN_SURFAREA         0
@@ -73,7 +75,7 @@ LINKS                ALL
 
 [MAP]
 DIMENSIONS 0.0000             0.0000             120.0000           80.0000           
-Units      METERS
+Units      Meters
 
 [2D_OPTIONS]
 ;;Parameter            Value
@@ -96,6 +98,7 @@ LTS_TIERS              4
 FROUDE_MAX             1.5
 ADVECTION              NO
 COUPLING_AREA          DEFAULT
+BACKEND                AUTO
 
 [2D_VERTICES]
 ;;X                Y                  Z              TAG

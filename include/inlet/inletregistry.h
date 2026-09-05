@@ -5,10 +5,13 @@
  * \license GPL-3.0-or-later
  * \brief  Project-scoped factory + lookup for InletProvider instances.
  *
- * Mirrors PollutantRegistry. Engine has setters but no getters for inlet
- * params, so loadFromEngine only recovers names; saveToEngine writes a
- * provider only when it is new or has been edited (dirty), so untouched
- * existing inlets are never overwritten with form defaults.
+ * Mirrors TransectRegistry: `loadFromEngine` reads every field of every
+ * `[INLETS]` entry (`swmm_inlet_get_design` + `swmm_inlet_get_comment`), and
+ * `saveToEngine` writes every provider back unconditionally — the engine is
+ * the sink, the registry the source of truth while a project is open.
+ * `remove` deletes the engine copy too (`swmm_inlet_delete`), so a deleted
+ * design cannot reappear in the written INP; `impactSummary` surfaces the
+ * engine's referential-impact report for the delete confirmation.
  */
 #ifndef OPENSWMMVIS_INLET_INLETREGISTRY_H
 #define OPENSWMMVIS_INLET_INLETREGISTRY_H
@@ -39,6 +42,11 @@ public:
     InletProvider *create(const QString &name);
     void remove(InletProvider *p);
     bool rename(InletProvider *p, const QString &newName);
+
+    /*! \brief Human-readable summary of what references \p p, from
+     *  `swmm_inlet_analyze_impact`. Empty when nothing references it (or
+     *  when the registry has no engine bound). */
+    QString impactSummary(InletProvider *p) const;
 
     int loadFromEngine(void *engineHandle);
     int saveToEngine(void *engineHandle);

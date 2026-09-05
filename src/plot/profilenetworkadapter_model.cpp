@@ -194,17 +194,21 @@ ProfileBuilder::PathStatic buildPathStaticFromModel(
         n.engineNodeIdx = engNodeIdx;
         n.name          = QString::fromUtf8(swmm_node_id(eng, engNodeIdx));
         double invert   = 0.0, maxDepth = 0.0, surchargeDepth = 0.0, rimDepth = 0.0;
-        int    nodeType = 0, isVirtual = 0;
+        int    nodeType = 0, isVirtual = 0, isInlet = 0;
         swmm_node_get_invert_elev    (eng, engNodeIdx, &invert);
         swmm_node_get_max_depth      (eng, engNodeIdx, &maxDepth);
         swmm_node_get_surcharge_depth(eng, engNodeIdx, &surchargeDepth);
         swmm_node_get_type           (eng, engNodeIdx, &nodeType);
         swmm_node_is_virtual         (eng, engNodeIdx, &isVirtual);
+        swmm_node_is_inlet           (eng, engNodeIdx, &isInlet);
         swmm_node_get_rim_depth      (eng, engNodeIdx, &rimDepth);
         n.invertElev     = invert;
         n.maxDepth       = renderRimDepth(isVirtual != 0, maxDepth, rimDepth);
         n.surchargeDepth = std::max(0.0, surchargeDepth);
         n.kind           = toNodeKind(nodeType, isVirtual != 0);
+        // An inlet junction keeps the VirtualJunction kind (it IS one) and
+        // adds the flag the renderer uses for its extra glyph.
+        n.isInlet        = (isInlet != 0);
         nodes.push_back(n);
     }
 

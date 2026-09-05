@@ -3,29 +3,52 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  Two-pane CRUD editor for SWMM inlet designs ([INLETS]).
+ * \brief  Three-pane editor for SWMM inlet designs ([INLETS]).
  *
- * Mirrors PollutantEditorDialog. The inlet type (GRATE/CURB/SLOTTED/CUSTOM) is
- * a combobox; the remaining fields are the swmm_inlet_set_params arguments.
+ * Modelled on TransectEditorDialog (Inlets plan §2.2). Layout (left → right,
+ * a 1:3:3 QSplitter named "main" so the app-wide layout persistence picks it
+ * up):
  *
- * Engine limitation: there are no inlet getters, so existing parameter values
- * cannot be pre-loaded — the form shows defaults for loaded inlets, and the
- * registry only writes inlets the user actually edits (see InletRegistry).
+ *   ┌────────────┬────────────────────────────┬────────────────────────┐
+ *   │  Inlets    │  Name                      │  toolbar               │
+ *   │  list view │  Description               │  (Fit / Zoom / Copy /  │
+ *   │            │  Inlet Type (combo)        │   Export Image)        │
+ *   │  [+ Add]   │  Property tree — the       │  InletDrawingView      │
+ *   │  [- Delete]│  InletPropertyBag groups,  │  (plan + section with  │
+ *   │            │  filtered by type          │   dimension callouts)  │
+ *   └────────────┴────────────────────────────┴────────────────────────┘
  *
- * NOTE (first cut): build-verify with the compiler in the loop.
+ * MVC contract: every mutation goes through InletProvider / InletRegistry,
+ * wrapped in a QUndoCommand when the dialog has a QUndoStack (see
+ * inletundocommands.h); the list, the tree and the drawing all re-render from
+ * the provider's signals.
+ *
+ * Entry points mirror the transect editor: `createNew` (modeless, starts on a
+ * fresh design), `openForInlet` (modeless, selects a design by name — used by
+ * the Object Browser), and the modal `pickInlet` used by the inlet-usage
+ * pickers, which additionally filters the list by the host conduit's
+ * cross-section shape.
  */
 #ifndef OPENSWMMVIS_UI_DIALOGS_INLETEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_INLETEDITORDIALOG_H
+
+#include "inlet/inletprovider.h"
 
 #include <QDialog>
 #include <QPointer>
 
 class QComboBox;
-class QDoubleSpinBox;
+class QLabel;
 class QLineEdit;
 class QListView;
+class QPropertyModel;
 class QPushButton;
 class QSplitter;
+class QStatusBar;
+class QTextEdit;
+class QToolBar;
+class QTreeView;
+class QUndoStack;
 
 class SWMMModelLayer;
 
@@ -36,7 +59,9 @@ class InletRegistry;
 
 namespace openswmmvis::ui {
 
+class InletDrawingView;
 class InletListModel;
+class InletPropertyBag;
 
 class InletEditorDialog : public QDialog
 {
@@ -47,59 +72,114 @@ public:
 
     InletEditorDialog(openswmmvis::inlet::InletRegistry *registry,
                       SWMMModelLayer *layer,
+                      QUndoStack *undoStack,
                       QWidget *parent = nullptr);
     ~InletEditorDialog() override;
 
     static InletEditorDialog *createNew(
         openswmmvis::inlet::InletRegistry *registry,
         SWMMModelLayer *layer,
+        QUndoStack *undoStack,
         QWidget *parent = nullptr);
+
+    /*! \brief Show (raising an already-open instance) and select \p name. */
+    void openForInlet(const QString &name);
+
+    /*! \brief Modal pick / create / edit entry point for the inlet-usage
+     *  pickers. \p compatibleXsectShape is a `SWMM_XSectShape` id used to
+     *  filter the list to the designs legal on that host cross-section
+     *  (STREET → the gutter types, RECT_OPEN / TRAPEZOIDAL → the drop types,
+     *  CUSTOM everywhere); pass -1 for "any". Returns the name of the design
+     *  selected on close, or empty. Flushes the registry to the engine
+     *  afterwards, as `pickTransect` does. */
+    static QString pickInlet(openswmmvis::inlet::InletRegistry *registry,
+                              SWMMModelLayer *layer,
+                              QUndoStack    *undoStack,
+                              QWidget       *parent,
+                              int            compatibleXsectShape = -1);
 
     Mode mode() const noexcept { return m_mode; }
     openswmmvis::inlet::InletProvider *currentProvider() const noexcept;
 
-    QListView      *listView() const noexcept { return m_listView; }
-    InletListModel *listModel() const noexcept { return m_listModel; }
-    QLineEdit      *nameEdit()  const noexcept { return m_nameEdit; }
+    // ── Test hooks ──────────────────────────────────────────────────────────
+    QListView        *listView()     const noexcept { return m_listView; }
+    InletListModel   *listModel()    const noexcept { return m_listModel; }
+    QLineEdit        *nameEdit()     const noexcept { return m_nameEdit; }
+    QComboBox        *typeCombo()    const noexcept { return m_typeCombo; }
+    QTreeView        *propertyTree() const noexcept { return m_propertyTree; }
+    InletDrawingView *drawingView()  const noexcept { return m_drawing; }
 
     void invokeNew();
+    void deleteCurrentSilently();
 
 private slots:
     void onListSelectionChanged_();
     void onAddClicked_();
     void onDeleteClicked_();
     void onNameEdited_();
-    void onFieldEdited_();
+    void onCommentsEdited_();
+    void onTypeComboChanged_(int index);
+    void onPickCurveClicked_();
+    void onCopyClicked_();
+    void onExportImageClicked_();
     void onProviderRenamed_(openswmmvis::inlet::InletProvider *p,
                               const QString &prev, const QString &now);
 
 private:
     void buildUi_();
+    void buildToolbar_();
+    void rebuildPropertyTree_();
+    void applyRowVisibility_();
     void bindProvider_(openswmmvis::inlet::InletProvider *p);
     void selectProviderInList_(openswmmvis::inlet::InletProvider *p);
+    void syncFromProvider_();
+    void refreshCustomCurve_();
+    void updateStatusBar_();
     QString suggestUniqueName_() const;
+
+    /*! \brief The InletPropertyBag's commit hook: validates, then pushes a
+     *  SetInletParamsCommand (or writes the provider directly when the dialog
+     *  has no undo stack). A rejected edit is reported in the status bar and
+     *  the bag is re-synced from the provider. */
+    void commitDesign_(const openswmmvis::inlet::InletDesignData &before,
+                        const openswmmvis::inlet::InletDesignData &after);
+
+    /*! \brief Whether \p p may be used on the host cross-section this dialog
+     *  was opened for. Always true when no shape filter is active. */
+    bool passesShapeFilter_(openswmmvis::inlet::InletProvider *p) const;
 
     QPointer<openswmmvis::inlet::InletRegistry> m_registry;
     QPointer<SWMMModelLayer>                    m_layer;
+    QUndoStack                                 *m_undoStack = nullptr;
     QPointer<openswmmvis::inlet::InletProvider> m_current;
     Mode                                        m_mode = Mode::Edit;
+    int                                         m_shapeFilter = -1;
 
     QSplitter *m_splitter = nullptr;
 
+    // Left pane.
     QListView      *m_listView  = nullptr;
     InletListModel *m_listModel = nullptr;
     QPushButton    *m_addBtn    = nullptr;
     QPushButton    *m_delBtn    = nullptr;
 
-    QLineEdit      *m_nameEdit    = nullptr;
-    QComboBox      *m_typeCombo   = nullptr;
-    QDoubleSpinBox *m_lengthSpin  = nullptr;
-    QDoubleSpinBox *m_widthSpin   = nullptr;
-    QLineEdit      *m_grateEdit   = nullptr;
-    QDoubleSpinBox *m_openAreaSpin = nullptr;
-    QDoubleSpinBox *m_splashSpin  = nullptr;
+    // Middle pane.
+    QLineEdit        *m_nameEdit      = nullptr;
+    QTextEdit        *m_commentsEdit  = nullptr;
+    QComboBox        *m_typeCombo     = nullptr;
+    QTreeView        *m_propertyTree  = nullptr;
+    QPropertyModel   *m_propertyModel = nullptr;
+    InletPropertyBag *m_propertyBag   = nullptr;
+    QPushButton      *m_pickCurveBtn  = nullptr;
 
-    bool m_suppressFieldSync = false;
+    // Right pane.
+    QToolBar         *m_toolBar = nullptr;
+    InletDrawingView *m_drawing = nullptr;
+
+    QStatusBar *m_status    = nullptr;
+    QLabel     *m_hintLabel = nullptr;
+
+    bool m_suppressSync = false;
 };
 
 } // namespace openswmmvis::ui
