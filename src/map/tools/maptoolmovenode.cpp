@@ -36,8 +36,10 @@ void OpenSWMMVisMapToolMoveNode::deactivate()
 }
 
 // ---------------------------------------------------------------------------
-// Hit-test through the layer's pickAt API. Rain-gage hits are filtered
-// out — MoveNode only edits network nodes.
+// Hit-test through the layer's pickAt API. Accepts network nodes AND rain
+// gages (pickAt returns both in the same top tier, gages above nodes —
+// matching the paint order, so a drag grabs what the cursor shows). Links
+// and subcatchments stay excluded.
 // ---------------------------------------------------------------------------
 
 OpenSWMMVisMapToolMoveNode::NodeHit
@@ -61,17 +63,20 @@ OpenSWMMVisMapToolMoveNode::pickNode(const QPoint &pixel) const
         const auto r = sl->pickAt(mx, my, tol);
         if (!r.valid) continue;
 
-        // Only real nodes — junctions / outfalls / storage / dividers.
-        // Rain gages and links are ignored so the tool can't drag them.
+        // Nodes (junctions / outfalls / storage / dividers) and rain
+        // gages; links and subcatchments are ignored so the tool can't
+        // drag them.
         if (r.cat != SWMMModelLayer::CatJunctions
          && r.cat != SWMMModelLayer::CatOutfalls
          && r.cat != SWMMModelLayer::CatStorage
-         && r.cat != SWMMModelLayer::CatDividers)
+         && r.cat != SWMMModelLayer::CatDividers
+         && r.cat != SWMMModelLayer::CatRainGages)
             continue;
 
         h.layer    = sl;
         h.nodeIdx  = r.soaIndex;
         h.nodeName = r.name;
+        h.isGage   = (r.cat == SWMMModelLayer::CatRainGages);
         return h;
     }
     return h;
@@ -93,20 +98,27 @@ void OpenSWMMVisMapToolMoveNode::mousePressEvent(QMouseEvent *event)
     m_layer      = hit.layer;
     m_nodeIdx    = hit.nodeIdx;
     m_nodeName   = hit.nodeName;
+    m_isGage     = hit.isGage;
     m_dragging   = true;
 
     // Snapshot the pre-drag map coord so Escape can roll back.
-    m_layer->cachedNodeCoord(m_nodeIdx, &m_originalMapX, &m_originalMapY);
+    if (m_isGage)
+        m_layer->cachedGageCoord(m_nodeIdx, &m_originalMapX, &m_originalMapY);
+    else
+        m_layer->cachedNodeCoord(m_nodeIdx, &m_originalMapX, &m_originalMapY);
 }
 
 void OpenSWMMVisMapToolMoveNode::applyDragPreview(double mapX, double mapY)
 {
     if (!m_dragging || !m_layer || m_nodeIdx < 0) return;
 
-    // Live preview: mutate the cached coord + attached link endpoints,
-    // repaint. Engine state is NOT touched — that happens on release
-    // via MoveNodeCommand::redo.
-    m_layer->previewNodeMove(m_nodeIdx, mapX, mapY);
+    // Live preview: mutate the cached coord (+ attached link endpoints
+    // for nodes), repaint. Engine state is NOT touched — that happens on
+    // release via MoveNodeCommand / MoveGageCommand ::redo.
+    if (m_isGage)
+        m_layer->previewGageMove(m_nodeIdx, mapX, mapY);
+    else
+        m_layer->previewNodeMove(m_nodeIdx, mapX, mapY);
 
     if (m_canvas)
         m_canvas->invalidate(MapCanvas::Overlay | MapCanvas::Scene,
@@ -117,12 +129,16 @@ void OpenSWMMVisMapToolMoveNode::cancelDragPreview()
 {
     if (m_dragging && m_layer && m_nodeIdx >= 0) {
         // Roll cached coord back to where it was at press.
-        m_layer->previewNodeMove(m_nodeIdx, m_originalMapX, m_originalMapY);
+        if (m_isGage)
+            m_layer->previewGageMove(m_nodeIdx, m_originalMapX, m_originalMapY);
+        else
+            m_layer->previewNodeMove(m_nodeIdx, m_originalMapX, m_originalMapY);
     }
     m_dragging = false;
     m_layer    = nullptr;
     m_nodeIdx  = -1;
     m_nodeName.clear();
+    m_isGage   = false;
 
     if (m_canvas)
         m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
@@ -151,6 +167,35 @@ void OpenSWMMVisMapToolMoveNode::mouseReleaseEvent(QMouseEvent *event)
     if (!m_layer || m_nodeIdx < 0)
     {
         cancelDragPreview();
+        return;
+    }
+
+    // Rain gage — no attached links, no auto-length leg: restore the
+    // preview to the pre-drag coord and let MoveGageCommand::redo commit
+    // the move (engine write + caches), mirroring the node flow below.
+    if (m_isGage)
+    {
+        m_layer->previewGageMove(m_nodeIdx, m_originalMapX, m_originalMapY);
+
+        auto *cmd = new MoveGageCommand(m_layer, m_nodeIdx,
+                                        m_originalMapX, m_originalMapY,
+                                        newX, newY, m_canvas);
+        if (m_canvas && m_canvas->undoStack())
+            m_canvas->undoStack()->push(cmd);
+        else
+            delete cmd;
+
+        emit nodeMoved(m_nodeName, newX, newY, 0);
+
+        m_dragging = false;
+        m_layer    = nullptr;
+        m_nodeIdx  = -1;
+        m_nodeName.clear();
+        m_isGage   = false;
+
+        if (m_canvas)
+            m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                                 QStringLiteral("movegage-commit"));
         return;
     }
 

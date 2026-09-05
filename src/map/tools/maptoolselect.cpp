@@ -151,7 +151,8 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
                 // one and do a single-handle drag.
                 const bool groupDrag = m_editSelectedHandles.size() > 1
                                        && m_editSelectedHandles.contains(h)
-                                       && m_editKind != EditKind::Node;
+                                       && m_editKind != EditKind::Node
+                                       && m_editKind != EditKind::Gage;
                 if (!groupDrag)
                 {
                     m_editSelectedHandles.clear();
@@ -171,7 +172,8 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
                 toMapCoords(event->pos().x(), event->pos().y(), mgx, mgy);
                 m_editGroupDragPrev = QPointF(mgx, mgy);
 
-                if (m_editKind == EditKind::Node)
+                if (m_editKind == EditKind::Node
+                    || m_editKind == EditKind::Gage)
                 {
                     m_editNodeOrigX = m_editHandles[h].x();
                     m_editNodeOrigY = m_editHandles[h].y();
@@ -404,7 +406,8 @@ void OpenSWMMVisMapToolSelect::mouseMoveEvent(QMouseEvent *event)
 
         const bool groupDrag = m_editSelectedHandles.size() > 1
                                && m_editSelectedHandles.contains(m_editDragHandle)
-                               && m_editKind != EditKind::Node;
+                               && m_editKind != EditKind::Node
+                               && m_editKind != EditKind::Gage;
         const bool centroidTranslate =
             m_editKind == EditKind::Subcatch && m_editDragHandle == 0;
 
@@ -463,6 +466,8 @@ void OpenSWMMVisMapToolSelect::mouseMoveEvent(QMouseEvent *event)
 
         if (m_editKind == EditKind::Node && m_editLayer && m_editSoaIdx >= 0)
             m_editLayer->previewNodeMove(m_editSoaIdx, sx, sy);
+        else if (m_editKind == EditKind::Gage && m_editLayer && m_editSoaIdx >= 0)
+            m_editLayer->previewGageMove(m_editSoaIdx, sx, sy);
 
         if (m_canvas)
             m_canvas->invalidate(MapCanvas::Overlay | MapCanvas::Scene,
@@ -573,6 +578,8 @@ void OpenSWMMVisMapToolSelect::mouseReleaseEvent(QMouseEvent *event)
         {
             if (m_editKind == EditKind::Node)
                 commitNodeDrag(m_editHandles[0].x(), m_editHandles[0].y());
+            else if (m_editKind == EditKind::Gage)
+                commitGageDrag(m_editHandles[0].x(), m_editHandles[0].y());
             else if (m_editKind == EditKind::Link)
                 commitLinkDrag(m_editHandles);
             else if (m_editKind == EditKind::Subcatch)
@@ -604,10 +611,14 @@ void OpenSWMMVisMapToolSelect::keyPressEvent(QKeyEvent *event)
     if (event->key() == Qt::Key_Escape && m_editKind != EditKind::None)
     {
         // Cancel any in-flight drag, then exit edit mode.
-        if (m_editDragging && m_editKind == EditKind::Node
-            && m_editLayer && m_editSoaIdx >= 0)
-            m_editLayer->previewNodeMove(m_editSoaIdx,
-                                         m_editNodeOrigX, m_editNodeOrigY);
+        if (m_editDragging && m_editLayer && m_editSoaIdx >= 0) {
+            if (m_editKind == EditKind::Node)
+                m_editLayer->previewNodeMove(m_editSoaIdx,
+                                             m_editNodeOrigX, m_editNodeOrigY);
+            else if (m_editKind == EditKind::Gage)
+                m_editLayer->previewGageMove(m_editSoaIdx,
+                                             m_editNodeOrigX, m_editNodeOrigY);
+        }
         m_editDragging   = false;
         m_editDragHandle = -1;
         clearEditMode();
@@ -939,9 +950,10 @@ void OpenSWMMVisMapToolSelect::paint(QPainter *painter,
                               kEditHandlePx * 2, kEditHandlePx * 2);
         }
     }
-    else if (m_editKind == EditKind::Node && !m_editHandles.isEmpty())
+    else if ((m_editKind == EditKind::Node || m_editKind == EditKind::Gage)
+             && !m_editHandles.isEmpty())
     {
-        // Node handle — circle with crosshair.
+        // Node / rain-gage handle — circle with crosshair.
         int px = 0, py = 0;
         toPixelCoords(m_editHandles[0].x(), m_editHandles[0].y(), px, py);
 
@@ -1628,6 +1640,12 @@ void OpenSWMMVisMapToolSelect::mouseDoubleClickEvent(QMouseEvent *event)
             return;
         }
 
+        if (r.cat == SWMMModelLayer::CatRainGages)
+        {
+            enterEditMode(sl, r.name, EditKind::Gage, r.soaIndex);
+            return;
+        }
+
         if (r.cat == SWMMModelLayer::CatSubcatchments)
         {
             enterEditMode(sl, r.name, EditKind::Subcatch, r.soaIndex);
@@ -1659,6 +1677,14 @@ void OpenSWMMVisMapToolSelect::enterEditMode(SWMMModelLayer *layer,
         m_editNodeOrigX = x;
         m_editNodeOrigY = y;
     }
+    else if (kind == EditKind::Gage)
+    {
+        double x = 0.0, y = 0.0;
+        layer->cachedGageCoord(soaIndex, &x, &y);
+        m_editHandles   = { QPointF(x, y) };
+        m_editNodeOrigX = x;
+        m_editNodeOrigY = y;
+    }
     else if (kind == EditKind::Link)
     {
         m_editHandles = layer->cachedLinkInteriorVertices(soaIndex);
@@ -1686,10 +1712,15 @@ void OpenSWMMVisMapToolSelect::enterEditMode(SWMMModelLayer *layer,
 
 void OpenSWMMVisMapToolSelect::clearEditMode()
 {
-    // Roll back any live node-drag preview.
-    if (m_editDragging && m_editKind == EditKind::Node
-        && m_editLayer && m_editSoaIdx >= 0)
-        m_editLayer->previewNodeMove(m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY);
+    // Roll back any live node/gage-drag preview.
+    if (m_editDragging && m_editLayer && m_editSoaIdx >= 0) {
+        if (m_editKind == EditKind::Node)
+            m_editLayer->previewNodeMove(m_editSoaIdx,
+                                         m_editNodeOrigX, m_editNodeOrigY);
+        else if (m_editKind == EditKind::Gage)
+            m_editLayer->previewGageMove(m_editSoaIdx,
+                                         m_editNodeOrigX, m_editNodeOrigY);
+    }
 
     m_editKind             = EditKind::None;
     m_editLayer            = nullptr;
@@ -1769,6 +1800,32 @@ void OpenSWMMVisMapToolSelect::commitNodeDrag(double newX, double newY)
 
     m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                          QStringLiteral("select-edit-node-commit"));
+}
+
+void OpenSWMMVisMapToolSelect::commitGageDrag(double newX, double newY)
+{
+    if (!m_editLayer || m_editSoaIdx < 0 || !m_canvas) return;
+
+    // Restore cached state before pushing so MoveGageCommand::undo has
+    // the correct original coord to revert to. No auto-length leg —
+    // gages have no attached links.
+    m_editLayer->previewGageMove(m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY);
+
+    auto *cmd = new MoveGageCommand(m_editLayer, m_editSoaIdx,
+                                    m_editNodeOrigX, m_editNodeOrigY,
+                                    newX, newY, m_canvas);
+    if (m_canvas->undoStack())
+        m_canvas->undoStack()->push(cmd);
+    else
+        delete cmd;
+
+    // Update handle and snapshot so subsequent drags in the same session work.
+    m_editHandles[0] = QPointF(newX, newY);
+    m_editNodeOrigX  = newX;
+    m_editNodeOrigY  = newY;
+
+    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                         QStringLiteral("select-edit-gage-commit"));
 }
 
 void OpenSWMMVisMapToolSelect::commitLinkDrag(QVector<QPointF> newInterior)

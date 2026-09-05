@@ -24,6 +24,7 @@
  */
 
 #include "layers/swmmmodellayer.h"
+#include "map/mapundostack.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/properties/swmmraingagepropertyadapter.h"
 
@@ -35,6 +36,7 @@
 #include <QObject>
 #include <QSignalSpy>
 #include <QTest>
+#include <QUndoStack>
 
 #include <memory>
 
@@ -225,6 +227,50 @@ private slots:
         QCOMPARE(swmm_spatial_get_gage_coord(reopened->engine(), gi, &x, &y), 0);
         QCOMPARE(x, kNewX);
         QCOMPARE(y, kNewY);
+    }
+
+    void dragPreviewAndMoveGageCommand()
+    {
+        // The map drag path (Edit Existing → move tool): previewGageMove
+        // is cache-only during the drag; MoveGageCommand commits through
+        // applyGageMove on release, merges consecutive same-gage moves,
+        // and one undo returns to the pre-drag position.
+        auto layer = openLayer();
+        QVERIFY(layer);
+        SWMM_Engine e = layer->engine();
+        const int gi = swmm_gage_index(e, "S1");
+        QVERIFY(gi >= 0);
+
+        // Preview: the layer's cached position follows, the engine does not.
+        QVERIFY(layer->previewGageMove(gi, 111.0, 222.0));
+        QCOMPARE(layer->identifyByName(QStringLiteral("S1"),
+                                       SWMMModelLayer::kKindGage)
+                     .value(QStringLiteral("X")).toDouble(), 111.0);
+        double ex = 0.0, ey = 0.0;
+        QCOMPARE(swmm_spatial_get_gage_coord(e, gi, &ex, &ey), 0);
+        QCOMPARE(ex, -2000.0);
+        // The tool restores the preview before pushing the command.
+        QVERIFY(layer->previewGageMove(gi, -2000.0, -2000.0));
+
+        QUndoStack stack;
+        stack.push(new MoveGageCommand(layer.get(), gi, -2000.0, -2000.0,
+                                       10.0, 20.0, nullptr));
+        stack.push(new MoveGageCommand(layer.get(), gi, 10.0, 20.0,
+                                       30.0, 40.0, nullptr));
+        QCOMPARE(stack.count(), 1);   // same-gage moves merged
+        QCOMPARE(swmm_spatial_get_gage_coord(e, gi, &ex, &ey), 0);
+        QCOMPARE(ex, 30.0);
+        QCOMPARE(ey, 40.0);
+
+        stack.undo();
+        QCOMPARE(swmm_spatial_get_gage_coord(e, gi, &ex, &ey), 0);
+        QCOMPARE(ex, -2000.0);
+        QCOMPARE(ey, -2000.0);
+
+        stack.redo();
+        QCOMPARE(swmm_spatial_get_gage_coord(e, gi, &ex, &ey), 0);
+        QCOMPARE(ex, 30.0);
+        QCOMPARE(ey, 40.0);
     }
 };
 

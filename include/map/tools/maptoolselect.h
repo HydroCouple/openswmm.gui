@@ -133,7 +133,9 @@ private:
     // the overlay and can be dragged without switching tools. Escape or
     // double-clicking empty space exits back to normal selection behaviour.
 
-    enum class EditKind { None, Node, Link, Subcatch };
+    // Gage rides the Node code path (one whole-object handle, drag =
+    // move) but previews/commits through the rain-gage move APIs.
+    enum class EditKind { None, Node, Gage, Link, Subcatch };
 
     /*! Enter edit mode for the given layer object. */
     void enterEditMode(SWMMModelLayer *layer, const QString &name,
@@ -148,6 +150,8 @@ private:
     void applyGroupDragDelta(double dx, double dy);
     /*! Commit a completed node-handle drag. */
     void commitNodeDrag(double newX, double newY);
+    /*! Commit a completed rain-gage handle drag (no auto-length leg). */
+    void commitGageDrag(double newX, double newY);
     /*! Commit \p newInterior as the link's interior vertices. */
     void commitLinkDrag(QVector<QPointF> newInterior);
     /*! Commit \p newVertices as the subcatchment's polygon. */
