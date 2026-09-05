@@ -1336,8 +1336,17 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     QAction *actZoom = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
                                       QObject::tr("Zoom to Object"));
 
+    // Rain gage — its "plot" is the shared Rainfall Visualization dialog,
+    // opened focused on this gage (same funnel as the Object Browser's
+    // context menu and the property editor's Plot Rainfall button).
+    QAction *actRainViz = nullptr;
+    if (ref.objectType == SWMMObjectRef::RainGage) {
+        actRainViz = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Chart")),
+                                    QObject::tr("Rainfall Visualization…"));
+    }
+
     // Slice AT.2 — submenu of attributes valid for this object kind
-    // (Node/Link/Subcatchment). RainGage still has no plot entry.
+    // (Node/Link/Subcatchment).
     //
     // Results-first selection: when more than one SWMM Output (.out)
     // layer is loaded, the entry becomes a two-level submenu
@@ -1455,6 +1464,11 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
 
     QAction *picked = menu.exec(globalPt);
     if (!picked) return;
+
+    if (actRainViz && picked == actRainViz) {
+        emit rainfallVisualizationRequested(ref);
+        return;
+    }
 
     // Convert To ▸ dispatch — run the shared confirm/convert/summary flow.
     // On success drop any now-stale inline vertex-edit session on this

@@ -111,6 +111,12 @@ signals:
      *  Variable…" submenu). */
     void plotSystemRequested(openswmmvis::plot::PlotAttribute attribute);
 
+    /*! \brief Emitted from the right-click menu's "Rainfall Visualization…"
+     *  action on a rain gage hit. The main window opens the shared Rainfall
+     *  Visualization dialog focused on that gage — the map twin of the
+     *  Object Browser's identically-named signal. */
+    void rainfallVisualizationRequested(const SWMMObjectRef &ref);
+
 private:
     void selectAtPoint(const QPoint &pixel, Qt::KeyboardModifiers mods);
     void selectInRect(const QRect &pixelRect, Qt::KeyboardModifiers mods);
