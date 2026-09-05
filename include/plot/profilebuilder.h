@@ -172,6 +172,11 @@ struct NodeStatic
     double   surchargeDepth  = 0.0;   /*!< extra depth allowed above rim
                                             before flooding occurs */
     NodeKind kind            = NodeKind::Junction;
+    /*! Inlet junction — a VirtualJunction that also captures street flow to
+     *  an off-profile underdrain node. Carried as a flag rather than a sixth
+     *  NodeKind so no existing kind switch changes meaning: it is drawn with
+     *  the virtual-junction break rectangle plus a small inlet glyph. */
+    bool     isInlet         = false;
     /*! Every link incident to this node, path links included (see
      *  BranchLink). Empty when the caller built the path from pure-logic
      *  inputs without geometry — the renderer simply draws no stubs and no

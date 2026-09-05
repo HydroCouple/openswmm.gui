@@ -14,6 +14,8 @@
 #include "ui/dialogs/aquifereditordialog.h"
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
+#include "inlet/inletregistry.h"
+#include "ui/dialogs/inleteditordialog.h"
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/panels/objectbrowserpanel.h"
@@ -28,6 +30,7 @@
 #include <QToolButton>
 
 #include <openswmm/engine/openswmm_gages.h>
+#include <openswmm/engine/openswmm_infrastructure.h>   // Inlet designs
 #include <openswmm/engine/openswmm_tables.h>
 #include <openswmm/engine/openswmm_nodes.h>          // SubcatchOutlet combined list
 #include <openswmm/engine/openswmm_subcatchments.h>  // SubcatchOutlet combined list
@@ -145,16 +148,13 @@ void DataObjectPickerEditor::repopulate()
             // Combined outlet target list: every node, then every subcatchment.
             // The owning adapter resolves the picked name back to a node-outlet
             // vs. cascade-outlet engine write.
+            // Virtual junctions are legal outlet targets too: a point
+            // lateral is integrated at the zero-storage node (engine plan
+            // VJ_LATERAL_INFLOW_PLAN_2026-09-04).
             const int nn = swmm_node_count(m_ref.engine);
-            for (int i = 0; i < nn; ++i) {
-                // Virtual junctions cannot receive lateral inflow — exclude
-                // them from outlet targets (engine validation backstops).
-                int isVirtual = 0;
-                swmm_node_is_virtual(m_ref.engine, i, &isVirtual);
-                if (isVirtual) continue;
+            for (int i = 0; i < nn; ++i)
                 if (const char *id = swmm_node_id(m_ref.engine, i))
                     if (*id) items << QString::fromUtf8(id);
-            }
             const int ns = swmm_subcatch_count(m_ref.engine);
             for (int i = 0; i < ns; ++i)
                 if (const char *id = swmm_subcatch_id(m_ref.engine, i))
@@ -167,6 +167,30 @@ void DataObjectPickerEditor::repopulate()
             for (int i = 0; i < n; ++i)
                 if (const char *id = swmm_aquifer_id(m_ref.engine, i))
                     if (*id) items << QString::fromUtf8(id);
+            break;
+        }
+        case DataObjectRef::Inlet: {
+            // [INLETS] designs. Shape compatibility (STREET vs drop) is
+            // enforced by the engine on swmm_inlet_usage_set (rule 635); the
+            // combo lists every design so a mis-set one is still visible.
+            const int n = swmm_inlet_count(m_ref.engine);
+            for (int i = 0; i < n; ++i)
+                if (const char *id = swmm_inlet_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            break;
+        }
+        case DataObjectRef::CaptureNode: {
+            // Engine rule 627: the capture node must not be a virtual or
+            // inlet junction (they have no storage to receive the capture).
+            const int n = swmm_node_count(m_ref.engine);
+            for (int i = 0; i < n; ++i) {
+                int isVirtual = 0;
+                swmm_node_is_virtual(m_ref.engine, i, &isVirtual);
+                if (isVirtual) continue;
+                if (const char *id = swmm_node_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            }
+            items.sort(Qt::CaseInsensitive);
             break;
         }
         }
@@ -215,6 +239,28 @@ void DataObjectPickerEditor::onPickerClicked()
                "are drawn on the map."));
         return;
     }
+    // Capture nodes are created on the map, like every other node.
+    if (m_ref.kind == DataObjectRef::CaptureNode) {
+        QMessageBox::information(this, tr("Capture Node"),
+            tr("Pick the node the inlet discharges to. Virtual and inlet "
+               "junctions cannot receive an inlet's capture."));
+        return;
+    }
+    // Inlet designs — dispatch straight to the Inlets editor, filtered to
+    // the designs compatible with the host's cross section (typeLock).
+    if (m_ref.kind == DataObjectRef::Inlet) {
+        using openswmmvis::inlet::InletRegistry;
+        using openswmmvis::ui::InletEditorDialog;
+        auto *reg = qobject_cast<InletRegistry *>(m_ref.layer->ensureInletRegistry());
+        if (!reg) return;
+        const QString chosen = InletEditorDialog::pickInlet(
+            reg, m_ref.layer, /*undoStack=*/nullptr, this, m_ref.typeLock);
+        if (chosen.isEmpty()) return;
+        m_ref.currentName = chosen;
+        repopulate();
+        emit valueChanged();
+        return;
+    }
     // The outlet picker is pure selection over existing nodes/subcatchments —
     // no "create new" target, so the browse button is a no-op note.
     if (m_ref.kind == DataObjectRef::SubcatchOutlet) {
@@ -238,6 +284,8 @@ void DataObjectPickerEditor::onPickerClicked()
     case DataObjectRef::Node:           /* handled above */                   break;
     case DataObjectRef::Subcatchment:   /* handled above */                   break;
     case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
+    case DataObjectRef::Inlet:          /* handled above */                   break;
+    case DataObjectRef::CaptureNode:    /* handled above */                   break;
     }
 
     // Slice BM.0-Add-New (2026-05-24) — gap categories (Transects / LID /

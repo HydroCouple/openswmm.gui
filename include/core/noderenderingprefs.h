@@ -44,6 +44,10 @@ class NodeRenderingPrefs : public QObject
     Q_PROPERTY(QBrush virtualJunctionFill READ virtualJunctionFill WRITE setVirtualJunctionFill NOTIFY virtualJunctionFillChanged)
     Q_PROPERTY(double virtualJunctionSize READ virtualJunctionSize WRITE setVirtualJunctionSize NOTIFY virtualJunctionSizeChanged)
 
+    Q_PROPERTY(QPen   inletJunctionPen    READ inletJunctionPen    WRITE setInletJunctionPen    NOTIFY inletJunctionPenChanged)
+    Q_PROPERTY(QBrush inletJunctionFill   READ inletJunctionFill   WRITE setInletJunctionFill   NOTIFY inletJunctionFillChanged)
+    Q_PROPERTY(double inletJunctionSize   READ inletJunctionSize   WRITE setInletJunctionSize   NOTIFY inletJunctionSizeChanged)
+
 public:
     explicit NodeRenderingPrefs(QObject *parent = nullptr);
 
@@ -67,6 +71,10 @@ public:
     [[nodiscard]] QBrush virtualJunctionFill() const;
     [[nodiscard]] double virtualJunctionSize() const;
 
+    [[nodiscard]] QPen   inletJunctionPen()    const;
+    [[nodiscard]] QBrush inletJunctionFill()   const;
+    [[nodiscard]] double inletJunctionSize()   const;
+
     void setJunctionPen(const QPen &pen);
     void setJunctionFill(const QBrush &brush);
     void setJunctionSize(double sizePx);
@@ -86,6 +94,10 @@ public:
     void setVirtualJunctionPen(const QPen &pen);
     void setVirtualJunctionFill(const QBrush &brush);
     void setVirtualJunctionSize(double sizePx);
+
+    void setInletJunctionPen(const QPen &pen);
+    void setInletJunctionFill(const QBrush &brush);
+    void setInletJunctionSize(double sizePx);
 
 signals:
     void junctionPenChanged(const QPen &pen);
@@ -107,6 +119,10 @@ signals:
     void virtualJunctionPenChanged(const QPen &pen);
     void virtualJunctionFillChanged(const QBrush &brush);
     void virtualJunctionSizeChanged(double sizePx);
+
+    void inletJunctionPenChanged(const QPen &pen);
+    void inletJunctionFillChanged(const QBrush &brush);
+    void inletJunctionSizeChanged(double sizePx);
 };
 
 #endif // NODERENDERINGPREFS_H

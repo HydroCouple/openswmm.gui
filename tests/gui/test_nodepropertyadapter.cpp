@@ -60,7 +60,7 @@ private:
     // J1 —C1— MID —C2— O1, with MID flagged as a virtual junction. The two
     // conduits are default-constructed, so they satisfy the virtual-junction
     // rules (identical cross-section, zero offsets, exactly two conduits, no
-    // lateral inflow) without any further setup.
+    // 2D coupling) without any further setup.
     SWMM_Engine buildVirtualJunctionFixture()
     {
         SWMM_Engine e = swmm_engine_new();
@@ -412,6 +412,13 @@ private slots:
         {
             SWMMDividerPropertyAdapter a(e, QStringLiteral("J1"));
             checkAdvertises(a, "Divider");
+        }
+        // Virtual junctions accept point laterals (engine plan
+        // VJ_LATERAL_INFLOW_PLAN_2026-09-04), so the trimmed adapter must
+        // advertise the same four compound rows.
+        {
+            SWMMVirtualJunctionPropertyAdapter a(e, QStringLiteral("J1"));
+            checkAdvertises(a, "VirtualJunction");
         }
 
         swmm_engine_destroy(e);

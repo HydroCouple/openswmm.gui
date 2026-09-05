@@ -9,6 +9,9 @@
 #include "ui/dialogs/typeconversionflow.h"
 #include "layers/swmmmodellayer.h"
 
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_nodes.h>
+
 #include <QMessageBox>
 
 namespace openswmmvis::ui {
@@ -21,6 +24,7 @@ QString TypeConversionFlow::nodeTypeLabel(int swmmNodeType)
     case 2: return tr("Storage");
     case 3: return tr("Divider");
     case kVirtualNodeType: return tr("Virtual Junction");
+    case kInletNodeType:   return tr("Inlet Junction");
     default: return {};
     }
 }
@@ -83,7 +87,23 @@ bool TypeConversionFlow::run(QWidget *parent, SWMMModelLayer *layer,
     // engine), with a plain type conversion first when the source node is
     // not already a junction.
     const bool toVirtual   = isNode && newType == kVirtualNodeType;
-    const bool fromVirtual = isNode && currentType == kVirtualNodeType;
+    // An inlet junction IS a virtual junction, so "Inlet Junction → Virtual
+    // Junction" is a demotion (clear is_inlet, keep is_virtual), not a
+    // conversion; and demoting it further to a plain Junction has to clear
+    // both flags in that order.
+    //
+    // Read the inlet flag from the ENGINE rather than trusting currentType:
+    // callers that predate the inlet kind (the attribute table's Change Type)
+    // pass kVirtualNodeType for an inlet junction, and demoting one of those
+    // without clearing is_inlet first would strand its usage row.
+    bool fromInlet = false;
+    if (isNode && layer->engine()) {
+        const int idx = swmm_node_index(layer->engine(), name.toUtf8().constData());
+        int isInlet = 0;
+        if (idx >= 0) swmm_node_is_inlet(layer->engine(), idx, &isInlet);
+        fromInlet = (isInlet != 0);
+    }
+    const bool fromVirtual = isNode && (currentType == kVirtualNodeType || fromInlet);
 
     const auto choice = QMessageBox::question(parent, tr("Convert Type"),
         confirmText(isNode, name, currentType, newType),
@@ -93,7 +113,14 @@ bool TypeConversionFlow::run(QWidget *parent, SWMMModelLayer *layer,
     QStringList cleared, warnings;
     QString error;
 
-    if (toVirtual) {
+    if (newType == kVirtualNodeType && fromInlet) {
+        // Demote an inlet junction to a plain virtual junction: clear only
+        // is_inlet (which also drops the node's usage row, engine-side).
+        if (!layer->applySetInlet(name, false, &error)) {
+            QMessageBox::warning(parent, tr("Convert Type"), error);
+            return false;
+        }
+    } else if (toVirtual) {
         // Non-junction source: become a junction first (attribute loss was
         // covered by the confirm above), then set the flag.
         if (currentType != 0 &&
@@ -111,6 +138,12 @@ bool TypeConversionFlow::run(QWidget *parent, SWMMModelLayer *layer,
         }
     } else if (fromVirtual && newType == 0) {
         // Demote to a regular junction: clear the flag, nothing else moves.
+        // An inlet junction sheds its inlet role first, so the usage row goes
+        // with it instead of outliving the node kind that owns it.
+        if (fromInlet && !layer->applySetInlet(name, false, &error)) {
+            QMessageBox::warning(parent, tr("Convert Type"), error);
+            return false;
+        }
         if (!layer->applySetVirtual(name, false, &error)) {
             QMessageBox::warning(parent, tr("Convert Type"), error);
             return false;
@@ -118,6 +151,10 @@ bool TypeConversionFlow::run(QWidget *parent, SWMMModelLayer *layer,
     } else {
         // Plain conversion (fromVirtual to a non-junction type also lands
         // here: the engine's converter clears the is_virtual flag itself).
+        // The inlet role is shed explicitly first so the usage row is removed
+        // by the API that owns it rather than relying on the converter's
+        // cascade.
+        if (fromInlet) layer->applySetInlet(name, false);
         const bool ok = isNode
             ? layer->applyNodeConvert(name, newType, &cleared, &warnings, &error)
             : layer->applyLinkConvert(name, newType, &cleared, &warnings, &error);
@@ -132,6 +169,73 @@ bool TypeConversionFlow::run(QWidget *parent, SWMMModelLayer *layer,
     QMessageBox::information(parent, tr("Conversion Complete"),
         tr("Converted <b>%1</b> to %2.<br><br>%3")
             .arg(name, to, summaryHtml(cleared, warnings)));
+    return true;
+}
+
+bool TypeConversionFlow::runToInletJunction(QWidget *parent,
+                                            SWMMModelLayer *layer,
+                                            const QString &name,
+                                            int currentType,
+                                            const QString &inletDesign,
+                                            const QString &captureNode,
+                                            int placement)
+{
+    if (!layer || name.isEmpty()) return false;
+    if (inletDesign.isEmpty() || captureNode.isEmpty()) return false;
+
+    const auto choice = QMessageBox::question(parent, tr("Convert Type"),
+        confirmText(/*isNode=*/true, name, currentType, kInletNodeType),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (choice != QMessageBox::Yes) return false;
+
+    QStringList cleared, warnings;
+    QString error;
+
+    // Non-junction source: become a junction first (attribute loss was
+    // covered by the confirm above). swmm_node_set_inlet then applies the
+    // virtual-junction derived-geometry contract AND the inlet flag.
+    if (currentType != 0 && currentType != kVirtualNodeType
+        && !layer->applyNodeConvert(name, 0, &cleared, &warnings, &error)) {
+        QMessageBox::warning(parent, tr("Convert Type"), error);
+        return false;
+    }
+    if (!layer->applySetInlet(name, true, &error)) {
+        QMessageBox::warning(parent, tr("Convert Type"), error);
+        return false;
+    }
+
+    // The flag alone leaves the node failing validation with rule 633 until
+    // it owns a usage row, so install one immediately; on failure the node is
+    // demoted back rather than left in that state.
+    SWMM_Engine eng = layer->engine();
+    const int nodeIdx    = eng ? swmm_node_index(eng, name.toUtf8().constData()) : -1;
+    const int designIdx  = eng ? swmm_inlet_index(eng, inletDesign.toUtf8().constData()) : -1;
+    const int captureIdx = eng ? swmm_node_index(eng, captureNode.toUtf8().constData()) : -1;
+    bool ok = (nodeIdx >= 0 && designIdx >= 0 && captureIdx >= 0);
+    if (ok) {
+        SWMM_InletUsage usage{};
+        usage.host_kind        = SWMM_INLET_HOST_NODE;
+        usage.host_idx         = nodeIdx;
+        usage.design_idx       = designIdx;
+        usage.capture_node_idx = captureIdx;
+        usage.num_inlets       = 1;
+        usage.placement        = placement;
+        ok = layer->applySetInletUsage(usage, &error);
+    }
+    if (!ok) {
+        layer->applySetInlet(name, false);
+        QMessageBox::warning(parent, tr("Convert Type"),
+            error.isEmpty()
+                ? tr("\"%1\" could not be given an inlet; it was left "
+                     "unchanged.").arg(name)
+                : error);
+        return false;
+    }
+
+    QMessageBox::information(parent, tr("Conversion Complete"),
+        tr("Converted <b>%1</b> to %2 (%3 → %4).<br><br>%5")
+            .arg(name, nodeTypeLabel(kInletNodeType), inletDesign, captureNode,
+                 summaryHtml(cleared, warnings)));
     return true;
 }
 

@@ -85,6 +85,8 @@ const NodeStyleDefault kDividerNodeDefault  = { QColor(0,   255, 0  ), Qt::darkB
 // Virtual junction — same blue dot as a junction; the dotted encircling
 // ring painted by the renderers follows the fill colour set here.
 const NodeStyleDefault kVirtualJunctionNodeDefault = { QColor(0, 120, 255), Qt::darkBlue, 1.0, 8.0 };
+// Inlet junction — same blue, one pixel larger, drawn as a diamond (D-G7).
+const NodeStyleDefault kInletJunctionNodeDefault   = { QColor(0, 120, 255), Qt::darkBlue, 1.0, 9.0 };
 
 constexpr int     kDefaultProgressTickMs        = 1000;
 constexpr double  kDefaultAnimationSpeed         = 1.0;
@@ -116,6 +118,7 @@ struct PrefixDefault { const char *kind; const char *prefix; };
 constexpr PrefixDefault kPrefixDefaults[] = {
     { "junction",     "J"   },
     { "virtual_junction", "VJ" },
+    { "inlet_junction", "IJ" },
     { "outfall",      "O"   },
     { "storage",      "S"   },
     { "divider",      "D"   },
@@ -703,6 +706,9 @@ QString canonicalNodeType(const QString &nodeType)
     if (k == QLatin1String("virtual_junction") || k == QLatin1String("virtualjunction")
         || k == QLatin1String("virtual junction") || k == QLatin1String("virtual junctions"))
         return QStringLiteral("VirtualJunction");
+    if (k == QLatin1String("inlet_junction") || k == QLatin1String("inletjunction")
+        || k == QLatin1String("inlet junction") || k == QLatin1String("inlet junctions"))
+        return QStringLiteral("InletJunction");
     return QStringLiteral("Junction");
 }
 
@@ -712,6 +718,7 @@ const NodeStyleDefault &defaultNodeStyleForKey(const QString &canonicalKey)
     if (canonicalKey == QLatin1String("Storage")) return kStorageNodeDefault;
     if (canonicalKey == QLatin1String("Divider")) return kDividerNodeDefault;
     if (canonicalKey == QLatin1String("VirtualJunction")) return kVirtualJunctionNodeDefault;
+    if (canonicalKey == QLatin1String("InletJunction"))   return kInletJunctionNodeDefault;
     return kJunctionNodeDefault;
 }
 } // anonymous

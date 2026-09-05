@@ -14,6 +14,7 @@
 
 #include <openswmm/engine/openswmm_links.h>
 #include "ui/linkoffsetdisplay.h"   // offsets shown in the LINK_OFFSETS convention
+#include <openswmm/engine/openswmm_infrastructure.h>   // inlet usage summary
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_tables.h>
 
@@ -495,9 +496,21 @@ LinkCompoundEditRef SWMMLinkPropertyAdapter::inletUsageRef() const
     r.linkName = m_name;
     r.kind     = LinkCompoundEditRef::InletUsage;
     r.layer    = m_layer;
-    // No engine accessor for inlet-usage count today (BN-LINK-11 gap).
-    // Show a placeholder until Slice BO 6.5.8 wires the deep editor.
-    r.summary  = tr("(engine API pending — Slice BO 6.5.8)");
+    // "<design> → <capture node>" when this conduit hosts an inlet, else
+    // "(none)". One row per conduit (swmm_inlet_usage_find_link).
+    r.summary = tr("(none)");
+    const int idx = linkIdx();
+    SWMM_InletUsage u{};
+    if (m_layer && idx >= 0
+        && m_layer->inletUsageFor(SWMM_INLET_HOST_LINK, idx, &u)) {
+        QString design, capture;
+        if (const char *d = swmm_inlet_id(m_engine, u.design_idx))
+            design = QString::fromUtf8(d);
+        if (const char *c = swmm_node_id(m_engine, u.capture_node_idx))
+            capture = QString::fromUtf8(c);
+        r.summary = tr("%1 → %2").arg(design.isEmpty()  ? tr("(none)") : design,
+                                      capture.isEmpty() ? tr("(none)") : capture);
+    }
     return r;
 }
 

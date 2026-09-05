@@ -36,9 +36,17 @@ public:
      *  node's flag is set, and as newType to convert into one. */
     static constexpr int kVirtualNodeType = 4;
 
+    /*! \brief GUI-only pseudo node type for an inlet junction: engine-side a
+     *  JUNCTION with BOTH is_virtual and is_inlet set, plus one
+     *  [INLET_USAGE] row. Converting INTO one needs a design and a capture
+     *  node, which the caller collects with InletJunctionSetupDialog and
+     *  passes through \ref runToInletJunction. */
+    static constexpr int kInletNodeType = 5;
+
     /*! \brief User-facing label for a SWMM_NodeType value
-     *  (Junction / Outfall / Storage / Divider) or kVirtualNodeType
-     *  (Virtual Junction). Empty if out of range. */
+     *  (Junction / Outfall / Storage / Divider), kVirtualNodeType
+     *  (Virtual Junction) or kInletNodeType (Inlet Junction). Empty if out
+     *  of range. */
     static QString nodeTypeLabel(int swmmNodeType);
 
     /*! \brief User-facing label for a SWMM_LinkType value
@@ -62,6 +70,18 @@ public:
      *  and panels. Returns true only if the conversion succeeded. */
     static bool run(QWidget *parent, SWMMModelLayer *layer, bool isNode,
                     const QString &name, int currentType, int newType);
+
+    /*! \brief Promote \p name to an inlet junction: confirm, set the flag
+     *  (`swmm_node_set_inlet`), then install the usage row naming
+     *  \p inletDesign / \p captureNode. Split out of run() because the
+     *  identity fields have to be collected BEFORE the mutation (D-G6) and
+     *  run()'s signature carries no room for them. Not undoable, like every
+     *  other type conversion — the confirm text says so. */
+    static bool runToInletJunction(QWidget *parent, SWMMModelLayer *layer,
+                                   const QString &name, int currentType,
+                                   const QString &inletDesign,
+                                   const QString &captureNode,
+                                   int placement);
 };
 
 } // namespace openswmmvis::ui

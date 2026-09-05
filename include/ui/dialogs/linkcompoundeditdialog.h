@@ -29,7 +29,9 @@
 
 class QStackedWidget;
 class QDialogButtonBox;
+class QComboBox;
 class QDoubleSpinBox;
+class QPushButton;
 class QSpinBox;
 class QLabel;
 class QListWidget;
@@ -103,6 +105,32 @@ private:
      *  "..." button. */
     void onStreetPickerClicked();
 
+    // ── Inlet usage page (§2.4, closes BN-LINK-11) ───────────────────────
+    //
+    // One [INLET_USAGE] row per conduit. The page is populated from the
+    // engine on construction and commits the whole row through a single
+    // SetInletUsageCommand (SWMMModelLayer::pushInletUsageEdit) on Apply, so
+    // an edit here and the same edit on an inlet junction's property rows are
+    // literally the same undoable operation.
+
+    /*! Refresh the widgets from the conduit's current usage row (or the
+     *  engine defaults when it has none). Sets m_iuSuppressApply while it
+     *  runs so the change signals don't bounce back through applyInletUsage. */
+    void loadInletUsage();
+    /*! Commit the widget values as one SWMM_InletUsage row. No-op while the
+     *  design or capture node is unset — the engine rejects a partial row. */
+    void applyInletUsage();
+    /*! Drop the conduit's usage row (undoable), then reload the page. */
+    void removeInletUsage();
+    /*! Refill the design combo from [INLETS], preserving the selection. */
+    void refreshInletDesignItems(const QString &selected = {});
+    /*! Refill the capture-node combo with every node that is neither this
+     *  conduit's own end node nor a virtual / inlet junction (rule 627). */
+    void refreshCaptureNodeItems(const QString &selected = {});
+    /*! Open `InletEditorDialog::pickInlet` filtered by this conduit's
+     *  cross-section shape, then select the returned design. */
+    void onInletDesignPickerClicked();
+
     LinkCompoundEditRef m_ref;
 
     // XSection page widgets — §S.SC.1.a (2026-05-25) reworked: the
@@ -151,6 +179,21 @@ private:
     // otherwise bounce right back through `applyXsect()`. Set true
     // while populating; the slot bails when set.
     bool m_xsSuppressApply = false;
+
+    // Inlet usage page widgets — the legacy 8-row form (Dinletusage.pas).
+    LabeledPickerCombo *m_iuDesignPicker  = nullptr;
+    QComboBox          *m_iuCaptureCombo  = nullptr;
+    QSpinBox           *m_iuNumInlets     = nullptr;
+    QDoubleSpinBox     *m_iuPctClogged    = nullptr;
+    QDoubleSpinBox     *m_iuFlowLimit     = nullptr;
+    QDoubleSpinBox     *m_iuDepressHeight = nullptr;
+    QDoubleSpinBox     *m_iuDepressWidth  = nullptr;
+    QComboBox          *m_iuPlacement     = nullptr;
+    QPushButton        *m_iuRemoveBtn     = nullptr;
+    QLabel             *m_iuStatus        = nullptr;
+    /*! Same re-entrancy guard the xsection page uses: true while the widgets
+     *  are being populated from the engine. */
+    bool m_iuSuppressApply = false;
 
     QStackedWidget   *m_stack   = nullptr;
     QDialogButtonBox *m_buttons = nullptr;

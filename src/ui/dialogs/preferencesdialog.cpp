@@ -469,7 +469,8 @@ QWidget *PreferencesDialog::buildRenderingPage()
 
     auto *nodeIntro = new QLabel(
         tr("Edit marker size, fill brush, and outline pen per node type "
-           "(Junction, Outfall, Storage, Divider, Virtual Junction). Expand "
+           "(Junction, Outfall, Storage, Divider, Virtual Junction, Inlet "
+           "Junction). Expand "
            "a row to access individual pen and brush attributes. Changes "
            "apply immediately to open project views."),
         nodeGroup);
@@ -2019,7 +2020,8 @@ void PreferencesDialog::onResetToDefaults()
                                    QStringLiteral("outfall"),
                                    QStringLiteral("storage"),
                                    QStringLiteral("divider"),
-                                   QStringLiteral("virtual_junction") };
+                                   QStringLiteral("virtual_junction"),
+                                   QStringLiteral("inlet_junction") };
         for (const QString &k : keys) p->resetNodeStyleToDefault(k);
         if (m_nodeStyleModel) m_nodeStyleModel->refreshValues();
     }

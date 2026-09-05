@@ -236,18 +236,26 @@ void KindTreeSymbologyPanel::buildTree()
     // no persisted 5th category) but carry their own SWMMElementSymbol, so
     // the row has NO category role — just the subject routing id, which
     // mounts the SwmmElementSymbolEditor for the layer's persistent adapter.
+    // Inlet junctions and the dashed inlet-connector overlay ride the same
+    // category-less pattern: their own SWMMElementSymbol, no SwmmCategory.
     if (qobject_cast<SWMMModelLayer *>(m_layer.data())) {
         // Append under the "Nodes" group added just above (row 0).
         if (QStandardItem *nodesGroup = m_model->item(0, 0)) {
-            auto *nameItem = new QStandardItem(tr("Virtual junctions"));
-            nameItem->setData(QStringLiteral("model.virtualjunctions"),
-                              kRoutingRole);
-            nameItem->setEditable(false);
-            // Not checkable — virtual junctions follow the Junctions kind's
-            // visibility (same category bucket).
-            auto *badgeItem = new QStandardItem(QString());
-            badgeItem->setEditable(false);
-            nodesGroup->appendRow({nameItem, badgeItem});
+            const struct { const char *label; const char *routing; } kSubjectRows[] = {
+                { QT_TR_NOOP("Virtual junctions"), "model.virtualjunctions" },
+                { QT_TR_NOOP("Inlet junctions"),   "model.inletjunctions"   },
+                { QT_TR_NOOP("Inlet connectors"),  "model.inletconnectors"  },
+            };
+            for (const auto &r : kSubjectRows) {
+                auto *nameItem = new QStandardItem(tr(r.label));
+                nameItem->setData(QString::fromLatin1(r.routing), kRoutingRole);
+                nameItem->setEditable(false);
+                // Not checkable — these follow the Junctions kind's
+                // visibility (same category bucket).
+                auto *badgeItem = new QStandardItem(QString());
+                badgeItem->setEditable(false);
+                nodesGroup->appendRow({nameItem, badgeItem});
+            }
         }
     }
 
@@ -285,22 +293,24 @@ void KindTreeSymbologyPanel::onTreeSelectionChanged()
     const QModelIndex idx0 = idx.sibling(idx.row(), 0);
     const QVariant catVar = m_model->data(idx0, kCategoryRole);
     if (!catVar.isValid()) {
-        // Category-less row — the Virtual junctions subject row.
-        if (m_model->data(idx0, kRoutingRole).toString()
-                == QLatin1String("model.virtualjunctions"))
-            mountVirtualJunctionsEditor();
+        // Category-less subject row (virtual junctions / inlet junctions /
+        // inlet connectors) — mount its symbol editor directly.
+        const QString routing = m_model->data(idx0, kRoutingRole).toString();
+        if (routing == QLatin1String("model.virtualjunctions")
+            || routing == QLatin1String("model.inletjunctions")
+            || routing == QLatin1String("model.inletconnectors"))
+            mountSubjectEditor(routing);
         return;
     }
     mountEditorForCategory(
         static_cast<OpenSWMMVis::SwmmCategory>(catVar.toInt()));
 }
 
-void KindTreeSymbologyPanel::mountVirtualJunctionsEditor()
+void KindTreeSymbologyPanel::mountSubjectEditor(const QString &routingId)
 {
     auto *swmm = qobject_cast<SWMMModelLayer *>(m_layer.data());
     if (!swmm) return;
-    auto *adapter =
-        swmm->elementSymbolAdapter(QStringLiteral("model.virtualjunctions"));
+    auto *adapter = swmm->elementSymbolAdapter(routingId);
     if (!adapter) return;
 
     // Tear down previous editor (same policy as mountEditorForCategory).
@@ -313,7 +323,7 @@ void KindTreeSymbologyPanel::mountVirtualJunctionsEditor()
     QWidget *editor =
         StyleEditorRegistry::instance().createEditorFor(adapter, m_stack);
     if (!editor)
-        editor = new QLabel(tr("No editor registered for virtual junctions."),
+        editor = new QLabel(tr("No editor registered for \"%1\".").arg(routingId),
                             m_stack);
     auto *scroll = new QScrollArea(m_stack);
     scroll->setWidgetResizable(true);
