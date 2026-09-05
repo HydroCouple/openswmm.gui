@@ -48,6 +48,15 @@ public:
     Q_ENUM(RainFileFormat)
 
 private:
+    /*! Map position, `[SYMBOLS]` X / Y in the project's map units. A rain
+     *  gage IS a spatial object — the original DA.2 adapter set omitted these
+     *  because it derives from the non-spatial data-object base, so the gage
+     *  was the one placed object whose location could not be typed in. Writes
+     *  are deferred to PropertiesPanel → SWMMModelLayer::applyGageMove (the
+     *  same contract SWMMNodePropertyAdapter::setXCoord uses) so the cached
+     *  scene point moves with the engine value. */
+    Q_PROPERTY(double xCoord       READ xCoord       WRITE setXCoord       NOTIFY changed)
+    Q_PROPERTY(double yCoord       READ yCoord       WRITE setYCoord       NOTIFY changed)
     Q_PROPERTY(SWMMRainGagePropertyAdapter::RainType rainType
                READ rainType    WRITE setRainType    NOTIFY changed)
     /*! Recording interval. Legacy [RAINGAGES] token 2, edited as an H:MM
@@ -110,6 +119,9 @@ public:
 
     [[nodiscard]] UserFlagsEditRef userFlagsRef() const;
 
+    [[nodiscard]] double xCoord() const;
+    [[nodiscard]] double yCoord() const;
+
     [[nodiscard]] RainType rainType()       const;
     [[nodiscard]] RainIntervalRef rainIntervalRef() const;
     [[nodiscard]] double snowFactor()        const;
@@ -135,6 +147,10 @@ public:
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
 
 public slots:
+    /*! Emit \ref coordChangeRequested rather than writing the engine, so the
+     *  panel can route the move through the layer (scene cache + extent). */
+    void setXCoord(double v);
+    void setYCoord(double v);
     void setRainType(int v);
     void setRainIntervalRef(const RainIntervalRef &r);
     void setSnowFactor(double v);
@@ -147,6 +163,12 @@ public slots:
     void setStationId(const QString &s);
     void setRainUnits(int v);
     void setUserFlagsRef(const UserFlagsEditRef &) { emit changed(); }
+
+signals:
+    /*! X/Y edit intent (both coordinates, whichever one changed). The panel
+     *  applies it through SWMMModelLayer::applyGageMove. Mirrors
+     *  SWMMNodePropertyAdapter::coordChangeRequested. */
+    void coordChangeRequested(double newX, double newY);
 
 private:
     [[nodiscard]] int idx() const;

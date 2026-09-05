@@ -68,6 +68,7 @@
 #include "ui/properties/swmmtimeseriespropertyadapter.h"
 #include "ui/properties/swmmtransectpropertyadapter.h"
 
+#include <openswmm/engine/openswmm_gages.h>   // swmm_gage_index (X/Y move route)
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
@@ -1134,6 +1135,20 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
                     pm, applyGageRowFlags);
             applyGageRowFlags();
         }
+
+        // A rain gage is a placed object: route its X/Y edits through
+        // applyGageMove so the cached scene point and the model extent move
+        // with the engine value, exactly as the node path does. (A bare
+        // swmm_spatial_set_gage_coord would leave the canvas stale until the
+        // next geometry rebuild.)
+        connect(gageAdapter, &SWMMRainGagePropertyAdapter::coordChangeRequested,
+                this, [this, layer, name](double newX, double newY) {
+                    if (!layer || !layer->engine()) return;
+                    const int gi = swmm_gage_index(layer->engine(),
+                                                   name.toUtf8().constData());
+                    if (gi >= 0 && layer->applyGageMove(gi, newX, newY))
+                        emit objectEdited(name);
+                });
     }
 
     m_treeView->expandAll();
