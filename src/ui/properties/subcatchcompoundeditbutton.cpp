@@ -6,6 +6,7 @@
 
 #include "ui/properties/subcatchcompoundeditbutton.h"
 
+#include "ui/dialogs/groundwaterexchangedialog.h"
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
 
 #include <QHBoxLayout>
@@ -41,6 +42,22 @@ void SubcatchCompoundEditButton::refreshLabel()
 void SubcatchCompoundEditButton::onClicked()
 {
     if (!m_ref.engine || m_ref.subName.isEmpty()) return;
+
+    // Groundwater has its own modeless editor (AQUIFER_GROUNDWATER_EXCHANGE
+    // plan D2); the summary refreshes on every Apply rather than on close.
+    // Parented to the top-level window, not this cell editor, which the
+    // delegate may destroy as soon as the cell loses focus.
+    if (m_ref.kind == SubcatchCompoundEditRef::Groundwater) {
+        auto *dlg = new GroundwaterExchangeDialog(m_ref, window());
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        connect(dlg, &GroundwaterExchangeDialog::applied, this, [this, dlg]() {
+            m_ref.summary = dlg->updatedSummary();
+            refreshLabel();
+            emit valueChanged();
+        });
+        dlg->show();
+        return;
+    }
 
     SubcatchCompoundEditDialog dlg(m_ref, this);
     dlg.exec();

@@ -2075,6 +2075,7 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;
             case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
             case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
+            case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
             case DataObjectRef::RainGage:       /* handled above */                   break;
             case DataObjectRef::SubcatchOutlet: /* handled above */                   break;
             case DataObjectRef::Node:           /* handled above */                   break;

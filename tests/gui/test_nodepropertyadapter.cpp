@@ -22,6 +22,7 @@
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_pollutants.h>       // Initial-quality UI round
 #include <openswmm/engine/openswmm_spatial.h>
+#include <openswmm/engine/openswmm_subcatchments.h>  // G5 — groundwater sources
 #include <openswmm/engine/openswmm_tables.h>  // Slice AG.4 — storage curve
 
 #include <QObject>
@@ -330,6 +331,8 @@ private slots:
             // Slice DB.2 — compound editor keys.
             QStringLiteral("inflows"), QStringLiteral("dwf"),
             QStringLiteral("rdii"),    QStringLiteral("treatment"),
+            // AQUIFER_GROUNDWATER_EXCHANGE G5 — node-side navigation row.
+            QStringLiteral("groundwaterSources"),
         };
         for (const QString &k : keys) {
             const QString label = a.displayLabelFor(k);
@@ -354,6 +357,8 @@ private slots:
             std::pair{a.dwfRef(),       NodeCompoundEditRef::Dwf},
             std::pair{a.rdiiRef(),      NodeCompoundEditRef::Rdii},
             std::pair{a.treatmentRef(), NodeCompoundEditRef::Treatment},
+            std::pair{a.groundwaterSourcesRef(),
+                      NodeCompoundEditRef::GroundwaterSources},
         };
         for (const auto &[ref, expectedKind] : refs) {
             QCOMPARE(ref.engine,   e);
@@ -379,6 +384,7 @@ private slots:
         const QStringList compoundProps = {
             QStringLiteral("inflows"), QStringLiteral("dwf"),
             QStringLiteral("rdii"),    QStringLiteral("treatment"),
+            QStringLiteral("groundwaterSources"),
         };
         auto checkAdvertises = [&](const QObject &a, const char *label) {
             const auto *mo = a.metaObject();
@@ -407,6 +413,34 @@ private slots:
             SWMMDividerPropertyAdapter a(e, QStringLiteral("J1"));
             checkAdvertises(a, "Divider");
         }
+
+        swmm_engine_destroy(e);
+    }
+
+    // AQUIFER_GROUNDWATER_EXCHANGE G5 — "from S1, S3" / "(none)" summary.
+    void groundwaterSourcesSummaryTracksEngine()
+    {
+        SWMM_Engine e = buildFixture();
+        QVERIFY(e);
+        SWMMJunctionPropertyAdapter a(e, QStringLiteral("J1"));
+        QCOMPARE(a.groundwaterSourcesRef().summary, QStringLiteral("(none)"));
+
+        const int j = swmm_node_index(e, "J1");
+        swmm_aquifer_add(e, "AQ1");
+        const int aq = swmm_aquifer_index(e, "AQ1");
+        swmm_subcatch_add(e, "S1");
+        swmm_subcatch_add(e, "S2");
+        swmm_subcatch_add(e, "S3");
+        // S2 points at J1 but has no aquifer → not a source.
+        swmm_subcatch_set_gw_node(e, swmm_subcatch_index(e, "S2"), j);
+        for (const char *id : {"S1", "S3"}) {
+            const int s = swmm_subcatch_index(e, id);
+            QCOMPARE(swmm_subcatch_set_aquifer(e, s, aq), SWMM_OK);
+            QCOMPARE(swmm_subcatch_set_gw_node(e, s, j), SWMM_OK);
+        }
+        QCOMPARE(a.groundwaterSourcesRef().summary, QStringLiteral("from S1, S3"));
+        QCOMPARE(a.groundwaterSourcesRef().kind,
+                 NodeCompoundEditRef::GroundwaterSources);
 
         swmm_engine_destroy(e);
     }

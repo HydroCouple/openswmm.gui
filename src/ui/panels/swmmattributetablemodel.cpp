@@ -7,10 +7,12 @@
 #include "ui/panels/swmmattributetablemodel.h"
 
 #include "core/unitsystem.h"
+#include "layers/gwsourcesummary.h"           // G5 — node Groundwater Sources cell
 #include "layers/swmmresultslayer.h"          // dynamics columns' output source
 #include "ui/models/userflagsmodel.h"
 #include "ui/properties/culvertcodes.h"      // ATTRIBUTE_EDITOR_WIRING Phase 0
 #include "ui/properties/dataobjectref.h"     // pump-curve picker cell
+#include "ui/properties/groundwatersummary.h" // Groundwater cell summary text
 #include "ui/properties/rainintervalref.h"   // DA.2 parity — H:MM interval helpers
 #include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
@@ -538,6 +540,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                   "node_rdii_ref"));
         cols.append(compoundCol("Treatment", "Pollutant Treatment",
                                   "node_treatment_ref"));
+        cols.append(compoundCol("GW sources", "Groundwater Sources",
+                                  "node_groundwater_sources_ref"));
         return cols;
     }
     case SWMMModelLayer::CatOutfalls: {
@@ -578,6 +582,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         cols.append(compoundCol("RDII",      "RDII",              "node_rdii_ref"));
         cols.append(compoundCol("Treatment", "Pollutant Treatment",
                                   "node_treatment_ref"));
+        cols.append(compoundCol("GW sources", "Groundwater Sources",
+                                  "node_groundwater_sources_ref"));
         return cols;
     }
     case SWMMModelLayer::CatStorage: {
@@ -642,6 +648,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         cols.append(compoundCol("RDII",      "RDII",              "node_rdii_ref"));
         cols.append(compoundCol("Treatment", "Pollutant Treatment",
                                   "node_treatment_ref"));
+        cols.append(compoundCol("GW sources", "Groundwater Sources",
+                                  "node_groundwater_sources_ref"));
         return cols;
     }
     case SWMMModelLayer::CatDividers: {
@@ -673,6 +681,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         cols.append(compoundCol("RDII",      "RDII",              "node_rdii_ref"));
         cols.append(compoundCol("Treatment", "Pollutant Treatment",
                                   "node_treatment_ref"));
+        cols.append(compoundCol("GW sources", "Groundwater Sources",
+                                  "node_groundwater_sources_ref"));
         return cols;
     }
     case SWMMModelLayer::CatConduits:
@@ -920,6 +930,9 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                    "subcatch_cn_dry",        0.0, 100.0, 4),
             // Compound cells (open SubcatchCompoundEditDialog tabs).
             compoundCol("Land uses",   "Land Use Coverage", "subcatch_landuse_ref"),
+            // G3 — receiving-aquifer picker (DataObjectRef cell), left of the
+            // Groundwater exchange editor cell.
+            compoundCol("Aquifer",     "Aquifer",           "subcatch_aquifer_ref"),
             compoundCol("Groundwater", "Groundwater",       "subcatch_groundwater_ref"),
             compoundCol("LID usage",   "LID Usage",         "subcatch_lid_ref"),
             compoundCol("Loadings",    "Initial Loadings",  "subcatch_loadings_ref"),
@@ -2715,6 +2728,22 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             return QVariant::fromValue(dref);
         }
 
+        // G3 — receiving-aquifer picker. Mirrors
+        // SWMMSubcatchPropertyAdapter::aquiferRef; write in commitValueDirect.
+        if (spec.setter == QStringLiteral("subcatch_aquifer_ref")) {
+            const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+            if (sIdx < 0) return {};
+            DataObjectRef dref;
+            dref.engine = eng;
+            dref.layer  = m_layer;
+            dref.kind   = DataObjectRef::Aquifer;
+            int aq = -1;
+            if (swmm_subcatch_get_aquifer(eng, sIdx, &aq) == SWMM_OK && aq >= 0)
+                if (const char *id = swmm_aquifer_id(eng, aq))
+                    dref.currentName = QString::fromUtf8(id);
+            return QVariant::fromValue(dref);
+        }
+
         // Phase 3 — subcatchment compound cells (land use / groundwater / LID
         // usage). The SubcatchCompoundEditDialog performs the engine writes;
         // the cell only carries the coordinate + a live summary.
@@ -2740,9 +2769,7 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                 sref.summary = assigned > 0 ? tr("%1 land use(s)").arg(assigned) : tr("(none)");
             } else if (spec.setter == QStringLiteral("subcatch_groundwater_ref")) {
                 sref.kind = SubcatchCompoundEditRef::Groundwater;
-                int aq = -1;
-                swmm_subcatch_get_aquifer(eng, sIdx, &aq);
-                sref.summary = aq >= 0 ? tr("aquifer set") : tr("(none)");
+                sref.summary = groundwaterSummary(eng, sIdx);
             } else if (spec.setter == QStringLiteral("subcatch_loadings_ref")) {
                 // [LOADINGS] initial buildup (iteration 4).
                 sref.kind = SubcatchCompoundEditRef::Loadings;
@@ -2823,6 +2850,15 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             ref.summary = (active > 0)
                 ? tr("%1 / %2 pollutants").arg(active).arg(nPollut)
                 : tr("(none)");
+        } else if (spec.setter == QStringLiteral("node_groundwater_sources_ref")) {
+            // G5 — navigation cell: same text as
+            // SWMMNodePropertyAdapter::groundwaterSourcesRef().
+            ref.kind = NodeCompoundEditRef::GroundwaterSources;
+            const QStringList subs =
+                OpenSWMMVis::Groundwater::groundwaterSourceSubcatchments(eng, nodeIdx);
+            ref.summary = subs.isEmpty()
+                ? tr("(none)")
+                : tr("from %1").arg(subs.join(QStringLiteral(", ")));
         }
         return QVariant::fromValue(ref);
     }
@@ -3243,6 +3279,18 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
             const int g = swmm_gage_index(eng, dref.currentName.toUtf8().constData());
             if (g < 0) return false;
             rc = swmm_subcatch_set_gage(eng, sIdx, g);
+        } else if (spec.setter == QStringLiteral("subcatch_aquifer_ref")) {
+            // G3 — receiving aquifer. Mirrors
+            // SWMMSubcatchPropertyAdapter::setAquiferRef: an empty pick
+            // clears the assignment (-1); an unknown name is ignored.
+            const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+            if (sIdx < 0) return false;
+            int aq = -1;
+            if (!dref.currentName.isEmpty()) {
+                aq = swmm_aquifer_index(eng, dref.currentName.toUtf8().constData());
+                if (aq < 0) return false;
+            }
+            rc = swmm_subcatch_set_aquifer(eng, sIdx, aq);
         } else if (spec.setter == QStringLiteral("node_outfall_route_to_ref")) {
             // [OUTFALLS] RouteTo. Unlike the pickers above, an empty pick is
             // meaningful here — it clears the routing (-1) so the outfall

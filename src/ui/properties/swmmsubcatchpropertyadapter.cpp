@@ -10,6 +10,7 @@
 #include "layers/swmmmodellayer.h"   // USER_FLAGS Phase 4 — ensureUserFlagsModel()
 #include "layers/swmmresultslayer.h"        // stats dispatch (QA.2 mirror)
 #include "output/outputstatsregistry.h"     // stats dispatch (QA.2 mirror)
+#include "ui/properties/groundwatersummary.h" // shared Groundwater cell text
 
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_nodes.h>   // outlet node resolution
@@ -65,6 +66,7 @@ QString SWMMSubcatchPropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QLatin1String("gaInitDeficit"))  return tr("Initial Deficit (frac.)");
     if (property == QLatin1String("cnNumber"))       return tr("Curve Number");
     if (property == QLatin1String("landUse"))     return tr("Land Uses");
+    if (property == QLatin1String("aquifer"))     return tr("Aquifer");
     if (property == QLatin1String("groundwater")) return tr("Groundwater");
     if (property == QLatin1String("lidUsage"))    return tr("LID Usage");
     if (property == QLatin1String("loadings"))    return tr("Initial Loadings");
@@ -530,15 +532,43 @@ SubcatchCompoundEditRef SWMMSubcatchPropertyAdapter::landUseRef() const
     return r;
 }
 
+// --- Receiving aquifer (G3 picker over [AQUIFERS] names) -------------------
+DataObjectRef SWMMSubcatchPropertyAdapter::aquiferRef() const
+{
+    DataObjectRef r;
+    r.engine = m_engine;
+    r.layer  = m_layer;
+    r.kind   = DataObjectRef::Aquifer;
+    const int i = idx();
+    if (i >= 0) {
+        int aq = -1;
+        if (swmm_subcatch_get_aquifer(m_engine, i, &aq) == SWMM_OK && aq >= 0)
+            if (const char *id = swmm_aquifer_id(m_engine, aq))
+                r.currentName = QString::fromUtf8(id);
+    }
+    return r;
+}
+
+void SWMMSubcatchPropertyAdapter::setAquiferRef(const DataObjectRef &r)
+{
+    const int i = idx();
+    if (i < 0) return;
+    // Empty pick clears the assignment (-1); unknown name is ignored.
+    int aq = -1;
+    if (!r.currentName.isEmpty()) {
+        aq = swmm_aquifer_index(m_engine, r.currentName.toUtf8().constData());
+        if (aq < 0) return;
+    }
+    if (swmm_subcatch_set_aquifer(m_engine, i, aq) == SWMM_OK)
+        emit changed();
+}
+
 SubcatchCompoundEditRef SWMMSubcatchPropertyAdapter::groundwaterRef() const
 {
     SubcatchCompoundEditRef r;
     r.engine = m_engine; r.layer = m_layer;
     r.subName = m_name; r.kind = SubcatchCompoundEditRef::Groundwater;
-    const int i = idx();
-    int aq = -1;
-    if (i >= 0) swmm_subcatch_get_aquifer(m_engine, i, &aq);
-    r.summary = aq >= 0 ? tr("aquifer set") : tr("(none)");
+    r.summary = groundwaterSummary(m_engine, idx());
     return r;
 }
 

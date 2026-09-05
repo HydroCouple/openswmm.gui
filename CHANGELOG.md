@@ -19,6 +19,26 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Aquifer editor and Groundwater Exchange editor.** *Aquifer* joins the
+  Model tab's Data Objects group (left of *LID Control*); the rebuilt
+  `AquiferEditorDialog` is three-pane (list / grouped form / live two-zone
+  illustration built by `buildAquiferDiagram`) and now edits the monthly
+  upper-evaporation pattern, applies soft validation and deletes through
+  `swmm_aquifer_delete` with an impact prompt (previously deletion never
+  reached the engine and the pattern was dropped on save). Subcatchments
+  gain an *Aquifer* picker row/column (`DataObjectRef::Aquifer`); the
+  Groundwater compound row/cell opens the new `GroundwaterExchangeDialog`
+  (receiving node, surface elevation, A1/B1/A2/B2/A3/Twgr/Hstar and the
+  `[GWF]` LATERAL/DEEP expressions via `GwfExpressionEdit` — engine
+  vocabulary completion + per-keystroke `swmm_gwf_validate_expression`),
+  replacing the Groundwater page of `SubcatchCompoundEditDialog`. Nodes get
+  a read-only *Groundwater Sources* row/cell (`gwsourcesummary`) whose
+  Edit… opens the exchange editor for the discharging subcatchment, and
+  node-delete prompts list affected subcatchments. `SWMMAquiferPropertyAdapter`
+  is no longer a stub. Requires the engine `[GWF]` API. Plan:
+  `workplans/AQUIFER_GROUNDWATER_EXCHANGE_GUI_PLAN_2026-09-05.md`; manual:
+  aquifers and groundwater section.
+
 - **Live 1D results (6.x engine and legacy workers).** While a run is in
   progress the `.out` is opened live (`SWMMResultsLayer::openResultsLive`,
   engine `swmm_output_open_live`) on the first progress tick whose header is

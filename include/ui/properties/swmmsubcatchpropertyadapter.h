@@ -76,6 +76,10 @@ class SWMMSubcatchPropertyAdapter : public QObject
     // Compound cells (open SubcatchCompoundEditDialog tabs).
     Q_PROPERTY(SubcatchCompoundEditRef landUse
                READ landUseRef     WRITE setLandUseRef     NOTIFY changed)
+    /*! Receiving aquifer ([GROUNDWATER] aquifer column). Picker over
+     *  [AQUIFERS] names; an empty pick clears the assignment (-1). The
+     *  routing parameters live in the `groundwater` exchange editor. */
+    Q_PROPERTY(DataObjectRef aquifer READ aquiferRef WRITE setAquiferRef NOTIFY changed)
     Q_PROPERTY(SubcatchCompoundEditRef groundwater
                READ groundwaterRef WRITE setGroundwaterRef NOTIFY changed)
     Q_PROPERTY(SubcatchCompoundEditRef lidUsage
@@ -141,6 +145,7 @@ public:
     [[nodiscard]] double cnNumber()       const;
     [[nodiscard]] double cnDryTime()      const;
     [[nodiscard]] SubcatchCompoundEditRef landUseRef()     const;
+    [[nodiscard]] DataObjectRef           aquiferRef()     const;
     [[nodiscard]] SubcatchCompoundEditRef groundwaterRef() const;
     [[nodiscard]] SubcatchCompoundEditRef lidUsageRef()    const;
     [[nodiscard]] SubcatchCompoundEditRef loadingsRef()    const;
@@ -188,6 +193,7 @@ public slots:
     void setGaInitDeficit(double v);
     void setCnNumber(double v);
     void setCnDryTime(double v);
+    void setAquiferRef(const DataObjectRef &r);
     // Compound refs are coordinates only; the dialog performs the writes.
     void setLandUseRef(const SubcatchCompoundEditRef &)     { emit changed(); }
     void setGroundwaterRef(const SubcatchCompoundEditRef &) { emit changed(); }
