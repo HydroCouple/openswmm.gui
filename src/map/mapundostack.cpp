@@ -287,6 +287,45 @@ void MoveNodeCommand::undo()
         m_layer->applyLinkLength(rec.linkIdx, rec.oldLen);
 }
 
+MoveGageCommand::MoveGageCommand(SWMMModelLayer *layer,
+                                 int gageIdx,
+                                 double oldX, double oldY,
+                                 double newX, double newY,
+                                 MapCanvas *canvas,
+                                 QUndoCommand *parent)
+    : MapCommand(QObject::tr("Move Rain Gage"), canvas, parent),
+      m_layer(layer),
+      m_gageIdx(gageIdx),
+      m_oldX(oldX), m_oldY(oldY),
+      m_newX(newX), m_newY(newY)
+{
+}
+
+void MoveGageCommand::redo()
+{
+    if (!m_layer) return;
+    m_layer->applyGageMove(m_gageIdx, m_newX, m_newY);
+}
+
+void MoveGageCommand::undo()
+{
+    if (!m_layer) return;
+    m_layer->applyGageMove(m_gageIdx, m_oldX, m_oldY);
+}
+
+bool MoveGageCommand::mergeWith(const QUndoCommand *other)
+{
+    if (other->id() != id()) return false;
+    const auto *cmd = static_cast<const MoveGageCommand *>(other);
+    if (cmd->m_layer != m_layer || cmd->m_gageIdx != m_gageIdx)
+        return false;
+    // Collapse to the latest terminal coordinate; the original oldX/oldY
+    // stays so one undo returns to the pre-drag position.
+    m_newX = cmd->m_newX;
+    m_newY = cmd->m_newY;
+    return true;
+}
+
 bool MoveNodeCommand::mergeWith(const QUndoCommand *other)
 {
     if (other->id() != id()) return false;

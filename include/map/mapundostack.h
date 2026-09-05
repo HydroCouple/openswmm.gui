@@ -341,6 +341,41 @@ private:
 };
 
 /*!
+ * \class MoveGageCommand
+ * \brief Records a rain-gage coordinate change for undo/redo — the
+ *        [SYMBOLS] twin of MoveNodeCommand.
+ * \details Commits through SWMMModelLayer::applyGageMove so the engine
+ *          value, cached scene point, spatial index and model extent move
+ *          together. Gages have no attached links, so there is no
+ *          auto-length leg. Consecutive commands moving the same gage
+ *          merge into a single undoable step, like node moves.
+ */
+class MoveGageCommand : public MapCommand
+{
+public:
+    MoveGageCommand(SWMMModelLayer *layer,
+                    int gageIdx,
+                    double oldX, double oldY,
+                    double newX, double newY,
+                    MapCanvas *canvas,
+                    QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+    int id() const override { return 14; }
+    bool mergeWith(const QUndoCommand *other) override;
+
+private:
+    SWMMModelLayer *m_layer   = nullptr;
+    int             m_gageIdx = -1;
+    double          m_oldX    = 0.0;
+    double          m_oldY    = 0.0;
+    double          m_newX    = 0.0;
+    double          m_newY    = 0.0;
+};
+
+/*!
  * \class EditVertexCommand
  * \brief Records a change to a link's interior polyline vertices.
  * \details Covers drag / insert / delete of interior (non-endpoint)
