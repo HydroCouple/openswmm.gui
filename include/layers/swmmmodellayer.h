@@ -1031,8 +1031,16 @@ public:
      *          need its attribute map (Object Browser → PropertiesPanel).
      *          Returns an empty map if the name doesn't match any cached
      *          node / link / subcatchment / gage.
+     * \param kindMask kKind* bits limiting which kinds may match. SWMM names
+     *          are per-type namespaces (a gage and a subcatchment may legally
+     *          share a name), and the default kKindAll resolves collisions by
+     *          the legacy precedence node → link → catchment → gage — so a
+     *          caller that KNOWS the kind (e.g. the Attribute Table, scoped
+     *          to one category) must pass it or a shadowed gage/catchment
+     *          reads the wrong object's map.
      */
-    [[nodiscard]] QVariantMap identifyByName(const QString &name) const;
+    [[nodiscard]] QVariantMap identifyByName(const QString &name,
+                                             quint8 kindMask = kKindAll) const;
 
     /*!
      * \brief Layer-CRS bounding box of a cached object by name.
@@ -1634,6 +1642,19 @@ public:
 
     /*! Undo tail link add (swmm_link_pop_last). */
     bool rollbackTailLinkAdd(const QString &name);
+
+    /*!
+     * \brief Move a rain gage: engine `[SYMBOLS]` coordinate + cached scene
+     *        point, in lockstep (a bare `swmm_spatial_set_gage_coord` would
+     *        leave the canvas stale until the next geometry rebuild). The
+     *        rain-gage twin of \ref applyNodeMove; gages carry no attached
+     *        links, so there is no bbox pass.
+     * \param idx         Cache/engine gage index.
+     * \param newX, newY  New coordinate in the layer CRS.
+     * \returns           true on success. Emits repaintRequested() and
+     *                    modelEdited() ([SYMBOLS] is authored data).
+     */
+    bool applyGageMove(int idx, double newX, double newY);
 
     /*! Add a rain gage: engine + cache. */
     bool applyGageAdd(const QString &name, double x, double y,

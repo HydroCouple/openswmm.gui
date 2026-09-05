@@ -2640,6 +2640,27 @@ add_swmmvis_gui_test(test_raingagefilecolumn
 )
 swmmvis_link_full_app_deps(test_raingagefilecolumn)
 
+# Simulation Options no-edit round trip — Apply with no edits must write
+# nothing (dirty count false AND the dialog-owned .inp sections unchanged) on
+# a DYNWAVE, a 2D and an FV deck. Safety net for the dialog restructure
+# (EXECUTION_PLAN_OPTIONS_TRANSPORT_OUTPUT_2026-09-04.md P0/P3).
+add_swmmvis_gui_test(test_simulationoptions_roundtrip
+    test_simulationoptions_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_simulationoptions_roundtrip)
+
+# Rain-gage map position ([SYMBOLS] X/Y) — the Property Browser exposes it and
+# the Attribute Table columns are editable, both routed through
+# SWMMModelLayer::applyGageMove so the cached scene point tracks the engine.
+add_swmmvis_gui_test(test_raingagecoords
+    test_raingagecoords.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_raingagecoords)
+
 # Rainfall Visualization dialog — engine-resolved gage series across all three
 # source kinds (inline [TIMESERIES], standard .dat rain file, multi-column
 # CSV), failed-file surfacing, basis switching, shared per-gage time axis.

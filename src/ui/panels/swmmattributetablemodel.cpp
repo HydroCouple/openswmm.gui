@@ -367,6 +367,21 @@ ColumnSpec nodeCoordY() {
                -1e12, 1e12, 4, UnitKind::None);
 }
 
+// Rain-gage coordinate columns — the [SYMBOLS] twin of nodeCoordX/Y. Same
+// shape and the same reason for the special case in commitValueDirect:
+// swmm_spatial_set_gage_coord takes both coordinates, and applyGageMove is
+// what keeps the cached scene point in step with the engine.
+ColumnSpec gageCoordX() {
+    return num(QStringLiteral("X"), QStringLiteral("X Coordinate"),
+               QStringLiteral("gage_coord_x"),
+               -1e12, 1e12, 4, UnitKind::None);
+}
+ColumnSpec gageCoordY() {
+    return num(QStringLiteral("Y"), QStringLiteral("Y Coordinate"),
+               QStringLiteral("gage_coord_y"),
+               -1e12, 1e12, 4, UnitKind::None);
+}
+
 // Slice DB — read-only INPUT-TIME computed columns shared by all four node
 // categories. These are geometry the engine derives as links connect, so
 // they belong next to the inputs they're derived from. The post-run
@@ -954,8 +969,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         // source-specific rows (series picker vs. file path / station / units).
         return {
             nameCol(),
-            ro("X",    "X Coordinate"),
-            ro("Y",    "Y Coordinate"),
+            gageCoordX(),
+            gageCoordY(),
             enumCol("Rain type",   "Rain Type",   "gage_rain_type",
                                                   gageRainTypeValues()),
             intervalCol,
@@ -2417,7 +2432,15 @@ QVariantMap SWMMAttributeTableModel::rowData(int row) const
     if (row < 0 || row >= m_rowCache.size()) return {};
     if (!m_rowCacheValid[row]) {
         const QString name = m_layer->objectNameAt(m_category, row);
-        m_rowCache[row]      = m_layer->identifyByName(name);
+        // Kind-scoped: this table is bound to ONE category, and SWMM names
+        // are per-type namespaces — without the mask a rain gage sharing its
+        // name with a subcatchment (or a link with a node) read the OTHER
+        // object's attribute map here. kindBitForCategory returns 0 for the
+        // non-spatial categories (curves, timeseries, …) — keep those on the
+        // unscoped lookup they always used.
+        const quint8 kindBit = SWMMModelLayer::kindBitForCategory(m_category);
+        m_rowCache[row] = m_layer->identifyByName(
+            name, kindBit ? kindBit : SWMMModelLayer::kKindAll);
         m_rowCacheValid[row] = true;
     }
     return m_rowCache[row];
@@ -3309,6 +3332,33 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         // Repaint the whole row — moving the node updates X, Y, and the
         // stat block reads (Max Depth Sim. is location-independent but
         // re-issuing dataChanged keeps the view consistent).
+        const int lastCol = columnCount() - 1;
+        emit dataChanged(this->index(row, 0), this->index(row, lastCol),
+                         {Qt::DisplayRole, Qt::EditRole});
+        emit objectEdited(name);
+        return true;
+    }
+
+    // Rain-gage X/Y — the [SYMBOLS] twin of the node coordinate case above,
+    // routed through applyGageMove for the same reason.
+    if (spec.setter == QStringLiteral("gage_coord_x") ||
+        spec.setter == QStringLiteral("gage_coord_y")) {
+        const QString name = objectNameAt(row);
+        const int gageIdx = swmm_gage_index(m_layer->engine(),
+                                            name.toUtf8().constData());
+        if (gageIdx < 0) return false;
+        double cx = 0.0, cy = 0.0;
+        if (swmm_spatial_get_gage_coord(m_layer->engine(), gageIdx,
+                                        &cx, &cy) != SWMM_OK) return false;
+        bool ok = false;
+        const double nv = value.toDouble(&ok);
+        if (!ok) return false;
+        const bool isX = (spec.setter == QStringLiteral("gage_coord_x"));
+        const double newX = isX ? nv : cx;
+        const double newY = isX ? cy : nv;
+        if (!m_layer->applyGageMove(gageIdx, newX, newY)) return false;
+        if (row >= 0 && row < m_rowCacheValid.size())
+            m_rowCacheValid[row] = false;
         const int lastCol = columnCount() - 1;
         emit dataChanged(this->index(row, 0), this->index(row, lastCol),
                          {Qt::DisplayRole, Qt::EditRole});
