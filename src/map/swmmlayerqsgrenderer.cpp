@@ -541,6 +541,25 @@ QSGGeometryNode *makeColoredNode(QSGGeometry::DrawingMode mode)
     return node;
 }
 
+// Dirty flags for a geometry upload. A node whose geometry held ZERO vertices
+// has no batch: the batch renderer skips empty elements when it builds
+// batches, and a later DirtyGeometry on an element without a batch is a no-op
+// (Qt's Renderer::nodeChanged only re-uploads or invalidates an EXISTING
+// batch). Such a node never paints again until something else forces a batch
+// rebuild — a layer toggle, a full tree rebuild. That is exactly the empty
+// project: the first frame uploads nothing to every bucket, so the junctions
+// and conduits the user then draws never reach the screen (and it is why the
+// selection overlays used to "silently swallow" their first upload).
+// DirtyMaterial on an unbatched element is the flag that requests
+// BuildBatches, so raise it together with DirtyGeometry whenever a bucket goes
+// from empty to populated.
+inline QSGNode::DirtyState geometryDirtyFlags(bool wasEmpty, int n)
+{
+    return (wasEmpty && n > 0)
+        ? (QSGNode::DirtyGeometry | QSGNode::DirtyMaterial)
+        : QSGNode::DirtyState(QSGNode::DirtyGeometry);
+}
+
 void uploadColoredVerts(QSGGeometryNode *node,
                         const std::vector<QSGGeometry::ColoredPoint2D> &verts)
 {
@@ -557,11 +576,12 @@ void uploadColoredVerts(QSGGeometryNode *node,
     auto fill = [](QSGGeometryNode *gn,
                    const QSGGeometry::ColoredPoint2D *src, int n) {
         auto *geo = gn->geometry();
+        const bool wasEmpty = geo->vertexCount() == 0;
         if (geo->vertexCount() != n) geo->allocate(n);
         if (n > 0)
             std::memcpy(geo->vertexDataAsColoredPoint2D(), src,
                         size_t(n) * sizeof(QSGGeometry::ColoredPoint2D));
-        gn->markDirty(QSGNode::DirtyGeometry);
+        gn->markDirty(geometryDirtyFlags(wasEmpty, n));   // see uploadVerts
     };
 
     // Chunk 0 → the node itself.
@@ -611,9 +631,10 @@ void uploadVerts(QSGGeometryNode *node, const std::vector<QSGGeometry::Point2D> 
 {
     auto *geo = node->geometry();
     const int n = int(verts.size());
+    const bool wasEmpty = geo->vertexCount() == 0;
     if (geo->vertexCount() != n) geo->allocate(n);
     if (n > 0) std::memcpy(geo->vertexData(), verts.data(), n*sizeof(QSGGeometry::Point2D));
-    node->markDirty(QSGNode::DirtyGeometry);
+    node->markDirty(geometryDirtyFlags(wasEmpty, n));
 }
 
 void setNodeColor(QSGGeometryNode *node, QColor color)
