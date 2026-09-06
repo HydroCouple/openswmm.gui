@@ -6,6 +6,7 @@
  */
 #include "mesh/inpmeshreader.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshinfil.h"
 
 #include <QChar>
@@ -23,6 +24,7 @@ namespace {
 
 constexpr const char *kSecVertices       = "[2D_VERTICES]";
 constexpr const char *kSecTriangles      = "[2D_TRIANGLES]";
+constexpr const char *kSecQuads          = "[2D_QUADS]";                 // engine 2026-09-06 mixed meshes
 constexpr const char *kSecMeshFile       = "[2D_MESH_FILE]";
 constexpr const char *kSecVertexNodeMap  = "[2D_VERTEX_NODE_MAP]";      // 1D<->2D coupling
 constexpr const char *kSecTriangleNodeMap = "[2D_TRIANGLE_NODE_MAP]";   // node→cell coupling (Part C)
@@ -32,9 +34,11 @@ constexpr const char *kSecInfilOptions   = "[2D_INFILTRATION_OPTIONS]";  // GG0a
 constexpr const char *kSecInfilDefaults  = "[2D_INFILTRATION_DEFAULTS]"; // GG0a
 constexpr const char *kSecInfil          = "[2D_INFILTRATION]";          // GG0a
 
-/*! Per-row pre-mesh BC accumulator: (flat-index, value). Resolved to a
- *  sized QVector<MeshEdgeBC> after the mesh is known. */
-struct BCRow { int flat = -1; MeshEdgeBC bc; };
+/*! Per-row pre-mesh BC accumulator: (cell, local edge, value). Resolved to
+ *  a flat slot (`edgeSlot(cell, e)`) in a sized QVector<MeshEdgeBC> after the
+ *  mesh is known — only then can `e < cell.vertexCount()` be checked (a quad
+ *  has edges 0..3, a triangle 0..2). */
+struct BCRow { int cell = -1; int e = -1; MeshEdgeBC bc; };
 using BCRowList = QVector<BCRow>;
 
 /*! Per-row pre-mesh conveyance accumulator: (FROM_VERTEX, TO_VERTEX, value).
@@ -193,38 +197,60 @@ QString parseSection(const QString &sectionName,
         return {};
     }
 
-    if (sectionName.compare(QLatin1String(kSecTriangles), Qt::CaseInsensitive) == 0)
+    // [2D_TRIANGLES] `V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]` and, since the
+    // engine's mixed meshes (2D_TRI_QUAD_MESH_PLAN_2026-09-06), [2D_QUADS]
+    // `V1 V2 V3 V4 MANNINGS_N [INIT_DEPTH] [TAG]`. Both land in
+    // MeshResult::triangles in the engine's cell order — triangles first,
+    // then quads — so a quad row is only legal once no triangle row can
+    // follow it: a [2D_TRIANGLES] row after any [2D_QUADS] row is an error
+    // (same rule as the engine), otherwise every cell-addressed section
+    // behind it would silently renumber.
+    const bool isTriangles =
+        sectionName.compare(QLatin1String(kSecTriangles), Qt::CaseInsensitive) == 0;
+    const bool isQuads =
+        sectionName.compare(QLatin1String(kSecQuads), Qt::CaseInsensitive) == 0;
+    if (isTriangles || isQuads)
     {
+        const int nvert = isQuads ? 4 : 3;
+        const char *sec = isQuads ? kSecQuads : kSecTriangles;
         for (const QString &raw : bodyLines)
         {
             const QStringList tok = tokenize(raw);
             if (tok.isEmpty()) continue;
-            if (tok.size() < 3)
-                return QStringLiteral("[2D_TRIANGLES] needs V1 V2 V3 (got: %1)").arg(raw.trimmed());
-            bool ok0 = false, ok1 = false, ok2 = false;
-            const int v0 = tok[0].toInt(&ok0);
-            const int v1 = tok[1].toInt(&ok1);
-            const int v2 = tok[2].toInt(&ok2);
-            if (!ok0 || !ok1 || !ok2)
-                return QStringLiteral("[2D_TRIANGLES] non-integer vertex index (got: %1)").arg(raw.trimmed());
+            if (tok.size() < nvert)
+                return QStringLiteral("%1 needs %2 (got: %3)")
+                    .arg(QLatin1String(sec),
+                         isQuads ? QStringLiteral("V1 V2 V3 V4") : QStringLiteral("V1 V2 V3"),
+                         raw.trimmed());
+            if (isTriangles && !out.triangles.isEmpty() && out.triangles.last().isQuad())
+                return QStringLiteral("[2D_TRIANGLES] row after a [2D_QUADS] row: cells "
+                                      "are numbered triangles first, then quads (got: %1)")
+                    .arg(raw.trimmed());
             MeshTriangle t;
-            t.v0 = v0; t.v1 = v1; t.v2 = v2;
-            // tok[3] is MANNINGS_N. tok[4] is INIT_DEPTH when numeric
-            // (engine format `V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]`),
-            // otherwise the historical TAG; tok[5] is TAG after a depth.
-            if (tok.size() >= 4) {
+            for (int k = 0; k < nvert; ++k) {
+                bool okv = false;
+                const int v = tok[k].toInt(&okv);
+                if (!okv)
+                    return QStringLiteral("%1 non-integer vertex index (got: %2)")
+                        .arg(QLatin1String(sec), raw.trimmed());
+                t.setVertex(k, v);
+            }
+            // tok[nvert] is MANNINGS_N. tok[nvert+1] is INIT_DEPTH when
+            // numeric, otherwise the historical TAG; tok[nvert+2] is TAG
+            // after a depth.
+            if (tok.size() >= nvert + 1) {
                 bool okn = false;
-                const double n = tok[3].toDouble(&okn);
+                const double n = tok[nvert].toDouble(&okn);
                 if (okn) t.mannings = n;
             }
-            if (tok.size() >= 5) {
+            if (tok.size() >= nvert + 2) {
                 bool okd = false;
-                const double d = tok[4].toDouble(&okd);
+                const double d = tok[nvert + 1].toDouble(&okd);
                 if (okd) {
                     t.initDepth = d;
-                    if (tok.size() >= 6) t.tag = tok[5];
+                    if (tok.size() >= nvert + 3) t.tag = tok[nvert + 2];
                 } else {
-                    t.tag = tok[4];
+                    t.tag = tok[nvert + 1];
                 }
             }
             out.triangles.append(t);
@@ -433,10 +459,13 @@ QString parseBCLine(const QString &raw, BCRow &row)
         return QStringLiteral("[2D_BOUNDARY_CONDITIONS] needs TRI EDGE TYPE [PARAM_1 [PARAM_2 [GROUP]]] (got: %1)")
             .arg(raw.trimmed());
 
+    // TRI is the unified cell index (triangles first, then quads); EDGE is
+    // 0..2 for a triangle, 0..3 for a quad — the per-cell bound is checked
+    // once the mesh is known (resolveBCRows).
     bool okt = false, oke = false;
     const int tri = tok[0].toInt(&okt);
     const int e   = tok[1].toInt(&oke);
-    if (!okt || !oke || tri < 0 || e < 0 || e > 2)
+    if (!okt || !oke || tri < 0 || e < 0 || e >= kEdgeStride)
         return QStringLiteral("[2D_BOUNDARY_CONDITIONS] TRI/EDGE invalid (got: %1)")
             .arg(raw.trimmed());
 
@@ -445,7 +474,8 @@ QString parseBCLine(const QString &raw, BCRow &row)
     if (!typeOk)
         return QStringLiteral("[2D_BOUNDARY_CONDITIONS] unknown TYPE '%1'").arg(tok[2]);
 
-    row.flat = tri * 3 + e;
+    row.cell = tri;
+    row.e    = e;
     row.bc.type = type;
 
     auto paramOrStar = [&](int idx) -> QString {
@@ -564,6 +594,7 @@ QString parseSectionsFromText(const QString &text,
         }
         if (currentSection.compare(QLatin1String(kSecVertices),  Qt::CaseInsensitive) == 0) sawVertices = true;
         if (currentSection.compare(QLatin1String(kSecTriangles), Qt::CaseInsensitive) == 0) sawTriangles = true;
+        if (currentSection.compare(QLatin1String(kSecQuads),     Qt::CaseInsensitive) == 0) sawTriangles = true;  // an all-quad mesh is a mesh
         if (currentSection.compare(QLatin1String(kSecMeshFile),  Qt::CaseInsensitive) == 0)
         {
             // First "FILE <path>" token wins (mirrors the engine).
@@ -593,7 +624,7 @@ QString parseSectionsFromText(const QString &text,
                         body.clear();
                         return err;
                     }
-                    if (row.flat >= 0) bcRowsOut->append(row);
+                    if (row.cell >= 0) bcRowsOut->append(row);
                 }
             }
             body.clear();
@@ -639,9 +670,24 @@ QString parseSectionsFromText(const QString &text,
     return flush();
 }
 
-/*! Engine §11A — apply each `[2D_EDGE_CONVEYANCE]` row to every (tri, e)
+/*! §V.VD.1 — resolve accumulated BC rows into the flat, stride-kEdgeStride
+ *  edge vector once the mesh is known. A row is dropped when its cell is
+ *  out of range or its EDGE exceeds the cell's edge count (2 for a
+ *  triangle, 3 for a quad); later rows overwrite earlier ones. */
+void applyBCRows(const MeshResult &mesh,
+                 const BCRowList &rows,
+                 QVector<MeshEdgeBC> &edgeBCs)
+{
+    for (const auto &r : rows) {
+        if (r.cell < 0 || r.cell >= mesh.triangles.size()) continue;
+        if (r.e < 0 || r.e >= mesh.triangles[r.cell].vertexCount()) continue;
+        edgeBCs[edgeSlot(r.cell, r.e)] = r.bc;
+    }
+}
+
+/*! Engine §11A — apply each `[2D_EDGE_CONVEYANCE]` row to every (cell, e)
  *  slot whose endpoints match the row's vertex pair. Interior edges have
- *  two such slots (one per neighbouring triangle); both receive the same
+ *  two such slots (one per neighbouring cell); both receive the same
  *  value, matching the engine's symmetry invariant. Rows whose vertex pair
  *  doesn't match any edge are silently dropped (the writer canonicalises
  *  on the lower vertex pair, but the engine accepts either order). */
@@ -653,15 +699,16 @@ void applyConveyanceRows(const MeshResult &mesh,
     const int nslots = edgeBCs.size();
     // Build vertex-pair → list-of-flat-slots once. Key is the sorted pair.
     QHash<QPair<int,int>, QVector<int>> pairToSlots;
-    pairToSlots.reserve(mesh.triangles.size() * 3);
+    pairToSlots.reserve(edgeSlotCount(mesh.triangles.size()));
     for (int t = 0; t < mesh.triangles.size(); ++t) {
         const auto &tri = mesh.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
-                                                       : qMakePair(vb[e], va[e]);
-            pairToSlots[key].append(t * 3 + e);
+        const int ne = tri.vertexCount();
+        for (int e = 0; e < ne; ++e) {
+            int va = 0, vb = 0;
+            edgeEndpoints(tri, e, va, vb);
+            const QPair<int,int> key = (va < vb) ? qMakePair(va, vb)
+                                                 : qMakePair(vb, va);
+            pairToSlots[key].append(edgeSlot(t, e));
         }
     }
     for (const auto &r : rows) {
@@ -800,17 +847,16 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
             if (!(result.mesh.infilOptions.infilStep > 0.0))
                 result.mesh.infilOptions = inlineMesh.infilOptions;
 
-            // Resolve BCs: start Wall-defaults of size n_triangles * 3,
-            // then overlay external rows first, then .inp rows (so .inp
-            // overrides on conflict).
+            // Resolve BCs: start Wall-defaults of size edgeSlotCount(n_cells)
+            // (stride kEdgeStride; slot 3 of a triangle is padding), then
+            // overlay external rows first, then .inp rows (so .inp overrides
+            // on conflict).
             // NB: `slots` is a Qt keyword macro — use `nslots`.
-            const int nslots = result.mesh.triangles.size() * 3;
+            const int nslots = edgeSlotCount(result.mesh.triangles.size());
             result.edgeBCs.resize(nslots);
             std::fill(result.edgeBCs.begin(), result.edgeBCs.end(), MeshEdgeBC{});
-            for (const auto &r : extBCs)
-                if (r.flat >= 0 && r.flat < nslots) result.edgeBCs[r.flat] = r.bc;
-            for (const auto &r : inlineBCs)
-                if (r.flat >= 0 && r.flat < nslots) result.edgeBCs[r.flat] = r.bc;
+            applyBCRows(result.mesh, extBCs,    result.edgeBCs);
+            applyBCRows(result.mesh, inlineBCs, result.edgeBCs);
             // Engine §11A — overlay external conveyance first, then .inp
             // (.inp wins on conflict; matches the BC precedence above).
             applyConveyanceRows(result.mesh, extConv,    result.edgeBCs);
@@ -828,11 +874,10 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
         result.isExternal = false;
         result.hasMesh    = true;
 
-        const int nslots = result.mesh.triangles.size() * 3;
+        const int nslots = edgeSlotCount(result.mesh.triangles.size());
         result.edgeBCs.resize(nslots);
         std::fill(result.edgeBCs.begin(), result.edgeBCs.end(), MeshEdgeBC{});
-        for (const auto &r : inlineBCs)
-            if (r.flat >= 0 && r.flat < nslots) result.edgeBCs[r.flat] = r.bc;
+        applyBCRows(result.mesh, inlineBCs, result.edgeBCs);
         applyConveyanceRows(result.mesh, inlineConv, result.edgeBCs);
     }
 

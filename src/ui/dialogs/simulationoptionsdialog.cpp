@@ -2029,7 +2029,7 @@ void SimulationOptionsDialog::onMeshImport()
 
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Import 2D Mesh"), startDir,
-        tr("SWMMVis 2D Mesh (*.2dm);;All Files (*)"));
+        tr("2D Mesh — SWMMVis or SMS 2DM (*.2dm);;All Files (*)"));
     if (path.isEmpty()) return;
 
     // The project window owns the copy-into-project, parse and canvas
@@ -2144,6 +2144,29 @@ QWidget *SimulationOptionsDialog::build2DTab()
            "water must move. Raising it shrinks the active set and speeds "
            "up drainage tails (default 0.003 m)."));
     marchForm->addRow(tr("Movement threshold:"), m_hMoveSpin);
+
+    // MOMENTUM_EQUATION (engine 2026-09-06): the marcher's momentum closure.
+    m_momentum2DCombo = new QComboBox(m_marcherGroup);
+    m_momentum2DCombo->addItem(tr("Local inertial (default)"),
+                               QStringLiteral("LOCAL_INERTIAL"));
+    m_momentum2DCombo->addItem(tr("Full shallow-water (HLLC, shock capturing)"),
+                               QStringLiteral("FULL_SWE"));
+    m_momentum2DCombo->addItem(tr("Diffusive wave"),
+                               QStringLiteral("DIFFUSIVE_WAVE"));
+    m_momentum2DCombo->setToolTip(
+        tr("Momentum closure of the explicit 2D marcher. Local inertial: "
+           "de Almeida–Bates face update (valid Fr < ~0.5). Full shallow-water: "
+           "conservative Godunov/HLLC with the convective term — transcritical "
+           "flow, hydraulic jumps and dam breaks; 2–3× the cost. Diffusive "
+           "wave: Manning quasi-steady flux, no inertia (Δx²-bound steps)."));
+    marchForm->addRow(tr("Momentum equation:"), m_momentum2DCombo);
+
+    m_reconOrder2DSpin = new QSpinBox(m_marcherGroup);
+    m_reconOrder2DSpin->setRange(1, 2);
+    m_reconOrder2DSpin->setToolTip(
+        tr("Full shallow-water only: 1 = first-order Godunov, 2 = MUSCL "
+           "(Barth–Jespersen) + SSP-RK2 (runs in global-dt mode)."));
+    marchForm->addRow(tr("Reconstruction order:"), m_reconOrder2DSpin);
 
     m_froudeMaxSpin = new QDoubleSpinBox(m_marcherGroup);
     m_froudeMaxSpin->setRange(0.1, 5.0);
@@ -2404,6 +2427,9 @@ void SimulationOptionsDialog::read2DFromEngine()
     m_ltsTiersSpin ->setValue(extInt("LTS_TIERS",     t.ltsTiers));
     m_hMoveSpin    ->setValue(extDouble("H_MOVE",     t.hMove));
     m_froudeMaxSpin->setValue(extDouble("FROUDE_MAX", t.froudeMax));
+    selectComboByData(m_momentum2DCombo,
+                      getExt("MOMENTUM_EQUATION", QStringLiteral("LOCAL_INERTIAL")));
+    m_reconOrder2DSpin->setValue(extInt("RECONSTRUCTION_ORDER", 1));
     m_advection2DBox->setChecked(parseEngineBool(
         getExt("ADVECTION", t.advection ? "YES" : "NO")) == Qt::Checked);
     // No preferences default: the engine's AUTO is the only sensible seed.
@@ -2470,6 +2496,10 @@ int SimulationOptionsDialog::write2DToEngine(int &n)
                    QString::number(m_hMoveSpin->value(), 'g', 6));
     writeIfChanged("FROUDE_MAX",    getExt("FROUDE_MAX"),
                    QString::number(m_froudeMaxSpin->value(), 'g', 6));
+    writeIfChanged("MOMENTUM_EQUATION", getExt("MOMENTUM_EQUATION"),
+                   m_momentum2DCombo->currentData().toString());
+    writeIfChanged("RECONSTRUCTION_ORDER", getExt("RECONSTRUCTION_ORDER"),
+                   QString::number(m_reconOrder2DSpin->value()));
     writeIfChanged("ADVECTION",     getExt("ADVECTION"),
                    engineBoolString(m_advection2DBox->isChecked()));
     writeIfChanged("BACKEND",       getExt("BACKEND"),

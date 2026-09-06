@@ -733,6 +733,13 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
     const auto  &tris = m_layer->m_sceneTris;
     const int    nTri = int(tris.size());
     const QRectF &bb  = m_layer->m_sceneBBox;
+    // Display triangle → owning cell (a quad owns two consecutive fan
+    // triangles); identity when the layer has no map yet.
+    const auto  &triCellMap = m_layer->triCellMap();
+    const bool   haveTriCellMap = int(triCellMap.size()) == nTri;
+    auto cellOfTri = [&](int i) {
+        return haveTriCellMap ? triCellMap[size_t(i)] : i;
+    };
 
     auto *bandSub  = m_layer->contourBandSublayer();
     auto *isoSub   = m_layer->isolineSublayer();
@@ -1034,10 +1041,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 if (m == OpenSWMM::Render::BinMethod::Quantile
                     || m == OpenSWMM::Render::BinMethod::NaturalBreaks
                     || m == OpenSWMM::Render::BinMethod::StdDev) {
+                    // One sample per CELL: a quad's two display triangles
+                    // are consecutive in the fan and carry the same depth.
                     samples.reserve(nTri);
-                    for (int i = 0; i < nTri; ++i)
+                    for (int i = 0; i < nTri; ++i) {
+                        if (i > 0 && cellOfTri(i) == cellOfTri(i - 1)) continue;
                         if (tris[i].depth >= dryDepth)
                             samples.push_back(double(tris[i].depth));
+                    }
                 }
                 const QVector<double> edges =
                     bs->scheme().levelEdges(dryDepth, maxDepth, samples);
@@ -1229,10 +1240,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 if (mth == OpenSWMM::Render::BinMethod::Quantile
                     || mth == OpenSWMM::Render::BinMethod::NaturalBreaks
                     || mth == OpenSWMM::Render::BinMethod::StdDev) {
+                    // One sample per CELL: a quad's two display triangles
+                    // are consecutive in the fan and carry the same depth.
                     samples.reserve(nTri);
-                    for (int i = 0; i < nTri; ++i)
+                    for (int i = 0; i < nTri; ++i) {
+                        if (i > 0 && cellOfTri(i) == cellOfTri(i - 1)) continue;
                         if (tris[i].depth >= dryDepth)
                             samples.push_back(double(tris[i].depth));
+                    }
                 }
                 const QVector<double> edges =
                     style->scheme().levelEdges(vMin, vMax, samples);
@@ -1360,10 +1375,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 if (mth == OpenSWMM::Render::BinMethod::Quantile
                     || mth == OpenSWMM::Render::BinMethod::NaturalBreaks
                     || mth == OpenSWMM::Render::BinMethod::StdDev) {
+                    // One sample per CELL: a quad's two display triangles
+                    // are consecutive in the fan and carry the same depth.
                     samples.reserve(nTri);
-                    for (int i = 0; i < nTri; ++i)
+                    for (int i = 0; i < nTri; ++i) {
+                        if (i > 0 && cellOfTri(i) == cellOfTri(i - 1)) continue;
                         if (tris[i].depth >= dryDepth)
                             samples.push_back(double(tris[i].depth));
+                    }
                 }
                 const QVector<double> edges =
                     style->scheme().levelEdges(vMin, vMax, samples);
@@ -1488,10 +1507,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 if (mth == OpenSWMM::Render::BinMethod::Quantile
                     || mth == OpenSWMM::Render::BinMethod::NaturalBreaks
                     || mth == OpenSWMM::Render::BinMethod::StdDev) {
+                    // One sample per CELL: a quad's two display triangles
+                    // are consecutive in the fan and carry the same depth.
                     samples.reserve(nTri);
-                    for (int i = 0; i < nTri; ++i)
+                    for (int i = 0; i < nTri; ++i) {
+                        if (i > 0 && cellOfTri(i) == cellOfTri(i - 1)) continue;
                         if (tris[i].depth >= dryDepth)
                             samples.push_back(double(tris[i].depth));
+                    }
                 }
                 const QVector<double> edges =
                     style->scheme().levelEdges(vMin, vMax, samples);
@@ -1662,9 +1685,11 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                     || m == OpenSWMM::Render::BinMethod::NaturalBreaks
                     || m == OpenSWMM::Render::BinMethod::StdDev) {
                     isoSamples.reserve(nTri);
-                    for (int i = 0; i < nTri; ++i)
+                    for (int i = 0; i < nTri; ++i) {
+                        if (i > 0 && cellOfTri(i) == cellOfTri(i - 1)) continue;
                         if (tris[i].depth >= dryDepth)
                             isoSamples.push_back(double(tris[i].depth));
+                    }
                 }
             }
             const std::vector<double> levels = is
@@ -2159,22 +2184,49 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             std::vector<QSGGeometry::Point2D> fillVertsH, edgeVertsH;
             if (!hi.isEmpty()) {
                 const float edgeHW = 1.0f * invView;   // ~2 px outline
-                for (int idx : hi) {
-                    if (idx < 0 || idx >= nTri) continue;
-                    const auto &t = tris[idx];
-                    auto P = [&](const QPointF &p) {
-                        QSGGeometry::Point2D q;
-                        q.x = float(p.x() - ox);
-                        q.y = float(p.y() - oy);
-                        return q;
-                    };
-                    fillVertsH.push_back(P(t.a));
-                    fillVertsH.push_back(P(t.b));
-                    fillVertsH.push_back(P(t.c));
-                    const QSGGeometry::Point2D a = P(t.a), b = P(t.b), c = P(t.c);
-                    appendThickSeg(edgeVertsH, a.x, a.y, b.x, b.y, edgeHW);
-                    appendThickSeg(edgeVertsH, b.x, b.y, c.x, c.y, edgeHW);
-                    appendThickSeg(edgeVertsH, c.x, c.y, a.x, a.y, edgeHW);
+                // Highlights are CELL indices: fill every display sub-triangle
+                // of the cell, outline the true cell boundary — a quad's VFR
+                // diagonal (the edge its two sub-triangles share) is not a
+                // mesh edge and is never stroked.
+                const auto &cellRange = m_layer->cellTriRange();
+                const auto &triIdx    = m_layer->triVertexIndices();
+                const int   nCell     = m_layer->cellCount();
+                auto P = [&](const QPointF &p) {
+                    QSGGeometry::Point2D q;
+                    q.x = float(p.x() - ox);
+                    q.y = float(p.y() - oy);
+                    return q;
+                };
+                for (int cell : hi) {
+                    if (cell < 0 || cell >= nCell ||
+                        cell + 1 >= int(cellRange.size())) continue;
+                    const int t0 = cellRange[size_t(cell)];
+                    const int t1 = std::min(cellRange[size_t(cell) + 1], nTri);
+                    for (int idx = t0; idx < t1; ++idx) {
+                        const auto &t = tris[idx];
+                        fillVertsH.push_back(P(t.a));
+                        fillVertsH.push_back(P(t.b));
+                        fillVertsH.push_back(P(t.c));
+                        const QSGGeometry::Point2D pts[3] = { P(t.a), P(t.b), P(t.c) };
+                        const auto &vid = triIdx[size_t(idx)];
+                        for (int e = 0; e < 3; ++e) {
+                            const int va = vid[e], vb = vid[(e + 1) % 3];
+                            // Shared with the cell's other sub-triangle → diagonal.
+                            bool diagonal = false;
+                            for (int o = t0; o < t1 && !diagonal; ++o) {
+                                if (o == idx) continue;
+                                const auto &ov = triIdx[size_t(o)];
+                                int shared = 0;
+                                for (int k = 0; k < 3; ++k)
+                                    if (ov[k] == va || ov[k] == vb) ++shared;
+                                diagonal = (shared == 2);
+                            }
+                            if (diagonal) continue;
+                            appendThickSeg(edgeVertsH, pts[e].x, pts[e].y,
+                                           pts[(e + 1) % 3].x, pts[(e + 1) % 3].y,
+                                           edgeHW);
+                        }
+                    }
                 }
             }
             uploadFlatVerts(hiFillNode, fillVertsH);

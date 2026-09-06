@@ -85,9 +85,95 @@ inline double cellEtaFromMeanDepth(double h, double za, double zb, double zc)
     return eta;
 }
 
+/*! Exact planar-triangle mean depth h̄(η) — the forward stage–storage relation
+ *  \ref cellEtaFromMeanDepth inverts (B&S 2006). \p za,\p zb,\p zc in any order. */
+inline double triMeanDepthFromEta(double eta, double za, double zb, double zc)
+{
+    double z1 = za, z2 = zb, z3 = zc;
+    if (z1 > z2) std::swap(z1, z2);
+    if (z2 > z3) std::swap(z2, z3);
+    if (z1 > z2) std::swap(z1, z2);
+    if (eta <= z1) return 0.0;
+    const double relief = z3 - z1;
+    const double zbar   = (z1 + z2 + z3) / 3.0;
+    if (relief < 1.0e-9 || eta >= z3) return eta - zbar;
+    if (eta <= z2) {
+        const double d = eta - z1;
+        return d * d * d / (3.0 * (z2 - z1) * relief);
+    }
+    const double dz3 = z3 - eta;
+    return (eta - zbar) + dz3 * dz3 * dz3 / (3.0 * relief * (z3 - z2));
+}
+
+/*!
+ * \brief One cell of a mixed triangle/quad mesh, pre-split for the
+ *        reconstruction (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md).
+ *
+ * Built once per geometry rebuild from mesh::cellGeom so the quad's
+ * sub-triangles are the SAME two the engine's VFR storage model uses
+ * (Begnudelli & Sanders 2007 diagonal). A triangle has nSub == 1 and
+ * sub[0] == {v0,v1,v2}; the areas are only consulted for a quad.
+ */
+struct CellSplit
+{
+    std::array<int, 4>                 v{{-1, -1, -1, -1}}; ///< cell vertices; v[3] = -1 for a triangle
+    int                                nSub = 1;            ///< 1 (triangle) or 2 (quad)
+    std::array<std::array<int, 3>, 2>  sub{};               ///< sub-triangle vertex indices
+    std::array<double, 2>              area{{0.0, 0.0}};    ///< planimetric sub-triangle areas (quad)
+
+    int vertexCount() const noexcept { return v[3] >= 0 ? 4 : 3; }
+};
+
+/*! Free-surface elevation η of a QUAD from its mean depth h̄ — inverts the
+ *  area-weighted sum of the two planar sub-triangle relations
+ *  h̄(η) = [A₁·d̄₁(η) + A₂·d̄₂(η)] / (A₁+A₂) (mirror of the engine's
+ *  quadEtaFromMeanDepth, QuadVfr.hpp, ε = 0). Closed form when fully wet;
+ *  bisection on the monotone sum otherwise. \p zs holds the six sub-triangle
+ *  vertex elevations (sub 1 then sub 2, any order within a triple). */
+inline double quadEtaFromMeanDepth(const double zs[6], double a1, double a2, double h)
+{
+    const double A = a1 + a2;
+    if (!(A > 0.0)) {
+        // Degenerate quad — fall back to the flat closure over its mean bed.
+        double zm = 0.0;
+        for (int k = 0; k < 6; ++k) zm += zs[k];
+        return zm / 6.0 + ((h > 0.0) ? h : 0.0);
+    }
+    const double zbar1 = (zs[0] + zs[1] + zs[2]) / 3.0;
+    const double zbar2 = (zs[3] + zs[4] + zs[5]) / 3.0;
+    const double zw    = (a1 * zbar1 + a2 * zbar2) / A;
+    double zlow = zs[0], ztop = zs[0];
+    for (int k = 1; k < 6; ++k) {
+        if (zs[k] < zlow) zlow = zs[k];
+        if (zs[k] > ztop) ztop = zs[k];
+    }
+    if (!(h > 0.0)) return zlow;
+    const double relief = ztop - zlow;
+    if (relief < 1.0e-9 || h >= ztop - zw) return zw + h;      // flat / fully wet
+
+    auto meanDepth = [&](double eta) {
+        return (a1 * triMeanDepthFromEta(eta, zs[0], zs[1], zs[2])
+              + a2 * triMeanDepthFromEta(eta, zs[3], zs[4], zs[5])) / A;
+    };
+    double lo = zlow, hi = ztop;
+    for (int it = 0; it < 64; ++it) {
+        const double mid = 0.5 * (lo + hi);
+        if (meanDepth(mid) < h) lo = mid; else hi = mid;
+        if (hi - lo < 1.0e-12 * (1.0 + relief)) break;
+    }
+    return 0.5 * (lo + hi);
+}
+
 /*!
  * \brief Reconstruct per-vertex SIGNED depths (η_v − z_v) from per-cell mean
- *        depths.
+ *        depths on a mixed triangle/quad mesh.
+ *
+ * Each cell's η comes from its own planar-bed closure (triangle: the B&S 2006
+ * inversion; quad: the two-sub-triangle sum, \ref quadEtaFromMeanDepth). The
+ * depth weight is scaled by 3/nv — the plan's "1/nv per incident cell"
+ * weighting normalised so an all-triangle mesh is bit-identical to the
+ * historical (h-weighted) result: a triangle contributes h, a quad 3h/4.
+ *
  * \p vsum,\p wsum are caller-owned scratch (resized here) so the per-frame
  * maxDepthPerVertex loop never allocates. \p outVertexDepth is resized to
  * vz.size(); a vertex with no qualifying incident cell yields 0. After the
@@ -95,7 +181,7 @@ inline double cellEtaFromMeanDepth(double h, double za, double zb, double zc)
  * incident cell this frame.
  */
 inline void reconstructVertexSignedDepths(
-    const std::vector<std::array<int, 3>>& tris,
+    const std::vector<CellSplit>& cells,
     const std::vector<float>&  cellDepths,
     const std::vector<float>&  cellZc,
     const std::vector<double>& vz,
@@ -104,36 +190,42 @@ inline void reconstructVertexSignedDepths(
     std::vector<float>& wsum,
     std::vector<float>& outVertexDepth)
 {
-    const int nTri  = static_cast<int>(tris.size());
     const int nVert = static_cast<int>(vz.size());
     vsum.assign(static_cast<size_t>(nVert), 0.0f);
     wsum.assign(static_cast<size_t>(nVert), 0.0f);
-    const int nCell = std::min<int>(nTri, static_cast<int>(cellDepths.size()));
+    const int nCell = std::min<int>(static_cast<int>(cells.size()),
+                                    static_cast<int>(cellDepths.size()));
     for (int i = 0; i < nCell; ++i) {
         const float h = cellDepths[i];
         // NaN-robust dry skip: `h < dryF` is false for NaN, so a non-finite
-        // depth would NOT be skipped and would poison vsum/wsum at all three
-        // vertices (→ streaked triangle fans in the Gouraud fill).
+        // depth would NOT be skipped and would poison vsum/wsum at all of the
+        // cell's vertices (→ streaked triangle fans in the Gouraud fill).
         if (!(h >= dryF)) continue;                // only wetted cells contribute
-        const auto& tri = tris[i];
+        const CellSplit& c = cells[i];
+        const int nv = c.vertexCount();
+        bool zOk = true;
+        for (int k = 0; k < nv; ++k) {
+            const int vi = c.v[k];
+            if (vi < 0 || vi >= nVert || !std::isfinite(vz[vi])) { zOk = false; break; }
+        }
         // Cell free surface via the planar-bed stage–storage inversion when
-        // the three vertex elevations are usable; flat closure z_c + h as the
+        // the vertex elevations are usable; flat closure z_c + h as the
         // fallback (out-of-range index / nodata z).
         double eta;
-        if (tri[0] >= 0 && tri[0] < nVert &&
-            tri[1] >= 0 && tri[1] < nVert &&
-            tri[2] >= 0 && tri[2] < nVert &&
-            std::isfinite(vz[tri[0]]) && std::isfinite(vz[tri[1]]) &&
-            std::isfinite(vz[tri[2]])) {
-            eta = cellEtaFromMeanDepth(double(h), vz[tri[0]], vz[tri[1]],
-                                       vz[tri[2]]);
-        } else {
+        if (!zOk) {
             eta = double(cellZc[i]) + double(h);
+        } else if (nv == 3) {
+            eta = cellEtaFromMeanDepth(double(h), vz[c.v[0]], vz[c.v[1]], vz[c.v[2]]);
+        } else {
+            const double zs[6] = { vz[c.sub[0][0]], vz[c.sub[0][1]], vz[c.sub[0][2]],
+                                   vz[c.sub[1][0]], vz[c.sub[1][1]], vz[c.sub[1][2]] };
+            eta = quadEtaFromMeanDepth(zs, c.area[0], c.area[1], double(h));
         }
-        const float we = h * float(eta);           // depth-weighted η contribution
-        if (!std::isfinite(we)) continue;          // non-finite z_c must not spread
-        for (int k = 0; k < 3; ++k) {
-            const int vi = tri[k];
+        const float w  = (nv == 3) ? h : h * 0.75f;  // depth weight × 3/nv
+        const float we = w * float(eta);            // weighted η contribution
+        if (!std::isfinite(we)) continue;           // non-finite z_c must not spread
+        for (int k = 0; k < nv; ++k) {
+            const int vi = c.v[k];
             if (vi < 0 || vi >= nVert) continue;
             // Wetted-contact gate (mirror of the engine): this cell's water
             // votes at corner vi only if its surface reaches the corner.
@@ -141,7 +233,7 @@ inline void reconstructVertexSignedDepths(
             // non-finite handling at output.
             if (!(eta > vz[vi])) continue;
             vsum[vi] += we;
-            wsum[vi] += h;
+            wsum[vi] += w;
         }
     }
     outVertexDepth.assign(static_cast<size_t>(nVert), 0.0f);
@@ -152,6 +244,27 @@ inline void reconstructVertexSignedDepths(
             // vertex, not a NaN that the colour ramp turns into garbage.
             outVertexDepth[v] = std::isfinite(d) ? float(d) : 0.0f;
         }
+}
+
+/*! All-triangle convenience overload (historical signature): wraps each
+ *  triangle as a one-sub-triangle \ref CellSplit and delegates. */
+inline void reconstructVertexSignedDepths(
+    const std::vector<std::array<int, 3>>& tris,
+    const std::vector<float>&  cellDepths,
+    const std::vector<float>&  cellZc,
+    const std::vector<double>& vz,
+    float dryF,
+    std::vector<float>& vsum,
+    std::vector<float>& wsum,
+    std::vector<float>& outVertexDepth)
+{
+    std::vector<CellSplit> cells(tris.size());
+    for (size_t i = 0; i < tris.size(); ++i) {
+        cells[i].v      = {tris[i][0], tris[i][1], tris[i][2], -1};
+        cells[i].sub[0] = tris[i];
+    }
+    reconstructVertexSignedDepths(cells, cellDepths, cellZc, vz, dryF,
+                                  vsum, wsum, outVertexDepth);
 }
 
 /*!

@@ -9,6 +9,7 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "map/mapcanvas.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshcellparams.h"
 #include "mesh/meshinfil.h"
 
@@ -188,8 +189,8 @@ void MeshSetEdgeAttributeCommand::apply(const QVector<mesh::MeshEdgeBC> &bcs)
     if (!m_layer) return;
     const bool conveyance = (m_key == "conveyance");
     for (int i = 0; i < m_slots.size() && i < bcs.size(); ++i) {
-        const int tri = m_slots[i] / 3;
-        const int e   = m_slots[i] % 3;
+        const int tri = mesh::slotCell(m_slots[i]);
+        const int e   = mesh::slotLocal(m_slots[i]);
         if (conveyance) {
             // Goes through the mirroring helper so the neighbour half of an
             // interior edge follows the value back on undo, exactly as it
@@ -647,8 +648,8 @@ int pushEdgeParamEdit(SWMM2DMeshLayer *layer,
 
     for (const auto &pr : edges) {
         const int tri = pr.first, e = pr.second;
-        if (tri < 0 || e < 0 || e > 2) continue;
-        const int flat = tri * 3 + e;
+        if (tri < 0 || e < 0 || e >= mesh::kEdgeStride) continue;
+        const int flat = mesh::edgeSlot(tri, e);
         if (flat < 0 || flat >= existing.size()) continue;
         if (boundaryOnly && !layer->isBoundaryEdge(tri, e)) continue;
         const MeshEdgeBC before = existing[flat];
@@ -684,8 +685,8 @@ int pushEdgeBCEdit(SWMM2DMeshLayer *layer,
 
     for (const auto &pr : edges) {
         const int tri = pr.first, e = pr.second;
-        if (tri < 0 || e < 0 || e > 2) continue;
-        const int flat = tri * 3 + e;
+        if (tri < 0 || e < 0 || e >= mesh::kEdgeStride) continue;
+        const int flat = mesh::edgeSlot(tri, e);
         if (flat < 0 || flat >= existing.size()) continue;
         if (!layer->isBoundaryEdge(tri, e)) continue;   // BC = boundary only
         const MeshEdgeBC before = existing[flat];

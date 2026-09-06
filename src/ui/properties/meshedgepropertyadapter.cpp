@@ -7,6 +7,7 @@
 #include "ui/properties/meshedgepropertyadapter.h"
 
 #include "layers/swmm2dmeshlayer.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshobjectref.h"
 
 #include <QCoreApplication>
@@ -18,7 +19,7 @@ namespace {
 mesh::MeshEdgeBC currentBC(SWMM2DMeshLayer *layer, int tri, int e)
 {
     if (!layer) return {};
-    const int flat = tri * 3 + e;
+    const int flat = mesh::edgeSlot(tri, e);
     const auto &bcs = layer->edgeBCs();
     if (flat < 0 || flat >= bcs.size()) return {};
     return bcs[flat];
@@ -50,12 +51,9 @@ double MeshEdgePropertyAdapter::length() const
         return std::numeric_limits<double>::quiet_NaN();
     const auto &tri = m_layer->mesh().triangles[m_tri];
     int va = -1, vb = -1;
-    switch (m_e) {
-    case 0: va = tri.v1; vb = tri.v2; break;
-    case 1: va = tri.v2; vb = tri.v0; break;
-    case 2: va = tri.v0; vb = tri.v1; break;
-    default: return std::numeric_limits<double>::quiet_NaN();
-    }
+    if (m_e < 0 || m_e >= tri.vertexCount())
+        return std::numeric_limits<double>::quiet_NaN();
+    mesh::edgeEndpoints(tri, m_e, va, vb);
     const auto &verts = m_layer->mesh().vertices;
     if (va < 0 || vb < 0 || va >= verts.size() || vb >= verts.size())
         return std::numeric_limits<double>::quiet_NaN();
@@ -135,8 +133,8 @@ void MeshEdgePropertyAdapter::onLayerAttributeChanged(const QString &refName)
 
 QString MeshEdgePropertyAdapter::displayLabelFor(const QString &property) const
 {
-    if (property == QStringLiteral("triIdx"))     return QCoreApplication::translate("MeshEdge", "Triangle");
-    if (property == QStringLiteral("edgeLocal"))  return QCoreApplication::translate("MeshEdge", "Edge (0..2)");
+    if (property == QStringLiteral("triIdx"))     return QCoreApplication::translate("MeshEdge", "Cell");
+    if (property == QStringLiteral("edgeLocal"))  return QCoreApplication::translate("MeshEdge", "Edge (0..2, 0..3 on a quad)");
     if (property == QStringLiteral("isBoundary")) return QCoreApplication::translate("MeshEdge", "Boundary?");
     if (property == QStringLiteral("length"))     return QCoreApplication::translate("MeshEdge", "Length");
     if (property == QStringLiteral("bcType"))     return QCoreApplication::translate("MeshEdge", "BC type");

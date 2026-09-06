@@ -39,6 +39,26 @@ struct CellAreaStats
  */
 [[nodiscard]] double triangleArea(const MeshResult &mesh, int tri);
 
+/*! \brief Area centroid of cell \a cell (mesh::cellGeom — the vertex mean
+ *         for a triangle, the area-weighted sub-triangle centroid for a
+ *         quad). A null point for an out-of-range cell. */
+[[nodiscard]] QPointF cellCentroid(const MeshResult &mesh, int cell);
+
+/*! \brief Quadrilateral-cell statistics (workplans/TRI_QUAD_MESHING_PLAN
+ *         §5): count, interior-angle range and bed non-planarity. */
+struct QuadStats
+{
+    int    count           = 0;    ///< Quads with valid vertex ids.
+    double minAngleDeg     = 360.0;///< Smallest interior corner angle (0 when count == 0).
+    double maxAngleDeg     = 0.0;  ///< Largest interior corner angle.
+    /*! Largest bed twist |z0 - z1 + z2 - z3| / 4 over the quads — the
+     *  residual of the least-squares plane through the four corners; 0 for
+     *  a planar bed. Project vertical units. */
+    double maxNonPlanarity = 0.0;
+};
+
+[[nodiscard]] QuadStats computeQuadStats(const MeshResult &mesh);
+
 /*! \brief Compute cell-area statistics over all triangles in \a mesh.
  *
  * Area is \ref triangleArea. Triangles referencing out-of-range vertex

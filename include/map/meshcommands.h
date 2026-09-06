@@ -146,7 +146,7 @@ private:
 /*!
  * \class MeshSetEdgeAttributeCommand
  * \brief Undoable write of one per-edge attribute across a set of edge slots.
- * \details Slots are stored flat (`tri * 3 + edgeLocal`) and both sides of the
+ * \details Slots are stored flat (`mesh::edgeSlot(cell, edgeLocal)`) and both sides of the
  *          edit hold the WHOLE MeshEdgeBC, not just the changed field: the BC
  *          fields are interdependent through `type` (a stage value is
  *          meaningless once the type flips to Wall), so a partial restore would
@@ -164,7 +164,7 @@ public:
      *                "flow", "tseries", "curve", "group", or "bc" for a whole
      *                boundary-condition write). "conveyance" selects the
      *                mirroring write path; every other key writes the slot.
-     *  \param edgeSlots  Flat edge indices (`tri * 3 + edgeLocal`).
+     *  \param edgeSlots  Flat edge slots (`mesh::edgeSlot(cell, edgeLocal)`).
      *  \param newBCs Parallel to \p edgeSlots: post-edit slot value.
      *  \param oldBCs Parallel to \p edgeSlots: pre-edit slot value. */
     MeshSetEdgeAttributeCommand(SWMM2DMeshLayer          *layer,

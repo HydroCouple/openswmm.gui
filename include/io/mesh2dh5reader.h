@@ -13,25 +13,49 @@
  *   /Mesh2_node_x  [nNode]            vertex X coordinates
  *   /Mesh2_node_y  [nNode]            vertex Y coordinates
  *   /Mesh2_node_z  [nNode]            vertex elevations
- *   /Mesh2_face_nodes [nFace, 3]      triangle connectivity (int)
+ *   /Mesh2_face_nodes [nFace, 3|4]    cell connectivity (int); width 4 with
+ *                                     attribute `_FillValue` (−1) and dataset
+ *                                     /Mesh2_face_nv [nFace] (int8, 3|4) once
+ *                                     the mesh holds a quadrilateral
  *   /time           [nTime]           seconds since simulation start
- *   /Mesh2_face_depth [nTime, nFace]  overland flow depth (m)
+ *   /Mesh2_face_depth [nTime, nFace]  overland flow depth (m), per CELL
  *   /Mesh2_node_head  [nTime, nNode]  reconstructed vertex head (m; engine
  *                                     pseudo-Laplacian, VertexReconstruction —
  *                                     SOLVER field, no longer rendered)
  *   /Mesh2_node_depth [nTime, nNode]  SIGNED vertex depth η_v − z_v (m; engine
  *                                     wet-masked render reconstruction)
- *   /Mesh2_edge_flux  [nTime, nFace, 3] signed normal flux per edge (m^2 s^-1)
- *   /Mesh2_edge_length [nFace, 3]     edge length (m, CF.2 / new in engine 6.0+)
- *   /Mesh2_edge_nx    [nFace, 3]      edge outward unit normal x (CF.2)
- *   /Mesh2_edge_ny    [nFace, 3]      edge outward unit normal y (CF.2)
+ *   /Mesh2_edge_flux  [nTime, nFace, 3|4] signed normal flux per edge (m^2 s^-1)
+ *   /Mesh2_edge_length [nFace, 3|4]   edge length (m, CF.2 / new in engine 6.0+)
+ *   /Mesh2_edge_nx    [nFace, 3|4]    edge outward unit normal x (CF.2)
+ *   /Mesh2_edge_ny    [nFace, 3|4]    edge outward unit normal y (CF.2)
  *
  * Older files written before the engine's CF.2 step (which added the static
  * edge-geometry datasets) are tolerated: \ref readEdgeGeometry transparently
  * reconstructs length / outward normal from \c /Mesh2_node_x / \c /Mesh2_node_y
  * + \c /Mesh2_face_nodes when the cached datasets are absent. The local-edge
- * convention matches the engine's \c MeshBuilder: edge \c e is opposite
- * vertex \c e (i.e. between vertices \c v[(e+1)%3] and \c v[(e+2)%3]).
+ * convention matches the engine's \c MeshBuilder: edge \c e of an nv-gon runs
+ * between vertices \c v[(e+1)%nv] and \c v[(e+2)%nv] (for a triangle: "edge
+ * \c e is opposite vertex \c e").
+ *
+ * Mixed triangle/quad contract (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md
+ * phase G0; engine plans/2D_TRI_QUAD_MESH_PLAN_2026-09-06.md §2.5):
+ *   - The FILE's face index is the CELL index: every per-face dataset
+ *     (depth, head, rainfall, …) and \ref cellCount / \ref triangleCount are
+ *     per cell. \ref readCells returns the cells verbatim (v3 = −1 for a
+ *     triangle; `_FillValue` / negative entries and /Mesh2_face_nv are
+ *     honoured as padding).
+ *   - \ref readTriangles returns the DISPLAY sub-triangle fan: one triangle
+ *     per triangle cell, TWO per quad (split on the same Begnudelli–Sanders
+ *     diagonal as the engine's storage model, via mesh::cellGeom — hence
+ *     /Mesh2_node_z is consulted). \ref triangleFaceMap maps each display
+ *     triangle back to its cell (the identity for an all-triangle file);
+ *     \ref displayTriangleCount is its length. Consumers colour each display
+ *     triangle with the CELL's value.
+ *   - Per-edge arrays (\ref readEdgeFluxAt, \ref readEdgeGeometry) are ALWAYS
+ *     returned with stride \ref kEdgeStride (4) — `[cell * 4 + localEdge]`,
+ *     the same layout as mesh::edgeSlot — regardless of the file's own
+ *     width (\ref edgeStride, 3 or 4): width-3 files are repacked on read,
+ *     slot 3 of a triangle is 0. Consumers use ONE layout.
  *
  * The reader is intentionally Qt-light (QString only for the path); the
  * data interfaces use std::vector + std::array so the same wrapper can
@@ -104,18 +128,48 @@ public:
 
     // ----- Mesh queries (one-shot; cached after first call) ----------------
 
+    /*! \brief Edge slots per cell in every per-edge array this reader
+     *  returns (== mesh::kEdgeStride; asserted in the .cpp). */
+    static constexpr int kEdgeStride = 4;
+
     /*! \brief Number of mesh vertices (`/Mesh2_node_x` length). */
     int vertexCount() const;
-    /*! \brief Number of mesh triangles (`/Mesh2_face_nodes` row count). */
+    /*! \brief Number of mesh CELLS (`/Mesh2_face_nodes` row count — the
+     *  file's face count, triangles and quads alike). Historical name;
+     *  identical to \ref cellCount. Per-face datasets have this length. */
     int triangleCount() const;
+    /*! \brief Number of mesh cells (== \ref triangleCount). */
+    int cellCount() const { return triangleCount(); }
+    /*! \brief Number of DISPLAY triangles returned by \ref readTriangles
+     *  (cells + quads; == cellCount() for an all-triangle file). 0 on error. */
+    int displayTriangleCount() const;
+    /*! \brief Width of the file's per-edge datasets (`/Mesh2_face_nodes`
+     *  dim 1): 3 for an all-triangle file, 4 once any quad exists. The
+     *  arrays this reader returns are always \ref kEdgeStride wide. 0 on error. */
+    int edgeStride() const;
 
     /*! \brief Read vertex coordinates into \p vx,\p vy,\p vz. Resizes output. */
     bool readMeshGeometry(std::vector<double>& vx,
                           std::vector<double>& vy,
                           std::vector<double>& vz) const;
 
-    /*! \brief Read triangle connectivity. \p tris[i] = {v0,v1,v2}. */
+    /*! \brief Read the cells verbatim. \p cells[c] = {v0,v1,v2,v3}, with
+     *  v3 = −1 for a triangle (cyclic order for a quad). Indices are
+     *  normalised to 0-based (`start_index`), padding is taken from
+     *  `_FillValue` / negative entries / `/Mesh2_face_nv`. */
+    bool readCells(std::vector<std::array<int, 4>>& cells) const;
+
+    /*! \brief Read the DISPLAY sub-triangle fan. \p tris[i] = {v0,v1,v2};
+     *  one entry per triangle cell, two per quad (mesh::cellGeom's diagonal),
+     *  so `tris.size() == displayTriangleCount()`. Use \ref triangleFaceMap
+     *  to look up the cell whose value display triangle i carries. For an
+     *  all-triangle file this is exactly the file's connectivity. */
     bool readTriangles(std::vector<std::array<int, 3>>& tris) const;
+
+    /*! \brief Display triangle → cell index (parallel to \ref readTriangles;
+     *  the identity for an all-triangle file). Empty until \ref readTriangles
+     *  / \ref displayTriangleCount / \ref readCells has run successfully. */
+    const std::vector<int>& triangleFaceMap() const { return cached_face_map_; }
 
     /*!
      * \brief Read the `/crs` georeferencing variable (engine 6.0+).
@@ -195,8 +249,10 @@ public:
     /*!
      * \brief Read one time slice of \c /Mesh2_edge_flux.
      * \param timeIdx 0-based time index (must be < timeCount()).
-     * \param flux    Output, resized to \c triangleCount()*3, indexed
-     *                \c [tri*3 + localEdge]. Units m² s⁻¹; sign convention
+     * \param flux    Output, resized to \c cellCount()*kEdgeStride, indexed
+     *                \c [cell*kEdgeStride + localEdge] (mesh::edgeSlot)
+     *                whatever the file's own width (\ref edgeStride); slot 3
+     *                of a triangle is 0. Units m² s⁻¹; sign convention
      *                positive = outward through the edge's outward normal.
      * \returns true on success; false (with \c lastError set) if the file
      *          does not carry the dataset.
@@ -210,12 +266,13 @@ public:
      * datasets written by engine 6.0+ (CF.2). When any of them is absent
      * (older \c .h5 files), falls back to recomputing on the fly from
      * \c /Mesh2_node_x, \c /Mesh2_node_y, and \c /Mesh2_face_nodes using
-     * the same convention as the engine's \c MeshBuilder (edge \c e is
-     * opposite vertex \c e; outward normal flipped if needed so it points
-     * away from the centroid).
+     * the same convention as the engine's \c MeshBuilder (edge \c e joins
+     * \c v[(e+1)%nv] and \c v[(e+2)%nv]; outward normal flipped if needed so
+     * it points away from the centroid).
      *
-     * \param length  Output, resized to \c triangleCount()*3.
-     * \param nx,ny   Output, resized to \c triangleCount()*3.
+     * \param length  Output, resized to \c cellCount()*kEdgeStride
+     *                (\c [cell*kEdgeStride + localEdge], file width repacked).
+     * \param nx,ny   Output, same layout.
      * \returns true on success.
      */
     bool readEdgeGeometry(std::vector<float>& length,
@@ -228,13 +285,21 @@ private:
                                  // to avoid including <hdf5.h> from this header)
     mutable int   cached_n_vert_ = -1;
     mutable int   cached_n_face_ = -1;
+    mutable int   cached_face_width_ = -1;     ///< /Mesh2_face_nodes dim 1 (3|4); -1 unknown
     mutable int   cached_has_node_head_ = -1;  ///< -1 unknown, 0 absent, 1 present
     mutable int   cached_has_node_depth_ = -1; ///< -1 unknown, 0 absent, 1 present
     mutable std::map<std::string, bool> cached_has_face_field_; ///< per-dataset presence
     mutable QString last_error_;
+    // Connectivity, loaded once by loadCells_(): the file's cells, the
+    // display sub-triangle fan and its display-triangle → cell map.
+    mutable bool cached_cells_loaded_ = false;
+    mutable std::vector<std::array<int, 4>> cached_cells_;
+    mutable std::vector<std::array<int, 3>> cached_display_tris_;
+    mutable std::vector<int>                cached_face_map_;
 
     bool readDim_(const char* dataset, int axis, int& out) const;
     bool setError_(const QString& msg) const;
+    bool loadCells_() const;
 };
 
 } // namespace openswmmvis::io

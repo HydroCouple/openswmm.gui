@@ -6,13 +6,21 @@
  */
 #include "io/mesh2dh5reader.h"
 
+#include "mesh/meshcellgeom.h"   // mesh::cellGeom (quad display split), kEdgeStride
+
 #include <hdf5.h>
+
+#include <QPointF>
+#include <QVector>
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 
 namespace openswmmvis::io {
+
+static_assert(Mesh2DH5Reader::kEdgeStride == mesh::kEdgeStride,
+              "Mesh2DH5Reader edge layout must match mesh::edgeSlot");
 
 namespace {
 
@@ -145,8 +153,13 @@ bool Mesh2DH5Reader::open(const QString& path)
     path_ = path;
     cached_n_vert_ = -1;
     cached_n_face_ = -1;
+    cached_face_width_ = -1;
     cached_has_node_head_ = -1;
     cached_has_node_depth_ = -1;
+    cached_cells_loaded_ = false;
+    cached_cells_.clear();
+    cached_display_tris_.clear();
+    cached_face_map_.clear();
     last_error_.clear();
 
     const QByteArray utf8 = path.toUtf8();
@@ -290,8 +303,28 @@ bool Mesh2DH5Reader::readCoordinateReference(CoordinateReference& out) const
     return true;
 }
 
-bool Mesh2DH5Reader::readTriangles(std::vector<std::array<int, 3>>& tris) const
+int Mesh2DH5Reader::edgeStride() const
 {
+    if (cached_face_width_ < 0) {
+        int w = 0;
+        if (readDim_("Mesh2_face_nodes", 1, w) && (w == 3 || w == 4))
+            cached_face_width_ = w;
+    }
+    return cached_face_width_ < 0 ? 0 : cached_face_width_;
+}
+
+int Mesh2DH5Reader::displayTriangleCount() const
+{
+    if (!loadCells_()) return 0;
+    return static_cast<int>(cached_display_tris_.size());
+}
+
+/*! Load /Mesh2_face_nodes once: the file's cells (padding resolved from
+ *  `_FillValue`, negative entries and /Mesh2_face_nv), then the display
+ *  sub-triangle fan and its triangle → cell map. */
+bool Mesh2DH5Reader::loadCells_() const
+{
+    if (cached_cells_loaded_) return true;
     if (file_id_ < 0)
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
 
@@ -301,9 +334,10 @@ bool Mesh2DH5Reader::readTriangles(std::vector<std::array<int, 3>>& tris) const
     const int n_vert = vertexCount();
     if (n_vert <= 0)
         return setError_(QStringLiteral("No vertices"));
-
-    // /Mesh2_face_nodes is [n, 3] of native int, row-major
-    tris.assign(n, {0, 0, 0});
+    const int w = edgeStride();
+    if (w != 3 && w != 4)
+        return setError_(QStringLiteral(
+            "Mesh2_face_nodes must be [nFace, 3] or [nFace, 4] (UGRID mixed topology)"));
 
     hid_t ds = H5Dopen2(static_cast<hid_t>(file_id_),
                          "Mesh2_face_nodes", H5P_DEFAULT);
@@ -311,45 +345,148 @@ bool Mesh2DH5Reader::readTriangles(std::vector<std::array<int, 3>>& tris) const
         return setError_(QStringLiteral("H5Dopen2 failed: Mesh2_face_nodes"));
     DataSetGuard g(ds);
 
-    static_assert(sizeof(std::array<int, 3>) == 3 * sizeof(int),
-                  "std::array<int,3> must be tightly packed");
+    // /Mesh2_face_nodes is [n, w] of native int, row-major.
+    std::vector<int> raw(static_cast<size_t>(n) * w, 0);
     herr_t r = H5Dread(ds, H5T_NATIVE_INT, H5S_ALL, H5S_ALL,
-                       H5P_DEFAULT, tris.data());
+                       H5P_DEFAULT, raw.data());
     if (r < 0)
         return setError_(QStringLiteral("H5Dread failed: Mesh2_face_nodes"));
 
+    // Padding: UGRID `_FillValue` (the engine writes −1) or any negative
+    // entry; /Mesh2_face_nv (int8, 3|4), when present, is authoritative.
+    int fill = -1;
+    {
+        hid_t attr = -1;
+        H5E_BEGIN_TRY {
+            attr = H5Aopen(ds, "_FillValue", H5P_DEFAULT);
+        } H5E_END_TRY;
+        if (attr >= 0) {
+            AttributeGuard ag(attr);
+            int v = 0;
+            if (H5Aread(attr, H5T_NATIVE_INT, &v) >= 0) fill = v;
+        }
+    }
+    std::vector<signed char> nvs;
+    if (w == 4 && H5Lexists(static_cast<hid_t>(file_id_), "Mesh2_face_nv", H5P_DEFAULT) > 0) {
+        hid_t nds = H5Dopen2(static_cast<hid_t>(file_id_), "Mesh2_face_nv", H5P_DEFAULT);
+        if (nds >= 0) {
+            DataSetGuard ng(nds);
+            nvs.assign(static_cast<size_t>(n), 0);
+            if (H5Dread(nds, H5T_NATIVE_SCHAR, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                        nvs.data()) < 0)
+                nvs.clear();
+        }
+    }
+
+    std::vector<std::array<int, 4>> cells(static_cast<size_t>(n), {-1, -1, -1, -1});
+    for (int c = 0; c < n; ++c) {
+        const int* row = raw.data() + static_cast<size_t>(c) * w;
+        int nv = w;
+        if (!nvs.empty() && (nvs[c] == 3 || nvs[c] == 4)) nv = nvs[c];
+        for (int k = 0; k < nv; ++k) {
+            const int v = row[k];
+            if (v == fill || v < 0) break;   // padding — a triangle in a width-4 file
+            cells[c][k] = v;
+        }
+        if (cells[c][2] < 0)
+            return setError_(QStringLiteral(
+                "Mesh2_face_nodes row %1 has fewer than 3 vertices").arg(c));
+    }
+
     int startIndex = 0;
     const bool hasStartIndex = readStartIndexAttr(ds, startIndex);
+    auto minMax = [&cells](int& minIdx, int& maxIdx) {
+        minIdx = std::numeric_limits<int>::max();
+        maxIdx = std::numeric_limits<int>::lowest();
+        for (const auto& cell : cells)
+            for (int k = 0; k < 4; ++k) {
+                if (cell[k] < 0 && k == 3) continue;   // triangle padding
+                minIdx = std::min(minIdx, cell[k]);
+                maxIdx = std::max(maxIdx, cell[k]);
+            }
+    };
     if (!hasStartIndex) {
-        int minIdx = std::numeric_limits<int>::max();
-        int maxIdx = std::numeric_limits<int>::lowest();
-        for (const auto& tri : tris) {
-            minIdx = std::min({minIdx, tri[0], tri[1], tri[2]});
-            maxIdx = std::max({maxIdx, tri[0], tri[1], tri[2]});
-        }
+        int minIdx = 0, maxIdx = 0;
+        minMax(minIdx, maxIdx);
         // Be liberal for third-party UGRID files that omit start_index but
         // clearly use the common 1-based convention.
         if (minIdx == 1 && maxIdx == n_vert)
             startIndex = 1;
     }
     if (startIndex != 0) {
-        for (auto& tri : tris)
-            for (int& v : tri)
-                v -= startIndex;
+        for (auto& cell : cells)
+            for (int k = 0; k < 4; ++k)
+                if (cell[k] >= 0) cell[k] -= startIndex;
     }
 
-    int minIdx = std::numeric_limits<int>::max();
-    int maxIdx = std::numeric_limits<int>::lowest();
-    for (const auto& tri : tris) {
-        minIdx = std::min({minIdx, tri[0], tri[1], tri[2]});
-        maxIdx = std::max({maxIdx, tri[0], tri[1], tri[2]});
+    {
+        int minIdx = 0, maxIdx = 0;
+        minMax(minIdx, maxIdx);
+        if (minIdx < 0 || maxIdx >= n_vert) {
+            return setError_(QStringLiteral(
+                "Mesh2_face_nodes vertex index out of range after start_index normalization "
+                "(min=%1 max=%2 vertices=%3)")
+                .arg(minIdx).arg(maxIdx).arg(n_vert));
+        }
     }
-    if (minIdx < 0 || maxIdx >= n_vert) {
-        return setError_(QStringLiteral(
-            "Mesh2_face_nodes vertex index out of range after start_index normalization "
-            "(min=%1 max=%2 vertices=%3)")
-            .arg(minIdx).arg(maxIdx).arg(n_vert));
+
+    // Display fan: a triangle cell is its own display triangle; a quad is
+    // split on mesh::cellGeom's elevation-ordered diagonal (the engine's VFR
+    // storage model), which needs the vertex elevations.
+    bool anyQuad = false;
+    for (const auto& cell : cells) if (cell[3] >= 0) { anyQuad = true; break; }
+
+    std::vector<std::array<int, 3>> tris;
+    std::vector<int> faceMap;
+    tris.reserve(static_cast<size_t>(n) + (anyQuad ? static_cast<size_t>(n) : 0));
+    faceMap.reserve(tris.capacity());
+    if (!anyQuad) {
+        for (int c = 0; c < n; ++c) {
+            tris.push_back({cells[c][0], cells[c][1], cells[c][2]});
+            faceMap.push_back(c);
+        }
+    } else {
+        std::vector<double> vx, vy, vz;
+        if (!readMeshGeometry(vx, vy, vz)) return false;
+        QVector<mesh::MeshVertex> verts(n_vert);
+        for (int i = 0; i < n_vert; ++i) {
+            verts[i].xy = QPointF(vx[i], vy[i]);
+            verts[i].z  = vz[i];
+        }
+        for (int c = 0; c < n; ++c) {
+            if (cells[c][3] < 0) {
+                tris.push_back({cells[c][0], cells[c][1], cells[c][2]});
+                faceMap.push_back(c);
+                continue;
+            }
+            mesh::MeshTriangle q;
+            q.v0 = cells[c][0]; q.v1 = cells[c][1]; q.v2 = cells[c][2]; q.v3 = cells[c][3];
+            const mesh::CellGeom gq = mesh::cellGeom(verts, q);
+            for (int s = 0; s < gq.nSub; ++s) {
+                tris.push_back(gq.sub[s]);
+                faceMap.push_back(c);
+            }
+        }
     }
+
+    cached_cells_        = std::move(cells);
+    cached_display_tris_ = std::move(tris);
+    cached_face_map_     = std::move(faceMap);
+    cached_cells_loaded_ = true;
+    return true;
+}
+
+bool Mesh2DH5Reader::readCells(std::vector<std::array<int, 4>>& cells) const
+{
+    if (!loadCells_()) return false;
+    cells = cached_cells_;
+    return true;
+}
+
+bool Mesh2DH5Reader::readTriangles(std::vector<std::array<int, 3>>& tris) const
+{
+    if (!loadCells_()) return false;
+    tris = cached_display_tris_;
     return true;
 }
 
@@ -581,7 +718,10 @@ bool Mesh2DH5Reader::readEdgeFluxAt(int timeIdx, std::vector<float>& flux) const
         return setError_(QStringLiteral("timeIdx %1 >= n_time %2")
                           .arg(timeIdx).arg(n_time));
 
-    flux.assign(static_cast<size_t>(n_face) * 3, 0.0f);
+    // Output is ALWAYS [cell * kEdgeStride + e]; the file is [nTime, nFace, w]
+    // with w = 3 (all-triangle) or 4 (mixed). A width-3 file is read into a
+    // stride-3 scratch buffer and repacked.
+    flux.assign(static_cast<size_t>(n_face) * kEdgeStride, 0.0f);
     if (n_face == 0) return true;
 
     hid_t ds = H5Dopen2(static_cast<hid_t>(file_id_),
@@ -595,22 +735,46 @@ bool Mesh2DH5Reader::readEdgeFluxAt(int timeIdx, std::vector<float>& flux) const
         return setError_(QStringLiteral("H5Dget_space failed: Mesh2_edge_flux"));
     DataSpaceGuard fg(fsp);
 
-    // Dataset shape is [nTime, nFace, 3]. Select one time slice.
+    hsize_t fdims[3] = { 0, 0, 0 };
+    if (H5Sget_simple_extent_ndims(fsp) != 3)
+        return setError_(QStringLiteral("Mesh2_edge_flux is not [nTime, nFace, 3|4]"));
+    H5Sget_simple_extent_dims(fsp, fdims, nullptr);
+    const int w = static_cast<int>(fdims[2]);
+    if ((w != 3 && w != 4) || static_cast<int>(fdims[1]) != n_face)
+        return setError_(QStringLiteral("Mesh2_edge_flux is [%1, %2, %3]; expected [nTime, %4, 3|4]")
+                          .arg(static_cast<qulonglong>(fdims[0]))
+                          .arg(static_cast<qulonglong>(fdims[1]))
+                          .arg(static_cast<qulonglong>(fdims[2]))
+                          .arg(n_face));
+
+    // Select one time slice.
     const hsize_t offset[3] = { static_cast<hsize_t>(timeIdx), 0, 0 };
-    const hsize_t count[3]  = { 1, static_cast<hsize_t>(n_face), 3 };
+    const hsize_t count[3]  = { 1, static_cast<hsize_t>(n_face), static_cast<hsize_t>(w) };
     if (H5Sselect_hyperslab(fsp, H5S_SELECT_SET, offset, nullptr,
                               count, nullptr) < 0)
         return setError_(QStringLiteral("H5Sselect_hyperslab failed: Mesh2_edge_flux"));
 
-    const hsize_t mdims[1] = { static_cast<hsize_t>(n_face) * 3 };
+    const hsize_t mdims[1] = { static_cast<hsize_t>(n_face) * w };
     hid_t msp = H5Screate_simple(1, mdims, nullptr);
     if (msp < 0)
         return setError_(QStringLiteral("H5Screate_simple failed"));
     DataSpaceGuard mg(msp);
 
+    if (w == kEdgeStride) {
+        herr_t r = H5Dread(ds, H5T_NATIVE_FLOAT, msp, fsp, H5P_DEFAULT,
+                           flux.data());
+        return r >= 0 || setError_(QStringLiteral("H5Dread edge_flux slice failed"));
+    }
+    std::vector<float> packed(static_cast<size_t>(n_face) * w, 0.0f);
     herr_t r = H5Dread(ds, H5T_NATIVE_FLOAT, msp, fsp, H5P_DEFAULT,
-                       flux.data());
-    return r >= 0 || setError_(QStringLiteral("H5Dread edge_flux slice failed"));
+                       packed.data());
+    if (r < 0)
+        return setError_(QStringLiteral("H5Dread edge_flux slice failed"));
+    for (int c = 0; c < n_face; ++c)
+        for (int e = 0; e < w; ++e)
+            flux[static_cast<size_t>(c) * kEdgeStride + e] =
+                packed[static_cast<size_t>(c) * w + e];
+    return true;
 }
 
 bool Mesh2DH5Reader::readEdgeGeometry(std::vector<float>& length,
@@ -624,26 +788,40 @@ bool Mesh2DH5Reader::readEdgeGeometry(std::vector<float>& length,
     if (n_face <= 0)
         return setError_(QStringLiteral("No triangles"));
 
-    const size_t n3 = static_cast<size_t>(n_face) * 3;
-    length.assign(n3, 0.0f);
-    nx.assign(n3, 0.0f);
-    ny.assign(n3, 0.0f);
+    // Output is ALWAYS [cell * kEdgeStride + e] (slot 3 of a triangle = 0);
+    // the file's own width (3 or 4) is repacked on read.
+    const size_t nSlots = static_cast<size_t>(n_face) * kEdgeStride;
+    length.assign(nSlots, 0.0f);
+    nx.assign(nSlots, 0.0f);
+    ny.assign(nSlots, 0.0f);
 
     // Try the engine 6.0+ direct datasets first. If any one of them is
     // missing the file predates CF.2; fall through to vertex-derived
     // reconstruction.
-    auto tryReadFloatDataset = [this, n3](const char* name, float* out) -> bool {
+    auto tryReadFloatDataset = [this, n_face](const char* name, float* out) -> bool {
         hid_t ds = H5Dopen2(static_cast<hid_t>(file_id_), name, H5P_DEFAULT);
         if (ds < 0) return false;
         DataSetGuard g(ds);
-        // Sanity-check the dataset is the right shape; engine writes [nFace, 3].
+        // Sanity-check the dataset is the right shape; engine writes [nFace, 3|4].
         hid_t sp = H5Dget_space(ds);
         DataSpaceGuard sg(sp);
         hsize_t dims[2] = { 0, 0 };
+        if (H5Sget_simple_extent_ndims(sp) != 2) return false;
         H5Sget_simple_extent_dims(sp, dims, nullptr);
-        if (dims[0] * dims[1] != n3) return false;
-        return H5Dread(ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                        out) >= 0;
+        const int w = static_cast<int>(dims[1]);
+        if (static_cast<int>(dims[0]) != n_face || (w != 3 && w != 4)) return false;
+        if (w == kEdgeStride)
+            return H5Dread(ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                            out) >= 0;
+        std::vector<float> packed(static_cast<size_t>(n_face) * w, 0.0f);
+        if (H5Dread(ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                    packed.data()) < 0)
+            return false;
+        for (int c = 0; c < n_face; ++c)
+            for (int e = 0; e < w; ++e)
+                out[static_cast<size_t>(c) * kEdgeStride + e] =
+                    packed[static_cast<size_t>(c) * w + e];
+        return true;
     };
 
     const bool haveAll =
@@ -657,21 +835,25 @@ bool Mesh2DH5Reader::readEdgeGeometry(std::vector<float>& length,
     last_error_.clear();
     std::vector<double> vx, vy, vz;
     if (!readMeshGeometry(vx, vy, vz)) return false;
-    std::vector<std::array<int, 3>> tris;
-    if (!readTriangles(tris)) return false;
+    std::vector<std::array<int, 4>> cells;
+    if (!readCells(cells)) return false;
 
-    // Edge e is opposite vertex e: endpoints (v[(e+1)%3], v[(e+2)%3]).
-    // Outward normal: perpendicular to edge, flipped if needed so it points
-    // away from the centroid. Matches engine MeshBuilder.cpp.
+    // Edge e of an nv-gon joins (v[(e+1)%nv], v[(e+2)%nv]) — for a triangle
+    // "edge e is opposite vertex e". Outward normal: perpendicular to the
+    // edge, flipped if needed so it points away from the vertex mean (inside
+    // any convex cell). Matches engine MeshBuilder.cpp.
     for (int t = 0; t < n_face; ++t)
     {
-        const int v[3] = { tris[t][0], tris[t][1], tris[t][2] };
-        const double cx = (vx[v[0]] + vx[v[1]] + vx[v[2]]) / 3.0;
-        const double cy = (vy[v[0]] + vy[v[1]] + vy[v[2]]) / 3.0;
-        for (int e = 0; e < 3; ++e)
+        const int nv = cells[t][3] >= 0 ? 4 : 3;
+        const int* v = cells[t].data();
+        double cx = 0.0, cy = 0.0;
+        for (int k = 0; k < nv; ++k) { cx += vx[v[k]]; cy += vy[v[k]]; }
+        cx /= nv;
+        cy /= nv;
+        for (int e = 0; e < nv; ++e)
         {
-            const int va = v[(e + 1) % 3];
-            const int vb = v[(e + 2) % 3];
+            const int va = v[(e + 1) % nv];
+            const int vb = v[(e + 2) % nv];
             const double ax = vx[va], ay = vy[va];
             const double bx = vx[vb], by = vy[vb];
             const double dx = bx - ax;
@@ -688,7 +870,7 @@ bool Mesh2DH5Reader::readEdgeGeometry(std::vector<float>& length,
             }
             const double nlen = std::sqrt(rnx * rnx + rny * rny);
 
-            const size_t idx = static_cast<size_t>(t) * 3 + e;
+            const size_t idx = static_cast<size_t>(t) * kEdgeStride + e;
             length[idx] = static_cast<float>(len);
             if (nlen > 1e-15) {
                 nx[idx] = static_cast<float>(rnx / nlen);

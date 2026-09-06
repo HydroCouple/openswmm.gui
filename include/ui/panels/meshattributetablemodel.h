@@ -19,8 +19,9 @@
  * Row identity:
  *  - Vertices — row == vertex index.
  *  - Cells    — row == triangle index.
- *  - Edges    — one row per UNIQUE edge. The mesh stores edges per triangle
- *               corner (`tri * 3 + edgeLocal`), so an interior edge occupies
+ *  - Edges    — one row per UNIQUE edge. The mesh stores edges per cell
+ *               slot (`mesh::edgeSlot(cell, edgeLocal)`, 3 edges on a
+ *               triangle, 4 on a quad), so an interior edge occupies
  *               two slots; those collapse onto the lower slot, and
  *               `rowForRef` resolves either half to that one row.
  *
@@ -138,7 +139,7 @@ private:
      *  value apart from a per-cell override. */
     [[nodiscard]] mesh::InfilProvenance cellInfilProvenance(int row) const;
 
-    /*! Flat slot (`tri * 3 + edgeLocal`) for an Edge row, or -1. */
+    /*! Flat slot (`mesh::edgeSlot(cell, edgeLocal)`) for an Edge row, or -1. */
     [[nodiscard]] int slotForRow(int row) const;
 
     /*! True when a SWMM model with a live engine is bound, i.e. when the

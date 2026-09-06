@@ -15,6 +15,7 @@
 #include "core/preferencesmanager.h"
 
 #include "core/unitsystem.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshcellparams.h"
 #include "mesh/meshcellstats.h"
 #include "mesh/meshobjectref.h"
@@ -412,12 +413,7 @@ public:
                 if (m == OpenSWMM::Render::BinMethod::Quantile
                     || m == OpenSWMM::Render::BinMethod::NaturalBreaks
                     || m == OpenSWMM::Render::BinMethod::StdDev) {
-                    zSamples.reserve(contourTris.size() * 3);
-                    for (const auto &t : contourTris) {
-                        zSamples.push_back(double(t.z0));
-                        zSamples.push_back(double(t.z1));
-                        zSamples.push_back(double(t.z2));
-                    }
+                    SWMM2DMeshLayer::appendVertexElevationSamples(contourTris, zSamples);
                 }
                 const QVector<double> edges =
                     bandStyle->scheme().levelEdges(zMin, zMax, zSamples);
@@ -555,12 +551,7 @@ public:
                 if (m == OpenSWMM::Render::BinMethod::Quantile
                     || m == OpenSWMM::Render::BinMethod::NaturalBreaks
                     || m == OpenSWMM::Render::BinMethod::StdDev) {
-                    zSamples.reserve(contourTris.size() * 3);
-                    for (const auto &t : contourTris) {
-                        zSamples.push_back(double(t.z0));
-                        zSamples.push_back(double(t.z1));
-                        zSamples.push_back(double(t.z2));
-                    }
+                    SWMM2DMeshLayer::appendVertexElevationSamples(contourTris, zSamples);
                 }
                 const auto lv = isoStyle->levelsForRange(zMin, zMax, zSamples);
                 levels.assign(lv.cbegin(), lv.cend());
@@ -635,12 +626,16 @@ public:
         if (!selT.isEmpty()) {
             p->setPen(Qt::NoPen);
             p->setBrush(QColor(0, 200, 255, 110));
-            const int nt = tris.size();
-            for (int t : selT) {
-                if (t < 0 || t >= nt) continue;
-                const SWMM2DMeshLayer::SceneTri &tr = tris[t];
-                const QPointF pts[3] = { tr.a, tr.b, tr.c };
-                p->drawConvexPolygon(pts, 3);
+            // Cell → fan (one or two SceneTris) via the CSR map.
+            const auto &cellStart = m_layer->m_cellSceneStart;
+            const int nc = cellStart.size() - 1;
+            for (int c : selT) {
+                if (c < 0 || c >= nc) continue;
+                for (int i = cellStart[c]; i < cellStart[c + 1]; ++i) {
+                    const SWMM2DMeshLayer::SceneTri &tr = tris[i];
+                    const QPointF pts[3] = { tr.a, tr.b, tr.c };
+                    p->drawConvexPolygon(pts, 3);
+                }
             }
         }
 
@@ -651,19 +646,15 @@ public:
             epen.setCapStyle(Qt::RoundCap);
             p->setPen(epen);
             p->setBrush(Qt::NoBrush);
-            const int nt = tris.size();
+            const auto &cells = m_layer->mesh().triangles;
+            const int nc = cells.size();
             for (int flat : selE) {
-                const int t = flat / 3, e = flat % 3;
-                if (t < 0 || t >= nt) continue;
-                const SWMM2DMeshLayer::SceneTri &tr = tris[t];
-                // edge 0 → (b,c), 1 → (c,a), 2 → (a,b)
-                QPointF p0, p1;
-                switch (e) {
-                case 0: p0 = tr.b; p1 = tr.c; break;
-                case 1: p0 = tr.c; p1 = tr.a; break;
-                default: p0 = tr.a; p1 = tr.b; break;
-                }
-                p->drawLine(p0, p1);
+                const int c = mesh::slotCell(flat), e = mesh::slotLocal(flat);
+                if (c < 0 || c >= nc || e >= cells[c].vertexCount()) continue;
+                int va = -1, vb = -1;
+                mesh::edgeEndpoints(cells[c], e, va, vb);
+                if (va < 0 || vb < 0 || va >= nodes.size() || vb >= nodes.size()) continue;
+                p->drawLine(nodes[va].pt, nodes[vb].pt);
             }
         }
 
@@ -858,7 +849,10 @@ QVector<QPair<QString, QString>> SWMM2DMeshLayer::extendedMetadata() const
     const QLocale loc;
 
     md.append({ tr("Vertices"),          loc.toString(vertexCount()) });
-    md.append({ tr("Cells (triangles)"), loc.toString(triangleCount()) });
+    const int nQuads = quadCount();
+    md.append({ tr("Cells (triangles)"), loc.toString(triangleCount() - nQuads) });
+    if (nQuads > 0)
+        md.append({ tr("Cells (quads)"), loc.toString(nQuads) });
     md.append({ tr("Edges (total)"),     loc.toString(edgeCount()) });
     md.append({ tr("Boundary edges"),    loc.toString(boundaryEdgeCount()) });
 
@@ -870,6 +864,15 @@ QVector<QPair<QString, QString>> SWMM2DMeshLayer::extendedMetadata() const
         md.append({ tr("Cell area (max)"),    QString::number(as.max,    'g', 4) });
         md.append({ tr("Cell area (mean)"),   QString::number(as.mean,   'g', 4) });
         md.append({ tr("Cell area (median)"), QString::number(as.median, 'g', 4) });
+    }
+    if (nQuads > 0)
+    {
+        const mesh::QuadStats qs = mesh::computeQuadStats(m_mesh);
+        md.append({ tr("Quad angle (min / max)"),
+                    QStringLiteral("%1° / %2°")
+                        .arg(qs.minAngleDeg, 0, 'f', 1).arg(qs.maxAngleDeg, 0, 'f', 1) });
+        md.append({ tr("Quad bed non-planarity (max)"),
+                    QString::number(qs.maxNonPlanarity, 'g', 4) });
     }
 
     md.append({ tr("Bed elevation (min / max)"),
@@ -945,7 +948,7 @@ namespace {
 struct MeshHeavyGeom
 {
     QVector<SWMM2DMeshLayer::SceneEdge> sceneEdges;
-    QVector<qint32>                     sceneEdgeSlot;  ///< parallel: tri*3 + edgeLocal
+    QVector<qint32>                     sceneEdgeSlot;  ///< parallel: mesh::edgeSlot(cell, edgeLocal)
     QVector<QRectF>                     triBBoxes;
     QVector<QRectF>                     edgeBBoxes;
     MeshSpatialGrid                     triGrid;
@@ -953,29 +956,65 @@ struct MeshHeavyGeom
     float                               maxSlope = 0.0f;
 };
 
-/*! Append one SceneTri per valid mesh triangle (shared by the light and
- *  full builds; skips degenerate vertex indices exactly as before). */
+/*! True when every vertex id of \p t is in range (the "degenerate" skip
+ *  predicate shared by the scene build, the attribute cache and the picks). */
+inline bool cellVerticesValid(const mesh::MeshTriangle &t, int nVerts)
+{
+    const int nv = t.vertexCount();
+    for (int k = 0; k < nv; ++k) {
+        const int v = t.vertex(k);
+        if (v < 0 || v >= nVerts) return false;
+    }
+    return true;
+}
+
+/*! Fill the fan SceneTris of cell \p ci into \p out[0..] — one entry for a
+ *  triangle, two for a quad (mesh::cellGeom decides the diagonal).
+ *  \p scenePt maps a vertex id to its scene-space point. Returns the number
+ *  written. */
+template <typename ScenePtFn>
+int writeCellSceneTris(const mesh::MeshResult &meshData,
+                       ScenePtFn &&scenePt,
+                       int ci, SWMM2DMeshLayer::SceneTri *out)
+{
+    const mesh::CellGeom g = mesh::cellGeom(meshData.vertices, meshData.triangles[ci]);
+    for (int s = 0; s < g.nSub; ++s) {
+        const int a = g.sub[s][0], b = g.sub[s][1], c = g.sub[s][2];
+        SWMM2DMeshLayer::SceneTri &st = out[s];
+        st.a    = scenePt(a);
+        st.b    = scenePt(b);
+        st.c    = scenePt(c);
+        st.z0   = static_cast<float>(meshData.vertices[a].z);
+        st.z1   = static_cast<float>(meshData.vertices[b].z);
+        st.z2   = static_cast<float>(meshData.vertices[c].z);
+        st.zAvg = (st.z0 + st.z1 + st.z2) / 3.0f;
+        st.cell = ci;
+    }
+    return g.nSub;
+}
+
+/*! Append the sub-triangle fan of every valid mesh cell (shared by the
+ *  light and full builds; skips out-of-range vertex indices exactly as
+ *  before). \p cellStart receives the CSR cell → fan map (n_cells + 1). */
 void appendSceneTris(const mesh::MeshResult &meshData,
                      const QVector<QPointF> &scenePts,
-                     QVector<SWMM2DMeshLayer::SceneTri> &out)
+                     QVector<SWMM2DMeshLayer::SceneTri> &out,
+                     QVector<qint32> &cellStart)
 {
     const int nVerts = meshData.vertices.size();
-    out.reserve(meshData.triangles.size());
-    for (const auto &t : meshData.triangles)
+    const int nCells = meshData.triangles.size();
+    out.reserve(nCells);
+    cellStart.resize(nCells + 1);
+    for (int ci = 0; ci < nCells; ++ci)
     {
-        if (t.v0 < 0 || t.v0 >= nVerts) continue;
-        if (t.v1 < 0 || t.v1 >= nVerts) continue;
-        if (t.v2 < 0 || t.v2 >= nVerts) continue;
-        SWMM2DMeshLayer::SceneTri st;
-        st.a    = scenePts[t.v0];
-        st.b    = scenePts[t.v1];
-        st.c    = scenePts[t.v2];
-        st.z0   = static_cast<float>(meshData.vertices[t.v0].z);
-        st.z1   = static_cast<float>(meshData.vertices[t.v1].z);
-        st.z2   = static_cast<float>(meshData.vertices[t.v2].z);
-        st.zAvg = (st.z0 + st.z1 + st.z2) / 3.0f;
-        out.append(st);
+        cellStart[ci] = out.size();
+        if (!cellVerticesValid(meshData.triangles[ci], nVerts)) continue;
+        SWMM2DMeshLayer::SceneTri fan[2];
+        const int n = writeCellSceneTris(
+            meshData, [&](int v) { return scenePts[v]; }, ci, fan);
+        for (int s = 0; s < n; ++s) out.append(fan[s]);
     }
+    cellStart[nCells] = out.size();
 }
 
 MeshHeavyGeom buildMeshHeavyGeom(const mesh::MeshResult &meshData,
@@ -1018,23 +1057,28 @@ MeshHeavyGeom buildMeshHeavyGeom(const mesh::MeshResult &meshData,
         out.sceneEdgeSlot.append(slot);
     };
 
-    // Local-edge convention (matches buildBoundaryFlags / findEdgeNeighbour):
-    //   edge 0 = (v1, v2),  edge 1 = (v2, v0),  edge 2 = (v0, v1)
-    // so the push order below is deliberately 2, 0, 1.
+    // Local-edge convention (mesh::edgeEndpoints — matches buildBoundaryFlags
+    // / findEdgeNeighbour): edge k = (v[(k+1)%nv], v[(k+2)%nv]), i.e. for a
+    // triangle edge 0 = (v1, v2), edge 1 = (v2, v0), edge 2 = (v0, v1). The
+    // walk starts at the last local edge so the push order stays (v0,v1),
+    // (v1,v2), … — the historic 2, 0, 1 order for triangles. A quad pushes
+    // its four true polygon edges; the fan diagonal is never an edge.
     //
-    // The index must be the *mesh* triangle index, because m_bc is sized
-    // nTri*3 over meshData.triangles — sceneTris skips degenerate triangles
-    // and is therefore a different index space.
+    // The slot must use the *mesh* cell index, because m_bc is sized
+    // edgeSlotCount(nCells) over meshData.triangles — sceneTris is the fan
+    // and skips degenerate cells, so it is a different index space.
     const int nTri = meshData.triangles.size();
     for (int ti = 0; ti < nTri; ++ti)
     {
         const auto &t = meshData.triangles[ti];
-        if (t.v0 < 0 || t.v0 >= nVerts) continue;
-        if (t.v1 < 0 || t.v1 >= nVerts) continue;
-        if (t.v2 < 0 || t.v2 >= nVerts) continue;
-        pushEdge(t.v0, t.v1, qint32(ti * 3 + 2));
-        pushEdge(t.v1, t.v2, qint32(ti * 3 + 0));
-        pushEdge(t.v2, t.v0, qint32(ti * 3 + 1));
+        if (!cellVerticesValid(t, nVerts)) continue;
+        const int nv = t.vertexCount();
+        for (int j = 0; j < nv; ++j) {
+            const int k = (j + nv - 1) % nv;
+            int a = -1, b = -1;
+            mesh::edgeEndpoints(t, k, a, b);
+            pushEdge(a, b, qint32(mesh::edgeSlot(ti, k)));
+        }
     }
 
     // Spatial grids over the bbox sets — O(visible) paint-time culling.
@@ -1069,9 +1113,11 @@ void buildVertexAdjacency(const mesh::MeshResult &meshData,
 
     QVector<int> counts(nv, 0);
     for (const auto &tri : meshData.triangles) {
-        if (tri.v0 >= 0 && tri.v0 < nv) ++counts[tri.v0];
-        if (tri.v1 >= 0 && tri.v1 < nv) ++counts[tri.v1];
-        if (tri.v2 >= 0 && tri.v2 < nv) ++counts[tri.v2];
+        const int n = tri.vertexCount();
+        for (int k = 0; k < n; ++k) {
+            const int v = tri.vertex(k);
+            if (v >= 0 && v < nv) ++counts[v];
+        }
     }
 
     ptr.resize(nv + 1);
@@ -1083,14 +1129,17 @@ void buildVertexAdjacency(const mesh::MeshResult &meshData,
     QVector<int> cursor = ptr;
     for (int t = 0; t < nt; ++t) {
         const auto &tri = meshData.triangles[t];
-        if (tri.v0 >= 0 && tri.v0 < nv) idx[cursor[tri.v0]++] = t;
-        if (tri.v1 >= 0 && tri.v1 < nv) idx[cursor[tri.v1]++] = t;
-        if (tri.v2 >= 0 && tri.v2 < nv) idx[cursor[tri.v2]++] = t;
+        const int n = tri.vertexCount();
+        for (int k = 0; k < n; ++k) {
+            const int v = tri.vertex(k);
+            if (v >= 0 && v < nv) idx[cursor[v]++] = t;
+        }
     }
 }
 
-/*! Per-(tri,edgeLocal) boundary flags from triangle adjacency (verbatim
- *  logic of resizeBCsToMesh's second half; the member delegates here). */
+/*! Per-(cell,edgeLocal) boundary flags from cell adjacency (verbatim
+ *  logic of resizeBCsToMesh's second half; the member delegates here).
+ *  Sized mesh::edgeSlotCount(nCells); a triangle's unused slot 3 is false. */
 QVector<bool> buildBoundaryFlags(const mesh::MeshResult &meshData)
 {
     const int nt = meshData.triangles.size();
@@ -1098,11 +1147,12 @@ QVector<bool> buildBoundaryFlags(const mesh::MeshResult &meshData)
     edgeUseCount.reserve(nt * 3);
     for (int t = 0; t < nt; ++t) {
         const auto &tri = meshData.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
-                                                       : qMakePair(vb[e], va[e]);
+        const int nv = tri.vertexCount();
+        for (int e = 0; e < nv; ++e) {
+            int va = -1, vb = -1;
+            mesh::edgeEndpoints(tri, e, va, vb);
+            const QPair<int,int> key = (va < vb) ? qMakePair(va, vb)
+                                                 : qMakePair(vb, va);
             ++edgeUseCount[key];
         }
     }
@@ -1114,17 +1164,18 @@ QVector<bool> buildBoundaryFlags(const mesh::MeshResult &meshData)
         markerBoundary.insert(key);
     }
 
-    QVector<bool> flags(nt * 3, false);
+    QVector<bool> flags(mesh::edgeSlotCount(nt), false);
     for (int t = 0; t < nt; ++t) {
         const auto &tri = meshData.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
-                                                       : qMakePair(vb[e], va[e]);
+        const int nv = tri.vertexCount();
+        for (int e = 0; e < nv; ++e) {
+            int va = -1, vb = -1;
+            mesh::edgeEndpoints(tri, e, va, vb);
+            const QPair<int,int> key = (va < vb) ? qMakePair(va, vb)
+                                                 : qMakePair(vb, va);
             const int uses = edgeUseCount.value(key, 0);
             if (uses <= 1 || markerBoundary.contains(key))
-                flags[t * 3 + e] = true;
+                flags[mesh::edgeSlot(t, e)] = true;
         }
     }
     return flags;
@@ -1141,6 +1192,7 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
     const int nVerts = m_mesh.vertices.size();
 
     m_sceneTris.clear();
+    m_cellSceneStart.clear();
     m_sceneEdges.clear();
     m_sceneEdgeSlot.clear();
     m_sceneNodes.clear();
@@ -1205,7 +1257,7 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
     }
 
     // ── Triangles ───────────────────────────────────────────────────────────
-    appendSceneTris(m_mesh, scenePts, m_sceneTris);
+    appendSceneTris(m_mesh, scenePts, m_sceneTris, m_cellSceneStart);
 
     // ── Edges + spatial grids (the heavy tail — shared with the deferred
     //    background build; see buildMeshHeavyGeom below) ─────────────────────
@@ -1238,6 +1290,7 @@ void SWMM2DMeshLayer::rebuildSceneGeometryLight()
     const int nVerts = m_mesh.vertices.size();
 
     m_sceneTris.clear();
+    m_cellSceneStart.clear();
     m_sceneEdges.clear();
     m_sceneEdgeSlot.clear();
     m_sceneNodes.clear();
@@ -1302,7 +1355,7 @@ void SWMM2DMeshLayer::rebuildSceneGeometryLight()
         }
     }
 
-    appendSceneTris(m_mesh, scenePts, m_sceneTris);
+    appendSceneTris(m_mesh, scenePts, m_sceneTris, m_cellSceneStart);
 
     // Keep the (implicitly shared) scene points so the background heavy
     // build doesn't have to re-project; freed on adoption.
@@ -1411,7 +1464,7 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
             d->heavy = buildMeshHeavyGeom(meshSnap, ptsSnap, trisSnap);
             buildVertexAdjacency(meshSnap, d->vertTriPtr, d->vertTriIdx);
             d->isBoundary = buildBoundaryFlags(meshSnap);
-            d->bcDefaults.resize(meshSnap.triangles.size() * 3);
+            d->bcDefaults.resize(mesh::edgeSlotCount(meshSnap.triangles.size()));
             return d;
         }));
 }
@@ -1663,7 +1716,7 @@ void SWMM2DMeshLayer::resizeBCsToMesh()
 {
     // NB: `slots` is a Qt keyword macro — pick a different local name.
     const int nt = m_mesh.triangles.size();
-    const int nslots = nt * 3;
+    const int nslots = mesh::edgeSlotCount(nt);
     if (m_bc.size() != nslots) {
         m_bc.resize(nslots);
         // Default-constructed MeshEdgeBC == Wall + zero params + empty group.
@@ -1781,23 +1834,17 @@ const QVector<float> &SWMM2DMeshLayer::cellAttributeValues(const QByteArray &key
 
     if (!mesh::cellParamSpec(key)) return m_attrCacheVals;   // unknown key
 
-    // Parallel to m_sceneTris, which skips degenerate triangles — the same
-    // predicate appendSceneTris() uses. Indexing by mesh triangle index here
-    // would silently shift every colour by the number of skipped triangles.
-    const int nVerts = m_mesh.vertices.size();
-    const int nTri   = m_mesh.triangles.size();
-    m_attrCacheVals.reserve(nTri);
+    // Parallel to m_sceneTris — the sub-triangle fan, which skips degenerate
+    // cells and holds two entries per quad. Each fan entry carries its
+    // cell's value (SceneTri::cell); indexing by mesh cell index here would
+    // silently shift every colour.
+    m_attrCacheVals.reserve(m_sceneTris.size());
 
     double lo =  std::numeric_limits<double>::max();
     double hi = -std::numeric_limits<double>::max();
 
-    for (int ti = 0; ti < nTri; ++ti) {
-        const auto &t = m_mesh.triangles[ti];
-        if (t.v0 < 0 || t.v0 >= nVerts) continue;
-        if (t.v1 < 0 || t.v1 >= nVerts) continue;
-        if (t.v2 < 0 || t.v2 >= nVerts) continue;
-
-        const double v = mesh::cellParamValue(m_mesh, ti, key);
+    for (const SceneTri &st : m_sceneTris) {
+        const double v = mesh::cellParamValue(m_mesh, st.cell, key);
         m_attrCacheVals.append(float(v));
         if (std::isfinite(v)) {
             if (v < lo) lo = v;
@@ -1881,22 +1928,17 @@ int SWMM2DMeshLayer::pickEdgeAt(double sx, double sy,
     double bestSq = tolSq;
     for (int t = 0; t < nt; ++t) {
         const auto &tri = m_mesh.triangles[t];
-        if (tri.v0 < 0 || tri.v0 >= m_sceneNodes.size()) continue;
-        if (tri.v1 < 0 || tri.v1 >= m_sceneNodes.size()) continue;
-        if (tri.v2 < 0 || tri.v2 >= m_sceneNodes.size()) continue;
+        if (!cellVerticesValid(tri, m_sceneNodes.size())) continue;
 
-        const QPointF &p0 = m_sceneNodes[tri.v0].pt;
-        const QPointF &p1 = m_sceneNodes[tri.v1].pt;
-        const QPointF &p2 = m_sceneNodes[tri.v2].pt;
-        // Edge local e is opposite vertex e (matches engine convention).
-        const QPointF *endpoints[3][2] = {
-            {&p1, &p2}, {&p2, &p0}, {&p0, &p1}
-        };
-        for (int e = 0; e < 3; ++e) {
-            const int flat = t * 3 + e;
+        // Edge local e = (v[(e+1)%nv], v[(e+2)%nv]) — engine convention.
+        const int nv = tri.vertexCount();
+        for (int e = 0; e < nv; ++e) {
+            const int flat = mesh::edgeSlot(t, e);
             if (boundaryOnly && (flat >= m_isBoundary.size() || !m_isBoundary[flat])) continue;
-            const QPointF &a = *endpoints[e][0];
-            const QPointF &b = *endpoints[e][1];
+            int va = -1, vb = -1;
+            mesh::edgeEndpoints(tri, e, va, vb);
+            const QPointF &a = m_sceneNodes[va].pt;
+            const QPointF &b = m_sceneNodes[vb].pt;
             const double dx = b.x() - a.x();
             const double dy = b.y() - a.y();
             const double lenSq = dx * dx + dy * dy;
@@ -1918,7 +1960,14 @@ int SWMM2DMeshLayer::pickEdgeAt(double sx, double sy,
 
 int SWMM2DMeshLayer::locateTriangleAt(double sx, double sy) const
 {
-    // Bbox cull + barycentric point-in-triangle test for one triangle index.
+    const int st = locateSceneTriAt(sx, sy);
+    return st < 0 ? -1 : m_sceneTris[st].cell;
+}
+
+int SWMM2DMeshLayer::locateSceneTriAt(double sx, double sy) const
+{
+    // Bbox cull + barycentric point-in-triangle test for one fan triangle
+    // index (a quad is hit through either of its two sub-triangles).
     auto hits = [&](int t) -> bool {
         const SceneTri &tri = m_sceneTris[t];
         const double minX = std::min({tri.a.x(), tri.b.x(), tri.c.x()});
@@ -1969,17 +2018,42 @@ int SWMM2DMeshLayer::pickCellAt(const QPointF &scenePt) const
     return locateTriangleAt(scenePt.x(), scenePt.y());
 }
 
+namespace {
+
+/*! Scene-space area centroid of the fan [first, last) of one cell — the
+ *  triangle centroid for a single entry, the area-weighted centroid of the
+ *  two sub-triangles for a quad. */
+QPointF fanCentroid(const QVector<SWMM2DMeshLayer::SceneTri> &tris, int first, int last)
+{
+    double ax = 0.0, ay = 0.0, aSum = 0.0;
+    for (int i = first; i < last; ++i) {
+        const auto &t = tris[i];
+        const double ux = t.b.x() - t.a.x(), uy = t.b.y() - t.a.y();
+        const double vx = t.c.x() - t.a.x(), vy = t.c.y() - t.a.y();
+        const double area = 0.5 * std::abs(ux * vy - uy * vx);
+        const double cx = (t.a.x() + t.b.x() + t.c.x()) / 3.0;
+        const double cy = (t.a.y() + t.b.y() + t.c.y()) / 3.0;
+        if (last - first == 1) return QPointF(cx, cy);
+        ax += area * cx; ay += area * cy; aSum += area;
+    }
+    if (aSum > 0.0) return QPointF(ax / aSum, ay / aSum);
+    const auto &t = tris[first];
+    return QPointF((t.a.x() + t.b.x() + t.c.x()) / 3.0, (t.a.y() + t.b.y() + t.c.y()) / 3.0);
+}
+
+} // namespace
+
 QVector<int> SWMM2DMeshLayer::pickCellsInRect(const QRectF &sceneRect) const
 {
     QVector<int> hits;
     if (sceneRect.isNull() || m_sceneTris.isEmpty()) return hits;
     hits.reserve(m_sceneTris.size() / 4);
-    for (int i = 0; i < m_sceneTris.size(); ++i) {
-        const SceneTri &t = m_sceneTris[i];
-        const QPointF centroid((t.a.x() + t.b.x() + t.c.x()) / 3.0,
-                               (t.a.y() + t.b.y() + t.c.y()) / 3.0);
-        if (sceneRect.contains(centroid))
-            hits.push_back(i);
+    const int nc = m_cellSceneStart.size() - 1;
+    for (int c = 0; c < nc; ++c) {
+        const int first = m_cellSceneStart[c], last = m_cellSceneStart[c + 1];
+        if (first >= last) continue;   // degenerate cell — no fan
+        if (sceneRect.contains(fanCentroid(m_sceneTris, first, last)))
+            hits.push_back(c);
     }
     return hits;
 }
@@ -1989,12 +2063,12 @@ QVector<int> SWMM2DMeshLayer::pickCellsInPolygon(const QPolygonF &scenePoly) con
     QVector<int> hits;
     if (scenePoly.size() < 3 || m_sceneTris.isEmpty()) return hits;
     hits.reserve(m_sceneTris.size() / 4);
-    for (int i = 0; i < m_sceneTris.size(); ++i) {
-        const SceneTri &t = m_sceneTris[i];
-        const QPointF centroid((t.a.x() + t.b.x() + t.c.x()) / 3.0,
-                               (t.a.y() + t.b.y() + t.c.y()) / 3.0);
-        if (scenePoly.containsPoint(centroid, Qt::OddEvenFill))
-            hits.push_back(i);
+    const int nc = m_cellSceneStart.size() - 1;
+    for (int c = 0; c < nc; ++c) {
+        const int first = m_cellSceneStart[c], last = m_cellSceneStart[c + 1];
+        if (first >= last) continue;
+        if (scenePoly.containsPoint(fanCentroid(m_sceneTris, first, last), Qt::OddEvenFill))
+            hits.push_back(c);
     }
     return hits;
 }
@@ -2019,10 +2093,11 @@ QVector<double> SWMM2DMeshLayer::elevationSamples(int maxSamples) const
 
 double SWMM2DMeshLayer::sampleZAt(double sx, double sy) const
 {
-    const int t = locateTriangleAt(sx, sy);
+    const int t = locateSceneTriAt(sx, sy);
     if (t < 0) return std::numeric_limits<double>::quiet_NaN();
     const SceneTri &tri = m_sceneTris[t];
-    // Recompute barycentric weights and blend Z.
+    // Recompute barycentric weights and blend Z (planar per sub-triangle —
+    // the engine's storage model for a quad; never bilinear).
     const double v0x = tri.c.x() - tri.a.x(), v0y = tri.c.y() - tri.a.y();
     const double v1x = tri.b.x() - tri.a.x(), v1y = tri.b.y() - tri.a.y();
     const double v2x = sx - tri.a.x(),        v2y = sy - tri.a.y();
@@ -2055,10 +2130,10 @@ const mesh::MeshBoundaryGraph &SWMM2DMeshLayer::boundaryGraph()
 
 bool SWMM2DMeshLayer::isBoundaryEdge(int triIdx, int edgeLocal) const
 {
-    if (triIdx < 0 || edgeLocal < 0 || edgeLocal > 2) return false;
-    const int flat = triIdx * 3 + edgeLocal;
+    if (triIdx < 0 || edgeLocal < 0 || edgeLocal >= mesh::kEdgeStride) return false;
+    const int flat = mesh::edgeSlot(triIdx, edgeLocal);
     if (flat < 0 || flat >= m_isBoundary.size()) return false;
-    return m_isBoundary[flat];
+    return m_isBoundary[flat];   // a triangle's slot 3 is never flagged
 }
 
 bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
@@ -2074,10 +2149,11 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
     // vertex — O(incident) — instead of the full O(N) rebuildSceneGeometry(),
     // which on a multi-million-cell mesh turned one edit (or one per selected
     // vertex) into a multi-second stall. Falls back to a full rebuild if the
-    // scene caches aren't in the expected 1:1 shape (e.g. some triangles were
-    // skipped as degenerate during the last full build).
+    // scene caches aren't in the expected shape (cell → fan map missing).
+    // A quad's fan is rewritten whole: its diagonal follows the elevation
+    // ordering of its corners (mesh::cellGeom), so a z edit may flip it.
     const bool canIncremental =
-        m_sceneTris.size() == m_mesh.triangles.size()
+        m_cellSceneStart.size() == m_mesh.triangles.size() + 1
         && vertexIdx < m_sceneNodes.size()
         && (vertexIdx + 1) < m_vertTriPtr.size();
     if (canIncremental) {
@@ -2086,13 +2162,14 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
         const int end = m_vertTriPtr[vertexIdx + 1];
         for (int k = beg; k < end; ++k) {
             const int ti = m_vertTriIdx[k];
-            if (ti < 0 || ti >= m_sceneTris.size()) continue;
-            const auto &mt = m_mesh.triangles[ti];
-            SceneTri &st = m_sceneTris[ti];
-            st.z0   = float(m_mesh.vertices[mt.v0].z);
-            st.z1   = float(m_mesh.vertices[mt.v1].z);
-            st.z2   = float(m_mesh.vertices[mt.v2].z);
-            st.zAvg = (st.z0 + st.z1 + st.z2) / 3.0f;
+            if (ti < 0 || ti + 1 >= m_cellSceneStart.size()) continue;
+            const int first = m_cellSceneStart[ti], last = m_cellSceneStart[ti + 1];
+            if (first >= last) continue;   // skipped as degenerate
+            SceneTri fan[2];
+            const int n = writeCellSceneTris(
+                m_mesh, [&](int v) { return m_sceneNodes[v].pt; }, ti, fan);
+            for (int s = 0; s < n && first + s < last; ++s)
+                m_sceneTris[first + s] = fan[s];
         }
         // Keep the elevation range a valid superset (expand only). A loosened
         // range slightly compresses the colour ramp until the next full
@@ -2127,9 +2204,10 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
 
 bool SWMM2DMeshLayer::applyMeshEdgeBC(int triIdx, int edgeLocal, const mesh::MeshEdgeBC &bc)
 {
-    if (triIdx < 0 || edgeLocal < 0 || edgeLocal > 2) return false;
+    if (triIdx < 0 || edgeLocal < 0) return false;
     if (triIdx >= m_mesh.triangles.size()) return false;
-    const int flat = triIdx * 3 + edgeLocal;
+    if (edgeLocal >= m_mesh.triangles[triIdx].vertexCount()) return false;
+    const int flat = mesh::edgeSlot(triIdx, edgeLocal);
     if (flat >= m_bc.size()) return false;
     if (m_bc[flat] == bc) return true;
     m_bc[flat] = bc;
@@ -2142,21 +2220,18 @@ bool SWMM2DMeshLayer::applyMeshEdgeBC(int triIdx, int edgeLocal, const mesh::Mes
 
 QPair<int,int> SWMM2DMeshLayer::findEdgeNeighbour(int triIdx, int edgeLocal) const
 {
-    if (triIdx < 0 || edgeLocal < 0 || edgeLocal > 2) return {-1, -1};
+    if (triIdx < 0 || edgeLocal < 0)                   return {-1, -1};
     if (triIdx >= m_mesh.triangles.size())             return {-1, -1};
     // Progressive load — adjacency not built yet (deferred heavy geometry).
     if (m_vertTriPtr.size() != m_mesh.vertices.size() + 1) return {-1, -1};
     const auto &tri = m_mesh.triangles[triIdx];
-    // Local edge convention matches resizeBCsToMesh's edge-use scan:
-    //   edge 0 = (v1, v2),  edge 1 = (v2, v0),  edge 2 = (v0, v1).
+    if (edgeLocal >= tri.vertexCount())                return {-1, -1};
+    // Local edge convention matches resizeBCsToMesh's edge-use scan
+    // (mesh::edgeEndpoints): edge k = (v[(k+1)%nv], v[(k+2)%nv]).
     int va = -1, vb = -1;
-    switch (edgeLocal) {
-    case 0: va = tri.v1; vb = tri.v2; break;
-    case 1: va = tri.v2; vb = tri.v0; break;
-    case 2: va = tri.v0; vb = tri.v1; break;
-    }
+    mesh::edgeEndpoints(tri, edgeLocal, va, vb);
     if (va < 0 || vb < 0 || va >= m_vertTriPtr.size() - 1) return {-1, -1};
-    // Walk triangles incident to va; the neighbour must also be incident to vb.
+    // Walk cells incident to va; the neighbour must also be incident to vb.
     const int beg = m_vertTriPtr[va];
     const int end = m_vertTriPtr[va + 1];
     for (int k = beg; k < end; ++k) {
@@ -2164,19 +2239,23 @@ QPair<int,int> SWMM2DMeshLayer::findEdgeNeighbour(int triIdx, int edgeLocal) con
         if (t2 == triIdx || t2 < 0 || t2 >= m_mesh.triangles.size()) continue;
         const auto &t = m_mesh.triangles[t2];
         // Edge (va, vb) in t2 — direction doesn't matter.
-        if      ((t.v1 == va && t.v2 == vb) || (t.v1 == vb && t.v2 == va)) return {t2, 0};
-        else if ((t.v2 == va && t.v0 == vb) || (t.v2 == vb && t.v0 == va)) return {t2, 1};
-        else if ((t.v0 == va && t.v1 == vb) || (t.v0 == vb && t.v1 == va)) return {t2, 2};
+        const int nv2 = t.vertexCount();
+        for (int e2 = 0; e2 < nv2; ++e2) {
+            int a2 = -1, b2 = -1;
+            mesh::edgeEndpoints(t, e2, a2, b2);
+            if ((a2 == va && b2 == vb) || (a2 == vb && b2 == va)) return {t2, e2};
+        }
     }
     return {-1, -1};  // boundary edge — no neighbour
 }
 
 bool SWMM2DMeshLayer::applyMeshEdgeConveyance(int triIdx, int edgeLocal, double conveyance)
 {
-    if (triIdx < 0 || edgeLocal < 0 || edgeLocal > 2)        return false;
+    if (triIdx < 0 || edgeLocal < 0)                          return false;
     if (triIdx >= m_mesh.triangles.size())                    return false;
+    if (edgeLocal >= m_mesh.triangles[triIdx].vertexCount())  return false;
     if (!(conveyance >= 0.0 && conveyance <= 1.0))            return false;
-    const int flat = triIdx * 3 + edgeLocal;
+    const int flat = mesh::edgeSlot(triIdx, edgeLocal);
     if (flat >= m_bc.size())                                  return false;
 
     bool changed = false;
@@ -2189,7 +2268,7 @@ bool SWMM2DMeshLayer::applyMeshEdgeConveyance(int triIdx, int edgeLocal, double 
     // post-parse drain does the same thing).
     const auto nbr = findEdgeNeighbour(triIdx, edgeLocal);
     if (nbr.first >= 0 && nbr.second >= 0) {
-        const int nflat = nbr.first * 3 + nbr.second;
+        const int nflat = mesh::edgeSlot(nbr.first, nbr.second);
         if (nflat < m_bc.size() && m_bc[nflat].conveyance != conveyance) {
             m_bc[nflat].conveyance = conveyance;
             changed = true;

@@ -62,6 +62,7 @@ public:
     {
         m_positions.clear();
         m_triIndices.clear();
+        m_triCell.clear();
         m_edgeEndpoints.clear();
         m_revision = kNoRevision;
         m_anchorX = m_anchorY = 0.0;
@@ -74,6 +75,11 @@ public:
 
     [[nodiscard]] const std::vector<Vec2>    &positions()  const { return m_positions; }
     [[nodiscard]] const std::vector<quint32> &triIndices() const { return m_triIndices; }
+    /*! Mesh cell index of each emitted triangle (parallel to
+     *  triIndices()/3). Identity for an all-triangle mesh built through
+     *  ensureBuilt() (minus dropped cells); with ensureBuiltCells() a quad's
+     *  two fan triangles both map to the quad's cell. */
+    [[nodiscard]] const std::vector<quint32> &triCell()    const { return m_triCell; }
     /*! Unique undirected edges, 2 endpoint ids per edge, built only when
      *  ensureBuilt(..., buildEdges=true). */
     [[nodiscard]] const std::vector<quint32> &edgeEndpoints() const { return m_edgeEndpoints; }
@@ -106,8 +112,44 @@ public:
                      TriAccessor &&triAccessor,
                      bool buildEdges = false)
     {
+        // A triangle is a 3-vertex cell whose fan is itself.
+        return ensureBuiltCells(
+            geomRevision, anchorX, anchorY, vertices, triCount,
+            [&](qint64 i, int poly[4], int &nv, int fan[2][3], int &nFan) {
+                int v0 = -1, v1 = -1, v2 = -1;
+                triAccessor(i, v0, v1, v2);
+                poly[0] = v0; poly[1] = v1; poly[2] = v2; poly[3] = -1;
+                nv = 3;
+                fan[0][0] = v0; fan[0][1] = v1; fan[0][2] = v2;
+                nFan = 1;
+            },
+            buildEdges);
+    }
+
+    /*!
+     * Mixed triangle/quad form of ensureBuilt() (workplans/
+     * TRI_QUAD_MESHING_PLAN_2026-09-06.md §5): every cell contributes its
+     * sub-triangle FAN to triIndices() (one triangle, or a quad's two
+     * mesh::cellGeom sub-triangles — each tagged with the cell in triCell())
+     * while the deduplicated edge list is derived from the cell's TRUE
+     * polygon boundary, so a quad's fan diagonal is never drawn as an edge.
+     *
+     * \p cellAccessor  callable
+     *   `void(qint64 i, int poly[4], int &nv, int fan[2][3], int &nFan)`
+     *   filling the cyclic polygon vertex ids (\p nv = 3 or 4) and the fan
+     *   triangles (\p nFan = 1 or 2) of cell \p i.
+     * Cells with any out-of-range polygon vertex id are dropped.
+     */
+    template <typename CellAccessor>
+    bool ensureBuiltCells(quint64 geomRevision,
+                          double anchorX, double anchorY,
+                          const QVector<QPointF> &vertices,
+                          qint64 cellCount,
+                          CellAccessor &&cellAccessor,
+                          bool buildEdges = false)
+    {
         if (m_revision == geomRevision
-            && (!buildEdges || !m_edgeEndpoints.empty() || triCount == 0))
+            && (!buildEdges || !m_edgeEndpoints.empty() || cellCount == 0))
             return false;
 
         m_anchorX = anchorX;
@@ -121,37 +163,44 @@ public:
 
         const int nVerts = int(vertices.size());
         m_triIndices.clear();
-        m_triIndices.reserve(size_t(triCount) * 3);
-        for (qint64 i = 0; i < triCount; ++i) {
-            int v0 = -1, v1 = -1, v2 = -1;
-            triAccessor(i, v0, v1, v2);
-            if (v0 < 0 || v1 < 0 || v2 < 0
-                || v0 >= nVerts || v1 >= nVerts || v2 >= nVerts)
-                continue;   // drop invalid cells — indices stay valid
-            m_triIndices.push_back(quint32(v0));
-            m_triIndices.push_back(quint32(v1));
-            m_triIndices.push_back(quint32(v2));
+        m_triIndices.reserve(size_t(cellCount) * 3);
+        m_triCell.clear();
+        m_triCell.reserve(size_t(cellCount));
+
+        // Undirected dedup via sorted (lo,hi) keys — from the polygon
+        // boundary, not the fan.
+        std::vector<quint64> keys;
+        if (buildEdges) keys.reserve(size_t(cellCount) * 3);
+        auto pushKey = [&keys](int u, int v) {
+            if (u == v) return;
+            const quint32 lo = quint32(std::min(u, v));
+            const quint32 hi = quint32(std::max(u, v));
+            keys.push_back((quint64(lo) << 32) | quint64(hi));
+        };
+
+        for (qint64 i = 0; i < cellCount; ++i) {
+            int poly[4] = {-1, -1, -1, -1};
+            int fan[2][3] = {{-1, -1, -1}, {-1, -1, -1}};
+            int nv = 0, nFan = 0;
+            cellAccessor(i, poly, nv, fan, nFan);
+            if (nv < 3 || nv > 4 || nFan < 1 || nFan > 2) continue;
+            bool valid = true;
+            for (int k = 0; k < nv; ++k)
+                if (poly[k] < 0 || poly[k] >= nVerts) { valid = false; break; }
+            if (!valid) continue;   // drop invalid cells — indices stay valid
+            for (int s = 0; s < nFan; ++s) {
+                m_triIndices.push_back(quint32(fan[s][0]));
+                m_triIndices.push_back(quint32(fan[s][1]));
+                m_triIndices.push_back(quint32(fan[s][2]));
+                m_triCell.push_back(quint32(i));
+            }
+            if (buildEdges)
+                for (int k = 0; k < nv; ++k)
+                    pushKey(poly[k], poly[(k + 1) % nv]);
         }
 
         m_edgeEndpoints.clear();
         if (buildEdges) {
-            // Undirected dedup via sorted (lo,hi) keys.
-            std::vector<quint64> keys;
-            keys.reserve(m_triIndices.size());
-            for (size_t t = 0; t + 2 < m_triIndices.size(); t += 3) {
-                const quint32 a = m_triIndices[t];
-                const quint32 b = m_triIndices[t + 1];
-                const quint32 c = m_triIndices[t + 2];
-                auto push = [&keys](quint32 u, quint32 v) {
-                    if (u == v) return;
-                    const quint32 lo = std::min(u, v);
-                    const quint32 hi = std::max(u, v);
-                    keys.push_back((quint64(lo) << 32) | quint64(hi));
-                };
-                push(a, b);
-                push(b, c);
-                push(c, a);
-            }
             std::sort(keys.begin(), keys.end());
             keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
             m_edgeEndpoints.reserve(keys.size() * 2);
@@ -168,6 +217,7 @@ public:
 private:
     std::vector<Vec2>    m_positions;
     std::vector<quint32> m_triIndices;
+    std::vector<quint32> m_triCell;
     std::vector<quint32> m_edgeEndpoints;
     quint64 m_revision = kNoRevision;
     double  m_anchorX  = 0.0;

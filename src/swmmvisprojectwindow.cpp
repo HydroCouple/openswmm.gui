@@ -17,6 +17,10 @@
 #include "layers/swmm2dresultslayer.h"      // active 2D analysis layer
 #include "mesh/meshenginesync.h"            // push mesh-layer edits into the engine before save
 #include "mesh/inpmeshreader.h"             // parse a browsed-for .2dm on import
+#include "mesh/inpmeshwriter.h"             // convert an SMS 2DM import to section format
+#include "mesh/meshcellgeom.h"
+#include "mesh/sms2dmreader.h"              // SMS / Aquaveo 2DM cards (G5)
+#include "mesh/meshcellgeom.h"              // edgeSlotCount for the BC SoA size check
 #include "mesh/inpmeshwriter.h"             // retarget [2D_MESH_FILE] after save
 #include "output/outputstatsregistry.h"     // Slice QA.2 — owns the registry
 #include "project/openswmmvisworkspace.h"
@@ -1204,8 +1208,42 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
     watcher->setFuture(QtConcurrent::run([meshPath]() -> ImportOutcome {
         ImportOutcome out;
         // A SWMMVis .2dm is section-formatted exactly like the inline mesh
-        // block of an .inp, so the same reader parses it directly.
-        mesh::InpMeshReadResult read = mesh::InpMeshReader::read(meshPath);
+        // block of an .inp, so the same reader parses it directly. An SMS /
+        // Aquaveo 2DM (ND / E3T / E4Q cards, phase G5 of the tri-quad plan)
+        // is recognised by its cards, parsed by Sms2dmReader (E4Q kept as
+        // quad cells) and CONVERTED in place: the staged copy is rewritten in
+        // the section format, because the engine's [2D_MESH_FILE] reference
+        // must point at a file the engine can read.
+        mesh::InpMeshReadResult read;
+        if (mesh::Sms2dmReader::looksLikeSms2dm(meshPath)) {
+            mesh::MeshResult sms = mesh::Sms2dmReader::read(meshPath, /*splitQuads=*/false);
+            if (!sms.ok) {
+                out.errorMsg = sms.errorMsg;
+                return out;
+            }
+            const QString text = mesh::InpMeshWriter::buildSectionText(
+                sms, mesh::CouplingMap{}, /*defaultMannings=*/0.035);
+            QFile f(meshPath);
+            if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                out.errorMsg = QCoreApplication::translate("SWMMVisProjectWindow",
+                    "Could not rewrite %1 in SWMMVis mesh format.")
+                    .arg(QFileInfo(meshPath).fileName());
+                return out;
+            }
+            f.write(QStringLiteral(";; Converted from SMS 2DM by SWMMVis (E3T -> "
+                                   "[2D_TRIANGLES], E4Q -> [2D_QUADS]).\n").toUtf8());
+            f.write(text.toUtf8());
+            f.close();
+            read.hasMesh = true;
+            read.mesh    = std::move(sms);
+            read.edgeBCs.resize(mesh::edgeSlotCount(read.mesh.triangles.size()));
+            read.warning = QCoreApplication::translate("SWMMVisProjectWindow",
+                "SMS 2DM mesh converted to SWMMVis format (%1 triangles, %2 quads).")
+                .arg(read.mesh.triangles.size() - read.mesh.quadCount())
+                .arg(read.mesh.quadCount());
+        } else {
+            read = mesh::InpMeshReader::read(meshPath);
+        }
         if (!read.hasMesh) {
             out.errorMsg = read.errorMsg.isEmpty()
                 ? QCoreApplication::translate("SWMMVisProjectWindow",
@@ -1226,7 +1264,7 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
         layer->setName(QFileInfo(meshPath).fileName());
         // Deferred build ⇒ the BC slots don't exist yet; size against the
         // triangle count directly, as the file-open path does.
-        if (edgeBCs.size() == layer->triangleCount() * 3)
+        if (edgeBCs.size() == mesh::edgeSlotCount(layer->triangleCount()))
             layer->edgeBCsMutable() = edgeBCs;
         out.nVerts = layer->vertexCount();
         out.nTris  = layer->triangleCount();
@@ -1518,7 +1556,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         // restored .2dm.
         if (extMeshLayer
             && extMeshLayer->edgeBCs().size()
-                   == extMeshLayer->mesh().triangles.size() * 3)
+                   == mesh::edgeSlotCount(extMeshLayer->mesh().triangles.size()))
         {
             QString bcErr;
             if (!mesh::InpMeshWriter::patchBCSections(

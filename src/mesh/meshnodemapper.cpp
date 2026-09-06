@@ -9,11 +9,13 @@
 #include "mesh/meshnodemapper.h"
 
 #include "mesh/meshautocouple.h"
+#include "mesh/meshcellgeom.h"
 #include "layers/meshspatialgrid.h"
 
 #include <QSet>
 
 #include <cmath>
+#include <limits>
 
 namespace mesh {
 
@@ -86,21 +88,27 @@ NodeMapResult mapNodesToMesh(const MeshResult &mesh,
     QVector<QRectF> tboxes;
     tboxes.reserve(mesh.triangles.size());
     const int nv = mesh.vertices.size();
+    // A cell's vertices are all in range, or it never matches.
+    auto cellValid = [nv](const MeshTriangle &t) {
+        for (int k = 0; k < t.vertexCount(); ++k)
+            if (t.vertex(k) < 0 || t.vertex(k) >= nv) return false;
+        return true;
+    };
     for (const MeshTriangle &t : mesh.triangles)
     {
-        if (t.v0 < 0 || t.v0 >= nv || t.v1 < 0 || t.v1 >= nv
-            || t.v2 < 0 || t.v2 >= nv)
+        if (!cellValid(t))
         {
             tboxes.append(QRectF());   // keep indices aligned; never matches
             continue;
         }
-        const QPointF &a = mesh.vertices[t.v0].xy;
-        const QPointF &b = mesh.vertices[t.v1].xy;
-        const QPointF &c = mesh.vertices[t.v2].xy;
-        const double xmin = std::min({a.x(), b.x(), c.x()});
-        const double xmax = std::max({a.x(), b.x(), c.x()});
-        const double ymin = std::min({a.y(), b.y(), c.y()});
-        const double ymax = std::max({a.y(), b.y(), c.y()});
+        double xmin = std::numeric_limits<double>::max(), xmax = -xmin;
+        double ymin = xmin, ymax = -xmin;
+        for (int k = 0; k < t.vertexCount(); ++k)
+        {
+            const QPointF &p = mesh.vertices[t.vertex(k)].xy;
+            xmin = std::min(xmin, p.x()); xmax = std::max(xmax, p.x());
+            ymin = std::min(ymin, p.y()); ymax = std::max(ymax, p.y());
+        }
         tboxes.append(QRectF(QPointF(xmin, ymin), QPointF(xmax, ymax)));
     }
     MeshSpatialGrid tGrid;
@@ -171,12 +179,16 @@ NodeMapResult mapNodesToMesh(const MeshResult &mesh,
         for (const int ti : cand)
         {
             const MeshTriangle &t = mesh.triangles[ti];
-            if (t.v0 < 0 || t.v0 >= nv || t.v1 < 0 || t.v1 >= nv
-                || t.v2 < 0 || t.v2 >= nv)
-                continue;
-            if (pointInTriangle(p, mesh.vertices[t.v0].xy,
-                                mesh.vertices[t.v1].xy,
-                                mesh.vertices[t.v2].xy))
+            if (!cellValid(t)) continue;
+            // A quad is tested as its sub-triangle fan (the engine's
+            // storage split, mesh::cellGeom); a triangle is its own fan.
+            const CellGeom g = cellGeom(mesh.vertices, t);
+            bool inside = false;
+            for (int s = 0; s < g.nSub && !inside; ++s)
+                inside = pointInTriangle(p, mesh.vertices[g.sub[s][0]].xy,
+                                         mesh.vertices[g.sub[s][1]].xy,
+                                         mesh.vertices[g.sub[s][2]].xy);
+            if (inside)
             {
                 bestT = ti;
                 break;
