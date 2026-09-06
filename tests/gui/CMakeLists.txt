@@ -2382,6 +2382,22 @@ add_swmmvis_gui_test(test_simstatus_2derr
 )
 target_link_libraries(test_simstatus_2derr PRIVATE Qt6::Concurrent)
 
+# Last-point-of-capture contract for runs: open failure, a throwing worker
+# (SWMMVIS_TEST_FAULT=step:bad_alloc) and a numerical abort each end in
+# finished(false, code, message) + an "ERROR [code]" child row + a
+# <stem>.runlog.txt — never in std::terminate. Same lean link set.
+add_swmmvis_gui_test(test_simrunner_failures
+    test_simrunner_failures.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationstatusmodel.h
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+)
+target_link_libraries(test_simrunner_failures PRIVATE Qt6::Concurrent)
+
 # LayerTreeModel test (test_layertreemodel.cpp) is parked until the
 # `swmmvis_core` static-library extraction lands. Compiling layertreepanel.cpp
 # in isolation pulls in Qt6Network + GIS layer + WMS dialog code — too much to

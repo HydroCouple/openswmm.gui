@@ -218,6 +218,16 @@ void SimulationStatusModel::finishJob(int jobId, bool success, int errCode,
     if (rec.status == SimulationJobStatus::Success && rec.endSimDate.isValid())
         rec.currentSimDate = rec.endSimDate;
 
+    // The failure reason as a child row (like the warnings), not only a
+    // tooltip: multi-line engine messages stay readable and can be copied.
+    if (rec.status == SimulationJobStatus::Failed && !errMsg.isEmpty()) {
+        const QModelIndex jobIdx = createIndex(row, 0, kRootId);
+        const int childRow = rec.warnings.size();
+        beginInsertRows(jobIdx, childRow, childRow);
+        rec.warnings.append(QStringLiteral("ERROR [%1] %2").arg(errCode).arg(errMsg));
+        endInsertRows();
+    }
+
     const QModelIndex tl = createIndex(row, 0,          kRootId);
     const QModelIndex br = createIndex(row, NumColumns - 1, kRootId);
     emit dataChanged(tl, br, {Qt::DisplayRole, Qt::EditRole, Qt::ForegroundRole});
@@ -323,8 +333,14 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
 
         if (role == Qt::DisplayRole && index.column() == 0)
             return rec.warnings.at(index.row());
-        if (role == Qt::ForegroundRole)
+        if (role == Qt::ToolTipRole && index.column() == 0)
+            return rec.warnings.at(index.row());
+        if (role == Qt::ForegroundRole) {
+            // The failure row (finishJob) is red; warnings stay amber.
+            if (rec.warnings.at(index.row()).startsWith(QLatin1String("ERROR [")))
+                return QBrush(QColor(0xC0, 0x00, 0x00));
             return QBrush(QColor(0xD0, 0x6F, 0x00));  // amber for warnings
+        }
         // Not-color-alone (UI redesign P9): a warning glyph carries the
         // severity for color-blind users and assistive tech.
         if (role == Qt::DecorationRole && index.column() == 0) {
