@@ -8,7 +8,7 @@
  * tab switch the facade emits unitsChanged so dialogs refresh.
  *
  * The test compiles unitsystem.cpp directly (no engine linkage required —
- * the stub typedefs in unitsystem.h take over when HAVE_OPENSWMMCORE is
+ * the stub typedefs in unitsystem.h take over when HAVE_OPENSWMMENGINE is
  * undefined, which is the test build configuration).
  */
 

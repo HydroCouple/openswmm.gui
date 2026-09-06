@@ -7,7 +7,7 @@
  *         and text alignment.
  *
  * \details SWMMVisSplashScreen extends QSplashScreen to allow custom text
- *          colour and alignment, matching the OpenSWMM branding.  The
+ *          colour and alignment, matching the SWMMVis branding.  The
  *          `onShowMessage` slot is connected to the splash's showMessage
  *          signal so multi-line startup progress messages are displayed in
  *          the correct colour and position.

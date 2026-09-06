@@ -150,7 +150,7 @@ QWidget *PreferencesDialog::buildGeneralPage()
 
     m_defaultEngineCombo = new QComboBox(page);
     m_defaultEngineCombo->addItem(
-        tr("OpenSWMM %1 (refactored)").arg(QLatin1String(SWMM_VERSION_FULL)),
+        tr("SWMMVis %1 (refactored)").arg(QLatin1String(SWMM_VERSION_FULL)),
         QLatin1String(SWMM_VERSION));
     m_defaultEngineCombo->addItem(
         tr("SWMM %1 (legacy)").arg(QLatin1String(OPENSWMM_LEGACY_FULL_VERSION)),

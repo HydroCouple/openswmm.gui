@@ -18,7 +18,7 @@ namespace openswmmvis::platform {
  *
  *  A child window stays ordered above its parent (so a click on the main
  *  window can't bury the dialog) but keeps its own normal window level — so
- *  when OpenSWMM is deactivated the dialog drops behind the other application's
+ *  when SWMMVis is deactivated the dialog drops behind the other application's
  *  windows instead of floating over them, and it stays visible rather than
  *  hiding. This is the macOS-native equivalent of the always-on-top hint,
  *  scoped to the application's own windows.

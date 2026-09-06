@@ -3,7 +3,7 @@
         <file alias="components.json">about/components.json</file>
     </qresource>
     <qresource prefix="/licenses">
-        <file alias="openswmmcore.txt">licenses/openswmmcore.txt</file>
+        <file alias="openswmmengine.txt">licenses/openswmmengine.txt</file>
         <file alias="triangle.txt">licenses/triangle.txt</file>
         <file alias="qt6.txt">licenses/qt6.txt</file>
         <file alias="qpropertymodel.txt">licenses/qpropertymodel.txt</file>

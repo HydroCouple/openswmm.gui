@@ -1,6 +1,6 @@
 /*!
  * \file   gdaldrivers.cpp
- * \author OpenSWMM GUI
+ * \author SWMMVis
  * \date   2026
  * \license GPL-3.0-or-later
  */

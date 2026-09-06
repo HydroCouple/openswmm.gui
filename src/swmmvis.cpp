@@ -1923,7 +1923,7 @@ void SWMMVis::initializeStatusBar()
     mComboBoxEngineVersion = new QComboBox(ui->statusBar);
     mComboBoxEngineVersion->setAccessibleName(tr("Engine version"));
     mComboBoxEngineVersion->addItem(
-        tr("OpenSWMM %1").arg(QLatin1String(SWMM_VERSION_FULL)),
+        tr("SWMMVis %1").arg(QLatin1String(SWMM_VERSION_FULL)),
         QLatin1String(SWMM_VERSION));
     mComboBoxEngineVersion->addItem(
         tr("SWMM %1 (Legacy)").arg(QLatin1String(OPENSWMM_LEGACY_FULL_VERSION)),
@@ -4541,7 +4541,7 @@ void SWMMVis::openUntitledProject(const SWMMModelLayer::NewProjectSpec &spec)
     // interfering with normal Welcome/model tab switching.
     window->showMaximized();
     ui->mdiAreaCentral->setActiveSubWindow(window);
-    setWindowTitle(QStringLiteral("OpenSWMM — Untitled"));
+    setWindowTitle(QStringLiteral("SWMMVis — Untitled"));
 
     // §M.1 re-activation trick (mirrors finalizeSingleINPOpen): null the
     // cached pointer so the same-project guard doesn't block the full panel
@@ -4953,7 +4953,7 @@ SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
     connect(window, &QWidget::windowTitleChanged, this,
             [this, window](const QString &t) {
                 if (window == mActiveProjectWindow)
-                    setWindowTitle(QStringLiteral("OpenSWMM — %1").arg(t));
+                    setWindowTitle(QStringLiteral("SWMMVis — %1").arg(t));
             });
 
     ui->mdiAreaCentral->addSubWindow(window);
@@ -5197,7 +5197,7 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
             progress->finishStage(OpenStage::Results);
         attachMesh2DLayersAsync(window, filePath, progress);
 
-        setWindowTitle(QStringLiteral("OpenSWMM — %1").arg(QFileInfo(filePath).baseName()));
+        setWindowTitle(QStringLiteral("SWMMVis — %1").arg(QFileInfo(filePath).baseName()));
         // See openUntitledProject(): this explicit maximize is needed only
         // when a hidden Welcome window prevented Qt's normal hand-off.
         // Keeping it at the open boundary leaves existing-tab activation to
@@ -6016,15 +6016,15 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     // Main-window title follows the active MDI tab so macOS / Linux
     // window managers and the Window menu's app-name slot reflect
     // what the user's looking at. Welcome and "no project" both show
-    // the bare app name. Project windows show "OpenSWMM — <title>"
+    // the bare app name. Project windows show "SWMMVis — <title>"
     // where <title> is the sub-window's title (carries the dirty `*`
     // from Slice A, so the user can see unsaved-changes state at a
     // glance).
     if (pw) {
-        setWindowTitle(QStringLiteral("OpenSWMM — %1").arg(pw->windowTitle()));
+        setWindowTitle(QStringLiteral("SWMMVis — %1").arg(pw->windowTitle()));
     } else if (window) {
         // Welcome or other non-project sub-window active.
-        setWindowTitle(QStringLiteral("OpenSWMM"));
+        setWindowTitle(QStringLiteral("SWMMVis"));
     }
 
     // QMdiArea fires subWindowActivated(nullptr) any time focus moves outside
@@ -6048,7 +6048,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
             return;   // spurious null — keep existing bindings
 
         // Real "all projects closed" — clear bindings.
-        setWindowTitle(QStringLiteral("OpenSWMM"));
+        setWindowTitle(QStringLiteral("SWMMVis"));
         UnitSystem::setActiveProject(nullptr);
         mCheckBoxLevelOffsetMode->setEnabled(false);
         if (mCheckBoxAutoLength) mCheckBoxAutoLength->setEnabled(false);
@@ -9207,7 +9207,7 @@ void SWMMVis::onAddMesh2DLayer()
 
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Add 2D Mesh"), startDir,
-        tr("OpenSWMM 2D Mesh (*.2dm);;All Files (*)"));
+        tr("SWMMVis 2D Mesh (*.2dm);;All Files (*)"));
     if (path.isEmpty()) return;
 
     beginFileOpen(path);
@@ -9248,7 +9248,7 @@ void SWMMVis::onAdd2DResultsLayer()
 
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Add 2D Results"), startDir,
-        tr("OpenSWMM 2D Results (*.h5);;All Files (*)"));
+        tr("SWMMVis 2D Results (*.h5);;All Files (*)"));
     if (path.isEmpty()) return;
 
     beginFileOpen(path);
@@ -9273,6 +9273,6 @@ void SWMMVis::onAdd2DResultsLayer()
                     t.elapsed());
     } else {
         endFileOpen(path, false, QString(), t.elapsed(),
-                    tr("could not open as OpenSWMM 2D results"));
+                    tr("could not open as SWMMVis 2D results"));
     }
 }

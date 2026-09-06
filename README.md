@@ -1,10 +1,10 @@
-# OpenSWMM GUI
+# SWMMVis
 
 <p align="center">
-  <img src="resources/images/screenshot1.png" alt="OpenSWMM GUI" width="1200"> 
+  <img src="resources/images/screenshot1.png" alt="SWMMVis" width="1200"> 
 </p>
 
-**Qt6/C++ graphical user interface for the OpenSWMM storm-water simulation engine (v6.0.0)**
+**Qt6/C++ graphical user interface for the SWMMVis storm-water simulation engine (v6.0.0)**
 
 [![Build and Package](../../actions/workflows/build_and_test.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/build_and_test.yml)
 [![Documentation](../../actions/workflows/documentation.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/documentation.yml)
@@ -16,7 +16,7 @@
 
 ## Overview
 
-A new GIS-based graphical user interface being developed for SWMM 6.0. The application is built with C++20 and the Qt 6 framework, providing tight integration with the next-generation OpenSWMM computational engine.
+A new GIS-based graphical user interface being developed for SWMM 6.0. The application is built with C++20 and the Qt 6 framework, providing tight integration with the next-generation SWMMVis computational engine.
 
 Key capabilities:
 

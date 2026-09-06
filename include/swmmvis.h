@@ -3,7 +3,7 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license MIT
- * \brief  Main application window for the OpenSWMM GUI.
+ * \brief  Main application window for SWMMVis.
  *
  * \details SWMMVis is a QMainWindow MDI host that coordinates:
  *  - Multiple SWMMVisProjectWindow sub-windows (one per loaded project).
@@ -83,7 +83,7 @@ namespace openswmmvis::ui { class LayerStylingDock; }
 
 /*!
  * \class SWMMVis
- * \brief Main application window for the OpenSWMM GUI.
+ * \brief Main application window for SWMMVis.
  *
  * \details Wraps MapCanvas, manages the project workspace/session, map tools,
  *          and all top-level UI interactions (menus, toolbars, status bar,
@@ -411,12 +411,12 @@ private slots:
     /*! \brief Prompt for a SWMM `.out` file and add it as a SWMMResultsLayer. */
     void onAddSWMMResultsLayer();
 
-    /*! \brief Prompt for an existing OpenSWMM 2D mesh (`.2dm`) anywhere on
+    /*! \brief Prompt for an existing SWMMVis 2D mesh (`.2dm`) anywhere on
      *         disk and load it into the active project as the active mesh.
      *         Delegates to SWMMVisProjectWindow::importMeshFileAsync. */
     void onAddMesh2DLayer();
 
-    /*! \brief Prompt for an OpenSWMM 2D results file (`.h5`) anywhere on disk
+    /*! \brief Prompt for a SWMMVis 2D results file (`.h5`) anywhere on disk
      *         and add it as a SWMM2DResultsLayer, becoming the active 2D
      *         results layer. Delegates the build to maybeLoad2DResults so an
      *         explicitly added layer is identical to an auto-loaded one. */
