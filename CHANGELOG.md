@@ -38,6 +38,17 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
   engine that ships `swmm_node_is_inlet`; older engines hide the feature.
   (`test_inlet_editor`, `test_inlet_junction_layer`.)
 
+- **Runs on a SWMM 5.x engine use a SWMM 5 profile of the model.** Run
+  writes `<stem>.swmm5.inp` next to the run outputs through
+  `swmm_model_write_compat` and feeds the 5.x worker that file: virtual and
+  inlet junctions become ordinary junctions (an inlet junction keeps its
+  inlet as an `[INLET_USAGE]` row on its approach conduit), v6-only sections
+  and option keys are left out, `FV` routing and `DYNAMIC_SLOT`/`TPA`
+  surcharge are mapped, and every substitution the engine reports is logged
+  as a run warning. The project's `.inp` is untouched. Previously the worker
+  read the canonical file and failed on `[VIRTUAL_JUNCTIONS]` /
+  `[INLET_JUNCTIONS]` with ERROR 205/209.
+
 - **Aquifer editor and Groundwater Exchange editor.** *Aquifer* joins the
   Model tab's Data Objects group (left of *LID Control*); the rebuilt
   `AquiferEditorDialog` is three-pane (list / grouped form / live two-zone

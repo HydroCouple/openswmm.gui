@@ -139,6 +139,7 @@
 #include "layers/swmmresultslayer.h"
 
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_model.h>   // swmm_model_write_compat (SWMM 5.x runs)
 #include <openswmm/engine/openswmm_output.h>
 
 #include <QClipboard>
@@ -8019,8 +8020,42 @@ void SWMMVis::onRunSimulation()
     mRunningSimProgress[jobId] = 0.0;
     updateSimulationProgressBar();
 
+    // A SWMM 5.x engine cannot read the v6-only sections ([VIRTUAL_JUNCTIONS],
+    // [INLET_JUNCTIONS], [2D_*], [PLUGINS], ...). For those engines the run
+    // input is a SWMM 5 profile of the model written next to the run outputs
+    // (MULTI_ENGINE plan V2 Phase 4): virtual and inlet junctions become
+    // junctions (an inlet junction keeps its inlet as an [INLET_USAGE] row on
+    // its approach conduit), incompatible options are mapped, and every
+    // substitution the writer reports is logged. The project's canonical .inp
+    // is not touched; the compat file is a run artifact.
+    QString runInpPath = inpPath;
+    if (engineVer.startsWith(QLatin1String("5."))) {
+        const QFileInfo rptFi(rptPath);
+        runInpPath = rptFi.absoluteDir().filePath(
+            rptFi.completeBaseName() + QStringLiteral(".swmm5.inp"));
+        SWMM_Engine eng = pw->modelLayer()->engine();
+        const int warnBefore = swmm_get_warning_count(eng);
+        const int rc = swmm_model_write_compat(eng, runInpPath.toUtf8().constData(),
+                                               SWMM_INP_PROFILE_SWMM5);
+        if (rc != SWMM_OK) {
+            onLogMessage(tr("Could not write the SWMM 5.x input file %1 (engine code %2); "
+                            "the run was not started.").arg(runInpPath).arg(rc),
+                         OpenSWMMVisLogMessage::LogMessageType::Error);
+            mRunningSimProgress.remove(jobId);
+            updateSimulationProgressBar();
+            return;
+        }
+        const int warnAfter = swmm_get_warning_count(eng);
+        for (int i = warnBefore; i < warnAfter; ++i)
+            onLogMessage(tr("SWMM 5.x input: %1")
+                             .arg(QString::fromUtf8(swmm_get_warning_at(eng, i)).trimmed()),
+                         OpenSWMMVisLogMessage::LogMessageType::Warning);
+        onLogMessage(tr("Engine %1 runs %2 (SWMM 5 profile of %3)")
+                         .arg(engineVer, runInpPath, inpPath));
+    }
+
     // Create runner; wire signals → model; runner deletes itself after finish.
-    auto *runner = new SimulationRunner(jobId, instanceName, inpPath, rptPath, outPath,
+    auto *runner = new SimulationRunner(jobId, instanceName, runInpPath, rptPath, outPath,
                                         engineVer, this);
     mActiveRunners.insert(jobId, runner);
 
