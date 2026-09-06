@@ -109,7 +109,7 @@ public:
     void attachMeshLayer(class SWMM2DMeshLayer *meshLayer, bool pristine = false);
 
     /*!
-     * \brief Browse-and-load an existing OpenSWMM 2D mesh (.2dm) into this
+     * \brief Browse-and-load an existing SWMMVis 2D mesh (.2dm) into this
      *        project.
      *
      * Until now a .2dm could only reach a model by already sitting next to its

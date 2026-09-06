@@ -2029,7 +2029,7 @@ void SimulationOptionsDialog::onMeshImport()
 
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Import 2D Mesh"), startDir,
-        tr("OpenSWMM 2D Mesh (*.2dm);;All Files (*)"));
+        tr("SWMMVis 2D Mesh (*.2dm);;All Files (*)"));
     if (path.isEmpty()) return;
 
     // The project window owns the copy-into-project, parse and canvas

@@ -3,7 +3,7 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  QApplication subclass for the OpenSWMM GUI — sets up GDAL, static
+ * \brief  QApplication subclass for SWMMVis — sets up GDAL, static
  *         Qt resources, and the main window during application startup.
  *
  * \details Two application objects are provided:
