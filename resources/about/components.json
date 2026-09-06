@@ -8,7 +8,7 @@
     "source":   "https://github.com/hydrocouple/openswmm.engine",
     "spdx": "MIT",
     "provenance": "in-tree (add_subdirectory)",
-    "licenseFile": ":/licenses/openswmmcore.txt"
+    "licenseFile": ":/licenses/openswmmengine.txt"
   },
   {
     "category": "Engine",
@@ -18,7 +18,7 @@
     "homepage": "https://www.cs.cmu.edu/~quake/triangle.html",
     "source":   "https://www.cs.cmu.edu/~quake/triangle.html",
     "spdx": "Triangle (custom)",
-    "provenance": "vendored under OpenSWMMCore/src/engine/2d/triangle/",
+    "provenance": "vendored under OpenSWMMEngine/src/engine/2d/triangle/",
     "licenseFile": ":/licenses/triangle.txt"
   },
   {

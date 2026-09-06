@@ -44,8 +44,8 @@ enum class FilterKind {
     ReportWrite,      ///< SWMM summary report (`*.rpt`). Engine-backed (`REPORT_WRITE`).
     StateRead,        ///< Hot-start input. Engine-backed (`STATE_READ`).
     StateWrite,       ///< Hot-start output. Engine-backed (`STATE_WRITE`).
-    ProjectRead,      ///< OpenSWMM project sidecar (`*.oswp`). GUI-only.
-    ProjectWrite,     ///< OpenSWMM project sidecar (`*.oswp`). GUI-only.
+    ProjectRead,      ///< SWMMVis project sidecar (`*.oswp`). GUI-only.
+    ProjectWrite,     ///< SWMMVis project sidecar (`*.oswp`). GUI-only.
     VectorRead,       ///< GIS vector layer (Shapefile, GeoJSON, GeoPackage, …). GUI-only.
     RasterRead,       ///< GIS raster layer (GeoTIFF, ASCII grid, NetCDF, …). GUI-only.
     TabularRead,      ///< Observed / tabular data (`*.csv`, `*.tsv`, …). GUI-only.

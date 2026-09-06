@@ -28,7 +28,7 @@ function(add_swmmvis_gui_test TEST_NAME)
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test
     )
     # Engine is brought in via add_subdirectory at the root; link target is
-    # `openswmm_engine`. HAVE_OPENSWMMCORE is set globally there too.
+    # `openswmm_engine`. HAVE_OPENSWMMENGINE is set globally there too.
     if(TARGET openswmm_engine)
         target_link_libraries(${TEST_NAME} PRIVATE openswmm_engine)
     endif()

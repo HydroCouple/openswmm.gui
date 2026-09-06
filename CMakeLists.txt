@@ -1,5 +1,5 @@
 #
-# CMakeLists.txt — OpenSWMM GUI
+# CMakeLists.txt — SWMMVis
 #
 # SPDX-License-Identifier: MIT
 #

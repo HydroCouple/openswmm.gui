@@ -77,7 +77,7 @@ enum class SWMMResultVariable
 /*!
  * \class SWMMResultsLayer
  * \brief Overlays time-stepped simulation results on the SWMM network geometry.
- * \details Reads output from an OpenSWMMCore binary results file (.out), maps
+ * \details Reads output from an OpenSWMMEngine binary results file (.out), maps
  *          a selected variable at the current simulation time step to a colour
  *          ramp, and paints the network elements with those colours.
  *

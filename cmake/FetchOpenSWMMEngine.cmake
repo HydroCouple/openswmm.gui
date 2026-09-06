@@ -28,8 +28,8 @@
 #                                Default: ../openswmm.engine/install/<System>
 #
 # After include(): the `openswmm_engine` target (an alias of the imported
-# OpenSWMMEngine::openswmm_engine) is available and HAVE_OPENSWMMENGINE /
-# HAVE_OPENSWMMCORE are added to compile definitions.
+# OpenSWMMEngine::openswmm_engine) is available and HAVE_OPENSWMMENGINE is
+# added to compile definitions.
 
 include_guard(GLOBAL)
 
@@ -39,11 +39,6 @@ set(OPENSWMMENGINE_INSTALL_DIR
     "${CMAKE_SOURCE_DIR}/../openswmm.engine/install/${CMAKE_HOST_SYSTEM_NAME}"
     CACHE PATH
     "Install prefix of the prebuilt openswmm.engine package (contains lib/cmake/OpenSWMMEngine).")
-
-# Backward-compat: honor older override variable names if a user set them.
-if(OPENSWMMCORE_INSTALL_DIR AND NOT OPENSWMMENGINE_INSTALL_DIR)
-    set(OPENSWMMENGINE_INSTALL_DIR "${OPENSWMMCORE_INSTALL_DIR}")
-endif()
 
 if(OPENSWMMENGINE_INSTALL_DIR)
     list(PREPEND CMAKE_PREFIX_PATH "${OPENSWMMENGINE_INSTALL_DIR}")
@@ -69,4 +64,4 @@ endif()
 
 # The engine is a hard dependency — the GUI sources unconditionally use the
 # engine's C ABI, no #ifdef guards.
-add_compile_definitions(HAVE_OPENSWMMENGINE HAVE_OPENSWMMCORE)
+add_compile_definitions(HAVE_OPENSWMMENGINE)
