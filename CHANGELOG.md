@@ -19,6 +19,16 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Simulation runs are the last point of failure capture** — the runner's worker is wrapped so
+  nothing thrown inside it (out-of-memory included) can escape the future and terminate the
+  application: it becomes `finished(false, 99, "Simulation worker threw during <phase>: …")`. A step
+  that returns an error now keeps the engine's specific message and error list ("Routing diverged
+  (step at <sim time>): …" for a numerical abort) instead of whatever `end()` left behind. Every run
+  writes an append-only `<report stem>.runlog.txt` (phases, failure, outcome). The Simulation Status
+  dock shows the failure as a red, copyable child row (right-click → Copy on any cell), the
+  application guards event delivery (`notify()`: logged + one throttled message box) and installs a
+  terminate handler that names the uncaught exception in the log. The runner also absolutises its
+  .inp/.rpt/.out before pinning the working directory (a relative .inp used to fail to open).
 - **Simulation Status: "2D Solver" and "LTS Tiers" columns** — the runner reads the engine's
   `swmm_2d_get_run_stats` once after start and on every progress tick, so a 2D run shows which backend
   it is on (CPU marcher vs Kokkos plugin), its momentum closure and the live LTS tier occupancy

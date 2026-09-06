@@ -25,6 +25,9 @@
 #include <QRegularExpression>
 #include <QThread>
 #include <QVector>
+#include <exception>
+#include <memory>
+#include <new>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
 #include <QProcess>
@@ -32,6 +35,36 @@
 #include <QJsonObject>
 
 namespace {
+
+// Append-only per-run log beside the report (<rpt stem>.runlog.txt): the
+// phases the worker passed through, the outcome and the timing. Flushed per
+// line so a hard crash still leaves what happened up to that point. Written
+// by the worker thread only.
+struct RunLog {
+    QFile file;
+    explicit RunLog(const QString &rptPath)
+    {
+        const QFileInfo fi(rptPath);
+        file.setFileName(fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
+                         + QStringLiteral(".runlog.txt"));
+        file.open(QIODevice::Append | QIODevice::Text);
+    }
+    void line(const QString &text)
+    {
+        if (!file.isOpen()) return;
+        file.write((QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
+                    + QLatin1Char(' ') + text + QLatin1Char('\n')).toUtf8());
+        file.flush();
+    }
+};
+
+// Test-only fault injection: SWMMVIS_TEST_FAULT="<phase>:<kind>" makes the
+// worker fail deliberately at that phase (kind "bad_alloc" throws,
+// "numerical" returns SWMM_ERR_NUMERICAL from a step). Empty = inert.
+struct TestFault {
+    QString phase, kind;
+    bool at(const char *p) const { return phase == QLatin1String(p); }
+};
 
 // swmm_2d_get_run_stats → SimulationRunner::twoDSolverStats, queued onto the
 // GUI thread. Called from the worker with the engine still open; a refused
@@ -187,16 +220,37 @@ QString SimulationRunner::parseTwoDOutputFile(const QString &inpPath)
 // ---------------------------------------------------------------------------
 
 struct SimulationResult {
-    bool    success;
-    int     errorCode;
+    bool    success        = false;
+    int     errorCode      = 0;
     QString errorMessage;
-    double  runoffErrFrac;
-    double  routingErrFrac;
+    double  runoffErrFrac  = 0.0;
+    double  routingErrFrac = 0.0;
     // Defaulted so brace-init error returns report "no 2D value".
     double  twoDErrFrac = qQNaN();
+    /// Where the run was when it failed ("open", "initialize", "start",
+    /// "step at <sim time>", "end"); empty on success.
+    QString phase;
 };
 
 Q_DECLARE_METATYPE(SimulationResult)
+
+namespace {
+
+// A failed SimulationResult for an exception that escaped the worker body.
+SimulationResult exceptionResult(const QString &phase, const QString &what, RunLog *log)
+{
+    SimulationResult r;
+    r.success      = false;
+    r.errorCode    = SWMM_ERR_INTERNAL;
+    r.phase        = phase;
+    r.errorMessage = QCoreApplication::translate(
+        "SimulationRunner", "Simulation worker threw during %1: %2")
+        .arg(phase.isEmpty() ? QStringLiteral("run") : phase, what);
+    if (log) log->line(QStringLiteral("EXCEPTION phase=%1 %2").arg(phase, what));
+    return r;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Construction
@@ -250,11 +304,38 @@ void SimulationRunner::start()
     const QByteArray out = QFileInfo(m_outPath).absoluteFilePath().toUtf8();
     SimulationRunner *rawSelf = this;
 
+    // Shared with the worker: the phase it is in (read by the exception
+    // guard), the per-run log, and the test-only fault spec.
+    auto phase  = std::make_shared<QString>();
+    auto runLog = std::make_shared<RunLog>(m_rptPath);
+    TestFault fault;
+    {
+        const QString spec = qEnvironmentVariable("SWMMVIS_TEST_FAULT");
+        const int c = spec.indexOf(QLatin1Char(':'));
+        if (c > 0) { fault.phase = spec.left(c); fault.kind = spec.mid(c + 1); }
+    }
+    runLog->line(QStringLiteral("run %1 (engine %2)").arg(m_inpPath, m_engineVersion));
+
     auto *watcher = new QFutureWatcher<SimulationResult>(this);
 
     connect(watcher, &QFutureWatcher<SimulationResult>::finished, this,
             [this, watcher]() {
-                SimulationResult res = watcher->result();
+                // result() rethrows anything the worker let escape — that
+                // would land on the GUI thread inside a signal emission and
+                // terminate the application. The worker body is guarded
+                // below, so this is belt-and-braces.
+                SimulationResult res;
+                try {
+                    res = watcher->result();
+                } catch (const std::exception &e) {
+                    res.errorCode    = SWMM_ERR_INTERNAL;
+                    res.errorMessage = tr("Simulation worker failed: %1")
+                                           .arg(QString::fromUtf8(e.what()));
+                } catch (...) {
+                    res.errorCode    = SWMM_ERR_INTERNAL;
+                    res.errorMessage = tr("Simulation worker failed with a "
+                                          "non-standard exception");
+                }
                 watcher->deleteLater();
                 emit finished(m_jobId, res.success, res.errorCode,
                               res.errorMessage, res.runoffErrFrac, res.routingErrFrac,
@@ -266,8 +347,8 @@ void SimulationRunner::start()
     const int tickIntervalMs = PreferencesManager::instance()->progressTickMs();
     const QString engineVersion = m_engineVersion;
 
-    watcher->setFuture(
-        QtConcurrent::run([inp, rpt, out, rawSelf, tickIntervalMs, engineVersion]() -> SimulationResult {
+    auto body = [inp, rpt, out, rawSelf, tickIntervalMs, engineVersion,
+                 phase, runLog, fault]() -> SimulationResult {
             // The engine resolves RELATIVE sidecar paths named in the .inp —
             // [RAINGAGES] FILE, interface files, hotstarts — against the
             // PROCESS working directory. The GUI runs the engine in-process,
@@ -316,6 +397,8 @@ void SimulationRunner::start()
             };
 
             // Open
+            *phase = QStringLiteral("open");
+            runLog->line(QStringLiteral("open"));
             int rc = swmm_engine_open(eng,
                                       inp.constData(),
                                       rpt.constData(),
@@ -337,6 +420,8 @@ void SimulationRunner::start()
             }
 
             // Initialize
+            *phase = QStringLiteral("initialize");
+            runLog->line(QStringLiteral("initialize"));
             rc = swmm_engine_initialize(eng);
             if (rc != SWMM_OK) {
                 const QString msg = engineFailureText(eng, rc);
@@ -446,6 +531,8 @@ void SimulationRunner::start()
             }
 
             // Start
+            *phase = QStringLiteral("start");
+            runLog->line(QStringLiteral("start"));
             rc = swmm_engine_start(eng, 1 /* save_results */);
             if (rc != SWMM_OK) {
                 const QString msg = engineFailureText(eng, rc);
@@ -528,12 +615,22 @@ void SimulationRunner::start()
             // the GUI event loop.
             const qint64 kTickIntervalMs = tickIntervalMs;
             qint64 lastTickMs = -kTickIntervalMs; // fire immediately on first step
+            *phase = QStringLiteral("step");
+            runLog->line(QStringLiteral("step loop"));
+            // A step failure is captured HERE, with the engine's specific
+            // message and error list, before end()/report() can disturb them.
+            int     stepFailCode = SWMM_OK;
+            QString stepFailMsg, stepFailPhase;
             while (!rawSelf->m_cancel.load()) {
                 if (rawSelf->m_paused.load()) {
                     QThread::msleep(50);
                     continue;
                 }
                 rc = swmm_engine_step(eng, &elapsed);
+                if (fault.at("step") && stepCount == 2) {
+                    if (fault.kind == QLatin1String("bad_alloc")) throw std::bad_alloc();
+                    if (fault.kind == QLatin1String("numerical")) rc = SWMM_ERR_NUMERICAL;
+                }
                 if (rc != SWMM_OK || elapsed <= 0.0)
                     break;
 
@@ -674,11 +771,37 @@ void SimulationRunner::start()
                 }
             }
 
+            if (rc != SWMM_OK) {
+                stepFailCode = rc;
+                const double simSec = elapsed * 86400.0;
+                stepFailPhase = QStringLiteral("step at %1").arg(
+                    simStart.isValid()
+                        ? simStart.addMSecs(qint64(simSec * 1000.0)).toString(Qt::ISODate)
+                        : QStringLiteral("%1 s").arg(simSec, 0, 'f', 0));
+                QString msg = engineFailureText(eng, rc);
+                // The engine's error list carries the specific cause (a
+                // diverging node, a plugin failure …) — surface all of it.
+                const int nErr = swmm_get_error_count(eng);
+                for (int i = 0; i < nErr; ++i) {
+                    const QString e =
+                        QString::fromUtf8(swmm_get_error_at(eng, i)).trimmed();
+                    if (!e.isEmpty() && !msg.contains(e))
+                        msg += QLatin1Char('\n') + e;
+                }
+                stepFailMsg = (rc == SWMM_ERR_NUMERICAL)
+                    ? QStringLiteral("Routing diverged (%1): %2").arg(stepFailPhase, msg)
+                    : QStringLiteral("%1 (%2)").arg(msg, stepFailPhase);
+                *phase = stepFailPhase;
+                runLog->line(QStringLiteral("step FAILED code=%1 %2").arg(rc).arg(stepFailMsg));
+            }
+
             // Final 2D solver telemetry — a short run can finish before any
             // progress tick, and end() finalises the marcher's counters.
             if (twoD_active) emitTwoDSolverStats(rawSelf, rawSelf->m_jobId, eng);
 
             // End
+            if (stepFailCode == SWMM_OK) *phase = QStringLiteral("end");
+            runLog->line(QStringLiteral("end"));
             swmm_engine_end(eng);
 
             // Continuity errors (available after end)
@@ -717,11 +840,15 @@ void SimulationRunner::start()
                                        "stop point"),
                         runoffErr, routingErr, twoDErr};
 
+            if (stepFailCode != SWMM_OK)
+                return {false, stepFailCode, stepFailMsg, runoffErr, routingErr, twoDErr,
+                        stepFailPhase};
             if (lastErr != SWMM_OK) {
                 const QString msg = !lastErrMsg.isEmpty()
                     ? lastErrMsg
                     : QString::fromUtf8(swmm_error_message(lastErr));
-                return {false, lastErr, msg, runoffErr, routingErr, twoDErr};
+                return {false, lastErr, msg, runoffErr, routingErr, twoDErr,
+                        QStringLiteral("end")};
             }
             return {true, SWMM_OK, {}, runoffErr, routingErr, twoDErr};
 
@@ -909,8 +1036,33 @@ void SimulationRunner::start()
 
                 return {true, 0, QString(), runoffErrFrac, routingErrFrac};
             }
-        })
-    );
+        };
+
+    watcher->setFuture(QtConcurrent::run(
+        [body, phase, runLog]() -> SimulationResult {
+            // Last line of defence for the run: nothing thrown by the worker
+            // may escape the future. Report it as a failed run, with the
+            // phase it was in, and write it to the run log.
+            try {
+                SimulationResult r = body();
+                if (!r.success && r.phase.isEmpty()) r.phase = *phase;
+                runLog->line(r.success
+                    ? QStringLiteral("finished: success")
+                    : QStringLiteral("finished: %1 code=%2 phase=%3 %4")
+                          .arg(r.errorCode == 0 ? QStringLiteral("cancelled")
+                                                : QStringLiteral("FAILED"))
+                          .arg(r.errorCode).arg(r.phase, r.errorMessage));
+                return r;
+            } catch (const std::bad_alloc &) {
+                return exceptionResult(*phase,
+                    QStringLiteral("out of memory (std::bad_alloc)"), runLog.get());
+            } catch (const std::exception &e) {
+                return exceptionResult(*phase, QString::fromUtf8(e.what()), runLog.get());
+            } catch (...) {
+                return exceptionResult(*phase,
+                    QStringLiteral("non-standard exception"), runLog.get());
+            }
+        }));
 }
 
 void SimulationRunner::cancel()

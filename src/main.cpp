@@ -23,6 +23,9 @@
 #include <QCoreApplication>
 #include <QSurfaceFormat>
 #include <QtQml/qqml.h>
+#include <cstdlib>
+#include <exception>
+#include <string>
 
 #include <cstdio>
 
@@ -120,6 +123,21 @@ int main(int argc, char *argv[])
     // Perf-plan Phase 0 — opt-in file logging (SWMM_LOG_FILE).  Installed
     // before anything can log so early open phases are captured.
     installFileTeeIfRequested();
+
+    // Last resort: an uncaught exception on any thread ends the process —
+    // say why (through the message handler, so the file tee gets it too)
+    // before it does. The simulation runner and the event loop guard catch
+    // theirs; this covers everything else.
+    std::set_terminate([]() {
+        std::string what = "unknown";
+        if (auto ex = std::current_exception()) {
+            try { std::rethrow_exception(ex); }
+            catch (const std::exception &e) { what = e.what(); }
+            catch (...) { what = "non-standard exception"; }
+        }
+        qCritical("SWMMVis: terminating on an uncaught exception: %s", what.c_str());
+        std::abort();
+    });
 
     // §QSG-3 — Force the Qt Scene Graph onto the OpenGL RHI backend on
     // macOS instead of the default Metal. Symptom that drove this:
