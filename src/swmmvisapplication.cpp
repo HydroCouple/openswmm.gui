@@ -18,6 +18,9 @@
 #include <QTimer>
 #include <QDialog>
 #include <QEvent>
+#include <QElapsedTimer>
+#include <QMessageBox>
+#include <exception>
 // #ifdef Q_OS_WIN
 // #include <windows.h> // for Sleep
 // #endif
@@ -62,6 +65,39 @@ SWMMVisCoreApplication::SWMMVisCoreApplication(int& argc, char* argv[])
 SWMMVisCoreApplication::~SWMMVisCoreApplication()
 {
 
+}
+
+bool SWMMVisApplication::notify(QObject *receiver, QEvent *event)
+{
+    try {
+        return QApplication::notify(receiver, event);
+    } catch (const std::exception &e) {
+        reportHandlerException(receiver, QString::fromUtf8(e.what()));
+    } catch (...) {
+        reportHandlerException(receiver, QStringLiteral("non-standard exception"));
+    }
+    return false;
+}
+
+void SWMMVisApplication::reportHandlerException(QObject *receiver, const QString &what)
+{
+    const QString where = receiver
+        ? QString::fromLatin1(receiver->metaObject()->className())
+        : QStringLiteral("?");
+    qCritical("SWMMVis: exception escaped an event handler (%s): %s",
+              qPrintable(where), qPrintable(what));
+    // One dialog per burst — a handler that throws on every paint or timer
+    // tick would otherwise bury the user in message boxes. Deferred so the
+    // box is not raised from inside notify().
+    static QElapsedTimer sinceLast;
+    if (sinceLast.isValid() && sinceLast.elapsed() < 10000) return;
+    sinceLast.start();
+    QTimer::singleShot(0, this, [where, what]() {
+        QMessageBox::critical(nullptr, tr("Internal error"),
+            tr("An error escaped an event handler in %1:\n%2\n\n"
+               "The application kept running; the message is in the log. "
+               "Save your work and consider restarting.").arg(where, what));
+    });
 }
 
 /*!
