@@ -31,7 +31,6 @@
 #include <QImage>
 #include <QQmlEngine>
 #include <QQuickWidget>
-#include <QQuickWindow>
 #include <QSurfaceFormat>
 #include <QTreeView>
 
@@ -537,11 +536,7 @@ private slots:
             return n;
         };
 
-        // Control for the GPU row: the offscreen QPA has no guarantee of a
-        // working QQuickWidget scene graph. Render a LOADED model through the
-        // same QSG overlay first; if that draws nothing while the CPU path
-        // draws the network, the harness cannot see the overlay and the row is
-        // skipped instead of reporting a bug it cannot observe.
+        // The GPU row needs two things this harness cannot take for granted.
         if (qsg) {
             auto *ws2 = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
             auto *w2  = new SWMMVisProjectWindow(ws2, fixturePath(), nullptr);
@@ -554,117 +549,19 @@ private slots:
             MapCanvas *c2 = w2->canvas();
             c2->zoomToFullExtent();
             using K2 = SWMMModelLayer;
-            w2->modelLayer()->setQsgRenderKinds(K2::QsgKinds(K2::QsgNone));
-            QTest::qWait(150);
-            const int cpuPx = nonBackground(c2->grab().toImage());
-            w2->modelLayer()->setQsgRenderKinds(K2::QsgKinds(
-                K2::QsgNodes | K2::QsgLinks | K2::QsgCatch | K2::QsgGages));
-            QTest::qWait(150);
-            const QImage qsgImg = c2->grab().toImage();
-            qsgImg.save(QDir::current().filePath(
-                QStringLiteral("newproject_render_control_loaded_qsg.png")));
-            const int qsgPx = nonBackground(qsgImg);
-            qInfo().noquote() << QStringLiteral(
-                "[control] loaded fixture non-background pixels: cpu=%1 qsg=%2")
-                .arg(cpuPx).arg(qsgPx);
-            // Why the overlay is (in)visible here: MapCanvas parks its
-            // QQuickWidget as an off-screen top-level, so it is reachable
-            // through the top-level list. Its scene-graph state says whether
-            // a grab can ever contain pixels in this process.
-            for (QWidget *tl : QApplication::topLevelWidgets()) {
-                auto *qw = qobject_cast<QQuickWidget *>(tl);
-                if (!qw) continue;
-                const QImage fb = qw->grabFramebuffer();
-                qInfo().noquote() << QStringLiteral(
-                    "[control] QQuickWidget status=%1 root=%2 sgInit=%3 size=%4x%5 "
-                    "grab=%6x%7 grabNonBg=%8")
-                    .arg(int(qw->status()))
-                    .arg(qw->rootObject() ? "yes" : "no")
-                    .arg(qw->quickWindow() && qw->quickWindow()->isSceneGraphInitialized()
-                             ? "yes" : "no")
-                    .arg(qw->width()).arg(qw->height())
-                    .arg(fb.width()).arg(fb.height())
-                    .arg(nonBackground(fb));
-                qInfo().noquote() << QStringLiteral(
-                    "[control] screens=%1 overlayScreen=%2 canvasScreen=%3 overlayDpr=%4 canvasDpr=%5")
-                    .arg(QGuiApplication::screens().size())
-                    .arg(qw->windowHandle() ? qw->windowHandle()->screen()->name() : QStringLiteral("?"))
-                    .arg(c2->window()->windowHandle()
-                             ? c2->window()->windowHandle()->screen()->name()
-                             : QStringLiteral("?"))
-                    .arg(qw->devicePixelRatioF()).arg(c2->devicePixelRatioF());
-                if (QQuickItem *root = qw->rootObject()) {
-                    auto *r = root->findChild<SWMMLayerQSGRenderer *>(
-                        QStringLiteral("swmmRenderer"));
-                    // Drive MapCanvas's OWN overlay widget exactly like the
-                    // stand-alone probe below — same layer, same extent, same
-                    // repaint+grab — bypassing MapCanvas::paintEvent.
-                    if (r) {
-                        r->setLayer(w2->modelLayer());
-                        r->setMapExtent(c2->extent().scaled(1.05));
-                        qw->repaint();
-                        const QImage g = qw->grabFramebuffer();
-                        g.save(QDir::current().filePath(
-                            QStringLiteral("newproject_render_control_canvaswidget_direct.png")));
-                        qInfo().noquote() << QStringLiteral(
-                            "[control] MapCanvas-owned overlay driven directly: grab=%1x%2 nonBg=%3")
-                            .arg(g.width()).arg(g.height()).arg(nonBackground(g));
-                    }
-                    qInfo().noquote() << QStringLiteral(
-                        "[control] root %1x%2 visible=%3; swmmRenderer %4 %5x%6 "
-                        "visible=%7 opacity=%8 rev=%9")
-                        .arg(root->width()).arg(root->height())
-                        .arg(root->isVisible() ? "yes" : "no")
-                        .arg(r ? "found" : "MISSING")
-                        .arg(r ? r->width() : -1.0).arg(r ? r->height() : -1.0)
-                        .arg(r && r->isVisible() ? "yes" : "no")
-                        .arg(r ? r->opacity() : -1.0)
-                        .arg(r ? r->contentRevision() : 0ULL);
-                }
-            }
-            // Can this process grab ANY off-screen QQuickWidget? A plain red
-            // rectangle in the same WA_DontShowOnScreen top-level setup as
-            // MapCanvas's overlay separates "the SWMM renderer drew nothing"
-            // from "no scene-graph readback works here". Then the real overlay
-            // QML + SWMMLayerQSGRenderer, driven directly with the loaded
-            // layer, separates the renderer from MapCanvas's paint plumbing.
-            auto makeProbe = [](QQuickWidget &probe, bool msaa) {
+
+            // 1. Platform gate. MapCanvas parks its overlay QQuickWidget as a
+            //    WA_DontShowOnScreen top-level. The same overlay QML and
+            //    renderer, in a fresh widget of that kind, drawing the loaded
+            //    model from a tree that STARTS populated: if this process
+            //    cannot render/read that back (the offscreen QPA cannot), the
+            //    row is skipped rather than reporting a bug it cannot observe.
+            {
+                QQuickWidget probe(nullptr);
                 probe.setAttribute(Qt::WA_DontShowOnScreen);
                 probe.setAttribute(Qt::WA_QuitOnClose, false);
                 probe.setClearColor(Qt::transparent);
                 probe.setResizeMode(QQuickWidget::SizeRootObjectToView);
-                if (msaa) {
-                    QSurfaceFormat f = probe.format();
-                    if (f.samples() < 4) f.setSamples(4);
-                    probe.setFormat(f);
-                }
-            };
-            for (int msaa = 0; msaa <= 1; ++msaa) {
-                const QString qmlPath = QDir::current().filePath(
-                    QStringLiteral("newproject_render_probe.qml"));
-                QFile qf(qmlPath);
-                QVERIFY(qf.open(QIODevice::WriteOnly | QIODevice::Text));
-                qf.write("import QtQuick\nRectangle { color: \"red\" }\n");
-                qf.close();
-                QQuickWidget probe(nullptr);
-                makeProbe(probe, msaa == 1);
-                probe.setSource(QUrl::fromLocalFile(qmlPath));
-                probe.resize(200, 150);
-                probe.show();
-                QTest::qWait(100);
-                probe.repaint();
-                const QImage g = probe.grabFramebuffer();
-                int red = 0;
-                for (int y = 0; y < g.height(); ++y)
-                    for (int x = 0; x < g.width(); ++x)
-                        if (qRed(g.pixel(x, y)) > 200 && qGreen(g.pixel(x, y)) < 50) ++red;
-                qInfo().noquote() << QStringLiteral(
-                    "[control] plain QQuickWidget probe msaa=%1: status=%2 grab=%3x%4 redPixels=%5")
-                    .arg(msaa).arg(int(probe.status())).arg(g.width()).arg(g.height()).arg(red);
-            }
-            {
-                QQuickWidget probe(nullptr);
-                makeProbe(probe, true);
                 probe.setSource(QUrl(QStringLiteral("qrc:/openswmm/qml/swmmlayer.qml")));
                 probe.resize(900, 700);
                 probe.show();
@@ -673,54 +570,53 @@ private slots:
                     ? probe.rootObject()->findChild<SWMMLayerQSGRenderer *>(
                           QStringLiteral("swmmRenderer"))
                     : nullptr;
-                int px = -1;
-                if (r) {
-                    r->setLayer(w2->modelLayer());
-                    r->setMapExtent(c2->extent());
-                    QTest::qWait(100);
-                    probe.repaint();
-                    const QImage g = probe.grabFramebuffer();
-                    g.save(QDir::current().filePath(
-                        QStringLiteral("newproject_render_control_direct_qsg.png")));
-                    px = nonBackground(g);
-                }
+                QVERIFY2(r, "swmmlayer.qml did not yield a SWMMLayerQSGRenderer "
+                            "(QML types registered in initTestCase, resource in the target)");
+                r->setLayer(w2->modelLayer());
+                r->setMapExtent(c2->extent());
+                QTest::qWait(100);
+                const int px = nonBackground(probe.grabFramebuffer());
+                r->setLayer(nullptr);
                 qInfo().noquote() << QStringLiteral(
-                    "[control] direct swmmlayer.qml probe: status=%1 renderer=%2 nonBg=%3")
-                    .arg(int(probe.status())).arg(r ? "found" : "MISSING").arg(px);
-                // MapCanvas's exact regrab sequence: (re)size the overlay to a
-                // NEW size, synchronous repaint(), immediate grabFramebuffer()
-                // — no event-loop turn in between.
-                if (r) {
-                    r->setMapExtent(c2->extent().scaled(1.1));   // content dirty
-                    probe.resize(901, 701);
-                    probe.repaint();
-                    const QImage g1 = probe.grabFramebuffer();
-                    const int px1 = nonBackground(g1);
-                    // Same again, but let one event-loop turn pass before grabbing.
-                    r->setMapExtent(c2->extent().scaled(1.2));
-                    probe.resize(902, 702);
-                    probe.repaint();
-                    QTest::qWait(50);
-                    const QImage g2 = probe.grabFramebuffer();
-                    const int px2 = nonBackground(g2);
-                    // And: no resize at all, content dirty, immediate grab.
-                    r->setMapExtent(c2->extent().scaled(1.3));
-                    probe.repaint();
-                    const QImage g3 = probe.grabFramebuffer();
-                    const int px3 = nonBackground(g3);
-                    qInfo().noquote() << QStringLiteral(
-                        "[control] canvas-sequence probe: resize+repaint+grab=%1 "
-                        "resize+repaint+wait+grab=%2 repaint+grab(no resize)=%3")
-                        .arg(px1).arg(px2).arg(px3);
-                    r->setLayer(nullptr);
+                    "[control] fresh overlay widget drawing the loaded model: nonBg=%1").arg(px);
+                if (px <= 0) {
+                    delete w2;
+                    delete ws2;
+                    QSKIP("this platform cannot render/read back the off-screen QSG "
+                          "overlay — the qsg-overlay row cannot be observed here");
                 }
             }
-            delete w2;
-            delete ws2;
-            QVERIFY2(cpuPx > 0, "control: CPU path drew nothing for a loaded model");
-            if (qsgPx * 10 < cpuPx)
-                QSKIP("QSG overlay renders nothing under this platform (offscreen "
-                      "QQuickWidget) — GPU row cannot be observed here");
+            // 2. The loaded model through MapCanvas itself. Handing the kinds
+            //    from the CPU painter to the overlay makes every overlay bucket
+            //    go empty → populated — the same transition an empty project
+            //    makes on its first added object — so this is asserted, not
+            //    just logged: before the geometryDirtyFlags fix in
+            //    SWMMLayerQSGRenderer the overlay stayed blank forever after
+            //    an empty upload (Qt's batch renderer never batches an empty
+            //    element and ignores DirtyGeometry on an unbatched one).
+            {
+                w2->modelLayer()->setQsgRenderKinds(K2::QsgKinds(K2::QsgNone));
+                QTest::qWait(150);
+                const int cpuPx = nonBackground(c2->grab().toImage());
+                w2->modelLayer()->setQsgRenderKinds(K2::QsgKinds(
+                    K2::QsgNodes | K2::QsgLinks | K2::QsgCatch | K2::QsgGages));
+                QTest::qWait(150);
+                const QImage qsgImg = c2->grab().toImage();
+                qsgImg.save(QDir::current().filePath(
+                    QStringLiteral("newproject_render_control_loaded_qsg.png")));
+                const int qsgPx = nonBackground(qsgImg);
+                qInfo().noquote() << QStringLiteral(
+                    "[control] loaded fixture non-background pixels: cpu=%1 qsg=%2")
+                    .arg(cpuPx).arg(qsgPx);
+                delete w2;
+                delete ws2;
+                QVERIFY2(cpuPx > 0, "control: CPU path drew nothing for a loaded model");
+                QVERIFY2(qsgPx * 10 >= cpuPx,
+                         qPrintable(QStringLiteral(
+                             "loaded model: the QSG overlay drew (almost) nothing after "
+                             "the CPU→QSG hand-off (cpu=%1 qsg=%2) — buckets that were "
+                             "empty once never render again").arg(cpuPx).arg(qsgPx)));
+            }
         }
 
         auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);

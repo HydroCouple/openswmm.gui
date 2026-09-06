@@ -140,8 +140,18 @@ void uploadVertsChunked(QSGGeometryNode *node, const std::vector<V> &verts,
 {
     const int total  = int(verts.size());
     const int inRoot = std::min(total, kMaxVertsPerNode);
+    // An element whose geometry was EMPTY has no batch, and DirtyGeometry on
+    // an unbatched element is ignored by Qt's batch renderer — the node would
+    // never paint once it fills. DirtyMaterial is what requests a batch
+    // rebuild for it (same fix as SWMMLayerQSGRenderer's uploadVerts).
+    auto dirtyFor = [](bool wasEmpty, int n) {
+        return (wasEmpty && n > 0)
+            ? (QSGNode::DirtyGeometry | QSGNode::DirtyMaterial)
+            : QSGNode::DirtyState(QSGNode::DirtyGeometry);
+    };
+    const bool rootWasEmpty = node->geometry()->vertexCount() == 0;
     uploadChunk(node->geometry(), verts.data(), inRoot, sizeof(V));
-    node->markDirty(QSGNode::DirtyGeometry);
+    node->markDirty(dirtyFor(rootWasEmpty, inRoot));
 
     int offset = inRoot;
     QSGNode *child = node->firstChild();
@@ -155,8 +165,9 @@ void uploadVertsChunked(QSGGeometryNode *node, const std::vector<V> &verts,
             node->appendChildNode(cg);
         }
         const int n = std::min(kMaxVertsPerNode, total - offset);
+        const bool wasEmpty = cg->geometry()->vertexCount() == 0;
         uploadChunk(cg->geometry(), verts.data() + offset, n, sizeof(V));
-        cg->markDirty(QSGNode::DirtyGeometry);
+        cg->markDirty(dirtyFor(wasEmpty, n));
         offset += n;
     }
     while (child) {   // shrink: drop no-longer-needed overflow nodes
