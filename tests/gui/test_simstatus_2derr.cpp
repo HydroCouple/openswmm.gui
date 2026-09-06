@@ -63,6 +63,13 @@ private slots:
         // The 2D column sits with the other continuity columns.
         QCOMPARE(SimulationStatusModel::ColTwoDErr,
                  SimulationStatusModel::ColRoutingErr + 1);
+        // 2D solver telemetry columns trail the engine version.
+        QCOMPARE(model.headerData(SimulationStatusModel::Col2DBackend,
+                                  Qt::Horizontal).toString(),
+                 QStringLiteral("2D Solver"));
+        QCOMPARE(model.headerData(SimulationStatusModel::ColLtsTiers,
+                                  Qt::Horizontal).toString(),
+                 QStringLiteral("LTS Tiers"));
     }
 
     void twoDRunPopulatesColumn()
@@ -140,6 +147,11 @@ private slots:
                 &model, &SimulationStatusModel::updateProgress);
         connect(runner, &SimulationRunner::finished,
                 &model, &SimulationStatusModel::finishJob);
+        connect(runner, &SimulationRunner::twoDSolverStats,
+                &model, &SimulationStatusModel::updateTwoDSolverStats);
+        // Two cells sit below every auto-selection floor, but an inherited
+        // OPENSWMM_2D_BACKEND would still override AUTO — pin the CPU marcher.
+        qputenv("OPENSWMM_2D_BACKEND", "cpu");
 
         QSignalSpy progressSpy(runner, &SimulationRunner::progressChanged);
         QSignalSpy finishedSpy(runner, &SimulationRunner::finished);
@@ -168,6 +180,17 @@ private slots:
         QVERIFY2(finalCell.endsWith(QStringLiteral(" %")),
                  qPrintable(QStringLiteral("final cell shows '%1'").arg(finalCell)));
         QVERIFY(finalCell != QStringLiteral("—"));
+
+        // The solver telemetry landed: backend + closure, and the LTS tier
+        // occupancy sampled at the marcher's rebuilds.
+        const QString backendCell = model.index(0, SimulationStatusModel::Col2DBackend)
+                                        .data(Qt::DisplayRole).toString();
+        QVERIFY2(backendCell.startsWith(QStringLiteral("cpu")), qPrintable(backendCell));
+        QVERIFY2(backendCell.contains(QStringLiteral("LOCAL_INERTIAL")), qPrintable(backendCell));
+        const QString tiersCell = model.index(0, SimulationStatusModel::ColLtsTiers)
+                                      .data(Qt::DisplayRole).toString();
+        QVERIFY2(tiersCell.contains(QStringLiteral("tiers")), qPrintable(tiersCell));
+        QVERIFY2(tiersCell.contains(QStringLiteral("%")), qPrintable(tiersCell));
     }
 
     void oneDRunShowsDash()
