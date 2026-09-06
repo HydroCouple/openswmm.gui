@@ -76,7 +76,10 @@ private slots:
         QCOMPARE(TypeConversionFlow::nodeTypeLabel(
                      TypeConversionFlow::kVirtualNodeType),
                  QStringLiteral("Virtual Junction"));
-        QVERIFY(TypeConversionFlow::nodeTypeLabel(5).isEmpty());
+        QCOMPARE(TypeConversionFlow::nodeTypeLabel(
+                     TypeConversionFlow::kInletNodeType),
+                 QStringLiteral("Inlet Junction"));
+        QVERIFY(TypeConversionFlow::nodeTypeLabel(6).isEmpty());
     }
 
     void linkLabels()

@@ -19,6 +19,25 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Inlets editor rebuilt, and the Inlet Junction node.** The Inlets editor
+  is three-pane (design list / name, type and grouped property tree / a
+  to-scale plan-and-section drawing with dimension callouts that follows the
+  selected type: Grate, Curb Opening, Slotted, Custom, the COMBO sweeper) with
+  undo, rename-collision refusal and an impact prompt on delete; designs now
+  load from the engine instead of showing defaults. *Inlet Junction* joins
+  the Nodes group: the Add tool splits a STREET conduit at the click and opens
+  a setup dialog (design, capture node, count, clogging, flow restriction,
+  local depression, placement), *Convert To ▸ Inlet Junction* promotes a
+  junction between two same-section street conduits, deleting one offers to
+  re-fuse the conduits, and the node has its own property adapter (read-only
+  approach street, crown elevation, degree), symbology row, identify popup
+  and profile-plot glyph. Conduits get an inlet-usage form (design → capture
+  node) on their *Inlets* row, and a dashed connector is drawn from each inlet
+  (conduit midpoint or junction) to its capture node. *Street* and *Inlet*
+  join the Model ribbon's Data Objects group after *Transect*. Requires an
+  engine that ships `swmm_node_is_inlet`; older engines hide the feature.
+  (`test_inlet_editor`, `test_inlet_junction_layer`.)
+
 - **Aquifer editor and Groundwater Exchange editor.** *Aquifer* joins the
   Model tab's Data Objects group (left of *LID Control*); the rebuilt
   `AquiferEditorDialog` is three-pane (list / grouped form / live two-zone
@@ -348,6 +367,11 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
   a shape-curve picker exists (its geom2 is a curve index).
 
 ### Changed
+
+- **Model toolbar `Draw` group split** into *Subcatchments*, *Rain Gages* and
+  *Annotation*; the Data Objects menu lists *Streets* and *Inlets* after
+  *Transects*; `inlet.svg` redrawn (curb + grate) and `inlet_junction.svg`
+  added.
 
 - **Profiles no longer exaggerate slope to fill the pane.** The link profile
   used independent axis scaling stretched to fill the drawing area, which tied

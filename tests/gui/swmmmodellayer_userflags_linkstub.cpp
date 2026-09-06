@@ -14,3 +14,10 @@ openswmmvis::ui::UserFlagsModel *SWMMModelLayer::ensureUserFlagsModel()
 {
     return nullptr;
 }
+
+// Same story for swmmlinkpropertyadapter.cpp's inletUsageRef() row, which
+// asks the layer for the conduit's inlet-usage row: no layer here, so no row.
+bool SWMMModelLayer::inletUsageFor(int, int, SWMM_InletUsage *) const
+{
+    return false;
+}

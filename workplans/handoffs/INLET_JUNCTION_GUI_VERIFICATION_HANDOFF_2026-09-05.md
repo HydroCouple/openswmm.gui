@@ -4,6 +4,7 @@
 **For:** the agent that will compile, test, fix, and commit this work.
 **Pair with:** `openswmm.engine/plans/INLET_JUNCTION_VERIFICATION_HANDOFF_2026-09-05.md` — **the engine must be built and its inlet tests green first**; the GUI links against the new C API (`swmm_inlet_get_design`, `swmm_inlet_usage_*`, `swmm_node_{is,set}_inlet`, `swmm_node_inlet_eligible`, `swmm_conduit_split_inlet`, `swmm_inlet_junction_fuse`).
 **Plan implemented:** `workplans/INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md` Phases G1–G5 (G6 docs/CHANGELOG not done).
+**Status (2026-09-06):** built and verified. The GUI sources of §6 were already committed inside the manual rewrite 4450fe3; this round built them against the engine's inlet commit (on `swmm6_rel` after e7ade2c1), ran §3's subset 9/9 after three test-side fixes (curve-kind round-trip expectation in `test_inlet_editor`, `nodeTypeLabel(5)` in `test_typeconversionflow`, an `inletUsageFor` link stub for `test_xsectgeominline`), and added the G6 CHANGELOG entry. §4's manual click-through of the rendered editor and map tools was not done (headless only); §5 deferrals stand.
 
 ## 0. Read this first
 
