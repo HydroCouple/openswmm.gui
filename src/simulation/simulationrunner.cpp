@@ -14,6 +14,7 @@
 
 #include "core/preferencesmanager.h"
 #include "core/swmmdatetime.h"
+#include "mesh/meshcellgeom.h"   // mesh::kEdgeStride / edgeSlot — 2D edge-slot layout
 
 #include <QDateTime>
 #include <QDir>
@@ -331,22 +332,42 @@ void SimulationRunner::start()
             // post-run scrub source).
             int twoD_active = 0;
             swmm_2d_is_active(eng, &twoD_active);
-            int twoD_n_tri  = 0;
+            int twoD_n_tri  = 0;   // CELL count (triangles + quads; historical name)
             int twoD_n_vert = 0;
+            // Engine bulk edge arrays are [cell*stride + e], stride 3 for an
+            // all-triangle mesh and 4 once any quad exists
+            // (swmm_2d_edge_stride). Everything shipped to the GUI is
+            // repacked to mesh::kEdgeStride (4) so downstream uses ONE layout
+            // (mesh::edgeSlot). Bulk buffers pulled from the engine are sized
+            // twoD_n_tri * twoD_edge_stride.
+            int twoD_edge_stride = 3;
             if (twoD_active) {
-                swmm_2d_triangle_count(eng, &twoD_n_tri);
+                if (swmm_2d_cell_count(eng, &twoD_n_tri) != SWMM_OK)
+                    swmm_2d_triangle_count(eng, &twoD_n_tri);   // older engine
                 swmm_2d_vertex_count(eng, &twoD_n_vert);
+                if (swmm_2d_edge_stride(eng, &twoD_edge_stride) != SWMM_OK
+                    || (twoD_edge_stride != 3 && twoD_edge_stride != mesh::kEdgeStride))
+                    twoD_edge_stride = 3;
                 if (twoD_n_tri > 0 && twoD_n_vert > 0) {
                     QVector<double> vx(twoD_n_vert), vy(twoD_n_vert),
                                     vz(twoD_n_vert);
                     swmm_2d_vertex_get_xyz_bulk(eng, vx.data(), vy.data(), vz.data());
-                    QVector<int> triFlat(twoD_n_tri * 3);
+                    // Cell connectivity, flat [v0,v1,v2,v3] per cell with
+                    // v3 = -1 for a triangle (mixed tri/quad meshes).
+                    QVector<int> cellFlat(twoD_n_tri * 4, -1);
                     for (int t = 0; t < twoD_n_tri; ++t) {
-                        int v0 = 0, v1 = 0, v2 = 0;
-                        swmm_2d_triangle_get_vertices(eng, t, &v0, &v1, &v2);
-                        triFlat[t * 3 + 0] = v0;
-                        triFlat[t * 3 + 1] = v1;
-                        triFlat[t * 3 + 2] = v2;
+                        int v[4] = {-1, -1, -1, -1};
+                        int nv = 0;
+                        if (swmm_2d_cell_get_vertices(eng, t, v, &nv) != SWMM_OK) {
+                            // Older engine without the cell API: triangles only.
+                            swmm_2d_triangle_get_vertices(eng, t, &v[0], &v[1], &v[2]);
+                            v[3] = -1;
+                            nv = 3;
+                        }
+                        cellFlat[t * 4 + 0] = v[0];
+                        cellFlat[t * 4 + 1] = v[1];
+                        cellFlat[t * 4 + 2] = v[2];
+                        cellFlat[t * 4 + 3] = (nv >= 4) ? v[3] : -1;
                     }
                     const QString h5Path = parseTwoDOutputFile(QString::fromUtf8(inp));
                     const int jobId = rawSelf->m_jobId;
@@ -354,9 +375,9 @@ void SimulationRunner::start()
                         [rawSelf, jobId, h5Path,
                          vx = std::move(vx), vy = std::move(vy),
                          vz = std::move(vz),
-                         triFlat = std::move(triFlat)]() mutable {
+                         cellFlat = std::move(cellFlat)]() mutable {
                             emit rawSelf->twoDInitialized(
-                                jobId, h5Path, vx, vy, vz, triFlat);
+                                jobId, h5Path, vx, vy, vz, cellFlat);
                         },
                         Qt::QueuedConnection);
 
@@ -364,17 +385,23 @@ void SimulationRunner::start()
                     // can reconstruct cell-centred velocity from per-tick
                     // flux without re-deriving lengths/normals from vertex
                     // coords. Engine returns doubles; convert to float for
-                    // the wire (RT0 doesn't need double precision).
-                    const int n3 = twoD_n_tri * 3;
-                    std::vector<double> rawLen(n3), rawNx(n3), rawNy(n3);
+                    // the wire (RT0 doesn't need double precision) and
+                    // repack to stride mesh::kEdgeStride.
+                    const int nEng = twoD_n_tri * twoD_edge_stride;
+                    const int n3   = mesh::edgeSlotCount(twoD_n_tri);
+                    std::vector<double> rawLen(nEng), rawNx(nEng), rawNy(nEng);
                     if (swmm_2d_edge_get_geometry_bulk(
                             eng, rawLen.data(), rawNx.data(), rawNy.data()) == SWMM_OK)
                     {
-                        QVector<float> qLen(n3), qNx(n3), qNy(n3);
-                        for (int i = 0; i < n3; ++i) {
-                            qLen[i] = static_cast<float>(rawLen[i]);
-                            qNx[i]  = static_cast<float>(rawNx[i]);
-                            qNy[i]  = static_cast<float>(rawNy[i]);
+                        QVector<float> qLen(n3, 0.0f), qNx(n3, 0.0f), qNy(n3, 0.0f);
+                        for (int c = 0; c < twoD_n_tri; ++c) {
+                            for (int e = 0; e < twoD_edge_stride; ++e) {
+                                const int src = c * twoD_edge_stride + e;
+                                const int dst = mesh::edgeSlot(c, e);
+                                qLen[dst] = static_cast<float>(rawLen[src]);
+                                qNx[dst]  = static_cast<float>(rawNx[src]);
+                                qNy[dst]  = static_cast<float>(rawNy[src]);
+                            }
                         }
                         QMetaObject::invokeMethod(rawSelf,
                             [rawSelf, jobId,
@@ -544,13 +571,16 @@ void SimulationRunner::start()
                     // depth slice via the matching elapsedSec on the GUI side
                     // so a single tick maps to a single history frame in
                     // EngineMesh2DSource regardless of queue ordering.
-                    const int n3 = twoD_n_tri * 3;
-                    std::vector<double> rawFlux(n3);
+                    // Engine stride (3|4) in, mesh::kEdgeStride out.
+                    const int nEng = twoD_n_tri * twoD_edge_stride;
+                    std::vector<double> rawFlux(nEng);
                     if (swmm_2d_get_edge_flux_bulk(eng, rawFlux.data()) == SWMM_OK)
                     {
-                        QVector<float> flux(n3);
-                        for (int i = 0; i < n3; ++i)
-                            flux[i] = static_cast<float>(rawFlux[i]);
+                        QVector<float> flux(mesh::edgeSlotCount(twoD_n_tri), 0.0f);
+                        for (int c = 0; c < twoD_n_tri; ++c)
+                            for (int e = 0; e < twoD_edge_stride; ++e)
+                                flux[mesh::edgeSlot(c, e)] =
+                                    static_cast<float>(rawFlux[c * twoD_edge_stride + e]);
                         QMetaObject::invokeMethod(rawSelf,
                             [rawSelf, jobId, flux = std::move(flux),
                              curQDT, curTSec]() mutable {

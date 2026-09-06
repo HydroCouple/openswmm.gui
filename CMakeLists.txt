@@ -578,9 +578,13 @@ set(
         include/mesh/pslgminsize.h
         include/mesh/pslgprep.h
         include/mesh/sizefield.h
+        include/mesh/sms2dmreader.h
         include/mesh/meshhoverprobe.h
         include/mesh/meshobjectref.h
+        include/mesh/meshpatch.h
+        include/mesh/meshquadmerge.h
         include/mesh/meshresult.h
+        include/mesh/meshcellgeom.h
         include/mesh/trirefinehook.h
         include/plugins/filefilterregistry.h
 
@@ -1242,11 +1246,14 @@ set(
         src/mesh/meshgenerator.cpp
         src/mesh/meshinfil.cpp
         src/mesh/meshminsizecleanup.cpp
+        src/mesh/meshpatch.cpp
+        src/mesh/meshquadmerge.cpp
         src/mesh/meshreorder.cpp
         src/mesh/meshstagecache.cpp
         src/mesh/pslgminsize.cpp
         src/mesh/pslgprep.cpp
         src/mesh/sizefield.cpp
+        src/mesh/sms2dmreader.cpp
         src/mesh/trirefinehook.cpp
         src/mesh/meshhoverprobe.cpp
         src/mesh/meshnodemapper.cpp

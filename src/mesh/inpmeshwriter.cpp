@@ -9,6 +9,7 @@
  */
 #include "mesh/inpmeshwriter.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshinfil.h"
 
 #include <QDir>
@@ -34,6 +35,7 @@ namespace {
 
 constexpr const char *kSecVertices       = "[2D_VERTICES]";
 constexpr const char *kSecTriangles      = "[2D_TRIANGLES]";
+constexpr const char *kSecQuads          = "[2D_QUADS]";                // engine 2026-09-06 mixed meshes
 constexpr const char *kSecVertexNodeMap  = "[2D_VERTEX_NODE_MAP]";
 constexpr const char *kSecTriangleNodeMap= "[2D_TRIANGLE_NODE_MAP]";
 constexpr const char *kSecMeshFile       = "[2D_MESH_FILE]";
@@ -68,34 +70,46 @@ QString formatVertices(const MeshResult &mesh)
     return out;
 }
 
-QString formatTriangles(const MeshResult &mesh,
-                        const CouplingMap &coupling,
-                        double defaultMannings)
+/*! One cell section: `[2D_TRIANGLES]` (\p quads false — triangle cells
+ *  only) or `[2D_QUADS]` (\p quads true — quad cells only, `V1 V2 V3 V4
+ *  MANNINGS_N [INIT_DEPTH] [TAG]`). MeshResult::triangles holds every cell
+ *  in engine order (triangles first, then quads), so the cell index used
+ *  for \p coupling lookups is the position in that vector. */
+QString formatCellSection(const MeshResult &mesh,
+                          const CouplingMap &coupling,
+                          double defaultMannings,
+                          bool quads)
 {
     QString out;
     QTextStream s(&out);
     s.setRealNumberNotation(QTextStream::FixedNotation);
     s.setRealNumberPrecision(4);
 
-    s << kSecTriangles << "\n";
+    s << (quads ? kSecQuads : kSecTriangles) << "\n";
     // INIT_DEPTH (m, engine default 0 = dry) sits between MANNINGS_N and
-    // TAG. Emit the column for every row whenever any triangle carries a
-    // depth or a tag, so TAG's position stays unambiguous on re-read.
+    // TAG. Emit the column for every row whenever any cell carries a
+    // depth or a tag, so TAG's position stays unambiguous on re-read (the
+    // engine applies the same mesh-wide rule to both sections).
     bool anyDepth = false, anyTag = false;
     for (const MeshTriangle &t : mesh.triangles) {
         if (!std::isnan(t.initDepth) && t.initDepth != 0.0) anyDepth = true;
         if (!t.tag.isEmpty()) anyTag = true;
     }
     const bool writeDepthCol = anyDepth || anyTag;
-    if (writeDepthCol)
-        s << ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n";
+    if (quads)
+        s << (writeDepthCol ? ";; V1   V2   V3   V4   MANNINGS_N   INIT_DEPTH   TAG\n"
+                            : ";; V1   V2   V3   V4   MANNINGS_N   TAG\n");
     else
-        s << ";; V1   V2   V3   MANNINGS_N   TAG\n";
+        s << (writeDepthCol ? ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n"
+                            : ";; V1   V2   V3   MANNINGS_N   TAG\n");
     for (int i = 0; i < mesh.triangles.size(); ++i)
     {
         const MeshTriangle &t = mesh.triangles[i];
+        if (t.isQuad() != quads) continue;
         const double n = coupling.triangleMannings.value(i, defaultMannings);
-        s << t.v0 << "  " << t.v1 << "  " << t.v2 << "  " << n;
+        s << t.v0 << "  " << t.v1 << "  " << t.v2;
+        if (quads) s << "  " << t.v3;
+        s << "  " << n;
         if (writeDepthCol)
             s << "  " << (std::isnan(t.initDepth) ? 0.0 : t.initDepth);
         if (!t.tag.isEmpty())
@@ -103,6 +117,19 @@ QString formatTriangles(const MeshResult &mesh,
         s << "\n";
     }
     s << "\n";
+    return out;
+}
+
+/*! `[2D_TRIANGLES]` followed by `[2D_QUADS]` — the latter ONLY when the
+ *  mesh holds a quad, so all-triangle output is byte-identical to the
+ *  pre-quad writer. */
+QString formatTriangles(const MeshResult &mesh,
+                        const CouplingMap &coupling,
+                        double defaultMannings)
+{
+    QString out = formatCellSection(mesh, coupling, defaultMannings, /*quads=*/false);
+    if (mesh.hasQuads())
+        out += formatCellSection(mesh, coupling, defaultMannings, /*quads=*/true);
     return out;
 }
 
@@ -346,6 +373,7 @@ QString stripExistingMeshSections(const QString &originalText,
     QStringList ours = {
         QStringLiteral("[2D_VERTICES]"),
         QStringLiteral("[2D_TRIANGLES]"),
+        QStringLiteral("[2D_QUADS]"),
         QStringLiteral("[2D_VERTEX_NODE_MAP]"),
         QStringLiteral("[2D_TRIANGLE_NODE_MAP]"),
         QStringLiteral("[2D_BOUNDARY_CONDITIONS]"),    // §V.VD.1
@@ -389,34 +417,47 @@ QStringList sectionDataRows(const QString &text, const char *secName)
     return rows;
 }
 
-/*! `[2D_TRIANGLES]` rebuild for patchAttributeSections: connectivity and TAG
- *  come from \p mesh; MANNINGS_N (and INIT_DEPTH) come from the mesh triangle
- *  when set, else from the same row of \p origRows so values authored at
+/*! `[2D_TRIANGLES]` / `[2D_QUADS]` rebuild for patchAttributeSections:
+ *  connectivity and TAG come from \p mesh; MANNINGS_N (and INIT_DEPTH) come
+ *  from the mesh cell when set, else from the same row of the original
+ *  section (\p origTriRows for triangle cells, \p origQuadRows for quad
+ *  cells — the j-th quad row is cell n_triangles + j) so values authored at
  *  generation time (or by hand) survive the rewrite (both stay NaN until the
- *  user edits them). Columns are positional (`V1 V2 V3 MANNINGS_N
- *  [INIT_DEPTH] [TAG]`; a numeric 5th token means INIT_DEPTH), so a row that
- *  must carry a depth or a tag needs a MANNINGS_N token to hold column 4 —
- *  when neither the mesh nor the original row has one, \p defaultMannings is
- *  materialized rather than dropping the later columns. */
+ *  user edits them). Columns are positional (`V1 V2 V3 [V4] MANNINGS_N
+ *  [INIT_DEPTH] [TAG]`; a numeric token after MANNINGS_N means INIT_DEPTH),
+ *  so a row that must carry a depth or a tag needs a MANNINGS_N token to
+ *  hold its column — when neither the mesh nor the original row has one,
+ *  \p defaultMannings is materialized rather than dropping the later
+ *  columns. `[2D_QUADS]` is emitted only when the mesh holds a quad. */
 QString formatTrianglesPreserving(const MeshResult &mesh,
-                                  const QStringList &origRows,
+                                  const QStringList &origTriRows,
+                                  const QStringList &origQuadRows,
                                   double defaultMannings)
 {
-    QString out;
-    QTextStream s(&out);
-    s.setRealNumberNotation(QTextStream::FixedNotation);
-    s.setRealNumberPrecision(4);
-
-    // Original-row INIT_DEPTH (numeric 5th token) so hand-authored depths
-    // survive the rewrite even when MeshTriangle::initDepth is unset.
-    auto origDepthTok = [&origRows](int i) -> QString {
-        if (i >= origRows.size()) return {};
+    // Row of the original section backing cell i (triangle rows and quad
+    // rows are numbered independently within their sections).
+    QVector<int> sectionRow(mesh.triangles.size());
+    {
+        int nt = 0, nq = 0;
+        for (int i = 0; i < mesh.triangles.size(); ++i)
+            sectionRow[i] = mesh.triangles[i].isQuad() ? nq++ : nt++;
+    }
+    auto origRow = [&](int i) -> QString {
+        const QStringList &rows = mesh.triangles[i].isQuad() ? origQuadRows : origTriRows;
+        const int k = sectionRow[i];
+        return k < rows.size() ? rows[k] : QString();
+    };
+    // Original-row INIT_DEPTH (numeric token after MANNINGS_N) so
+    // hand-authored depths survive the rewrite even when
+    // MeshTriangle::initDepth is unset.
+    auto origDepthTok = [&](int i) -> QString {
+        const int nvert = mesh.triangles[i].vertexCount();
         const QStringList tok =
-            origRows[i].simplified().split(QChar(' '), Qt::SkipEmptyParts);
-        if (tok.size() < 5) return {};
+            origRow(i).simplified().split(QChar(' '), Qt::SkipEmptyParts);
+        if (tok.size() < nvert + 2) return {};
         bool okd = false;
-        tok[4].toDouble(&okd);
-        return okd ? tok[4] : QString();
+        tok[nvert + 1].toDouble(&okd);
+        return okd ? tok[nvert + 1] : QString();
     };
 
     bool anyDepth = false, anyTag = false;
@@ -429,52 +470,69 @@ QString formatTrianglesPreserving(const MeshResult &mesh,
     }
     const bool writeDepthCol = anyDepth || anyTag;
 
-    s << kSecTriangles << "\n";
-    if (writeDepthCol)
-        s << ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n";
-    else
-        s << ";; V1   V2   V3   MANNINGS_N   TAG\n";
-    for (int i = 0; i < mesh.triangles.size(); ++i)
-    {
-        const MeshTriangle &t = mesh.triangles[i];
-        s << t.v0 << "  " << t.v1 << "  " << t.v2;
-        QString manningsTok;
-        if (std::isfinite(t.mannings) && t.mannings > 0.0)
-        {
-            manningsTok = QString::number(t.mannings, 'f', 4);
-        }
-        else if (i < origRows.size())
-        {
-            const QStringList tok =
-                origRows[i].simplified().split(QChar(' '), Qt::SkipEmptyParts);
-            bool okn = false;
-            if (tok.size() >= 4) tok[3].toDouble(&okn);
-            if (okn) manningsTok = tok[3];
-        }
-        // A depth or tag can only be written behind a MANNINGS_N token
-        // (columns are positional). Materialize the default rather than
-        // silently dropping the edit.
-        const bool needsLaterCols = writeDepthCol || !t.tag.isEmpty();
-        if (manningsTok.isEmpty() && needsLaterCols)
-            manningsTok = QString::number(defaultMannings, 'f', 4);
+    auto formatSection = [&](bool quads) -> QString {
+        QString out;
+        QTextStream s(&out);
+        s.setRealNumberNotation(QTextStream::FixedNotation);
+        s.setRealNumberPrecision(4);
 
-        if (!manningsTok.isEmpty())
-            s << "  " << manningsTok;
-        if (!manningsTok.isEmpty() && writeDepthCol)
+        s << (quads ? kSecQuads : kSecTriangles) << "\n";
+        if (quads)
+            s << (writeDepthCol ? ";; V1   V2   V3   V4   MANNINGS_N   INIT_DEPTH   TAG\n"
+                                : ";; V1   V2   V3   V4   MANNINGS_N   TAG\n");
+        else
+            s << (writeDepthCol ? ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n"
+                                : ";; V1   V2   V3   MANNINGS_N   TAG\n");
+        for (int i = 0; i < mesh.triangles.size(); ++i)
         {
-            if (std::isfinite(t.initDepth))
-                s << "  " << t.initDepth;
+            const MeshTriangle &t = mesh.triangles[i];
+            if (t.isQuad() != quads) continue;
+            const int nvert = t.vertexCount();
+            s << t.v0 << "  " << t.v1 << "  " << t.v2;
+            if (quads) s << "  " << t.v3;
+            QString manningsTok;
+            if (std::isfinite(t.mannings) && t.mannings > 0.0)
+            {
+                manningsTok = QString::number(t.mannings, 'f', 4);
+            }
             else
             {
-                const QString od = origDepthTok(i);
-                s << "  " << (od.isEmpty() ? QStringLiteral("0") : od);
+                const QStringList tok =
+                    origRow(i).simplified().split(QChar(' '), Qt::SkipEmptyParts);
+                bool okn = false;
+                if (tok.size() >= nvert + 1) tok[nvert].toDouble(&okn);
+                if (okn) manningsTok = tok[nvert];
             }
+            // A depth or tag can only be written behind a MANNINGS_N token
+            // (columns are positional). Materialize the default rather than
+            // silently dropping the edit.
+            const bool needsLaterCols = writeDepthCol || !t.tag.isEmpty();
+            if (manningsTok.isEmpty() && needsLaterCols)
+                manningsTok = QString::number(defaultMannings, 'f', 4);
+
+            if (!manningsTok.isEmpty())
+                s << "  " << manningsTok;
+            if (!manningsTok.isEmpty() && writeDepthCol)
+            {
+                if (std::isfinite(t.initDepth))
+                    s << "  " << t.initDepth;
+                else
+                {
+                    const QString od = origDepthTok(i);
+                    s << "  " << (od.isEmpty() ? QStringLiteral("0") : od);
+                }
+            }
+            if (!manningsTok.isEmpty() && !t.tag.isEmpty())
+                s << "  " << t.tag;
+            s << "\n";
         }
-        if (!manningsTok.isEmpty() && !t.tag.isEmpty())
-            s << "  " << t.tag;
         s << "\n";
-    }
-    s << "\n";
+        return out;
+    };
+
+    QString out = formatSection(/*quads=*/false);
+    if (mesh.hasQuads())
+        out += formatSection(/*quads=*/true);
     return out;
 }
 
@@ -784,8 +842,10 @@ QString InpMeshWriter::buildBCSectionText(const QVector<MeshEdgeBC> &bcs)
         const auto &bc = bcs[flat];
         if (bc.type == MeshBCTypes::Type::Wall && bc.group.isEmpty())
             continue;  // skip default-Wall rows to keep section compact
-        const int tri = flat / 3;
-        const int e   = flat % 3;
+        // Unified cell index + local edge (0..2 triangle, 0..3 quad); a
+        // triangle's padding slot 3 stays default-Wall and is skipped above.
+        const int tri = slotCell(flat);
+        const int e   = slotLocal(flat);
         QString param1 = QStringLiteral("*");
         switch (bc.type) {
         case MeshBCTypes::Type::Wall:
@@ -847,19 +907,20 @@ QString InpMeshWriter::buildConveyanceSectionText(const MeshResult &mesh,
     emitted.reserve(bcs.size() / 2);
     for (int t = 0; t < mesh.triangles.size(); ++t) {
         const auto &tri = mesh.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const int flat = t * 3 + e;
+        const int ne = tri.vertexCount();
+        for (int e = 0; e < ne; ++e) {
+            const int flat = edgeSlot(t, e);
             if (flat >= bcs.size())                       continue;
             if (bcs[flat].conveyance == kDefault)         continue;  // omit defaults
-            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
-                                                       : qMakePair(vb[e], va[e]);
+            int va = 0, vb = 0;
+            edgeEndpoints(tri, e, va, vb);
+            const QPair<int,int> key = (va < vb) ? qMakePair(va, vb)
+                                                 : qMakePair(vb, va);
             if (emitted.contains(key))                    continue;  // interior dupe
             emitted.insert(key);
             out.append(QStringLiteral("%1 %2 %3\n")
-                           .arg(va[e], 6)
-                           .arg(vb[e], 6)
+                           .arg(va, 6)
+                           .arg(vb, 6)
                            .arg(QString::number(bcs[flat].conveyance, 'g', 6)));
         }
     }
@@ -969,13 +1030,17 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
     // patching would scramble it. Leave the file untouched.
     const QStringList vRows = sectionDataRows(r.text, kSecVertices);
     const QStringList tRows = sectionDataRows(r.text, kSecTriangles);
+    const QStringList qRows = sectionDataRows(r.text, kSecQuads);
+    const int nQuad = mesh.quadCount();
+    const int nTri  = mesh.triangles.size() - nQuad;
     if (vRows.size() != mesh.vertices.size()
-        || tRows.size() != mesh.triangles.size()) {
+        || tRows.size() != nTri || qRows.size() != nQuad) {
         if (errorOut)
             *errorOut = QStringLiteral(
-                "mesh file has %1 vertices / %2 triangles; layer has %3 / %4")
-                .arg(vRows.size()).arg(tRows.size())
-                .arg(mesh.vertices.size()).arg(mesh.triangles.size());
+                "mesh file has %1 vertices / %2 triangles / %3 quads; "
+                "layer has %4 / %5 / %6")
+                .arg(vRows.size()).arg(tRows.size()).arg(qRows.size())
+                .arg(mesh.vertices.size()).arg(nTri).arg(nQuad);
         return false;
     }
 
@@ -991,6 +1056,7 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
     QString patched = stripSections(
         r.text, {QLatin1String(kSecVertices),
                  QLatin1String(kSecTriangles),
+                 QLatin1String(kSecQuads),
                  QLatin1String(kSecVertexNodeMap),
                  QLatin1String(kSecTriangleNodeMap),
                  // GG0a — a section missing from THIS list (and from the
@@ -1005,7 +1071,7 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));
     patched.append(formatVertices(mesh));
-    patched.append(formatTrianglesPreserving(mesh, tRows, defaultMannings));
+    patched.append(formatTrianglesPreserving(mesh, tRows, qRows, defaultMannings));
     patched.append(formatVertexNodeMap(mesh, cm));
     patched.append(formatTriangleNodeMap(mesh, cm));
     patched.append(formatInfilSections(mesh));

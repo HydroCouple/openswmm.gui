@@ -8,6 +8,8 @@
  */
 #include "mesh/meshcellstats.h"
 
+#include "mesh/meshcellgeom.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -15,19 +17,71 @@
 
 namespace mesh {
 
+namespace {
+
+/*! Every vertex id of \p t in range (3 for a triangle, 4 for a quad). */
+inline bool triIndicesValid(const MeshTriangle &t, int nv)
+{
+    const int n = t.vertexCount();
+    for (int k = 0; k < n; ++k) {
+        const int v = t.vertex(k);
+        if (v < 0 || v >= nv) return false;
+    }
+    return true;
+}
+
+} // namespace
+
 double triangleArea(const MeshResult &mesh, int tri)
 {
     if (tri < 0 || tri >= mesh.triangles.size()) return 0.0;
     const MeshTriangle &t = mesh.triangles[tri];
+    if (!triIndicesValid(t, mesh.vertices.size())) return 0.0;
+    // cellGeom: |cross|/2 for a triangle (unchanged), the sum of the two
+    // sub-triangles for a quad.
+    return cellGeom(mesh.vertices, t).area;
+}
+
+QPointF cellCentroid(const MeshResult &mesh, int cell)
+{
+    if (cell < 0 || cell >= mesh.triangles.size()) return {};
+    const MeshTriangle &t = mesh.triangles[cell];
+    if (!triIndicesValid(t, mesh.vertices.size())) return {};
+    return cellGeom(mesh.vertices, t).centroid;
+}
+
+QuadStats computeQuadStats(const MeshResult &mesh)
+{
+    QuadStats s;
     const int nv = mesh.vertices.size();
-    if (t.v0 < 0 || t.v0 >= nv || t.v1 < 0 || t.v1 >= nv
-        || t.v2 < 0 || t.v2 >= nv)
-        return 0.0;
-    const QPointF &a = mesh.vertices[t.v0].xy;
-    const QPointF &b = mesh.vertices[t.v1].xy;
-    const QPointF &c = mesh.vertices[t.v2].xy;
-    return 0.5 * std::abs((b.x() - a.x()) * (c.y() - a.y())
-                        - (c.x() - a.x()) * (b.y() - a.y()));
+    for (const MeshTriangle &t : mesh.triangles)
+    {
+        if (!t.isQuad() || !triIndicesValid(t, nv)) continue;
+        ++s.count;
+        // Interior angle at each corner, in degrees.
+        for (int k = 0; k < 4; ++k)
+        {
+            const QPointF &p = mesh.vertices[t.vertex((k + 3) % 4)].xy;
+            const QPointF &q = mesh.vertices[t.vertex(k)].xy;
+            const QPointF &r = mesh.vertices[t.vertex((k + 1) % 4)].xy;
+            const double ux = p.x() - q.x(), uy = p.y() - q.y();
+            const double vx = r.x() - q.x(), vy = r.y() - q.y();
+            const double lu = std::hypot(ux, uy), lv = std::hypot(vx, vy);
+            if (!(lu > 0.0) || !(lv > 0.0)) continue;
+            const double c = std::clamp((ux * vx + uy * vy) / (lu * lv), -1.0, 1.0);
+            const double deg = std::acos(c) * 180.0 / M_PI;
+            s.minAngleDeg = std::min(s.minAngleDeg, deg);
+            s.maxAngleDeg = std::max(s.maxAngleDeg, deg);
+        }
+        // Bed non-planarity: the twist amplitude |z0 - z1 + z2 - z3| / 4 —
+        // the residual of the least-squares plane through the four corners
+        // of a parallelogram-like quad (0 for a planar bed).
+        const double twist = std::abs(mesh.vertices[t.v0].z - mesh.vertices[t.v1].z
+                                    + mesh.vertices[t.v2].z - mesh.vertices[t.v3].z) / 4.0;
+        s.maxNonPlanarity = std::max(s.maxNonPlanarity, twist);
+    }
+    if (s.count == 0) { s.minAngleDeg = 0.0; s.maxAngleDeg = 0.0; }
+    return s;
 }
 
 CellAreaStats computeCellAreaStats(const MeshResult &mesh)
@@ -44,8 +98,7 @@ CellAreaStats computeCellAreaStats(const MeshResult &mesh)
         const MeshTriangle &t = mesh.triangles[i];
         // Degenerate references are SKIPPED here rather than counted as zero,
         // so they don't drag the min down to 0 and mask a real sliver.
-        if (t.v0 < 0 || t.v0 >= nv || t.v1 < 0 || t.v1 >= nv
-            || t.v2 < 0 || t.v2 >= nv)
+        if (!triIndicesValid(t, nv))
             continue;
         const double area = triangleArea(mesh, i);
         areas.push_back(area);
@@ -85,20 +138,14 @@ CellAreaStats computeCellAreaStats(const MeshResult &mesh)
 
 namespace {
 
-/*! Local edge \p e of a triangle runs between the two vertices that are NOT
- *  \p e — i.e. edge e is opposite vertex e (MeshBuilder.cpp:44-54). */
+/*! Local edge \p e of a cell runs between v[(e+1)%nv] and v[(e+2)%nv] —
+ *  for a triangle, edge e is opposite vertex e (MeshBuilder.cpp:44-54);
+ *  mesh::edgeEndpoints is the single definition. */
 inline EdgeVertexPair localEdge(const MeshTriangle &t, int e)
 {
-    const int v[3] = {t.v0, t.v1, t.v2};
-    const int a = v[(e + 1) % 3];
-    const int b = v[(e + 2) % 3];
+    int a = -1, b = -1;
+    edgeEndpoints(t, e, a, b);
     return a < b ? qMakePair(a, b) : qMakePair(b, a);
-}
-
-inline bool triIndicesValid(const MeshTriangle &t, int nv)
-{
-    return t.v0 >= 0 && t.v0 < nv && t.v1 >= 0 && t.v1 < nv
-        && t.v2 >= 0 && t.v2 < nv;
 }
 
 } // namespace
@@ -112,7 +159,8 @@ QHash<EdgeVertexPair, QVector<int>> buildEdgeTriangles(const MeshResult &mesh)
     {
         const MeshTriangle &t = mesh.triangles[ti];
         if (!triIndicesValid(t, nv)) continue;
-        for (int e = 0; e < 3; ++e) out[localEdge(t, e)].append(ti);
+        const int ne = t.vertexCount();
+        for (int e = 0; e < ne; ++e) out[localEdge(t, e)].append(ti);
     }
     return out;
 }
@@ -135,13 +183,11 @@ QVector<double> computeCellLchar(const MeshResult &mesh)
     {
         const MeshTriangle &t = mesh.triangles[ti];
         if (!triIndicesValid(t, nv)) continue;
-        const QPointF &a = mesh.vertices[t.v0].xy;
-        const QPointF &b = mesh.vertices[t.v1].xy;
-        const QPointF &c = mesh.vertices[t.v2].xy;
-        centroid[ti] = QPointF((a.x() + b.x() + c.x()) / 3.0,
-                               (a.y() + b.y() + c.y()) / 3.0);
-        area[ti] = triangleArea(mesh, ti);
-        for (int e = 0; e < 3; ++e)
+        const CellGeom g = cellGeom(mesh.vertices, t);
+        centroid[ti] = g.centroid;
+        area[ti] = g.area;
+        const int ne = t.vertexCount();
+        for (int e = 0; e < ne; ++e)
         {
             const EdgeVertexPair ev = localEdge(t, e);
             const QPointF &p = mesh.vertices[ev.first].xy;

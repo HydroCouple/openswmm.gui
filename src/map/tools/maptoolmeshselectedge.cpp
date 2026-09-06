@@ -10,6 +10,7 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "map/mapcanvas.h"
 #include "mesh/meshboundarygraph.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshobjectref.h"
 #include "mesh/meshresult.h"
 #include "selection/selectionmanager.h"
@@ -126,9 +127,10 @@ int MapToolMeshSelectEdge::pathStartFromSelection_() const
 
     auto usableBoundarySlot = [this](int slot) {
         if (slot < 0) return false;
-        if (!m_target->isBoundaryEdge(slot / 3, slot % 3)) return false;
+        if (!m_target->isBoundaryEdge(mesh::slotCell(slot), mesh::slotLocal(slot))) return false;
         return m_selection->contains(
-            mesh::MeshObjectRef::edge(m_target->sourcePath(), slot / 3, slot % 3));
+            mesh::MeshObjectRef::edge(m_target->sourcePath(),
+                                      mesh::slotCell(slot), mesh::slotLocal(slot)));
     };
 
     // The edge this tool last selected on its own wins. That is what makes
@@ -147,7 +149,7 @@ int MapToolMeshSelectEdge::pathStartFromSelection_() const
         if (!mesh::MeshObjectRef::parseEdge(ref, &lk, &tri, &eLocal)) continue;
         if (lk != wantKey) continue;
         if (only >= 0) return -1;              // more than one — ambiguous
-        only = tri * 3 + eLocal;
+        only = mesh::edgeSlot(tri, eLocal);
     }
     return usableBoundarySlot(only) ? only : -1;
 }
@@ -191,7 +193,7 @@ void MapToolMeshSelectEdge::handlePathClick_(const QPoint &pos)
     QSet<SWMMObjectRef> refs;
     refs.reserve(path.size());
     for (int slot : path)
-        refs.insert(mesh::MeshObjectRef::edge(sourcePath, slot / 3, slot % 3));
+        refs.insert(mesh::MeshObjectRef::edge(sourcePath, mesh::slotCell(slot), mesh::slotLocal(slot)));
     m_selection->select(refs, SelectionManager::Add);
 
     m_pathAnchorSlot = -1;
@@ -223,8 +225,8 @@ void MapToolMeshSelectEdge::mousePressEvent(QMouseEvent *event)
                                               kPickTolPx, pxPerSceneUnit,
                                               m_boundaryOnly);
         if (flat < 0) return;
-        const int tri    = flat / 3;
-        const int eLocal = flat % 3;
+        const int tri    = mesh::slotCell(flat);
+        const int eLocal = mesh::slotLocal(flat);
         // Highlight the right-clicked edge so the menu target is obvious.
         m_selection->select(mesh::MeshObjectRef::edge(m_target->sourcePath(), tri, eLocal),
                             SelectionManager::Replace);
@@ -310,20 +312,19 @@ void MapToolMeshSelectEdge::mouseReleaseEvent(QMouseEvent *event)
         QSet<SWMMObjectRef> picked;
         for (int t = 0; t < triangles.size(); ++t) {
             const auto &tri = triangles[t];
-            if (tri.v0 < 0 || tri.v0 >= nodes.size()) continue;
-            if (tri.v1 < 0 || tri.v1 >= nodes.size()) continue;
-            if (tri.v2 < 0 || tri.v2 >= nodes.size()) continue;
-            const QPointF &p0 = nodes[tri.v0].pt;
-            const QPointF &p1 = nodes[tri.v1].pt;
-            const QPointF &p2 = nodes[tri.v2].pt;
-            const QPointF midpoints[3] = {
-                (p1 + p2) * 0.5,
-                (p2 + p0) * 0.5,
-                (p0 + p1) * 0.5,
-            };
-            for (int e = 0; e < 3; ++e) {
+            const int nv = tri.vertexCount();
+            bool valid = true;
+            for (int k = 0; k < nv; ++k) {
+                const int v = tri.vertex(k);
+                if (v < 0 || v >= nodes.size()) { valid = false; break; }
+            }
+            if (!valid) continue;
+            for (int e = 0; e < nv; ++e) {
                 if (m_boundaryOnly && !m_target->isBoundaryEdge(t, e)) continue;
-                if (!box.contains(midpoints[e])) continue;
+                int va = -1, vb = -1;
+                mesh::edgeEndpoints(tri, e, va, vb);
+                const QPointF mid = (nodes[va].pt + nodes[vb].pt) * 0.5;
+                if (!box.contains(mid)) continue;
                 picked.insert(mesh::MeshObjectRef::edge(sourcePath, t, e));
             }
         }
@@ -345,8 +346,8 @@ void MapToolMeshSelectEdge::mouseReleaseEvent(QMouseEvent *event)
             if (mode == SelectionManager::Replace) m_selection->clear();
             m_lastEdgeSlot = -1;
         } else {
-            const int tri    = flat / 3;
-            const int eLocal = flat % 3;
+            const int tri    = mesh::slotCell(flat);
+            const int eLocal = mesh::slotLocal(flat);
             m_selection->select(mesh::MeshObjectRef::edge(sourcePath, tri, eLocal), mode);
             // Seeds the next Ctrl-click's path (see pathStartFromSelection_).
             m_lastEdgeSlot = flat;
@@ -406,15 +407,15 @@ void MapToolMeshSelectEdge::paint(QPainter *painter,
     }
 
     if (m_pathAnchorSlot >= 0 && m_target) {
-        const int tri    = m_pathAnchorSlot / 3;
-        const int eLocal = m_pathAnchorSlot % 3;
+        const int tri    = mesh::slotCell(m_pathAnchorSlot);
+        const int eLocal = mesh::slotLocal(m_pathAnchorSlot);
         const auto &triangles = m_target->mesh().triangles;
         const auto &nodes     = m_target->m_sceneNodes;
-        if (tri >= 0 && tri < triangles.size()) {
+        if (tri >= 0 && tri < triangles.size()
+            && eLocal < triangles[tri].vertexCount()) {
             const auto &t = triangles[tri];
-            const int va[3] = {t.v1, t.v2, t.v0};
-            const int vb[3] = {t.v2, t.v0, t.v1};
-            const int v0 = va[eLocal], v1 = vb[eLocal];
+            int v0 = -1, v1 = -1;
+            mesh::edgeEndpoints(t, eLocal, v0, v1);
             if (v0 >= 0 && v0 < nodes.size() && v1 >= 0 && v1 < nodes.size()) {
                 // Scene y is negated map y (see pixelToScene_).
                 int ax = 0, ay = 0, bx = 0, by = 0;

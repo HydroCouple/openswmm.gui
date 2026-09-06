@@ -59,8 +59,10 @@ namespace mesh {
  *
  *  \param engine    Open engine handle with an active 2D mesh.
  *  \param mesh      The layer's current MeshResult.
- *  \param bcs       The layer's per-edge BC vector (flat `tri*3 + edge`);
- *                   may be empty (then only Z is synced).
+ *  \param bcs       The layer's per-edge BC vector (flat `mesh::edgeSlot(cell,
+ *                   edge)`, stride `mesh::kEdgeStride`, sized
+ *                   `mesh::edgeSlotCount(n_cells)`); only a cell's real edges
+ *                   (3 or 4) are pushed. May be empty (then only Z is synced).
  *  \param warnings  Optional sink for non-fatal diagnostics.
  *  \param outTrianglesSynced  Optional: set to true when the per-triangle
  *                   attributes (Manning's n, initial depth, tag) reached the

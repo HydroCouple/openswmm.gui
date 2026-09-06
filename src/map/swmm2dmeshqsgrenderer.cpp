@@ -12,6 +12,7 @@
 
 #include "contour/marchingtriangles.h"
 #include "layers/swmm2dmeshlayer.h"
+#include "mesh/meshcellgeom.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/couplednodesublayer.h"
 #include "render/sublayers/isolinesublayer.h"
@@ -1076,13 +1077,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 if (m == OpenSWMM::Render::BinMethod::Quantile
                     || m == OpenSWMM::Render::BinMethod::NaturalBreaks
                     || m == OpenSWMM::Render::BinMethod::StdDev) {
-                    const auto &st = m_layer->m_sceneTris;
-                    zSamples.reserve(st.size() * 3);
-                    for (const auto &t : st) {
-                        zSamples.push_back(double(t.z0));
-                        zSamples.push_back(double(t.z1));
-                        zSamples.push_back(double(t.z2));
-                    }
+                    SWMM2DMeshLayer::appendVertexElevationSamples(
+                        m_layer->m_sceneTris, zSamples);
                 }
                 const QVector<double> edges =
                     bandStyle->scheme().levelEdges(zMin, zMax, zSamples);
@@ -1355,13 +1351,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 if (m == OpenSWMM::Render::BinMethod::Quantile
                     || m == OpenSWMM::Render::BinMethod::NaturalBreaks
                     || m == OpenSWMM::Render::BinMethod::StdDev) {
-                    const auto &st = m_layer->m_sceneTris;
-                    zSamples.reserve(st.size() * 3);
-                    for (const auto &t : st) {
-                        zSamples.push_back(double(t.z0));
-                        zSamples.push_back(double(t.z1));
-                        zSamples.push_back(double(t.z2));
-                    }
+                    SWMM2DMeshLayer::appendVertexElevationSamples(
+                        m_layer->m_sceneTris, zSamples);
                 }
                 const auto lv = isoStyle->levelsForRange(zMin, zMax, zSamples);
                 levels.assign(lv.cbegin(), lv.cend());
@@ -1614,25 +1605,25 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         const auto &nodes  = m_layer->m_sceneNodes;
         const auto &triangles = m_layer->mesh().triangles;
 
-        // Selected cells (triangles) — translucent fill drawn under the
-        // edge / vertex glyphs. One filled triangle (3 verts) per cell.
+        // Selected cells — translucent fill drawn under the edge / vertex
+        // glyphs. The cell's sub-triangle fan (one triangle, two for a
+        // quad) via the layer's cell → fan map.
+        const auto &sceneTris = m_layer->m_sceneTris;
+        const auto &cellStart = m_layer->m_cellSceneStart;
+        const int   nCells    = cellStart.size() - 1;
         std::vector<QSGGeometry::Point2D> selTriVerts;
-        selTriVerts.reserve(selT.size() * 3);
-        for (int t : selT) {
-            if (t < 0 || t >= triangles.size()) continue;
-            const auto &tri = triangles[t];
-            if (tri.v0 < 0 || tri.v1 < 0 || tri.v2 < 0 ||
-                tri.v0 >= nodes.size() || tri.v1 >= nodes.size() || tri.v2 >= nodes.size())
-                continue;
-            auto pt = [&](int v) {
-                QSGGeometry::Point2D p;
-                p.x = float(nodes[v].pt.x() - ox);
-                p.y = float(nodes[v].pt.y() - oy);
-                return p;
-            };
-            selTriVerts.push_back(pt(tri.v0));
-            selTriVerts.push_back(pt(tri.v1));
-            selTriVerts.push_back(pt(tri.v2));
+        selTriVerts.reserve(selT.size() * 6);
+        for (int c : selT) {
+            if (c < 0 || c >= nCells) continue;
+            for (int i = cellStart[c]; i < cellStart[c + 1]; ++i) {
+                const auto &st = sceneTris[i];
+                for (const QPointF *pt : {&st.a, &st.b, &st.c}) {
+                    QSGGeometry::Point2D p;
+                    p.x = float(pt->x() - ox);
+                    p.y = float(pt->y() - oy);
+                    selTriVerts.push_back(p);
+                }
+            }
         }
         uploadFlatVerts(selTriNode, selTriVerts);
         setFlatColor(selTriNode, kSelTriColor);
@@ -1647,17 +1638,13 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
 
         // Selected edges first (under the vertex glyphs).
         for (int flat : selE) {
-            const int t = flat / 3;
-            const int e = flat % 3;
+            const int t = mesh::slotCell(flat);
+            const int e = mesh::slotLocal(flat);
             if (t < 0 || t >= triangles.size()) continue;
             const auto &tri = triangles[t];
+            if (e >= tri.vertexCount()) continue;
             int va = -1, vb = -1;
-            switch (e) {
-            case 0: va = tri.v1; vb = tri.v2; break;
-            case 1: va = tri.v2; vb = tri.v0; break;
-            case 2: va = tri.v0; vb = tri.v1; break;
-            default: continue;
-            }
+            mesh::edgeEndpoints(tri, e, va, vb);
             if (va < 0 || vb < 0 || va >= nodes.size() || vb >= nodes.size()) continue;
             const float ax = float(nodes[va].pt.x() - ox);
             const float ay = float(nodes[va].pt.y() - oy);

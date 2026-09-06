@@ -16,6 +16,7 @@
  */
 #include "layers/swmm2dmeshlayer.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshcellparams.h"
 #include "mesh/meshcellstats.h"
 #include "mesh/meshobjectref.h"
@@ -411,8 +412,8 @@ private slots:
         QVERIFY(mesh::MeshObjectRef::parseEdge(ref, &lk, &tri, &e));
         const QPair<int,int> n = layer.findEdgeNeighbour(tri, e);
         QVERIFY(n.first >= 0);
-        QCOMPARE(layer.edgeBCs()[tri * 3 + e].conveyance, 0.3);
-        QCOMPARE(layer.edgeBCs()[n.first * 3 + n.second].conveyance, 0.3);
+        QCOMPARE(layer.edgeBCs()[mesh::edgeSlot(tri, e)].conveyance, 0.3);
+        QCOMPARE(layer.edgeBCs()[mesh::edgeSlot(n.first, n.second)].conveyance, 0.3);
         QCOMPARE(model.data(model.index(interiorRow, psiCol)).toDouble(), 0.3);
     }
 
@@ -458,6 +459,60 @@ private slots:
         QVERIFY(ready.wait(10000));
 
         QCOMPARE(model.rowCount(), layer.edgeCount());
+    }
+
+    // ---- mixed triangle / quad mesh -------------------------------------
+
+    void mixed_mesh_vertices_column_and_four_edge_rows()
+    {
+        // Strip of 2 triangles plus a unit-square quad (1,4,5,2) on the right:
+        //   3---2---5
+        //   | / |   |
+        //   0---1---4
+        mesh::MeshResult m;
+        for (const QPointF p : {QPointF(0, 0), QPointF(1, 0), QPointF(1, 1),
+                                QPointF(0, 1), QPointF(2, 0), QPointF(2, 1)}) {
+            mesh::MeshVertex v; v.xy = p; m.vertices.append(v);
+        }
+        mesh::MeshTriangle t0; t0.v0 = 0; t0.v1 = 1; t0.v2 = 2;
+        mesh::MeshTriangle t1; t1.v0 = 0; t1.v1 = 2; t1.v2 = 3;
+        mesh::MeshTriangle q;  q.v0 = 1;  q.v1 = 4;  q.v2 = 5;  q.v3 = 2;
+        m.triangles = { t0, t1, q };
+        m.ok = true;
+        SWMM2DMeshLayer layer(m, QString());
+
+        MeshAttributeTableModel cells;
+        cells.setSource(&layer, Kind::Cell);
+        const int nvCol = colFor(cells, "Vertices");
+        QVERIFY(nvCol >= 0);
+        QCOMPARE(cells.data(cells.index(0, nvCol)).toInt(), 3);
+        QCOMPARE(cells.data(cells.index(2, nvCol)).toInt(), 4);
+        QCOMPARE(cells.data(cells.index(2, colFor(cells, "Area"))).toDouble(), 1.0);
+        QCOMPARE(cells.data(cells.index(2, colFor(cells, "Centroid X"))).toDouble(), 1.5);
+        QCOMPARE(cells.data(cells.index(2, colFor(cells, "Centroid Y"))).toDouble(), 0.5);
+        bool ok = false;
+        const QRectF qr = cells.elementExtent(2, &ok);
+        QVERIFY(ok);
+        QCOMPARE(qr, QRectF(QPointF(1, 0), QPointF(2, 1)));
+
+        // One row per unique edge: 3 + 3 + 4 − 2 shared = 8; the quad's four
+        // edges all resolve, with (1,2) collapsing onto T0's slot.
+        MeshAttributeTableModel edges;
+        edges.setSource(&layer, Kind::Edge);
+        QCOMPARE(edges.rowCount(), 8);
+        QCOMPARE(edges.rowCount(), layer.edgeCount());
+        const QString path = layer.sourcePath();
+        for (int e = 0; e < 4; ++e)
+            QVERIFY(edges.rowForRef(mesh::MeshObjectRef::edge(path, 2, e)) >= 0);
+        QCOMPARE(edges.rowForRef(mesh::MeshObjectRef::edge(path, 2, 2)),
+                 edges.rowForRef(mesh::MeshObjectRef::edge(path, 0, 0)));
+        // The quad's edge 3 = (1,4) is a boundary row labelled "2:3".
+        const int row23 = edges.rowForRef(mesh::MeshObjectRef::edge(path, 2, 3));
+        QCOMPARE(edges.data(edges.index(row23, colFor(edges, "Edge"))).toString(),
+                 QStringLiteral("2:3"));
+        QCOMPARE(edges.data(edges.index(row23, colFor(edges, "Boundary"))).toString(),
+                 QStringLiteral("Yes"));
+        QCOMPARE(edges.data(edges.index(row23, colFor(edges, "Length"))).toDouble(), 1.0);
     }
 };
 

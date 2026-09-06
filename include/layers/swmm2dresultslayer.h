@@ -24,6 +24,7 @@
 #include "io/mesh2dh5reader.h"       // openswmmvis::io::CoordinateReference
 #include "layers/openswmmvislayer.h"
 #include "layers/meshspatialgrid.h"
+#include "layers/vertexdepthreconstruct.h"   // VertexDepthReconstruct::CellSplit
 #include "map/mapextent.h"
 
 #include <ogr_spatialref.h>          // OGRCoordinateTransformation (issue #155)
@@ -80,7 +81,12 @@ class IMesh2DSource
 public:
     virtual ~IMesh2DSource() = default;
 
-    /*! \brief Geometry counts. Stable for the lifetime of the source. */
+    /*! \brief Geometry counts. Stable for the lifetime of the source.
+     *
+     *  \c triangleCount() is the number of CELLS (engine faces — triangles
+     *  and, on a mixed mesh, quads; workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md).
+     *  Every per-face array (\ref readDepthsAt, \ref readFaceFieldAt) is
+     *  sized to it; the historical name is kept for its callers. */
     virtual int vertexCount()   const = 0;
     virtual int triangleCount() const = 0;
 
@@ -93,11 +99,36 @@ public:
      *  slider / Play. A completed file source returns false. */
     virtual bool isLive() const { return false; }
 
-    /*! \brief Fetch mesh geometry. Resizes outputs. */
+    /*! \brief Fetch mesh geometry as a DISPLAY triangle fan. Resizes outputs.
+     *
+     *  \p tris carries one triangle per triangle cell and two per quad (the
+     *  engine's VFR sub-triangle split, mesh::cellGeom), in cell order — so
+     *  \c tris.size() >= triangleCount(). Consumers that need per-cell values
+     *  must use \ref readCells and map fan triangles back to their cell. */
     virtual bool readMeshGeometry(std::vector<double>& vx,
                                    std::vector<double>& vy,
                                    std::vector<double>& vz,
                                    std::vector<std::array<int, 3>>& tris) = 0;
+
+    /*! \brief Fetch mesh geometry as CELLS: \p cells[i] = {v0,v1,v2,v3} with
+     *  v3 == -1 for a triangle (cyclic order for a quad), one entry per face,
+     *  engine order (triangles first, then quads). Resizes outputs.
+     *
+     *  Default: an all-triangle source — \ref readMeshGeometry's triangles
+     *  ARE the cells, so they are wrapped with v3 = -1. Mixed-mesh sources
+     *  override. */
+    virtual bool readCells(std::vector<double>& vx,
+                           std::vector<double>& vy,
+                           std::vector<double>& vz,
+                           std::vector<std::array<int, 4>>& cells)
+    {
+        std::vector<std::array<int, 3>> tris;
+        if (!readMeshGeometry(vx, vy, vz, tris)) return false;
+        cells.resize(tris.size());
+        for (size_t i = 0; i < tris.size(); ++i)
+            cells[i] = { tris[i][0], tris[i][1], tris[i][2], -1 };
+        return true;
+    }
 
     /*!
      * \brief How the coordinates from \ref readMeshGeometry relate to the
@@ -122,7 +153,9 @@ public:
 
     /*!
      * \brief Fetch per-edge signed normal flux at \p timeIdx.
-     * \param flux  Resized to \c triangleCount()*3, indexed \c [tri*3 + localEdge].
+     * \param flux  Resized to \c mesh::edgeSlotCount(triangleCount()), indexed
+     *              \c mesh::edgeSlot(cell, localEdge) (stride mesh::kEdgeStride;
+     *              slot 3 of a triangle is padding).
      *              Units m² s⁻¹; positive flows outward through the edge's
      *              outward normal.
      * \returns true on success. Default implementation returns false so callers
@@ -136,8 +169,8 @@ public:
 
     /*!
      * \brief Fetch time-invariant edge geometry (length + outward unit normal).
-     * \param length Resized to \c triangleCount()*3 (m).
-     * \param nx,ny  Resized to \c triangleCount()*3 (dimensionless).
+     * \param length Resized to \c mesh::edgeSlotCount(triangleCount()) (m).
+     * \param nx,ny  Resized likewise (dimensionless); indexed \c mesh::edgeSlot.
      * \returns true on success. Default returns false.
      */
     virtual bool readEdgeGeometry(std::vector<float>& length,
@@ -212,6 +245,16 @@ public:
                        std::vector<std::array<int,3>> tris);
 
     /*!
+     * \brief Mixed-mesh constructor: \p cells[i] = {v0,v1,v2,v3}, v3 == -1
+     * for a triangle (engine cell order, `swmm_2d_cell_get_vertices`).
+     * The triangle constructor above is this with every v3 = -1.
+     */
+    EngineMesh2DSource(std::vector<double>            vx,
+                       std::vector<double>            vy,
+                       std::vector<double>            vz,
+                       std::vector<std::array<int,4>> cells);
+
+    /*!
      * \brief Append one tick's worth of per-triangle depth.
      *
      * Pushed from `SimulationRunner::twoDDepthsAvailable` via queued connection
@@ -225,7 +268,9 @@ public:
      * \brief Append one tick's worth of per-edge signed normal flux.
      *
      * Mirrors \ref pushDepths but writes to the flux slot of the most recent
-     * tick. Expected size is \c triangleCount()*3. If called before
+     * tick. Expected size is \c mesh::edgeSlotCount(triangleCount()) (stride
+     * 4, `swmm_2d_edge_stride`); a stride-3 array from an all-triangle
+     * engine is re-packed to the padded layout. If called before
      * \c pushDepths for the same tick, the runner buffers the flux into the
      * pending slot and \c pushDepths will pair them. Empty flux vectors are
      * accepted (older engines without \c swmm_2d_get_edge_flux_bulk skip the
@@ -263,8 +308,9 @@ public:
     /*!
      * \brief Install time-invariant edge geometry queried via
      * \c swmm_2d_edge_get_geometry_bulk once at twoDInitialized. Sizes are
-     * \c triangleCount()*3 each. Optional — when not called, the source
-     * advertises no edge geometry (readEdgeGeometry returns false).
+     * \c mesh::edgeSlotCount(triangleCount()) each (a stride-3 array from an
+     * all-triangle engine is re-packed). Optional — when not called, the
+     * source advertises no edge geometry (readEdgeGeometry returns false).
      */
     void setEdgeGeometry(std::vector<float> length,
                          std::vector<float> nx,
@@ -272,13 +318,17 @@ public:
 
     // IMesh2DSource
     int  vertexCount()   const override { return static_cast<int>(vx_.size()); }
-    int  triangleCount() const override { return static_cast<int>(tris_.size()); }
+    int  triangleCount() const override { return static_cast<int>(cells_.size()); }
     int  timeCount()     const override { return static_cast<int>(history_.size()); }
     bool isLive()        const override { return true; }   // streaming from the running sim
     bool readMeshGeometry(std::vector<double>& vx,
                           std::vector<double>& vy,
                           std::vector<double>& vz,
                           std::vector<std::array<int, 3>>& tris) override;
+    bool readCells(std::vector<double>& vx,
+                   std::vector<double>& vy,
+                   std::vector<double>& vz,
+                   std::vector<std::array<int, 4>>& cells) override;
     bool readDepthsAt(int timeIdx, std::vector<float>& depths) override;
     QDateTime simTimeAt(int timeIdx) const override;
 
@@ -292,12 +342,16 @@ public:
                          std::vector<float>& values) override;
 
 private:
+    /*! Re-pack a stride-3 per-edge array (all-triangle engine) into the
+     *  padded stride-4 slot layout; arrays already stride 4 pass through. */
+    std::vector<float> toEdgeSlots_(std::vector<float> a) const;
+
     std::vector<double>              vx_, vy_, vz_;
-    std::vector<std::array<int,3>>   tris_;
+    std::vector<std::array<int,4>>   cells_;   ///< {v0,v1,v2,v3}; v3 = -1 for a triangle
 
     struct Tick {
         std::vector<float> depths;
-        std::vector<float> flux;       ///< [tri*3 + localEdge]; empty when source has no flux feed.
+        std::vector<float> flux;       ///< [mesh::edgeSlot(cell, e)]; empty when source has no flux feed.
         std::vector<float> vertex_depths; ///< [vertex]; empty when engine lacks the heads API.
         std::vector<float> rainfall;   ///< [tri] m/s; empty when engine lacks the rainfall bulk API.
         std::vector<float> rain_cum;   ///< [tri] m³ cumulative; paired with rainfall.
@@ -335,6 +389,10 @@ public:
                           std::vector<double>& vy,
                           std::vector<double>& vz,
                           std::vector<std::array<int, 3>>& tris) override;
+    bool readCells(std::vector<double>& vx,
+                   std::vector<double>& vy,
+                   std::vector<double>& vz,
+                   std::vector<std::array<int, 4>>& cells) override;
     bool readDepthsAt(int timeIdx, std::vector<float>& depths) override;
     QDateTime simTimeAt(int timeIdx) const override;
 
@@ -621,20 +679,22 @@ public:
     // ----- Cell selection / picking (CF.3) ----------------------------------
 
     /*!
-     * \brief Return triangle indices whose scene-space centroid falls inside
-     *        \p sceneRect.  Linear scan over m_sceneTris — fine for meshes
-     *        up to ~100k tris; bigger meshes may want spatial indexing.
+     * \brief Return CELL indices whose scene-space (area) centroid falls inside
+     *        \p sceneRect.  Linear scan over the cells — fine for meshes
+     *        up to ~100k cells; bigger meshes may want spatial indexing.
      */
     [[nodiscard]] QVector<int> pickCellsInRect(const QRectF& sceneRect) const;
 
     /*!
-     * \brief Return triangle indices whose scene-space centroid falls inside
+     * \brief Return CELL indices whose scene-space centroid falls inside
      *        \p scenePoly (odd-even fill rule). Used by lasso-select.
      */
     [[nodiscard]] QVector<int> pickCellsInPolygon(const QPolygonF& scenePoly) const;
 
-    /*! \brief Return the triangle whose vertices contain \p scenePt, or -1.
-     *  Used by single-click cell pick and canvas-right-click hit test. */
+    /*! \brief Return the CELL containing \p scenePt, or -1 (barycentric test
+     *  on the display fan, mapped to the owning cell — a quad answers for
+     *  both of its sub-triangles). Used by single-click cell pick and the
+     *  canvas-right-click hit test. */
     [[nodiscard]] int pickCellAt(const QPointF& scenePt) const;
 
     /*! \brief Current-frame water depth (m) at \p scenePt: locates the
@@ -782,11 +842,28 @@ public:
      *  geometry buffers without expanding corners. */
     QVector<QPointF>   m_sceneVerts;
 
-    /*! QSG-2D-1M — triangle → vertex-id triples backing m_sceneTris
+    /*! QSG-2D-1M — display triangle → vertex-id triples backing m_sceneTris
      *  (indices into m_sceneVerts). Read-only view for the renderer's
-     *  static indexed-geometry path. */
+     *  static indexed-geometry path. On a mixed mesh this is the sub-triangle
+     *  FAN (one entry per triangle cell, two per quad, cell order); see
+     *  \ref triCellMap / \ref cellTriRange for the cell mapping. */
     [[nodiscard]] const std::vector<std::array<int, 3>> &triVertexIndices() const noexcept
     { return tris_; }
+
+    /*! Cells (engine faces): {v0,v1,v2,v3}, v3 == -1 for a triangle. Indexed
+     *  by CELL — the index every public pick/highlight/plot API uses. */
+    [[nodiscard]] const std::vector<std::array<int, 4>> &cellVertexIndices() const noexcept
+    { return cells_; }
+
+    /*! Display triangle → owning cell (parallel to m_sceneTris / triVertexIndices). */
+    [[nodiscard]] const std::vector<int> &triCellMap() const noexcept { return triCell_; }
+
+    /*! CSR cell → display-triangle range: the fan triangles of cell c are
+     *  \c [cellTriRange()[c], cellTriRange()[c+1]). Size cellCount()+1. */
+    [[nodiscard]] const std::vector<int> &cellTriRange() const noexcept { return cellTri0_; }
+
+    /*! Number of cells (faces) in the current geometry. */
+    [[nodiscard]] int cellCount() const noexcept { return static_cast<int>(cells_.size()); }
 
     /*! QSG-2D-1M — bumped every rebuildSceneGeometry_. Lets the QSG
      *  renderer classify an ambiguous repaint into "geometry changed"
@@ -851,10 +928,27 @@ private:
      *  alone, the pre-#155 behaviour and the safe default. */
     double m_fallbackMetresPerModelUnit = 1.0;
 
+    /*! Display triangle containing \p scenePt (index into m_sceneTris /
+     *  tris_), or -1. \ref pickCellAt is this mapped through triCell_. */
+    [[nodiscard]] int pickDisplayTriAt_(const QPointF& scenePt) const;
+    /*! Barycentric current-frame depth on display triangle \p triIdx (the
+     *  per-sub-triangle body of \ref depthAtCellInterp). */
+    [[nodiscard]] float depthAtDisplayTriInterp_(int triIdx, const QPointF& scenePt) const;
+
     std::unique_ptr<IMesh2DSource> source_;
     std::vector<double>            vx_, vy_, vz_;
-    std::vector<std::array<int,3>> tris_;
-    std::vector<float>             current_depths_;
+    // Mixed-mesh split (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md): the
+    // CELLS carry the per-face values; the display FAN (one sub-triangle per
+    // triangle cell, two per quad on the engine's VFR diagonal) is what the
+    // scene, hit-testing, contours and interpolation run on. Every per-face
+    // lookup for a display triangle goes through triCell_.
+    std::vector<std::array<int,4>> cells_;      ///< per CELL: {v0,v1,v2,v3}, v3 = -1 for a triangle
+    std::vector<std::array<int,3>> tris_;       ///< display fan, parallel to m_sceneTris
+    std::vector<int>               triCell_;    ///< display triangle → cell
+    std::vector<int>               cellTri0_;   ///< CSR: cell → first display triangle (size nCells+1)
+    std::vector<VertexDepthReconstruct::CellSplit> cellSplit_;  ///< per CELL, feeds the vertex reconstruction
+    std::vector<QPointF>           cellCentroidScene_;          ///< per CELL area centroid, scene space
+    std::vector<float>             current_depths_;             ///< per CELL
 
     // Sub-cell free-surface reconstruction for partial wet/dry rendering. The
     // engine reports a per-cell mean depth h = V/A under a flat-cell closure;
@@ -864,7 +958,7 @@ private:
     // cellZc_ is each cell's centroid bed elevation (static; built once in
     // rebuildSceneGeometry_); the eta_* vectors are per-frame scratch reused by
     // applyCurrentDepths_ to avoid per-frame allocation.
-    std::vector<float>             cellZc_;       ///< per-cell centroid bed elev, parallel to tris_
+    std::vector<float>             cellZc_;       ///< per-CELL mean bed elev (cellGeom zMean), parallel to cells_
     std::vector<float>             eta_vsum_;     ///< scratch — per-vertex Σ(weight·η)
     std::vector<float>             eta_wsum_;     ///< scratch — per-vertex Σ(weight) (depth weight)
     std::vector<float>             vdepth_;       ///< scratch — per-vertex SIGNED depth (η_v − z_v), current frame
@@ -877,10 +971,10 @@ private:
     std::vector<float>             vvy_;          ///< per-vertex velocity y (scene units)
 
     // CF.2 — per-tick flux + time-invariant edge geometry pulled once from the source.
-    std::vector<float>             current_flux_;     ///< [tri*3 + localEdge], m^2/s.
-    std::vector<float>             edge_length_;      ///< [tri*3], m.
-    std::vector<float>             edge_nx_;          ///< [tri*3], dimensionless.
-    std::vector<float>             edge_ny_;          ///< [tri*3], dimensionless.
+    std::vector<float>             current_flux_;     ///< [mesh::edgeSlot(cell, e)], m^2/s.
+    std::vector<float>             edge_length_;      ///< [mesh::edgeSlot(cell, e)], m.
+    std::vector<float>             edge_nx_;          ///< [mesh::edgeSlot(cell, e)], dimensionless.
+    std::vector<float>             edge_ny_;          ///< [mesh::edgeSlot(cell, e)], dimensionless.
     bool                           have_edge_geom_   = false;
     bool                           have_velocity_    = false;
     /*! Tri-state cache for hasEdgeFluxData(): 0 = not yet determined,

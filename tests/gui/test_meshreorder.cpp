@@ -235,6 +235,76 @@ private slots:
         for (int v = 0; v < once.vertices.size(); ++v)
             QCOMPARE(twice.vertices[v].xy, once.vertices[v].xy);
     }
+
+    /*! Mixed tri/quad mesh: the engine's cell order is triangles first, then
+     *  quads, so the Hilbert reorder must keep the two classes separate and
+     *  renumber all FOUR corners of a quad. */
+    void mixed_mesh_keeps_triangles_first_and_remaps_quads()
+    {
+        MeshResult m = scrambledGrid(6);
+        // Turn every other column's cells into quads by merging the pair
+        // (a, b) of square (i, j) — the test mesh is built pairwise.
+        MeshResult mixed;
+        mixed.vertices = m.vertices;
+        // scrambledGrid shuffled the triangles; rebuild deterministically.
+        const int N = 6;
+        auto vid = [&](int i, int j) {
+            // Vertex ids were permuted: look the corner up by coordinates.
+            for (int v = 0; v < mixed.vertices.size(); ++v)
+                if (mixed.vertices[v].xy == QPointF(i, j)) return v;
+            return -1;
+        };
+        int nQuads = 0;
+        for (int j = 0; j < N; ++j)
+            for (int i = 0; i < N; ++i)
+            {
+                if (i % 2 == 0) {
+                    MeshTriangle q;
+                    q.v0 = vid(i, j); q.v1 = vid(i + 1, j);
+                    q.v2 = vid(i + 1, j + 1); q.v3 = vid(i, j + 1);
+                    q.tag = QStringLiteral("q%1_%2").arg(i).arg(j);
+                    mixed.triangles.append(q);
+                    ++nQuads;
+                } else {
+                    MeshTriangle a;
+                    a.v0 = vid(i, j); a.v1 = vid(i + 1, j); a.v2 = vid(i, j + 1);
+                    mixed.triangles.append(a);
+                    MeshTriangle b;
+                    b.v0 = vid(i + 1, j); b.v1 = vid(i + 1, j + 1); b.v2 = vid(i, j + 1);
+                    mixed.triangles.append(b);
+                }
+            }
+        QVERIFY(mixed.hasQuads());
+
+        MeshResult after = mixed;
+        mesh::reorderMeshHilbert(&after);
+
+        QCOMPARE(after.triangles.size(), mixed.triangles.size());
+        QCOMPARE(after.quadCount(), nQuads);
+        // Triangles first, then quads — never interleaved.
+        const int nTri = after.triangles.size() - nQuads;
+        for (int t = 0; t < after.triangles.size(); ++t)
+            QCOMPARE(after.triangles[t].isQuad(), t >= nTri);
+
+        // Every quad still spans a unit square (all four corners remapped).
+        for (const MeshTriangle &q : after.triangles)
+        {
+            if (!q.isQuad()) continue;
+            QStringList corners;
+            for (int k = 0; k < 4; ++k)
+                corners << QStringLiteral("%1,%2")
+                              .arg(after.vertices[q.vertex(k)].xy.x())
+                              .arg(after.vertices[q.vertex(k)].xy.y());
+            const double x0 = after.vertices[q.v0].xy.x();
+            const double y0 = after.vertices[q.v0].xy.y();
+            QStringList expect;
+            expect << QStringLiteral("%1,%2").arg(x0).arg(y0)
+                   << QStringLiteral("%1,%2").arg(x0 + 1).arg(y0)
+                   << QStringLiteral("%1,%2").arg(x0 + 1).arg(y0 + 1)
+                   << QStringLiteral("%1,%2").arg(x0).arg(y0 + 1);
+            QCOMPARE(corners, expect);
+        }
+    }
 };
 
 QTEST_MAIN(TestMeshReorder)

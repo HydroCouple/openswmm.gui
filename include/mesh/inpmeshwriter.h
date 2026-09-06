@@ -87,7 +87,10 @@ public:
 
     /*! \brief Render the 2D mesh sections as a single text block.
      *
-     *  Order: `[2D_VERTICES]`, `[2D_TRIANGLES]`, `[2D_VERTEX_NODE_MAP]`,
+     *  Order: `[2D_VERTICES]`, `[2D_TRIANGLES]` (triangle cells),
+     *  `[2D_QUADS]` (`V1 V2 V3 V4 MANNINGS_N [INIT_DEPTH] [TAG]`, quad cells
+     *  — emitted ONLY when the mesh holds a quad, so all-triangle output is
+     *  byte-identical to the pre-quad writer), `[2D_VERTEX_NODE_MAP]`,
      *  `[2D_TRIANGLE_NODE_MAP]`, then the GG0a infiltration family
      *  `[2D_INFILTRATION_OPTIONS]` / `[2D_INFILTRATION_DEFAULTS]` /
      *  `[2D_INFILTRATION]`. Each section starts with a `;;`-prefixed
@@ -134,8 +137,9 @@ public:
 
     /*! \brief Engine §11A — render the `[2D_EDGE_CONVEYANCE]` section.
      *
-     *  Walks \p bcs (flat-indexed `tri * 3 + edge`, parallel to \p mesh)
-     *  and emits one row per edge whose conveyance differs from the
+     *  Walks \p bcs (flat-indexed `mesh::edgeSlot(cell, edge)`, parallel to
+     *  \p mesh; endpoints via `mesh::edgeEndpoints`, every edge of a quad
+     *  included) and emits one row per edge whose conveyance differs from the
      *  default 1.0. Interior edges occupy two slots that the GUI keeps in
      *  sync (see SWMM2DMeshLayer::applyMeshEdgeConveyance), so the writer
      *  canonicalises on the first encountered vertex-pair and silently
@@ -242,7 +246,9 @@ public:
      *
      *  \param filePath  File whose BC/conveyance sections are replaced.
      *  \param mesh      Mesh the flat-indexed \p bcs parallels.
-     *  \param bcs       Per-edge BC state (`tri * 3 + edge`).
+     *  \param bcs       Per-edge BC state (`mesh::edgeSlot(cell, edge)`,
+     *                   stride `mesh::kEdgeStride`; rows are written as
+     *                   `TRI = slotCell, EDGE = slotLocal`, 0..3 for a quad).
      *  \param errorOut  Set on failure.
      *  \returns true on success. */
     [[nodiscard]] static bool patchBCSections(const QString &filePath,
@@ -250,7 +256,7 @@ public:
                                               const QVector<MeshEdgeBC> &bcs,
                                               QString *errorOut = nullptr);
 
-    /*! \brief Replace the `[2D_VERTICES]`, `[2D_TRIANGLES]`,
+    /*! \brief Replace the `[2D_VERTICES]`, `[2D_TRIANGLES]`, `[2D_QUADS]`,
      *         `[2D_VERTEX_NODE_MAP]`, `[2D_TRIANGLE_NODE_MAP]` and
      *         `[2D_INFILTRATION_OPTIONS]` / `[2D_INFILTRATION_DEFAULTS]` /
      *         `[2D_INFILTRATION]` sections of \p filePath with sections

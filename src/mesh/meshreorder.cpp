@@ -6,6 +6,8 @@
  */
 #include "mesh/meshreorder.h"
 
+#include "mesh/meshcellgeom.h"
+
 #include <QVector>
 
 #include <algorithm>
@@ -68,21 +70,29 @@ void reorderMeshHilbert(MeshResult *m)
     for (int t = 0; t < nt; ++t)
     {
         const MeshTriangle &tr = m->triangles[t];
-        const double cx = (m->vertices[tr.v0].xy.x() + m->vertices[tr.v1].xy.x()
-                           + m->vertices[tr.v2].xy.x()) / 3.0;
-        const double cy = (m->vertices[tr.v0].xy.y() + m->vertices[tr.v1].xy.y()
-                           + m->vertices[tr.v2].xy.y()) / 3.0;
+        // Area centroid (cellGeom): the vertex mean for a triangle, the
+        // area-weighted sub-triangle centroid for a quad.
+        const QPointF c = cellGeom(m->vertices, tr).centroid;
+        const double cx = c.x();
+        const double cy = c.y();
         const quint32 qx = quint32(std::clamp((cx - x0) * sx, 0.0, kMaxQ));
         const quint32 qy = quint32(std::clamp((cy - y0) * sy, 0.0, kMaxQ));
         key[t] = hilbertXY2D(kOrder, qx, qy);
     }
 
     // stable_sort keeps equal-key triangles in Triangle's output order, so
-    // the permutation is deterministic.
+    // the permutation is deterministic. Triangles sort before quads: the
+    // engine's cell order is [2D_TRIANGLES] then [2D_QUADS], so a mixed mesh
+    // is Hilbert-ordered within each class and never interleaved.
     QVector<int> order(nt);
     std::iota(order.begin(), order.end(), 0);
+    const QVector<MeshTriangle> &tris = m->triangles;
     std::stable_sort(order.begin(), order.end(),
-                     [&key](int a, int b) { return key[a] < key[b]; });
+                     [&key, &tris](int a, int b) {
+                         const bool qa = tris[a].isQuad(), qb = tris[b].isQuad();
+                         if (qa != qb) return !qa;
+                         return key[a] < key[b];
+                     });
 
     // Permute triangles; record old→new for the cell couplings.
     QVector<MeshTriangle> newTris;
@@ -101,9 +111,9 @@ void reorderMeshHilbert(MeshResult *m)
     int next = 0;
     for (const MeshTriangle &tr : newTris)
     {
-        if (vmap[tr.v0] < 0) vmap[tr.v0] = next++;
-        if (vmap[tr.v1] < 0) vmap[tr.v1] = next++;
-        if (vmap[tr.v2] < 0) vmap[tr.v2] = next++;
+        const int nvc = tr.vertexCount();
+        for (int k = 0; k < nvc; ++k)
+            if (vmap[tr.vertex(k)] < 0) vmap[tr.vertex(k)] = next++;
     }
     for (int v = 0; v < nv; ++v)
         if (vmap[v] < 0) vmap[v] = next++;
@@ -114,9 +124,9 @@ void reorderMeshHilbert(MeshResult *m)
 
     for (MeshTriangle &tr : newTris)
     {
-        tr.v0 = vmap[tr.v0];
-        tr.v1 = vmap[tr.v1];
-        tr.v2 = vmap[tr.v2];
+        const int nvc = tr.vertexCount();
+        for (int k = 0; k < nvc; ++k)
+            tr.setVertex(k, vmap[tr.vertex(k)]);
     }
     for (MeshEdge &e : m->boundaryEdges)
     {
@@ -135,13 +145,15 @@ double meanVertexIndexSpread(const MeshResult &m)
 {
     if (m.triangles.isEmpty()) return 0.0;
     double sum = 0.0;
+    double edges = 0.0;
     for (const MeshTriangle &t : m.triangles)
     {
-        sum += std::abs(t.v0 - t.v1);
-        sum += std::abs(t.v1 - t.v2);
-        sum += std::abs(t.v2 - t.v0);
+        const int nvc = t.vertexCount();
+        for (int k = 0; k < nvc; ++k)
+            sum += std::abs(t.vertex(k) - t.vertex((k + 1) % nvc));
+        edges += double(nvc);
     }
-    return sum / (3.0 * double(m.triangles.size()));
+    return sum / edges;
 }
 
 } // namespace mesh

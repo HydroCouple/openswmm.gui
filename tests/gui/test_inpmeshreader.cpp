@@ -23,6 +23,8 @@
  *         directory (CLAUDE.md §4.1).
  */
 #include "mesh/inpmeshreader.h"
+#include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -92,6 +94,11 @@ private slots:
     void tokenizer_whitespaceAndComments_data();
     void tokenizer_whitespaceAndComments();
     void tokenizer_crlfLineEndings();
+    void edgeBCs_strideIsEdgeSlotCount();
+    void quads_appendedAfterTriangles();
+    void quads_triangleRowAfterQuadIsError();
+    void quads_bcRowOnQuadEdge3();
+    void quads_conveyanceOnQuadQuadEdge();
     void profileExternalMesh();
 };
 
@@ -320,6 +327,145 @@ void TestInpMeshReader::tokenizer_crlfLineEndings()
     QCOMPARE(r.mesh.vertices[0].tag, QStringLiteral("V0"));
     QCOMPARE(r.mesh.vertices[1].coupledNode, QStringLiteral("J2"));
     QCOMPARE(r.unitsHeader, QStringLiteral("SI (m)"));
+}
+
+// ── TRI_QUAD_MESHING_PLAN phase G1 — stride-4 edge slots + [2D_QUADS] ───────
+
+/*! The 2x1 strip: left square as two triangles, right square as one quad
+ *  (cell 2 = n_triangles + 0). Quad (1,2,5,4): edge 0 = (2,5), edge 1 =
+ *  (5,4), edge 2 = (4,1) shared with triangle 0's edge 0, edge 3 = (1,2). */
+QString mixedMesh()
+{
+    return QStringLiteral(
+        ";; UNITS: SI (m)\n"
+        "[2D_VERTICES]\n"
+        "0.0 0.0 1.0\n"
+        "1.0 0.0 1.1\n"
+        "2.0 0.0 1.2\n"
+        "0.0 1.0 1.3\n"
+        "1.0 1.0 1.4\n"
+        "2.0 1.0 1.5\n"
+        "\n"
+        "[2D_TRIANGLES]\n"
+        ";; V1 V2 V3 MANNINGS_N INIT_DEPTH TAG\n"
+        "0 1 4 0.025 0.0 left\n"
+        "0 4 3 0.035 0.0\n"
+        "\n"
+        "[2D_QUADS]\n"
+        ";; V1 V2 V3 V4 MANNINGS_N INIT_DEPTH TAG\n"
+        "1 2 5 4 0.018 0.25 street\n"
+        "\n");
+}
+
+void TestInpMeshReader::edgeBCs_strideIsEdgeSlotCount()
+{
+    // All-triangle file: the BC vector is stride kEdgeStride (4), not 3,
+    // and a row's EDGE lands in edgeSlot(cell, e).
+    const QString p = writeFixture(
+        QStringLiteral("bc_stride.inp"),
+        baseMesh() + QStringLiteral("[2D_BOUNDARY_CONDITIONS]\n"
+                                    "1 2 NORMAL_FLOW 0.004 * *\n"
+                                    "0 3 NORMAL_FLOW 0.009 * *\n"));   // EDGE 3 on a triangle: dropped
+    const mesh::InpMeshReadResult r = mesh::InpMeshReader::read(p);
+    QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+    QVERIFY(r.hasMesh);
+    QCOMPARE(r.edgeBCs.size(), mesh::edgeSlotCount(2));
+    QCOMPARE(r.edgeBCs[mesh::edgeSlot(1, 2)].type, mesh::MeshBCTypes::Type::NormalFlow);
+    QCOMPARE(r.edgeBCs[mesh::edgeSlot(1, 2)].slope, 0.004);
+    QCOMPARE(r.edgeBCs[mesh::edgeSlot(0, 3)].type, mesh::MeshBCTypes::Type::Wall);
+
+    // EDGE beyond any cell's range is malformed, not silently dropped.
+    const QString bad = writeFixture(
+        QStringLiteral("bc_edge4.inp"),
+        baseMesh() + QStringLiteral("[2D_BOUNDARY_CONDITIONS]\n0 4 WALL * * *\n"));
+    QVERIFY(!mesh::InpMeshReader::read(bad).errorMsg.isEmpty());
+}
+
+void TestInpMeshReader::quads_appendedAfterTriangles()
+{
+    const QString p = writeFixture(QStringLiteral("quads.inp"), mixedMesh());
+    const mesh::InpMeshReadResult r = mesh::InpMeshReader::read(p);
+    QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+    QVERIFY(r.hasMesh);
+    QCOMPARE(r.mesh.vertices.size(), 6);
+    QCOMPARE(r.mesh.triangles.size(), 3);
+    QCOMPARE(r.mesh.quadCount(), 1);
+    QVERIFY(!r.mesh.triangles[0].isQuad());
+    QVERIFY(!r.mesh.triangles[1].isQuad());
+    const mesh::MeshTriangle &q = r.mesh.triangles[2];
+    QVERIFY(q.isQuad());
+    QCOMPARE(q.vertexCount(), 4);
+    QCOMPARE(q.v0, 1); QCOMPARE(q.v1, 2); QCOMPARE(q.v2, 5); QCOMPARE(q.v3, 4);
+    QCOMPARE(q.mannings, 0.018);
+    QCOMPARE(q.initDepth, 0.25);
+    QCOMPARE(q.tag, QStringLiteral("street"));
+    QCOMPARE(r.mesh.triangles[0].tag, QStringLiteral("left"));
+    QCOMPARE(r.edgeBCs.size(), mesh::edgeSlotCount(3));
+
+    // An all-quad file (no [2D_TRIANGLES]) is still a mesh.
+    QString onlyQuads = mixedMesh();
+    onlyQuads.remove(QStringLiteral("0 1 4 0.025 0.0 left\n0 4 3 0.035 0.0\n"));
+    const mesh::InpMeshReadResult rq =
+        mesh::InpMeshReader::read(writeFixture(QStringLiteral("only_quads.inp"), onlyQuads));
+    QVERIFY2(rq.errorMsg.isEmpty(), qPrintable(rq.errorMsg));
+    QVERIFY(rq.hasMesh);
+    QCOMPARE(rq.mesh.triangles.size(), 1);
+    QVERIFY(rq.mesh.triangles[0].isQuad());
+}
+
+void TestInpMeshReader::quads_triangleRowAfterQuadIsError()
+{
+    // Cells are numbered triangles first, then quads; a later
+    // [2D_TRIANGLES] row would renumber every cell-addressed section.
+    const QString p = writeFixture(
+        QStringLiteral("tri_after_quad.inp"),
+        mixedMesh() + QStringLiteral("[2D_TRIANGLES]\n0 1 4 0.03\n"));
+    const mesh::InpMeshReadResult r = mesh::InpMeshReader::read(p);
+    QVERIFY(!r.errorMsg.isEmpty());
+    QVERIFY2(r.errorMsg.contains(QStringLiteral("[2D_QUADS]")), qPrintable(r.errorMsg));
+    QVERIFY(!r.hasMesh);
+}
+
+void TestInpMeshReader::quads_bcRowOnQuadEdge3()
+{
+    const QString p = writeFixture(
+        QStringLiteral("quad_bc.inp"),
+        mixedMesh() + QStringLiteral("[2D_BOUNDARY_CONDITIONS]\n"
+                                     ";; TRI EDGE TYPE PARAM_1 PARAM_2 GROUP\n"
+                                     "2 3 SPECIFIED_STAGE 95.4 * Outlet\n"
+                                     "1 3 SPECIFIED_STAGE 1.0 * *\n"));   // triangle edge 3: dropped
+    const mesh::InpMeshReadResult r = mesh::InpMeshReader::read(p);
+    QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+    QCOMPARE(r.edgeBCs.size(), mesh::edgeSlotCount(3));
+    const mesh::MeshEdgeBC &b = r.edgeBCs[mesh::edgeSlot(2, 3)];
+    QCOMPARE(b.type, mesh::MeshBCTypes::Type::SpecifiedStageConst);
+    QCOMPARE(b.head, 95.4);
+    QCOMPARE(b.group, QStringLiteral("Outlet"));
+    QCOMPARE(r.edgeBCs[mesh::edgeSlot(1, 3)].type, mesh::MeshBCTypes::Type::Wall);
+    // Edge 3 of the quad is its (V1,V2) side: (1,2).
+    int a = 0, c = 0;
+    mesh::edgeEndpoints(r.mesh.triangles[2], 3, a, c);
+    QCOMPARE(a, 1); QCOMPARE(c, 2);
+}
+
+void TestInpMeshReader::quads_conveyanceOnQuadQuadEdge()
+{
+    // Two quads sharing (1,4): quad 0's edge 0 and quad 1's edge 2.
+    QString twoQuads = mixedMesh();
+    twoQuads.remove(QStringLiteral("0 1 4 0.025 0.0 left\n0 4 3 0.035 0.0\n"));
+    twoQuads.replace(QStringLiteral("1 2 5 4 0.018 0.25 street\n"),
+                     QStringLiteral("0 1 4 3 0.018\n1 2 5 4 0.018\n"));
+    twoQuads += QStringLiteral("[2D_EDGE_CONVEYANCE]\n4 1 0.5\n");   // either vertex order
+    const QString p = writeFixture(QStringLiteral("quad_conv.inp"), twoQuads);
+    const mesh::InpMeshReadResult r = mesh::InpMeshReader::read(p);
+    QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+    QCOMPARE(r.mesh.quadCount(), 2);
+    QCOMPARE(r.edgeBCs.size(), mesh::edgeSlotCount(2));
+    QCOMPARE(r.edgeBCs[mesh::edgeSlot(0, 0)].conveyance, 0.5);
+    QCOMPARE(r.edgeBCs[mesh::edgeSlot(1, 2)].conveyance, 0.5);
+    int nonDefault = 0;
+    for (const auto &b : r.edgeBCs) if (b.conveyance != 1.0) ++nonDefault;
+    QCOMPARE(nonDefault, 2);
 }
 
 void TestInpMeshReader::profileExternalMesh()

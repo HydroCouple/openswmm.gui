@@ -18,6 +18,8 @@
 #define OPENSWMMVIS_MESH_MESHGENERATOR_H
 
 #include "meshresult.h"
+#include "meshpatch.h"
+#include "meshquadmerge.h"
 #include "trirefinehook.h"
 
 #include <QHash>
@@ -73,6 +75,18 @@ struct GenerationOptions
     int    maxSteinerPoints   = -1; ///< -SN cap; -1 = unlimited.
     bool   quiet       = true;    ///< -Q (suppress Triangle's stderr).
     QString customSwitchString;   ///< If non-empty, overrides everything above. Advanced.
+
+    // ── Mixed tri-quad output (TRI_QUAD_MESHING_PLAN §3) ──────────────
+    /*! G2: after Triangle (and after any patches are stitched in), greedily
+     *  merge adjacent triangle pairs into convex quads (mesh/meshquadmerge.h).
+     *  Locked edges = every constrained segment (domain boundary, holes,
+     *  breaklines, patch boundaries). Off by default (plan decision D2). */
+    bool             mergeTrianglePairs = false;
+    QuadMergeOptions quadMerge;
+    /*! G3: snap radius (map units) used to match patch vertices against the
+     *  Triangle output vertices. 0 = the generator's own 1e-7 quantisation
+     *  (exact match of the coordinates the PSLG was built from). */
+    double           patchSnapEps = 0.0;
 };
 
 /*! \brief Generate a 2D triangular mesh.
@@ -113,6 +127,14 @@ public:
     void reserveSteinerPoints(qsizetype additional);
     void addHole(const QPointF &interiorPointInsideHole);
     void addRegion(const RegionMarker &region);
+    /*! \brief Stitch a structured quad patch (mesh/meshpatch.h) into the
+     *  domain. Its boundary segments become PSLG constraints, its interior
+     *  a hole (seed = the first quad's centroid), and after Triangle runs
+     *  its quads are appended after every triangle with vertices merged by
+     *  coordinate against the Triangle output (GenerationOptions::patchSnapEps).
+     *  Patch vertices receive whatever elevation fill the caller applies to
+     *  MeshResult::vertices afterwards — same path as Triangle's own. */
+    void addPatch(const PatchMesh &patch);
     void setOptions(const GenerationOptions &opts);
 
     /*! \brief Install cancellation / progress / graded-sizing callbacks.
@@ -144,6 +166,7 @@ private:
     QVector<SteinerPoint>      m_steiners;
     QVector<QPointF>           m_holes;
     QVector<RegionMarker>      m_regions;
+    QVector<PatchMesh>         m_patches;
     GenerationOptions          m_opts;
     RefineHook                 m_refineHook;
 

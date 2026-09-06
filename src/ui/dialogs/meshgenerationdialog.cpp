@@ -25,6 +25,8 @@
 
 #include "mesh/meshgenerator.h"
 #include "mesh/meshnodemapper.h"
+#include "mesh/meshpatch.h"
+#include "mesh/meshquadmerge.h"
 #include "mesh/meshresult.h"
 #include "mesh/dtmthinner.h"
 #include "mesh/inpmeshwriter.h"
@@ -64,6 +66,7 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -77,6 +80,7 @@
 #include <QSet>
 #include <QSpinBox>
 #include <QStringList>
+#include <QTableWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -885,7 +889,17 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     if (nRegionClamped > 0)
         qCInfo(lcMeshPerf) << "[Mesh][minsize] clamped" << nRegionClamped
                            << "region area bound(s) up to the floor" << areaFloor;
-    g.setOptions(in.genOpts);
+    {
+        // The G2 tri-pair merge runs in this worker after the elevation fill
+        // (its bed-planarity test needs sampled z), not inside generate().
+        mesh::GenerationOptions go = in.genOpts;
+        go.mergeTrianglePairs = false;
+        g.setOptions(go);
+    }
+    // G3 structured patches: boundary → PSLG constraints, interior → hole,
+    // quads appended after the triangles by generate().
+    for (const mesh::PatchMesh &pm : std::as_const(in.patches))
+        g.addPatch(pm);
 
     // ── DTM (optional) — open once, shared for all elevation sampling ──
     // The DEM drives three steps: feature z-interpolation, terrain
@@ -1777,6 +1791,15 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         for (int k = 0; k < bprep.holeRings.size(); ++k)
             if (k < bprep.holeValid.size() && bprep.holeValid[k])
                 ringSeeds.append(bprep.holeRings[k]);
+        // Structured patch boundaries seed too (TRI_QUAD_MESHING_PLAN §3.2):
+        // the stitch keeps the near-feature cap instead of grading up to
+        // whatever the surrounding features permit, which is what fans
+        // slivers against the patch's boundary nodes.
+        for (const mesh::PatchMesh &pm : std::as_const(in.patches))
+            for (const auto &seg : pm.boundarySegments)
+                if (seg.first >= 0 && seg.first < pm.xy.size()
+                    && seg.second >= 0 && seg.second < pm.xy.size())
+                    ringSeeds.append({pm.xy[seg.first], pm.xy[seg.second]});
 
         mesh::SizeFieldOptions sfo;
         // Side of the equilateral triangle of maxArea — the near-feature size.
@@ -2202,25 +2225,33 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // triangles. Vertex indices come pre-validated by MeshGenerator
             // (checked against Triangle's own point count at copy-out), but
             // this is a heap WRITE on the nodata-only path, so guard anyway.
-            auto triOk = [nv](const mesh::MeshTriangle &t) {
-                return t.v0 >= 0 && t.v0 < nv && t.v1 >= 0 && t.v1 < nv
-                    && t.v2 >= 0 && t.v2 < nv;
+            // A quad (patch cell) contributes its four ring edges, not a
+            // diagonal — the same neighbourhood the engine's median dual uses.
+            auto cellOk = [nv](const mesh::MeshTriangle &t) {
+                const int n = t.vertexCount();
+                for (int k = 0; k < n; ++k)
+                    if (t.vertex(k) < 0 || t.vertex(k) >= nv) return false;
+                return true;
             };
             QVector<qsizetype> off(nv + 1, 0);
             for (const mesh::MeshTriangle &t : result.triangles)
             {
-                if (!triOk(t)) continue;
-                off[t.v0 + 1] += 2; off[t.v1 + 1] += 2; off[t.v2 + 1] += 2;
+                if (!cellOk(t)) continue;
+                const int n = t.vertexCount();
+                for (int k = 0; k < n; ++k) off[t.vertex(k) + 1] += 2;
             }
             for (int i = 0; i < nv; ++i) off[i + 1] += off[i];
             QVector<int> adj(off[nv]);
             QVector<qsizetype> cur = off;
             for (const mesh::MeshTriangle &t : result.triangles)
             {
-                if (!triOk(t)) continue;
-                adj[cur[t.v0]++] = t.v1; adj[cur[t.v0]++] = t.v2;
-                adj[cur[t.v1]++] = t.v0; adj[cur[t.v1]++] = t.v2;
-                adj[cur[t.v2]++] = t.v0; adj[cur[t.v2]++] = t.v1;
+                if (!cellOk(t)) continue;
+                const int n = t.vertexCount();
+                for (int k = 0; k < n; ++k)
+                {
+                    const int a = t.vertex(k), b = t.vertex((k + 1) % n);
+                    adj[cur[a]++] = b; adj[cur[b]++] = a;
+                }
             }
 
             // Pass A — seed. Jacobi sweeps: collect every fill first, then
@@ -2403,6 +2434,40 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // inheritance and freeze the assignment. result.infilOverrides stays
     // untouched — mesh generation authors no per-cell infiltration at all.
     result.infilDefaults = in.infilDefaults;
+
+    // ── Tri-pair merge into quads (G2) ───────────────────────────────
+    // Last geometry step: runs on sampled elevations and seeded attributes
+    // so the planarity and attribute-equality rules see final values.
+    // Every constrained segment (domain outline, hole rings, breaklines,
+    // patch boundaries) is a locked edge — no quad straddles one.
+    const int nPatchQuads = result.quadCount();
+    int nMergedQuads = 0;
+    if (in.genOpts.mergeTrianglePairs)
+    {
+        progress(84, QObject::tr("Merging triangle pairs into quads…"));
+        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+        QSet<QPair<int, int>> locked;
+        locked.reserve(result.boundaryEdges.size());
+        for (const mesh::MeshEdge &e : std::as_const(result.boundaryEdges))
+            locked.insert(mesh::edgeKey(e.v0, e.v1));
+        QVector<int> oldToNew;
+        nMergedQuads = mesh::mergeTrianglePairs(result, in.genOpts.quadMerge,
+                                                locked, &oldToNew);
+        if (nMergedQuads > 0 && !coupling.triangleToNode.isEmpty())
+        {
+            QHash<int, QString> remapped;
+            for (auto it = coupling.triangleToNode.cbegin();
+                 it != coupling.triangleToNode.cend(); ++it)
+                remapped.insert(oldToNew.value(it.key(), it.key()), it.value());
+            coupling.triangleToNode = std::move(remapped);
+        }
+        stageMark("tri-pair merge");
+    }
+    qCInfo(lcMeshPerf).nospace()
+        << "[Mesh] cells: " << (result.triangles.size() - result.quadCount())
+        << " triangles + " << result.quadCount() << " quads ("
+        << nPatchQuads << " from structured patches, "
+        << nMergedQuads << " merged from triangle pairs)";
 
     // ── Write ────────────────────────────────────────────────────────
     progress(85, QObject::tr("Writing mesh file…"));
@@ -3153,6 +3218,125 @@ void MeshGenerationDialog::buildUi()
     connect(m_minSpacingBox, &QCheckBox::toggled, m_minSpacingSpin, &QWidget::setEnabled);
     syncThinning();
 
+    // Quad cells — G2 tri-pair merge (TRI_QUAD_MESHING_PLAN §3.1)
+    {
+        auto *g = new QGroupBox(tr("Quad cells"), qualityPage);
+        auto *f = new QFormLayout(g);
+        f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+
+        m_quadMergeBox = new QCheckBox(tr("Merge triangle pairs into quads"), g);
+        m_quadMergeBox->setToolTip(tr(
+            "After triangulation, pair adjacent triangles into convex "
+            "quadrilaterals, best quality first. Unmatched triangles remain "
+            "(mixed mesh). Never merges across the domain outline, hole "
+            "rings, breaklines or patch boundaries, across region tags, or "
+            "between cells with different roughness / initial depth."));
+        f->addRow(QString(), m_quadMergeBox);
+
+        m_quadMinAngleSpin = new QDoubleSpinBox(g);
+        m_quadMinAngleSpin->setRange(0.0, 90.0);
+        m_quadMinAngleSpin->setDecimals(1);
+        m_quadMinAngleSpin->setSuffix(QStringLiteral(" °"));
+        m_quadMinAngleSpin->setValue(45.0);
+        m_quadMinAngleSpin->setToolTip(tr("Reject a merged quad whose smallest interior angle is below this."));
+        f->addRow(tr("Min quad angle:"), m_quadMinAngleSpin);
+
+        m_quadMaxAngleSpin = new QDoubleSpinBox(g);
+        m_quadMaxAngleSpin->setRange(90.0, 180.0);
+        m_quadMaxAngleSpin->setDecimals(1);
+        m_quadMaxAngleSpin->setSuffix(QStringLiteral(" °"));
+        m_quadMaxAngleSpin->setValue(135.0);
+        m_quadMaxAngleSpin->setToolTip(tr("Reject a merged quad whose largest interior angle is above this."));
+        f->addRow(tr("Max quad angle:"), m_quadMaxAngleSpin);
+
+        m_quadPlanaritySpin = new QDoubleSpinBox(g);
+        m_quadPlanaritySpin->setRange(0.0, 1000.0);
+        m_quadPlanaritySpin->setDecimals(3);
+        m_quadPlanaritySpin->setSingleStep(0.05);
+        m_quadPlanaritySpin->setSpecialValueText(tr("(off)"));
+        m_quadPlanaritySpin->setToolTip(tr(
+            "Reject a merged quad whose four bed elevations deviate from a "
+            "plane by more than this, so a quad never hides a crest or "
+            "channel bank that the two triangles resolved. 0 = ignore."));
+        f->addRow(tr("Max bed non-planarity:"), m_quadPlanaritySpin);
+
+        auto syncQuad = [this] {
+            const bool on = m_quadMergeBox->isChecked();
+            m_quadMinAngleSpin->setEnabled(on);
+            m_quadMaxAngleSpin->setEnabled(on);
+            m_quadPlanaritySpin->setEnabled(on);
+        };
+        connect(m_quadMergeBox, &QCheckBox::toggled, this, syncQuad);
+        syncQuad();
+
+        qualityVBox->addWidget(g);
+    }
+
+    // Structured patches — G3 (TRI_QUAD_MESHING_PLAN §3.2). Coordinates are
+    // typed per row; there is no map-selection plumbing in this dialog.
+    {
+        auto *g   = new QGroupBox(tr("Structured quad patches"), qualityPage);
+        auto *lay = new QVBoxLayout(g);
+
+        auto *hint = new QLabel(tr(
+            "Four-corner patch: 4 corners as \"x y; x y; x y; x y\" (mesh CRS), "
+            "N × M quads (transfinite). Swept channel: centreline as "
+            "\"x y; x y; …\", quads Across the width, target spacing Along "
+            "the centreline (0 = one station per vertex), Width. The patch "
+            "interior is excluded from triangulation and its quads are "
+            "stitched to the surrounding triangles."), g);
+        hint->setWordWrap(true);
+        lay->addWidget(hint);
+
+        m_patchTable = new QTableWidget(0, 6, g);
+        m_patchTable->setHorizontalHeaderLabels(
+            {tr("Type"), tr("Points"), tr("N / Across"), tr("M / Along"),
+             tr("Width"), tr("Tag")});
+        m_patchTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+        m_patchTable->verticalHeader()->setVisible(false);
+        m_patchTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+        m_patchTable->setMinimumHeight(120);
+        lay->addWidget(m_patchTable);
+
+        auto addRow = [this](const QString &type, const QString &n,
+                             const QString &m, const QString &w) {
+            const int r = m_patchTable->rowCount();
+            m_patchTable->insertRow(r);
+            auto *typeItem = new QTableWidgetItem(type);
+            typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable);
+            m_patchTable->setItem(r, 0, typeItem);
+            m_patchTable->setItem(r, 1, new QTableWidgetItem(QString()));
+            m_patchTable->setItem(r, 2, new QTableWidgetItem(n));
+            m_patchTable->setItem(r, 3, new QTableWidgetItem(m));
+            m_patchTable->setItem(r, 4, new QTableWidgetItem(w));
+            m_patchTable->setItem(r, 5, new QTableWidgetItem(QString()));
+            m_patchTable->editItem(m_patchTable->item(r, 1));
+        };
+        auto *btns = new QHBoxLayout;
+        auto *addQuad  = new QPushButton(tr("Add four-corner patch"), g);
+        auto *addSwept = new QPushButton(tr("Add swept channel patch"), g);
+        auto *remove   = new QPushButton(tr("Remove"), g);
+        connect(addQuad,  &QPushButton::clicked, this, [addRow] {
+            addRow(QStringLiteral("Four-corner"), QStringLiteral("4"),
+                   QStringLiteral("4"), QString());
+        });
+        connect(addSwept, &QPushButton::clicked, this, [addRow] {
+            addRow(QStringLiteral("Swept"), QStringLiteral("2"),
+                   QStringLiteral("0"), QStringLiteral("10"));
+        });
+        connect(remove, &QPushButton::clicked, this, [this] {
+            const int r = m_patchTable->currentRow();
+            if (r >= 0) m_patchTable->removeRow(r);
+        });
+        btns->addWidget(addQuad);
+        btns->addWidget(addSwept);
+        btns->addWidget(remove);
+        btns->addStretch();
+        lay->addLayout(btns);
+
+        qualityVBox->addWidget(g);
+    }
+
     qualityVBox->addStretch();
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(qualityPage, tabs),
                  tr("Quality"));
@@ -3347,6 +3531,7 @@ void MeshGenerationDialog::updateUnitDisplay()
     if (m_maxBoundaryEdgeSpin) m_maxBoundaryEdgeSpin->setSuffix(suf);
 
     if (m_minCellSizeSpin)     m_minCellSizeSpin->setSuffix(suf);
+    if (m_quadPlanaritySpin)   m_quadPlanaritySpin->setSuffix(suf);
 
     if (m_maxAreaSpin)
         m_maxAreaSpin->setToolTip(
@@ -4126,6 +4311,64 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->genOpts.maxSteinerPoints = m_maxSteinerSpin->value();
     out->genOpts.allowSteiner     = m_allowSteiner->isChecked();
     out->genOpts.quiet            = true;
+
+    // ── Quad cells (G2 merge) + structured patches (G3) ──────────────
+    out->genOpts.mergeTrianglePairs = m_quadMergeBox && m_quadMergeBox->isChecked();
+    if (m_quadMergeBox)
+    {
+        out->genOpts.quadMerge.minAngleDeg        = m_quadMinAngleSpin->value();
+        out->genOpts.quadMerge.maxAngleDeg        = m_quadMaxAngleSpin->value();
+        out->genOpts.quadMerge.maxBedNonPlanarity = m_quadPlanaritySpin->value();
+    }
+    // Patch boundary vertices are matched to the Triangle output by the
+    // same snap radius the Steiner dedupe uses (0 = exact quantised match).
+    out->genOpts.patchSnapEps = m_snapEpsSpin->value();
+    for (int r = 0; m_patchTable && r < m_patchTable->rowCount(); ++r)
+    {
+        auto cell = [this, r](int c) {
+            const QTableWidgetItem *it = m_patchTable->item(r, c);
+            return it ? it->text().trimmed() : QString();
+        };
+        // "x y; x y; …" → points
+        QVector<QPointF> pts;
+        bool ptsOk = true;
+        const QStringList pairs = cell(1).split(QLatin1Char(';'), Qt::SkipEmptyParts);
+        for (const QString &pr : pairs)
+        {
+            const QStringList xy = pr.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            bool okx = false, oky = false;
+            if (xy.size() == 2)
+                pts.append(QPointF(xy[0].toDouble(&okx), xy[1].toDouble(&oky)));
+            if (!(okx && oky)) { ptsOk = false; break; }
+        }
+        if (!ptsOk)
+            return fail(tr("Structured patch row %1: points must be \"x y; x y; …\".").arg(r + 1));
+        const bool swept = cell(0).startsWith(QStringLiteral("Swept"), Qt::CaseInsensitive);
+        QString perr;
+        mesh::PatchMesh pm;
+        if (swept)
+        {
+            mesh::SweptPatch sp;
+            sp.centreline = pts;
+            sp.across     = cell(2).toInt();
+            sp.along      = cell(3).toDouble();
+            sp.width      = cell(4).toDouble();
+            sp.tag        = cell(5);
+            pm = mesh::makeSweptPatch(sp, &perr);
+        }
+        else
+        {
+            mesh::StructuredPatch st;
+            st.corners = pts;
+            st.n       = cell(2).toInt();
+            st.m       = cell(3).toInt();
+            st.tag     = cell(5);
+            pm = mesh::makeTransfinitePatch(st, &perr);
+        }
+        if (!perr.isEmpty())
+            return fail(tr("Structured patch row %1: %2").arg(r + 1).arg(perr));
+        out->patches.append(std::move(pm));
+    }
 
     // ── Minimum cell size ────────────────────────────────────────────
     out->minSizePolicy = mesh::pslg::MinSizePolicy{};
