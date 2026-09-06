@@ -122,6 +122,19 @@ signals:
     void finished(int jobId, bool success, int errorCode, QString errorMessage,
                   double runoffErrFrac, double routingErrFrac,
                   double twoDErrFrac);
+    /**
+     * @brief 2D solver telemetry (swmm_2d_get_run_stats), emitted once after
+     *        start and with every progress tick of a 2D run.
+     * @param backend    solver label chosen at initialize, e.g.
+     *                   "cpu (explicit marcher)" or "omp (Kokkos OpenMP …)"
+     * @param momentum   0 LOCAL_INERTIAL, 1 FULL_SWE, 2 DIFFUSIVE_WAVE
+     * @param ltsTiers   configured [2D_OPTIONS] LTS_TIERS
+     * @param steps      cumulative marcher substeps so far
+     * @param tierCells  rebuild-sampled cells per LTS tier (empty until the
+     *                   first rebuild)
+     */
+    void twoDSolverStats(int jobId, QString backend, int momentum, int ltsTiers,
+                         qint64 steps, QVector<qint64> tierCells);
 
     // ── Slice CF.MVP — 2D inundation viz hooks ─────────────────────────────
     //

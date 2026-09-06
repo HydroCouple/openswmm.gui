@@ -397,6 +397,31 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             return QStringLiteral("%1 s").arg(rec.avgTimestepSec, 0, 'f', 2);
         case ColVersion:
             return rec.engineVersion.isEmpty() ? QStringLiteral("—") : rec.engineVersion;
+        case Col2DBackend: {
+            if (rec.twoDBackend.isEmpty()) return QStringLiteral("—");
+            static const char* const kClosure[] =
+                {"LOCAL_INERTIAL", "FULL_SWE", "DIFFUSIVE_WAVE"};
+            // "cpu (explicit marcher)" → "cpu"; the full label is the tooltip.
+            const QString label =
+                rec.twoDBackend.section(QLatin1Char('('), 0, 0).trimmed();
+            if (rec.twoDMomentum < 0 || rec.twoDMomentum > 2) return label;
+            return QStringLiteral("%1 · %2")
+                .arg(label, QLatin1String(kClosure[rec.twoDMomentum]));
+        }
+        case ColLtsTiers: {
+            if (rec.twoDBackend.isEmpty()) return QStringLiteral("—");
+            if (rec.twoDTierCells.isEmpty()) return tr("%1 tiers").arg(rec.twoDLtsTiers);
+            qint64 sum = 0, best = -1;
+            int    bestTier = 0;
+            for (int k = 0; k < rec.twoDTierCells.size(); ++k) {
+                sum += rec.twoDTierCells[k];
+                if (rec.twoDTierCells[k] > best) { best = rec.twoDTierCells[k]; bestTier = k; }
+            }
+            if (sum <= 0) return tr("%1 tiers").arg(rec.twoDTierCells.size());
+            return tr("%1 tiers · t%2 %3 %")
+                .arg(rec.twoDTierCells.size()).arg(bestTier)
+                .arg(100.0 * double(best) / double(sum), 0, 'f', 0);
+        }
         default: break;
         }
     }
@@ -413,6 +438,18 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
 
     if (role == Qt::ToolTipRole && index.column() == ColName && !rec.errorMessage.isEmpty())
         return rec.errorMessage;
+    if (role == Qt::ToolTipRole && index.column() == Col2DBackend && !rec.twoDBackend.isEmpty())
+        return tr("%1\n%2 marcher substeps").arg(rec.twoDBackend).arg(rec.twoDSteps);
+    if (role == Qt::ToolTipRole && index.column() == ColLtsTiers && !rec.twoDTierCells.isEmpty()) {
+        QStringList parts;
+        qint64 sum = 0;
+        for (qint64 c : rec.twoDTierCells) sum += c;
+        for (int k = 0; k < rec.twoDTierCells.size(); ++k)
+            parts << tr("tier %1: %2 %").arg(k)
+                        .arg(sum > 0 ? 100.0 * double(rec.twoDTierCells[k]) / double(sum) : 0.0,
+                             0, 'f', 1);
+        return tr("LTS tier occupancy (rebuild-sampled cells)\n%1").arg(parts.join(QLatin1Char('\n')));
+    }
 
     return {};
 }
@@ -436,8 +473,28 @@ QVariant SimulationStatusModel::headerData(int section, Qt::Orientation orientat
     case ColDuration:     return tr("Duration");
     case ColAvgTimestep:  return tr("Avg Timestep");
     case ColVersion:      return tr("Engine Version");
+    case Col2DBackend:    return tr("2D Solver");
+    case ColLtsTiers:     return tr("LTS Tiers");
     default: return {};
     }
+}
+
+void SimulationStatusModel::updateTwoDSolverStats(int jobId, const QString &backend,
+                                                  int momentum, int ltsTiers,
+                                                  qint64 steps,
+                                                  const QVector<qint64> &tierCells)
+{
+    const int row = jobIndexById(jobId);
+    if (row < 0) return;
+    auto &rec = m_jobs[row];
+    rec.twoDBackend   = backend;
+    rec.twoDMomentum  = momentum;
+    rec.twoDLtsTiers  = ltsTiers;
+    rec.twoDSteps     = steps;
+    rec.twoDTierCells = tierCells;
+    const QModelIndex tl = createIndex(row, Col2DBackend, kRootId);
+    const QModelIndex br = createIndex(row, ColLtsTiers,  kRootId);
+    emit dataChanged(tl, br, {Qt::DisplayRole, Qt::ToolTipRole});
 }
 
 // ---------------------------------------------------------------------------
