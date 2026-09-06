@@ -115,10 +115,10 @@ InletDesignData expectedAfterRoundTrip(InletType t)
     }
     if (t == InletType::Custom) {
         e.curveId = s.curveId;
-        // curveKind is NOT persisted: swmm_inlet_set_design hard-codes
-        // curve_kind = 0. When the engine starts storing it, this line is the
-        // one to change (to e.curveKind = s.curveKind).
-        e.curveKind = InletCurveKind::None;
+        // swmm_inlet_set_design keeps the given curve_kind while the curve
+        // does not exist yet (CAP1 is never added here); once the curve
+        // exists its own table type is the authority instead.
+        e.curveKind = s.curveKind;
     }
     return e;
 }
