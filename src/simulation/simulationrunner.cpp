@@ -30,6 +30,32 @@
 #include <QProcess>
 #include <QJsonDocument>
 #include <QJsonObject>
+
+namespace {
+
+// swmm_2d_get_run_stats → SimulationRunner::twoDSolverStats, queued onto the
+// GUI thread. Called from the worker with the engine still open; a refused
+// read (2D not active, solver finalised) simply emits nothing.
+void emitTwoDSolverStats(SimulationRunner *self, int jobId, SWMM_Engine eng)
+{
+    SWMM_2DRunStats st{};
+    if (swmm_2d_get_run_stats(eng, &st) != SWMM_OK) return;
+    QVector<qint64> tiers;
+    for (int k = 0; k < st.n_tiers && k < 8; ++k)
+        tiers.push_back(st.tier_cells[k]);
+    const QString backend  = QString::fromUtf8(st.backend);
+    const int     momentum = st.momentum;
+    const int     ltsTiers = st.lts_tiers;
+    const qint64  steps    = st.steps;
+    QMetaObject::invokeMethod(self,
+        [self, jobId, backend, momentum, ltsTiers, steps, tiers]() {
+            emit self->twoDSolverStats(jobId, backend, momentum, ltsTiers,
+                                       steps, tiers);
+        },
+        Qt::QueuedConnection);
+}
+
+} // namespace
 #include <QCoreApplication>
 #include <QtNumeric>
 
@@ -216,9 +242,12 @@ void SimulationRunner::start()
     // Capture everything the lambda needs by value; the runner pointer is
     // passed as user_data to the C callbacks (safe because the runner lives
     // until after finished() fires and the caller calls deleteLater()).
-    const QByteArray inp = m_inpPath.toUtf8();
-    const QByteArray rpt = m_rptPath.toUtf8();
-    const QByteArray out = m_outPath.toUtf8();
+    // Absolute paths: the worker pins the process cwd to the model folder for
+    // the run (CwdGuard below), after which a relative .inp/.rpt/.out would
+    // resolve against the wrong directory and the engine could not open it.
+    const QByteArray inp = QFileInfo(m_inpPath).absoluteFilePath().toUtf8();
+    const QByteArray rpt = QFileInfo(m_rptPath).absoluteFilePath().toUtf8();
+    const QByteArray out = QFileInfo(m_outPath).absoluteFilePath().toUtf8();
     SimulationRunner *rawSelf = this;
 
     auto *watcher = new QFutureWatcher<SimulationResult>(this);
@@ -476,6 +505,10 @@ void SimulationRunner::start()
                                                       twoDErr0);
                     },
                     Qt::QueuedConnection);
+                // The 2D backend / closure / LTS_TIERS are known as soon as
+                // the solver is chosen at start — show them before the first
+                // step, which on a large mesh can take a while.
+                if (twoD_active) emitTwoDSolverStats(rawSelf, jobId, eng);
             }
 
             // NOTE on units: swmm_engine_step()'s out-parameter is the
@@ -544,6 +577,8 @@ void SimulationRunner::start()
                                                       twoDErr);
                     },
                     Qt::QueuedConnection);
+                // Marcher substeps + LTS tier occupancy, same cadence.
+                if (twoD_active) emitTwoDSolverStats(rawSelf, jobId, eng);
 
                 // ── Slice CF.MVP — per-tick 2D depth slice ─────────────────
                 // Rate-limited by the surrounding kTickIntervalMs gate. Pulls
@@ -638,6 +673,10 @@ void SimulationRunner::start()
                     }
                 }
             }
+
+            // Final 2D solver telemetry — a short run can finish before any
+            // progress tick, and end() finalises the marcher's counters.
+            if (twoD_active) emitTwoDSolverStats(rawSelf, rawSelf->m_jobId, eng);
 
             // End
             swmm_engine_end(eng);

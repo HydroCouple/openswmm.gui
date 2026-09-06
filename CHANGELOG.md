@@ -19,6 +19,11 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Simulation Status: "2D Solver" and "LTS Tiers" columns** — the runner reads the engine's
+  `swmm_2d_get_run_stats` once after start and on every progress tick, so a 2D run shows which backend
+  it is on (CPU marcher vs Kokkos plugin), its momentum closure and the live LTS tier occupancy
+  (tooltips carry the full label, substep count and every tier's share). The engine's
+  `2D solver: …` advisory reaches the Message Log through the warning path.
 - **Mixed triangle/quadrilateral 2D meshes (tri-quad)** — `workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md`,
   paired with the engine's `[2D_QUADS]` / `MOMENTUM_EQUATION` work (engine
   `plans/HANDOFF_2D_TRIQUAD_FULLSWE_2026-09-06.md`). *Uncompiled in the authoring environment —
