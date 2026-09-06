@@ -4,15 +4,18 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * Validates the conforming-triangulation edge identity that
+ * Validates the conforming-mesh edge identity that
  * SWMM2DMeshLayer::edgeCount() falls back on before the scene geometry is
- * built: total unique edges E satisfies  2·E = 3·T + B  (B = boundary edges).
- * Hand-counted against three triangulations (single triangle, quad, strip),
- * checked both ways — by deduplicating triangle edges (as rebuildSceneGeometry
+ * built: total unique edges E satisfies  2·E = Σ nv + B  (nv = 3 per triangle,
+ * 4 per quad; B = boundary edges) — for an all-triangle mesh the historical
+ * 2·E = 3·T + B. Hand-counted against four meshes (single triangle, quad as
+ * two triangles, strip, mixed triangle + quad), checked both ways — by
+ * deduplicating cell edges via mesh::edgeEndpoints (as rebuildSceneGeometry
  * does) and by the formula — so a mis-stated formula or operator-precedence
  * slip is caught. Pure value types; links no .cpp, writes no temp files.
  */
 
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshresult.h"
 
 #include <QObject>
@@ -31,10 +34,16 @@ MeshTriangle tri(int a, int b, int c)
     MeshTriangle t; t.v0 = a; t.v1 = b; t.v2 = c; return t;
 }
 
+MeshTriangle quad(int a, int b, int c, int d)
+{
+    MeshTriangle t; t.v0 = a; t.v1 = b; t.v2 = c; t.v3 = d; return t;
+}
+
 MeshEdge edge(int a, int b) { MeshEdge e; e.v0 = a; e.v1 = b; return e; }
 
-// Deduplicated unique-edge count over the triangle list — the same keying
-// rebuildSceneGeometry() uses (unordered vertex pair).
+// Deduplicated unique-edge count over the cell list — the same keying
+// rebuildSceneGeometry() uses (unordered vertex pair), one edge per local
+// edge slot k < vertexCount() (never the padding slot).
 int uniqueEdges(const MeshResult &m)
 {
     QSet<QPair<int,int>> seen;
@@ -42,17 +51,21 @@ int uniqueEdges(const MeshResult &m)
         seen.insert(a < b ? qMakePair(a, b) : qMakePair(b, a));
     };
     for (const auto &t : m.triangles) {
-        add(t.v0, t.v1);
-        add(t.v1, t.v2);
-        add(t.v2, t.v0);
+        for (int k = 0; k < t.vertexCount(); ++k) {
+            int a = 0, b = 0;
+            mesh::edgeEndpoints(t, k, a, b);
+            add(a, b);
+        }
     }
     return seen.size();
 }
 
-// The shipped fallback formula.
+// The shipped fallback formula: 2·E = Σ nv + B.
 int formulaEdges(const MeshResult &m)
 {
-    return (3 * int(m.triangles.size()) + int(m.boundaryEdges.size())) / 2;
+    int sumNv = 0;
+    for (const auto &t : m.triangles) sumNv += t.vertexCount();
+    return (sumNv + int(m.boundaryEdges.size())) / 2;
 }
 
 } // namespace
@@ -87,6 +100,25 @@ private slots:
         m.boundaryEdges = { edge(0,1), edge(0,2), edge(1,3), edge(3,4), edge(2,4) };
         QCOMPARE(uniqueEdges(m), 7);                            // 5 boundary + 2 interior
         QCOMPARE(formulaEdges(m), 7);
+    }
+
+    // Mixed: 2x1 strip, left square as two triangles, right square one quad
+    // (cell 2). Edge slots are stride 4; a triangle's slot 3 is never an edge.
+    void mixed_triangles_and_quad()
+    {
+        MeshResult m;
+        m.triangles = { tri(0, 1, 4), tri(0, 4, 3), quad(1, 2, 5, 4) };
+        m.boundaryEdges = { edge(0,1), edge(1,2), edge(2,5), edge(5,4),
+                            edge(4,3), edge(3,0) };
+        QCOMPARE(uniqueEdges(m), 8);                            // 6 boundary + (0,4) + (1,4)
+        QCOMPARE(formulaEdges(m), 8);                           // (3+3+4 + 6) / 2
+        QCOMPARE(mesh::edgeSlotCount(int(m.triangles.size())), 12);
+        QCOMPARE(mesh::slotCell(mesh::edgeSlot(2, 3)), 2);
+        QCOMPARE(mesh::slotLocal(mesh::edgeSlot(2, 3)), 3);
+        // The quad's edge 3 is its (V1,V2) side, as in the engine.
+        int a = 0, b = 0;
+        mesh::edgeEndpoints(m.triangles[2], 3, a, b);
+        QCOMPARE(a, 1); QCOMPARE(b, 2);
     }
 };
 

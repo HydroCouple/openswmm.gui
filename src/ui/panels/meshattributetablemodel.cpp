@@ -12,6 +12,7 @@
 #include "map/mapcanvas.h"
 #include "map/meshcommands.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshcellparams.h"
 #include "mesh/meshcellstats.h"
 #include "mesh/meshinfil.h"
@@ -169,17 +170,15 @@ bool bcFieldApplies(mesh::MeshBCTypes::Type t, const QString &key)
     return false;
 }
 
-/*! Endpoint vertex indices of local edge \p e on triangle \p tri.
- *  Convention matches the layer's: e0 = (v1,v2), e1 = (v2,v0), e2 = (v0,v1). */
+/*! Endpoint vertex indices of local edge \p e on cell \p tri.
+ *  Convention is mesh::edgeEndpoints (edge e = v[(e+1)%nv], v[(e+2)%nv]);
+ *  \p e must be below the cell's vertex count (3 or 4). */
 bool edgeEndpoints(const mesh::MeshResult &m, int tri, int e, int *va, int *vb)
 {
-    if (tri < 0 || tri >= m.triangles.size() || e < 0 || e > 2) return false;
+    if (tri < 0 || tri >= m.triangles.size() || e < 0) return false;
     const mesh::MeshTriangle &t = m.triangles[tri];
-    switch (e) {
-    case 0: *va = t.v1; *vb = t.v2; break;
-    case 1: *va = t.v2; *vb = t.v0; break;
-    default: *va = t.v0; *vb = t.v1; break;
-    }
+    if (e >= t.vertexCount()) return false;
+    mesh::edgeEndpoints(t, e, *va, *vb);
     return *va >= 0 && *va < m.vertices.size()
         && *vb >= 0 && *vb < m.vertices.size();
 }
@@ -340,8 +339,9 @@ void MeshAttributeTableModel::rebuildColumns()
     case Kind::Edge:
         m_columnSpecs
             << ro(QStringLiteral("Edge"), tr("Edge"), UnitKind::None,
-                  tr("Owning triangle and local edge, as triangle:edge. An "
-                     "interior edge is listed once, under its lower slot."))
+                  tr("Owning cell and local edge, as cell:edge (edges 0..2 on "
+                     "a triangle, 0..3 on a quad). An interior edge is listed "
+                     "once, under its lower slot."))
             << ro(QStringLiteral("Boundary"), tr("Boundary"), UnitKind::None,
                   tr("Whether the edge lies on the mesh outline (or a hole). "
                      "Boundary conditions apply to these edges only."))
@@ -377,6 +377,9 @@ void MeshAttributeTableModel::rebuildColumns()
     case Kind::Cell:
         m_columnSpecs
             << ro(QStringLiteral("Index"), tr("Index"))
+            << ro(QStringLiteral("Vertices"), tr("Vertices"), UnitKind::None,
+                  tr("Corner count: 3 for a triangle ([2D_TRIANGLES]), 4 for "
+                     "a quadrilateral ([2D_QUADS])."))
             << ro(QStringLiteral("Area"), tr("Area (map units²)"))
             << ro(QStringLiteral("Centroid X"), tr("Centroid X"))
             << ro(QStringLiteral("Centroid Y"), tr("Centroid Y"))
@@ -417,11 +420,13 @@ void MeshAttributeTableModel::rebuildEdgeRows()
     if (!m_layer->sceneGeometryComplete()) return;
 
     const int nTri = m_layer->triangleCount();
+    const auto &cells = m_layer->mesh().triangles;
     m_edgeSlots.reserve((3 * nTri + 1) / 2);
     m_slotRow.reserve(3 * nTri);
     for (int t = 0; t < nTri; ++t) {
-        for (int e = 0; e < 3; ++e) {
-            const int flat = t * 3 + e;
+        const int nv = cells[t].vertexCount();   // 3 edges, or 4 on a quad
+        for (int e = 0; e < nv; ++e) {
+            const int flat = mesh::edgeSlot(t, e);
             // Scanning in increasing flat order means the first slot reached
             // is always the lower one, which becomes the canonical row.
             if (m_slotRow.contains(flat)) continue;
@@ -430,7 +435,7 @@ void MeshAttributeTableModel::rebuildEdgeRows()
             m_slotRow.insert(flat, row);
             const QPair<int,int> nbr = m_layer->findEdgeNeighbour(t, e);
             if (nbr.first >= 0 && nbr.second >= 0)
-                m_slotRow.insert(nbr.first * 3 + nbr.second, row);
+                m_slotRow.insert(mesh::edgeSlot(nbr.first, nbr.second), row);
         }
     }
 }
@@ -456,7 +461,7 @@ SWMMObjectRef MeshAttributeTableModel::refForRow(int row) const
     case Kind::Edge: {
         const int flat = slotForRow(row);
         if (flat < 0) return {};
-        return mesh::MeshObjectRef::edge(path, flat / 3, flat % 3);
+        return mesh::MeshObjectRef::edge(path, mesh::slotCell(flat), mesh::slotLocal(flat));
     }
     }
     return {};
@@ -485,7 +490,7 @@ int MeshAttributeTableModel::rowForRef(const SWMMObjectRef &ref) const
         if (!mesh::MeshObjectRef::parseEdge(ref, &lk, &t, &e)) return -1;
         if (lk != wantKey) return -1;
         // Either half of an interior pair maps to the one canonical row.
-        return m_slotRow.value(t * 3 + e, -1);
+        return m_slotRow.value(mesh::edgeSlot(t, e), -1);
     }
     }
     return -1;
@@ -506,21 +511,29 @@ QRectF MeshAttributeTableModel::elementExtent(int row, bool *ok) const
     case Kind::Edge: {
         const int flat = slotForRow(row);
         int va = -1, vb = -1;
-        if (flat < 0 || !edgeEndpoints(m, flat / 3, flat % 3, &va, &vb)) return {};
+        if (flat < 0 || !edgeEndpoints(m, mesh::slotCell(flat), mesh::slotLocal(flat), &va, &vb)) return {};
         if (ok) *ok = true;
         return QRectF(m.vertices[va].xy, m.vertices[vb].xy).normalized();
     }
     case Kind::Cell: {
         if (row >= m.triangles.size()) return {};
         const mesh::MeshTriangle &t = m.triangles[row];
-        if (t.v0 < 0 || t.v0 >= m.vertices.size()
-            || t.v1 < 0 || t.v1 >= m.vertices.size()
-            || t.v2 < 0 || t.v2 >= m.vertices.size())
-            return {};
-        QRectF r = QRectF(m.vertices[t.v0].xy, m.vertices[t.v1].xy).normalized();
-        const QPointF c = m.vertices[t.v2].xy;
+        const int nv = t.vertexCount();
+        for (int k = 0; k < nv; ++k) {
+            const int v = t.vertex(k);
+            if (v < 0 || v >= m.vertices.size()) return {};
+        }
+        // Bounding box by hand: QRectF::united() ignores a zero-size rect,
+        // so uniting QRectF(c, c) per vertex would drop every vertex after
+        // the first two (a quad's extent came back as one edge).
+        QPointF lo = m.vertices[t.v0].xy, hi = lo;
+        for (int k = 1; k < nv; ++k) {
+            const QPointF c = m.vertices[t.vertex(k)].xy;
+            lo.setX(qMin(lo.x(), c.x())); lo.setY(qMin(lo.y(), c.y()));
+            hi.setX(qMax(hi.x(), c.x())); hi.setY(qMax(hi.y(), c.y()));
+        }
         if (ok) *ok = true;
-        return r.united(QRectF(c, c));
+        return QRectF(lo, hi);
     }
     }
     return {};
@@ -551,7 +564,7 @@ bool MeshAttributeTableModel::rowIsBoundaryEdge(int row) const
     if (!m_layer || m_kind != Kind::Edge) return false;
     const int flat = slotForRow(row);
     if (flat < 0) return false;
-    return m_layer->isBoundaryEdge(flat / 3, flat % 3);
+    return m_layer->isBoundaryEdge(mesh::slotCell(flat), mesh::slotLocal(flat));
 }
 
 bool MeshAttributeTableModel::cellInfilParamApplies(int row,
@@ -645,7 +658,7 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
     case Kind::Edge: {
         const int flat = slotForRow(row);
         if (flat < 0) return {};
-        const int tri = flat / 3, e = flat % 3;
+        const int tri = mesh::slotCell(flat), e = mesh::slotLocal(flat);
         if (spec.key == QLatin1String("Edge"))
             return QStringLiteral("%1:%2").arg(tri).arg(e);
         if (spec.key == QLatin1String("Boundary"))
@@ -690,16 +703,19 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
     case Kind::Cell: {
         if (row >= m.triangles.size()) return {};
         const mesh::MeshTriangle &t = m.triangles[row];
-        if (spec.key == QLatin1String("Index")) return row;
-        if (spec.key == QLatin1String("Area"))  return mesh::triangleArea(m, row);
+        if (spec.key == QLatin1String("Index"))    return row;
+        if (spec.key == QLatin1String("Vertices")) return t.vertexCount();
+        if (spec.key == QLatin1String("Area"))     return mesh::triangleArea(m, row);
         if (spec.key == QLatin1String("Centroid X")
             || spec.key == QLatin1String("Centroid Y")) {
-            if (t.v0 < 0 || t.v0 >= m.vertices.size()
-                || t.v1 < 0 || t.v1 >= m.vertices.size()
-                || t.v2 < 0 || t.v2 >= m.vertices.size())
-                return {};
-            const QPointF c = (m.vertices[t.v0].xy + m.vertices[t.v1].xy
-                               + m.vertices[t.v2].xy) / 3.0;
+            const int nv = t.vertexCount();
+            for (int k = 0; k < nv; ++k) {
+                const int v = t.vertex(k);
+                if (v < 0 || v >= m.vertices.size()) return {};
+            }
+            // Area centroid (mesh::cellGeom) — the vertex mean for a
+            // triangle, area-weighted over the sub-triangles for a quad.
+            const QPointF c = mesh::cellCentroid(m, row);
             return spec.key == QLatin1String("Centroid X") ? c.x() : c.y();
         }
         if (spec.key == QLatin1String("tag")) return t.tag;
@@ -806,7 +822,7 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index,
         const int flat = slotForRow(row);
         if (flat < 0) return false;
         changed = mesh::pushEdgeParamEdit(
-            m_layer, {qMakePair(flat / 3, flat % 3)}, key, v, m_canvas);
+            m_layer, {qMakePair(mesh::slotCell(flat), mesh::slotLocal(flat))}, key, v, m_canvas);
         break;
     }
     case Kind::Cell:

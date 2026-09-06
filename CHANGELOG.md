@@ -19,6 +19,31 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Mixed triangle/quadrilateral 2D meshes (tri-quad)** — `workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md`,
+  paired with the engine's `[2D_QUADS]` / `MOMENTUM_EQUATION` work (engine
+  `plans/HANDOFF_2D_TRIQUAD_FULLSWE_2026-09-06.md`). *Uncompiled in the authoring environment —
+  syntax-checked against Qt 6.2 / GDAL headers only; see the handoff.*
+  - Data model: `MeshTriangle` carries `v3` (a quad when ≥ 0), `vertexCount()/vertex(k)`;
+    `mesh/meshcellgeom.h` is the single source for the edge rule `edge k = (v[(k+1)%nv], v[(k+2)%nv])`,
+    the padded stride-4 edge slots (`edgeSlot`), and the Begnudelli–Sanders sub-triangle split
+    (`cellGeom`) every renderer / hit-test / profile / contour uses — what the map shows is what the
+    engine stores.
+  - I/O: `[2D_QUADS]` read/write (cells triangles-first, byte-identical all-triangle output), BC rows on
+    a quad's fourth edge, conveyance on quad edges; HDF5 results reader accepts `Mesh2_face_nodes [n,3|4]`
+    (+ `_FillValue`, `Mesh2_face_nv`) and exposes cells, the display fan and a face map; live engine
+    results use the `swmm_2d_cell_*` API and stride-4 edge arrays; SMS 2DM (`ND/E3T/E4Q`) import,
+    converted to the section format on import.
+  - Rendering / analysis: mesh and results layers draw quads as their two sub-triangles with true
+    polygon outlines; vertex reconstruction weights 1/nv per incident cell; RT0 velocity over nv faces;
+    attribute table "Vertices" column; cell statistics (quad count, quad angles, bed non-planarity);
+    min-size cleanup never touches quads; Hilbert reorder keeps triangles before quads.
+  - Generation: "Merge triangle pairs into quads" (greedy quality pairing, never across breaklines /
+    boundary / BC edges, tag- and attribute-consistent) and "Structured quad patches" (four-corner
+    transfinite and swept-channel patches stitched into the Triangle PSLG as constrained holes) in the
+    mesh generation dialog; 2D options tab exposes `MOMENTUM_EQUATION` and `RECONSTRUCTION_ORDER`.
+  - Tests: new `test_meshquadmerge`, `test_meshpatch`, `test_sms2dmreader`; mixed-mesh cases added to the
+    mesh layer, results, reader/writer, reorder, cleanup and edge-count suites.
+
 - **Inlets editor rebuilt, and the Inlet Junction node.** The Inlets editor
   is three-pane (design list / name, type and grouped property tree / a
   to-scale plan-and-section drawing with dimension callouts that follows the

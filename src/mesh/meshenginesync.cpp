@@ -7,6 +7,7 @@
 #include "mesh/meshenginesync.h"
 
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 
 #include <openswmm/engine/openswmm_engine.h>  // swmm_get_flow_units
 #include <openswmm/engine/openswmm_2d.h>
@@ -244,18 +245,23 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
         return true;  // no BC/conveyance state authored on the layer
     }
 
-    if (bcs.size() != nt * 3) {
-        warn(QStringLiteral("2D edge sync skipped: engine has %1 edges, layer "
+    // The layer's edge vector is stride-kEdgeStride (mesh::edgeSlot); the
+    // engine's per-edge setters take (cell, localEdge), so only the cell's
+    // real edges (vertexCount()) are pushed — a triangle's padding slot 3 is
+    // never sent. Needs the layer's cell list to know each cell's edge count.
+    if (bcs.size() != edgeSlotCount(nt) || nt != mesh.triangles.size()) {
+        warn(QStringLiteral("2D edge sync skipped: engine has %1 edge slots, layer "
                             "has %2 — conveyance/BC edits were NOT saved.")
-                 .arg(nt * 3).arg(bcs.size()));
+                 .arg(edgeSlotCount(nt)).arg(bcs.size()));
         perf.outcome = "edge-count-mismatch";
         return true;  // vertex Z still synced above
     }
 
     using T = MeshBCTypes::Type;
     for (int t = 0; t < nt; ++t) {
-        for (int e = 0; e < 3; ++e) {
-            const MeshEdgeBC &b = bcs[t * 3 + e];
+        const int ne = mesh.triangles[t].vertexCount();
+        for (int e = 0; e < ne; ++e) {
+            const MeshEdgeBC &b = bcs[edgeSlot(t, e)];
 
             // Conveyance is dimensionless; push every edge so resets back to
             // the 1.0 default propagate too (interior edges are mirrored by

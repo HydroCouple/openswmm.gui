@@ -25,6 +25,7 @@
 #include "mesh/inpmeshwriter.h"
 #include "mesh/inpmeshreader.h"
 #include "mesh/meshresult.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshedgebc.h"
 #include "mesh/meshbctype.h"
 
@@ -42,8 +43,8 @@ mesh::MeshResult makeUnitSquareMesh()
         {{1.0, 1.0}, 0.0, 0, {}},
     };
     m.triangles = {
-        {0, 1, 3, {}},
-        {0, 3, 2, {}},
+        {0, 1, 3, -1, {}},
+        {0, 3, 2, -1, {}},
     };
     m.ok = true;
     return m;
@@ -63,7 +64,7 @@ QString makeInpFile(QTemporaryDir &dir)
 
 TEST(MeshInpBCRoundtrip, AllWallEmitsNoSection)
 {
-    QVector<mesh::MeshEdgeBC> bcs(6);  // 2 triangles * 3 edges
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));  // 2 triangles, stride-4 slots
     const QString text = mesh::InpMeshWriter::buildBCSectionText(bcs);
     EXPECT_TRUE(text.isEmpty()) << text.toStdString();
 }
@@ -75,9 +76,9 @@ TEST(MeshInpBCRoundtrip, NormalFlowSlopeSurvives)
     const QString inpPath = makeInpFile(dir);
 
     auto m = makeUnitSquareMesh();
-    QVector<mesh::MeshEdgeBC> bcs(6);
-    bcs[0 * 3 + 1].type  = MeshBCTypes::Type::NormalFlow;
-    bcs[0 * 3 + 1].slope = 0.003;
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));
+    bcs[mesh::edgeSlot(0, 1)].type  = MeshBCTypes::Type::NormalFlow;
+    bcs[mesh::edgeSlot(0, 1)].slope = 0.003;
 
     QString err;
     ASSERT_TRUE(mesh::InpMeshWriter::writeInline(inpPath, m, {}, bcs, 0.035, &err))
@@ -85,8 +86,8 @@ TEST(MeshInpBCRoundtrip, NormalFlowSlopeSurvives)
 
     const auto read = mesh::InpMeshReader::read(inpPath);
     ASSERT_TRUE(read.hasMesh) << read.errorMsg.toStdString();
-    ASSERT_EQ(read.edgeBCs.size(), 6);
-    const auto &back = read.edgeBCs[0 * 3 + 1];
+    ASSERT_EQ(read.edgeBCs.size(), mesh::edgeSlotCount(2));
+    const auto &back = read.edgeBCs[mesh::edgeSlot(0, 1)];
     EXPECT_EQ(back.type, MeshBCTypes::Type::NormalFlow);
     EXPECT_NEAR(back.slope, 0.003, 1e-9);
 }
@@ -98,17 +99,17 @@ TEST(MeshInpBCRoundtrip, SpecifiedStageHeadSurvives)
     const QString inpPath = makeInpFile(dir);
 
     auto m = makeUnitSquareMesh();
-    QVector<mesh::MeshEdgeBC> bcs(6);
-    bcs[1 * 3 + 0].type = MeshBCTypes::Type::SpecifiedStageConst;
-    bcs[1 * 3 + 0].head = 95.42;
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));
+    bcs[mesh::edgeSlot(1, 0)].type = MeshBCTypes::Type::SpecifiedStageConst;
+    bcs[mesh::edgeSlot(1, 0)].head = 95.42;
 
     QString err;
     ASSERT_TRUE(mesh::InpMeshWriter::writeInline(inpPath, m, {}, bcs, 0.035, &err)) << err.toStdString();
 
     const auto read = mesh::InpMeshReader::read(inpPath);
     ASSERT_TRUE(read.hasMesh);
-    ASSERT_EQ(read.edgeBCs.size(), 6);
-    const auto &back = read.edgeBCs[1 * 3 + 0];
+    ASSERT_EQ(read.edgeBCs.size(), mesh::edgeSlotCount(2));
+    const auto &back = read.edgeBCs[mesh::edgeSlot(1, 0)];
     EXPECT_EQ(back.type, MeshBCTypes::Type::SpecifiedStageConst);
     EXPECT_NEAR(back.head, 95.42, 1e-9);
 }
@@ -120,17 +121,17 @@ TEST(MeshInpBCRoundtrip, TimeseriesNameSurvives)
     const QString inpPath = makeInpFile(dir);
 
     auto m = makeUnitSquareMesh();
-    QVector<mesh::MeshEdgeBC> bcs(6);
-    bcs[1 * 3 + 2].type    = MeshBCTypes::Type::SpecifiedStageTS;
-    bcs[1 * 3 + 2].tseries = QStringLiteral("DownstreamTS");
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));
+    bcs[mesh::edgeSlot(1, 2)].type    = MeshBCTypes::Type::SpecifiedStageTS;
+    bcs[mesh::edgeSlot(1, 2)].tseries = QStringLiteral("DownstreamTS");
 
     QString err;
     ASSERT_TRUE(mesh::InpMeshWriter::writeInline(inpPath, m, {}, bcs, 0.035, &err)) << err.toStdString();
 
     const auto read = mesh::InpMeshReader::read(inpPath);
     ASSERT_TRUE(read.hasMesh);
-    ASSERT_EQ(read.edgeBCs.size(), 6);
-    const auto &back = read.edgeBCs[1 * 3 + 2];
+    ASSERT_EQ(read.edgeBCs.size(), mesh::edgeSlotCount(2));
+    const auto &back = read.edgeBCs[mesh::edgeSlot(1, 2)];
     EXPECT_EQ(back.type, MeshBCTypes::Type::SpecifiedStageTS);
     EXPECT_EQ(back.tseries, QStringLiteral("DownstreamTS"));
 }
@@ -142,17 +143,17 @@ TEST(MeshInpBCRoundtrip, RatingCurveNameSurvives)
     const QString inpPath = makeInpFile(dir);
 
     auto m = makeUnitSquareMesh();
-    QVector<mesh::MeshEdgeBC> bcs(6);
-    bcs[0 * 3 + 2].type  = MeshBCTypes::Type::RatingCurve;
-    bcs[0 * 3 + 2].curve = QStringLiteral("WeirRC");
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));
+    bcs[mesh::edgeSlot(0, 2)].type  = MeshBCTypes::Type::RatingCurve;
+    bcs[mesh::edgeSlot(0, 2)].curve = QStringLiteral("WeirRC");
 
     QString err;
     ASSERT_TRUE(mesh::InpMeshWriter::writeInline(inpPath, m, {}, bcs, 0.035, &err)) << err.toStdString();
 
     const auto read = mesh::InpMeshReader::read(inpPath);
     ASSERT_TRUE(read.hasMesh);
-    ASSERT_EQ(read.edgeBCs.size(), 6);
-    const auto &back = read.edgeBCs[0 * 3 + 2];
+    ASSERT_EQ(read.edgeBCs.size(), mesh::edgeSlotCount(2));
+    const auto &back = read.edgeBCs[mesh::edgeSlot(0, 2)];
     EXPECT_EQ(back.type,  MeshBCTypes::Type::RatingCurve);
     EXPECT_EQ(back.curve, QStringLiteral("WeirRC"));
 }
@@ -164,18 +165,18 @@ TEST(MeshInpBCRoundtrip, GroupLabelSurvives)
     const QString inpPath = makeInpFile(dir);
 
     auto m = makeUnitSquareMesh();
-    QVector<mesh::MeshEdgeBC> bcs(6);
-    bcs[0 * 3 + 1].type  = MeshBCTypes::Type::NormalFlow;
-    bcs[0 * 3 + 1].slope = 0.001;
-    bcs[0 * 3 + 1].group = QStringLiteral("Outlet");
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));
+    bcs[mesh::edgeSlot(0, 1)].type  = MeshBCTypes::Type::NormalFlow;
+    bcs[mesh::edgeSlot(0, 1)].slope = 0.001;
+    bcs[mesh::edgeSlot(0, 1)].group = QStringLiteral("Outlet");
 
     QString err;
     ASSERT_TRUE(mesh::InpMeshWriter::writeInline(inpPath, m, {}, bcs, 0.035, &err)) << err.toStdString();
 
     const auto read = mesh::InpMeshReader::read(inpPath);
     ASSERT_TRUE(read.hasMesh);
-    ASSERT_EQ(read.edgeBCs.size(), 6);
-    EXPECT_EQ(read.edgeBCs[0 * 3 + 1].group, QStringLiteral("Outlet"));
+    ASSERT_EQ(read.edgeBCs.size(), mesh::edgeSlotCount(2));
+    EXPECT_EQ(read.edgeBCs[mesh::edgeSlot(0, 1)].group, QStringLiteral("Outlet"));
 }
 
 // =============================================================================
@@ -191,7 +192,7 @@ TEST(MeshInpBCRoundtrip, GroupLabelSurvives)
 TEST(MeshInpConveyanceRoundtrip, AllDefaultEmitsNoSection)
 {
     auto m = makeUnitSquareMesh();
-    QVector<mesh::MeshEdgeBC> bcs(6);  // all ψ default = 1.0
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));  // all ψ default = 1.0
     const QString text = mesh::InpMeshWriter::buildConveyanceSectionText(m, bcs);
     EXPECT_TRUE(text.isEmpty()) << text.toStdString();
 }
@@ -202,9 +203,9 @@ TEST(MeshInpConveyanceRoundtrip, BoundaryEdgeRoundTrips)
     const QString inpPath = makeInpFile(dir);
 
     auto m = makeUnitSquareMesh();
-    QVector<mesh::MeshEdgeBC> bcs(6);
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));
     // Boundary edge T0·3 + 0 — endpoints (v1, v2) = (1, 3).
-    bcs[0 * 3 + 0].conveyance = 0.25;
+    bcs[mesh::edgeSlot(0, 0)].conveyance = 0.25;
 
     QString err;
     ASSERT_TRUE(mesh::InpMeshWriter::writeInline(inpPath, m, {}, bcs, 0.035, &err))
@@ -212,11 +213,11 @@ TEST(MeshInpConveyanceRoundtrip, BoundaryEdgeRoundTrips)
 
     const auto read = mesh::InpMeshReader::read(inpPath);
     ASSERT_TRUE(read.hasMesh) << read.errorMsg.toStdString();
-    ASSERT_EQ(read.edgeBCs.size(), 6);
-    EXPECT_NEAR(read.edgeBCs[0 * 3 + 0].conveyance, 0.25, 1e-9);
+    ASSERT_EQ(read.edgeBCs.size(), mesh::edgeSlotCount(2));
+    EXPECT_NEAR(read.edgeBCs[mesh::edgeSlot(0, 0)].conveyance, 0.25, 1e-9);
     // Other slots remain at default.
-    EXPECT_NEAR(read.edgeBCs[0 * 3 + 1].conveyance, 1.0, 1e-9);
-    EXPECT_NEAR(read.edgeBCs[1 * 3 + 0].conveyance, 1.0, 1e-9);
+    EXPECT_NEAR(read.edgeBCs[mesh::edgeSlot(0, 1)].conveyance, 1.0, 1e-9);
+    EXPECT_NEAR(read.edgeBCs[mesh::edgeSlot(1, 0)].conveyance, 1.0, 1e-9);
 }
 
 TEST(MeshInpConveyanceRoundtrip, InteriorEdgeMirrorsAndDedupes)
@@ -225,11 +226,11 @@ TEST(MeshInpConveyanceRoundtrip, InteriorEdgeMirrorsAndDedupes)
     const QString inpPath = makeInpFile(dir);
 
     auto m = makeUnitSquareMesh();
-    QVector<mesh::MeshEdgeBC> bcs(6);
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));
     // Interior edge (0,3): T0·3+1 and T1·3+2 share it. Set only one half;
     // the writer must emit ONE row and the reader must apply it to both.
-    bcs[0 * 3 + 1].conveyance = 0.5;
-    bcs[1 * 3 + 2].conveyance = 0.5;  // GUI helper keeps both halves in sync
+    bcs[mesh::edgeSlot(0, 1)].conveyance = 0.5;
+    bcs[mesh::edgeSlot(1, 2)].conveyance = 0.5;  // GUI helper keeps both halves in sync
 
     // Writer dedupe — section text contains a single ψ data row.
     const QString text = mesh::InpMeshWriter::buildConveyanceSectionText(m, bcs);
@@ -249,10 +250,10 @@ TEST(MeshInpConveyanceRoundtrip, InteriorEdgeMirrorsAndDedupes)
 
     const auto read = mesh::InpMeshReader::read(inpPath);
     ASSERT_TRUE(read.hasMesh) << read.errorMsg.toStdString();
-    ASSERT_EQ(read.edgeBCs.size(), 6);
+    ASSERT_EQ(read.edgeBCs.size(), mesh::edgeSlotCount(2));
     // Reader symmetry — both halves of the interior edge come back at 0.5.
-    EXPECT_NEAR(read.edgeBCs[0 * 3 + 1].conveyance, 0.5, 1e-9);
-    EXPECT_NEAR(read.edgeBCs[1 * 3 + 2].conveyance, 0.5, 1e-9);
+    EXPECT_NEAR(read.edgeBCs[mesh::edgeSlot(0, 1)].conveyance, 0.5, 1e-9);
+    EXPECT_NEAR(read.edgeBCs[mesh::edgeSlot(1, 2)].conveyance, 0.5, 1e-9);
 }
 
 TEST(MeshInpConveyanceRoundtrip, CoexistsWithBC)
@@ -261,12 +262,12 @@ TEST(MeshInpConveyanceRoundtrip, CoexistsWithBC)
     const QString inpPath = makeInpFile(dir);
 
     auto m = makeUnitSquareMesh();
-    QVector<mesh::MeshEdgeBC> bcs(6);
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));
     // A boundary edge gets BOTH a BC type AND a non-default ψ — they're
     // orthogonal and must round-trip independently.
-    bcs[1 * 3 + 1].type       = MeshBCTypes::Type::NormalFlow;
-    bcs[1 * 3 + 1].slope      = 0.004;
-    bcs[1 * 3 + 1].conveyance = 0.8;
+    bcs[mesh::edgeSlot(1, 1)].type       = MeshBCTypes::Type::NormalFlow;
+    bcs[mesh::edgeSlot(1, 1)].slope      = 0.004;
+    bcs[mesh::edgeSlot(1, 1)].conveyance = 0.8;
 
     QString err;
     ASSERT_TRUE(mesh::InpMeshWriter::writeInline(inpPath, m, {}, bcs, 0.035, &err))
@@ -274,8 +275,8 @@ TEST(MeshInpConveyanceRoundtrip, CoexistsWithBC)
 
     const auto read = mesh::InpMeshReader::read(inpPath);
     ASSERT_TRUE(read.hasMesh) << read.errorMsg.toStdString();
-    ASSERT_EQ(read.edgeBCs.size(), 6);
-    const auto &back = read.edgeBCs[1 * 3 + 1];
+    ASSERT_EQ(read.edgeBCs.size(), mesh::edgeSlotCount(2));
+    const auto &back = read.edgeBCs[mesh::edgeSlot(1, 1)];
     EXPECT_EQ(back.type, MeshBCTypes::Type::NormalFlow);
     EXPECT_NEAR(back.slope,      0.004, 1e-9);
     EXPECT_NEAR(back.conveyance, 0.8,   1e-9);
@@ -476,10 +477,10 @@ TEST(MeshInpBCPatch, ReplacesStaleRowsKeepsOtherSections)
     f.close();
 
     auto m = makeUnitSquareMesh();
-    QVector<mesh::MeshEdgeBC> bcs(6);
-    bcs[1 * 3 + 0].type = MeshBCTypes::Type::SpecifiedStageConst;
-    bcs[1 * 3 + 0].head = 12.5;
-    bcs[0 * 3 + 0].conveyance = 0.75;
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));
+    bcs[mesh::edgeSlot(1, 0)].type = MeshBCTypes::Type::SpecifiedStageConst;
+    bcs[mesh::edgeSlot(1, 0)].head = 12.5;
+    bcs[mesh::edgeSlot(0, 0)].conveyance = 0.75;
 
     QString err;
     ASSERT_TRUE(mesh::InpMeshWriter::patchBCSections(meshPath, m, bcs, &err))
@@ -487,15 +488,15 @@ TEST(MeshInpBCPatch, ReplacesStaleRowsKeepsOtherSections)
 
     const auto read = mesh::InpMeshReader::read(meshPath);
     ASSERT_TRUE(read.hasMesh) << read.errorMsg.toStdString();
-    ASSERT_EQ(read.edgeBCs.size(), 6);
+    ASSERT_EQ(read.edgeBCs.size(), mesh::edgeSlotCount(2));
     // Geometry untouched.
     EXPECT_EQ(read.mesh.vertices.size(), 4);
     EXPECT_EQ(read.mesh.triangles.size(), 2);
     // Fresh rows applied; stale rows gone.
-    EXPECT_EQ(read.edgeBCs[1 * 3 + 0].type, MeshBCTypes::Type::SpecifiedStageConst);
-    EXPECT_NEAR(read.edgeBCs[1 * 3 + 0].head, 12.5, 1e-9);
-    EXPECT_EQ(read.edgeBCs[0 * 3 + 0].type, MeshBCTypes::Type::Wall);
-    EXPECT_NEAR(read.edgeBCs[0 * 3 + 0].conveyance, 0.75, 1e-9);
+    EXPECT_EQ(read.edgeBCs[mesh::edgeSlot(1, 0)].type, MeshBCTypes::Type::SpecifiedStageConst);
+    EXPECT_NEAR(read.edgeBCs[mesh::edgeSlot(1, 0)].head, 12.5, 1e-9);
+    EXPECT_EQ(read.edgeBCs[mesh::edgeSlot(0, 0)].type, MeshBCTypes::Type::Wall);
+    EXPECT_NEAR(read.edgeBCs[mesh::edgeSlot(0, 0)].conveyance, 0.75, 1e-9);
 }
 
 TEST(MeshInpBCPatch, AllDefaultStripsSections)
@@ -514,7 +515,7 @@ TEST(MeshInpBCPatch, AllDefaultStripsSections)
     f.close();
 
     auto m = makeUnitSquareMesh();
-    QVector<mesh::MeshEdgeBC> bcs(6);  // all default Wall — reset case
+    QVector<mesh::MeshEdgeBC> bcs(mesh::edgeSlotCount(2));  // all default Wall — reset case
 
     QString err;
     ASSERT_TRUE(mesh::InpMeshWriter::patchBCSections(meshPath, m, bcs, &err))

@@ -132,14 +132,17 @@ signals:
     // EngineMesh2DSource from these vectors and attaches a
     // SWMM2DResultsLayer to the canvas.
     //
-    // `triFlat` is connectivity flattened to [v0,v1,v2, v0,v1,v2, …] so it
-    // ships as a single QVector<int> (a registered Qt metatype) — saves
-    // adding a Q_DECLARE_METATYPE on std::array<int,3>.
+    // `cellFlat` is cell connectivity flattened to [v0,v1,v2,v3, v0,v1,v2,v3,
+    // …] — FOUR ints per cell (size = cellCount * 4), v3 = -1 for a triangle
+    // (mixed triangle/quad meshes, workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md)
+    // — so it ships as a single QVector<int> (a registered Qt metatype).
+    // Cells are in the engine's order (triangles first, then quads); a
+    // quad's vertices are in cyclic order.
     void twoDInitialized(int jobId, QString h5Path,
                           QVector<double> vx,
                           QVector<double> vy,
                           QVector<double> vz,
-                          QVector<int>    triFlat);
+                          QVector<int>    cellFlat);
 
     // Per-tick depth slice from swmm_2d_get_depths_bulk. Rate-limited to the
     // existing kTickIntervalMs budget (≈ 1 Hz). The GUI pushes each slice
@@ -151,7 +154,10 @@ signals:
     //
     // Emitted once at twoDInitialized after the engine builds its mesh, this
     // ships the time-invariant edge geometry (length + outward unit normal,
-    // both indexed [tri*3 + localEdge]). The GUI installs the arrays on the
+    // both indexed [cell*4 + localEdge] = mesh::edgeSlot, sized
+    // mesh::edgeSlotCount(cellCount); the engine's own stride (3 or 4,
+    // swmm_2d_edge_stride) is repacked before emission — slot 3 of a
+    // triangle is 0). The GUI installs the arrays on the
     // active EngineMesh2DSource so client-side RT0 reconstruction has
     // everything it needs without re-deriving from vertex coords.
     void twoDEdgeGeometryAvailable(int jobId,
@@ -159,9 +165,10 @@ signals:
                                     QVector<float> nx,
                                     QVector<float> ny);
 
-    // Per-tick signed edge flux from swmm_2d_get_edge_flux_bulk. Same cadence
-    // as twoDDepthsAvailable; pushed into EngineMesh2DSource::pushFlux on the
-    // GUI thread, paired with the matching depth tick by elapsedSec.
+    // Per-tick signed edge flux from swmm_2d_get_edge_flux_bulk, repacked to
+    // the same [cell*4 + localEdge] layout as twoDEdgeGeometryAvailable. Same
+    // cadence as twoDDepthsAvailable; pushed into EngineMesh2DSource::pushFlux
+    // on the GUI thread, paired with the matching depth tick by elapsedSec.
     void twoDFluxAvailable(int jobId, QVector<float> flux,
                             QDateTime simTime, double elapsedSec);
 

@@ -125,7 +125,9 @@ public:
         Sampling sampling = Sampling::Centroid;
 
         /*! Cells in scope. \ref centroids is parallel to it; \ref triVerts
-         *  holds 3 vertices per entry (only filled for overlay sampling). */
+         *  holds 4 corners per entry — a quad's four, or a triangle's three
+         *  with the first repeated in slot 3 (only filled for overlay
+         *  sampling). */
         QVector<int>     triangles;
         QVector<QPointF> centroids;
         QVector<QPointF> triVerts;

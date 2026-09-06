@@ -18,6 +18,7 @@
 #include "map/mapundostack.h"
 #include "map/meshcommands.h"
 #include "mesh/meshobjectref.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshresult.h"
 #include "selection/selectionmanager.h"
 #include "ui/panels/meshattributetablemodel.h"
@@ -213,15 +214,15 @@ private slots:
         QCOMPARE(rig.canvas.undoStack()->count(), undoBefore + 1);
         const auto &bcs = rig.layer->edgeBCs();
         for (const auto &pr : bs)
-            QCOMPARE(bcs[pr.first * 3 + pr.second].tseries,
+            QCOMPARE(bcs[mesh::edgeSlot(pr.first, pr.second)].tseries,
                      QStringLiteral("TS_B"));
 
         rig.canvas.undoStack()->undo();
-        QCOMPARE(rig.layer->edgeBCs()[bs[0].first * 3 + bs[0].second].tseries,
+        QCOMPARE(rig.layer->edgeBCs()[mesh::edgeSlot(bs[0].first, bs[0].second)].tseries,
                  QStringLiteral("TS_A"));
-        QCOMPARE(rig.layer->edgeBCs()[bs[1].first * 3 + bs[1].second].tseries,
+        QCOMPARE(rig.layer->edgeBCs()[mesh::edgeSlot(bs[1].first, bs[1].second)].tseries,
                  QStringLiteral("TS_B"));
-        QCOMPARE(rig.layer->edgeBCs()[bs[2].first * 3 + bs[2].second].tseries,
+        QCOMPARE(rig.layer->edgeBCs()[mesh::edgeSlot(bs[2].first, bs[2].second)].tseries,
                  QStringLiteral("TS_C"));
     }
 

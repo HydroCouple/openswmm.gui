@@ -23,6 +23,12 @@
  *         (constant-η extrapolation), then depth = max(0, η − z) puts the
  *         waterline exactly at the sub-cell bed intercept.
  *
+ *         Mixed tri/quad meshes (TRI_QUAD_MESHING_PLAN_2026-09-06.md): the
+ *         routine stays per triangle. Callers pass the display SUB-triangle
+ *         of the containing cell (a quad's VFR half, mesh::cellGeom), with
+ *         the cell's value on each half — never a bilinear quad blend, which
+ *         would disagree with the engine's storage model.
+ *
  *         Header-only so SWMM2DResultsLayer (depthAtCellInterp /
  *         maxDepthAtSceneInterp) and the unit tests share one implementation —
  *         the layer's link closure is too large to drive from a leaf test

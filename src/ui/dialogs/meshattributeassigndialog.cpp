@@ -14,6 +14,8 @@
 #include "map/meshcommands.h"
 #include "map/spatialreferencesystem.h"
 #include "mesh/dtmsampler.h"
+#include "mesh/meshcellgeom.h"
+#include "mesh/meshcellstats.h"
 #include "mesh/meshcellparams.h"
 #include "mesh/meshobjectref.h"
 #include "selection/selectionmanager.h"
@@ -151,16 +153,22 @@ double geomArea(const OGRGeometry *g)
 }
 
 /*! Fill \p ring/\p poly with triangle \p t's footprint (source CRS). */
+/*! Footprint stride in Job::triVerts: 4 corners per cell; a triangle
+ *  repeats its first corner in slot 3 (mesh::kEdgeStride). */
+constexpr int kFootprintStride = mesh::kEdgeStride;
+
 void buildTriPolygon(const QVector<QPointF> &verts, int t,
                      OGRLinearRing &ring, OGRPolygon &poly)
 {
-    const QPointF &a = verts[3 * t];
-    const QPointF &b = verts[3 * t + 1];
-    const QPointF &c = verts[3 * t + 2];
+    const QPointF &a = verts[kFootprintStride * t];
+    const QPointF &b = verts[kFootprintStride * t + 1];
+    const QPointF &c = verts[kFootprintStride * t + 2];
+    const QPointF &d = verts[kFootprintStride * t + 3];
     ring.empty();
     ring.addPoint(a.x(), a.y());
     ring.addPoint(b.x(), b.y());
     ring.addPoint(c.x(), c.y());
+    if (d != a) ring.addPoint(d.x(), d.y());   // quad: true 4-corner boundary
     ring.addPoint(a.x(), a.y());
     poly.empty();
     poly.addRing(&ring);          // addRing clones
@@ -410,21 +418,23 @@ void sampleRasterOverlay(QPromise<SampleResult> &promise, const Job &job,
             acc[ch] = Overlay();
             hist[ch].clear();
         }
-        const QPointF &a = verts[3 * i];
-        const QPointF &b = verts[3 * i + 1];
-        const QPointF &c = verts[3 * i + 2];
+        const QPointF &a = verts[kFootprintStride * i];
+        const QPointF &b = verts[kFootprintStride * i + 1];
+        const QPointF &c = verts[kFootprintStride * i + 2];
+        const QPointF &d = verts[kFootprintStride * i + 3];
+        const bool quad = (d != a);   // a triangle repeats its first corner
 
         auto toPix = [&](const QPointF &p, double *px, double *py) {
             *px = inv[0] + p.x() * inv[1] + p.y() * inv[2];
             *py = inv[3] + p.x() * inv[4] + p.y() * inv[5];
         };
-        double ax, ay, bx, by, cx, cy;
-        toPix(a, &ax, &ay); toPix(b, &bx, &by); toPix(c, &cx, &cy);
+        double ax, ay, bx, by, cx, cy, dx, dy;
+        toPix(a, &ax, &ay); toPix(b, &bx, &by); toPix(c, &cx, &cy); toPix(d, &dx, &dy);
 
-        int x0 = int(std::floor(std::min({ax, bx, cx})));
-        int x1 = int(std::ceil (std::max({ax, bx, cx})));
-        int y0 = int(std::floor(std::min({ay, by, cy})));
-        int y1 = int(std::ceil (std::max({ay, by, cy})));
+        int x0 = int(std::floor(std::min({ax, bx, cx, dx})));
+        int x1 = int(std::ceil (std::max({ax, bx, cx, dx})));
+        int y0 = int(std::floor(std::min({ay, by, cy, dy})));
+        int y1 = int(std::ceil (std::max({ay, by, cy, dy})));
         x0 = std::max(0, x0); y0 = std::max(0, y0);
         x1 = std::min(nx, x1); y1 = std::min(ny, y1);
         const int w = x1 - x0, h = y1 - y0;
@@ -450,7 +460,10 @@ void sampleRasterOverlay(QPromise<SampleResult> &promise, const Job &job,
                     const int sx = x0 + int((qint64(ix) * w) / bufW);
                     const double wx = geo[0] + (sx + 0.5) * geo[1] + (sy + 0.5) * geo[2];
                     const double wy = geo[3] + (sx + 0.5) * geo[4] + (sy + 0.5) * geo[5];
-                    if (!pointInTri(wx, wy, a, b, c)) continue;
+                    // A convex quad is covered by the (a,b,c) + (a,c,d)
+                    // split — any diagonal works for point-in-convex-polygon.
+                    if (!pointInTri(wx, wy, a, b, c)
+                        && !(quad && pointInTri(wx, wy, a, c, d))) continue;
                     const double v = buf[qsizetype(jy) * bufW + ix];
                     if (!std::isfinite(v)) continue;
                     if (hasNoData[ch] && qFuzzyCompare(v + 1.0, noData[ch] + 1.0))
@@ -473,8 +486,10 @@ void sampleRasterOverlay(QPromise<SampleResult> &promise, const Job &job,
             // single pixel under the centroid.
             if (acc[ch].wsum <= 0.0) {
                 double px = 0.0, py = 0.0;
-                toPix(QPointF((a.x() + b.x() + c.x()) / 3.0,
-                              (a.y() + b.y() + c.y()) / 3.0), &px, &py);
+                toPix(quad ? QPointF((a.x() + b.x() + c.x() + d.x()) / 4.0,
+                                     (a.y() + b.y() + c.y() + d.y()) / 4.0)
+                           : QPointF((a.x() + b.x() + c.x()) / 3.0,
+                                     (a.y() + b.y() + c.y()) / 3.0), &px, &py);
                 const int sx = std::clamp(int(std::floor(px)), 0, nx - 1);
                 const int sy = std::clamp(int(std::floor(py)), 0, ny - 1);
                 double one = std::numeric_limits<double>::quiet_NaN();
@@ -914,7 +929,7 @@ void runSamplingImpl(QPromise<SampleResult> &promise, const Job &job,
         if (job.sampling == Sampling::Centroid) {
             sampleRasterCentroid(promise, job, channels, r);
         } else {
-            if (job.triVerts.size() < job.triangles.size() * 3) {
+            if (job.triVerts.size() < job.triangles.size() * kFootprintStride) {
                 r.error = QObject::tr("Overlay sampling needs the cell "
                                       "footprints, which were not collected.");
                 return;
@@ -933,7 +948,7 @@ void runSamplingImpl(QPromise<SampleResult> &promise, const Job &job,
         sampleVectorNaturalNeighbour(promise, job, ol, r);
     } else {
         if (job.sampling != Sampling::Centroid
-            && job.triVerts.size() < job.triangles.size() * 3)
+            && job.triVerts.size() < job.triangles.size() * kFootprintStride)
         {
             r.error = QObject::tr("Overlay sampling needs the cell footprints, "
                                   "which were not collected.");
@@ -1869,14 +1884,8 @@ QVector<QPointF> MeshAttributeAssignDialog::centroidsFor(
     if (!m_mesh) return out;
     const mesh::MeshResult &m = m_mesh->mesh();
     out.reserve(tris.size());
-    for (int t : tris) {
-        const mesh::MeshTriangle &tri = m.triangles[t];
-        const QPointF a = m.vertices[tri.v0].xy;
-        const QPointF b = m.vertices[tri.v1].xy;
-        const QPointF c = m.vertices[tri.v2].xy;
-        out.append(QPointF((a.x() + b.x() + c.x()) / 3.0,
-                           (a.y() + b.y() + c.y()) / 3.0));
-    }
+    for (int t : tris)
+        out.append(mesh::cellCentroid(m, t));   // area centroid (cellGeom)
     return out;
 }
 
@@ -1902,12 +1911,16 @@ bool MeshAttributeAssignDialog::collectJob(Job *job, QString *err) const
         || job->sampling == Sampling::Majority)
     {
         const mesh::MeshResult &m = m_mesh->mesh();
-        job->triVerts.reserve(job->triangles.size() * 3);
+        job->triVerts.reserve(job->triangles.size() * kFootprintStride);
         for (int t : std::as_const(job->triangles)) {
             const mesh::MeshTriangle &tri = m.triangles[t];
             job->triVerts.append(m.vertices[tri.v0].xy);
             job->triVerts.append(m.vertices[tri.v1].xy);
             job->triVerts.append(m.vertices[tri.v2].xy);
+            // Slot 3: the quad's fourth corner, or the first corner again
+            // for a triangle (kFootprintStride).
+            job->triVerts.append(tri.isQuad() ? m.vertices[tri.v3].xy
+                                              : m.vertices[tri.v0].xy);
         }
     }
 

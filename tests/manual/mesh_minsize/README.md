@@ -34,6 +34,7 @@ clang++ -std=c++20 -O2 -DQT_NO_DEBUG -include arm_acle.h \
   $R/tests/manual/mesh_minsize/conditioning_effect_probe.cpp \
   $R/src/mesh/pslgminsize.cpp $R/src/mesh/pslgprep.cpp \
   $R/src/mesh/meshgenerator.cpp $R/src/mesh/meshminsizecleanup.cpp \
+  $R/src/mesh/meshpatch.cpp $R/src/mesh/meshquadmerge.cpp \
   $R/src/mesh/trirefinehook.cpp $R/src/core/editgeometry.cpp \
   $R/build/libtriangle_lib.a -Wl,-rpath,$QTI \
   -F $QTI -framework QtCore -framework QtGui -framework QtConcurrent \

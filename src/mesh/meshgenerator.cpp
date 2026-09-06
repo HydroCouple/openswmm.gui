@@ -13,6 +13,7 @@
 
 #include <QDebug>
 #include <QHash>
+#include <QSet>
 #include <QtMath>
 
 #include <cmath>
@@ -56,6 +57,7 @@ void MeshGenerator::reserveSteinerPoints(qsizetype additional)
 }
 void MeshGenerator::addHole(const QPointF &xy)                { m_holes.append(xy); }
 void MeshGenerator::addRegion(const RegionMarker &r)          { m_regions.append(r); }
+void MeshGenerator::addPatch(const PatchMesh &p)              { m_patches.append(p); }
 void MeshGenerator::setOptions(const GenerationOptions &o)    { m_opts = o; }
 void MeshGenerator::setRefineHook(const RefineHook &h)        { m_refineHook = h; }
 
@@ -172,6 +174,8 @@ MeshResult MeshGenerator::generate() const
         for (const QPointF &h : m_holes)      if (!isFinitePt(h))     ++nBad;
         for (const RegionMarker &rm : m_regions)
             if (!isFinitePt(rm.xy)) ++nBad;
+        for (const PatchMesh &pm : m_patches)
+            for (const QPointF &p : pm.xy)    if (!isFinitePt(p))     ++nBad;
 
         if (nBad > 0)
         {
@@ -332,6 +336,35 @@ MeshResult MeshGenerator::generate() const
         }
     }
 
+    // 4) Structured patches (G3) — every boundary segment of a patch is a
+    //    PSLG constraint (its vertices become Triangle input points, kept
+    //    unsplit by the 'Y' switch below), and the patch interior is carved out as a hole
+    //    seeded at the first quad's centroid (inside, since quads are
+    //    convex). The quads themselves are stitched in after Triangle runs.
+    QVector<QPointF> holes = m_holes;
+    for (const PatchMesh &pm : m_patches)
+    {
+        if (pm.quads.isEmpty()) continue;
+        const QString bad = validate(pm);
+        if (!bad.isEmpty())
+        {
+            result.errorMsg = QStringLiteral("MeshGenerator: %1").arg(bad);
+            return result;
+        }
+        for (const QPair<int, int> &seg : pm.boundarySegments)
+        {
+            const int a = pushPoint(pm.xy[seg.first], 0);
+            const int b = pushPoint(pm.xy[seg.second], 0);
+            if (a != b)
+            {
+                userSegments.append(qMakePair(a, b));
+                userSegmentMarkers.append(0);
+            }
+        }
+        const MeshTriangle &q0 = pm.quads.first();
+        holes.append((pm.xy[q0.v0] + pm.xy[q0.v1] + pm.xy[q0.v2] + pm.xy[q0.v3]) / 4.0);
+    }
+
     // ── Final PSLG validation ─────────────────────────────────────────────
     // Strip any zero-length segments (v0 == v1) that may have survived from
     // user constraint segments or from the domain boundary on degenerate input
@@ -453,16 +486,16 @@ MeshResult MeshGenerator::generate() const
         }
     }
 
-    // Holes
-    in.numberofholes = m_holes.size();
-    if (!m_holes.isEmpty())
+    // Holes (user holes + patch interiors)
+    in.numberofholes = holes.size();
+    if (!holes.isEmpty())
     {
-        in.holelist = static_cast<REAL *>(std::malloc(sizeof(REAL) * 2 * m_holes.size()));
+        in.holelist = static_cast<REAL *>(std::malloc(sizeof(REAL) * 2 * holes.size()));
         if (!in.holelist) return packOom();
-        for (int i = 0; i < m_holes.size(); ++i)
+        for (int i = 0; i < holes.size(); ++i)
         {
-            in.holelist[2 * i + 0] = m_holes[i].x();
-            in.holelist[2 * i + 1] = m_holes[i].y();
+            in.holelist[2 * i + 0] = holes[i].x();
+            in.holelist[2 * i + 1] = holes[i].y();
         }
     }
 
@@ -523,7 +556,13 @@ MeshResult MeshGenerator::generate() const
         // are both zero. That is what makes cancellation available at all.
         if (useSizeFn || m_refineHook.isCancelled || m_refineHook.onProgress)
             sw += QStringLiteral("u");
+        // A structured patch's boundary is a mesh boundary (its interior is
+        // a hole), and a Steiner point inserted on it would leave a hanging
+        // node against the patch quads. 'Y' forbids splitting segments that
+        // have a triangle on one side only — exactly the patch boundaries
+        // (and the domain outline); interior breaklines may still split.
         if (!m_opts.allowSteiner)         sw += QStringLiteral("YY");
+        else if (!m_patches.isEmpty())    sw += QStringLiteral("Y");
         if (m_opts.conformingDelaunay)    sw += QStringLiteral("D");
         if (m_opts.maxSteinerPoints > 0)
             sw += QStringLiteral("S%1").arg(m_opts.maxSteinerPoints);
@@ -643,11 +682,71 @@ MeshResult MeshGenerator::generate() const
         }
     }
 
+    // ── Stitch structured patches (G3) ────────────────────────────────────
+    // Patch boundary vertices were PSLG input points, so Triangle hands them
+    // back with the exact (quantised) coordinates pushPoint() stored: match
+    // by the same key. Interior patch vertices are new. Quads go AFTER every
+    // triangle — the engine's cell order.
+    if (outputOk && !m_patches.isEmpty())
+    {
+        const double eps = m_opts.patchSnapEps;
+        auto keyOf = [&](const QPointF &p) {
+            const double sx = (eps > 0.0) ? (p.x() - quantOrigin.x()) / eps
+                                          : (p.x() - quantOrigin.x()) * 1e7;
+            const double sy = (eps > 0.0) ? (p.y() - quantOrigin.y()) / eps
+                                          : (p.y() - quantOrigin.y()) * 1e7;
+            return PointKey(qRound64(sx), qRound64(sy));
+        };
+        QHash<PointKey, int> outIndex;
+        outIndex.reserve(result.vertices.size());
+        for (int i = 0; i < result.vertices.size(); ++i)
+            outIndex.insert(keyOf(result.vertices[i].xy), i);
+
+        for (const PatchMesh &pm : m_patches)
+        {
+            if (pm.quads.isEmpty()) continue;
+            QVector<int> localToGlobal(pm.xy.size(), -1);
+            for (int k = 0; k < pm.xy.size(); ++k)
+            {
+                const PointKey key = keyOf(pm.xy[k]);
+                const auto it = outIndex.constFind(key);
+                if (it != outIndex.constEnd()) { localToGlobal[k] = it.value(); continue; }
+                MeshVertex v;
+                v.xy = pm.xy[k];
+                localToGlobal[k] = result.vertices.size();
+                result.vertices.append(v);
+                outIndex.insert(key, localToGlobal[k]);
+            }
+            for (const MeshTriangle &q : pm.quads)
+            {
+                MeshTriangle c = q;
+                c.v0 = localToGlobal[q.v0];
+                c.v1 = localToGlobal[q.v1];
+                c.v2 = localToGlobal[q.v2];
+                c.v3 = localToGlobal[q.v3];
+                if (c.tag.isEmpty()) c.tag = pm.tag;
+                result.triangles.append(c);
+            }
+        }
+    }
+
     result.ok = outputOk && (out.numberoftriangles > 0);
     if (!result.ok && result.errorMsg.isEmpty())
         result.errorMsg = QStringLiteral(
             "Triangle produced 0 triangles — domain may be self-intersecting "
             "or constraint segments may cross.");
+
+    // ── Tri-pair merge (G2) — last step ───────────────────────────────────
+    // Every constrained segment (domain boundary, holes, breaklines, patch
+    // boundaries) is a locked edge: a quad never straddles one.
+    if (result.ok && m_opts.mergeTrianglePairs)
+    {
+        QSet<QPair<int, int>> locked;
+        locked.reserve(result.boundaryEdges.size());
+        for (const MeshEdge &e : std::as_const(result.boundaryEdges))
+            locked.insert(edgeKey(e.v0, e.v1));
+        mergeTrianglePairs(result, m_opts.quadMerge, locked, nullptr);
+    }
 
     // ── Cleanup ───────────────────────────────────────────────────────────
     std::free(in.pointlist);

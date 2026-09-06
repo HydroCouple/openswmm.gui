@@ -34,10 +34,26 @@ struct MeshVertex
     double  couplingArea = 1.0;  ///< [2D_VERTEX_NODE_MAP] AREA column, m² (engine default).
 };
 
-/*! \brief A triangle in the generated mesh, indices into \ref MeshResult::vertices. */
+/*! \brief A cell in the mesh — a triangle or (since the engine's mixed
+ *  tri-quad meshes, workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md) a convex
+ *  quadrilateral — indices into \ref MeshResult::vertices.
+ *
+ *  The historical name is kept: every consumer that reads `v0/v1/v2` still
+ *  compiles, and a quad simply carries a fourth vertex `v3 >= 0` (cyclic
+ *  order, either orientation). Use \ref vertexCount / \ref vertex and the
+ *  helpers in mesh/meshcellgeom.h (edgeEndpoints, edgeSlot, cellGeom)
+ *  instead of hard-coding 3.
+ *
+ *  Engine contract (plans/2D_TRI_QUAD_MESH_PLAN_2026-09-06.md): cells are
+ *  written triangles first, then quads (`[2D_TRIANGLES]` then `[2D_QUADS]`);
+ *  local edge k has endpoints `v[(k+1)%nv]`, `v[(k+2)%nv]` — for a triangle
+ *  the old "edge opposite vertex" rule. \ref MeshResult::triangles keeps the
+ *  engine's cell order.
+ */
 struct MeshTriangle
 {
     int     v0 = 0, v1 = 0, v2 = 0;
+    int     v3 = -1;      ///< Fourth vertex of a quadrilateral; -1 = triangle.
     QString tag;          ///< Region tag (e.g. subcatchment ID); empty if untagged.
     /// Manning's roughness ([2D_TRIANGLES] MANNINGS_N). NaN = unset, so the
     /// writer falls back to the caller's default (mesh generation uses a
@@ -48,7 +64,28 @@ struct MeshTriangle
     /// the engine default 0 (dry) and omitted on write unless any triangle
     /// carries a depth or a tag (TAG position must stay unambiguous).
     double  initDepth = std::numeric_limits<double>::quiet_NaN();
+
+    bool isQuad() const noexcept { return v3 >= 0; }
+    int  vertexCount() const noexcept { return v3 >= 0 ? 4 : 3; }
+    /*! Vertex k (0..vertexCount()-1); -1 out of range. */
+    int  vertex(int k) const noexcept
+    {
+        switch (k) { case 0: return v0; case 1: return v1; case 2: return v2;
+                     case 3: return v3; default: return -1; }
+    }
+    void setVertex(int k, int v) noexcept
+    {
+        switch (k) { case 0: v0 = v; break; case 1: v1 = v; break;
+                     case 2: v2 = v; break; case 3: v3 = v; break; default: break; }
+    }
+    bool hasVertex(int v) const noexcept
+    {
+        return v0 == v || v1 == v || v2 == v || (v3 >= 0 && v3 == v);
+    }
 };
+
+/*! \brief Alias: a "triangle" row is any cell (triangle or quad). */
+using MeshCell = MeshTriangle;
 
 /*! \brief A boundary edge with its source-segment marker preserved. */
 struct MeshEdge
@@ -78,7 +115,7 @@ struct CellCoupling
 struct MeshResult
 {
     QVector<MeshVertex>   vertices;
-    QVector<MeshTriangle> triangles;
+    QVector<MeshTriangle> triangles;     ///< Cells: triangles first, then quads (engine order).
     QVector<MeshEdge>     boundaryEdges;
     QVector<CellCoupling> cellCouplings; ///< Node→cell couplings (Part C).
 
@@ -104,6 +141,19 @@ struct MeshResult
 
     bool    ok = false;
     QString errorMsg;
+
+    /*! Number of quadrilateral cells (O(n)). */
+    int quadCount() const noexcept
+    {
+        int n = 0;
+        for (const MeshTriangle &t : triangles) n += t.isQuad() ? 1 : 0;
+        return n;
+    }
+    bool hasQuads() const noexcept
+    {
+        for (const MeshTriangle &t : triangles) if (t.isQuad()) return true;
+        return false;
+    }
 };
 
 } // namespace mesh

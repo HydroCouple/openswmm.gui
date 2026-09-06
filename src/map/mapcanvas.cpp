@@ -21,6 +21,7 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmm2dmeshlayer.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshresult.h"
 #include "layers/xyztilelayer.h"
 #include "map/spatialreferencesystem.h"
@@ -934,11 +935,14 @@ void MapCanvas::appendMeshSelectionAnchors(SWMM2DMeshLayer *ml,
         if (v >= 0 && v < nv) push(vtx(v));
 
     for (int flat : ml->highlightedEdges()) {
-        const int t = flat / 3, e = flat % 3;
+        const int t = mesh::slotCell(flat), e = mesh::slotLocal(flat);
         if (t < 0 || t >= nt) continue;
         const mesh::MeshTriangle &tri = m.triangles[size_t(t)];
-        const int idx[3] = { tri.v0, tri.v1, tri.v2 };
-        const int a = idx[e], b = idx[(e + 1) % 3];
+        if (e >= tri.vertexCount()) continue;
+        // Same endpoint convention as every other edge consumer
+        // (mesh::edgeEndpoints: edge k = v[(k+1)%nv], v[(k+2)%nv]).
+        int a = -1, b = -1;
+        mesh::edgeEndpoints(tri, e, a, b);
         if (a < 0 || a >= nv || b < 0 || b >= nv) continue;
         push((vtx(a) + vtx(b)) / 2.0);
     }
@@ -946,9 +950,12 @@ void MapCanvas::appendMeshSelectionAnchors(SWMM2DMeshLayer *ml,
     for (int t : ml->highlightedTriangles()) {
         if (t < 0 || t >= nt) continue;
         const mesh::MeshTriangle &tri = m.triangles[size_t(t)];
-        if (tri.v0 < 0 || tri.v0 >= nv || tri.v1 < 0 || tri.v1 >= nv
-            || tri.v2 < 0 || tri.v2 >= nv) continue;
-        push((vtx(tri.v0) + vtx(tri.v1) + vtx(tri.v2)) / 3.0);
+        const int nvc = tri.vertexCount();
+        bool valid = true;
+        for (int k = 0; k < nvc; ++k)
+            if (tri.vertex(k) < 0 || tri.vertex(k) >= nv) { valid = false; break; }
+        if (!valid) continue;
+        push(mesh::cellGeom(m.vertices, tri).centroid);
     }
 }
 

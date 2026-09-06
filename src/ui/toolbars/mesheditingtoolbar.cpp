@@ -14,6 +14,7 @@
 #include "map/meshcommands.h"
 #include "mesh/meshautocouple.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshcellparams.h"
 #include "mesh/meshinfil.h"
 #include "mesh/meshnodemapper.h"
@@ -960,7 +961,7 @@ void MeshEditingToolbar::refreshEdgeEditor()
     double convey0 = 1.0;
     bool haveConvey = false;        // first edge of any kind
     for (const auto &pr : edges) {
-        const int flat = pr.first * 3 + pr.second;
+        const int flat = mesh::edgeSlot(pr.first, pr.second);
         if (flat < 0 || flat >= bcs.size()) continue;
         const mesh::MeshEdgeBC &bc = bcs[flat];
         if (!haveConvey) { convey0 = bc.conveyance; haveConvey = true; }
@@ -993,11 +994,8 @@ void MeshEditingToolbar::refreshEdgeEditor()
         if (tri >= 0 && tri < triangles.size()) {
             const auto &t = triangles[tri];
             int va = -1, vb = -1;
-            switch (e) {
-            case 0: va = t.v1; vb = t.v2; break;
-            case 1: va = t.v2; vb = t.v0; break;
-            case 2: va = t.v0; vb = t.v1; break;
-            }
+            if (e >= 0 && e < t.vertexCount())
+                mesh::edgeEndpoints(t, e, va, vb);
             for (const auto &be : m_activeMesh->mesh().boundaryEdges) {
                 if ((be.v0 == va && be.v1 == vb) ||
                     (be.v0 == vb && be.v1 == va)) {
@@ -1182,7 +1180,7 @@ void MeshEditingToolbar::onSelectionChanged()
                     QString lk;
                     int tri = -1, e = -1;
                     if (mesh::MeshObjectRef::parseEdge(ref, &lk, &tri, &e) && lk == wantKey)
-                        selE.insert(tri * 3 + e);
+                        selE.insert(mesh::edgeSlot(tri, e));
                 } else if (ref.objectType == SWMMObjectRef::MeshCell) {
                     QString lk;
                     int tri = -1;

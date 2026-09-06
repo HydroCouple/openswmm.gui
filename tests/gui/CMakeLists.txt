@@ -1921,11 +1921,37 @@ target_link_libraries(test_layerreprojection PRIVATE GDAL::GDAL)
 add_swmmvis_gui_test(test_meshgenerator
     test_meshgenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
     ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
 )
 target_link_libraries(test_meshgenerator PRIVATE triangle_lib)
+
+# G2 — tri-pair merge into convex quads (TRI_QUAD_MESHING_PLAN §3.1):
+# full merge of a grid, locked edges, attribute mismatch, index remap.
+add_swmmvis_gui_test(test_meshquadmerge
+    test_meshquadmerge.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadmerge.h
+)
+
+# G3 — structured quad patches (TRI_QUAD_MESHING_PLAN §3.2): transfinite
+# and swept generators, validation, and end-to-end stitching into the
+# Triangle domain (links the generator, Triangle and the merge pass).
+add_swmmvis_gui_test(test_meshpatch
+    test_meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshpatch.h
+)
+target_link_libraries(test_meshpatch PRIVATE triangle_lib)
 
 add_swmmvis_gui_test(test_nninterpdegenerate
     test_nninterpdegenerate.cpp
@@ -1975,6 +2001,9 @@ add_swmmvis_gui_test(test_pslgminsize
     ${CMAKE_SOURCE_DIR}/src/mesh/pslgminsize.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
     ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/pslgminsize.h
@@ -2106,6 +2135,18 @@ add_swmmvis_gui_test(test_inpmeshwriter
     ${CMAKE_SOURCE_DIR}/include/mesh/meshinfil.h
     ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
 
+)
+
+# TRI_QUAD_MESHING_PLAN phase G5 — SMS 2DM (ND / E3T / E4Q) import. Header-only
+# mesh helpers (meshcellgeom.h) plus the reader; same lean link set.
+add_swmmvis_gui_test(test_sms2dmreader
+    test_sms2dmreader.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/sms2dmreader.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/sms2dmreader.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshcellgeom.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
 )
 
 # Slice BJ.2-lite — marching-triangles contour line extraction. Header-only
