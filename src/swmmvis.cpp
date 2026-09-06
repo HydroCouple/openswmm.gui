@@ -3441,6 +3441,8 @@ void SWMMVis::initializeSimulationStatusDockWidget()
     view->setColumnWidth(SimulationStatusModel::ColRoutingErr,   90);
     view->setColumnWidth(SimulationStatusModel::ColTwoDErr,      90);
     view->setColumnWidth(SimulationStatusModel::ColVersion,      90);
+    view->setColumnWidth(SimulationStatusModel::Col2DBackend,   150);
+    view->setColumnWidth(SimulationStatusModel::ColLtsTiers,    120);
     view->header()->setSectionResizeMode(SimulationStatusModel::ColDuration,
                                          QHeaderView::Stretch);
 
@@ -8070,6 +8072,9 @@ void SWMMVis::onRunSimulation()
 
     connect(runner, &SimulationRunner::progressChanged,
             mSimStatusModel, &SimulationStatusModel::updateProgress);
+    // 2D backend / momentum closure / LTS tier occupancy columns.
+    connect(runner, &SimulationRunner::twoDSolverStats,
+            mSimStatusModel, &SimulationStatusModel::updateTwoDSolverStats);
 
     // Also feed the bottom status-bar progress bar (show min across
     // running sims as a real percent, not busy spinner).
