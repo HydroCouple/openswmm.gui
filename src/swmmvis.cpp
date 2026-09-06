@@ -3426,6 +3426,21 @@ void SWMMVis::initializeSimulationStatusDockWidget()
 
     auto *view = ui->treeViewSimulationStatus;
     view->setModel(mSimStatusModel);
+    // Right-click → copy the cell's full text (tooltip first: the failure
+    // message, solver label, tier shares) — engine error messages are
+    // multi-line and the tree view has no copy of its own.
+    view->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(view, &QTreeView::customContextMenuRequested, this,
+            [this, view](const QPoint &pos) {
+                const QModelIndex idx = view->indexAt(pos);
+                if (!idx.isValid()) return;
+                QMenu menu(view);
+                QAction *copy = menu.addAction(tr("Copy"));
+                if (menu.exec(view->viewport()->mapToGlobal(pos)) != copy) return;
+                QString text = idx.data(Qt::ToolTipRole).toString();
+                if (text.isEmpty()) text = idx.data(Qt::DisplayRole).toString();
+                QApplication::clipboard()->setText(text);
+            });
     view->setUniformRowHeights(true);
     view->setAlternatingRowColors(true);
     view->header()->setStretchLastSection(false);
