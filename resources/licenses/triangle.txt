@@ -19,7 +19,7 @@ and you are instead telling them how they can obtain it for free, then
 you are not required to make any arrangement with me.)
 
 The full canonical license header is reproduced verbatim in
-`OpenSWMMCore/src/engine/2d/triangle/triangle.c`. A copy is also
+`OpenSWMMEngine/src/engine/2d/triangle/triangle.c`. A copy is also
 mirrored here when packaging.
 
 Source: https://www.cs.cmu.edu/~quake/triangle.html

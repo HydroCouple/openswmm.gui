@@ -3,7 +3,7 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  A single-window editing session bound to one OpenSWMM workspace.
+ * \brief  A single-window editing session bound to one SWMMVis workspace.
  *
  * \details OpenSWMMVisSession binds an OpenSWMMVisWorkspace (project data) to
  *          an OpenSWMMVisGraphicsView (interactive map overlay). Each project

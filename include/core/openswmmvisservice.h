@@ -4,7 +4,7 @@
  * \date   2026
  * \license GPL-3.0-or-later
  * \brief  Abstract base interface for all plug-in services registered with the
- *         OpenSWMM visualiser at runtime.
+ *         SWMMVis visualiser at runtime.
  *
  * \details Services are registered by name and version using a static service
  *          registry. Callers retrieve a service by name, pass a request object,

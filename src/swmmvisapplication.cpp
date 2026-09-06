@@ -52,7 +52,7 @@ SWMMVisCoreApplication::SWMMVisCoreApplication(int& argc, char* argv[])
 
     QString version = QString("%1").arg(SWMM_VERSION);
     setApplicationVersion(version);
-    setApplicationName("OpenSWMM Stormwater Management Model");
+    setApplicationName("SWMMVis Stormwater Management Model");
 }
 
 /*!
@@ -95,7 +95,7 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
 
     QString version = QString("%1").arg(SWMM_VERSION);
     setApplicationVersion(version);
-    setApplicationName("OpenSWMM Stormwater Management Model");
+    setApplicationName("SWMMVis Stormwater Management Model");
     setApplicationDisplayName("SWMM");
 
     // Seed bundled examples into the per-user data dir before the Welcome

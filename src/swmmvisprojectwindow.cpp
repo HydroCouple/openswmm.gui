@@ -1203,13 +1203,13 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
 
     watcher->setFuture(QtConcurrent::run([meshPath]() -> ImportOutcome {
         ImportOutcome out;
-        // An OpenSWMM .2dm is section-formatted exactly like the inline mesh
+        // A SWMMVis .2dm is section-formatted exactly like the inline mesh
         // block of an .inp, so the same reader parses it directly.
         mesh::InpMeshReadResult read = mesh::InpMeshReader::read(meshPath);
         if (!read.hasMesh) {
             out.errorMsg = read.errorMsg.isEmpty()
                 ? QCoreApplication::translate("SWMMVisProjectWindow",
-                      "%1 does not contain an OpenSWMM 2D mesh — no "
+                      "%1 does not contain a SWMMVis 2D mesh — no "
                       "[2D_VERTICES] / [2D_TRIANGLES] sections were found.")
                       .arg(QFileInfo(meshPath).fileName())
                 : read.errorMsg;

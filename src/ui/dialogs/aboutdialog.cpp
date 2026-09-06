@@ -305,7 +305,7 @@ void AboutDialog::showApplicationOverview()
     m_currentComponent = -1;
     m_nameLabel->setText(QStringLiteral("SWMMVis %1").arg(applicationVersionString()));
     m_metaLabel->setText(tr(
-        "Open-source Qt6 GUI for the OpenSWMM engine.<br>"
+        "Open-source Qt6 GUI for the SWMMVis engine.<br>"
         "Select a component on the left to view its license and metadata."));
     m_licenseText->clear();
     m_licenseText->setPlaceholderText(tr("Select a component to view its license."));

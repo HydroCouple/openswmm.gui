@@ -3,7 +3,7 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  Map layer that renders an OpenSWMMCore network (nodes, links,
+ * \brief  Map layer that renders an OpenSWMMEngine network (nodes, links,
  *         subcatchments, rain gages) and provides geometry-editing and
  *         spatial-query APIs.
  */
@@ -118,8 +118,8 @@ struct SWMMElementSymbol
 /*!
  * \class SWMMModelLayer
  * \brief Renders the SWMM network elements (nodes, links, subcatchments, rain gages)
- *        for one OpenSWMMCore model.
- * \details The layer uses the coordinate frame of the OpenSWMMCore model as its
+ *        for one OpenSWMMEngine model.
+ * \details The layer uses the coordinate frame of the OpenSWMMEngine model as its
  *          native CRS.  When the canvas CRS differs, coordinates are reprojected
  *          using GDAL's OGRCoordinateTransformation.
  *

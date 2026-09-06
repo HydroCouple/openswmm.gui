@@ -4,7 +4,7 @@
  * \date   2026
  * \license GPL-3.0-or-later
  * \brief  Coverage for SWMMVisProjectWindow::importMeshFileAsync() — the
- *         browse-and-load path for an existing OpenSWMM 2D mesh (.2dm).
+ *         browse-and-load path for an existing SWMMVis 2D mesh (.2dm).
  *
  *         Before this, a .2dm could only reach a model by already sitting
  *         next to its .inp (Simulation Options → Mesh only lists siblings of
@@ -16,7 +16,7 @@
  *           - the engine's in-memory MESH_FILE mirrors the import, or the
  *             next save re-serialises the .inp without the linkage and the
  *             model silently reverts to 1D;
- *           - a file that is not an OpenSWMM mesh is rejected AND the copy it
+ *           - a file that is not a SWMMVis mesh is rejected AND the copy it
  *             produced is cleaned up (no junk .2dm left in the project);
  *           - a name collision never silently clobbers the existing mesh —
  *             "Keep Both" writes a uniquified sibling;

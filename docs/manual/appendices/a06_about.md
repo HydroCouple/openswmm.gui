@@ -36,7 +36,7 @@ That block is the first thing to attach to a bug report — its tooltip says so
 (*Copy the build / OS / Qt summary to the clipboard*).
 
 With nothing selected, the right pane shows the application overview:
-*Open-source Qt6 GUI for the OpenSWMM engine. Select a component on the left to
+*Open-source Qt6 GUI for the SWMMVis engine. Select a component on the left to
 view its license and metadata.*
 
 | Control | What it does |
@@ -95,7 +95,7 @@ back.
 
 ### Licensing summary
 
-**SWMMVis itself is GPL-3.0-or-later**, © 2026 HydroCouple. The OpenSWMM engine
+**SWMMVis itself is GPL-3.0-or-later**, © 2026 HydroCouple. The SWMMVis engine
 is MIT-licensed and can be used independently of the GUI. Qt 6 is used under
 LGPL-3.0.
 
