@@ -6,6 +6,7 @@
  */
 #include "mesh/meshboundarygraph.h"
 
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshresult.h"
 
 #include <cmath>
@@ -35,14 +36,14 @@ MeshBoundaryGraph MeshBoundaryGraph::build(const MeshResult &mesh,
 
     for (int t = 0; t < nt; ++t) {
         const MeshTriangle &tri = mesh.triangles[t];
-        // Edge local e is opposite vertex e — the convention shared by
-        // pickEdgeAt / buildBoundaryFlags / the engine.
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const int slot = t * 3 + e;
+        // Edge local e = (v[(e+1)%nv], v[(e+2)%nv]) — the convention shared
+        // by pickEdgeAt / buildBoundaryFlags / the engine (mesh::edgeEndpoints).
+        const int nvert = tri.vertexCount();
+        for (int e = 0; e < nvert; ++e) {
+            const int slot = edgeSlot(t, e);
             if (slot >= int(isBoundary.size()) || !isBoundary[slot]) continue;
-            const int v0 = va[e], v1 = vb[e];
+            int v0 = -1, v1 = -1;
+            edgeEndpoints(tri, e, v0, v1);
             if (v0 < 0 || v0 >= nv || v1 < 0 || v1 >= nv || v0 == v1) continue;
 
             const QPointF &p0 = mesh.vertices[v0].xy;

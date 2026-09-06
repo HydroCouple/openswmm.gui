@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "mesh/meshobjectref.h"
+#include "mesh/meshcellgeom.h"
 
 #include <QFileInfo>
 
@@ -89,7 +90,8 @@ bool MeshObjectRef::parseEdge(const SWMMObjectRef &ref,
     bool ok1 = false, ok2 = false;
     const int tri = tail.left(colonIdx).toInt(&ok1);
     const int e   = tail.mid(colonIdx + 1).toInt(&ok2);
-    if (!ok1 || !ok2 || tri < 0 || e < 0 || e > 2) return false;
+    // Edge 3 exists on a quad; the caller bounds e against the cell's nv.
+    if (!ok1 || !ok2 || tri < 0 || e < 0 || e >= mesh::kEdgeStride) return false;
     if (outLayerKey)   *outLayerKey   = layerStr;
     if (outTriIdx)     *outTriIdx     = tri;
     if (outEdgeLocal)  *outEdgeLocal  = e;

@@ -22,7 +22,7 @@ namespace mesh {
 struct MeshResult;
 
 /*! \brief Undirected graph whose nodes are mesh vertices and whose arcs
- *  are boundary edge slots (`triIdx * 3 + edgeLocal`).
+ *  are boundary edge slots (`mesh::edgeSlot(cell, edgeLocal)`).
  *
  * Boundary status is supplied by the caller as the same flat flag vector
  * the layer keeps (`buildBoundaryFlags`), so marker-tagged internal
@@ -34,7 +34,7 @@ class MeshBoundaryGraph
 {
 public:
     /*! \brief Build from \p mesh and the flat per-slot boundary flags
-     *  (`isBoundary[tri*3 + e]`). Slots outside the flag vector, slots
+     *  (`isBoundary[mesh::edgeSlot(cell, e)]`). Slots outside the flag vector, slots
      *  with out-of-range or degenerate vertex indices, are skipped. */
     static MeshBoundaryGraph build(const MeshResult &mesh,
                                    const QVector<bool> &isBoundary);
@@ -57,14 +57,14 @@ public:
     /*! \brief Number of boundary edge slots in the graph. */
     [[nodiscard]] int edgeCount() const { return int(m_edges.size()); }
 
-    /*! \brief True when \p slot (`tri*3 + edgeLocal`) is one of them. */
+    /*! \brief True when \p slot (`mesh::edgeSlot(cell, edgeLocal)`) is one of them. */
     [[nodiscard]] bool contains(int slot) const
     { return m_slotToEdge.contains(slot); }
 
 private:
     struct Edge
     {
-        int    slot = -1;   ///< tri * 3 + edgeLocal
+        int    slot = -1;   ///< mesh::edgeSlot(cell, edgeLocal)
         int    a    = -1;   ///< compact vertex id
         int    b    = -1;   ///< compact vertex id
         double len  = 0.0;  ///< 2D segment length, mesh units

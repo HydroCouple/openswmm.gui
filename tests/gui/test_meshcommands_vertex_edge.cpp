@@ -20,6 +20,8 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "map/meshcommands.h"
 #include "mesh/meshresult.h"
+#include "mesh/meshcellgeom.h"
+#include "mesh/meshcellstats.h"
 
 #include <QTest>
 
@@ -66,6 +68,30 @@ bool findBoundary(const SWMM2DMeshLayer &layer, int *tri, int *e)
         for (int k = 0; k < 3; ++k)
             if (layer.isBoundaryEdge(t, k)) { *tri = t; *e = k; return true; }
     return false;
+}
+
+/*! Two triangles + one quad sharing edges:
+ *
+ *      3-----2-----5          cells: T0 = (0,1,2)   T1 = (0,2,3)
+ *      |    /|     |                 Q2 = (1,4,5,2) (after the triangles)
+ *      |   / |  Q2 |
+ *      |  /  |     |          interior edges: (0,2) T0/T1, (1,2) T0/Q2
+ *      | /   |     |
+ *      0-----1-----4                                                    */
+mesh::MeshResult makeMixed()
+{
+    mesh::MeshResult m;
+    auto vtx = [&m](double x, double y, double z) {
+        mesh::MeshVertex v; v.xy = QPointF(x, y); v.z = z; m.vertices.append(v);
+    };
+    vtx(0, 0, 0.0); vtx(1, 0, 1.0); vtx(1, 1, 3.0); vtx(0, 1, 2.0);
+    vtx(2, 0, 1.5); vtx(2, 1, 2.5);
+    mesh::MeshTriangle t0; t0.v0 = 0; t0.v1 = 1; t0.v2 = 2;
+    mesh::MeshTriangle t1; t1.v0 = 0; t1.v1 = 2; t1.v2 = 3;
+    mesh::MeshTriangle q;  q.v0 = 1;  q.v1 = 4;  q.v2 = 5;  q.v3 = 2;
+    m.triangles = { t0, t1, q };
+    m.ok = true;
+    return m;
 }
 
 } // namespace
@@ -166,8 +192,8 @@ private slots:
         SWMM2DMeshLayer layer(makeStrip(3), QString());
         int tri = -1, e = -1, nTri = -1, nE = -1;
         QVERIFY(findInteriorPair(layer, &tri, &e, &nTri, &nE));
-        const int flat  = tri  * 3 + e;
-        const int nFlat = nTri * 3 + nE;
+        const int flat  = mesh::edgeSlot(tri, e);
+        const int nFlat = mesh::edgeSlot(nTri, nE);
 
         QCOMPARE(layer.edgeBCs()[flat].conveyance,  1.0);
         QCOMPARE(layer.edgeBCs()[nFlat].conveyance, 1.0);
@@ -203,7 +229,7 @@ private slots:
         QVERIFY(findBoundary(layer, &bTri, &bE));
         QCOMPARE(mesh::pushEdgeParamEdit(&layer, {qMakePair(bTri, bE)},
                                          "head", 3.0, nullptr), 1);
-        QCOMPARE(layer.edgeBCs()[bTri * 3 + bE].head, 3.0);
+        QCOMPARE(layer.edgeBCs()[mesh::edgeSlot(bTri, bE)].head, 3.0);
     }
 
     void bc_write_preserves_group_and_conveyance()
@@ -211,7 +237,7 @@ private slots:
         SWMM2DMeshLayer layer(makeStrip(3), QString());
         int bTri = -1, bE = -1;
         QVERIFY(findBoundary(layer, &bTri, &bE));
-        const int flat = bTri * 3 + bE;
+        const int flat = mesh::edgeSlot(bTri, bE);
 
         mesh::pushEdgeParamEdit(&layer, {qMakePair(bTri, bE)}, "group",
                                 QStringLiteral("west"), nullptr);
@@ -236,7 +262,7 @@ private slots:
         SWMM2DMeshLayer layer(makeStrip(3), QString());
         int bTri = -1, bE = -1;
         QVERIFY(findBoundary(layer, &bTri, &bE));
-        const int flat = bTri * 3 + bE;
+        const int flat = mesh::edgeSlot(bTri, bE);
 
         mesh::MeshEdgeBC stage;
         stage.type = mesh::MeshBCTypes::Type::SpecifiedStageConst;
@@ -268,7 +294,92 @@ private slots:
                                          "conveyance", 1.7, nullptr), 0);
         QCOMPARE(mesh::pushEdgeParamEdit(&layer, {qMakePair(bTri, bE)},
                                          "conveyance", -0.1, nullptr), 0);
-        QCOMPARE(layer.edgeBCs()[bTri * 3 + bE].conveyance, 1.0);
+        QCOMPARE(layer.edgeBCs()[mesh::edgeSlot(bTri, bE)].conveyance, 1.0);
+    }
+
+    // ---- mixed triangle / quad mesh (TRI_QUAD_MESHING_PLAN G1) ----------
+
+    void mixed_mesh_edge_slots_endpoints_hit_test_and_stats()
+    {
+        SWMM2DMeshLayer layer(makeMixed(), QString());
+        QCOMPARE(layer.triangleCount(), 3);
+        QCOMPARE(layer.quadCount(), 1);
+
+        // Stride-4 slot layout: 3 cells → 12 slots, whether or not a cell
+        // uses its fourth slot.
+        QCOMPARE(layer.edgeBCs().size(), mesh::edgeSlotCount(3));
+        QCOMPARE(layer.edgeBCs().size(), 12);
+
+        // The quad's four edges, edge k = (v[(k+1)%4], v[(k+2)%4]).
+        const mesh::MeshTriangle &q = layer.mesh().triangles[2];
+        QVERIFY(q.isQuad());
+        int a = -1, b = -1;
+        mesh::edgeEndpoints(q, 0, a, b); QCOMPARE(qMakePair(a, b), qMakePair(4, 5));
+        mesh::edgeEndpoints(q, 1, a, b); QCOMPARE(qMakePair(a, b), qMakePair(5, 2));
+        mesh::edgeEndpoints(q, 2, a, b); QCOMPARE(qMakePair(a, b), qMakePair(2, 1));
+        mesh::edgeEndpoints(q, 3, a, b); QCOMPARE(qMakePair(a, b), qMakePair(1, 4));
+        // A triangle's edge 0 is still the edge opposite vertex 0.
+        mesh::edgeEndpoints(layer.mesh().triangles[0], 0, a, b);
+        QCOMPARE(qMakePair(a, b), qMakePair(1, 2));
+
+        // Boundary flags: the quad's edge 2 = (2,1) is shared with T0 and is
+        // interior; its other three edges are on the outline. A triangle's
+        // unused slot 3 is never a boundary edge.
+        QVERIFY(!layer.isBoundaryEdge(2, 2));
+        QVERIFY( layer.isBoundaryEdge(2, 0));
+        QVERIFY( layer.isBoundaryEdge(2, 1));
+        QVERIFY( layer.isBoundaryEdge(2, 3));
+        QVERIFY(!layer.isBoundaryEdge(0, 3));
+        // The interior pairing crosses the tri/quad boundary both ways:
+        // T0 edge 0 = (1,2) ↔ Q2 edge 2 = (2,1).
+        QCOMPARE(layer.findEdgeNeighbour(0, 0), qMakePair(2, 2));
+        QCOMPARE(layer.findEdgeNeighbour(2, 2), qMakePair(0, 0));
+
+        // Conveyance mirrors onto the quad's slot through edgeEndpoints.
+        QVERIFY(layer.applyMeshEdgeConveyance(0, 0, 0.4));
+        QCOMPARE(layer.edgeBCs()[mesh::edgeSlot(2, 2)].conveyance, 0.4);
+        // Local edge 3 is valid on the quad, invalid on a triangle.
+        QVERIFY( layer.applyMeshEdgeConveyance(2, 3, 0.7));
+        QVERIFY(!layer.applyMeshEdgeConveyance(0, 3, 0.7));
+
+        // Fan: one SceneTri per triangle, two for the quad, tagged by cell.
+        QCOMPARE(layer.m_sceneTris.size(), 4);
+        QCOMPARE(layer.m_cellSceneStart.size(), 4);
+        QCOMPARE(layer.m_cellSceneStart[2], 2);
+        QCOMPARE(layer.m_cellSceneStart[3], 4);
+        QCOMPARE(layer.m_sceneTris[2].cell, 2);
+        QCOMPARE(layer.m_sceneTris[3].cell, 2);
+
+        // Hit-test inside the quad (scene y is -map y) returns the CELL index,
+        // whichever sub-triangle the point falls in. With z = (1.0, 1.5, 2.5,
+        // 3.0) at corners (1,4,5,2) the B&S split is Case 2: sub-triangles
+        // (1,4,2) and (4,5,2), diagonal 4–2 (the line x + y = 2) — probe
+        // both sides of it.
+        QCOMPARE(layer.locateTriangleAt(1.2, -0.5), 2);   // x + y < 2 → (1,4,2)
+        QCOMPARE(layer.locateTriangleAt(1.8, -0.7), 2);   // x + y > 2 → (4,5,2)
+        QCOMPARE(layer.pickCellAt(QPointF(1.5, -0.5)), 2);
+        QCOMPARE(layer.locateTriangleAt(0.75, -0.25), 0);
+        QCOMPARE(layer.locateTriangleAt(0.25, -0.75), 1);
+        QCOMPARE(layer.locateTriangleAt(2.5, -0.5), -1);
+        // The quad's outline (four edges, no diagonal) — the deduplicated
+        // scene edge set: 3 + 3 + 4 − 2 shared = 8.
+        QCOMPARE(layer.edgeCount(), 8);
+        // Rect pick by centroid: the quad's centroid is (1.5, 0.5).
+        const QVector<int> inRect = layer.pickCellsInRect(QRectF(1.1, -0.9, 0.8, 0.8));
+        QCOMPARE(inRect, QVector<int>{2});
+
+        // Cell statistics on the mixed mesh.
+        const mesh::CellAreaStats as = mesh::computeCellAreaStats(layer.mesh());
+        QCOMPARE(as.count, 3);
+        QCOMPARE(as.max, 1.0);            // the unit-square quad
+        QCOMPARE(as.min, 0.5);
+        QCOMPARE(mesh::triangleArea(layer.mesh(), 2), 1.0);
+        const mesh::QuadStats qs = mesh::computeQuadStats(layer.mesh());
+        QCOMPARE(qs.count, 1);
+        QVERIFY(qFuzzyCompare(qs.minAngleDeg, 90.0));
+        QVERIFY(qFuzzyCompare(qs.maxAngleDeg, 90.0));
+        // z = 1.0, 1.5, 2.5, 3.0 → twist |1.0 − 1.5 + 2.5 − 3.0| / 4 = 0.25.
+        QVERIFY(qFuzzyCompare(qs.maxNonPlanarity, 0.25));
     }
 };
 

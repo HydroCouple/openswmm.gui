@@ -199,6 +199,7 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
 #include "mesh/inpmeshreader.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshobjectref.h"
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
 #include "ui/dialogs/assignraingagesdialog.h"
@@ -5562,7 +5563,7 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
         // Slice §V.VD.1 — preload any parsed [2D_BOUNDARY_CONDITIONS] into
         // the layer's BC SoA. With the deferred build the BC slots don't
         // exist yet, so size against the triangle count directly.
-        if (meshRead.edgeBCs.size() == meshLayer->triangleCount() * 3)
+        if (meshRead.edgeBCs.size() == mesh::edgeSlotCount(meshLayer->triangleCount()))
             meshLayer->edgeBCsMutable() = meshRead.edgeBCs;
         meshLayer->setName(meshRead.sourcePath.isEmpty()
                                ? QStringLiteral("Mesh (inline)")
@@ -8250,18 +8251,21 @@ void SWMMVis::onRunSimulation()
             [self, pwGuard]
             (int twoDJobId, QString h5Path,
              QVector<double> vx, QVector<double> vy, QVector<double> vz,
-             QVector<int> triFlat) {
+             QVector<int> cellFlat) {
                 if (!self || !pwGuard || !pwGuard->canvas()) return;
-                const int nTri = triFlat.size() / 3;
-                std::vector<std::array<int, 3>> tris(nTri);
-                for (int t = 0; t < nTri; ++t) {
-                    tris[t] = { triFlat[t*3+0], triFlat[t*3+1], triFlat[t*3+2] };
+                // Cell connectivity is [v0,v1,v2,v3] per cell, v3 = -1 for a
+                // triangle (mixed tri/quad meshes, kEdgeStride = 4).
+                const int nCells = cellFlat.size() / 4;
+                std::vector<std::array<int, 4>> cells(nCells);
+                for (int c = 0; c < nCells; ++c) {
+                    cells[c] = { cellFlat[c*4+0], cellFlat[c*4+1],
+                                 cellFlat[c*4+2], cellFlat[c*4+3] };
                 }
                 auto source = std::make_unique<EngineMesh2DSource>(
                     std::vector<double>(vx.begin(), vx.end()),
                     std::vector<double>(vy.begin(), vy.end()),
                     std::vector<double>(vz.begin(), vz.end()),
-                    std::move(tris));
+                    std::move(cells));
 
                 // One results layer per file: a rerun OVERWRITES the .h5, so
                 // reuse any existing 2D results layer already pointing at it
@@ -8336,8 +8340,8 @@ void SWMMVis::onRunSimulation()
                 }
 
                 self->onLogMessage(tr("2D surface routing active: %1 vertices, "
-                                       "%2 triangles. Output → %3")
-                                       .arg(vx.size()).arg(nTri)
+                                       "%2 cells. Output → %3")
+                                       .arg(vx.size()).arg(nCells)
                                        .arg(h5Path.isEmpty()
                                             ? tr("(no HDF5 path set)")
                                             : QFileInfo(h5Path).fileName()));
@@ -9242,7 +9246,7 @@ void SWMMVis::onAddMesh2DLayer()
 
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Add 2D Mesh"), startDir,
-        tr("SWMMVis 2D Mesh (*.2dm);;All Files (*)"));
+        tr("2D Mesh — SWMMVis or SMS 2DM (*.2dm);;All Files (*)"));
     if (path.isEmpty()) return;
 
     beginFileOpen(path);

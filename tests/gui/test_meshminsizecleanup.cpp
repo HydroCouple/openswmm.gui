@@ -711,6 +711,47 @@ private slots:
         QVERIFY(s.contains(QStringLiteral("collapsed")));
         QVERIFY(s.contains(QStringLiteral("min area")));
     }
+
+    /*! Mixed mesh: a short interior edge whose endpoints belong to a quad
+     *  is refused in both modes — quads are never split, flipped, collapsed
+     *  or deformed (workplans/TRI_QUAD_MESHING_PLAN §3.3). The same sliver
+     *  next to triangles only is still collapsed. */
+    void quadsAreNeverTouched()
+    {
+        // Quad 0-1-2-3 (unit square) with a sliver triangle fan hanging off
+        // its right edge (1,2): vertices 4 and 5 are 0.05 apart, and the
+        // short edge (4,5) touches only triangles — that one may collapse.
+        // A second sliver (1,6) with 6 very close to quad corner 1 touches
+        // the quad and must be refused.
+        MeshResult m;
+        m.ok = true;
+        m.vertices = { vtx(0, 0), vtx(1, 0), vtx(1, 1), vtx(0, 1),
+                       vtx(2, 0.5), vtx(2.05, 0.5), vtx(1.05, -0.02) };
+        MeshTriangle q; q.v0 = 0; q.v1 = 1; q.v2 = 2; q.v3 = 3;
+        m.triangles = { tri(1, 4, 2), tri(4, 5, 2), tri(1, 5, 4),
+                        tri(0, 6, 1), q };
+        const int nQuadBefore = m.quadCount();
+
+        CleanupPolicy p;
+        p.minCellSize = 0.5;   // beta*h = 0.175 > 0.05 and > |1-6| ≈ 0.054
+        CleanupReport r;
+        QVERIFY(mesh::collapseSubScaleCells(&m, p, &r));
+
+        // The quad survives with its four corners on the unit square.
+        QCOMPARE(m.quadCount(), nQuadBefore);
+        for (const MeshTriangle &t : m.triangles) {
+            if (!t.isQuad()) continue;
+            for (int k = 0; k < 4; ++k) {
+                const QPointF c = m.vertices[t.vertex(k)].xy;
+                QVERIFY(qFuzzyIsNull(c.x()) || qFuzzyCompare(c.x(), 1.0));
+                QVERIFY(qFuzzyIsNull(c.y()) || qFuzzyCompare(c.y(), 1.0));
+            }
+        }
+        // The sliver against the quad corner was refused ...
+        QVERIFY(r.skippedProtected >= 1);
+        // ... but the triangle-only sliver (4,5) was still collapsed.
+        QVERIFY2(r.edgesCollapsed >= 1, qPrintable(r.summary()));
+    }
 };
 
 QTEST_MAIN(TestMeshMinSizeCleanup)

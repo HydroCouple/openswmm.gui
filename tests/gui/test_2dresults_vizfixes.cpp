@@ -103,6 +103,65 @@ private:
     openswmmvis::io::CoordinateReference m_ref;
 };
 
+// Mixed triangle/quad source (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md):
+// a unit-square QUAD (cell 0) sharing its right edge v1–v2 with a triangle
+// (cell 1). Flat bed. Cell depths are constant in time.
+//
+//   v3(0,1) ---- v2(1,1)
+//     |            |  \
+//     |   quad 0   |   tri 1  v4(2,0.5)
+//     |            |  /
+//   v0(0,0) ---- v1(1,0)
+//   cells = {0,1,2,3}, {1,4,2,-1}
+class FakeMixedSource : public IMesh2DSource
+{
+public:
+    FakeMixedSource(float quadDepth, float triDepth)
+        : m_quadDepth(quadDepth), m_triDepth(triDepth) {}
+
+    int vertexCount()   const override { return 5; }
+    int triangleCount() const override { return 2; }     // CELLS
+    int timeCount()     const override { return 1; }
+
+    bool readCells(std::vector<double>& vx, std::vector<double>& vy,
+                   std::vector<double>& vz,
+                   std::vector<std::array<int, 4>>& cells) override
+    {
+        vx = {0.0, 1.0, 1.0, 0.0, 2.0};
+        vy = {0.0, 0.0, 1.0, 1.0, 0.5};
+        vz = {0.0, 0.0, 0.0, 0.0, 0.0};
+        cells = {{0, 1, 2, 3}, {1, 4, 2, -1}};
+        return true;
+    }
+
+    // Display fan (not consulted by the layer, which calls readCells and
+    // splits with mesh::cellGeom itself).
+    bool readMeshGeometry(std::vector<double>& vx, std::vector<double>& vy,
+                          std::vector<double>& vz,
+                          std::vector<std::array<int, 3>>& tris) override
+    {
+        std::vector<std::array<int, 4>> cells;
+        readCells(vx, vy, vz, cells);
+        tris = {{0, 1, 3}, {1, 2, 3}, {1, 4, 2}};
+        return true;
+    }
+
+    bool readDepthsAt(int t, std::vector<float>& depths) override
+    {
+        if (t != 0) return false;
+        depths = {m_quadDepth, m_triDepth};
+        return true;
+    }
+
+    QDateTime simTimeAt(int t) const override
+    {
+        return QDateTime(QDate(2026, 1, 1), QTime(0, 0)).addSecs(qint64(t) * 60);
+    }
+
+private:
+    float m_quadDepth, m_triDepth;
+};
+
 } // namespace
 
 class Test2DResultsVizFixes : public QObject
@@ -118,7 +177,57 @@ private slots:
     void metricModelIsUnscaled();
     void undeclaredSourceUsesCallerFallback();
     void undeclaredSourceDefaultsToNoScaling();
+    void mixedMeshQuadRendersAsFanOfItsCell();
 };
+
+// Tri-quad G1/G4 — a quad is displayed as its two VFR sub-triangles, both
+// carrying the QUAD's value and both hit-testing back to the quad's cell
+// index; the wireframe strokes the true quad boundary (no diagonal); and the
+// vertex reconstruction weights the quad's vote by 3/4 of a triangle's
+// (the plan's 1/nv rule, normalised so triangles are unchanged).
+void Test2DResultsVizFixes::mixedMeshQuadRendersAsFanOfItsCell()
+{
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::make_unique<FakeMixedSource>(/*quad=*/0.4f, /*tri=*/0.2f));
+    layer.setCurrentTimeIndex(0);
+
+    // Fan: 2 sub-triangles for the quad + 1 for the triangle; cells stay 2.
+    QCOMPARE(layer.cellCount(), 2);
+    QCOMPARE(layer.m_sceneTris.size(), 3);
+    QCOMPARE(layer.triVertexIndices().size(), size_t(3));
+    QCOMPARE(layer.triCellMap(), (std::vector<int>{0, 0, 1}));
+    QCOMPARE(layer.cellTriRange(), (std::vector<int>{0, 2, 3}));
+
+    // Both halves of the quad answer with cell 0 (scene y = -model y).
+    const QPointF inLowerHalf(0.25, -0.25);
+    const QPointF inUpperHalf(0.75, -0.75);
+    QCOMPARE(layer.pickCellAt(inLowerHalf), 0);
+    QCOMPARE(layer.pickCellAt(inUpperHalf), 0);
+    QCOMPARE(layer.pickCellAt(QPointF(1.5, -0.5)), 1);
+
+    // ...and both read the quad's cell value.
+    QCOMPARE(layer.depthAtSceneNow(inLowerHalf), 0.4f);
+    QCOMPARE(layer.depthAtSceneNow(inUpperHalf), 0.4f);
+    QCOMPARE(layer.depthAtSceneNow(QPointF(1.5, -0.5)), 0.2f);
+    QVERIFY(layer.cellHasSurface(0));
+    QVERIFY(layer.cellHasSurface(1));
+
+    // Wireframe: 4 quad edges + 3 triangle edges − 1 shared = 6, no diagonal.
+    QCOMPARE(layer.m_sceneEdges.size(), 6);
+
+    // Vertex reconstruction on the flat bed: η = h per cell, so at a shared
+    // vertex (v1) the depth-weighted blend with weights h·(3/nv) is
+    //   (0.75·0.4·0.4 + 1·0.2·0.2) / (0.75·0.4 + 0.2) = 0.16 / 0.5 = 0.32;
+    // at a quad-only vertex (v0) it is the quad's 0.4.
+    const float atShared   = layer.depthAtSceneInterp(QPointF(1.0, 0.0));
+    const float atQuadOnly = layer.depthAtSceneInterp(QPointF(0.0, 0.0));
+    QVERIFY(std::abs(atShared   - 0.32f) < 1e-5f);
+    QVERIFY(std::abs(atQuadOnly - 0.40f) < 1e-5f);
+
+    // Rect pick answers in cell indices, once per cell.
+    const QVector<int> picked = layer.pickCellsInRect(QRectF(-1.0, -2.0, 4.0, 3.0));
+    QCOMPARE(picked, (QVector<int>{0, 1}));
+}
 
 // Issue #155 — the source hands over SI metres; a foot-based model CRS needs
 // them divided by metres_per_model_unit before they mean anything on a canvas

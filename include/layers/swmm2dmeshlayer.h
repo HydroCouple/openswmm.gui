@@ -168,9 +168,13 @@ public:
     [[nodiscard]] bool meshUnitsSI() const { return m_meshUnitsSI; }
     void setMeshUnitsSI(bool si)           { m_meshUnitsSI = si; }
 
-    /*! Number of triangles in the loaded mesh — exposed as metadata in
-     *  the Properties window. */
+    /*! Number of cells (triangles + quads) in the loaded mesh — exposed as
+     *  metadata in the Properties window. Name kept for the Q_PROPERTY /
+     *  saved-project compatibility. */
     [[nodiscard]] int triangleCount() const { return int(m_mesh.triangles.size()); }
+
+    /*! Number of quadrilateral cells (O(n)). */
+    [[nodiscard]] int quadCount() const { return m_mesh.quadCount(); }
 
     /*! Number of vertices in the loaded mesh — exposed as metadata in
      *  the Properties window. */
@@ -182,10 +186,10 @@ public:
     /*! Total number of unique mesh edges. m_sceneEdges is the deduplicated
      *  edge set (exact, conformance-independent) built by
      *  rebuildSceneGeometry(); before that runs, fall back to the conforming-
-     *  triangulation identity total = (3·T + B)/2. */
+     *  mesh identity total = (Σ nv + B)/2 = (3·T + Q + B)/2. */
     [[nodiscard]] int edgeCount() const {
         if (!m_sceneEdges.isEmpty()) return int(m_sceneEdges.size());
-        return (3 * triangleCount() + boundaryEdgeCount()) / 2;
+        return (3 * triangleCount() + quadCount() + boundaryEdgeCount()) / 2;
     }
 
     /*! Steepest edge slope in the mesh (rise/run), cached during scene build. */
@@ -298,9 +302,11 @@ public:
     // subscribe to attributeChanged and write through the apply* helpers.
     // ---------------------------------------------------------------------
 
-    /*! \brief Per-edge BC values; flat-indexed [tri*3 + edgeLocal]. Sized
-     *  to `n_triangles * 3` after mesh load; interior-edge slots stay at
-     *  the default Wall value (engine ignores them). */
+    /*! \brief Per-edge BC values; flat-indexed by `mesh::edgeSlot(cell,
+     *  edgeLocal)` (stride mesh::kEdgeStride = 4). Sized to
+     *  `mesh::edgeSlotCount(n_cells)` after mesh load; interior-edge slots
+     *  and a triangle's unused slot 3 stay at the default Wall value
+     *  (engine ignores them). */
     [[nodiscard]] const QVector<mesh::MeshEdgeBC> &edgeBCs() const { return m_bc; }
 
     /*! \brief Mutable BC view — used by INP reader to bulk-populate after
@@ -318,15 +324,16 @@ public:
     [[nodiscard]] int pickVertexAt(double sx, double sy,
                                     double tolPx, double pxPerSceneUnit) const;
 
-    /*! \brief Edge pick. Returns flat edge index `tri*3 + edgeLocal`
-     *  within \p tolPx of (sx,sy), or -1. When \p boundaryOnly is true,
-     *  interior edges are skipped. */
+    /*! \brief Edge pick. Returns flat edge slot `mesh::edgeSlot(cell,
+     *  edgeLocal)` within \p tolPx of (sx,sy), or -1. When \p boundaryOnly
+     *  is true, interior edges are skipped. */
     [[nodiscard]] int pickEdgeAt(double sx, double sy,
                                   double tolPx, double pxPerSceneUnit,
                                   bool boundaryOnly) const;
 
-    /*! \brief Triangle containing scene point (sx,sy), or -1 if outside
-     *  every triangle. */
+    /*! \brief Cell (mesh triangle/quad index) containing scene point
+     *  (sx,sy), or -1 if outside every cell. A quad is tested on its
+     *  sub-triangle fan. */
     [[nodiscard]] int locateTriangleAt(double sx, double sy) const;
 
     /*! \brief Triangle (cell) containing scene point \p scenePt, or -1.
@@ -488,7 +495,7 @@ public:
     [[nodiscard]] const QSet<int> &highlightedVertices() const { return m_selVertices; }
     void setHighlightedVertices(const QSet<int> &indices);
 
-    /*! \brief Flat edge indices (`tri * 3 + edgeLocal`) currently
+    /*! \brief Flat edge slots (`mesh::edgeSlot(cell, edgeLocal)`) currently
      *  selected for highlight rendering. */
     [[nodiscard]] const QSet<int> &highlightedEdges()    const { return m_selEdges; }
     void setHighlightedEdges(const QSet<int> &flatIndices);
@@ -669,13 +676,46 @@ public:
 
     // ----- Scene-geometry structs (public for SWMM2DMeshQSGRenderer) ---------
 
-    /*! Per-triangle: scene-space vertices + per-vertex z (for hillshade). */
+    /*! Per fill triangle: scene-space vertices + per-vertex z (for hillshade).
+     *
+     *  m_sceneTris is the SUB-TRIANGLE FAN of the mesh cells (workplans/
+     *  TRI_QUAD_MESHING_PLAN_2026-09-06.md §5): one entry per triangle, two
+     *  per quad (split on the engine's VFR diagonal by mesh::cellGeom), each
+     *  carrying the index of the cell it belongs to. Entries of one cell are
+     *  consecutive — see m_cellSceneStart. Cells with an out-of-range vertex
+     *  id emit nothing. */
     struct SceneTri
     {
         QPointF a, b, c;
         float   zAvg;       ///< Average vertex z — elevation colour.
         float   z0, z1, z2; ///< Per-vertex z — hillshade face normal.
+        int     cell = -1;  ///< Mesh cell index (MeshResult::triangles).
     };
+
+    /*! Append the vertex elevations of a SceneTri fan to \p out, counting
+     *  every CELL vertex once: a quad's second sub-triangle shares the
+     *  diagonal with its first, so only its off-diagonal vertex is new.
+     *  Feeds the quantile / Jenks classification samplers. */
+    template <class Tris>
+    static void appendVertexElevationSamples(const Tris &tris, QVector<double> &out)
+    {
+        out.reserve(out.size() + int(tris.size()) * 3);
+        const SceneTri *prev = nullptr;
+        for (const SceneTri &t : tris) {
+            if (prev && t.cell >= 0 && t.cell == prev->cell) {
+                const QPointF p[3] = { t.a, t.b, t.c };
+                const float   z[3] = { t.z0, t.z1, t.z2 };
+                for (int k = 0; k < 3; ++k)
+                    if (p[k] != prev->a && p[k] != prev->b && p[k] != prev->c)
+                        out.push_back(double(z[k]));
+            } else {
+                out.push_back(double(t.z0));
+                out.push_back(double(t.z1));
+                out.push_back(double(t.z2));
+            }
+            prev = &t;
+        }
+    }
 
     /*! Per-edge: scene-space line + elevation + slope.
      *  slope = |Δz| / horizontal_distance_in_map_units.
@@ -704,7 +744,13 @@ public:
     QVector<SceneEdge> m_sceneEdges;
     QVector<SceneNode> m_sceneNodes;
 
-    /*! Flat BC slot (`tri * 3 + edgeLocal`) for each entry of m_sceneEdges;
+    /*! CSR map cell → fan: the SceneTris of cell c are
+     *  m_sceneTris[m_cellSceneStart[c] .. m_cellSceneStart[c+1]). Size
+     *  n_cells + 1; an empty range marks a cell skipped as degenerate.
+     *  Rebuilt with m_sceneTris (light and full builds). */
+    QVector<qint32>    m_cellSceneStart;
+
+    /*! Flat BC slot (`mesh::edgeSlot(cell, edgeLocal)`) for each entry of m_sceneEdges;
      *  -1 when no slot could be resolved. Parallel vector rather than a field
      *  on SceneEdge: SceneEdge is 40 bytes and an extra int pads it to 48,
      *  whereas this costs exactly 4 bytes per edge and leaves the hot struct's
@@ -770,6 +816,11 @@ signals:
 private:
     void rebuildSceneGeometry();
 
+    /*! Index into m_sceneTris of the fan triangle containing (sx,sy), or -1.
+     *  locateTriangleAt() maps this back to the cell; sampleZAt() needs the
+     *  sub-triangle itself for the barycentric blend. */
+    [[nodiscard]] int locateSceneTriAt(double sx, double sy) const;
+
     /*! \brief Build the coarse LOD overview (m_overviewTris) from
      *  m_sceneTris. Called at the end of rebuildSceneGeometry(); a no-op
      *  for meshes below the size threshold (small meshes render full-res
@@ -781,7 +832,7 @@ private:
     // state. Lazy-built on first ruleList() call.
     mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
 
-    // §V.VA — keep m_bc sized to n_triangles * 3 in sync with the mesh,
+    // §V.VA — keep m_bc sized to mesh::edgeSlotCount(n_cells) in sync with the mesh,
     // and rebuild the vertex→triangles adjacency used by sampleZAt /
     // applyMeshVertexZ.
     void resizeBCsToMesh();
@@ -879,9 +930,10 @@ private:
     // null.  Paint refactor deferred until Slice BB ColorRamp ships.
     std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
 
-    // §V.VA — per-edge BC storage, sized to n_triangles * 3. Flat indexed
-    // as `tri * 3 + edgeLocal`. Interior-edge entries stay at the default
-    // Wall value; engine consults only boundary slots.
+    // §V.VA — per-edge BC storage, sized to mesh::edgeSlotCount(n_cells).
+    // Flat indexed as `mesh::edgeSlot(cell, edgeLocal)`. Interior-edge
+    // entries stay at the default Wall value; engine consults only boundary
+    // slots.
     QVector<mesh::MeshEdgeBC>    m_bc;
 
     // §V.VA — per-vertex CSR adjacency for fast incident-triangle lookup
@@ -891,9 +943,9 @@ private:
     QVector<int>                 m_vertTriPtr;  // size = n_vertices + 1
     QVector<int>                 m_vertTriIdx;  // size = sum of incidences
 
-    // §V.VA — precomputed boundary status per (tri, edgeLocal). Flat
-    // indexed `tri*3 + eLocal`. true = this edge slot is a boundary edge
-    // in the loaded mesh. Rebuilt alongside m_bc / adjacency.
+    // §V.VA — precomputed boundary status per (cell, edgeLocal). Flat
+    // indexed `mesh::edgeSlot(cell, eLocal)`. true = this edge slot is a
+    // boundary edge in the loaded mesh. Rebuilt alongside m_bc / adjacency.
     QVector<bool>                m_isBoundary;
 
     // Lazily built from m_isBoundary by boundaryGraph(); invalidated

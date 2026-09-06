@@ -17,14 +17,15 @@
 #include <cmath>
 
 #include "mesh/meshboundarygraph.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshresult.h"
 
 namespace {
 
-/*! Per-(tri,edgeLocal) boundary flags — the same rule the mesh layer's
- *  buildBoundaryFlags applies: an edge used by only one triangle is a
+/*! Per-(cell,edgeLocal) boundary flags — the same rule the mesh layer's
+ *  buildBoundaryFlags applies: an edge used by only one cell is a
  *  boundary, and so is any edge listed in MeshResult::boundaryEdges
- *  (marker-tagged internal boundaries). */
+ *  (marker-tagged internal boundaries). Stride mesh::kEdgeStride. */
 QVector<bool> boundaryFlags(const mesh::MeshResult &m)
 {
     auto key = [](int a, int b) {
@@ -34,22 +35,24 @@ QVector<bool> boundaryFlags(const mesh::MeshResult &m)
 
     QHash<QPair<int,int>, int> uses;
     for (const auto &tri : m.triangles) {
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) ++uses[key(va[e], vb[e])];
+        for (int e = 0; e < tri.vertexCount(); ++e) {
+            int va = -1, vb = -1;
+            mesh::edgeEndpoints(tri, e, va, vb);
+            ++uses[key(va, vb)];
+        }
     }
     QSet<QPair<int,int>> marked;
     for (const auto &e : m.boundaryEdges) marked.insert(key(e.v0, e.v1));
 
-    QVector<bool> flags(nt * 3, false);
+    QVector<bool> flags(mesh::edgeSlotCount(nt), false);
     for (int t = 0; t < nt; ++t) {
         const auto &tri = m.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const auto k = key(va[e], vb[e]);
+        for (int e = 0; e < tri.vertexCount(); ++e) {
+            int va = -1, vb = -1;
+            mesh::edgeEndpoints(tri, e, va, vb);
+            const auto k = key(va, vb);
             if (uses.value(k, 0) <= 1 || marked.contains(k))
-                flags[t * 3 + e] = true;
+                flags[mesh::edgeSlot(t, e)] = true;
         }
     }
     return flags;
@@ -60,12 +63,12 @@ int slotFor(const mesh::MeshResult &m, const QVector<bool> &flags, int va, int v
 {
     for (int t = 0; t < int(m.triangles.size()); ++t) {
         const auto &tri = m.triangles[t];
-        const int a[3] = {tri.v1, tri.v2, tri.v0};
-        const int b[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const int slot = t * 3 + e;
+        for (int e = 0; e < tri.vertexCount(); ++e) {
+            const int slot = mesh::edgeSlot(t, e);
             if (!flags[slot]) continue;
-            if ((a[e] == va && b[e] == vb) || (a[e] == vb && b[e] == va))
+            int a = -1, b = -1;
+            mesh::edgeEndpoints(tri, e, a, b);
+            if ((a == va && b == vb) || (a == vb && b == va))
                 return slot;
         }
     }
@@ -92,8 +95,8 @@ mesh::MeshResult makeStrip(int wide, double height = 1.0)
     }
     for (int x = 0; x < wide; ++x) {
         const int b0 = x * 2, t0 = x * 2 + 1, b1 = (x + 1) * 2, t1 = (x + 1) * 2 + 1;
-        m.triangles.append({b0, b1, t1, {}});
-        m.triangles.append({b0, t1, t0, {}});
+        m.triangles.append({b0, b1, t1, -1, {}});
+        m.triangles.append({b0, t1, t0, -1, {}});
     }
     m.ok = true;
     return m;
@@ -112,7 +115,7 @@ mesh::MeshResult makeFan(const QVector<QPointF> &ring)
 
     const int n = int(ring.size());
     for (int i = 0; i < n; ++i)
-        m.triangles.append({centre, i, (i + 1) % n, {}});
+        m.triangles.append({centre, i, (i + 1) % n, -1, {}});
     m.ok = true;
     return m;
 }
@@ -264,7 +267,7 @@ TEST(MeshBoundaryGraph, DisconnectedLoopsHaveNoPath)
     for (const auto &v : other.vertices)
         m.vertices.append({QPointF(v.xy.x() + 100.0, v.xy.y()), 0.0, 0, {}});
     for (const auto &t : other.triangles)
-        m.triangles.append({t.v0 + base, t.v1 + base, t.v2 + base, {}});
+        m.triangles.append({t.v0 + base, t.v1 + base, t.v2 + base, -1, {}});
 
     const auto flags = boundaryFlags(m);
     const auto g = mesh::MeshBoundaryGraph::build(m, flags);

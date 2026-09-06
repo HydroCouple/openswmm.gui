@@ -49,6 +49,7 @@ class QProgressBar;
 class QPushButton;
 class QRadioButton;
 class QSpinBox;
+class QTableWidget;
 
 class MeshGenerationDialog : public QDialog
 {
@@ -159,6 +160,15 @@ public:
 
         // Mesh-quality knobs
         mesh::GenerationOptions genOpts;
+
+        // ── Mixed tri-quad output (TRI_QUAD_MESHING_PLAN §3, G2/G3) ──────
+        // Structured patches, already generated and validated on the main
+        // thread (mesh::makeTransfinitePatch / makeSweptPatch), handed to
+        // MeshGenerator::addPatch. genOpts.mergeTrianglePairs / quadMerge
+        // carry the G2 merge request; the worker runs the merge itself AFTER
+        // elevation fill and attribute seeding (so the bed-planarity test
+        // sees real z) rather than inside generate().
+        QVector<mesh::PatchMesh> patches;
 
         // 2026-08-17 — minimum cell size enforcement
         // (MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17.md).  minSizePolicy
@@ -379,6 +389,16 @@ private:
     QCheckBox      *m_dropSubScaleHolesBox = nullptr;
     QCheckBox      *m_cleanupBox           = nullptr; ///< post-mesh sliver collapse
     QLabel         *m_minCellDerivedLabel  = nullptr; ///< derived area / shift readout
+
+    // ── Quad cells (TRI_QUAD_MESHING_PLAN §3, G2 merge + G3 patches) ──
+    QCheckBox      *m_quadMergeBox         = nullptr; ///< merge triangle pairs into quads
+    QDoubleSpinBox *m_quadMinAngleSpin     = nullptr; ///< accept quads with angles >= (deg)
+    QDoubleSpinBox *m_quadMaxAngleSpin     = nullptr; ///< accept quads with angles <= (deg)
+    QDoubleSpinBox *m_quadPlanaritySpin    = nullptr; ///< max bed non-planarity (length; (off) at 0)
+    /*! One row per structured patch: Type | Points | N/Across | M/Along |
+     *  Width | Tag. Points are "x y; x y; …" in mesh CRS units — 4 corners
+     *  for a four-sided patch, the centreline for a swept patch. */
+    QTableWidget   *m_patchTable           = nullptr;
 
     // ── Thinning (terrain-adaptive Steiner points from DTM) ─────────
     QCheckBox      *m_thinningBox            = nullptr;

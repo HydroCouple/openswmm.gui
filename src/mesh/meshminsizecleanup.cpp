@@ -12,6 +12,8 @@
  */
 #include "mesh/meshminsizecleanup.h"
 
+#include "mesh/meshcellgeom.h"
+
 #include <QHash>
 #include <QSet>
 
@@ -66,12 +68,14 @@ double minTriangleArea(const MeshResult &m)
     bool any = false;
     for (const MeshTriangle &t : m.triangles)
     {
-        if (t.v0 < 0 || t.v1 < 0 || t.v2 < 0) continue;
-        if (t.v0 >= m.vertices.size() || t.v1 >= m.vertices.size()
-            || t.v2 >= m.vertices.size()) continue;
-        const double a = std::abs(signedArea(m.vertices[t.v0].xy,
-                                             m.vertices[t.v1].xy,
-                                             m.vertices[t.v2].xy));
+        const int nvc = t.vertexCount();
+        bool valid = true;
+        for (int k = 0; k < nvc; ++k)
+            if (t.vertex(k) < 0 || t.vertex(k) >= m.vertices.size()) { valid = false; break; }
+        if (!valid) continue;
+        // cellGeom: |cross|/2 for a triangle (same arithmetic as signedArea),
+        // the sub-triangle sum for a quad.
+        const double a = cellGeom(m.vertices, t).area;
         best = std::min(best, a);
         any = true;
     }
@@ -81,7 +85,8 @@ double minTriangleArea(const MeshResult &m)
 /*! Structural view of the mesh, rebuilt once per pass. */
 struct Topo
 {
-    QVector<QSet<int>>          vertTris;   ///< vertex -> incident triangles
+    QVector<QSet<int>>          vertTris;   ///< vertex -> incident cells
+    QVector<bool>               vertQuad;   ///< vertex -> touches a quad (collapse refused)
     QVector<QSet<int>>          vertNbrs;   ///< vertex -> adjacent vertices
     QHash<VKey, QVector<int>>   edgeTris;   ///< edge -> incident triangles
     QSet<int>                   boundaryVerts;
@@ -99,6 +104,9 @@ struct Topo
         protectedVert.clear();
         protectedVert.resize(nv);
         protectedVert.fill(false);
+        vertQuad.clear();
+        vertQuad.resize(nv);
+        vertQuad.fill(false);
         edgeTris.clear();
         boundaryVerts.clear();
         constrained.clear();
@@ -106,15 +114,19 @@ struct Topo
         for (int ti = 0; ti < m.triangles.size(); ++ti)
         {
             const MeshTriangle &t = m.triangles[ti];
-            const int v[3] = {t.v0, t.v1, t.v2};
-            for (int k = 0; k < 3; ++k)
+            const int nvc = t.vertexCount();
+            for (int k = 0; k < nvc; ++k)
             {
-                if (v[k] < 0 || v[k] >= nv) return;   // caller validates first
-                vertTris[v[k]].insert(ti);
+                const int vk = t.vertex(k);
+                if (vk < 0 || vk >= nv) return;   // caller validates first
+                vertTris[vk].insert(ti);
+                // Quads are never split, flipped or collapsed (workplans/
+                // TRI_QUAD_MESHING_PLAN §3.3): any vertex of a quad is frozen.
+                if (t.isQuad()) vertQuad[vk] = true;
             }
-            for (int k = 0; k < 3; ++k)
+            for (int k = 0; k < nvc; ++k)
             {
-                const int a = v[k], b = v[(k + 1) % 3];
+                const int a = t.vertex(k), b = t.vertex((k + 1) % nvc);
                 vertNbrs[a].insert(b);
                 vertNbrs[b].insert(a);
                 edgeTris[ekey(a, b)].append(ti);
@@ -207,15 +219,21 @@ struct Topo
     }
 };
 
-/*! Every triangle index is in range and references three distinct vertices. */
+/*! Every cell index is in range and references distinct vertices (three
+ *  for a triangle, four for a quad). */
 bool indicesValid(const MeshResult &m)
 {
     const int nv = m.vertices.size();
     for (const MeshTriangle &t : m.triangles)
     {
-        if (t.v0 < 0 || t.v1 < 0 || t.v2 < 0) return false;
-        if (t.v0 >= nv || t.v1 >= nv || t.v2 >= nv) return false;
-        if (t.v0 == t.v1 || t.v1 == t.v2 || t.v0 == t.v2) return false;
+        const int nvc = t.vertexCount();
+        for (int i = 0; i < nvc; ++i)
+        {
+            const int vi = t.vertex(i);
+            if (vi < 0 || vi >= nv) return false;
+            for (int j = i + 1; j < nvc; ++j)
+                if (vi == t.vertex(j)) return false;
+        }
     }
     for (const CellCoupling &c : m.cellCouplings)
         if (c.tri < 0 || c.tri >= m.triangles.size()) return false;
@@ -350,6 +368,10 @@ bool collapseSubScaleCells(MeshResult *mesh, const CleanupPolicy &policy,
                     continue;
                 }
             }
+            // A collapse moves both endpoints and deletes the incident cells;
+            // a quad at either end would be deformed (possibly non-convex) or
+            // destroyed. Quads are never touched — refuse in both modes.
+            if (topo.vertQuad[a] || topo.vertQuad[b])          { reject(); continue; }
             if (touched.contains(a) || touched.contains(b))     continue;
 
             const QVector<int> &inc = topo.edgeTris[c.second];
@@ -388,9 +410,9 @@ bool collapseSubScaleCells(MeshResult *mesh, const CleanupPolicy &policy,
             for (const int ti : inc)
             {
                 const MeshTriangle &t = mesh->triangles[ti];
-                const int v[3] = {t.v0, t.v1, t.v2};
-                for (int k = 0; k < 3; ++k)
-                    if (v[k] != a && v[k] != b) opposite.insert(v[k]);
+                const int nvc = t.vertexCount();
+                for (int k = 0; k < nvc; ++k)
+                    if (t.vertex(k) != a && t.vertex(k) != b) opposite.insert(t.vertex(k));
             }
             QSet<int> shared = topo.vertNbrs[a];
             shared.intersect(topo.vertNbrs[b]);
@@ -494,6 +516,9 @@ bool collapseSubScaleCells(MeshResult *mesh, const CleanupPolicy &policy,
             if (a == b || b == c || a == c) continue;    // collapsed away
             MeshTriangle nt = t;
             nt.v0 = a; nt.v1 = b; nt.v2 = c;
+            // A quad's vertices are frozen (vertQuad guard), so only the
+            // compaction renumbering applies to v3.
+            if (t.isQuad()) nt.v3 = mapV(t.v3);
             triRemap[ti] = out.triangles.size();
             out.triangles.append(std::move(nt));
         }

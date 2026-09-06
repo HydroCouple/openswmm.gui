@@ -8,6 +8,7 @@
 
 #include "core/swmmdatetime.h"
 #include "layers/swmm2dresultslayer.h"
+#include "mesh/meshcellgeom.h"
 
 #include <QDateTime>
 
@@ -111,22 +112,23 @@ void Mesh2DRunLayer::ensureZBedCache_() const
 
     // The layer exposes per-cell scene geometry via m_sceneTris (which holds
     // scene-space x/y but not z). Bed elevation comes from the mesh source's
-    // vertex-z array.  We pull the geometry once and average the three
-    // vertex z's per triangle.
+    // vertex-z array.  We pull the CELLS once (per-face series are per cell,
+    // not per display triangle) and average the vertex z's per cell.
     auto *src = m_layer->source();
     if (!src) return;
 
     std::vector<double> vx, vy, vz;
-    std::vector<std::array<int, 3>> tris;
-    if (!src->readMeshGeometry(vx, vy, vz, tris)) return;
+    std::vector<std::array<int, 4>> cells;
+    if (!src->readCells(vx, vy, vz, cells)) return;
 
-    m_zBed.assign(tris.size(), 0.0f);
-    for (std::size_t i = 0; i < tris.size(); ++i) {
-        const auto &t = tris[i];
-        const double z0 = (t[0] >= 0 && t[0] < static_cast<int>(vz.size())) ? vz[t[0]] : 0.0;
-        const double z1 = (t[1] >= 0 && t[1] < static_cast<int>(vz.size())) ? vz[t[1]] : 0.0;
-        const double z2 = (t[2] >= 0 && t[2] < static_cast<int>(vz.size())) ? vz[t[2]] : 0.0;
-        m_zBed[i] = static_cast<float>((z0 + z1 + z2) / 3.0);
+    m_zBed.assign(cells.size(), 0.0f);
+    for (std::size_t i = 0; i < cells.size(); ++i) {
+        const auto &c = cells[i];
+        const int nv = (c[3] >= 0) ? 4 : 3;
+        double sum = 0.0;
+        for (int k = 0; k < nv; ++k)
+            sum += (c[k] >= 0 && c[k] < static_cast<int>(vz.size())) ? vz[c[k]] : 0.0;
+        m_zBed[i] = static_cast<float>(sum / nv);
     }
     m_zBedReady = true;
 }
@@ -139,24 +141,27 @@ void Mesh2DRunLayer::ensureVertexAdjCache_() const
     if (!src) return;
 
     std::vector<double> vx, vy, vz;
-    std::vector<std::array<int, 3>> tris;
-    if (!src->readMeshGeometry(vx, vy, vz, tris)) return;
+    std::vector<std::array<int, 4>> cells;
+    if (!src->readCells(vx, vy, vz, cells)) return;
 
     const int nV = static_cast<int>(vz.size());
     m_vertexZ.assign(nV, 0.0f);
     for (int i = 0; i < nV; ++i) m_vertexZ[i] = static_cast<float>(vz[i]);
 
     m_vertexTris.assign(nV, {});
-    for (int t = 0; t < static_cast<int>(tris.size()); ++t) {
-        for (int k = 0; k < 3; ++k) {
-            const int v = tris[t][k];
+    m_cellNv.assign(cells.size(), 3);
+    for (int t = 0; t < static_cast<int>(cells.size()); ++t) {
+        const int nv = (cells[t][3] >= 0) ? 4 : 3;
+        m_cellNv[t] = static_cast<unsigned char>(nv);
+        for (int k = 0; k < nv; ++k) {
+            const int v = cells[t][k];
             if (v >= 0 && v < nV) m_vertexTris[v].push_back(t);
         }
     }
     m_vertexAdjReady = true;
 }
 
-bool Mesh2DRunLayer::reconstructVelocityAtCell_(int triIdx,
+bool Mesh2DRunLayer::reconstructVelocityAtCell_(int triIdx, int nv,
                                                 const std::vector<float>& flux,
                                                 const std::vector<float>& edge_len,
                                                 const std::vector<float>& edge_nx,
@@ -169,32 +174,40 @@ bool Mesh2DRunLayer::reconstructVelocityAtCell_(int triIdx,
     vx_out = std::nan("");
     vy_out = std::nan("");
     if (depth < dryDepth) return false;
+    if (nv < 3 || nv > mesh::kEdgeStride) return false;
 
     // q_e = flux / length. Clamp |q_e| ≤ 10 m/s to suppress wet/dry-front spikes
-    // (per CF.2.3).
-    const std::size_t base = static_cast<std::size_t>(triIdx) * 3;
-    if (base + 2 >= flux.size() || base + 2 >= edge_len.size() ||
-        base + 2 >= edge_nx.size() || base + 2 >= edge_ny.size())
+    // (per CF.2.3). Edge slots are padded to mesh::kEdgeStride per cell.
+    const std::size_t last = static_cast<std::size_t>(mesh::edgeSlot(triIdx, nv - 1));
+    if (last >= flux.size() || last >= edge_len.size() ||
+        last >= edge_nx.size() || last >= edge_ny.size())
         return false;
 
-    double q[3] = {0.0, 0.0, 0.0};
-    double nx[3] = {edge_nx[base + 0], edge_nx[base + 1], edge_nx[base + 2]};
-    double ny[3] = {edge_ny[base + 0], edge_ny[base + 1], edge_ny[base + 2]};
-    for (int e = 0; e < 3; ++e) {
-        const double len = edge_len[base + e];
+    double q[mesh::kEdgeStride] = {0.0, 0.0, 0.0, 0.0};
+    double nx[mesh::kEdgeStride] = {0.0, 0.0, 0.0, 0.0};
+    double ny[mesh::kEdgeStride] = {0.0, 0.0, 0.0, 0.0};
+    for (int e = 0; e < nv; ++e) {
+        const std::size_t slot = static_cast<std::size_t>(mesh::edgeSlot(triIdx, e));
+        const double len = edge_len[slot];
         if (len <= 0.0) return false;
-        double qe = flux[base + e] / len;
+        double qe = flux[slot] / len;
         if (qe > 10.0)  qe = 10.0;
         if (qe < -10.0) qe = -10.0;
-        q[e] = qe;
+        q[e]  = qe;
+        nx[e] = edge_nx[slot];
+        ny[e] = edge_ny[slot];
     }
 
-    // Solve (NᵀN) v = Nᵀq via closed-form 2x2 inverse.
-    const double a11 = nx[0]*nx[0] + nx[1]*nx[1] + nx[2]*nx[2];
-    const double a12 = nx[0]*ny[0] + nx[1]*ny[1] + nx[2]*ny[2];
-    const double a22 = ny[0]*ny[0] + ny[1]*ny[1] + ny[2]*ny[2];
-    const double b1  = nx[0]*q[0]  + nx[1]*q[1]  + nx[2]*q[2];
-    const double b2  = ny[0]*q[0]  + ny[1]*q[1]  + ny[2]*q[2];
+    // Solve (NᵀN) v = Nᵀq via closed-form 2x2 inverse (nv-agnostic: the
+    // normal equations sum over the cell's edges).
+    double a11 = 0.0, a12 = 0.0, a22 = 0.0, b1 = 0.0, b2 = 0.0;
+    for (int e = 0; e < nv; ++e) {
+        a11 += nx[e]*nx[e];
+        a12 += nx[e]*ny[e];
+        a22 += ny[e]*ny[e];
+        b1  += nx[e]*q[e];
+        b2  += ny[e]*q[e];
+    }
 
     const double det = a11 * a22 - a12 * a12;
     if (std::fabs(det) < 1e-12) return false;
@@ -243,11 +256,20 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
             if (!dt.isValid()) continue;
             double value = std::nan("");
             if (!inc.empty() && vsrc->readDepthsAt(t, depths)) {
-                double sum = 0.0; int n = 0;
+                // 1/nv weighting per incident cell (the plan's rule, mirroring
+                // the engine's median-dual /nv), normalised by 3 so an
+                // all-triangle mesh is the plain mean it always was: a
+                // triangle weighs 1, a quad 3/4.
+                double sum = 0.0, wsum = 0.0;
                 for (int tri : inc)
-                    if (tri >= 0 && tri < static_cast<int>(depths.size())) { sum += depths[tri]; ++n; }
-                if (n > 0) {
-                    const double d = sum / n;
+                    if (tri >= 0 && tri < static_cast<int>(depths.size())) {
+                        const double w = (tri < static_cast<int>(m_cellNv.size())
+                                          && m_cellNv[tri] == 4) ? 0.75 : 1.0;
+                        sum  += depths[tri] * w;
+                        wsum += w;
+                    }
+                if (wsum > 0.0) {
+                    const double d = sum / wsum;
                     value = (attr == PlotAttribute::Mesh2DDepth) ? d : d + zVtx;
                 }
             }
@@ -269,9 +291,12 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
             return;
         }
         auto *esrc = m_layer->source();
-        const int flat = ref.triIdx * 3 + ref.edgeLocal;
+        ensureVertexAdjCache_();   // m_cellNv — a quad has four edges
+        const int nvEdge = (ref.triIdx >= 0 && ref.triIdx < static_cast<int>(m_cellNv.size()))
+                               ? int(m_cellNv[ref.triIdx]) : 3;
+        const int flat = mesh::edgeSlot(ref.triIdx, ref.edgeLocal);
         if (ref.triIdx < 0 || ref.triIdx >= esrc->triangleCount()
-            || ref.edgeLocal < 0 || ref.edgeLocal > 2) {
+            || ref.edgeLocal < 0 || ref.edgeLocal >= nvEdge) {
             out.errorMessage = QStringLiteral("Mesh edge index out of range");
             return;
         }
@@ -341,11 +366,14 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
                           attr == PlotAttribute::Mesh2DVelocityX   ||
                           attr == PlotAttribute::Mesh2DVelocityY);
     std::vector<float> edge_len, edge_nx, edge_ny;
+    int cellNv = 3;
     if (needVel) {
         if (!src->readEdgeGeometry(edge_len, edge_nx, edge_ny)) {
             out.errorMessage = QStringLiteral("Edge geometry not available for velocity");
             return;
         }
+        ensureVertexAdjCache_();   // m_cellNv — RT0 sums over the cell's nv edges
+        if (triIdx < static_cast<int>(m_cellNv.size())) cellNv = int(m_cellNv[triIdx]);
     }
 
     const double dryDepth = m_layer->dryDepth();
@@ -396,7 +424,7 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
             if (triIdx >= static_cast<int>(depths.size())) continue;
             const double d = static_cast<double>(depths[triIdx]);
             double vx = std::nan(""), vy = std::nan("");
-            if (reconstructVelocityAtCell_(triIdx, flux, edge_len, edge_nx, edge_ny,
+            if (reconstructVelocityAtCell_(triIdx, cellNv, flux, edge_len, edge_nx, edge_ny,
                                             d, dryDepth, vx, vy))
             {
                 if      (attr == PlotAttribute::Mesh2DVelocityX) value = vx;

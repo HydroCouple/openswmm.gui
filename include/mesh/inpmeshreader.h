@@ -5,6 +5,8 @@
  * \license GPL-3.0-or-later
  *
  * Read the `[2D_*]` mesh sections — `[2D_VERTICES]`, `[2D_TRIANGLES]`,
+ * `[2D_QUADS]` (mixed meshes: quads appended after the triangles, cell
+ * index = n_triangles + j; a triangle row after a quad row is an error),
  * `[2D_VERTEX_NODE_MAP]`, `[2D_TRIANGLE_NODE_MAP]`, the per-edge
  * `[2D_BOUNDARY_CONDITIONS]` / `[2D_EDGE_CONVEYANCE]` pair and the GG0a
  * per-cell `[2D_INFILTRATION_OPTIONS]` / `[2D_INFILTRATION_DEFAULTS]` /
@@ -29,7 +31,7 @@ struct InpMeshReadResult
     MeshResult mesh;                  ///< Parsed mesh; \c mesh.ok mirrors \c hasMesh. XY are in SI metres (the engine contract); caller divides back to the project CRS for display.
     QString    sourcePath;            ///< File the mesh was parsed from (the .inp itself for inline meshes, the resolved .2dm path otherwise).
     bool       isExternal = false;    ///< True when the mesh was loaded via `[2D_MESH_FILE] FILE <path>`.
-    bool       hasMesh    = false;    ///< True only when both `[2D_VERTICES]` and `[2D_TRIANGLES]` were found and parsed into a non-empty mesh.
+    bool       hasMesh    = false;    ///< True only when `[2D_VERTICES]` and `[2D_TRIANGLES]` (or `[2D_QUADS]`) were found and parsed into a non-empty mesh.
     QString    errorMsg;              ///< Non-empty only on read failure (missing referenced .2dm, malformed sections). An .inp with no 2D sections is not an error.
     QString    warning;               ///< Non-fatal warning (e.g. legacy file missing the `;; UNITS:` header — caller may surface this).
 
@@ -43,9 +45,12 @@ struct InpMeshReadResult
     QString    sourceCrsTag;
 
     /*! \brief Slice §V.VD.1 — per-edge boundary conditions parsed from a
-     *  `[2D_BOUNDARY_CONDITIONS]` section. Flat-indexed `tri * 3 + eLocal`;
-     *  resized to `n_triangles * 3` with Wall defaults when the section is
-     *  missing. Empty when there is no mesh. */
+     *  `[2D_BOUNDARY_CONDITIONS]` section. Flat-indexed
+     *  `mesh::edgeSlot(cell, eLocal)` (stride `mesh::kEdgeStride`; slot 3 of
+     *  a triangle is unused padding); sized `mesh::edgeSlotCount(n_cells)`
+     *  with Wall defaults when the section is missing. A row whose EDGE
+     *  exceeds its cell's edge count (2 for a triangle, 3 for a quad) is
+     *  dropped. Empty when there is no mesh. */
     QVector<MeshEdgeBC> edgeBCs;
 };
 

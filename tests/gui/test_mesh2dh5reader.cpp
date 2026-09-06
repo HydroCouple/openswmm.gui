@@ -19,7 +19,9 @@
 #include <hdf5.h>
 
 #include "io/mesh2dh5reader.h"
+#include "mesh/meshcellgeom.h"
 
+#include <cmath>
 #include <cstring>
 
 using openswmmvis::io::Mesh2DH5Reader;
@@ -147,6 +149,20 @@ QString writeFixture(bool withNodeHead = false, int startIndex = 0)
         H5Sclose(sp);
     }
 
+    // /Mesh2_edge_flux [n_time, n_face, 3] — the historical all-triangle
+    // width; the reader must repack it to stride 4.
+    {
+        double flux[n_time * n_face * 3];
+        for (int i = 0; i < n_time * n_face * 3; ++i) flux[i] = 0.01 * i;
+        hsize_t dims[3] = { n_time, n_face, 3 };
+        hid_t sp = H5Screate_simple(3, dims, nullptr);
+        hid_t ds = H5Dcreate2(fid, "Mesh2_edge_flux", H5T_NATIVE_DOUBLE, sp,
+                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, flux);
+        H5Dclose(ds);
+        H5Sclose(sp);
+    }
+
     // /Mesh2_node_head + /Mesh2_node_depth [n_time, n_vert] — only on the
     // "new engine" fixture; the plain fixture doubles as the older-file
     // probe case for both datasets.
@@ -212,6 +228,126 @@ void appendCrsVariable(const QString& path,
     H5Fclose(fid);
 }
 
+/*!
+ * \brief Engine 2026-09-06 mixed triangle/quad fixture (UGRID mixed topology):
+ * a 2x1 strip — the left unit square as two triangles, the right one as a
+ * quad — so `Mesh2_face_nodes` is [3, 4] with `_FillValue = -1` and
+ * `Mesh2_face_nv` = {3, 3, 4}; the edge datasets are [3, 4] / [1, 3, 4].
+ * Vertex z makes the quad's elevation-ordered (cellGeom) diagonal
+ * unambiguous. Kept on disk for review (transparent-IO).
+ */
+constexpr int kMixNVert = 6;
+constexpr int kMixNFace = 3;
+constexpr double kMixZ[kMixNVert] = {1.0, 1.1, 1.2, 1.3, 1.4, 1.5};
+constexpr int kMixConn[kMixNFace * 4] = {
+    0, 1, 4, -1,   // T0
+    0, 4, 3, -1,   // T1
+    1, 2, 5,  4,   // Q0 (cell 2)
+};
+
+QString writeMixedFixture()
+{
+    QDir out(QDir::currentPath() + QStringLiteral("/test_artifacts"));
+    if (!out.exists()) QDir().mkpath(out.absolutePath());
+    const QString path = out.filePath(QStringLiteral("mesh2d_fixture_mixed.h5"));
+
+    hid_t fid = H5Fcreate(path.toUtf8().constData(),
+                           H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+    Q_ASSERT(fid >= 0);
+
+    {
+        const double xs[kMixNVert] = {0.0, 1.0, 2.0, 0.0, 1.0, 2.0};
+        const double ys[kMixNVert] = {0.0, 0.0, 0.0, 1.0, 1.0, 1.0};
+        hsize_t d = kMixNVert;
+        hid_t sp = H5Screate_simple(1, &d, nullptr);
+        auto writeD = [&](const char* name, const double* data) {
+            hid_t ds = H5Dcreate2(fid, name, H5T_NATIVE_DOUBLE, sp,
+                                    H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+            H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
+            H5Dclose(ds);
+        };
+        writeD("Mesh2_node_x", xs);
+        writeD("Mesh2_node_y", ys);
+        writeD("Mesh2_node_z", kMixZ);
+        H5Sclose(sp);
+    }
+    {
+        hsize_t dims[2] = { kMixNFace, 4 };
+        hid_t sp = H5Screate_simple(2, dims, nullptr);
+        hid_t ds = H5Dcreate2(fid, "Mesh2_face_nodes", H5T_NATIVE_INT, sp,
+                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(ds, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, kMixConn);
+        writeStringAttr(ds, "start_index", "0");
+        {
+            const int fill = -1;
+            hid_t asp  = H5Screate(H5S_SCALAR);
+            hid_t attr = H5Acreate2(ds, "_FillValue", H5T_NATIVE_INT, asp,
+                                    H5P_DEFAULT, H5P_DEFAULT);
+            H5Awrite(attr, H5T_NATIVE_INT, &fill);
+            H5Aclose(attr);
+            H5Sclose(asp);
+        }
+        H5Dclose(ds);
+        H5Sclose(sp);
+
+        const signed char nv[kMixNFace] = {3, 3, 4};
+        hsize_t d = kMixNFace;
+        hid_t sp1 = H5Screate_simple(1, &d, nullptr);
+        hid_t dn = H5Dcreate2(fid, "Mesh2_face_nv", H5T_NATIVE_SCHAR, sp1,
+                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(dn, H5T_NATIVE_SCHAR, H5S_ALL, H5S_ALL, H5P_DEFAULT, nv);
+        H5Dclose(dn);
+        H5Sclose(sp1);
+    }
+    {
+        const double times[1] = {0.0};
+        hsize_t d = 1;
+        hid_t sp = H5Screate_simple(1, &d, nullptr);
+        hid_t ds = H5Dcreate2(fid, "time", H5T_NATIVE_DOUBLE, sp,
+                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, times);
+        H5Dclose(ds);
+        H5Sclose(sp);
+    }
+    {
+        const double depths[kMixNFace] = {0.1, 0.2, 0.3};
+        hsize_t dims[2] = { 1, kMixNFace };
+        hid_t sp = H5Screate_simple(2, dims, nullptr);
+        hid_t ds = H5Dcreate2(fid, "Mesh2_face_depth", H5T_NATIVE_DOUBLE, sp,
+                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, depths);
+        H5Dclose(ds);
+        H5Sclose(sp);
+    }
+    {
+        // Edge datasets at the file's width 4: value = cell*10 + edge,
+        // padding slot of a triangle = 0.
+        double v[kMixNFace * 4];
+        for (int c = 0; c < kMixNFace; ++c)
+            for (int e = 0; e < 4; ++e)
+                v[c * 4 + e] = (c < 2 && e == 3) ? 0.0 : c * 10.0 + e;
+        hsize_t dims[2] = { kMixNFace, 4 };
+        hid_t sp = H5Screate_simple(2, dims, nullptr);
+        for (const char* name : {"Mesh2_edge_length", "Mesh2_edge_nx", "Mesh2_edge_ny"}) {
+            hid_t ds = H5Dcreate2(fid, name, H5T_NATIVE_DOUBLE, sp,
+                                   H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+            H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, v);
+            H5Dclose(ds);
+        }
+        H5Sclose(sp);
+        hsize_t fdims[3] = { 1, kMixNFace, 4 };
+        hid_t fsp = H5Screate_simple(3, fdims, nullptr);
+        hid_t fds = H5Dcreate2(fid, "Mesh2_edge_flux", H5T_NATIVE_DOUBLE, fsp,
+                                H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(fds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, v);
+        H5Dclose(fds);
+        H5Sclose(fsp);
+    }
+
+    H5Fclose(fid);
+    return path;
+}
+
 } // namespace
 
 class TestMesh2DH5Reader : public QObject
@@ -234,6 +370,10 @@ private slots:
         fixtureWithCrsPath_ = writeFixture();
         QVERIFY(!fixtureWithCrsPath_.isEmpty());
         appendCrsVariable(fixtureWithCrsPath_, "EPSG:2249", 0.3048);
+
+        fixtureMixedPath_ = writeMixedFixture();
+        QVERIFY(!fixtureMixedPath_.isEmpty());
+        QVERIFY(QFile::exists(fixtureMixedPath_));
     }
 
     void cleanupTestCase()
@@ -305,6 +445,120 @@ private slots:
         QCOMPARE(int(tris.size()), 2);
         QCOMPARE(tris[0][0], 0); QCOMPARE(tris[0][1], 1); QCOMPARE(tris[0][2], 3);
         QCOMPARE(tris[1][0], 0); QCOMPARE(tris[1][1], 3); QCOMPARE(tris[1][2], 2);
+
+        // All-triangle file: the display fan IS the file's connectivity, the
+        // face map is the identity, cells carry v3 = -1, file width 3.
+        QCOMPARE(r.edgeStride(), 3);
+        QCOMPARE(r.cellCount(), 2);
+        QCOMPARE(r.displayTriangleCount(), 2);
+        QCOMPARE(r.triangleFaceMap(), (std::vector<int>{0, 1}));
+        std::vector<std::array<int, 4>> cells;
+        QVERIFY(r.readCells(cells));
+        QCOMPARE(int(cells.size()), 2);
+        QCOMPARE(cells[0][0], 0); QCOMPARE(cells[0][1], 1); QCOMPARE(cells[0][2], 3);
+        QCOMPARE(cells[0][3], -1);
+        QCOMPARE(cells[1][3], -1);
+    }
+
+    /*! Width-3 edge datasets come back stride 4 (`[cell*4 + e]`, slot 3 = 0)
+     *  — both the stored flux and the vertex-derived geometry fallback. */
+    void stride3EdgeArraysRepackedToStride4()
+    {
+        Mesh2DH5Reader r;
+        QVERIFY(r.open(fixturePath_));
+        QCOMPARE(Mesh2DH5Reader::kEdgeStride, 4);
+
+        std::vector<float> flux;
+        QVERIFY2(r.readEdgeFluxAt(1, flux), qPrintable(r.lastError()));
+        QCOMPARE(int(flux.size()), 2 * 4);
+        // Fixture value = 0.01 * (t*6 + face*3 + e).
+        for (int c = 0; c < 2; ++c) {
+            for (int e = 0; e < 3; ++e)
+                QCOMPARE(flux[c * 4 + e], float(0.01 * (6 + c * 3 + e)));
+            QCOMPARE(flux[c * 4 + 3], 0.0f);
+        }
+
+        std::vector<float> len, nx, ny;
+        QVERIFY2(r.readEdgeGeometry(len, nx, ny), qPrintable(r.lastError()));
+        QCOMPARE(int(len.size()), 2 * 4);
+        QCOMPARE(int(nx.size()),  2 * 4);
+        // T0 = (0,1,3) with edge e = (v[(e+1)%3], v[(e+2)%3]): edge 0 =
+        // (1,3) length 1, edge 1 = (3,0) the diagonal sqrt(2), edge 2 =
+        // (0,1) length 1; padding slot 0.
+        QVERIFY(qFuzzyCompare(len[0 * 4 + 0], 1.0f));
+        QVERIFY(qFuzzyCompare(len[0 * 4 + 1], float(std::sqrt(2.0))));
+        QVERIFY(qFuzzyCompare(len[0 * 4 + 2], 1.0f));
+        QCOMPARE(len[0 * 4 + 3], 0.0f);
+        // Edge 2 of T0 is (0,1) along y = 0; outward normal points -y.
+        QVERIFY(qFuzzyCompare(ny[0 * 4 + 2], -1.0f));
+        QVERIFY(std::abs(nx[0 * 4 + 2]) < 1e-6f);
+    }
+
+    // ── Mixed triangle/quad file (UGRID [n,4] + _FillValue + face_nv) ────
+
+    void mixedFileReadsCellsAndFaceMap()
+    {
+        Mesh2DH5Reader r;
+        QVERIFY2(r.open(fixtureMixedPath_), qPrintable(r.lastError()));
+        QCOMPARE(r.vertexCount(), kMixNVert);
+        QCOMPARE(r.cellCount(), kMixNFace);
+        QCOMPARE(r.triangleCount(), kMixNFace);      // file face count, not display
+        QCOMPARE(r.edgeStride(), 4);
+        QCOMPARE(r.displayTriangleCount(), kMixNFace + 1);
+
+        std::vector<std::array<int, 4>> cells;
+        QVERIFY2(r.readCells(cells), qPrintable(r.lastError()));
+        QCOMPARE(int(cells.size()), kMixNFace);
+        for (int c = 0; c < kMixNFace; ++c)
+            for (int k = 0; k < 4; ++k)
+                QCOMPARE(cells[c][k], kMixConn[c * 4 + k]);
+
+        // Display fan: T0, T1, then the quad's two cellGeom sub-triangles.
+        std::vector<std::array<int, 3>> tris;
+        QVERIFY2(r.readTriangles(tris), qPrintable(r.lastError()));
+        QCOMPARE(int(tris.size()), kMixNFace + 1);
+        QCOMPARE(r.triangleFaceMap(), (std::vector<int>{0, 1, 2, 2}));
+        QCOMPARE(tris[0], (std::array<int, 3>{0, 1, 4}));
+        QCOMPARE(tris[1], (std::array<int, 3>{0, 4, 3}));
+
+        QVector<mesh::MeshVertex> verts(kMixNVert);
+        const double xs[kMixNVert] = {0.0, 1.0, 2.0, 0.0, 1.0, 2.0};
+        const double ys[kMixNVert] = {0.0, 0.0, 0.0, 1.0, 1.0, 1.0};
+        for (int i = 0; i < kMixNVert; ++i) {
+            verts[i].xy = QPointF(xs[i], ys[i]);
+            verts[i].z  = kMixZ[i];
+        }
+        mesh::MeshTriangle q;
+        q.v0 = 1; q.v1 = 2; q.v2 = 5; q.v3 = 4;
+        const mesh::CellGeom g = mesh::cellGeom(verts, q);
+        QCOMPARE(g.nSub, 2);
+        QCOMPARE(tris[2], g.sub[0]);
+        QCOMPARE(tris[3], g.sub[1]);
+
+        // Per-face datasets stay per CELL (3 values, not 4).
+        std::vector<float> d;
+        QVERIFY(r.readDepthsAt(0, d));
+        QCOMPARE(int(d.size()), kMixNFace);
+        QCOMPARE(d[2], 0.3f);
+    }
+
+    void mixedFileEdgeArraysAreStride4()
+    {
+        Mesh2DH5Reader r;
+        QVERIFY2(r.open(fixtureMixedPath_), qPrintable(r.lastError()));
+
+        std::vector<float> flux;
+        QVERIFY2(r.readEdgeFluxAt(0, flux), qPrintable(r.lastError()));
+        QCOMPARE(int(flux.size()), kMixNFace * 4);
+        QCOMPARE(flux[mesh::edgeSlot(2, 3)], 23.0f);
+        QCOMPARE(flux[mesh::edgeSlot(0, 3)], 0.0f);
+        QCOMPARE(flux[mesh::edgeSlot(1, 2)], 12.0f);
+
+        std::vector<float> len, nx, ny;
+        QVERIFY2(r.readEdgeGeometry(len, nx, ny), qPrintable(r.lastError()));
+        QCOMPARE(int(len.size()), kMixNFace * 4);
+        QCOMPARE(len[mesh::edgeSlot(2, 1)], 21.0f);
+        QCOMPARE(ny[mesh::edgeSlot(2, 3)],  23.0f);
     }
 
     void normalizesOneBasedFaceNodes()
@@ -469,6 +723,7 @@ private:
     QString fixturePath_;
     QString fixtureWithHeadsPath_;
     QString fixtureWithCrsPath_;
+    QString fixtureMixedPath_;
 };
 
 QTEST_GUILESS_MAIN(TestMesh2DH5Reader)

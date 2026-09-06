@@ -68,10 +68,11 @@ private:
      *  it). */
     void ensureVertexAdjCache_() const;
 
-    /*! \brief Reconstruct (Vx, Vy) for one cell from three edge fluxes
-     *  and time-invariant edge geometry using the closed-form RT0
-     *  least-squares solve. Returns false (NaN-filled) for dry cells. */
-    bool reconstructVelocityAtCell_(int triIdx,
+    /*! \brief Reconstruct (Vx, Vy) for one cell from its \p nv edge fluxes
+     *  (3 for a triangle, 4 for a quad; slots \c mesh::edgeSlot(cell, e)) and
+     *  time-invariant edge geometry using the closed-form RT0 least-squares
+     *  solve. Returns false (NaN-filled) for dry cells. */
+    bool reconstructVelocityAtCell_(int triIdx, int nv,
                                     const std::vector<float>& flux,
                                     const std::vector<float>& edge_len,
                                     const std::vector<float>& edge_nx,
@@ -82,10 +83,11 @@ private:
                                     double& vy_out) const;
 
     QPointer<SWMM2DResultsLayer> m_layer;
-    mutable std::vector<float>   m_zBed;     ///< [triCount], cached on first use.
+    mutable std::vector<float>   m_zBed;     ///< [cellCount], cached on first use.
     mutable bool                 m_zBedReady = false;
 
-    mutable std::vector<std::vector<int>> m_vertexTris;  ///< [vtxCount] incident triangle indices.
+    mutable std::vector<std::vector<int>> m_vertexTris;  ///< [vtxCount] incident CELL indices.
+    mutable std::vector<unsigned char>    m_cellNv;      ///< [cellCount] vertex count (3|4), with m_vertexTris.
     mutable std::vector<float>            m_vertexZ;     ///< [vtxCount] bed elevation at the vertex.
     mutable bool                          m_vertexAdjReady = false;
 };

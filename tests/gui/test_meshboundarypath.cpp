@@ -16,6 +16,7 @@
  */
 #include "layers/swmm2dmeshlayer.h"
 #include "mesh/meshresult.h"
+#include "mesh/meshcellgeom.h"
 
 #include <QSignalSpy>
 #include <QTest>
@@ -45,12 +46,12 @@ int slotFor(const SWMM2DMeshLayer &layer, int va, int vb)
 {
     const auto &tris = layer.mesh().triangles;
     for (int t = 0; t < int(tris.size()); ++t) {
-        const int a[3] = {tris[t].v1, tris[t].v2, tris[t].v0};
-        const int b[3] = {tris[t].v2, tris[t].v0, tris[t].v1};
-        for (int e = 0; e < 3; ++e) {
+        for (int e = 0; e < tris[t].vertexCount(); ++e) {
             if (!layer.isBoundaryEdge(t, e)) continue;
-            if ((a[e] == va && b[e] == vb) || (a[e] == vb && b[e] == va))
-                return t * 3 + e;
+            int a = -1, b = -1;
+            mesh::edgeEndpoints(tris[t], e, a, b);
+            if ((a == va && b == vb) || (a == vb && b == va))
+                return mesh::edgeSlot(t, e);
         }
     }
     return -1;
@@ -74,9 +75,9 @@ private slots:
         // Every slot in the graph is a boundary slot and vice versa.
         int flagged = 0;
         for (int t = 0; t < layer.triangleCount(); ++t)
-            for (int e = 0; e < 3; ++e) {
+            for (int e = 0; e < mesh::kEdgeStride; ++e) {
                 const bool boundary = layer.isBoundaryEdge(t, e);
-                QCOMPARE(g.contains(t * 3 + e), boundary);
+                QCOMPARE(g.contains(mesh::edgeSlot(t, e)), boundary);
                 if (boundary) ++flagged;
             }
         QCOMPARE(flagged, g.edgeCount());

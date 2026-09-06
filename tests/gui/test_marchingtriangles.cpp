@@ -394,6 +394,57 @@ private slots:
             QCOMPARE(bp.bandHi, levels[size_t(bp.bandIndex) + 1]);
         }
     }
+
+    // ---- Mixed tri/quad meshes (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md)
+    //
+    // The algorithm stays per-triangle; callers hand it the display FAN, in
+    // which a quad is its two VFR sub-triangles. Two properties make that
+    // exact: (1) a uniform quad (both sub-triangles carrying the cell's
+    // value) fills the whole quad, and (2) a field linear on the quad yields
+    // isolines that meet on the shared diagonal without a break.
+
+    void quadFan_uniformCellValue_fillsWholeQuad()
+    {
+        // Unit square split on the 1–3 diagonal; both halves read the quad's
+        // value 0.5.
+        std::vector<Tri> fan {
+            { {0,0}, {1,0}, {0,1}, 0.5, 0.5, 0.5 },
+            { {1,0}, {1,1}, {0,1}, 0.5, 0.5, 0.5 }
+        };
+        const auto lv = evenlySpacedLevelsInclusive(0.0, 1.0, 4);   // 3 bands
+        const auto bands = marchingTrianglesIsobands(fan, lv, extract);
+        QCOMPARE(bands.size(), size_t(2));
+        double area = 0.0;
+        for (const auto &bp : bands) {
+            QCOMPARE(bp.bandIndex, bands[0].bandIndex);   // same band both halves
+            area += polyArea(bp.verts);
+        }
+        QVERIFY(nearlyEqual(area, 1.0, 1e-9));           // the full quad
+        // No contour crosses a uniform cell — the diagonal is not an edge.
+        QVERIFY(marchingTriangles(fan, std::vector<double>{0.5}, extract).empty());
+    }
+
+    void quadFan_linearField_isolinesContinuousAcrossDiagonal()
+    {
+        // v(x,y) = x on the unit square: the 0.5 isoline is the vertical
+        // x = 0.5, crossing the 1–3 diagonal (from (1,0) to (0,1)) at (0.5,0.5).
+        std::vector<Tri> fan {
+            { {0,0}, {1,0}, {0,1}, 0.0, 1.0, 0.0 },
+            { {1,0}, {1,1}, {0,1}, 1.0, 1.0, 0.0 }
+        };
+        const auto segs = marchingTriangles(fan, std::vector<double>{0.5}, extract);
+        QCOMPARE(segs.size(), size_t(2));
+        // Every endpoint lies on x = 0.5, and the two segments share the
+        // diagonal point (0.5, 0.5) so the line is unbroken across the split.
+        int onDiagonal = 0;
+        for (const auto &s : segs) {
+            QVERIFY(nearlyEqual(s.a.x(), 0.5));
+            QVERIFY(nearlyEqual(s.b.x(), 0.5));
+            for (const QPointF &p : {s.a, s.b})
+                if (nearlyEqual(p, QPointF(0.5, 0.5))) ++onDiagonal;
+        }
+        QCOMPARE(onDiagonal, 2);
+    }
 };
 
 QTEST_MAIN(TestMarchingTriangles)

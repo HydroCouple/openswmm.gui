@@ -565,6 +565,8 @@ private:
     QSpinBox       *m_ltsTiersSpin      = nullptr;
     QDoubleSpinBox *m_hMoveSpin         = nullptr;
     QDoubleSpinBox *m_froudeMaxSpin     = nullptr;
+    QComboBox      *m_momentum2DCombo   = nullptr;   ///< [2D_OPTIONS] MOMENTUM_EQUATION
+    QSpinBox       *m_reconOrder2DSpin  = nullptr;   ///< [2D_OPTIONS] RECONSTRUCTION_ORDER
     QCheckBox      *m_advection2DBox    = nullptr;
     QComboBox      *m_backend2DCombo    = nullptr;   ///< [2D_OPTIONS] BACKEND
     QCheckBox      *m_couplingAreaAutoBox = nullptr;

@@ -371,6 +371,83 @@ private slots:
         dry.sd[0] = dry.sd[1] = dry.sd[2] = 0.0f;
         QVERIFY(!fillGatePasses(0.0, dry, kDryDepth));
     }
+
+    /*! Tri-quad G1 (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md): the
+     *  CellSplit overload. (a) The triangle path is bit-identical to the
+     *  historical array<int,3> overload on the strip. (b) On a flat mesh where
+     *  a quad shares an edge with a triangle, each incident cell votes with
+     *  depth × 3/nv — the plan's 1/nv weighting normalised so triangles are
+     *  unchanged — so the shared vertex blends 3/4·h_q against 1·h_t, and a
+     *  quad-only vertex reads the quad's own depth. */
+    void cellSplitOverloadWeightsQuadByThreeQuarters()
+    {
+        using VertexDepthReconstruct::CellSplit;
+        using VertexDepthReconstruct::reconstructVertexSignedDepths;
+
+        // (a) all-triangle equivalence on the strip
+        {
+            const Strip s = buildStrip();
+            std::vector<CellSplit> cells(s.tris.size());
+            for (size_t i = 0; i < s.tris.size(); ++i) {
+                cells[i].v      = {s.tris[i][0], s.tris[i][1], s.tris[i][2], -1};
+                cells[i].sub[0] = s.tris[i];
+            }
+            std::vector<float> vsum, wsum, sd;
+            reconstructVertexSignedDepths(cells, s.cellDepth, s.cellZc, s.vz,
+                                          float(kDryDepth), vsum, wsum, sd);
+            QCOMPARE(sd.size(), s.sd.size());
+            for (size_t v = 0; v < sd.size(); ++v)
+                QCOMPARE(sd[v], s.sd[v]);
+        }
+
+        // (b) quad {0,1,2,3} (unit square) + triangle {1,4,2}, flat bed z = 0.
+        //   v3(0,1) -- v2(1,1)
+        //     |  quad   |  \  tri  v4(2,0.5)
+        //   v0(0,0) -- v1(1,0)
+        {
+            const std::vector<double> vz(5, 0.0);
+            std::vector<CellSplit> cells(2);
+            cells[0].v    = {0, 1, 2, 3};
+            cells[0].nSub = 2;
+            cells[0].sub[0] = {0, 1, 3};      // any diagonal: the bed is flat
+            cells[0].sub[1] = {1, 2, 3};
+            cells[0].area   = {0.5, 0.5};
+            cells[1].v      = {1, 4, 2, -1};
+            cells[1].sub[0] = {1, 4, 2};
+
+            const float hq = 0.4f, ht = 0.2f;
+            const std::vector<float> depth = {hq, ht};
+            const std::vector<float> zc    = {0.0f, 0.0f};
+            std::vector<float> vsum, wsum, sd;
+            reconstructVertexSignedDepths(cells, depth, zc, vz, float(kDryDepth),
+                                          vsum, wsum, sd);
+            QCOMPARE(sd.size(), size_t(5));
+            // Flat bed → η = h for each cell (both closures reduce to z̄ + h).
+            const double expectShared = (0.75 * hq * hq + 1.0 * ht * ht)
+                                      / (0.75 * hq + 1.0 * ht);        // 0.32
+            QVERIFY(std::abs(sd[1] - float(expectShared)) < 1e-6f);
+            QVERIFY(std::abs(sd[2] - float(expectShared)) < 1e-6f);
+            QVERIFY(std::abs(sd[0] - hq) < 1e-6f);   // quad-only vertices
+            QVERIFY(std::abs(sd[3] - hq) < 1e-6f);
+            QVERIFY(std::abs(sd[4] - ht) < 1e-6f);   // triangle-only vertex
+            QVERIFY(std::abs(wsum[1] - (0.75f * hq + ht)) < 1e-6f);
+        }
+
+        // (c) quad closure on a non-planar bed: η from the two-sub-triangle
+        //     sum round-trips the mean depth it was solved for.
+        {
+            const double zs[6] = {0.0, 1.0, 0.5,   0.0, 0.5, 2.0};
+            const double a1 = 0.5, a2 = 0.5;
+            for (double h : {0.05, 0.3, 0.8, 1.5}) {
+                const double eta = VertexDepthReconstruct::quadEtaFromMeanDepth(zs, a1, a2, h);
+                const double back =
+                    (a1 * VertexDepthReconstruct::triMeanDepthFromEta(eta, zs[0], zs[1], zs[2])
+                   + a2 * VertexDepthReconstruct::triMeanDepthFromEta(eta, zs[3], zs[4], zs[5]))
+                    / (a1 + a2);
+                QVERIFY(std::abs(back - h) < 1e-9);
+            }
+        }
+    }
 };
 
 QTEST_MAIN(TestMapPoolingExtrapolation)
