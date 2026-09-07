@@ -112,6 +112,18 @@ public:
      *  `selectionAsTsv()`. */
     int deleteObjects(const QStringList &names);
 
+    /*! True when the active source is an editable FeatureLayer in an open
+     *  edit session AND there is an undo stack to push onto. Gates cell
+     *  editing and the Delete path for feature layers; every other vector
+     *  source (shapefile, WFS, …) stays read-only. */
+    [[nodiscard]] bool featureSourceIsEditable() const;
+
+    /*! Delete the selected rows' features (undoable). Dialog-free, like
+     *  \ref deleteObjects, so the path is testable without a modal.
+     *  Returns the number deleted; 0 when the source is not an editable
+     *  feature layer. */
+    int deleteSelectedFeatures();
+
     /*! True when the bound category maps to a deletable object kind
      *  (junction/outfall/storage/divider/conduit/pump/orifice/weir/outlet/
      *  subcatchment/rain gage); false for data-object categories. */
@@ -222,6 +234,10 @@ private:
      *  `key` is the combo's `"mesh:<layerId>:<v|e|c>"` payload; a key that no
      *  longer resolves to a loaded layer clears the source. */
     void bindMeshSource(const QString &key);
+    /*! Point the GIS model at \p gis, give it the canvas (which is what makes
+     *  an editable FeatureLayer writable), and hook the layer's change signals
+     *  so a write from anywhere reloads the table. */
+    void bindGisSource(GISVectorLayer *gis);
 
     /*! True when the mesh table is the active source — the SWMM-only paths
      *  (delete, change type, object refs) all sit behind this. */

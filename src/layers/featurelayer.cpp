@@ -295,6 +295,21 @@ bool FeatureLayer::isEditable() const
     return m_store && m_store->isOpen();
 }
 
+void FeatureLayer::setEditing(bool on)
+{
+    // A layer whose store never opened cannot be edited; refusing here means
+    // the toolbar's checked state can never disagree with reality.
+    if (on && !isEditable())
+        on = false;
+    if (on == m_editing)
+        return;
+    m_editing = on;
+    qCInfo(lcFeatureLayer).nospace()
+        << "[feature] " << (on ? "opened" : "closed") << " edit session on \""
+        << m_table << '"';
+    emit editingChanged(m_editing);
+}
+
 // ---------------------------------------------------------------------------
 // Write plumbing
 // ---------------------------------------------------------------------------
