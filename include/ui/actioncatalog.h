@@ -117,6 +117,24 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"model.editHeatConfig",  "actionEditHeatConfig",   "Model", "",  "HeatConfig", "model", "Model", NoTags},
     {"model.generateMesh",    "actionGenerateMesh",     "Model", "",  "CreateMesh", "mesh2d", "Model", NoTags},
 
+    // ── Feature layers (user-drawn GeoPackage-backed vector layers;
+    //    MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §5.1) ─────────────────
+    // RequiresProject: every one of these writes into the project's own
+    // .features.gpkg, which is derived from the model path, so none of them
+    // means anything before a project is open.
+    {"features.newLayer",     "actionNewFeatureLayer",    "Features", "", "AddVector",    "features", "Model/Feature Layers", RequiresProject},
+    // Edit mode gates the seven tools and the attribute grid, the way a GIS
+    // package does: nothing on a feature layer is mutable until it is on.
+    {"features.editMode",     "actionFeatureEditMode",    "Features", "", "Edit",         "features", "Model/Feature Layers", RequiresProject},
+    {"features.delete",       "actionFeatureDelete",      "Features", "Del", "Delete",    "features", "Model/Feature Layers", RequiresProject},
+    {"features.drawPoint",    "actionFeatureDrawPoint",   "Features", "", "Node",         "features", "Model/Feature Layers", RequiresProject},
+    {"features.drawLine",     "actionFeatureDrawLine",    "Features", "", "Polyline",     "features", "Model/Feature Layers", RequiresProject},
+    {"features.drawPolygon",  "actionFeatureDrawPolygon", "Features", "", "Polygon",      "features", "Model/Feature Layers", RequiresProject},
+    {"features.addPart",      "actionFeatureAddPart",     "Features", "", "Add",          "features", "Model/Feature Layers", RequiresProject},
+    {"features.addHole",      "actionFeatureAddHole",     "Features", "", "Clear",        "features", "Model/Feature Layers", RequiresProject},
+    {"features.editVertex",   "actionFeatureEditVertex",  "Features", "", "InsertVertex", "features", "Model/Feature Layers", RequiresProject},
+    {"features.moveFeature",  "actionFeatureMove",        "Features", "", "Move",         "features", "Model/Feature Layers", RequiresProject},
+
     // ── Climatology ─────────────────────────────────────────────────────
     {"climate.temperature",   "actionTemperature",      "Climate", "", "Thermometer", "model", "Model/Climate", NoTags},
     {"climate.evaporation",   "actionEvaporation",      "Climate", "", "Evaporation", "model", "Model/Climate", NoTags},
@@ -199,6 +217,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"view.dock.legend",        "actionToggleDockLegend",         "Panels", "Ctrl+Alt+5", "DockLegend", "view", "View/Panels", NoTags},
     {"view.dock.simulationStatus","actionToggleDockSimulationStatus","Panels","Ctrl+Alt+6","DockSimulationStatus", "view", "View/Panels", NoTags},
     {"view.dock.messageLogs",   "actionToggleDockMessageLogs",    "Panels", "Ctrl+Alt+7", "DockMessageLogs", "view", "View/Panels", NoTags},
+    {"view.dock.features",      "actionToggleDockFeatures",       "Panels", "Ctrl+Alt+0", "Layers", "view", "View/Panels", NoTags},
     {"view.showWelcome",        "actionShowWelcome",              "View",   "",           "Help", "view", "Help", NoTags},
 
     // ── Tools / window / help ───────────────────────────────────────────
@@ -215,7 +234,7 @@ inline constexpr std::size_t kActionCatalogSize = std::size(kActionCatalog);
 
 /// Known compact-toolbar tab ids ("" = menu-only entry).
 inline constexpr const char *kActionCatalogTabs[] = {
-    "home", "model", "mesh2d", "analysis", "results", "view",
+    "home", "model", "mesh2d", "analysis", "results", "view", "features",
 };
 
 }   // namespace openswmmvis::ui

@@ -22,6 +22,7 @@
 
 class OpenSWMMVisLayer;
 class SWMMModelLayer;
+class FeatureLayer;
 
 /*!
  * \class OpenSWMMVisMapToolSelect
@@ -110,6 +111,13 @@ signals:
      *  variable from the background right-click menu ("Plot System
      *  Variable…" submenu). */
     void plotSystemRequested(openswmmvis::plot::PlotAttribute attribute);
+
+    /*! \brief The user chose "Delete selected feature(s)" from the background
+     *  right-click menu, offered only while \p layer has an open edit session
+     *  and a non-empty selection. The tool does not delete anything itself:
+     *  the main window owns the undo stack and the error reporting, and this
+     *  keeps map right-click, the Del key and the Features grid on one path. */
+    void deleteFeaturesRequested(FeatureLayer *layer);
 
     /*! \brief Emitted from the right-click menu's "Rainfall Visualization…"
      *  action on a rain gage hit. The main window opens the shared Rainfall

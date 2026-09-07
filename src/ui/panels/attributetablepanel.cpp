@@ -38,10 +38,13 @@
 #include "layers/tabulardatalayer.h"
 #include "layers/gisobjectref.h"
 #include "layers/gisvectorlayer.h"
+#include "layers/featurelayer.h"
 #include "mesh/meshobjectref.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
 #include "map/mapundostack.h"
+#include "map/featurecommands.h"
+#include "feature/featuretypes.h"
 
 #include <QAction>
 #include <QApplication>
@@ -224,8 +227,71 @@ public:
         return {};
     }
 
+    // ----- Editing (FeatureLayer only) ------------------------------------
+    //
+    // Every other vector source in the application is read-only, and stays
+    // read-only: this model is bound to a plain GISVectorLayer for shapefiles,
+    // WFS and the like, none of which has a write path. An editable
+    // FeatureLayer in an open edit session is the one exception, and it is
+    // gated on exactly that so a shapefile can never become writable by
+    // accident.
+
+    /*! The bound layer as a FeatureLayer with an OPEN edit session, or
+     *  nullptr — the single predicate the flags/setData pair agree on. */
+    [[nodiscard]] FeatureLayer *editableFeatureLayer() const
+    {
+        auto *fl = qobject_cast<FeatureLayer *>(m_layer.data());
+        return (fl && fl->isEditing()) ? fl : nullptr;
+    }
+
+    /*! The undo stack edits are pushed onto. Without it the model stays
+     *  read-only rather than writing behind the undo history's back. */
+    void setCanvas(MapCanvas *canvas) { m_canvas = canvas; }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        Qt::ItemFlags f = QAbstractTableModel::flags(index);
+        // Column 0 is the FID: identity, never editable.
+        if (index.isValid() && index.column() > 0
+            && editableFeatureLayer() && m_canvas)
+            f |= Qt::ItemIsEditable;
+        return f;
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value,
+                 int role = Qt::EditRole) override
+    {
+        if (role != Qt::EditRole || !index.isValid() || index.column() <= 0)
+            return false;
+        FeatureLayer *fl = editableFeatureLayer();
+        if (!fl || !m_canvas || !m_canvas->undoStack()) return false;
+
+        const long long fid = fidForRow(index.row());
+        if (fid < 0) return false;
+        openswmmvis::feature::Feature feat;
+        if (!fl->feature(static_cast<openswmmvis::feature::FeatureId>(fid), feat))
+            return false;
+
+        const openswmmvis::feature::Schema schema = fl->schema();
+        const int fieldIdx = index.column() - 1;      // column 0 is the FID
+        if (fieldIdx < 0 || fieldIdx >= schema.count()) return false;
+        const openswmmvis::feature::FieldDef fd = schema.at(fieldIdx);
+
+        QVariantMap next = feat.attributes;
+        next.insert(fd.name, openswmmvis::feature::coerceToFieldType(value, fd.type));
+        if (next == feat.attributes) return false;
+
+        auto *cmd = new openswmmvis::map::EditFeatureAttributesCommand(
+            fl, feat.id, feat.attributes, next, m_canvas.data());
+        m_canvas->undoStack()->push(cmd);
+        // featuresChanged → reload() repaints the row with the STORED value,
+        // which may differ from what was typed once coercion has run.
+        return cmd->lastError().isEmpty();
+    }
+
 private:
     QPointer<GISVectorLayer>   m_layer;
+    QPointer<MapCanvas>        m_canvas;
     QStringList                m_headers;
     QVector<QVector<QVariant>> m_rows;
     QVector<long long>         m_fids;      //!< row → OGR FID
@@ -903,6 +969,10 @@ void AttributeTablePanel::setProject(SWMMModelLayer *layer,
     m_layer  = layer;
     m_selMgr = selMgr;
     m_canvas = canvas;
+    // Keep the GIS model's undo target current even when the canvas changes
+    // after a feature source is already bound — a stale one would silently
+    // make an editable layer read-only again.
+    if (m_gisModel) m_gisModel->setCanvas(m_canvas.data());
 
     // Z.4.3 — listen for layer add/remove so loaded CSV/TSV layers
     // immediately surface in the category combo without a tab
@@ -1150,8 +1220,7 @@ void AttributeTablePanel::refresh()
                     }
                 }
             }
-            m_gisModel->setLayer(gis);
-            m_proxy->setSourceModel(m_gisModel);
+            bindGisSource(gis);
             // Feature layer: no SWMM delegates / no per-category widths.
             for (int c = 0; c < m_proxy->columnCount(); ++c)
                 m_view->setItemDelegateForColumn(c, nullptr);
@@ -1250,8 +1319,7 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
                 }
             }
         }
-        m_gisModel->setLayer(gis);
-        m_proxy->setSourceModel(m_gisModel);
+        bindGisSource(gis);
         for (int c = 0; c < m_proxy->columnCount(); ++c)
             m_view->setItemDelegateForColumn(c, nullptr);
     } else if (data.toString().startsWith(kMeshPrefix)) {
@@ -2212,7 +2280,7 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     // Delete — only for spatial categories that have an engine delete path.
     // Mirrors the map's right-click delete, and routes through the same undo
     // stack, so a deletion here is undoable and every other view refreshes.
-    if (categoryIsDeletable()) {
+    if (categoryIsDeletable() || featureSourceIsEditable()) {
         const int nSel = selectedSourceRows().size();
         // Hint the key in the label (matching "Copy (Ctrl+C)" above) rather
         // than via setShortcut(), which would fight the QShortcut on the view.
@@ -2671,8 +2739,81 @@ int AttributeTablePanel::deleteObjects(const QStringList &names)
     return deleted;
 }
 
+void AttributeTablePanel::bindGisSource(GISVectorLayer *gis)
+{
+    // Drop the previous layer's refresh hooks before rebinding, or a stale
+    // FeatureLayer would keep reloading a table it no longer feeds.
+    if (auto *prev = m_gisModel->layer())
+        disconnect(prev, nullptr, this, nullptr);
+
+    m_gisModel->setLayer(gis);
+    // The canvas is what makes the model editable: without an undo stack it
+    // stays read-only rather than writing behind the undo history's back.
+    m_gisModel->setCanvas(m_canvas.data());
+    m_proxy->setSourceModel(m_gisModel);
+
+    if (auto *fl = qobject_cast<FeatureLayer *>(gis)) {
+        // A write from anywhere — the map tools, the Features dock, an undo —
+        // re-reads the table, so the two grids cannot disagree.
+        connect(fl, &FeatureLayer::featuresChanged, this,
+                [this](const QVector<qint64> &) { m_gisModel->reload(); });
+        connect(fl, &FeatureLayer::schemaChanged, this,
+                [this] { m_gisModel->reload(); });
+        // Opening / closing the session flips every cell between editable and
+        // read-only; reset so the views pick the new flags up.
+        connect(fl, &FeatureLayer::editingChanged, this,
+                [this](bool) { m_gisModel->reload(); });
+    }
+}
+
+bool AttributeTablePanel::featureSourceIsEditable() const
+{
+    if (!m_proxy || !m_gisModel || m_proxy->sourceModel() != m_gisModel)
+        return false;
+    auto *fl = qobject_cast<FeatureLayer *>(m_gisModel->layer());
+    return fl && fl->isEditing() && m_canvas && m_canvas->undoStack();
+}
+
+int AttributeTablePanel::deleteSelectedFeatures()
+{
+    if (!featureSourceIsEditable()) return 0;
+    auto *fl = qobject_cast<FeatureLayer *>(m_gisModel->layer());
+    if (!fl) return 0;
+
+    QVector<openswmmvis::feature::FeatureId> ids;
+    for (int row : selectedSourceRows()) {
+        const long long fid = m_gisModel->fidForRow(row);
+        if (fid >= 0)
+            ids.append(static_cast<openswmmvis::feature::FeatureId>(fid));
+    }
+    if (ids.isEmpty()) return 0;
+    std::sort(ids.begin(), ids.end());
+
+    auto *cmd = new openswmmvis::map::DeleteFeaturesCommand(fl, ids, m_canvas.data());
+    m_canvas->undoStack()->push(cmd);
+    if (!cmd->lastError().isEmpty()) {
+        QMessageBox::warning(this, tr("Delete Features"), cmd->lastError());
+        return 0;
+    }
+    return ids.size();
+}
+
 void AttributeTablePanel::deleteSelectedRows()
 {
+    // Feature layers have their own delete path: rows resolve to OGR FIDs,
+    // not to SWMM object names, so they must never reach the branch below.
+    if (featureSourceIsEditable()) {
+        const int n = selectedSourceRows().size();
+        if (n == 0) return;
+        const auto btn = QMessageBox::question(
+            this, tr("Confirm Delete"),
+            tr("Delete %n selected feature(s)?", nullptr, n),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (btn != QMessageBox::Yes) return;
+        deleteSelectedFeatures();
+        return;
+    }
+
     // Only the SWMM model source has a spatial delete path. When a feature
     // (GIS) or tabular layer is the active source, Delete must be a no-op —
     // otherwise a row index would be mis-resolved against the SWMM model and

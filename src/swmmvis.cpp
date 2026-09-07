@@ -71,6 +71,14 @@
 #include <cpl_conv.h>   // CPLGetLastErrorMsg — GDAL open-failure detail
 
 #include "swmmvis.h"
+// Editable feature layers (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §6.2).
+#include "feature/featurestore.h"
+#include "layers/featurelayer.h"
+#include "map/featurecommands.h"
+#include "map/tools/maptoolfeaturedraw.h"
+#include "map/tools/maptoolfeatureedit.h"
+#include "ui/dialogs/newfeaturelayerdialog.h"
+#include "ui/panels/featurelayerpanel.h"
 #include "ui/mdiworkspacechrome.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
@@ -328,6 +336,9 @@ SWMMVis::SWMMVis(QWidget *parent)
     initializeWelcomeScreen();
     initializeDockWidgets();
     initializeMenus();
+    // After the docks (the actions capture mFeatureLayerPanel) and before
+    // registerActions(), which sweeps the catalog by objectName.
+    initializeFeatureLayerActions();
     initializeMapTools();
     initializeSettings();
     registerActions();
@@ -894,6 +905,16 @@ void SWMMVis::applyProjectOpenToActions(bool open)
         QStringLiteral("actionAddSubcatchment"),
         QStringLiteral("actionRainGauge"),
         QStringLiteral("actionAddText"),
+        // Feature layers: every one writes into the project's own
+        // .features.gpkg, derived from the model path.
+        QStringLiteral("actionNewFeatureLayer"),
+        QStringLiteral("actionFeatureDrawPoint"),
+        QStringLiteral("actionFeatureDrawLine"),
+        QStringLiteral("actionFeatureDrawPolygon"),
+        QStringLiteral("actionFeatureAddPart"),
+        QStringLiteral("actionFeatureAddHole"),
+        QStringLiteral("actionFeatureEditVertex"),
+        QStringLiteral("actionFeatureMove"),
     };
     for (const QString &name : kProjectOnlyActions)
         if (auto *act = findChild<QAction *>(name))
@@ -3352,6 +3373,327 @@ void SWMMVis::openComparisonPlotOverlayForProfile(
     dlg->activateWindow();
 }
 
+// ---------------------------------------------------------------------------
+// Editable feature layers — host wiring
+// (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07 §5.1, §6.2)
+//
+// The feature stack is layer + store + commands + tools + panel; none of it
+// knows where the project keeps its GeoPackage, because only the main window
+// does. This is the seam: it owns the path, constructs the dock, and points
+// the tools at whichever layer the panel has selected.
+// ---------------------------------------------------------------------------
+
+QString SWMMVis::featureGpkgPathFor(SWMMVisProjectWindow *pw) const
+{
+    if (!pw || !pw->modelLayer())
+        return {};
+    const QString inp = pw->modelLayer()->modelFilePath();
+    if (inp.isEmpty())
+        return {};   // unsaved project — PLAN §9 Q5 refuses rather than
+                     // scattering an orphan .gpkg in a temp directory
+    const QFileInfo fi(inp);
+    return fi.absoluteDir().filePath(fi.completeBaseName()
+                                     + QStringLiteral(".features.gpkg"));
+}
+
+void SWMMVis::initializeFeatureLayerDockWidget()
+{
+    mFeatureLayerPanel = new openswmmvis::ui::FeatureLayerPanel(this);
+
+    mFeatureDock = new QDockWidget(tr("Features"), this);
+    mFeatureDock->setObjectName(QStringLiteral("dockWidgetFeatures"));
+    mFeatureDock->setWidget(mFeatureLayerPanel);
+    addDockWidget(Qt::RightDockWidgetArea, mFeatureDock);
+    if (mPropertiesPanel) {
+        tabifyDockWidget(mPropertiesPanel, mFeatureDock);
+        mPropertiesPanel->raise();
+    }
+
+    // The panel never acts on the project itself — it asks. The host owns
+    // the GeoPackage path, so creation, import and export land here.
+    connect(mFeatureLayerPanel, &openswmmvis::ui::FeatureLayerPanel::newLayerRequested,
+            this, &SWMMVis::onNewFeatureLayer);
+    connect(mFeatureLayerPanel, &openswmmvis::ui::FeatureLayerPanel::message,
+            this, [this](const QString &text) {
+                if (statusBar()) statusBar()->showMessage(text, 6000);
+            });
+    // Selecting a layer in the panel re-aims every drawing tool at it, so
+    // the tools never need to know about the panel.
+    connect(mFeatureLayerPanel, &openswmmvis::ui::FeatureLayerPanel::activeLayerChanged,
+            this, [this](FeatureLayer *layer) {
+                retargetFeatureTools(activeProjectWindow(), layer);
+                // A layer switch changes which session is current, so the
+                // Edit Mode latch and the session-only actions must follow.
+                if (layer)
+                    connect(layer, &FeatureLayer::editingChanged, this,
+                            [this] { syncFeatureEditState(); },
+                            Qt::UniqueConnection);
+                syncFeatureEditState();
+            });
+}
+
+void SWMMVis::retargetFeatureTools(SWMMVisProjectWindow *pw, FeatureLayer *layer)
+{
+    if (!pw)
+        return;
+    // Tools are parented to the project window (one canvas each), so a
+    // direct-children lookup finds this window's instances and no other's.
+    const auto aim = [pw, layer](auto *tool) { if (tool) tool->setTargetLayer(layer); };
+    aim(pw->findChild<OpenSWMMVisMapToolDrawPoint *>(QString(), Qt::FindDirectChildrenOnly));
+    aim(pw->findChild<OpenSWMMVisMapToolDrawLine *>(QString(), Qt::FindDirectChildrenOnly));
+    aim(pw->findChild<OpenSWMMVisMapToolDrawPolygon *>(QString(), Qt::FindDirectChildrenOnly));
+    aim(pw->findChild<OpenSWMMVisMapToolAddPart *>(QString(), Qt::FindDirectChildrenOnly));
+    aim(pw->findChild<OpenSWMMVisMapToolAddHole *>(QString(), Qt::FindDirectChildrenOnly));
+    aim(pw->findChild<OpenSWMMVisMapToolEditFeatureVertex *>(QString(), Qt::FindDirectChildrenOnly));
+    aim(pw->findChild<OpenSWMMVisMapToolMoveFeature *>(QString(), Qt::FindDirectChildrenOnly));
+}
+
+void SWMMVis::onNewFeatureLayer()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->canvas()) {
+        QMessageBox::information(this, tr("New Feature Layer"),
+                                 tr("Open a project first."));
+        return;
+    }
+
+    const QString gpkg = featureGpkgPathFor(pw);
+    if (gpkg.isEmpty()) {
+        // PLAN §9 Q5 — refuse until the project has a file, so the layer's
+        // .oswp record can store a path relative to something real.
+        QMessageBox::information(
+            this, tr("New Feature Layer"),
+            tr("Save the project before adding a feature layer.\n\n"
+               "Drawn features are stored in a GeoPackage beside the model "
+               "file, which does not exist yet."));
+        return;
+    }
+
+    openswmmvis::ui::NewFeatureLayerDialog dlg(pw->canvas(), this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+
+    QString err;
+    if (!openswmmvis::feature::FeatureStore::ensureGeoPackage(gpkg, &err)) {
+        QMessageBox::warning(this, tr("New Feature Layer"),
+                             tr("Could not create \"%1\":\n%2").arg(gpkg, err));
+        return;
+    }
+
+    FeatureLayer *layer = FeatureLayer::create(
+        gpkg, dlg.layerName(), dlg.geometryType(), dlg.zPolicy(), dlg.schema(),
+        dlg.srsWkt(), dlg.role(), &err, nullptr);
+    if (!layer) {
+        QMessageBox::warning(this, tr("New Feature Layer"),
+                             tr("Could not create the layer:\n%1").arg(err));
+        return;
+    }
+
+    pw->canvas()->addLayer(layer);
+    if (mFeatureLayerPanel) {
+        mFeatureLayerPanel->refreshLayerList();
+        mFeatureLayerPanel->selectLayer(layer);
+    }
+    if (mFeatureDock) {
+        mFeatureDock->show();
+        mFeatureDock->raise();
+    }
+    if (statusBar())
+        statusBar()->showMessage(tr("Added feature layer \"%1\".").arg(layer->name()),
+                                 6000);
+}
+
+void SWMMVis::initializeFeatureLayerActions()
+{
+    // One tool instance per project window, created on first use and
+    // parented to that window so it dies with it. Returning the existing
+    // one keeps a tool's in-progress rubber band across tab switches.
+    const auto toolFor = [](SWMMVisProjectWindow *pw, auto tag) {
+        using T = typename decltype(tag)::type;
+        if (auto *existing = pw->findChild<T *>(QString(), Qt::FindDirectChildrenOnly))
+            return existing;
+        return new T(pw->canvas(), pw);
+    };
+
+    // Every feature action does the same three things: make sure this
+    // window has the tool, aim it at the panel's current layer, and make
+    // it current. drawRejected explains a refused hole in the status bar —
+    // the tools cannot show UI themselves.
+    const auto activate = [this, toolFor](auto tag) {
+        auto *pw = activeProjectWindow();
+        if (!pw || !pw->canvas())
+            return;
+        auto *tool = toolFor(pw, tag);
+        if (mFeatureLayerPanel)
+            tool->setTargetLayer(mFeatureLayerPanel->activeLayer());
+        pw->canvas()->setActiveTool(tool);
+    };
+
+    struct ToolAction { const char *name; std::function<void()> run; };
+    const ToolAction kToolActions[] = {
+        {"actionFeatureDrawPoint",
+         [activate] { activate(std::type_identity<OpenSWMMVisMapToolDrawPoint>{}); }},
+        {"actionFeatureDrawLine",
+         [activate] { activate(std::type_identity<OpenSWMMVisMapToolDrawLine>{}); }},
+        {"actionFeatureDrawPolygon",
+         [activate] { activate(std::type_identity<OpenSWMMVisMapToolDrawPolygon>{}); }},
+        {"actionFeatureAddPart",
+         [activate] { activate(std::type_identity<OpenSWMMVisMapToolAddPart>{}); }},
+        {"actionFeatureAddHole",
+         [activate] { activate(std::type_identity<OpenSWMMVisMapToolAddHole>{}); }},
+        {"actionFeatureEditVertex",
+         [activate] { activate(std::type_identity<OpenSWMMVisMapToolEditFeatureVertex>{}); }},
+        {"actionFeatureMove",
+         [activate] { activate(std::type_identity<OpenSWMMVisMapToolMoveFeature>{}); }},
+    };
+
+    // No icon is assigned here on purpose. registerActions() runs a
+    // theme-aware sweep that gives every catalog-registered action the icon
+    // named by its catalog row, and it runs AFTER initializeSettings() has
+    // applied the colour scheme. Constructing an icon now — before the theme
+    // exists — is not merely redundant: IconFactory memoises per
+    // (alias, scheme, mode), so an early call caches the wrong entry. Every
+    // other in-code action here (actionMeshAssignFromRaster and friends) is
+    // built icon-less for the same reason.
+    static constexpr struct { const char *name; const char *text; const char *tip; }
+    kSpecs[] = {
+        {"actionNewFeatureLayer", QT_TR_NOOP("&New Feature Layer…"),
+         QT_TR_NOOP("Create an editable layer in the project GeoPackage for "
+                    "breaklines, domain outlines, quad regions or any other "
+                    "geometry you want to draw.")},
+        {"actionFeatureEditMode", QT_TR_NOOP("&Edit Mode"),
+         QT_TR_NOOP("Open an edit session on the selected feature layer.\n\n"
+                    "Until this is on, the drawing tools and the attribute "
+                    "grid are inert, so a stray click cannot move a breakline "
+                    "you only meant to look at.")},
+        {"actionFeatureDelete", QT_TR_NOOP("&Delete Feature"),
+         QT_TR_NOOP("Delete the selected features. Undoable — the features "
+                    "come back with their original ids and attributes.")},
+        {"actionFeatureDrawPoint", QT_TR_NOOP("Draw &Point"),
+         QT_TR_NOOP("Add a point to the selected feature layer.")},
+        {"actionFeatureDrawLine", QT_TR_NOOP("Draw &Line"),
+         QT_TR_NOOP("Draw a line. Right-click removes the last vertex, "
+                    "double-click or Enter finishes, Esc cancels.")},
+        {"actionFeatureDrawPolygon", QT_TR_NOOP("Draw Pol&ygon"),
+         QT_TR_NOOP("Draw a polygon. Right-click removes the last vertex, "
+                    "double-click or Enter closes it, Esc cancels.")},
+        {"actionFeatureAddPart", QT_TR_NOOP("Add P&art"),
+         QT_TR_NOOP("Add another part to the selected multi-part feature.")},
+        {"actionFeatureAddHole", QT_TR_NOOP("Add &Hole"),
+         QT_TR_NOOP("Cut a hole in the selected polygon. The hole must lie "
+                    "inside it and not overlap another hole.")},
+        {"actionFeatureEditVertex", QT_TR_NOOP("Edit &Vertices"),
+         QT_TR_NOOP("Move, insert or delete vertices on the selected feature.")},
+        {"actionFeatureMove", QT_TR_NOOP("&Move Feature"),
+         QT_TR_NOOP("Drag the selected feature to a new position.")},
+    };
+
+    for (const auto &spec : kSpecs) {
+        auto *act = new QAction(tr(spec.text), this);
+        act->setObjectName(QString::fromLatin1(spec.name));
+        act->setToolTip(tr(spec.tip));
+        // The drawing tools are modal like every other map tool, and Edit
+        // Mode is a latch, so both are checkable. Creating a layer and
+        // deleting a selection are one-shot commands and are not.
+        const bool oneShot =
+            qstrcmp(spec.name, "actionNewFeatureLayer") == 0 ||
+            qstrcmp(spec.name, "actionFeatureDelete") == 0;
+        act->setCheckable(!oneShot);
+    }
+
+    if (auto *act = findChild<QAction *>(QStringLiteral("actionNewFeatureLayer")))
+        connect(act, &QAction::triggered, this, &SWMMVis::onNewFeatureLayer);
+
+    for (const ToolAction &ta : kToolActions)
+        if (auto *act = findChild<QAction *>(QString::fromLatin1(ta.name)))
+            connect(act, &QAction::triggered, this, ta.run);
+
+    // Edit Mode latches the session on the panel's current layer. The layer
+    // owns the flag (the panel, the grid and the tools all read it there),
+    // so this only asks — syncFeatureEditState() below reflects the answer
+    // back into the checkbox, which keeps them honest if the layer refuses.
+    if (auto *act = findChild<QAction *>(QStringLiteral("actionFeatureEditMode")))
+        connect(act, &QAction::toggled, this, [this](bool on) {
+            if (!mFeatureLayerPanel) return;
+            if (FeatureLayer *l = mFeatureLayerPanel->activeLayer())
+                l->setEditing(on);
+            syncFeatureEditState();
+        });
+
+    if (auto *act = findChild<QAction *>(QStringLiteral("actionFeatureDelete")))
+        connect(act, &QAction::triggered, this, &SWMMVis::onDeleteSelectedFeatures);
+
+    syncFeatureEditState();
+}
+
+void SWMMVis::onDeleteSelectedFeatures()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->canvas() || !mFeatureLayerPanel)
+        return;
+    FeatureLayer *layer = mFeatureLayerPanel->activeLayer();
+    if (!layer || !layer->isEditing())
+        return;
+
+    // Map selection lives on the layer: the ordinary Select tool already
+    // calls setSelectedFeatureIds on any GISVectorLayer, and a FeatureLayer
+    // is one — so map picks and attribute-grid picks arrive by the same road.
+    const QSet<long long> sel = layer->selectedFeatureIds();
+    if (sel.isEmpty()) {
+        if (statusBar())
+            statusBar()->showMessage(
+                tr("Select one or more features to delete."), 4000);
+        return;
+    }
+
+    QVector<openswmmvis::feature::FeatureId> ids;
+    ids.reserve(sel.size());
+    for (long long id : sel)
+        ids.append(static_cast<openswmmvis::feature::FeatureId>(id));
+    // Deterministic order so the undo text and the store's delete sequence
+    // do not depend on QSet's hash order.
+    std::sort(ids.begin(), ids.end());
+
+    auto *cmd = new openswmmvis::map::DeleteFeaturesCommand(layer, ids, pw->canvas());
+    pw->canvas()->undoStack()->push(cmd);
+    if (!cmd->lastError().isEmpty()) {
+        // Commands cannot show UI from redo(); the pusher surfaces it.
+        QMessageBox::warning(this, tr("Delete Features"), cmd->lastError());
+        return;
+    }
+    if (statusBar())
+        statusBar()->showMessage(tr("Deleted %n feature(s).", nullptr, ids.size()),
+                                 4000);
+}
+
+void SWMMVis::syncFeatureEditState()
+{
+    FeatureLayer *layer =
+        mFeatureLayerPanel ? mFeatureLayerPanel->activeLayer() : nullptr;
+    const bool editing = layer && layer->isEditing();
+
+    if (auto *act = findChild<QAction *>(QStringLiteral("actionFeatureEditMode"))) {
+        QSignalBlocker block(act);            // reflecting state, not asking
+        act->setChecked(editing);
+        act->setEnabled(layer != nullptr && layer->isEditable());
+    }
+
+    // The seven tools and Delete only mean anything inside a session.
+    static const QStringList kSessionOnly = {
+        QStringLiteral("actionFeatureDrawPoint"),
+        QStringLiteral("actionFeatureDrawLine"),
+        QStringLiteral("actionFeatureDrawPolygon"),
+        QStringLiteral("actionFeatureAddPart"),
+        QStringLiteral("actionFeatureAddHole"),
+        QStringLiteral("actionFeatureEditVertex"),
+        QStringLiteral("actionFeatureMove"),
+        QStringLiteral("actionFeatureDelete"),
+    };
+    for (const QString &name : kSessionOnly)
+        if (auto *act = findChild<QAction *>(name))
+            act->setEnabled(editing);
+}
+
 void SWMMVis::initializePropertiesPanelDockWidget()
 {
     // Property browser (single-object detail view) — right dock.
@@ -3368,6 +3710,12 @@ void SWMMVis::initializePropertiesPanelDockWidget()
     addDockWidget(Qt::RightDockWidgetArea, mSectionViewPanel);
     tabifyDockWidget(mPropertiesPanel, mSectionViewPanel);
     mPropertiesPanel->raise();
+
+    // Features — the editable feature-layer dock. Tabbed behind the property
+    // browser for the same reason the section view is: it costs no screen
+    // real estate until asked for, and restoreState overrides this once a
+    // layout has been saved.
+    initializeFeatureLayerDockWidget();
 
     // Attribute table (all objects, tabular grid) — bottom dock.
     mAttributeTablePanel = new AttributeTablePanel(this);
@@ -3951,6 +4299,7 @@ void SWMMVis::initializeMenus()
             {mSectionViewPanel,                 "actionToggleDockSectionView"},
             {findChild<QDockWidget *>(QStringLiteral("dockWidgetAttributeTable")),
                                                 "actionToggleDockAttributeTable"},
+            {mFeatureDock,                      "actionToggleDockFeatures"},
             {mLegendDock,                       "actionToggleDockLegend"},
             {ui->dockWidgetSimulationStatus,    "actionToggleDockSimulationStatus"},
             {ui->dockWidgetLogs,                "actionToggleDockMessageLogs"},
@@ -6086,6 +6435,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                                      mPropertiesPanel->setActiveResultsLayer(nullptr);
                                      mPropertiesPanel->clear(); }
         if (mAttributeTablePanel)   mAttributeTablePanel->setProject(nullptr, nullptr, nullptr);
+        if (mFeatureLayerPanel)     mFeatureLayerPanel->setCanvas(nullptr);
         if (mTerrainToolbar)        mTerrainToolbar->rebindCanvas(nullptr);
         if (mMeshEditingToolbar) {
             mMeshEditingToolbar->rebindSelectionManager(nullptr);
@@ -6207,6 +6557,14 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                 [this, pw](OpenSWMMVisLayer *) {
                     if (pw == mActiveProjectWindow) refreshActiveResultsCombos();
                 });
+
+        // Features dock follows the active tab: it lists that canvas's
+        // feature layers, and re-aims this window's tools at whichever it
+        // settles on (nullptr when the tab has none).
+        if (mFeatureLayerPanel) {
+            mFeatureLayerPanel->setCanvas(pw->canvas());
+            retargetFeatureTools(pw, mFeatureLayerPanel->activeLayer());
+        }
     }
 
     // Repopulate the combos for the newly active tab.
@@ -6374,6 +6732,15 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         // focused on that gage (same funnel as the Object Browser route).
         connect(st, &OpenSWMMVisMapToolSelect::rainfallVisualizationRequested,
                 this, &SWMMVis::openRainfallVisualizationFor,
+                Qt::UniqueConnection);
+        // Map right-click → Delete, routed through the same slot as the Del
+        // key and the Features grid so all three share one undo path.
+        connect(st, &OpenSWMMVisMapToolSelect::deleteFeaturesRequested,
+                this, [this](FeatureLayer *layer) {
+                    if (layer && mFeatureLayerPanel)
+                        mFeatureLayerPanel->selectLayer(layer);
+                    onDeleteSelectedFeatures();
+                },
                 Qt::UniqueConnection);
     }
 

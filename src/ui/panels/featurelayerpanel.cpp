@@ -26,11 +26,15 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QListWidget>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QShortcut>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 using namespace openswmmvis::feature;
 using openswmmvis::map::AddFieldCommand;
@@ -116,6 +120,58 @@ void FeatureLayerPanel::buildUi()
         lay->addLayout(btns);
 
         vbox->addWidget(g);
+    }
+
+    // ----- Feature grid --------------------------------------------------
+    // The attribute table for THIS layer. The main Attribute Table dock is
+    // built around SWMMAttributeTableModel's compile-time ColumnSpec and a
+    // SWMMModelLayer, so it cannot show a runtime-authored schema; this grid
+    // lives with the layer that owns the schema instead.
+    {
+        auto *g = new QGroupBox(tr("Features"), page);
+        auto *lay = new QVBoxLayout(g);
+
+        m_featureTable = new QTableWidget(0, 1, g);
+        m_featureTable->setObjectName(QStringLiteral("featureAttributeTable"));
+        m_featureTable->verticalHeader()->setVisible(false);
+        m_featureTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+        m_featureTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
+        m_featureTable->setContextMenuPolicy(Qt::CustomContextMenu);
+        m_featureTable->setMinimumHeight(140);
+        m_featureTable->setToolTip(
+            tr("Every feature in this layer. Selecting rows selects them on "
+               "the map; open an edit session to change values or delete."));
+        lay->addWidget(m_featureTable);
+
+        auto *btns = new QHBoxLayout();
+        m_deleteFeatBtn = new QPushButton(tr("Delete feature"), g);
+        m_deleteFeatBtn->setToolTip(
+            tr("Delete the selected features. Undoable — Del does the same."));
+        btns->addWidget(m_deleteFeatBtn);
+        btns->addStretch();
+        m_featHintLabel = new QLabel(g);
+        m_featHintLabel->setEnabled(false);
+        btns->addWidget(m_featHintLabel);
+        lay->addLayout(btns);
+
+        vbox->addWidget(g);
+
+        connect(m_featureTable, &QTableWidget::cellChanged,
+                this, &FeatureLayerPanel::onFeatureCellChanged);
+        connect(m_featureTable, &QTableWidget::itemSelectionChanged,
+                this, &FeatureLayerPanel::onFeatureSelectionChanged);
+        connect(m_featureTable, &QWidget::customContextMenuRequested,
+                this, &FeatureLayerPanel::onFeatureTableContextMenu);
+        connect(m_deleteFeatBtn, &QPushButton::clicked,
+                this, &FeatureLayerPanel::onDeleteSelectedFeatureRows);
+
+        // Del while the grid has focus. Scoped to the widget so it cannot
+        // shadow the Features toolbar's own Del, which acts on the map
+        // selection.
+        auto *del = new QShortcut(QKeySequence::Delete, m_featureTable);
+        del->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(del, &QShortcut::activated,
+                this, &FeatureLayerPanel::onDeleteSelectedFeatureRows);
     }
 
     // ----- Z -------------------------------------------------------------
@@ -293,9 +349,21 @@ void FeatureLayerPanel::bindActiveLayer(FeatureLayer *layer)
             this, &FeatureLayerPanel::refreshDetails);
     connect(m_active.data(), &FeatureLayer::zPolicyChanged,
             this, &FeatureLayerPanel::refreshDetails);
-    // Feature writes only change the counters, not the controls.
+    // A feature write changes the counters AND the grid's contents.
     connect(m_active.data(), &FeatureLayer::featuresChanged,
-            this, [this](const QVector<qint64> &) { refreshStatus(); });
+            this, [this](const QVector<qint64> &) {
+                refreshStatus();
+                refreshFeatureTable();
+            });
+    // Opening or closing the session flips every value cell between
+    // editable and read-only, so the grid is rebuilt rather than patched.
+    connect(m_active.data(), &FeatureLayer::editingChanged,
+            this, [this](bool) { refreshFeatureTable(); });
+    // Map selection → grid rows. The inverse direction is
+    // onFeatureSelectionChanged(); both funnel through setSelectedFeatureIds,
+    // and the QSignalBlocker in each stops the pair from ping-ponging.
+    connect(m_active.data(), &FeatureLayer::selectionChanged, this,
+            [this](const QSet<long long> &) { onFeatureSelectionChangedFromLayer(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -328,6 +396,10 @@ void FeatureLayerPanel::refreshDetails()
     m_exportBtn->setEnabled(has);
     m_importBtn->setEnabled(has);
     m_removeBtn->setEnabled(has);
+    m_featureTable->setEnabled(has);
+    // The schema drives the grid's columns, so any refreshDetails (which is
+    // what schemaChanged triggers) has to rebuild it too.
+    refreshFeatureTable();
 
     // Schema table
     m_fieldTable->setRowCount(0);
@@ -397,6 +469,201 @@ void FeatureLayerPanel::refreshStatus()
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Feature grid
+// ---------------------------------------------------------------------------
+
+void FeatureLayerPanel::refreshFeatureTable()
+{
+    // Every setItem below would otherwise come back through cellChanged and
+    // be pushed as a user edit.
+    const QSignalBlocker block(m_featureTable);
+    m_suppressFeatureEdits = true;
+
+    FeatureLayer *l = m_active.data();
+    m_featureTable->clearContents();
+    m_featureTable->setRowCount(0);
+
+    if (!l) {
+        m_featureTable->setColumnCount(1);
+        m_featureTable->setHorizontalHeaderLabels({tr("Feature")});
+        m_deleteFeatBtn->setEnabled(false);
+        m_featHintLabel->clear();
+        m_suppressFeatureEdits = false;
+        return;
+    }
+
+    const Schema schema = l->schema();
+    const bool editing = l->isEditing();
+
+    // Column 0 is the feature id: identity, never editable.
+    QStringList headers{tr("id")};
+    for (const FieldDef &f : schema.fields()) headers << f.name;
+    m_featureTable->setColumnCount(headers.size());
+    m_featureTable->setHorizontalHeaderLabels(headers);
+    m_featureTable->horizontalHeader()->setStretchLastSection(true);
+
+    const QVector<FeatureId> ids = l->featureIds();
+    m_featureTable->setRowCount(ids.size());
+    for (int row = 0; row < ids.size(); ++row) {
+        Feature f;
+        if (!l->feature(ids.at(row), f)) continue;
+
+        auto *idItem = new QTableWidgetItem(QString::number(f.id));
+        idItem->setFlags(idItem->flags() & ~Qt::ItemIsEditable);
+        // The id rides on the row so a sort or a partial refresh cannot
+        // desynchronise row number from feature.
+        idItem->setData(Qt::UserRole, QVariant::fromValue<qlonglong>(f.id));
+        m_featureTable->setItem(row, 0, idItem);
+
+        for (int c = 0; c < schema.count(); ++c) {
+            const FieldDef fd = schema.at(c);
+            const QVariant v = f.attributes.value(fd.name);
+            auto *item = new QTableWidgetItem(v.toString());
+            if (fd.type == FieldType::Boolean) {
+                item->setData(Qt::CheckStateRole,
+                              v.toBool() ? Qt::Checked : Qt::Unchecked);
+                item->setText(QString());
+            }
+            // Values are editable only inside an edit session.
+            Qt::ItemFlags flags = item->flags();
+            flags.setFlag(Qt::ItemIsEditable, editing);
+            if (fd.type == FieldType::Boolean)
+                flags.setFlag(Qt::ItemIsUserCheckable, editing);
+            item->setFlags(flags);
+            m_featureTable->setItem(row, c + 1, item);
+        }
+    }
+
+    m_deleteFeatBtn->setEnabled(editing);
+    m_featHintLabel->setText(editing ? QString()
+                                     : tr("Read-only — turn on Edit Mode."));
+    m_suppressFeatureEdits = false;
+
+    // Reflect whatever is selected on the map into the grid.
+    onFeatureSelectionChangedFromLayer();
+}
+
+void FeatureLayerPanel::onFeatureSelectionChangedFromLayer()
+{
+    FeatureLayer *l = m_active.data();
+    if (!l || !m_featureTable) return;
+    const QSignalBlocker block(m_featureTable);
+    const QSet<long long> sel = l->selectedFeatureIds();
+    m_featureTable->clearSelection();
+    for (int row = 0; row < m_featureTable->rowCount(); ++row) {
+        const QTableWidgetItem *idItem = m_featureTable->item(row, 0);
+        if (idItem && sel.contains(idItem->data(Qt::UserRole).toLongLong()))
+            m_featureTable->selectRow(row);
+    }
+}
+
+void FeatureLayerPanel::onFeatureCellChanged(int row, int column)
+{
+    if (m_suppressFeatureEdits || column <= 0) return;   // 0 is the id
+    FeatureLayer *l = m_active.data();
+    if (!l || !m_canvas || !l->isEditing()) return;
+
+    const QTableWidgetItem *idItem = m_featureTable->item(row, 0);
+    QTableWidgetItem *cell = m_featureTable->item(row, column);
+    if (!idItem || !cell) return;
+
+    const auto id = static_cast<FeatureId>(idItem->data(Qt::UserRole).toLongLong());
+    Feature f;
+    if (!l->feature(id, f)) return;
+
+    const Schema schema = l->schema();
+    if (column - 1 >= schema.count()) return;
+    const FieldDef fd = schema.at(column - 1);
+
+    const QVariant typed =
+        fd.type == FieldType::Boolean
+            ? QVariant(cell->checkState() == Qt::Checked)
+            : coerceToFieldType(QVariant(cell->text()), fd.type);
+
+    QVariantMap next = f.attributes;
+    next.insert(fd.name, typed);
+    if (next == f.attributes) return;   // nothing actually moved
+
+    auto *cmd = new map::EditFeatureAttributesCommand(l, id, f.attributes, next,
+                                                 m_canvas.data());
+    if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
+    else                       { delete cmd; return; }
+    if (!cmd->lastError().isEmpty()) emit message(cmd->lastError());
+
+    // Re-read: coercion may have normalised what the user typed ("3.50" for
+    // a Real becomes 3.5), and showing the raw text would be a lie.
+    refreshFeatureTable();
+}
+
+void FeatureLayerPanel::onFeatureSelectionChanged()
+{
+    FeatureLayer *l = m_active.data();
+    if (!l || m_suppressFeatureEdits) return;
+
+    QSet<long long> ids;
+    const auto rows = m_featureTable->selectionModel()
+                          ? m_featureTable->selectionModel()->selectedRows()
+                          : QModelIndexList();
+    for (const QModelIndex &idx : rows)
+        if (const QTableWidgetItem *item = m_featureTable->item(idx.row(), 0))
+            ids.insert(item->data(Qt::UserRole).toLongLong());
+
+    // setSelectedFeatureIds is the same entry point the Select map tool uses,
+    // so the map highlight follows the grid without a second mechanism.
+    l->setSelectedFeatureIds(ids);
+}
+
+void FeatureLayerPanel::onDeleteSelectedFeatureRows()
+{
+    FeatureLayer *l = m_active.data();
+    if (!l || !m_canvas) return;
+    if (!l->isEditing()) {
+        emit message(tr("Turn on Edit Mode before deleting features."));
+        return;
+    }
+
+    QVector<FeatureId> ids;
+    const auto rows = m_featureTable->selectionModel()
+                          ? m_featureTable->selectionModel()->selectedRows()
+                          : QModelIndexList();
+    for (const QModelIndex &idx : rows)
+        if (const QTableWidgetItem *item = m_featureTable->item(idx.row(), 0))
+            ids.append(static_cast<FeatureId>(item->data(Qt::UserRole).toLongLong()));
+    if (ids.isEmpty()) {
+        emit message(tr("Select one or more rows to delete."));
+        return;
+    }
+    std::sort(ids.begin(), ids.end());
+
+    auto *cmd = new map::DeleteFeaturesCommand(l, ids, m_canvas.data());
+    if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
+    else                       { delete cmd; return; }
+    if (!cmd->lastError().isEmpty()) emit message(cmd->lastError());
+    else emit message(tr("Deleted %n feature(s).", nullptr, ids.size()));
+}
+
+void FeatureLayerPanel::onFeatureTableContextMenu(const QPoint &pos)
+{
+    FeatureLayer *l = m_active.data();
+    if (!l) return;
+
+    const bool haveRows =
+        m_featureTable->selectionModel() &&
+        !m_featureTable->selectionModel()->selectedRows().isEmpty();
+
+    QMenu menu(this);
+    QAction *del = menu.addAction(tr("Delete feature(s)"));
+    del->setShortcut(QKeySequence::Delete);
+    del->setEnabled(l->isEditing() && haveRows);
+    if (!l->isEditing())
+        menu.addAction(tr("(turn on Edit Mode to change this layer)"))
+            ->setEnabled(false);
+
+    if (menu.exec(m_featureTable->viewport()->mapToGlobal(pos)) == del)
+        onDeleteSelectedFeatureRows();
+}
 
 void FeatureLayerPanel::onAddField()
 {
