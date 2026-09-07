@@ -115,6 +115,7 @@ tests/gui/data/typed_selection_fixture.rpt
 tests/gui/data/userflags_phase5_out.inp
 tests/unit/data/mesh_sync*_out.inp
 tests/unit/data/2d_complete_example.h5
+tests/unit/data/featurestore_artifacts/
 
 # SWMM run outputs are never sources (user rule 2026-09-05). A tracked
 # read-fixture needs `git add -f`; the two tests/unit/data/*.rpt predate this.
