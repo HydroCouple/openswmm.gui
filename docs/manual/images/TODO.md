@@ -1,7 +1,7 @@
 # Figure and video placeholders
 
 Generated checklist of every `\figtodo` / `\videotodo` in the manual. Capture the screenshot, save it under `docs/manual/images/<file>`, then change `\figtodo` to `\fig` in the chapter (for videos: `\videotodo{caption}` → `\video{YOUTUBE_ID, caption}`). Regenerate with `grep -rn "figtodo\|videotodo" docs/manual`.
-Totals: 325 figures, 35 videos.
+Totals: 326 figures, 35 videos.
 
 
 ## 01_introduction.md
@@ -113,9 +113,10 @@ Totals: 325 figures, 35 videos.
 - [ ] `10_link_xsection_editor.png` (line 261) — The cross-section page with a live preview of an arch section
 - [ ] `10_subcatch_lid_usage.png` (line 277) — The subcatchment compound editor on the LID Usage page
 - [ ] `10_convert_to_menu.png` (line 316) — The Convert To submenu with Virtual Junction greyed out and its rule tooltip
-- [ ] `10_section_view_link.png` (line 343) — The Section View showing a conduit cross-section at 1:1
-- [ ] `10_section_view_node.png` (line 345) — The Section View showing a node profile with four connecting links
-- [ ] VIDEO (line 362) — Editing a conduit's cross-section and watching the map; Section View and Attribute Table update together
+- [ ] `10_section_view_link.png` (line 348) — The Section View showing a conduit cross-section at the 1:1 default
+- [ ] `10_section_view_profile.png` (line 350) — The same conduit as a profile at the 10:1 default — the exaggeration stated under the drawing
+- [ ] `10_section_view_node.png` (line 352) — The Section View showing a node profile with four connecting links
+- [ ] VIDEO (line 369) — Editing a conduit's cross-section and watching the map; Section View and Attribute Table update together
 
 ## 11_attribute_tables.md
 
