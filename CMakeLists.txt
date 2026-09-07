@@ -381,6 +381,8 @@ set(
         include/map/featurecommands.h
         include/map/tools/maptoolfeaturedraw.h
         include/map/tools/maptoolfeatureedit.h
+        include/ui/dialogs/newfeaturelayerdialog.h
+        include/ui/panels/featurelayerpanel.h
         include/layers/gisobjectref.h
         include/layers/gisvectorsymboladapter.h
         include/layers/gisrasterlayer.h
@@ -1062,6 +1064,8 @@ set(
         src/map/featurecommands.cpp
         src/map/tools/maptoolfeaturedraw.cpp
         src/map/tools/maptoolfeatureedit.cpp
+        src/ui/dialogs/newfeaturelayerdialog.cpp
+        src/ui/panels/featurelayerpanel.cpp
         src/layers/gisobjectref.cpp
         src/layers/gisrasterlayer.cpp
         src/layers/wcslayer.cpp
