@@ -16,10 +16,15 @@
 #include <QSet>
 #include <QVector>
 
+#include <algorithm>
+#include <cmath>
+
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshgenerator.h"
 #include "mesh/meshpatch.h"
 #include "mesh/meshquadmerge.h"
+#include "mesh/meshquadquality.h"
+#include "mesh/meshquadregion.h"
 #include "mesh/meshresult.h"
 
 using namespace mesh;
@@ -170,6 +175,128 @@ private slots:
         QVERIFY(!err.isEmpty());
     }
 
+    /*! QUAD_MESHING_REDESIGN_PLAN §4.2 — polyline-sided transfinite patch on
+     *  a curved four-sided region: bottom side an arc of 9 points, the other
+     *  three straight. (n+1)(m+1) vertices, n·m convex CCW quads, every
+     *  boundary vertex lies on an input side, corners exact. */
+    void transfinite_polylineSides_curved()
+    {
+        // Corners: c0 (0,0), c1 (10,0), c2 (10,6), c3 (0,6). Bottom bows down
+        // to y = -1.5 at mid-span.
+        QVector<QPointF> bottom;
+        for (int i = 0; i <= 8; ++i)
+        {
+            const double u = i / 8.0;
+            bottom << QPointF(10.0 * u, -1.5 * std::sin(M_PI * u));
+        }
+        const QVector<QPointF> right{QPointF(10, 0), QPointF(10, 6)};
+        const QVector<QPointF> top{QPointF(10, 6), QPointF(0, 6)};
+        const QVector<QPointF> left{QPointF(0, 6), QPointF(0, 0)};
+        const QVector<QVector<QPointF>> sides{bottom, right, top, left};
+        const int n = 8, m = 4;
+        QString err;
+        const PatchMesh pm = makeTransfinitePatch(sides, n, m, QStringLiteral("arc"), &err);
+        QVERIFY2(err.isEmpty(), qPrintable(err));
+        QCOMPARE(pm.xy.size(), (n + 1) * (m + 1));
+        QCOMPARE(pm.quads.size(), n * m);
+        QCOMPARE(pm.boundarySegments.size(), 2 * (n + m));
+        QVERIFY(validate(pm).isEmpty());
+
+        const QVector<MeshVertex> V = asVertices(pm.xy);
+        for (const MeshTriangle &q : pm.quads)
+        {
+            QVERIFY(q.isQuad());
+            QCOMPARE(q.tag, QStringLiteral("arc"));
+            QVERIFY(cellIsConvex(V, q));
+            QVERIFY(cellSignedArea(V, q) > 0.0);
+        }
+        // Boundary vertices lie on the input polylines.
+        auto onPolyline = [](const QVector<QPointF> &pl, const QPointF &p) {
+            for (int i = 0; i + 1 < pl.size(); ++i)
+            {
+                const QPointF a = pl[i], b = pl[i + 1], ab = b - a, ap = p - a;
+                const double l2 = ab.x() * ab.x() + ab.y() * ab.y();
+                if (l2 <= 0.0) continue;
+                const double t = std::clamp((ap.x() * ab.x() + ap.y() * ab.y()) / l2, 0.0, 1.0);
+                const QPointF q = a + ab * t;
+                if (std::hypot(p.x() - q.x(), p.y() - q.y()) < 1e-9) return true;
+            }
+            return false;
+        };
+        int onBoundary = 0;
+        for (const auto &s : pm.boundarySegments)
+            for (int idx : {s.first, s.second})
+            {
+                bool on = false;
+                for (const auto &side : sides) on = on || onPolyline(side, pm.xy[idx]);
+                QVERIFY2(on, qPrintable(QStringLiteral("(%1,%2)").arg(pm.xy[idx].x()).arg(pm.xy[idx].y())));
+                ++onBoundary;
+            }
+        QCOMPARE(onBoundary, 2 * pm.boundarySegments.size());
+        for (const QPointF &c : {QPointF(0, 0), QPointF(10, 0), QPointF(10, 6), QPointF(0, 6)})
+            QVERIFY(pm.xy.contains(c));
+        // The bottom row follows the arc: its interior vertices dip below y = 0.
+        int dipped = 0;
+        for (const QPointF &p : pm.xy) if (p.y() < -1e-9) ++dipped;
+        QCOMPARE(dipped, n - 1);
+
+        // Invalid input: mismatched side endpoints, short side, n < 1.
+        QVector<QVector<QPointF>> bad = sides;
+        bad[1] = QVector<QPointF>{QPointF(10, 0.5), QPointF(10, 6)};
+        QVERIFY(makeTransfinitePatch(bad, n, m, QString(), &err).quads.isEmpty());
+        QVERIFY(!err.isEmpty());
+        bad = sides; bad[2] = QVector<QPointF>{QPointF(10, 6)};
+        QVERIFY(makeTransfinitePatch(bad, n, m, QString(), &err).quads.isEmpty());
+        QVERIFY(makeTransfinitePatch(sides, 0, m, QString(), &err).quads.isEmpty());
+    }
+
+    /*! QUAD_MESHING_REDESIGN_PLAN §4.2 — makeMappedPatch on a 20×10 rectangle
+     *  ring resampled at h = 2 with the four corners: n = 10, m = 5 → 50 unit
+     *  squares of 2×2, every SJ 1, boundary vertices = the ring vertices. */
+    void mappedPatch_rectangleRing()
+    {
+        const QPolygonF rect{QPointF(0, 0), QPointF(20, 0), QPointF(20, 10), QPointF(0, 10)};
+        const QPolygonF ring = resampleRing(rect, 2.0);
+        QCOMPARE(ring.size(), 30);
+        QVector<int> corners;
+        for (const QPointF &c : rect) corners << ring.indexOf(c);
+        std::sort(corners.begin(), corners.end());
+        QCOMPARE(corners, QVector<int>({0, 10, 15, 25}));
+
+        QString err;
+        const PatchMesh pm = makeMappedPatch(ring, corners, 2.0, QStringLiteral("map"), &err);
+        QVERIFY2(err.isEmpty(), qPrintable(err));
+        QCOMPARE(pm.quads.size(), 50);
+        QCOMPARE(pm.xy.size(), 11 * 6);
+        QCOMPARE(pm.boundarySegments.size(), 30);
+        QVERIFY(validate(pm).isEmpty());
+        const QVector<MeshVertex> V = asVertices(pm.xy);
+        for (const MeshTriangle &q : pm.quads)
+        {
+            QCOMPARE(q.tag, QStringLiteral("map"));
+            QVERIFY(cellSignedArea(V, q) > 0.0);
+            QVERIFY(quadQuality(V, q).scaledJacobian > 1.0 - 1e-9);
+            QVERIFY(std::abs(cellGeom(V, q).area - 4.0) < 1e-9);
+        }
+        // Every ring vertex is a patch boundary vertex (exact coordinates).
+        QSet<int> bverts;
+        for (const auto &s : pm.boundarySegments) { bverts.insert(s.first); bverts.insert(s.second); }
+        QCOMPARE(bverts.size(), 30);
+        for (const QPointF &r : ring)
+        {
+            bool found = false;
+            for (int idx : bverts)
+                if (std::hypot(pm.xy[idx].x() - r.x(), pm.xy[idx].y() - r.y()) < 1e-9) { found = true; break; }
+            QVERIFY(found);
+        }
+        // Bad corners: wrong count, out of range, not strictly increasing.
+        QVERIFY(makeMappedPatch(ring, {0, 10, 15}, 2.0, QString(), &err).quads.isEmpty());
+        QVERIFY(!err.isEmpty());
+        QVERIFY(makeMappedPatch(ring, {0, 10, 15, 40}, 2.0, QString(), &err).quads.isEmpty());
+        QVERIFY(makeMappedPatch(ring, {0, 15, 10, 25}, 2.0, QString(), &err).quads.isEmpty());
+        QVERIFY(makeMappedPatch(ring, corners, 0.0, QString(), &err).quads.isEmpty());
+    }
+
     /*! End-to-end: a 100×100 domain with a 20×20 transfinite patch hole.
      *  Triangles first, then the 4 patch quads; the patch boundary vertices
      *  are shared with the triangulation (no duplicates); no triangle lies
@@ -283,6 +410,15 @@ private slots:
         GenerationOptions o;
         o.maxArea = 100.0; o.minAngle = 30.0;
         o.mergeTrianglePairs = true;
+        // QUAD_MESHING_REDESIGN_PLAN §5 tightened the merge defaults to
+        // 60°/120°, SJ >= 0.866, aspect <= 2 — a near-equilateral Delaunay
+        // mesh (pairs form ~60/120 rhombi) can legitimately yield zero quads
+        // under them. This test is about the no-straddle rule, so relax the
+        // shape bounds to the previous 45°/135° window.
+        o.quadMerge.minAngleDeg = 45.0;
+        o.quadMerge.maxAngleDeg = 135.0;
+        o.quadMerge.minScaledJacobian = 0.7;
+        o.quadMerge.maxAspect = 0.0;
         g.setOptions(o);
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
