@@ -461,6 +461,34 @@ target_link_libraries(test_rastergeoref PRIVATE Qt6::Gui GDAL::GDAL)
 target_compile_definitions(test_rastergeoref
     PRIVATE RASTERGEOREF_OUT_DIR="${PROJECT_SOURCE_DIR}/test_artifacts/localraster")
 
+# ---- Editable feature layers: geometry value type + OGR bridge ----
+# MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN 2026-09-07 §3.1. featuregeometry.cpp
+# is a leaf: Qt, OGR geometry, and the ring predicates in meshquadregion.cpp
+# (which it delegates to rather than reimplementing). Qt6::Gui supplies
+# QPolygonF, which both use.
+add_swmmvis_unit_test(test_featuregeometry
+    test_featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+)
+target_link_libraries(test_featuregeometry PRIVATE Qt6::Gui GDAL::GDAL)
+
+# ---- Editable feature layers: the GeoPackage read/write store ----
+# The repository's first OGR WRITE path, so these tests exercise the driver:
+# FID reuse on insert (the stable-id contract behind AddFeatureCommand) and a
+# concurrent read-only open seeing flushed writes (what a mesh worker does).
+# Artifacts land beside the fixtures — reviewable, not a temp dir (CLAUDE.md §4.1).
+add_swmmvis_unit_test(test_featurestore
+    test_featurestore.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featurestore.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+)
+target_link_libraries(test_featurestore PRIVATE Qt6::Gui GDAL::GDAL)
+target_compile_definitions(test_featurestore
+    PRIVATE FEATURESTORE_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data/featurestore_artifacts")
+
 # ---- Bundled-example seeder / discovery + curated Bellinge payload guard ----
 # QTemporaryDir fixtures for sync/copy/discovery; BELLINGE_EXAMPLE_DIR points
 # at the committed payload so curation regressions (result-layer refs creeping
