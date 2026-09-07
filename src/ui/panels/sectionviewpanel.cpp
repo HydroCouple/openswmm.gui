@@ -74,37 +74,41 @@ void SectionViewPanel::buildUi()
     m_sectionBtn->setCheckable(true);
     m_sectionBtn->setChecked(true);
     m_sectionBtn->setToolTip(
-        tr("Show the cross-section (scale set by the V:H control; "
-           "1:1 is true shape)."));
+        tr("Show the cross-section (1:1 true shape by default; change with "
+           "the V:H control)."));
     m_sectionBtn->setAccessibleName(tr("Show cross-section"));
 
     m_profileBtn = new QToolButton(central);
     m_profileBtn->setText(tr("&Profile"));
     m_profileBtn->setCheckable(true);
     m_profileBtn->setToolTip(
-        tr("Show the longitudinal profile between the end nodes."));
+        tr("Show the longitudinal profile between the end nodes "
+           "(10:1 vertical exaggeration by default)."));
     m_profileBtn->setAccessibleName(tr("Show profile"));
 
     modeRow->addWidget(m_sectionBtn);
     modeRow->addWidget(m_profileBtn);
     modeRow->addStretch(1);
 
-    // Link scale (V:H). SVX: the drawing fills the pane by default — a
-    // letterboxed true-shape section or a capped profile wastes most of a
-    // non-square dock — and whatever ratio the fill implies is STATED on the
-    // drawing, so the stretch is never silent. This combo pins the ratio for
-    // LINK drawings (section and profile alike); 1:1 is the true picture.
-    // Nodes always fill and carry no control.
+    // Link scale (V:H), held per mode. A cross-section is drawn at 1:1 by
+    // default because any other ratio distorts the barrel's true shape; a
+    // profile is drawn at 10:1 because a 0.25 % invert slope is invisible at
+    // true scale. Auto is still offered: it fills the pane and STATES the
+    // ratio it landed on, so the stretch is never silent. Nodes always fill
+    // and carry no control.
     m_veLabel = new QLabel(tr("V:&H"), central);
     m_veCombo = new QComboBox(central);
     m_veCombo->setToolTip(
-        tr("Scale of the link drawing (V:H). Auto fills the pane and states "
-           "the achieved ratio on the drawing; 1:1 draws the true shape."));
+        tr("Scale of the link drawing (V:H), remembered per mode. 1:1 draws "
+           "the true shape (the section default); 10:1 is the profile "
+           "default; Auto fills the pane and states the achieved ratio on "
+           "the drawing."));
     m_veCombo->setAccessibleName(tr("Vertical exaggeration"));
     m_veLabel->setBuddy(m_veCombo);
     m_veCombo->addItem(tr("Auto"), 0.0);
     for (double ve : { 1.0, 2.0, 5.0, 10.0, 20.0, 50.0 })
         m_veCombo->addItem(tr("%1:1").arg(ve, 0, 'g', 3), ve);
+    syncVeCombo();
 
     modeRow->addWidget(m_veLabel);
     modeRow->addWidget(m_veCombo);
@@ -154,6 +158,8 @@ void SectionViewPanel::setMode(Mode mode)
     }
     m_mode = mode;
     updateModeButtons();
+    // Each mode carries its own ratio, so the combo has to follow the mode.
+    syncVeCombo();
     refresh();
     // Section and profile are different drawings — carrying zoom across would
     // land the user somewhere arbitrary.
@@ -177,20 +183,25 @@ void SectionViewPanel::updateModeButtons()
 
 void SectionViewPanel::setVerticalExaggeration(double ve)
 {
-    if (qFuzzyCompare(m_verticalExaggeration + 1.0, ve + 1.0)) return;
-    m_verticalExaggeration = ve;
+    double &slot = (m_mode == Mode::Profile) ? m_profileVe : m_sectionVe;
+    if (qFuzzyCompare(slot + 1.0, ve + 1.0)) return;
+    slot = ve;
 
     // Keep the combo honest when the value is set programmatically — the same
     // state edited through two surfaces has to stay in step (CLAUDE.md §5.1).
-    // Signals blocked so this doesn't bounce straight back in here.
-    if (m_veCombo) {
-        const int idx = m_veCombo->findData(ve);
-        if (idx >= 0 && idx != m_veCombo->currentIndex()) {
-            const QSignalBlocker block(m_veCombo);
-            m_veCombo->setCurrentIndex(idx);
-        }
-    }
+    syncVeCombo();
     refresh();
+}
+
+void SectionViewPanel::syncVeCombo()
+{
+    if (!m_veCombo) return;
+    const int idx = m_veCombo->findData(verticalExaggeration());
+    if (idx < 0 || idx == m_veCombo->currentIndex()) return;
+    // Signals blocked so this doesn't bounce straight back into
+    // setVerticalExaggeration and overwrite the other mode's value.
+    const QSignalBlocker block(m_veCombo);
+    m_veCombo->setCurrentIndex(idx);
 }
 
 void SectionViewPanel::clearSelection()
@@ -246,9 +257,11 @@ void SectionViewPanel::refresh()
         if (idx < 0) { clearSelection(); return; }
         if (m_mode == Mode::Profile) {
             SectionDiagramModel m = sectionview::buildLinkProfile(engine, idx, units);
-            if (m_verticalExaggeration > 0.0) {
-                // An explicit user choice overrides the builder's automatic.
-                m.verticalExaggeration = m_verticalExaggeration;
+            if (m_profileVe > 0.0) {
+                // An explicit ratio (10:1 by default) overrides the builder's
+                // automatic, which would otherwise pick a smaller value for a
+                // reach that is already steep.
+                m.verticalExaggeration = m_profileVe;
             } else {
                 // SVX fill-canvas default: drop the builder's aspect target
                 // and cap so the fit stretches to the pane; the achieved
@@ -259,11 +272,13 @@ void SectionViewPanel::refresh()
             m_preview->setModel(std::move(m));
         } else {
             SectionDiagramModel m = sectionview::buildLinkSection(engine, idx, units);
-            // SVX: the true-shape fit letterboxes in a non-square pane. Fill
-            // the pane by default and STATE the achieved V:H on the drawing;
-            // the combo pins the ratio, 1:1 being the old true-shape picture.
+            // A cross-section is drawn at 1:1 by default: stretching it to
+            // fill a non-square pane misreports the barrel's shape, which is
+            // the whole point of the drawing. The combo can still pin another
+            // ratio, or Auto (0) to fill the pane; either way the achieved
+            // V:H is STATED on the drawing, so the stretch is never silent.
             m.uniformScale            = false;
-            m.verticalExaggeration    = m_verticalExaggeration;   // 0 = fill
+            m.verticalExaggeration    = m_sectionVe;              // 0 = fill
             m.targetDrawnAspect       = 0.0;
             m.maxVerticalExaggeration = 0.0;
             m.annotateExaggeration    = true;
