@@ -55,6 +55,15 @@ struct QuadStats
      *  residual of the least-squares plane through the four corners; 0 for
      *  a planar bed. Project vertical units. */
     double maxNonPlanarity = 0.0;
+    // QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §5 — shape metrics
+    // (mesh::quadQuality). All 0 when count == 0.
+    double minScaledJacobian    = 1.0;  ///< min over quads of min_i sin(theta_i).
+    double medianRectangularity = 0.0;  ///< median of 1 - max|theta-90|/90.
+    double maxAspect            = 1.0;  ///< max over quads of opposite-side-mean ratio.
+    int    nonConvex            = 0;    ///< Quads failing the convexity test.
+    int    irregularVertices    = 0;    ///< Interior vertices (not on a boundaryEdge) touched only by quads with valence != 4.
+    /*! Histogram of scaled Jacobian in 10 bins over [0,1] (bin 9 = [0.9,1]). */
+    int    sjHistogram[10] = {0,0,0,0,0,0,0,0,0,0};
 };
 
 [[nodiscard]] QuadStats computeQuadStats(const MeshResult &mesh);

@@ -8,10 +8,18 @@
  * greedy pairing: score every mergeable interior edge by the quality of the
  * quad it would produce, then accept pairs best-first while neither triangle
  * has been taken. The perfect-matching refinement is out of scope.
+ *
+ * QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §4.6 / P1: the quality gate and
+ * ranking are mesh::quadAcceptable / mesh::quadScore (scaled Jacobian, aspect,
+ * skew) with 60°/120° defaults. The previous score minAng/maxAng ×
+ * minSide/maxSide rated the 60°/120° rhombus two equilateral Delaunay
+ * triangles form (0.5 × 1.0) the same as a perfect 2:1 rectangle (1.0 × 0.5),
+ * so it could not tell the diamond from the good quad.
  */
 #include "mesh/meshquadmerge.h"
 
 #include "mesh/meshcellgeom.h"
+#include "mesh/meshquadquality.h"
 
 #include <QHash>
 
@@ -32,31 +40,6 @@ struct Candidate
 bool sameValue(double a, double b) noexcept
 {
     return (std::isnan(a) && std::isnan(b)) || a == b;
-}
-
-/*! Interior angles (degrees) and side lengths of a convex quad. */
-void quadMetrics(const QVector<MeshVertex> &V, const MeshTriangle &q,
-                 double &minAng, double &maxAng, double &minSide, double &maxSide)
-{
-    minAng = 360.0; maxAng = 0.0;
-    minSide = std::numeric_limits<double>::max(); maxSide = 0.0;
-    for (int k = 0; k < 4; ++k)
-    {
-        const QPointF &prev = V[q.vertex((k + 3) % 4)].xy;
-        const QPointF &cur  = V[q.vertex(k)].xy;
-        const QPointF &next = V[q.vertex((k + 1) % 4)].xy;
-        const double ax = prev.x() - cur.x(), ay = prev.y() - cur.y();
-        const double bx = next.x() - cur.x(), by = next.y() - cur.y();
-        const double la = std::hypot(ax, ay), lb = std::hypot(bx, by);
-        if (la <= 0.0 || lb <= 0.0) { minAng = 0.0; maxAng = 180.0; return; }
-        double c = (ax * bx + ay * by) / (la * lb);
-        c = std::clamp(c, -1.0, 1.0);
-        const double ang = std::acos(c) * 180.0 / M_PI;
-        minAng = std::min(minAng, ang);
-        maxAng = std::max(maxAng, ang);
-        minSide = std::min(minSide, lb);
-        maxSide = std::max(maxSide, lb);
-    }
 }
 
 /*! Largest distance of any vertex's z from the plane through the other three. */
@@ -166,15 +149,15 @@ int mergeTrianglePairs(MeshResult &mesh, const QuadMergeOptions &opts,
         // fails the convexity test.
         if (!cellIsConvex(mesh.vertices, cd.quad)) continue;
 
-        double minAng, maxAng, minSide, maxSide;
-        quadMetrics(mesh.vertices, cd.quad, minAng, maxAng, minSide, maxSide);
-        if (minAng < opts.minAngleDeg || maxAng > opts.maxAngleDeg) continue;
+        const QuadQualityBounds bounds{opts.minAngleDeg, opts.maxAngleDeg,
+                                       opts.minScaledJacobian, opts.maxAspect};
+        const QuadQuality qq = quadQuality(mesh.vertices, cd.quad);
+        if (!quadAcceptable(qq, bounds)) continue;
         if (opts.maxBedNonPlanarity > 0.0
             && bedNonPlanarity(mesh.vertices, cd.quad) > opts.maxBedNonPlanarity)
             continue;
 
-        cd.score = (minAng / std::max(maxAng, 1e-12))
-                 * (maxSide > 0.0 ? minSide / maxSide : 0.0);
+        cd.score = quadScore(qq, bounds);
         cands.append(cd);
     }
     if (cands.isEmpty()) return 0;

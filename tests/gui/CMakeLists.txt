@@ -1923,6 +1923,12 @@ add_swmmvis_gui_test(test_meshgenerator
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
@@ -1946,12 +1952,105 @@ add_swmmvis_gui_test(test_meshpatch
     test_meshpatch.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshpatch.h
 )
 target_link_libraries(test_meshpatch PRIVATE triangle_lib)
+
+# ── Quad-region redesign (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md
+# §7 gates 1–8). One executable per module so a regression names its module;
+# only the e2e test links Triangle. Fixture output (gate 8 report) lands in
+# tests/output/quad_redesign_2026-09-06/ (CLAUDE.md §4.1).
+
+# Gate 1 — header-only quad quality metrics (SJ, rectangularity, aspect,
+# skew, convexity, default bounds, combined score).
+add_swmmvis_gui_test(test_meshquadquality
+    test_meshquadquality.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadquality.h
+)
+
+# Gate 2 — region geometry: normalisation, turning angles, Auto
+# classification, validation against domains / holes, overlap, resampling.
+add_swmmvis_gui_test(test_meshquadregion
+    test_meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadregion.h
+)
+
+# Gate 3 — 4-RoSy cross field: constant / rotated / annulus / guide,
+# rejections, directionsAt.
+add_swmmvis_gui_test(test_meshcrossfield
+    test_meshcrossfield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshcrossfield.h
+)
+
+# Gate 4 — frontal field-aligned point placement + template recognition.
+add_swmmvis_gui_test(test_meshquadpoints
+    test_meshquadpoints.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadpoints.h
+)
+
+# Gate 5 — template pairing, blossom gap pairing (vs brute force), unionQuad.
+add_swmmvis_gui_test(test_meshquadmatch
+    test_meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadmatch.h
+)
+
+# Gate 6 — doublet removal, diagonal swap, guarded smoothing, reorder.
+add_swmmvis_gui_test(test_meshquadcleanup
+    test_meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadcleanup.h
+)
+
+# Gate 7 — rectilinear submapping (L / U / rotated / noisy / rejections).
+add_swmmvis_gui_test(test_meshsubmap
+    test_meshsubmap.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshsubmap.h
+)
+
+# Gate 8 — MeshGenerator::addQuadRegion end-to-end (Free / Mapped /
+# Submapped / skipped / terrain Steiners / unchanged-when-absent). Links
+# Triangle; writes tests/output/quad_redesign_2026-09-06/e2e_report.txt.
+add_swmmvis_gui_test(test_meshquadregion_e2e
+    test_meshquadregion_e2e.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellstats.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadregion.h
+)
+target_link_libraries(test_meshquadregion_e2e PRIVATE triangle_lib)
+set_property(TEST test_meshquadregion_e2e APPEND PROPERTY
+    ENVIRONMENT "SWMMVIS_QUAD_E2E_OUT=${CMAKE_SOURCE_DIR}/tests/output/quad_redesign_2026-09-06")
 
 add_swmmvis_gui_test(test_nninterpdegenerate
     test_nninterpdegenerate.cpp
@@ -2003,6 +2102,12 @@ add_swmmvis_gui_test(test_pslgminsize
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
     ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
