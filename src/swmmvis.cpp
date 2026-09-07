@@ -8479,6 +8479,14 @@ void SWMMVis::onRunSimulation()
                 if (!self) return;
                 auto it = self->mActive2DResultsLayers.find(finishedJobId);
                 if (it == self->mActive2DResultsLayers.end()) return;
+                // The run is over — no more frames will be pushed. Mark the
+                // engine source non-live before any source swap, so the paths
+                // that RETAIN it (no .h5, or a genuine engine error) don't
+                // leave the animation waiting forever for a next frame.
+                if (it.value())
+                    if (auto *engineSrc =
+                            dynamic_cast<EngineMesh2DSource *>(it.value()->source()))
+                        engineSrc->markFinished();
                 // A cancelled run (success=false, errCode=0) is adopted like
                 // a finished one: the engine wrote and closed the .h5 up to
                 // the stop point, so the partial results are scrubbable and
