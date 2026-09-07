@@ -914,6 +914,23 @@ void PreferencesManager::setProgressTickMs(int ms)
                            QStringLiteral("ProgressTickMs"));
 }
 
+int PreferencesManager::live2DHistoryCap() const
+{
+    const int v = m_settings.value(QStringLiteral("%1/Simulation/Live2DHistoryCap")
+                                       .arg(kGroupRoot), 2000).toInt();
+    return (v < 100 || v > 200000) ? 2000 : v;
+}
+
+void PreferencesManager::setLive2DHistoryCap(int frames)
+{
+    if (frames < 100 || frames > 200000) return;
+    if (frames == live2DHistoryCap()) return;
+    m_settings.setValue(QStringLiteral("%1/Simulation/Live2DHistoryCap")
+                            .arg(kGroupRoot), frames);
+    emit preferenceChanged(QStringLiteral("Simulation"),
+                           QStringLiteral("Live2DHistoryCap"));
+}
+
 bool PreferencesManager::liveResults1DEnabled() const
 {
     return m_settings.value(QStringLiteral("%1/Simulation/LiveResults1D")

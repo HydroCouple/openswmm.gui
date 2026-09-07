@@ -253,6 +253,12 @@ public:
     [[nodiscard]] int progressTickMs() const;
     void setProgressTickMs(int ms);
 
+    /*! Live 2D results: maximum frames kept in memory while a run streams
+     *  (default 2000). Past the cap the older half is thinned 2:1; frames
+     *  keep their sim times. Range 100–200000. */
+    [[nodiscard]] int live2DHistoryCap() const;
+    void setLive2DHistoryCap(int frames);
+
     /*! Live 1D results: open the run's .out while the engine writes it and
      *  grow the results layer (map animation, profile + comparison plots)
      *  on every progress tick. Applies to the 6.x engine and the legacy
