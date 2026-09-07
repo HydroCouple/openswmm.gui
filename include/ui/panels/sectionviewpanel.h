@@ -65,13 +65,15 @@ public:
     [[nodiscard]] Mode mode() const noexcept { return m_mode; }
     void setMode(Mode mode);
 
-    /*! Scale (V:H) applied to LINK drawings — section and profile alike:
+    /*! Scale (V:H) applied to LINK drawings, for the CURRENT mode:
      *  0 = automatic (fill the pane, ratio stated on the drawing), >0 = an
-     *  explicit V:H ratio, 1.0 being true shape / true scale. Node drawings
-     *  always fill the pane and ignore this (SVX: fill-canvas default with
-     *  a link-only scale override). */
+     *  explicit V:H ratio, 1.0 being true shape / true scale. Section and
+     *  profile keep their own value — a cross-section is only honest at 1:1,
+     *  while a profile is unreadable there — so switching mode restores that
+     *  mode's ratio rather than carrying the other one across. Node drawings
+     *  always fill the pane and ignore this. */
     [[nodiscard]] double verticalExaggeration() const noexcept
-    { return m_verticalExaggeration; }
+    { return m_mode == Mode::Profile ? m_profileVe : m_sectionVe; }
     void setVerticalExaggeration(double ve);
 
 public slots:
@@ -86,6 +88,9 @@ public slots:
 private:
     void buildUi();
     void updateModeButtons();
+    /*! Point the V:H combo at the current mode's ratio without re-entering
+     *  setVerticalExaggeration. */
+    void syncVeCombo();
 
     QPointer<SWMMModelLayer> m_layer;
 
@@ -95,9 +100,15 @@ private:
     QLabel                            *m_veLabel     = nullptr;
     QComboBox                         *m_veCombo     = nullptr;
 
-    /*! 0 = automatic. Persisted across selections so a user who works at 1:1
-     *  is not put back on the exaggerated view by every click. */
-    double m_verticalExaggeration = 0.0;
+    /*! Per-mode V:H; 0 = automatic. Persisted across selections so a user who
+     *  works at one ratio is not put back on another by every click.
+     *
+     *  Section defaults to 1:1 because anything else distorts the true shape
+     *  of the barrel — the one thing a cross-section exists to show. Profile
+     *  defaults to 10:1, the conventional drainage-sheet exaggeration, since
+     *  a 0.25 % invert slope is invisible at true scale. */
+    double m_sectionVe = 1.0;
+    double m_profileVe = 10.0;
 
     /*! `SWMMObjectRef::ObjectType` of what is displayed; 0 = Unknown. */
     int     m_objectType = 0;

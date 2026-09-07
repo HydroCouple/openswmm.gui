@@ -333,14 +333,21 @@ Two toolbar controls:
 
 - **Section** / **Profile** buttons choose the drawing for a link. Nodes always
   draw a profile.
-- **V:H** combo sets the scale of link drawings. **Auto** fills the pane and
-  states the achieved ratio on the drawing; an explicit ratio pins it, with
-  `1:1` being true shape and true scale. The choice persists across selections.
+- **V:H** combo sets the scale of link drawings. An explicit ratio pins it,
+  `1:1` being true shape and true scale; **Auto** instead fills the pane and
+  states the achieved ratio on the drawing.
 
-A profile uses independent axis scaling by default — a long reach at a fraction
-of a percent slope is unreadable at true aspect.
+Each mode keeps its own ratio, and the combo follows the mode. **Section**
+defaults to **1:1**, because any other ratio misreports the barrel's shape —
+the one thing a cross-section exists to show. **Profile** defaults to **10:1**,
+the conventional drainage-sheet exaggeration, because a reach at a fraction of
+a percent slope is unreadable at true aspect. Both choices persist across
+selections, and whatever ratio is in force is stated on the drawing — `1:1`
+reads *true scale (V:H 1:1)*.
 
-\figtodo{10_section_view_link.png, The Section View showing a conduit cross-section at 1:1}
+\figtodo{10_section_view_link.png, The Section View showing a conduit cross-section at the 1:1 default}
+
+\figtodo{10_section_view_profile.png, The same conduit as a profile at the 10:1 default — the exaggeration stated under the drawing}
 
 \figtodo{10_section_view_node.png, The Section View showing a node profile with four connecting links}
 
