@@ -10,6 +10,7 @@
 #include "swmmvisprojectwindow.h"
 #include "map/mapextent.h"
 #include "map/mapundostack.h"
+#include "layers/featurelayer.h"
 #include "layers/gisvectorlayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
@@ -1435,17 +1436,47 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty())
     {
         QMenu bgMenu(widget);
+
+        // A feature layer in an edit session offers Delete on its current
+        // selection — the same action as the Del key and the Features grid,
+        // so the three routes cannot drift apart. Only inside a session, and
+        // only with something selected, so an ordinary right-click on empty
+        // map is unchanged.
+        FeatureLayer *editing = nullptr;
+        for (OpenSWMMVisLayer *l : m_canvas->layers()) {
+            auto *fl = qobject_cast<FeatureLayer *>(l);
+            if (fl && fl->isEditing() && !fl->selectedFeatureIds().isEmpty()) {
+                editing = fl;
+                break;
+            }
+        }
+        QAction *actDeleteFeat = nullptr;
+        if (editing) {
+            const int n = editing->selectedFeatureIds().size();
+            actDeleteFeat = bgMenu.addAction(
+                QIcon(QStringLiteral(":/swmmvis/Delete")),
+                QObject::tr("Delete %n selected feature(s)", nullptr, n));
+            bgMenu.addSeparator();
+        }
+
         QMenu *sysMenu = openswmmvis::ui::AttributePickerMenu::createForSystem(
             openswmmvis::plot::UnitSystem::US, &bgMenu);
         if (sysMenu) {
             sysMenu->setTitle(QObject::tr("Plot System Variable…"));
             sysMenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
             bgMenu.addMenu(sysMenu);
-            QAction *picked = bgMenu.exec(globalPt);
-            const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
-            if (attr != openswmmvis::plot::PlotAttribute::Unknown)
-                emit plotSystemRequested(attr);
         }
+        if (!sysMenu && !actDeleteFeat)
+            return;                        // nothing to show
+
+        QAction *picked = bgMenu.exec(globalPt);
+        if (actDeleteFeat && picked == actDeleteFeat) {
+            emit deleteFeaturesRequested(editing);
+            return;
+        }
+        const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
+        if (attr != openswmmvis::plot::PlotAttribute::Unknown)
+            emit plotSystemRequested(attr);
         return;
     }
 
