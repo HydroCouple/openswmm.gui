@@ -165,6 +165,11 @@ private:
     [[nodiscard]] int    driverCurrentStep() const;
     // Advance whichever driver is active to \p step.
     void driverSetStep(int step);
+    /*! \brief True while the active driver is still streaming frames from a
+     *  running simulation (1D live tail, or a live 2D mesh source). Used by
+     *  \ref onTimerTick to wait at the newest frame instead of pausing when
+     *  playback catches up to the writer with Cycle off. */
+    [[nodiscard]] bool   driverIsLive() const;
 
     /*! Slice Z.13-controller-range — effective [min, max] step range
      *  considering the primary's TemporalSpec.startTime/endTime. Falls
