@@ -385,11 +385,42 @@ private:
     // CRS produce this POD (no QObject state), folded into the layer on the
     // GUI thread by applyOpenResult(). Defined in the .cpp.
     struct OpenResult;
+    /*! \param openFlags  GDALOpenEx flags; see \ref setOpenFlags. Passed
+     *                    explicitly rather than read from a member because
+     *                    this runs on a worker thread with no `this`. */
     [[nodiscard]] static OpenResult doOpenWork(const QString &filePath,
-                                               const QString &layerName);
+                                               const QString &layerName,
+                                               unsigned openFlags);
     void applyOpenResult(const OpenResult &r);
 
 protected:
+    /*!
+     * \brief GDALOpenEx flags used by \ref openDataset and \ref openAsync.
+     *
+     * \details Read-only by default — every vector source in the application
+     *          is read-only except an editable feature layer. FeatureLayer
+     *          sets GDAL_OF_VECTOR | GDAL_OF_UPDATE via \ref setOpenFlags so
+     *          it can write through the same handle the paint loop reads,
+     *          instead of re-opening the GeoPackage after every edit.
+     *
+     *          A subclass that changes the flags MUST construct with an empty
+     *          filePath (the ctor only opens when the path is non-empty) and
+     *          call \ref openDataset itself afterwards; the base ctor runs
+     *          before the subclass exists.
+     */
+    void setOpenFlags(unsigned flags) { m_openFlags = flags; }
+    [[nodiscard]] unsigned openFlags() const { return m_openFlags; }
+
+    /*! \brief The open dataset, or nullptr. Non-owning; the layer closes it.
+     *         Exposed for subclasses that must reach GDAL directly (schema
+     *         changes, transaction control). */
+    [[nodiscard]] GDALDataset *dataset() const { return m_dataset; }
+
+    /*! \brief Force the next populateScene() to rebuild its items. Call after
+     *         mutating the underlying dataset so the scene reflects the write;
+     *         refreshScene() alone short-circuits on a clean dirty flag. */
+    void markSceneDirty() { m_needsRebuild = true; }
+
     /*!
      * \brief Open \p filePath / \p layerName synchronously.
      *
@@ -444,6 +475,11 @@ private:
     GisVectorSymbolAdapter      *m_symbolAdapter = nullptr;
     // VS.10 — m_labelConfig moved to OpenSWMMVisLayer (base owns it now).
     QSet<long long>              m_selectedIds;
+
+    /*! GDALOpenEx flags; see \ref setOpenFlags. Stored rather than virtual
+     *  because \ref openDataset is reachable from the constructor, where a
+     *  virtual would not dispatch to the subclass. */
+    unsigned                     m_openFlags = 0;   // seeded in the ctor
 
     GDALDataset                 *m_dataset   = nullptr; /*!< Owned GDAL dataset. */
     OGRLayer                    *m_ogrLayer  = nullptr; /*!< Non-owning pointer into dataset. */
