@@ -30,8 +30,15 @@ namespace mesh {
 /*! \brief Acceptance thresholds for a merged quad. */
 struct QuadMergeOptions
 {
-    double minAngleDeg = 45.0;        ///< Reject quads with any interior angle below this.
-    double maxAngleDeg = 135.0;       ///< Reject quads with any interior angle above this.
+    // QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §5 / P1: hard bounds tightened
+    // from 45°/135° (which accepted the 60°/120° rhombus two equilateral
+    // triangles form) to 60°/120°, and the ranking metric is mesh::quadScore
+    // (scaled Jacobian × aspect × skew) instead of minAngle/maxAngle ×
+    // minSide/maxSide, which rated a rhombus and a 2:1 rectangle equal.
+    double minAngleDeg = 60.0;        ///< Reject quads with any interior angle below this.
+    double maxAngleDeg = 120.0;       ///< Reject quads with any interior angle above this.
+    double minScaledJacobian = 0.866; ///< Reject quads whose min corner sine is below this.
+    double maxAspect   = 2.0;         ///< Reject quads longer than this ratio (opposite-side means); <= 0 = off.
     /*! Maximum distance of any vertex's bed elevation from the plane of the
      *  other three (mesh z units). 0 = ignore planarity. A merged quad
      *  must not hide a crest two triangles resolved. */

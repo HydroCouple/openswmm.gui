@@ -9,6 +9,9 @@
 #include "mesh/meshcellstats.h"
 
 #include "mesh/meshcellgeom.h"
+#include "mesh/meshquadquality.h"
+
+#include <QSet>
 
 #include <algorithm>
 #include <cmath>
@@ -54,10 +57,36 @@ QuadStats computeQuadStats(const MeshResult &mesh)
 {
     QuadStats s;
     const int nv = mesh.vertices.size();
+    // Shape metrics (QUAD_MESHING_REDESIGN_PLAN §5): per-vertex valence over
+    // ALL cells and a "touches a triangle" flag feed the irregular-vertex
+    // count; rectangularities are collected for the median.
+    std::vector<double> rect;
+    QVector<int>  valence(nv, 0);
+    QVector<bool> touchesTri(nv, false);
+    for (const MeshTriangle &t : mesh.triangles)
+    {
+        if (!triIndicesValid(t, nv)) continue;
+        const int n = t.vertexCount();
+        for (int k = 0; k < n; ++k)
+        {
+            ++valence[t.vertex(k)];
+            if (n == 3) touchesTri[t.vertex(k)] = true;
+        }
+    }
     for (const MeshTriangle &t : mesh.triangles)
     {
         if (!t.isQuad() || !triIndicesValid(t, nv)) continue;
         ++s.count;
+        {
+            const QuadQuality q = quadQuality(mesh.vertices, t);
+            s.minScaledJacobian = std::min(s.minScaledJacobian, q.scaledJacobian);
+            s.maxAspect = std::max(s.maxAspect, q.aspect);
+            if (!q.convex) ++s.nonConvex;
+            rect.push_back(q.rectangularity);
+            const int bin = q.scaledJacobian >= 0.0
+                                ? std::clamp(int(q.scaledJacobian * 10.0), 0, 9) : 0;
+            ++s.sjHistogram[bin];
+        }
         // Interior angle at each corner, in degrees.
         for (int k = 0; k < 4; ++k)
         {
@@ -80,7 +109,35 @@ QuadStats computeQuadStats(const MeshResult &mesh)
                                     + mesh.vertices[t.v2].z - mesh.vertices[t.v3].z) / 4.0;
         s.maxNonPlanarity = std::max(s.maxNonPlanarity, twist);
     }
-    if (s.count == 0) { s.minAngleDeg = 0.0; s.maxAngleDeg = 0.0; }
+    if (s.count == 0)
+    {
+        s.minAngleDeg = 0.0; s.maxAngleDeg = 0.0;
+        s.minScaledJacobian = 0.0; s.maxAspect = 0.0;
+        return s;
+    }
+
+    // Median rectangularity (same even-count rule as computeCellAreaStats).
+    {
+        const size_t mid = rect.size() / 2;
+        std::nth_element(rect.begin(), rect.begin() + mid, rect.end());
+        if (rect.size() % 2 == 1)
+            s.medianRectangularity = rect[mid];
+        else
+            s.medianRectangularity = 0.5 * (rect[mid] + *std::max_element(rect.begin(), rect.begin() + mid));
+    }
+
+    // Irregular vertices: interior (not an endpoint of any boundaryEdge),
+    // incident only to quads, valence != 4.
+    {
+        QSet<int> onBoundary;
+        onBoundary.reserve(mesh.boundaryEdges.size() * 2);
+        for (const MeshEdge &e : mesh.boundaryEdges) { onBoundary.insert(e.v0); onBoundary.insert(e.v1); }
+        for (int v = 0; v < nv; ++v)
+        {
+            if (valence[v] == 0 || touchesTri[v] || onBoundary.contains(v)) continue;
+            if (valence[v] != 4) ++s.irregularVertices;
+        }
+    }
     return s;
 }
 

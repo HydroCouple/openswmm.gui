@@ -23,6 +23,8 @@
 #define MESHGENERATIONDIALOG_H
 
 #include "mesh/meshgenerator.h"
+#include "mesh/meshquadquality.h"
+#include "mesh/meshquadregion.h"
 #include "mesh/meshresult.h"
 #include "mesh/inpmeshwriter.h"
 #include "mesh/dtmthinner.h"
@@ -169,6 +171,30 @@ public:
         // elevation fill and attribute seeding (so the bed-planarity test
         // sees real z) rather than inside generate().
         QVector<mesh::PatchMesh> patches;
+
+        // ── PSLG quad regions (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3.1) ──
+        // Regions the GUI thread could resolve itself (named subcatchments —
+        // rings come from SWMMModelLayer's cache, mesh CRS). The worker
+        // appends these AFTER the layer regions below and hands every region
+        // to MeshGenerator::addQuadRegion; the generator validates, resolves
+        // Auto mode, drops terrain Steiners inside Free rings and fills
+        // quadRegionReports().
+        QVector<mesh::QuadRegion> quadRegions;
+        // Polygon layers the WORKER reads with OGR (a GDAL handle must not
+        // cross threads — same rule as boundaryPath). One mesh::QuadRegion
+        // per feature exterior ring, reprojected to the mesh CRS when crsWkt
+        // differs from meshCRSWkt. Usually 0 or 1 entries.
+        struct QuadRegionLayerSpec { QString path, layerName, crsWkt; };
+        QVector<QuadRegionLayerSpec> quadRegionLayers;
+        // Mode / spacing / aspect / alignment / tag applied to every region
+        // from a layer or subcatchment unless a per-feature attribute
+        // (quad_mode, quad_spacing, quad_aspect, quad_angle, tag) overrides it.
+        // ring, alignGuide and corners are unused here.
+        mesh::QuadRegion quadRegionDefaults;
+        // Acceptance bounds → genOpts.quadRegionBounds, and (for one set of
+        // numbers in the UI) genOpts.quadMerge.{minAngleDeg, maxAngleDeg,
+        // minScaledJacobian, maxAspect}. genOpts.quadCleanup stays default.
+        mesh::QuadQualityBounds quadBounds;
 
         // 2026-08-17 — minimum cell size enforcement
         // (MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17.md).  minSizePolicy
@@ -390,11 +416,22 @@ private:
     QCheckBox      *m_cleanupBox           = nullptr; ///< post-mesh sliver collapse
     QLabel         *m_minCellDerivedLabel  = nullptr; ///< derived area / shift readout
 
-    // ── Quad cells (TRI_QUAD_MESHING_PLAN §3, G2 merge + G3 patches) ──
-    QCheckBox      *m_quadMergeBox         = nullptr; ///< merge triangle pairs into quads
+    // ── Quad quality (TRI_QUAD_MESHING_PLAN §3 G2 merge + G3 patches;
+    //    QUAD_MESHING_REDESIGN_PLAN §5 bounds shared with quad regions) ──
+    QCheckBox      *m_quadMergeBox         = nullptr; ///< merge triangle pairs into quads (experimental)
     QDoubleSpinBox *m_quadMinAngleSpin     = nullptr; ///< accept quads with angles >= (deg)
     QDoubleSpinBox *m_quadMaxAngleSpin     = nullptr; ///< accept quads with angles <= (deg)
+    QDoubleSpinBox *m_quadMinSjSpin        = nullptr; ///< min scaled Jacobian (sine of worst corner)
+    QDoubleSpinBox *m_quadMaxAspectSpin    = nullptr; ///< max side ratio ((off) at 0)
     QDoubleSpinBox *m_quadPlanaritySpin    = nullptr; ///< max bed non-planarity (length; (off) at 0)
+
+    // ── Quad regions (PSLG) (QUAD_MESHING_REDESIGN_PLAN §3.1 sources, §6.3) ──
+    QComboBox      *m_quadRegionLayerCombo   = nullptr; ///< "(none)" + polygon GISVectorLayers
+    QLineEdit      *m_quadRegionSubcatchEdit = nullptr; ///< comma-separated subcatchment IDs
+    QComboBox      *m_quadRegionModeCombo    = nullptr; ///< default mesh::QuadRegionMode
+    QDoubleSpinBox *m_quadRegionSpacingSpin  = nullptr; ///< default h (map units; (from max area) at 0)
+    QDoubleSpinBox *m_quadRegionAspectSpin   = nullptr; ///< default aspectMax
+    QDoubleSpinBox *m_quadRegionAngleSpin    = nullptr; ///< default align angle ((from boundary) at min)
     /*! One row per structured patch: Type | Points | N/Across | M/Along |
      *  Width | Tag. Points are "x y; x y; …" in mesh CRS units — 4 corners
      *  for a four-sided patch, the centreline for a swept patch. */

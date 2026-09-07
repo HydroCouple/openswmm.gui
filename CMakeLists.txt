@@ -583,6 +583,13 @@ set(
         include/mesh/meshobjectref.h
         include/mesh/meshpatch.h
         include/mesh/meshquadmerge.h
+        include/mesh/meshquadquality.h
+        include/mesh/meshquadregion.h
+        include/mesh/meshcrossfield.h
+        include/mesh/meshquadpoints.h
+        include/mesh/meshquadmatch.h
+        include/mesh/meshquadcleanup.h
+        include/mesh/meshsubmap.h
         include/mesh/meshresult.h
         include/mesh/meshcellgeom.h
         include/mesh/trirefinehook.h
@@ -1248,6 +1255,12 @@ set(
         src/mesh/meshminsizecleanup.cpp
         src/mesh/meshpatch.cpp
         src/mesh/meshquadmerge.cpp
+        src/mesh/meshquadregion.cpp
+        src/mesh/meshcrossfield.cpp
+        src/mesh/meshquadpoints.cpp
+        src/mesh/meshquadmatch.cpp
+        src/mesh/meshquadcleanup.cpp
+        src/mesh/meshsubmap.cpp
         src/mesh/meshreorder.cpp
         src/mesh/meshstagecache.cpp
         src/mesh/pslgminsize.cpp

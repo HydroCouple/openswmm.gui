@@ -67,6 +67,40 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
     mesh generation dialog; 2D options tab exposes `MOMENTUM_EQUATION` and `RECONSTRUCTION_ORDER`.
   - Tests: new `test_meshquadmerge`, `test_meshpatch`, `test_sms2dmreader`; mixed-mesh cases added to the
     mesh layer, results, reader/writer, reorder, cleanup and edge-count suites.
+- **Mesh generation: PSLG quad regions (Mapped / Submapped / Free) with cross-field aligned lattices,
+  template + blossom pairing, cleanup/smoothing; quad-quality metrics (scaled Jacobian, rectangularity,
+  aspect); tri-pair merge defaults tightened to 60°/120° and re-scored** —
+  `workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md`. Verified on macOS arm64 / Qt 6.9.3 / clang:
+  full build, the mesh suites green, no-region output byte-identical to `2991931`, and the engine runs a
+  generated mixed deck at rest (max |Δh| = 0 over 1442 steps) with 2D continuity 0.000 % on a sloping
+  storm; see `tests/output/quad_redesign_2026-09-06/README.md`.
+  - `MeshGenerator::addQuadRegion` + `quadRegionReports()`: a closed ring inside the domain becomes a
+    constraint loop; Auto classification picks Mapped (4 corners → polyline transfinite,
+    `makeMappedPatch`), Submapped (rectilinear outline → `mesh/meshsubmap.h` grid decomposition) or Free
+    (4-RoSy cross field `mesh/meshcrossfield.h` → frontal lattice `mesh/meshquadpoints.h` → Triangle with
+    refinement suppressed inside → template + Edmonds-blossom pairing `mesh/meshquadmatch.h` → doublet /
+    diagonal-swap cleanup and guarded smoothing `mesh/meshquadcleanup.h`). Marker-0 terrain Steiners
+    inside a Free ring are dropped; junctions pin the lattice; invalid regions are skipped with a
+    `skipped: …` report line. The mesh is unchanged when no region is added.
+  - `mesh/meshquadquality.h` (header-only): scaled Jacobian, rectangularity, aspect, skew, convexity,
+    `QuadQualityBounds` (60°/120°, SJ ≥ 0.866, aspect ≤ 2), `quadScore`; `QuadStats` gains min SJ,
+    median rectangularity, max aspect, non-convex count, irregular interior vertices and an SJ histogram.
+  - Tri-pair merge (`QuadMergeOptions`) now defaults to 60°/120°, `minScaledJacobian` 0.866,
+    `maxAspect` 2 and ranks candidates by `quadScore`.
+  - Dialog: *Quad regions (PSLG)* group (region layer with `quad_mode` / `quad_spacing` / `quad_aspect`
+    / `quad_angle` / `tag` attributes, subcatchment IDs, default mode / spacing / aspect / alignment),
+    one `[Mesh][quad] region i: …` log line per region.
+  - Tests (plan §7 gates 1–8): `test_meshquadquality`, `test_meshquadregion`, `test_meshcrossfield`,
+    `test_meshquadpoints`, `test_meshquadmatch` (blossom vs brute force on 200 random graphs),
+    `test_meshquadcleanup`, `test_meshsubmap`, `test_meshquadregion_e2e` (writes
+    `tests/output/quad_redesign_2026-09-06/e2e_report.txt`); polyline transfinite / mapped-patch cases in
+    `test_meshpatch`; manual click-through in `tests/manual/mesh_quad_redesign/README.md`. One known
+    limitation is recorded as `QEXPECT_FAIL` in the e2e suite: a junction pinned inside a Free region
+    leaves a seam of ≈ 12 % triangles around it (≥ 85 % quads asserted). Two gaps found by the suite were
+    fixed before hand-off: marker-0 Steiners within h of a Free ring (outside as well as inside) are
+    dropped so Triangle never splits the ring segments, and smoothing guards every quad against the
+    0.866 floor rather than only the incident minimum. With no region added the generator output is
+    byte-identical to HEAD `2991931` (`tests/output/quad_redesign_2026-09-06/bitcheck/`).
 
 - **Inlets editor rebuilt, and the Inlet Junction node.** The Inlets editor
   is three-pane (design list / name, type and grouped property tree / a
