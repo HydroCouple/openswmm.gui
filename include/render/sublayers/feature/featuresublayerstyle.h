@@ -236,6 +236,10 @@ private:
     // on out of the box here too (matches the model layer's per-kind seed).
     bool         m_showFlowArrows = true;
     double       m_arrowLengthPx  = 16.0;
+    /*! FULL width of the arrowhead base across the link — the same meaning
+     *  the key carries on the model layer (SWMMElementSymbol::arrowWidth,
+     *  halved by drawFlowArrow), and the same 8 px default, so a style seeded
+     *  from a model layer draws the same arrow on both. */
     double       m_arrowWidthPx   = 8.0;
     QColor       m_arrowColor     = QColor(20, 20, 20, 220);
     bool         m_renderAsLine   = true;
