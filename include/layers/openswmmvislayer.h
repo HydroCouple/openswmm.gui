@@ -149,6 +149,8 @@ public:
         SWMM2DMeshLayer           = 12, /*!< Generated / loaded 2D triangular mesh (Slice AU). */
         SWMM2DResultsLayer        = 13, /*!< 2D surface routing results (depth heatmap) — Slice CF.MVP. */
         SWMMAnnotationLayer       = 14, /*!< User-placed text annotations (styled labels). */
+        SWMMFeatureLayer          = 15, /*!< Editable, GeoPackage-backed user-drawn features
+                                         *   (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §3). */
     };
 
     // ----- Constructors ----------------------------------------------------
