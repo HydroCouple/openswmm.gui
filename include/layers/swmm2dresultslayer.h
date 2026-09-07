@@ -35,6 +35,7 @@
 #include <QPolygonF>
 #include <QRectF>
 #include <QSet>
+#include <QTimer>
 #include <QString>
 #include <QVector>
 
@@ -147,6 +148,24 @@ public:
 
     /*! \brief Fetch per-triangle depth at \p timeIdx. Resizes \p depths to triangleCount(). */
     virtual bool readDepthsAt(int timeIdx, std::vector<float>& depths) = 0;
+
+    /*! \brief One cell's depth at \p timeIdx. The default copies the whole
+     *  frame through \ref readDepthsAt; a source holding frames in memory
+     *  overrides it in O(1) so per-cell time series (comparison plots) do not
+     *  copy every frame per point. */
+    virtual bool readDepthAt(int timeIdx, int cell, float& out)
+    {
+        std::vector<float> row;
+        if (!readDepthsAt(timeIdx, row) || cell < 0 || cell >= static_cast<int>(row.size()))
+            return false;
+        out = row[static_cast<size_t>(cell)];
+        return true;
+    }
+
+    /*! \brief Bumps whenever frames are removed or reordered (a live source
+     *  thinning its history), invalidating anything cached per frame index.
+     *  Appends do not bump it. */
+    virtual int historyGeneration() const { return 0; }
 
     /*! \brief Wall-clock sim time at \p timeIdx (invalid if out of range or unknown). */
     virtual QDateTime simTimeAt(int timeIdx) const { (void)timeIdx; return {}; }
@@ -321,6 +340,16 @@ public:
     int  triangleCount() const override { return static_cast<int>(cells_.size()); }
     int  timeCount()     const override { return static_cast<int>(history_.size()); }
     bool isLive()        const override { return true; }   // streaming from the running sim
+    bool readDepthAt(int timeIdx, int cell, float& out) override;
+    int  historyGeneration() const override { return generation_; }
+
+    /*! \brief Cap on retained frames (default 2000). Past the cap the OLDER
+     *  half of the history is thinned 2:1 (frames keep their sim times, so
+     *  scrubbing by time is unaffected); \ref historyGeneration bumps. A
+     *  1 Hz tick on a 200 k-cell mesh is ~6 MB per frame — unbounded history
+     *  paged the machine on long runs. \p n < 8 disables the cap. */
+    void setMaxFrames(int n) { max_frames_ = n; enforceCap_(); }
+    int  maxFrames() const noexcept { return max_frames_; }
     bool readMeshGeometry(std::vector<double>& vx,
                           std::vector<double>& vy,
                           std::vector<double>& vz,
@@ -360,6 +389,9 @@ private:
     };
     std::vector<Tick> history_;
     bool              has_rainfall_ = false;   ///< any tick carried rainfall
+    int               max_frames_   = 2000;    ///< see setMaxFrames
+    int               generation_   = 0;       ///< see historyGeneration
+    void enforceCap_();
 
     // Time-invariant edge geometry; populated once at twoDInitialized via
     // setEdgeGeometry. Empty when the engine lacks the bulk geometry API.
@@ -984,6 +1016,26 @@ private:
     int                            current_time_idx_ = -1;
     bool                           follow_live_      = true;  // live source: auto-advance to newest frame until the user scrubs
     bool                           live_render_enabled_ = true; // live source: master gate for streaming/render work (Issue 2 toggle)
+
+    // Live-tick coalescing. A tick arrives as up to four queued pushes
+    // (depths, flux, vertex depths, rainfall), each followed by a refresh
+    // request; the requests are folded into ONE range emission + ONE frame
+    // load per event-loop turn (scheduleLiveSync_ / liveSync_).
+    bool                           live_sync_pending_ = false;
+    bool                           live_range_dirty_  = false;
+    bool                           live_frame_dirty_  = false;
+    int                            last_range_hi_     = -1;   ///< last timeRangeChanged hi emitted
+    void scheduleLiveSync_();
+    void liveSync_();
+
+    // Incremental per-vertex max-depth envelope (maxDepthPerVertex): frames
+    // already folded in are not re-read on the next call. Keyed on the source
+    // and its history generation; the newest frame is always re-folded.
+    mutable std::vector<float>     vertMaxCache_;
+    mutable std::vector<uint8_t>   vertWetCache_;
+    mutable int                    vertMaxFramesDone_ = 0;
+    mutable const IMesh2DSource*   vertMaxSource_     = nullptr;
+    mutable int                    vertMaxGeneration_ = -1;
     double                         dry_depth_        = 1e-4;  // 0.1 mm — auto-tuned per project
     double                         max_depth_        = 0.01;  // 10 mm — auto-grows from data each tick
     bool                           max_depth_user_set_ = false;

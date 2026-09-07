@@ -574,6 +574,16 @@ QWidget *PreferencesDialog::buildSimulationPage()
         "more overhead. Default 1000 ms (1 Hz)."));
     f->addRow(tr("Progress-tick interval"),       m_progressTickMsSpin);
 
+    m_live2DHistoryCapSpin = new QSpinBox(page);
+    m_live2DHistoryCapSpin->setRange(100, 200000);
+    m_live2DHistoryCapSpin->setSingleStep(500);
+    m_live2DHistoryCapSpin->setSuffix(tr(" frames"));
+    m_live2DHistoryCapSpin->setToolTip(tr(
+        "Frames of live 2D results kept in memory while a run streams. Past "
+        "the cap the older half is thinned 2:1 (frames keep their times), so "
+        "memory stays bounded on long runs of large meshes."));
+    f->addRow(tr("Live 2D history cap"),          m_live2DHistoryCapSpin);
+
     return page;
 }
 
@@ -1534,6 +1544,7 @@ void PreferencesDialog::readFromManager()
     if (m_nodeStyleModel) m_nodeStyleModel->refreshValues();
 
     m_progressTickMsSpin->setValue(p->progressTickMs());
+    m_live2DHistoryCapSpin->setValue(p->live2DHistoryCap());
 
     // Simulation Defaults
     {
@@ -1765,6 +1776,7 @@ void PreferencesDialog::writeToManager()
     // setters at edit time — nothing to flush here.
 
     p->setProgressTickMs(m_progressTickMsSpin->value());
+    p->setLive2DHistoryCap(m_live2DHistoryCapSpin->value());
 
     // Simulation Defaults — package the page state and persist via one setter.
     {
@@ -2039,6 +2051,7 @@ void PreferencesDialog::onResetToDefaults()
     };
 
     m_progressTickMsSpin->setValue(1000);
+    m_live2DHistoryCapSpin->setValue(2000);
 
     // Simulation Defaults — restore the struct's compile-time seeds and
     // max the THREADS knob to the machine's logical-processor count
