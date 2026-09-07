@@ -8,6 +8,7 @@
 
 #include "connections/basemapconnection.h"
 #include "layers/annotationlayer.h"
+#include "layers/featurelayer.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/gisvectorlayer.h"
 #include "layers/openswmmvislayer.h"
@@ -1381,6 +1382,24 @@ QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer,
         obj[kGisName]    = r->name();
         obj[kGisVisible] = r->isVisible();
         obj[kGisOpacity] = r->opacity();
+    } else if (auto *f = qobject_cast<FeatureLayer *>(layer)) {
+        // Editable feature layer. Checked BEFORE the GISVectorLayer branch
+        // because FeatureLayer derives from it — the base branch would
+        // otherwise claim it and the role / Z policy would be lost.
+        // Geometry itself lives in the project GeoPackage, so this record is
+        // still path-shaped like the other two.
+        if (f->gpkgPath().isEmpty()) return obj;
+        obj[kGisType]      = QStringLiteral("feature");
+        obj[kGisPath]      = toRelativePath(f->gpkgPath(), oswpPath);
+        obj[kGisName]      = f->name();
+        obj[kGisVisible]   = f->isVisible();
+        obj[kGisOpacity]   = f->opacity();
+        obj[kGisLayerName] = f->tableName();
+        // role / zPolicy / symbol
+        const QJsonObject extra = f->toJson();
+        for (auto it = extra.constBegin(); it != extra.constEnd(); ++it)
+            if (it.key() != QStringLiteral("layerName"))
+                obj[it.key()] = it.value();
     } else if (auto *v = qobject_cast<GISVectorLayer *>(layer)) {
         if (v->filePath().isEmpty()) return obj;
         obj[kGisType]      = QStringLiteral("vector");
@@ -1404,12 +1423,17 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
     if (rel.isEmpty()) return;
     const QString path = resolveStoredPath(rel, oswpPath);
     if (!QFile::exists(path)) {
-        if (warningsOut)
+        if (warningsOut) {
+            // The label used to read "Vector" for every non-raster type; with
+            // a third type that would be actively wrong.
+            const QString kindLabel =
+                type == QStringLiteral("raster")  ? QObject::tr("Raster")
+              : type == QStringLiteral("feature") ? QObject::tr("Feature")
+                                                  : QObject::tr("Vector");
             *warningsOut << QObject::tr(
                 "%1 layer file not found — layer skipped: %2")
-                   .arg(type == QStringLiteral("raster")
-                            ? QObject::tr("Raster") : QObject::tr("Vector"),
-                        path);
+                   .arg(kindLabel, path);
+        }
         return;
     }
 
@@ -1446,5 +1470,26 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
             },
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
         layer->openAsync(path, layerName);
+    } else if (type == QStringLiteral("feature")) {
+        // Editable feature layer. Opened SYNCHRONOUSLY, unlike the other two:
+        // FeatureLayer::openTable must run with the GDAL_OF_UPDATE flag its
+        // ctor sets, and the async path would hand the dataset to the base
+        // before the store can attach to it. A project GeoPackage is local and
+        // small (it holds only what the user drew), so the synchronous open
+        // costs nothing comparable to a raster pyramid scan.
+        const QString table = obj.value(kGisLayerName).toString();
+        auto *layer = new FeatureLayer();
+        QString err;
+        if (!layer->openTable(path, table, &err)) {
+            if (warningsOut)
+                *warningsOut << QObject::tr(
+                    "Feature layer \"%1\" could not be opened — layer skipped: %2")
+                       .arg(table, err);
+            layer->deleteLater();
+            return;
+        }
+        layer->applyJson(obj);   // role, zPolicy, symbol
+        applyCommon(layer);
+        canvas->addLayer(layer, /*pushUndo=*/false);
     }
 }
