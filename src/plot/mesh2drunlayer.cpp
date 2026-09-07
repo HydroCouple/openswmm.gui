@@ -406,9 +406,11 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
             value = static_cast<double>(rain[triIdx]) * rainScale;
         }
         else if (attr == PlotAttribute::Mesh2DDepth || attr == PlotAttribute::Mesh2DHGL) {
-            if (!src->readDepthsAt(t, depths)) continue;
-            if (triIdx >= static_cast<int>(depths.size())) continue;
-            const double d = static_cast<double>(depths[triIdx]);
+            // One cell per frame — a live source answers in O(1) instead of
+            // copying nCells per point (this runs on every live tick).
+            float dCell = 0.0f;
+            if (!src->readDepthAt(t, triIdx, dCell)) continue;
+            const double d = static_cast<double>(dCell);
             if (attr == PlotAttribute::Mesh2DDepth) {
                 value = d;
             } else {

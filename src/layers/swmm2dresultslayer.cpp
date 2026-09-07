@@ -1012,6 +1012,7 @@ void EngineMesh2DSource::pushDepths(std::vector<float> depths,
     t.sim_time    = simTime;
     t.elapsed_sec = elapsedSec;
     history_.emplace_back(std::move(t));
+    enforceCap_();
 }
 
 void EngineMesh2DSource::pushFlux(std::vector<float> flux,
@@ -1034,6 +1035,7 @@ void EngineMesh2DSource::pushFlux(std::vector<float> flux,
     t.sim_time    = simTime;
     t.elapsed_sec = elapsedSec;
     history_.emplace_back(std::move(t));
+    enforceCap_();
 }
 
 void EngineMesh2DSource::pushVertexSignedDepths(std::vector<double> depths,
@@ -1063,6 +1065,7 @@ void EngineMesh2DSource::pushVertexSignedDepths(std::vector<double> depths,
     t.sim_time      = simTime;
     t.elapsed_sec   = elapsedSec;
     history_.emplace_back(std::move(t));
+    enforceCap_();
 }
 
 void EngineMesh2DSource::pushRainfall(std::vector<float> rainfall,
@@ -1086,6 +1089,31 @@ void EngineMesh2DSource::pushRainfall(std::vector<float> rainfall,
     t.elapsed_sec = elapsedSec;
     history_.emplace_back(std::move(t));
     has_rainfall_ = true;
+    enforceCap_();
+}
+
+void EngineMesh2DSource::enforceCap_()
+{
+    if (max_frames_ < 8 || static_cast<int>(history_.size()) <= max_frames_) return;
+    // Thin the OLDER half 2:1 (keep every other frame), keep the newer half
+    // whole: recent frames stay at full cadence, the far past coarsens
+    // geometrically. Sim times travel with the frames.
+    const size_t n = history_.size(), half = n / 2;
+    std::vector<Tick> kept;
+    kept.reserve(n - half / 2);
+    for (size_t i = 0; i < half; i += 2) kept.emplace_back(std::move(history_[i]));
+    for (size_t i = half; i < n; ++i)   kept.emplace_back(std::move(history_[i]));
+    history_ = std::move(kept);
+    ++generation_;
+}
+
+bool EngineMesh2DSource::readDepthAt(int timeIdx, int cell, float& out)
+{
+    if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size())) return false;
+    const auto& d = history_[static_cast<size_t>(timeIdx)].depths;
+    if (cell < 0 || cell >= static_cast<int>(d.size())) return false;
+    out = d[static_cast<size_t>(cell)];
+    return true;
 }
 
 bool EngineMesh2DSource::hasFaceField(const char* dataset) const
@@ -1509,6 +1537,9 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
 {
     source_ = std::move(source);
     current_time_idx_ = -1;
+    last_range_hi_    = -1;
+    live_range_dirty_ = live_frame_dirty_ = false;
+    vertMaxSource_    = nullptr;     // envelope cache belongs to the old source
     current_depths_.clear();
     current_flux_.clear();
     have_velocity_ = false;
@@ -1692,11 +1723,53 @@ void SWMM2DResultsLayer::refreshCurrentFrame()
 {
     if (!source_) return;
     if (source_->isLive() && !live_render_enabled_) return;
+    if (source_->isLive()) {
+        // Coalesce with the other refresh requests of this tick.
+        live_frame_dirty_ = true;
+        scheduleLiveSync_();
+        return;
+    }
     const int n = source_->timeCount();
     if (n == 0) return;
     const int t = std::clamp(current_time_idx_ < 0 ? 0 : current_time_idx_,
                              0, n - 1);
     loadFrame_(t);
+}
+
+void SWMM2DResultsLayer::scheduleLiveSync_()
+{
+    if (live_sync_pending_) return;
+    live_sync_pending_ = true;
+    // Zero-length timer: runs after the queued pushes already posted for this
+    // tick have been delivered, so the four handlers cost one frame load.
+    QTimer::singleShot(0, this, [this]() { liveSync_(); });
+}
+
+void SWMM2DResultsLayer::liveSync_()
+{
+    live_sync_pending_ = false;
+    const bool wantRange = live_range_dirty_, wantFrame = live_frame_dirty_;
+    live_range_dirty_ = live_frame_dirty_ = false;
+    if (!source_ || !source_->isLive() || !live_render_enabled_) return;
+
+    const int n = source_->timeCount();
+    bool loaded = false;
+    if (wantRange) {
+        const int hi = std::max(0, n - 1);
+        if (hi != last_range_hi_) {
+            last_range_hi_ = hi;
+            emit timeRangeChanged(0, hi);
+        }
+        // Follow the newest frame until the user scrubs (see refreshTimeRange).
+        if (n > 0) {
+            if (current_time_idx_ < 0) { setCurrentTimeIndex(0); loaded = true; }
+            else if (follow_live_ && current_time_idx_ < n - 1) {
+                setCurrentTimeIndex(n - 1); loaded = true;
+            }
+        }
+    }
+    if (wantFrame && !loaded && n > 0)
+        loadFrame_(std::clamp(current_time_idx_ < 0 ? 0 : current_time_idx_, 0, n - 1));
 }
 
 void SWMM2DResultsLayer::setQsgOwnsRendering(bool own)
@@ -1785,21 +1858,22 @@ void SWMM2DResultsLayer::refreshTimeRange()
     // re-enabled (setLiveRenderEnabled(true) calls refreshTimeRange to catch up).
     if (source_->isLive() && !live_render_enabled_) return;
 
-    const int n = source_->timeCount();
-    emit timeRangeChanged(0, std::max(0, n - 1));
-    if (n <= 0) return;
-
     // Live (streaming) source: seed the first frame so the map isn't blank, then
     // follow the newest frame as ticks arrive so the run animates in place. The
     // moment the user drives playback (slider / Play), follow_live_ is cleared
     // (AnimationController::driverSetStep) so their chosen frame stays put; it
-    // re-arms when they seek back to the latest frame.
+    // re-arms when they seek back to the latest frame. Coalesced: the depth
+    // and flux handlers both call this per tick, and timeRangeChanged is only
+    // emitted when the range actually grew (liveSync_).
     if (source_->isLive()) {
-        if (current_time_idx_ < 0) { setCurrentTimeIndex(0); return; }
-        if (follow_live_ && current_time_idx_ < n - 1)
-            setCurrentTimeIndex(n - 1);
+        live_range_dirty_ = true;
+        scheduleLiveSync_();
         return;
     }
+
+    const int n = source_->timeCount();
+    emit timeRangeChanged(0, std::max(0, n - 1));
+    if (n <= 0) return;
     // Non-live (e.g. a file source still being appended) keeps follow-latest.
     if (current_time_idx_ < n - 1)
         setCurrentTimeIndex(n - 1);
@@ -1812,6 +1886,11 @@ void SWMM2DResultsLayer::closeSource()
     // → H5Fclose, releasing the file so the engine can truncate / rewrite.
     source_.reset();
     current_time_idx_ = -1;
+    last_range_hi_    = -1;
+    live_range_dirty_ = live_frame_dirty_ = false;
+    vertMaxSource_    = nullptr;
+    vertMaxCache_.clear();
+    vertWetCache_.clear();
     current_depths_.clear();
     current_flux_.clear();
     // Per-tri animated state is cleared on next setSource via
@@ -2398,26 +2477,40 @@ QVector<float> SWMM2DResultsLayer::maxDepthPerVertex() const
     // drift). NB: at interior sample points the interpolated envelope can sit
     // slightly above the interpolated animation (interp-of-max ≥ max-of-interp);
     // the two coincide exactly at mesh vertices, which is where consistency is
-    // observable. (Run once on profile build / time-range change, not per tick.)
-    std::vector<float>   vsum, wsum, frameDepth;   // scratch reused across frames
-    std::vector<float>   vertMax(size_t(nVert), 0.0f);
-    std::vector<uint8_t> vertWet(size_t(nVert), 0);
-    std::vector<float>   buf;
-    for (int t = 0; t < nT; ++t) {
+    // observable.
+    //
+    // Incremental: on a live source this is called on every time-range change
+    // (each tick), and re-reading all T frames made the profile dialog O(T²)
+    // over a run. Frames already folded into the cache are skipped; the newest
+    // frame is always re-folded because its depths can still be arriving
+    // (flux-first ticks). Thinning (historyGeneration) or a new source resets.
+    const int gen = source_->historyGeneration();
+    if (vertMaxSource_ != source_.get() || vertMaxGeneration_ != gen ||
+        static_cast<int>(vertMaxCache_.size()) != nVert) {
+        vertMaxCache_.assign(size_t(nVert), 0.0f);
+        vertWetCache_.assign(size_t(nVert), 0);
+        vertMaxFramesDone_ = 0;
+        vertMaxSource_     = source_.get();
+        vertMaxGeneration_ = gen;
+    }
+    std::vector<float> vsum, wsum, frameDepth;   // scratch reused across frames
+    std::vector<float> buf;
+    for (int t = std::min(vertMaxFramesDone_, nT); t < nT; ++t) {
         if (!source_->readDepthsAt(t, buf)) continue;
         reconstructVertexSignedDepths(cellSplit_, buf, cellZc_, vz_, dryF,
                                       vsum, wsum, frameDepth);
         for (int v = 0; v < nVert; ++v) {
             if (wsum[v] <= 0.0f) continue;             // dry this frame
-            if (!vertWet[v] || frameDepth[v] > vertMax[v]) {
-                vertMax[v] = frameDepth[v];            // already signed (η_v − z_v)
-                vertWet[v] = 1;
+            if (!vertWetCache_[v] || frameDepth[v] > vertMaxCache_[v]) {
+                vertMaxCache_[v] = frameDepth[v];      // already signed (η_v − z_v)
+                vertWetCache_[v] = 1;
             }
         }
     }
+    vertMaxFramesDone_ = std::max(0, nT - 1);         // newest frame re-folds next call
     out = QVector<float>(nVert, 0.0f);
     for (int v = 0; v < nVert; ++v)
-        if (vertWet[v]) out[v] = vertMax[v];
+        if (vertWetCache_[v]) out[v] = vertMaxCache_[v];
     return out;
 }
 

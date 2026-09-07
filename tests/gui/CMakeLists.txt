@@ -2596,6 +2596,17 @@ add_swmmvis_gui_test(test_2dresults_vizfixes
 )
 swmmvis_link_full_app_deps(test_2dresults_vizfixes)
 
+# Live 2D ticks must cost O(1) each: one timeRangeChanged + one frame load per
+# tick (coalesced), an incremental max-depth envelope, a history cap that thins
+# 2:1, and a per-cell depth read — the fixes for the live profile plots
+# hanging the UI (plan WP2). Drives the real SWMM2DResultsLayer + EngineMesh2DSource.
+add_swmmvis_gui_test(test_live2d_coalesce
+    test_live2d_coalesce.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_live2d_coalesce)
+
 # Minimum Cell Size group on the mesh-generation dialog's Quality tab. Needs
 # the full app: the dialog takes a live SWMMVisProjectWindow. The default-OFF
 # state is the point — an untouched project must still mesh exactly as before.

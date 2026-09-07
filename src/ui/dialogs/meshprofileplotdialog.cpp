@@ -72,9 +72,26 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
                 this, [this](int) { refreshCurrentDepths(); });
         connect(m_results, &SWMM2DResultsLayer::currentDateTimeChanged,
                 this, [this](const QDateTime &dt) { m_plot->setCurrentDateTime(dt); });
-        // Recompute the max-depth envelope when more frames stream in (live).
+        // Recompute the max-depth envelope when more frames stream in (live) —
+        // throttled to one full resample per second: buildMeshProfile walks
+        // ~2000 samples through three spatial lookups each, and a 1 Hz run
+        // used to trigger it on every tick (twice, before the layer coalesced
+        // its refreshes). Leading edge, so the first new frame shows at once;
+        // ticks arriving while the timer runs fold into one rebuild at expiry.
+        m_liveRebuild.setSingleShot(true);
+        m_liveRebuild.setInterval(1000);
+        connect(&m_liveRebuild, &QTimer::timeout, this, [this]() {
+            if (!m_liveRebuildPending) return;
+            m_liveRebuildPending = false;
+            rebuildProfile();
+            m_liveRebuild.start();
+        });
         connect(m_results, &SWMM2DResultsLayer::timeRangeChanged,
-                this, [this](int, int) { rebuildProfile(); });
+                this, [this](int, int) {
+            if (m_liveRebuild.isActive()) { m_liveRebuildPending = true; return; }
+            rebuildProfile();
+            m_liveRebuild.start();
+        });
 
         // Drive our own layer from the global animation clock so the profile
         // animates even when the layer is hidden. The canvas only advances

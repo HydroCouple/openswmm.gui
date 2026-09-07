@@ -8286,6 +8286,9 @@ void SWMMVis::onRunSimulation()
                     std::vector<double>(vy.begin(), vy.end()),
                     std::vector<double>(vz.begin(), vz.end()),
                     std::move(cells));
+                // Bounded live history (Preferences → Simulation); older
+                // frames thin 2:1 past the cap instead of paging the machine.
+                source->setMaxFrames(PreferencesManager::instance()->live2DHistoryCap());
 
                 // One results layer per file: a rerun OVERWRITES the .h5, so
                 // reuse any existing 2D results layer already pointing at it
