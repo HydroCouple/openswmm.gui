@@ -199,6 +199,12 @@ GISVectorLayer::GISVectorLayer(const QString &filePath,
 
     GDALAllRegister(); // Idempotent – safe to call multiple times
 
+    // Default open mode. Seeded here rather than in the header so the GDAL
+    // constants stay out of it. A subclass that needs write access (FeatureLayer)
+    // calls setOpenFlags() and then openDataset() itself — it must therefore be
+    // constructed with an EMPTY filePath, because this ctor runs first.
+    m_openFlags = GDAL_OF_VECTOR | GDAL_OF_READONLY;
+
     if (!filePath.isEmpty())
         openDataset(filePath, layerName);
 }
@@ -1157,7 +1163,8 @@ struct GISVectorLayer::OpenResult
 };
 
 GISVectorLayer::OpenResult GISVectorLayer::doOpenWork(const QString &filePath,
-                                                     const QString &layerName)
+                                                      const QString &layerName,
+                                                      unsigned openFlags)
 {
     QElapsedTimer loadTimer;
     loadTimer.start();
@@ -1165,9 +1172,14 @@ GISVectorLayer::OpenResult GISVectorLayer::doOpenWork(const QString &filePath,
     OpenResult r;
     r.filePath = filePath;
 
+    // openFlags is passed rather than read from a member: this runs on a
+    // worker thread from openAsync() and has no `this`.
+    if (openFlags == 0)
+        openFlags = GDAL_OF_VECTOR | GDAL_OF_READONLY;
+
     r.dataset = static_cast<GDALDataset *>(
         GDALOpenEx(filePath.toUtf8().constData(),
-                   GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                   openFlags,
                    nullptr, nullptr, nullptr));
     if (!r.dataset)
     {
@@ -1243,7 +1255,7 @@ void GISVectorLayer::applyOpenResult(const OpenResult &r)
 
 void GISVectorLayer::openDataset(const QString &filePath, const QString &layerName)
 {
-    applyOpenResult(doOpenWork(filePath, layerName));
+    applyOpenResult(doOpenWork(filePath, layerName, m_openFlags));
 }
 
 void GISVectorLayer::openAsync(const QString &filePath, const QString &layerName)
@@ -1265,8 +1277,9 @@ void GISVectorLayer::openAsync(const QString &filePath, const QString &layerName
         emit self->openFinished(r.dataset != nullptr && r.ogrLayer != nullptr);
     });
     const QString path = filePath, layer = layerName;
-    watcher->setFuture(QtConcurrent::run([path, layer]() {
-        return doOpenWork(path, layer);
+    const unsigned flags = m_openFlags;   // by value — the worker has no `this`
+    watcher->setFuture(QtConcurrent::run([path, layer, flags]() {
+        return doOpenWork(path, layer, flags);
     }));
 }
 
