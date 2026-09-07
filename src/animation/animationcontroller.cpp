@@ -203,6 +203,14 @@ void AnimationController::driverSetStep(int step)
     }
 }
 
+bool AnimationController::driverIsLive() const
+{
+    if (m_primaryLayer) return m_primaryLayer->isLive();
+    if (m_fallback2D)   return m_fallback2D->source()
+                                && m_fallback2D->source()->isLive();
+    return false;
+}
+
 QDateTime AnimationController::driverStartTime() const
 {
     // 2026-07-19 — use the REPORTED start (period 0's time), not the
@@ -328,7 +336,10 @@ void AnimationController::play()
     if (m_playing)
         return;
 
-    if (driverCurrentStep() >= driverTotalSteps() - 1)
+    // Parked at the end: rewind so Play restarts the animation. Not while
+    // live — there the tail is a "waiting for the next frame" position, so
+    // Play should resume following the stream, not jump back to the start.
+    if (driverCurrentStep() >= driverTotalSteps() - 1 && !driverIsLive())
         driverSetStep(0);
 
     // Slice Z.13-controller — reset direction at the start of every
@@ -503,6 +514,17 @@ void AnimationController::onTimerTick()
     if (next > rMax) {
         if (loop) {
             driverSetStep(rMin);
+        } else if (driverIsLive()) {
+            // Live rendering, Cycle off — frames are still streaming in, so
+            // reaching the end just means we caught up with the writer, not
+            // that playback is over. Park on the newest available frame and
+            // leave the timer running: the next tick picks up automatically
+            // once the range grows. Applies to both the 1D live tail and a
+            // live 2D mesh source (driverIsLive covers both). When the run
+            // ends the driver stops reporting live and the pause below takes
+            // over on the following tick.
+            if (cur != rMax)
+                driverSetStep(rMax);
         } else {
             pause();
         }

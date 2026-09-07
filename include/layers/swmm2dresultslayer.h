@@ -339,7 +339,15 @@ public:
     int  vertexCount()   const override { return static_cast<int>(vx_.size()); }
     int  triangleCount() const override { return static_cast<int>(cells_.size()); }
     int  timeCount()     const override { return static_cast<int>(history_.size()); }
-    bool isLive()        const override { return true; }   // streaming from the running sim
+    bool isLive()        const override { return !finished_; } // streaming from the running sim
+
+    /*! \brief Stop advertising as live once the run has ended. The retained
+     *  in-memory history stays fully scrubbable; it just is not growing any
+     *  more, so consumers that wait for new frames (the animation controller's
+     *  wait-at-end behaviour, follow-live) must stop waiting. Called on the
+     *  runner's finished signal, including the paths that keep this source
+     *  instead of swapping in the .h5-backed one. */
+    void markFinished() { finished_ = true; }
     bool readDepthAt(int timeIdx, int cell, float& out) override;
     int  historyGeneration() const override { return generation_; }
 
@@ -391,6 +399,7 @@ private:
     bool              has_rainfall_ = false;   ///< any tick carried rainfall
     int               max_frames_   = 2000;    ///< see setMaxFrames
     int               generation_   = 0;       ///< see historyGeneration
+    bool              finished_     = false;   ///< see markFinished
     void enforceCap_();
 
     // Time-invariant edge geometry; populated once at twoDInitialized via
