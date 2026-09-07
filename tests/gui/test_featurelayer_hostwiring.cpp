@@ -158,6 +158,25 @@ private slots:
         // order, which is the order the RibbonGroups were added.
         QVERIFY2(!found.isEmpty(), "the Features toolbar has no buttons");
         QCOMPARE(found.first(), QStringLiteral("actionSelect"));
+
+        // The dock toggle belongs with every other dock toggle in View >
+        // Panels, NOT on this tab — a panel you closed is looked for under
+        // View, and this tab is the one place it must not be the only home.
+        QVERIFY2(!found.contains(QStringLiteral("actionToggleDockFeatures")),
+                 "the Features dock toggle is on the Features tab; it belongs "
+                 "in View > Panels");
+
+        auto *viewBar = m_win->findChild<QToolBar *>(QStringLiteral("toolBarView"));
+        QVERIFY2(viewBar != nullptr, "the View toolbar is missing");
+        QStringList onView;
+        for (QToolButton *b : viewBar->findChildren<QToolButton *>())
+            if (QAction *def = b->defaultAction();
+                def && !def->objectName().isEmpty())
+                onView << def->objectName();
+        QVERIFY2(onView.contains(QStringLiteral("actionToggleDockFeatures")),
+                 qPrintable(QStringLiteral(
+                     "the Features dock toggle never reached View > Panels; "
+                     "found there: %1").arg(onView.join(QStringLiteral(", ")))));
     }
 
     /*!
