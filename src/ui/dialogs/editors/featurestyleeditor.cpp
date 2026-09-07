@@ -281,7 +281,10 @@ LineFeatureStyleEditor::LineFeatureStyleEditor(LineFeatureSublayerStyle *style,
     m_arrowWidSpin->setDecimals(1);
     m_arrowWidSpin->setSingleStep(1.0);
     m_arrowWidSpin->setSuffix(tr(" px"));
-    arrowForm->addRow(tr("Half-width:"), m_arrowWidSpin);
+    m_arrowWidSpin->setToolTip(tr("Arrowhead width across the link — "
+                                  "independent of its length."));
+    // No mnemonic: the Line group above already owns "&Width:".
+    arrowForm->addRow(tr("Width:"), m_arrowWidSpin);
 
     m_arrowColorBtn = new ColorButton(this);
     arrowForm->addRow(tr("Colo&ur:"), m_arrowColorBtn);
