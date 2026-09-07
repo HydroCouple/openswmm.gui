@@ -239,6 +239,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionToggleDockProperties",       QT_TR_NOOP("Properties")},
         {"actionToggleDockSectionView",      QT_TR_NOOP("Section\nView")},
         {"actionToggleDockAttributeTable",   QT_TR_NOOP("Attribute\nTable")},
+        {"actionToggleDockFeatures",         QT_TR_NOOP("Features")},
         {"actionToggleDockLegend",           QT_TR_NOOP("Legend")},
         {"actionToggleDockSimulationStatus", QT_TR_NOOP("Simulation\nStatus")},
         {"actionToggleDockMessageLogs",      QT_TR_NOOP("Message\nLogs")},
@@ -341,7 +342,10 @@ void SWMMVis::initializeCompactToolbar()
                                               "actionFeatureAddHole",
                                               "actionFeatureEditVertex",
                                               "actionFeatureMove"});
-    addGroup(mToolBarFeatures, tr("Panel"),  {"actionToggleDockFeatures"});
+    // The Features dock toggle is NOT here: it belongs with every other dock
+    // toggle in View > Panels, which is where a user goes looking for a panel
+    // they closed. Putting it on this tab too would mean the one place it is
+    // unreachable is the tab you land on after closing it.
 
     mToolBarMesh2D = new QToolBar(tr("Mesh 2D"), this);
     mToolBarMesh2D->setObjectName(QStringLiteral("toolBarMesh2D"));
@@ -356,7 +360,7 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarView, tr("Panels"),
              {"actionToggleDockLayers", "actionToggleDockObjectBrowser",
               "actionToggleDockProperties", "actionToggleDockSectionView",
-              "actionToggleDockAttributeTable",
+              "actionToggleDockAttributeTable", "actionToggleDockFeatures",
               "actionToggleDockLegend", "actionToggleDockSimulationStatus",
               "actionToggleDockMessageLogs"});
     addGroup(mToolBarView, tr("Styling"),
