@@ -378,6 +378,9 @@ set(
         include/feature/featuretypes.h
         include/feature/featurestore.h
         include/layers/featurelayer.h
+        include/map/featurecommands.h
+        include/map/tools/maptoolfeaturedraw.h
+        include/map/tools/maptoolfeatureedit.h
         include/layers/gisobjectref.h
         include/layers/gisvectorsymboladapter.h
         include/layers/gisrasterlayer.h
@@ -1056,6 +1059,9 @@ set(
         src/feature/featuretypes.cpp
         src/feature/featurestore.cpp
         src/layers/featurelayer.cpp
+        src/map/featurecommands.cpp
+        src/map/tools/maptoolfeaturedraw.cpp
+        src/map/tools/maptoolfeatureedit.cpp
         src/layers/gisobjectref.cpp
         src/layers/gisrasterlayer.cpp
         src/layers/wcslayer.cpp
