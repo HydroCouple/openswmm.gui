@@ -19,6 +19,15 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Live 1D/2D profile plotting no longer hangs the UI on long runs** — the 2D results layer
+  coalesces a tick's four pushes into one `timeRangeChanged` (only when the range grew) and one frame
+  load per event-loop turn (it used to fire the range twice and load the frame 3–4 times per tick);
+  `maxDepthPerVertex()` is incremental (a live run used to re-read every frame on every tick, O(T²)
+  over the run); the live source caps its history (Preferences → Simulation → "Live 2D history cap",
+  default 2000 frames, older half thinned 2:1) instead of growing without bound; per-cell depth
+  series read one value per frame instead of copying the mesh; the 2D profile dialog resamples at
+  most once per second and the 1D profile re-reads its attribute tracks at most once per two seconds
+  while a run streams.
 - **Simulation runs are the last point of failure capture** — the runner's worker is wrapped so
   nothing thrown inside it (out-of-memory included) can escape the future and terminate the
   application: it becomes `finished(false, 99, "Simulation worker threw during <phase>: …")`. A step

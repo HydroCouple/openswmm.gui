@@ -22,6 +22,7 @@
 #include <QDialog>
 #include <QPointer>
 #include <QPointF>
+#include <QTimer>
 #include <QVector>
 
 class AnimationController;
@@ -60,6 +61,10 @@ private:
 
     QPointer<SWMM2DMeshLayer>     m_mesh;
     QPointer<SWMM2DResultsLayer>  m_results;
+    // Live-run throttle for the full resample: at most one rebuildProfile()
+    // per second (leading edge, pending ticks folded into the next one).
+    QTimer                        m_liveRebuild;
+    bool                          m_liveRebuildPending = false;
     QPointer<AnimationController> m_anim;
     QPointer<SWMMVisProjectWindow> m_projectWindow;
     QVector<QPointF>              m_scenePolyline;

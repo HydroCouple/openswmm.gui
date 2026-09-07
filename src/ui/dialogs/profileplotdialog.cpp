@@ -1429,12 +1429,32 @@ void ProfilePlotDialog::appendLivePeriods(SWMMResultsLayer *layer)
     m_plot->setSeries(m_plot->series());
     syncTracksAxes();
     // Attribute tracks read their own series from the layer — drop this
-    // layer's cached tracks so the pane re-reads the grown file.
-    for (auto it = m_attrCache.begin(); it != m_attrCache.end();) {
-        if (it.key().first == layer) it = m_attrCache.erase(it);
-        else                         ++it;
+    // layer's cached tracks so the pane re-reads the grown file. The re-read
+    // is a full-range fetch of every visible track, so it is throttled to one
+    // per 2 s (leading edge): a 1 Hz run used to refetch everything per tick,
+    // O(periods) each, i.e. quadratic over the run.
+    auto dropAndRebuild = [this](SWMMResultsLayer *l) {
+        for (auto it = m_attrCache.begin(); it != m_attrCache.end();) {
+            if (it.key().first == l) it = m_attrCache.erase(it);
+            else                     ++it;
+        }
+        rebuildTracks();
+    };
+    if (!m_liveTracksWired) {
+        m_liveTracksWired = true;
+        m_liveTracksThrottle.setSingleShot(true);
+        m_liveTracksThrottle.setInterval(2000);
+        connect(&m_liveTracksThrottle, &QTimer::timeout, this, [this, dropAndRebuild]() {
+            if (!m_liveTracksPending || !m_liveTracksLayer) return;
+            m_liveTracksPending = false;
+            dropAndRebuild(m_liveTracksLayer.data());
+            m_liveTracksThrottle.start();
+        });
     }
-    rebuildTracks();
+    m_liveTracksLayer = layer;
+    if (m_liveTracksThrottle.isActive()) { m_liveTracksPending = true; return; }
+    dropAndRebuild(layer);
+    m_liveTracksThrottle.start();
 }
 
 // ---------------------------------------------------------------------------

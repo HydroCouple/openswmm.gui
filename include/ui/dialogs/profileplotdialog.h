@@ -30,6 +30,8 @@
 #include <QDialog>
 #include <QBrush>
 #include <QHash>
+#include <QPointer>
+#include <QTimer>
 #include <QPen>
 #include <QPointF>
 #include <QPointer>
@@ -292,6 +294,13 @@ private:
     QHash<QPair<SWMMResultsLayer *, QString>,
           std::shared_ptr<const ProfileAttributeSampler::AttributeProfile>>
         m_attrCache;
+    // Live-run throttle for the attribute-track re-read (appendLivePeriods):
+    // the tracks re-fetch their whole period range from the .out, so at most
+    // once per 2 s (leading edge; a pending tick re-reads at expiry).
+    QTimer                       m_liveTracksThrottle;
+    bool                         m_liveTracksPending = false;
+    bool                         m_liveTracksWired   = false;
+    QPointer<SWMMResultsLayer>   m_liveTracksLayer;
 
     // Layer pointer (non-owning) per menu action.
     QHash<QAction *, QPointer<SWMMResultsLayer>> m_actionLayer;
