@@ -41,7 +41,13 @@ class ProjectSerializer
 {
 public:
     /*! Current writer version. */
-    static constexpr int kCurrentSchemaVersion = 4;
+    /*! Schema 5 (2026-09-07) added the `"feature"` gisLayers type — an
+     *  editable, GeoPackage-backed FeatureLayer carrying role / zPolicy /
+     *  symbol alongside the path-shaped record the other two types use.
+     *  Readers of schema 4 dispatch only on "raster" / "vector" and fall
+     *  through silently on an unknown type, so older builds degrade by
+     *  skipping feature layers rather than failing to open the project. */
+    static constexpr int kCurrentSchemaVersion = 5;
 
     /*! Write a `.oswp` sidecar describing \p pw's current GUI state.
      *  Single-instance convenience overload: synthesises a one-entry
