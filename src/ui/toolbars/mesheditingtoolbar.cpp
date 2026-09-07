@@ -301,7 +301,8 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         "Boundary condition type for the selected edge(s).\n"
         "Changes apply immediately to every selected edge.\n"
         "NB: NORMAL_FLOW needs a non-zero bed slope — with slope 0\n"
-        "the edge behaves as a Wall."));
+        "the edge behaves as a Wall. The slope is signed: positive\n"
+        "drains the domain, negative feeds it."));
     using mesh::MeshBCTypes;
     for (auto t : {MeshBCTypes::Type::Wall,
                    MeshBCTypes::Type::NormalFlow,
@@ -361,9 +362,17 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     // 0 Wall — empty page.
     m_bcParamStack->addWidget(new QWidget(m_bcParamStack));
     // 1 NormalFlow — slope spin.
-    makeSpinPage(&m_slopeSpin, tr("Slope:"), 0.0, 1.0, 5, 0.001,
-                 tr("Bed slope (dimensionless). Must be > 0 — the engine "
-                    "treats a zero slope as a wall (no auto-compute)."));
+    makeSpinPage(&m_slopeSpin, tr("Slope:"), -1.0, 1.0, 5, 0.001,
+                 tr("Bed slope (dimensionless), SIGNED.\n\n"
+                    "Positive — the bed falls away from the domain, so the "
+                    "edge drains it (Manning outflow).\n"
+                    "Negative — the bed falls toward the domain, so the edge "
+                    "feeds it at the same Manning rate.\n"
+                    "Zero — conveys nothing; the edge behaves as a wall "
+                    "(there is no auto-compute).\n\n"
+                    "An inflow slope conveys with the depth already in the "
+                    "boundary cell, so it cannot start a dry cell — use a "
+                    "Specified Flow edge for dry-bed inflow."));
     // 2 SpecifiedStageConst — stage spin.
     makeSpinPage(&m_stageSpin, tr("Stage:"), -1.0e6, 1.0e6, 3, 0.1,
                  tr("Prescribed water-surface elevation (project vertical units)."));
