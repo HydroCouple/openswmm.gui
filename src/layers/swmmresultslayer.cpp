@@ -3485,7 +3485,11 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
         const QColor singleCol   = st->color();
 
         const double arrowLenPx   = std::max(2.0, st->arrowLengthPx());
-        const double arrowHalfWPx = std::max(1.0, st->arrowWidthPx());
+        // arrowWidthPx is the FULL base width, as it is on the model layer
+        // (drawFlowArrow / appendFlowArrowColored both halve it). Consuming it
+        // as a half-width here drew every results arrow twice as wide as the
+        // same style draws on the map — a flat wedge rather than an arrowhead.
+        const double arrowHalfWPx = std::max(1.0, st->arrowWidthPx()) * 0.5;
         const QColor arrowCol     = st->arrowColor();
 
         for (int row = 0; row < count; ++row) {

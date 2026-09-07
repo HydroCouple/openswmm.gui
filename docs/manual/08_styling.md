@@ -98,7 +98,7 @@ For a **GIS vector layer** the editor is tabbed by geometry:
 | Tab | Controls |
 |-----|----------|
 | **Marker** | **Size** (px) and **Shape**. |
-| **Line** | **Width** (px), **Style** (dash pattern), **Render as polyline** (otherwise a midpoint glyph), and a **Flow arrows** group with length, half-width and colour. |
+| **Line** | **Width** (px), **Style** (dash pattern), **Render as polyline** (otherwise a midpoint glyph), and a **Flow arrows** group with length, width and colour. |
 | **Polygon** | **Outline colour**, **Outline width** (px), **Fill opacity**. |
 | **Labels** | The label editor described below. |
 
