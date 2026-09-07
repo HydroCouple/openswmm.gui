@@ -8,17 +8,37 @@
  * runs Shewchuk's `triangulate()`, and re-packs the output into
  * \ref mesh::MeshResult. Tag round-trip is via Triangle's marker
  * (point/segment) and region-attribute (triangle) channels.
+ *
+ * Quad regions (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §3.3, §4)
+ * ride on the same single CDT: Mapped / Submapped rings become internal
+ * patches (hole + stitched quads, exactly like addPatch), Free /
+ * TrianglesOnly rings become a locked constraint loop with a RegionMarker
+ * whose attribute is -(regionIndex+1); Free regions additionally receive a
+ * cross-field aligned lattice of Steiner points, no Triangle area refinement
+ * inside (the -u hook returns "unconstrained" there), and after Triangle
+ * their triangles are paired into quads (template lookup + blossom), cleaned
+ * up and smoothed. Without quad regions the pipeline is unchanged.
  */
 #include "mesh/meshgenerator.h"
 
+#include "mesh/meshcellgeom.h"
+#include "mesh/meshcrossfield.h"
+#include "mesh/meshquadpoints.h"
+#include "mesh/meshquadquality.h"
+#include "mesh/meshsubmap.h"
+
 #include <QDebug>
 #include <QHash>
+#include <QRectF>
 #include <QSet>
+#include <QStringList>
 #include <QtMath>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 
 extern "C" {
 #define TRILIBRARY   // needed to expose triangulate_safe() in triangle.h
@@ -58,6 +78,7 @@ void MeshGenerator::reserveSteinerPoints(qsizetype additional)
 void MeshGenerator::addHole(const QPointF &xy)                { m_holes.append(xy); }
 void MeshGenerator::addRegion(const RegionMarker &r)          { m_regions.append(r); }
 void MeshGenerator::addPatch(const PatchMesh &p)              { m_patches.append(p); }
+void MeshGenerator::addQuadRegion(const QuadRegion &r)        { m_quadRegions.append(r); }
 void MeshGenerator::setOptions(const GenerationOptions &o)    { m_opts = o; }
 void MeshGenerator::setRefineHook(const RefineHook &h)        { m_refineHook = h; }
 
@@ -118,6 +139,103 @@ struct PointHasher
     }
 };
 
+// ── Quad regions (QUAD_MESHING_REDESIGN_PLAN §3.3) ───────────────────────────
+
+/*! Segment marker of a Free / TrianglesOnly region ring. Reserved: far above
+ *  any tag id the dialog hands out; mapped back to marker 0 / empty tag on
+ *  readback so ring edges behave exactly like patch boundaries (locked,
+ *  untagged). */
+constexpr int kQuadRingMarker = 0x7FFF0001;
+
+/*! A quad region that passed validation and enters the PSLG. */
+struct PreparedQuadRegion
+{
+    int            index = -1;                   ///< Position in m_quadRegions / m_quadReports.
+    QuadRegionMode mode  = QuadRegionMode::Free; ///< Resolved mode.
+    double         h     = 0.0;
+    QPolygonF      ring;                         ///< normalizeRingCCW(r.ring).
+    QPolygonF      ringR;                        ///< resampleRing(ring, h) — Free / TrianglesOnly.
+    QRectF         bbox;
+    QString        tag;                          ///< r.tag or inherited from a dropped RegionMarker.
+    // Free only
+    QVector<int>          ringInputIdx;          ///< pushPoint index of every ringR vertex.
+    QVector<QPointF>      seedXY;                ///< Fixed interior seeds (junction Steiners, segment vertices).
+    QVector<int>          seedInputIdx;
+    QSet<int>             seedSet;
+    QVector<QuadTemplate> templates;             ///< Input (== Triangle output) vertex ids.
+    QSet<int>             movable;               ///< Generated lattice vertices (new pushPoint indices).
+    int                   droppedSteiners = 0;
+};
+
+bool inQuadRing(const PreparedQuadRegion &q, const QPointF &p)
+{
+    return q.bbox.contains(p) && pointInRing(q.ring, p);
+}
+
+/*! A point strictly inside \p ring: the vertex mean when that is inside,
+ *  else the first ear centroid that is. */
+QPointF ringInteriorPoint(const QPolygonF &ring)
+{
+    const int n = ring.size();
+    QPointF c;
+    for (const QPointF &p : ring) c += p;
+    c /= double(std::max(1, n));
+    if (pointInRing(ring, c)) return c;
+    for (int i = 0; i < n; ++i)
+    {
+        const QPointF e = (ring[(i + n - 1) % n] + ring[i] + ring[(i + 1) % n]) / 3.0;
+        if (pointInRing(ring, e)) return e;
+    }
+    return c;
+}
+
+int orientSign(const QPointF &a, const QPointF &b, const QPointF &c) noexcept
+{
+    const double v = (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x());
+    return v > 0.0 ? 1 : (v < 0.0 ? -1 : 0);
+}
+
+/*! True when a constraint path has a vertex strictly inside the ring or an
+ *  edge properly crossing a ring edge (plan §3.2: forces Mapped/Submapped
+ *  to Free — a segment cannot run through a hole). */
+bool segmentsCrossRing(const QVector<ConstraintSegment> &segs, const PreparedQuadRegion &q)
+{
+    const int n = q.ring.size();
+    for (const ConstraintSegment &cs : segs)
+    {
+        if (cs.path.size() < 2) continue;
+        if (!QPolygonF(cs.path).boundingRect().intersects(q.bbox)) continue;
+        for (const QPointF &p : cs.path)
+            if (inQuadRing(q, p)) return true;
+        for (int i = 0; i + 1 < cs.path.size(); ++i)
+        {
+            const QPointF &p1 = cs.path[i], &p2 = cs.path[i + 1];
+            for (int j = 0; j < n; ++j)
+            {
+                const QPointF &q1 = q.ring[j], &q2 = q.ring[(j + 1) % n];
+                if (orientSign(p1, p2, q1) * orientSign(p1, p2, q2) < 0
+                    && orientSign(q1, q2, p1) * orientSign(q1, q2, p2) < 0)
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+/*! Angle (degrees) of the longest ring edge — constant-field fallback. */
+double longestEdgeAngleDeg(const QPolygonF &ring)
+{
+    const int n = ring.size();
+    double best = -1.0, ang = 0.0;
+    for (int i = 0; i < n; ++i)
+    {
+        const QPointF d = ring[(i + 1) % n] - ring[i];
+        const double len = std::hypot(d.x(), d.y());
+        if (len > best) { best = len; ang = std::atan2(d.y(), d.x()) * 180.0 / M_PI; }
+    }
+    return ang;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -130,6 +248,7 @@ MeshResult MeshGenerator::generate() const
     m_vertexTagByMarker.clear();
     m_edgeTagByMarker.clear();
     m_triangleTagByRegionId.clear();
+    m_quadReports.clear();
 
     if (m_domains.isEmpty())
     {
@@ -176,6 +295,11 @@ MeshResult MeshGenerator::generate() const
             if (!isFinitePt(rm.xy)) ++nBad;
         for (const PatchMesh &pm : m_patches)
             for (const QPointF &p : pm.xy)    if (!isFinitePt(p))     ++nBad;
+        for (const QuadRegion &qr : m_quadRegions)
+        {
+            for (const QPointF &p : qr.ring)       if (!isFinitePt(p)) ++nBad;
+            for (const QPointF &p : qr.alignGuide) if (!isFinitePt(p)) ++nBad;
+        }
 
         if (nBad > 0)
         {
@@ -300,13 +424,203 @@ MeshResult MeshGenerator::generate() const
         return result;
     }
 
+    // ── Quad regions — PREPARE (QUAD_MESHING_REDESIGN_PLAN §3.3, §4) ─────
+    // Resolve every region before any Steiner / segment point is pushed, so
+    // the Steiner and segment loops below can (a) drop terrain points inside
+    // Free rings and (b) record the fixed seeds that pin a Free lattice.
+    // Mapped / Submapped regions become entries of the LOCAL patch list;
+    // user RegionMarkers seeded inside a quad ring are removed from the LOCAL
+    // region list (their tag is inherited when the region's own is empty).
+    // Both local lists replace m_patches / m_regions for the rest of generate().
+    QVector<PatchMesh>          patches = m_patches;
+    QVector<RegionMarker>       regions = m_regions;
+    QVector<PreparedQuadRegion> qregs;
+    if (!m_quadRegions.isEmpty())
+    {
+        QHash<int, QString> userTagById;   // what the packing loop will build for m_regions
+        for (const RegionMarker &rm : m_regions)
+            if (!rm.tag.isEmpty()) userTagById.insert(static_cast<int>(rm.attribute), rm.tag);
+
+        m_quadReports.resize(m_quadRegions.size());
+        QVector<QuadRegion> acceptedSoFar;     // pairwise overlap check
+        for (int i = 0; i < m_quadRegions.size(); ++i)
+        {
+            const QuadRegion &r = m_quadRegions[i];
+            QuadRegionReport &rep = m_quadReports[i];
+            rep.index = i;
+            rep.requested = r.mode;
+            rep.resolved  = r.mode;
+            QStringList notes;
+
+            PreparedQuadRegion q;
+            q.index = i;
+            q.ring  = normalizeRingCCW(r.ring);
+            q.bbox  = q.ring.boundingRect();
+
+            // Spacing h: explicit, else the size function at the centroid
+            // (sqrt(2·area) matches the neighbouring triangle edge length),
+            // else the option default.
+            double h = r.spacing;
+            if (!(h > 0.0) && m_refineHook.targetAreaAt && !q.ring.isEmpty())
+            {
+                const QPointF c = ringInteriorPoint(q.ring);
+                const double a = m_refineHook.targetAreaAt(c.x(), c.y());
+                if (a > 0.0) h = std::sqrt(2.0 * a);
+            }
+            if (!(h > 0.0)) h = m_opts.quadRegionDefaultSpacing;
+            if (!(h > 0.0) || !std::isfinite(h))
+            {
+                rep.message = QStringLiteral("skipped: no spacing (set QuadRegion::spacing, "
+                                             "a size function, or quadRegionDefaultSpacing)");
+                continue;
+            }
+            q.h = h;
+            rep.spacing = h;
+
+            // m_holes are seed POINTS, not rings, so no hole-ring test is
+            // possible here; a hole seed inside a quad ring is the caller's error.
+            QuadRegion rv = r;
+            rv.spacing = h;
+            const QString bad = validateQuadRegion(rv, m_domains, QVector<QPolygonF>());
+            if (!bad.isEmpty())
+            {
+                rep.message = QStringLiteral("skipped: %1").arg(bad);
+                continue;
+            }
+            acceptedSoFar.append(rv);
+            if (!validateQuadRegionsDisjoint(acceptedSoFar).isEmpty())
+            {
+                acceptedSoFar.removeLast();
+                rep.message = QStringLiteral("skipped: overlaps an earlier quad region");
+                continue;
+            }
+
+            // Tag, and user RegionMarkers seeded inside the ring.
+            q.tag = r.tag;
+            for (int k = regions.size() - 1; k >= 0; --k)
+            {
+                if (!inQuadRing(q, regions[k].xy)) continue;
+                if (q.tag.isEmpty())
+                {
+                    q.tag = userTagById.value(static_cast<int>(regions[k].attribute));
+                    if (!q.tag.isEmpty())
+                        notes << QStringLiteral("inherited tag '%1' from a region marker inside the ring").arg(q.tag);
+                }
+                regions.removeAt(k);
+            }
+
+            // Mode. Explicit Mapped corners index the CALLER's ring; relocate
+            // them on the normalised ring by coordinate.
+            QuadRegionMode mode = r.mode;
+            QVector<int> corners;
+            if (mode == QuadRegionMode::Mapped && r.corners.size() == 4)
+            {
+                for (int c : r.corners)
+                {
+                    if (c < 0 || c >= r.ring.size()) break;
+                    const int at = q.ring.indexOf(r.ring[c]);
+                    if (at < 0) break;
+                    corners.append(at);
+                }
+                std::sort(corners.begin(), corners.end());
+                if (corners.size() != 4 || std::adjacent_find(corners.begin(), corners.end()) != corners.end())
+                    corners.clear();
+            }
+            if (mode == QuadRegionMode::Auto)
+                mode = classifyQuadRegion(q.ring, &corners);
+            else if (mode == QuadRegionMode::Mapped && corners.size() != 4)
+            {
+                classifyQuadRegion(q.ring, &corners);
+                if (corners.size() != 4)
+                {
+                    mode = QuadRegionMode::Free;
+                    notes << QStringLiteral("Mapped needs 4 corners: fell back to Free");
+                }
+            }
+            if ((mode == QuadRegionMode::Mapped || mode == QuadRegionMode::Submapped)
+                && segmentsCrossRing(m_segments, q))
+            {
+                mode = QuadRegionMode::Free;
+                notes << QStringLiteral("a constraint segment crosses the region: fell back to Free");
+            }
+            if (mode == QuadRegionMode::Submapped)
+            {
+                QString e;
+                const PatchMesh pm = makeSubmappedPatch(q.ring, h, q.tag, &e);
+                if (pm.quads.isEmpty())
+                {
+                    mode = QuadRegionMode::Free;
+                    notes << QStringLiteral("submapping failed (%1): fell back to Free").arg(e);
+                }
+                else patches.append(pm);
+            }
+            if (mode == QuadRegionMode::Mapped)
+            {
+                QString e;
+                const PatchMesh pm = makeMappedPatch(q.ring, corners, h, q.tag, &e);
+                if (pm.quads.isEmpty())
+                {
+                    mode = QuadRegionMode::Free;
+                    notes << QStringLiteral("mapped patch failed (%1): fell back to Free").arg(e);
+                }
+                else patches.append(pm);
+            }
+            if (mode == QuadRegionMode::Free || mode == QuadRegionMode::TrianglesOnly)
+                q.ringR = resampleRing(q.ring, h);
+
+            q.mode = mode;
+            rep.resolved = mode;
+            rep.message  = notes.join(QStringLiteral("; "));
+            qregs.append(q);
+        }
+    }
+    bool anyFree = false;
+    for (const PreparedQuadRegion &q : qregs)
+        if (q.mode == QuadRegionMode::Free) anyFree = true;
+    // A pushed point inside a Free ring that must stay fixed (junction
+    // Steiner, constraint-segment vertex) seeds that region's lattice.
+    auto noteFixedSeed = [&](int idx) {
+        if (!anyFree) return;
+        const QPointF &p = points[idx];
+        for (PreparedQuadRegion &q : qregs)
+        {
+            if (q.mode != QuadRegionMode::Free || !inQuadRing(q, p)) continue;
+            if (q.seedSet.contains(idx)) return;
+            q.seedSet.insert(idx);
+            q.seedXY.append(p);
+            q.seedInputIdx.append(idx);
+            return;
+        }
+    };
+
     // 2) Steiner points — exact-coord vertices that must appear in the mesh.
+    //    Marker-0 points (terrain / aux) inside a Free quad ring are dropped
+    //    (plan D5: the lattice replaces them; z is re-sampled downstream).
+    //    So are marker-0 points OUTSIDE the ring but closer than h to it: a
+    //    vertex inside a ring segment's diametral lens makes Triangle split
+    //    that segment (its -u hook suppresses area refinement only), which
+    //    dissolves every template touching the ring (measured: a 4 m terrain
+    //    cloud against an h = 5 ring dropped the region from 100 % to 55 %
+    //    quads). The size field grades the outside triangles to h anyway.
     for (const SteinerPoint &sp : m_steiners)
     {
+        if (anyFree && sp.marker == 0)
+        {
+            bool drop = false;
+            for (PreparedQuadRegion &q : qregs)
+            {
+                if (q.mode != QuadRegionMode::Free) continue;
+                if (inQuadRing(q, sp.xy)
+                    || (q.bbox.adjusted(-q.h, -q.h, q.h, q.h).contains(sp.xy)
+                        && distanceToRing(q.ringR, sp.xy) < q.h))
+                { ++q.droppedSteiners; drop = true; break; }
+            }
+            if (drop) continue;
+        }
         const int idx = pushPoint(sp.xy, sp.marker);
         if (sp.marker != 0 && !sp.tag.isEmpty())
             m_vertexTagByMarker.insert(sp.marker, sp.tag);
-        Q_UNUSED(idx);
+        if (sp.marker != 0) noteFixedSeed(idx);
     }
 
     // 3) Constraint segments — push every polyline vertex; record segments.
@@ -324,9 +638,11 @@ MeshResult MeshGenerator::generate() const
         if (cs.marker != 0 && !cs.tag.isEmpty())
             m_edgeTagByMarker.insert(cs.marker, cs.tag);
         int prev = pushPoint(cs.path.first(), cs.marker);
+        noteFixedSeed(prev);
         for (int i = 1; i < cs.path.size(); ++i)
         {
             const int curr = pushPoint(cs.path[i], cs.marker);
+            noteFixedSeed(curr);
             if (curr != prev)
             {
                 userSegments.append(qMakePair(prev, curr));
@@ -341,8 +657,9 @@ MeshResult MeshGenerator::generate() const
     //    unsplit by the 'Y' switch below), and the patch interior is carved out as a hole
     //    seeded at the first quad's centroid (inside, since quads are
     //    convex). The quads themselves are stitched in after Triangle runs.
+    //    `patches` = m_patches + the Mapped / Submapped quad regions.
     QVector<QPointF> holes = m_holes;
-    for (const PatchMesh &pm : m_patches)
+    for (const PatchMesh &pm : patches)
     {
         if (pm.quads.isEmpty()) continue;
         const QString bad = validate(pm);
@@ -363,6 +680,103 @@ MeshResult MeshGenerator::generate() const
         }
         const MeshTriangle &q0 = pm.quads.first();
         holes.append((pm.xy[q0.v0] + pm.xy[q0.v1] + pm.xy[q0.v2] + pm.xy[q0.v3]) / 4.0);
+    }
+
+    // 5) Free / TrianglesOnly quad regions (plan §3.3, §4.4). The resampled
+    //    ring is a locked constraint loop (marker kQuadRingMarker, points
+    //    pushed with marker 0 so a coincident junction keeps its own marker;
+    //    Triangle stamps the segment marker on the remaining ring vertices and
+    //    readback maps it to 0). One RegionMarker seeded inside carries the
+    //    attribute -(index+1) that identifies the region's triangles on
+    //    readback. Free regions then get their cross field and the frontal
+    //    lattice; the generated points are plain marker-0 Steiner points.
+    //
+    //    Template quads are NOT emitted as constraint segments (plan §4.4f
+    //    describes that variant): pairTrianglesIntoQuads looks the two
+    //    triangles of a template up by vertex triple in the Delaunay output,
+    //    which is diagonal-agnostic, so the extra ~2 segments per lattice
+    //    point buy nothing here.
+    for (PreparedQuadRegion &q : qregs)
+    {
+        if (q.mode != QuadRegionMode::Free && q.mode != QuadRegionMode::TrianglesOnly) continue;
+        QuadRegionReport &rep = m_quadReports[q.index];
+        const QuadRegion &r = m_quadRegions[q.index];
+        rep.droppedSteiners = q.droppedSteiners;
+
+        const int nr = q.ringR.size();
+        q.ringInputIdx.resize(nr);
+        for (int i = 0; i < nr; ++i) q.ringInputIdx[i] = pushPoint(q.ringR[i], 0);
+        for (int i = 0; i < nr; ++i)
+        {
+            const int a = q.ringInputIdx[i], b = q.ringInputIdx[(i + 1) % nr];
+            if (a == b) continue;
+            userSegments.append(qMakePair(a, b));
+            userSegmentMarkers.append(kQuadRingMarker);
+        }
+        RegionMarker rm;
+        rm.xy        = ringInteriorPoint(q.ring);
+        rm.attribute = -double(q.index + 1);
+        rm.maxArea   = -1.0;
+        rm.tag       = q.tag;
+        regions.append(rm);
+        if (q.mode != QuadRegionMode::Free) continue;
+
+        // Cross field: constant when an alignment angle is given, otherwise
+        // harmonic from the ring, every constraint path near the ring and the
+        // optional guide polyline.
+        CrossField field;
+        if (r.hasAlignAngle)
+            field.setConstant(r.alignAngleDeg);
+        else
+        {
+            QVector<QVector<QPointF>> aligned;
+            QVector<QPointF> closed = q.ringR;
+            closed.append(q.ringR.first());
+            aligned.append(closed);
+            for (const ConstraintSegment &cs : m_segments)
+                if (cs.path.size() >= 2 && QPolygonF(cs.path).boundingRect().intersects(q.bbox))
+                    aligned.append(cs.path);
+            if (r.alignGuide.size() >= 2) aligned.append(r.alignGuide);
+            CrossField::Options fo;
+            fo.pitch = q.h;
+            if (!field.build(q.bbox, aligned, fo))
+            {
+                field.setConstant(longestEdgeAngleDeg(q.ringR));
+                rep.message += (rep.message.isEmpty() ? QString() : QStringLiteral("; "))
+                             + QStringLiteral("cross field solve failed: constant field along the longest ring edge");
+            }
+        }
+
+        // Seeds = ring vertices (quantised, in ring order) then the fixed
+        // interior points; template indices are combined indices into
+        // [seeds..., generated...] and are mapped to pushPoint indices, which
+        // equal Triangle's output ids for input points.
+        QVector<QPointF> seeds;
+        seeds.reserve(nr + q.seedXY.size());
+        for (int idx : q.ringInputIdx) seeds.append(points[idx]);
+        seeds += q.seedXY;
+        QuadPointOptions po;
+        po.h = q.h;
+        const QuadPointSet ps = placeQuadPoints(q.ringR, seeds, nr, field, po);
+
+        QVector<int> combined = q.ringInputIdx + q.seedInputIdx;
+        combined.reserve(combined.size() + ps.generated.size());
+        for (const QPointF &p : ps.generated)
+        {
+            const int before = points.size();
+            const int idx = pushPoint(p, 0);
+            if (points.size() > before) q.movable.insert(idx);
+            combined.append(idx);
+        }
+        rep.generatedPoints = ps.generated.size();
+        q.templates.reserve(ps.templates.size());
+        for (const QuadTemplate &t : ps.templates)
+        {
+            QuadTemplate o;
+            for (int k = 0; k < 4; ++k)
+                o.v[k] = (t.v[k] >= 0 && t.v[k] < combined.size()) ? combined[t.v[k]] : -1;
+            q.templates.append(o);
+        }
     }
 
     // ── Final PSLG validation ─────────────────────────────────────────────
@@ -502,23 +916,50 @@ MeshResult MeshGenerator::generate() const
     // Regions — Triangle's regionlist is an array of 4-doubles per region:
     // (x, y, attribute, max_area). Attribute is propagated to
     // triangleattributelist for each output triangle.
-    in.numberofregions = m_regions.size();
-    if (!m_regions.isEmpty())
+    in.numberofregions = regions.size();
+    if (!regions.isEmpty())
     {
-        in.regionlist = static_cast<REAL *>(std::malloc(sizeof(REAL) * 4 * m_regions.size()));
+        in.regionlist = static_cast<REAL *>(std::malloc(sizeof(REAL) * 4 * regions.size()));
         if (!in.regionlist) return packOom();
-        for (int i = 0; i < m_regions.size(); ++i)
+        for (int i = 0; i < regions.size(); ++i)
         {
-            in.regionlist[4 * i + 0] = m_regions[i].xy.x();
-            in.regionlist[4 * i + 1] = m_regions[i].xy.y();
-            in.regionlist[4 * i + 2] = m_regions[i].attribute;
-            in.regionlist[4 * i + 3] = m_regions[i].maxArea > 0
-                                           ? m_regions[i].maxArea
+            in.regionlist[4 * i + 0] = regions[i].xy.x();
+            in.regionlist[4 * i + 1] = regions[i].xy.y();
+            in.regionlist[4 * i + 2] = regions[i].attribute;
+            in.regionlist[4 * i + 3] = regions[i].maxArea > 0
+                                           ? regions[i].maxArea
                                            : -1.0;
-            if (!m_regions[i].tag.isEmpty())
+            if (!regions[i].tag.isEmpty())
                 m_triangleTagByRegionId.insert(
-                    static_cast<int>(m_regions[i].attribute), m_regions[i].tag);
+                    static_cast<int>(regions[i].attribute), regions[i].tag);
         }
+    }
+
+    // ── Refinement hook ───────────────────────────────────────────────────
+    // With Free quad regions the hook is wrapped so that targetAreaAt returns
+    // "unconstrained" (0) inside every Free ring — Triangle must not insert
+    // its own Steiner points into the lattice (plan §3.3) — and outside it
+    // defers to the user's size function, else to the uniform maxArea (the
+    // numeric 'a' switch is omitted once a size function exists, so the cap
+    // has to come through the hook). -q angle refinement is unaffected: a
+    // right-isosceles lattice has 45° corners, above the default minAngle.
+    // Without Free regions `hook` is a plain copy of m_refineHook.
+    RefineHook hook = m_refineHook;
+    if (anyFree)
+    {
+        QVector<QPolygonF> rings;
+        QVector<QRectF>    boxes;
+        for (const PreparedQuadRegion &q : qregs)
+            if (q.mode == QuadRegionMode::Free) { rings.append(q.ring); boxes.append(q.bbox); }
+        const std::function<double(double, double)> userArea = m_refineHook.targetAreaAt;
+        const double uniformArea = m_opts.maxArea;
+        hook.targetAreaAt = [rings, boxes, userArea, uniformArea](double x, double y) {
+            const QPointF p(x, y);
+            for (int i = 0; i < rings.size(); ++i)
+                if (boxes[i].contains(p) && pointInRing(rings[i], p)) return 0.0;
+            if (userArea) return userArea(x, y);
+            return uniformArea > 0.0 ? uniformArea : 0.0;
+        };
     }
 
     // ── Switch string ─────────────────────────────────────────────────────
@@ -544,25 +985,27 @@ MeshResult MeshGenerator::generate() const
         // A size function supersedes the uniform cap: 'u' routes every
         // refinement decision through the hook, so emitting 'a<area>' as well
         // would apply both constraints and defeat the grading.
-        const bool useSizeFn = static_cast<bool>(m_refineHook.targetAreaAt);
+        const bool useSizeFn = static_cast<bool>(hook.targetAreaAt);
         if (m_opts.maxArea > 0.0 && !useSizeFn)
             sw += QStringLiteral("a%1").arg(m_opts.maxArea, 0, 'f', 4);
-        else if (!m_regions.isEmpty())
+        else if (!regions.isEmpty())
             sw += QStringLiteral("a");  // per-region area only.
 
         // 'u' enables the triunsuitable() hook (cancellation, progress, graded
         // sizing). It also sets Triangle's `quality` flag, so the refinement
         // pass — and therefore the hook — runs even when minAngle and maxArea
         // are both zero. That is what makes cancellation available at all.
-        if (useSizeFn || m_refineHook.isCancelled || m_refineHook.onProgress)
+        if (useSizeFn || hook.isCancelled || hook.onProgress)
             sw += QStringLiteral("u");
         // A structured patch's boundary is a mesh boundary (its interior is
         // a hole), and a Steiner point inserted on it would leave a hanging
         // node against the patch quads. 'Y' forbids splitting segments that
         // have a triangle on one side only — exactly the patch boundaries
         // (and the domain outline); interior breaklines may still split.
+        // A Free quad ring has triangles on both sides, so 'Y' does not
+        // protect it and no 'YY' is added for it (plan §4.4f).
         if (!m_opts.allowSteiner)         sw += QStringLiteral("YY");
-        else if (!m_patches.isEmpty())    sw += QStringLiteral("Y");
+        else if (!patches.isEmpty())      sw += QStringLiteral("Y");
         if (m_opts.conformingDelaunay)    sw += QStringLiteral("D");
         if (m_opts.maxSteinerPoints > 0)
             sw += QStringLiteral("S%1").arg(m_opts.maxSteinerPoints);
@@ -580,7 +1023,7 @@ MeshResult MeshGenerator::generate() const
     {
         // Scoped so the hook is uninstalled before we touch the results, and so
         // a nested/concurrent generate() on another thread is unaffected.
-        const RefineHookGuard hookGuard(&m_refineHook);
+        const RefineHookGuard hookGuard(&hook);
         triErr    = triangulate_safe(swBa.data(), &in, &out, nullptr);
         cancelled = refineHookWasCancelled();
     }
@@ -621,6 +1064,7 @@ MeshResult MeshGenerator::generate() const
         v.xy.setX(out.pointlist[2 * i + 0]);
         v.xy.setY(out.pointlist[2 * i + 1]);
         v.marker = out.pointmarkerlist ? out.pointmarkerlist[i] : 0;
+        if (v.marker == kQuadRingMarker) v.marker = 0;   // quad ring vertex: untagged
         v.tag    = m_vertexTagByMarker.value(v.marker);
         result.vertices.append(v);
     }
@@ -643,6 +1087,8 @@ MeshResult MeshGenerator::generate() const
     auto validIdx = [nOutPts](int v) { return v >= 0 && v < nOutPts; };
 
     bool outputOk = true;
+    QVector<int> regionIdOfTriangle;   // Free quad regions: attribute per output triangle
+    if (anyFree) regionIdOfTriangle.reserve(out.numberoftriangles);
     result.triangles.reserve(out.numberoftriangles);
     for (int i = 0; i < out.numberoftriangles; ++i)
     {
@@ -659,6 +1105,7 @@ MeshResult MeshGenerator::generate() const
         {
             const int regionId = static_cast<int>(out.triangleattributelist[i]);
             t.tag = m_triangleTagByRegionId.value(regionId);
+            if (anyFree) regionIdOfTriangle.append(regionId);
         }
         result.triangles.append(t);
     }
@@ -677,8 +1124,73 @@ MeshResult MeshGenerator::generate() const
                 break;
             }
             e.marker = out.segmentmarkerlist ? out.segmentmarkerlist[i] : 0;
+            if (e.marker == kQuadRingMarker) e.marker = 0;   // quad ring edge: locked, untagged
             e.tag    = m_edgeTagByMarker.value(e.marker);
             result.boundaryEdges.append(e);
+        }
+    }
+
+    // ── Free quad regions: pair, clean up, smooth (plan §4.4f–h) ──────────
+    // Runs on the bare Triangle output, before patches are stitched and
+    // before any vertex- or cell-indexed side table exists, so the cell
+    // reorder of pairing and the vertex compaction of cleanup have nothing
+    // to invalidate except the per-region id lists kept here. Pairing runs
+    // for every region first (each call reorders cells; the remaining
+    // regions' cell ids follow oldToNew), then cleanup + smoothing per
+    // region (each call may compact vertices; the remaining regions' movable
+    // sets follow vertexOldToNew).
+    if (outputOk && anyFree && regionIdOfTriangle.size() == result.triangles.size())
+    {
+        QHash<int, int> slotOfIndex;   // m_quadRegions index → qregs slot
+        for (int s = 0; s < qregs.size(); ++s) slotOfIndex.insert(qregs[s].index, s);
+        QVector<QVector<int>> cellIds(qregs.size());
+        for (int t = 0; t < regionIdOfTriangle.size(); ++t)
+        {
+            const int id = regionIdOfTriangle[t];
+            if (id >= 0) continue;
+            const int slot = slotOfIndex.value(-id - 1, -1);
+            if (slot >= 0 && qregs[slot].mode == QuadRegionMode::Free) cellIds[slot].append(t);
+        }
+
+        QSet<QPair<int, int>> locked;
+        locked.reserve(result.boundaryEdges.size());
+        for (const MeshEdge &e : std::as_const(result.boundaryEdges))
+            locked.insert(edgeKey(e.v0, e.v1));
+
+        for (int s = 0; s < qregs.size(); ++s)
+        {
+            const PreparedQuadRegion &q = qregs[s];
+            if (q.mode != QuadRegionMode::Free || cellIds[s].isEmpty()) continue;
+            QuadPairingOptions po;
+            po.bounds = m_opts.quadRegionBounds;
+            QVector<int> oldToNew;
+            const QuadPairingStats ps = pairTrianglesIntoQuads(result, cellIds[s], q.templates,
+                                                               locked, po, &oldToNew);
+            QuadRegionReport &rep = m_quadReports[q.index];
+            rep.templateQuads = ps.templateQuads;
+            rep.gapQuads      = ps.gapQuads;
+            for (int j = s + 1; j < qregs.size(); ++j)
+                for (int &c : cellIds[j]) c = oldToNew[c];
+        }
+
+        for (int s = 0; s < qregs.size(); ++s)
+        {
+            const PreparedQuadRegion &q = qregs[s];
+            if (q.mode != QuadRegionMode::Free || q.movable.isEmpty()) continue;
+            QVector<int> vOldToNew;
+            const QuadCleanupStats cs = cleanupAndSmoothQuads(result, q.movable,
+                                                              m_opts.quadCleanup, &vOldToNew);
+            QuadRegionReport &rep = m_quadReports[q.index];
+            rep.doubletsRemoved = cs.doubletsRemoved;
+            rep.diagonalSwaps   = cs.diagonalSwaps;
+            rep.verticesMoved   = cs.verticesMoved;
+            for (int j = s + 1; j < qregs.size(); ++j)
+            {
+                QSet<int> remapped;
+                for (int v : qregs[j].movable)
+                    if (v >= 0 && v < vOldToNew.size() && vOldToNew[v] >= 0) remapped.insert(vOldToNew[v]);
+                qregs[j].movable = remapped;
+            }
         }
     }
 
@@ -687,7 +1199,7 @@ MeshResult MeshGenerator::generate() const
     // back with the exact (quantised) coordinates pushPoint() stored: match
     // by the same key. Interior patch vertices are new. Quads go AFTER every
     // triangle — the engine's cell order.
-    if (outputOk && !m_patches.isEmpty())
+    if (outputOk && !patches.isEmpty())
     {
         const double eps = m_opts.patchSnapEps;
         auto keyOf = [&](const QPointF &p) {
@@ -702,7 +1214,7 @@ MeshResult MeshGenerator::generate() const
         for (int i = 0; i < result.vertices.size(); ++i)
             outIndex.insert(keyOf(result.vertices[i].xy), i);
 
-        for (const PatchMesh &pm : m_patches)
+        for (const PatchMesh &pm : patches)
         {
             if (pm.quads.isEmpty()) continue;
             QVector<int> localToGlobal(pm.xy.size(), -1);
@@ -746,6 +1258,41 @@ MeshResult MeshGenerator::generate() const
         for (const MeshEdge &e : std::as_const(result.boundaryEdges))
             locked.insert(edgeKey(e.v0, e.v1));
         mergeTrianglePairs(result, m_opts.quadMerge, locked, nullptr);
+    }
+
+    // ── Quad region reports: cells inside each ring on exit ───────────────
+    // Every ring is a constraint loop (or a patch boundary), so a cell is
+    // wholly inside or outside and its centroid decides membership.
+    if (result.ok && !qregs.isEmpty())
+    {
+        QVector<QVector<double>> rect(qregs.size());
+        for (const MeshTriangle &c : std::as_const(result.triangles))
+        {
+            const QPointF cen = cellGeom(result.vertices, c).centroid;
+            for (int s = 0; s < qregs.size(); ++s)
+            {
+                if (!inQuadRing(qregs[s], cen)) continue;
+                QuadRegionReport &rep = m_quadReports[qregs[s].index];
+                if (c.isQuad())
+                {
+                    ++rep.quads;
+                    const QuadQuality qq = quadQuality(result.vertices, c);
+                    rep.minScaledJacobian = std::min(rep.minScaledJacobian, qq.scaledJacobian);
+                    rect[s].append(qq.rectangularity);
+                }
+                else ++rep.triangles;
+                break;
+            }
+        }
+        for (int s = 0; s < qregs.size(); ++s)
+        {
+            QuadRegionReport &rep = m_quadReports[qregs[s].index];
+            if (rep.quads == 0) { rep.minScaledJacobian = 0.0; continue; }
+            QVector<double> &r = rect[s];
+            std::sort(r.begin(), r.end());
+            const int mid = r.size() / 2;
+            rep.medianRectangularity = (r.size() % 2 == 1) ? r[mid] : 0.5 * (r[mid - 1] + r[mid]);
+        }
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────

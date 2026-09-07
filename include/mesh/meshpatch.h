@@ -24,6 +24,7 @@
 
 #include <QPair>
 #include <QPointF>
+#include <QPolygonF>
 #include <QString>
 #include <QVector>
 
@@ -77,6 +78,25 @@ PatchMesh makeTransfinitePatch(const StructuredPatch &p, QString *err = nullptr)
  *  (stations-1)×across quads. On invalid input (or a folded offset) returns
  *  an empty PatchMesh and sets *err. */
 PatchMesh makeSweptPatch(const SweptPatch &p, QString *err = nullptr);
+
+// ── Quad-region redesign (QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §4.2) ───
+
+/*! \brief Transfinite (Coons) interpolation on four POLYLINE sides forming a
+ *  loop: sides[0] runs c0→c1, sides[1] c1→c2, sides[2] c2→c3, sides[3] c3→c0
+ *  (each side's last point equals the next side's first). Sides are
+ *  arc-length parametrised; n subdivisions along sides 0/2, m along 1/3.
+ *  Boundary vertices are placed ON the polylines (so the ring the caller
+ *  emits as PSLG segments is exactly this patch's boundary loop). Returns an
+ *  empty PatchMesh + *err on invalid input (side with < 2 points, endpoints
+ *  not matching, n or m < 1, folded quad). */
+PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, int m,
+                               const QString &tag, QString *err = nullptr);
+
+/*! \brief Split a CCW ring at the four \p corners (ring vertex indices, ring
+ *  order) into polyline sides, choose n = max(1, round(mean(len0, len2)/h)),
+ *  m likewise from sides 1/3, and call the polyline overload. */
+PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners, double h,
+                          const QString &tag, QString *err = nullptr);
 
 } // namespace mesh
 

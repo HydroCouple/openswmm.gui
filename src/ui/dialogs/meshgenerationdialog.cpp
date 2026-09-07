@@ -161,6 +161,38 @@ static bool transformCheckedPt(OGRCoordinateTransformation *ct,
 }
 
 // ---------------------------------------------------------------------------
+// Quad region helpers (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3.1)
+// ---------------------------------------------------------------------------
+
+/*! \brief Log / attribute spelling of a mesh::QuadRegionMode. */
+static const char *quadRegionModeName(mesh::QuadRegionMode m)
+{
+    switch (m)
+    {
+    case mesh::QuadRegionMode::Auto:          return "auto";
+    case mesh::QuadRegionMode::Mapped:        return "mapped";
+    case mesh::QuadRegionMode::Submapped:     return "submapped";
+    case mesh::QuadRegionMode::Free:          return "free";
+    case mesh::QuadRegionMode::TrianglesOnly: return "triangles";
+    }
+    return "?";
+}
+
+/*! \brief Parse a `quad_mode` attribute value (case-insensitive). Returns
+ *         false and leaves \p out untouched on an unknown spelling. */
+static bool parseQuadRegionMode(const QString &s, mesh::QuadRegionMode *out)
+{
+    const QString t = s.trimmed().toLower();
+    if      (t == QLatin1String("auto"))      *out = mesh::QuadRegionMode::Auto;
+    else if (t == QLatin1String("mapped"))    *out = mesh::QuadRegionMode::Mapped;
+    else if (t == QLatin1String("submapped")) *out = mesh::QuadRegionMode::Submapped;
+    else if (t == QLatin1String("free"))      *out = mesh::QuadRegionMode::Free;
+    else if (t == QLatin1String("triangles")) *out = mesh::QuadRegionMode::TrianglesOnly;
+    else return false;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // Worker function — runs on QtConcurrent thread, NO widget access allowed.
 // ---------------------------------------------------------------------------
 
@@ -863,6 +895,156 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     for (const auto &cs : std::as_const(in.constraintSegs))
         g.addConstraintSegment(cs);
 
+    // ── PSLG quad regions (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3) ──
+    // Layer regions are read HERE with a fresh GDAL handle, exactly as the
+    // boundary layer is (handles must not cross threads); subcatchment
+    // regions arrive resolved from collectInputs and are appended after
+    // them.  Geometry only — the generator validates, classifies Auto, drops
+    // terrain Steiners inside Free rings and pairs / cleans / smooths
+    // (g.addQuadRegion below).
+    QVector<mesh::QuadRegion> quadRegions;
+    if (!in.quadRegionLayers.isEmpty())
+    {
+        progress(19, QObject::tr("Reading quad region polygons…"));
+        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+        qsizetype nRegionXformFailed = 0;
+        for (const auto &spec : std::as_const(in.quadRegionLayers))
+        {
+            OGRCoordinateTransformation *regionCT = nullptr;  // region layer → mesh CRS
+            if (!spec.crsWkt.isEmpty() && !in.meshCRSWkt.isEmpty())
+            {
+                OGRSpatialReference rSRS, mSRS;
+                if (rSRS.importFromWkt(spec.crsWkt.toUtf8().constData()) == OGRERR_NONE
+                    && mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData()) == OGRERR_NONE)
+                {
+                    rSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                    mSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                    if (!mSRS.IsSame(&rSRS))
+                        regionCT = OGRCreateCoordinateTransformation(&rSRS, &mSRS);
+                }
+            }
+
+            GDALDataset *ds = GDALDataset::Open(
+                spec.path.toUtf8().constData(),
+                GDAL_OF_VECTOR | GDAL_OF_READONLY);
+            if (!ds)
+            {
+                qWarning() << "[Mesh][quad] region layer open failed:" << spec.path
+                           << "— no quad regions from this layer.";
+                if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
+                continue;
+            }
+            OGRLayer *ol = spec.layerName.isEmpty()
+                               ? ds->GetLayer(0)
+                               : ds->GetLayerByName(spec.layerName.toUtf8().constData());
+            if (!ol)
+            {
+                qWarning() << "[Mesh][quad] region layer not found:" << spec.layerName;
+                GDALClose(ds);
+                if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
+                continue;
+            }
+
+            // Exterior ring only → mesh CRS → RDP with the same simplifier the
+            // domain rings use → QuadRegion carrying the dialog defaults, then
+            // the optional per-feature attribute overrides (case-insensitive
+            // field names; OGR's GetFieldIndex already ignores case).
+            auto pushRegion = [&](const OGRPolygon *poly, const OGRFeature *f) {
+                if (!poly) return;
+                const OGRLinearRing *ext = poly->getExteriorRing();
+                if (!ext || ext->getNumPoints() < 3) return;
+                const int n = ext->getNumPoints();
+                QVector<double> xs(n), ys(n);
+                for (int i = 0; i < n; ++i) { xs[i] = ext->getX(i); ys[i] = ext->getY(i); }
+                if (regionCT)
+                    nRegionXformFailed += transformChecked(regionCT, n, xs.data(), ys.data());
+                QVector<QPointF> pts;
+                pts.reserve(n);
+                for (int i = 0; i < n; ++i)
+                    if (std::isfinite(xs[i]) && std::isfinite(ys[i]))
+                        pts.append(QPointF(xs[i], ys[i]));
+                if (pts.size() < 3) return;
+
+                mesh::QuadRegion r = in.quadRegionDefaults;
+                r.ring = QPolygonF(simplifyRing(pts, in.pslgSimplifyEps));
+
+                auto fieldIdx = [f](const char *name) -> int {
+                    const int i = f->GetFieldIndex(name);
+                    return (i >= 0 && f->IsFieldSetAndNotNull(i)) ? i : -1;
+                };
+                if (const int i = fieldIdx("quad_mode"); i >= 0)
+                {
+                    const QString s = QString::fromUtf8(f->GetFieldAsString(i));
+                    if (!parseQuadRegionMode(s, &r.mode))
+                        qWarning() << "[Mesh][quad] unknown quad_mode" << s
+                                   << "on feature" << qint64(f->GetFID())
+                                   << "— using the dialog default";
+                }
+                if (const int i = fieldIdx("quad_spacing"); i >= 0) r.spacing   = f->GetFieldAsDouble(i);
+                if (const int i = fieldIdx("quad_aspect");  i >= 0) r.aspectMax = f->GetFieldAsDouble(i);
+                if (const int i = fieldIdx("quad_angle");   i >= 0)
+                {
+                    r.hasAlignAngle = true;
+                    r.alignAngleDeg = f->GetFieldAsDouble(i);
+                }
+                if      (const int i = fieldIdx("tag");  i >= 0) r.tag = QString::fromUtf8(f->GetFieldAsString(i));
+                else if (const int j = fieldIdx("name"); j >= 0) r.tag = QString::fromUtf8(f->GetFieldAsString(j));
+                quadRegions.append(std::move(r));
+            };
+
+            ol->ResetReading();
+            OGRFeature *f = nullptr;
+            bool cancelled = false;
+            while ((f = ol->GetNextFeature()) != nullptr)
+            {
+                if (const OGRGeometry *geom = f->GetGeometryRef())
+                {
+                    const auto gt = wkbFlatten(geom->getGeometryType());
+                    if (gt == wkbPolygon)
+                        pushRegion(geom->toPolygon(), f);
+                    else if (gt == wkbMultiPolygon)
+                    {
+                        const auto *mp = geom->toMultiPolygon();
+                        for (int i = 0; i < mp->getNumGeometries(); ++i)
+                            pushRegion(mp->getGeometryRef(i)->toPolygon(), f);
+                    }
+                }
+                OGRFeature::DestroyFeature(f);
+                if (promise.isCanceled()) { cancelled = true; break; }
+            }
+            GDALClose(ds);
+            if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
+            if (cancelled) { fail(QObject::tr("Cancelled.")); return; }
+        }
+        if (nRegionXformFailed > 0)
+        {
+            // Same rule as the boundary: a ring with dropped vertices is a
+            // different region from the one the user drew.
+            fail(QObject::tr(
+                "%1 quad region vertices could not be reprojected from the "
+                "region layer's CRS to the mesh CRS, so generation was "
+                "stopped.").arg(nRegionXformFailed));
+            return;
+        }
+        stageMark("quad region layer read");
+    }
+    const int nLayerQuadRegions = quadRegions.size();
+    // Subcatchment regions, after the layer ones; same RDP pass (plan §3.2).
+    for (const mesh::QuadRegion &src : std::as_const(in.quadRegions))
+    {
+        mesh::QuadRegion r = src;
+        r.ring = QPolygonF(simplifyRing(src.ring, in.pslgSimplifyEps));
+        quadRegions.append(std::move(r));
+    }
+    if (!quadRegions.isEmpty())
+        qCInfo(lcMeshPerf).nospace()
+            << "[Mesh][quad] " << quadRegions.size() << " regions ("
+            << nLayerQuadRegions << " from layers, " << in.quadRegions.size()
+            << " from subcatchments; default mode "
+            << quadRegionModeName(in.quadRegionDefaults.mode)
+            << ", spacing " << in.quadRegionDefaults.spacing
+            << ", aspect <= " << in.quadRegionDefaults.aspectMax << ")";
+
     // Per-region area bounds are clamped to the refinement floor.
     //
     // This matters more than it looks.  Triangle honours regionlist area
@@ -894,12 +1076,24 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         // (its bed-planarity test needs sampled z), not inside generate().
         mesh::GenerationOptions go = in.genOpts;
         go.mergeTrianglePairs = false;
+        // Quad regions: acceptance bounds from the dialog; a Free region with
+        // spacing 0 and no size function takes the side of the equilateral
+        // triangle of maxArea (0 = none → the generator skips the region
+        // with a report line).  quadCleanup keeps its defaults (no UI).
+        go.quadRegionBounds = in.quadBounds;
+        go.quadRegionDefaultSpacing = (in.genOpts.maxArea > 0.0)
+            ? std::sqrt(4.0 * in.genOpts.maxArea / std::sqrt(3.0))
+            : 0.0;
         g.setOptions(go);
     }
     // G3 structured patches: boundary → PSLG constraints, interior → hole,
     // quads appended after the triangles by generate().
     for (const mesh::PatchMesh &pm : std::as_const(in.patches))
         g.addPatch(pm);
+    // PSLG quad regions (layer regions first, then subcatchments — the order
+    // quadRegionReports() is indexed in).
+    for (const mesh::QuadRegion &qr : std::as_const(quadRegions))
+        g.addQuadRegion(qr);
 
     // ── DTM (optional) — open once, shared for all elevation sampling ──
     // The DEM drives three steps: feature z-interpolation, terrain
@@ -1800,6 +1994,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 if (seg.first >= 0 && seg.first < pm.xy.size()
                     && seg.second >= 0 && seg.second < pm.xy.size())
                     ringSeeds.append({pm.xy[seg.first], pm.xy[seg.second]});
+        // Quad region rings seed for the same reason (QUAD_MESHING_REDESIGN
+        // §6.1): the triangles outside a region grade away from the region's
+        // spacing instead of jumping.  Per edge, wrap edge included — the
+        // size field treats a ring as an open path.
+        for (const mesh::QuadRegion &qr : std::as_const(quadRegions))
+        {
+            const int n = qr.ring.size();
+            for (int i = 0; i < n; ++i)
+            {
+                const QPointF &a = qr.ring[i], &b = qr.ring[(i + 1) % n];
+                if (a != b) ringSeeds.append({a, b});
+            }
+        }
 
         mesh::SizeFieldOptions sfo;
         // Side of the equilateral triangle of maxArea — the near-feature size.
@@ -1890,6 +2097,31 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
         if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
         fail(QObject::tr("Triangle: %1").arg(result.errorMsg)); return;
+    }
+
+    // ── Quad region reports (one line per addQuadRegion call) ────────
+    // Skipped regions are surfaced the way skipped hole rings are (the
+    // qWarning "[Mesh] Skipped" channel) so a silently-triangulated region
+    // is never mistaken for a quad one.
+    int nQuadRegionQuads = 0;
+    for (const mesh::QuadRegionReport &rep : g.quadRegionReports())
+    {
+        nQuadRegionQuads += rep.quads;
+        qCInfo(lcMeshPerf).nospace()
+            << "[Mesh][quad] region " << rep.index << ": "
+            << quadRegionModeName(rep.requested) << " -> "
+            << quadRegionModeName(rep.resolved)
+            << " | h " << rep.spacing
+            << " | " << rep.quads << " quads + " << rep.triangles << " tris"
+            << " (" << rep.templateQuads << " template, " << rep.gapQuads << " gap)"
+            << " | points " << rep.generatedPoints << " generated, "
+            << rep.droppedSteiners << " terrain dropped"
+            << " | min SJ " << rep.minScaledJacobian
+            << " | median rect " << rep.medianRectangularity
+            << (rep.message.isEmpty() ? QString() : QStringLiteral(" | ") + rep.message);
+        if (rep.message.startsWith(QLatin1String("skipped:")))
+            qWarning() << "[Mesh] Skipped quad region" << rep.index << "—"
+                       << rep.message.mid(int(qstrlen("skipped:"))).trimmed();
     }
 
     // ── Sub-scale cell cleanup ───────────────────────────────────────
@@ -1984,6 +2216,10 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // zInModelUnits marks vertices whose z is already in model/mesh units
     // (rim, feature Z, flattened terrain, or IDW from rim seeds) so they are
     // excluded from the raster-unit zConversionFactor multiply below.
+    //
+    // Quad regions (plan D7): Free-region smoothing already ran inside
+    // generate(), so every vertex xy here is final and the z sampled below
+    // is the one the mesh keeps — nothing to re-sample after this step.
     progress(70, useDTM
                  ? QObject::tr("Sampling DTM elevations…")
                  : QObject::tr("Interpolating elevations from junction rims…"));
@@ -2466,7 +2702,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     qCInfo(lcMeshPerf).nospace()
         << "[Mesh] cells: " << (result.triangles.size() - result.quadCount())
         << " triangles + " << result.quadCount() << " quads ("
-        << nPatchQuads << " from structured patches, "
+        << nQuadRegionQuads << " from quad regions, "
+        << (nPatchQuads - nQuadRegionQuads) << " from structured patches, "
         << nMergedQuads << " merged from triangle pairs)";
 
     // ── Write ────────────────────────────────────────────────────────
@@ -3218,36 +3455,167 @@ void MeshGenerationDialog::buildUi()
     connect(m_minSpacingBox, &QCheckBox::toggled, m_minSpacingSpin, &QWidget::setEnabled);
     syncThinning();
 
-    // Quad cells — G2 tri-pair merge (TRI_QUAD_MESHING_PLAN §3.1)
+    // Quad regions — PSLG-defined polygons meshed with quads
+    // (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3.1 sources, §6.3). Sources
+    // are a polygon layer and/or named subcatchments; the defaults below
+    // apply to every region unless a layer feature carries quad_mode /
+    // quad_spacing / quad_aspect / quad_angle / tag attributes.
     {
-        auto *g = new QGroupBox(tr("Quad cells"), qualityPage);
+        auto *g = new QGroupBox(tr("Quad regions (PSLG)"), qualityPage);
+        auto *f = new QFormLayout(g);
+        f->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+
+        auto *hint = new QLabel(tr(
+            "Closed polygons inside the domain where quadrilateral cells are "
+            "generated: the ring becomes a constraint loop, the interior is "
+            "filled with a boundary-aligned quad lattice (or a structured grid "
+            "when the outline is rectangular), and everything outside stays "
+            "triangles.  Recommended over the triangle-pair merge below."), g);
+        hint->setWordWrap(true);
+        hint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
+        f->addRow(hint);
+
+        m_quadRegionLayerCombo = new QComboBox(g);
+        m_quadRegionLayerCombo->setToolTip(tr(
+            "Polygon layer whose features become quad regions (exterior rings "
+            "only; read in the worker and reprojected to the mesh CRS).\n\n"
+            "Optional per-feature attributes override the defaults below:\n"
+            "  quad_mode     auto | mapped | submapped | free | triangles\n"
+            "  quad_spacing  target quad edge length (map units)\n"
+            "  quad_aspect   maximum side ratio\n"
+            "  quad_angle    alignment angle in degrees from +x\n"
+            "  tag / name    cell tag"));
+        f->addRow(tr("Region &layer:"), m_quadRegionLayerCombo);
+
+        m_quadRegionSubcatchEdit = new QLineEdit(g);
+        m_quadRegionSubcatchEdit->setPlaceholderText(tr("comma-separated subcatchment IDs"));
+        m_quadRegionSubcatchEdit->setToolTip(tr(
+            "Subcatchment polygons to quad-mesh, by ID.  Each becomes one "
+            "region with the defaults below and the tag subcatch_<ID>.  An "
+            "unknown ID stops generation with an error."));
+        f->addRow(tr("Subcatchments:"), m_quadRegionSubcatchEdit);
+
+        m_quadRegionModeCombo = new QComboBox(g);
+        m_quadRegionModeCombo->addItem(tr("Auto"),           int(mesh::QuadRegionMode::Auto));
+        m_quadRegionModeCombo->addItem(tr("Mapped"),         int(mesh::QuadRegionMode::Mapped));
+        m_quadRegionModeCombo->addItem(tr("Submapped"),      int(mesh::QuadRegionMode::Submapped));
+        m_quadRegionModeCombo->addItem(tr("Free"),           int(mesh::QuadRegionMode::Free));
+        m_quadRegionModeCombo->addItem(tr("Triangles only"), int(mesh::QuadRegionMode::TrianglesOnly));
+        m_quadRegionModeCombo->setToolTip(tr(
+            "Auto: four-cornered outlines → Mapped, rectilinear outlines → "
+            "Submapped, anything else → Free.\n"
+            "Mapped / Submapped: structured, perfectly rectangular quads "
+            "(fall back to Free when the outline does not allow it).\n"
+            "Free: cross-field aligned lattice, quad-dominant with a few "
+            "leftover triangles.\n"
+            "Triangles only: the ring is still a constraint loop, the "
+            "interior stays triangles."));
+        f->addRow(tr("Default mode:"), m_quadRegionModeCombo);
+
+        m_quadRegionSpacingSpin = new QDoubleSpinBox(g);
+        m_quadRegionSpacingSpin->setRange(0.0, 1e9);
+        m_quadRegionSpacingSpin->setDecimals(3);
+        m_quadRegionSpacingSpin->setSingleStep(1.0);
+        // suffix set by updateUnitDisplay()
+        m_quadRegionSpacingSpin->setSpecialValueText(tr("(from max area)"));
+        m_quadRegionSpacingSpin->setToolTip(tr(
+            "Target quad edge length inside a region.\n"
+            "0 = derive it from the size field at the region centroid, or "
+            "from Max triangle area when no size field is in use."));
+        f->addRow(tr("Default spacing:"), m_quadRegionSpacingSpin);
+
+        m_quadRegionAspectSpin = new QDoubleSpinBox(g);
+        m_quadRegionAspectSpin->setRange(1.0, 10.0);
+        m_quadRegionAspectSpin->setDecimals(2);
+        m_quadRegionAspectSpin->setSingleStep(0.25);
+        m_quadRegionAspectSpin->setToolTip(tr(
+            "Longest / shortest quad side accepted inside a Free region "
+            "after smoothing."));
+        f->addRow(tr("Default max aspect:"), m_quadRegionAspectSpin);
+
+        m_quadRegionAngleSpin = new QDoubleSpinBox(g);
+        m_quadRegionAngleSpin->setRange(-91.0, 90.0);
+        m_quadRegionAngleSpin->setDecimals(1);
+        m_quadRegionAngleSpin->setSingleStep(5.0);
+        m_quadRegionAngleSpin->setSuffix(QStringLiteral(" °"));
+        m_quadRegionAngleSpin->setSpecialValueText(tr("(from boundary)"));
+        m_quadRegionAngleSpin->setToolTip(tr(
+            "Free regions: constant lattice direction, degrees from +x "
+            "(counter-clockwise).\n"
+            "At the minimum, \"(from boundary)\", the direction field is "
+            "solved from the region's own edges instead."));
+        f->addRow(tr("Default alignment:"), m_quadRegionAngleSpin);
+
+        qualityVBox->addWidget(g);
+    }
+
+    // Quad quality — bounds shared by the PSLG quad regions above and the
+    // G2 tri-pair merge (TRI_QUAD_MESHING_PLAN §3.1; defaults per
+    // QUAD_MESHING_REDESIGN_PLAN §5: 60°/120°, SJ >= 0.866, aspect <= 2).
+    {
+        auto *g = new QGroupBox(tr("Quad quality"), qualityPage);
         auto *f = new QFormLayout(g);
         f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
 
-        m_quadMergeBox = new QCheckBox(tr("Merge triangle pairs into quads"), g);
+        m_quadMergeBox = new QCheckBox(
+            tr("Merge triangle pairs into quads (experimental — see tooltip)"), g);
         m_quadMergeBox->setToolTip(tr(
             "After triangulation, pair adjacent triangles into convex "
             "quadrilaterals, best quality first. Unmatched triangles remain "
             "(mixed mesh). Never merges across the domain outline, hole "
-            "rings, breaklines or patch boundaries, across region tags, or "
-            "between cells with different roughness / initial depth."));
+            "rings, breaklines, patch or region boundaries, across region "
+            "tags, or between cells with different roughness / initial "
+            "depth.\n\n"
+            "Experimental: Triangle's refinement drives triangles toward "
+            "equilateral, and two equilateral triangles form a 60°/120° "
+            "rhombus — so this pass tends to produce diamond-shaped quads, "
+            "not rectangles, and leaves a salt of unmatched triangles.  "
+            "Quad regions (above) place the vertices for rectangular quads "
+            "and are the recommended path."));
         f->addRow(QString(), m_quadMergeBox);
 
         m_quadMinAngleSpin = new QDoubleSpinBox(g);
         m_quadMinAngleSpin->setRange(0.0, 90.0);
         m_quadMinAngleSpin->setDecimals(1);
         m_quadMinAngleSpin->setSuffix(QStringLiteral(" °"));
-        m_quadMinAngleSpin->setValue(45.0);
-        m_quadMinAngleSpin->setToolTip(tr("Reject a merged quad whose smallest interior angle is below this."));
+        m_quadMinAngleSpin->setValue(60.0);
+        m_quadMinAngleSpin->setToolTip(tr(
+            "Reject a quad whose smallest interior angle is below this.  "
+            "Applies to quad regions and to the triangle-pair merge."));
         f->addRow(tr("Min quad angle:"), m_quadMinAngleSpin);
 
         m_quadMaxAngleSpin = new QDoubleSpinBox(g);
         m_quadMaxAngleSpin->setRange(90.0, 180.0);
         m_quadMaxAngleSpin->setDecimals(1);
         m_quadMaxAngleSpin->setSuffix(QStringLiteral(" °"));
-        m_quadMaxAngleSpin->setValue(135.0);
-        m_quadMaxAngleSpin->setToolTip(tr("Reject a merged quad whose largest interior angle is above this."));
+        m_quadMaxAngleSpin->setValue(120.0);
+        m_quadMaxAngleSpin->setToolTip(tr(
+            "Reject a quad whose largest interior angle is above this.  "
+            "Applies to quad regions and to the triangle-pair merge."));
         f->addRow(tr("Max quad angle:"), m_quadMaxAngleSpin);
+
+        m_quadMinSjSpin = new QDoubleSpinBox(g);
+        m_quadMinSjSpin->setRange(0.0, 1.0);
+        m_quadMinSjSpin->setDecimals(3);   // 0.866 must survive the round trip
+        m_quadMinSjSpin->setSingleStep(0.05);
+        m_quadMinSjSpin->setValue(0.866);
+        m_quadMinSjSpin->setToolTip(tr(
+            "Minimum scaled Jacobian = sine of the worst corner (1 for a "
+            "rectangle, 0.866 at 60°/120°, 0 when a corner degenerates).  "
+            "Applies to quad regions and to the triangle-pair merge."));
+        f->addRow(tr("Min scaled Jacobian:"), m_quadMinSjSpin);
+
+        m_quadMaxAspectSpin = new QDoubleSpinBox(g);
+        m_quadMaxAspectSpin->setRange(0.0, 100.0);
+        m_quadMaxAspectSpin->setDecimals(2);
+        m_quadMaxAspectSpin->setSingleStep(0.25);
+        m_quadMaxAspectSpin->setSpecialValueText(tr("(off)"));
+        m_quadMaxAspectSpin->setValue(2.0);
+        m_quadMaxAspectSpin->setToolTip(tr(
+            "Reject a quad longer than this ratio (longest / shortest side, "
+            "opposite-side means).  0 = no limit.  Applies to quad regions "
+            "and to the triangle-pair merge."));
+        f->addRow(tr("Max aspect ratio:"), m_quadMaxAspectSpin);
 
         m_quadPlanaritySpin = new QDoubleSpinBox(g);
         m_quadPlanaritySpin->setRange(0.0, 1000.0);
@@ -3260,13 +3628,27 @@ void MeshGenerationDialog::buildUi()
             "channel bank that the two triangles resolved. 0 = ignore."));
         f->addRow(tr("Max bed non-planarity:"), m_quadPlanaritySpin);
 
+        // The four bounds matter whenever anything produces quads: a region
+        // source is selected OR the merge is on.  Planarity is merge-only.
         auto syncQuad = [this] {
-            const bool on = m_quadMergeBox->isChecked();
+            const bool merge   = m_quadMergeBox->isChecked();
+            const bool regions =
+                (m_quadRegionLayerCombo
+                 && m_quadRegionLayerCombo->currentData().value<void *>() != nullptr)
+                || (m_quadRegionSubcatchEdit
+                    && !m_quadRegionSubcatchEdit->text().trimmed().isEmpty());
+            const bool on = merge || regions;
             m_quadMinAngleSpin->setEnabled(on);
             m_quadMaxAngleSpin->setEnabled(on);
-            m_quadPlanaritySpin->setEnabled(on);
+            m_quadMinSjSpin->setEnabled(on);
+            m_quadMaxAspectSpin->setEnabled(on);
+            m_quadPlanaritySpin->setEnabled(merge);
         };
         connect(m_quadMergeBox, &QCheckBox::toggled, this, syncQuad);
+        connect(m_quadRegionLayerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [syncQuad](int) { syncQuad(); });
+        connect(m_quadRegionSubcatchEdit, &QLineEdit::textChanged,
+                this, [syncQuad](const QString &) { syncQuad(); });
         syncQuad();
 
         qualityVBox->addWidget(g);
@@ -3532,6 +3914,7 @@ void MeshGenerationDialog::updateUnitDisplay()
 
     if (m_minCellSizeSpin)     m_minCellSizeSpin->setSuffix(suf);
     if (m_quadPlanaritySpin)   m_quadPlanaritySpin->setSuffix(suf);
+    if (m_quadRegionSpacingSpin) m_quadRegionSpacingSpin->setSuffix(suf);
 
     if (m_maxAreaSpin)
         m_maxAreaSpin->setToolTip(
@@ -3647,6 +4030,25 @@ void MeshGenerationDialog::seedDefaults()
     if (m_dropSubScaleHolesBox) m_dropSubScaleHolesBox->setChecked(true);
     if (m_cleanupBox)           m_cleanupBox->setChecked(true);
     updateMinCellDerivedLabel();
+    // Quad regions + quad quality (QUAD_MESHING_REDESIGN_PLAN §5 defaults).
+    // No source selected → no regions; merge stays off.  Like the patch /
+    // merge controls before them, these are not persisted anywhere (no
+    // QSettings / preference page) — the plan's §6.3 persistence item is
+    // still open.
+    if (m_quadRegionLayerCombo)   m_quadRegionLayerCombo->setCurrentIndex(0);
+    if (m_quadRegionSubcatchEdit) m_quadRegionSubcatchEdit->clear();
+    if (m_quadRegionModeCombo)    m_quadRegionModeCombo->setCurrentIndex(0);   // Auto
+    if (m_quadRegionSpacingSpin)  m_quadRegionSpacingSpin->setValue(0.0);      // (from max area)
+    if (m_quadRegionAspectSpin)   m_quadRegionAspectSpin->setValue(mesh::QuadRegion{}.aspectMax);
+    if (m_quadRegionAngleSpin)    m_quadRegionAngleSpin->setValue(m_quadRegionAngleSpin->minimum());
+    if (m_quadMergeBox)           m_quadMergeBox->setChecked(false);
+    {
+        const mesh::QuadQualityBounds qb;
+        if (m_quadMinAngleSpin)  m_quadMinAngleSpin->setValue(qb.minAngleDeg);
+        if (m_quadMaxAngleSpin)  m_quadMaxAngleSpin->setValue(qb.maxAngleDeg);
+        if (m_quadMinSjSpin)     m_quadMinSjSpin->setValue(qb.minScaledJacobian);
+        if (m_quadMaxAspectSpin) m_quadMaxAspectSpin->setValue(qb.maxAspect);
+    }
     m_manningsValueSpin->setValue(t.meshManningsN);
     m_initDepthSpin->setValue(t.meshInitDepth);
     m_outputExternal->setChecked(t.meshOutputExternal);
@@ -3733,6 +4135,18 @@ void MeshGenerationDialog::populateLayerCombos()
     for (auto *L : layers)
         if (auto *v = qobject_cast<GISVectorLayer *>(L))
             m_boundaryLayerCombo->addItem(v->name(), QVariant::fromValue<void *>(v));
+
+    // Quad region layer: same source list and payload as the boundary combo
+    // (no subcatchment pseudo-entry — subcatchments are named in the edit).
+    if (m_quadRegionLayerCombo)
+    {
+        m_quadRegionLayerCombo->clear();
+        m_quadRegionLayerCombo->addItem(tr("(none)"),
+                                        QVariant::fromValue<void *>(nullptr));
+        for (auto *L : layers)
+            if (auto *v = qobject_cast<GISVectorLayer *>(L))
+                m_quadRegionLayerCombo->addItem(v->name(), QVariant::fromValue<void *>(v));
+    }
 
     // Decide whether a vector layer carries 3D geometry — uses the declared
     // layer type when known, otherwise probes the first feature.
@@ -4312,13 +4726,95 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->genOpts.allowSteiner     = m_allowSteiner->isChecked();
     out->genOpts.quiet            = true;
 
+    // ── Quad quality bounds (regions + G2 merge share one set) ───────
+    if (m_quadMinAngleSpin)
+    {
+        out->quadBounds.minAngleDeg       = m_quadMinAngleSpin->value();
+        out->quadBounds.maxAngleDeg       = m_quadMaxAngleSpin->value();
+        out->quadBounds.minScaledJacobian = m_quadMinSjSpin->value();
+        out->quadBounds.maxAspect         = m_quadMaxAspectSpin->value();   // 0 = off
+    }
+    out->genOpts.quadRegionBounds = out->quadBounds;
+
     // ── Quad cells (G2 merge) + structured patches (G3) ──────────────
     out->genOpts.mergeTrianglePairs = m_quadMergeBox && m_quadMergeBox->isChecked();
     if (m_quadMergeBox)
     {
-        out->genOpts.quadMerge.minAngleDeg        = m_quadMinAngleSpin->value();
-        out->genOpts.quadMerge.maxAngleDeg        = m_quadMaxAngleSpin->value();
+        out->genOpts.quadMerge.minAngleDeg        = out->quadBounds.minAngleDeg;
+        out->genOpts.quadMerge.maxAngleDeg        = out->quadBounds.maxAngleDeg;
+        out->genOpts.quadMerge.minScaledJacobian  = out->quadBounds.minScaledJacobian;
+        out->genOpts.quadMerge.maxAspect          = out->quadBounds.maxAspect;
         out->genOpts.quadMerge.maxBedNonPlanarity = m_quadPlanaritySpin->value();
+    }
+
+    // ── PSLG quad regions (QUAD_MESHING_REDESIGN_PLAN §3.1 sources) ──
+    // Defaults first (applied to every region the worker builds), then the
+    // layer identity (read on the worker, like the boundary layer), then the
+    // named subcatchments — those rings are already cached in the mesh CRS,
+    // so they are resolved here.  Distances are map units, as for every other
+    // distance spin in this dialog (no display→SI conversion on collect).
+    if (m_quadRegionModeCombo)
+    {
+        out->quadRegionDefaults.mode =
+            mesh::QuadRegionMode(m_quadRegionModeCombo->currentData().toInt());
+        out->quadRegionDefaults.spacing   = m_quadRegionSpacingSpin->value();
+        out->quadRegionDefaults.aspectMax = m_quadRegionAspectSpin->value();
+        // The special value at the minimum means "no fixed angle".
+        out->quadRegionDefaults.hasAlignAngle =
+            m_quadRegionAngleSpin->value() > m_quadRegionAngleSpin->minimum();
+        out->quadRegionDefaults.alignAngleDeg =
+            out->quadRegionDefaults.hasAlignAngle ? m_quadRegionAngleSpin->value() : 0.0;
+    }
+    if (m_quadRegionLayerCombo)
+        if (auto *qLayer = static_cast<GISVectorLayer *>(
+                m_quadRegionLayerCombo->currentData().value<void *>()))
+        {
+            PipelineInputs::QuadRegionLayerSpec spec;
+            spec.path      = qLayer->filePath();
+            spec.layerName = qLayer->ogrLayerName();
+            // Layer object, not file, is authoritative for the CRS (the user
+            // may have overridden it) — same as boundaryCRSWkt above.
+            if (qLayer->srs())
+                if (auto *qSRS = qLayer->srs()->ogrSpatialReference())
+                {
+                    char *wkt = nullptr;
+                    if (qSRS->exportToWkt(&wkt) == OGRERR_NONE)
+                        spec.crsWkt = QString::fromUtf8(wkt);
+                    CPLFree(wkt);
+                }
+            out->quadRegionLayers.append(std::move(spec));
+        }
+    if (m_quadRegionSubcatchEdit)
+    {
+        const QStringList ids = m_quadRegionSubcatchEdit->text()
+                                    .split(QLatin1Char(','), Qt::SkipEmptyParts);
+        const auto cat = SWMMModelLayer::CatSubcatchments;
+        for (const QString &rawId : ids)
+        {
+            const QString id = rawId.trimmed();
+            if (id.isEmpty()) continue;
+            // objectNameAt(CatSubcatchments, row) and cachedSubcatchVertices(row)
+            // index the same cache, so the row found by name is the ring's.
+            QVector<QPointF> ring;
+            bool found = false;
+            for (int row = 0; row < layer->categoryCount(cat); ++row)
+            {
+                if (layer->objectNameAt(cat, row) != id) continue;
+                found = true;
+                ring  = layer->cachedSubcatchVertices(row);
+                break;
+            }
+            if (!found)
+                return fail(tr("Quad region: subcatchment '%1' not found").arg(id));
+            if (ring.size() < 3)
+                return fail(tr("Quad region: subcatchment '%1' has no polygon").arg(id));
+            mesh::QuadRegion r = out->quadRegionDefaults;
+            r.ring = QPolygonF(ring);
+            // Same spelling the worker gives RegionMarker tags, so the cells
+            // inside match the region-defaults table rows.
+            r.tag  = QStringLiteral("subcatch_%1").arg(id);
+            out->quadRegions.append(std::move(r));
+        }
     }
     // Patch boundary vertices are matched to the Triangle output by the
     // same snap radius the Steiner dedupe uses (0 = exact quantised match).
