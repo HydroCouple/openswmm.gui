@@ -81,6 +81,19 @@ private slots:
     void onZPolicyEdited();
     void onRemoveLayer();
 
+    // ----- Feature grid ---------------------------------------------------
+    /*! Rebuild the whole grid: one row per feature, one column per field. */
+    void refreshFeatureTable();
+    /*! A cell was edited by the user → EditFeatureAttributesCommand. */
+    void onFeatureCellChanged(int row, int column);
+    /*! Grid rows → the layer's map selection, so the two views agree. */
+    void onFeatureSelectionChanged();
+    /*! The map selection changed → mirror it into the grid's rows. */
+    void onFeatureSelectionChangedFromLayer();
+    /*! Delete every feature whose row is selected (undoable). */
+    void onDeleteSelectedFeatureRows();
+    void onFeatureTableContextMenu(const QPoint &pos);
+
 private:
     void buildUi();
     /*! Rebuild the schema table, Z controls and status line from m_active. */
@@ -105,6 +118,15 @@ private:
     QTableWidget *m_fieldTable   = nullptr;
     QPushButton  *m_addFieldBtn  = nullptr;
     QPushButton  *m_removeFieldBtn = nullptr;
+
+    // Feature grid — the rows are features, not columns. Read-only until the
+    // layer is in an edit session; Delete and the context menu remove rows.
+    QTableWidget *m_featureTable  = nullptr;
+    QPushButton  *m_deleteFeatBtn = nullptr;
+    QLabel       *m_featHintLabel = nullptr;
+    /*! Guards refreshFeatureTable()'s own setItem calls from being read back
+     *  as user edits, and the selection round trip from echoing. */
+    bool m_suppressFeatureEdits = false;
 
     // Z
     QComboBox      *m_zSourceCombo  = nullptr;

@@ -80,6 +80,9 @@ class ProfilePlotDialog;
 namespace openswmmvis::ui { class CursorWindowSlider; }
 namespace openswmmvis::ui { class LegendDock; }
 namespace openswmmvis::ui { class LayerStylingDock; }
+namespace openswmmvis::ui { class FeatureLayerPanel; }
+class FeatureLayer;
+class SWMMVisProjectWindow;
 
 /*!
  * \class SWMMVis
@@ -178,6 +181,27 @@ private:
     void initializeSimulationStatusDockWidget();
     void initializeMessageLogDockWidget();
     void initializeLegendDockWidget();   // Slice BB Phase 8.6.11 / 8.6.16
+
+    // ── Editable feature layers (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN
+    //    §5.1, §6.2) ────────────────────────────────────────────────────
+    /*! Build the Features dock and tabify it behind the property browser. */
+    void initializeFeatureLayerDockWidget();
+    /*! Create the eight feature actions and wire them to the tools. */
+    void initializeFeatureLayerActions();
+    /*! `<model>.features.gpkg` beside the .inp, or empty when \p pw has no
+     *  saved model file — the guard that stops an orphan GeoPackage being
+     *  created next to an unsaved project. */
+    [[nodiscard]] QString featureGpkgPathFor(SWMMVisProjectWindow *pw) const;
+    /*! New Feature Layer flow: dialog → FeatureStore table → canvas → panel. */
+    void onNewFeatureLayer();
+    /*! Point every feature tool on \p pw's canvas at \p layer. */
+    void retargetFeatureTools(SWMMVisProjectWindow *pw, FeatureLayer *layer);
+    /*! Delete the active feature layer's selected features (undoable). */
+    void onDeleteSelectedFeatures();
+    /*! Reflect the active layer's edit session into the Edit Mode checkbox
+     *  and enable/disable the session-only actions. */
+    void syncFeatureEditState();
+
     void initializeMenus();
     void initializeSettings();
 
@@ -760,6 +784,7 @@ private:
     class QToolBar            *mToolBarModel         = nullptr;
     class QToolBar            *mToolBarMesh2D        = nullptr;
     class QToolBar            *mToolBarView          = nullptr;
+    class QToolBar            *mToolBarFeatures      = nullptr;
     // Iteration 2 (R3) — the two formerly .ui-authored bars, rebuilt in
     // code with the SAME objectNames so saved window state keeps working.
     class QToolBar            *mToolBarAnimation     = nullptr;
@@ -784,6 +809,12 @@ private:
     // Slice SP.4 — dockable vector section / profile view of the selection.
     openswmmvis::ui::SectionViewPanel *mSectionViewPanel = nullptr;
     AttributeTablePanel   *mAttributeTablePanel   = nullptr;
+    // Editable feature layers — the Features dock and its host dock widget
+    // (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §5.1). Tabified behind the
+    // property browser; the panel picks which FeatureLayer the drawing tools
+    // target.
+    openswmmvis::ui::FeatureLayerPanel *mFeatureLayerPanel = nullptr;
+    class QDockWidget     *mFeatureDock           = nullptr;
     SimulationStatusModel *mSimStatusModel        = nullptr;
     // Slice BB Phase 8.6.11 / 8.6.16 — dockable per-class legend / style editor.
     openswmmvis::ui::LegendDock *mLegendDock      = nullptr;

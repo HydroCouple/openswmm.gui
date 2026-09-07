@@ -319,6 +319,30 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarModel, tr("Tools"), {"actionAssignRainGages"});
     addGroup(mToolBarModel, tr("Mesh 2D"), {"actionGenerateMesh"});
 
+    // Features — editable, GeoPackage-backed layers the user draws
+    // (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §5.1). Its own tab rather
+    // than a Model group: the drawing tools are modal and there are eight of
+    // them, and none of it edits the SWMM network.
+    mToolBarFeatures = new QToolBar(tr("Features"), this);
+    mToolBarFeatures->setObjectName(QStringLiteral("toolBarFeatures"));
+    // Select leads, exactly as it does on the Model bar: the drawing tools
+    // are modal, so getting back to plain selection is the most frequent
+    // next action and must not cost a tab switch. Same QAction instance as
+    // Home and Model — RibbonGroup adds a button bound to it, it does not
+    // reparent — so all three faces stay checked/unchecked together.
+    addGroup(mToolBarFeatures, tr("Select"), {"actionSelect"});
+    addGroup(mToolBarFeatures, tr("Layer"),  {"actionNewFeatureLayer"});
+    addGroup(mToolBarFeatures, tr("Edit"),   {"actionFeatureEditMode",
+                                              "actionFeatureDelete"});
+    addGroup(mToolBarFeatures, tr("Draw"),   {"actionFeatureDrawPoint",
+                                              "actionFeatureDrawLine",
+                                              "actionFeatureDrawPolygon"});
+    addGroup(mToolBarFeatures, tr("Modify"), {"actionFeatureAddPart",
+                                              "actionFeatureAddHole",
+                                              "actionFeatureEditVertex",
+                                              "actionFeatureMove"});
+    addGroup(mToolBarFeatures, tr("Panel"),  {"actionToggleDockFeatures"});
+
     mToolBarMesh2D = new QToolBar(tr("Mesh 2D"), this);
     mToolBarMesh2D->setObjectName(QStringLiteral("toolBarMesh2D"));
     addGroup(mToolBarMesh2D, tr("Mesh"), {"actionGenerateMesh"});
@@ -371,7 +395,7 @@ void SWMMVis::initializeCompactToolbar()
     // takes the slack there. RibbonCompactor discounts the spacer's one
     // inter-item spacing by objectName.
     for (QToolBar *bar : {mToolBarHome, mToolBarModel, mToolBarMesh2D,
-                          mToolBarView, mToolBarAnalysis}) {
+                          mToolBarView, mToolBarAnalysis, mToolBarFeatures}) {
         auto *spacer = new QWidget(bar);
         spacer->setObjectName(QStringLiteral("ribbonBarSpacer"));
         spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -395,6 +419,11 @@ void SWMMVis::initializeCompactToolbar()
                             QList<QToolBar *>{mToolBarMesh2D,
                                               static_cast<QToolBar *>(mMeshEditingToolbar)},
                             /*contextual*/ true);
+    // Non-contextual: the New Feature Layer action must be reachable before
+    // any feature layer exists, so the tab cannot be gated on having one.
+    // Its actions are still project-gated by applyProjectOpenToActions.
+    mCompactToolbar->addTab(QStringLiteral("features"), tr("Features"),
+                            {mToolBarFeatures});
     mCompactToolbar->addTab(QStringLiteral("analysis"), tr("Analysis"),
                             {mToolBarAnalysis});
     mCompactToolbar->addTab(QStringLiteral("results"), tr("Results"),
@@ -408,7 +437,8 @@ void SWMMVis::initializeCompactToolbar()
     // (promotions only past the 32 px dead band). Terrain/MeshEditing
     // sibling bars host no groups and stay as-is.
     for (QToolBar *bar : {mToolBarHome, mToolBarModel, mToolBarMesh2D,
-                          mToolBarView, mToolBarAnalysis, mToolBarAnimation}) {
+                          mToolBarView, mToolBarAnalysis, mToolBarAnimation,
+                          mToolBarFeatures}) {
         const auto groups = bar->findChildren<RibbonGroup *>(
             Qt::FindDirectChildrenOnly);
         if (!groups.isEmpty())

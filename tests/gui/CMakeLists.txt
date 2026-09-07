@@ -2722,6 +2722,16 @@ add_swmmvis_gui_test(test_meshmincelldialog
 )
 swmmvis_link_full_app_deps(test_meshmincelldialog)
 
+# Feature layers are REACHABLE from the real main window (§6.2). Catalog and
+# ribbon tests run against synthetic rigs, so only a real SWMMVis catches the
+# case where the whole stack compiles but nothing constructs it.
+add_swmmvis_gui_test(test_featurelayer_hostwiring
+    test_featurelayer_hostwiring.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_featurelayer_hostwiring)
+
 # Spatial rain-gage assignment against a real engine-loaded model. Guards the
 # un-located-gage trap (engine says (0,0); the display cache invents a position)
 # and the mediated write that lets a bulk assignment refresh the views.
@@ -2949,6 +2959,17 @@ add_swmmvis_gui_test(test_simulationoptions_roundtrip
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_simulationoptions_roundtrip)
+
+# E1 (2026-09-07) — Simulation Options 2D page Output group: OUTPUT_PRECISION
+# / OUTPUT_COMPRESSION / REPORT_2D_STEP / REPORT_2D_VARIABLES /
+# REPORT_2D_SPECIES seed their defaults, write their engine spellings, and
+# re-open + Apply is the identity (seconds vs HH:MM:SS, preset vs token list).
+add_swmmvis_gui_test(test_2d_output_options_page
+    test_2d_output_options_page.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_2d_output_options_page)
 
 # Rain-gage map position ([SYMBOLS] X/Y) — the Property Browser exposes it and
 # the Attribute Table columns are editable, both routed through

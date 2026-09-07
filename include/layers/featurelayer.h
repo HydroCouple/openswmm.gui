@@ -163,7 +163,31 @@ public:
 
     [[nodiscard]] QString gpkgPath()  const { return m_gpkgPath; }
     [[nodiscard]] QString tableName() const { return m_table; }
+    /*! \brief True when the store is open for writing — a CAPABILITY, not a
+     *         mode. A layer can be writable and still not be in an edit
+     *         session; see \ref isEditing. */
     [[nodiscard]] bool    isEditable() const;
+
+    // ----- Edit session ---------------------------------------------------
+
+    /*!
+     * \brief Whether this layer is currently being edited.
+     *
+     * \details An explicit edit session, the way a GIS package gates editing:
+     *          the digitising tools and the attribute grid are inert until it
+     *          is on. It exists so a stray click on a map that happens to
+     *          carry a feature layer cannot silently move a breakline — the
+     *          user has to say "I am editing this" first.
+     *
+     *          It is deliberately NOT enforced inside the store or the undo
+     *          commands: a command that has already been pushed must be able
+     *          to undo/redo regardless of the session, or closing a session
+     *          would strand the undo stack.
+     */
+    [[nodiscard]] bool isEditing() const { return m_editing; }
+    /*! No-op when \p on matches the current state or the layer is not
+     *  writable at all; otherwise emits \ref editingChanged. */
+    void setEditing(bool on);
 
     // ----- Schema ---------------------------------------------------------
 
@@ -241,6 +265,8 @@ signals:
     void schemaChanged();
     void roleChanged(int role);
     void zPolicyChanged();
+    /*! \brief The edit session opened (true) or closed (false). */
+    void editingChanged(bool editing);
 
 private:
     /*! Re-attach the store to the base's dataset after an open, and refresh
@@ -261,6 +287,9 @@ private:
     QString          m_table;
     FeatureLayerRole m_role = FeatureLayerRole::General;
     ZPolicy          m_zPolicy;
+    /*! Edit-session flag; see \ref isEditing. Not persisted — a reopened
+     *  project starts with every layer closed for editing. */
+    bool             m_editing = false;
 };
 
 Q_DECLARE_METATYPE(FeatureLayer *)
