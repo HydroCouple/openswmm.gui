@@ -369,6 +369,14 @@ set(
         include/layers/openswmmvislayer.h
         include/layers/tilepyramidlayer.h
         include/layers/gisvectorlayer.h
+        # Editable feature layers (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN
+        # 2026-09-07 §3). featuregeometry / featuretypes / featurestore are
+        # leaf modules — Qt + GDAL only, no layer or UI dependency — so they
+        # can also be linked into a leaf unit test without the full-app
+        # closure. featurestore.cpp is the repository's first OGR write path.
+        include/feature/featuregeometry.h
+        include/feature/featuretypes.h
+        include/feature/featurestore.h
         include/layers/gisobjectref.h
         include/layers/gisvectorsymboladapter.h
         include/layers/gisrasterlayer.h
@@ -1043,6 +1051,9 @@ set(
         src/layers/openswmmvislayer.cpp
         src/layers/tilepyramidlayer.cpp
         src/layers/gisvectorlayer.cpp
+        src/feature/featuregeometry.cpp
+        src/feature/featuretypes.cpp
+        src/feature/featurestore.cpp
         src/layers/gisobjectref.cpp
         src/layers/gisrasterlayer.cpp
         src/layers/wcslayer.cpp
