@@ -799,6 +799,7 @@ set(
         include/ui/dialogs/hotstartsavesmodel.h
         include/ui/dialogs/pathbrowsedelegate.h
         include/ui/dialogs/pluginstablemodel.h
+        include/ui/dialogs/processcomponentsmodel.h
         include/ui/dialogs/comparisonplotdialog.h
         include/ui/dialogs/rainfallvisualizationdialog.h
         include/ui/dialogs/comparisonpairsdialog.h
@@ -1427,6 +1428,7 @@ set(
         src/ui/dialogs/hotstartsavesmodel.cpp
         src/ui/dialogs/pathbrowsedelegate.cpp
         src/ui/dialogs/pluginstablemodel.cpp
+        src/ui/dialogs/processcomponentsmodel.cpp
         src/ui/dialogs/comparisonplotdialog.cpp
         src/ui/dialogs/rainfallvisualizationdialog.cpp
         src/ui/dialogs/comparisonpairsdialog.cpp

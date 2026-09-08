@@ -28,9 +28,11 @@
 #include <openswmm/engine/openswmm_engine.h>
 
 #include <QDialog>
+#include <QSet>
 
 class QTableWidget;
 class QLabel;
+class QLineEdit;
 
 namespace OpenSWMMVis
 {
@@ -66,6 +68,8 @@ private slots:
     void onAddRow();
     void onRemoveRow();
     void onAccept();
+    //! U2: read a CSV's rows into the table as ordinary inline rows.
+    void onImportCsv();
 
 private:
     void buildUi();
@@ -76,6 +80,10 @@ private:
     SWMM_Engine   m_engine          = nullptr;
     QTableWidget *m_table           = nullptr;
     QLabel       *m_hintLabel       = nullptr;
+    /// U2: `[INITIAL_QUALITY] FILE <csv>` reference and the table rows that
+    /// came from it (shown greyed; neither re-written nor removed on OK).
+    QLineEdit    *m_fileEdit        = nullptr;
+    QSet<int>     m_fileRows;
     bool          m_wroteAnyChanges = false;
     int           m_lastWriteCount  = 0;
     int           m_scopeIsLink     = -1;   ///< -1 = whole-model mode
