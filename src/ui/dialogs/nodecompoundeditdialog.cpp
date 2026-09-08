@@ -39,6 +39,7 @@
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_reactions.h>   // U2: MSX inflow constituents
 #include <openswmm/engine/openswmm_quality.h>
 #include <openswmm/engine/openswmm_tables.h>
 
@@ -98,6 +99,23 @@ void NodeCompoundEditDialog::populateConstituentCombo(QComboBox *c)
     for (int i = 0; i < n; ++i) {
         const char *id = swmm_pollutant_id(m_ref.engine, i);
         if (id && *id) pollutants << QString::fromUtf8(id);
+    }
+    // U2 (2026-09-07): reactions-component BULK species are inflow
+    // constituents on the same footing as pollutants — CONCEN multiplies
+    // the node's inflow, MASS is a direct rate. WALL species are omitted:
+    // inflow water carries no wall-bound mass (the engine warns and drops
+    // such a row).
+    const int nsp = swmm_reaction_species_count(m_ref.engine);
+    for (int m = 0; m < nsp; ++m) {
+        char name[128] = {0}, units[32] = {0};
+        int isWall = 0;
+        double atol = 0.0, rtol = 0.0;
+        if (swmm_reaction_species_get(m_ref.engine, m, name, sizeof(name), &isWall,
+                                      units, sizeof(units), &atol, &rtol) != SWMM_OK)
+            continue;
+        if (isWall || !name[0]) continue;
+        const QString nm = QString::fromUtf8(name);
+        if (!pollutants.contains(nm)) pollutants << nm;
     }
     const QStringList names =
         OpenSWMMVis::Species::inflowConstituentNames(pollutants);

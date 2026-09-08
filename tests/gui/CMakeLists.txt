@@ -2960,6 +2960,38 @@ add_swmmvis_gui_test(test_simulationoptions_roundtrip
 )
 swmmvis_link_full_app_deps(test_simulationoptions_roundtrip)
 
+# E1 (2026-09-07) — Simulation Options 2D page Output group: OUTPUT_PRECISION
+# / OUTPUT_COMPRESSION / REPORT_2D_STEP / REPORT_2D_VARIABLES /
+# REPORT_2D_SPECIES seed their defaults, write their engine spellings, and
+# re-open + Apply is the identity (seconds vs HH:MM:SS, preset vs token list).
+add_swmmvis_gui_test(test_2d_output_options_page
+    test_2d_output_options_page.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_2d_output_options_page)
+
+# U1 (2026-09-07) — Processes & Modules hub: the engine-computed transport
+# matrix on the Models page mirrors the 2D page's TRANSPORT_* boxes, the 2D
+# Processes group seeds/writes the E2 keys, and the [PROCESS_COMPONENTS]
+# table stages registrations/removals that land on Apply.
+add_swmmvis_gui_test(test_processes_hub
+    test_processes_hub.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_processes_hub)
+
+# U5 (2026-09-07) — the 2D page Groundwater group: [2D_OPTIONS] GROUNDWATER /
+# GW_ET round-trip, the infiltration-destination lock the engine's D-I4
+# exclusion implies, and the [GW_*] authored-row summary.
+add_swmmvis_gui_test(test_gw_page_keys
+    test_gw_page_keys.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gw_page_keys)
+
 # Rain-gage map position ([SYMBOLS] X/Y) — the Property Browser exposes it and
 # the Attribute Table columns are editable, both routed through
 # SWMMModelLayer::applyGageMove so the cached scene point tracks the engine.
