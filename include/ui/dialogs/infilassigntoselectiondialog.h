@@ -27,9 +27,11 @@
  *    edit still reaches the cells.
  *
  * Parameter fields are masked by the chosen method through
- * mesh::infilUsesParam(), and destinations the engine does not accept in this
- * release are shown disabled per mesh::infilDestSupported() — the same two
- * rules the attribute table and the region-defaults table already follow.
+ * mesh::infilUsesParam(). Every destination is selectable and carries a
+ * mesh::infilDestHint() tooltip — the engine routes all three, and whether
+ * `AQUIFER_2D` works depends on the open model carrying a `[2D_AQUIFER]`
+ * rather than on the release, so the engine judges it at resolve. Same two
+ * rules the attribute table and the region-defaults table follow.
  *
  * Singleton-raise per `[[feedback_mvc_synchronized_uis]]`: showFor() keeps a
  * `static QPointer` so the toolbar action and the menu mirror raise one window

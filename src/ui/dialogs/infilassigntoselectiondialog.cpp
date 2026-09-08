@@ -144,24 +144,25 @@ void InfilAssignToSelectionDialog::buildUi()
     m_destCombo = new QComboBox(this);
     {
         const QStringList labels = mesh::infilDestLabels();
+        auto *model = qobject_cast<QStandardItemModel *>(m_destCombo->model());
         for (int i = 0; i < labels.size(); ++i) {
             const auto d = static_cast<mesh::InfilDest>(i);
             m_destCombo->addItem(labels.at(i), int(d));
-            if (mesh::infilDestSupported(d)) continue;
-            // Engine D-I4 — the token parses so the grammar is stable, but the
-            // engine rejects it. Visible-but-unselectable beats a silent
-            // validation failure at run time.
-            if (auto *model = qobject_cast<QStandardItemModel *>(m_destCombo->model()))
-                if (QStandardItem *item = model->item(i)) {
-                    item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-                    item->setData(tr("Available from the groundwater release."),
-                                  Qt::ToolTipRole);
-                }
+            // All three destinations are routed by the engine now. AQUIFER_2D
+            // additionally needs the model to carry a [2D_AQUIFER], which is
+            // not something this combo can know — so it carries the hint and
+            // the engine refuses the combination by name at resolve.
+            if (model)
+                if (QStandardItem *item = model->item(i))
+                    item->setData(mesh::infilDestHint(d), Qt::ToolTipRole);
         }
     }
     m_destCombo->setToolTip(tr(
-        "Where infiltrated water goes. Only \"Lost\" is accepted by the engine "
-        "in this release; the others are reserved for the groundwater work."));
+        "Where infiltrated water goes. \"Lost\" leaves the model; "
+        "\"Subcatchment aquifer\" recharges the legacy aquifer of the "
+        "subcatchment whose polygon contains the cell; \"2D aquifer\" "
+        "recharges the integrated two-zone kernel and needs a [2D_AQUIFER] "
+        "section."));
     form->addRow(tr("Destination:"), m_destCombo);
 
     outer->addLayout(form);
