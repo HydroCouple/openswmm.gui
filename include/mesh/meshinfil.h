@@ -31,9 +31,13 @@
  *  - **Units (user decision 2026-08-20):** parameters are in PROJECT units —
  *    the same numbers a user types into `[INFILTRATION]`. The GUI stores and
  *    displays them verbatim and performs no conversion.
- *  - **Destination (engine D-I4):** only `Lost` is accepted by the engine in
- *    this release; the others exist so the grammar is stable and are shown
- *    disabled in the UI.
+ *  - **Destination (engine D-I4, as amended by U3 and G1 on 2026-09-07):**
+ *    all three destinations are routed. `Lost` leaves the model,
+ *    `SubcatchAquifer` recharges the containing subcatchment's legacy
+ *    aquifer, and `Aquifer2D` recharges the integrated two-zone kernel.
+ *    `Aquifer2D` is accepted exactly when the model carries a `[2D_AQUIFER]`
+ *    section — a property of the MODEL, not of the release, so the UI offers
+ *    it with a hint and lets the engine judge it at resolve.
  */
 
 #ifndef OPENSWMMVIS_MESHINFIL_H
@@ -66,9 +70,9 @@ enum class InfilMethod : int {
 
 /*! Destination of infiltrated water (engine `Infil2DDest`). */
 enum class InfilDest : int {
-    Lost            = 0,   //!< Only value the engine accepts in this release
-    SubcatchAquifer = 1,   //!< Reserved — shown disabled
-    Aquifer2D       = 2    //!< Reserved — shown disabled
+    Lost            = 0,   //!< Leaves the model
+    SubcatchAquifer = 1,   //!< U3: recharges the containing subcatchment's aquifer
+    Aquifer2D       = 2    //!< G1: recharges the integrated two-zone kernel
 };
 
 /*! Widest positional parameter count (Horton: f0 fmin decay dry_time Fmax). */
@@ -205,9 +209,15 @@ InfilDest infilDestFromToken(const QString &token, bool *ok = nullptr);
 QString   infilDestLabel(InfilDest d);
 QStringList infilDestLabels();
 
-/*! \brief True when the engine accepts \p d in this release (engine D-I4).
- *         The UI shows the others disabled with an explanatory tooltip. */
-bool infilDestSupported(InfilDest d);
+/*! \brief A one-sentence tooltip for destination \p d: where the water goes
+ *         and what the choice needs.
+ *
+ *  Replaces the former `infilDestSupported()`, which answered a per-release
+ *  question the UI used to grey entries out with. Whether `Aquifer2D` works
+ *  depends on the open model carrying a `[2D_AQUIFER]`, which a static
+ *  boolean cannot express — so nothing is disabled any more and the engine
+ *  refuses the combination by name at resolve. */
+QString infilDestHint(InfilDest d);
 
 // ---------------------------------------------------------------------------
 // Classified-lookup tables (GUI plan §3.4(a))

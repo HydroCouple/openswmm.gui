@@ -353,11 +353,39 @@ QStringList infilDestLabels()
     return out;
 }
 
-bool infilDestSupported(InfilDest d)
+QString infilDestHint(InfilDest d)
 {
-    // Engine D-I4 — the others parse so the grammar is stable, and are
-    // rejected at validation with a "not supported in this release" message.
-    return d == InfilDest::Lost;
+    // This replaced infilDestSupported(), which returned a per-RELEASE answer
+    // the UI used to grey entries out. Both other destinations now work, and
+    // whether AQUIFER_2D works is a property of the OPEN MODEL rather than of
+    // the build: it is accepted exactly when a [2D_AQUIFER] section resolved.
+    // A static boolean cannot say that, and a flag threaded through four call
+    // sites would still be a snapshot taken before the user adds the aquifer.
+    //
+    // So the UI no longer blocks a choice it cannot correctly judge. The
+    // engine judges it, at resolve, by name:
+    //
+    //   "destination AQUIFER_2D needs a [2D_AQUIFER] section to receive the
+    //    recharge; this model has none — add one, or use LOST or
+    //    SUBCATCH_AQUIFER"
+    //
+    // That message is what the greying-out existed to prevent the user from
+    // hitting blind. It is no longer blind, so the block has stopped earning
+    // its keep and these hints take its place.
+    switch (d) {
+    case InfilDest::SubcatchAquifer:
+        return tr("Recharges the legacy aquifer of the subcatchment whose "
+                  "polygon contains the cell. Cells outside every polygon "
+                  "stay lost, with a warning at run time.");
+    case InfilDest::Aquifer2D:
+        return tr("Recharges the integrated two-zone groundwater kernel. "
+                  "Needs a [2D_AQUIFER] section — without one the run is "
+                  "refused rather than quietly losing the water.");
+    case InfilDest::Lost:
+        break;
+    }
+    return tr("Leaves the model. Booked as an outflow in the 2D water "
+              "balance.");
 }
 
 // ---------------------------------------------------------------------------

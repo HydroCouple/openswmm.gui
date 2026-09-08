@@ -1707,15 +1707,14 @@ void MeshAttributeAssignDialog::onAddLookupRow()
 
     auto *dest = new QComboBox(m_lookupTable);
     dest->addItems(mesh::infilDestLabels());
+    // Every destination is routed by the engine now; AQUIFER_2D additionally
+    // needs a [2D_AQUIFER] in the model, and the engine says so by name at
+    // resolve. The entries carry their hint instead of being disabled.
     if (auto *model = qobject_cast<QStandardItemModel *>(dest->model()))
         for (int d = int(mesh::InfilDest::Lost);
              d <= int(mesh::InfilDest::Aquifer2D); ++d)
-            if (!mesh::infilDestSupported(mesh::InfilDest(d)))
-                if (QStandardItem *item = model->item(d)) {
-                    item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-                    item->setToolTip(tr("Not accepted by the engine in this "
-                                        "release (decision D-I4)."));
-                }
+            if (QStandardItem *item = model->item(d))
+                item->setToolTip(mesh::infilDestHint(mesh::InfilDest(d)));
     m_lookupTable->setCellWidget(row, kColDest, dest);
 
     maskLookupRow(row);
