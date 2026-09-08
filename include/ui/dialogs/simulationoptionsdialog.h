@@ -45,6 +45,8 @@ class HotstartSavesModel;
 class HotstartSavesDateTimeDelegate;
 class PathBrowseDelegate;
 class PluginsTableModel;
+class ProcessComponentsModel;
+class ProcessComponentIdDelegate;
 
 namespace openswmmvis::ui {
     class RelativePathPicker;
@@ -203,6 +205,11 @@ private:
     void refreshMeshList();                  ///< rescan project dir for *.2dm files
     void readPluginsFromEngine();
     int  writePluginsToEngine();             ///< returns count of changes written
+    // U1 (2026-09-07) — [PROCESS_COMPONENTS] table + the Domain × Species
+    // transport matrix (engine-computed, swmm_get_transport_matrix).
+    void readProcessComponentsFromEngine();
+    int  writeProcessComponentsToEngine();   ///< returns count of engine writes
+    void refreshTransportMatrix();
     void readFilesSectionFromEngine();
     int  writeFilesSectionToEngine();        ///< returns count of changes written
     void readWriterCombosFromEngine();       ///< hydrate Input/Output/Report combos
@@ -519,6 +526,19 @@ private:
     QPushButton        *m_pluginsAddBtn     = nullptr;
     QPushButton        *m_pluginsRemoveBtn  = nullptr;
 
+    // U1 — Process components (Files / Output / Plugins → Plugins sub-tab).
+    ProcessComponentsModel     *m_componentsModel     = nullptr;
+    ProcessComponentIdDelegate *m_componentsIdDel     = nullptr;
+    PathBrowseDelegate         *m_componentsPathDel   = nullptr;
+    QTableView                 *m_componentsView      = nullptr;
+    QPushButton                *m_componentsAddBtn    = nullptr;
+    QPushButton                *m_componentsRemoveBtn = nullptr;
+    // U1 — Transport by domain (Models / Processes page). Read-only view of
+    // the engine's matrix; the 2D column cells mirror the 2D page's
+    // TRANSPORT_* boxes (one model, two views).
+    QTableWidget               *m_transportMatrixTable = nullptr;
+    bool                        m_matrixSyncing        = false;
+
     // Tab 7 — Secondary file references (Slice AA-3 [FILES] follow-up).
     // Slice IO-11a — paths now flow through RelativePathPicker so the
     // dialog displays each token relative to the project anchor and
@@ -581,6 +601,47 @@ private:
     QComboBox      *m_rainfall2DModeCombo = nullptr;
     QCheckBox      *m_report2DBox       = nullptr;
     class QLineEdit *m_output2DFileEdit = nullptr;
+
+    // E1 (2026-09-07) — [2D_OPTIONS] OUTPUT_PRECISION / OUTPUT_COMPRESSION /
+    // REPORT_2D_STEP / REPORT_2D_VARIABLES / REPORT_2D_SPECIES. Lives in the
+    // 2D page's Output group; TABS T5 moves the whole group intact.
+    QComboBox      *m_output2DPrecisionCombo   = nullptr;
+    QSpinBox       *m_output2DCompressionSpin  = nullptr;
+    QCheckBox      *m_report2DStepSameBox      = nullptr;  ///< checked ⇒ REPORT_2D_STEP = REPORT_STEP (0)
+    QCustomTimespanEdit *m_report2DStepEdit    = nullptr;
+    QListWidget    *m_report2DVarsList         = nullptr;  ///< one checkable row per swmm_2d_output_variable_name
+    QCheckBox      *m_report2DAllSpeciesBox    = nullptr;  ///< checked ⇒ REPORT_2D_SPECIES ALL
+    QListWidget    *m_report2DSpeciesList      = nullptr;  ///< pollutants + MSX species
+    QLabel         *m_output2DSizeLabel        = nullptr;  ///< live size estimate
+
+    unsigned report2DVarsMask() const;
+    void     setReport2DVarsMask(unsigned mask);
+    QString  report2DSpeciesText() const;      ///< "ALL" or space-separated names
+    void     setReport2DSpeciesText(const QString &text);
+    void     update2DOutputSizeEstimate();
+
+    // U1 (2026-09-07) — 2D page Processes group ([2D_OPTIONS] process keys,
+    // E2): INFILTRATION / INFIL_STEP / INFIL_DEFAULT_METHOD /
+    // INFIL_DESTINATION, EVAPORATION, TRANSPORT_*. RAINFALL_MODE joins it.
+    QComboBox           *m_infil2DModeCombo    = nullptr;  ///< AUTO | YES | NO
+    QCheckBox           *m_infil2DStepSameBox  = nullptr;  ///< checked ⇒ INFIL_STEP = WET_STEP (0)
+    QCustomTimespanEdit *m_infil2DStepEdit     = nullptr;
+    QComboBox           *m_infil2DMethodCombo  = nullptr;
+    QComboBox           *m_infil2DDestCombo    = nullptr;
+    QPushButton         *m_editInfilCellsBtn   = nullptr;
+    QComboBox           *m_evap2DCombo         = nullptr;  ///< NO | YES | CLIMATE
+    QCheckBox           *m_transport2DBox[4]   = {nullptr, nullptr, nullptr, nullptr};
+    static const char   *transport2DKey(int speciesClass);
+
+    // U5 (2026-09-07) — the 2D page Groundwater group: [2D_OPTIONS]
+    // GROUNDWATER / GW_ET, plus the Transport summary that names the
+    // [GW_*] authoring surface (U4) and where it is edited.
+    QGroupBox   *m_gw2DGroup      = nullptr;
+    QComboBox   *m_gw2DEnableCombo = nullptr;
+    QComboBox   *m_gw2DEtCombo    = nullptr;
+    QLabel      *m_gw2DStatusLabel = nullptr;
+    QPushButton *m_gw2DEditBtn    = nullptr;
+    void update2DGroundwaterEnabled();
 #endif
 };
 

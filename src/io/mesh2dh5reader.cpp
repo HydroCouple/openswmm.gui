@@ -156,6 +156,7 @@ bool Mesh2DH5Reader::open(const QString& path)
     cached_face_width_ = -1;
     cached_has_node_head_ = -1;
     cached_has_node_depth_ = -1;
+    cached_has_edge_flux_ = -1;
     cached_cells_loaded_ = false;
     cached_cells_.clear();
     cached_display_tris_.clear();
@@ -711,6 +712,18 @@ bool Mesh2DH5Reader::readEdgeFluxAt(int timeIdx, std::vector<float>& flux) const
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
     if (timeIdx < 0)
         return setError_(QStringLiteral("Negative timeIdx"));
+
+    // Probe-once presence cache (same pattern as /Mesh2_node_head): a run
+    // written with REPORT_2D_VARIABLES lacking EDGE_FLUX (e.g. MINIMAL) has
+    // no /Mesh2_edge_flux; answer cleanly instead of failing H5Dopen2 and
+    // spamming the HDF5 error stack on every probe/frame.
+    if (cached_has_edge_flux_ < 0) {
+        const htri_t ex = H5Lexists(static_cast<hid_t>(file_id_),
+                                    "Mesh2_edge_flux", H5P_DEFAULT);
+        cached_has_edge_flux_ = (ex > 0) ? 1 : 0;
+    }
+    if (cached_has_edge_flux_ == 0)
+        return setError_(QStringLiteral("Mesh2_edge_flux not in file"));
 
     const int n_face = triangleCount();
     const int n_time = timeCount();
