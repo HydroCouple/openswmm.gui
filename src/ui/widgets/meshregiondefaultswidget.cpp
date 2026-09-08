@@ -96,21 +96,16 @@ public:
                                              : mesh::infilDestLabels());
             if (col == ColDest)
             {
-                // Engine D-I4 — only LOST is accepted in this release. The
-                // other two stay visible, disabled, so the grammar is
-                // discoverable instead of looking unimplemented.
+                // All three destinations are routed by the engine. AQUIFER_2D
+                // additionally needs a [2D_AQUIFER] in the model, which this
+                // delegate cannot see — so every entry stays selectable and
+                // carries its hint, and the engine refuses the combination by
+                // name at resolve.
                 if (auto *m = qobject_cast<QStandardItemModel *>(combo->model()))
                     for (int i = 0; i < combo->count(); ++i)
-                    {
-                        if (mesh::infilDestSupported(static_cast<mesh::InfilDest>(i)))
-                            continue;
                         if (QStandardItem *si = m->item(i))
-                        {
-                            si->setEnabled(false);
-                            si->setToolTip(MeshRegionDefaultsWidget::tr(
-                                "Arrives with the groundwater release."));
-                        }
-                    }
+                            si->setToolTip(mesh::infilDestHint(
+                                static_cast<mesh::InfilDest>(i)));
             }
             return combo;
         }
@@ -153,7 +148,11 @@ public:
             const int i = combo->currentIndex();
             if (idx.column() == ColMethod)
                 model->setData(idx, int(methodFromIndex(i)), kRoleValue);
-            else if (mesh::infilDestSupported(static_cast<mesh::InfilDest>(i)))
+            else
+                // Was gated on infilDestSupported(), which meant picking a
+                // destination the UI had disabled was silently discarded
+                // rather than refused. Nothing is disabled now, so nothing
+                // needs discarding.
                 model->setData(idx, i, kRoleValue);
             return;
         }
