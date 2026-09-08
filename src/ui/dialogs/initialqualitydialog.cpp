@@ -11,15 +11,21 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_reactions.h>   // U2: MSX species constituents
 
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QTableWidget>
+#include <QFile>
+#include <QRegularExpression>
 #include <QVBoxLayout>
 
 #include <cstring>
@@ -93,6 +99,39 @@ void InitialQualityDialog::buildUi()
     m_table->verticalHeader()->setVisible(false);
     m_table->horizontalHeader()->setStretchLastSection(true);
     vlay->addWidget(m_table);
+
+    // U2 — the `[INITIAL_QUALITY] FILE <csv>` sidecar. Rows loaded from it
+    // are read-only here (the file is their source); the reference itself
+    // is editable and the Import button copies a CSV's rows in as ordinary
+    // inline rows instead, for a one-off bulk edit.
+    auto *fileRow = new QHBoxLayout;
+    fileRow->addWidget(new QLabel(tr("CSV file:"), this));
+    m_fileEdit = new QLineEdit(this);
+    m_fileEdit->setObjectName(QStringLiteral("iq_fileEdit"));
+    m_fileEdit->setPlaceholderText(tr("none — rows are stored in the model file"));
+    m_fileEdit->setToolTip(
+        tr("[INITIAL_QUALITY] FILE — a CSV of scope,element,constituent,value "
+           "read at every open (relative to the model file). Its rows are "
+           "shown greyed below and are edited in the file itself."));
+    fileRow->addWidget(m_fileEdit, 1);
+    auto *browseBtn = new QPushButton(tr("&Browse…"), this);
+    browseBtn->setObjectName(QStringLiteral("iq_fileBrowseBtn"));
+    fileRow->addWidget(browseBtn);
+    auto *importBtn = new QPushButton(tr("&Import rows…"), this);
+    importBtn->setObjectName(QStringLiteral("iq_importBtn"));
+    importBtn->setToolTip(
+        tr("Read a CSV's rows into the table as ordinary rows stored in the "
+           "model file (no lasting reference to the CSV)."));
+    fileRow->addWidget(importBtn);
+    vlay->addLayout(fileRow);
+    connect(browseBtn, &QPushButton::clicked, this, [this]() {
+        const QString f = QFileDialog::getOpenFileName(
+            this, tr("Initial quality CSV"), m_fileEdit->text(),
+            tr("CSV files (*.csv *.txt);;All files (*)"));
+        if (!f.isEmpty()) m_fileEdit->setText(f);
+    });
+    connect(importBtn, &QPushButton::clicked,
+            this, &InitialQualityDialog::onImportCsv);
 
     auto *btnRow = new QHBoxLayout;
     auto *addBtn = new QPushButton(tr("&Add"), this);
@@ -183,6 +222,27 @@ void InitialQualityDialog::onAddRow()
         if (id) consCombo->addItem(QString::fromUtf8(id),
                                    QString::fromUtf8(id));
     }
+    // U2 (2026-09-07): reactions-component species are constituents here on
+    // the same footing as pollutants — [INITIAL_QUALITY] is the canonical
+    // home for a per-element initial value of ANY species, and the engine
+    // mirrors the row into the reactions seed table every engine reads.
+    // WALL species are offered too: their initial value is a legal wall
+    // concentration even though inflow carries none.
+    const int nsp = swmm_reaction_species_count(m_engine);
+    for (int m = 0; m < nsp; ++m) {
+        char name[128] = {0}, units[32] = {0};
+        int isWall = 0;
+        double atol = 0.0, rtol = 0.0;
+        if (swmm_reaction_species_get(m_engine, m, name, sizeof(name), &isWall,
+                                      units, sizeof(units), &atol, &rtol) != SWMM_OK)
+            continue;
+        if (!name[0]) continue;
+        const QString nm = QString::fromUtf8(name);
+        if (consCombo->findData(nm) >= 0) continue;
+        consCombo->addItem(units[0] ? tr("%1 (%2)").arg(nm, QString::fromUtf8(units))
+                                    : nm,
+                           nm);
+    }
     // Reserved species, offered only while their option is on — a row for
     // an off species would be stored-but-inert (the engine warns), so the
     // editor does not invite it.
@@ -236,6 +296,12 @@ void InitialQualityDialog::readFromEngine()
 {
     if (!m_engine) return;
     m_table->setRowCount(0);
+    m_fileRows.clear();
+    {
+        char buf[1024] = {0};
+        if (swmm_init_quality_file_get(m_engine, buf, sizeof(buf)) == SWMM_OK)
+            m_fileEdit->setText(QString::fromUtf8(buf));
+    }
     const int count = swmm_init_quality_count(m_engine);
     for (int i = 0; i < count; ++i) {
         int is_link = 0, elem = -1;
@@ -276,7 +342,76 @@ void InitialQualityDialog::readFromEngine()
         if (auto *s = qobject_cast<QDoubleSpinBox *>(
                 m_table->cellWidget(r, kColValue)))
             s->setValue(value);
+        // U2: a row that came from the FILE sidecar is displayed but not
+        // editable here — the CSV is its source, and writeToEngine skips it.
+        if (swmm_init_quality_is_file(m_engine, i)) {
+            for (int c = 0; c < m_table->columnCount(); ++c)
+                if (QWidget *w = m_table->cellWidget(r, c)) {
+                    w->setEnabled(false);
+                    w->setToolTip(tr("From the CSV file — edit it there."));
+                }
+            m_fileRows.insert(r);
+        }
     }
+}
+
+void InitialQualityDialog::onImportCsv()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Import initial quality rows"), QString(),
+        tr("CSV files (*.csv *.txt);;All files (*)"));
+    if (path.isEmpty()) return;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        m_hintLabel->setText(tr("Could not read %1.").arg(QFileInfo(path).fileName()));
+        return;
+    }
+    int added = 0, skipped = 0, lineno = 0;
+    while (!f.atEnd()) {
+        ++lineno;
+        const QString line = QString::fromUtf8(f.readLine()).trimmed();
+        if (line.isEmpty() || line.startsWith(QLatin1Char(';'))) continue;
+        const QStringList tok =
+            line.split(QRegularExpression(QStringLiteral("[,;\\s]+")), Qt::SkipEmptyParts);
+        if (tok.size() < 4) { ++skipped; continue; }
+        bool okNum = false;
+        const double v = tok[3].toDouble(&okNum);
+        if (!okNum) { if (lineno > 1) ++skipped; continue; }   // header
+        const QString scope = tok[0].toUpper();
+        if (scope != QLatin1String("NODE") && scope != QLatin1String("LINK")) {
+            ++skipped;
+            continue;
+        }
+        const bool link = scope == QLatin1String("LINK");
+        onAddRow();
+        const int r = m_table->rowCount() - 1;
+        if (auto *c = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColScope))) {
+            const int i = c->findData(link ? 1 : 0);
+            if (i >= 0) c->setCurrentIndex(i);
+        }
+        populateElementCombo(r);
+        bool resolved = false;
+        if (auto *c = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColElement))) {
+            const int i = c->findText(tok[1], Qt::MatchFixedString);
+            if (i >= 0) { c->setCurrentIndex(i); resolved = true; }
+        }
+        if (auto *c = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColConstituent))) {
+            const int i = c->findData(tok[2]);
+            if (i >= 0) c->setCurrentIndex(i);
+            else { c->addItem(tok[2], tok[2]); c->setCurrentIndex(c->count() - 1); }
+        }
+        if (auto *s = qobject_cast<QDoubleSpinBox *>(m_table->cellWidget(r, kColValue)))
+            s->setValue(v);
+        if (!resolved) { m_table->removeRow(r); ++skipped; continue; }
+        ++added;
+    }
+    m_hintLabel->setText(
+        skipped > 0
+            ? tr("Imported %1 row(s) from %2; %3 line(s) skipped (unknown "
+                 "element or malformed).")
+                  .arg(added).arg(QFileInfo(path).fileName()).arg(skipped)
+            : tr("Imported %1 row(s) from %2.")
+                  .arg(added).arg(QFileInfo(path).fileName()));
 }
 
 int InitialQualityDialog::writeToEngine()
@@ -307,13 +442,27 @@ int InitialQualityDialog::writeToEngine()
         if (m_scopeIsLink >= 0 &&
             (is_link != m_scopeIsLink || elem != m_scopeElemIdx))
             continue;
+        if (swmm_init_quality_is_file(m_engine, i)) continue;   // U2: the file's row
         engineRows.append(
             { { is_link, elem, QString::fromUtf8(cons) }, value, i });
     }
 
-    // Collect the table rows.
+    // U2: the FILE reference itself.
+    {
+        char buf[1024] = {0};
+        swmm_init_quality_file_get(m_engine, buf, sizeof(buf));
+        const QString cur = QString::fromUtf8(buf);
+        const QString nv  = m_fileEdit->text().trimmed();
+        if (cur != nv &&
+            swmm_init_quality_file_set(m_engine, nv.toUtf8().constData()) == SWMM_OK)
+            ++writes;
+    }
+
+    // Collect the table rows. Rows loaded from the FILE sidecar are the
+    // file's, not the dialog's: they are neither re-written nor removed.
     QVector<EngineRow> tableRows;
     for (int r = 0; r < m_table->rowCount(); ++r) {
+        if (m_fileRows.contains(r)) continue;
         auto *sc = qobject_cast<QComboBox *>(
             m_table->cellWidget(r, kColScope));
         auto *ec = qobject_cast<QComboBox *>(

@@ -288,6 +288,7 @@ private:
     mutable int   cached_face_width_ = -1;     ///< /Mesh2_face_nodes dim 1 (3|4); -1 unknown
     mutable int   cached_has_node_head_ = -1;  ///< -1 unknown, 0 absent, 1 present
     mutable int   cached_has_node_depth_ = -1; ///< -1 unknown, 0 absent, 1 present
+    mutable int   cached_has_edge_flux_ = -1;  ///< -1 unknown, 0 absent, 1 present (REPORT_2D_VARIABLES may drop EDGE_FLUX)
     mutable std::map<std::string, bool> cached_has_face_field_; ///< per-dataset presence
     mutable QString last_error_;
     // Connectivity, loaded once by loadCells_(): the file's cells, the
