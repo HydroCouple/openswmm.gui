@@ -82,6 +82,7 @@
         <file alias="SelectAll">images/select_all.svg</file>
         <file alias="SelectNone">images/select_none.svg</file>
         <file alias="ExportMap">images/export_map.svg</file>
+        <file alias="Export2DResults">images/export_2d_results.svg</file>
         <file alias="ClearRecent">images/clear_recent.svg</file>
         <file alias="UserFlags">images/user_flags.svg</file>
         <file alias="LandUse">images/land_use.svg</file>
