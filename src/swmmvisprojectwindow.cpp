@@ -1820,6 +1820,7 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
     // Final commit point — emit before the Qt teardown chain runs so
     // observers (profile-plot dialog, etc.) can still touch our model
     // layer / canvas / results layers in their handlers.
+    mClosing = true;
     emit aboutToClose();
     QMdiSubWindow::closeEvent(event);
 }

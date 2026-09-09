@@ -1910,17 +1910,16 @@ if(APPLE)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${OPENSWMMENGINE_INSTALL_DIR}/bin/libomp.dylib"
                 "${_swmmvis_frameworks}/"
-        # The plugin links Homebrew's libomp by ABSOLUTE path. Left as-is the
-        # process loads TWO libomp runtimes (bundle copy via the engine +
-        # Homebrew copy via the plugin) and libomp aborts the app on its
-        # duplicate-runtime check the moment a big-mesh run loads the plugin.
-        # Rewrite the bundled copy to the bundled libomp; each -change is a
-        # no-op when that source path isn't present (Apple Silicon vs Intel).
-        COMMAND install_name_tool
-                -change /opt/homebrew/opt/libomp/lib/libomp.dylib
-                        @executable_path/../Frameworks/libomp.dylib
-                -change /usr/local/opt/libomp/lib/libomp.dylib
-                        @executable_path/../Frameworks/libomp.dylib
+        # The plugin depends on @rpath/libomp.dylib and carries Homebrew's
+        # libomp directory as its FIRST LC_RPATH, so inside the bundle it
+        # resolved Homebrew's copy while the engine resolved the bundled one:
+        # TWO OpenMP runtimes (two spinning teams) in one process on any mesh
+        # big enough to load the plugin. The previous `-change` of the
+        # absolute path was a no-op — the dependency is already @rpath.
+        # Delete the Homebrew rpaths instead; the plugin's @loader_path rpath
+        # then finds the bundled libomp beside it. Idempotent: on a rebuild the
+        # rpath is already gone and -delete_rpath's failure is ignored.
+        COMMAND sh -c "for p in /opt/homebrew/opt/libomp/lib /usr/local/opt/libomp/lib; do install_name_tool -delete_rpath \"$p\" \"$0\" 2>/dev/null; done; true"
                 "${_swmmvis_frameworks}/libopenswmm_gpu_omp.dylib"
         COMMENT "Bundle GPU plugin (openswmm_gpu_omp) + libomp into SWMMVis.app/Contents/Frameworks"
         VERBATIM

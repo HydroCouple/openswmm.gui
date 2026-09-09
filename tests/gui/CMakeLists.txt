@@ -2878,6 +2878,18 @@ add_swmmvis_gui_test(test_mesheditingtoolbar_bc
 )
 swmmvis_link_full_app_deps(test_mesheditingtoolbar_bc)
 
+# The Layers dock and the Terrain toolbar outlive the project window whose
+# canvas they are bound to. Both held it as a raw pointer and disconnected
+# from it on the next rebind — a use-after-free that segfaulted in
+# QObject::disconnect (crash reports 2026-09-04 / 2026-09-05). Deletes the
+# bound canvas and rebinds; dies on the unfixed tree.
+add_swmmvis_gui_test(test_layertree_canvas_rebind
+    test_layertree_canvas_rebind.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_layertree_canvas_rebind)
+
 # GIS vector layers populate the FULL feature set (the scene culls per
 # frame) — the partially-visible-polygons-vanish regression fence — plus
 # the OpenSWMMVisScene removal branch for VectorPolygonPathItem. Needs

@@ -377,6 +377,13 @@ void SWMM2DResultsQSGRenderer::setupAsyncContourJob(AsyncContourJob &job)
             update();
             emit contentReady();
         }
+        // A newer key was requested while this job ran: sync again so the
+        // launch branch sees it (published/inflight keys differ from it).
+        if (job.relaunch) {
+            job.relaunch = false;
+            m_dirty.noteDataChanged();
+            update();
+        }
     });
 }
 
@@ -895,17 +902,26 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 bool clampUniformOutsideRange)
             -> const ContourJobOutput * {
             if (!(job.publishedKey == key) && job.inflightKey != key) {
-                ensureContourSnapshots();
-                ContourJobInput in;
-                in.positions  = m_contourPositions;
-                in.scalars    = m_contourScalars;
-                in.bandLevels = std::move(bandLevels);
-                in.isoLevels  = std::move(isoLevels);
-                in.clampUniformOutsideRange = clampUniformOutsideRange;
-                job.inflightKey = key;
-                job.inflightGen = job.buf.beginJob();
-                job.watcher.setFuture(QtConcurrent::run(
-                    [input = std::move(in)]() { return computeContourJob(input); }));
+                if (job.watcher.isRunning()) {
+                    // One snapshot in flight per job. A live run changes the
+                    // key every tick; launching each one queued another
+                    // full-mesh snapshot on the pool (pinned until it ran),
+                    // so a GUI that fell behind grew that queue without
+                    // bound. The finished handler re-arms the sync instead.
+                    job.relaunch = true;
+                } else {
+                    ensureContourSnapshots();
+                    ContourJobInput in;
+                    in.positions  = m_contourPositions;
+                    in.scalars    = m_contourScalars;
+                    in.bandLevels = std::move(bandLevels);
+                    in.isoLevels  = std::move(isoLevels);
+                    in.clampUniformOutsideRange = clampUniformOutsideRange;
+                    job.inflightKey = key;
+                    job.inflightGen = job.buf.beginJob();
+                    job.watcher.setFuture(QtConcurrent::run(
+                        [input = std::move(in)]() { return computeContourJob(input); }));
+                }
             }
             return job.buf.hasValue() ? &job.buf.value() : nullptr;
         };
@@ -1839,6 +1855,13 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                     const double quantum = 1e-9 * std::max(
                         {bb.width(), bb.height(), 1.0});
                     int labelBudget = lod.maxContourLabels;
+
+                    // Bounded: a live run keeps minting new level strings as
+                    // the depth range grows, and every one used to stay a GPU
+                    // texture for the rest of the session. Evict wholesale
+                    // (before the pass, so nodes built below hold fresh ones).
+                    if (m_labelTextureCache.size() > 512)
+                        clearLabelTextureCache();
 
                     for (auto it = byLevel.constBegin();
                          it != byLevel.constEnd() && labelBudget > 0; ++it) {

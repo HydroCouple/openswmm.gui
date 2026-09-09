@@ -584,6 +584,18 @@ QWidget *PreferencesDialog::buildSimulationPage()
         "memory stays bounded on long runs of large meshes."));
     f->addRow(tr("Live 2D history cap"),          m_live2DHistoryCapSpin);
 
+    m_live2DHistoryMBSpin = new QSpinBox(page);
+    m_live2DHistoryMBSpin->setRange(64, 32768);
+    m_live2DHistoryMBSpin->setSingleStep(256);
+    m_live2DHistoryMBSpin->setSuffix(tr(" MB"));
+    m_live2DHistoryMBSpin->setToolTip(tr(
+        "Memory budget for the live 2D frames, applied together with the "
+        "frame cap — a frame costs roughly 28 bytes per cell plus 4 per "
+        "vertex, so the frame cap alone lets a large mesh hold gigabytes. "
+        "Past the budget the older half is thinned 2:1 until the history is "
+        "at 75 % of it."));
+    f->addRow(tr("Live 2D history budget"),       m_live2DHistoryMBSpin);
+
     return page;
 }
 
@@ -1545,6 +1557,7 @@ void PreferencesDialog::readFromManager()
 
     m_progressTickMsSpin->setValue(p->progressTickMs());
     m_live2DHistoryCapSpin->setValue(p->live2DHistoryCap());
+    m_live2DHistoryMBSpin->setValue(p->live2DHistoryMB());
 
     // Simulation Defaults
     {
@@ -1777,6 +1790,7 @@ void PreferencesDialog::writeToManager()
 
     p->setProgressTickMs(m_progressTickMsSpin->value());
     p->setLive2DHistoryCap(m_live2DHistoryCapSpin->value());
+    p->setLive2DHistoryMB(m_live2DHistoryMBSpin->value());
 
     // Simulation Defaults — package the page state and persist via one setter.
     {
@@ -2052,11 +2066,13 @@ void PreferencesDialog::onResetToDefaults()
 
     m_progressTickMsSpin->setValue(1000);
     m_live2DHistoryCapSpin->setValue(2000);
+    m_live2DHistoryMBSpin->setValue(1024);
 
-    // Simulation Defaults — restore the struct's compile-time seeds and
-    // max the THREADS knob to the machine's logical-processor count
-    // (per the user request: "Number of threads should be maxed to the
-    // total number of logical processors").
+    // Simulation Defaults — restore the struct's compile-time seeds. THREADS
+    // resets to 0 (engine auto). It used to reset to the logical-processor
+    // count, but an explicit count bypasses the engine's Apple Silicon
+    // performance-core clamp and lets the OpenMP team spin against the GUI's
+    // own threads (engine measurement: T=8 unclamped 204 s vs T=4 57 s).
     {
         const PreferencesManager::SimulationDefaults d;  // compile-time defaults
         auto sel = [](QComboBox *c, const QString &v) {
@@ -2106,12 +2122,7 @@ void PreferencesDialog::onResetToDefaults()
         sel(m_simNodeContinuityCombo, d.nodeContinuity);
         m_simAndersonAccelBox    ->setChecked(d.andersonAccel);
 
-        // Engine's view of the hardware first (same number the Simulation
-        // Options dialog shows); QThread as fallback when it reports 0.
-        SWMM_ThreadInfo ti{};
-        int hwThreads = (swmm_get_thread_info(&ti) == SWMM_OK) ? ti.logical_cpus : 0;
-        if (hwThreads <= 0) hwThreads = QThread::idealThreadCount();
-        m_simThreadsSpin         ->setValue(hwThreads > 0 ? hwThreads : 0);
+        m_simThreadsSpin         ->setValue(0);
     }
 
     // 2D defaults — compile-time struct defaults straight to the widgets.

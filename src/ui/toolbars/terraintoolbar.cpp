@@ -236,11 +236,15 @@ double TerrainToolbar::verticalToModelFactor() const
 
 void TerrainToolbar::rebindCanvas(MapCanvas *canvas)
 {
-    if (m_canvas == canvas) return;
+    // A null → null call still rebuilds: the QPointer goes null when the
+    // canvas is destroyed and the combo must not keep naming its layers.
+    if (m_canvas == canvas && canvas) return;
 
+    // Null when the old canvas is already gone — nothing to disconnect.
     if (m_canvas) {
         disconnect(m_canvas, &MapCanvas::layerAdded,   this, &TerrainToolbar::onLayerAdded);
         disconnect(m_canvas, &MapCanvas::layerRemoved, this, &TerrainToolbar::onLayerRemoved);
+        disconnect(m_canvas, &QObject::destroyed,      this, nullptr);
     }
 
     m_canvas = canvas;
@@ -249,6 +253,7 @@ void TerrainToolbar::rebindCanvas(MapCanvas *canvas)
     if (m_canvas) {
         connect(m_canvas, &MapCanvas::layerAdded,   this, &TerrainToolbar::onLayerAdded,   Qt::UniqueConnection);
         connect(m_canvas, &MapCanvas::layerRemoved, this, &TerrainToolbar::onLayerRemoved, Qt::UniqueConnection);
+        connect(m_canvas, &QObject::destroyed,      this, [this]() { rebindCanvas(nullptr); });
     }
     m_terrainCombo->setEnabled(active);
     m_verticalUnitCombo->setEnabled(active);

@@ -30,6 +30,7 @@
 #include <new>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
+#include <QThreadPool>
 #include <QProcess>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -285,6 +286,24 @@ SimulationRunner::SimulationRunner(int jobId,
     (void)s_metatypesRegistered;
 }
 
+namespace {
+// The engine's step loop must NOT share the GLOBAL QThreadPool with the
+// per-tick map-render, contour and .out-rescan jobs the GUI queues while a
+// run streams: on a saturated pool the engine queued behind them and they
+// behind the engine (a run on a 10-core Mac spent its time waiting on
+// render jobs). A private pool; a few runs may still overlap.
+QThreadPool *enginePool()
+{
+    static QThreadPool pool;
+    static const bool initialised = []() {
+        pool.setMaxThreadCount(4);
+        return true;
+    }();
+    Q_UNUSED(initialised)
+    return &pool;
+}
+} // namespace
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -380,7 +399,21 @@ void SimulationRunner::start()
 
             if (!useLegacy) {
                 // ===== REFACTORED ENGINE PATH =====
-            SWMM_Engine eng = swmm_engine_create();
+            // Owns the handle for the whole body: every early return and any
+            // exception (the injected bad_alloc below included) closes and
+            // destroys it. A throw between create and the explicit destroy
+            // used to leak the parsed model and, for a 2D run, the whole
+            // mesh + solver state. close() is safe in every engine state.
+            struct EngineGuard {
+                SWMM_Engine eng = swmm_engine_create();
+                ~EngineGuard()
+                {
+                    if (!eng) return;
+                    swmm_engine_close(eng);
+                    swmm_engine_destroy(eng);
+                }
+            } engineGuard;
+            SWMM_Engine eng = engineGuard.eng;
 
             // Specific failure text. The engine records the actual cause
             // ("ERROR 209: ...", "USE HOTSTART: ...") retrievable via
@@ -415,8 +448,7 @@ void SimulationRunner::start()
                     if (!e.isEmpty() && e != msg)
                         msg += QLatin1Char('\n') + e;
                 }
-                swmm_engine_destroy(eng);
-                return {false, rc, msg, 0.0, 0.0};
+                return {false, rc, msg, 0.0, 0.0};   // engineGuard closes + destroys
             }
 
             // Initialize
@@ -425,9 +457,7 @@ void SimulationRunner::start()
             rc = swmm_engine_initialize(eng);
             if (rc != SWMM_OK) {
                 const QString msg = engineFailureText(eng, rc);
-                swmm_engine_close(eng);
-                swmm_engine_destroy(eng);
-                return {false, rc, msg, 0.0, 0.0};
+                return {false, rc, msg, 0.0, 0.0};   // engineGuard closes + destroys
             }
 
             // Register the warning callback only. The engine's
@@ -536,9 +566,7 @@ void SimulationRunner::start()
             rc = swmm_engine_start(eng, 1 /* save_results */);
             if (rc != SWMM_OK) {
                 const QString msg = engineFailureText(eng, rc);
-                swmm_engine_close(eng);
-                swmm_engine_destroy(eng);
-                return {false, rc, msg, 0.0, 0.0};
+                return {false, rc, msg, 0.0, 0.0};   // engineGuard closes + destroys
             }
 
             // Step loop — polls m_cancel and m_paused on every iteration.
@@ -607,6 +635,7 @@ void SimulationRunner::start()
             // simulation start.
             double elapsed = 0.0;
             qint64 stepCount = 0;
+            qint64 skipped2DTicks = 0;   // bundles dropped because the GUI thread was behind
             QElapsedTimer tickTimer;
             tickTimer.start();
             // Rate-limit GUI emissions to `tickIntervalMs` (user pref,
@@ -685,7 +714,19 @@ void SimulationRunner::start()
                 // downcast to float for the wire because mm-level depth
                 // precision is plenty for colour mapping and the HDF5
                 // reader produces float to match.
+                // Back-pressure: the four queued payloads below are only
+                // rate-limited on THIS side. If the GUI thread takes longer
+                // than a tick to digest a bundle, the event queue grew
+                // without bound (each entry pinning a full-mesh copy). Skip
+                // the bundle while two are still queued; progress went out
+                // above regardless, and the next tick catches up.
+                if (twoD_active && twoD_n_tri > 0
+                    && rawSelf->m_pending2DTicks.load() >= 2) {
+                    ++skipped2DTicks;
+                    continue;
+                }
                 if (twoD_active && twoD_n_tri > 0) {
+                    rawSelf->m_pending2DTicks.fetch_add(1);
                     std::vector<double> raw(twoD_n_tri);
                     swmm_2d_get_depths_bulk(eng, raw.data());
                     QVector<float> depths(twoD_n_tri);
@@ -768,8 +809,17 @@ void SimulationRunner::start()
                                 Qt::QueuedConnection);
                         }
                     }
+                    // Trailing marker: same receiver, so it is delivered
+                    // after the bundle's payloads (FIFO) — i.e. once the GUI
+                    // thread has run every slot for this tick.
+                    QMetaObject::invokeMethod(rawSelf,
+                        [rawSelf]() { rawSelf->m_pending2DTicks.fetch_sub(1); },
+                        Qt::QueuedConnection);
                 }
             }
+            if (skipped2DTicks > 0)
+                runLog->line(QStringLiteral("2D ticks skipped (GUI busy): %1")
+                                 .arg(skipped2DTicks));
 
             if (rc != SWMM_OK) {
                 stepFailCode = rc;
@@ -831,8 +881,8 @@ void SimulationRunner::start()
             // on big 2D models but threw away everything the run had
             // computed.)
             swmm_engine_report(eng);
-            swmm_engine_close (eng);
-            swmm_engine_destroy(eng);
+            // close + destroy: engineGuard, at scope exit (after the return
+            // value below is built — same order as the explicit calls were).
 
             if (cancelled)
                 return {false, 0,
@@ -1038,7 +1088,7 @@ void SimulationRunner::start()
             }
         };
 
-    watcher->setFuture(QtConcurrent::run(
+    watcher->setFuture(QtConcurrent::run(enginePool(),
         [body, phase, runLog]() -> SimulationResult {
             // Last line of defence for the run: nothing thrown by the worker
             // may escape the future. Report it as a failed run, with the

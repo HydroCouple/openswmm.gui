@@ -931,6 +931,23 @@ void PreferencesManager::setLive2DHistoryCap(int frames)
                            QStringLiteral("Live2DHistoryCap"));
 }
 
+int PreferencesManager::live2DHistoryMB() const
+{
+    const int v = m_settings.value(QStringLiteral("%1/Simulation/Live2DHistoryMB")
+                                       .arg(kGroupRoot), 1024).toInt();
+    return (v < 64 || v > 32768) ? 1024 : v;
+}
+
+void PreferencesManager::setLive2DHistoryMB(int megabytes)
+{
+    if (megabytes < 64 || megabytes > 32768) return;
+    if (megabytes == live2DHistoryMB()) return;
+    m_settings.setValue(QStringLiteral("%1/Simulation/Live2DHistoryMB")
+                            .arg(kGroupRoot), megabytes);
+    emit preferenceChanged(QStringLiteral("Simulation"),
+                           QStringLiteral("Live2DHistoryMB"));
+}
+
 bool PreferencesManager::liveResults1DEnabled() const
 {
     return m_settings.value(QStringLiteral("%1/Simulation/LiveResults1D")

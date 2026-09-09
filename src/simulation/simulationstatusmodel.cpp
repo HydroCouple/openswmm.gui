@@ -75,6 +75,7 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
             rec.finishedAt        = QDateTime();
             rec.currentSimDate    = QDateTime();
             rec.avgTimestepSec    = 0.0;
+            rec.droppedWarnings   = 0;
 
             const QModelIndex tl = createIndex(row, 0, kRootId);
             const QModelIndex br = createIndex(row, NumColumns - 1, kRootId);
@@ -178,6 +179,23 @@ void SimulationStatusModel::addWarning(int jobId, int code, const QString &messa
 
     auto &rec = m_jobs[row];
     const QModelIndex jobIdx = createIndex(row, 0, kRootId);
+
+    // Bounded per job: a run that warns every step used to grow this list
+    // (and the tree's accessibility mirror) without limit. Past the cap drop
+    // the oldest batch in ONE removal and keep a first row that says how many
+    // went, so the newest warnings are always the ones on screen.
+    constexpr int kWarningCap = 5000, kWarningTrim = 500;
+    if (rec.warnings.size() >= kWarningCap) {
+        const bool hadMarker = rec.droppedWarnings > 0;   // marker row sits at 0
+        beginRemoveRows(jobIdx, 0, kWarningTrim - 1);
+        rec.warnings.remove(0, kWarningTrim);
+        endRemoveRows();
+        rec.droppedWarnings += hadMarker ? kWarningTrim - 1 : kWarningTrim;
+        beginInsertRows(jobIdx, 0, 0);
+        rec.warnings.prepend(tr("… %1 earlier warnings dropped")
+                                 .arg(rec.droppedWarnings));
+        endInsertRows();
+    }
 
     const int childRow = rec.warnings.size();
     beginInsertRows(jobIdx, childRow, childRow);

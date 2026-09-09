@@ -53,6 +53,18 @@ void attachAsChildWindow(QWidget *dialog);
  *  must guard the call with Q_OS_MACOS. */
 void detachFromParentWindow(QWidget *dialog);
 
+/*! \brief Hold a user-initiated NSProcessInfo activity while a simulation
+ *  runs, so App Nap does not throttle a backgrounded run (a run the user
+ *  Cmd-Tabbed away from could take far longer than the same deck in a
+ *  terminal). Reference counted: nested begin/end pairs from overlapping
+ *  runs hold one activity. Idle system sleep stays allowed. Only defined on
+ *  macOS — callers must guard with Q_OS_MACOS. */
+void beginSimulationActivity();
+
+/*! \brief Release the activity taken by beginSimulationActivity(); ends it
+ *  when the last overlapping run finishes. Extra calls are ignored. */
+void endSimulationActivity();
+
 } // namespace openswmmvis::platform
 
 #endif // OPENSWMMVIS_PLATFORM_MACOSWINDOWUTILS_H
