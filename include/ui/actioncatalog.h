@@ -194,6 +194,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"analysis.travelTimeDown",  "actionTravelTimeDownstream", "Analysis", "",             "TravelTimeDownstream", "analysis", "Analysis", NoTags},
     {"analysis.travelTimeUp",    "actionTravelTimeUpstream",   "Analysis", "",             "TravelTimeUpstream", "analysis", "Analysis", NoTags},
     {"analysis.massBalance",     "actionShowMassBalance",      "Analysis", "",             "Chartpie", "analysis", "Analysis", NoTags},
+    {"analysis.export2DResults", "actionExport2DResults",      "Analysis", "",             "Export2DResults", "analysis", "Analysis", NoTags},
 
     // ── Mesh 2D / terrain ───────────────────────────────────────────────
     {"mesh.selectVertices",   "actionMeshSelectVertex", "Mesh 2D", "", "SelectTriNode", "mesh2d", "Model/Mesh", Contextual2D},

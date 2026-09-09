@@ -241,6 +241,20 @@ public:
         (void)dataset; (void)timeIdx; (void)values;
         return false;
     }
+
+    /*!
+     * \brief Fetch a time-INVARIANT per-face \c [nFace] envelope written by the
+     *        engine's \c ENVELOPES output group (\c "Mesh2_face_max_depth",
+     *        \c "Mesh2_face_max_velocity"): the whole-run maximum per cell,
+     *        engine SI units, resized to \c triangleCount().
+     * \returns true on success. Default false — a source that cannot serve the
+     *          envelope makes the caller scan every frame instead.
+     */
+    virtual bool readFaceEnvelope(const char* dataset, std::vector<float>& values)
+    {
+        (void)dataset; (void)values;
+        return false;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -457,6 +471,7 @@ public:
     bool hasFaceField(const char* dataset) const override;
     bool readFaceFieldAt(const char* dataset, int timeIdx,
                          std::vector<float>& values) override;
+    bool readFaceEnvelope(const char* dataset, std::vector<float>& values) override;
     openswmmvis::io::CoordinateReference coordinateReference() const override;
 
     /*! \brief Anchor wall-clock time for the simulation start (so /time

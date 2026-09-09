@@ -229,6 +229,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionPlotTimeSeries",        QT_TR_NOOP("Time\nSeries")},
         {"actionPlotProfile",           QT_TR_NOOP("Profile")},
         {"actionPlotProfile2D",         QT_TR_NOOP("2D Profile")},
+        {"actionExport2DResults",       QT_TR_NOOP("Export\n2D Results")},
         // Results
         {"actionSkipBack",              QT_TR_NOOP("Skip\nBack")},
         {"actionSkipForward",           QT_TR_NOOP("Skip\nForward")},
@@ -393,6 +394,7 @@ void SWMMVis::initializeCompactToolbar()
              {"actionFlowBalanceDownstream", "actionFlowBalanceUpstream",
               "actionTravelTimeDownstream", "actionTravelTimeUpstream",
               "actionShowMassBalance"});
+    addGroup(mToolBarAnalysis, tr("Export"), {"actionExport2DResults"});
 
     // Left-pack (iteration 3): groups are horizontally Fixed, so an
     // Expanding zero-min trailing spacer absorbs the leftover row width

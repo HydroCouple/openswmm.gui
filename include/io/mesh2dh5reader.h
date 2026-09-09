@@ -220,6 +220,21 @@ public:
     bool hasFaceField(const char* dataset) const;
 
     /*!
+     * \brief Read a time-INVARIANT per-face \c [nFace] dataset — the engine's
+     *        run envelopes (\c Mesh2_face_max_depth, \c Mesh2_face_max_velocity,
+     *        \c Mesh2_face_max_continuity_err), written under the
+     *        \c REPORT_2D_VARIABLES group \c ENVELOPES and overwritten in place
+     *        each output step, so the values are whole-run maxima.
+     * \param dataset Dataset name at the file root.
+     * \param values  Output, resized to triangleCount(); engine SI units.
+     * \returns true on success; false when the file lacks the dataset (presence
+     *          probed once per name and cached) or when it is not rank 1 of
+     *          length \c triangleCount() — \ref readFaceFieldAt handles the
+     *          rank-2 \c [nTime, nFace] fields instead.
+     */
+    bool readFaceEnvelope(const char* dataset, std::vector<float>& values) const;
+
+    /*!
      * \brief Read one time slice of \c /Mesh2_node_head — the engine's
      *        pseudo-Laplacian vertex-head reconstruction.
      * \param timeIdx 0-based time index (must be < timeCount()).

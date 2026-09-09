@@ -20,6 +20,23 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Added
 
+- **Export 2D Results** — a new Export group on the Analysis ribbon hands a finished 2D run to GIS,
+  as ESRI Shapefile, GeoPackage or GeoTIFF rasters. The dialog offers depth, water surface
+  elevation, the two velocity components and speed; any set of time steps (with All / None /
+  Current buttons and an "Every Nth" stride for a long run); and the whole-run maxima. Output is one
+  file or layer per variable, with one field or raster band per selected step (`t0001`…, named after
+  the DBF's 10-character limit) plus `max`, and a `_times.csv` sidecar mapping every field back to
+  its frame index and datetime. Maxima come from the engine's own `ENVELOPES` datasets where the
+  file carries them — those track the solver's refresh cadence, so they catch peaks that fall
+  between reported output frames — and otherwise from a scan of every frame. Vector output writes
+  one polygon per mesh cell, triangle or quad, taken from the engine's cell connectivity rather than
+  the renderer's display fan. Raster output interpolates the cell-centred values onto the pixel grid
+  by natural neighbour, inverse distance weighting over the k nearest cells, or a per-cell
+  Green–Gauss gradient reconstruction limited to the neighbouring cells' range; every method
+  resolves the containing cell first, so a pixel outside the mesh stays NoData instead of being
+  extrapolated across a hole. Dry cells can be masked to NoData, and everything is written in the
+  model's own units and CRS.
+
 - **Junction on Conduit** — a new Nodes-group tool that splits a conduit at the clicked point and
   inserts an ordinary junction, alongside the existing Virtual Junction and Inlet Junction tools.
   Virtual junctions require DYNWAVE routing, so this is the only split available to models routed
