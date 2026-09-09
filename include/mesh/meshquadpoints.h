@@ -35,11 +35,28 @@
 #include <QPolygonF>
 #include <QVector>
 
+#include <functional>
+
 namespace mesh {
 
 struct QuadPointOptions
 {
     double h                 = 0.0;   ///< Lattice spacing (map units), required > 0.
+    /*! Optional graded spacing (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.2). When
+     *  set it supersedes \ref h everywhere: the boundary-layer offset, the front
+     *  step, the clearance / separation radii and the template snap all use the
+     *  spacing at the point being tested. \ref h remains the fallback for a
+     *  non-finite or non-positive sample, and the reference when the callback is
+     *  null — with a null callback the output is identical to the uniform lattice.
+     *
+     *  ASSUMPTION (holds for mesh::SizeField, which is Lipschitz by construction:
+     *  h = nearSize + gradation·d): the spacing varies slowly enough that points
+     *  within one separation radius of each other differ by less than one octave.
+     *  The neighbour search relies on it to stay O(1) per query — see the leveled
+     *  grid in the .cpp. \ref hMin / \ref hMax bound the sampled value regardless. */
+    std::function<double(double, double)> hAt;
+    double hMin              = 0.0;   ///< Lower clamp for \ref hAt; <= 0 = derived by sampling.
+    double hMax              = 0.0;   ///< Upper clamp for \ref hAt; <= 0 = derived by sampling.
     double boundaryClearance = 0.5;   ///< Reject an interior point closer than this·h to the ring.
     double minSeparation     = 0.7;   ///< Reject a point closer than this·h to any existing point.
     double templateSnap      = 0.35;  ///< Nearest-point tolerance (·h) when recognising a square.
@@ -61,8 +78,21 @@ QuadPointSet placeQuadPoints(const QPolygonF &ring, const QVector<QPointF> &seed
                              int ringCount, const CrossField &field,
                              const QuadPointOptions &opts);
 
+/*! \brief Hole-aware overload: no point is placed inside any ring of \p holes,
+ *  and the boundary clearance is kept from the hole rings as well as from
+ *  \p ring (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.1). An empty \p holes is
+ *  identical to the overload above. */
+QuadPointSet placeQuadPoints(const QPolygonF &ring, const QVector<QPolygonF> &holes,
+                             const QVector<QPointF> &seeds,
+                             int ringCount, const CrossField &field,
+                             const QuadPointOptions &opts);
+
 /*! \brief Distance from \p p to the closest ring edge. */
 double distanceToRing(const QPolygonF &ring, const QPointF &p);
+
+/*! \brief Distance from \p p to the closest edge of \p ring or of any hole. */
+double distanceToRings(const QPolygonF &ring, const QVector<QPolygonF> &holes,
+                       const QPointF &p);
 
 } // namespace mesh
 

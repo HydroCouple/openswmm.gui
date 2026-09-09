@@ -193,6 +193,106 @@ private slots:
         QVERIFY(nearestNeighbourFraction(ring, ps.generated, 0.7 * h, 1.3 * h) >= 0.95);
     }
 
+    /*! QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.2 / Q1 — a constant hAt must
+     *  reproduce the uniform lattice EXACTLY. This is the regression guard
+     *  that keeps the graded refactor invisible to every committed caller. */
+    void gradedField_constantMatchesUniform()
+    {
+        const double h = 1.0;
+        const QPolygonF ring = resampleRing(rect(10 * h, 10 * h), h);
+        CrossField field;
+        field.setConstant(0.0);
+
+        QuadPointOptions uniform;
+        uniform.h = h;
+        const QuadPointSet a = placeQuadPoints(ring, ring, ring.size(), field, uniform);
+
+        QuadPointOptions graded;
+        graded.h    = h;
+        graded.hAt  = [](double, double) { return 1.0; };
+        graded.hMin = graded.hMax = h;
+        const QuadPointSet b = placeQuadPoints(ring, ring, ring.size(), field, graded);
+
+        QCOMPARE(b.generated.size(), a.generated.size());
+        QCOMPARE(b.boundaryLayerPoints, a.boundaryLayerPoints);
+        QCOMPARE(b.templates.size(), a.templates.size());
+        for (int i = 0; i < a.generated.size(); ++i)
+        {
+            QCOMPARE(b.generated[i].x(), a.generated[i].x());
+            QCOMPARE(b.generated[i].y(), a.generated[i].y());
+        }
+        for (int i = 0; i < a.templates.size(); ++i)
+            for (int k = 0; k < 4; ++k)
+                QCOMPARE(b.templates[i].v[k], a.templates[i].v[k]);
+    }
+
+    /*! Q1 gate — a linear spacing ramp (h = 2 at x=0 → 8 at x=120) must produce
+     *  a lattice whose LOCAL spacing tracks h, not a uniform one. The analytic
+     *  point count is ∫∫ dA/h(x)² = 40·∫₀¹²⁰ dx/(2+0.05x)² = 300; a uniform
+     *  lattice would give 1200 (at h=2) or 75 (at h=8), so the count alone
+     *  separates graded from either uniform fallback. */
+    void gradedField_rampTracksLocalSpacing()
+    {
+        const auto hOf = [](double x) { return 2.0 + 6.0 * x / 120.0; };
+        const QPolygonF ring = resampleRing(rect(120.0, 40.0), 2.0);
+        CrossField field;
+        field.setConstant(0.0);
+
+        QuadPointOptions o;
+        o.h    = 2.0;                       // fallback only
+        o.hAt  = [&hOf](double x, double) { return hOf(x); };
+        o.hMin = 2.0;
+        o.hMax = 8.0;
+        const QuadPointSet ps = placeQuadPoints(ring, ring, ring.size(), field, o);
+
+        QVERIFY2(ps.generated.size() > 180 && ps.generated.size() < 420,
+                 qPrintable(QStringLiteral("graded count %1, expected ≈300 (uniform would be 1200 or 75)")
+                                .arg(ps.generated.size())));
+
+        // Local spacing tracks h(x): nearest neighbour within [0.6, 1.5]·h(p).
+        QVector<QPointF> all = ring;
+        all += ps.generated;
+        int good = 0;
+        for (const QPointF &p : ps.generated)
+        {
+            double best = std::numeric_limits<double>::infinity();
+            for (const QPointF &q : all)
+            {
+                const double d = dist(p, q);
+                if (d > 1e-9) best = std::min(best, d);
+            }
+            const double r = best / hOf(p.x());
+            if (r >= 0.6 && r <= 1.5) ++good;
+        }
+        const double frac = double(good) / double(std::max<qsizetype>(1, ps.generated.size()));
+        QVERIFY2(frac >= 0.90,
+                 qPrintable(QStringLiteral("only %1 of points track h(x)").arg(frac)));
+
+        // The coarse end really is coarser: mean NN spacing in the last third
+        // must exceed the first third by at least 2x (h ramps 2 -> 8).
+        auto meanSpacing = [&](double x0, double x1) {
+            double s = 0.0; int n = 0;
+            for (const QPointF &p : ps.generated)
+            {
+                if (p.x() < x0 || p.x() >= x1) continue;
+                double best = std::numeric_limits<double>::infinity();
+                for (const QPointF &q : all)
+                { const double d = dist(p, q); if (d > 1e-9) best = std::min(best, d); }
+                s += best; ++n;
+            }
+            return n ? s / n : 0.0;
+        };
+        const double near = meanSpacing(0.0, 40.0), far = meanSpacing(80.0, 120.0);
+        QVERIFY2(far > 2.0 * near,
+                 qPrintable(QStringLiteral("near=%1 far=%2").arg(near).arg(far)));
+
+        // Determinism.
+        const QuadPointSet again = placeQuadPoints(ring, ring, ring.size(), field, o);
+        QCOMPARE(again.generated.size(), ps.generated.size());
+        for (int i = 0; i < ps.generated.size(); ++i)
+            QCOMPARE(again.generated[i], ps.generated[i]);
+    }
+
     /*! h <= 0 or a degenerate ring → empty result. */
     void invalidInput_empty()
     {

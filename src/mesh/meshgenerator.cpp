@@ -155,6 +155,14 @@ struct PreparedQuadRegion
     double         h     = 0.0;
     QPolygonF      ring;                         ///< normalizeRingCCW(r.ring).
     QPolygonF      ringR;                        ///< resampleRing(ring, h) — Free / TrianglesOnly.
+    QVector<QPolygonF> holesR;                   ///< normalizeRingCCW of every r.holes ring.
+    /*! Ring is a domain outline already present in the PSLG: emit no ring
+     *  segments for it (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.1). */
+    bool           isBackground = false;
+    /*! No explicit QuadRegion::spacing was given, so \ref h came from the size
+     *  function and the lattice should follow it point by point rather than
+     *  hold the single centroid sample. */
+    bool           gradeFromField = false;
     QRectF         bbox;
     QString        tag;                          ///< r.tag or inherited from a dropped RegionMarker.
     // Free only
@@ -172,6 +180,23 @@ bool inQuadRing(const PreparedQuadRegion &q, const QPointF &p)
     return q.bbox.contains(p) && pointInRing(q.ring, p);
 }
 
+/*! Inside the region's meshable area: within the ring and outside every hole.
+ *  Distinct from inQuadRing(), which is what decides whether a fixed vertex
+ *  SEEDS the lattice — a hole-ring vertex lies on the hole boundary and must
+ *  still seed, so seeding keeps using the ring-only test. */
+bool inQuadRegion(const PreparedQuadRegion &q, const QPointF &p)
+{
+    return q.bbox.contains(p) && pointInRegion(q.ring, q.holesR, p);
+}
+
+/*! Strictly inside one of the region's holes (an area the region does not mesh). */
+bool pointInRegionHole(const PreparedQuadRegion &q, const QPointF &p)
+{
+    for (const QPolygonF &h : q.holesR)
+        if (pointInRing(h, p)) return true;
+    return false;
+}
+
 /*! A point strictly inside \p ring: the vertex mean when that is inside,
  *  else the first ear centroid that is. */
 QPointF ringInteriorPoint(const QPolygonF &ring)
@@ -187,6 +212,32 @@ QPointF ringInteriorPoint(const QPolygonF &ring)
         if (pointInRing(ring, e)) return e;
     }
     return c;
+}
+
+/*! Region-attribute seed for a background region: a point inside the ring and
+ *  outside every hole. Triangle flood-fills the attribute from here, bounded by
+ *  the PSLG segments, so it must not land in a hole (the fill would be discarded
+ *  with the hole) nor inside a nested region (whose own seed owns that area).
+ *  Falls back to the ring interior point when the scan finds nothing. */
+QPointF backgroundSeedPoint(const PreparedQuadRegion &q)
+{
+    const QPointF c = ringInteriorPoint(q.ring);
+    if (q.holesR.isEmpty() || pointInRegion(q.ring, q.holesR, c)) return c;
+    const QRectF b = q.bbox;
+    constexpr int kN = 64;
+    double bestD = -1.0;
+    QPointF best = c;
+    for (int iy = 1; iy < kN; ++iy)
+        for (int ix = 1; ix < kN; ++ix)
+        {
+            const QPointF p(b.left() + b.width() * double(ix) / kN,
+                            b.top()  + b.height() * double(iy) / kN);
+            if (!pointInRegion(q.ring, q.holesR, p)) continue;
+            // Prefer the most interior candidate so the seed is robust.
+            const double d = distanceToRings(q.ring, q.holesR, p);
+            if (d > bestD) { bestD = d; best = p; }
+        }
+    return best;
 }
 
 int orientSign(const QPointF &a, const QPointF &b, const QPointF &c) noexcept
@@ -453,9 +504,15 @@ MeshResult MeshGenerator::generate() const
             QStringList notes;
 
             PreparedQuadRegion q;
-            q.index = i;
-            q.ring  = normalizeRingCCW(r.ring);
-            q.bbox  = q.ring.boundingRect();
+            q.index        = i;
+            q.ring         = normalizeRingCCW(r.ring);
+            q.bbox         = q.ring.boundingRect();
+            q.isBackground = r.isBackground;
+            for (const QPolygonF &hr : r.holes)
+            {
+                const QPolygonF n = normalizeRingCCW(hr);
+                if (n.size() >= 3) q.holesR.append(n);
+            }
 
             // Spacing h: explicit, else the size function at the centroid
             // (sqrt(2·area) matches the neighbouring triangle edge length),
@@ -463,9 +520,11 @@ MeshResult MeshGenerator::generate() const
             double h = r.spacing;
             if (!(h > 0.0) && m_refineHook.targetAreaAt && !q.ring.isEmpty())
             {
-                const QPointF c = ringInteriorPoint(q.ring);
+                const QPointF c = q.holesR.isEmpty() ? ringInteriorPoint(q.ring)
+                                                     : backgroundSeedPoint(q);
                 const double a = m_refineHook.targetAreaAt(c.x(), c.y());
                 if (a > 0.0) h = std::sqrt(2.0 * a);
+                q.gradeFromField = true;
             }
             if (!(h > 0.0)) h = m_opts.quadRegionDefaultSpacing;
             if (!(h > 0.0) || !std::isfinite(h))
@@ -512,6 +571,12 @@ MeshResult MeshGenerator::generate() const
             // Mode. Explicit Mapped corners index the CALLER's ring; relocate
             // them on the normalised ring by coordinate.
             QuadRegionMode mode = r.mode;
+            // A background region spans the whole domain: it carries holes and
+            // every conduit/breakline crosses it, so the structured modes never
+            // apply (Auto on a rectangular domain would otherwise pick Mapped
+            // and mesh straight over the holes).
+            if (q.isBackground && mode != QuadRegionMode::TrianglesOnly)
+                mode = QuadRegionMode::Free;
             QVector<int> corners;
             if (mode == QuadRegionMode::Mapped && r.corners.size() == 4)
             {
@@ -566,7 +631,43 @@ MeshResult MeshGenerator::generate() const
                 else patches.append(pm);
             }
             if (mode == QuadRegionMode::Free || mode == QuadRegionMode::TrianglesOnly)
-                q.ringR = resampleRing(q.ring, h);
+            {
+                if (!q.isBackground)
+                    q.ringR = resampleRing(q.ring, h);
+                else
+                {
+                    // A background ring IS the domain outline, whose segments the
+                    // PSLG has already emitted — so its vertices are never
+                    // replaced, only added to. Densify each edge to the local
+                    // lattice spacing (a raw 4-corner domain would otherwise give
+                    // the boundary layer 4 seeds and leave the perimeter
+                    // triangulated). The new vertices lie ON those segments, so
+                    // Triangle subdivides them; no segment is emitted here.
+                    const auto areaAt = m_refineHook.targetAreaAt;
+                    auto hOn = [&](const QPointF &a, const QPointF &b) {
+                        if (!q.gradeFromField || !areaAt) return h;
+                        const QPointF m = (a + b) / 2.0;
+                        const double ar = areaAt(m.x(), m.y());
+                        return (ar > 0.0 && std::isfinite(ar)) ? std::sqrt(2.0 * ar) : h;
+                    };
+                    const int n = q.ring.size();
+                    q.ringR.clear();
+                    q.ringR.reserve(n * 2);
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const QPointF &a = q.ring[i], &b = q.ring[(i + 1) % n];
+                        q.ringR.append(a);
+                        const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
+                        const double he  = hOn(a, b);
+                        const int    k   = (he > 0.0) ? int(std::floor(len / he)) : 0;
+                        for (int s = 1; s <= k; ++s)
+                        {
+                            const double t = double(s) / double(k + 1);
+                            q.ringR.append(a + (b - a) * t);
+                        }
+                    }
+                }
+            }
 
             q.mode = mode;
             rep.resolved = mode;
@@ -610,9 +711,13 @@ MeshResult MeshGenerator::generate() const
             for (PreparedQuadRegion &q : qregs)
             {
                 if (q.mode != QuadRegionMode::Free) continue;
-                if (inQuadRing(q, sp.xy)
+                // Inside the lattice area, or close enough outside it to split a
+                // ring segment. A point inside a HOLE is left alone: no lattice
+                // is generated there, so nothing replaces it.
+                if (inQuadRegion(q, sp.xy)
                     || (q.bbox.adjusted(-q.h, -q.h, q.h, q.h).contains(sp.xy)
-                        && distanceToRing(q.ringR, sp.xy) < q.h))
+                        && !pointInRegionHole(q, sp.xy)
+                        && distanceToRings(q.ringR, q.holesR, sp.xy) < q.h))
                 { ++q.droppedSteiners; drop = true; break; }
             }
             if (drop) continue;
@@ -705,16 +810,20 @@ MeshResult MeshGenerator::generate() const
 
         const int nr = q.ringR.size();
         q.ringInputIdx.resize(nr);
+        // marker 0 never overwrites an existing one, so a background ring's
+        // vertices keep the kBoundaryMarker the domain pass gave them and we
+        // simply recover their indices.
         for (int i = 0; i < nr; ++i) q.ringInputIdx[i] = pushPoint(q.ringR[i], 0);
-        for (int i = 0; i < nr; ++i)
-        {
-            const int a = q.ringInputIdx[i], b = q.ringInputIdx[(i + 1) % nr];
-            if (a == b) continue;
-            userSegments.append(qMakePair(a, b));
-            userSegmentMarkers.append(kQuadRingMarker);
-        }
+        if (!q.isBackground)
+            for (int i = 0; i < nr; ++i)
+            {
+                const int a = q.ringInputIdx[i], b = q.ringInputIdx[(i + 1) % nr];
+                if (a == b) continue;
+                userSegments.append(qMakePair(a, b));
+                userSegmentMarkers.append(kQuadRingMarker);
+            }
         RegionMarker rm;
-        rm.xy        = ringInteriorPoint(q.ring);
+        rm.xy        = q.isBackground ? backgroundSeedPoint(q) : ringInteriorPoint(q.ring);
         rm.attribute = -double(q.index + 1);
         rm.maxArea   = -1.0;
         rm.tag       = q.tag;
@@ -757,7 +866,19 @@ MeshResult MeshGenerator::generate() const
         seeds += q.seedXY;
         QuadPointOptions po;
         po.h = q.h;
-        const QuadPointSet ps = placeQuadPoints(q.ringR, seeds, nr, field, po);
+        // Graded lattice (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.2): follow the
+        // size function wherever the caller did NOT pin a spacing. An explicit
+        // QuadRegion::spacing means "this size everywhere in this region", so it
+        // stays uniform; q.h remains the fallback for a bad sample.
+        if (q.gradeFromField && m_refineHook.targetAreaAt)
+        {
+            const auto areaAt = m_refineHook.targetAreaAt;
+            po.hAt = [areaAt](double x, double y) {
+                const double a = areaAt(x, y);
+                return a > 0.0 && std::isfinite(a) ? std::sqrt(2.0 * a) : 0.0;
+            };
+        }
+        const QuadPointSet ps = placeQuadPoints(q.ringR, q.holesR, seeds, nr, field, po);
 
         QVector<int> combined = q.ringInputIdx + q.seedInputIdx;
         combined.reserve(combined.size() + ps.generated.size());
