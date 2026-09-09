@@ -127,11 +127,18 @@ HeatConfigDialog::HeatConfigDialog(SWMM_Engine engine, QWidget *parent)
     readFromEngine();
 }
 
+void HeatConfigDialog::setCurrentTab(int idx)
+{
+    if (m_tabs && idx >= 0 && idx < m_tabs->count())
+        m_tabs->setCurrentIndex(idx);
+}
+
 void HeatConfigDialog::buildUi()
 {
     auto *vlay = new QVBoxLayout(this);
     auto *tabs = new QTabWidget(this);
     tabs->setObjectName(QStringLiteral("hc_tabs"));
+    m_tabs = tabs;
     vlay->addWidget(tabs);
 
     // ── Sources ─────────────────────────────────────────────────────────

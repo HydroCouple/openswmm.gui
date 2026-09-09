@@ -4429,9 +4429,9 @@ void SWMMVis::initializeMenus()
         });
 
     // Climatology buttons → tabbed Climatology dialog (Temperature/Evaporation/
-    // Wind/Snow Melt/Areal Depletion/Adjustments). Solar Radiation has no SWMM
-    // input section; it opens the dialog on the Evaporation tab (solar feeds
-    // Hargreaves ET).
+    // Wind/Humidity/Snow Melt/Areal Depletion/Adjustments). Solar Radiation is
+    // a heat-model input ([RADIATIVE_FLUXES] SHORTWAVE / [SOLAR_RADIATION]),
+    // so it opens the Heat Configuration dialog on its Solar tab.
     if (ui->actionTemperature)
         connect(ui->actionTemperature, &QAction::triggered, this, [this]() {
             onClimatology(ClimatologyDialog::TabTemperature);
@@ -4450,7 +4450,7 @@ void SWMMVis::initializeMenus()
         });
     if (ui->actionSolarRadiation)
         connect(ui->actionSolarRadiation, &QAction::triggered, this, [this]() {
-            onClimatology(ClimatologyDialog::TabEvaporation);
+            onEditHeatConfig(OpenSWMMVis::HeatConfigDialog::TabSolar);
         });
 
     // Water Age Sources editor (Y3b) — the per-pathway initial-age table.
@@ -4471,7 +4471,7 @@ void SWMMVis::initializeMenus()
     // and H6a's radiative / solar / cloud forcing.
     if (ui->actionEditHeatConfig)
         connect(ui->actionEditHeatConfig, &QAction::triggered,
-                this, &SWMMVis::onEditHeatConfig);
+                this, [this]() { onEditHeatConfig(); });
 
     // Toolbar quick-wins (Phase 2).
     if (ui->actionSearch)
@@ -7658,7 +7658,7 @@ void SWMMVis::onEditInitialQuality()
     }
 }
 
-void SWMMVis::onEditHeatConfig()
+void SWMMVis::onEditHeatConfig(int tab)
 {
     auto *pw = activeProjectWindow();
     if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
@@ -7670,6 +7670,7 @@ void SWMMVis::onEditHeatConfig()
     }
 
     OpenSWMMVis::HeatConfigDialog dlg(pw->modelLayer()->engine(), this);
+    if (tab >= 0) dlg.setCurrentTab(tab);
     if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
         pw->setHasChanges(true);
 }

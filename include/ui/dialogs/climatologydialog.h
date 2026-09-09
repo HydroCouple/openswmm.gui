@@ -5,10 +5,12 @@
  * \license GPL-3.0-or-later
  *
  * Climatology editor — edits the model's [TEMPERATURE], [EVAPORATION],
- * [WINDSPEED], SNOWMELT, areal-depletion (ADC) and [ADJUSTMENTS] configuration
- * via the engine's swmm_climate_* C API. Six tabs mirror the legacy EPA SWMM 5
- * Climatology editor (Dclimate): Temperature, Evaporation, Wind Speed,
- * Snow Melt, Areal Depletion, Adjustments. Reads on construction, writes on OK.
+ * [WINDSPEED], HUMIDITY, SNOWMELT, areal-depletion (ADC) and [ADJUSTMENTS]
+ * configuration via the engine's swmm_climate_* C API. Six tabs mirror the
+ * legacy EPA SWMM 5 Climatology editor (Dclimate): Temperature, Evaporation,
+ * Wind Speed, Snow Melt, Areal Depletion, Adjustments; a Humidity tab (the
+ * heat model's relative-humidity / dew-point input) sits after Wind Speed.
+ * Reads on construction, writes on OK.
  */
 #ifndef CLIMATOLOGYDIALOG_H
 #define CLIMATOLOGYDIALOG_H
@@ -45,9 +47,10 @@ public:
         TabTemperature = 0,
         TabEvaporation = 1,
         TabWind        = 2,
-        TabSnowMelt    = 3,
-        TabArealDepletion = 4,
-        TabAdjustments = 5
+        TabHumidity    = 3,
+        TabSnowMelt    = 4,
+        TabArealDepletion = 5,
+        TabAdjustments = 6
     };
 
     explicit ClimatologyDialog(SWMM_Engine engine,
@@ -72,6 +75,8 @@ private slots:
     void onEvapTypeChanged();
     void onTempSourceChanged();
     void onWindTypeChanged();
+    void onHumidityTypeChanged();
+    void onHumidityVarChanged();
     void onAdcPreset(int column, bool natural);
     void onClearAdjustments();
 
@@ -80,6 +85,7 @@ private:
     void buildTemperatureTab(QTabWidget *tabs);
     void buildEvaporationTab(QTabWidget *tabs);
     void buildWindTab(QTabWidget *tabs);
+    void buildHumidityTab(QTabWidget *tabs);
     void buildSnowTab(QTabWidget *tabs);
     void buildAdcTab(QTabWidget *tabs);
     void buildAdjustmentsTab(QTabWidget *tabs);
@@ -122,6 +128,14 @@ private:
     // --- Wind ---
     QComboBox      *m_windType       = nullptr;  // 0 Monthly / 1 File
     QTableWidget   *m_windMonthly    = nullptr;  // 12 rows
+
+    // --- Humidity ([TEMPERATURE] HUMIDITY) ---
+    QComboBox      *m_humVar         = nullptr;  // 0 Relative % / 1 Dew point
+    QComboBox      *m_humType        = nullptr;  // 0 Constant / 1 Monthly / 2 TimeSeries
+    QStackedWidget *m_humStack       = nullptr;
+    QDoubleSpinBox *m_humConstant    = nullptr;
+    QTableWidget   *m_humMonthly     = nullptr;  // 12 rows
+    QComboBox      *m_humTs          = nullptr;
 
     // --- Snow Melt ---
     QDoubleSpinBox *m_snowTemp       = nullptr;
