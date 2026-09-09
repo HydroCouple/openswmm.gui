@@ -34,7 +34,7 @@ if(SWMMVIS_USE_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
     endif()
 endif()
 
-set(PROJECT_VERSION_SUFFIX "-alpha.3")
+set(PROJECT_VERSION_SUFFIX "-alpha.4")
 
 configure_file(
     ${PROJECT_SOURCE_DIR}/include/version.h.in

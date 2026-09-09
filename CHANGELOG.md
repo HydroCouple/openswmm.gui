@@ -10,12 +10,15 @@ legacy Delphi GUI baseline), so the `6.0.0-alpha.2` and `6.0.0-alpha.3`
 headings below are delimited by the version strings in `CMakeLists.txt`
 (`PROJECT_VERSION_SUFFIX`) and `vcpkg.json` rather than by tags:
 `6.0.0-alpha.2` covers the SWMMVis rewrite up to and including
-2026-07-12, and `6.0.0-alpha.3` covers everything from the
-`6.0.0-alpha.3` version bump onward. No `v6.0.0-alpha.2` tag was ever
-cut. Generated with support from [`git-cliff`](https://git-cliff.org)
-(config: `cliff.toml`).
+2026-07-12, `6.0.0-alpha.3` covers everything from the
+`6.0.0-alpha.3` version bump to the `6.0.0-alpha.4` bump (2026-09-08),
+and `6.0.0-alpha.4` covers everything from that bump onward. No
+`v6.0.0-alpha.2` tag was ever cut. Generated with support from
+[`git-cliff`](https://git-cliff.org) (config: `cliff.toml`).
 
 ## [Unreleased]
+
+## [6.0.0-alpha.4] — 2026-09-08
 
 ### Added
 

@@ -373,7 +373,7 @@ bar; transient messages (*Opening &lt;file&gt;…*, tool hints) appear on the le
 
 | Widget | What it does | Writes |
 |---|---|---|
-| **Engine:** | Picks the engine used to run the **active project**: *OpenSWMM 6.0.0-alpha.3* or *SWMM 5.3.0 (Legacy)*. Disabled until a project is open | Per-project engine selection |
+| **Engine:** | Picks the engine used to run the **active project**: *OpenSWMM 6.0.0-alpha.4* or *SWMM 5.3.0 (Legacy)*. Disabled until a project is open | Per-project engine selection |
 | **Flow Units:** | `CFS` · `GPM` · `MGD` · `CMS` · `LPS` · `MLD`. Changing it re-labels every unit suffix in the whole UI | `[OPTIONS] FLOW_UNITS` |
 | *progress* | A stage label plus a bar; arbitrated between simulation runs; project opens and the plain busy spinner |  |
 | **Offset Mode:** | `Depth [toggle] Elevation` — the active side is bold. Flipping it offers to convert existing link offsets, exactly as EPA SWMM does; the prompt is skipped for a model with no links | `[OPTIONS] LINK_OFFSETS` |

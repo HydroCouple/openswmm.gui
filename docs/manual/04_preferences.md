@@ -60,7 +60,7 @@ on the next keypress.
 |---|---|
 | **Show license agreement on startup** | Re-arms the startup License Agreement dialog. *(The tooltip on this control says "MIT license"; the dialog it controls actually presents the GNU GPL v3 notice.)* |
 | **Auto-length conduits on edit** | Default for the status-bar **Auto-Length** switch: conduit lengths recompute from geometry whenever their endpoints move |
-| **Default engine mode** | Which engine a newly opened project starts on — *OpenSWMM 6.0.0-alpha.3 (refactored)* or *SWMM 5.3.0 (legacy)*. The status-bar picker still overrides per project |
+| **Default engine mode** | Which engine a newly opened project starts on — *OpenSWMM 6.0.0-alpha.4 (refactored)* or *SWMM 5.3.0 (legacy)*. The status-bar picker still overrides per project |
 | **Max profile candidate paths** | How many candidate paths the profile tool enumerates between two picked nodes before truncating. Results are sorted shortest first; raising this exposes longer detours through loops. Enumeration is worst-case exponential — very high values can briefly freeze the UI on heavily meshed networks |
 | **Profile endpoint halo radius** | Screen-pixel radius of the start/end halo drawn while picking a profile. Constant regardless of zoom |
 | **Profile start halo colour** / **width** | Colour swatch and pen width for the start endpoint |

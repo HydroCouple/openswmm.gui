@@ -54,12 +54,12 @@ model you see in the Object Browser, the Properties panel, and the attribute tab
 changing **Flow Units** in the status bar immediately re-labels every units suffix
 in every open editor.
 
-The build this manual documents ships engine **6.0.0-alpha.3**. The status bar's
+The build this manual documents ships engine **6.0.0-alpha.4**. The status bar's
 **Engine:** picker offers two engines per project:
 
 | Entry | What it runs |
 |---|---|
-| **OpenSWMM 6.0.0-alpha.3** | The refactored SWMM 6 engine — required for finite-volume 1D routing; 2D overland flow; 1D–2D coupling; transport, reaction and heat modules; semi-implicit node continuity; Anderson acceleration |
+| **OpenSWMM 6.0.0-alpha.4** | The refactored SWMM 6 engine — required for finite-volume 1D routing; 2D overland flow; 1D–2D coupling; transport, reaction and heat modules; semi-implicit node continuity; Anderson acceleration |
 | **SWMM 5.3.0 (Legacy)** | The unmodified EPA SWMM 5.x solver preserved inside the engine repository — for regression comparison against classic SWMM results |
 
 The default for new projects is set in **Preferences → General → Default engine
@@ -67,7 +67,7 @@ mode**; the status-bar picker overrides it per project. Options that only the
 refactored engine understands are hidden or disabled when the legacy engine is
 selected — see \ref manual_simulation_options.
 
-> **Pre-release.** 6.0.0-alpha.3 is an alpha. The `.oswp` project format, the
+> **Pre-release.** 6.0.0-alpha.4 is an alpha. The `.oswp` project format, the
 > preference keys, and the window layout may still change before 6.0.0.
 
 ### EPA SWMM 5 compatibility
@@ -176,7 +176,7 @@ project.
 | Qt | 6.5 or newer (Widgets, OpenGL, Network, Concurrent, Svg, Charts) |
 | GDAL | 3.x — supplies GIS formats and the PROJ CRS database |
 | Graphics | The map, 2D mesh and 2D results layers render through Qt's scene graph. On macOS the OpenGL RHI backend is forced; other platforms use Qt's native backend |
-| OpenSWMM engine | 6.0.0-alpha.3 — shipped inside the application bundle |
+| OpenSWMM engine | 6.0.0-alpha.4 — shipped inside the application bundle |
 
 To install a released build, download the installer or archive for your platform
 and run it. On macOS, drag `SWMMVis.app` out of the disk image into
