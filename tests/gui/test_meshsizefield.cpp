@@ -216,6 +216,59 @@ private slots:
                 <= o.maxGridCells * 2);
         QVERIFY(f.pitch() > 0.5);   // grew past nearSize/2 to fit
     }
+
+    /*! QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.4 — with terrainDensity on, a
+     *  dense patch of UNTAGGED points refines its neighbourhood, so terrain
+     *  detail survives a quad lattice replacing those points. Off by default,
+     *  so every existing caller is unaffected. */
+    void terrainDensityRefinesWhereThePointsAreDense()
+    {
+        const QRectF bbox(0, 0, 1000, 1000);
+
+        // A dense cluster of untagged (thinner-style) points in one corner,
+        // far from the seeding segment at y = 500.
+        QVector<SteinerPoint> pts;
+        for (int iy = 0; iy < 40; ++iy)
+            for (int ix = 0; ix < 40; ++ix)
+            {
+                SteinerPoint sp;
+                sp.xy = QPointF(20.0 + ix * 1.5, 20.0 + iy * 1.5);   // 1.5 m spacing
+                sp.marker = 0;
+                pts.append(sp);
+            }
+
+        SizeFieldOptions off = baseOptions();
+        SizeField fOff;
+        QVERIFY(fOff.build(bbox, {midSegment()}, {}, pts, off));
+        QCOMPARE(fOff.terrainSizeAt(50.0, 50.0), 0.0);   // no terrain bound at all
+
+        SizeFieldOptions on = baseOptions();
+        on.terrainDensity = true;
+        SizeField fOn;
+        QVERIFY(fOn.build(bbox, {midSegment()}, {}, pts, on));
+
+        // Inside the cluster the size is bounded by the local point spacing,
+        // so the permitted area drops well below the feature-distance value.
+        const double aOff = fOff.targetAreaAt(50.0, 50.0);
+        const double aOn  = fOn.targetAreaAt(50.0, 50.0);
+        QVERIFY2(aOn < 0.5 * aOff,
+                 qPrintable(QStringLiteral("off=%1 on=%2").arg(aOff).arg(aOn)));
+        QVERIFY(fOn.terrainSizeAt(50.0, 50.0) > 0.0);
+
+        // Terrain density may only REFINE: never larger than without it.
+        for (double x = 0.0; x <= 1000.0; x += 97.0)
+            for (double y = 0.0; y <= 1000.0; y += 97.0)
+                QVERIFY2(fOn.targetAreaAt(x, y) <= fOff.targetAreaAt(x, y) + 1e-9,
+                         qPrintable(QStringLiteral("coarsened at (%1,%2)").arg(x).arg(y)));
+
+        // Far from the cluster the bound relaxes back (Lipschitz spread), so
+        // the far field is not dragged fine by a local patch.
+        QVERIFY(fOn.targetAreaAt(950.0, 950.0) > 10.0 * fOn.targetAreaAt(50.0, 50.0));
+
+        // Untagged points still cannot make a field on their own.
+        SizeField alone;
+        QVERIFY(!alone.build(bbox, {}, {}, pts, on));
+    }
 };
 
 QTEST_MAIN(TestMeshSizeField)

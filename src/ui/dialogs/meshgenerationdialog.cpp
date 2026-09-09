@@ -81,6 +81,7 @@
 #include <QSpinBox>
 #include <QStringList>
 #include <QTableWidget>
+#include <QTabWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -1036,11 +1037,47 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         r.ring = QPolygonF(simplifyRing(src.ring, in.pslgSimplifyEps));
         quadRegions.append(std::move(r));
     }
+    // ── Quads everywhere (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.1) ──────
+    // The toggle needs no polygon: each domain ring becomes a BACKGROUND
+    // region covering everything the explicit regions did not claim. Holes
+    // are the domain's own hole rings plus every explicit region's ring, so
+    // an explicit region keeps its own mode/spacing and the background fills
+    // around it. Only the worker can build this — the generator is given
+    // hole SEED POINTS, never hole rings.
+    const int nExplicitQuadRegions = quadRegions.size();
+    if (in.quadEverywhere)
+    {
+        QVector<QPolygonF> explicitRings;
+        explicitRings.reserve(quadRegions.size());
+        for (const mesh::QuadRegion &r : std::as_const(quadRegions))
+            explicitRings.append(r.ring);
+
+        for (const QPolygonF &dom : std::as_const(in.domains))
+        {
+            if (dom.size() < 3) continue;
+            mesh::QuadRegion bg;
+            bg.ring         = dom;
+            bg.isBackground = true;
+            bg.mode         = mesh::QuadRegionMode::Free;
+            bg.spacing      = in.quadEverywhereSpacing;   // 0 = follow the size field
+            bg.aspectMax    = in.quadRegionDefaults.aspectMax;
+            for (const auto &hr : std::as_const(in.holeRings))
+            {
+                const QPolygonF h(hr);
+                if (h.size() >= 3 && mesh::pointInRing(dom, h.first())) bg.holes.append(h);
+            }
+            for (const QPolygonF &er : std::as_const(explicitRings))
+                if (er.size() >= 3 && mesh::pointInRing(dom, er.first())) bg.holes.append(er);
+            quadRegions.append(std::move(bg));
+        }
+    }
+
     if (!quadRegions.isEmpty())
         qCInfo(lcMeshPerf).nospace()
             << "[Mesh][quad] " << quadRegions.size() << " regions ("
             << nLayerQuadRegions << " from layers, " << in.quadRegions.size()
-            << " from subcatchments; default mode "
+            << " from subcatchments, "
+            << (quadRegions.size() - nExplicitQuadRegions) << " background; default mode "
             << quadRegionModeName(in.quadRegionDefaults.mode)
             << ", spacing " << in.quadRegionDefaults.spacing
             << ", aspect <= " << in.quadRegionDefaults.aspectMax << ")";
@@ -2013,6 +2050,11 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         sfo.nearSize  = std::sqrt(4.0 * in.genOpts.maxArea / std::sqrt(3.0));
         sfo.gradation = in.sizeGradation;
         sfo.areaFloor = areaFloor;
+        // With quads everywhere the DTM thinner's points are replaced by the
+        // lattice, so their density has to survive as a SIZE or terrain detail
+        // is lost (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.4). Only switched on
+        // for that case: it is exactly when the points stop being vertices.
+        sfo.terrainDensity = in.quadEverywhere;
         useGrading = sizeField.build(bbox, in.constraintSegs, ringSeeds,
                                      in.steinerPoints, sfo);
         if (useGrading)
@@ -3104,9 +3146,43 @@ void MeshGenerationDialog::buildUi()
     // Tab 2 — Quality
     // "How to triangulate": Triangle knobs, PSLG opts, terrain thinning
     // ================================================================
+    // MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07 §2 — the eight
+    // groups below totalled 37 form rows plus a table (~1700 px) in one
+    // column, so the page only fit because addTab wraps it in a scroll area.
+    // They are now split across four inner tabs in pipeline order: size the
+    // triangles, enforce a floor, thin the terrain, decide on quads. Each
+    // group is moved WHOLE — no widget is renamed and no group is split, so
+    // test_meshmincelldialog (which finds "Minimum Cell Size" by title and
+    // asserts its 2-spin / 4-checkbox census) is unaffected.
+    //
+    // Every group is still constructed with `qualityPage` as its ctor parent;
+    // QLayout::addWidget reparents it to the inner page that owns the layout,
+    // which keeps this a minimal diff against the uncommitted quad work.
     auto *qualityPage = new QWidget;
-    auto *qualityVBox = new QVBoxLayout(qualityPage);
-    qualityVBox->setContentsMargins(8, 8, 8, 8);
+    auto *qualityOuter = new QVBoxLayout(qualityPage);
+    qualityOuter->setContentsMargins(0, 0, 0, 0);
+
+    auto *qualityTabs = new QTabWidget(qualityPage);
+    qualityTabs->setObjectName(QStringLiteral("meshQualityTabs"));
+    qualityOuter->addWidget(qualityTabs);
+
+    // Inner page + layout per tab. Named for the group they receive so the
+    // addWidget lines below read as their own documentation.
+    auto *sizingPage  = new QWidget(qualityTabs);
+    auto *sizingVBox  = new QVBoxLayout(sizingPage);
+    sizingVBox->setContentsMargins(8, 8, 8, 8);
+
+    auto *cellSizePage = new QWidget(qualityTabs);
+    auto *cellSizeVBox = new QVBoxLayout(cellSizePage);
+    cellSizeVBox->setContentsMargins(8, 8, 8, 8);
+
+    auto *terrainPage = new QWidget(qualityTabs);
+    auto *terrainVBox = new QVBoxLayout(terrainPage);
+    terrainVBox->setContentsMargins(8, 8, 8, 8);
+
+    auto *quadsPage   = new QWidget(qualityTabs);
+    auto *quadsVBox   = new QVBoxLayout(quadsPage);
+    quadsVBox->setContentsMargins(8, 8, 8, 8);
 
     // Triangle quality group
     {
@@ -3162,7 +3238,7 @@ void MeshGenerationDialog::buildUi()
         m_allowSteiner = new QCheckBox(tr("Allow Steiner refinement on boundary"), g);
         f->addRow(QString(), m_allowSteiner);
 
-        qualityVBox->addWidget(g);
+        sizingVBox->addWidget(g);   // Triangle quality
     }
 
     // PSLG optimisation group
@@ -3222,7 +3298,7 @@ void MeshGenerationDialog::buildUi()
         connect(m_maxBoundaryEdgeBox, &QCheckBox::toggled,
                 m_maxBoundaryEdgeSpin, &QWidget::setEnabled);
 
-        qualityVBox->addWidget(g);
+        sizingVBox->addWidget(g);   // PSLG Optimisation
     }
 
     // Minimum cell size group — MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17.
@@ -3346,7 +3422,7 @@ void MeshGenerationDialog::buildUi()
                 [this] { updateMinCellDerivedLabel(); });
         syncMinCell();
 
-        qualityVBox->addWidget(g);
+        cellSizeVBox->addWidget(g);   // Minimum Cell Size
     }
 
     // Terrain-adaptive thinning group
@@ -3440,7 +3516,7 @@ void MeshGenerationDialog::buildUi()
             "(auto) = half the effective terrain point spacing."));
         f->addRow(tr("Boundary buffer:"), m_boundaryBufferSpin);
 
-        qualityVBox->addWidget(g);
+        terrainVBox->addWidget(g);   // Terrain-Adaptive Thinning
     }
 
     auto syncThinning = [this]() {
@@ -3460,17 +3536,55 @@ void MeshGenerationDialog::buildUi()
     // are a polygon layer and/or named subcatchments; the defaults below
     // apply to every region unless a layer feature carries quad_mode /
     // quad_spacing / quad_aspect / quad_angle / tag attributes.
+    // Quads everywhere — the toggle (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.5).
+    // No polygon required: the domain itself becomes the quad region.
     {
-        auto *g = new QGroupBox(tr("Quad regions (PSLG)"), qualityPage);
+        auto *g = new QGroupBox(tr("Quadrilateral cells"), qualityPage);
+        auto *f = new QFormLayout(g);
+        f->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+
+        m_quadEverywhereCheck = new QCheckBox(tr("&Generate quadrilateral cells"), g);
+        m_quadEverywhereCheck->setToolTip(tr(
+            "Quad-mesh the whole domain — no polygon needs to be drawn or "
+            "picked.  Each domain ring is filled with a boundary-aligned quad "
+            "lattice; holes, conduits and breaklines are respected, and cells "
+            "that cannot be paired stay triangles (quad-dominant).\n\n"
+            "The regions below remain optional: each one is subtracted from "
+            "this background and meshed with its own mode and spacing, so use "
+            "them only where a particular area needs different treatment "
+            "(including 'Triangles only' to keep an area triangular)."));
+        f->addRow(m_quadEverywhereCheck);
+
+        m_quadEverywhereSpacingSpin = new QDoubleSpinBox(g);
+        m_quadEverywhereSpacingSpin->setRange(0.0, 1e7);
+        m_quadEverywhereSpacingSpin->setDecimals(3);
+        m_quadEverywhereSpacingSpin->setValue(0.0);
+        m_quadEverywhereSpacingSpin->setSpecialValueText(tr("(follow the size field)"));
+        m_quadEverywhereSpacingSpin->setToolTip(tr(
+            "Target quad edge length for the whole-domain lattice.\n\n"
+            "Leave at 0 — the recommended setting — to follow the graded size "
+            "field, so quads stay fine near conduits, inlets and breaklines and "
+            "coarsen away from them exactly as the triangles do today.  A fixed "
+            "value meshes the entire model at that one spacing, which on a large "
+            "model either loses local refinement or explodes the cell count."));
+        f->addRow(tr("Target quad si&ze:"), m_quadEverywhereSpacingSpin);
+
+        // Enabling is driven by the shared syncQuad() below, which also owns
+        // the quad-quality bounds (they apply to the background lattice too).
+        quadsVBox->addWidget(g);   // Quadrilateral cells
+    }
+    {
+        auto *g = new QGroupBox(tr("Quad regions (PSLG) — optional overrides"), qualityPage);
         auto *f = new QFormLayout(g);
         f->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
 
         auto *hint = new QLabel(tr(
-            "Closed polygons inside the domain where quadrilateral cells are "
-            "generated: the ring becomes a constraint loop, the interior is "
-            "filled with a boundary-aligned quad lattice (or a structured grid "
-            "when the outline is rectangular), and everything outside stays "
-            "triangles.  Recommended over the triangle-pair merge below."), g);
+            "Optional.  Closed polygons inside the domain that need different "
+            "treatment from the rest: the ring becomes a constraint loop and the "
+            "interior is filled with its own quad lattice (or a structured grid "
+            "when the outline is rectangular).  With the toggle above off, these "
+            "are the only areas that get quads; with it on, each one is "
+            "subtracted from the whole-domain lattice."), g);
         hint->setWordWrap(true);
         hint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
         f->addRow(hint);
@@ -3546,7 +3660,7 @@ void MeshGenerationDialog::buildUi()
             "solved from the region's own edges instead."));
         f->addRow(tr("Default alignment:"), m_quadRegionAngleSpin);
 
-        qualityVBox->addWidget(g);
+        quadsVBox->addWidget(g);   // Quad regions
     }
 
     // Quad quality — bounds shared by the PSLG quad regions above and the
@@ -3637,21 +3751,25 @@ void MeshGenerationDialog::buildUi()
                  && m_quadRegionLayerCombo->currentData().value<void *>() != nullptr)
                 || (m_quadRegionSubcatchEdit
                     && !m_quadRegionSubcatchEdit->text().trimmed().isEmpty());
-            const bool on = merge || regions;
+            const bool everywhere = m_quadEverywhereCheck && m_quadEverywhereCheck->isChecked();
+            const bool on = merge || regions || everywhere;
             m_quadMinAngleSpin->setEnabled(on);
             m_quadMaxAngleSpin->setEnabled(on);
             m_quadMinSjSpin->setEnabled(on);
             m_quadMaxAspectSpin->setEnabled(on);
             m_quadPlanaritySpin->setEnabled(merge);
+            if (m_quadEverywhereSpacingSpin) m_quadEverywhereSpacingSpin->setEnabled(everywhere);
         };
         connect(m_quadMergeBox, &QCheckBox::toggled, this, syncQuad);
+        if (m_quadEverywhereCheck)
+            connect(m_quadEverywhereCheck, &QCheckBox::toggled, this, syncQuad);
         connect(m_quadRegionLayerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, [syncQuad](int) { syncQuad(); });
         connect(m_quadRegionSubcatchEdit, &QLineEdit::textChanged,
                 this, [syncQuad](const QString &) { syncQuad(); });
         syncQuad();
 
-        qualityVBox->addWidget(g);
+        quadsVBox->addWidget(g);   // Quad quality
     }
 
     // Structured patches — G3 (TRI_QUAD_MESHING_PLAN §3.2). Coordinates are
@@ -3716,10 +3834,33 @@ void MeshGenerationDialog::buildUi()
         btns->addStretch();
         lay->addLayout(btns);
 
-        qualityVBox->addWidget(g);
+        quadsVBox->addWidget(g);   // Structured quad patches
     }
 
-    qualityVBox->addStretch();
+    // Each inner page gets its own stretch so its groups sit at the top
+    // rather than spreading down a tall tab.
+    sizingVBox->addStretch();
+    cellSizeVBox->addStretch();
+    terrainVBox->addStretch();
+    quadsVBox->addStretch();
+
+    // Inner pages are scroll-wrapped individually: with the groups split
+    // four ways only "Quads" (15 rows + the patch table) can still exceed
+    // the dialog's 560 px default, and it degrades to a scroll instead of
+    // forcing the dialog taller. Tab titles are asserted verbatim by
+    // test_meshmincelldialog::qualityTabsStructure.
+    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(sizingPage,   qualityTabs),
+                        tr("Sizing"));
+    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(cellSizePage, qualityTabs),
+                        tr("Cell Size"));
+    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(terrainPage,  qualityTabs),
+                        tr("Terrain"));
+    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(quadsPage,    qualityTabs),
+                        tr("Quads"));
+
+    // The outer page holds only the tab widget, so it needs no scroll area
+    // of its own — but addTab is kept symmetrical with the other top-level
+    // tabs so the dialog's resize behaviour is unchanged.
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(qualityPage, tabs),
                  tr("Quality"));
 
@@ -4735,6 +4876,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         out->quadBounds.maxAspect         = m_quadMaxAspectSpin->value();   // 0 = off
     }
     out->genOpts.quadRegionBounds = out->quadBounds;
+
+    // ── Quads everywhere (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.5) ───
+    out->quadEverywhere = m_quadEverywhereCheck && m_quadEverywhereCheck->isChecked();
+    out->quadEverywhereSpacing =
+        m_quadEverywhereSpacingSpin ? m_quadEverywhereSpacingSpin->value() : 0.0;
 
     // ── Quad cells (G2 merge) + structured patches (G3) ──────────────
     out->genOpts.mergeTrianglePairs = m_quadMergeBox && m_quadMergeBox->isChecked();

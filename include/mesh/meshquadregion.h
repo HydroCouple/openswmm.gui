@@ -38,6 +38,18 @@ enum class QuadRegionMode
 struct QuadRegion
 {
     QPolygonF      ring;                 ///< Closed (last == first optional), simple, any orientation.
+    /*! Areas subtracted from \ref ring (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.1):
+     *  domain hole rings, and the rings of any explicit region nested inside this
+     *  one. No cell is generated inside a hole and the lattice keeps its boundary
+     *  clearance from every hole ring, exactly as it does from \ref ring. */
+    QVector<QPolygonF> holes;
+    /*! True when \ref ring IS a domain outline rather than a ring drawn inside
+     *  one — the "toggle quads on for the whole model" case. Two consequences:
+     *  the ring is NOT re-emitted as constraint segments (the domain boundary is
+     *  already in the PSLG, and duplicating it would double every boundary edge),
+     *  and the "region lies inside exactly one domain ring" validation is skipped
+     *  because the region *is* that ring. */
+    bool           isBackground = false;
     QuadRegionMode mode = QuadRegionMode::Auto;
     double spacing   = 0.0;              ///< Target quad edge length h; 0 = derive from the size field / max area.
     double aspectMax = 2.0;              ///< Longest/shortest side accepted (Free); <= 0 = unbounded.
@@ -56,6 +68,10 @@ double ringSignedArea(const QPolygonF &ring);
 
 /*! \brief Odd-even point-in-polygon (closed ring, last == first optional). */
 bool pointInRing(const QPolygonF &ring, const QPointF &p);
+
+/*! \brief Inside \p ring and outside every ring of \p holes — the region's
+ *  meshable interior. With no holes this is exactly pointInRing(). */
+bool pointInRegion(const QPolygonF &ring, const QVector<QPolygonF> &holes, const QPointF &p);
 
 /*! \brief True when \p ring is simple (no proper self-intersection). O(n²). */
 bool ringIsSimple(const QPolygonF &ring);

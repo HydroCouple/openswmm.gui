@@ -71,6 +71,23 @@ struct SizeFieldOptions
      *  so any domain builds — a huge one just gets a coarser distance field,
      *  which only softens the grading, never breaks it. */
     qint64 maxGridCells = 4'000'000;
+
+    /*! Also bound the size by the local density of the UNTAGGED (marker 0)
+     *  points passed to build() — the DTM thinner's output
+     *  (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.4).
+     *
+     *  WHY.  Terrain complexity normally reaches the mesh by the thinner's
+     *  points simply BEING vertices: it puts them densely where the ground is
+     *  complex.  A quad region replaces them with its lattice (redesign D5), so
+     *  under a whole-domain quad mesh that density would be lost unless it is
+     *  re-expressed as a size.  The thinner already chose the local resolution
+     *  by where it put points, so the local point spacing IS the target element
+     *  size: h_terrain = pitch / sqrt(points in the cell), propagated outward
+     *  under the same Lipschitz slope, and combined as
+     *  h = min(nearSize + gradation·d, h_terrain).
+     *
+     *  Off by default: it only matters when something drops those points. */
+    bool   terrainDensity = false;
 };
 
 /*!
@@ -112,12 +129,19 @@ public:
      *  Exposed for tests and diagnostics. */
     [[nodiscard]] double distanceAt(double x, double y) const;
 
+    /*! Terrain-density size bound at (x, y), or 0 when
+     *  SizeFieldOptions::terrainDensity was off / no untagged point was given.
+     *  Exposed for tests and diagnostics. */
+    [[nodiscard]] double terrainSizeAt(double x, double y) const;
+
 private:
     [[nodiscard]] double cellDist(int cx, int cy) const;
+    [[nodiscard]] double cellTerrain(int cx, int cy) const;
     void stampSeedPoint(const QPointF &p);
     void stampSeedSegment(const QPointF &a, const QPointF &b);
 
     QVector<float> m_dist;      ///< row-major distance at cell centres
+    QVector<float> m_hTerrain;  ///< row-major terrain size bound; empty = unused
     int    m_cols = 0, m_rows = 0;
     double m_x0 = 0.0, m_y0 = 0.0;   ///< centre of cell (0, 0)
     double m_pitch = 0.0;

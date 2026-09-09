@@ -182,6 +182,137 @@ private slots:
 
     void cleanupTestCase() { m_report.close(); }
 
+    /*! (g) QUAD_EVERYWHERE_PLAN_2026-09-07.md Q2 — quads over the WHOLE domain
+     *  from a background region: no ring picked by the user, the domain outline
+     *  IS the region. The ring must not be re-emitted as constraint segments
+     *  (that would double every boundary edge), and the mesh must come out
+     *  quad-dominant with the engine cell contract intact. */
+    void backgroundRegion_wholeDomain()
+    {
+        MeshGenerator g;
+        g.setDomain(domain300x150());
+        QuadRegion bg;
+        bg.ring         = domain300x150();
+        bg.isBackground = true;
+        bg.mode         = QuadRegionMode::Free;
+        bg.spacing      = 6.0;
+        bg.tag          = QStringLiteral("bg");
+        g.addQuadRegion(bg);
+        g.setOptions(baseOptions());
+        const MeshResult r = g.generate();
+        QVERIFY2(r.ok, qPrintable(r.errorMsg));
+        appendReport(m_report, QStringLiteral("(g) background region, whole domain h=6"), g, r);
+        CHECK_CELL_INVARIANTS(r);
+
+        const QuadRegionReport &rep = g.quadRegionReports().first();
+        QCOMPARE(rep.resolved, QuadRegionMode::Free);
+        QVERIFY2(rep.quads > 900, qPrintable(QStringLiteral("quads %1").arg(rep.quads)));
+
+        int quads = 0;
+        for (const MeshTriangle &t : r.triangles) if (t.isQuad()) ++quads;
+        const double frac = double(quads) / double(std::max<qsizetype>(1, r.triangles.size()));
+        QVERIFY2(frac >= 0.90, qPrintable(QStringLiteral("quad fraction %1").arg(frac)));
+
+        const QuadStats qs = computeQuadStats(r);
+        QCOMPARE(qs.nonConvex, 0);
+        QVERIFY(qs.minScaledJacobian >= 0.866);
+        QVERIFY(qs.medianRectangularity >= 0.85);
+
+        // The domain boundary must appear exactly once: a background ring is
+        // already in the PSLG, so re-emitting it would duplicate these edges.
+        QSet<QPair<int, int>> seen;
+        for (const MeshEdge &e : r.boundaryEdges)
+        {
+            const QPair<int, int> k = e.v0 < e.v1 ? qMakePair(e.v0, e.v1) : qMakePair(e.v1, e.v0);
+            QVERIFY2(!seen.contains(k), "duplicate boundary edge from the background ring");
+            seen.insert(k);
+        }
+    }
+
+    /*! (h) Q2 — a hole inside the background region stays unmeshed: no cell
+     *  centroid may fall in it, and the lattice keeps its clearance from the
+     *  hole ring just as it does from the outer ring. */
+    void backgroundRegion_respectsHole()
+    {
+        const QPolygonF hole = rect(120, 60, 60, 40);
+        MeshGenerator g;
+        g.setDomain(domain300x150());
+        ConstraintSegment cs;
+        for (const QPointF &p : hole) cs.path << p;
+        cs.path << hole.first();
+        cs.marker = 900;
+        cs.tag    = QStringLiteral("hole");
+        g.addConstraintSegment(cs);
+        g.addHole(QPointF(150, 80));
+
+        QuadRegion bg;
+        bg.ring         = domain300x150();
+        bg.holes        = {hole};
+        bg.isBackground = true;
+        bg.mode         = QuadRegionMode::Free;
+        bg.spacing      = 6.0;
+        g.addQuadRegion(bg);
+        g.setOptions(baseOptions());
+        const MeshResult r = g.generate();
+        QVERIFY2(r.ok, qPrintable(r.errorMsg));
+        appendReport(m_report, QStringLiteral("(h) background region with a hole"), g, r);
+        CHECK_CELL_INVARIANTS(r);
+
+        for (const MeshTriangle &t : r.triangles)
+            QVERIFY2(!pointInRing(hole, cellGeom(r.vertices, t).centroid),
+                     "a cell was generated inside the hole");
+
+        int quads = 0;
+        for (const MeshTriangle &t : r.triangles) if (t.isQuad()) ++quads;
+        QVERIFY(double(quads) / double(std::max<qsizetype>(1, r.triangles.size())) >= 0.85);
+        QCOMPARE(computeQuadStats(r).nonConvex, 0);
+    }
+
+    /*! (i) Q1+Q2 — with no explicit spacing the background lattice follows the
+     *  size function point by point instead of holding one centroid sample.
+     *  h ramps 3 → ~16 across the domain, so the quads must coarsen with it. */
+    void backgroundRegion_gradedBySizeFunction()
+    {
+        MeshGenerator g;
+        g.setDomain(domain300x150());
+        QuadRegion bg;
+        bg.ring         = domain300x150();
+        bg.isBackground = true;
+        bg.mode         = QuadRegionMode::Free;
+        g.addQuadRegion(bg);                       // no spacing → grade from the field
+        g.setOptions(baseOptions());
+        RefineHook hook;
+        hook.targetAreaAt = [](double x, double) {
+            const double h = 3.0 + 0.05 * std::abs(x - 40.0);
+            return 0.5 * h * h;                     // h = sqrt(2A)
+        };
+        g.setRefineHook(hook);
+        const MeshResult r = g.generate();
+        QVERIFY2(r.ok, qPrintable(r.errorMsg));
+        appendReport(m_report, QStringLiteral("(i) background region graded by the size function"), g, r);
+        CHECK_CELL_INVARIANTS(r);
+
+        auto meanEdge = [&](double x0, double x1) {
+            double s = 0.0; int n = 0;
+            for (const MeshTriangle &t : r.triangles)
+            {
+                if (!t.isQuad()) continue;
+                const CellGeom cg = cellGeom(r.vertices, t);
+                if (cg.centroid.x() < x0 || cg.centroid.x() >= x1) continue;
+                s += std::sqrt(cg.area); ++n;
+            }
+            return n ? s / n : 0.0;
+        };
+        const double near = meanEdge(20, 60), far = meanEdge(240, 300);
+        QVERIFY2(near > 0.0 && far > 0.0,
+                 qPrintable(QStringLiteral("near=%1 far=%2 — expected quads at both ends").arg(near).arg(far)));
+        QVERIFY2(far > 2.0 * near,
+                 qPrintable(QStringLiteral("lattice did not follow the field: near=%1 far=%2")
+                                .arg(near).arg(far)));
+        QCOMPARE(computeQuadStats(r).nonConvex, 0);
+        QVERIFY(computeQuadStats(r).minScaledJacobian >= 0.866);
+    }
+
     /*! (a) Free rectangle 100–200 × 50–100, h = 5, in the 300×150 domain. */
     void freeRegion_rectangle()
     {

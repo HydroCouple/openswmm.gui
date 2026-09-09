@@ -33,6 +33,7 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QPushButton>
+#include <QTabWidget>
 #include <QTest>
 
 #include <cmath>
@@ -115,6 +116,50 @@ private slots:
     {
         delete m_dlg;
         if (m_window) { m_window->close(); delete m_window; }
+    }
+
+    /*!
+     * The Quality page's four inner tabs
+     * (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07 §2).
+     *
+     * The eight groups were split across inner tabs in pipeline order. The
+     * split is pure re-parenting — every group moved WHOLE — so the census
+     * initTestCase() asserts is the real regression guard. This slot pins the
+     * other half of the contract: that the tabs exist, are named and ordered
+     * as designed, and that "Minimum Cell Size" is reachable on Cell Size
+     * rather than orphaned on the outer page.
+     */
+    void qualityTabsStructure()
+    {
+        auto *tabs = m_dlg->findChild<QTabWidget *>(QStringLiteral("meshQualityTabs"));
+        QVERIFY2(tabs != nullptr, "the Quality page's inner tab widget is missing");
+        QCOMPARE(tabs->count(), 4);
+        QCOMPARE(tabs->tabText(0), QStringLiteral("Sizing"));
+        QCOMPARE(tabs->tabText(1), QStringLiteral("Cell Size"));
+        QCOMPARE(tabs->tabText(2), QStringLiteral("Terrain"));
+        QCOMPARE(tabs->tabText(3), QStringLiteral("Quads"));
+
+        // The group under test lives on Cell Size — findChildren above walks
+        // the whole dialog, so without this a group left off every tab would
+        // still be "found" while being unreachable to the user.
+        QVERIFY2(tabs->widget(1)->isAncestorOf(m_group),
+                 "the Minimum Cell Size group is not on the Cell Size tab");
+
+        // Each group landed on exactly one tab, and none was left behind on
+        // the outer page.
+        const QStringList titles = {
+            QStringLiteral("Triangle quality"), QStringLiteral("Minimum Cell Size"),
+        };
+        for (const QString &title : titles) {
+            QGroupBox *g = nullptr;
+            for (QGroupBox *cand : m_dlg->findChildren<QGroupBox *>())
+                if (cand->title() == title) g = cand;
+            QVERIFY2(g != nullptr, qPrintable(QStringLiteral("%1 is gone").arg(title)));
+            int owners = 0;
+            for (int i = 0; i < tabs->count(); ++i)
+                if (tabs->widget(i)->isAncestorOf(g)) ++owners;
+            QCOMPARE(owners, 1);
+        }
     }
 
     /*! Item 1 — off by default, and everything downstream inert. */
