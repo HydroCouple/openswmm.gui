@@ -588,6 +588,50 @@ bool Mesh2DH5Reader::readFaceFieldAt(const char* dataset, int timeIdx,
                                    .arg(QLatin1String(dataset)));
 }
 
+bool Mesh2DH5Reader::readFaceEnvelope(const char* dataset,
+                                      std::vector<float>& values) const
+{
+    if (file_id_ < 0)
+        return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
+    if (!hasFaceField(dataset))
+        return setError_(QStringLiteral("%1 not in file").arg(QLatin1String(dataset)));
+
+    const int n_face = triangleCount();
+    values.assign(n_face, 0.0f);
+    if (n_face == 0) return true;
+
+    hid_t ds = H5Dopen2(static_cast<hid_t>(file_id_), dataset, H5P_DEFAULT);
+    if (ds < 0)
+        return setError_(QStringLiteral("H5Dopen2 failed: %1").arg(QLatin1String(dataset)));
+    DataSetGuard g(ds);
+
+    hid_t fsp = H5Dget_space(ds);
+    if (fsp < 0)
+        return setError_(QStringLiteral("H5Dget_space failed"));
+    DataSpaceGuard fg(fsp);
+
+    // Envelopes are rank 1, [nFace]. A rank-2 [nTime, nFace] field is a
+    // time series, not an envelope — reject it rather than reading its
+    // first row, so a caller probing both paths cannot silently get frame 0.
+    if (H5Sget_simple_extent_ndims(fsp) != 1)
+        return setError_(QStringLiteral("%1 is not a rank-1 envelope")
+                             .arg(QLatin1String(dataset)));
+
+    hsize_t dims[1] = { 0 };
+    if (H5Sget_simple_extent_dims(fsp, dims, nullptr) < 0)
+        return setError_(QStringLiteral("H5Sget_simple_extent_dims failed"));
+    if (dims[0] != static_cast<hsize_t>(n_face))
+        return setError_(QStringLiteral("%1 length %2 != n_face %3")
+                             .arg(QLatin1String(dataset))
+                             .arg(static_cast<qulonglong>(dims[0]))
+                             .arg(n_face));
+
+    herr_t r = H5Dread(ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                       values.data());
+    return r >= 0 || setError_(QStringLiteral("H5Dread %1 failed")
+                                   .arg(QLatin1String(dataset)));
+}
+
 bool Mesh2DH5Reader::readVertexHeadsAt(int timeIdx,
                                         std::vector<double>& heads) const
 {

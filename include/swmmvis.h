@@ -474,6 +474,10 @@ private slots:
     void onAddDelimitedData();
     /*! \brief Open the statistics dashboard for the active results layer. */
     void onSummarizeResults();
+
+    /*! \brief Export the active 2D results layer — chosen time steps and the
+     *  run maxima — to Shapefile, GeoPackage or GeoTIFF rasters. */
+    void onExport2DResults();
     /*! \brief Ctrl+C dispatcher: copies the focused Attribute Table's selected
      *         rows as TSV when focus is inside one, otherwise the active map
      *         view as an image. One shortcut registration, routed by focus —
