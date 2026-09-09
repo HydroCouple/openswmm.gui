@@ -164,6 +164,17 @@ int main(int argc, char *argv[])
     if (!qEnvironmentVariableIsSet("QSG_RENDER_LOOP"))
         qputenv("QSG_RENDER_LOOP", "threaded");
 #endif
+
+    // The engine sizes its OpenMP team against the machine's logical CPUs
+    // and then spin-waits between barriers whenever that team "fits". In
+    // this process it shares the CPUs with the GUI thread, the threaded
+    // scene-graph render thread and its own IO thread — say so
+    // (OPENSWMM_HOST_RESERVED_THREADS is read by the engine's
+    // oversubscription check), so a THREADS = all-cores deck falls back to
+    // passive waits with a warning instead of stalling every barrier on a
+    // descheduled spinner. Respect a pre-set value.
+    if (!qEnvironmentVariableIsSet("OPENSWMM_HOST_RESERVED_THREADS"))
+        qputenv("OPENSWMM_HOST_RESERVED_THREADS", "3");
     // QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL); // or Qt::AA_UseOpenGLES
     // Alternatively, for Qt 6, force Metal:
     // qputenv("QSG_RHI_BACKEND", "metal");

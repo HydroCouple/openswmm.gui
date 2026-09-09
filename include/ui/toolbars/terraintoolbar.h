@@ -7,6 +7,7 @@
 #ifndef TERRAINTOOLBAR_H
 #define TERRAINTOOLBAR_H
 
+#include <QPointer>
 #include <QToolBar>
 
 class GISRasterLayer;
@@ -124,7 +125,7 @@ private:
     QLabel         *m_nodeUnitLabel      = nullptr;
     QLabel         *m_linkUnitLabel      = nullptr;
     QToolBar       *m_profileBar         = nullptr; // mini bar in the Profile group
-    MapCanvas      *m_canvas             = nullptr;
+    QPointer<MapCanvas> m_canvas;                   // canvas dies with its project window; we outlive it
     bool            m_userChoseNone      = false;   // deliberate "(none)" pick
 };
 

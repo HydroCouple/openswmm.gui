@@ -113,4 +113,32 @@ void detachFromParentWindow(QWidget *dialog)
         [childWindow orderOut:nil];
 }
 
+namespace {
+id<NSObject> g_simulationActivity     = nil;   // retained (this file is not ARC)
+int          g_simulationActivityRefs = 0;
+}   // namespace
+
+void beginSimulationActivity()
+{
+    if (g_simulationActivityRefs++ > 0)
+        return;
+    g_simulationActivity = [[[NSProcessInfo processInfo]
+        beginActivityWithOptions:(NSActivityUserInitiatedAllowingIdleSystemSleep
+                                  | NSActivityLatencyCritical)
+                          reason:@"OpenSWMM simulation running"] retain];
+}
+
+void endSimulationActivity()
+{
+    if (g_simulationActivityRefs <= 0)
+        return;
+    if (--g_simulationActivityRefs > 0)
+        return;
+    if (g_simulationActivity) {
+        [[NSProcessInfo processInfo] endActivity:g_simulationActivity];
+        [g_simulationActivity release];
+        g_simulationActivity = nil;
+    }
+}
+
 } // namespace openswmmvis::platform

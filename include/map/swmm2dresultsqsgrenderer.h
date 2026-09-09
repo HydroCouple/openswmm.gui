@@ -201,6 +201,7 @@ private:
         quint64       inflightGen = 0;
         ContourJobKey inflightKey;
         ContourJobKey publishedKey;
+        bool          relaunch = false;   ///< a newer key arrived while a job was in flight
     };
     AsyncContourJob m_bandJob;
     AsyncContourJob m_isoJob;

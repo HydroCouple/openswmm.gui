@@ -1092,18 +1092,41 @@ void EngineMesh2DSource::pushRainfall(std::vector<float> rainfall,
     enforceCap_();
 }
 
+size_t EngineMesh2DSource::historyBytes() const
+{
+    size_t n = 0;
+    for (const Tick& t : history_)
+        n += t.depths.size() + t.flux.size() + t.vertex_depths.size()
+           + t.rainfall.size() + t.rain_cum.size();
+    return n * sizeof(float);
+}
+
 void EngineMesh2DSource::enforceCap_()
 {
-    if (max_frames_ < 8 || static_cast<int>(history_.size()) <= max_frames_) return;
+    const bool overFrames = max_frames_ >= 8
+                            && static_cast<int>(history_.size()) > max_frames_;
+    const bool overBytes  = max_bytes_ > 0 && historyBytes() > max_bytes_;
+    if (!overFrames && !overBytes) return;
+
     // Thin the OLDER half 2:1 (keep every other frame), keep the newer half
     // whole: recent frames stay at full cadence, the far past coarsens
-    // geometrically. Sim times travel with the frames.
-    const size_t n = history_.size(), half = n / 2;
-    std::vector<Tick> kept;
-    kept.reserve(n - half / 2);
-    for (size_t i = 0; i < half; i += 2) kept.emplace_back(std::move(history_[i]));
-    for (size_t i = half; i < n; ++i)   kept.emplace_back(std::move(history_[i]));
-    history_ = std::move(kept);
+    // geometrically. Sim times travel with the frames. Repeat until under
+    // both bounds; the byte target sits at 75 % of the budget so the next
+    // ticks do not land straight back on it.
+    const size_t byteTarget = max_bytes_ - max_bytes_ / 4;
+    while (history_.size() >= 8) {
+        const size_t n = history_.size(), half = n / 2;
+        std::vector<Tick> kept;
+        kept.reserve(n - half / 2);
+        for (size_t i = 0; i < half; i += 2) kept.emplace_back(std::move(history_[i]));
+        for (size_t i = half; i < n; ++i)   kept.emplace_back(std::move(history_[i]));
+        history_ = std::move(kept);
+
+        const bool framesOk = max_frames_ < 8
+                              || static_cast<int>(history_.size()) <= max_frames_;
+        const bool bytesOk  = max_bytes_ == 0 || historyBytes() <= byteTarget;
+        if (framesOk && bytesOk) break;
+    }
     ++generation_;
 }
 

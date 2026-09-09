@@ -203,6 +203,59 @@ private slots:
         QVERIFY(!src->readDepthAt(n - 1, g.nCells + 5, one));
     }
 
+    void byteBudgetBoundsTheHistoryAndThinsToThreeQuarters()
+    {
+        const Grid g = makeGrid(12, 6);
+        auto src = makeSource(g);
+        auto pushFullTick = [&](int k) {
+            src->pushDepths(frameDepths(g, k), tickTime(k), double(k));
+            src->pushVertexSignedDepths(std::vector<double>(size_t(g.nVert), 0.05),
+                                        tickTime(k), double(k));
+            src->pushRainfall(std::vector<float>(size_t(g.nCells), 1e-6f),
+                              std::vector<float>(size_t(g.nCells), 0.0f),
+                              tickTime(k), double(k));
+        };
+
+        // One full tick's payload sizes the budget; the frame cap stays out
+        // of the way (default 2000 frames, we push 200).
+        pushFullTick(0);
+        const size_t tickBytes = src->historyBytes();
+        QVERIFY(tickBytes > 0);
+        const size_t budget = 40 * tickBytes;
+        src->setMaxBytes(budget);
+        QCOMPARE(src->maxBytes(), budget);
+
+        int gen = src->historyGeneration(), thins = 0;
+        for (int k = 1; k < 200; ++k) {
+            pushFullTick(k);
+            QVERIFY2(src->historyBytes() <= budget,
+                     qPrintable(QStringLiteral("tick %1: %2 > %3")
+                                    .arg(k).arg(src->historyBytes()).arg(budget)));
+            if (src->historyGeneration() != gen) {
+                gen = src->historyGeneration();
+                ++thins;
+                // A thin lands at or below 75 % so the next ticks do not
+                // re-trigger it one push later.
+                QVERIFY2(src->historyBytes() <= budget - budget / 4,
+                         qPrintable(QStringLiteral("after thin at tick %1: %2 > %3")
+                                        .arg(k).arg(src->historyBytes())
+                                        .arg(budget - budget / 4)));
+            }
+        }
+        QVERIFY(thins > 0);
+        QVERIFY2(thins < 40, qPrintable(QString::number(thins)));   // not once per tick
+
+        // Newest frame retained, times monotonic, per-cell read still works.
+        const int n = src->timeCount();
+        QVERIFY(n >= 8);
+        QCOMPARE(src->simTimeAt(n - 1), tickTime(199));
+        for (int i = 1; i < n; ++i)
+            QVERIFY(src->simTimeAt(i) > src->simTimeAt(i - 1));
+        float one = -1.0f;
+        QVERIFY(src->readDepthAt(n - 1, 0, one));
+        QCOMPARE(one, frameDepths(g, 199)[0]);
+    }
+
     void perTickCostDoesNotGrowWithHistory()
     {
         const Grid g = makeGrid(120, 60);             // 14,400 cells

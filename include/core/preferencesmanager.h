@@ -259,6 +259,12 @@ public:
     [[nodiscard]] int live2DHistoryCap() const;
     void setLive2DHistoryCap(int frames);
 
+    /*! Live 2D results: byte budget (MB) for the frames kept in memory,
+     *  applied alongside the frame cap — the frame cap alone let a large mesh
+     *  hold gigabytes. Default 1024 MB, range 64–32768. */
+    [[nodiscard]] int live2DHistoryMB() const;
+    void setLive2DHistoryMB(int megabytes);
+
     /*! Live 1D results: open the run's .out while the engine writes it and
      *  grow the results layer (map animation, profile + comparison plots)
      *  on every progress tick. Applies to the 6.x engine and the legacy
