@@ -186,6 +186,14 @@ public:
         // differs from meshCRSWkt. Usually 0 or 1 entries.
         struct QuadRegionLayerSpec { QString path, layerName, crsWkt; };
         QVector<QuadRegionLayerSpec> quadRegionLayers;
+        /*! "Generate quadrilateral cells" (QUAD_EVERYWHERE_PLAN_2026-09-07.md
+         *  §3.5): quad-mesh the whole domain with no polygon required. Explicit
+         *  regions above stay optional overrides — each is subtracted from the
+         *  background and keeps its own mode / spacing. */
+        bool           quadEverywhere = false;
+        /*! Target quad edge for the background region; 0 = follow the size
+         *  field (graded), which is the default and the efficient choice. */
+        double         quadEverywhereSpacing = 0.0;
         // Mode / spacing / aspect / alignment / tag applied to every region
         // from a layer or subcatchment unless a per-feature attribute
         // (quad_mode, quad_spacing, quad_aspect, quad_angle, tag) overrides it.
@@ -426,6 +434,8 @@ private:
     QDoubleSpinBox *m_quadPlanaritySpin    = nullptr; ///< max bed non-planarity (length; (off) at 0)
 
     // ── Quad regions (PSLG) (QUAD_MESHING_REDESIGN_PLAN §3.1 sources, §6.3) ──
+    QCheckBox      *m_quadEverywhereCheck    = nullptr; ///< quad-mesh the whole domain (no polygon needed)
+    QDoubleSpinBox *m_quadEverywhereSpacingSpin = nullptr; ///< background h; 0 = follow the size field
     QComboBox      *m_quadRegionLayerCombo   = nullptr; ///< "(none)" + polygon GISVectorLayers
     QLineEdit      *m_quadRegionSubcatchEdit = nullptr; ///< comma-separated subcatchment IDs
     QComboBox      *m_quadRegionModeCombo    = nullptr; ///< default mesh::QuadRegionMode
