@@ -2195,6 +2195,12 @@ add_swmmvis_gui_test(test_mesh2dgroundwaterdialog
     test_mesh2dgroundwaterdialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dgroundwaterdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dgroundwaterdialog.h
+    # GG1: the dialog now drives the [2D_AQUIFER_NODE] bed table through this
+    # model, and labels its fields in the project's units, so both link here.
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2daquifermodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2daquifermodel.h
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
 )
 
 # Per-cell 2D parameter registry — the single table the mesh toolbar, the
