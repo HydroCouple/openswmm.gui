@@ -378,6 +378,10 @@ void SimulationOptionsDialog::buildUi()
     root->addLayout(split, 1);
 
     m_categoryList = new QListWidget(this);
+    // Named so the restructure's gate tests can reach the sidebar by
+    // objectName instead of a friend declaration. A QListWidget is not one of
+    // the types dialoglayoutpersistence saves, so this does not enrol it.
+    m_categoryList->setObjectName(QStringLiteral("categories"));
     m_categoryList->setMinimumWidth(190);
     split->addWidget(m_categoryList);
 
@@ -430,6 +434,159 @@ void SimulationOptionsDialog::buildUi()
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(bb->button(QDialogButtonBox::Apply), &QPushButton::clicked,
             this, &SimulationOptionsDialog::onApply);
+
+    // Every page exists by now, so every option editor can be tagged in one
+    // pass (see tagOptionWidgets()).
+    tagOptionWidgets();
+}
+
+void SimulationOptionsDialog::tagOption(QWidget *w, const char *key)
+{
+    // Null-tolerant: 2D editors do not exist when OPENSWMM_HAS_2D is off, and
+    // a page that failed to build should not take the dialog down with it.
+    if (!w) return;
+    // A few editors own more than one key — a QDateTimeEdit writes both the
+    // DATE and the TIME half — so the property is a comma-separated list and
+    // repeated tags accumulate rather than overwrite.
+    const QString add = QString::fromLatin1(key);
+    const QString cur = w->property("optionKey").toString();
+    if (cur.isEmpty()) {
+        w->setProperty("optionKey", add);
+    } else if (!cur.split(QLatin1Char(',')).contains(add)) {
+        w->setProperty("optionKey", cur + QLatin1Char(',') + add);
+    }
+}
+
+void SimulationOptionsDialog::tagOptionWidgets()
+{
+    // Derived mechanically from the writeIfChanged() key lists in
+    // writeToEngine() and write2DToEngine(): one tag per editor, so the
+    // reachability test can assert that every key written has a laid-out
+    // widget behind it. Keep this in step with those two functions.
+    // ---- [OPTIONS] — writeToEngine() ----
+    tagOption(m_infiltrationCombo, "INFILTRATION");
+    tagOption(m_routingCombo, "FLOW_ROUTING");
+    tagOption(m_allowPondingBox, "ALLOW_PONDING");
+    tagOption(m_skipSteadyBox, "SKIP_STEADY_STATE");
+    tagOption(m_ignoreRainfallBox, "IGNORE_RAINFALL");
+    tagOption(m_ignoreSnowmeltBox, "IGNORE_SNOWMELT");
+    tagOption(m_ignoreGroundwaterBox, "IGNORE_GROUNDWATER");
+    tagOption(m_ignoreRDIIBox, "IGNORE_RDII");
+    tagOption(m_ignoreQualityBox, "IGNORE_QUALITY");
+    tagOption(m_ignoreRoutingBox, "IGNORE_ROUTING");
+    tagOption(m_startEdit, "START_DATE");
+    tagOption(m_startEdit, "START_TIME");
+    tagOption(m_endEdit, "END_DATE");
+    tagOption(m_endEdit, "END_TIME");
+    tagOption(m_reportStartEdit, "REPORT_START_DATE");
+    tagOption(m_reportStartEdit, "REPORT_START_TIME");
+    tagOption(m_reportStepEdit, "REPORT_STEP");
+    tagOption(m_dryStepEdit, "DRY_STEP");
+    tagOption(m_wetStepEdit, "WET_STEP");
+    tagOption(m_ruleStepEdit, "RULE_STEP");
+    tagOption(m_routingStepEdit, "ROUTING_STEP");
+    tagOption(m_dryDaysSpin, "DRY_DAYS");
+    tagOption(m_sweepStartEdit, "SWEEP_START");
+    tagOption(m_sweepEndEdit, "SWEEP_END");
+    tagOption(m_surchargeCombo, "SURCHARGE_METHOD");
+    tagOption(m_dpsCelerSpin, "DPS_CELERITY");
+    tagOption(m_dpsAlphaSpin, "DPS_ALPHA");
+    tagOption(m_dpsDecaySpin, "DPS_DECAY_TIME");
+    tagOption(m_tpaCeleritySpin, "TPA_CELERITY");
+    tagOption(m_ufMethodCombo, "UNSTEADY_FRICTION");
+    tagOption(m_ufK3Spin, "UF_K3");
+    tagOption(m_nodeContinuityCombo, "NODE_CONTINUITY");
+    tagOption(m_andersonAccelBox, "ANDERSON_ACCEL");
+    tagOption(m_forceMainCombo, "FORCE_MAIN_EQUATION");
+    tagOption(m_normalFlowCombo, "NORMAL_FLOW_LIMITED");
+    tagOption(m_inertialDampCombo, "INERTIAL_DAMPING");
+    tagOption(m_lengtheningSpin, "LENGTHENING_STEP");
+    tagOption(m_variableStepSpin, "VARIABLE_STEP");
+    tagOption(m_minStepSpin, "MINIMUM_STEP");
+    tagOption(m_maxTrialsSpin, "MAX_TRIALS");
+    tagOption(m_headTolSpin, "HEAD_TOLERANCE");
+    tagOption(m_latFlowTolSpin, "LAT_FLOW_TOL");
+    tagOption(m_sysFlowTolSpin, "SYS_FLOW_TOL");
+    tagOption(m_minSurfAreaSpin, "MIN_SURFAREA");
+    tagOption(m_minSlopeSpin, "MIN_SLOPE");
+    tagOption(m_fvCellLengthSpin, "FV_CELL_LENGTH");
+    tagOption(m_fvMinCellsSpin, "FV_MIN_CELLS");
+    tagOption(m_fvCflSpin, "FV_CFL");
+    tagOption(m_fvRiemannCombo, "FV_RIEMANN");
+    tagOption(m_fvOrderCombo, "FV_ORDER");
+    tagOption(m_fvLimiterCombo, "FV_LIMITER");
+    tagOption(m_fvTimeIntCombo, "FV_TIME_INTEGRATION");
+    tagOption(m_fvSlotCeleritySpin, "FV_SLOT_CELERITY");
+    tagOption(m_fvPressureClosureCombo, "FV_PRESSURE_CLOSURE");
+    tagOption(m_fvPressImplicitBox, "FV_PRESSURIZED_IMPLICIT");
+    tagOption(m_fvScalarSchemeCombo, "FV_SCALAR_SCHEME");
+    tagOption(m_fvStructCouplingCombo, "FV_STRUCTURE_COUPLING");
+    tagOption(m_fvCompactionBox, "FV_COMPACTION");
+    tagOption(m_fvBackendCombo, "FV_BACKEND");
+    tagOption(m_fvMinParallelSpin, "FV_MIN_PARALLEL_CELLS");
+    tagOption(m_fvLtsBox, "FV_LTS");
+    tagOption(m_fvLtsTiersSpin, "FV_LTS_MAX_TIERS");
+    tagOption(m_fvCflCensusSpin, "FV_CFL_CENSUS_INTERVAL");
+    tagOption(m_qualitySolverCombo, "QUALITY_SOLVER");
+    tagOption(m_outfallBackflowCombo, "OUTFALL_BACKFLOW_QUALITY");
+    tagOption(m_qualityStepSpin, "QUALITY_STEP");
+    tagOption(m_maxSegmentsSpin, "MAX_SEGMENTS_PER_LINK");
+    tagOption(m_dispersionCombo, "DISPERSION");
+    tagOption(m_rwptSeedSpin, "RWPT_SEED");
+    tagOption(m_waterAgeBox, "WATER_AGE");
+    tagOption(m_heatTransportBox, "HEAT_TRANSPORT");
+    tagOption(m_threadsSpin, "THREADS");
+    tagOption(m_module2DBox, "IGNORE_2D");
+
+#ifdef OPENSWMM_HAS_2D
+    // ---- [2D_OPTIONS] — write2DToEngine() ----
+    // Built in a loop, so the key is not a literal at the call site.
+    for (int c = 0; c < 4; ++c)
+        tagOption(m_transport2DBox[c], transport2DKey(c));
+    tagOption(m_maxTimestepSpin, "MAX_TIMESTEP");
+    tagOption(m_dryDepthSpin, "DRY_DEPTH");
+    tagOption(m_limiterEpsSpin, "LIMITER_EPSILON");
+    tagOption(m_fluxDhEpsSpin, "FLUX_DH_EPS");
+    tagOption(m_cellClosureCombo, "CELL_CLOSURE");
+    tagOption(m_faceReconCombo, "FACE_RECONSTRUCTION");
+    tagOption(m_vfrMinWetFracSpin, "VFR_MIN_WET_FRAC");
+    tagOption(m_couplingCdSpin, "COUPLING_CD");
+    tagOption(m_couplingSyncSpin, "COUPLING_SYNC");
+    tagOption(m_rainfall2DModeCombo, "RAINFALL_MODE");
+    tagOption(m_report2DBox, "REPORT_2D");
+    tagOption(m_thetaSpin, "THETA");
+    tagOption(m_cflNumberSpin, "CFL_NUMBER");
+    tagOption(m_ltsTiersSpin, "LTS_TIERS");
+    tagOption(m_hMoveSpin, "H_MOVE");
+    tagOption(m_froudeMaxSpin, "FROUDE_MAX");
+    tagOption(m_momentum2DCombo, "MOMENTUM_EQUATION");
+    tagOption(m_reconOrder2DSpin, "RECONSTRUCTION_ORDER");
+    tagOption(m_advection2DBox, "ADVECTION");
+    tagOption(m_backend2DCombo, "BACKEND");
+    tagOption(m_couplingAreaAutoBox, "COUPLING_AREA");
+    tagOption(m_output2DFileEdit, "OUTPUT_FILE");
+    tagOption(m_output2DPrecisionCombo, "OUTPUT_PRECISION");
+    tagOption(m_output2DCompressionSpin, "OUTPUT_COMPRESSION");
+    tagOption(m_infil2DModeCombo, "INFILTRATION");
+    tagOption(m_infil2DMethodCombo, "INFIL_DEFAULT_METHOD");
+    tagOption(m_infil2DDestCombo, "INFIL_DESTINATION");
+    tagOption(m_evap2DCombo, "EVAPORATION");
+    tagOption(m_gw2DEnableCombo, "GROUNDWATER");
+    tagOption(m_gw2DEtCombo, "GW_ET");
+    tagOption(m_rptDisabledBox, "RPT_DISABLED");
+    tagOption(m_rptInputBox, "RPT_INPUT");
+    tagOption(m_rptContinuityBox, "RPT_CONTINUITY");
+    tagOption(m_rptFlowstatsBox, "RPT_FLOWSTATS");
+    tagOption(m_rptControlsBox, "RPT_CONTROLS");
+    tagOption(m_rptAveragesBox, "RPT_AVERAGES");
+    tagOption(m_signedHeadsCheck, "REPORT_SIGNED_HEADS");
+    tagOption(m_rptSubcatchNoneRadio, "RPT_SUBCATCHMENTS");
+    tagOption(m_rptNodeNoneRadio, "RPT_NODES");
+    tagOption(m_rptLinkNoneRadio, "RPT_LINKS");
+    tagOption(m_rainfallModeCombo, "RAINFALL_MODE");
+    tagOption(m_runoffModeCombo, "RUNOFF_MODE");
+    tagOption(m_rdiiModeCombo, "RDII_MODE");
+#endif
 }
 
 void SimulationOptionsDialog::addCategory(const QString &title, QWidget *page)
@@ -2196,6 +2353,12 @@ void SimulationOptionsDialog::onMeshImport()
 
 void SimulationOptionsDialog::on2DModuleToggled(bool enabled)
 {
+    // Reached from the checkbox's toggled() signal, i.e. a real user action —
+    // readFromEngine() blocks the signal and calls this directly, so seeding
+    // the box does not count. From here on the box carries an intent worth
+    // writing to IGNORE_2D.
+    if (sender() == m_module2DBox) m_module2DIntentKnown = true;
+
     // Only the 2D Surface Routing solver-parameter page follows the module
     // toggle. The Mesh page is always interactive — mesh creation is what
     // flips the module on, so gating it here would be circular.
@@ -3315,6 +3478,10 @@ int SimulationOptionsDialog::write2DToEngine(int &n)
         return swmm_options_set_ext(m_engine, key, v.toUtf8().constData()) == 0;
     };
     auto writeIfChanged = [&](const char *key, const QString &cur, const QString &nv) {
+        // Same record as writeToEngine's pass: [2D_OPTIONS] keys are written
+        // through swmm_options_set_ext, but they are still option editors and
+        // must appear in the reachability comparison.
+        m_lastWriteKeys << QString::fromLatin1(key);
         // Numeric-aware compare, same rationale as writeToEngine().
         if (optionValueEquals(cur, nv)) return;
         if (setExt(key, nv)) ++n;
@@ -4292,6 +4459,20 @@ void SimulationOptionsDialog::readFromEngine()
         // The engine's IGNORE_2D flag is authoritative when set — it is what
         // actually keeps the 2D solver from running. QSettings/.inp sections
         // only seed the intent when the model has never been toggled.
+        //
+        // Distinguish the two, because only the first is a user *preference*:
+        // the engine reports IGNORE_2D = "NO" by default and does not
+        // serialise it, so on a 1D deck the key is absent, the box is
+        // unchecked purely because the .inp carries no 2D sections, and
+        // writing that back as IGNORE_2D YES would turn "this model has no
+        // mesh" into "the user asked to ignore 2D" — dirtying the project on
+        // an Apply with no edits.
+        // The engine cannot tell us whether IGNORE_2D was *set*: it reports the
+        // default "NO" for a deck that never mentions the key, so a non-empty
+        // read proves nothing. Intent therefore comes only from a stored
+        // per-project preference, or from the user toggling the box (see
+        // on2DModuleToggled). Everything else is inference from the .inp.
+        m_module2DIntentKnown = s.contains(key);
         const bool ignored2d =
             parseEngineBool(getOption("IGNORE_2D", QStringLiteral("NO")))
                 == Qt::Checked;
@@ -5424,8 +5605,13 @@ int SimulationOptionsDialog::writePluginsToEngine()
 int SimulationOptionsDialog::writeToEngine()
 {
     int n = 0;
+    // One write pass: the key record starts empty and collects every key this
+    // pass considered, so lastWriteKeys() can be compared against the tagged
+    // editors (reachability seam).
+    m_lastWriteKeys.clear();
     auto writeIfChanged = [&](const char *key, const QString &current,
                               const QString &newVal) {
+        m_lastWriteKeys << QString::fromLatin1(key);
         // Numeric-aware compare: the engine renders numerics with six
         // decimals ("0.000000") while this dialog formats 'f',2/'f',3/etc.,
         // so a plain string compare would rewrite every key (and dirty the
@@ -5643,11 +5829,21 @@ int SimulationOptionsDialog::writeToEngine()
     // 2D module toggle — IGNORE_2D is the engine-honored gate (unchecked ⇒
     // IGNORE_2D YES ⇒ the solver never activates, mesh or no mesh); QSettings
     // keeps the per-project UI intent for models without the key.
-    if (m_module2DBox)
+    //
+    // Written only once the box carries a real intent (see
+    // m_module2DIntentKnown): on a 1D deck that has never been toggled the
+    // unchecked box merely describes the .inp, and materialising IGNORE_2D
+    // from it made every no-edit Apply dirty the project.
+    if (m_module2DBox && m_module2DIntentKnown)
         writeIfChanged("IGNORE_2D", getOption("IGNORE_2D"),
                        engineBoolString(!m_module2DBox->isChecked()));
-    if (m_module2DBox && m_layer)
+    if (m_module2DBox && m_layer && m_module2DIntentKnown)
     {
+        // Same condition as the IGNORE_2D write above: persisting an inferred
+        // state would make s.contains(key) true on the next open, promoting
+        // the inference to an "intent" and writing IGNORE_2D after all — the
+        // bug would simply reappear on the second Apply. A deck whose state
+        // was inferred re-infers it next time, to the same answer.
         QSettings s;
         const QString key = QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
                                 .arg(m_layer->modelFilePath());
