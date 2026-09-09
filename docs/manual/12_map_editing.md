@@ -18,6 +18,7 @@ Everything lives on the **Model** menu and the **Model** ribbon tab.
 |---|---|---|
 | **Edit Existing** (`Ctrl+E`) | **Edit → Edit Existing** | Model ▸ Edit |
 | **Junction** | **Model → Add Node → Junction** | Model ▸ Nodes |
+| **Junction on Conduit** | **Model → Add Node → Junction on Conduit** | Model ▸ Nodes |
 | **Virtual Junction** | **Model → Add Node → Virtual Junction** | Model ▸ Nodes |
 | **Inlet Junction** | **Model → Add Node → Inlet Junction** | Model ▸ Nodes |
 | **Outfall** | **Model → Add Node → Outfall** | Model ▸ Nodes |
@@ -149,6 +150,28 @@ derived from the raster's vertical unit versus the model's.
 
 \figtodo{12_add_node_terrain.png, Placing a junction with a DTM active on the Terrain toolbar}
 
+### Splitting a conduit with a junction
+
+**Junction on Conduit** inserts an ordinary junction partway along an existing
+conduit, rather than placing one on empty canvas:
+
+1. Activate it and click a **conduit**. Clicking anything else — empty canvas,
+   or a pump, weir, orifice or outlet — puts a hint in the status bar and
+   places nothing. Only conduits have a length to divide.
+2. The conduit is split at the closest point on its polyline. The original
+   conduit keeps its name and upstream end; a second conduit named
+   `<name>_B` carries the downstream half. Cross-section, roughness and
+   barrels are copied, the break-point invert is interpolated along the
+   conduit's gradient, and any interior vertices are shared out between the
+   two halves.
+
+The insertion is one undoable step, and undoing it re-fuses the two conduits.
+
+Use this rather than **Virtual Junction** when you want a real node — one that
+can take inflows, dry-weather flow or a third connecting link. Virtual
+junctions are computational break points and require dynamic-wave routing;
+a junction inserted this way carries no such restriction.
+
 ### Virtual junctions
 
 A virtual junction only exists between exactly two conduits, so it cannot be
@@ -204,8 +227,8 @@ Activate **Subcatchment** and draw a polygon:
 | Gesture | Result |
 |---|---|
 | Left-click | Add a vertex; the rubber-band polygon updates |
-| **Double-click** | Close the polygon and commit (minimum three vertices) |
-| **Enter** / **Return** | Same as double-click |
+| **Double-click** | Add the clicked point as the final vertex, then close the polygon and commit (minimum three vertices) |
+| **Enter** / **Return** | Close and commit the vertices placed so far, without adding one |
 | Right-click | Remove the last vertex, or cancel when fewer than two remain |
 | **Esc** | Cancel |
 

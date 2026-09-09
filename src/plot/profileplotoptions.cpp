@@ -239,6 +239,7 @@ void ProfilePlotOptions::setOrificeOutlinePen(const QPen &p) { SET_OBJ(m_orifice
 void ProfilePlotOptions::setWeirOutlinePen   (const QPen &p) { SET_OBJ(m_weirOutlinePen,    p); }
 void ProfilePlotOptions::setPumpOutlinePen   (const QPen &p) { SET_OBJ(m_pumpOutlinePen,    p); }
 void ProfilePlotOptions::setOutletOutlinePen (const QPen &p) { SET_OBJ(m_outletOutlinePen,  p); }
+void ProfilePlotOptions::setStreetInvertBrush(const QBrush &b) { SET_OBJ(m_streetInvertBrush, b); }
 
 // ── Legend ──────────────────────────────────────────────────────────────
 void ProfilePlotOptions::setLegendVisible (bool v)             { SET_PRIM(m_legendVisible, v); }

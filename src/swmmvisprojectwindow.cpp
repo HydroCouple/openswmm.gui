@@ -32,6 +32,7 @@
 #include "map/tools/maptoolmeasure.h"
 #include "map/tools/maptoolselectprofile.h"
 #include "map/tools/maptooladdnode.h"
+#include "map/tools/maptooladdjunctionsplit.h"
 #include "map/tools/maptooladdvirtualnode.h"
 #include "map/tools/maptooladdinletnode.h"
 #include "map/tools/maptooladdlink.h"
@@ -353,6 +354,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // SWMM_NODE_JUNCTION=0, OUTFALL=1, STORAGE=2, DIVIDER=3
     // Pass element-kind keys so tools read the configurable prefix from PreferencesManager.
     mAddJunctionTool  = new OpenSWMMVisMapToolAddNode(mCanvas, 0, QStringLiteral("junction"),     this);
+    mAddJunctionSplitTool   = new OpenSWMMVisMapToolAddJunctionSplit(mCanvas, this);
     mAddVirtualJunctionTool = new OpenSWMMVisMapToolAddVirtualNode(mCanvas, this);
     mAddInletJunctionTool   = new OpenSWMMVisMapToolAddInletNode(mCanvas, this);
     mAddOutfallTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 1, QStringLiteral("outfall"),      this);
@@ -1958,6 +1960,7 @@ bool SWMMVisProjectWindow::hasMeshLayer() const
     return false;
 }
 void SWMMVisProjectWindow::activateAddJunctionTool()    { mCanvas->setActiveTool(mAddJunctionTool); }
+void SWMMVisProjectWindow::activateAddJunctionSplitTool()   { mCanvas->setActiveTool(mAddJunctionSplitTool); }
 void SWMMVisProjectWindow::activateAddVirtualJunctionTool() { mCanvas->setActiveTool(mAddVirtualJunctionTool); }
 void SWMMVisProjectWindow::activateAddInletJunctionTool()   { mCanvas->setActiveTool(mAddInletJunctionTool); }
 void SWMMVisProjectWindow::activateAddOutfallTool()     { mCanvas->setActiveTool(mAddOutfallTool); }
@@ -2003,6 +2006,7 @@ QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() cons
         { mMeasureTool,        QStringLiteral("actionMeasure")        },
         { mSelectProfileTool,  QStringLiteral("actionPlotProfile")    },
         { mAddJunctionTool,    QStringLiteral("actionAddJunction")    },
+        { mAddJunctionSplitTool,   QStringLiteral("actionAddJunctionSplit")   },
         { mAddVirtualJunctionTool, QStringLiteral("actionAddVirtualJunction") },
         { mAddInletJunctionTool,   QStringLiteral("actionAddInletJunction")   },
         { mAddOutfallTool,     QStringLiteral("actionAddOutfall")     },

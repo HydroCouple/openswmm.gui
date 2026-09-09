@@ -37,6 +37,7 @@ class OpenSWMMVisMapToolSelectPolygon;
 class OpenSWMMVisMapToolMeasure;
 class OpenSWMMVisMapToolAddNode;
 class OpenSWMMVisMapToolAddVirtualNode;
+class OpenSWMMVisMapToolAddJunctionSplit;
 class OpenSWMMVisMapToolAddLink;
 class OpenSWMMVisMapToolAddGage;
 class OpenSWMMVisMapToolAddSubcatchment;
@@ -252,6 +253,11 @@ public:
     class OpenSWMMVisMapToolAddVirtualNode *addVirtualJunctionTool() const
     { return mAddVirtualJunctionTool; }
 
+    /*! Plain-junction split tool (click-a-conduit split). Exposed so
+     *  SWMMVis can route its statusMessageChanged to the status bar. */
+    class OpenSWMMVisMapToolAddJunctionSplit *addJunctionSplitTool() const
+    { return mAddJunctionSplitTool; }
+
     /*! Inlet-junction insertion tool (click-a-street-conduit split). Exposed
      *  for the same reason as the virtual-junction tool above. */
     class OpenSWMMVisMapToolAddInletNode *addInletJunctionTool() const
@@ -317,6 +323,7 @@ public:
      *  main window can sync toolbar checked states via activeToolChanged. */
     QHash<class OpenSWMMVisMapTool *, QString> toolActionKeys() const;
     void activateAddJunctionTool();
+    void activateAddJunctionSplitTool();
     void activateAddVirtualJunctionTool();
     void activateAddInletJunctionTool();
     void activateAddOutfallTool();
@@ -544,6 +551,7 @@ private:
     class OpenSWMMVisMapToolSelectProfile *mSelectProfileTool = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddJunctionTool   = nullptr;
     OpenSWMMVisMapToolAddVirtualNode *mAddVirtualJunctionTool = nullptr;
+    class OpenSWMMVisMapToolAddJunctionSplit *mAddJunctionSplitTool = nullptr;
     class OpenSWMMVisMapToolAddInletNode *mAddInletJunctionTool = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddOutfallTool    = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddStorageTool    = nullptr;

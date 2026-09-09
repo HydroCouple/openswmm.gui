@@ -229,6 +229,7 @@
 #include "map/tools/maptoolselect.h"
 #include "map/tools/maptoolplotpick.h"
 #include "map/tools/maptoolselectprofile.h"
+#include "map/tools/maptooladdjunctionsplit.h"
 #include "map/tools/maptooladdvirtualnode.h"
 #include "map/tools/maptooladdinletnode.h"
 
@@ -895,7 +896,8 @@ void SWMMVis::applyProjectOpenToActions(bool open)
     // omitted — it produces a separate .2dm artefact and is reachable
     // even before a project is bound.
     static const QStringList kProjectOnlyActions = {
-        QStringLiteral("actionAddJunction"),   QStringLiteral("actionAddVirtualJunction"),
+        QStringLiteral("actionAddJunction"),   QStringLiteral("actionAddJunctionSplit"),
+        QStringLiteral("actionAddVirtualJunction"),
         QStringLiteral("actionAddInletJunction"),
         QStringLiteral("actionAddOutfall"),
         QStringLiteral("actionAddStorage"),    QStringLiteral("actionAddFlowDivider"),
@@ -1766,7 +1768,8 @@ void SWMMVis::initializeMapTools()
         QStringLiteral("actionSelectByPolygon"),
         QStringLiteral("actionMeasure"), QStringLiteral("actionPlotProfile"),
         QStringLiteral("actionPlotProfile2D"),
-        QStringLiteral("actionAddJunction"), QStringLiteral("actionAddVirtualJunction"),
+        QStringLiteral("actionAddJunction"), QStringLiteral("actionAddJunctionSplit"),
+        QStringLiteral("actionAddVirtualJunction"),
         QStringLiteral("actionAddInletJunction"),
         QStringLiteral("actionAddOutfall"),
         QStringLiteral("actionAddStorage"), QStringLiteral("actionAddFlowDivider"),
@@ -4378,6 +4381,10 @@ void SWMMVis::initializeMenus()
         connect(ui->actionAddJunction, &QAction::triggered, this, [this]() {
             if (auto *pw = activeProjectWindow()) pw->activateAddJunctionTool();
         });
+    if (ui->actionAddJunctionSplit)
+        connect(ui->actionAddJunctionSplit, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddJunctionSplitTool();
+        });
     if (ui->actionAddVirtualJunction)
         connect(ui->actionAddVirtualJunction, &QAction::triggered, this, [this]() {
             if (auto *pw = activeProjectWindow()) pw->activateAddVirtualJunctionTool();
@@ -6771,6 +6778,16 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         connect(pt, &OpenSWMMVisMapToolSelectProfile::routingBusyChanged,
                 this, &SWMMVis::onSetProgressBarBusy,
                 Qt::UniqueConnection);
+    }
+
+    // Junction-split tool status hints (non-conduit / empty-canvas message).
+    if (auto *jt = pw->addJunctionSplitTool()) {
+        QObject::disconnect(jt, &OpenSWMMVisMapToolAddJunctionSplit::statusMessageChanged,
+                            statusBar(), nullptr);
+        connect(jt, &OpenSWMMVisMapToolAddJunctionSplit::statusMessageChanged,
+                statusBar(), [this](const QString &msg) {
+                    statusBar()->showMessage(msg, 5000);
+                });
     }
 
     // Virtual-junction tool status hints (D-G3 empty-canvas message etc.).

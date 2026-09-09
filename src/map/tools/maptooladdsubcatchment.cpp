@@ -17,6 +17,8 @@
 #include <QMouseEvent>
 #include <QPainter>
 
+#include <cstdlib>
+
 OpenSWMMVisMapToolAddSubcatchment::OpenSWMMVisMapToolAddSubcatchment(MapCanvas *canvas,
                                                                       QObject   *parent)
     : OpenSWMMVisMapTool(QStringLiteral("Add Subcatchment"), canvas, parent)
@@ -120,11 +122,42 @@ void OpenSWMMVisMapToolAddSubcatchment::mouseMoveEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolAddSubcatchment::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    if (event->button() != Qt::LeftButton) return;
-    // The single-click from the double-click already added a vertex — remove
-    // the duplicate before committing.
-    if (m_vertices.size() > 1)
-        m_vertices.removeLast();
+    if (event->button() != Qt::LeftButton || !m_canvas) return;
+
+    // Qt's delivery for the second click of a pair is platform-dependent: some
+    // platforms send MouseButtonPress before MouseButtonDblClick, others send
+    // DblClick alone (what this canvas widget does — verified by
+    // tests/gui/test_drawtool_doubleclick.cpp). So neither "the press already
+    // added it" nor "the press never ran" holds universally.
+    //
+    // Normalise instead: put the double-clicked point in exactly ONCE, on
+    // either path. The tool used to strip the last vertex on the assumption
+    // that a press had duplicated it — which deleted the user's closing point
+    // whenever only DblClick fired, and for a three-gesture triangle dropped
+    // it below commit()'s 3-vertex floor, silently creating nothing.
+    //
+    // The point is snapped exactly as mousePressEvent() snaps it, so a
+    // double-click closes on the same target a click would have.
+    double mx = 0.0, my = 0.0;
+    toMapCoords(event->pos().x(), event->pos().y(), mx, my);
+    SWMMModelLayer *layer = activeModelLayer();
+    m_snap = SnapEngine::snap(this, layer, mx, my);
+    double px = mx, py = my;
+    if (m_snap.snapped && layer)
+        layer->transformLayerToCanvas(m_snap.x, m_snap.y, px, py);
+
+    // Drop a trailing vertex that sits under the cursor already — the press
+    // leg of the double-click on platforms that send one, or a deliberate
+    // click immediately before the double-click. Compared in pixels because
+    // the two can differ in the last bits after the snap round-trip.
+    if (!m_vertices.isEmpty()) {
+        int lx = 0, ly = 0;
+        toPixelCoords(m_vertices.last().x(), m_vertices.last().y(), lx, ly);
+        if (std::abs(lx - event->pos().x()) <= 2
+            && std::abs(ly - event->pos().y()) <= 2)
+            m_vertices.removeLast();
+    }
+    m_vertices << QPointF(px, py);
     commit();
 }
 

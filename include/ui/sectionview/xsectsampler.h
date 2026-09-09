@@ -146,6 +146,56 @@ private:
     void *m_handle = nullptr;   //!< SWMM_XSect (opaque void*).
 };
 
+// ---- Link geometry resolution (shared by the Section View and the profile
+//      plot, so both surfaces read one implementation) ----------------------
+
+/*!
+ * \brief Sampler for the street at \p streetIdx, built from [STREETS].
+ *
+ * Preferred over the link-derived handle because swmm_street_get_params reads
+ * stored input and therefore works in EVERY lifecycle state, whereas
+ * swmm_link_create_xsect needs resolved geometry and returns
+ * SWMM_ERR_LIFECYCLE while the model is still being edited.
+ */
+[[nodiscard]] XsectSampler samplerFromStreetIndex(SWMM_Engine engine,
+                                                  int streetIdx, bool si);
+
+/*!
+ * \brief Sampler for a link's cross-section, given the values
+ *        `swmm_link_get_xsect` reported for it.
+ *
+ * \warning For STREET **and** IRREGULAR, `geom1` is a TABLE INDEX, not a
+ *          depth — the engine resolves the retained name back to an index for
+ *          both (openswmm_links_impl.cpp, `swmm_link_get_xsect`). Callers must
+ *          never use geom1 as a dimension for those two shapes; take the depth
+ *          from fullProps().yFull instead, which is what linkFullDepth() does.
+ *          Every other shape reports a real depth in geom1.
+ */
+[[nodiscard]] XsectSampler samplerForLink(SWMM_Engine engine, int linkIdx,
+                                          int shape, double g1, double g2,
+                                          double g3, double g4, bool si);
+
+/*!
+ * \brief A link's true full depth (crown height above the invert).
+ *
+ * Returns \p g1 directly for the shapes that report a depth there, and falls
+ * back to the sampler only for STREET / IRREGULAR / CUSTOM — so the common
+ * closed-pipe path costs nothing. Returns 0 when the geometry cannot be
+ * resolved (the caller then has no crown to draw).
+ *
+ * \param[out] outOpenTop  When non-null, receives whether the section should
+ *                         be DRAWN with an open top. This is a presentation
+ *                         predicate, not the engine's hydraulic one: it is
+ *                         `swmm_xsect_is_open() || shape == STREET`. The
+ *                         engine deliberately classifies a street as closed
+ *                         (its isOpen whitelist omits STREET_XSECT), but a
+ *                         street drawn with a soffit line reads as a box
+ *                         culvert, which it is not.
+ */
+[[nodiscard]] double linkFullDepth(SWMM_Engine engine, int linkIdx, int shape,
+                                   double g1, double g2, double g3, double g4,
+                                   bool si, bool *outOpenTop = nullptr);
+
 } // namespace openswmmvis::sectionview
 
 #endif // OPENSWMMVIS_SECTIONVIEW_XSECTSAMPLER_H

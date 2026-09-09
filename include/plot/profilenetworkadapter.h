@@ -91,6 +91,8 @@ struct PathLinkInfo
                                                           (relative to the
                                                           inlet invert).  0
                                                           for other links. */
+    bool                      openTop       = false; /*!< Draw with no soffit. */
+    bool                      isStreet      = false; /*!< STREET cross-section. */
     ProfileBuilder::LinkKind  kind          = ProfileBuilder::LinkKind::Conduit;
     bool                      reversed      = false;
 };
