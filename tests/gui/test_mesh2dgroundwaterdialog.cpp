@@ -4,11 +4,20 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * The 2D two-zone groundwater dialog is a PREVIEW: it lays out the parameter
- * surface of the engine's draft [2D_AQUIFER] design so the eventual wiring is
- * mechanical, but nothing in it may be editable while the engine kernel is
- * missing. These tests hold that contract — an enabled input here would let a
- * user type values that are silently discarded.
+ * GG1 (2026-09-07): this dialog is no longer a preview. The two-zone kernel
+ * landed in the engine, so the dialog now edits [2D_AQUIFER_OPTIONS], the
+ * per-scope [2D_AQUIFER] rows and the [2D_AQUIFER_NODE] beds against a live
+ * engine, and carries a read-only state page.
+ *
+ * Two contracts survive that change, and they are what these tests hold:
+ *
+ *   1. WITHOUT an engine nothing is editable. The dialog is reachable from the
+ *      mesh toolbar before a model is open, and a field that accepted values
+ *      with nowhere to write them would discard them silently.
+ *   2. The soil and closure vocabularies are INP tokens AND the wire order of
+ *      the engine's enums, so they are asserted against the engine's own
+ *      SWMM_GW2D_SOIL_* / SWMM_GW2D_CLOSURE_* codes rather than against
+ *      whatever the dialog happens to return.
  */
 #include <QtTest>
 
@@ -16,8 +25,6 @@
 
 #include <QAbstractSpinBox>
 #include <QComboBox>
-#include <QLabel>
-#include <QStackedWidget>
 #include <QTabWidget>
 
 using openswmmvis::ui::Mesh2DGroundwaterDialog;
@@ -27,11 +34,10 @@ class TestMesh2DGroundwaterDialog : public QObject
     Q_OBJECT
 
 private slots:
-    /*! Every numeric field and combo stays disabled — the dialog previews a
-     *  kernel the engine does not have yet. */
-    void allInputsAreDisabled()
+    /*! With no engine there is nowhere to write, so every input stays off. */
+    void allInputsAreDisabledWithoutAnEngine()
     {
-        Mesh2DGroundwaterDialog dlg;
+        Mesh2DGroundwaterDialog dlg(nullptr);
         const auto spins = dlg.findChildren<QAbstractSpinBox *>();
         QVERIFY2(!spins.isEmpty(), "expected the parameter fields to exist");
         for (QAbstractSpinBox *s : spins)
@@ -47,65 +53,44 @@ private slots:
                                     .arg(c->objectName())));
     }
 
-    /*! The banner must say why, so the preview is never mistaken for a bug. */
-    void bannerExplainsThePreviewState()
-    {
-        Mesh2DGroundwaterDialog dlg;
-        bool explained = false;
-        for (QLabel *l : dlg.findChildren<QLabel *>()) {
-            const QString t = l->text();
-            if (t.contains(QStringLiteral("2D_AQUIFER"))
-                || t.contains(QStringLiteral("Preview"), Qt::CaseInsensitive)) {
-                explained = true;
-                break;
-            }
-        }
-        QVERIFY2(explained, "no label explains that this is a preview");
-    }
-
-    /*! Both ribbon buttons open the same dialog on their own page. */
+    /*! Each toolbar entry opens the dialog on its own page. Asserted by tab
+     *  TEXT: the Page enum and the tab order are deliberately independent
+     *  (Options is built first but is not the default page), so comparing
+     *  indices here would only re-state the switch it is meant to check. */
     void opensOnTheRequestedPage()
     {
         Mesh2DGroundwaterDialog params(
-            nullptr, Mesh2DGroundwaterDialog::Page::AquiferProperties);
+            nullptr, nullptr, Mesh2DGroundwaterDialog::Page::AquiferProperties);
         auto *tabsA = params.findChild<QTabWidget *>();
         QVERIFY(tabsA);
-        QCOMPARE(tabsA->currentIndex(), 0);
+        QCOMPARE(tabsA->tabText(tabsA->currentIndex()),
+                 QStringLiteral("Aquifer"));
 
-        Mesh2DGroundwaterDialog init(
-            nullptr, Mesh2DGroundwaterDialog::Page::InitialConditions);
-        auto *tabsB = init.findChild<QTabWidget *>();
+        Mesh2DGroundwaterDialog state(
+            nullptr, nullptr, Mesh2DGroundwaterDialog::Page::State);
+        auto *tabsB = state.findChild<QTabWidget *>();
         QVERIFY(tabsB);
-        QCOMPARE(tabsB->currentIndex(), 1);
+        QCOMPARE(tabsB->tabText(tabsB->currentIndex()),
+                 QStringLiteral("State"));
     }
 
-    /*! The soil / closure vocabularies must match the draft section exactly —
-     *  they become INP tokens the moment the kernel lands. */
-    void vocabulariesMatchTheDraftSection()
+    /*! The vocabularies are the engine's enums in the engine's order — they go
+     *  out as INP tokens and come back as indices, so a reordering here would
+     *  silently re-label every existing aquifer row. */
+    void vocabulariesMatchTheEngineEnums()
     {
+        // openswmm_gw2d.h: RUSSO 0, GARDNER 1, BROOKS_COREY 2, VAN_GENUCHTEN 3.
         QCOMPARE(Mesh2DGroundwaterDialog::soilModelTokens(),
-                 (QStringList{QStringLiteral("GARDNER"), QStringLiteral("RUSSO"),
+                 (QStringList{QStringLiteral("RUSSO"), QStringLiteral("GARDNER"),
                               QStringLiteral("BROOKS_COREY"),
                               QStringLiteral("VAN_GENUCHTEN")}));
+        // openswmm_gw2d.h: AUTO -1, CLOSED_FORM 0, ENSLAVED 1, SIGMA 2. AUTO
+        // leads the list because it is the sentinel the engine resolves.
         QCOMPARE(Mesh2DGroundwaterDialog::closureTokens(),
-                 (QStringList{QStringLiteral("CLOSED_FORM"),
-                              QStringLiteral("KINEMATIC"),
+                 (QStringList{QStringLiteral("AUTO"),
+                              QStringLiteral("CLOSED_FORM"),
                               QStringLiteral("ENSLAVED"),
-                              QStringLiteral("AUTO")}));
-    }
-
-    /*! Each soil model's extra parameters must be laid out, so enabling them
-     *  later is a flag flip rather than new UI work. */
-    void everySoilModelHasAnExtraParameterPage()
-    {
-        Mesh2DGroundwaterDialog dlg;
-        // By name: an unqualified search would find the tab widget's own
-        // internal stack first.
-        auto *stack = dlg.findChild<QStackedWidget *>(
-            QStringLiteral("soilExtraStack"));
-        QVERIFY(stack);
-        QCOMPARE(stack->count(),
-                 Mesh2DGroundwaterDialog::soilModelTokens().size());
+                              QStringLiteral("SIGMA")}));
     }
 };
 

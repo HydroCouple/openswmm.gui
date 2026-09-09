@@ -1246,28 +1246,35 @@ void SWMMVis::initializeMeshEditingToolBar()
     if (mMeshEditingToolbar) mMeshEditingToolbar->addCellAction(actAssignInfil);
 
     // ── Groundwater (2D) ─────────────────────────────────────────────────
-    // Preview of the per-cell two-zone groundwater editor; the engine kernel
-    // ([2D_AQUIFER]) is still in design, so the dialog is display-only.
+    // G1 (2026-09-07): the two-zone kernel is in the engine, so this editor
+    // is live — [2D_AQUIFER_OPTIONS], the per-scope [2D_AQUIFER] rows, the
+    // [2D_AQUIFER_NODE] beds, and a read-only state/diagnostics page.
+    auto openGwDialog =
+        [this](openswmmvis::ui::Mesh2DGroundwaterDialog::Page page) {
+            auto *pw = activeProjectWindow();
+            SWMM_Engine engine = (pw && pw->modelLayer())
+                                     ? pw->modelLayer()->engine() : nullptr;
+            openswmmvis::ui::Mesh2DGroundwaterDialog dlg(
+                engine, this, page, pw ? pw->unitSystem() : nullptr);
+            dlg.exec();
+        };
+
     auto *actGWParams = new QAction(tr("Aquifer…"), this);
     actGWParams->setObjectName(QStringLiteral("actionMesh2DGWParams"));
     actGWParams->setToolTip(
-        tr("Per-cell 2D groundwater aquifer parameters (preview — pending "
-           "engine support)."));
-    connect(actGWParams, &QAction::triggered, this, [this]() {
-        openswmmvis::ui::Mesh2DGroundwaterDialog dlg(
-            this, openswmmvis::ui::Mesh2DGroundwaterDialog::Page::AquiferProperties);
-        dlg.exec();
+        tr("Two-zone groundwater: aquifer rows, options and node beds."));
+    connect(actGWParams, &QAction::triggered, this, [openGwDialog]() {
+        openGwDialog(
+            openswmmvis::ui::Mesh2DGroundwaterDialog::Page::AquiferProperties);
     });
 
-    auto *actGWInit = new QAction(tr("Initial Conditions…"), this);
+    auto *actGWInit = new QAction(tr("State && Diagnostics…"), this);
     actGWInit->setObjectName(QStringLiteral("actionMesh2DGWInitCond"));
     actGWInit->setToolTip(
-        tr("Per-cell 2D groundwater initial conditions (preview — pending "
-           "engine support)."));
-    connect(actGWInit, &QAction::triggered, this, [this]() {
-        openswmmvis::ui::Mesh2DGroundwaterDialog dlg(
-            this, openswmmvis::ui::Mesh2DGroundwaterDialog::Page::InitialConditions);
-        dlg.exec();
+        tr("Live two-zone groundwater state: water table, water balance, "
+           "resolved closures and the LTS tier histogram."));
+    connect(actGWInit, &QAction::triggered, this, [openGwDialog]() {
+        openGwDialog(openswmmvis::ui::Mesh2DGroundwaterDialog::Page::State);
     });
 }
 
