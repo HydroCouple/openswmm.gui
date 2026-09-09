@@ -20,17 +20,16 @@ The same five buttons sit in the **Climate** group of the **Model** ribbon tab.
 | **Model → Climate → Evaporation** | **Evaporation** |
 | **Model → Climate → Wind** | **Wind Speed** |
 | **Model → Climate → Snow** | **Snow Melt** |
-| **Model → Climate → Solar Radiation** | **Evaporation** |
+| **Model → Climate → Solar Radiation** | Heat Configuration dialog, **Solar** tab |
 
-The **Areal Depletion** and **Adjustments** tabs have no menu entry of their
-own — reach them by opening any of the five and switching tabs.
+The **Humidity**, **Areal Depletion** and **Adjustments** tabs have no menu
+entry of their own — reach them by opening any of the four Climatology entries
+and switching tabs.
 
-**Solar Radiation is a shortcut, not a page.** SWMM has no separate solar-radiation
-input section in the climatology block, so this button opens the Climatology
-dialog on the **Evaporation** tab (solar energy enters the classic model through
-Hargreaves ET). The real solar and radiative configuration — computed shortwave,
-site latitude/longitude/timezone/elevation, atmosphere and cloud cover — belongs
-to *heat transport* and lives in the Heat Configuration dialog; see
+**Solar Radiation opens the Heat Configuration dialog.** SWMM has no
+solar-radiation input in the climatology block; incoming shortwave, site
+latitude/longitude/timezone/elevation, atmosphere and cloud cover belong to
+*heat transport*, so the button opens that dialog on its **Solar** tab. See
 \ref climate_solar "Solar radiation and heat transport" below and
 \ref manual_water_quality.
 
@@ -38,7 +37,7 @@ The dialog reads the model on open and writes on **OK**; it compares a signature
 of every widget against the values it read, so pressing **OK** without editing
 anything writes nothing.
 
-\figtodo{15_climatology_tabs.png, The Climatology dialog showing its six tabs}
+\figtodo{15_climatology_tabs.png, The Climatology dialog showing its seven tabs}
 
 ## Step-by-step
 
@@ -101,6 +100,23 @@ Choosing the climate-file source here does nothing on its own — the file itsel
 is the one selected on the **Temperature** tab.
 
 \figtodo{15_wind_tab.png, The Wind Speed tab with monthly averages}
+
+### Humidity tab — `[TEMPERATURE] HUMIDITY`
+
+Air humidity is a heat-transport input: it sets the vapour-pressure deficit
+behind the latent and sensible fluxes and the atmospheric longwave emissivity.
+The classic hydrology never reads it, so the tab is harmless on a model without
+`HEAT_TRANSPORT ON`.
+
+| Control | What it does | Writes |
+|---|---|---|
+| **Quantity:** | **Relative Humidity (%)** or **Dew Point Temperature** (°F / °C) | `HUMIDITY` vs `HUMIDITY DEWPOINT` |
+| **Source of Humidity Data:** | **Constant Value**, **Monthly Averages** or **Time Series** | `<value>`, `MONTHLY h1 … h12`, `TIMESERIES <name>` |
+| **Value** / monthly table / time-series combo | The value(s) for the chosen source | — |
+
+A dew point is converted to relative humidity every step from the current air
+temperature (`RH = 100·e_s(T_d)/e_s(T_a)`, capped at 100 %). The default with no
+`HUMIDITY` line is a constant 50 %.
 
 ### Snow Melt tab
 
@@ -200,8 +216,8 @@ Two things to keep straight:
 
 ## Tips and gotchas
 
-- **The Solar Radiation button does not open a solar page.** It is a shortcut to
-  the Evaporation tab. For anything radiative, use **Model → Heat
+- **The Solar Radiation button opens the Heat Configuration dialog**, not the
+  Climatology dialog; the same page is reachable from **Model → Heat
   Configuration…**.
 - **One climate file feeds three tabs.** Temperature, pan evaporation and wind
   all read the file chosen on the Temperature tab; there is no second file
