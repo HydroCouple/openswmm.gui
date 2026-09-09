@@ -388,8 +388,10 @@ run.
 
 `[TEMPERATURE] FILE <path> [start] [C10|C|F]` — `C10` is tenths of a degree
 Celsius. `[EVAPORATION] FILE [pc1 … pc12]` reads pan evaporation with optional
-monthly coefficients. `WINDSPEED` takes `MONTHLY` or `FILE`; `HUMIDITY` takes
-`MONTHLY` with twelve values or a single constant.
+monthly coefficients. `WINDSPEED` takes `MONTHLY` or `FILE`; `HUMIDITY` takes a
+single constant, `MONTHLY` with twelve values, or `TIMESERIES <name>`, each
+optionally prefixed by `DEWPOINT` to give dew-point temperature (project units)
+instead of relative humidity (%).
 
 Formats are auto-detected: **user-prepared**
 (`StationID YYYY MM DD TMAX TMIN EVAP WIND`), **NCDC GHCND**, **NCDC TD3200 /

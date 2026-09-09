@@ -117,6 +117,7 @@ void ClimatologyDialog::buildUi()
     buildTemperatureTab(m_tabs);
     buildEvaporationTab(m_tabs);
     buildWindTab(m_tabs);
+    buildHumidityTab(m_tabs);
     buildSnowTab(m_tabs);
     buildAdcTab(m_tabs);
     buildAdjustmentsTab(m_tabs);
@@ -319,6 +320,91 @@ void ClimatologyDialog::onWindTypeChanged()
 {
     if (m_windMonthly && m_windType)
         m_windMonthly->setEnabled(m_windType->currentData().toInt() == 0);
+}
+
+// ---------------------------------------------------------------------------
+// Humidity ([TEMPERATURE] HUMIDITY — heat-model met input)
+// ---------------------------------------------------------------------------
+
+void ClimatologyDialog::buildHumidityTab(QTabWidget *tabs)
+{
+    auto *page = new QWidget;
+    auto *form = new QFormLayout(page);
+
+    auto *note = new QLabel(tr("Air humidity drives the heat model's latent, "
+                               "sensible and atmospheric-longwave fluxes."));
+    note->setWordWrap(true);
+    form->addRow(note);
+
+    m_humVar = new QComboBox;
+    m_humVar->setObjectName(QStringLiteral("clim_humVar"));
+    m_humVar->addItem(tr("Relative Humidity (%)"), 0);                 // RELATIVE
+    m_humVar->addItem(tr("Dew Point Temperature (%1)")
+                          .arg(isSI() ? tr("°C") : tr("°F")), 1); // DEWPOINT
+    form->addRow(tr("Q&uantity:"), m_humVar);
+
+    m_humType = new QComboBox;
+    m_humType->setObjectName(QStringLiteral("clim_humType"));
+    m_humType->addItem(tr("Constant Value"), 0);     // CONSTANT
+    m_humType->addItem(tr("Monthly Averages"), 1);   // MONTHLY
+    m_humType->addItem(tr("Time Series"), 2);        // TIMESERIES
+    form->addRow(tr("&Source of Humidity Data:"), m_humType);
+
+    // Stacked controls — page index == engine humidity_type enum.
+    m_humStack = new QStackedWidget;
+    // 0 CONSTANT
+    {
+        auto *w = new QWidget; auto *l = new QFormLayout(w);
+        m_humConstant = new QDoubleSpinBox;
+        m_humConstant->setObjectName(QStringLiteral("clim_humConstant"));
+        m_humConstant->setRange(-200.0, 200.0);
+        m_humConstant->setDecimals(2);
+        l->addRow(tr("Value:"), m_humConstant);
+        m_humStack->addWidget(w);
+    }
+    // 1 MONTHLY
+    {
+        auto *w = new QWidget; auto *l = new QVBoxLayout(w);
+        m_humMonthly = makeMonthlyTable(tr("Value"));
+        l->addWidget(m_humMonthly);
+        m_humStack->addWidget(w);
+    }
+    // 2 TIMESERIES
+    {
+        auto *w = new QWidget; auto *l = new QFormLayout(w);
+        m_humTs = new QComboBox; m_humTs->setEditable(true);
+        populateTimeseriesCombo(m_humTs);
+        l->addRow(tr("Time Series:"), m_humTs);
+        m_humStack->addWidget(w);
+    }
+    form->addRow(m_humStack);
+
+    connect(m_humType, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &ClimatologyDialog::onHumidityTypeChanged);
+    connect(m_humVar, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &ClimatologyDialog::onHumidityVarChanged);
+
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("&Humidity"));
+}
+
+void ClimatologyDialog::onHumidityTypeChanged()
+{
+    if (!m_humType || !m_humStack) return;
+    const int type = m_humType->currentData().toInt();
+    if (type >= 0 && type < m_humStack->count())
+        m_humStack->setCurrentIndex(type);
+}
+
+void ClimatologyDialog::onHumidityVarChanged()
+{
+    if (!m_humVar || !m_humConstant || !m_humMonthly) return;
+    const bool dew = m_humVar->currentData().toInt() == 1;
+    // RH is a percentage; a dew point is a temperature in project units.
+    m_humConstant->setRange(dew ? -200.0 : 0.0, dew ? 200.0 : 100.0);
+    m_humConstant->setSuffix(dew ? (isSI() ? tr(" °C") : tr(" °F")) : tr(" %"));
+    m_humMonthly->setHorizontalHeaderLabels(QStringList{
+        dew ? (isSI() ? tr("Dew Point (°C)") : tr("Dew Point (°F)"))
+            : tr("RH (%)")});
 }
 
 // ---------------------------------------------------------------------------
@@ -545,6 +631,27 @@ void ClimatologyDialog::readFromEngine()
     }
     onWindTypeChanged();
 
+    // Humidity
+    if (swmm_climate_get_humidity_variable(m_engine, &i) == SWMM_OK) {
+        const int idx = m_humVar->findData(i);
+        if (idx >= 0) m_humVar->setCurrentIndex(idx);
+    }
+    onHumidityVarChanged();   // set ranges before values land
+    if (swmm_climate_get_humidity_type(m_engine, &i) == SWMM_OK) {
+        const int idx = m_humType->findData(i);
+        if (idx >= 0) m_humType->setCurrentIndex(idx);
+    }
+    {
+        double h[12] = {};
+        if (swmm_climate_get_humidity_monthly(m_engine, h, 12) == SWMM_OK) {
+            writeColumn(m_humMonthly, 0, h, 12);
+            m_humConstant->setValue(h[0]);
+        }
+    }
+    if (swmm_climate_get_humidity_timeseries(m_engine, buf, sizeof(buf)) == SWMM_OK)
+        m_humTs->setCurrentText(QString::fromUtf8(buf));
+    onHumidityTypeChanged();
+
     // Snow melt
     if (swmm_climate_get_snow_temp(m_engine, &d) == SWMM_OK) m_snowTemp->setValue(d);
     if (swmm_climate_get_ati_weight(m_engine, &d) == SWMM_OK) m_atiWeight->setValue(d);
@@ -633,6 +740,23 @@ void ClimatologyDialog::writeToEngine()
         swmm_climate_set_wind_monthly(m_engine, w, 12);
     }
 
+    // Humidity
+    swmm_climate_set_humidity_variable(m_engine, m_humVar->currentData().toInt());
+    const int humType = m_humType->currentData().toInt();
+    swmm_climate_set_humidity_type(m_engine, humType);
+    {
+        double h[12] = {};
+        if (humType == 0) {
+            for (int k = 0; k < 12; ++k) h[k] = m_humConstant->value();
+        } else {
+            readColumn(m_humMonthly, 0, h, 12);
+        }
+        swmm_climate_set_humidity_monthly(m_engine, h, 12);
+    }
+    if (humType == 2 && !m_humTs->currentText().trimmed().isEmpty())
+        swmm_climate_set_humidity_timeseries(m_engine,
+            m_humTs->currentText().trimmed().toUtf8().constData());
+
     // Snow melt
     swmm_climate_set_snow_temp(m_engine, m_snowTemp->value());
     swmm_climate_set_ati_weight(m_engine, m_atiWeight->value());
@@ -681,6 +805,10 @@ QString ClimatologyDialog::serialize() const
     s += m_recovery->currentText() + '|';
     s += QString(m_dryOnly->isChecked() ? "1" : "0") + '|';
     s += QString::number(m_windType->currentData().toInt()) + '|';
+    s += QString::number(m_humVar->currentData().toInt()) + '|';
+    s += QString::number(m_humType->currentData().toInt()) + '|';
+    s += QString::number(m_humConstant->value()) + '|';
+    s += m_humTs->currentText() + '|';
     s += QString::number(m_snowTemp->value()) + '|';
     s += QString::number(m_atiWeight->value()) + '|';
     s += QString::number(m_negMelt->value()) + '|';
@@ -695,6 +823,7 @@ QString ClimatologyDialog::serialize() const
     grid(m_evapMonthly, 12, 1);
     grid(m_panCoeff, 12, 1);
     grid(m_windMonthly, 12, 1);
+    grid(m_humMonthly, 12, 1);
     grid(m_adc, 10, 2);
     grid(m_adjust, 12, 4);
     return s;

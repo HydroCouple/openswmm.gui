@@ -462,7 +462,8 @@ private slots:
     void onEditReactionSystem();
 
     //! G4g: [HEAT_SOURCES] / [HEAT_FLUXES] / radiative-solar-cloud editor.
-    void onEditHeatConfig();
+    //! \param tab HeatConfigDialog::Tab to open on; -1 keeps the default.
+    void onEditHeatConfig(int tab = -1);
 
     // ── Toolbar quick-wins (Phase 2) ────────────────────────────────────────
     /*! \brief Show + focus the Object Browser search box. */

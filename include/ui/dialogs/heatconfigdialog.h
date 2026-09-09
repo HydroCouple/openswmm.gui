@@ -48,6 +48,7 @@ class QDoubleSpinBox;
 class QLabel;
 class QRadioButton;
 class QTableWidget;
+class QTabWidget;
 
 namespace OpenSWMMVis
 {
@@ -61,11 +62,23 @@ class HeatConfigDialog : public QDialog
     Q_OBJECT
 
 public:
+    /*! Tab indices, in build order. */
+    enum Tab {
+        TabSources   = 0,
+        TabFluxes    = 1,
+        TabRadiative = 2,
+        TabSolar     = 3,
+        TabCloud     = 4
+    };
+
     explicit HeatConfigDialog(SWMM_Engine engine, QWidget *parent = nullptr);
     ~HeatConfigDialog() override = default;
 
     /*! \brief True once OK has written at least one change to the engine. */
     bool wroteAnyChanges() const { return m_wroteAnyChanges; }
+
+    /*! \brief Select the tab a menu action maps to (see \ref Tab). */
+    void setCurrentTab(int idx);
 
     /*! \brief Number of engine writes the last OK performed (test hook). */
     int lastWriteCount() const { return m_lastWriteCount; }
@@ -88,6 +101,7 @@ private:
     SWMM_Engine m_engine = nullptr;
     bool m_wroteAnyChanges = false;
     int  m_lastWriteCount = 0;
+    QTabWidget *m_tabs = nullptr;
 
     // Sources tab
     QTableWidget *m_sourceTable = nullptr;    ///< 7 rows: check + °C spin
