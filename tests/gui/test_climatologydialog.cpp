@@ -46,6 +46,7 @@ private slots:
     void writesEditsBackOnOk();
     void noOpOkDoesNotMarkChanged();
     void setCurrentTabClamps();
+    void humidityTabRoundTrips();
 };
 
 void TestClimatologyDialog::constructsWithNullEngine()
@@ -113,6 +114,51 @@ void TestClimatologyDialog::setCurrentTabClamps()
     dlg.setCurrentTab(ClimatologyDialog::TabAdjustments);  // last tab
     dlg.setCurrentTab(999);                                // out of range: no crash
     dlg.setCurrentTab(ClimatologyDialog::TabTemperature);
+    swmm_engine_destroy(e);
+}
+
+void TestClimatologyDialog::humidityTabRoundTrips()
+{
+    // Hydrate: a DEWPOINT / TIMESERIES engine shows up in the new tab.
+    SWMM_Engine e = makeClimateEngine();
+    QCOMPARE(swmm_climate_set_humidity_variable(e, SWMM_HUMIDITY_DEWPOINT), SWMM_OK);
+    QCOMPARE(swmm_climate_set_humidity_timeseries(e, "rh_ts"), SWMM_OK);
+    {
+        ClimatologyDialog dlg(e, nullptr);
+        auto *var  = dlg.findChild<QComboBox *>(QStringLiteral("clim_humVar"));
+        auto *type = dlg.findChild<QComboBox *>(QStringLiteral("clim_humType"));
+        QVERIFY(var && type);
+        QCOMPARE(var->currentData().toInt(), int(SWMM_HUMIDITY_DEWPOINT));
+        QCOMPARE(type->currentData().toInt(), int(SWMM_HUMIDITY_TIMESERIES));
+        QCOMPARE(dlg.wroteAnyChanges(), false);
+    }
+
+    // Write back: switch to a constant RH and OK.
+    {
+        ClimatologyDialog dlg(e, nullptr);
+        auto *var  = dlg.findChild<QComboBox *>(QStringLiteral("clim_humVar"));
+        auto *type = dlg.findChild<QComboBox *>(QStringLiteral("clim_humType"));
+        auto *val  = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("clim_humConstant"));
+        QVERIFY(var && type && val);
+        var->setCurrentIndex(var->findData(int(SWMM_HUMIDITY_RELATIVE)));
+        type->setCurrentIndex(type->findData(int(SWMM_HUMIDITY_CONSTANT)));
+        val->setValue(72.5);
+
+        auto *bb = dlg.findChild<QDialogButtonBox *>();
+        QVERIFY(bb);
+        bb->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(dlg.wroteAnyChanges());
+    }
+    int i = -1;
+    QCOMPARE(swmm_climate_get_humidity_variable(e, &i), SWMM_OK);
+    QCOMPARE(i, int(SWMM_HUMIDITY_RELATIVE));
+    QCOMPARE(swmm_climate_get_humidity_type(e, &i), SWMM_OK);
+    QCOMPARE(i, int(SWMM_HUMIDITY_CONSTANT));
+    double h[12] = {};
+    QCOMPARE(swmm_climate_get_humidity_monthly(e, h, 12), SWMM_OK);
+    QCOMPARE(h[0], 72.5);
+    QCOMPARE(h[11], 72.5);
+
     swmm_engine_destroy(e);
 }
 
