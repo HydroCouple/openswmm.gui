@@ -28,6 +28,17 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Fixed
 
+- **Opening Simulation Options on a 1D model no longer dirties the project** — pressing Apply (or
+  OK) with no edits wrote `IGNORE_2D YES` into any deck that carries no 2D sections. The 2D-module
+  checkbox has two different meanings on the two sides of the dialog: reading it back from a model
+  with no mesh leaves it unchecked to *describe* the model, but the write turned that description
+  into a *preference*, inventing an "ignore 2D" the user never asked for and marking the project
+  modified. `IGNORE_2D` is now written only once the checkbox carries a real intent — a stored
+  per-project preference, or the user actually toggling it — and the same condition guards the
+  preference itself, so an inferred state can no longer promote itself to an intent on the next
+  Apply. The engine reports `IGNORE_2D` as `NO` by default and never serialises it, so the key's
+  presence cannot be used to tell the two apart.
+
 - **Double-click now closes a drawing on the point clicked** — the subcatchment, feature-layer
   polygon/line and 2D cell lasso tools discarded the double-clicked vertex, on the mistaken
   assumption that Qt delivers two presses for a double-click (it delivers `Press, Release, DblClick`,
