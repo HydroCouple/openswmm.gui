@@ -25,6 +25,7 @@
 
 #include "ui/widgets/cursorwindowslider.h"
 #include <QProgressBar>
+#include <QProgressDialog>
 #include <QStandardItemModel>
 #include <QMessageBox>
 #include <QHeaderView>
@@ -138,6 +139,7 @@
 #include "ui/dialogs/wateragesourcesdialog.h"
 #include "ui/dialogs/initialqualitydialog.h"
 #include "ui/dialogs/reactionsystemeditordialog.h"
+#include "ui/dialogs/mesh2dresultsexportdialog.h"
 #include "ui/dialogs/statisticsdashboarddialog.h"
 #include "ui/dialogs/userflagsdialog.h"
 #include "layers/tabulardatalayer.h"
@@ -1876,6 +1878,27 @@ void SWMMVis::initializeMapTools()
         const int i = acts.indexOf(actPlotProfile2D);
         QAction *before = (i >= 0 && i + 1 < acts.size()) ? acts[i + 1] : nullptr;
         ui->menuAnalysis->insertAction(before, actRainfallViz);
+    }
+
+    // Export 2D Results — hand the active 2D run's depth / water surface /
+    // velocity fields to GIS, for chosen time steps and for the run maxima
+    // (workplans/MESH2D_RESULTS_EXPORT_PLAN_2026-09-09.md). Programmatic like
+    // the two above, and created before registerActions() so the catalog
+    // sweep adopts it.
+    auto *actExport2DResults = new QAction(tr("Export 2D &Results…"), this);
+    actExport2DResults->setObjectName(QStringLiteral("actionExport2DResults"));
+    actExport2DResults->setToolTip(tr("Export the 2D results to Shapefile, GeoPackage "
+                                      "or GeoTIFF rasters"));
+    actExport2DResults->setStatusTip(tr("Export 2D depth, water surface and velocity "
+                                        "fields — chosen time steps and the run maxima "
+                                        "— to Shapefile, GeoPackage or GeoTIFF"));
+    connect(actExport2DResults, &QAction::triggered,
+            this, &SWMMVis::onExport2DResults);
+    if (ui->menuAnalysis) {
+        const auto acts = ui->menuAnalysis->actions();
+        const int i = acts.indexOf(actRainfallViz);
+        QAction *before = (i >= 0 && i + 1 < acts.size()) ? acts[i + 1] : nullptr;
+        ui->menuAnalysis->insertAction(before, actExport2DResults);
     }
     // Slice GUI-2026-05-30 §6 — Analysis toolbar Report action opens the
     // two-panel Report Viewer over the active project's .rpt sibling.
@@ -7835,6 +7858,114 @@ void SWMMVis::onSummarizeResults()
     dlg->setProject(pw->modelLayer(), pw->selectionManager(), pw->canvas());
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
+}
+
+void SWMMVis::onExport2DResults()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw)
+    {
+        onLogMessage(tr("Export 2D Results: open a project first."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+    auto *layer = pw->active2DResultsLayer();
+    IMesh2DSource *source = layer ? layer->source() : nullptr;
+    if (!source || source->timeCount() <= 0)
+    {
+        QMessageBox::information(this, tr("No 2D Results"),
+            tr("Pick a results layer in the Analysis toolbar's \"2D results\" "
+               "selector, or run a simulation with 2D reporting enabled."));
+        return;
+    }
+    if (source->isLive())
+    {
+        // A live source thins its own history, so frame indices can shift
+        // underneath a long export.
+        QMessageBox::information(this, tr("Simulation Still Running"),
+            tr("Wait for the simulation to finish before exporting — a running "
+               "run keeps rewriting its stored frames."));
+        return;
+    }
+
+    const double unitFactor = layer->depthToMeshUnits();
+
+    openswmmvis::ui::Mesh2DExportDialogInputs inputs;
+    for (int t = 0; t < source->timeCount(); ++t)
+        inputs.times << source->simTimeAt(t);
+    inputs.currentIndex = layer->currentTimeIndex();
+    const openswmmvis::io::Mesh2DGridHint hint =
+        openswmmvis::io::mesh2DGridHint(source, unitFactor);
+    inputs.suggestedCellSize = hint.suggestedCellSize;
+    inputs.extentWidth       = hint.extentWidth;
+    inputs.extentHeight      = hint.extentHeight;
+    inputs.hasVelocity = source->hasFaceField("Mesh2_face_vx")
+                         && source->hasFaceField("Mesh2_face_vy");
+    inputs.lengthUnit = qFuzzyCompare(unitFactor, 1.0) ? tr("m") : tr("ft");
+
+    // Default the output beside the project, named after it.
+    const QString inpPath = pw->modelLayer() ? pw->modelLayer()->modelFilePath() : QString();
+    const QFileInfo inpInfo(inpPath);
+    inputs.defaultDir = inpInfo.absolutePath().isEmpty() ? QDir::homePath()
+                                                         : inpInfo.absolutePath();
+    inputs.defaultBaseName = inpInfo.completeBaseName().isEmpty()
+                                 ? QStringLiteral("results_2d")
+                                 : inpInfo.completeBaseName() + QStringLiteral("_2d");
+
+    openswmmvis::ui::Mesh2DResultsExportDialog dlg(inputs, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    openswmmvis::io::Mesh2DExportInputs exportInputs;
+    exportInputs.source     = source;
+    exportInputs.unitFactor = unitFactor;
+    exportInputs.dryDepthM  = layer->dryDepth();
+    if (auto *srs = layer->srs()) exportInputs.srsWkt = srs->toWkt();
+
+    // The export is I/O bound and cancellable through its own callback, and
+    // IMesh2DSource is GUI-thread state, so it runs here behind a modal
+    // progress dialog rather than on a worker.
+    QProgressDialog progress(tr("Exporting 2D results…"), tr("Cancel"), 0, 100, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(400);
+    progress.setAutoClose(false);
+    progress.setAutoReset(false);
+
+    openswmmvis::io::Mesh2DExportReport report;
+    const bool ok = openswmmvis::io::exportMesh2DResults(
+        exportInputs, dlg.options(),
+        [&](int done, int total, const QString &what) {
+            progress.setMaximum(std::max(1, total));
+            progress.setValue(std::min(done, total));
+            progress.setLabelText(what);
+            QCoreApplication::processEvents();
+            return !progress.wasCanceled();
+        },
+        &report);
+    progress.close();
+
+    for (const QString &warning : std::as_const(report.warnings))
+        onLogMessage(tr("Export 2D Results: %1").arg(warning),
+                     OpenSWMMVisLogMessage::Warning);
+
+    if (ok)
+    {
+        onLogMessage(tr("Export 2D Results: wrote %n file(s) to %1", "", report.files.size())
+                         .arg(QFileInfo(dlg.options().basePath).absolutePath()),
+                     OpenSWMMVisLogMessage::Information);
+        statusBar()->showMessage(tr("Exported %n 2D result file(s).", "", report.files.size()),
+                                 5000);
+    }
+    else if (report.error == QLatin1String("Cancelled"))
+    {
+        onLogMessage(tr("Export 2D Results: cancelled; no files were kept."),
+                     OpenSWMMVisLogMessage::Information);
+    }
+    else
+    {
+        QMessageBox::warning(this, tr("Export Failed"),
+                             tr("The 2D results could not be exported.\n\n%1")
+                                 .arg(report.error));
+    }
 }
 
 void SWMMVis::onCopyActiveView()

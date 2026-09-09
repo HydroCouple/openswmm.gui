@@ -469,6 +469,7 @@ set(
         include/layers/swmm2dmeshlayer.h
         include/layers/swmm2dresultslayer.h
         include/io/mesh2dh5reader.h
+        include/io/mesh2dresultsexport.h
         include/io/rptparser.h
         include/io/timeseriesparse.h
         include/io/gdaldrivers.h
@@ -872,6 +873,7 @@ set(
         include/ui/dialogs/patterneditordialog.h
         include/ui/dialogs/timeserieseditordialog.h
         include/ui/dialogs/colorrampeditordialog.h
+        include/ui/dialogs/mesh2dresultsexportdialog.h
         include/ui/dialogs/statisticsdashboarddialog.h
         include/ui/dialogs/statusreportdialog.h
         include/ui/dialogs/tabularresultsdialog.h
@@ -1155,6 +1157,7 @@ set(
         src/layers/swmm2dresultslayer.cpp
         src/layers/meshspatialgrid.cpp
         src/io/mesh2dh5reader.cpp
+        src/io/mesh2dresultsexport.cpp
         src/io/rptparser.cpp
         src/io/timeseriesparse.cpp
         src/io/gdaldrivers.cpp
@@ -1501,6 +1504,7 @@ set(
         src/ui/dialogs/patterneditordialog.cpp
         src/ui/dialogs/timeserieseditordialog.cpp
         src/ui/dialogs/colorrampeditordialog.cpp
+        src/ui/dialogs/mesh2dresultsexportdialog.cpp
         src/ui/dialogs/statisticsdashboarddialog.cpp
         src/ui/dialogs/statusreportdialog.cpp
         src/ui/dialogs/tabularresultsdialog.cpp

@@ -3321,3 +3321,37 @@ add_swmmvis_gui_test(test_ribbongroup
     ${CMAKE_SOURCE_DIR}/include/ui/toolbars/ribboncompactor.h
     ${CMAKE_SOURCE_DIR}/src/ui/toolbars/ribboncompactor.cpp
 )
+
+# 2D results export (workplans/MESH2D_RESULTS_EXPORT_PLAN_2026-09-09.md) —
+# the widget-free exporter: the new rank-1 envelope read, the Shapefile /
+# GeoPackage writers, the GeoTIFF writer with per-step bands and a separate
+# _max file, the three interpolators, the dry mask and cancel cleanup.
+# Deliberately lean: the test supplies its own IMesh2DSource implementations
+# (one over Mesh2DH5Reader, one synthetic) so it links the reader and the
+# exporter rather than the whole layer / render stack.
+add_swmmvis_gui_test(test_mesh2dresultsexport
+    test_mesh2dresultsexport.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dresultsexport.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dh5reader.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/gdaldrivers.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
+    ${CMAKE_SOURCE_DIR}/include/io/mesh2dresultsexport.h
+)
+target_include_directories(test_mesh2dresultsexport PRIVATE
+    ${HDF5_INCLUDE_DIRS} ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_mesh2dresultsexport PRIVATE
+    ${HDF5_C_LIBRARIES} GDAL::GDAL triangle_lib nanoflann::nanoflann)
+
+# The "Export 2D Results…" option collector (same plan). Lean: the dialog is
+# widget-only, so this links the dialog and the GDAL driver probe it uses to
+# hide formats the build cannot write — not the results layer.
+add_swmmvis_gui_test(test_mesh2dresultsexportdialog
+    test_mesh2dresultsexportdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dresultsexportdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/gdaldrivers.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dresultsexportdialog.h
+)
+target_include_directories(test_mesh2dresultsexportdialog PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_mesh2dresultsexportdialog PRIVATE GDAL::GDAL)
