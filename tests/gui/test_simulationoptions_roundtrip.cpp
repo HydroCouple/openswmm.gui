@@ -29,7 +29,9 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
 
+#include <QCoreApplication>
 #include <QDir>
+#include <QSettings>
 #include <QFile>
 #include <QFileInfo>
 #include <QMap>
@@ -160,6 +162,30 @@ private:
     }
 
 private slots:
+    /*! Point QSettings at a scratch store under the test data directory.
+     *
+     *  The dialog keeps a per-project "is the 2D module on" preference in
+     *  QSettings, and consults it while deciding whether the 2D checkbox
+     *  carries a real user intent. Without this redirect the test reads
+     *  whatever the developer's machine happens to have stored for these
+     *  fixture paths, so "Apply with no edits writes nothing" became a
+     *  question about local history rather than about the dialog — which is
+     *  exactly how the long-standing IGNORE_2D red hid for so long. Must run
+     *  before any QSettings is constructed.
+     */
+    void initTestCase()
+    {
+        QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
+        QCoreApplication::setApplicationName(
+            QStringLiteral("test_simulationoptions_roundtrip"));
+        // IniFormat is mandatory: setPath() is ignored for NativeFormat on macOS.
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        const QString scratch =
+            QDir(dataDir()).filePath(QStringLiteral("simopts_roundtrip_settings"));
+        QDir().mkpath(scratch);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, scratch);
+    }
+
     void dynwave1D()
     {
         roundTrip(fixture(QStringLiteral("typed_selection_fixture.inp")),

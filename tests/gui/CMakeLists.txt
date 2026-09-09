@@ -2991,6 +2991,18 @@ add_swmmvis_gui_test(test_simulationoptions_roundtrip
 )
 swmmvis_link_full_app_deps(test_simulationoptions_roundtrip)
 
+# Structural contract for the Simulation Options tabbed restructure
+# (OPTIONS_DIALOG_TABBED_RESTRUCTURE_PLAN_2026-09-07.md §6). Landed against the
+# untabbed layout so the object names, the option-editor reachability set and
+# the sidebar order are pinned BEFORE any widget moves between pages; the tab
+# gate and no-scroll slots join it as each page is tabbed.
+add_swmmvis_gui_test(test_simulationoptions_gates
+    test_simulationoptions_gates.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_simulationoptions_gates)
+
 # E1 (2026-09-07) — Simulation Options 2D page Output group: OUTPUT_PRECISION
 # / OUTPUT_COMPRESSION / REPORT_2D_STEP / REPORT_2D_VARIABLES /
 # REPORT_2D_SPECIES seed their defaults, write their engine spellings, and
