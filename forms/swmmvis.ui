@@ -644,6 +644,7 @@
       <string>Add &amp;Node</string>
      </property>
      <addaction name="actionAddJunction"/>
+     <addaction name="actionAddJunctionSplit"/>
      <addaction name="actionAddVirtualJunction"/>
      <addaction name="actionAddInletJunction"/>
      <addaction name="actionAddOutfall"/>
@@ -1474,6 +1475,21 @@
    </property>
    <property name="toolTip">
     <string>Add Junction</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddJunctionSplit">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/JunctionSplit</normaloff>:/swmmvis/JunctionSplit</iconset>
+   </property>
+   <property name="text">
+    <string>Add Junction on Conduit</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Junction on Conduit (split a conduit at the picked point)</string>
    </property>
    <property name="menuRole">
     <enum>QAction::TextHeuristicRole</enum>

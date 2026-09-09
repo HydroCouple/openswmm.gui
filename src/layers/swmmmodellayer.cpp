@@ -5185,6 +5185,75 @@ bool SWMMModelLayer::applyFuseVirtualJunction(const QString &nodeName,
     return true;
 }
 
+bool SWMMModelLayer::applyInsertJunctionSplit(const QString &linkName, double t,
+                                              const QString &newNodeName,
+                                              const QString &newLinkName,
+                                              int *outNodeIdx, int *outLinkIdx,
+                                              QString *outError)
+{
+    if (outNodeIdx) *outNodeIdx = -1;
+    if (outLinkIdx) *outLinkIdx = -1;
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int li = swmm_link_index(m_engine, linkName.toUtf8().constData());
+    if (li < 0 || li >= m_links.size()) {
+        if (outError) *outError = tr("Conduit \"%1\" not found.").arg(linkName);
+        return false;
+    }
+
+    int newNode = -1, newLink = -1;
+    // make_virtual = 0: a plain junction. No VJ rule validation runs, so the
+    // only failure mode here is the split's own rejection.
+    const int rc = swmm_conduit_split(m_engine, li, t,
+                                      newNodeName.toUtf8().constData(),
+                                      newLinkName.toUtf8().constData(),
+                                      /*make_virtual=*/0, &newNode, &newLink);
+    if (rc != SWMM_OK || newNode < 0 || newLink < 0) {
+        if (outError) *outError = (rc == SWMM_ERR_BADPARAM)
+            ? tr("Split rejected: invalid position, duplicate name, or the "
+                 "link is not a conduit.")
+            : virtualJunctionRuleText(rc);
+        return false;
+    }
+
+    syncSplitCaches(li, newNode, newLink, newNodeName, newLinkName, linkName,
+                    /*isVirtual=*/0, /*isInlet=*/0);
+
+    if (outNodeIdx) *outNodeIdx = newNode;
+    if (outLinkIdx) *outLinkIdx = newLink;
+    return true;
+}
+
+bool SWMMModelLayer::applyFuseJunctionSplit(const QString &nodeName,
+                                            QString *outError)
+{
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int ni = swmm_node_index(m_engine, nodeName.toUtf8().constData());
+    if (ni < 0 || ni >= m_nodes.size()) {
+        if (outError) *outError = tr("Node \"%1\" not found.").arg(nodeName);
+        return false;
+    }
+
+    // Borrow the virtual-junction inverse: flag, fuse, and roll the flag back
+    // if the fuse is refused (a third link attached since the split, say) so a
+    // failed undo cannot leave a spurious virtual junction behind.
+    const bool wasVirtual = m_nodes[ni].isVirtual != 0;
+    if (!wasVirtual && !applySetVirtual(nodeName, true, outError))
+        return false;
+
+    if (!applyFuseVirtualJunction(nodeName, outError)) {
+        if (!wasVirtual)
+            applySetVirtual(nodeName, false);
+        return false;
+    }
+    return true;
+}
+
 // Cache sync shared by both fuse entry points (plain virtual fuse and
 // swmm_inlet_junction_fuse). Mirrors the engine's deletions: node first
 // (which fixes up link from/to indices), then the retired downstream conduit,

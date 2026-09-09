@@ -145,6 +145,7 @@ struct BranchLink
     double   maxDepth   = 0.0;   /*!< Cross-section max depth (crown offset)
                                        for the stub's thickness; 0 when the
                                        link has no conduit geometry. */
+    bool     openTop    = false; /*!< Draw the stub with no soffit line. */
     double   bearingRad = 0.0;   /*!< Plan bearing, 0 = north, clockwise. */
     bool     intoNode   = false; /*!< Model flow arrives at this node. */
     bool     onPath     = false; /*!< The profile traverses this link, so it
@@ -207,6 +208,14 @@ struct LinkStatic
                                         inlet (path-upstream) node invert.
                                         Read via swmm_link_get_crest_height.
                                         Zero for conduits / pumps / orifices. */
+    bool     openTop     = false; /*!< Draw with no soffit line (open channel,
+                                        or a street). Presentation only — see
+                                        linkFullDepth() in xsectsampler.h. */
+    bool     isStreet    = false; /*!< STREET cross-section: the invert is a
+                                        road gutter line and is drawn with the
+                                        pavement brush. Carried as a plain
+                                        flag so the renderer stays free of
+                                        engine shape codes. */
     LinkKind kind        = LinkKind::Conduit;
     bool     reversed    = false; /*!< True when traversal direction is the
                                         reverse of the underlying model link;

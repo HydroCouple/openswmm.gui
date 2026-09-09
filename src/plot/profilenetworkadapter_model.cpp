@@ -25,12 +25,23 @@
 #include <QHash>
 #include <QSet>
 #include <QString>
+#include "ui/sectionview/xsectsampler.h"
+#include "core/unitsystem.h"
 
 namespace ProfileNetworkAdapter
 {
 
 namespace
 {
+
+/*! Unit system the engine's cross-section handles must be built in. The
+ *  sampler takes SI as a bool, and UnitSystem is the app-wide source the
+ *  Section View reads too, so both surfaces agree. */
+bool profileUnitsAreSI()
+{
+    auto *us = UnitSystem::instance();
+    return us ? us->isSI() : true;
+}
 
 ProfileBuilder::LinkKind toLinkKind(int swmmLinkType)
 {
@@ -164,8 +175,12 @@ void collectNodeBranches(SWMMModelLayer *model,
 
             int xsShape = 0;
             double g1 = 0.0, g2 = 0.0, g3 = 0.0, g4 = 0.0;
-            if (swmm_link_get_xsect(eng, l, &xsShape, &g1, &g2, &g3, &g4) == 0)
-                b.maxDepth = g1;
+            if (swmm_link_get_xsect(eng, l, &xsShape, &g1, &g2, &g3, &g4) == 0) {
+                // NOT g1: for STREET / IRREGULAR that is a table index.
+                b.maxDepth = openswmmvis::sectionview::linkFullDepth(
+                    eng, l, xsShape, g1, g2, g3, g4, profileUnitsAreSI(),
+                    &b.openTop);
+            }
 
             // Unusable geometry keeps the stub (which needs only the invert)
             // but loses the rose spoke — better a missing spoke than one
@@ -235,8 +250,15 @@ ProfileBuilder::PathStatic buildPathStaticFromModel(
         l.kind   = toLinkKind(linkType);
         int xsShape = 0;
         double g1 = 0.0, g2 = 0.0, g3 = 0.0, g4 = 0.0;
-        if (swmm_link_get_xsect(eng, engLinkIdx, &xsShape, &g1, &g2, &g3, &g4) == 0)
-            l.maxDepth = g1;
+        if (swmm_link_get_xsect(eng, engLinkIdx, &xsShape, &g1, &g2, &g3, &g4) == 0) {
+            l.isStreet = (xsShape == SWMM_XSECT_STREET);
+            // NOT g1: swmm_link_get_xsect reports a TABLE INDEX there for
+            // STREET and IRREGULAR, so assigning it made a street conduit on
+            // the first street a zero-height tube.
+            l.maxDepth = openswmmvis::sectionview::linkFullDepth(
+                eng, engLinkIdx, xsShape, g1, g2, g3, g4, profileUnitsAreSI(),
+                &l.openTop);
+        }
 
         // Identify path-traversal orientation against the model link's
         // intrinsic from→to direction.

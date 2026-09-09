@@ -577,3 +577,17 @@ if(TARGET openswmm_engine)
         SWMMVIS_INLET_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/data/inlets"
         SWMMVIS_INLET_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/inlets")
 endif()
+
+# The engine contract behind the plain-junction split tool: make_virtual = 0
+# really yields an ordinary junction, the halves conserve length, and the GUI's
+# undo (flag virtual, then fuse) is an exact inverse. Engine-only for the same
+# reason as the inlet test above.
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_junction_split_layer
+        test_junction_split_layer.cpp
+    )
+    target_link_libraries(test_junction_split_layer PRIVATE openswmm_engine)
+    target_compile_definitions(test_junction_split_layer PRIVATE
+        SWMMVIS_JSPLIT_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/data/inlets"
+        SWMMVIS_JSPLIT_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/junction_split")
+endif()

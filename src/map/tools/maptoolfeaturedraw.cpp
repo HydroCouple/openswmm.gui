@@ -20,6 +20,8 @@
 #include <QPainter>
 #include <QPolygon>
 
+#include <cstdlib>
+
 using namespace openswmmvis::feature;
 using openswmmvis::map::AddFeatureCommand;
 
@@ -151,9 +153,30 @@ void OpenSWMMVisMapToolFeatureDrawBase::mouseMoveEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolFeatureDrawBase::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    if (event->button() != Qt::LeftButton) return;
-    // The single click inside the double-click already appended a vertex.
-    if (m_vertices.size() > 1) m_vertices.removeLast();
+    if (event->button() != Qt::LeftButton || !m_canvas) return;
+
+    // Same normalisation as maptooladdsubcatchment.cpp: whether or not this
+    // platform sent a MouseButtonPress ahead of the DblClick, the
+    // double-clicked point ends up in the vertex list exactly once, snapped
+    // the way a press would have snapped it. Stripping the last vertex
+    // unconditionally (the old behaviour) cost DrawLine its endpoint, so a
+    // two-gesture line fell below minimumVertices() and committed nothing.
+    double mx = 0.0, my = 0.0;
+    toMapCoords(event->pos().x(), event->pos().y(), mx, my);
+    SWMMModelLayer *model = activeModelLayer(m_canvas);
+    m_snap = SnapEngine::snap(this, model, mx, my);
+    double px = mx, py = my;
+    if (m_snap.snapped && model)
+        model->transformLayerToCanvas(m_snap.x, m_snap.y, px, py);
+
+    if (!m_vertices.isEmpty()) {
+        int lx = 0, ly = 0;
+        toPixelCoords(m_vertices.last().x(), m_vertices.last().y(), lx, ly);
+        if (std::abs(lx - event->pos().x()) <= 2
+            && std::abs(ly - event->pos().y()) <= 2)
+            m_vertices.removeLast();
+    }
+    m_vertices << QPointF(px, py);
     commit();
 }
 
