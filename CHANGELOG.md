@@ -18,6 +18,33 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ## [Unreleased]
 
+### Added
+
+- **Junction on Conduit** — a new Nodes-group tool that splits a conduit at the clicked point and
+  inserts an ordinary junction, alongside the existing Virtual Junction and Inlet Junction tools.
+  Virtual junctions require DYNWAVE routing, so this is the only split available to models routed
+  with steady or kinematic wave. Undo re-fuses the pair. Conduits only — pumps, weirs, orifices and
+  outlets have no length to divide, and the tool says so in the status bar.
+
+### Fixed
+
+- **Double-click now closes a drawing on the point clicked** — the subcatchment, feature-layer
+  polygon/line and 2D cell lasso tools discarded the double-clicked vertex, on the mistaken
+  assumption that Qt delivers two presses for a double-click (it delivers `Press, Release, DblClick`,
+  so only one press ever reached the tool). Beyond the missing corner, this silently created
+  *nothing* whenever the dropped vertex left the shape below its commit floor — a triangle drawn as
+  click, click, double-click, or a two-click feature line.
+- **STREET conduits render correctly in the profile plot** — `swmm_link_get_xsect` reports `geom1` as
+  a table *index* for STREET and IRREGULAR, and the profile adapter was assigning it to the conduit's
+  max depth. A street on the first street of a model therefore drew as a zero-height tube with its
+  crown line on top of its invert. Depth now comes from the engine's own section geometry, resolved
+  through the same helper the Section View uses.
+- **Open channels are drawn open in the profile plot** — every conduit was previously given a closed
+  crown line regardless of cross-section, so open channels (RECT_OPEN, TRAPEZOIDAL, TRIANGULAR,
+  PARABOLIC, IRREGULAR) read as box culverts and the HGL fill was clamped to a soffit that does not
+  exist. Streets additionally carry a pavement brush on the gutter line, themeable as
+  `streetInvertBrush`.
+
 ## [6.0.0-alpha.4] — 2026-09-08
 
 ### Added

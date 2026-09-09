@@ -232,6 +232,9 @@ bool hglEdgeCrown(const ProfileBuilder::LinkStatic &l,
 {
     using K = ProfileBuilder::LinkKind;
     if (l.maxDepth <= 0.0) return false;
+    // An open channel (or a street) has no ceiling to press against, so the
+    // water polygon must be free to follow the HGL above the bank line.
+    if (l.openTop) return false;
     if (l.kind == K::Conduit) {
         // Same path-oriented invariant as hglInletOutletInv: offset1 is at
         // nodeI, offset2 at nodeJ regardless of LinkStatic::reversed.
@@ -553,6 +556,11 @@ QPen ProfilePlotWidget::themeConduitOutlinePen() const
 {
     if (m_options) return m_options->conduitOutlinePen();
     return QPen(QColor(0x33, 0x33, 0x33), kConduitLineWidth, Qt::SolidLine);
+}
+QBrush ProfilePlotWidget::themeStreetInvertBrush() const
+{
+    if (m_options) return m_options->streetInvertBrush();
+    return QBrush(QColor(0x55, 0x55, 0x55), Qt::BDiagPattern);
 }
 QPen ProfilePlotWidget::themeLinkOutlinePen(ProfileBuilder::LinkKind k) const
 {
@@ -2149,10 +2157,37 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
             p.setPen(Qt::NoPen);
             p.drawPath(body);
 
+            // An open channel is drawn as banks without a soffit: the crown
+            // line is the top of bank, so stroking it across would read as a
+            // closed box culvert. The end caps stay — they are the channel
+            // walls — but the span between them is left open.
             p.setPen(outlinePen);
             p.setBrush(Qt::NoBrush);
-            p.drawLine(upInv, dnInv);    // invert
-            p.drawLine(upCr,  dnCr);     // crown
+            if (l.openTop) {
+                // A street's invert is the gutter line of a road, so mark it:
+                // a pavement band under a heavier invert line, which is what
+                // distinguishes a street from any other open channel here.
+                if (l.isStreet) {
+                    QPainterPath pave;
+                    const double bandPx = std::max(3.0, penWidth * 2.5);
+                    pave.moveTo(upInv);
+                    pave.lineTo(dnInv);
+                    pave.lineTo(dnInv + QPointF(0.0, bandPx));
+                    pave.lineTo(upInv + QPointF(0.0, bandPx));
+                    pave.closeSubpath();
+                    p.setPen(Qt::NoPen);
+                    p.fillPath(pave, themeStreetInvertBrush());
+                    p.setPen(outlinePen);
+                }
+                QPen invPen = outlinePen;
+                invPen.setWidthF(penWidth * 1.6);
+                p.setPen(invPen);
+                p.drawLine(upInv, dnInv);    // invert / gutter line
+                p.setPen(outlinePen);
+            } else {
+                p.drawLine(upInv, dnInv);    // invert
+                p.drawLine(upCr,  dnCr);     // crown
+            }
             QPen capPen = outlinePen;
             capPen.setWidthF(penWidth * 0.7);
             p.setPen(capPen);
@@ -2308,7 +2343,10 @@ void ProfilePlotWidget::paintBranchStubs(QPainter &p) const
             const qreal yInv = inv.y();
             const qreal yCrn = yInv - bore;
             p.drawLine(QPointF(x0, yInv), QPointF(x1, yInv));
-            p.drawLine(QPointF(x0, yCrn), QPointF(x1, yCrn));
+            // An open channel has no soffit here either — same rule as the
+            // on-path barrel, so a stub reads as the same kind of thing.
+            if (!b.openTop)
+                p.drawLine(QPointF(x0, yCrn), QPointF(x1, yCrn));
 
             // Torn end — a zig-zag, so the stub reads as "continues off the
             // section" rather than as a capped pipe that stops here.

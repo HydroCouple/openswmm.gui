@@ -442,6 +442,7 @@ private:
     [[nodiscard]] QColor themeBeddingFill() const;
     [[nodiscard]] QPen   themeConduitOutlinePen() const;
     [[nodiscard]] QPen   themeLinkOutlinePen(ProfileBuilder::LinkKind k) const;
+    [[nodiscard]] QBrush themeStreetInvertBrush() const;
 
     // Per-kind dispatch helpers.  Each takes a series index into m_series.
     // The series carries its own resolved pen/brush; the helpers reach into

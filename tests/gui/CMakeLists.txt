@@ -1759,6 +1759,19 @@ add_swmmvis_gui_test(test_xsectsampler
     ${CMAKE_SOURCE_DIR}/include/ui/properties/xsectshapegeom.h
 )
 
+# The depth / open-top resolution the PROFILE PLOT uses. geom1 is a table index
+# for STREET and IRREGULAR, so reading it as a depth drew a street conduit as a
+# zero-height tube; nothing asserted the depth before, which is why that
+# shipped. Engine-facing, so it fails first if geom1's meaning changes again.
+add_swmmvis_gui_test(test_profile_street_xsect
+    test_profile_street_xsect.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/xsectsampler.h
+)
+target_compile_definitions(test_profile_street_xsect PRIVATE
+    SWMMVIS_PSTREET_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/data/inlets"
+    SWMMVIS_PSTREET_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/profile_street")
+
 # SP.2 / SP.6: diagram model, painter and the LID layer stacks. No engine
 # calls — the model is a plain value, which is the point of the builder/painter
 # split, so this one runs anywhere Qt does.
@@ -2652,6 +2665,18 @@ add_swmmvis_gui_test(test_asyncload
     ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
 )
 swmmvis_link_full_app_deps(test_asyncload)
+
+# Double-click must FINISH a drawing including the point clicked. Qt sends only
+# one press per double-click pair, so the tools' removeLast() was deleting the
+# user's closing vertex — and for a 3-gesture polygon that dropped the shape
+# below commit()'s vertex floor, creating nothing at all, silently. Drives the
+# real subcatchment tool on a real MapCanvas, like test_asyncload above.
+add_swmmvis_gui_test(test_drawtool_doubleclick
+    test_drawtool_doubleclick.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_drawtool_doubleclick)
 
 # Registry rename must not duplicate the object in the engine, and snow-pack
 # parameters must survive save/reload. Both were live data-corruption bugs:

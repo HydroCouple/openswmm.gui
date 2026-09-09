@@ -1591,6 +1591,35 @@ public:
     bool applyFuseVirtualJunction(const QString &nodeName,
                                   QString *outError = nullptr);
 
+    /*!
+     * \brief Split conduit \p linkName at \p t inserting a PLAIN junction, via
+     *        `swmm_conduit_split` with `make_virtual = 0`. Identical to
+     *        applyInsertVirtualJunction except that no virtual-junction rule
+     *        validation runs, so this is the split available to models that do
+     *        not route with DYNWAVE (virtual junctions require it — rule 619).
+     */
+    bool applyInsertJunctionSplit(const QString &linkName, double t,
+                                  const QString &newNodeName,
+                                  const QString &newLinkName,
+                                  int *outNodeIdx = nullptr,
+                                  int *outLinkIdx = nullptr,
+                                  QString *outError = nullptr);
+
+    /*!
+     * \brief Inverse of applyInsertJunctionSplit — re-fuses the conduit pair
+     *        and deletes the junction.
+     * \details Both the engine (`vj_fuse`) and applyFuseVirtualJunction guard
+     *          the fuse on the virtual flag, so this flags the node virtual
+     *          just long enough to reuse that exact inverse, then fuses. The
+     *          transient flag never persists: on success the node is deleted,
+     *          and on failure the flag is rolled back. Safe because a fresh
+     *          split leaves an identical-cross-section, zero-offset through
+     *          pair (VJ rules 609/611/613 pass) and the DYNWAVE rule 619 is
+     *          enforced only at parse time, never on edit.
+     */
+    bool applyFuseJunctionSplit(const QString &nodeName,
+                                QString *outError = nullptr);
+
     /*! \brief Actionable text for a virtual-junction / inlet-junction rule
      *         code (609..621 VJ, 623..635 inlet). */
     static QString virtualJunctionRuleText(int engineErrorCode);

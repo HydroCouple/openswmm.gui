@@ -190,6 +190,7 @@ public:
     Q_PROPERTY(QPen   weirOutlinePen    READ weirOutlinePen    WRITE setWeirOutlinePen    NOTIFY changed)
     Q_PROPERTY(QPen   pumpOutlinePen    READ pumpOutlinePen    WRITE setPumpOutlinePen    NOTIFY changed)
     Q_PROPERTY(QPen   outletOutlinePen  READ outletOutlinePen  WRITE setOutletOutlinePen  NOTIFY changed)
+    Q_PROPERTY(QBrush streetInvertBrush READ streetInvertBrush WRITE setStreetInvertBrush NOTIFY changed)
 
     // ── Legend ──────────────────────────────────────────────────────────
     Q_PROPERTY(bool legendVisible    READ legendVisible    WRITE setLegendVisible    NOTIFY changed)
@@ -289,6 +290,9 @@ public:
     QPen   weirOutlinePen()    const { return m_weirOutlinePen; }
     QPen   pumpOutlinePen()    const { return m_pumpOutlinePen; }
     QPen   outletOutlinePen()  const { return m_outletOutlinePen; }
+    /*! Pavement band drawn under a STREET conduit's gutter line, so a street
+     *  reads as a road rather than as any other open channel. */
+    QBrush streetInvertBrush() const { return m_streetInvertBrush; }
     bool   legendVisible()   const { return m_legendVisible; }
     LegendPosition legendPosition() const { return m_legendPosition; }
     QFont  legendFont()      const { return m_legendFont; }
@@ -363,6 +367,7 @@ public slots:
     void setWeirOutlinePen   (const QPen &p);
     void setPumpOutlinePen   (const QPen &p);
     void setOutletOutlinePen (const QPen &p);
+    void setStreetInvertBrush(const QBrush &b);
     void setLegendVisible  (bool v);
     void setLegendPosition (LegendPosition p);
     void setLegendFont     (const QFont &f);
@@ -459,6 +464,7 @@ private:
     QPen   m_weirOutlinePen    = QPen(QColor(0x3E, 0x2A, 0x1E), 1.5, Qt::SolidLine);
     QPen   m_pumpOutlinePen    = QPen(QColor(0xC2, 0x70, 0x1A), 1.2, Qt::SolidLine);
     QPen   m_outletOutlinePen  = QPen(QColor(0xA3, 0x3D, 0x4C), 1.2, Qt::SolidLine);
+    QBrush m_streetInvertBrush {QColor(0x55, 0x55, 0x55), Qt::BDiagPattern};
 
     // Legend defaults.
     bool           m_legendVisible  = true;

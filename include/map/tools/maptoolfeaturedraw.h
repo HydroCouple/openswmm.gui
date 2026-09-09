@@ -13,7 +13,9 @@
  *
  *   left click     append a vertex (snapped)
  *   right click    remove the last vertex; cancel when only one remains
- *   double click   commit (the duplicate vertex from the double-click is dropped)
+ *   double click   commit, INCLUDING the double-clicked point as the final
+ *                  vertex (Qt sends only one press per double-click pair, so
+ *                  there is no duplicate to drop)
  *   Return / Enter commit
  *   Escape         cancel
  *
