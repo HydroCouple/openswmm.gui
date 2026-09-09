@@ -318,9 +318,22 @@ void MapToolPick2DCells::mouseDoubleClickEvent(QMouseEvent *event)
     if (event->button() != Qt::LeftButton) return;
     if (!m_drawing) return;
 
-    // Double-click adds one vertex (the first click) — strip it before commit.
-    if (!m_lassoMapPts.isEmpty())
-        m_lassoMapPts.removeLast();
+    // Close the lasso ON the double-clicked point, whether or not this
+    // platform sent a MouseButtonPress ahead of the DblClick (see
+    // maptooladdsubcatchment.cpp). Stripping the last vertex unconditionally
+    // dropped the closing point and cost the lasso a whole corner.
+    if (!m_lassoMapPts.isEmpty()) {
+        int lx = 0, ly = 0;
+        toPixelCoords(m_lassoMapPts.last().x(), m_lassoMapPts.last().y(), lx, ly);
+        if (std::abs(lx - event->pos().x()) <= 2
+            && std::abs(ly - event->pos().y()) <= 2)
+            m_lassoMapPts.removeLast();
+    }
+    {
+        double mx = 0.0, my = 0.0;
+        toMapCoords(event->pos().x(), event->pos().y(), mx, my);
+        m_lassoMapPts.push_back(QPointF(mx, my));
+    }
     if (m_lassoMapPts.size() < 3) {
         m_drawing = false;
         m_lassoMapPts.clear();

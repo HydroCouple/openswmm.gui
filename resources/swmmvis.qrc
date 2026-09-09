@@ -140,6 +140,7 @@
         <file alias="Outlet">images/outlet.svg</file>
         <file alias="Junction">images/junction.svg</file>
         <file alias="VirtualJunction">images/virtual_junction.svg</file>
+        <file alias="JunctionSplit">images/junction_split.svg</file>
         <file alias="InletJunction">images/inlet_junction.svg</file>
         <file alias="Subcatchment">images/subcatchment.svg</file>
         <file alias="Outfall">images/outfall.svg</file>

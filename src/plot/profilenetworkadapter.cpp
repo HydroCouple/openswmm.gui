@@ -99,6 +99,8 @@ ProfileBuilder::PathStatic buildPathStatic(
         ls.offset2     = l.offset2;
         ls.maxDepth    = l.maxDepth;
         ls.crestHeight = l.crestHeight;
+        ls.openTop     = l.openTop;
+        ls.isStreet    = l.isStreet;
         ls.kind        = l.kind;
         ls.reversed    = l.reversed;
         out.links.push_back(ls);

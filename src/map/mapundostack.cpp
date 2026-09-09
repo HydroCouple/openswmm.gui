@@ -1493,6 +1493,43 @@ void InsertVirtualJunctionCommand::undo()
 }
 
 // ===========================================================================
+// InsertJunctionSplitCommand
+// ===========================================================================
+
+InsertJunctionSplitCommand::InsertJunctionSplitCommand(
+        SWMMModelLayer *layer, QString linkName, double t,
+        QString nodeName, QString newLinkName,
+        MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(QObject::tr("Insert Junction \"%1\"").arg(nodeName),
+                 canvas, parent),
+      m_layer(layer),
+      m_linkName(std::move(linkName)),
+      m_t(t),
+      m_nodeName(std::move(nodeName)),
+      m_newLinkName(std::move(newLinkName))
+{
+}
+
+void InsertJunctionSplitCommand::redo()
+{
+    if (!m_layer || m_present) return;
+    if (m_layer->applyInsertJunctionSplit(m_linkName, m_t,
+                                          m_nodeName, m_newLinkName))
+        m_present = true;
+}
+
+void InsertJunctionSplitCommand::undo()
+{
+    if (!m_layer || !m_present) return;
+    // Re-fusing the conduit pair is the exact engine-side inverse of the
+    // split. It can legitimately fail if the junction has since acquired a
+    // third link through a non-undoable edit; m_present then stays true so a
+    // later redo() does not attempt a second split.
+    if (m_layer->applyFuseJunctionSplit(m_nodeName))
+        m_present = false;
+}
+
+// ===========================================================================
 // FuseVirtualJunctionCommand
 // ===========================================================================
 

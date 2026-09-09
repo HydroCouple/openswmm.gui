@@ -80,82 +80,12 @@ inline bool isTabulatedShape(int shape)
         || shape == SWMM_XSECT_CUSTOM;
 }
 
-/*!
- * Rebuild a STREET section from the engine's own [STREETS] parameters.
- *
- * For STREET — and ONLY for STREET — geom1 really does carry the table index:
- * swmm_link_get_xsect has a dedicated branch that resolves the retained street
- * name back to an index. Verified against the live engine with
- * tests/scratch/sp_geom1_probe.inp (link C4 → ST_B, the second street → g1 = 1).
- *
- * Preferred over swmm_link_create_xsect() because swmm_street_get_params reads
- * stored input and therefore works in EVERY lifecycle state, whereas the
- * link-derived handle needs resolved geometry and returns SWMM_ERR_LIFECYCLE
- * while the model is still being edited — i.e. exactly when the user is
- * looking at the preview.
- */
-XsectSampler samplerFromStreetIndex(SWMM_Engine engine, int streetIdx, bool si)
-{
-    if (!engine || streetIdx < 0 || streetIdx >= swmm_street_count(engine))
-        return {};
-
-    double tCrown = 0.0, hCurb = 0.0, sx = 0.0, nRoad = 0.0;
-    double gutterDepress = 0.0, gutterWidth = 0.0;
-    int    sides = 1;
-    double backWidth = 0.0, backSlope = 0.0, backN = 0.0;
-
-    if (swmm_street_get_params(engine, streetIdx, &tCrown, &hCurb, &sx, &nRoad,
-                               &gutterDepress, &gutterWidth, &sides,
-                               &backWidth, &backSlope, &backN) != SWMM_OK)
-        return {};
-
-    return XsectSampler::fromStreet(tCrown, hCurb, sx, nRoad,
-                                    gutterDepress, gutterWidth, sides,
-                                    backWidth, backSlope, backN, si);
-}
-
-/*!
- * Build a sampler for a link:
- *   - self-contained shapes → rebuilt from the stored geoms (works always);
- *   - STREET                → rebuilt from [STREETS], which geom1 indexes;
- *   - IRREGULAR / CUSTOM    → only the link-derived handle, which needs the
- *                             model to have resolved geometry.
- *
- * \warning geom1 is a table index for STREET **only**. For IRREGULAR the
- * engine does NOT round-trip the transect index: the [XSECTIONS] parser skips
- * populating geom1..4 for irregular sections, and swmm_link_get_xsect (which
- * has a name→index branch for STREET but none for IRREGULAR) falls through to
- * reporting derived geometry instead — g1 = full depth, g2 = max width,
- * g3 = area. Verified with tests/scratch/sp_geom1_probe.inp: three conduits on
- * three different transects returned g1 = 5 / 9 / 3, their depths, while the
- * street conduit correctly returned its index. Treating g1 as an index here
- * would silently draw a DIFFERENT transect whenever the depth happened to land
- * inside [0, transectCount) — worse than drawing nothing. See the handoff's
- * "engine gaps" note; closing this needs an engine-side getter.
- *
- * CUSTOM is blocked separately: its geom2 indexes a SHAPE curve, and the
- * engine's own header documents two conflicting type codes for that curve kind
- * (openswmm_tables.h:79 says 4 = CURVE_SHAPE, :107 says 5 = SHAPE), so reading
- * the curve points directly would be guesswork.
- */
-XsectSampler samplerForLink(SWMM_Engine engine, int linkIdx, int shape,
-                            double g1, double g2, double g3, double g4,
-                            bool si)
-{
-    if (shape == SWMM_XSECT_IRREGULAR)
-        return XsectSampler::fromLink(engine, linkIdx);
-
-    if (shape == SWMM_XSECT_STREET) {
-        XsectSampler s = samplerFromStreetIndex(
-            engine, static_cast<int>(std::lround(g1)), si);
-        if (s.isValid()) return s;
-        return XsectSampler::fromLink(engine, linkIdx);
-    }
-    if (shape == SWMM_XSECT_CUSTOM)
-        return XsectSampler::fromLink(engine, linkIdx);
-
-    return XsectSampler::fromShape(shape, g1, g2, g3, g4, si);
-}
+// samplerFromStreetIndex() and samplerForLink() now live in xsectsampler.h so
+// the Section View and the profile plot resolve link geometry through one
+// implementation. Both STREET and IRREGULAR report geom1 as a TABLE INDEX (the
+// engine resolves the retained name back to an index for each); the earlier
+// note here claiming IRREGULAR reports derived geometry described an older
+// engine and no longer holds.
 
 /*! Section outline + the two dimensions every section carries. */
 void addSectionGeometry(SectionDiagramModel &m, const XsectSampler &sampler,
@@ -453,9 +383,9 @@ SectionDiagramModel buildLinkSection(SWMM_Engine engine, int linkIdx,
         return m;
     }
     m.subtitle = shapeDisplayName(shape);
-    // Only STREET's geom1 is a table index (see samplerForLink) — there is no
-    // way to recover an irregular section's transect name from the engine, so
-    // don't guess at one.
+    // geom1 is a table index for STREET and IRREGULAR alike (see
+    // samplerForLink). Only the street name is shown in the subtitle here;
+    // naming the transect too would be a separate change.
     if (shape == SWMM_XSECT_STREET) {
         const int sIdx = static_cast<int>(std::lround(g1));
         if (sIdx >= 0 && sIdx < swmm_street_count(engine))

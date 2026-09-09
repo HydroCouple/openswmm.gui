@@ -448,6 +448,7 @@ set(
         include/map/tools/maptoolidentify.h
         include/map/tools/maptooladdnode.h
         include/map/tools/maptooladdvirtualnode.h
+        include/map/tools/maptooladdjunctionsplit.h
         include/map/tools/maptooladdinletnode.h
         include/map/tools/maptooladdlink.h
         include/map/tools/maptooladdgage.h
@@ -1132,6 +1133,7 @@ set(
         src/map/tools/maptoolidentify.cpp
         src/map/tools/maptooladdnode.cpp
         src/map/tools/maptooladdvirtualnode.cpp
+        src/map/tools/maptooladdjunctionsplit.cpp
         src/map/tools/maptooladdinletnode.cpp
         src/map/tools/maptooladdlink.cpp
         src/map/tools/maptooladdgage.cpp

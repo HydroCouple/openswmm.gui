@@ -1023,6 +1023,39 @@ private:
 };
 
 /*!
+ * \class InsertJunctionSplitCommand
+ * \brief Records a conduit split that inserts a plain (non-virtual) junction.
+ * \details redo() calls SWMMModelLayer::applyInsertJunctionSplit (engine
+ *          `swmm_conduit_split` with `make_virtual = 0`); undo() calls
+ *          applyFuseJunctionSplit, which flags the node virtual just long
+ *          enough to reuse the engine's exact fuse inverse and rolls the flag
+ *          back if the fuse is refused. Like the virtual-junction pair, a
+ *          split→fuse round-trip restores the model byte-identically, so no
+ *          snapshot machinery is needed.
+ */
+class InsertJunctionSplitCommand : public MapCommand
+{
+public:
+    InsertJunctionSplitCommand(SWMMModelLayer *layer,
+                               QString linkName, double t,
+                               QString nodeName, QString newLinkName,
+                               MapCanvas *canvas,
+                               QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 27; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QString m_linkName;      ///< conduit being split (name survives upstream)
+    double  m_t = 0.5;       ///< normalized split position
+    QString m_nodeName;      ///< inserted junction
+    QString m_newLinkName;   ///< new downstream conduit
+    bool    m_present = false;
+};
+
+/*!
  * \class FuseVirtualJunctionCommand
  * \brief Records the re-fusion (deletion) of a virtual junction.
  * \details The constructor snapshots what a re-split needs: the upstream/

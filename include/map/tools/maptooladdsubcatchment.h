@@ -23,7 +23,8 @@ class SWMMModelLayer;
  *
  * Interaction:
  *   - Left-click → add vertex; rubber-band polygon updates.
- *   - Double-click → close polygon and commit (minimum 3 vertices).
+ *   - Double-click → add the clicked point as the final vertex, then close
+ *     the polygon and commit (minimum 3 vertices).
  *   - Right-click → remove last vertex (or cancel if < 2 remain).
  *   - Enter / Return → commit (same as double-click).
  *   - Escape → cancel.
