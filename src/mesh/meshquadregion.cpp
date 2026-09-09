@@ -164,6 +164,14 @@ QPolygonF normalizeRingCCW(const QPolygonF &ring)
     return out;
 }
 
+bool pointInRegion(const QPolygonF &ring, const QVector<QPolygonF> &holes, const QPointF &p)
+{
+    if (!pointInRing(ring, p)) return false;
+    for (const QPolygonF &h : holes)
+        if (pointInRing(h, p)) return false;
+    return true;
+}
+
 bool pointInRing(const QPolygonF &ring, const QPointF &p)
 {
     const int n = openCount(ring);
@@ -235,7 +243,10 @@ QString validateQuadRegion(const QuadRegion &r,
     QVector<QPointF> probes = ring;
     probes.append(ringCentroid(ring));
 
-    if (!domains.isEmpty())
+    // A background region's ring IS a domain outline, so the containment test
+    // below (which demands "strictly inside exactly one domain ring") would
+    // reject it on its own boundary vertices.
+    if (!domains.isEmpty() && !r.isBackground)
     {
         int domain = -1;
         for (int k = 0; k < probes.size(); ++k)
@@ -291,10 +302,17 @@ QString validateQuadRegionsDisjoint(const QVector<QuadRegion> &regions)
         return false;
     };
 
+    // A background region is meant to CONTAIN the explicit ones — it is the
+    // whole domain, and each explicit region is subtracted from it as a hole
+    // (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.3). Only explicit-vs-explicit
+    // overlap is an error.
     for (int i = 0; i < rings.size(); ++i)
         for (int j = i + 1; j < rings.size(); ++j)
+        {
+            if (regions[i].isBackground || regions[j].isBackground) continue;
             if (overlaps(rings[i], rings[j]))
                 return QStringLiteral("region %1 overlaps region %2").arg(i).arg(j);
+        }
     return QString();
 }
 
