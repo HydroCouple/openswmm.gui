@@ -16,6 +16,7 @@
 #include <QList>
 #include <QPair>
 #include <QString>
+#include <QStringList>
 
 class QCheckBox;
 class QComboBox;
@@ -101,6 +102,15 @@ public:
     /*! \brief True after a successful Apply / OK that wrote at least one key. */
     [[nodiscard]] bool wroteAnyChanges() const { return m_wroteChanges; }
 
+    /*! \brief Every option key offered to writeIfChanged during the last write
+     *         pass — whether or not the value actually changed.
+     *
+     *  The reachability seam for the dialog restructure
+     *  (OPTIONS_DIALOG_TABBED_RESTRUCTURE_PLAN_2026-09-07.md §6 test 6): a key
+     *  recorded here with no widget carrying a matching `optionKey` property
+     *  means some editor was orphaned by a page move. */
+    [[nodiscard]] QStringList lastWriteKeys() const { return m_lastWriteKeys; }
+
     // ---- Pure helpers (testable without an engine) ------------------------
 
     /*! \brief Map an engine boolean string ("YES"/"NO"/"TRUE"/"FALSE"/"1"/"0")
@@ -183,6 +193,23 @@ private:
      *  Called once after buildUi() + readFromEngine() and re-callable when
      *  the engine version changes. */
     void applyEngineConstraints();
+
+    /*! \brief Tag \a w as the editor of engine option \a key.
+     *
+     *  Sets the `optionKey` dynamic property, which is the test seam the
+     *  restructure gates on: every widget that reads or writes an option is
+     *  discoverable by property, without the dialog growing a friend class or
+     *  a per-widget accessor. Widgets that edit a non-[OPTIONS] thing are
+     *  tagged with the section name instead ("[EVENTS]", "[FILES]", …). */
+    static void tagOption(QWidget *w, const char *key);
+
+    /*! \brief Tag every option editor in one pass, from the end of buildUi().
+     *
+     *  Deliberately one block rather than a tagOption() call beside each of the
+     *  116 widget constructions: the tags are derived from writeToEngine()'s
+     *  key list, so keeping them together makes the two auditable side by side
+     *  and keeps the restructure's diff reviewable. */
+    void tagOptionWidgets();
 
     void buildUi();
     /*! Register a sidebar row + stacked page (page wrapped in a scroll area). */
@@ -334,6 +361,18 @@ private:
     SWMMVisProjectWindow *m_projectWindow = nullptr;  ///< owner of .oswp-persisted notes
     QString         m_engineVersion;        ///< e.g. "6.0.0" or "5.2.4"
     bool            m_wroteChanges = false;
+    QStringList     m_lastWriteKeys;      ///< Keys offered to writeIfChanged in the last write pass.
+
+    /*! \brief True when the 2D-module checkbox reflects a real IGNORE_2D
+     *         intent rather than one inferred from the .inp's contents.
+     *
+     *  Set when the engine actually carries the key, when a per-project
+     *  QSettings preference exists, or as soon as the user toggles the box.
+     *  While it is false the checkbox is only a *description* of the model
+     *  ("this .inp has no 2D sections"), and writing IGNORE_2D from it would
+     *  invent a preference the user never expressed — which is what made an
+     *  unedited Apply dirty every 1D project. */
+    bool            m_module2DIntentKnown = false;
 
     // Tab 0 — Title / Notes (rich text mirror of engine [TITLE] section)
     QTextEdit      *m_titleNotesEdit       = nullptr;
