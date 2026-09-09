@@ -182,6 +182,9 @@
 #include "plugins/filefilterregistry.h"
 #include "selection/selectionmanager.h"
 #include "simulation/simulationrunner.h"
+#ifdef Q_OS_MACOS
+#include "platform/macoswindowutils.h"   // App Nap hold while a run streams
+#endif
 #include "ui/dialogs/statusreportdialog.h"           // Slice GUI-2026-05-30 §6
 #include "simulation/simulationstatusmodel.h"
 
@@ -435,6 +438,15 @@ void SWMMVis::onLogMessage(const QString &message,
         << new QStandardItem(QDateTime::currentDateTime().toString("MM/dd/yyyy hh:mm:ss"))
         << new QStandardItem(name)
         << new QStandardItem(message));
+
+    // Bounded. A warning-heavy run appended forever, and on macOS every
+    // rowsInserted makes the accessibility bridge rebuild the view's whole
+    // element array (quadratic in rows; a prior capture held 4.5 GB of
+    // QMacAccessibilityElement). Trim the oldest rows in ONE batch so the
+    // trim itself is a single rowsRemoved, not two thousand.
+    constexpr int kLogRowCap = 20000, kLogRowTrim = 2000;
+    if (mLogMessagesModel->rowCount() > kLogRowCap)
+        mLogMessagesModel->removeRows(0, kLogRowTrim);
 
     // Perf-plan Phase B2: scrollToBottom() forces a full view relayout, and
     // adoptOpenEngine drains every engine diagnostic through this slot — a
@@ -4767,12 +4779,13 @@ void SWMMVis::closeEvent(QCloseEvent *event)
     }
 
     // Cancel any in-flight simulation jobs before we let the window close.
-    // Each runner executes on a QtConcurrent (global QThreadPool) thread that
-    // blocks in its step / legacy-worker loop until the run completes or it
-    // observes the cancel flag. If we close with jobs still running, the event
-    // loop ends and QApplication teardown calls QThreadPool::waitForDone(),
-    // which keeps the (now windowless) process alive in the Dock until the
-    // simulation finishes on its own — looking like a hang. Cancelling lets
+    // Each runner executes on a QtConcurrent thread (the runner's private
+    // QThreadPool) that blocks in its step / legacy-worker loop until the run
+    // completes or it observes the cancel flag. If we close with jobs still
+    // running, the event loop ends and pool teardown calls
+    // QThreadPool::waitForDone(), which keeps the (now windowless) process
+    // alive in the Dock until the simulation finishes on its own — looking
+    // like a hang. Cancelling lets
     // each worker flush partial output, kill its legacy-worker subprocess, and
     // exit promptly so teardown returns immediately. Un-pause first: a paused
     // step loop parks in a sleep and would never observe the cancel otherwise
@@ -4865,13 +4878,14 @@ void SWMMVis::onNewProject()
     auto *prefs  = PreferencesManager::instance();
     auto         sim = prefs->simulationDefaults();
 
-    // THREADS persisted default is 0 (engine auto). On File→New we max
-    // to the machine's logical-processor count so a fresh project starts
-    // saturated; the user's persisted choice still overrides when non-zero.
-    if (sim.threads <= 0) {
-        const int hw = QThread::idealThreadCount();
-        sim.threads = hw > 0 ? hw : 1;
-    }
+    // THREADS persisted default is 0 (engine auto) and File→New keeps it.
+    // It used to be maxed to the logical-processor count, which wrote e.g.
+    // THREADS 10 into every new deck: an explicit count bypasses the engine's
+    // Apple Silicon performance-core clamp (efficiency cores turn every
+    // barrier into a straggler wait — engine measurement T=8 unclamped 204 s
+    // vs T=4 57 s) and lets the OpenMP team spin against the GUI's own
+    // threads. Auto lets the engine size and clamp the team; the user's
+    // persisted choice still applies when non-zero.
 
     // Engine-aware emit: NODE_CONTINUITY + ANDERSON_ACCEL are gated on the
     // refactored engine being the active default.
@@ -5312,7 +5326,27 @@ SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
     // canvas + layers are still alive — but we don't need them; we just
     // drop the per-job state keyed on this window.
     connect(window, &SWMMVisProjectWindow::aboutToClose, this,
-            [this, window]() { clearSimulationStatusForProject(window); });
+            [this, window]() {
+                clearSimulationStatusForProject(window);
+                // Rebind the docks / toolbars AWAY from this window's canvas
+                // while it is still alive. The MDI area does not always
+                // activate another window before this one is destroyed
+                // (Welcome tab active, or the close arrives as a null
+                // activation that the handler below ignores), so the Layers
+                // dock kept a pointer to the dying canvas and the next
+                // activation flip disconnected from freed memory. Pick the
+                // first surviving project window, or null = "all closed".
+                if (window != mActiveProjectWindow) return;
+                SWMMVisProjectWindow *other = nullptr;
+                for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList()) {
+                    auto *cand = qobject_cast<SWMMVisProjectWindow *>(sw);
+                    if (cand && cand != window && !cand->isClosing()) {
+                        other = cand;
+                        break;
+                    }
+                }
+                onActiveSubWindowChanged(other);
+            });
 
     // Same treatment when the user removes the output layer itself — the
     // status row reports continuity errors / sim dates pinned to that
@@ -6420,7 +6454,11 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         bool anyProjectStillOpen = false;
         for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList())
         {
-            if (qobject_cast<SWMMVisProjectWindow *>(sw))
+            // A window that has committed to closing is still listed here
+            // (until Qt removes it during destruction) but its canvas is
+            // about to die — it must not keep the old bindings alive.
+            auto *cand = qobject_cast<SWMMVisProjectWindow *>(sw);
+            if (cand && !cand->isClosing())
             {
                 anyProjectStillOpen = true;
                 break;
@@ -8468,6 +8506,12 @@ void SWMMVis::onRunSimulation()
     auto *runner = new SimulationRunner(jobId, instanceName, runInpPath, rptPath, outPath,
                                         engineVer, this);
     mActiveRunners.insert(jobId, runner);
+#ifdef Q_OS_MACOS
+    // App Nap would throttle a run the user switched away from; hold a
+    // user-initiated activity for the run's lifetime (released in the
+    // finished handler below).
+    openswmmvis::platform::beginSimulationActivity();
+#endif
 
     // Pause / Cancel execution start out disabled in the .ui — flip them
     // on the moment a runner is registered so the toolbar buttons (and
@@ -8551,6 +8595,9 @@ void SWMMVis::onRunSimulation()
                 // last sim finishes.
                 self->mRunningSimProgress.remove(finishedJobId);
                 self->mActiveRunners.remove(finishedJobId);
+#ifdef Q_OS_MACOS
+                openswmmvis::platform::endSimulationActivity();
+#endif
                 self->updateSimulationProgressBar();
                 // Always drop the pause-toggle back to unchecked when the
                 // last runner finishes — otherwise the next Run will
@@ -8681,6 +8728,8 @@ void SWMMVis::onRunSimulation()
                 // Bounded live history (Preferences → Simulation); older
                 // frames thin 2:1 past the cap instead of paging the machine.
                 source->setMaxFrames(PreferencesManager::instance()->live2DHistoryCap());
+                source->setMaxBytes(
+                    size_t(PreferencesManager::instance()->live2DHistoryMB()) << 20);
 
                 // One results layer per file: a rerun OVERWRITES the .h5, so
                 // reuse any existing 2D results layer already pointing at it
@@ -8776,7 +8825,9 @@ void SWMMVis::onRunSimulation()
                 engineSrc->pushDepths(
                     std::vector<float>(depths.begin(), depths.end()),
                     simTime, elapsedSec);
-                layer->refreshTimeRange();
+                // History always fills; the per-tick frame load + repaint is
+                // only worth paying while the layer is on screen.
+                if (layer->isVisible()) layer->refreshTimeRange();
             });
 
     // CF.2.4 — one-shot edge geometry handoff so the velocity overlay has
@@ -8816,8 +8867,10 @@ void SWMMVis::onRunSimulation()
                 engineSrc->pushFlux(
                     std::vector<float>(flux.begin(), flux.end()),
                     simTime, elapsedSec);
-                layer->refreshTimeRange();
-                layer->refreshCurrentFrame();
+                if (layer->isVisible()) {
+                    layer->refreshTimeRange();
+                    layer->refreshCurrentFrame();
+                }
             });
 
     // Per-tick SIGNED vertex render depths — feeds the smooth (Gouraud) depth
@@ -8839,7 +8892,7 @@ void SWMMVis::onRunSimulation()
                 engineSrc->pushVertexSignedDepths(
                     std::vector<double>(vdepths.begin(), vdepths.end()),
                     simTime, elapsedSec);
-                layer->refreshCurrentFrame();
+                if (layer->isVisible()) layer->refreshCurrentFrame();
             });
 
     // Per-tick rainfall intensity + cumulative volume — makes the Rainfall /

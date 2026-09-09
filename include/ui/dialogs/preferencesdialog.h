@@ -152,6 +152,7 @@ private:
     // Simulation
     QSpinBox   *m_progressTickMsSpin    = nullptr;
     QSpinBox   *m_live2DHistoryCapSpin  = nullptr;
+    QSpinBox   *m_live2DHistoryMBSpin   = nullptr;
 
     // Simulation Defaults (applied to fresh blank projects).
     QComboBox      *m_simFlowUnitsCombo       = nullptr;

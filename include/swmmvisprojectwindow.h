@@ -186,6 +186,12 @@ public:
      *  prompt on close (Save As… / Discard / Cancel) — the model lives
      *  only in memory until the first successful Save As clears the flag. */
     bool isUntitled() const { return mUntitled; }
+
+    /*! True from the moment closeEvent() commits to closing (just before
+     *  aboutToClose() fires) — the window is still in the MDI area's
+     *  subWindowList() then, so callers that scan it for "live" project
+     *  windows must skip a closing one or they rebind to a dying canvas. */
+    bool isClosing() const { return mClosing; }
     void markUntitled();
 
     void activatePanTool();
@@ -537,6 +543,7 @@ private:
     bool                 mElevationOffsetMode = false;  // OPTIONS LINK_OFFSETS = ELEVATION
     bool                 mUntitled            = false;  // Slice Y — never saved
     bool                 mClosePromptActive   = false;  // re-entrancy guard for closeEvent's prompt
+    bool                 mClosing             = false;  // see isClosing()
     QStringList          mLastSaveWarnings;   // delta across the last successful engine write
     QString              mEngineVersion       = "6.0.0";  // Default to newest version
     QString              mNotesHtml;                      // [TITLE] notes (rich HTML)

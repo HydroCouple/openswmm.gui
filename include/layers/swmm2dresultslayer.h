@@ -358,6 +358,17 @@ public:
      *  paged the machine on long runs. \p n < 8 disables the cap. */
     void setMaxFrames(int n) { max_frames_ = n; enforceCap_(); }
     int  maxFrames() const noexcept { return max_frames_; }
+
+    /*! \brief Byte budget for the retained history (0 = unlimited), checked
+     *  alongside the frame cap. The frame cap alone let a 155 k-cell mesh hold
+     *  ~9 GB (a frame is ~28 B/cell + 4 B/vertex). Past the budget the same
+     *  2:1 thinning repeats until the history is at or below 75 % of it, so a
+     *  big mesh does not re-thin on every tick at the boundary. Preferences →
+     *  Simulation → "Live 2D history budget". */
+    void   setMaxBytes(size_t bytes) { max_bytes_ = bytes; enforceCap_(); }
+    size_t maxBytes() const noexcept { return max_bytes_; }
+    /*! \brief Bytes held by the retained frames' payload vectors. */
+    size_t historyBytes() const;
     bool readMeshGeometry(std::vector<double>& vx,
                           std::vector<double>& vy,
                           std::vector<double>& vz,
@@ -398,6 +409,7 @@ private:
     std::vector<Tick> history_;
     bool              has_rainfall_ = false;   ///< any tick carried rainfall
     int               max_frames_   = 2000;    ///< see setMaxFrames
+    size_t            max_bytes_    = 0;       ///< see setMaxBytes (0 = unlimited)
     int               generation_   = 0;       ///< see historyGeneration
     bool              finished_     = false;   ///< see markFinished
     void enforceCap_();

@@ -295,11 +295,15 @@ LayerTreeModel::~LayerTreeModel() = default;
 
 void LayerTreeModel::setCanvas(MapCanvas *canvas)
 {
-    if (m_canvas == canvas)
+    // A null → null call still resets: when the bound canvas died under us
+    // the QPointer is already null but the rows still name its layers.
+    if (m_canvas == canvas && canvas)
         return;
 
     beginResetModel();
 
+    // Null when the old canvas was destroyed — nothing to disconnect from
+    // (Qt clears QPointers before destroyed() fires).
     if (m_canvas)
         QObject::disconnect(m_canvas, nullptr, this, nullptr);
 
@@ -313,10 +317,19 @@ void LayerTreeModel::setCanvas(MapCanvas *canvas)
                 this,     &LayerTreeModel::onLayerRemoved);
         connect(m_canvas, &MapCanvas::layerOrderChanged,
                 this,     &LayerTreeModel::onLayerOrderChanged);
+        // Backstop for any teardown path that never rebinds us first: drop
+        // the rows before their layer pointers dangle.
+        connect(m_canvas, &QObject::destroyed,
+                this,     [this]() { setCanvas(nullptr); });
     }
 
     rebuildCategories();
     endResetModel();
+}
+
+MapCanvas *LayerTreeModel::canvas() const
+{
+    return m_canvas.data();
 }
 
 void LayerTreeModel::rebuildCategories()
@@ -1433,7 +1446,9 @@ QModelIndex LayerTreePanel::toSourceIndex(const QModelIndex &proxyIdx) const
 
 void LayerTreePanel::setCanvas(MapCanvas *canvas)
 {
-    if (m_canvas == canvas)
+    // Always forward a null: the model must reset even when its QPointer
+    // already went null because the canvas was destroyed.
+    if (m_canvas == canvas && canvas)
         return;
     m_canvas = canvas;
     m_model->setCanvas(canvas);

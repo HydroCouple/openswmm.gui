@@ -838,6 +838,10 @@ SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path,
         QString detail = QString::fromUtf8(swmm_get_last_error_msg(eng)).trimmed();
         if (detail.isEmpty())
             detail = QString::fromUtf8(swmm_error_message(openRc)).trimmed();
+        // close() before destroy: the C++ destructor only closes a RUNNING /
+        // ENDED engine, so a failed open skipped the IO-thread stop, file
+        // closes and plugin unload — repeatable while iterating on a bad deck.
+        swmm_engine_close(eng);
         swmm_engine_destroy(eng);
         return fail(detail.isEmpty()
             ? QStringLiteral("Failed to open model (error %1): %2")
@@ -995,6 +999,7 @@ SWMM_Engine SWMMModelLayer::createBlankEngine(const NewProjectSpec &spec,
         if (errorDetail) *errorDetail =
             QStringLiteral("Blank project defaults were refused by the "
                            "engine: %1").arg(failures.join(QStringLiteral("; ")));
+        swmm_engine_close(eng);      // see the failed-open path above
         swmm_engine_destroy(eng);
         return nullptr;
     }

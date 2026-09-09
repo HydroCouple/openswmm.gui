@@ -76,7 +76,10 @@ public:
      *        Pass nullptr to detach (empty tree).
      */
     void setCanvas(MapCanvas *canvas);
-    [[nodiscard]] MapCanvas *canvas() const { return m_canvas; }
+    /*! Bound canvas, or nullptr once it is unbound or destroyed. Out-of-line
+     *  so QPointer<MapCanvas>::data() is not instantiated against the
+     *  forward declaration. */
+    [[nodiscard]] MapCanvas *canvas() const;
 
     // QAbstractItemModel interface
     QModelIndex  index(int row, int column, const QModelIndex &parent = {}) const override;
@@ -205,7 +208,11 @@ private:
     int  categoryOf(OpenSWMMVisLayer *layer) const;
     int  sublayerRowIndex(const void *sublayerRowPtr) const;
 
-    MapCanvas                       *m_canvas;
+    // QPointer, not a raw pointer: the canvas dies with its project window
+    // while this dock outlives it, and setCanvas() disconnects from the OLD
+    // canvas — on a raw pointer that was a use-after-free (SIGSEGV in
+    // QObject::disconnect from onActiveSubWindowChanged).
+    QPointer<MapCanvas>              m_canvas;
     QVector<Category>                m_categories;
     QHash<OpenSWMMVisLayer *, int>   m_layerToCategory;
     QHash<OpenSWMMVisLayer *, std::array<KindRow, kKindsPerSwmmModelLayer>>
@@ -369,7 +376,7 @@ private:
     void zoomToLayer(OpenSWMMVisLayer *layer);
     QModelIndex toSourceIndex(const QModelIndex &proxyIdx) const;
 
-    MapCanvas             *m_canvas      = nullptr;
+    QPointer<MapCanvas>    m_canvas;                 // see LayerTreeModel::m_canvas
     QTreeView             *m_treeView    = nullptr;
     QLineEdit             *m_searchEdit  = nullptr;
     LayerTreeModel        *m_model       = nullptr;

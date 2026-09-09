@@ -72,6 +72,7 @@ struct SimulationJobRecord {
     QVector<qint64> twoDTierCells;           ///< rebuild-sampled cells per LTS tier
 
     QStringList warnings;           ///< "[code] message" entries
+    int         droppedWarnings = 0; ///< oldest entries trimmed past the per-job cap
 };
 
 /**

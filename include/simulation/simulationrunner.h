@@ -220,6 +220,12 @@ private:
 
     std::atomic<bool> m_cancel{false};
     std::atomic<bool> m_paused{false};
+    // Back-pressure for the per-tick 2D payload bundle (depths, flux,
+    // rainfall, vertex depths — several MB per tick on a big mesh). Counts
+    // bundles posted to the GUI thread and not yet consumed; the worker
+    // skips a tick's bundle while two are still queued, so a GUI thread that
+    // falls behind never accumulates an unbounded event queue.
+    std::atomic<int>  m_pending2DTicks{0};
 };
 
 #endif // SIMULATIONRUNNER_H
