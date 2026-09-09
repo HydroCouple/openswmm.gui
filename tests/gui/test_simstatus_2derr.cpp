@@ -53,6 +53,30 @@ class TestSimStatus2DErr : public QObject
 
 private slots:
 
+    void warningsPerJobAreCapped()
+    {
+        // A run that warns every step used to grow the job's child rows (and
+        // the tree's accessibility mirror) without limit. Past 5000 the
+        // oldest 500 go in ONE removal and a first row says how many went.
+        SimulationStatusModel model;
+        const int job = model.addJob(QStringLiteral("cap"),
+                                     QDir(outputDir()).filePath(QStringLiteral("cap.inp")));
+        const QModelIndex jobIdx = model.index(0, 0);
+        QVERIFY(jobIdx.isValid());
+        QSignalSpy removed(&model, &QAbstractItemModel::rowsRemoved);
+
+        for (int i = 0; i < 5600; ++i)
+            model.addWarning(job, 0, QStringLiteral("w%1").arg(i));
+
+        const int rows = model.rowCount(jobIdx);
+        QVERIFY2(rows <= 5001, qPrintable(QString::number(rows)));
+        QVERIFY(model.index(0, 0, jobIdx).data(Qt::DisplayRole).toString()
+                    .contains(QStringLiteral("earlier warnings dropped")));
+        QCOMPARE(model.index(rows - 1, 0, jobIdx).data(Qt::DisplayRole).toString(),
+                 QStringLiteral("[0] w5599"));
+        QCOMPARE(removed.count(), 2);   // 5600 warnings → two batched trims
+    }
+
     void headerAndColumnLayout()
     {
         SimulationStatusModel model;
