@@ -1096,8 +1096,8 @@ void TwoDPage::read()
     };
     using SOD = SimulationOptionsDialog;
 
-    // Iteration 4 — source every missing-key fallback from the 2D Defaults
-    // preferences (same lockstep idiom as the 1D pages): the dialog shows the
+    // Iteration 4 — source every missing-key fallback from the 2D preference
+    // tabs (Preferences > Simulation Defaults > 2D ...) (same lockstep idiom as the 1D pages): the dialog shows the
     // user-preferred default whenever the project has no value for a key,
     // matching what File→New would synthesize.
     const auto t = PreferencesManager::instance()->twoDDefaults();
