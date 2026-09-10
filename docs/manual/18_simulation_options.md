@@ -18,7 +18,29 @@ Almost every control on this dialog maps to one `[OPTIONS]` key (or one
 tab. No default shortcut. The dialog needs an open project.
 
 The layout is a category list down the left and one page per category on the
-right; each page scrolls independently. The categories, in order:
+right. Five of those pages carry **inner tabs** that group their controls by
+what they apply to, so no page is a single long scrolling column:
+
+| Page | Tabs |
+| --- | --- |
+| **Models / Processes** | Domains & Processes / Modules / Flags |
+| **Dates & Times** | Simulation Window / Time Steps / Events |
+| **Routing & Hydraulics** | Routing / Dynamic Wave / Finite Volume / Unsteady Friction |
+| **Quality & Transport** | Solver / Eulerian ARD / Lagrangian (LARD) / Reserved Species |
+| **2D Surface Routing** | Hydrodynamics / Mesh & Closure / Coupling / Processes / Rainfall & Output |
+
+Tabs and sidebar rows are **activated contextually**: a tab that does not apply
+to the current selection greys out rather than disappearing, and its tooltip
+says why ("Applies to Dynamic Wave routing only"). Nothing is hidden, so you can
+always see what a setting would look like before you switch to it. Switching a
+selector while you are looking at the tab it just disabled moves you to the
+nearest usable tab instead of leaving you on a dead one.
+
+Two selectors sit in a **page header above the tab bar** rather than inside a
+tab, because each one gates tabs below it: **Flow routing** on *Routing &
+Hydraulics* and **Solver** on *Quality & Transport*.
+
+The categories, in order:
 
 1. **Title / Notes**
 2. **Models / Processes**
@@ -52,37 +74,24 @@ always round-trips through the engine into `[TITLE]`.
 
 ### Models / Processes
 
-\figtodo{18_models_processes.png, The Models / Processes page — process models; modules and active processes}
+\figtodo{18_models_processes.png, The Models / Processes page — the Domains & Processes tab with the process models and the transport matrix}
+
+Three tabs: **Domains & Processes**, **Modules** and **Flags**.
+
+#### Domains & Processes
 
 **Process models**
 
 | Control | Options | Writes |
 | --- | --- | --- |
 | **Infiltration model** | Horton / Modified Horton / Green-Ampt / Modified Green-Ampt / Curve Number | `INFILTRATION` |
-| **Flow routing** | Steady / Kinematic Wave / Dynamic Wave / Finite Volume | `FLOW_ROUTING` |
+| **Flow routing** | Read-only mirror of the selector on *Routing & Hydraulics* | — |
 
-Choosing **Finite Volume** enables the two finite-volume groups on the
-*Routing & Hydraulics* page. The FV entry is disabled on an engine that does not
-carry the FV solver.
-
-**Modules**
-
-| Check box | What it does |
-| --- | --- |
-| **1D Hydraulics (always on)** | Always checked and disabled — the SWMM core cannot be turned off |
-| **2D Surface Routing** | A project-level flag stored with the project. When on, the *Mesh* and *2D Surface Routing* pages become interactive; when off the 2D sidebar row is greyed out |
-
-The engine itself activates its 2D solver from the *presence* of mesh sections
-in the deck, not from this flag; a model that already carries `[2D_OPTIONS]`,
-`[2D_VERTICES]`, `[2D_TRIANGLES]` or `[2D_MESH_FILE]` opens with the box
-already checked. In a build without the 2D module the flag still toggles the
-Mesh page — mesh generation works regardless — but the coupled run does not.
-
-**Options / flags**
-
-| Check box | Writes |
-| --- | --- |
-| **Allow ponding at nodes (ALLOW_PONDING)** | `ALLOW_PONDING` |
+**Flow routing** used to be edited here. It now lives in the *Routing &
+Hydraulics* page header, because it gates three of that page's four tabs and
+could neither sit inside one of them nor stay two sidebar rows away. What
+remains here is a one-line read-only mirror — "**Dynamic Wave** — change on
+Routing & Hydraulics" — whose link jumps to that row. One key, one editor.
 
 **Active processes** — six check boxes whose sense is inverted relative to the
 `.inp`: **checked means the process runs**, and unchecking writes the legacy
@@ -97,11 +106,32 @@ Mesh page — mesh generation works regardless — but the coupled run does not.
 | **Water quality** | `IGNORE_QUALITY YES` |
 | **Flow routing** | `IGNORE_ROUTING YES` |
 
+#### Modules
+
+| Check box | What it does |
+| --- | --- |
+| **1D Hydraulics (always on)** | Always checked and disabled — the SWMM core cannot be turned off |
+| **2D Surface Routing** | A project-level flag stored with the project. When on, the *Mesh* and *2D Surface Routing* pages become interactive; when off the 2D sidebar row is greyed out |
+
+The engine itself activates its 2D solver from the *presence* of mesh sections
+in the deck, not from this flag; a model that already carries `[2D_OPTIONS]`,
+`[2D_VERTICES]`, `[2D_TRIANGLES]` or `[2D_MESH_FILE]` opens with the box
+already checked. In a build without the 2D module the flag still toggles the
+Mesh page — mesh generation works regardless — but the coupled run does not.
+
+#### Flags
+
+| Check box | Writes |
+| --- | --- |
+| **Allow ponding at nodes (ALLOW_PONDING)** | `ALLOW_PONDING` |
+
 ### Dates & Times
 
-\figtodo{18_dates_times.png, The Dates & Times page with the simulation window; time steps and the Events table}
+\figtodo{18_dates_times.png, The Dates & Times page — the Simulation Window tab}
 
-**Simulation window**
+Three tabs: **Simulation Window**, **Time Steps** and **Events**.
+
+#### Simulation Window
 
 | Control | Writes |
 | --- | --- |
@@ -113,7 +143,17 @@ Mesh page — mesh generation works regardless — but the coupled run does not.
 Date-times are entered with a calendar popup in `yyyy-MM-dd HH:mm:ss`; the
 engine always sees the legacy `MM/DD/YYYY` + `HH:MM:SS` form.
 
-**Time steps** — all but the routing step are entered as a timespan:
+**Sweep / antecedent**
+
+| Control | Writes |
+| --- | --- |
+| **Start sweeping on** | `SWEEP_START` — `MM/DD`, no year |
+| **End sweeping on** | `SWEEP_END` |
+| **Antecedent dry days** | `DRY_DAYS` |
+
+#### Time Steps
+
+All but the routing step are entered as a timespan:
 
 | Control | Writes |
 | --- | --- |
@@ -123,24 +163,12 @@ engine always sees the legacy `MM/DD/YYYY` + `HH:MM:SS` form.
 | **Control rule step** | `RULE_STEP` — 0 evaluates rules every routing step |
 | **Routing step** | `ROUTING_STEP`, in decimal seconds (a plain text box, 0.001–3600) |
 
-**Skip steady state**
+**Skip steady state** used to sit here. It moved to *Routing & Hydraulics* ›
+*Routing*, because it is a property of how the router spends its steps rather
+than of the schedule — and because the engine honours `SKIP_STEADY_STATE` under
+**every** routing method, not only dynamic wave.
 
-| Control | Writes |
-| --- | --- |
-| **Skip steady-periods (SKIP_STEADY_STATE)** | `SKIP_STEADY_STATE` |
-| **Lateral flow tol** | `LAT_FLOW_TOL` — shown as a percentage, stored as a fraction |
-| **System flow tol** | `SYS_FLOW_TOL` — same conversion |
-
-Both tolerances grey out while **Skip steady-periods** is off; the values are
-kept, so turning it back on restores them.
-
-**Sweep / antecedent**
-
-| Control | Writes |
-| --- | --- |
-| **Start sweeping on** | `SWEEP_START` — `MM/DD`, no year |
-| **End sweeping on** | `SWEEP_END` |
-| **Antecedent dry days** | `DRY_DAYS` |
+#### Events
 
 **Events ([EVENTS])** — an optional list of routing-active windows. With
 **Skip steady-periods** on, the engine routes full hydraulics only inside these
@@ -158,7 +186,60 @@ non-blocking warning you can override.
 
 ### Routing & Hydraulics
 
-\figtodo{18_routing_hydraulics.png, The Routing & Hydraulics page — surcharge handling and the solver group}
+\figtodo{18_routing_hydraulics.png, The Routing & Hydraulics page — the FLOW_ROUTING header above four contextual tabs}
+
+The headline page of the dialog. **Flow routing** sits in a page header above
+the tab bar, always visible, and gates three of the four tabs below it:
+
+| Control | Options | Writes |
+| --- | --- | --- |
+| **Flow routing** | Steady / Kinematic Wave / Dynamic Wave / Finite Volume | `FLOW_ROUTING` |
+
+The FV entry is disabled on an engine that does not carry the FV solver.
+
+| Tab | Applies to | Enabled when |
+| --- | --- | --- |
+| **Routing** | every solver | always |
+| **Dynamic Wave** | `DYNWAVE` | Flow routing is Dynamic Wave |
+| **Finite Volume** | `FV` | Flow routing is Finite Volume, on an engine that carries it |
+| **Unsteady Friction** | `DYNWAVE` and `FV` | either of those, on an engine that carries the keys |
+
+A greyed tab keeps its contents — the engine accepts every key on this page as
+inert under any other router, so a disabled tab never invalidates the project
+and your configuration survives switching routers mid-session.
+
+#### Routing
+
+The tab that applies under every solver.
+
+**Conduit / channel**
+
+| Control | Options | Writes |
+| --- | --- | --- |
+| **Force-main equation** | Hazen-Williams (H-W) or Darcy-Weisbach (D-W) | `FORCE_MAIN_EQUATION` |
+| **Normal-flow criterion** | Slope / Froude / Both / Neither | `NORMAL_FLOW_LIMITED` |
+| **Inertial damping** | None / Partial / Full — dynamic-wave routing only | `INERTIAL_DAMPING` |
+| **Min surface area** | Lower clamp on nodal surface area | `MIN_SURFAREA` |
+| **Min conduit slope** | Lower clamp on conduit slope, percent | `MIN_SLOPE` |
+
+**Skip steady state** — moved here from *Dates & Times*.
+
+| Control | Writes |
+| --- | --- |
+| **Skip steady-periods (SKIP_STEADY_STATE)** | `SKIP_STEADY_STATE` |
+| **Lateral flow tol** | `LAT_FLOW_TOL` — shown as a percentage, stored as a fraction |
+| **System flow tol** | `SYS_FLOW_TOL` — same conversion |
+
+Both tolerances grey out while **Skip steady-periods** is off; the values are
+kept, so turning it back on restores them.
+
+It is on the shared **Routing** tab, not on **Dynamic Wave**, because the engine
+tests for a steady period from the main routing step with no routing-model
+guard — `SKIP_STEADY_STATE` is honoured under kinematic wave and steady flow
+too. The `[EVENTS]` windows it works with are edited on *Dates & Times* ›
+*Events*.
+
+#### Dynamic Wave
 
 **Surcharge handling**
 
@@ -188,10 +269,9 @@ The three DPS rows enable only under DYNAMIC_SLOT; the TPA row only under TPA.
 step toward this floor, and raising it (1.0–1.5 s) recovers most of the runtime.
 The *System / Performance* page has a one-click preset that does exactly that.
 
-**Finite volume solver** — enabled only while **Flow routing** is Finite Volume.
-The engine accepts these keys as inert under any other router, so a greyed-out
-group never invalidates the project and your FV configuration is not lost when
-you switch routers mid-session.
+#### Finite Volume
+
+**Finite volume solver**
 
 | Control | Options / meaning | Writes |
 | --- | --- | --- |
@@ -227,34 +307,44 @@ warns once and uses the built-in behaviour.
 | **LTS max tiers** | Cap on the tier spread; enabled only while LTS is on | `FV_LTS_MAX_TIERS` |
 | **CFL census interval** | Substeps between full Courant re-surveys; 1 = every substep | `FV_CFL_CENSUS_INTERVAL` |
 
-**Unsteady friction** — its own group, because both the dynamic-wave and the
-finite-volume solvers consume it. It is enabled only under `DYNWAVE` or `FV`
-routing, and only on an engine that carries the keys.
+#### Unsteady Friction
+
+Its own tab, because both the dynamic-wave and the finite-volume solvers consume
+it — it belongs to neither alone.
 
 | Control | Options / meaning | Writes |
 | --- | --- | --- |
 | **Method** | None, or Vitkovsky (instantaneous-acceleration model) | `UNSTEADY_FRICTION` |
 | **Coefficient k3** | Brunone-type coefficient; enabled only when a method is selected | `UF_K3` |
 
-**Conduit / channel**
-
-| Control | Options | Writes |
-| --- | --- | --- |
-| **Force-main equation** | Hazen-Williams (H-W) or Darcy-Weisbach (D-W) | `FORCE_MAIN_EQUATION` |
-| **Normal-flow criterion** | Slope / Froude / Both / Neither | `NORMAL_FLOW_LIMITED` |
-| **Inertial damping** | None / Partial / Full — dynamic-wave routing only | `INERTIAL_DAMPING` |
-| **Min surface area** | Lower clamp on nodal surface area | `MIN_SURFAREA` |
-| **Min conduit slope** | Lower clamp on conduit slope, percent | `MIN_SLOPE` |
-
 ### Quality & Transport
 
-\figtodo{18_quality_transport.png, The Quality & Transport page with the solver selection and the reserved-species group}
+\figtodo{18_quality_transport.png, The Quality & Transport page — the QUALITY_SOLVER header above four contextual tabs}
 
-**Water quality solver**
+The sidebar row itself greys out on a model with nothing to transport — no
+pollutants, no water age, no heat.
+
+**Solver** sits in a page header above the tab bar, for the same reason **Flow
+routing** does on *Routing & Hydraulics*: it gates two of the four tabs.
 
 | Control | Options | Writes |
 | --- | --- | --- |
 | **Solver** | Legacy (complete mix) / Eulerian ARD (advection–reaction–dispersion) / Lagrangian (LARD) | `QUALITY_SOLVER` |
+
+| Tab | Enabled when |
+| --- | --- |
+| **Solver** | always |
+| **Eulerian ARD** | Solver is Eulerian ARD |
+| **Lagrangian (LARD)** | Solver is Lagrangian |
+| **Reserved Species** | always |
+
+Every key is written whatever the solver selection, so you can configure LARD
+before switching to it and the settings survive.
+
+#### Solver
+
+| Control | Options | Writes |
+| --- | --- | --- |
 | **Outfall backflow** | Hold last concentration (legacy) or Fresh (zero concentration and age) | `OUTFALL_BACKFLOW_QUALITY` |
 
 Under **Hold last** an outfall re-injects its held state, and under water age
@@ -262,7 +352,7 @@ that water keeps ageing with the clock, so a permanently supplying outfall grows
 old without bound. **Fresh** makes a supplying outfall behave like an
 EPANET-style reservoir.
 
-**Eulerian ARD** — enabled only while that solver is selected:
+#### Eulerian ARD
 
 | Control | Options | Writes |
 | --- | --- | --- |
@@ -273,7 +363,7 @@ its component file (`model.ard`: `[TRANSPORT_OPTIONS]`,
 `[CONDUIT_DISPERSION]`), bound on the *Files / Output / Plugins* page. A bound
 component file's `SCALAR_SCHEME` overrides the combo above.
 
-**Lagrangian (LARD)** — enabled only while that solver is selected:
+#### Lagrangian (LARD)
 
 | Control | Meaning | Writes |
 | --- | --- | --- |
@@ -282,7 +372,7 @@ component file's `SCALAR_SCHEME` overrides the combo above.
 | **Dispersion** | Off, or RWPT (random-walk particle tracking) | `DISPERSION` |
 | **RWPT seed** | Deterministic seed — the same seed reproduces a run bit-for-bit at any thread count; enabled only under RWPT | `RWPT_SEED` |
 
-**Reserved species**
+#### Reserved Species
 
 | Control | Meaning | Writes |
 | --- | --- | --- |
@@ -337,11 +427,6 @@ Changing the CRS here updates the *stored* CRS — it does **not** transform
 coordinates. To permanently reproject a model, use the CRS button in the status
 bar (see \ref manual_crs).
 
-**Known gap in this build.** The **Change…** and **Detect from coordinates**
-buttons are drawn but not wired — their signal connections sit after the page
-builder returns, so clicking them does nothing. Set the project CRS from the
-status-bar CRS control until this is fixed.
-
 ### Mesh
 
 \figtodo{18_mesh_page.png, The Mesh page listing candidate .2dm files next to the project}
@@ -365,11 +450,17 @@ New meshes are created with **Generate Mesh** — see \ref manual_2d_mesh.
 
 This page exists only in a build compiled with the 2D module, and the sidebar
 row is selectable only while **2D Surface Routing** is checked on *Models /
-Processes*. Every key here is stored in `[2D_OPTIONS]`. Where the project has no
-value for a key, the page shows the corresponding **2D Defaults** from
-\ref manual_preferences — the same value **File → New** would synthesise.
+Processes* › *Modules*. Every key here is stored in `[2D_OPTIONS]`. Where the
+project has no value for a key, the page shows the corresponding default from
+*Preferences* › *Simulation Defaults* › the **2D** tabs
+(\ref manual_preferences) — the same value **File → New** would synthesise.
 
-\figtodo{18_2d_options.png, The 2D Surface Routing page with the explicit marcher and coupling groups}
+Five tabs: **Hydrodynamics**, **Mesh & Closure**, **Coupling**, **Processes**
+and **Rainfall & Output**.
+
+\figtodo{18_2d_options.png, The 2D Surface Routing page — the Hydrodynamics tab with the explicit marcher}
+
+#### Hydrodynamics
 
 **Time stepping**
 
@@ -389,17 +480,7 @@ this engine, so there is no solver selector and these settings are always live.
 | **Max Froude number** | Froude cap on face discharge — the supercritical guard | `FROUDE_MAX` |
 | **Convective momentum flux (ADVECTION)** | Include the convective momentum flux at interior faces (Stelling–Duinmeijer staggered upwind) | `ADVECTION` |
 
-**Performance**
-
-| Control | Options | Writes |
-| --- | --- | --- |
-| **Backend** | Auto / CPU (built-in marcher) / OpenMP (Kokkos) / CUDA / HIP / SYCL | `BACKEND` |
-
-Auto prefers an installed GPU plugin above the device mesh-size floor, then the
-OpenMP plugin above its own floor, else the built-in CPU marcher. A named
-backend loads that plugin outright; if it is missing or has no usable device the
-run falls back to CPU with a notice. The `OPENSWMM_2D_BACKEND` environment
-variable overrides this setting.
+#### Mesh & Closure
 
 **Mesh**
 
@@ -423,6 +504,8 @@ rest stays at rest. The VFR face reconstruction blocks flow across an edge whose
 bed is above the water and pairs naturally with the VFR cell closure. Both work
 on every backend.
 
+#### Coupling
+
 **1D ↔ 2D coupling**
 
 | Control | Meaning | Writes |
@@ -436,15 +519,56 @@ fill-and-spill ponds behind weirs and culverts need; a batching interval is much
 faster on large meshes but its one-span feedback delay can ring on rapidly
 filling ponds.
 
-**Rainfall**
+#### Processes
+
+The 2D process switches — what the surface does with water besides move it.
 
 | Control | Options | Writes |
 | --- | --- | --- |
 | **Rainfall mode** | Natural neighbour (all gages) / System (uniform gage mean) / None (no direct rainfall) | `RAINFALL_MODE` |
+| **Infiltration** | Automatic (on when per-cell rows exist) / On / Off | `INFILTRATION` |
+| **Infiltration step** | *Same as wet-weather step*, or an explicit cadence | `INFIL_STEP` |
+| **Default method** | None / Horton / Modified Horton / Green-Ampt / Modified Green-Ampt / Curve Number / Constant rate | `INFIL_DEFAULT_METHOD` |
+| **Destination** | Lost / Subcatchment aquifer / 2D aquifer | `INFIL_DESTINATION` |
+| **Evaporation** | Forced only / Project climate rate / Off | `EVAPORATION` |
+| **Transport on the mesh** | Four check boxes: Pollutants, MSX species, Water age, Temperature | `TRANSPORT_POLLUTANTS`, `TRANSPORT_MSX`, `TRANSPORT_AGE`, `TRANSPORT_TEMPERATURE` |
 
 Natural neighbour spatially interpolates every located gage onto each cell
 (inverse-distance outside the gage hull). See \ref manual_2d_mesh for assigning
-gages to cells.
+gages to cells, and **Edit per-cell infiltration…** on this tab for per-cell
+methods and parameters.
+
+The four **Transport on the mesh** boxes are the 2D column of the **Transport by
+domain** matrix on *Models / Processes* — one model, two views, kept in step
+while the dialog is open.
+
+**Groundwater (subsurface)** — the process *enables* for the two-zone
+subsurface column under every mesh cell. The aquifer *parameters* are edited in
+*Mesh 2D* › *Groundwater (2D)*, and both places write the same
+`[2D_AQUIFER_OPTIONS]` values.
+
+| Control | Options | Writes |
+| --- | --- | --- |
+| **Subsurface** | Automatic (on when aquifer rows exist) / On / Off | `GROUNDWATER` |
+| **Evapotranspiration** | None / Capillary rise / Boundary ET / Both | `GW_ET` |
+
+With **Subsurface** on, **Destination** above locks to the 2D aquifer:
+infiltrated water enters the column under the cell, which is the mutual
+exclusion the engine validates.
+
+#### Rainfall & Output
+
+**Performance**
+
+| Control | Options | Writes |
+| --- | --- | --- |
+| **Backend** | Auto / CPU (built-in marcher) / OpenMP (Kokkos) / CUDA / HIP / SYCL | `BACKEND` |
+
+Auto prefers an installed GPU plugin above the device mesh-size floor, then the
+OpenMP plugin above its own floor, else the built-in CPU marcher. A named
+backend loads that plugin outright; if it is missing or has no usable device the
+run falls back to CPU with a notice. The `OPENSWMM_2D_BACKEND` environment
+variable overrides this setting.
 
 **Output**
 

@@ -18,9 +18,9 @@ stored and exactly what **Reset to defaults** does and does not touch.
 | **View → Appearance ▸** | The same setting as the **Appearance** page; without opening the dialog |
 
 Preferences are **application-wide**, not per project. Changing them never
-modifies a model that is already open; the *Simulation Defaults*, *Dynamic Wave
-Defaults*, *2D Defaults* and *Object Defaults* pages only affect what happens
-next — a new project, or the next object you draw.
+modifies a model that is already open; the *Simulation Defaults* and *Object
+Defaults* pages only affect what happens next — a new project, or the next
+object you draw.
 
 \figtodo{04_preferences_general.png, The Preferences dialog with the category list on the left and the General page selected}
 
@@ -29,10 +29,21 @@ next — a new project, or the next object you draw.
 ### Dialog anatomy
 
 The dialog is a category list on the left and a stacked page on the right — the
-VS Code / macOS System Settings convention. Pages scroll rather than squeeze when
-the window is small, so a page never opens taller than your screen. The dialog
-opens on **Selection** the first time and afterwards on the page and geometry you
-left it at.
+VS Code / macOS System Settings convention. The dialog opens on **Selection**
+the first time and afterwards on the page and geometry you left it at.
+
+Two pages carry **inner tabs** that group their controls by what they configure,
+so neither is a single long scrolling column:
+
+| Page | Tabs |
+| --- | --- |
+| **Rendering** | Labels / Links & Nodes / GPU / 2D Mesh Edges |
+| **Simulation Defaults** | Processes & Modules / Hydraulics & Schedule / Dynamic Wave: Steps & Tolerances / Dynamic Wave: Solver / 2D Solver / 2D Coupling & Rainfall / 2D Mesh |
+
+*Simulation Defaults* absorbed what used to be two separate sidebar rows,
+*Dynamic Wave Defaults* and *2D Defaults*, as the four tabs after the first two.
+Everything they held is still there and still writes the same keys — it is one
+row instead of three.
 
 Along the bottom:
 
@@ -92,6 +103,9 @@ See \ref manual_crs and \ref manual_map_editing.
 
 ### Rendering
 
+Four tabs: **Labels**, **Links & Nodes**, **GPU** and **2D Mesh Edges** — one
+per group in the table below.
+
 | Control | What it does |
 |---|---|
 | **Label Rendering → Label zoom-out threshold (m11)** | Minimum view-transform scale at which labels are drawn. Higher hides labels sooner when zooming out; lower keeps them at coarse zoom, at a performance cost |
@@ -119,6 +133,22 @@ Applied when **File → New** creates a blank project. Existing projects are
 unaffected — change those in **Model → Simulation Options…**
 (\ref manual_simulation_options).
 
+Seven tabs. The first two are the general defaults; the next two are the
+dynamic-wave half of the same story (the former *Dynamic Wave Defaults* row);
+the last three seed the `[2D_OPTIONS]` block of a new project and the starting
+values of the mesh generator (the former *2D Defaults* row — see
+\ref manual_2d_mesh).
+
+| Tab | Groups |
+| --- | --- |
+| **Processes & Modules** | Process models · Process modules |
+| **Hydraulics & Schedule** | Hydraulics · Schedule |
+| **Dynamic Wave: Steps & Tolerances** | Time steps · Solver tolerances · Variable timestep |
+| **Dynamic Wave: Solver** | Conduit / channel · Solver |
+| **2D Solver** | 2D solver · Wet/dry & VFR |
+| **2D Coupling & Rainfall** | 1D↔2D coupling · Rainfall & reporting |
+| **2D Mesh** | Mesh generation defaults |
+
 | Group | Controls | Writes |
 |---|---|---|
 | **Process models** | **Flow units** (`CFS`/`GPM`/`MGD`/`CMS`/`LPS`/`MLD`) · **Infiltration model** (Horton; Modified Horton; Green-Ampt; Modified Green-Ampt; Curve Number) · **Hydraulic routing method** (Steady; Kinematic Wave; Dynamic Wave; Finite Volume) | `FLOW_UNITS`; `INFILTRATION`; `FLOW_ROUTING` |
@@ -128,9 +158,7 @@ unaffected — change those in **Model → Simulation Options…**
 | **Time steps** | **Reporting** · **Runoff dry-weather** · **Runoff wet-weather** (minutes) · **Control rule** (seconds) · **Routing** (seconds) | `REPORT_STEP`; `DRY_STEP`; `WET_STEP`; `RULE_STEP`; `ROUTING_STEP` |
 | **Solver tolerances** | **System flow tolerance** · **Lateral flow tolerance** · **Max trials** | `SYS_FLOW_TOL`; `LAT_FLOW_TOL`; `MAX_TRIALS` |
 
-### Dynamic Wave Defaults
-
-The dynamic-wave-specific half of the same story.
+**Dynamic Wave tabs**
 
 | Group | Controls | Writes |
 |---|---|---|
@@ -142,10 +170,7 @@ The dynamic-wave-specific half of the same story.
 they are emitted into a new project only when the default engine mode is
 OpenSWMM 6.
 
-### 2D Defaults
-
-Seeds the `[2D_OPTIONS]` block of a new project and the starting values of the
-mesh generator. See \ref manual_2d_mesh.
+**2D tabs**
 
 | Group | Controls | Writes |
 |---|---|---|
@@ -155,7 +180,7 @@ mesh generator. See \ref manual_2d_mesh.
 | **Rainfall & reporting** | Direct 2D rainfall (Natural neighbour; System mean; None) · Report 2D results | `RAINFALL_MODE`; `REPORT_2D` |
 | **Mesh generation defaults** | Minimum triangle angle · Maximum triangle area (m²) · Maximum Steiner points · IDW power · Simplify tolerance · Snap tolerance · Node flatten radius · Enforce minimum node separation and its distance · Thin DTM points with tolerance and pass count · Boundary point filter buffer · Densify long boundary edges with a maximum edge length · Constant Manning's n · Constant initial depth · write the mesh to an external `.2dm` | The mesh generator's starting values |
 
-\figtodo{04_preferences_2d_defaults.png, The 2D Defaults page showing the solver group and the mesh generation defaults}
+\figtodo{04_preferences_2d_defaults.png, Simulation Defaults - the 2D Solver tab beside the 2D Mesh tab}
 
 ### Object Defaults
 
@@ -337,7 +362,7 @@ work, not a window-position problem.
 
 | Scope | What **Reset to defaults** does |
 |---|---|
-| General; Selection scalars; Canvas & CRS; Rendering scalars; Simulation; Simulation Defaults; Dynamic Wave Defaults; 2D Defaults; Object Defaults; Map Display; Measure Tool; Plots; Naming | Fills the widgets with the compiled-in defaults. **Nothing is written until you press Apply or OK** |
+| General; Selection scalars; Canvas & CRS; Rendering scalars; Simulation; Simulation Defaults (every tab); Object Defaults; Map Display; Measure Tool; Plots; Naming | Fills the widgets with the compiled-in defaults. **Nothing is written until you press Apply or OK** |
 | Selection Pens & Fills; Link Pens; Node Symbols; 2D Mesh BC Edges | Untouched — these write through on edit and are not part of the reset |
 | Appearance | Untouched |
 | Keyboard | Untouched — use **Reset** / **Reset All** on that page |
@@ -348,9 +373,9 @@ back to Qt's own count.
 
 ## Tips and gotchas
 
-- **Set the defaults before you build, not after.** *Simulation Defaults*,
-  *Dynamic Wave Defaults*, *2D Defaults* and *Object Defaults* only shape new
-  projects and newly drawn objects — they never reach back into an open model.
+- **Set the defaults before you build, not after.** *Simulation Defaults* (all
+  seven tabs) and *Object Defaults* only shape new projects and newly drawn
+  objects — they never reach back into an open model.
 - **Reset then Apply.** Clicking **Reset to defaults** and then **Cancel** leaves
   your stored preferences exactly as they were.
 - **Cancel will not undo a pen edit.** The pen, brush, mesh-BC and shortcut

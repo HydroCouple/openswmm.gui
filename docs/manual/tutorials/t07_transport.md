@@ -335,16 +335,19 @@ Open **Simulation Options** (**Model → Simulation Options**) and pick the
 **Spatial & CRS**, **Mesh**, **2D Surface Routing** and
 **Files / Output / Plugins** (the last three are conditional).
 
-| Group | Control | Writes |
+The **Solver:** selector is in the page header, above the tab bar, because it
+gates two of the four tabs below it.
+
+| Tab | Control | Writes |
 |---|---|---|
-| **Water quality solver** | **Solver:** — *Legacy (complete mix)*, *Eulerian ARD (advection–reaction–dispersion)*, *Lagrangian (LARD)* | `QUALITY_SOLVER` |
-| | **Outfall backflow:** — *Hold last concentration (legacy)*, *Fresh (zero concentration and age)* | `OUTFALL_BACKFLOW_QUALITY` |
-| **Eulerian ARD** *(enabled only for that solver)* | **Scalar scheme:** — *MUSCL*, *Upwind*, *QUICKEST-ULTIMATE* | `FV_SCALAR_SCHEME` |
-| **Lagrangian (LARD)** *(enabled only for that solver)* | **Quality step:** (0–3600 s) | `QUALITY_STEP` |
+| *(page header)* | **Solver:** — *Legacy (complete mix)*, *Eulerian ARD (advection–reaction–dispersion)*, *Lagrangian (LARD)* | `QUALITY_SOLVER` |
+| **Solver** | **Outfall backflow:** — *Hold last concentration (legacy)*, *Fresh (zero concentration and age)* | `OUTFALL_BACKFLOW_QUALITY` |
+| **Eulerian ARD** *(live only for that solver)* | **Scalar scheme:** — *MUSCL*, *Upwind*, *QUICKEST-ULTIMATE* | `FV_SCALAR_SCHEME` |
+| **Lagrangian (LARD)** *(live only for that solver)* | **Quality step:** (0–3600 s) | `QUALITY_STEP` |
 | | **Max segments per link:** (2–10000) | `MAX_SEGMENTS_PER_LINK` |
 | | **Dispersion:** — *Off*, *RWPT (random-walk particle tracking)* | `DISPERSION` |
 | | **RWPT seed:** *(enabled only with RWPT)* | `RWPT_SEED` |
-| **Reserved species** | **Track water age** | `WATER_AGE` |
+| **Reserved Species** | **Track water age** | `WATER_AGE` |
 | | **Simulate heat transport** | `HEAT_TRANSPORT` |
 | | **Edit Source Ages…** | opens the Water Age Sources dialog |
 | | **Edit Initial Quality…** | opens the Initial Quality dialog |
@@ -353,7 +356,8 @@ Note carefully which knobs live where:
 
 - **`QUALITY_STEP` and `DISPERSION` in `[OPTIONS]` are LARD-only.** Set them
   with another solver and the engine warns that they have no effect. The dialog
-  greys the whole group accordingly.
+  greys the whole **Lagrangian (LARD)** tab accordingly — the settings are still
+  written, so you can configure LARD before switching to it.
 - **ARD dispersion is configured in the `.ard` file, not in `[OPTIONS]`.** The
   page says so in its own note. The tutorial's `transport_demo.ard` is:
 

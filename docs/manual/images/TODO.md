@@ -45,7 +45,9 @@ Totals: 326 figures, 35 videos.
 - [ ] `04_preferences_general.png` (line 25) — The Preferences dialog with the category list on the left and the General page selected
 - [ ] `04_preferences_selection.png` (line 78) — The Selection page with the Selection Pens and Fills property tree expanded
 - [ ] `04_preferences_rendering.png` (line 106) — The Rendering page with the Link Pens tree and the GPU rendering checkboxes
-- [ ] `04_preferences_2d_defaults.png` (line 158) — The 2D Defaults page showing the solver group and the mesh generation defaults
+- [ ] `04_preferences_rendering_tabs.png` — The Rendering page tab bar: Labels; Links & Nodes; GPU; 2D Mesh Edges
+- [ ] `04_preferences_2d_defaults.png` (line 158) — Simulation Defaults - the 2D Solver tab beside the 2D Mesh tab
+- [ ] `04_preferences_simdefaults_tabs.png` — The Simulation Defaults tab bar, all seven tabs, showing the two folded-in rows
 - [ ] `04_preferences_object_defaults.png` (line 180) — The Object Defaults page on the Links tab with the unit-system selector at the top
 - [ ] `04_preferences_appearance.png` (line 262) — The Appearance page with the System; Light and Dark radio buttons
 - [ ] VIDEO (line 285) — Setting up Preferences before starting a project — simulation and 2D defaults; object defaults for both unit systems and a couple of shortcut rebinds
@@ -226,15 +228,21 @@ Totals: 326 figures, 35 videos.
 - [ ] `18_options_dialog.png` (line 13) — The Simulation Options dialog with the category sidebar and the Models / Processes page
 - [ ] VIDEO (line 39) — Setting up a dynamic-wave run — dates; time steps; solver tolerances and threads
 - [ ] `18_title_notes.png` (line 51) — The Title / Notes page with its formatting toolbar
-- [ ] `18_models_processes.png` (line 55) — The Models / Processes page — process models; modules and active processes
-- [ ] `18_dates_times.png` (line 102) — The Dates & Times page with the simulation window; time steps and the Events table
-- [ ] `18_routing_hydraulics.png` (line 161) — The Routing & Hydraulics page — surcharge handling and the solver group
-- [ ] `18_fv_groups.png` (line 217) — The finite-volume solver and performance groups enabled under FV routing
-- [ ] `18_quality_transport.png` (line 251) — The Quality & Transport page with the solver selection and the reserved-species group
+- [ ] `18_models_processes.png` (line 55) — The Models / Processes page — the Domains & Processes tab with the process models and the transport matrix
+- [ ] `18_models_modules_tab.png` — Models / Processes › Modules, with the 2D Surface Routing toggle that gates the 2D sidebar row
+- [ ] `18_dates_times.png` (line 102) — The Dates & Times page — the Simulation Window tab
+- [ ] `18_dates_events_tab.png` — Dates & Times › Events, with two rows and the Add / Remove buttons
+- [ ] `18_routing_hydraulics.png` (line 161) — The Routing & Hydraulics page — the FLOW_ROUTING header above four contextual tabs
+- [ ] `18_routing_tab_gating.png` — The same page under Kinematic Wave: Dynamic Wave, Finite Volume and Unsteady Friction all greyed, with a tooltip showing why
+- [ ] `18_fv_groups.png` (line 217) — The Finite Volume tab, live under FV routing
+- [ ] `18_quality_transport.png` (line 251) — The Quality & Transport page — the QUALITY_SOLVER header above four contextual tabs
+- [ ] `18_quality_ard_tab.png` — Quality & Transport › Eulerian ARD, live, with Lagrangian greyed beside it
 - [ ] `18_performance.png` (line 301) — The System / Performance page with the thread spin and the effective-thread summary
 - [ ] `18_spatial_crs.png` (line 327) — The Spatial & CRS page showing the layer CRS and the model extent
 - [ ] `18_mesh_page.png` (line 347) — The Mesh page listing candidate .2dm files next to the project
-- [ ] `18_2d_options.png` (line 372) — The 2D Surface Routing page with the explicit marcher and coupling groups
+- [ ] `18_2d_options.png` (line 372) — The 2D Surface Routing page — the Hydrodynamics tab with the explicit marcher
+- [ ] `18_2d_processes_tab.png` — 2D Surface Routing › Processes, with the process switches and the Groundwater group
+- [ ] `18_2d_output_tab.png` — 2D Surface Routing › Rainfall & Output, with the variables checklist and the size estimate
 - [ ] `18_files_subtab.png` (line 470) — The Files sub-tab with the secondary file references and the scheduled hot-start saves
 - [ ] `18_output_subtab.png` (line 494) — The Output sub-tab with writer combos and the report contents group
 - [ ] `18_plugins_subtab.png` (line 533) — The Plugins sub-tab editing the model's PLUGINS section

@@ -11,7 +11,7 @@ with logging categories and environment variables.
 - **Preferences → Rendering** — GPU rendering and label level-of-detail
 - **Preferences → Simulation** and **Simulation Defaults** — progress tick,
   default thread count
-- **Preferences → 2D Defaults** — mesh generation tolerances
+- **Preferences → Simulation Defaults → 2D Mesh** — mesh generation tolerances
 - **Simulation Options → System / Performance** — the per-model thread count
 - Environment variables, for diagnosis (see below)
 
@@ -329,7 +329,8 @@ Enable with `QT_LOGGING_RULES`, for example
 
 ### Mesh generation performance
 
-**Preferences → 2D Defaults** holds the generation tolerances that decide how
+**Preferences → Simulation Defaults → 2D Mesh** holds the generation
+tolerances that decide how
 big a mesh you end up with: **Simplify tolerance**, **Snap tolerance**,
 **Minimum triangle angle**, **Maximum triangle area (m²)** (special value
 *unconstrained*), **Maximum Steiner points** (special value *unlimited*),
