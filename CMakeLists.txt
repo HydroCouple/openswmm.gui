@@ -802,7 +802,10 @@ set(
         include/ui/dialogs/simoptions/enginecapabilities.h
         include/ui/dialogs/simoptions/simoptionscontext.h
         include/ui/dialogs/simoptions/simoptionspage.h
+        include/ui/dialogs/simoptions/meshpage.h
+        include/ui/dialogs/simoptions/performancepage.h
         include/ui/dialogs/simoptions/spatialpage.h
+        include/ui/dialogs/simoptions/titlenotespage.h
         include/ui/dialogs/hotstartsavesmodel.h
         include/ui/dialogs/pathbrowsedelegate.h
         include/ui/dialogs/pluginstablemodel.h
@@ -1439,7 +1442,10 @@ set(
         src/ui/dialogs/simoptions/enginecapabilities.cpp
         src/ui/dialogs/simoptions/simoptionscontext.cpp
         src/ui/dialogs/simoptions/simoptionspage.cpp
+        src/ui/dialogs/simoptions/meshpage.cpp
+        src/ui/dialogs/simoptions/performancepage.cpp
         src/ui/dialogs/simoptions/spatialpage.cpp
+        src/ui/dialogs/simoptions/titlenotespage.cpp
         src/ui/dialogs/hotstartsavesmodel.cpp
         src/ui/dialogs/pathbrowsedelegate.cpp
         src/ui/dialogs/pluginstablemodel.cpp
