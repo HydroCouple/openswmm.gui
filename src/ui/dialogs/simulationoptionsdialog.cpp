@@ -1257,6 +1257,20 @@ QWidget *SimulationOptionsDialog::build2DTab()
     auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
+    // T5 — eight stacked groups become five tabs (PLAN §2). The Processes tab
+    // is the one §1.3 reserved "after Coupling": its content (the 2D process
+    // switches and the subsurface groundwater enables) landed after the plan
+    // was written, so the reservation is now real rather than a placeholder.
+    m_twoDTabs = new QTabWidget(page);
+    m_twoDTabs->setObjectName(QStringLiteral("twoDTabs"));
+    vlay->addWidget(m_twoDTabs, 1);
+
+    auto *t2Hyd = new QWidget(m_twoDTabs); auto *t2HydLay = new QVBoxLayout(t2Hyd);
+    auto *t2Msh = new QWidget(m_twoDTabs); auto *t2MshLay = new QVBoxLayout(t2Msh);
+    auto *t2Cpl = new QWidget(m_twoDTabs); auto *t2CplLay = new QVBoxLayout(t2Cpl);
+    auto *t2Prc = new QWidget(m_twoDTabs); auto *t2PrcLay = new QVBoxLayout(t2Prc);
+    auto *t2Out = new QWidget(m_twoDTabs); auto *t2OutLay = new QVBoxLayout(t2Out);
+
     // The explicit local-inertial marcher is the only 2D integrator (D2
     // retirement of the CVODE/ARKODE stack, 2026-07-29) — no selector, and
     // the marcher settings are always live.
@@ -1272,7 +1286,7 @@ QWidget *SimulationOptionsDialog::build2DTab()
            "co-advance sync batch (default 10 s)."));
     stepForm->addRow(tr("Max timestep:"), m_maxTimestepSpin);
 
-    vlay->addWidget(stepGroup);
+    t2HydLay->addWidget(stepGroup);
 
     m_marcherGroup = new QGroupBox(tr("Explicit marcher"), page);
     auto *marchForm = new QFormLayout(m_marcherGroup);
@@ -1358,7 +1372,7 @@ QWidget *SimulationOptionsDialog::build2DTab()
            "reproduces the established pure local-inertial results."));
     marchForm->addRow(QString(), m_advection2DBox);
 
-    vlay->addWidget(m_marcherGroup);
+    t2HydLay->addWidget(m_marcherGroup);
 
     // Same shape as the FV tab's "Finite volume performance" group: the
     // model's own backend request, persisted as [2D_OPTIONS] BACKEND.
@@ -1383,7 +1397,7 @@ QWidget *SimulationOptionsDialog::build2DTab()
            "environment variable overrides this setting when set."));
     perfForm->addRow(tr("Backend:"), m_backend2DCombo);
 
-    vlay->addWidget(perfGroup);
+    t2OutLay->addWidget(perfGroup);
 
     auto *meshGroup = new QGroupBox(tr("Mesh"), page);
     auto *meshForm  = new QFormLayout(meshGroup);
@@ -1409,7 +1423,7 @@ QWidget *SimulationOptionsDialog::build2DTab()
            "performance trials."));
     meshForm->addRow(tr("Flux head epsilon:"), m_fluxDhEpsSpin);
 
-    vlay->addWidget(meshGroup);
+    t2MshLay->addWidget(meshGroup);
 
     auto *closureGroup = new QGroupBox(tr("Cell closure (wetting / drying)"), page);
     auto *closureForm  = new QFormLayout(closureGroup);
@@ -1449,7 +1463,7 @@ QWidget *SimulationOptionsDialog::build2DTab()
            "(default 0.01)."));
     closureForm->addRow(tr("VFR min wet fraction:"), m_vfrMinWetFracSpin);
 
-    vlay->addWidget(closureGroup);
+    t2MshLay->addWidget(closureGroup);
 
     auto *coupGroup = new QGroupBox(tr("1D ↔ 2D coupling"), page);
     auto *coupForm  = new QFormLayout(coupGroup);
@@ -1486,7 +1500,7 @@ QWidget *SimulationOptionsDialog::build2DTab()
            "Explicit AREA values in the input are replaced while this is on."));
     coupForm->addRow(QString(), m_couplingAreaAutoBox);
 
-    vlay->addWidget(coupGroup);
+    t2CplLay->addWidget(coupGroup);
 
     // U1 (2026-09-07) — Processes group: the 2D process enables of E2
     // ([2D_OPTIONS] INFILTRATION / INFIL_STEP / INFIL_DEFAULT_METHOD /
@@ -1640,7 +1654,7 @@ QWidget *SimulationOptionsDialog::build2DTab()
     trLay->addStretch();
     rainfallForm->addRow(tr("Transport on the mesh:"), trBox);
 
-    vlay->addWidget(rainfallGroup);
+    t2PrcLay->addWidget(rainfallGroup);
 
     // U5 (2026-09-07, rewired the same day once the G1 two-zone kernel
     // landed) — Groundwater group. This page holds the PROCESS ENABLES; the
@@ -1711,7 +1725,7 @@ QWidget *SimulationOptionsDialog::build2DTab()
 
     connect(m_gw2DEnableCombo, &QComboBox::currentIndexChanged, this,
             [this](int) { update2DGroundwaterEnabled(); });
-    vlay->addWidget(m_gw2DGroup);
+    t2PrcLay->addWidget(m_gw2DGroup);
 
     auto *outGroup = new QGroupBox(tr("Output"), page);
     auto *outForm  = new QFormLayout(outGroup);
@@ -1972,9 +1986,19 @@ QWidget *SimulationOptionsDialog::build2DTab()
     connect(m_endEdit, &QDateTimeEdit::dateTimeChanged, this,
             [this](const QDateTime &) { update2DOutputSizeEstimate(); });
 
-    vlay->addWidget(outGroup);
+    t2OutLay->addWidget(outGroup);
 
-    vlay->addStretch();
+    t2HydLay->addStretch();
+    t2MshLay->addStretch();
+    t2CplLay->addStretch();
+    t2PrcLay->addStretch();
+    t2OutLay->addStretch();
+
+    m_twoDTabs->addTab(t2Hyd, tr("Hydrodynamics"));
+    m_twoDTabs->addTab(t2Msh, tr("Mesh & Closure"));
+    m_twoDTabs->addTab(t2Cpl, tr("Coupling"));
+    m_twoDTabs->addTab(t2Prc, tr("Processes"));
+    m_twoDTabs->addTab(t2Out, tr("Rainfall & Output"));
 
     return page;
 }
