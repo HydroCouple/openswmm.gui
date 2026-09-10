@@ -7,13 +7,17 @@
  */
 #include "ui/dialogs/editors/classificationbindings.h"
 
+#include "layers/gisrasterlayer.h"
 #include "render/colorramp.h"
+#include "render/renderers/graduatedrasterrenderer.h"
 #include "render/renderers/graduatedrenderer.h"
 
 #include <algorithm>
+#include <cmath>
 
 using OpenSWMM::Render::BinMethod;
 using OpenSWMM::Render::ClassificationScheme;
+using OpenSWMM::Render::GraduatedRasterRenderer;
 using OpenSWMM::Render::GraduatedRenderer;
 using OpenSWMM::Render::IFeatureRenderer;
 using OpenSWMM::Render::IntervalBinner;
@@ -262,6 +266,62 @@ SublayerSchemeBinding::SublayerSchemeBinding(Getter getter, Setter setter,
       m_supportsContinuous(supportsContinuousMode),
       m_supportsRangeModes(supportsRangeModes)
 {
+}
+
+// ── RasterSchemeBinding ─────────────────────────────────────────────────
+
+GraduatedRasterRenderer *RasterSchemeBinding::renderer() const
+{
+    return m_layer ? dynamic_cast<GraduatedRasterRenderer *>(m_layer->rasterRenderer())
+                   : nullptr;
+}
+
+ClassificationScheme RasterSchemeBinding::scheme() const
+{
+    GraduatedRasterRenderer *g = renderer();
+    return g ? g->scheme() : ClassificationScheme();
+}
+
+void RasterSchemeBinding::setScheme(const ClassificationScheme &s)
+{
+    GraduatedRasterRenderer *g = renderer();
+    if (!g)
+        return;
+    g->setScheme(s);
+    g->reclassify(m_layer->sampleValues(m_layer->renderBand()));
+    m_layer->notifyRasterRendererEdited();
+}
+
+QVector<double> RasterSchemeBinding::sampleValues() const
+{
+    return m_layer ? m_layer->sampleValues(m_layer->renderBand()) : QVector<double>{};
+}
+
+void RasterSchemeBinding::autoClassify()
+{
+    // "Auto-classify from data": re-seed the range from the band statistics
+    // (a custom range on the scheme still wins inside the renderer) and
+    // re-derive the edges from the sample.
+    GraduatedRasterRenderer *g = renderer();
+    if (!g)
+        return;
+    const auto [lo, hi] = m_layer->bandRange(m_layer->renderBand());
+    if (std::isfinite(lo) && std::isfinite(hi))
+        g->setDataRange(lo, hi);
+    g->reclassify(m_layer->sampleValues(m_layer->renderBand()));
+    m_layer->notifyRasterRendererEdited();
+}
+
+QPair<double, double> RasterSchemeBinding::dataRange() const
+{
+    GraduatedRasterRenderer *g = renderer();
+    return g ? qMakePair(g->dataMin(), g->dataMax()) : qMakePair(0.0, 1.0);
+}
+
+QVector<double> RasterSchemeBinding::computedEdges() const
+{
+    GraduatedRasterRenderer *g = renderer();
+    return g ? g->edges() : QVector<double>{};
 }
 
 } // namespace openswmmvis::ui

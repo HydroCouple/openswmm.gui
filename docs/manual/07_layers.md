@@ -213,10 +213,17 @@ vectors, the filter reflects the registered drivers:
 
 NetCDF and HDF appear only when the optional GDAL modules are compiled in.
 
-The GDAL open and the statistics pass run on a worker thread. Single-band
-rasters are drawn through a colour ramp; three- and four-band datasets are drawn
-as RGB/RGBA imagery with no ramp. The band to render and the ramp are set in
-**Properties… → Symbology** (see \ref manual_styling).
+The GDAL open and the statistics pass run on a worker thread. The renderer a
+raster opens with follows its content: a band carrying an embedded colour table
+(land use, classified outputs) opens as **Paletted / unique values** with the
+file's colours; three- and four-band 8-bit datasets open as **Multiband colour**
+(an RGB/RGBA composite); everything else opens as **Singleband pseudocolor**, a
+continuous grayscale stretch over the band's minimum and maximum. The renderer,
+the band to render, the classification (continuous or classified, with equal
+interval / quantile / natural breaks / standard deviation / logarithmic /
+exponential / manual methods, editable class colours and labels, custom range
+and clip out-of-range) and the hillshade relief are set in **Properties… →
+Symbology** (see \ref manual_styling). The choice is saved with the project.
 
 Rasters are drawn through a 256-pixel tile pyramid in canvas CRS, with a pooled
 set of GDAL handles and a coarser-tile fallback so a tile that is not ready yet

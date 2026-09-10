@@ -88,16 +88,23 @@ Once you have a GDAL-readable copy of the terrain (see above):
 2. Right-click the new layer in the **Layers** panel → **Properties…** to open
    *<name> — Layer Properties*, and go to the **Symbology** tab. Its **Layer
    type** on the **Information** tab reads **Raster / DEM**.
-3. In the raster symbology editor: **Source** has **Render band:** and
-   **NoData value:**; **Colour ramp** has **Ramp:**, a **Range:** min → max
-   pair and an **Auto-stretch from data** button; **Hillshade relief** has
-   **Enable relief shading**, **Azimuth:**, **Altitude:**, **Z factor:** and
-   **Strength:**.
+3. The raster symbology panel opens on the **Renderer:** the DTM was given at
+   load time — **Singleband pseudocolor** (the alternatives are **Paletted /
+   unique values** for categorical grids and, for 8-bit RGB imagery,
+   **Multiband colour**). **Source** has **Render band:** and **NoData
+   value:**; the **Classification** block is the same one the 2D layers use —
+   **Continuous / Classified**, **Colour ramp** with **Invert**, **Method:**
+   and **Classes:**, **Custom range**, a per-class table whose colours and
+   labels you can edit, and **Auto-classify from data** — followed by **Clip
+   out-of-range values**; **Hillshade relief** has **Enable relief shading**,
+   **Azimuth:**, **Altitude:**, **Z factor:** and **Strength:**.
 
-Press **Auto-stretch from data** to pull the range onto 97–100 m — over a 3 m
-range the default stretch will otherwise render the whole bowl as one colour —
-then enable relief shading with a **Z factor:** of 5 or more. A 3 m bowl over
-200 m is a very gentle dish; without exaggeration it looks flat.
+The stretch already spans the band's own minimum and maximum (97–100 m here),
+so the 3 m bowl renders across the full ramp without any manual range. Pick a
+terrain-friendly ramp such as **terrain**, or switch to **Classified** with
+**Quantile** and press **Auto-classify from data** to get evenly populated
+elevation bands, then enable relief shading with a **Z factor:** of 5 or more.
+A 3 m bowl over 200 m is a very gentle dish; without exaggeration it looks flat.
 
 \figtodo{t03_raster_style.png, The raster symbology editor with an auto-stretched ramp and hillshade enabled}
 

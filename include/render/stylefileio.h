@@ -34,6 +34,7 @@
 #include <QString>
 #include <QStringList>
 
+class GISRasterLayer;
 class OpenSWMMVisLayer;
 
 namespace OpenSWMM::Render {
@@ -65,6 +66,17 @@ public:
      *  default) so a restore can reset a mid-session label enable. */
     static QJsonObject styleToJson(const OpenSWMMVisLayer *layer);
     static Result applyStyleJson(OpenSWMMVisLayer *layer, const QJsonObject &root);
+
+    /*! Raster-layer style block — `{ renderBand, hillshade{…}, rasterRenderer
+     *  {…} }`. styleToJson/applyStyleJson merge it into the root object, and
+     *  ProjectSerializer nests the same block in the .oswp layer record, so
+     *  Cancel / undo / style files / projects all round-trip one shape.
+     *  applyRasterStyleJson restores in the order band → hillshade →
+     *  renderer, so the renderer restored last is authoritative (a band
+     *  change re-seeds a graduated renderer from band statistics). Missing
+     *  keys leave the corresponding state untouched. */
+    static QJsonObject rasterStyleToJson(const GISRasterLayer *layer);
+    static void applyRasterStyleJson(GISRasterLayer *layer, const QJsonObject &style);
 
 private:
     static Result importNative(OpenSWMMVisLayer *layer, const QString &path);

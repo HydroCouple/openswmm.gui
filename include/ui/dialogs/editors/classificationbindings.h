@@ -19,6 +19,10 @@
  *             ClassificationScheme by value (std::function getter/setter +
  *             sample provider; the same lambda-adapter idiom as
  *             ColorSourceBindings in swmm2dresultsstylepanel.cpp).
+ *           - RasterSchemeBinding — a GISRasterLayer's live
+ *             GraduatedRasterRenderer (scheme + band statistics + cached
+ *             edges; every push reclassifies against the band sample and
+ *             invalidates the tile cache).
  */
 #ifndef OPENSWMMVIS_UI_DIALOGS_EDITORS_CLASSIFICATIONBINDINGS_H
 #define OPENSWMMVIS_UI_DIALOGS_EDITORS_CLASSIFICATIONBINDINGS_H
@@ -33,7 +37,10 @@
 #include <functional>
 #include <memory>
 
+class GISRasterLayer;
+
 namespace OpenSWMM::Render {
+class GraduatedRasterRenderer;
 class GraduatedRenderer;
 class IFeatureRenderer;
 }
@@ -196,6 +203,44 @@ private:
     RangeProvider  m_range;
     bool           m_supportsContinuous = false;
     bool           m_supportsRangeModes = false;
+};
+
+// ───────────────────────────────────────────────────────────────────────
+/*!
+ * \class RasterSchemeBinding
+ * \brief Drives the GraduatedRasterRenderer live on a GISRasterLayer.
+ *
+ *        The renderer is fetched from the layer on every call (never
+ *        cached — the dialog's Cancel / undo path swaps it). dataRange() is
+ *        the RENDERER's dataMin/dataMax (not fresh band statistics) so the
+ *        editor's table agrees with what the map paints after a restore
+ *        from JSON; computedEdges() mirrors the renderer's cached edges so
+ *        the table never re-samples the raster. setScheme() reclassifies
+ *        against the layer's (cached) band sample and notifies the layer,
+ *        which drops its tiles and repaints. When the live renderer is not
+ *        a GraduatedRasterRenderer (Paletted / RGB active) the binding is
+ *        inert: scheme() is a default and setScheme() no-ops.
+ */
+class RasterSchemeBinding final : public IClassificationBinding
+{
+public:
+    explicit RasterSchemeBinding(GISRasterLayer *layer) : m_layer(layer) {}
+
+    OpenSWMM::Render::ClassificationScheme scheme() const override;
+    void setScheme(const OpenSWMM::Render::ClassificationScheme &s) override;
+    QVector<double> sampleValues() const override;
+    void autoClassify() override;
+    QPair<double, double> dataRange() const override;
+    QVector<double> computedEdges() const override;
+
+    bool supportsContinuousMode() const override { return true; }
+    bool supportsRangeModes() const override { return false; }
+    bool supportsCustomRange() const override { return true; }
+
+private:
+    [[nodiscard]] OpenSWMM::Render::GraduatedRasterRenderer *renderer() const;
+
+    GISRasterLayer *m_layer = nullptr;
 };
 
 } // namespace openswmmvis::ui
