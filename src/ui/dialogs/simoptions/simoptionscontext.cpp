@@ -50,6 +50,11 @@ int SimOptionsContext::writeIfChanged(const char *key, const QString &newVal)
     return swmm_options_set(engine_, key, v.constData()) == 0 ? 1 : 0;
 }
 
+void SimOptionsContext::recordWrittenKey(const char *key)
+{
+    written_ << QString::fromLatin1(key);
+}
+
 void SimOptionsContext::beginWritePass()
 {
     written_.clear();
