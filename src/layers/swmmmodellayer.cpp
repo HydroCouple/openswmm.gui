@@ -7571,10 +7571,17 @@ void SWMMModelLayer::buildGeometryCache()
     // backbone. Previously this missed subcatchment polygons (which routinely
     // extend well outside the conduit network) and rain gages, causing the
     // canvas to crop them at the edges.
-    if (m_nodes.isEmpty() && m_links.isEmpty()
-        && m_catchments.isEmpty() && m_gages.isEmpty())
-        return;
-
+    //
+    // NO early-out on an empty model. There used to be one here, and it
+    // skipped the three cache rebuilds at the bottom of this function as
+    // well as the extent — so deleting EVERY object (select-all + Delete)
+    // left m_linkSceneFlat / m_linkVertexOffset / m_linkVertexCount holding
+    // the previous model, breaking their documented `size == m_links.size()`
+    // invariant. SWMMLayerQSGRenderer walks m_linkVertexCount rather than
+    // m_links, so every deleted link kept drawing while the object browser
+    // (fed by rebuildCategoryIndex() above) correctly showed them gone.
+    // The sweep below is empty-safe: with no geometry the bounds stay
+    // inverted and setExtent() is never reached, exactly as before.
     double xMin = std::numeric_limits<double>::max();
     double yMin = std::numeric_limits<double>::max();
     double xMax = std::numeric_limits<double>::lowest();

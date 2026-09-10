@@ -437,6 +437,64 @@ private slots:
         QCOMPARE(swmm_node_index(batchLayer->engine(), "J1"), -1);
     }
 
+    //! Select-all + Delete: every object goes, so every SoA lands empty.
+    //!
+    //! buildGeometryCache() used to bail out early on a fully empty model,
+    //! which skipped rebuildSceneCoords() / rebuildKdTrees() /
+    //! rebuildFlagArrays() along with the extent it meant to skip. The
+    //! category index is rebuilt BEFORE that point, so the object browser
+    //! showed the deletion while m_linkVertexCount still described the
+    //! previous model — and SWMMLayerQSGRenderer, which walks that array
+    //! rather than m_links, kept drawing every deleted link.
+    void deleteEveryObjectClearsRenderCaches()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+
+        // Precondition: the fixture really does have links to leave behind.
+        QVERIFY(layer->cachedLinkCount() > 0);
+        QCOMPARE(layer->renderLinkCount(), layer->cachedLinkCount());
+
+        // Every object, exactly as the Select tool builds the list from a
+        // select-all: nodes (the four links cascade with their end nodes),
+        // then the gage, then the subcatchments. Every SoA has to land
+        // empty — leaving even one populated is what kept the old early-out
+        // from firing.
+        QList<BatchDeleteCommand::Target> targets;
+        for (const char *n : {"J1", "J2", "J3", "J4", "O1"})
+            targets.append({QString::fromLatin1(n),
+                            DeleteObjectCommand::DeleteNode});
+        targets.append({QStringLiteral("RG1"), DeleteObjectCommand::DeleteGage});
+        for (const char *s : {"S1", "S2", "S3", "S4"})
+            targets.append({QString::fromLatin1(s),
+                            DeleteObjectCommand::DeleteSubcatch});
+
+        MapUndoStack stack;
+        stack.push(new BatchDeleteCommand(layer.get(), targets, nullptr,
+                                          QStringLiteral("Delete All")));
+
+        // The model really is empty — every SoA, or the old early-out would
+        // not have fired and this test would pass without the fix.
+        QCOMPARE(swmm_node_count(layer->engine()), 0);
+        QCOMPARE(swmm_link_count(layer->engine()), 0);
+        QCOMPARE(layer->cachedNodeCount(), 0);
+        QCOMPARE(layer->cachedLinkCount(), 0);
+        QCOMPARE(layer->cachedGageCount(), 0);
+        QCOMPARE(layer->categoryCount(SWMMModelLayer::CatSubcatchments), 0);
+        // …the object browser's index agrees…
+        QCOMPARE(layer->categoryCount(SWMMModelLayer::CatConduits), 0);
+        QCOMPARE(layer->categoryCount(SWMMModelLayer::CatPumps), 0);
+        // …and so does what the renderer would draw.
+        QCOMPARE(layer->renderLinkCount(), 0);
+
+        // Undo re-arms the render arrays along with the model. Asserted as
+        // the invariant rather than a count, so restore-order questions for
+        // subcatchments and their gage can't fail this test for an unrelated
+        // reason.
+        stack.undo();
+        QCOMPARE(layer->renderLinkCount(), layer->cachedLinkCount());
+    }
+
     // ── Profiling probe (perf-plan Phase 0; skipped unless env-gated) ──────
 
     //! Bulk-delete baseline on a REAL model: set SWMM_PROFILE_INP=<path.inp>
