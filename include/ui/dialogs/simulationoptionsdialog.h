@@ -66,7 +66,10 @@ namespace openswmmvis::ui {
 
 namespace openswmmvis::ui {
 class SimOptionsPage;
+class MeshPage;
+class PerformancePage;
 class SpatialPage;
+class TitleNotesPage;
 }
 
 /*!
@@ -239,17 +242,13 @@ private:
      *  no per-page enabled state, so gate at the list row). */
     void set2DRowEnabled(bool enabled);
     // Each build*Tab returns its page widget; buildUi adds it via addCategory.
-    QWidget *buildTitleNotesTab();
     QWidget *buildModelsTab();
     QWidget *buildDatesTab();
     QWidget *buildHydraulicsTab();
     QWidget *buildQualityTransportTab();   ///< Y1 (G1g) — quality/transport options
-    QWidget *buildPerformanceTab();
-    QWidget *buildMeshTab();
     QWidget *buildFilesTab();   ///< Slice AA-3.5 — [PLUGINS] + [FILES] editor
     void readOutputPathsFromSettings();      ///< Slice AA-4 — per-project rpt/out paths
     void writeOutputPathsToSettings();       ///< Slice AA-4 — per-project rpt/out paths
-    void refreshMeshList();                  ///< rescan project dir for *.2dm files
     void readPluginsFromEngine();
     int  writePluginsToEngine();             ///< returns count of changes written
     // U1 (2026-09-07) — [PROCESS_COMPONENTS] table + the Domain × Species
@@ -349,9 +348,6 @@ private:
      *         from the layer; called on construction and after a CRS pick. */
 
 private slots:
-    void onMeshSetActive();   ///< Retarget [2D_MESH_FILE] at the selected .2dm.
-    void onMeshRemove();      ///< Delete the selected .2dm from disk.
-    void onMeshImport();      ///< Browse for a .2dm anywhere and load it here.
     void browseForReportFile();
     void browseForOutputFile();
     void on2DModuleToggled(bool enabled);
@@ -392,11 +388,6 @@ private:
     bool            m_module2DIntentKnown = false;
 
     // Tab 0 — Title / Notes (rich text mirror of engine [TITLE] section)
-    QTextEdit      *m_titleNotesEdit       = nullptr;
-    QString         m_initialNotesHtml;     ///< snapshot for dirty detection
-    QAction        *m_titleBoldAction      = nullptr;
-    QAction        *m_titleItalicAction    = nullptr;
-    QAction        *m_titleUnderlineAction = nullptr;
 
     // Group-box handles kept so applyEngineConstraints() can disable entire
     // sections (incl. their labels) with a single setEnabled() call.
@@ -429,9 +420,6 @@ private:
     openswmmvis::ui::SpatialPage              *m_spatialPage = nullptr;
 
     // Mesh configurations tab — Slice AU module toggle.
-    class QListWidget *m_meshList         = nullptr; ///< *.2dm files in project dir.
-    class QLabel      *m_meshActiveLabel  = nullptr; ///< Currently-active [2D_MESH_FILE].
-    class QLabel      *m_meshDirLabel     = nullptr; ///< Project mesh-search directory.
 
     // Tab 2 — Dates & Times
     QDateTimeEdit  *m_startEdit         = nullptr;
@@ -525,10 +513,6 @@ private:
     bool            m_ufSupported         = true;
 
     // Tab 4 — System / Performance
-    QSpinBox       *m_threadsSpin       = nullptr;
-    QLabel         *m_threadsEffective  = nullptr;   // "Effective: 1D N · 2D N" + oversubscription flag
-    SWMM_ThreadInfo m_threadInfo{};                  // machine / OpenMP limits (filled once)
-    void refreshThreadsEffectiveLabel();
 
     // Tab 5 — Spatial & CRS
 
