@@ -802,6 +802,7 @@ set(
         include/ui/dialogs/simoptions/enginecapabilities.h
         include/ui/dialogs/simoptions/simoptionscontext.h
         include/ui/dialogs/simoptions/simoptionspage.h
+        include/ui/dialogs/simoptions/filespage.h
         include/ui/dialogs/simoptions/meshpage.h
         include/ui/dialogs/simoptions/performancepage.h
         include/ui/dialogs/simoptions/spatialpage.h
@@ -1442,6 +1443,7 @@ set(
         src/ui/dialogs/simoptions/enginecapabilities.cpp
         src/ui/dialogs/simoptions/simoptionscontext.cpp
         src/ui/dialogs/simoptions/simoptionspage.cpp
+        src/ui/dialogs/simoptions/filespage.cpp
         src/ui/dialogs/simoptions/meshpage.cpp
         src/ui/dialogs/simoptions/performancepage.cpp
         src/ui/dialogs/simoptions/spatialpage.cpp
