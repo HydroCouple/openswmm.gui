@@ -237,6 +237,7 @@ private:
         QValueAxis           *yAxis      = nullptr;
         QLineSeries          *cursorLine = nullptr;
         QVector<QLineSeries*> series;     ///< Parallel to model row's seriesIndices.
+        QVector<int>          consumed;   ///< Parallel to series: periods already plotted (live tail cursor).
 
         // Column 1 — 1v1 scatter (visible only when ≥2 runs produce
         // baseline↔comparison pairs). InteractiveChartView so toolbar
