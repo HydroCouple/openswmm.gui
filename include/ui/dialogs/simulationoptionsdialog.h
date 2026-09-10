@@ -59,6 +59,8 @@ namespace openswmmvis::ui {
 
 #include <QVector>
 
+#include <functional>
+
 #include "ui/dialogs/simoptions/enginecapabilities.h"
 // Full definition, not a forward declaration: the dialog holds a
 // unique_ptr<SimOptionsContext> and its destructor is inline (moc vtable).
@@ -236,12 +238,32 @@ private:
 
     void buildUi();
     /*! Register a sidebar row + stacked page (page wrapped in a scroll area). */
+    /*!
+     * \brief One enable rule for a sidebar row, an inner tab, or a widget.
+     *
+     * Replaces six ad-hoc gating paths. Disabled rows and tabs stay VISIBLE
+     * but greyed with reasonWhenOff as the tooltip, so a gated option is
+     * discoverable rather than missing (PLAN §4.3).
+     */
+    struct PageGate {
+        enum class Target { SidebarRow, Tab, Widget };
+        Target                target   = Target::Widget;
+        int                   row      = -1;
+        QTabWidget           *tabs     = nullptr;
+        int                   tabIndex = -1;
+        QWidget              *widget   = nullptr;
+        std::function<bool()> enabled;
+        QString               reasonWhenOff;
+    };
+
+    void refreshGates();     ///< Evaluate + apply every gate, then redirect.
+    void buildGateTable();   ///< Build m_gates once, after every page exists.
+
     void addCategory(const QString &title, QWidget *page);
     /*! \brief Register a page class: appends to m_pageOrder and adds its row. */
     void addPage(openswmmvis::ui::SimOptionsPage *page);
     /*! Enable/disable the 2D Surface Routing sidebar row (QStackedWidget has
      *  no per-page enabled state, so gate at the list row). */
-    void set2DRowEnabled(bool enabled);
     // Each build*Tab returns its page widget; buildUi adds it via addCategory.
     QWidget *buildModelsTab();
     QWidget *buildDatesTab();
@@ -313,16 +335,13 @@ private:
 
     /*! \brief Enable / disable the DPS_* row group based on the surcharge
      *         method selection. Called whenever the combo changes. */
-    void updateSurchargeFieldsEnabled();
 
     /*! \brief Enable / disable the finite-volume option groups based on the
      *         flow-routing selection (FLOW_ROUTING FV), plus the intra-group
      *         dependencies (limiter needs 2nd order, LTS tiers need LTS).
      *         Called whenever the routing combo changes. */
-    void updateFvFieldsEnabled();
     /*! Y1 — gate the per-engine transport groups on the solver combo, and
      *  the RWPT seed on the dispersion combo (updateFvFieldsEnabled idiom). */
-    void updateQualitySolverFieldsEnabled();
 
     /*! \brief Refresh the "End +" duration label from Start/End edits.
      *         Format: "Xd HH:MM:SS" or "—" when End <= Start. */
@@ -385,6 +404,8 @@ private:
     QCheckBox      *m_module2DBox       = nullptr;   ///< Toggle 2D surface routing.
     int             m_2DRow             = -1;        ///< 2D page sidebar row (-1 if not built).
     int             m_meshRow           = -1;        ///< Mesh-configurations sidebar row.
+    int             m_qualityRow        = -1;        ///< Quality & Transport sidebar row.
+    QVector<PageGate> m_gates;                       ///< Built once by buildGateTable().
     QListWidget    *m_categoryList      = nullptr;   ///< Left sidebar (page selector).
     QStackedWidget *m_pages             = nullptr;   ///< Right page stack.
 
@@ -486,7 +507,6 @@ private:
     class QGroupBox *m_ufGroup            = nullptr;
     QComboBox      *m_ufMethodCombo       = nullptr;   // UNSTEADY_FRICTION (NONE|VITKOVSKY)
     QDoubleSpinBox *m_ufK3Spin            = nullptr;   // UF_K3 (method != NONE only)
-    bool            m_ufSupported         = true;
 
     // Tab 4 — System / Performance
 
