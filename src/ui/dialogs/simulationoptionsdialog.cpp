@@ -11,6 +11,9 @@
 
 #include "ui/uiscrollhelpers.h"
 #include "ui/dialogs/crsselectiondialog.h"
+#include "ui/dialogs/simoptions/simoptionscontext.h"
+#include "ui/dialogs/simoptions/simoptionspage.h"
+#include "ui/dialogs/simoptions/spatialpage.h"
 #include "ui/dialogs/hotstartsavesmodel.h"
 #include "ui/widgets/relativepathpicker.h"
 #include "ui/dialogs/pathbrowsedelegate.h"
@@ -115,9 +118,13 @@ SimulationOptionsDialog::SimulationOptionsDialog(SWMM_Engine engine,
 {
     setWindowTitle(tr("Simulation Options"));
     resize(620, 600);
+    // Probe once, then hand every page the same context. Both must exist
+    // before buildUi(), which constructs the page classes.
+    m_caps = openswmmvis::ui::probeEngineCapabilities(m_engine, m_engineVersion);
+    m_ctx  = std::make_unique<openswmmvis::ui::SimOptionsContext>(
+        m_engine, m_layer, m_projectWindow, m_caps);
     buildUi();
     readFromEngine();
-    refreshSpatialSummary();
     applyEngineConstraints();
 }
 
@@ -404,7 +411,12 @@ void SimulationOptionsDialog::buildUi()
     addCategory(tr("Routing & Hydraulics"),   buildHydraulicsTab());
     addCategory(tr("Quality & Transport"),    buildQualityTransportTab());
     addCategory(tr("System / Performance"),   buildPerformanceTab());
-    addCategory(tr("Spatial & CRS"),          buildSpatialTab());
+    m_spatialPage = new openswmmvis::ui::SpatialPage(*m_ctx, this);
+    // The CRS pick writes straight through, so the page reports the dirty
+    // edit itself rather than going through the write pass.
+    connect(m_spatialPage, &openswmmvis::ui::SpatialPage::crsChanged,
+            this, [this] { m_wroteChanges = true; });
+    addPage(m_spatialPage);
 
     // Mesh configurations — file-management UI, lives outside any
     // OPENSWMM_HAS_2D guard because picking a *.2dm reference is a pure
@@ -593,6 +605,20 @@ void SimulationOptionsDialog::addCategory(const QString &title, QWidget *page)
 {
     m_categoryList->addItem(title);
     m_pages->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_pages));
+}
+
+QStringList SimulationOptionsDialog::lastWriteKeys() const
+{
+    QStringList keys = m_lastWriteKeys;
+    if (m_ctx) keys += m_ctx->writtenKeys();
+    return keys;
+}
+
+void SimulationOptionsDialog::addPage(openswmmvis::ui::SimOptionsPage *page)
+{
+    if (!page) return;
+    m_pageOrder << page;
+    addCategory(page->title(), page);
 }
 
 void SimulationOptionsDialog::set2DRowEnabled(bool enabled)
@@ -1859,139 +1885,6 @@ void SimulationOptionsDialog::updateDurationLabel()
 // Tab 5 — Spatial & CRS
 // ---------------------------------------------------------------------------
 
-QWidget *SimulationOptionsDialog::buildSpatialTab()
-{
-    auto *page = new QWidget(this);
-    auto *vlay = new QVBoxLayout(page);
-
-    auto *crsGroup = new QGroupBox(tr("Coordinate reference system"), page);
-    auto *crsForm  = new QFormLayout(crsGroup);
-
-    auto *crsRow = new QWidget(crsGroup);
-    auto *crsRowLay = new QHBoxLayout(crsRow);
-    crsRowLay->setContentsMargins(0, 0, 0, 0);
-    m_crsLabel = new QLabel(tr("(unknown)"), crsRow);
-    m_crsLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_crsChangeButton = new QToolButton(crsRow);
-    m_crsChangeButton->setText(tr("Change…"));
-    m_crsChangeButton->setToolTip(tr("Open the CRS picker (writes to swmm_spatial_set_crs)."));
-    m_crsDetectButton = new QToolButton(crsRow);
-    m_crsDetectButton->setText(tr("Detect from coordinates"));
-    m_crsDetectButton->setToolTip(tr(
-        "Inspect the model's coordinate ranges and suggest EPSG:4326 if all\n"
-        "coordinates fall within geographic bounds (±180° lon, ±85° lat)."));
-    crsRowLay->addWidget(m_crsLabel, 1);
-    crsRowLay->addWidget(m_crsChangeButton);
-    crsRowLay->addWidget(m_crsDetectButton);
-    crsForm->addRow(tr("Layer CRS:"), crsRow);
-
-    m_extentLabel = new QLabel(tr("(extent unavailable)"), crsGroup);
-    m_extentLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_extentLabel->setWordWrap(true);
-    crsForm->addRow(tr("Model extent:"), m_extentLabel);
-
-    auto *note = new QLabel(
-        tr("<i>Changing the CRS here updates the layer's stored CRS only. "
-           "To permanently transform stored coordinates, use the canvas-CRS "
-           "button on the status bar (Phase 0.7 reproject prompt).</i>"),
-        crsGroup);
-    note->setWordWrap(true);
-    crsForm->addRow(note);
-
-    vlay->addWidget(crsGroup);
-    vlay->addStretch();
-
-    return page;
-
-    connect(m_crsChangeButton, &QToolButton::clicked,
-            this, &SimulationOptionsDialog::onSpatialPickCRS);
-    connect(m_crsDetectButton, &QToolButton::clicked,
-            this, &SimulationOptionsDialog::onSpatialDetectCRS);
-
-    if (!m_layer)
-    {
-        m_crsChangeButton->setEnabled(false);
-        m_crsDetectButton->setEnabled(false);
-    }
-}
-
-void SimulationOptionsDialog::refreshSpatialSummary()
-{
-    if (!m_crsLabel) return;
-
-    if (m_layer)
-    {
-        if (auto *srs = m_layer->srs())
-        {
-            const QString auth = srs->toAuthority();
-            m_crsLabel->setText(auth.isEmpty() ? tr("(local)") : auth);
-        }
-        else
-        {
-            m_crsLabel->setText(tr("(none)"));
-        }
-
-        const MapExtent ext = m_layer->extent();
-        if (ext.isValid())
-        {
-            m_extentLabel->setText(
-                tr("X: [%1, %2]   Y: [%3, %4]")
-                    .arg(ext.xMin(), 0, 'g', 8)
-                    .arg(ext.xMax(), 0, 'g', 8)
-                    .arg(ext.yMin(), 0, 'g', 8)
-                    .arg(ext.yMax(), 0, 'g', 8));
-        }
-        else
-        {
-            m_extentLabel->setText(tr("(extent invalid / not yet computed)"));
-        }
-    }
-    else
-    {
-        m_crsLabel->setText(tr("(no layer)"));
-        m_extentLabel->setText(tr("(no layer)"));
-    }
-}
-
-void SimulationOptionsDialog::onSpatialPickCRS()
-{
-    if (!m_layer) return;
-    CRSSelectionDialog dlg(this);
-    dlg.setCurrentCRS(m_layer->srs());
-    if (dlg.exec() != QDialog::Accepted) return;
-    SpatialReferenceSystem *srs = dlg.selectedSRS();
-    if (!srs) return;
-
-    m_layer->setSRS(srs, true);
-    // Also write the engine's CRS option so it round-trips through .inp save.
-    setOption("CRS", srs->toAuthority().isEmpty() ? srs->toWkt() : srs->toAuthority());
-    m_wroteChanges = true;
-    refreshSpatialSummary();
-}
-
-void SimulationOptionsDialog::onSpatialDetectCRS()
-{
-    if (!m_layer) return;
-    const MapExtent ext = m_layer->extent();
-    if (!ext.isValid())
-        return;
-
-    const bool inGeographic =
-        ext.xMin() >= -180.0 && ext.xMax() <=  180.0 &&
-        ext.yMin() >=  -90.0 && ext.yMax() <=   90.0;
-
-    if (inGeographic)
-    {
-        // Suggest EPSG:4326. Update the label as a hint; the user must press
-        // Change… to actually apply (so detection is non-destructive).
-        m_crsLabel->setText(tr("(suggested: EPSG:4326 — press Change… to apply)"));
-    }
-    else
-    {
-        m_crsLabel->setText(tr(
-            "(coordinates exceed geographic bounds — pick a projected CRS)"));
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Mesh tab — Slice AU file-management for 2D mesh configurations
@@ -4180,6 +4073,11 @@ bool SimulationOptionsDialog::setOption(const char *key, const QString &value)
 
 void SimulationOptionsDialog::readFromEngine()
 {
+    // T1 — page classes read themselves; the not-yet-ported pages are still
+    // handled inline below. Each phase moves another block above this line.
+    for (openswmmvis::ui::SimOptionsPage *p : m_pageOrder)
+        p->read();
+
     auto selectComboByData = [](QComboBox *c, const QString &data) {
         const int idx = c->findData(data, Qt::UserRole, Qt::MatchFixedString);
         if (idx >= 0) c->setCurrentIndex(idx);
@@ -5609,6 +5507,9 @@ int SimulationOptionsDialog::writeToEngine()
     // pass considered, so lastWriteKeys() can be compared against the tagged
     // editors (reachability seam).
     m_lastWriteKeys.clear();
+    if (m_ctx) m_ctx->beginWritePass();
+    for (openswmmvis::ui::SimOptionsPage *p : m_pageOrder)
+        n += p->write();
     auto writeIfChanged = [&](const char *key, const QString &current,
                               const QString &newVal) {
         m_lastWriteKeys << QString::fromLatin1(key);
