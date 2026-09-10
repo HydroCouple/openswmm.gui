@@ -8,9 +8,9 @@
 #ifndef MAPTOOLADDINLETNODE_H
 #define MAPTOOLADDINLETNODE_H
 
+#include "map/tools/conduitsplitpick.h"
 #include "map/tools/maptool.h"
 
-#include <QPointF>
 #include <QString>
 
 class SWMMModelLayer;
@@ -30,7 +30,9 @@ class SWMMModelLayer;
  *          - the insertion is configured BEFORE it happens (decision D-G6):
  *            a modal InletJunctionSetupDialog collects the inlet design and
  *            capture node, because the engine requires both for the node to
- *            validate.
+ *            validate. The dialog opens from the mouse RELEASE (the click is
+ *            armed on press) — starting a modal session while the button is
+ *            still down freezes input on macOS (see maptoolpick2dcells.h).
  *
  *          Each insertion pushes an InsertInletJunctionCommand (engine-side
  *          `swmm_conduit_split_inlet`; undo re-fuses and drops the usage row).
@@ -48,8 +50,9 @@ public:
     void activate()   override;
     void deactivate() override;
 
-    void mousePressEvent(QMouseEvent *event) override;
-    void mouseMoveEvent (QMouseEvent *event) override;
+    void mousePressEvent  (QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseMoveEvent   (QMouseEvent *event) override;
     void paint(QPainter *painter, const MapExtent &extent,
                const SpatialReferenceSystem *srs) override;
 
@@ -60,25 +63,8 @@ signals:
     void statusMessageChanged(const QString &message);
 
 private:
-    struct ConduitHit {
-        SWMMModelLayer *layer   = nullptr;
-        int             linkIdx = -1;      ///< SoA/engine conduit index
-        QString         name;
-        double          t = 0.5;           ///< normalized polyline position
-        QPointF         point;             ///< closest point (layer CRS)
-        bool            isStreet = false;  ///< cross section is SWMM_XSECT_STREET
-        bool valid() const { return layer != nullptr && linkIdx >= 0; }
-    };
-
-    /*! \brief Hit-test conduits only; computes t, the marker point and the
-     *         STREET flag. */
-    [[nodiscard]] ConduitHit pickConduit(const QPoint &pixel) const;
-
-    [[nodiscard]] QString nextNodeName(SWMMModelLayer *layer) const;
-    [[nodiscard]] QString nextLinkName(SWMMModelLayer *layer,
-                                       const QString &baseName) const;
-
-    ConduitHit m_hover;     ///< live preview of the split point
+    ConduitSplitPick::ConduitHit m_hover;   ///< live preview of the split point
+    bool                         m_armed = false;
 };
 
 #endif // MAPTOOLADDINLETNODE_H

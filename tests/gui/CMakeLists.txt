@@ -3179,6 +3179,17 @@ add_swmmvis_gui_test(test_conduit_split_caches
 )
 swmmvis_link_full_app_deps(test_conduit_split_caches)
 
+# The generic add-node tools split a conduit when the click lands on one
+# (ADDNODE_SPLIT_REDESIGN_PLAN_2026-09-10.md): junction / storage / divider
+# insert by splitting, outfall is refused, empty canvas places freely — driven
+# through the real MapCanvas press/release path in a project window.
+add_swmmvis_gui_test(test_addnode_split_tool
+    test_addnode_split_tool.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_addnode_split_tool)
+
 # Offset mode / link direction round-trip — Open -> Save must keep the
 # authored LINK_OFFSETS convention (elevations stay elevations) and the
 # authored From/To of adverse-slope conduits, which the engine normalises at

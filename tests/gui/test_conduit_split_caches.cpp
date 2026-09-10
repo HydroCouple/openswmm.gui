@@ -281,6 +281,77 @@ private slots:
         QVERIFY(layer->isObjectVisible(newLink, SWMMModelLayer::CatConduits));
         QVERIFY(!layer->renderLinkHidden(againIdx));
     }
+
+    /*! ADDNODE_SPLIT_REDESIGN_PLAN_2026-09-10 step 2: placing a storage node
+     *  or flow divider ON a conduit = split, then convert the inserted
+     *  junction, then apply the type's creation defaults — one undoable
+     *  step whose undo converts back and re-fuses. */
+    void insertNodeSplit_storageAndDivider_data()
+    {
+        QTest::addColumn<QString>("link");
+        QTest::addColumn<QString>("toNode");
+        QTest::addColumn<QString>("node");
+        QTest::addColumn<int>("nodeType");
+        QTest::newRow("storage") << QStringLiteral("C2") << QStringLiteral("J3")
+                                 << QStringLiteral("ST1") << 2;
+        QTest::newRow("divider") << QStringLiteral("C3") << QStringLiteral("O1")
+                                 << QStringLiteral("DV1") << 3;
+    }
+
+    void insertNodeSplit_storageAndDivider()
+    {
+        QFETCH(QString, link);
+        QFETCH(QString, toNode);
+        QFETCH(QString, node);
+        QFETCH(int, nodeType);
+
+        auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
+        QVERIFY(layer);
+        SWMM_Engine eng = layer->engine();
+        const int linksBefore = layer->cachedLinkCount();
+        const int nodesBefore = layer->cachedNodeCount();
+        const QString newLink = link + QStringLiteral("_B");
+
+        MapUndoStack stack;
+        auto *cmd = new InsertNodeSplitCommand(layer.get(), link, 0.5, node, newLink,
+                                               nodeType, /*canvas=*/nullptr);
+        stack.push(cmd);
+        QVERIFY2(cmd->retyped(), qPrintable(cmd->warnings().join(QStringLiteral("; "))));
+
+        // Split invariants hold exactly as for a plain junction …
+        QString err = checkSplitInvariants(layer.get(), link, newLink, node, toNode, 4);
+        QVERIFY2(err.isEmpty(), qPrintable(err));
+        // … and the node carries the requested type with its defaults.
+        const int idx = swmm_node_index(eng, node.toUtf8().constData());
+        QVERIFY(idx >= 0);
+        int type = -1;
+        QCOMPARE(swmm_node_get_type(eng, idx, &type), 0);
+        QCOMPARE(type, nodeType);
+        if (nodeType == 2) {
+            double depth = -1.0;
+            QCOMPARE(swmm_node_get_max_depth(eng, idx, &depth), 0);
+            QVERIFY2(depth > 0.0, "storage creation defaults were not applied");
+        }
+        // The Object Browser bucket follows the converted type.
+        QCOMPARE(layer->objectNameAt(nodeType == 2 ? SWMMModelLayer::CatStorage
+                                                   : SWMMModelLayer::CatDividers,
+                                     0), node);
+
+        // Undo: back to a junction, then fused away.
+        stack.undo();
+        err = checkFusedInvariants(layer.get(), link, newLink, node, toNode, linksBefore);
+        QVERIFY2(err.isEmpty(), qPrintable(QStringLiteral("after undo: ") + err));
+        QCOMPARE(layer->cachedNodeCount(), nodesBefore);
+
+        // Redo: the conversion and defaults are re-applied.
+        stack.redo();
+        QVERIFY(cmd->retyped());
+        type = -1;
+        QCOMPARE(swmm_node_get_type(eng, swmm_node_index(eng, node.toUtf8().constData()), &type), 0);
+        QCOMPARE(type, nodeType);
+        QCOMPARE(layer->renderLinkCount(), layer->cachedLinkCount());
+        QCOMPARE(layer->cachedLinkCount(), linksBefore + 1);
+    }
 };
 
 QTEST_MAIN(TestConduitSplitCaches)

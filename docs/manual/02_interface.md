@@ -213,7 +213,7 @@ See \ref manual_selection and \ref manual_map_editing.
 
 | Item | What it does | Chapter |
 |---|---|---|
-| **Add Node ▸** | Add Junction · Add Virtual Junction (splits a conduit at the pick) · Add Inlet Junction (splits a street conduit) · Add Outfall · Add Flow Divider · Add Storage | \ref manual_map_editing |
+| **Add Node ▸** | Add Junction · Add Virtual Junction · Add Inlet Junction (street conduits only) · Add Outfall · Add Flow Divider · Add Storage. Every node tool places freely on empty canvas; clicking a conduit inserts the node there by splitting it (outfalls excepted) | \ref manual_map_editing |
 | **Add Link ▸** | Add Pipe · Add Pump · Add Orifice · Add Weir · Add Outlet | \ref manual_map_editing |
 | **Add Subcatchment** | Draws a subcatchment polygon | \ref manual_hydrology |
 | **Add Rain Gauge** | Places a rain gage | \ref manual_hydrology |
