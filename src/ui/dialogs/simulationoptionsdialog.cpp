@@ -14,6 +14,9 @@
 #include "ui/dialogs/simoptions/simoptionscontext.h"
 #include "ui/dialogs/simoptions/simoptionspage.h"
 #include "ui/dialogs/simoptions/spatialpage.h"
+#include "ui/dialogs/simoptions/meshpage.h"
+#include "ui/dialogs/simoptions/performancepage.h"
+#include "ui/dialogs/simoptions/titlenotespage.h"
 #include "ui/dialogs/hotstartsavesmodel.h"
 #include "ui/widgets/relativepathpicker.h"
 #include "ui/dialogs/pathbrowsedelegate.h"
@@ -405,12 +408,20 @@ void SimulationOptionsDialog::buildUi()
     connect(m_categoryList, &QListWidget::currentRowChanged,
             m_pages, &QStackedWidget::setCurrentIndex);
 
-    addCategory(tr("Title / Notes"),          buildTitleNotesTab());
+    addPage(new openswmmvis::ui::TitleNotesPage(*m_ctx, this));
     addCategory(tr("Models / Processes"),     buildModelsTab());
     addCategory(tr("Dates & Times"),          buildDatesTab());
     addCategory(tr("Routing & Hydraulics"),   buildHydraulicsTab());
     addCategory(tr("Quality & Transport"),    buildQualityTransportTab());
-    addCategory(tr("System / Performance"),   buildPerformanceTab());
+    {
+        auto *perf = new openswmmvis::ui::PerformancePage(*m_ctx, this);
+        // While Hydraulics is still inline in the monolith the preset writes
+        // its spin directly; T4 repoints this to HydraulicsPage.
+        perf->setMinimumStepSetter([this](double v) {
+            if (m_minStepSpin) m_minStepSpin->setValue(v);
+        });
+        addPage(perf);
+    }
     m_spatialPage = new openswmmvis::ui::SpatialPage(*m_ctx, this);
     // The CRS pick writes straight through, so the page reports the dirty
     // edit itself rather than going through the write pass.
@@ -423,7 +434,14 @@ void SimulationOptionsDialog::buildUi()
     // GUI concern (the engine 2D solver isn't required to organise mesh
     // candidates). Always editable: creating/selecting a mesh is what
     // turns on the 2D module, not the other way around.
-    addCategory(tr("Mesh"), buildMeshTab());
+    {
+        auto *mesh = new openswmmvis::ui::MeshPage(*m_ctx, this);
+        mesh->set2DModuleSetter([this](bool on) {
+            if (m_module2DBox && m_module2DBox->isChecked() != on)
+                m_module2DBox->setChecked(on);
+        });
+        addPage(mesh);
+    }
     m_meshRow = m_categoryList->count() - 1;
 
 #ifdef OPENSWMM_HAS_2D
@@ -547,7 +565,6 @@ void SimulationOptionsDialog::tagOptionWidgets()
     tagOption(m_rwptSeedSpin, "RWPT_SEED");
     tagOption(m_waterAgeBox, "WATER_AGE");
     tagOption(m_heatTransportBox, "HEAT_TRANSPORT");
-    tagOption(m_threadsSpin, "THREADS");
     tagOption(m_module2DBox, "IGNORE_2D");
 
 #ifdef OPENSWMM_HAS_2D
@@ -634,84 +651,6 @@ void SimulationOptionsDialog::set2DRowEnabled(bool enabled)
     // If the disabled row was current, move focus off it.
     if (!enabled && m_categoryList->currentRow() == m_2DRow)
         m_categoryList->setCurrentRow(0);
-}
-
-QWidget *SimulationOptionsDialog::buildTitleNotesTab()
-{
-    auto *page = new QWidget(this);
-    auto *vlay = new QVBoxLayout(page);
-
-    auto *toolbar = new QToolBar(page);
-    toolbar->setIconSize(QSize(16, 16));
-
-    m_titleBoldAction = toolbar->addAction(tr("Bold"));
-    m_titleBoldAction->setShortcut(QKeySequence::Bold);
-    m_titleBoldAction->setCheckable(true);
-    m_titleBoldAction->setToolTip(tr("Bold (Ctrl+B)"));
-
-    m_titleItalicAction = toolbar->addAction(tr("Italic"));
-    m_titleItalicAction->setShortcut(QKeySequence::Italic);
-    m_titleItalicAction->setCheckable(true);
-    m_titleItalicAction->setToolTip(tr("Italic (Ctrl+I)"));
-
-    m_titleUnderlineAction = toolbar->addAction(tr("Underline"));
-    m_titleUnderlineAction->setShortcut(QKeySequence::Underline);
-    m_titleUnderlineAction->setCheckable(true);
-    m_titleUnderlineAction->setToolTip(tr("Underline (Ctrl+U)"));
-
-    toolbar->addSeparator();
-    auto *bulletAction = toolbar->addAction(tr("Bulleted list"));
-    bulletAction->setToolTip(tr("Insert bulleted list"));
-    auto *numberedAction = toolbar->addAction(tr("Numbered list"));
-    numberedAction->setToolTip(tr("Insert numbered list"));
-
-    vlay->addWidget(toolbar);
-
-    m_titleNotesEdit = new QTextEdit(page);
-    m_titleNotesEdit->setAcceptRichText(true);
-    m_titleNotesEdit->setPlaceholderText(
-        tr("Enter project title and notes (mirrors the SWMM [TITLE] section)."));
-    vlay->addWidget(m_titleNotesEdit, 1);
-
-    connect(m_titleBoldAction, &QAction::triggered, this, [this](bool checked) {
-        if (!m_titleNotesEdit) return;
-        QTextCharFormat fmt;
-        fmt.setFontWeight(checked ? QFont::Bold : QFont::Normal);
-        m_titleNotesEdit->mergeCurrentCharFormat(fmt);
-    });
-    connect(m_titleItalicAction, &QAction::triggered, this, [this](bool checked) {
-        if (!m_titleNotesEdit) return;
-        QTextCharFormat fmt;
-        fmt.setFontItalic(checked);
-        m_titleNotesEdit->mergeCurrentCharFormat(fmt);
-    });
-    connect(m_titleUnderlineAction, &QAction::triggered, this, [this](bool checked) {
-        if (!m_titleNotesEdit) return;
-        QTextCharFormat fmt;
-        fmt.setFontUnderline(checked);
-        m_titleNotesEdit->mergeCurrentCharFormat(fmt);
-    });
-    auto applyListStyle = [this](QTextListFormat::Style style) {
-        if (!m_titleNotesEdit) return;
-        QTextCursor c = m_titleNotesEdit->textCursor();
-        c.createList(style);
-    };
-    connect(bulletAction,   &QAction::triggered, this,
-            [applyListStyle]() { applyListStyle(QTextListFormat::ListDisc); });
-    connect(numberedAction, &QAction::triggered, this,
-            [applyListStyle]() { applyListStyle(QTextListFormat::ListDecimal); });
-
-    connect(m_titleNotesEdit, &QTextEdit::currentCharFormatChanged, this,
-            [this](const QTextCharFormat &fmt) {
-                if (m_titleBoldAction)
-                    m_titleBoldAction->setChecked(fmt.fontWeight() >= QFont::Bold);
-                if (m_titleItalicAction)
-                    m_titleItalicAction->setChecked(fmt.fontItalic());
-                if (m_titleUnderlineAction)
-                    m_titleUnderlineAction->setChecked(fmt.fontUnderline());
-            });
-
-    return page;
 }
 
 QWidget *SimulationOptionsDialog::buildModelsTab()
@@ -1491,84 +1430,6 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
     return page;
 }
 
-QWidget *SimulationOptionsDialog::buildPerformanceTab()
-{
-    auto *page = new QWidget(this);
-    auto *vlay = new QVBoxLayout(page);
-
-    auto *threadsGroup = new QGroupBox(tr("Parallelisation"), page);
-    auto *threadsForm  = new QFormLayout(threadsGroup);
-
-    // Machine / OpenMP limits, queried once. The range stays 0–256 so the
-    // user can deliberately oversubscribe; the suffix, tooltip and the
-    // "Effective" label below show where the hardware limit is.
-    swmm_get_thread_info(&m_threadInfo);
-
-    m_threadsSpin = new QSpinBox(threadsGroup);
-    m_threadsSpin->setRange(0, 256);
-    m_threadsSpin->setSpecialValueText(tr("auto"));
-    m_threadsSpin->setToolTip(
-        tr("Number of OpenMP worker threads for the 1D and 2D solvers "
-           "([OPTIONS] THREADS).\n"
-           "0 = auto: the engine uses every logical processor the OpenMP "
-           "runtime allows, then applies its own heuristics (model-size "
-           "gates; on Apple Silicon the dynamic-wave team stays on the "
-           "performance cores).\n"
-           "N = exactly N threads. Values above the machine's logical "
-           "processors are allowed but oversubscribe the CPU — the engine "
-           "warns and the run is usually slower.\n\n%1")
-            .arg(threadLimitsSummary(m_threadInfo)));
-    threadsForm->addRow(tr("Wor&ker threads:"), m_threadsSpin);
-
-    m_threadsEffective = new QLabel(threadsGroup);
-    m_threadsEffective->setWordWrap(true);
-    m_threadsEffective->setTextFormat(Qt::RichText);
-    threadsForm->addRow(QString(), m_threadsEffective);
-    connect(m_threadsSpin, qOverload<int>(&QSpinBox::valueChanged),
-            this, &SimulationOptionsDialog::refreshThreadsEffectiveLabel);
-    refreshThreadsEffectiveLabel();
-
-    // ── Fast preset ────────────────────────────────────────────────────
-    // One-click speed recipe for 1D/2D-coupled runs: use all worker threads
-    // and floor the adaptive step so the coupling can't collapse it. On the
-    // Bellinge benchmark this is ~2.6x faster with BETTER mass balance than the
-    // as-shipped run.
-    auto *fastBtn = new QPushButton(tr("Apply fast preset"), threadsGroup);
-    fastBtn->setToolTip(
-        tr("Sets THREADS = %1 (this machine's performance cores) and "
-           "MINIMUM_STEP = 1.0 s — the conservative fast\n"
-           "recipe for 1D/2D-coupled models (~2.6x faster, and mass balance as\n"
-           "good as or better than the default). For an ~4x quick-screening run\n"
-           "raise MINIMUM_STEP to 2.0 s, but note its continuity degrades.")
-            .arg(fastPresetThreads()));
-    QObject::connect(fastBtn, &QPushButton::clicked, this, [this]() {
-        int    threads = 8;
-        double minStep = 1.5;
-        fastPresetValues(threads, minStep);
-        if (m_threadsSpin) m_threadsSpin->setValue(threads);
-        if (m_minStepSpin) m_minStepSpin->setValue(minStep);
-        QMessageBox::information(
-            this, tr("Fast preset applied"),
-            tr("THREADS set to %1 and MINIMUM_STEP to 1.0 s.\n\n"
-               "This is the conservative fast recipe for 1D/2D-coupled runs "
-               "(~2.6x faster, with mass balance as good as or better than the "
-               "default). Click OK / Apply to commit.").arg(threads));
-    });
-    threadsForm->addRow(QString(), fastBtn);
-
-    auto *note = new QLabel(
-        tr("<i>The IGNORE_* skip-process flags live on the Models / Processes tab. "
-           "Future slices add more performance knobs here.</i>"),
-        threadsGroup);
-    note->setWordWrap(true);
-    threadsForm->addRow(note);
-
-    vlay->addWidget(threadsGroup);
-    vlay->addStretch();
-
-    return page;
-}
-
 QString SimulationOptionsDialog::threadLimitsSummary(const SWMM_ThreadInfo &ti)
 {
     QStringList lines;
@@ -1586,47 +1447,6 @@ QString SimulationOptionsDialog::threadLimitsSummary(const SWMM_ThreadInfo &ti)
         lines << tr("2D Kokkos backend already running with %1 threads "
                     "(fixed until restart).").arg(ti.kokkos_omp_threads);
     return lines.join(QLatin1Char('\n'));
-}
-
-void SimulationOptionsDialog::refreshThreadsEffectiveLabel()
-{
-    if (!m_threadsSpin || !m_threadsEffective) return;
-    const int req = m_threadsSpin->value();
-
-    // Suffix shows the hardware limit next to the value.
-    const int logical = m_threadInfo.logical_cpus;
-    const bool over = logical > 0 && req > logical;
-    if (req == 0)
-        m_threadsSpin->setSuffix(QString());
-    else if (logical > 0)
-        m_threadsSpin->setSuffix(over ? tr(" / %1 logical — oversubscribed").arg(logical)
-                                      : tr(" / %1 logical").arg(logical));
-    else
-        m_threadsSpin->setSuffix(QString());
-
-    // Effective counts come from the engine so this never re-implements
-    // its heuristics; the engine reports 0 for a module the model lacks.
-    int g = 0, dw = 0, td = 0;
-    QString text;
-    if (m_engine && swmm_get_effective_threads(m_engine, req, &g, &dw, &td) == SWMM_OK) {
-        QStringList parts;
-        parts << tr("general %1").arg(g);
-        if (dw > 0) parts << tr("dynamic wave %1").arg(dw);
-        if (td > 0) parts << tr("2D %1").arg(td);
-        text = tr("Effective threads: %1.").arg(parts.join(QStringLiteral(" · ")));
-    }
-    if (over) {
-        // Not-colour-alone: glyph + text carry the warning as well as colour.
-        text += tr(" <span style=\"color:#D06F00\">&#9888; %1 threads exceed the "
-                   "%2 logical processors — the run will be oversubscribed and "
-                   "is usually slower.</span>").arg(req).arg(logical);
-    } else if (m_threadInfo.perf_cores > 0 && req > m_threadInfo.perf_cores) {
-        text += tr(" <span style=\"color:#D06F00\">&#9888; above the %1 "
-                   "performance cores — efficiency cores slow the "
-                   "barrier-synchronised solvers.</span>")
-                    .arg(m_threadInfo.perf_cores);
-    }
-    m_threadsEffective->setText(text);
 }
 
 void SimulationOptionsDialog::updateSurchargeFieldsEnabled()
@@ -1889,360 +1709,6 @@ void SimulationOptionsDialog::updateDurationLabel()
 // ---------------------------------------------------------------------------
 // Mesh tab — Slice AU file-management for 2D mesh configurations
 // ---------------------------------------------------------------------------
-
-QWidget *SimulationOptionsDialog::buildMeshTab()
-{
-    auto *page = new QWidget(this);
-    auto *vlay = new QVBoxLayout(page);
-
-    auto *header = new QLabel(tr(
-        "Pick which 2D mesh configuration the engine reads: an external "
-        "mesh file (.2dm, referenced via [2D_MESH_FILE]) or the inline mesh "
-        "embedded in the project .inp. The list shows the .2dm files sitting "
-        "next to the project — use Import… to bring one in from elsewhere on "
-        "disk. New meshes are generated from the editing toolbar's Generate "
-        "Mesh tool."), page);
-    header->setWordWrap(true);
-    vlay->addWidget(header);
-
-    m_meshDirLabel = new QLabel(page);
-    m_meshDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_meshDirLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
-    // Both labels below carry a filesystem path. Unwrapped, their
-    // minimumSizeHint is the full single-line width, which a deep project
-    // directory pushes past the page — the whole Mesh page then scrolls
-    // horizontally and clips the text above. Wrapping keeps the path fully
-    // visible (and selectable) without dictating the page width.
-    m_meshDirLabel->setWordWrap(true);
-    vlay->addWidget(m_meshDirLabel);
-
-    m_meshList = new QListWidget(page);
-    m_meshList->setSelectionMode(QAbstractItemView::SingleSelection);
-    vlay->addWidget(m_meshList, 1);
-
-    // Two rows of two, not one row of four: four side-by-side push buttons are
-    // wider than this page's viewport at the dialog's natural width, which
-    // pushed the whole page into a horizontal scroll and clipped the text above.
-    auto *btnRow = new QGridLayout;
-    auto *btnSetActive = new QPushButton(tr("Set Active"), page);
-    btnSetActive->setToolTip(tr("Patch [2D_MESH_FILE] to point at the "
-                                 "selected configuration."));
-    auto *btnRemove    = new QPushButton(tr("Remove"), page);
-    btnRemove->setToolTip(tr("Delete the selected .2dm from disk."));
-    auto *btnImport    = new QPushButton(tr("Import…"), page);
-    btnImport->setToolTip(tr("Browse for an existing .2dm anywhere on disk, "
-                              "copy it into the project folder and load it as "
-                              "the active mesh."));
-    auto *btnRefresh   = new QPushButton(tr("Refresh"), page);
-    btnRow->addWidget(btnSetActive, 0, 0);
-    btnRow->addWidget(btnRemove,    0, 1);
-    btnRow->addWidget(btnImport,    1, 0);
-    btnRow->addWidget(btnRefresh,   1, 1);
-    btnRow->setColumnStretch(2, 1);   // keep the block left-aligned
-    vlay->addLayout(btnRow);
-
-    m_meshActiveLabel = new QLabel(page);
-    m_meshActiveLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_meshActiveLabel->setWordWrap(true);   // may hold an absolute mesh path
-    vlay->addWidget(m_meshActiveLabel);
-
-    connect(btnRefresh, &QPushButton::clicked, this,
-            &SimulationOptionsDialog::refreshMeshList);
-    connect(btnSetActive, &QPushButton::clicked, this,
-            &SimulationOptionsDialog::onMeshSetActive);
-    connect(btnRemove, &QPushButton::clicked, this,
-            &SimulationOptionsDialog::onMeshRemove);
-    connect(btnImport, &QPushButton::clicked, this,
-            &SimulationOptionsDialog::onMeshImport);
-    // Importing needs a project window to attach the mesh layer to.
-    btnImport->setEnabled(m_projectWindow != nullptr);
-
-    refreshMeshList();
-    return page;
-}
-
-void SimulationOptionsDialog::refreshMeshList()
-{
-    if (!m_meshList || !m_meshDirLabel || !m_meshActiveLabel) return;
-    m_meshList->clear();
-
-    // Search the directory next to the active model (.inp). Without a
-    // layer (e.g. dialog opened against a synthesized blank project)
-    // we silently no-op — Generate New will create the first mesh.
-    QString modelPath;
-    if (m_layer) modelPath = m_layer->modelFilePath();
-    const QFileInfo modelFi(modelPath);
-    const QDir dir = modelPath.isEmpty() ? QDir() : modelFi.absoluteDir();
-
-    m_meshDirLabel->setText(modelPath.isEmpty()
-        ? tr("Search directory: <none — save the project first>")
-        : tr("Search directory: %1").arg(dir.absolutePath()));
-
-    // Read the .inp once: needed both to discover an inline mesh (embedded
-    // [2D_*] sections, no sibling .2dm) and to read the current
-    // [2D_MESH_FILE] reference.
-    QString inpText;
-    if (!modelPath.isEmpty())
-    {
-        QFile f(modelPath);
-        if (f.open(QIODevice::ReadOnly | QIODevice::Text))
-            inpText = QString::fromUtf8(f.readAll());
-    }
-
-    // External configurations: one row per sibling *.2dm file.
-    if (!modelPath.isEmpty())
-    {
-        const QStringList meshes = dir.entryList(
-            QStringList{QStringLiteral("*.2dm")},
-            QDir::Files | QDir::Readable, QDir::Name);
-        for (const QString &name : meshes)
-        {
-            auto *item = new QListWidgetItem(name);
-            item->setData(kMeshKindRole, kMeshExternal);
-            m_meshList->addItem(item);
-        }
-    }
-
-    // Inline configuration: the engine reads mesh geometry straight from the
-    // .inp when [2D_VERTICES] + [2D_TRIANGLES] are present. Surface it as a
-    // selectable row (pinned to the top) so a freshly-generated inline mesh
-    // appears here and the user can switch back to it from an external file.
-    const bool hasInline =
-        inpText.indexOf(QStringLiteral("[2D_VERTICES]"),  0, Qt::CaseInsensitive) >= 0 &&
-        inpText.indexOf(QStringLiteral("[2D_TRIANGLES]"), 0, Qt::CaseInsensitive) >= 0;
-    if (hasInline)
-    {
-        auto *item = new QListWidgetItem(
-            tr("(Inline mesh — embedded in project .inp)"));
-        item->setData(kMeshKindRole, kMeshInline);
-        m_meshList->insertItem(0, item);
-    }
-
-    // Probe the .inp for a current [2D_MESH_FILE] reference. Tolerant — the
-    // section may be absent (engine reads the inline mesh, if any).
-    QString active;
-    {
-        const int sectIdx = inpText.indexOf(QStringLiteral("[2D_MESH_FILE]"),
-                                             0, Qt::CaseInsensitive);
-        if (sectIdx >= 0)
-        {
-            // Walk forward to the first non-comment, non-blank line and pull
-            // the FILE token.
-            int p = inpText.indexOf(QChar('\n'), sectIdx);
-            while (p > 0 && p < inpText.size())
-            {
-                const int nl = inpText.indexOf(QChar('\n'), p + 1);
-                const QString line = inpText.mid(p + 1, (nl < 0 ? inpText.size() : nl) - p - 1).trimmed();
-                if (!line.isEmpty() && !line.startsWith(QStringLiteral(";"))
-                    && !line.startsWith(QChar('[')))
-                {
-                    // Format: "FILE  <path>".
-                    const auto parts = line.split(QRegularExpression(QStringLiteral("\\s+")),
-                                                  Qt::SkipEmptyParts);
-                    if (parts.size() >= 2 && parts.first().compare(
-                            QStringLiteral("FILE"), Qt::CaseInsensitive) == 0)
-                        active = parts.mid(1).join(QChar(' '));
-                    break;
-                }
-                if (line.startsWith(QChar('['))) break;  // next section
-                if (nl < 0) break;
-                p = nl;
-            }
-        }
-    }
-
-    // The active configuration is the external file when [2D_MESH_FILE] is
-    // present, otherwise the inline mesh (if any). Reflect that in the label
-    // and pre-select the matching row.
-    if (!active.isEmpty())
-    {
-        m_meshActiveLabel->setText(tr("Active mesh reference: %1").arg(active));
-        const QString activeName = QFileInfo(active).fileName();
-        for (int i = 0; i < m_meshList->count(); ++i)
-            if (m_meshList->item(i)->data(kMeshKindRole).toInt() == kMeshExternal
-                && m_meshList->item(i)->text() == activeName)
-                m_meshList->setCurrentRow(i);
-    }
-    else if (hasInline)
-    {
-        m_meshActiveLabel->setText(
-            tr("Active mesh: inline mesh embedded in project .inp"));
-        for (int i = 0; i < m_meshList->count(); ++i)
-            if (m_meshList->item(i)->data(kMeshKindRole).toInt() == kMeshInline)
-                m_meshList->setCurrentRow(i);
-    }
-    else
-    {
-        m_meshActiveLabel->setText(
-            tr("Active mesh reference: <none — generate a 2D mesh first>"));
-    }
-}
-
-void SimulationOptionsDialog::onMeshSetActive()
-{
-    if (!m_meshList || !m_layer) return;
-
-    QListWidgetItem *item = m_meshList->currentItem();
-    if (!item) {
-        QMessageBox::information(this, tr("Set Active Mesh"),
-            tr("Select a mesh (.2dm) from the list first."));
-        return;
-    }
-
-    const QString modelPath = m_layer->modelFilePath();
-    if (modelPath.isEmpty()) {
-        QMessageBox::warning(this, tr("Set Active Mesh"),
-            tr("Save the project first — the [2D_MESH_FILE] reference is "
-               "written into the .inp on disk."));
-        return;
-    }
-
-    QString err;
-    if (item->data(kMeshKindRole).toInt() == kMeshInline)
-    {
-        // Inline mesh: drop any [2D_MESH_FILE] reference so the engine reads
-        // the mesh sections embedded directly in the .inp.
-        if (!mesh::InpMeshWriter::clearMeshFileRef(modelPath, &err)) {
-            QMessageBox::critical(this, tr("Set Active Mesh"),
-                tr("Could not switch to the inline mesh:\n%1").arg(err));
-            return;
-        }
-        // Mirror into the engine's in-memory model so a save doesn't re-add a
-        // stale reference. Empty clears it (engine reverts to inline mesh).
-        if (m_engine)
-            swmm_options_set_ext(m_engine, "MESH_FILE", "");
-    }
-    else
-    {
-        // External mesh: point [2D_MESH_FILE] at the selected .2dm.
-        const QString meshPath =
-            QFileInfo(modelPath).absoluteDir().absoluteFilePath(item->text());
-        if (!mesh::InpMeshWriter::writeMeshFileRef(modelPath, meshPath, &err)) {
-            QMessageBox::critical(this, tr("Set Active Mesh"),
-                tr("Could not update [2D_MESH_FILE]:\n%1").arg(err));
-            return;
-        }
-        // Mirror the reference into the engine's in-memory model. Without this
-        // the engine re-serialises the .inp on the next save with mesh_file
-        // empty and drops [2D_MESH_FILE] — the model silently reverts to 1D.
-        if (m_engine)
-            swmm_options_set_ext(m_engine, "MESH_FILE",
-                                 item->text().toUtf8().constData());
-    }
-
-    // Selecting an active mesh implies the user wants 2D on. Flip the
-    // module checkbox so the corresponding tab + persistence follow.
-    if (m_module2DBox && !m_module2DBox->isChecked())
-        m_module2DBox->setChecked(true);
-
-    refreshMeshList();
-}
-
-void SimulationOptionsDialog::onMeshRemove()
-{
-    if (!m_meshList || !m_layer) return;
-
-    QListWidgetItem *item = m_meshList->currentItem();
-    if (!item) {
-        QMessageBox::information(this, tr("Remove Mesh"),
-            tr("Select a mesh (.2dm) from the list first."));
-        return;
-    }
-
-    if (item->data(kMeshKindRole).toInt() == kMeshInline) {
-        QMessageBox::information(this, tr("Remove Mesh"),
-            tr("The inline mesh is embedded in the project .inp — it can't be "
-               "deleted from here. Re-generate the mesh, or set an external "
-               ".2dm active, to replace it."));
-        return;
-    }
-
-    const QString modelPath = m_layer->modelFilePath();
-    if (modelPath.isEmpty()) return;
-
-    const QString name     = item->text();
-    const QString meshPath =
-        QFileInfo(modelPath).absoluteDir().absoluteFilePath(name);
-
-    const bool isActive = m_meshActiveLabel &&
-        m_meshActiveLabel->text().contains(name);
-    const QString question = isActive
-        ? tr("\"%1\" is the active [2D_MESH_FILE] reference. Deleting it will "
-             "clear the active mesh and disable 2D Surface Routing for this "
-             "model.\n\nDelete it anyway?").arg(name)
-        : tr("Delete \"%1\" from disk? This cannot be undone.").arg(name);
-
-    if (QMessageBox::question(this, tr("Remove Mesh"), question,
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
-        != QMessageBox::Yes)
-        return;
-
-    QFile f(meshPath);
-    if (f.exists() && !f.remove()) {
-        QMessageBox::critical(this, tr("Remove Mesh"),
-            tr("Could not delete %1:\n%2").arg(meshPath, f.errorString()));
-        return;
-    }
-
-    // Removing the ACTIVE mesh must not leave the model half-2D: null the
-    // [2D_MESH_FILE] reference in the live engine and switch the 2D module
-    // off (unchecking writes IGNORE_2D YES on OK, so the next run — which
-    // auto-saves and re-opens the .inp — genuinely runs 1D-only).
-    if (isActive) {
-        if (m_engine)
-            swmm_options_set_ext(m_engine, "MESH_FILE", "");
-        if (m_module2DBox && m_module2DBox->isChecked())
-            m_module2DBox->setChecked(false);
-    }
-
-    refreshMeshList();
-}
-
-void SimulationOptionsDialog::onMeshImport()
-{
-    if (!m_projectWindow) return;
-
-    // Anywhere on disk — the whole point of this button is that the list above
-    // can only ever show .2dm files already sitting next to the project.
-    const QString modelPath = m_layer ? m_layer->modelFilePath() : QString();
-    const QString startDir  = modelPath.isEmpty()
-        ? QDir::homePath()
-        : QFileInfo(modelPath).absolutePath();
-
-    const QString path = QFileDialog::getOpenFileName(
-        this, tr("Import 2D Mesh"), startDir,
-        tr("2D Mesh — SWMMVis or SMS 2DM (*.2dm);;All Files (*)"));
-    if (path.isEmpty()) return;
-
-    // The project window owns the copy-into-project, parse and canvas
-    // adoption; the outcome comes back once, asynchronously. The mesh becomes
-    // the active layer, so [2D_MESH_FILE] follows it on the next save — the
-    // list below just needs to re-read the folder.
-    connect(m_projectWindow, &SWMMVisProjectWindow::meshImportFinished, this,
-            [this](bool ok, const QString &message, const QString &meshPath) {
-                if (!ok) {
-                    if (!message.isEmpty())
-                        QMessageBox::warning(this, tr("Import 2D Mesh"), message);
-                    return;
-                }
-                refreshMeshList();
-                // Select the imported file and run it through Set Active, so
-                // the [2D_MESH_FILE] reference this tab reports (and the .inp
-                // on disk) match the layer the import just activated.
-                const QString name = QFileInfo(meshPath).fileName();
-                for (int i = 0; m_meshList && i < m_meshList->count(); ++i) {
-                    if (m_meshList->item(i)->data(kMeshKindRole).toInt() == kMeshExternal
-                        && m_meshList->item(i)->text() == name) {
-                        m_meshList->setCurrentRow(i);
-                        onMeshSetActive();
-                        break;
-                    }
-                }
-            },
-            static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
-
-    m_projectWindow->importMeshFileAsync(path);
-}
 
 void SimulationOptionsDialog::on2DModuleToggled(bool enabled)
 {
@@ -4092,33 +3558,6 @@ void SimulationOptionsDialog::readFromEngine()
         return v ? QStringLiteral("YES") : QStringLiteral("NO");
     };
 
-    // ---- Tab 0 — Title / Notes ----------------------------------------
-    if (m_titleNotesEdit) {
-        QSignalBlocker blk(m_titleNotesEdit);
-        // Prefer the .oswp-persisted rich HTML when available — it preserves
-        // formatting that the engine's plain-text [TITLE] cannot.
-        const QString persistedHtml = m_projectWindow ? m_projectWindow->notesHtml()
-                                                      : QString();
-        if (!persistedHtml.isEmpty()) {
-            m_titleNotesEdit->setHtml(persistedHtml);
-        } else if (m_engine) {
-            int count = 0;
-            QStringList lines;
-            if (swmm_title_get_count(m_engine, &count) == 0 && count > 0) {
-                lines.reserve(count);
-                for (int i = 0; i < count; ++i) {
-                    char buf[1024] = {0};
-                    if (swmm_title_get_line(m_engine, i, buf, sizeof(buf)) == 0)
-                        lines << QString::fromUtf8(buf);
-                }
-            }
-            m_titleNotesEdit->setPlainText(lines.join(QChar('\n')));
-        } else {
-            m_titleNotesEdit->clear();
-        }
-        m_initialNotesHtml = m_titleNotesEdit->toHtml();
-    }
-
     // ---- Tab 1 ---------------------------------------------------------
     selectComboByData(m_infiltrationCombo, getOption("INFILTRATION", sim.infiltrationModel));
     selectComboByData(m_routingCombo,      getOption("FLOW_ROUTING", sim.flowRouting));
@@ -4338,9 +3777,6 @@ void SimulationOptionsDialog::readFromEngine()
         parseEngineBool(getOption("HEAT_TRANSPORT", QStringLiteral("NO")))
             == Qt::Checked);
     updateQualitySolverFieldsEnabled();
-
-    // ---- Tab 4 ---------------------------------------------------------
-    m_threadsSpin->setValue(optInt("THREADS", sim.threads));
 
     // ---- 2D module toggle (Tab 1 → Modules group) ----------------------
     // Persisted per-.inp under QSettings since the engine has no native
@@ -5521,29 +4957,6 @@ int SimulationOptionsDialog::writeToEngine()
         if (setOption(key, newVal)) ++n;
     };
 
-    // Tab 0 — Title / Notes
-    if (m_titleNotesEdit) {
-        const QString currentHtml = m_titleNotesEdit->toHtml();
-        if (currentHtml != m_initialNotesHtml) {
-            if (m_engine) {
-                const QString plain = m_titleNotesEdit->toPlainText();
-                if (swmm_title_clear(m_engine) == 0) {
-                    const QByteArray utf8 = plain.toUtf8();
-                    if (swmm_title_set(m_engine, utf8.constData()) == 0)
-                        ++n;
-                }
-            }
-            if (m_projectWindow) {
-                const QString plain = m_titleNotesEdit->toPlainText();
-                // Drop the HTML if the document only carries plain text — keeps
-                // .oswp tidy and matches the "no notes" empty case.
-                m_projectWindow->setNotesHtml(plain.isEmpty() ? QString()
-                                                              : currentHtml);
-            }
-            m_initialNotesHtml = currentHtml;
-        }
-    }
-
     // Tab 1
     writeIfChanged("INFILTRATION",       getOption("INFILTRATION"),
                    m_infiltrationCombo->currentData().toString());
@@ -5722,10 +5135,6 @@ int SimulationOptionsDialog::writeToEngine()
                    engineBoolString(m_waterAgeBox->isChecked()));
     writeIfChanged("HEAT_TRANSPORT",      getOption("HEAT_TRANSPORT"),
                    engineBoolString(m_heatTransportBox->isChecked()));
-
-    // Tab 4 — System / Performance
-    writeIfChanged("THREADS",             getOption("THREADS"),
-                   QString::number(m_threadsSpin->value()));
 
     // 2D module toggle — IGNORE_2D is the engine-honored gate (unchecked ⇒
     // IGNORE_2D YES ⇒ the solver never activates, mesh or no mesh); QSettings
