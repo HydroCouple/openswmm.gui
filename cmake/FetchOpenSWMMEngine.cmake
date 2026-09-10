@@ -54,6 +54,70 @@ endif()
 
 message(STATUS "openswmm.engine: using prebuilt package at ${OpenSWMMEngine_DIR}")
 
+# ── Engine API compatibility gate (issue #8) ─────────────────────────────────
+# find_package succeeds against ANY installed engine, including one built from
+# a branch that predates entry points the GUI calls unconditionally. What the
+# builder then sees is a wall of `error C3861: 'swmm_node_get_rim_depth':
+# identifier not found` several minutes into compilation, with nothing naming
+# the actual cause.
+#
+# Issue #8 was exactly that: an engine built from `develop`, which is ~300
+# commits behind `swmm6_rel` and predates two 2026-08-13 commits — dfcd4d12
+# (rim depth on [VIRTUAL_JUNCTIONS]) and 5ca78b70 (in-place rename for snow
+# packs, aquifers, inlets, streets). One sentinel per commit, since an engine
+# pinned between the two would satisfy only one.
+#
+# The check reads the installed headers rather than compiling a probe: it costs
+# nothing, works before any compiler feature test, and reports every missing
+# symbol at once instead of one per rebuild. If the headers cannot be located
+# the gate stays quiet — an unfamiliar install layout should not block a build
+# that may well be fine.
+set(_oe_api_sentinels
+    "openswmm_nodes.h:swmm_node_get_rim_depth"
+    "openswmm_infrastructure.h:swmm_street_rename"
+)
+get_target_property(_oe_incdirs OpenSWMMEngine::openswmm_engine
+                    INTERFACE_INCLUDE_DIRECTORIES)
+set(_oe_missing "")
+set(_oe_checked FALSE)
+foreach(_sentinel IN LISTS _oe_api_sentinels)
+    string(REPLACE ":" ";" _parts "${_sentinel}")
+    list(GET _parts 0 _hdr)
+    list(GET _parts 1 _sym)
+    unset(_oe_hdr_path CACHE)
+    find_path(_oe_hdr_path "openswmm/engine/${_hdr}"
+              HINTS ${_oe_incdirs} "${OPENSWMMENGINE_INSTALL_DIR}/include"
+              NO_DEFAULT_PATH)
+    if(_oe_hdr_path)
+        set(_oe_checked TRUE)
+        file(READ "${_oe_hdr_path}/openswmm/engine/${_hdr}" _oe_hdr_text)
+        string(FIND "${_oe_hdr_text}" "${_sym}" _oe_found)
+        if(_oe_found EQUAL -1)
+            list(APPEND _oe_missing "${_sym}  (expected in ${_hdr})")
+        endif()
+    endif()
+endforeach()
+if(_oe_checked AND _oe_missing)
+    string(REPLACE ";" "\n    " _oe_missing_text "${_oe_missing}")
+    message(FATAL_ERROR
+        "The installed openswmm.engine is too old for this GUI.\n"
+        "\n"
+        "Missing C API entry points the GUI calls unconditionally:\n"
+        "    ${_oe_missing_text}\n"
+        "\n"
+        "Engine package: ${OpenSWMMEngine_DIR}\n"
+        "\n"
+        "The GUI builds against the engine's `swmm6_rel` branch, not `develop`\n"
+        "(see the dependency table in README.md). Rebuild and reinstall the\n"
+        "engine from that branch:\n"
+        "\n"
+        "    cd ../openswmm.engine && git checkout swmm6_rel\n"
+        "    cmake -S . -B build --preset <Darwin|Linux|Windows> \\\n"
+        "          -DCMAKE_INSTALL_PREFIX=$PWD/install/${CMAKE_HOST_SYSTEM_NAME}\n"
+        "    cmake --build build && cmake --install build\n")
+endif()
+unset(_oe_hdr_path CACHE)
+
 # Unnamespaced alias so the rest of this project keeps referring to
 # `openswmm_engine` (target_link_libraries, $<TARGET_FILE:…> bundle copies,
 # include propagation) exactly as it did under the previous add_subdirectory
