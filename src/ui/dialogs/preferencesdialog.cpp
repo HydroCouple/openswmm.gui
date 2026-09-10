@@ -33,6 +33,7 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QTabWidget>
 #include <QDoubleSpinBox>
 #include <QFontDialog>
 #include <QFormLayout>
@@ -70,6 +71,10 @@ void PreferencesDialog::buildUi()
     root->addLayout(split, 1);
 
     m_categoryList = new QListWidget(this);
+    // Named so the restructure's structural test can reach the sidebar by
+    // objectName instead of a friend declaration (same seam as the Simulation
+    // Options dialog).
+    m_categoryList->setObjectName(QStringLiteral("categories"));
     m_categoryList->setMinimumWidth(180);
     split->addWidget(m_categoryList);
 
@@ -92,9 +97,8 @@ void PreferencesDialog::buildUi()
     addCategory(tr("Canvas && CRS"),         buildCanvasPage());
     addCategory(tr("Rendering"),             buildRenderingPage());
     addCategory(tr("Simulation"),            buildSimulationPage());
+    // Dynamic Wave Defaults and 2D Defaults fold in as tabs (PLAN §3).
     addCategory(tr("Simulation Defaults"),   buildSimulationDefaultsPage());
-    addCategory(tr("Dynamic Wave Defaults"), buildDynamicWaveDefaultsPage());
-    addCategory(tr("2D Defaults"),           buildTwoDDefaultsPage());
     addCategory(tr("Object Defaults"),       buildObjectDefaultsPage());
     addCategory(tr("Map Display"),           buildMapDisplayPage());
     addCategory(tr("Measure Tool"),          buildMeasureToolPage());
@@ -409,6 +413,16 @@ QWidget *PreferencesDialog::buildRenderingPage()
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(12);
 
+    // T7 — five stacked groups become four tabs (PLAN §3). Each QGroupBox
+    // moves whole; addWidget re-parents it into its tab.
+    auto *tabs = new QTabWidget(page);
+    tabs->setObjectName(QStringLiteral("renderingTabs"));
+    outer->addWidget(tabs, 1);
+    auto *labelsTab = new QWidget(tabs); auto *labelsLay = new QVBoxLayout(labelsTab);
+    auto *lnTab     = new QWidget(tabs); auto *lnLay     = new QVBoxLayout(lnTab);
+    auto *gpuTab    = new QWidget(tabs); auto *gpuLay    = new QVBoxLayout(gpuTab);
+    auto *bcTab     = new QWidget(tabs); auto *bcTabLay  = new QVBoxLayout(bcTab);
+
     auto *f    = new QFormLayout();
 
     m_labelLodSpin = new QDoubleSpinBox(page);
@@ -423,7 +437,8 @@ QWidget *PreferencesDialog::buildRenderingPage()
 
     auto *lodGroup = new QGroupBox(tr("Label Rendering"), page);
     lodGroup->setLayout(f);
-    outer->addWidget(lodGroup);
+    labelsLay->addWidget(lodGroup);
+    labelsLay->addStretch(0);
 
     // Link pens — full QPen editor per link type. QPenPropertyItem
     // exposes width / dash-offset / style / cap / join / brush as
@@ -456,7 +471,7 @@ QWidget *PreferencesDialog::buildRenderingPage()
     tree->resizeColumnToContents(0);
     lv->addWidget(tree, 1);
 
-    outer->addWidget(linkGroup, 1);
+    lnLay->addWidget(linkGroup, 1);
 
     // Node symbols — outline pen, fill brush, and marker size per node
     // type. Same QPropertyModel pattern as link pens above: the bridge
@@ -491,7 +506,7 @@ QWidget *PreferencesDialog::buildRenderingPage()
     nodeTree->resizeColumnToContents(0);
     nv->addWidget(nodeTree, 1);
 
-    outer->addWidget(nodeGroup, 1);
+    lnLay->addWidget(nodeGroup, 1);
 
     // ── GPU rendering (Slice §QSG-4) ──────────────────────────────────────
     auto *gpuGroup = new QGroupBox(tr("GPU Rendering"), page);
@@ -517,7 +532,8 @@ QWidget *PreferencesDialog::buildRenderingPage()
         "issues — the legacy QPainter path remains the fallback. "
         "(App-wide kill-switch: OPENSWMM_QSG_MESH=0.)"));
     xv->addWidget(m_qsgMeshBox);
-    outer->addWidget(gpuGroup);
+    gpuLay->addWidget(gpuGroup);
+    gpuLay->addStretch(0);
 
     // ── 2D mesh boundary-condition edge defaults ─────────────────────────
     auto *bcGroup = new QGroupBox(tr("2D Mesh Boundary-Condition Edges"), page);
@@ -552,9 +568,12 @@ QWidget *PreferencesDialog::buildRenderingPage()
     bcTree->resizeColumnToContents(0);
     bcv->addWidget(bcTree, 1);
 
-    outer->addWidget(bcGroup);
+    bcTabLay->addWidget(bcGroup, 1);
 
-    outer->addStretch(0);
+    tabs->addTab(labelsTab, tr("Labels"));
+    tabs->addTab(lnTab,     tr("Links & Nodes"));
+    tabs->addTab(gpuTab,    tr("GPU"));
+    tabs->addTab(bcTab,     tr("2D Mesh Edges"));
 
     return page;
 }
@@ -613,6 +632,28 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     intro->setWordWrap(true);
     outer->addWidget(intro);
 
+    // T7 — the Dynamic Wave Defaults and 2D Defaults sidebar rows fold in here
+    // as tabs (PLAN §3): fifteen rows become thirteen, and no page needs a
+    // scrollbar at 1280x800. Every QGroupBox moves whole; the two folded
+    // builders now fill the tab layouts they are handed rather than returning
+    // a page of their own.
+    auto *tabs = new QTabWidget(page);
+    tabs->setObjectName(QStringLiteral("simulationDefaultsTabs"));
+    outer->addWidget(tabs, 1);
+    auto *pmTab   = new QWidget(tabs); auto *pmLay       = new QVBoxLayout(pmTab);
+    auto *hsTab   = new QWidget(tabs); auto *hsLay       = new QVBoxLayout(hsTab);
+    auto *dwsTab  = new QWidget(tabs); auto *dwStepLay   = new QVBoxLayout(dwsTab);
+    auto *dwvTab  = new QWidget(tabs); auto *dwSolvLay   = new QVBoxLayout(dwvTab);
+    auto *twoTab  = new QWidget(tabs); auto *twoDLay     = new QVBoxLayout(twoTab);
+    auto *tcplTab = new QWidget(tabs); auto *twoDCplLay  = new QVBoxLayout(tcplTab);
+    auto *tmshTab = new QWidget(tabs); auto *twoDMeshLay = new QVBoxLayout(tmshTab);
+    // The tab frame and the page's scroll area already pad; the layouts'
+    // default 9 px margins on top of that are what pushed the densest tab
+    // past an 800 px-tall window.
+    for (QVBoxLayout *l : {pmLay, hsLay, dwStepLay, dwSolvLay,
+                           twoDLay, twoDCplLay, twoDMeshLay})
+        l->setContentsMargins(0, 6, 0, 0);
+
     // ── Process models ───────────────────────────────────────────────────
     auto *procGroup = new QGroupBox(tr("Process models"), page);
     auto *procForm  = new QFormLayout(procGroup);
@@ -638,7 +679,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simFlowRoutingCombo->addItem(tr("Finite Volume"),  QStringLiteral("FV"));
     procForm->addRow(tr("H&ydraulic routing method (FLOW_ROUTING)"), m_simFlowRoutingCombo);
 
-    outer->addWidget(procGroup);
+    pmLay->addWidget(procGroup);
 
     // ── Process toggles (all default OFF) ────────────────────────────────
     auto *togGroup = new QGroupBox(tr("Process modules (off by default)"), page);
@@ -675,7 +716,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     togLay->addWidget(m_simIgnoreQualityBox);
     togLay->addWidget(m_simAllowPondingBox);
     togLay->addWidget(m_simSkipSteadyStateBox);
-    outer->addWidget(togGroup);
+    pmLay->addWidget(togGroup);
 
     // ── Geometry / hydraulics defaults ───────────────────────────────────
     auto *geomGroup = new QGroupBox(tr("Hydraulics"), page);
@@ -687,7 +728,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simMinSlopePctSpin->setSuffix(QStringLiteral(" %"));
     m_simMinSlopePctSpin->setToolTip(tr("Minimum conduit slope (MIN_SLOPE)."));
     geomForm->addRow(tr("Minimum conduit slope"), m_simMinSlopePctSpin);
-    outer->addWidget(geomGroup);
+    hsLay->addWidget(geomGroup);
 
     // ── Schedule defaults ────────────────────────────────────────────────
     auto *schedGroup = new QGroupBox(tr("Schedule"), page);
@@ -706,7 +747,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simDryDaysSpin->setSuffix(QStringLiteral(" d"));
     schedForm->addRow(tr("Antecedent dry days (DRY_DAYS)"), m_simDryDaysSpin);
 
-    outer->addWidget(schedGroup);
+    hsLay->addWidget(schedGroup);
 
     // ── Time-step defaults ───────────────────────────────────────────────
     auto *stepGroup = new QGroupBox(tr("Time steps"), page);
@@ -737,7 +778,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simRoutingStepSpin->setSuffix(QStringLiteral(" s"));
     stepForm->addRow(tr("Routing (ROUTING_STEP)"), m_simRoutingStepSpin);
 
-    outer->addWidget(stepGroup);
+    dwStepLay->addWidget(stepGroup);
 
     // ── Tolerances ───────────────────────────────────────────────────────
     auto *tolGroup = new QGroupBox(tr("Solver tolerances"), page);
@@ -757,18 +798,40 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simMaxTrialsSpin->setRange(1, 100);
     tolForm->addRow(tr("Ma&x trials (MAX_TRIALS)"), m_simMaxTrialsSpin);
 
-    outer->addWidget(tolGroup);
+    dwStepLay->addWidget(tolGroup);
 
-    outer->addStretch(1);
+    addDynamicWaveDefaultGroups(dwStepLay, dwSolvLay);
+    addTwoDDefaultGroups(twoDLay, twoDCplLay, twoDMeshLay);
+
+    pmLay->addStretch(1);
+    hsLay->addStretch(1);
+    dwStepLay->addStretch(1);
+    dwSolvLay->addStretch(1);
+    twoDLay->addStretch(1);
+    twoDCplLay->addStretch(1);
+    twoDMeshLay->addStretch(1);
+
+    tabs->addTab(pmTab,   tr("Processes & Modules"));
+    tabs->addTab(hsTab,   tr("Hydraulics & Schedule"));
+    tabs->addTab(dwsTab,  tr("Dynamic Wave: Steps & Tolerances"));
+    tabs->addTab(dwvTab,  tr("Dynamic Wave: Solver"));
+    // PLAN §3 drew one "2D" tab. Its five groups need 1318 px against a 746 px
+    // viewport at 1280x800 — measured, not estimated — so they split three
+    // ways: exactly the arithmetic that gave the Simulation Options 2D page
+    // five tabs rather than §2's four. Every group still moves whole.
+    tabs->addTab(twoTab,  tr("2D Solver"));
+    tabs->addTab(tcplTab, tr("2D Coupling & Rainfall"));
+    tabs->addTab(tmshTab, tr("2D Mesh"));
+
     return page;
 }
 
-QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
+void PreferencesDialog::addDynamicWaveDefaultGroups(QVBoxLayout *stepsLay,
+                                                    QVBoxLayout *solverLay)
 {
-    auto *page  = new QWidget(this);
-    auto *outer = new QVBoxLayout(page);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(12);
+    // Construction parent only: every group below is re-parented by the
+    // addWidget that files it under its tab.
+    QWidget *const page = this;
 
     auto *intro = new QLabel(
         tr("Dynamic-wave-specific defaults. Some keys (semi-implicit node "
@@ -776,7 +839,7 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
            "engine is the refactored engine; legacy engine .inp output stays "
            "SWMM5-compatible."), page);
     intro->setWordWrap(true);
-    outer->addWidget(intro);
+    solverLay->addWidget(intro);
 
     auto *condGroup = new QGroupBox(tr("Conduit / channel"), page);
     auto *condForm  = new QFormLayout(condGroup);
@@ -835,7 +898,7 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
             [syncUfK3](int) { syncUfK3(); });
     syncUfK3();
 
-    outer->addWidget(condGroup);
+    solverLay->addWidget(condGroup);
 
     // ── Variable timestep ────────────────────────────────────────────────
     auto *vsGroup = new QGroupBox(tr("Variable timestep"), page);
@@ -877,7 +940,7 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
     connect(m_simVariableStepBox, &QCheckBox::toggled, this,
             [syncVsFields](bool) { syncVsFields(); });
     syncVsFields();
-    outer->addWidget(vsGroup);
+    stepsLay->addWidget(vsGroup);
 
     // ── Convergence + solver ─────────────────────────────────────────────
     auto *solvGroup = new QGroupBox(tr("Solver"), page);
@@ -926,17 +989,15 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
     }
     solvForm->addRow(tr("Worker threads (THREADS)"), m_simThreadsSpin);
 
-    outer->addWidget(solvGroup);
-    outer->addStretch(1);
-    return page;
+    solverLay->addWidget(solvGroup);
 }
 
-QWidget *PreferencesDialog::buildTwoDDefaultsPage()
+void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
+                                             QVBoxLayout *cplLay,
+                                             QVBoxLayout *meshLay)
 {
-    auto *page  = new QWidget(this);
-    auto *outer = new QVBoxLayout(page);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(12);
+    // Construction parent only — see addDynamicWaveDefaultGroups.
+    QWidget *const page = this;
 
     auto *intro = new QLabel(
         tr("Defaults for the 2D overland-flow model: the [2D_OPTIONS] keys "
@@ -946,7 +1007,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
            "dialog starts from. Distances are metres; the mesh dialog "
            "converts to the project's unit system."), page);
     intro->setWordWrap(true);
-    outer->addWidget(intro);
+    lay->addWidget(intro);
 
     // ── 2D solver ────────────────────────────────────────────────────────
     auto *solvGroup = new QGroupBox(tr("2D solver ([2D_OPTIONS])"), page);
@@ -993,7 +1054,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
            "reproduces the established pure local-inertial results."));
     solvForm->addRow(QString(), m_twoDAdvectionBox);
 
-    outer->addWidget(solvGroup);
+    lay->addWidget(solvGroup);
 
     // ── Wet/dry & VFR ────────────────────────────────────────────────────
     auto *wetGroup = new QGroupBox(tr("Wet/dry && VFR"), page);
@@ -1032,7 +1093,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     wetForm->addRow(tr("VFR minimum wet fraction (VFR_MIN_WET_FRAC)"),
                     m_twoDVfrMinWetFracSpin);
 
-    outer->addWidget(wetGroup);
+    lay->addWidget(wetGroup);
 
     // ── Coupling ─────────────────────────────────────────────────────────
     auto *cplGroup = new QGroupBox(tr("1D↔2D coupling"), page);
@@ -1054,7 +1115,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
         tr("Auto exchange area (COUPLING_AREA AUTO)"), cplGroup);
     cplForm->addRow(QString(), m_twoDCouplingAreaAutoBox);
 
-    outer->addWidget(cplGroup);
+    cplLay->addWidget(cplGroup);
 
     // ── Rainfall & reporting ─────────────────────────────────────────────
     auto *rainGroup = new QGroupBox(tr("Rainfall && reporting"), page);
@@ -1070,7 +1131,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     m_twoDReport2DBox = new QCheckBox(tr("Report 2D results (REPORT_2D)"), rainGroup);
     rainForm->addRow(QString(), m_twoDReport2DBox);
 
-    outer->addWidget(rainGroup);
+    cplLay->addWidget(rainGroup);
 
     // ── Mesh generation seeds ────────────────────────────────────────────
     auto *meshGroup = new QGroupBox(tr("Mesh generation defaults"), page);
@@ -1169,9 +1230,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
         tr("Write mesh to external file ([2D_MESH_FILE])"), meshGroup);
     meshForm->addRow(QString(), m_twoDMeshOutputExternalBox);
 
-    outer->addWidget(meshGroup);
-    outer->addStretch(1);
-    return page;
+    meshLay->addWidget(meshGroup);
 }
 
 QWidget *PreferencesDialog::buildMapDisplayPage()
@@ -1614,7 +1673,8 @@ void PreferencesDialog::readFromManager()
         m_simThreadsSpin         ->setValue(d.threads);
     }
 
-    // 2D Defaults (shared widget-apply helper — also used by Reset)
+    // Simulation Defaults > 2D tabs (shared widget-apply helper — also
+    // used by Reset)
     applyTwoDDefaultsToWidgets(p->twoDDefaults());
 
     // Object Defaults (self-contained page — pulls both US and SI sets)
@@ -1842,7 +1902,8 @@ void PreferencesDialog::writeToManager()
         p->setSimulationDefaults(d);
     }
 
-    // 2D Defaults — package the page state and persist via one setter.
+    // Simulation Defaults > 2D tabs — package the state, persist via one
+    // setter.
     {
         PreferencesManager::TwoDDefaults d;
         d.maxTimestepSec     = m_twoDMaxTimestepSpin    ->value();
