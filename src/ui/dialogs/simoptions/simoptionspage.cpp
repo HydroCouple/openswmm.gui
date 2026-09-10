@@ -31,4 +31,15 @@ void SimOptionsPage::tagOption(QWidget *w, const char *key)
     }
 }
 
+const char *transport2DKey(int speciesClass)
+{
+    switch (speciesClass) {
+    case SWMM_TRANSPORT_CLASS_POLLUTANTS:  return "TRANSPORT_POLLUTANTS";
+    case SWMM_TRANSPORT_CLASS_MSX:         return "TRANSPORT_MSX";
+    case SWMM_TRANSPORT_CLASS_AGE:         return "TRANSPORT_AGE";
+    case SWMM_TRANSPORT_CLASS_TEMPERATURE: return "TRANSPORT_TEMPERATURE";
+    default:                               return "";
+    }
+}
+
 } // namespace openswmmvis::ui

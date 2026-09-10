@@ -57,6 +57,16 @@ public:
      */
     int writeIfChanged(const char *key, const QString &newVal);
 
+    /*!
+     * \brief Record \a key as considered by this write pass without writing.
+     *
+     * For the `[2D_OPTIONS]` page, whose keys go through
+     * `swmm_options_set_ext` rather than the plain setter this class wraps.
+     * They are still option editors and must appear in the reachability
+     * comparison, so the record stays in one place.
+     */
+    void recordWrittenKey(const char *key);
+
     void beginWritePass();                              ///< Clears writtenKeys().
     [[nodiscard]] QStringList writtenKeys() const { return written_; }
 
