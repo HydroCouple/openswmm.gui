@@ -55,6 +55,20 @@ namespace openswmmvis::ui {
 
 #include <openswmm/engine/openswmm_engine.h>
 
+#include <memory>
+
+#include <QVector>
+
+#include "ui/dialogs/simoptions/enginecapabilities.h"
+// Full definition, not a forward declaration: the dialog holds a
+// unique_ptr<SimOptionsContext> and its destructor is inline (moc vtable).
+#include "ui/dialogs/simoptions/simoptionscontext.h"
+
+namespace openswmmvis::ui {
+class SimOptionsPage;
+class SpatialPage;
+}
+
 /*!
  * \class SimulationOptionsDialog
  * \brief Edit OPTIONS for the active SWMM project.
@@ -109,7 +123,12 @@ public:
      *  (OPTIONS_DIALOG_TABBED_RESTRUCTURE_PLAN_2026-09-07.md §6 test 6): a key
      *  recorded here with no widget carrying a matching `optionKey` property
      *  means some editor was orphaned by a page move. */
-    [[nodiscard]] QStringList lastWriteKeys() const { return m_lastWriteKeys; }
+    /*! \brief Keys offered to writeIfChanged in the last write pass.
+     *
+     *  Merges the monolith's record with the page contexts' — during the
+     *  T1..T6 port both are live, and the reachability test needs the union.
+     *  Out of line because SimOptionsContext is only forward-declared here. */
+    [[nodiscard]] QStringList lastWriteKeys() const;
 
     // ---- Pure helpers (testable without an engine) ------------------------
 
@@ -214,6 +233,8 @@ private:
     void buildUi();
     /*! Register a sidebar row + stacked page (page wrapped in a scroll area). */
     void addCategory(const QString &title, QWidget *page);
+    /*! \brief Register a page class: appends to m_pageOrder and adds its row. */
+    void addPage(openswmmvis::ui::SimOptionsPage *page);
     /*! Enable/disable the 2D Surface Routing sidebar row (QStackedWidget has
      *  no per-page enabled state, so gate at the list row). */
     void set2DRowEnabled(bool enabled);
@@ -224,7 +245,6 @@ private:
     QWidget *buildHydraulicsTab();
     QWidget *buildQualityTransportTab();   ///< Y1 (G1g) — quality/transport options
     QWidget *buildPerformanceTab();
-    QWidget *buildSpatialTab();
     QWidget *buildMeshTab();
     QWidget *buildFilesTab();   ///< Slice AA-3.5 — [PLUGINS] + [FILES] editor
     void readOutputPathsFromSettings();      ///< Slice AA-4 — per-project rpt/out paths
@@ -327,11 +347,8 @@ private:
 
     /*! \brief Refresh the CRS row text and the read-only extent summary
      *         from the layer; called on construction and after a CRS pick. */
-    void refreshSpatialSummary();
 
 private slots:
-    void onSpatialPickCRS();
-    void onSpatialDetectCRS();
     void onMeshSetActive();   ///< Retarget [2D_MESH_FILE] at the selected .2dm.
     void onMeshRemove();      ///< Delete the selected .2dm from disk.
     void onMeshImport();      ///< Browse for a .2dm anywhere and load it here.
@@ -404,6 +421,12 @@ private:
     int             m_meshRow           = -1;        ///< Mesh-configurations sidebar row.
     QListWidget    *m_categoryList      = nullptr;   ///< Left sidebar (page selector).
     QStackedWidget *m_pages             = nullptr;   ///< Right page stack.
+
+    // ---- page registry (T1) ----
+    openswmmvis::ui::EngineCapabilities        m_caps;       ///< Probed once in the ctor.
+    std::unique_ptr<openswmmvis::ui::SimOptionsContext> m_ctx;
+    QVector<openswmmvis::ui::SimOptionsPage *> m_pageOrder;  ///< Sidebar order.
+    openswmmvis::ui::SpatialPage              *m_spatialPage = nullptr;
 
     // Mesh configurations tab — Slice AU module toggle.
     class QListWidget *m_meshList         = nullptr; ///< *.2dm files in project dir.
@@ -508,10 +531,6 @@ private:
     void refreshThreadsEffectiveLabel();
 
     // Tab 5 — Spatial & CRS
-    QLabel         *m_crsLabel          = nullptr;
-    QToolButton    *m_crsChangeButton   = nullptr;
-    QToolButton    *m_crsDetectButton   = nullptr;
-    QLabel         *m_extentLabel       = nullptr;
 
     // Tab 7 — Writer / Container combos (Slice AA-3.5 full design)
     QComboBox      *m_inputWriterCombo  = nullptr;
