@@ -1265,6 +1265,18 @@ public:
     [[nodiscard]] QVector<QPointF> cachedLinkInteriorVertices(int idx) const;
 
     /*!
+     * \brief Number of links the render-facing scene-coordinate arrays
+     *        currently describe.
+     * \details Test seam. m_linkVertexCount / m_linkVertexOffset are what
+     *          SWMMLayerQSGRenderer walks when it draws links, and their
+     *          `size == m_links.size()` invariant is otherwise observable
+     *          only from inside that friend class — which is how a stale
+     *          set survived a delete-everything undetected.
+     */
+    [[nodiscard]] int renderLinkCount() const
+    { return int(m_linkVertexCount.size()); }
+
+    /*!
      * \brief Cached layer-CRS polygon of a subcatchment by index. Vertex
      *        order matches the .inp [Polygons] section. Returns empty
      *        when \p idx is out of range or the subcatchment has no
