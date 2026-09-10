@@ -21,8 +21,10 @@
 #include "render/stylefileio.h"
 #include "ui/dialogs/crsselectiondialog.h"
 #include "layers/openswmmvislayer.h"
+#include "layers/gisrasterlayer.h"
 #include "layers/gisvectorlayer.h"
 #include "layers/gisvectorsymboladapter.h"   // G-1/G-2 — tabbed point/line/polygon editor
+#include "ui/dialogs/rastersymbologypanel.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "layers/swmm2dresultslayer.h"
@@ -640,8 +642,16 @@ void LayerStyleDialog::buildSymbologyTab()
             ctx.hostLayer = m_layer.data();
             root->addWidget(new SymbologyTab(ctx, page), 1);
         }
+    } else if (auto *ras = qobject_cast<GISRasterLayer *>(m_layer.data())) {
+        // GIS raster / DEM — renderer chooser (Singleband pseudocolor /
+        // Paletted / Multiband colour) over the shared ClassificationEditor,
+        // the paletted class table, RGB band picks and the hillshade group.
+        // Writes live into the layer's IRasterRenderer; Cancel / undo
+        // restore through StyleFileIO's raster block.
+        root->addWidget(OpenSWMM::Ui::wrapInScrollArea(
+                            new RasterSymbologyPanel(ras, page), page), 1);
     } else {
-        // Single-renderer layers (raster/DEM, 2D mesh).
+        // Single-renderer layers (2D mesh).
         RendererPanelContext ctx;
         ctx.hostLayer = m_layer.data();
         auto *tab = new SymbologyTab(ctx, page);

@@ -12,14 +12,18 @@
 
 #include "layers/tilepyramidlayer.h"
 #include "render/colorramp.h"
+#include "render/renderers/palettedrasterrenderer.h"
 
+#include <QHash>
 #include <QImage>
 #include <QFutureWatcher>
 #include <QList>
 #include <QMutex>
+#include <QPair>
 #include <QSet>
 #include <QString>
 #include <QThreadPool>
+#include <QVector>
 
 #include <atomic>
 #include <memory>
@@ -47,8 +51,11 @@ namespace OpenSWMM::Render { class IRasterRenderer; }
  *          the result with a configurable colour ramp, and caches the warped tile
  *          until the extent or CRS changes.
  *
- *          Single-band datasets are rendered via a colour ramp. Three-band (RGB)
- *          or four-band (RGBA) datasets bypass the ramp and render as-is.
+ *          Colouring is delegated to the layer's IRasterRenderer (see
+ *          rasterRenderer()): a GraduatedRasterRenderer (continuous stretch or
+ *          classified ramp over one band), a PalettedRasterRenderer
+ *          (categorical values, incl. an embedded GDAL colour table) or a
+ *          MultiBandColorRenderer (RGB(A) composite of three / four Byte bands).
  */
 class GISRasterLayer : public TilePyramidLayer
 {
@@ -57,14 +64,12 @@ class GISRasterLayer : public TilePyramidLayer
     Q_PROPERTY(int      bandCount   READ bandCount   CONSTANT)
     Q_PROPERTY(int      renderBand  READ renderBand  WRITE setRenderBand NOTIFY renderBandChanged)
     Q_PROPERTY(double   noDataValue READ noDataValue NOTIFY noDataValueChanged)
-    Q_PROPERTY(RasterColorRamp colorRamp READ colorRamp WRITE setColorRamp NOTIFY colorRampChanged)
 
     // Slice U-7 — Q_CLASSINFO groups for the unified LayerStyleDialog.
     Q_CLASSINFO("group:filePath",    "Source")
     Q_CLASSINFO("group:bandCount",   "Source")
     Q_CLASSINFO("group:renderBand",  "Display")
     Q_CLASSINFO("group:noDataValue", "Display")
-    Q_CLASSINFO("group:colorRamp",   "Color ramp")
 
 public:
 
@@ -100,7 +105,10 @@ public:
     [[nodiscard]] QString detectVerticalUnit() const;
 
     /*!
-     * \brief Sets the 1-based band index to render (only applies to single-band mode).
+     * \brief Sets the 1-based band index to render on the single-band colour
+     *        path. Re-reads that band's NoData value and, when the live
+     *        renderer is a GraduatedRasterRenderer, re-seeds its data range
+     *        and classification from the band's statistics / sample.
      */
     void setRenderBand(int band);
 
@@ -113,16 +121,45 @@ public:
     [[nodiscard]] QString sourceDescription() const override;
     [[nodiscard]] QVector<QPair<QString, QString>> extendedMetadata() const override;
 
-    // ----- Colour ramp ---------------------------------------------------
-
-    [[nodiscard]] RasterColorRamp colorRamp() const;
-    void setColorRamp(const RasterColorRamp &ramp);
+    // ----- Per-band data access (symbology inputs) -------------------------
+    // All read the primary dataset under m_datasetMutex and cache per band
+    // (caches drop on close / re-open). Pure: no signals are emitted.
 
     /*!
-     * \brief Calculates the data min/max from the raster and updates the ramp range.
-     * \details This may be slow for large datasets; runs in a worker thread.
+     * \brief Approximate (min, max) of \p band from GDAL statistics
+     *        (PAM-cached when available). (NaN, NaN) when unavailable.
      */
-    void autoStretchColorRamp();
+    [[nodiscard]] QPair<double, double> bandRange(int band) const;
+
+    /*!
+     * \brief Decimated, overview-aware value sample of \p band — at most
+     *        \p maxSamples finite, non-NoData values on a regular grid over
+     *        the whole raster. Feeds Quantile / Jenks / StdDev classification
+     *        and unique-value discovery.
+     */
+    [[nodiscard]] QVector<double> sampleValues(int band, int maxSamples = 200000) const;
+
+    /*!
+     * \brief Distinct integer values observed in sampleValues(\p band),
+     *        ascending, truncated to \p cap entries. Decimated — rare classes
+     *        may be missed.
+     */
+    [[nodiscard]] QList<int> uniqueValues(int band, int cap = 256) const;
+
+    /*! \brief True when band 1 carries a GDAL colour table (paletted raster). */
+    [[nodiscard]] bool hasColorTable() const;
+
+    /*!
+     * \brief Band 1's GDAL colour table as paletted classes (value, label =
+     *        value, RGBA). Tables larger than 32 entries are filtered to the
+     *        values actually observed in the band sample so unused palette
+     *        slots do not flood the legend.
+     */
+    [[nodiscard]] QList<OpenSWMM::Render::PalettedRasterRenderer::Class> colorTableClasses() const;
+
+    /*! \brief True when band 1 is 8-bit (GDT_Byte) — the only type the RGB
+     *         composite path renders without saturating. */
+    [[nodiscard]] bool isByteRaster() const;
 
     /*! Slice U-7 — surface this raster's Q_PROPERTYs as the single
      *  styleable subject for the unified LayerStyleDialog. */
@@ -131,15 +168,18 @@ public:
 
     // ----- Raster renderer (Slice BI Phase 8.13.6.7; P5/R-1 full switch) ---
     // The raster renderer is the §J.2 seam every raster paint path goes
-    // through. As of P5/R-1 warpToCanvas() colourises via
-    // m_rasterRenderer->colorForValue(); the legacy m_colorRamp field is
-    // retired and colorRamp()/setColorRamp() project to/from the renderer.
+    // through: warpToCanvas() colourises single-band tiles via
+    // m_rasterRenderer->colorForValue(), and a MultiBandColorRenderer
+    // switches the warp onto the RGB composite path. The open-time default
+    // is chosen from the dataset (colour table ⇒ Paletted; ≥3 Byte bands ⇒
+    // MultiBandColor; otherwise Graduated continuous grayscale over the band
+    // statistics). Persisted / restored by StyleFileIO + ProjectSerializer.
 
     /*!
      * \brief The IRasterRenderer that will drive this layer's warp pass.
-     * \details Constructed eagerly as a default
-     *          SingleBandPseudoColorRenderer so callers never have to
-     *          null-check.  Owned by the layer; do not delete.
+     * \details Constructed eagerly as a default GraduatedRasterRenderer so
+     *          callers never have to null-check.  Owned by the layer; do not
+     *          delete.
      */
     [[nodiscard]] OpenSWMM::Render::IRasterRenderer *rasterRenderer() const;
 
@@ -151,6 +191,14 @@ public:
      *          pointer actually changes.
      */
     void setRasterRenderer(std::unique_ptr<OpenSWMM::Render::IRasterRenderer> r);
+
+    /*!
+     * \brief Call after mutating the live renderer in place (through its own
+     *        setters) so cached tiles are dropped, \ref rasterRendererChanged()
+     *        fires and a repaint is requested — the same consequences as
+     *        \ref setRasterRenderer().
+     */
+    void notifyRasterRendererEdited();
 
     // ----- Pixel query ----------------------------------------------------
 
@@ -216,8 +264,8 @@ signals:
     void filePathChanged(const QString &path);
     void renderBandChanged(int band);
     void noDataValueChanged(double value);
-    void colorRampChanged(const RasterColorRamp &ramp);
-    /*! \brief Emitted when setRasterRenderer() swaps the renderer pointer. */
+    /*! \brief Emitted when setRasterRenderer() swaps the renderer pointer or
+     *         notifyRasterRendererEdited() reports an in-place edit. */
     void rasterRendererChanged();
 
     /*! \brief Emitted on the GUI thread when \ref openAsync() completes. */
@@ -260,6 +308,11 @@ private:
     struct WarpParams
     {
         int    renderBand  = 1;
+        // RGB composite path (MultiBandColorRenderer): `bands` lists the
+        // source bands feeding R, G, B (and optionally A); otherwise it holds
+        // the single render band and the colourise loop runs.
+        bool          rgb = false;
+        QVector<int>  bands;
         bool   hasNoData   = false;
         double noDataValue = 0.0;
         bool   hillshadeEnabled     = false;
@@ -289,7 +342,8 @@ private:
      *         resolution so GDAL serves it from the nearest overview instead of
      *         traversing the full-resolution image. warpToCanvas() then warps
      *         this small source. Bands: single-band ⇒ [render band] as band 1;
-     *         RGB ⇒ [1,2,3]. In the source CRS with the window's geotransform.
+     *         RGB ⇒ params.bands (R,G,B[,A]) as 1..outBands. In the source
+     *         CRS with the window's geotransform.
      *         Returns nullptr on no-overlap / non-northup / failure, so the
      *         caller falls back to the full-resolution warp. */
     [[nodiscard]] GDALDataset *buildWindowedSource(
@@ -369,14 +423,21 @@ private:
      *         slot's per-tile resources. */
     void finishSlot(TileSlot &slot);
 
+    /*! \brief Band 1's GDAL colour table, unfiltered. Caller holds
+     *         m_datasetMutex. Empty when there is none. */
+    [[nodiscard]] QList<OpenSWMM::Render::PalettedRasterRenderer::Class>
+        readColorTableLocked() const;
+
     QString          m_filePath;
     int              m_renderBand = 1;
     bool             m_isBasemap  = false;  /*!< See setIsBasemap(). */
     double           m_noDataValue = std::numeric_limits<double>::quiet_NaN();
     bool             m_hasNoData  = false;
-    // P5/R-1 — m_colorRamp retired. The SingleBandPseudoColorRenderer
-    // (m_rasterRenderer, below) is the single source of truth for raster
-    // colouring; colorRamp()/setColorRamp() project to/from it.
+
+    // Per-band symbology inputs (see bandRange / sampleValues). Guarded by
+    // m_datasetMutex; cleared whenever the dataset closes or re-opens.
+    mutable QHash<int, QPair<double, double>> m_bandRangeCache;
+    mutable QHash<int, QVector<double>>       m_sampleCache;
 
     // VS.6 — hillshade relief overlay parameters (see public accessors).
     bool             m_hillshadeEnabled    = false;
@@ -426,9 +487,10 @@ private:
     RasterTileItem  *m_sceneItem  = nullptr;
 
     // Single source of truth for raster colouring (P5/R-1). Initialised
-    // eagerly in the ctor (a SingleBandPseudoColorRenderer seeded from the
-    // default grayscale ramp) so rasterRenderer() never returns null, and
-    // warpToCanvas() colourises through it.
+    // eagerly in the ctor (a grayscale GraduatedRasterRenderer) so
+    // rasterRenderer() never returns null; applyOpenResult() replaces it with
+    // the dataset-appropriate default, and warpToCanvas() colourises through
+    // a clone of it.
     std::unique_ptr<OpenSWMM::Render::IRasterRenderer> m_rasterRenderer;
 };
 
