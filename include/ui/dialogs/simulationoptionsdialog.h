@@ -416,6 +416,7 @@ private:
     openswmmvis::ui::HydraulicsPage           *m_hydraulicsPage = nullptr;
     QLabel         *m_routingMirror     = nullptr;   ///< Read-only FLOW_ROUTING mirror on Models.
     int             m_hydraulicsRow     = -1;        ///< Routing & Hydraulics sidebar row.
+    QTabWidget     *m_twoDTabs          = nullptr;   ///< 2D Surface Routing inner tabs (T5).
 
     // Mesh configurations tab — Slice AU module toggle.
 
