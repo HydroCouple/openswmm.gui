@@ -1530,6 +1530,77 @@ void InsertJunctionSplitCommand::undo()
 }
 
 // ===========================================================================
+// InsertNodeSplitCommand
+// ===========================================================================
+
+namespace {
+constexpr int kNodeTypeJunction = 0;   // SWMM_NODE_JUNCTION
+}
+
+InsertNodeSplitCommand::InsertNodeSplitCommand(
+        SWMMModelLayer *layer, QString linkName, double t,
+        QString nodeName, QString newLinkName, int nodeType,
+        MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(QObject::tr("Insert Node \"%1\" on \"%2\"").arg(nodeName, linkName),
+                 canvas, parent),
+      m_layer(layer),
+      m_linkName(std::move(linkName)),
+      m_t(t),
+      m_nodeName(std::move(nodeName)),
+      m_newLinkName(std::move(newLinkName)),
+      m_nodeType(nodeType)
+{
+}
+
+void InsertNodeSplitCommand::redo()
+{
+    if (!m_layer || m_present) return;
+    m_warnings.clear();
+    m_retyped = false;
+    if (!m_layer->applyInsertJunctionSplit(m_linkName, m_t, m_nodeName, m_newLinkName))
+        return;
+    m_present = true;
+
+    if (m_nodeType == kNodeTypeJunction) {
+        m_retyped = true;   // nothing to convert — the split's junction IS the node
+        return;
+    }
+
+    QStringList cleared, warnings;
+    QString error;
+    if (!m_layer->applyNodeConvert(m_nodeName, m_nodeType, &cleared, &warnings, &error)) {
+        m_warnings << (error.isEmpty()
+                           ? QObject::tr("Could not convert \"%1\" to the requested node type.")
+                                 .arg(m_nodeName)
+                           : error);
+        return;   // the split stands; the node stays a junction
+    }
+    m_retyped = true;
+    m_warnings = warnings;
+
+    // Creation defaults for the new type (max depth, functional storage, …),
+    // exactly what a free placement gets from AddNodeCommand.
+    SWMM_Engine eng = m_layer->engine();
+    const int idx = swmm_node_index(eng, m_nodeName.toUtf8().constData());
+    if (idx >= 0)
+        ObjectDefaultsApplier::applyNodeDefaults(eng, idx, m_nodeType);
+}
+
+void InsertNodeSplitCommand::undo()
+{
+    if (!m_layer || !m_present) return;
+    // The fuse inverse borrows the virtual-junction path, which only accepts
+    // a JUNCTION — demote first (a no-op for a junction / a refused convert).
+    if (m_retyped && m_nodeType != kNodeTypeJunction) {
+        if (!m_layer->applyNodeConvert(m_nodeName, kNodeTypeJunction))
+            return;   // leave m_present so a later redo() does not re-split
+        m_retyped = false;
+    }
+    if (m_layer->applyFuseJunctionSplit(m_nodeName))
+        m_present = false;
+}
+
+// ===========================================================================
 // FuseVirtualJunctionCommand
 // ===========================================================================
 

@@ -1056,6 +1056,57 @@ private:
 };
 
 /*!
+ * \class InsertNodeSplitCommand
+ * \brief Records "place a node ON a conduit": the conduit is split at the
+ *        picked point and a node of the requested SWMM type is inserted there
+ *        (ADDNODE_SPLIT_REDESIGN_PLAN_2026-09-10.md step 2).
+ * \details The engine's `swmm_conduit_split` always creates a JUNCTION, so
+ *          for STORAGE / DIVIDER redo() splits, then converts the new junction
+ *          with `applyNodeConvert` and applies the type's creation defaults
+ *          (the same ObjectDefaultsApplier pass AddNodeCommand runs). A plain
+ *          junction takes the split as-is — the engine's interpolated invert
+ *          and conduit-derived depth are better than the defaults. Undo runs
+ *          the inverse in reverse: convert back to a junction (the fuse
+ *          inverse only accepts junctions), then re-fuse the conduit pair.
+ *          OUTFALL is never accepted (an outfall must be terminal).
+ *
+ *          If the conversion is refused the node stays a junction and the
+ *          engine's message is kept in warnings(); the split itself stands.
+ */
+class InsertNodeSplitCommand : public MapCommand
+{
+public:
+    InsertNodeSplitCommand(SWMMModelLayer *layer,
+                           QString linkName, double t,
+                           QString nodeName, QString newLinkName,
+                           int nodeType,
+                           MapCanvas *canvas,
+                           QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 49; }
+
+    /*! Engine warnings / the conversion error from the last redo() (e.g. a
+     *  divider inserted mid-conduit has only two links until a third is drawn). */
+    [[nodiscard]] QStringList warnings() const { return m_warnings; }
+    /*! True when the node was actually retyped to nodeType (always true for a
+     *  junction, which needs no conversion). */
+    [[nodiscard]] bool retyped() const { return m_retyped; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QString m_linkName;      ///< conduit being split (name survives upstream)
+    double  m_t = 0.5;       ///< normalized split position
+    QString m_nodeName;      ///< inserted node
+    QString m_newLinkName;   ///< new downstream conduit
+    int     m_nodeType = 0;  ///< SWMM_NodeType (0 junction, 2 storage, 3 divider)
+    bool    m_present = false;
+    bool    m_retyped = false;
+    QStringList m_warnings;
+};
+
+/*!
  * \class FuseVirtualJunctionCommand
  * \brief Records the re-fusion (deletion) of a virtual junction.
  * \details The constructor snapshots what a re-split needs: the upstream/
