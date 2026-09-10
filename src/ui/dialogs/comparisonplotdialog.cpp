@@ -1326,7 +1326,8 @@ void ComparisonPlotDialog::appendChartTails()
         const AttributeRow &row = rows.at(r);
         RowWidgets &rw = m_rowWidgets[r];
         if (!rw.chart || !rw.xAxis || !rw.yAxis
-            || rw.series.size() != row.seriesIndices.size()) {
+            || rw.series.size() != row.seriesIndices.size()
+            || rw.consumed.size() != rw.series.size()) {
             rebuildCharts();
             return;
         }
@@ -1348,9 +1349,23 @@ void ComparisonPlotDialog::appendChartTails()
             if (!line) continue;
             const int sIdx = row.seriesIndices[k];
 
+            // Ask for the tail only: periods [consumed, n). This used to
+            // re-resolve the WHOLE series on every live tick — O(run length)
+            // per tick per series, and for 2D velocity / rainfall a full-mesh
+            // copy per frame — which is what turned a slowdown into an
+            // ever-growing event-queue backlog on long runs.
             SeriesData data;
+            data.firstPeriod = rw.consumed[k];
             m_model->resolveSeries(sIdx, data);
+            if (data.ok && data.periodCount > 0 && data.periodCount < rw.consumed[k]) {
+                // The live 2D source thinned its history (frame indices
+                // shifted down): re-read from the start once; the time filter
+                // below drops everything already plotted.
+                data = SeriesData{};
+                m_model->resolveSeries(sIdx, data);
+            }
             if (!data.ok) continue;
+            if (data.periodCount > 0) rw.consumed[k] = data.periodCount;
 
             // Newest point already on the chart; append strictly after it.
             const qint64 lastMs = line->count() > 0
@@ -1469,6 +1484,7 @@ void ComparisonPlotDialog::rebuildCharts()
             line->attachAxis(rw.xAxis);
             line->attachAxis(rw.yAxis);
             rw.series.push_back(line);
+            rw.consumed.push_back(data.ok ? data.periodCount : 0);
         }
 
         // CP.1 — Animation-cursor vertical line: dashed black, named so
