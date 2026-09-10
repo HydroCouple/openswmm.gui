@@ -30,6 +30,7 @@ class QPushButton;
 class QRadioButton;
 class QSpinBox;
 class QStackedWidget;
+class QVBoxLayout;
 
 class LinkRenderingPrefs;
 class NodeRenderingPrefs;
@@ -66,9 +67,16 @@ private:
     QWidget *buildCanvasPage();
     QWidget *buildRenderingPage();
     QWidget *buildSimulationPage();
+    /*! \brief The Simulation Defaults page: five inner tabs (PLAN §3).
+     *
+     *  Hosts what used to be the separate Dynamic Wave Defaults and 2D
+     *  Defaults sidebar rows, which now fill tab layouts this hands them
+     *  rather than returning pages of their own. */
     QWidget *buildSimulationDefaultsPage();
-    QWidget *buildDynamicWaveDefaultsPage();
-    QWidget *buildTwoDDefaultsPage();
+    void addDynamicWaveDefaultGroups(QVBoxLayout *stepsLay,
+                                     QVBoxLayout *solverLay);
+    void addTwoDDefaultGroups(QVBoxLayout *lay, QVBoxLayout *cplLay,
+                              QVBoxLayout *meshLay);
     QWidget *buildObjectDefaultsPage();
     QWidget *buildMapDisplayPage();
     QWidget *buildMeasureToolPage();
@@ -194,7 +202,8 @@ private:
     QComboBox      *m_simUnsteadyFrictionCombo = nullptr;    // UNSTEADY_FRICTION
     QDoubleSpinBox *m_simUfK3Spin             = nullptr;     // UF_K3 (0–0.05)
 
-    // 2D Defaults — [2D_OPTIONS] solver keys + mesh-generation seeds.
+    // Simulation Defaults > 2D tabs — [2D_OPTIONS] solver keys plus the
+    // mesh-generation seeds.
     QDoubleSpinBox *m_twoDMaxTimestepSpin     = nullptr;   // seconds
     QDoubleSpinBox *m_twoDThetaSpin           = nullptr;
     QDoubleSpinBox *m_twoDCflSpin             = nullptr;

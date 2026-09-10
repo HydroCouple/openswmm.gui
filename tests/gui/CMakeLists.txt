@@ -3053,6 +3053,18 @@ add_swmmvis_gui_test(test_simulationoptions_gates
 )
 swmmvis_link_full_app_deps(test_simulationoptions_gates)
 
+# T7 (2026-09-10) — PreferencesDialog had no automated test at all before the
+# tabbed restructure folded two of its fifteen sidebar rows into a third.
+# Redirects QSettings to tests/gui/data/prefs_roundtrip_artifacts/ in
+# initTestCase(), BEFORE anything can call PreferencesManager::instance() (its
+# QSettings binds once, in a function-local static, and never reloads).
+add_swmmvis_gui_test(test_preferencesdialog_roundtrip
+    test_preferencesdialog_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_preferencesdialog_roundtrip)
+
 # E1 (2026-09-07) — Simulation Options 2D page Output group: OUTPUT_PRECISION
 # / OUTPUT_COMPRESSION / REPORT_2D_STEP / REPORT_2D_VARIABLES /
 # REPORT_2D_SPECIES seed their defaults, write their engine spellings, and
