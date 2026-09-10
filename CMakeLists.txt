@@ -468,7 +468,7 @@ set(
         include/map/tools/maptoolidentify.h
         include/map/tools/maptooladdnode.h
         include/map/tools/maptooladdvirtualnode.h
-        include/map/tools/maptooladdjunctionsplit.h
+        include/map/tools/conduitsplitpick.h
         include/map/tools/maptooladdinletnode.h
         include/map/tools/maptooladdlink.h
         include/map/tools/maptooladdgage.h
@@ -1177,7 +1177,7 @@ set(
         src/map/tools/maptoolidentify.cpp
         src/map/tools/maptooladdnode.cpp
         src/map/tools/maptooladdvirtualnode.cpp
-        src/map/tools/maptooladdjunctionsplit.cpp
+        src/map/tools/conduitsplitpick.cpp
         src/map/tools/maptooladdinletnode.cpp
         src/map/tools/maptooladdlink.cpp
         src/map/tools/maptooladdgage.cpp
@@ -2474,6 +2474,46 @@ else()
     if(EXISTS "${_openswmm_cli}")
         install(PROGRAMS "${_openswmm_cli}"
                 DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
+endif()
+
+# ── QPropertyModel runtime library (issue #9) ────────────────────────────────
+# QPropertyModel arrives via FetchContent (cmake/FetchQPropertyModel.cmake), so
+# it builds into _deps/qpropertymodel-build/ and nothing puts it beside the
+# executable: windeployqt only knows Qt's own DLLs, and the explicit copies
+# above cover openswmm_engine and its GPU plugin. SWMMVis links it directly —
+# `dumpbin /dependents SWMMVis.exe` lists QPropertyModel.dll — so a run from a
+# clean build directory died immediately with STATUS_DLL_NOT_FOUND
+# (0xC0000135) until the DLL was copied in by hand.
+#
+# Placed after the platform chain rather than inside it: the library was
+# neither copied nor installed on ANY platform. Windows surfaced it first
+# because its loader has no rpath to fall back on.
+#
+# Guarded on the target being a SHARED library — QPropertyModel can be built
+# static, and then there is no runtime artifact to place and $<TARGET_FILE:…>
+# would name an import/archive file instead.
+if(TARGET QPropertyModel)
+    get_target_property(_qpm_type QPropertyModel TYPE)
+    if(_qpm_type STREQUAL "SHARED_LIBRARY")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:QPropertyModel>"
+                    "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Copy QPropertyModel alongside SWMMVis"
+            VERBATIM
+        )
+        if(APPLE)
+            # Into the bundle's Frameworks dir, where the app's @rpath points —
+            # matching how the other non-Qt runtime libraries are placed.
+            install(FILES "$<TARGET_FILE:QPropertyModel>"
+                DESTINATION "$<TARGET_BUNDLE_CONTENT_DIR:SWMMVis>/Frameworks"
+                COMPONENT Runtime)
+        else()
+            install(FILES "$<TARGET_FILE:QPropertyModel>"
+                DESTINATION ${CMAKE_INSTALL_BINDIR}
+                COMPONENT Runtime)
+        endif()
     endif()
 endif()
 
