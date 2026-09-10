@@ -190,13 +190,13 @@ bool inpCarries2DSections(const QString &inpPath)
  */
 void SimulationOptionsDialog::applyEngineConstraints()
 {
-    const bool legacy = m_engineVersion.startsWith(QLatin1String("5."));
+    const bool legacy = m_caps.legacy;
 
     // ── Models tab: FV flow routing ────────────────────────────────────────
     // Probe the option surface rather than the version string: the C ABI is
     // string-keyed and unchanged, so a 6.x engine installed before the FV
     // solver landed is only detectable by asking it for an FV_* key.
-    const bool fvSupported = !legacy && !getOption("FV_CFL").isEmpty();
+    const bool fvSupported = m_caps.fv;
     if (!fvSupported && m_routingCombo) {
         auto *model = qobject_cast<QStandardItemModel *>(m_routingCombo->model());
         if (model) {
@@ -214,7 +214,6 @@ void SimulationOptionsDialog::applyEngineConstraints()
                 }
             }
         }
-        updateFvFieldsEnabled(); // ensure the FV groups follow
     }
 
     // ── Quality & Transport page (Y1) ──────────────────────────────────────
@@ -222,8 +221,7 @@ void SimulationOptionsDialog::applyEngineConstraints()
     // the C ABI is string-keyed, so an engine built before the transport keys
     // reached swmm_options_get (subplan Y0) is only detectable by asking it.
     // Probe QUALITY_SOLVER rather than the version string.
-    const bool transportSupported =
-        !legacy && !getOption("QUALITY_SOLVER").isEmpty();
+    const bool transportSupported = m_caps.transport;
     if (!transportSupported) {
         const QString ttip =
             legacy ? tr("Not available in SWMM 5 (legacy engine).")
@@ -241,7 +239,7 @@ void SimulationOptionsDialog::applyEngineConstraints()
             m_outfallBackflowCombo->setToolTip(ttip);
         }
         // Disable the groups directly: with the solver combo frozen,
-        // updateQualitySolverFieldsEnabled() would re-enable whichever group
+        // the gate table would re-enable whichever group
         // matches its (stale) selection.
         if (m_ardGroup)         m_ardGroup->setEnabled(false);
         if (m_lardGroup)        m_lardGroup->setEnabled(false);
@@ -263,7 +261,7 @@ void SimulationOptionsDialog::applyEngineConstraints()
 
     // TPA surcharge method + its celerity (SURCHARGE_METHOD=TPA and
     // TPA_CELERITY landed together — one probe covers both).
-    if (legacy || getOption("TPA_CELERITY").isEmpty()) {
+    if (!m_caps.tpa) {
         // Disable the TPA surcharge item the way the FV routing item is
         // disabled above — the value cannot exist on this engine.
         if (m_surchargeCombo) {
@@ -284,25 +282,22 @@ void SimulationOptionsDialog::applyEngineConstraints()
             m_tpaCeleritySpin->setEnabled(false);
             m_tpaCeleritySpin->setToolTip(mixedFlowTip);
         }
-        updateSurchargeFieldsEnabled();
     }
 
     // FV pressure closure. Explicit child disable is sticky in Qt, so
-    // updateFvFieldsEnabled() re-enabling m_fvGroup cannot resurrect it.
-    if (legacy || getOption("FV_PRESSURE_CLOSURE").isEmpty()) {
+    // refreshGates() re-enabling m_fvGroup cannot resurrect it.
+    if (!m_caps.fvPressure) {
         if (m_fvPressureClosureCombo) {
             m_fvPressureClosureCombo->setEnabled(false);
             m_fvPressureClosureCombo->setToolTip(mixedFlowTip);
         }
     }
 
-    // Unsteady friction. The UF group is gated by updateFvFieldsEnabled()
+    // Unsteady friction. The UF group is gated by refreshGates()
     // on every routing-combo change — carry the probe through the flag
     // instead of a direct setEnabled it would overwrite.
-    if (legacy || getOption("UNSTEADY_FRICTION").isEmpty()) {
-        m_ufSupported = false;
+    if (!m_caps.uf) {
         if (m_ufGroup) m_ufGroup->setToolTip(mixedFlowTip);
-        updateFvFieldsEnabled();
     }
 
     if (!legacy)
@@ -325,7 +320,6 @@ void SimulationOptionsDialog::applyEngineConstraints()
                 }
             }
         }
-        updateSurchargeFieldsEnabled(); // ensure DPS_* spins follow
     }
 
     // ── Hydraulics tab: node-continuity and Anderson acceleration ──────────
@@ -393,6 +387,7 @@ void SimulationOptionsDialog::buildUi()
     addCategory(tr("Dates & Times"),          buildDatesTab());
     addCategory(tr("Routing & Hydraulics"),   buildHydraulicsTab());
     addCategory(tr("Quality & Transport"),    buildQualityTransportTab());
+    m_qualityRow = m_categoryList->count() - 1;
     {
         auto *perf = new openswmmvis::ui::PerformancePage(*m_ctx, this);
         // While Hydraulics is still inline in the monolith the preset writes
@@ -427,8 +422,6 @@ void SimulationOptionsDialog::buildUi()
 #ifdef OPENSWMM_HAS_2D
     addCategory(tr("2D Surface Routing"), build2DTab());
     m_2DRow = m_categoryList->count() - 1;  // sidebar row for the 2D page.
-    if (m_module2DBox)
-        set2DRowEnabled(m_module2DBox->isChecked());
 #endif
 
     // Slice AA-3.5 — Files / Plugins page (its own inner sub-tabs). Lives at
@@ -449,6 +442,16 @@ void SimulationOptionsDialog::buildUi()
     // Every page exists by now, so every option editor can be tagged in one
     // pass (see tagOptionWidgets()).
     tagOptionWidgets();
+
+    // Every gate target exists by now, so the table is built once and
+    // evaluated. Pages emit gateInputsChanged() when a control that feeds a
+    // gate moves; the dialog re-evaluates the whole table rather than each
+    // page having to know which gates it affects.
+    buildGateTable();
+    for (openswmmvis::ui::SimOptionsPage *p : m_pageOrder)
+        connect(p, &openswmmvis::ui::SimOptionsPage::gateInputsChanged,
+                this, &SimulationOptionsDialog::refreshGates);
+    refreshGates();
 }
 
 void SimulationOptionsDialog::tagOption(QWidget *w, const char *key)
@@ -586,6 +589,164 @@ void SimulationOptionsDialog::tagOptionWidgets()
 #endif
 }
 
+// ---------------------------------------------------------------------------
+// Gating — one mechanism (PLAN §4.3)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/*! Grey a sidebar row without hiding it, and move off it if it was current. */
+void applyRowGate(QListWidget *list, int row, bool on, const QString &reason)
+{
+    if (!list || row < 0) return;
+    QListWidgetItem *item = list->item(row);
+    if (!item) return;
+    // A QStackedWidget has no per-page "enabled tab", so gate at the sidebar
+    // row instead: keep it visible but non-selectable when off.
+    item->setFlags(on ? (Qt::ItemIsSelectable | Qt::ItemIsEnabled)
+                      : Qt::ItemFlags(Qt::NoItemFlags));
+    item->setToolTip(on ? QString() : reason);
+    if (!on && list->currentRow() == row)
+        list->setCurrentRow(0);
+}
+
+/*! Grey an inner tab, and redirect off it if it was showing. */
+void applyTabGate(QTabWidget *tabs, int idx, bool on, const QString &reason)
+{
+    if (!tabs || idx < 0 || idx >= tabs->count()) return;
+    tabs->setTabEnabled(idx, on);
+    tabs->setTabToolTip(idx, on ? QString() : reason);
+    // Never leave a greyed tab showing: switching FLOW_ROUTING while viewing
+    // the tab that just went away must land somewhere usable.
+    if (!on && tabs->currentIndex() == idx) {
+        for (int i = 0; i < tabs->count(); ++i) {
+            if (tabs->isTabEnabled(i)) { tabs->setCurrentIndex(i); break; }
+        }
+    }
+}
+
+} // namespace
+
+void SimulationOptionsDialog::refreshGates()
+{
+    for (const PageGate &g : m_gates) {
+        if (!g.enabled) continue;
+        const bool on = g.enabled();
+        switch (g.target) {
+        case PageGate::Target::SidebarRow:
+            applyRowGate(m_categoryList, g.row, on, g.reasonWhenOff); break;
+        case PageGate::Target::Tab:
+            applyTabGate(g.tabs, g.tabIndex, on, g.reasonWhenOff); break;
+        case PageGate::Target::Widget:
+            if (g.widget) {
+                g.widget->setEnabled(on);
+                g.widget->setToolTip(on ? QString() : g.reasonWhenOff);
+            }
+            break;
+        }
+    }
+}
+
+void SimulationOptionsDialog::buildGateTable()
+{
+    m_gates.clear();
+    const auto widgetGate = [this](QWidget *w, std::function<bool()> on,
+                                   const QString &why) {
+        if (!w) return;
+        PageGate g;
+        g.target = PageGate::Target::Widget;
+        g.widget = w;
+        g.enabled = std::move(on);
+        g.reasonWhenOff = why;
+        m_gates << g;
+    };
+
+#ifdef OPENSWMM_HAS_2D
+    if (m_2DRow >= 0) {
+        PageGate g;
+        g.target = PageGate::Target::SidebarRow;
+        g.row = m_2DRow;
+        g.enabled = [this] { return m_module2DBox && m_module2DBox->isChecked(); };
+        g.reasonWhenOff = tr("Enable the 2D module on Models / Processes \u203A Modules");
+        m_gates << g;
+    }
+#endif
+    if (m_qualityRow >= 0) {
+        PageGate g;
+        g.target = PageGate::Target::SidebarRow;
+        g.row = m_qualityRow;
+        // New in T3: IGNORE_QUALITY gated nothing before, so a model with no
+        // constituents still offered a full Quality page.
+        g.enabled = [this] {
+            if (m_engine && swmm_pollutant_count(m_engine) > 0) return true;
+            if (m_waterAgeBox && m_waterAgeBox->isChecked()) return true;
+            if (m_heatTransportBox && m_heatTransportBox->isChecked()) return true;
+            return false;
+        };
+        g.reasonWhenOff = tr("No pollutants, water age, heat, or reactions in this model");
+        m_gates << g;
+    }
+
+    const auto surchargeIs = [this](const char *v) {
+        return [this, v] {
+            return m_surchargeCombo
+                && m_surchargeCombo->currentData().toString() == QLatin1String(v);
+        };
+    };
+    const QString dpsWhy = tr("Applies to the DYNAMIC_SLOT surcharge method");
+    widgetGate(m_dpsCelerSpin, surchargeIs("DYNAMIC_SLOT"), dpsWhy);
+    widgetGate(m_dpsAlphaSpin, surchargeIs("DYNAMIC_SLOT"), dpsWhy);
+    widgetGate(m_dpsDecaySpin, surchargeIs("DYNAMIC_SLOT"), dpsWhy);
+    widgetGate(m_tpaCeleritySpin, surchargeIs("TPA"),
+               tr("Applies to the TPA surcharge method"));
+
+    // FV and UF stay WIDGET gates here; T4 turns them into tab gates once the
+    // Hydraulics tabs exist. Keeping them gated meanwhile preserves today's
+    // behaviour rather than leaving them stuck on for a phase.
+    const auto routingIs = [this](const char *v) {
+        return m_routingCombo
+            && m_routingCombo->currentData().toString() == QLatin1String(v);
+    };
+    const QString fvWhy = tr("Applies to Finite Volume routing only");
+    widgetGate(m_fvGroup,     [routingIs] { return routingIs("FV"); }, fvWhy);
+    widgetGate(m_fvPerfGroup, [routingIs] { return routingIs("FV"); }, fvWhy);
+    widgetGate(m_fvLimiterCombo, [this] {
+        return m_fvOrderCombo
+            && m_fvOrderCombo->currentData().toString() == QLatin1String("2");
+    }, tr("Applies to 2nd-order reconstruction"));
+    widgetGate(m_fvLtsTiersSpin, [this] {
+        return m_fvLtsBox && m_fvLtsBox->isChecked();
+    }, tr("Applies while local time stepping is on"));
+    widgetGate(m_ufGroup, [this, routingIs] {
+        return m_caps.uf && (routingIs("FV") || routingIs("DYNWAVE"));
+    }, m_caps.uf ? tr("Unsteady friction applies to Dynamic Wave and Finite Volume")
+                 : tr("Not supported by this engine"));
+    widgetGate(m_ufK3Spin, [this] {
+        return m_ufMethodCombo
+            && m_ufMethodCombo->currentData().toString() != QLatin1String("NONE");
+    }, tr("Applies while an unsteady-friction method is selected"));
+
+    widgetGate(m_ardGroup, [this] {
+        return m_qualitySolverCombo
+            && m_qualitySolverCombo->currentData().toString()
+                   == QLatin1String("EULERIAN_ARD");
+    }, tr("Select the Eulerian ARD solver"));
+    widgetGate(m_lardGroup, [this] {
+        return m_qualitySolverCombo
+            && m_qualitySolverCombo->currentData().toString()
+                   == QLatin1String("LAGRANGIAN");
+    }, tr("Select the Lagrangian solver"));
+    widgetGate(m_rwptSeedSpin, [this] {
+        return m_dispersionCombo
+            && m_dispersionCombo->currentData().toString() == QLatin1String("RWPT");
+    }, tr("Applies while the RWPT dispersion model is selected"));
+
+    const QString skipWhy = tr("Applies while Skip steady state is on");
+    const auto skipOn = [this] { return m_skipSteadyBox && m_skipSteadyBox->isChecked(); };
+    widgetGate(m_latFlowTolSpin, skipOn, skipWhy);
+    widgetGate(m_sysFlowTolSpin, skipOn, skipWhy);
+}
+
 void SimulationOptionsDialog::addCategory(const QString &title, QWidget *page)
 {
     m_categoryList->addItem(title);
@@ -608,21 +769,6 @@ void SimulationOptionsDialog::addPage(openswmmvis::ui::SimOptionsPage *page)
     // their own block; the monolith's applyEngineConstraints() shrinks by one
     // block each phase until T3 reduces it to this loop.
     page->applyCapabilities();
-}
-
-void SimulationOptionsDialog::set2DRowEnabled(bool enabled)
-{
-    if (m_2DRow < 0) return;
-    QListWidgetItem *item = m_categoryList->item(m_2DRow);
-    if (!item) return;
-    // A QStackedWidget has no per-page "enabled tab", so gate at the sidebar
-    // row instead: keep it visible but non-selectable when 2D is off.
-    item->setFlags(enabled
-                       ? (Qt::ItemIsSelectable | Qt::ItemIsEnabled)
-                       : Qt::ItemFlags(Qt::NoItemFlags));
-    // If the disabled row was current, move focus off it.
-    if (!enabled && m_categoryList->currentRow() == m_2DRow)
-        m_categoryList->setCurrentRow(0);
 }
 
 QWidget *SimulationOptionsDialog::buildModelsTab()
@@ -956,14 +1102,8 @@ QWidget *SimulationOptionsDialog::buildDatesTab()
 
     // Grey out the tolerance spins when skip-steady is off — they remain
     // serialised either way so toggling back on restores the prior values.
-    auto syncSkipEnabled = [this]() {
-        const bool on = m_skipSteadyBox->isChecked();
-        m_latFlowTolSpin->setEnabled(on);
-        m_sysFlowTolSpin->setEnabled(on);
-    };
     connect(m_skipSteadyBox, &QCheckBox::toggled,
-            this, [syncSkipEnabled](bool) { syncSkipEnabled(); });
-    syncSkipEnabled();
+            this, [this](bool) { refreshGates(); });
 
     vlay->addWidget(skipGroup);
 
@@ -1097,7 +1237,7 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
 
     vlay->addWidget(surGroup);
     connect(m_surchargeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int){ updateSurchargeFieldsEnabled(); });
+            this, [this](int){ refreshGates(); });
 
     // ── Solver group ───────────────────────────────────────────────────
     auto *solGroup = new QGroupBox(tr("Solver"), page);
@@ -1321,7 +1461,7 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
 
     // ── Unsteady friction (engine issue #156; GUI issue #10) ───────────
     // Consumed by BOTH the dynamic-wave and FV solvers, so it is its own
-    // group gated on FLOW_ROUTING ∈ {DYNWAVE, FV} in updateFvFieldsEnabled().
+    // group gated on FLOW_ROUTING ∈ {DYNWAVE, FV} by the gate table.
     m_ufGroup = new QGroupBox(tr("Unsteady friction"), page);
     auto *ufForm = new QFormLayout(m_ufGroup);
 
@@ -1349,13 +1489,13 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
     vlay->addWidget(m_ufGroup);
 
     connect(m_routingCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int){ updateFvFieldsEnabled(); });
+            this, [this](int){ refreshGates(); });
     connect(m_fvOrderCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int){ updateFvFieldsEnabled(); });
+            this, [this](int){ refreshGates(); });
     connect(m_fvLtsBox, &QCheckBox::toggled,
-            this, [this](bool){ updateFvFieldsEnabled(); });
+            this, [this](bool){ refreshGates(); });
     connect(m_ufMethodCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int){ updateFvFieldsEnabled(); });
+            this, [this](int){ refreshGates(); });
 
     // ── Conduit / channel group ────────────────────────────────────────
     auto *condGroup = new QGroupBox(tr("Conduit / channel"), page);
@@ -1421,57 +1561,6 @@ QString SimulationOptionsDialog::threadLimitsSummary(const SWMM_ThreadInfo &ti)
     return lines.join(QLatin1Char('\n'));
 }
 
-void SimulationOptionsDialog::updateSurchargeFieldsEnabled()
-{
-    if (!m_surchargeCombo) return;
-    const bool dyn = m_surchargeCombo->currentData().toString()
-                        == QStringLiteral("DYNAMIC_SLOT");
-    const bool tpa = m_surchargeCombo->currentData().toString()
-                        == QStringLiteral("TPA");
-    if (m_dpsCelerSpin) m_dpsCelerSpin->setEnabled(dyn);
-    if (m_dpsAlphaSpin) m_dpsAlphaSpin->setEnabled(dyn);
-    if (m_dpsDecaySpin) m_dpsDecaySpin->setEnabled(dyn);
-    if (m_tpaCeleritySpin) m_tpaCeleritySpin->setEnabled(tpa);
-}
-
-void SimulationOptionsDialog::updateFvFieldsEnabled()
-{
-    if (!m_routingCombo) return;
-    const bool fv = m_routingCombo->currentData().toString()
-                        == QStringLiteral("FV");
-    if (m_fvGroup)     m_fvGroup->setEnabled(fv);
-    if (m_fvPerfGroup) m_fvPerfGroup->setEnabled(fv);
-    // The limiter only applies to 2nd-order reconstruction, and the tier
-    // count only matters while local time stepping is on. Setting these on
-    // a disabled group is harmless — Qt ANDs enabled state down the tree.
-    if (m_fvLimiterCombo && m_fvOrderCombo)
-        m_fvLimiterCombo->setEnabled(
-            m_fvOrderCombo->currentData().toString() == QStringLiteral("2"));
-    if (m_fvLtsTiersSpin && m_fvLtsBox)
-        m_fvLtsTiersSpin->setEnabled(m_fvLtsBox->isChecked());
-    // Unsteady friction applies to both dynamic-wave and FV routing;
-    // m_ufSupported carries the applyEngineConstraints() capability probe
-    // so a routing-combo change cannot re-enable the group on an engine
-    // without the keys. k3 on a disabled group is harmless (Qt ANDs
-    // enabled state down the tree, same as the limiter above).
-    const bool ufRouting = fv || m_routingCombo->currentData().toString()
-                                     == QStringLiteral("DYNWAVE");
-    if (m_ufGroup) m_ufGroup->setEnabled(m_ufSupported && ufRouting);
-    if (m_ufK3Spin && m_ufMethodCombo)
-        m_ufK3Spin->setEnabled(m_ufMethodCombo->currentData().toString()
-                                   != QStringLiteral("NONE"));
-}
-
-// ---------------------------------------------------------------------------
-// Quality & Transport (Y1 / GUI plan G1g)
-// ---------------------------------------------------------------------------
-// Scope note (see the Y1 handoff §2): only keys the engine's C API actually
-// exposes are edited here. The Eulerian ARD engine reads its scheme,
-// dispersion and target-dx from its transport.ard COMPONENT file (engine
-// D-UT8), not from [OPTIONS], so the ARD group carries a pointer to that
-// binding rather than duplicating the FV page's FV_* widgets — two widgets
-// writing one key is a defect, not a convenience.
-
 QWidget *SimulationOptionsDialog::buildQualityTransportTab()
 {
     auto *page = new QWidget(this);
@@ -1529,7 +1618,7 @@ QWidget *SimulationOptionsDialog::buildQualityTransportTab()
     // FV_SCALAR_SCHEME lives here, not on the Routing & Hydraulics page: its
     // only live consumer is the ARD engine, which reads it under any routing
     // model (FV routing itself transports no species). Gated with the group
-    // on QUALITY_SOLVER == EULERIAN_ARD by updateQualitySolverFieldsEnabled.
+    // on QUALITY_SOLVER == EULERIAN_ARD by the gate table.
     auto *ardForm = new QFormLayout();
     m_fvScalarSchemeCombo = new QComboBox(m_ardGroup);
     m_fvScalarSchemeCombo->addItem(tr("MUSCL"),              QStringLiteral("MUSCL"));
@@ -1630,27 +1719,11 @@ QWidget *SimulationOptionsDialog::buildQualityTransportTab()
     vlay->addStretch();
 
     connect(m_qualitySolverCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int){ updateQualitySolverFieldsEnabled(); });
+            this, [this](int){ refreshGates(); });
     connect(m_dispersionCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int){ updateQualitySolverFieldsEnabled(); });
+            this, [this](int){ refreshGates(); });
 
     return page;
-}
-
-void SimulationOptionsDialog::updateQualitySolverFieldsEnabled()
-{
-    if (!m_qualitySolverCombo) return;
-    const QString solver = m_qualitySolverCombo->currentData().toString();
-    if (m_ardGroup)
-        m_ardGroup->setEnabled(solver == QLatin1String("EULERIAN_ARD"));
-    if (m_lardGroup)
-        m_lardGroup->setEnabled(solver == QLatin1String("LAGRANGIAN"));
-    // The seed only matters while RWPT is on. Setting it on a disabled
-    // group is harmless — Qt ANDs enabled state down the tree.
-    if (m_rwptSeedSpin && m_dispersionCombo)
-        m_rwptSeedSpin->setEnabled(
-            m_dispersionCombo->currentData().toString()
-                == QLatin1String("RWPT"));
 }
 
 void SimulationOptionsDialog::updateDurationLabel()
@@ -1694,7 +1767,7 @@ void SimulationOptionsDialog::on2DModuleToggled(bool enabled)
     // toggle. The Mesh page is always interactive — mesh creation is what
     // flips the module on, so gating it here would be circular.
 #ifdef OPENSWMM_HAS_2D
-    set2DRowEnabled(enabled);
+    refreshGates();
 #else
     Q_UNUSED(enabled);
 #endif
@@ -3427,8 +3500,6 @@ void SimulationOptionsDialog::readFromEngine()
     m_fvLtsTiersSpin->setValue(optInt("FV_LTS_MAX_TIERS", 6));
     m_fvCflCensusSpin->setValue(optInt("FV_CFL_CENSUS_INTERVAL", 1));
 
-    updateSurchargeFieldsEnabled();
-    updateFvFieldsEnabled();
 
     // ---- Quality & Transport (Y1) --------------------------------------
     // Fallbacks are the ENGINE's documented defaults (Y0's gate 1 pins
@@ -3450,7 +3521,6 @@ void SimulationOptionsDialog::readFromEngine()
     m_heatTransportBox->setChecked(
         parseEngineBool(getOption("HEAT_TRANSPORT", QStringLiteral("NO")))
             == Qt::Checked);
-    updateQualitySolverFieldsEnabled();
 
     // ---- 2D module toggle (Tab 1 → Modules group) ----------------------
     // Persisted per-.inp under QSettings since the engine has no native
