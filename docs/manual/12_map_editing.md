@@ -18,7 +18,6 @@ Everything lives on the **Model** menu and the **Model** ribbon tab.
 |---|---|---|
 | **Edit Existing** (`Ctrl+E`) | **Edit → Edit Existing** | Model ▸ Edit |
 | **Junction** | **Model → Add Node → Junction** | Model ▸ Nodes |
-| **Junction on Conduit** | **Model → Add Node → Junction on Conduit** | Model ▸ Nodes |
 | **Virtual Junction** | **Model → Add Node → Virtual Junction** | Model ▸ Nodes |
 | **Inlet Junction** | **Model → Add Node → Inlet Junction** | Model ▸ Nodes |
 | **Outfall** | **Model → Add Node → Outfall** | Model ▸ Nodes |
@@ -150,27 +149,36 @@ derived from the raster's vertical unit versus the model's.
 
 \figtodo{12_add_node_terrain.png, Placing a junction with a DTM active on the Terrain toolbar}
 
-### Splitting a conduit with a junction
+### Placing a node on a conduit
 
-**Junction on Conduit** inserts an ordinary junction partway along an existing
-conduit, rather than placing one on empty canvas:
+Every node tool — **Junction**, **Storage**, **Flow Divider** — inserts the
+node *into* a conduit when you click on one, instead of dropping it beside it:
 
-1. Activate it and click a **conduit**. Clicking anything else — empty canvas,
-   or a pump, weir, orifice or outlet — puts a hint in the status bar and
-   places nothing. Only conduits have a length to divide.
-2. The conduit is split at the closest point on its polyline. The original
-   conduit keeps its name and upstream end; a second conduit named
-   `<name>_B` carries the downstream half. Cross-section, roughness and
+1. With the tool active, hover a **conduit**: a marker shows the prospective
+   break point (a solid ring with a crosshair). Clicking empty canvas places
+   the node freely, as before; snapping to an existing node wins over the
+   conduit under it. Pumps, weirs, orifices and outlets have no length to
+   divide and are never split.
+2. On the click the conduit is split at the closest point on its polyline.
+   The original conduit keeps its name and upstream end; a second conduit
+   named `<name>_B` carries the downstream half. Cross-section, roughness and
    barrels are copied, the break-point invert is interpolated along the
    conduit's gradient, and any interior vertices are shared out between the
    two halves.
+3. A **Storage** or **Flow Divider** placed this way is converted from the
+   inserted junction and receives its creation defaults (a divider carries the
+   engine's "two links" warning until you draw its third link).
+
+**Outfall** is the exception: an outfall must end the network, so clicking a
+conduit with it puts a hint in the status bar (and draws the marker as a dotted
+ring while hovering) and places nothing.
 
 The insertion is one undoable step, and undoing it re-fuses the two conduits.
 
-Use this rather than **Virtual Junction** when you want a real node — one that
-can take inflows, dry-weather flow or a third connecting link. Virtual
-junctions are computational break points and require dynamic-wave routing;
-a junction inserted this way carries no such restriction.
+Use a junction rather than a **Virtual Junction** when you want a real node —
+one that can take inflows, dry-weather flow or a third connecting link.
+Virtual junctions are computational break points and require dynamic-wave
+routing; a junction inserted this way carries no such restriction.
 
 ### Virtual junctions
 

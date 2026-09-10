@@ -1,7 +1,7 @@
 /*!
  * \file   test_junction_split_layer.cpp
- * \brief  Engine-level contract behind the GUI's plain-junction split tool
- *         (OpenSWMMVisMapToolAddJunctionSplit / InsertJunctionSplitCommand).
+ * \brief  Engine-level contract behind the GUI's plain-junction split
+ *         (OpenSWMMVisMapToolAddNode on a conduit / InsertJunctionSplitCommand).
  *
  * Scope note: SWMMModelLayer cannot be linked headlessly (nanoflann, GDAL, the
  * whole Qt Widgets scene graph), so — exactly as

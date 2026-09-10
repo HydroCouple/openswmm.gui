@@ -8,9 +8,9 @@
 #ifndef MAPTOOLADDVIRTUALNODE_H
 #define MAPTOOLADDVIRTUALNODE_H
 
+#include "map/tools/conduitsplitpick.h"
 #include "map/tools/maptool.h"
 
-#include <QPointF>
 #include <QString>
 
 class SWMMModelLayer;
@@ -23,11 +23,12 @@ class SWMMModelLayer;
  *          free placement is disabled (decision D-G3 in
  *          workplans/VIRTUAL_JUNCTION_GUI_PLAN_2026-08-01.md): clicking empty
  *          canvas emits a status-bar hint instead of placing a node. The
- *          conduit hit is resolved with the same pickAt() hit-test the
- *          vertex editor uses; the normalized split position t comes from
- *          the closest point on the conduit's vertex-aware polyline. Every
- *          insertion pushes an InsertVirtualJunctionCommand (engine-side
- *          `swmm_conduit_split`; undo re-fuses).
+ *          conduit hit comes from ConduitSplitPick::pickConduit (shared with
+ *          the add-node and inlet tools). Every insertion pushes an
+ *          InsertVirtualJunctionCommand (engine-side `swmm_conduit_split`;
+ *          undo re-fuses). The click is armed on press and committed on
+ *          RELEASE, the convention every canvas tool that may open a dialog
+ *          or menu follows (see maptoolpick2dcells.h).
  */
 class OpenSWMMVisMapToolAddVirtualNode : public OpenSWMMVisMapTool
 {
@@ -42,8 +43,9 @@ public:
     void activate()   override;
     void deactivate() override;
 
-    void mousePressEvent(QMouseEvent *event) override;
-    void mouseMoveEvent (QMouseEvent *event) override;
+    void mousePressEvent  (QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseMoveEvent   (QMouseEvent *event) override;
     void paint(QPainter *painter, const MapExtent &extent,
                const SpatialReferenceSystem *srs) override;
 
@@ -54,23 +56,8 @@ signals:
     void statusMessageChanged(const QString &message);
 
 private:
-    struct ConduitHit {
-        SWMMModelLayer *layer   = nullptr;
-        int             linkIdx = -1;      ///< SoA/engine conduit index
-        QString         name;
-        double          t = 0.5;           ///< normalized polyline position
-        QPointF         point;             ///< closest point (layer CRS)
-        bool valid() const { return layer != nullptr && linkIdx >= 0; }
-    };
-
-    /*! \brief Hit-test conduits only; computes t and the marker point. */
-    [[nodiscard]] ConduitHit pickConduit(const QPoint &pixel) const;
-
-    [[nodiscard]] QString nextNodeName(SWMMModelLayer *layer) const;
-    [[nodiscard]] QString nextLinkName(SWMMModelLayer *layer,
-                                       const QString &baseName) const;
-
-    ConduitHit m_hover;     ///< live preview of the split point
+    ConduitSplitPick::ConduitHit m_hover;   ///< live preview of the split point
+    bool                         m_armed = false;
 };
 
 #endif // MAPTOOLADDVIRTUALNODE_H
