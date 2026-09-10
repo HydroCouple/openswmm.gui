@@ -28,6 +28,8 @@
 #include <vector>
 
 #include "layers/swmm2dresultslayer.h"
+#include "plot/irunlayer.h"
+#include "plot/mesh2drunlayer.h"
 
 namespace {
 
@@ -254,6 +256,74 @@ private slots:
         float one = -1.0f;
         QVERIFY(src->readDepthAt(n - 1, 0, one));
         QCOMPARE(one, frameDepths(g, 199)[0]);
+    }
+
+    void runLayerResolvesOnlyTheRequestedTail()
+    {
+        // The comparison plot asks a live source for periods [consumed, n)
+        // on every tick; the answer must be exactly the tail of the full
+        // series, report the period count, and stay "ok" when nothing is
+        // new (so the chart neither re-reads the run nor flags an error).
+        const Grid g = makeGrid(10, 5);
+        SWMM2DResultsLayer layer;
+        auto srcOwned = makeSource(g);
+        auto *src = srcOwned.get();
+        layer.setSource(std::move(srcOwned));
+        for (int k = 0; k < 30; ++k) deliverTick(layer, *src, g, k);
+
+        Mesh2DRunLayer run(&layer);
+        ObjectRef cell;
+        cell.kind   = ObjectRef::Kind::Mesh2DCell;
+        cell.triIdx = g.nCells / 2;
+
+        SeriesData full;
+        run.getSeriesAt(cell, PlotAttribute::Mesh2DDepth, full);
+        QVERIFY(full.ok);
+        QCOMPARE(int(full.values.size()), 30);
+        QCOMPARE(full.periodCount, 30);
+
+        SeriesData tail;
+        tail.firstPeriod = 20;
+        run.getSeriesAt(cell, PlotAttribute::Mesh2DDepth, tail);
+        QVERIFY(tail.ok);
+        QCOMPARE(int(tail.values.size()), 10);
+        QCOMPARE(tail.periodCount, 30);
+        for (int i = 0; i < 10; ++i) {
+            QCOMPARE(tail.timesJulian[size_t(i)], full.timesJulian[size_t(20 + i)]);
+            QCOMPARE(tail.values[size_t(i)],      full.values[size_t(20 + i)]);
+        }
+
+        // Vertex and rainfall series honour the same cursor.
+        ObjectRef vtx;
+        vtx.kind   = ObjectRef::Kind::Mesh2DVertex;
+        vtx.triIdx = g.nVert / 2;
+        SeriesData vt;
+        vt.firstPeriod = 25;
+        run.getSeriesAt(vtx, PlotAttribute::Mesh2DDepth, vt);
+        QVERIFY2(vt.ok, qPrintable(vt.errorMessage));
+        QCOMPARE(int(vt.values.size()), 5);
+        QCOMPARE(vt.periodCount, 30);
+
+        SeriesData rn;
+        rn.firstPeriod = 28;
+        run.getSeriesAt(cell, PlotAttribute::Mesh2DRainfall, rn);
+        QVERIFY2(rn.ok, qPrintable(rn.errorMessage));
+        QCOMPARE(int(rn.values.size()), 2);
+
+        // Nothing new: ok, empty, count still reported; a stale cursor past
+        // the end (the live source thinned its history) clamps the same way.
+        SeriesData none;
+        none.firstPeriod = 30;
+        run.getSeriesAt(cell, PlotAttribute::Mesh2DDepth, none);
+        QVERIFY(none.ok);
+        QVERIFY(none.values.empty());
+        QCOMPARE(none.periodCount, 30);
+        SeriesData over;
+        over.firstPeriod = 99;
+        run.getSeriesAt(cell, PlotAttribute::Mesh2DDepth, over);
+        QVERIFY(over.ok);
+        QVERIFY(over.values.empty());
+        QCOMPARE(over.periodCount, 30);
     }
 
     void perTickCostDoesNotGrowWithHistory()

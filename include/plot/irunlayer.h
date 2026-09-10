@@ -153,6 +153,18 @@ struct SeriesData {
     std::vector<double> values;        ///< Same length as timesJulian.
     bool                ok = false;    ///< False if the source couldn't fulfil the request.
     QString             errorMessage;  ///< Populated when ok == false.
+
+    /*! INPUT — first period (0-based) to resolve. A live chart that already
+     *  holds periods [0, n) asks for n and gets only the tail; before this the
+     *  comparison plot re-read every series in full on every live tick
+     *  (O(run length) per tick, and a full-mesh copy per frame for 2D
+     *  velocity / rainfall). Sources clamp it to [0, periodCount]; a source
+     *  that ignores it simply returns the whole series (still correct — the
+     *  chart de-duplicates by time). */
+    int                 firstPeriod = 0;
+    /*! OUTPUT — periods the source held when it answered (0 = not reported).
+     *  The caller stores it as the next firstPeriod. */
+    int                 periodCount = 0;
 };
 
 /*! \brief Abstract source backing one comparison-plot run. */

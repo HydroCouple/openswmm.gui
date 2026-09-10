@@ -246,12 +246,16 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
         }
         const int nTv = vsrc->timeCount();
         if (nTv <= 0) { out.errorMessage = QStringLiteral("No time steps available yet"); return; }
+        // Live tail: resolve only frames >= firstPeriod (SeriesData::firstPeriod).
+        out.periodCount = nTv;
+        const int fromV = std::max(0, std::min(out.firstPeriod, nTv));
+        if (fromV >= nTv) { out.ok = true; return; }
         const std::vector<int> &inc = m_vertexTris[v];
         const double zVtx = (v < static_cast<int>(m_vertexZ.size())) ? m_vertexZ[v] : 0.0;
-        out.timesJulian.reserve(static_cast<std::size_t>(nTv));
-        out.values.reserve(static_cast<std::size_t>(nTv));
+        out.timesJulian.reserve(static_cast<std::size_t>(nTv - fromV));
+        out.values.reserve(static_cast<std::size_t>(nTv - fromV));
         std::vector<float> depths;
-        for (int t = 0; t < nTv; ++t) {
+        for (int t = fromV; t < nTv; ++t) {
             const QDateTime dt = vsrc->simTimeAt(t);
             if (!dt.isValid()) continue;
             double value = std::nan("");
@@ -302,6 +306,9 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
         }
         const int nTe = esrc->timeCount();
         if (nTe <= 0) { out.errorMessage = QStringLiteral("No time steps available yet"); return; }
+        out.periodCount = nTe;
+        const int fromE = std::max(0, std::min(out.firstPeriod, nTe));
+        if (fromE >= nTe) { out.ok = true; return; }
 
         // Unit-width flux divides the volumetric flux by the static edge length;
         // read it once (the same reader the velocity reconstruction uses).
@@ -316,10 +323,10 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
             edgeLen = static_cast<double>(len[flat]);
         }
 
-        out.timesJulian.reserve(static_cast<std::size_t>(nTe));
-        out.values.reserve(static_cast<std::size_t>(nTe));
+        out.timesJulian.reserve(static_cast<std::size_t>(nTe - fromE));
+        out.values.reserve(static_cast<std::size_t>(nTe - fromE));
         std::vector<float> fbuf;
-        for (int t = 0; t < nTe; ++t) {
+        for (int t = fromE; t < nTe; ++t) {
             const QDateTime dt = esrc->simTimeAt(t);
             if (!dt.isValid()) continue;
             double value = std::nan("");
@@ -357,6 +364,9 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
         out.errorMessage = QStringLiteral("No time steps available yet");
         return;
     }
+    out.periodCount = nT;
+    const int fromT = std::max(0, std::min(out.firstPeriod, nT));
+    if (fromT >= nT) { out.ok = true; return; }
 
     // Pre-fetch cached pieces depending on attribute.
     const bool needZBed = (attr == PlotAttribute::Mesh2DHGL);
@@ -387,14 +397,14 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
     const double rainScale = (attr == PlotAttribute::Mesh2DRainfall)
                                  ? 1000.0 * 3600.0 : 1.0;
 
-    out.timesJulian.reserve(static_cast<std::size_t>(nT));
-    out.values.reserve(static_cast<std::size_t>(nT));
+    out.timesJulian.reserve(static_cast<std::size_t>(nT - fromT));
+    out.values.reserve(static_cast<std::size_t>(nT - fromT));
 
     std::vector<float> depths;
     std::vector<float> flux;
     std::vector<float> rain;
 
-    for (int t = 0; t < nT; ++t) {
+    for (int t = fromT; t < nT; ++t) {
         const QDateTime dt = src->simTimeAt(t);
         if (!dt.isValid()) continue;
 
