@@ -37,8 +37,8 @@ no wizard. Everything about the new model comes from your preferences:
 | Source | Supplies |
 |---|---|
 | **Preferences → Simulation Defaults** | `FLOW_UNITS`; `INFILTRATION`; `FLOW_ROUTING`; the `IGNORE_*` process switches; time steps; tolerances; `MAX_TRIALS` |
-| **Preferences → Dynamic Wave Defaults** | `INERTIAL_DAMPING`; `NORMAL_FLOW_LIMITED`; `FORCE_MAIN_EQUATION`; `SURCHARGE_METHOD`; variable-step settings; `HEAD_TOLERANCE`; `NODE_CONTINUITY`; `ANDERSON_ACCEL`; `THREADS` |
-| **Preferences → 2D Defaults** | The `[2D_OPTIONS]` solver keys and the mesh-generation seeds |
+| **Preferences → Simulation Defaults → Dynamic Wave tabs** | `INERTIAL_DAMPING`; `NORMAL_FLOW_LIMITED`; `FORCE_MAIN_EQUATION`; `SURCHARGE_METHOD`; variable-step settings; `HEAD_TOLERANCE`; `NODE_CONTINUITY`; `ANDERSON_ACCEL`; `THREADS` |
+| **Preferences → Simulation Defaults → 2D tabs** | The `[2D_OPTIONS]` solver keys and the mesh-generation seeds |
 | **Preferences → Object Defaults** | The property values given to each object you draw afterwards |
 | **Preferences → General** | The engine mode the new project starts on |
 

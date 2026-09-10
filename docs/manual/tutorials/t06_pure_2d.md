@@ -155,7 +155,7 @@ GAGE1  -10  15
 a gage with no `[SYMBOLS]` row silently gives you uniform rain even if you asked
 for natural neighbour.
 
-Set it in **Simulation Options → 2D Surface Routing → Rainfall**, in the
+Set it in **Simulation Options → 2D Surface Routing → Processes**, in the
 **Rainfall mode:** combo — the entries read **Natural neighbour (all gages)**,
 **System (uniform gage mean)** and **None (no direct rainfall)**.
 
@@ -282,7 +282,8 @@ tells you whether `LTS_TIERS` is buying you anything.
 
 Set `CELL_CLOSURE` to VFR and re-run, then compare.
 
-**Simulation Options → 2D Surface Routing → Cell closure (wetting / drying)**:
+**Simulation Options → 2D Surface Routing → Mesh & Closure**, in the
+**Cell closure (wetting / drying)** group:
 
 | Control | Entries | Writes |
 |---|---|---|

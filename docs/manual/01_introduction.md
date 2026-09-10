@@ -350,9 +350,9 @@ page's **User Manual** link instead.
   launches are noticeably faster.
 - **macOS Gatekeeper.** A downloaded `.app` may need right-click → **Open** once.
 - **`File → New` does not ask any questions.** It creates a blank untitled project
-  immediately from your **Simulation Defaults**, **Dynamic Wave Defaults**, **2D
-  Defaults** and **Object Defaults** preferences. Set those up first if you build
-  new models often — see \ref manual_preferences.
+  immediately from your **Simulation Defaults** and **Object Defaults**
+  preferences. Set those up first if you build new models often — see
+  \ref manual_preferences.
 - **An untitled project lives only in memory.** Nothing touches disk until the
   first **Save As**, and closing one always prompts even if you changed nothing.
 - **Examples are always copied.** If you want to keep working on an example, note

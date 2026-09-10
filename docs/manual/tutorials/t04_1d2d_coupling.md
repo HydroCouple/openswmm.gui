@@ -186,8 +186,8 @@ generation (re-runnable from the Mesh toolbar)* checkbox runs the same remap.
 
 ### 3. Project-level coupling defaults
 
-**Model → Simulation Options… → 2D Surface Routing** has a **1D ↔ 2D
-coupling** group:
+**Model → Simulation Options… → 2D Surface Routing → Coupling** has the
+**1D ↔ 2D coupling** group:
 
 | Control | `[2D_OPTIONS]` key | This model |
 | ------- | ------------------ | ---------- |
