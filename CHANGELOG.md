@@ -18,6 +18,53 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ## [Unreleased]
 
+### Changed
+
+- **Simulation Options — contextual tabs instead of one long column per page** — the five densest
+  sidebar pages now group their controls into inner tabs, and a tab that does not apply to the
+  current selection greys out with a tooltip saying why rather than disappearing, so a gated option
+  stays discoverable. Changing a selector while you are looking at the tab it just disabled moves
+  you to the nearest usable tab. *Models / Processes* becomes **Domains & Processes · Modules ·
+  Flags**; *Dates & Times* becomes **Simulation Window · Time Steps · Events**; *Routing &
+  Hydraulics* becomes **Routing · Dynamic Wave · Finite Volume · Unsteady Friction**; *Quality &
+  Transport* becomes **Solver · Eulerian ARD · Lagrangian (LARD) · Reserved Species**; *2D Surface
+  Routing* becomes **Hydrodynamics · Mesh & Closure · Coupling · Processes · Rainfall & Output**.
+  The *Routing & Hydraulics* page drops from roughly 35 controls in one scrolling column to at most
+  13 per tab.
+
+- **Simulation Options — two selectors move into page headers** — `FLOW_ROUTING` was built on
+  *Models / Processes* and wired on *Routing & Hydraulics*; it now lives in the *Routing &
+  Hydraulics* page header, above the tab bar, because it gates three of that page's four tabs.
+  *Models / Processes* keeps a read-only one-line mirror with a link across, so there is still one
+  key and one editor. `QUALITY_SOLVER` gets the same treatment on *Quality & Transport*.
+
+- **Simulation Options — `SKIP_STEADY_STATE`, `LAT_FLOW_TOL` and `SYS_FLOW_TOL` move** from *Dates
+  & Times* to *Routing & Hydraulics ▸ Routing*, the tab that applies under every solver. The engine
+  tests for a steady period from the main routing step with no routing-model guard, so the flag is
+  honoured under kinematic wave and steady flow as well as dynamic wave; putting it on the Dynamic
+  Wave tab would have implied otherwise.
+
+- **Simulation Options — the 2D Surface Routing and Quality & Transport sidebar rows now gate.**
+  The 2D row follows the 2D-module toggle on *Models / Processes ▸ Modules* as before; the Quality
+  & Transport row is new, and greys out on a model with no pollutants, no water age and no heat.
+
+- **Preferences — Rendering and Simulation Defaults gain tabs; two sidebar rows fold away.**
+  *Rendering* becomes **Labels · Links & Nodes · GPU · 2D Mesh Edges**. The *Dynamic Wave Defaults*
+  and *2D Defaults* rows fold into *Simulation Defaults* as **Processes & Modules · Hydraulics &
+  Schedule · Dynamic Wave: Steps & Tolerances · Dynamic Wave: Solver · 2D Solver · 2D Coupling &
+  Rainfall · 2D Mesh** — fifteen sidebar rows become thirteen. Every setting still writes the same
+  key; nothing was dropped. Neither page needs a scrollbar at 1280x800 any more, on any tab.
+
+### Fixed
+
+- **`FV_SCALAR_SCHEME` was silently discarded** — the Scalar scheme combo on *Quality & Transport ▸
+  Eulerian ARD* was laid out and tagged but neither read from nor written to the engine, so it
+  always showed MUSCL and every edit was lost on Apply. Both halves are restored.
+
+- **The CRS Change… and Detect from coordinates buttons on *Spatial & CRS* did nothing** — the page
+  builder returned before reaching its two `connect()` calls, so the buttons were built, laid out
+  and never wired. The manual's "Known gap in this build" note for that page is retired with them.
+
 ### Added
 
 - **Export 2D Results** — a new Export group on the Analysis ribbon hands a finished 2D run to GIS,

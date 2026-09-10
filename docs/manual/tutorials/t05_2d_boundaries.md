@@ -408,10 +408,15 @@ Two of these earn special attention in this tutorial:
   `CELL_CLOSURE VFR` and `FACE_RECONSTRUCTION VFR_FACE` for exactly that reason.
 
 Set all of these on the **2D Surface Routing** page of the Simulation Options
-dialog (\ref manual_simulation_options): group boxes **Time stepping**,
-**Explicit marcher**, **Performance**, **Mesh**,
-**Cell closure (wetting / drying)**, **1D ↔ 2D coupling**, **Rainfall** and
-**Output**.
+dialog (\ref manual_simulation_options), across its five tabs:
+
+| Tab | Groups |
+| --- | --- |
+| **Hydrodynamics** | Time stepping · Explicit marcher |
+| **Mesh & Closure** | Mesh · Cell closure (wetting / drying) |
+| **Coupling** | 1D ↔ 2D coupling |
+| **Processes** | Processes (rainfall, infiltration, evaporation, transport) · Groundwater (subsurface) |
+| **Rainfall & Output** | Performance · Output |
 
 \figtodo{t05_sim_options_2d_page.png, The 2D Surface Routing page of the Simulation Options dialog}
 

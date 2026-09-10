@@ -406,9 +406,9 @@ end. The last one is rule **629** — it would capture the same water twice, and
 it is why the conduit-attribute inlet in this deck sits on `ST_A`, upstream of
 the pair, rather than on `ST_B` or `ST_C`.
 
-If you switch **Flow routing:** away from **Dynamic Wave** in
-**Model → Simulation Options… → Models / Processes**, rule 619 fires and the
-inlet junction cannot be routed at all.
+If you switch **Flow routing:** away from **Dynamic Wave** in the page header
+of **Model → Simulation Options… → Routing & Hydraulics**, rule 619 fires and
+the inlet junction cannot be routed at all.
 
 \figtodo{t02_rule_violation.png, The greyed Convert To entry with the virtual-junction rule text as its tooltip}
 

@@ -229,9 +229,9 @@ appear once the vertex is coupled.
 
 ### 6. 2D options in Simulation Options
 
-**Model → Simulation Options…**. On **Models / Processes**, the **Modules**
-group has a **2D Surface Routing** checkbox; the **2D Surface Routing**
-category in the left-hand list is greyed until it is ticked.
+**Model → Simulation Options…**. On **Models / Processes → Modules**, the
+**Modules** group has a **2D Surface Routing** checkbox; the **2D Surface
+Routing** category in the left-hand list is greyed until it is ticked.
 
 On the **Mesh** page you will see the search directory, the list of `.2dm`
 files found beside the project, and **Set Active**, **Remove**, **Import…**
@@ -241,7 +241,9 @@ Selecting `snoopy.2dm` and pressing **Set Active** writes the
 `[2D_MESH_FILE]` block into the `.inp`, which is what makes the mesh visible
 to the engine as well as to the canvas.
 
-The **2D Surface Routing** page maps one-to-one onto `[2D_OPTIONS]`:
+The **2D Surface Routing** page maps one-to-one onto `[2D_OPTIONS]`. Its five
+tabs are **Hydrodynamics**, **Mesh & Closure**, **Coupling**, **Processes** and
+**Rainfall & Output**; the groups below sit on them in that order:
 
 | Group | Control | `[2D_OPTIONS]` key |
 | ----- | ------- | ------------------ |
@@ -444,7 +446,8 @@ Viewer shows a banner when continuity exceeds 10 %.
 
 ### Rainfall mode
 
-Cycle **Simulation Options → 2D Surface Routing → Rainfall mode:** through its
+Cycle **Simulation Options → 2D Surface Routing → Processes → Rainfall mode:**
+through its
 three values and re-run:
 
 - **Natural neighbour (all gages)** interpolates every gage across the mesh.
@@ -465,7 +468,8 @@ location's depth series across the two runs in one Comparison Plot.
 
 ### CFL number
 
-**Simulation Options → 2D Surface Routing → CFL number:** governs the explicit
+**Simulation Options → 2D Surface Routing → Hydrodynamics → CFL number:**
+governs the explicit
 marcher's stability. Lower it (0.5, 0.3) and the run slows but the 2D
 continuity error should shrink; raise it and watch the error grow and
 eventually the depth field go ragged. `2D Solver Statistics` in the report

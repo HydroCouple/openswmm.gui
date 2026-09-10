@@ -199,17 +199,21 @@ in step 10 legible.
 ### 6. Check Simulation Options
 
 **Model → Simulation Options…** opens **Simulation Options**, a dialog with a
-category list down the left side rather than tabs: **Title / Notes**,
+category list down the left side: **Title / Notes**,
 **Models / Processes**, **Dates & Times**, **Routing & Hydraulics**,
 **Quality & Transport**, **System / Performance**, **Spatial & CRS**,
 **Mesh**, **2D Surface Routing** and **Files / Output / Plugins**.
+
+Five of those pages carry inner tabs, and the tabs grey out when they do not
+apply — the **Finite Volume** tab is only live under FV routing, for instance.
+Hover a greyed tab and its tooltip says why.
 
 For this run, confirm three things:
 
 | Page | Control | Value for this model |
 | ---- | ------- | -------------------- |
 | **Models / Processes** | **Infiltration model:** | **Horton** |
-| **Models / Processes** | **Flow routing:** | **Dynamic Wave** |
+| **Routing & Hydraulics** | **Flow routing:** (page header) | **Dynamic Wave** |
 | **Models / Processes** | **Active processes** | **Rainfall / runoff** and **Water quality** both ticked |
 | **Dates & Times** | **Start:** / **End:** | 01/01/1998 00:00 → 01/02/1998 06:00 |
 | **Dates & Times** | **Reporting step:** | 00:05:00 |
@@ -398,16 +402,20 @@ second `.out` into the profile.
 
 ### Change the routing method
 
-**Simulation Options → Models / Processes → Flow routing:** offers **Steady**,
-**Kinematic Wave**, **Dynamic Wave** and **Finite Volume**.
+**Simulation Options → Routing & Hydraulics → Flow routing:** offers
+**Steady**, **Kinematic Wave**, **Dynamic Wave** and **Finite Volume**. The
+selector sits in the page header, above the tab bar, and the tabs below it grey
+themselves out to match: **Dynamic Wave** under DYNWAVE, **Finite Volume** under
+FV, **Unsteady Friction** under either. *Models / Processes* keeps a read-only
+mirror of the current choice with a link back here.
 
 - **Kinematic Wave** ignores backwater and cannot surcharge. On this model the
   culverts stop constraining the system, peaks arrive earlier and flooding
   disappears. Kinematic wave also ignores the `LINK_OFFSETS DEPTH` outlet
   offset on `C2`.
-- **Finite Volume** switches to the shock-capturing solver and reveals the
-  **Finite volume solver** and **Finite volume performance** groups on the
-  **Routing & Hydraulics** page: **Cell length:**, **Min cells per conduit:**,
+- **Finite Volume** switches to the shock-capturing solver and enables the
+  **Finite Volume** tab on the same page, holding the **Finite volume solver**
+  and **Finite volume performance** groups: **Cell length:**, **Min cells per conduit:**,
   **CFL number:**, **Riemann solver:** (**HLLC** / **HLL**),
   **Spatial order:** (**1st order** / **2nd order (MUSCL-Hancock)**),
   **Slope limiter:** (**Minmod** / **van Leer** / **Superbee**),
