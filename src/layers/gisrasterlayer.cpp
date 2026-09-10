@@ -12,7 +12,9 @@
 #include "core/preferencesmanager.h"
 
 #include "render/irasterrenderer.h"
-#include "render/renderers/singlebandpseudocolorrenderer.h"
+#include "render/renderers/graduatedrasterrenderer.h"
+#include "render/renderers/multibandcolorrenderer.h"
+#include "render/renderers/palettedrasterrenderer.h"
 
 #include <QGraphicsScene>
 #include <QPainter>
@@ -50,41 +52,35 @@ Q_LOGGING_CATEGORY(lcLoadRaster, "openswmm.load.raster")
 
 namespace {
 
-// P5/R-1 — lossless projection between the legacy RasterColorRamp value type
-// (the public colorRamp() API + persistence still speak it) and the live
-// SingleBandPseudoColorRenderer, which is now the single source of truth for
-// raster colouring. minValue/maxValue/stops/clamp/interp map 1:1, so the
-// round-trip is exact and the rendered pixels are byte-identical to the old
-// m_colorRamp path (the renderer mirrors RasterColorRamp's interpolation).
-using OpenSWMM::Render::SingleBandPseudoColorRenderer;
+using OpenSWMM::Render::GraduatedRasterRenderer;
+using OpenSWMM::Render::IRasterRenderer;
+using OpenSWMM::Render::MultiBandColorRenderer;
+using OpenSWMM::Render::PalettedRasterRenderer;
 
-void rampToRenderer(SingleBandPseudoColorRenderer *r, const RasterColorRamp &ramp)
-{
-    if (!r) return;
-    r->setRange(ramp.minValue, ramp.maxValue);
-    QList<SingleBandPseudoColorRenderer::Stop> stops;
-    stops.reserve(ramp.stops.size());
-    for (const auto &s : ramp.stops)
-        stops.append({ s.first, s.second });
-    r->setStops(std::move(stops));
-    r->setClampMin(ramp.clampMin);
-    r->setClampMax(ramp.clampMax);
-    r->setInterp(ramp.interp);
-}
+// Colour tables larger than this are filtered to the values actually present
+// in the band sample (a 256-slot table on a 6-class land-use grid would
+// otherwise put 250 unused rows in the legend).
+constexpr int kColorTableFilterThreshold = 32;
 
-RasterColorRamp rendererToRamp(const SingleBandPseudoColorRenderer *r)
+QList<PalettedRasterRenderer::Class> classesFromColorTable(const GDALColorTable *table)
 {
-    RasterColorRamp ramp;
-    if (!r) return ramp;
-    ramp.minValue = r->minValue();
-    ramp.maxValue = r->maxValue();
-    ramp.stops.clear();
-    for (const auto &s : r->stops())
-        ramp.stops.append({ s.first, s.second });
-    ramp.clampMin = r->clampMin();
-    ramp.clampMax = r->clampMax();
-    ramp.interp   = r->interp();
-    return ramp;
+    QList<PalettedRasterRenderer::Class> out;
+    if (!table)
+        return out;
+    const int n = table->GetColorEntryCount();
+    out.reserve(n);
+    for (int i = 0; i < n; ++i)
+    {
+        GDALColorEntry e{};
+        if (!table->GetColorEntryAsRGB(i, &e))
+            continue;
+        PalettedRasterRenderer::Class c;
+        c.value = i;
+        c.label = QString::number(i);
+        c.color = QColor(e.c1, e.c2, e.c3, e.c4);
+        out.append(c);
+    }
+    return out;
 }
 
 // VS.6 — composite a hillshade lighting factor over already-colourised
@@ -160,14 +156,11 @@ GISRasterLayer::GISRasterLayer(const QString &filePath, OpenSWMMVisWorkspace *pa
 {
     setLayerType(SWMMRasterLayer);
 
-    // P5/R-1 — the SingleBandPseudoColorRenderer is the single source of
-    // truth for raster colouring; warpToCanvas() paints through it. Seed it
-    // from the default grayscale ramp so it renders immediately. The legacy
-    // m_colorRamp field is retired; colorRamp()/setColorRamp() now project
-    // to/from this renderer (see rampToRenderer / rendererToRamp).
-    auto sb = std::make_unique<OpenSWMM::Render::SingleBandPseudoColorRenderer>();
-    rampToRenderer(sb.get(), RasterColorRamp::grayscale());
-    m_rasterRenderer = std::move(sb);
+    // P5/R-1 — the raster renderer is the single source of truth for raster
+    // colouring; warpToCanvas() paints through a clone of it. Start with a
+    // continuous grayscale GraduatedRasterRenderer so the layer renders
+    // immediately; applyOpenResult() swaps in the dataset-appropriate default.
+    m_rasterRenderer = std::make_unique<GraduatedRasterRenderer>();
 
     m_maxConcurrentTiles = std::min(4, std::max(1, QThread::idealThreadCount()));
     m_tilePool.setMaxThreadCount(m_maxConcurrentTiles);
@@ -213,7 +206,22 @@ void GISRasterLayer::setRasterRenderer(std::unique_ptr<OpenSWMM::Render::IRaster
         QMutexLocker lock(&m_datasetMutex);
         m_rasterRenderer = std::move(r);
     }
+    // Cached tiles were colourised by the previous renderer — drop them (and
+    // any in-flight warp's result) before asking for a repaint. The legend
+    // views rebuild on repaintRequested too.
+    invalidateCache();
     emit rasterRendererChanged();
+    emit repaintRequested();
+}
+
+void GISRasterLayer::notifyRasterRendererEdited()
+{
+    // In-place edit of the live renderer (scheme / classes / bands changed
+    // through its own setters). Same consequences as a swap: stale tiles,
+    // renderer-changed listeners, repaint.
+    invalidateCache();
+    emit rasterRendererChanged();
+    emit repaintRequested();
 }
 
 // ---------------------------------------------------------------------------
@@ -304,61 +312,180 @@ void GISRasterLayer::setIsBasemap(bool on)
 
 void GISRasterLayer::setRenderBand(int band)
 {
-    if (m_renderBand != band)
+    if (m_renderBand == band)
+        return;
+    m_renderBand = band;
+
+    // NoData is a per-band property; the open-time value came from band 1.
+    double nd = std::numeric_limits<double>::quiet_NaN();
+    bool hasNd = false;
     {
-        m_renderBand = band;
-        invalidateCache();
-        emit renderBandChanged(band);
-        emit repaintRequested();
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Colour ramp
-// ---------------------------------------------------------------------------
-
-RasterColorRamp GISRasterLayer::colorRamp() const
-{
-    // Project the live renderer back to a RasterColorRamp. When a non-
-    // pseudocolor renderer is active (e.g. Paletted), the ramp API has no
-    // meaningful value, so fall back to grayscale.
-    if (auto *sb = dynamic_cast<const SingleBandPseudoColorRenderer *>(
-            m_rasterRenderer.get()))
-        return rendererToRamp(sb);
-    return RasterColorRamp::grayscale();
-}
-
-void GISRasterLayer::setColorRamp(const RasterColorRamp &ramp)
-{
-    // Editing the ramp implies single-band pseudocolor mode. Reuse the live
-    // renderer when it already is one; otherwise install a fresh pseudocolor
-    // renderer carrying the ramp (the renderer is the source of truth).
-    bool rendererSwapped = false;
-    {
-        // Serialise against a worker warp colourising through m_rasterRenderer.
         QMutexLocker lock(&m_datasetMutex);
-        if (auto *sb = dynamic_cast<SingleBandPseudoColorRenderer *>(
-                m_rasterRenderer.get()))
+        if (m_dataset && band >= 1 && band <= m_dataset->GetRasterCount())
         {
-            rampToRenderer(sb, ramp);
-        }
-        else
-        {
-            auto fresh = std::make_unique<SingleBandPseudoColorRenderer>();
-            rampToRenderer(fresh.get(), ramp);
-            m_rasterRenderer = std::move(fresh);
-            rendererSwapped = true;
+            int flag = 0;
+            const double v = m_dataset->GetRasterBand(band)->GetNoDataValue(&flag);
+            if (flag) { hasNd = true; nd = v; }
         }
     }
-    if (rendererSwapped)
-        emit rasterRendererChanged();
+    const bool ndChanged = (hasNd != m_hasNoData)
+                        || (hasNd && !(nd == m_noDataValue));
+    m_hasNoData   = hasNd;
+    m_noDataValue = nd;
+
+    // A graduated renderer stretches / classifies over the band's own
+    // statistics — re-seed it for the new band (persisted edges belong to
+    // the previous band).
+    if (auto *g = dynamic_cast<GraduatedRasterRenderer *>(m_rasterRenderer.get()))
+    {
+        const auto [lo, hi] = bandRange(band);
+        if (std::isfinite(lo) && std::isfinite(hi))
+            g->setDataRange(lo, hi);
+        g->reclassify(sampleValues(band));
+    }
+
     invalidateCache();
-    emit colorRampChanged(ramp);
+    emit renderBandChanged(band);
+    if (ndChanged)
+        emit noDataValueChanged(m_noDataValue);
     emit repaintRequested();
 }
 
+// ---------------------------------------------------------------------------
+// Per-band data access (symbology inputs)
+// ---------------------------------------------------------------------------
+
+QPair<double, double> GISRasterLayer::bandRange(int band) const
+{
+    const QPair<double, double> none(std::numeric_limits<double>::quiet_NaN(),
+                                     std::numeric_limits<double>::quiet_NaN());
+    QMutexLocker lock(&m_datasetMutex);
+    if (const auto it = m_bandRangeCache.constFind(band); it != m_bandRangeCache.cend())
+        return it.value();
+    if (!m_dataset || band < 1 || band > m_dataset->GetRasterCount())
+        return none;
+    GDALRasterBand *b = m_dataset->GetRasterBand(band);
+    if (!b)
+        return none;
+    // GetStatistics (vs ComputeStatistics) reuses PAM-cached statistics when
+    // the file already carries them; bForce computes (approximately) otherwise.
+    double minV = 0.0, maxV = 0.0, mean = 0.0, stddev = 0.0;
+    if (b->GetStatistics(/*bApproxOK=*/TRUE, /*bForce=*/TRUE,
+                         &minV, &maxV, &mean, &stddev) != CE_None)
+        return none;
+    const QPair<double, double> range(minV, maxV);
+    m_bandRangeCache.insert(band, range);
+    return range;
+}
+
+QVector<double> GISRasterLayer::sampleValues(int band, int maxSamples) const
+{
+    QMutexLocker lock(&m_datasetMutex);
+    if (const auto it = m_sampleCache.constFind(band); it != m_sampleCache.cend())
+        return it.value();
+    if (!m_dataset || band < 1 || band > m_dataset->GetRasterCount() || maxSamples < 1)
+        return {};
+    GDALRasterBand *b = m_dataset->GetRasterBand(band);
+    if (!b)
+        return {};
+
+    // Regular grid over the whole raster, at most maxSamples points, aspect
+    // preserved. bufW < rasterW lets GDAL serve the read from the nearest
+    // overview; nearest-neighbour keeps real cell values (no blending), which
+    // matters for unique-value discovery on categorical rasters.
+    const int rasterW = m_dataset->GetRasterXSize();
+    const int rasterH = m_dataset->GetRasterYSize();
+    if (rasterW <= 0 || rasterH <= 0)
+        return {};
+    const double scale = std::min(1.0, std::sqrt(double(maxSamples)
+                                                 / (double(rasterW) * double(rasterH))));
+    const int bufW = std::clamp(int(rasterW * scale), 1, rasterW);
+    const int bufH = std::clamp(int(rasterH * scale), 1, rasterH);
+
+    std::vector<double> buf(size_t(bufW) * size_t(bufH));
+    GDALRasterIOExtraArg extra;
+    INIT_RASTERIO_EXTRA_ARG(extra);
+    extra.eResampleAlg = GRIORA_NearestNeighbour;
+    if (b->RasterIO(GF_Read, 0, 0, rasterW, rasterH, buf.data(), bufW, bufH,
+                    GDT_Float64, 0, 0, &extra) != CE_None)
+        return {};
+
+    int hasNd = 0;
+    const double nd = b->GetNoDataValue(&hasNd);
+    QVector<double> out;
+    out.reserve(int(buf.size()));
+    for (double v : buf)
+    {
+        if (!std::isfinite(v) || (hasNd && v == nd))
+            continue;
+        out.append(v);
+    }
+    m_sampleCache.insert(band, out);
+    return out;
+}
+
+QList<int> GISRasterLayer::uniqueValues(int band, int cap) const
+{
+    const QVector<double> samples = sampleValues(band);
+    QSet<int> seen;
+    for (double v : samples)
+        seen.insert(int(std::lround(v)));
+    QList<int> out(seen.cbegin(), seen.cend());
+    std::sort(out.begin(), out.end());
+    if (cap > 0 && out.size() > cap)
+        out.resize(cap);
+    return out;
+}
+
+QList<PalettedRasterRenderer::Class> GISRasterLayer::readColorTableLocked() const
+{
+    if (!m_dataset || m_dataset->GetRasterCount() < 1)
+        return {};
+    GDALRasterBand *b = m_dataset->GetRasterBand(1);
+    return b ? classesFromColorTable(b->GetColorTable())
+             : QList<PalettedRasterRenderer::Class>{};
+}
+
+bool GISRasterLayer::hasColorTable() const
+{
+    QMutexLocker lock(&m_datasetMutex);
+    if (!m_dataset || m_dataset->GetRasterCount() < 1)
+        return false;
+    GDALRasterBand *b = m_dataset->GetRasterBand(1);
+    return b && b->GetColorTable() != nullptr;
+}
+
+QList<PalettedRasterRenderer::Class> GISRasterLayer::colorTableClasses() const
+{
+    QList<PalettedRasterRenderer::Class> table;
+    {
+        QMutexLocker lock(&m_datasetMutex);
+        table = readColorTableLocked();
+    }
+    if (table.size() <= kColorTableFilterThreshold)
+        return table;
+    // Large table: keep only the slots the data actually uses (sampleValues
+    // takes the mutex itself — do not hold it here).
+    const QList<int> present = uniqueValues(1, /*cap=*/0);
+    const QSet<int> presentSet(present.cbegin(), present.cend());
+    QList<PalettedRasterRenderer::Class> used;
+    for (const auto &c : table)
+        if (presentSet.contains(c.value))
+            used.append(c);
+    return used.isEmpty() ? table : used;
+}
+
+bool GISRasterLayer::isByteRaster() const
+{
+    QMutexLocker lock(&m_datasetMutex);
+    if (!m_dataset || m_dataset->GetRasterCount() < 1)
+        return false;
+    GDALRasterBand *b = m_dataset->GetRasterBand(1);
+    return b && b->GetRasterDataType() == GDT_Byte;
+}
+
 // Slice U-7 — single subject pointing at this raster layer; the
-// Q_CLASSINFO groups split Source / Display / Color ramp into sub-tabs.
+// Q_CLASSINFO groups split Source / Display into sub-tabs.
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
 GISRasterLayer::styleSubjects()
 {
@@ -368,41 +495,6 @@ GISRasterLayer::styleSubjects()
     out.push_back(std::make_unique<LayerStyleSubject>(
         tr("Raster / DEM"), this, QStringLiteral("raster.layer"), QString()));
     return out;
-}
-
-void GISRasterLayer::autoStretchColorRamp()
-{
-    // The GDAL read (ComputeStatistics) + renderer range update race a worker
-    // warp, so do them under the lock; then emit outside it (a connected slot
-    // could otherwise re-enter a locked method and deadlock).
-    bool changed = false;
-    {
-        QMutexLocker lock(&m_datasetMutex);
-        if (!m_dataset || m_renderBand < 1 || m_renderBand > bandCount())
-            return;
-        GDALRasterBand *band = m_dataset->GetRasterBand(m_renderBand);
-        if (!band)
-            return;
-
-        double minV = 0.0, maxV = 0.0;
-        double pdfMean, pdfStdDev;
-        if (band->ComputeStatistics(/*bApproxOK=*/TRUE, &minV, &maxV,
-                                    &pdfMean, &pdfStdDev, nullptr, nullptr) == CE_None)
-        {
-            // Update only the range on the live renderer (stops/interp/clamp
-            // preserved). No-op cast if a non-pseudocolor renderer is active.
-            if (auto *sb = dynamic_cast<SingleBandPseudoColorRenderer *>(
-                    m_rasterRenderer.get()))
-                sb->setRange(minV, maxV);
-            changed = true;
-        }
-    }
-    if (changed)
-    {
-        invalidateCache();
-        emit colorRampChanged(colorRamp());
-        emit repaintRequested();
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -653,6 +745,21 @@ GISRasterLayer::WarpParams GISRasterLayer::snapshotWarpParams() const
 {
     WarpParams p;
     p.renderBand           = m_renderBand;
+    p.bands                = { m_renderBand };
+    // A MultiBandColorRenderer with three valid bands switches the warp onto
+    // the RGB composite path; anything else colourises the render band.
+    if (auto *mb = dynamic_cast<const MultiBandColorRenderer *>(m_rasterRenderer.get()))
+    {
+        const int n = bandCount();
+        const auto valid = [n](int b) { return b >= 1 && b <= n; };
+        if (n >= 3 && valid(mb->redBand()) && valid(mb->greenBand()) && valid(mb->blueBand()))
+        {
+            p.rgb   = true;
+            p.bands = { mb->redBand(), mb->greenBand(), mb->blueBand() };
+            if (valid(mb->alphaBand()))
+                p.bands.append(mb->alphaBand());
+        }
+    }
     p.hasNoData            = m_hasNoData;
     p.noDataValue          = m_noDataValue;
     p.hillshadeEnabled     = m_hillshadeEnabled;
@@ -883,6 +990,10 @@ struct GISRasterLayer::OpenResult
     double       statMin = 0.0;
     double       statMax = 0.0;
     int          xSize = 0, ySize = 0, bands = 0;
+    // Default-renderer inputs: band 1's data type (the RGB composite path
+    // only renders Byte without saturating) and its colour table, if any.
+    GDALDataType bandType = GDT_Unknown;
+    QList<PalettedRasterRenderer::Class> colorTable;
     qint64       msOpen = 0, msMeta = 0, msStats = 0, msTotal = 0;
 };
 
@@ -926,19 +1037,22 @@ GISRasterLayer::OpenResult GISRasterLayer::doOpenWork(const QString &filePath)
     if (const char *wkt = r.dataset->GetProjectionRef(); wkt && *wkt != '\0')
         r.wkt = QString::fromUtf8(wkt);
 
-    // No-data value
+    // No-data value, data type and colour table (all band 1 — the default
+    // render band; setRenderBand re-reads NoData for other bands).
     if (r.bands > 0)
     {
+        GDALRasterBand *b1 = r.dataset->GetRasterBand(1);
         int hasND = 0;
-        const double nd = r.dataset->GetRasterBand(1)->GetNoDataValue(&hasND);
+        const double nd = b1->GetNoDataValue(&hasND);
         if (hasND) { r.hasNoData = true; r.noDataValue = nd; }
+        r.bandType   = b1->GetRasterDataType();
+        r.colorTable = classesFromColorTable(b1->GetColorTable());
     }
     r.msMeta = loadTimer.elapsed() - r.msOpen;  // extent/CRS/no-data
 
-    // Band-1 statistics for the linear colour ramp — the expensive scan we
-    // most want off the GUI thread. Mirrors autoStretchColorRamp() (band 1 is
-    // the default render band at open time). Multi-band RGB no-ops harmlessly
-    // downstream; warpToCanvas takes the RGB path.
+    // Band-1 statistics for the default graduated stretch — the expensive
+    // scan we most want off the GUI thread (band 1 is the default render
+    // band at open time). Unused when the default renderer is Paletted / RGB.
     if (r.bands > 0)
     {
         double minV = 0.0, maxV = 0.0, mean, stddev;
@@ -984,13 +1098,35 @@ void GISRasterLayer::applyOpenResult(const OpenResult &r)
 
     if (r.hasStats)
     {
-        if (auto *sb = dynamic_cast<SingleBandPseudoColorRenderer *>(
-                m_rasterRenderer.get()))
-            sb->setRange(r.statMin, r.statMax);
-        invalidateCache();
-        emit colorRampChanged(colorRamp());
-        emit repaintRequested();
+        QMutexLocker lock(&m_datasetMutex);
+        m_bandRangeCache.insert(1, qMakePair(r.statMin, r.statMax));
     }
+
+    // Dataset-appropriate default renderer (a persisted style, when there is
+    // one, is applied by the project loader after openFinished):
+    //   colour table          ⇒ Paletted, from the table
+    //   ≥3 Byte bands         ⇒ RGB composite of bands 1,2,3 (+4 as alpha)
+    //   otherwise             ⇒ Graduated continuous grayscale over band 1's
+    //                           statistics (the historic raster look)
+    std::unique_ptr<IRasterRenderer> def;
+    if (!r.colorTable.isEmpty())
+    {
+        auto p = std::make_unique<PalettedRasterRenderer>();
+        p->setClasses(colorTableClasses());
+        def = std::move(p);
+    }
+    else if (r.bands >= 3 && r.bandType == GDT_Byte)
+    {
+        def = std::make_unique<MultiBandColorRenderer>(1, 2, 3, r.bands >= 4 ? 4 : 0);
+    }
+    else
+    {
+        auto g = std::make_unique<GraduatedRasterRenderer>();
+        if (r.hasStats)
+            g->setDataRange(r.statMin, r.statMax);
+        def = std::move(g);
+    }
+    setRasterRenderer(std::move(def));   // invalidates + repaints
 
     qCInfo(lcLoadRaster).noquote()
         << QStringLiteral("%1: %2x%3 px, %4 band(s) — open (ms): gdal_open=%5 "
@@ -1129,6 +1265,8 @@ void GISRasterLayer::closeDataset()
         GDALClose(m_dataset);
         m_dataset = nullptr;
     }
+    m_bandRangeCache.clear();
+    m_sampleCache.clear();
 }
 
 void GISRasterLayer::invalidateCache()
@@ -1268,7 +1406,7 @@ GDALDataset *GISRasterLayer::buildWindowedSource(
     std::vector<GByte> buf(size_t(bufW) * bufH * typeSize);
     for (int i = 0; i < outBands; ++i)
     {
-        const int srcBandIdx = isRGB ? (i + 1) : params.renderBand;
+        const int srcBandIdx = isRGB ? params.bands.value(i, i + 1) : params.renderBand;
         GDALRasterBand *sb = src->GetRasterBand(srcBandIdx);
         if (!sb
             || sb->RasterIO(GF_Read, winX0, winY0, winPixW, winPixH,
@@ -1315,10 +1453,11 @@ QImage GISRasterLayer::warpToCanvas(GDALDataset *src,
         -canvasExtent.height() / pixelHeight
     };
 
-    // Determine number of output bands
-    int nBands     = src->GetRasterCount();
-    bool isRGB     = (nBands >= 3);
-    int outBands   = isRGB ? nBands : 1;
+    // Output bands: the RGB composite path (MultiBandColorRenderer) warps the
+    // R,G,B[,A] bands the snapshot names; everything else warps the single
+    // render band through the colourise loop below.
+    const bool isRGB   = params.rgb && params.bands.size() >= 3;
+    const int  outBands = isRGB ? int(params.bands.size()) : 1;
 
     // Phase 2 — warp only the viewport window read from the nearest overview,
     // not the full-resolution raster. On success `srcDS` is a small MEM source
@@ -1373,7 +1512,8 @@ QImage GISRasterLayer::warpToCanvas(GDALDataset *src,
         // The windowed source already holds the selected bands as 1..outBands;
         // the full-dataset fallback still indexes the real render/RGB bands.
         warpOpts->panSrcBands[i] = ownSrc ? (i + 1)
-                                          : (isRGB ? (i + 1) : params.renderBand);
+                                          : (isRGB ? params.bands.value(i, i + 1)
+                                                   : params.renderBand);
         warpOpts->panDstBands[i] = i + 1;
     }
 
