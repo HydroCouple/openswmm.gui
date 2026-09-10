@@ -5072,6 +5072,7 @@ void SWMMModelLayer::syncSplitCaches(int li, int newNode, int newLink,
     ng.x = nx;
     ng.y = ny;
     m_nodes.append(ng);
+    forgetStaleObjectState(newNodeName, kKindNode);
     refreshSceneCoordsForNode(m_nodes.size() - 1);
     if (m_nodeSelectedFlag.size() < size_t(m_nodes.size()))
         m_nodeSelectedFlag.resize(m_nodes.size(), 0);
@@ -5089,6 +5090,11 @@ void SWMMModelLayer::syncSplitCaches(int li, int newNode, int newLink,
     lg.toNodeIdx   = lto;
     lg.vertices    = readInterior(newLink);
     m_links.append(lg);
+    // `<base>_B` is exactly the name an earlier, since-fused split had — and
+    // the name its hidden / selected state was left under (see
+    // forgetStaleObjectState). Must precede rebuildCategoryIndex() below,
+    // which recounts hidden objects per category.
+    forgetStaleObjectState(newLinkName, kKindLink);
     appendLinkSceneEntry();
 
     // --- Original conduit: downstream end moved to the new node, interior
@@ -5650,6 +5656,7 @@ bool SWMMModelLayer::applyNodeAdd(const QString &name, int nodeType,
     g.y          = y;
     m_nodes.append(g);
     const int newSoaIdx = m_nodes.size() - 1;
+    forgetStaleObjectState(name, kKindNode);   // `J<n>` reuses a deleted node's name
 
     if (outIdx) *outIdx = idx;
 
@@ -5769,6 +5776,7 @@ bool SWMMModelLayer::applyLinkAdd(const QString &name, int linkType,
     g.toNodeIdx   = n2;
     g.vertices    = interior;   // interior only, no node endpoints
     m_links.append(g);
+    forgetStaleObjectState(name, kKindLink);   // `C<n>` reuses a deleted link's name
     if (outIdx) *outIdx = idx;
 
     // See applyNodeAdd: appendLinkSceneEntry() rebuilds the whole link
@@ -7856,6 +7864,54 @@ void SWMMModelLayer::rebuildFlagArrays()
         if (hiddenBits(n) & kKindGage)   m_gageHiddenFlag[i]   = 1;
     }
 
+}
+
+void SWMMModelLayer::forgetStaleObjectState(const QString &name, quint8 kindBit)
+{
+    // Hidden: typed mask bit; membership without a mask entry is legacy
+    // "all kinds hidden" state (same convention as setObjectVisibleAt).
+    auto it = m_hiddenKindMask.find(name);
+    if (it == m_hiddenKindMask.end() && m_hiddenObjects.contains(name))
+        it = m_hiddenKindMask.insert(name, kKindAll);
+    if (it != m_hiddenKindMask.end()) {
+        it.value() &= ~kindBit;
+        // The sidecar restore marks every kind hidden for a name; a bit that
+        // names no live object of its kind is the same dead state and would
+        // otherwise be written back out on the next save, forever.
+        quint8 live = 0;
+        if (m_nodeByName.contains(name))  live |= kKindNode;
+        if (m_linkByName.contains(name))  live |= kKindLink;
+        if (m_catchByName.contains(name)) live |= kKindCatch;
+        if (m_gageByName.contains(name))  live |= kKindGage;
+        it.value() &= live;
+        if (it.value() == 0) {
+            m_hiddenKindMask.erase(it);
+            m_hiddenObjects.remove(name);
+        }
+    }
+
+    // Selected: strip the kind from any element carrying the name and
+    // re-derive the mirrors setSelectedElements() maintains.
+    if (m_selectedKindMask.value(name, 0) & kindBit) {
+        QVector<SelectedElement> keep;
+        keep.reserve(m_selectedElements.size());
+        for (SelectedElement e : m_selectedElements) {
+            if (e.name == name) {
+                e.kinds &= ~kindBit;
+                if (e.kinds == 0) continue;
+            }
+            keep.append(e);
+        }
+        m_selectedElements = keep;
+        m_selectedNames.clear();
+        m_selectedKindMask.clear();
+        for (const SelectedElement &e : m_selectedElements) {
+            quint8 &m = m_selectedKindMask[e.name];
+            if (m == 0)
+                m_selectedNames.append(e.name);
+            m |= e.kinds;
+        }
+    }
 }
 
 void SWMMModelLayer::rebuildSceneCoords()

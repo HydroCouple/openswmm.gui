@@ -1277,6 +1277,20 @@ public:
     { return int(m_linkVertexCount.size()); }
 
     /*!
+     * \brief The hidden flag the renderers read for link \p idx — what
+     *        actually decides whether the base link pass emits it.
+     * \details Test seam, sibling of renderLinkCount(). The QSG base pass
+     *          skips a link whose flag is set; a selected link is still drawn
+     *          by the selection pass, which is why a wrongly-hidden link looks
+     *          fine until it is deselected.
+     */
+    [[nodiscard]] bool renderLinkHidden(int idx) const
+    {
+        return idx >= 0 && size_t(idx) < m_linkHiddenFlag.size()
+            && m_linkHiddenFlag[size_t(idx)] != 0;
+    }
+
+    /*!
      * \brief Cached layer-CRS polygon of a subcatchment by index. Vertex
      *        order matches the .inp [Polygons] section. Returns empty
      *        when \p idx is out of range or the subcatchment has no
@@ -2624,6 +2638,20 @@ private:
      *  Called on every selection / visibility mutation so the flag
      *  arrays match the canonical QString-keyed state. */
     void rebuildFlagArrays();
+
+    /*! A newly created object must start visible and unselected. Hidden and
+     *  selected state are keyed by NAME: a fused / deleted object's name
+     *  stays in `m_hiddenObjects` / `m_hiddenKindMask` (the .oswp sidecar
+     *  persists and re-applies that set without checking the object still
+     *  exists) and in the selection mirrors, and the generated names
+     *  (`<base>_B`, `J<n>`) deterministically reuse a dead object's name —
+     *  so the next split / add inherited the dead object's hidden bit the
+     *  moment rebuildFlagArrays() ran, and the new link vanished from the
+     *  map as soon as it was deselected. Drop \p kindBit for \p name from
+     *  both sets before the flag arrays are rebuilt from them. Pure state
+     *  fix-up: no signal, no count adjustment (a name with no live object
+     *  never counted towards m_hiddenCountByCategory). */
+    void forgetStaleObjectState(const QString &name, quint8 kindBit);
 
     SWMMElementSymbol            m_junctionSym;
     /*! Marker override for virtual junctions — same CatJunctions bucket
