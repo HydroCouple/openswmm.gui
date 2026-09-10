@@ -67,6 +67,17 @@ protected:
     SimOptionsContext &ctx_;
 };
 
+/*!
+ * \brief The `[2D_OPTIONS]` key carrying one `SWMM_TRANSPORT_CLASS_*`, or ""
+ *        for an unknown class.
+ *
+ * Shared vocabulary rather than a page member: the 2D page owns the
+ * TRANSPORT_* checkboxes, while the Models page's Domain × Species matrix
+ * names the same keys in its cell tooltips (CLAUDE.md §5.1 — one model, two
+ * views).
+ */
+const char *transport2DKey(int speciesClass);
+
 } // namespace openswmmvis::ui
 
 #endif // SIMOPTIONSPAGE_H

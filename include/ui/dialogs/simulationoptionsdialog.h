@@ -68,12 +68,16 @@ namespace openswmmvis::ui {
 
 namespace openswmmvis::ui {
 class SimOptionsPage;
+class DatesPage;
 class FilesPage;
 class HydraulicsPage;
 class MeshPage;
+class ModelsPage;
 class PerformancePage;
+class QualityPage;
 class SpatialPage;
 class TitleNotesPage;
+class TwoDPage;
 }
 
 /*!
@@ -129,12 +133,8 @@ public:
      *  The reachability seam for the dialog restructure
      *  (OPTIONS_DIALOG_TABBED_RESTRUCTURE_PLAN_2026-09-07.md §6 test 6): a key
      *  recorded here with no widget carrying a matching `optionKey` property
-     *  means some editor was orphaned by a page move. */
-    /*! \brief Keys offered to writeIfChanged in the last write pass.
-     *
-     *  Merges the monolith's record with the page contexts' — during the
-     *  T1..T6 port both are live, and the reachability test needs the union.
-     *  Out of line because SimOptionsContext is only forward-declared here. */
+     *  means some editor was orphaned by a page move. Every page writes
+     *  through the shared context, so the record lives in one place. */
     [[nodiscard]] QStringList lastWriteKeys() const;
 
     // ---- Pure helpers (testable without an engine) ------------------------
@@ -215,30 +215,17 @@ private slots:
     void onAccept();
 
 private:
+    /*! \brief Run every page's validate(); pop the blocking / warning boxes.
+     *         False means the caller must not write. */
+    bool confirmBeforeWrite();
+
     /*! Disable controls that the currently-selected engine does not support.
      *  Called once after buildUi() + readFromEngine() and re-callable when
      *  the engine version changes. */
     void applyEngineConstraints();
 
-    /*! \brief Tag \a w as the editor of engine option \a key.
-     *
-     *  Sets the `optionKey` dynamic property, which is the test seam the
-     *  restructure gates on: every widget that reads or writes an option is
-     *  discoverable by property, without the dialog growing a friend class or
-     *  a per-widget accessor. Widgets that edit a non-[OPTIONS] thing are
-     *  tagged with the section name instead ("[EVENTS]", "[FILES]", …). */
-    static void tagOption(QWidget *w, const char *key);
-
-    /*! \brief Tag every option editor in one pass, from the end of buildUi().
-     *
-     *  Deliberately one block rather than a tagOption() call beside each of the
-     *  116 widget constructions: the tags are derived from writeToEngine()'s
-     *  key list, so keeping them together makes the two auditable side by side
-     *  and keeps the restructure's diff reviewable. */
-    void tagOptionWidgets();
-
     void buildUi();
-    /*! Register a sidebar row + stacked page (page wrapped in a scroll area). */
+
     /*!
      * \brief One enable rule for a sidebar row, an inner tab, or a widget.
      *
@@ -263,330 +250,39 @@ private:
     void addCategory(const QString &title, QWidget *page);
     /*! \brief Register a page class: appends to m_pageOrder and adds its row. */
     void addPage(openswmmvis::ui::SimOptionsPage *page);
-    /*! Enable/disable the 2D Surface Routing sidebar row (QStackedWidget has
-     *  no per-page enabled state, so gate at the list row). */
-    // Each build*Tab returns its page widget; buildUi adds it via addCategory.
-    QWidget *buildModelsTab();
-    QWidget *buildDatesTab();
-    QWidget *buildQualityTransportTab();   ///< Y1 (G1g) — quality/transport options
-    // U1 (2026-09-07) — [PROCESS_COMPONENTS] table + the Domain × Species
-    // transport matrix (engine-computed, swmm_get_transport_matrix).
-    void refreshTransportMatrix();
-
-#ifdef OPENSWMM_HAS_2D
-    QWidget *build2DTab();
-    void read2DFromEngine();
-    int  write2DToEngine(int &n);
-#endif
 
     void readFromEngine();
     int  writeToEngine();   ///< returns count of keys written
-
-    // ---- [REPORT] contents editor — Slice BV.1 (2026-05-22) ---------------
-
-    /*! \brief Add the "Report contents ([REPORT])" group to the given parent
-     *         layout in buildFilesTab. */
-
-    /*! \brief Populate the report-contents widgets from the engine's
-     *         RPT_* options keys. */
-
-    /*! \brief Write the report-contents widgets back through the engine's
-     *         RPT_* options keys. Returns the count of keys whose value
-     *         changed (folded into writeToEngine's running total). */
-
-    // ---- [EVENTS] section editor — Slice CW (2026-05-21) ------------------
-
-    /*! \brief Populate the Events table from swmm_events_count/get. */
-    void readEventsFromEngine();
-
-    /*! \brief Diff the Events table against the read-time snapshot; on any
-     *         difference, clear + re-add via swmm_events_*. Returns the
-     *         number of rows written (0 when unchanged). */
-    int  writeEventsToEngine();
-
-    /*! \brief Validate all event rows. Highlights invalid rows (Start >= End)
-     *         in red and returns false if any row is invalid. Out-of-range
-     *         and overlapping rows yield a non-blocking warning via @p warn.
-     *         Not const — mutates per-cell styling for the inline error
-     *         affordance. */
-    bool validateEvents(QString *warn = nullptr);
-
-    // ---- Files / Output / Plugins tab validation — Phase 3.10.4 -----------
-
-    /*! \brief Validate the Files / Output / Plugins sub-tabs. Blocks Apply
-     *         when any [PLUGINS] row has an empty plugin id (column 0) or
-     *         any scheduled hot-start save row has an empty path (column
-     *         0); rows are highlighted red for the inline error affordance.
-     *         Non-blocking warnings (out-of-range datetimes, "Selected"
-     *         report selector with empty list, .rpt / .out parent
-     *         directory missing) are appended to @p warn.  Returns false
-     *         only on blocking errors.  Not const — mutates per-cell
-     *         styling. */
-
-    /*! \brief Append a new row defaulted to (project start, project end). */
-    void addEventRow();
-
-    /*! \brief Remove all selected rows. No-op when nothing is selected. */
-    void removeSelectedEventRows();
-
-    /*! \brief Snapshot of rows as last read from the engine — used for
-     *         change detection in writeEventsToEngine(). */
-    QList<QPair<QDateTime, QDateTime>> m_eventsSnapshot;
-
-    /*! \brief Enable / disable the DPS_* row group based on the surcharge
-     *         method selection. Called whenever the combo changes. */
-
-    /*! \brief Enable / disable the finite-volume option groups based on the
-     *         flow-routing selection (FLOW_ROUTING FV), plus the intra-group
-     *         dependencies (limiter needs 2nd order, LTS tiers need LTS).
-     *         Called whenever the routing combo changes. */
-    /*! Y1 — gate the per-engine transport groups on the solver combo, and
-     *  the RWPT seed on the dispersion combo (updateFvFieldsEnabled idiom). */
-
-    /*! \brief Refresh the "End +" duration label from Start/End edits.
-     *         Format: "Xd HH:MM:SS" or "—" when End <= Start. */
-    void updateDurationLabel();
-
-    /*! \brief Refresh the CRS row text and the read-only extent summary
-     *         from the layer; called on construction and after a CRS pick. */
-
-private slots:
-    void on2DModuleToggled(bool enabled);
-
-    // Multi-row SAVE HOTSTART table slots (Slice BV-01).
-
-private:
-
-    // Swap the path/datetime contents of two rows in m_hotstartSavesTable
-    // (avoids tearing down cell widgets that QTableWidget owns).
-
-    // Engine helpers — round-trip option values through swmm_options_get / _set.
-    QString  getOption(const char *key, const QString &fallback = {}) const;
-    bool     setOption(const char *key, const QString &value);
 
     SWMM_Engine     m_engine = nullptr;
     SWMMModelLayer *m_layer  = nullptr;
     SWMMVisProjectWindow *m_projectWindow = nullptr;  ///< owner of .oswp-persisted notes
     QString         m_engineVersion;        ///< e.g. "6.0.0" or "5.2.4"
     bool            m_wroteChanges = false;
-    QStringList     m_lastWriteKeys;      ///< Keys offered to writeIfChanged in the last write pass.
 
-    /*! \brief True when the 2D-module checkbox reflects a real IGNORE_2D
-     *         intent rather than one inferred from the .inp's contents.
-     *
-     *  Set when the engine actually carries the key, when a per-project
-     *  QSettings preference exists, or as soon as the user toggles the box.
-     *  While it is false the checkbox is only a *description* of the model
-     *  ("this .inp has no 2D sections"), and writing IGNORE_2D from it would
-     *  invent a preference the user never expressed — which is what made an
-     *  unedited Apply dirty every 1D project. */
-    bool            m_module2DIntentKnown = false;
+    // ---- sidebar rows the gate table names ------------------------------
+    int             m_2DRow          = -1;   ///< 2D page row (-1 if not built).
+    int             m_meshRow        = -1;   ///< Mesh-configurations row.
+    int             m_qualityRow     = -1;   ///< Quality & Transport row.
+    int             m_hydraulicsRow  = -1;   ///< Routing & Hydraulics row.
+    QVector<PageGate> m_gates;               ///< Built once by buildGateTable().
+    QListWidget    *m_categoryList   = nullptr;   ///< Left sidebar (page selector).
+    QStackedWidget *m_pages          = nullptr;   ///< Right page stack.
 
-    // Tab 0 — Title / Notes (rich text mirror of engine [TITLE] section)
-
-    // Group-box handles kept so applyEngineConstraints() can disable entire
-    // sections (incl. their labels) with a single setEnabled() call.
-
-    // Tab 1 — Models / Processes
-    QComboBox      *m_infiltrationCombo = nullptr;
-    QCheckBox      *m_allowPondingBox   = nullptr;
-    QCheckBox      *m_ignoreRainfallBox = nullptr;
-    QCheckBox      *m_ignoreSnowmeltBox = nullptr;
-    QCheckBox      *m_ignoreGroundwaterBox = nullptr;
-    QCheckBox      *m_ignoreRDIIBox     = nullptr;
-    QCheckBox      *m_ignoreQualityBox  = nullptr;
-    QCheckBox      *m_ignoreRoutingBox  = nullptr;
-
-    // Tab 1 — Modules group (2D toggle)
-    QCheckBox      *m_module1DBox       = nullptr;   ///< Always-on, disabled (1D core).
-    QCheckBox      *m_module2DBox       = nullptr;   ///< Toggle 2D surface routing.
-    int             m_2DRow             = -1;        ///< 2D page sidebar row (-1 if not built).
-    int             m_meshRow           = -1;        ///< Mesh-configurations sidebar row.
-    int             m_qualityRow        = -1;        ///< Quality & Transport sidebar row.
-    QVector<PageGate> m_gates;                       ///< Built once by buildGateTable().
-    QListWidget    *m_categoryList      = nullptr;   ///< Left sidebar (page selector).
-    QStackedWidget *m_pages             = nullptr;   ///< Right page stack.
-
-    // ---- page registry (T1) ----
+    // ---- page registry ---------------------------------------------------
     openswmmvis::ui::EngineCapabilities        m_caps;       ///< Probed once in the ctor.
     std::unique_ptr<openswmmvis::ui::SimOptionsContext> m_ctx;
     QVector<openswmmvis::ui::SimOptionsPage *> m_pageOrder;  ///< Sidebar order.
-    openswmmvis::ui::SpatialPage              *m_spatialPage = nullptr;
-    openswmmvis::ui::FilesPage                *m_filesPage   = nullptr;
+    // Pages the dialog talks to by name — every one of these is either a gate
+    // input, a gate target, or one half of a cross-page hook (PLAN §4.1).
+    openswmmvis::ui::DatesPage                *m_datesPage      = nullptr;
+    openswmmvis::ui::FilesPage                *m_filesPage      = nullptr;
     openswmmvis::ui::HydraulicsPage           *m_hydraulicsPage = nullptr;
-    QLabel         *m_routingMirror     = nullptr;   ///< Read-only FLOW_ROUTING mirror on Models.
-    int             m_hydraulicsRow     = -1;        ///< Routing & Hydraulics sidebar row.
-    QTabWidget     *m_twoDTabs          = nullptr;   ///< 2D Surface Routing inner tabs (T5).
-
-    // Mesh configurations tab — Slice AU module toggle.
-
-    // Tab 2 — Dates & Times
-    QDateTimeEdit  *m_startEdit         = nullptr;
-    QDateTimeEdit  *m_endEdit           = nullptr;
-    QDateTimeEdit  *m_reportStartEdit   = nullptr;
-    QLabel         *m_durationLabel     = nullptr;     // "1d 02:30:00"
-    QCustomTimespanEdit *m_reportStepEdit = nullptr;   // (days, HH:mm:ss)
-    QCustomTimespanEdit *m_dryStepEdit    = nullptr;   // (days, HH:mm:ss)
-    QCustomTimespanEdit *m_wetStepEdit    = nullptr;   // (days, HH:mm:ss)
-    QCustomTimespanEdit *m_ruleStepEdit = nullptr;     // (days, HH:mm:ss)
-    QLineEdit      *m_routingStepEdit   = nullptr;     // seconds (float text)
-    QDoubleSpinBox *m_dryDaysSpin       = nullptr;     // days
-    QDateEdit      *m_sweepStartEdit    = nullptr;     // MM/DD only
-    QDateEdit      *m_sweepEndEdit      = nullptr;     // MM/DD only
-
-    // Tab 2 — Events ([EVENTS] section editor, Slice CW).  Each row is a
-    // {start, end} QDateTime pair; engine stores decimal-day pairs in
-    // SimulationContext::events round-tripped via swmm_events_*.
-    QTableWidget   *m_eventsTable       = nullptr;
-    QPushButton    *m_eventsAddBtn      = nullptr;
-    QPushButton    *m_eventsRemoveBtn   = nullptr;
-
-    // Tab 3 — Routing & Hydraulics
-
-    // Quality & Transport page (Y1 / GUI plan G1g). The groups are members
-    // so updateQualitySolverFieldsEnabled() can gate whole sections on the
-    // solver selection — the updateFvFieldsEnabled() idiom.
-    QComboBox      *m_qualitySolverCombo  = nullptr;   // QUALITY_SOLVER
-    QComboBox      *m_outfallBackflowCombo = nullptr;  // OUTFALL_BACKFLOW_QUALITY
-    class QGroupBox *m_ardGroup           = nullptr;   // EULERIAN_ARD only
-    class QGroupBox *m_lardGroup          = nullptr;   // LAGRANGIAN only
-    QDoubleSpinBox *m_qualityStepSpin     = nullptr;   // QUALITY_STEP (s)
-    QSpinBox       *m_maxSegmentsSpin     = nullptr;   // MAX_SEGMENTS_PER_LINK
-    QComboBox      *m_dispersionCombo     = nullptr;   // DISPERSION OFF|RWPT
-    QSpinBox       *m_rwptSeedSpin        = nullptr;   // RWPT_SEED (RWPT only)
-    QCheckBox      *m_waterAgeBox         = nullptr;   // WATER_AGE
-    QCheckBox      *m_heatTransportBox    = nullptr;   // HEAT_TRANSPORT
-    QComboBox      *m_fvScalarSchemeCombo = nullptr;   // FV_SCALAR_SCHEME — on the Q&T page; the ARD engine reads it under any routing model
-
-    // Tab 3 — Finite volume solver (FLOW_ROUTING FV). Both groups are kept
-    // as members so updateFvFieldsEnabled() can gate whole sections on the
-    // routing-combo selection with a single setEnabled() call each.
-
-    // Tab 3 — Unsteady friction (engine issue #156; GUI issue #10). Applies
-    // to BOTH dynamic-wave and FV routing, so it is a separate group gated
-    // on FLOW_ROUTING ∈ {DYNWAVE, FV} in updateFvFieldsEnabled(). The
-    // m_ufSupported flag carries the applyEngineConstraints() capability
-    // probe into that gate so a routing-combo change cannot re-enable the
-    // group on an engine that lacks the keys.
-
-    // Tab 4 — System / Performance
-
-    // Tab 5 — Spatial & CRS
-
-    // Tab 7 — Writer / Container combos (Slice AA-3.5 full design)
-
-    // Tab 7 — Output / Report file paths (Slice AA-4)
-
-    // Tab 7 — Report contents ([REPORT] section, Slice BV.1 — 2026-05-22).
-    // Six bool flags + three NONE/ALL/Selected radio groups with name
-    // lists.  Round-trips via the engine's RPT_* keys exposed through
-    // swmm_options_get / swmm_options_set.
-    // REPORT_SIGNED_HEADS ([OPTIONS], engine issue #156 O-6): .out HEAD
-    // carries signed piezometric head; DEPTH stays floored. Lives with the
-    // report-contents toggles but is NOT part of the RPT_DISABLED
-    // short-circuit — it shapes the binary output, not the .rpt report.
-    // Selector trios: radios + the comma-separated name list edit.
-
-    // Tab 7 — Files / Plugins (Slice AA-3.5)
-    //
-    // Phase 3.10.6 (2026-05-22): same MVC overhaul as the hot-start saves
-    // table.  Column 0 (plugin path / id) uses PathBrowseDelegate so each
-    // row carries an inline "…" browse button that opens an Open-file
-    // dialog with the platform's shared-library filter.  Column 1
-    // (arguments) uses the default QLineEdit delegate.
-
-    // U1 — Process components (Files / Output / Plugins → Plugins sub-tab).
-    // U1 — Transport by domain (Models / Processes page). Read-only view of
-    // the engine's matrix; the 2D column cells mirror the 2D page's
-    // TRANSPORT_* boxes (one model, two views).
-    QTableWidget               *m_transportMatrixTable = nullptr;
-    bool                        m_matrixSyncing        = false;
-
-    // Tab 7 — Secondary file references (Slice AA-3 [FILES] follow-up).
-    // Slice IO-11a — paths now flow through RelativePathPicker so the
-    // dialog displays each token relative to the project anchor and
-    // emits the absolute form for round-trip with the engine C-API.
-
-    // Tab 7 — Multi-row SAVE HOTSTART table (Slice BV-01, 2026-05-21).
-    // Replaces the single m_hotstartSaveEdit line edit so the user can
-    // schedule multiple hot-start saves at different sim-time datetimes.
-    // An empty datetime cell stores 0.0 → engine emits the row with no
-    // trailing date string ("save at end of run").
-    //
-    // Phase 3.10.5 (2026-05-22): the legacy QTableWidget + QDateTimeEdit
-    // cell-widget mix was replaced with a true QTableView + custom
-    // QAbstractTableModel + per-column delegates so each row exposes a
-    // browse "…" button next to the path field, and the date-time picker
-    // is always visible (persistent editor).
-
+    openswmmvis::ui::ModelsPage               *m_modelsPage     = nullptr;
+    openswmmvis::ui::QualityPage              *m_qualityPage    = nullptr;
+    openswmmvis::ui::SpatialPage              *m_spatialPage    = nullptr;
 #ifdef OPENSWMM_HAS_2D
-    // Tab 6 — 2D Surface Routing (time stepping / marcher / mesh / closure /
-    // coupling / rainfall). The explicit local-inertial marcher is the only
-    // 2D integrator (D2 retirement of the CVODE/ARKODE stack, 2026-07-29).
-    QDoubleSpinBox *m_maxTimestepSpin   = nullptr;
-    QGroupBox      *m_marcherGroup      = nullptr;
-    QDoubleSpinBox *m_thetaSpin         = nullptr;
-    QDoubleSpinBox *m_cflNumberSpin     = nullptr;
-    QSpinBox       *m_ltsTiersSpin      = nullptr;
-    QDoubleSpinBox *m_hMoveSpin         = nullptr;
-    QDoubleSpinBox *m_froudeMaxSpin     = nullptr;
-    QComboBox      *m_momentum2DCombo   = nullptr;   ///< [2D_OPTIONS] MOMENTUM_EQUATION
-    QSpinBox       *m_reconOrder2DSpin  = nullptr;   ///< [2D_OPTIONS] RECONSTRUCTION_ORDER
-    QCheckBox      *m_advection2DBox    = nullptr;
-    QComboBox      *m_backend2DCombo    = nullptr;   ///< [2D_OPTIONS] BACKEND
-    QCheckBox      *m_couplingAreaAutoBox = nullptr;
-    QDoubleSpinBox *m_dryDepthSpin      = nullptr;
-    QDoubleSpinBox *m_limiterEpsSpin    = nullptr;
-    QDoubleSpinBox *m_fluxDhEpsSpin     = nullptr;
-    QComboBox      *m_cellClosureCombo  = nullptr;
-    QComboBox      *m_faceReconCombo    = nullptr;
-    QDoubleSpinBox *m_vfrMinWetFracSpin = nullptr;
-    QDoubleSpinBox *m_couplingCdSpin    = nullptr;
-    QDoubleSpinBox *m_couplingSyncSpin  = nullptr;
-    QComboBox      *m_rainfall2DModeCombo = nullptr;
-    QCheckBox      *m_report2DBox       = nullptr;
-    class QLineEdit *m_output2DFileEdit = nullptr;
-
-    // E1 (2026-09-07) — [2D_OPTIONS] OUTPUT_PRECISION / OUTPUT_COMPRESSION /
-    // REPORT_2D_STEP / REPORT_2D_VARIABLES / REPORT_2D_SPECIES. Lives in the
-    // 2D page's Output group; TABS T5 moves the whole group intact.
-    QComboBox      *m_output2DPrecisionCombo   = nullptr;
-    QSpinBox       *m_output2DCompressionSpin  = nullptr;
-    QCheckBox      *m_report2DStepSameBox      = nullptr;  ///< checked ⇒ REPORT_2D_STEP = REPORT_STEP (0)
-    QCustomTimespanEdit *m_report2DStepEdit    = nullptr;
-    QListWidget    *m_report2DVarsList         = nullptr;  ///< one checkable row per swmm_2d_output_variable_name
-    QCheckBox      *m_report2DAllSpeciesBox    = nullptr;  ///< checked ⇒ REPORT_2D_SPECIES ALL
-    QListWidget    *m_report2DSpeciesList      = nullptr;  ///< pollutants + MSX species
-    QLabel         *m_output2DSizeLabel        = nullptr;  ///< live size estimate
-
-    unsigned report2DVarsMask() const;
-    void     setReport2DVarsMask(unsigned mask);
-    QString  report2DSpeciesText() const;      ///< "ALL" or space-separated names
-    void     setReport2DSpeciesText(const QString &text);
-    void     update2DOutputSizeEstimate();
-
-    // U1 (2026-09-07) — 2D page Processes group ([2D_OPTIONS] process keys,
-    // E2): INFILTRATION / INFIL_STEP / INFIL_DEFAULT_METHOD /
-    // INFIL_DESTINATION, EVAPORATION, TRANSPORT_*. RAINFALL_MODE joins it.
-    QComboBox           *m_infil2DModeCombo    = nullptr;  ///< AUTO | YES | NO
-    QCheckBox           *m_infil2DStepSameBox  = nullptr;  ///< checked ⇒ INFIL_STEP = WET_STEP (0)
-    QCustomTimespanEdit *m_infil2DStepEdit     = nullptr;
-    QComboBox           *m_infil2DMethodCombo  = nullptr;
-    QComboBox           *m_infil2DDestCombo    = nullptr;
-    QPushButton         *m_editInfilCellsBtn   = nullptr;
-    QComboBox           *m_evap2DCombo         = nullptr;  ///< NO | YES | CLIMATE
-    QCheckBox           *m_transport2DBox[4]   = {nullptr, nullptr, nullptr, nullptr};
-    static const char   *transport2DKey(int speciesClass);
-
-    // U5 (2026-09-07) — the 2D page Groundwater group: [2D_OPTIONS]
-    // GROUNDWATER / GW_ET, plus the Transport summary that names the
-    // [GW_*] authoring surface (U4) and where it is edited.
-    QGroupBox   *m_gw2DGroup      = nullptr;
-    QComboBox   *m_gw2DEnableCombo = nullptr;
-    QComboBox   *m_gw2DEtCombo    = nullptr;
-    QLabel      *m_gw2DStatusLabel = nullptr;
-    QPushButton *m_gw2DEditBtn    = nullptr;
-    void update2DGroundwaterEnabled();
+    openswmmvis::ui::TwoDPage                 *m_twoDPage       = nullptr;
 #endif
 };
 
