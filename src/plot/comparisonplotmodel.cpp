@@ -268,6 +268,7 @@ void ComparisonPlotModel::resolveSeries(int seriesIndex, SeriesData& out) const
     out.errorMessage.clear();
     out.timesJulian.clear();
     out.values.clear();
+    out.periodCount = 0;   // out.firstPeriod is the caller's cursor — keep it
 
     if (seriesIndex < 0 || seriesIndex >= m_specs.size()) {
         out.errorMessage = QStringLiteral("Series index out of range");

@@ -129,25 +129,33 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
         return;
     }
 
-    // Fetch the full series in one bulk call.
-    std::vector<float> values(static_cast<std::size_t>(n_periods));
+    // Fetch [firstPeriod, n) in one bulk call — the whole series on a fresh
+    // chart, only the new tail on a live tick (see SeriesData::firstPeriod).
+    out.periodCount = n_periods;
+    int from = out.firstPeriod;
+    if (from < 0) from = 0;
+    if (from > n_periods) from = n_periods;
+    const int count = n_periods - from;
+    if (count == 0) { out.ok = true; return; }   // nothing new yet
+
+    std::vector<float> values(static_cast<std::size_t>(count));
     int rc = -1;
     switch (ref.kind) {
     case ObjectRef::Kind::Node:
         rc = swmm_output_get_node_series(handle, objIdx, varCode,
-                                          0, n_periods - 1, values.data());
+                                          from, n_periods - 1, values.data());
         break;
     case ObjectRef::Kind::Link:
         rc = swmm_output_get_link_series(handle, objIdx, varCode,
-                                          0, n_periods - 1, values.data());
+                                          from, n_periods - 1, values.data());
         break;
     case ObjectRef::Kind::Subcatch:
         rc = swmm_output_get_subcatch_series(handle, objIdx, varCode,
-                                              0, n_periods - 1, values.data());
+                                              from, n_periods - 1, values.data());
         break;
     case ObjectRef::Kind::System:
         rc = swmm_output_get_system_series(handle, varCode,
-                                            0, n_periods - 1, values.data());
+                                            from, n_periods - 1, values.data());
         break;
     default:
         break;
@@ -166,15 +174,16 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
     }
     const double step_days = static_cast<double>(stepSec) / 86400.0;
 
-    out.timesJulian.resize(static_cast<std::size_t>(n_periods));
-    out.values.resize(static_cast<std::size_t>(n_periods));
-    for (int i = 0; i < n_periods; ++i) {
+    out.timesJulian.resize(static_cast<std::size_t>(count));
+    out.values.resize(static_cast<std::size_t>(count));
+    for (int i = 0; i < count; ++i) {
         // SWMM .out report periods are 1-based in the file but the engine API
         // exposes 0-based indexing for start/end periods (start_period=0,
-        // end_period=n-1 returns n values).  Each value at index i corresponds
-        // to time t0 + (i+1) * stepSec (the engine writes at the END of each
+        // end_period=n-1 returns n values).  Each value at period p corresponds
+        // to time t0 + (p+1) * stepSec (the engine writes at the END of each
         // reporting interval — same convention TimeSeriesPlotDialog uses).
-        out.timesJulian[i] = t0 + (i + 1) * step_days;
+        const int p = from + i;
+        out.timesJulian[i] = t0 + (p + 1) * step_days;
         out.values[i]      = static_cast<double>(values[i]);
     }
     out.ok = true;
