@@ -65,6 +65,20 @@ if(MSVC)
     add_compile_options(/utf-8)
 endif()
 
+# M_PI and friends are not standard C++; MSVC's <cmath> defines them only when
+# _USE_MATH_DEFINES is set before the header is first pulled in. 16 sources and
+# headers under src/mesh, src/ui, src/plot, src/layers, src/render and src/map
+# use M_PI, and include/mesh/meshquadquality.h is one of them — so the per-file
+# `#define _USE_MATH_DEFINES` idiom would have to be repeated in every one AND
+# stay ahead of every transitive <cmath> (Qt headers pull it in freely), which
+# is a rule that quietly breaks the next time someone reorders an include.
+# Defined once for the whole directory instead, like /utf-8 above: it only adds
+# the M_* constants, and it reaches the gui test targets too, which include the
+# same mesh headers. GCC/Clang expose M_PI by default, so this is MSVC-only.
+if(MSVC)
+    add_compile_definitions(_USE_MATH_DEFINES)
+endif()
+
 option(SWMMVIS_BUILD_TESTS "Build unit tests" ON)
 
 # Project CMake helpers live under cmake/.
@@ -245,6 +259,12 @@ set(
         include/render/renderers/singlebandpseudocolorrenderer.h
         # VS.6 — categorical / paletted raster renderer.
         include/render/renderers/palettedrasterrenderer.h
+        # Raster symbology — ClassificationScheme-driven graduated renderer,
+        # explicit RGB composite renderer, and the id→class factory used by
+        # StyleFileIO / ProjectSerializer.
+        include/render/renderers/graduatedrasterrenderer.h
+        include/render/renderers/multibandcolorrenderer.h
+        include/render/rasterrendererfactory.h
         # Slice S1 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — sublayer foundation:
         # ISublayer interface, SublayerStyle property-bag base, SizeUnit enum,
         # and the screen-pixel inverse-zoom helpers consumed by S2+ sublayers.
@@ -767,6 +787,9 @@ set(
         include/ui/widgets/colorrampcombobox.h
         # Slice US.1 — shared classification editor (UNIFIED_STYLING plan S1).
         include/ui/widgets/classificationeditor.h
+        # Colour-swatch table cell shared by the classification editor and
+        # the raster paletted class table.
+        include/ui/widgets/colorcelldelegate.h
         # Slice D1-a — ClassificationScheme property-grid cell editor + the
         # style-grid delegate factory (MESH_SUBLAYER_CLASSIFICATION_UI_PLAN).
         include/ui/widgets/classificationschemecelleditor.h
@@ -802,12 +825,16 @@ set(
         include/ui/dialogs/simoptions/enginecapabilities.h
         include/ui/dialogs/simoptions/simoptionscontext.h
         include/ui/dialogs/simoptions/simoptionspage.h
+        include/ui/dialogs/simoptions/datespage.h
         include/ui/dialogs/simoptions/filespage.h
         include/ui/dialogs/simoptions/hydraulicspage.h
         include/ui/dialogs/simoptions/meshpage.h
+        include/ui/dialogs/simoptions/modelspage.h
         include/ui/dialogs/simoptions/performancepage.h
+        include/ui/dialogs/simoptions/qualitypage.h
         include/ui/dialogs/simoptions/spatialpage.h
         include/ui/dialogs/simoptions/titlenotespage.h
+        include/ui/dialogs/simoptions/twodpage.h
         include/ui/dialogs/hotstartsavesmodel.h
         include/ui/dialogs/pathbrowsedelegate.h
         include/ui/dialogs/pluginstablemodel.h
@@ -857,12 +884,14 @@ set(
         # O2-1 — 2D results layer-level display panel.
         include/ui/dialogs/swmm2dresultsstylepanel.h
         include/ui/dialogs/swmm2dmeshstylepanel.h
+        # Raster symbology — renderer chooser + classification / paletted /
+        # RGB pages for GISRasterLayer.
+        include/ui/dialogs/rastersymbologypanel.h
         include/ui/dialogs/sublayertabhelpers.h
         # SE.4 — dedicated editors for the raster / mesh / 2D archetypes.
         include/ui/dialogs/editors/symbolstyleeditors2d.h
         include/ui/dialogs/editors/swmmelementsymboleditor.h
         include/ui/dialogs/editors/gisvectorsymboleditor.h
-        include/ui/dialogs/editors/rastercolorrampeditor.h
         include/ui/dialogs/editors/kindrendererpanel.h
         # Slice US.1 — classification bindings (UNIFIED_STYLING plan S1).
         include/ui/dialogs/editors/classificationbindings.h
@@ -975,6 +1004,10 @@ set(
         src/render/renderers/singlebandpseudocolorrenderer.cpp
         # VS.6 — categorical / paletted raster renderer.
         src/render/renderers/palettedrasterrenderer.cpp
+        # Raster symbology — graduated + multiband renderers and factory.
+        src/render/renderers/graduatedrasterrenderer.cpp
+        src/render/renderers/multibandcolorrenderer.cpp
+        src/render/rasterrendererfactory.cpp
         # Slice BI-MK.1 Phase 8.13.40 — per-kind renderer dispatch adapter.
         src/render/multikindrenderer.cpp
         # Slice Z.1 — layer-scope Rule + RuleList (RENDERING_RULE_MODEL_PLAN.md).
@@ -1444,12 +1477,16 @@ set(
         src/ui/dialogs/simoptions/enginecapabilities.cpp
         src/ui/dialogs/simoptions/simoptionscontext.cpp
         src/ui/dialogs/simoptions/simoptionspage.cpp
+        src/ui/dialogs/simoptions/datespage.cpp
         src/ui/dialogs/simoptions/filespage.cpp
         src/ui/dialogs/simoptions/hydraulicspage.cpp
         src/ui/dialogs/simoptions/meshpage.cpp
+        src/ui/dialogs/simoptions/modelspage.cpp
         src/ui/dialogs/simoptions/performancepage.cpp
+        src/ui/dialogs/simoptions/qualitypage.cpp
         src/ui/dialogs/simoptions/spatialpage.cpp
         src/ui/dialogs/simoptions/titlenotespage.cpp
+        src/ui/dialogs/simoptions/twodpage.cpp
         src/ui/dialogs/hotstartsavesmodel.cpp
         src/ui/dialogs/pathbrowsedelegate.cpp
         src/ui/dialogs/pluginstablemodel.cpp
@@ -1491,11 +1528,11 @@ set(
         # O2-1 — 2D results layer-level display panel.
         src/ui/dialogs/swmm2dresultsstylepanel.cpp
         src/ui/dialogs/swmm2dmeshstylepanel.cpp
+        src/ui/dialogs/rastersymbologypanel.cpp
         # SE.4 — dedicated editors for the raster / mesh / 2D archetypes.
         src/ui/dialogs/editors/symbolstyleeditors2d.cpp
         src/ui/dialogs/editors/swmmelementsymboleditor.cpp
         src/ui/dialogs/editors/gisvectorsymboleditor.cpp
-        src/ui/dialogs/editors/rastercolorrampeditor.cpp
         src/ui/dialogs/editors/kindrendererpanel.cpp
         # Slice US.1 — classification bindings impl (UNIFIED_STYLING plan S1).
         src/ui/dialogs/editors/classificationbindings.cpp
@@ -1573,6 +1610,7 @@ set(
         src/ui/widgets/colorrampcombobox.cpp
         # Slice US.1 — shared classification editor impl (UNIFIED_STYLING plan S1).
         src/ui/widgets/classificationeditor.cpp
+        src/ui/widgets/colorcelldelegate.cpp
         # Slice D1-a — ClassificationScheme cell editor + style-grid delegate impl.
         src/ui/widgets/classificationschemecelleditor.cpp
         src/ui/widgets/stylepropertydelegate.cpp

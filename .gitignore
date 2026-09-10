@@ -87,6 +87,18 @@ docs/test_output/
 # inside a fully-ignored directory).
 examples/*
 !examples/bellinge_2d
+# The two flat single-file examples in _SWMMVIS_EXAMPLE_INPS
+# (CMakeLists.txt:1827-1828). Negated FILE-wise, not directory-wise: their
+# folders also hold generated run output (road_culvert.{out,rpt,2d.h5}) and
+# generator scripts, none of which is bundled. Each folder therefore needs
+# three lines — re-include the folder, re-exclude its contents, re-include
+# the one payload — because git cannot negate inside an excluded directory.
+!examples/demo_road_culvert/
+examples/demo_road_culvert/*
+!examples/demo_road_culvert/road_culvert.inp
+!examples/site_drainage/
+examples/site_drainage/*
+!examples/site_drainage/site_drainage_model.inp
 .idea/
 .DS_Store
 
