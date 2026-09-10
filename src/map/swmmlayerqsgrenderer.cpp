@@ -1209,6 +1209,37 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                                  ||astyle[3].on||astyle[4].on;
             std::vector<QSGGeometry::ColoredPoint2D> arrowTri;
 
+            // Diagnostic, opt-in via SWMMVIS_LOG_LINK_DRAW=1 (same idiom as
+            // SWMMVIS_LOG_REDRAW / OPENSWMM_2D_RENDER_DEBUG). Reports, once
+            // per frame, why the LAST link in the SoA — the one a conduit
+            // split appends — is or is not emitted. Answers in one run
+            // whether a vanished split half is missing geometry, hidden,
+            // culled, or absent from the arrays altogether.
+            static const bool kLogLinkDraw =
+                qEnvironmentVariableIntValue("SWMMVIS_LOG_LINK_DRAW") > 0;
+            if (kLogLinkDraw && !counts.empty()) {
+                const size_t t  = counts.size() - 1;
+                const bool hasBB = int(t) < lBboxes.size();
+                const QRectF bb  = hasBB ? lBboxes[int(t)] : QRectF();
+                const bool culled = hasBB
+                    && (bb.right()  < cullX0 || bb.left() > cullX1
+                     || bb.bottom() < cullY0 || bb.top()  > cullY1);
+                qInfo().nospace()
+                    << "[linkdraw] tail=" << t
+                    << " renderLinks=" << m_layer->renderLinkCount()
+                    << " soaLinks=" << m_layer->cachedLinkCount()
+                    << " name=" << (int(t) < links.size()
+                                    ? links[int(t)].name : QStringLiteral("<none>"))
+                    << " vcount=" << counts[t]
+                    << " hidden=" << (t < lHid.size() ? int(lHid[t]) : -1)
+                    << " bbox=" << bb
+                    << " cull=[" << cullX0 << "," << cullY0
+                    << " .. " << cullX1 << "," << cullY1 << "]"
+                    << " culled=" << culled
+                    << " drawn=" << (counts[t] >= 2
+                                     && !(t < lHid.size() && lHid[t]) && !culled);
+            }
+
             std::vector<QSGGeometry::ColoredPoint2D> baseTri;
             std::vector<QSGGeometry::Point2D>        selTri;
             size_t baseSegs=0, selSegs=0;

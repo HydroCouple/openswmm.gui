@@ -3168,6 +3168,17 @@ add_swmmvis_gui_test(test_linkflip
 )
 swmmvis_link_full_app_deps(test_linkflip)
 
+# Conduit split (insert junction on conduit) keeps the render-facing SoA in
+# step with m_links across redo / undo / redo, for a straight conduit and one
+# with an interior vertex (HANDOFF_SPLIT_LINK_DISAPPEARS_2026-09-10.md). The
+# engine-only tests/unit/test_junction_split_layer.cpp cannot see this path.
+add_swmmvis_gui_test(test_conduit_split_caches
+    test_conduit_split_caches.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_conduit_split_caches)
+
 # Offset mode / link direction round-trip — Open -> Save must keep the
 # authored LINK_OFFSETS convention (elevations stay elevations) and the
 # authored From/To of adverse-slope conduits, which the engine normalises at
