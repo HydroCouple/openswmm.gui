@@ -585,6 +585,31 @@ add_swmmvis_gui_test(test_irasterrenderer
     ${CMAKE_SOURCE_DIR}/include/render/renderers/singlebandpseudocolorrenderer.h
 )
 
+# Raster symbology — GraduatedRasterRenderer (ClassificationScheme-driven
+# continuous / classified single-band colouring), MultiBandColorRenderer and
+# the id→class factory. Self-contained: the same lean scheme + binner + ramp +
+# legend/symbol dependency set as test_2d_sublayers, plus the sibling raster
+# renderers the factory constructs.
+add_swmmvis_gui_test(test_graduatedrasterrenderer
+    test_graduatedrasterrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/renderers/graduatedrasterrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/renderers/multibandcolorrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/renderers/palettedrasterrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/renderers/singlebandpseudocolorrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/rasterrendererfactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/classificationscheme.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/categoricalpalette.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/fillsymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/renderers/graduatedrasterrenderer.h
+    ${CMAKE_SOURCE_DIR}/include/render/renderers/multibandcolorrenderer.h
+    ${CMAKE_SOURCE_DIR}/include/render/rasterrendererfactory.h
+)
+
 # Slice S1 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — sublayer foundation:
 # ISublayer interface, SublayerStyle property-bag base, SizeUnit enum, and
 # screen-pixel helpers (screenpixels.h). Self-contained: links only
@@ -2911,6 +2936,19 @@ add_swmmvis_gui_test(test_gisrastercrs
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_gisrastercrs)
+
+# Raster symbology end-to-end: default renderer per dataset (colour table →
+# Paletted, ≥3 Byte bands → RGB, else Graduated), per-band stats / sampling,
+# classified tile rendering + cache invalidation, RGB ↔ single-band switch,
+# StyleFileIO / .oswp style-block round-trips (dialog Cancel), and the
+# Symbology-tab RasterSymbologyPanel. Synthesises its GeoTIFF fixtures with
+# GDAL under tests/output/raster_style, hence the full-app link.
+add_swmmvis_gui_test(test_rasterstyle_roundtrip
+    test_rasterstyle_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_rasterstyle_roundtrip)
 
 # GIS feature layers ↔ SelectionManager ↔ Attribute Table, both directions
 # (SVBC round B): the GisObjectRef codec, the GisSelectionBridge, the

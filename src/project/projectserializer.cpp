@@ -50,6 +50,7 @@
 #include "render/renderers/rulebasedrenderer.h"
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/legendoverlaystyle.h"
+#include "render/stylefileio.h"
 // Slice B.7 — Rule-level metadata persistence.
 #include "render/rule.h"
 #include "render/rulelist.h"
@@ -263,6 +264,11 @@ const QString kGisPath       = QStringLiteral("path");        // relative to the
 const QString kGisName       = QStringLiteral("name");
 const QString kGisVisible    = QStringLiteral("visible");
 const QString kGisOpacity    = QStringLiteral("opacity");
+// Raster symbology (renderBand / hillshade / rasterRenderer) — the same
+// block StyleFileIO::rasterStyleToJson emits, nested under one key on both
+// the GIS-layer record and the "localraster" basemap record. Additive; a
+// record without it restores the open-time default renderer.
+const QString kRasterStyle   = QStringLiteral("rasterStyle");
 const QString kGisLayerName  = QStringLiteral("layerName");   // vector sublayer (OGR layer)
 
 QJsonArray toJsonInts(const QVector<int> &v)
@@ -1269,6 +1275,7 @@ QJsonObject ProjectSerializer::serializeBasemapLayer(OpenSWMMVisLayer *layer,
         obj[kBmType] = QStringLiteral("localraster");
         obj[kBmName] = r->name();
         obj[kBmPath] = toRelativePath(r->filePath(), oswpPath);
+        obj[kRasterStyle] = OpenSWMM::Render::StyleFileIO::rasterStyleToJson(r);
         return obj;
     }
     if (auto *xyz = qobject_cast<XYZTileLayer *>(layer)) {
@@ -1356,6 +1363,17 @@ OpenSWMMVisLayer *ProjectSerializer::deserializeBasemapLayer(const QJsonObject &
         auto *layer = new GISRasterLayer(QString());
         layer->setIsBasemap(true);
         layer->setName(obj.value(kBmName).toString());
+        // Symbology is applied once the dataset is open (the open installs
+        // its own default renderer first; the persisted one must win).
+        if (obj.contains(kRasterStyle)) {
+            const QJsonObject style = obj.value(kRasterStyle).toObject();
+            QObject::connect(
+                layer, &GISRasterLayer::openFinished, layer,
+                [layer, style](bool ok) {
+                    if (ok) OpenSWMM::Render::StyleFileIO::applyRasterStyleJson(layer, style);
+                },
+                static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        }
         layer->openAsync(path);
         return layer;
     }
@@ -1382,6 +1400,7 @@ QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer,
         obj[kGisName]    = r->name();
         obj[kGisVisible] = r->isVisible();
         obj[kGisOpacity] = r->opacity();
+        obj[kRasterStyle] = OpenSWMM::Render::StyleFileIO::rasterStyleToJson(r);
     } else if (auto *f = qobject_cast<FeatureLayer *>(layer)) {
         // Editable feature layer. Checked BEFORE the GISVectorLayer branch
         // because FeatureLayer derives from it — the base branch would
@@ -1451,10 +1470,19 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
 
     if (type == QStringLiteral("raster")) {
         auto *layer = new GISRasterLayer(QString());
+        // Symbology block (may be absent on older projects). Applied after
+        // the open installs its dataset default and before the layer joins
+        // the canvas, so the first tiles are already styled.
+        const QJsonObject style = obj.value(kRasterStyle).toObject();
         QObject::connect(
             layer, &GISRasterLayer::openFinished, canvas,
-            [canvas, layer, applyCommon](bool ok) {
-                if (ok) { applyCommon(layer); canvas->addLayer(layer, /*pushUndo=*/false); }
+            [canvas, layer, applyCommon, style](bool ok) {
+                if (ok) {
+                    applyCommon(layer);
+                    if (!style.isEmpty())
+                        OpenSWMM::Render::StyleFileIO::applyRasterStyleJson(layer, style);
+                    canvas->addLayer(layer, /*pushUndo=*/false);
+                }
                 else    { layer->deleteLater(); }
             },
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
