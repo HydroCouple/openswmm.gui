@@ -69,6 +69,7 @@ namespace openswmmvis::ui {
 namespace openswmmvis::ui {
 class SimOptionsPage;
 class FilesPage;
+class HydraulicsPage;
 class MeshPage;
 class PerformancePage;
 class SpatialPage;
@@ -267,7 +268,6 @@ private:
     // Each build*Tab returns its page widget; buildUi adds it via addCategory.
     QWidget *buildModelsTab();
     QWidget *buildDatesTab();
-    QWidget *buildHydraulicsTab();
     QWidget *buildQualityTransportTab();   ///< Y1 (G1g) — quality/transport options
     // U1 (2026-09-07) — [PROCESS_COMPONENTS] table + the Domain × Species
     // transport matrix (engine-computed, swmm_get_transport_matrix).
@@ -389,9 +389,7 @@ private:
 
     // Tab 1 — Models / Processes
     QComboBox      *m_infiltrationCombo = nullptr;
-    QComboBox      *m_routingCombo      = nullptr;
     QCheckBox      *m_allowPondingBox   = nullptr;
-    QCheckBox      *m_skipSteadyBox     = nullptr;
     QCheckBox      *m_ignoreRainfallBox = nullptr;
     QCheckBox      *m_ignoreSnowmeltBox = nullptr;
     QCheckBox      *m_ignoreGroundwaterBox = nullptr;
@@ -415,6 +413,9 @@ private:
     QVector<openswmmvis::ui::SimOptionsPage *> m_pageOrder;  ///< Sidebar order.
     openswmmvis::ui::SpatialPage              *m_spatialPage = nullptr;
     openswmmvis::ui::FilesPage                *m_filesPage   = nullptr;
+    openswmmvis::ui::HydraulicsPage           *m_hydraulicsPage = nullptr;
+    QLabel         *m_routingMirror     = nullptr;   ///< Read-only FLOW_ROUTING mirror on Models.
+    int             m_hydraulicsRow     = -1;        ///< Routing & Hydraulics sidebar row.
 
     // Mesh configurations tab — Slice AU module toggle.
 
@@ -440,25 +441,6 @@ private:
     QPushButton    *m_eventsRemoveBtn   = nullptr;
 
     // Tab 3 — Routing & Hydraulics
-    QComboBox      *m_surchargeCombo    = nullptr;
-    QDoubleSpinBox *m_dpsCelerSpin      = nullptr;
-    QDoubleSpinBox *m_dpsAlphaSpin      = nullptr;
-    QDoubleSpinBox *m_dpsDecaySpin      = nullptr;
-    QDoubleSpinBox *m_tpaCeleritySpin   = nullptr;   // TPA_CELERITY (TPA only)
-    QComboBox      *m_nodeContinuityCombo = nullptr;
-    QCheckBox      *m_andersonAccelBox  = nullptr;
-    QComboBox      *m_forceMainCombo    = nullptr;
-    QComboBox      *m_normalFlowCombo   = nullptr;
-    QComboBox      *m_inertialDampCombo = nullptr;
-    QDoubleSpinBox *m_lengtheningSpin   = nullptr;
-    QDoubleSpinBox *m_variableStepSpin  = nullptr;
-    QDoubleSpinBox *m_minStepSpin       = nullptr;     // MINIMUM_STEP (seconds)
-    QSpinBox       *m_maxTrialsSpin     = nullptr;
-    QDoubleSpinBox *m_headTolSpin       = nullptr;
-    QDoubleSpinBox *m_latFlowTolSpin    = nullptr;     // percent
-    QDoubleSpinBox *m_sysFlowTolSpin    = nullptr;     // percent
-    QDoubleSpinBox *m_minSurfAreaSpin   = nullptr;
-    QDoubleSpinBox *m_minSlopeSpin      = nullptr;     // percent
 
     // Quality & Transport page (Y1 / GUI plan G1g). The groups are members
     // so updateQualitySolverFieldsEnabled() can gate whole sections on the
@@ -478,25 +460,6 @@ private:
     // Tab 3 — Finite volume solver (FLOW_ROUTING FV). Both groups are kept
     // as members so updateFvFieldsEnabled() can gate whole sections on the
     // routing-combo selection with a single setEnabled() call each.
-    class QGroupBox *m_fvGroup            = nullptr;
-    class QGroupBox *m_fvPerfGroup        = nullptr;
-    QDoubleSpinBox *m_fvCellLengthSpin    = nullptr;   // project length units; 0 = one cell/conduit
-    QSpinBox       *m_fvMinCellsSpin      = nullptr;
-    QDoubleSpinBox *m_fvCflSpin           = nullptr;
-    QComboBox      *m_fvRiemannCombo      = nullptr;
-    QComboBox      *m_fvOrderCombo        = nullptr;
-    QComboBox      *m_fvLimiterCombo      = nullptr;   // 2nd order only
-    QComboBox      *m_fvTimeIntCombo      = nullptr;
-    QDoubleSpinBox *m_fvSlotCeleritySpin  = nullptr;   // project length units / s
-    QComboBox      *m_fvPressureClosureCombo = nullptr; // FV_PRESSURE_CLOSURE (SLOT|TPA)
-    QCheckBox      *m_fvPressImplicitBox  = nullptr;   // FV_PRESSURIZED_IMPLICIT (experimental)
-    QComboBox      *m_fvStructCouplingCombo = nullptr;
-    QCheckBox      *m_fvCompactionBox     = nullptr;
-    QComboBox      *m_fvBackendCombo      = nullptr;
-    QSpinBox       *m_fvMinParallelSpin   = nullptr;
-    QCheckBox      *m_fvLtsBox            = nullptr;
-    QSpinBox       *m_fvLtsTiersSpin      = nullptr;   // needs LTS on
-    QSpinBox       *m_fvCflCensusSpin     = nullptr;
 
     // Tab 3 — Unsteady friction (engine issue #156; GUI issue #10). Applies
     // to BOTH dynamic-wave and FV routing, so it is a separate group gated
@@ -504,9 +467,6 @@ private:
     // m_ufSupported flag carries the applyEngineConstraints() capability
     // probe into that gate so a routing-combo change cannot re-enable the
     // group on an engine that lacks the keys.
-    class QGroupBox *m_ufGroup            = nullptr;
-    QComboBox      *m_ufMethodCombo       = nullptr;   // UNSTEADY_FRICTION (NONE|VITKOVSKY)
-    QDoubleSpinBox *m_ufK3Spin            = nullptr;   // UF_K3 (method != NONE only)
 
     // Tab 4 — System / Performance
 
