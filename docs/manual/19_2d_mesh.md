@@ -428,7 +428,7 @@ Both carry a **CD** (discharge coefficient) and an **AREA** (exchange area). The
 area is in the *mesh's* length units squared — on a US-units project without an
 SI mesh tag, 2.0 means 2.0 ft², not 2.0 m². `[2D_OPTIONS] COUPLING_AREA AUTO`
 overrides authored areas from the connected conduit area either way; set it on
-the *2D Surface Routing* page of \ref manual_simulation_options.
+*2D Surface Routing* > *Coupling* in \ref manual_simulation_options.
 
 \figtodo{19_coupling.png, Coupled vertices and cells highlighted with their SWMM node ids}
 
@@ -461,7 +461,7 @@ into it is lossless for everything you did not touch.
 ### Rainfall on the mesh
 
 Rain reaches the 2D surface according to `[2D_OPTIONS] RAINFALL_MODE`, set on
-the *2D Surface Routing* page of **Model → Simulation Options…**:
+*2D Surface Routing* > *Processes* in **Model → Simulation Options…**:
 
 | Mode | What it does |
 | --- | --- |
