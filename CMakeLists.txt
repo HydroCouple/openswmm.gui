@@ -799,6 +799,10 @@ set(
         # Object Defaults preferences page (self-contained widget).
         include/ui/dialogs/objectdefaultspage.h
         include/ui/dialogs/simulationoptionsdialog.h
+        include/ui/dialogs/simoptions/enginecapabilities.h
+        include/ui/dialogs/simoptions/simoptionscontext.h
+        include/ui/dialogs/simoptions/simoptionspage.h
+        include/ui/dialogs/simoptions/spatialpage.h
         include/ui/dialogs/hotstartsavesmodel.h
         include/ui/dialogs/pathbrowsedelegate.h
         include/ui/dialogs/pluginstablemodel.h
@@ -1432,6 +1436,10 @@ set(
         src/ui/dialogs/objectdefaultspage.cpp
         src/ui/dialogs/simulationoptionsdialog.cpp
         src/ui/dialogs/simulationoptionshelpers.cpp
+        src/ui/dialogs/simoptions/enginecapabilities.cpp
+        src/ui/dialogs/simoptions/simoptionscontext.cpp
+        src/ui/dialogs/simoptions/simoptionspage.cpp
+        src/ui/dialogs/simoptions/spatialpage.cpp
         src/ui/dialogs/hotstartsavesmodel.cpp
         src/ui/dialogs/pathbrowsedelegate.cpp
         src/ui/dialogs/pluginstablemodel.cpp
