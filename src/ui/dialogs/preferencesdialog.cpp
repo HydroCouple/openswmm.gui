@@ -1171,6 +1171,20 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
     m_twoDMeshSnapEpsSpin->setSuffix(QStringLiteral(" m"));
     meshForm->addRow(tr("Snap tolerance"), m_twoDMeshSnapEpsSpin);
 
+    // One row for both node seeds: 2D Mesh is the tallest Simulation
+    // Defaults tab and a QTabWidget sizes to its tallest page, so every
+    // extra row here makes ALL seven tabs scroll at 1280x800
+    // (test_preferencesdialog_roundtrip::noScrollAt1280x800).
+    m_twoDMeshNodesBox = new QCheckBox(tr("Nodes as mesh vertices (except virtual junctions)"),
+                                       meshGroup);
+    m_twoDMeshNodesRimBox = new QCheckBox(tr("at rim elevation instead of terrain"),
+                                          meshGroup);
+    auto *nodesRow = new QHBoxLayout;
+    nodesRow->addWidget(m_twoDMeshNodesBox);
+    nodesRow->addWidget(m_twoDMeshNodesRimBox);
+    nodesRow->addStretch();
+    meshForm->addRow(QString(), nodesRow);
+
     m_twoDMeshFlattenRadSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshFlattenRadSpin->setRange(0.0, 1000.0);
     m_twoDMeshFlattenRadSpin->setDecimals(2);
@@ -1195,6 +1209,17 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
     m_twoDMeshThinningPassesSpin = new QSpinBox(meshGroup);
     m_twoDMeshThinningPassesSpin->setRange(1, 64);
     meshForm->addRow(tr("Thinning passes"), m_twoDMeshThinningPassesSpin);
+    // Checkbox as the row label (same single-row idiom as the mesh dialog).
+    m_twoDMeshMinSpacingBox = new QCheckBox(tr("Minimum terrain point spacing"), meshGroup);
+    m_twoDMeshMinSpacingBox->setToolTip(tr("Poisson-disk filter over the thinned DTM points."));
+    m_twoDMeshMinSpacingSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshMinSpacingSpin->setRange(0.0, 1000.0);
+    m_twoDMeshMinSpacingSpin->setDecimals(2);
+    m_twoDMeshMinSpacingSpin->setSuffix(QStringLiteral(" m"));
+    m_twoDMeshMinSpacingSpin->setToolTip(tr(
+        "Seeded into the mesh dialog rounded to whole model units\n"
+        "(15 m → 15 m, or 49 ft)."));
+    meshForm->addRow(m_twoDMeshMinSpacingBox, m_twoDMeshMinSpacingSpin);
 
     m_twoDMeshBoundaryBufSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshBoundaryBufSpin->setRange(0.0, 1000.0);
@@ -1777,11 +1802,15 @@ void PreferencesDialog::applyTwoDDefaultsToWidgets(
     m_twoDMeshSimplifyEpsSpin   ->setValue(d.meshSimplifyEpsM);
     m_twoDMeshSnapEpsSpin       ->setValue(d.meshSnapEpsM);
     m_twoDMeshFlattenRadSpin    ->setValue(d.meshNodeFlattenRadM);
+    m_twoDMeshNodesBox          ->setChecked(d.meshNodesAsVertices);
+    m_twoDMeshNodesRimBox       ->setChecked(d.meshNodesUseRim);
     m_twoDMeshMinSepBox         ->setChecked(d.meshMinNodeSepOn);
     m_twoDMeshMinSepSpin        ->setValue(d.meshMinNodeSepM);
     m_twoDMeshThinningBox       ->setChecked(d.meshThinningOn);
     m_twoDMeshThinningTolSpin   ->setValue(d.meshThinningTol);
     m_twoDMeshThinningPassesSpin->setValue(d.meshThinningPasses);
+    m_twoDMeshMinSpacingBox     ->setChecked(d.meshMinSpacingOn);
+    m_twoDMeshMinSpacingSpin    ->setValue(d.meshMinSpacingM);
     m_twoDMeshBoundaryBufSpin   ->setValue(d.meshBoundaryBufferM);
     m_twoDMeshMaxEdgeBox        ->setChecked(d.meshMaxBoundaryEdgeOn);
     m_twoDMeshMaxEdgeSpin       ->setValue(d.meshMaxBoundaryEdgeM);
@@ -1932,11 +1961,15 @@ void PreferencesDialog::writeToManager()
         d.meshSimplifyEpsM      = m_twoDMeshSimplifyEpsSpin   ->value();
         d.meshSnapEpsM          = m_twoDMeshSnapEpsSpin       ->value();
         d.meshNodeFlattenRadM   = m_twoDMeshFlattenRadSpin    ->value();
+        d.meshNodesAsVertices   = m_twoDMeshNodesBox          ->isChecked();
+        d.meshNodesUseRim       = m_twoDMeshNodesRimBox       ->isChecked();
         d.meshMinNodeSepOn      = m_twoDMeshMinSepBox         ->isChecked();
         d.meshMinNodeSepM       = m_twoDMeshMinSepSpin        ->value();
         d.meshThinningOn        = m_twoDMeshThinningBox       ->isChecked();
         d.meshThinningTol       = m_twoDMeshThinningTolSpin   ->value();
         d.meshThinningPasses    = m_twoDMeshThinningPassesSpin->value();
+        d.meshMinSpacingOn      = m_twoDMeshMinSpacingBox     ->isChecked();
+        d.meshMinSpacingM       = m_twoDMeshMinSpacingSpin    ->value();
         d.meshBoundaryBufferM   = m_twoDMeshBoundaryBufSpin   ->value();
         d.meshMaxBoundaryEdgeOn = m_twoDMeshMaxEdgeBox        ->isChecked();
         d.meshMaxBoundaryEdgeM  = m_twoDMeshMaxEdgeSpin       ->value();

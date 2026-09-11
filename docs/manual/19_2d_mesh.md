@@ -107,12 +107,12 @@ coupling itself is authored after generation.
 
 | Control | What it does |
 | --- | --- |
-| **Junctions / outfalls / storage → Steiner vertices (tag = node id)** | Pins a mesh vertex at every node. **Off by default** — forcing a vertex at every node distorts the mesh around close node clusters such as weir and orifice endpoints |
+| **Nodes (junctions, inlets, outfalls, storage, dividers) → Steiner vertices (tag = node id)** | Pins a mesh vertex at every node of every type except virtual junctions, which are split points on a conduit with no rim of their own. **On by default**; the minimum node separation below keeps close node clusters such as weir and orifice endpoints from forcing tiny cells |
 | **Conduits → constraint segments (marker = conduit id)** | On by default; mesh edges follow the pipe alignments |
 | **Subcatchments → triangle regions (tag = subcatchment id)** | On by default; each subcatchment becomes a tagged mesh region, which is what gives the region-defaults table its rows |
-| **Use node rim elevation (invert + max depth) instead of terrain** | Nodes take their rim elevation rather than the sampled terrain |
+| **Use node rim elevation (invert + max depth) instead of terrain** | Nodes take their rim elevation rather than the sampled terrain. **On by default** |
 | **Flatten terrain within radius** | Forces every terrain or refinement vertex within this radius of a node to that node's rim elevation, removing the slivers that terrain/rim misalignment creates. **(off)** at 0 |
-| **Enforce minimum node separation** | A node candidate closer than this to an already-kept node is not pinned as a vertex; it stays in the coupling list and the post-generation mapper couples it to its containing cell instead |
+| **Enforce minimum node separation** | A node candidate closer than this to an already-kept node is not pinned as a vertex; it stays in the coupling list and the post-generation mapper couples it to its containing cell instead. **On by default** |
 
 **1D ↔ 2D coupling**
 
@@ -176,10 +176,10 @@ actually carry terrain shape, by iterative normal-deviation scoring.
 | Control | What it does |
 | --- | --- |
 | **Enable normal-deviation terrain simplification** | Turns thinning on |
-| **Normal dot threshold** | Above this score the neighbourhood is smooth and the vertex is dropped; below it the vertex is a terrain feature and is kept |
-| **Thinning passes** | Iteration count; **(unlimited)** at 0 |
+| **Normal dot threshold** | Above this score the neighbourhood is smooth and the vertex is dropped; below it the vertex is a terrain feature and is kept. Default 0.75 |
+| **Thinning passes** | Iteration count; **(unlimited)** at 0. Default 1 |
 | **Max thinning points** | Cap on retained terrain points; **(unlimited)** at 0 |
-| **Min point spacing (Poisson-disk)** | Poisson-disk filter over the retained points; **(auto)** at 0 |
+| **Min point spacing (Poisson-disk)** | Poisson-disk filter over the retained points; **(auto)** at 0. **On by default** at 15 m, seeded as a whole number of model units (15 m or 49 ft) |
 | **Boundary buffer** | Terrain candidates outside the domain, inside a hole, or closer than this to any constrained segment or mandatory Steiner vertex are dropped so they cannot force boundary slivers; **(auto)** at 0 uses half the effective terrain point spacing |
 
 \figtodo{19_generate_mesh_hydraulics.png, The Hydraulics tab with the initial cell values and the region defaults table}

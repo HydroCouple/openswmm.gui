@@ -530,11 +530,18 @@ public:
         double  meshSimplifyEpsM     = 0.1;
         double  meshSnapEpsM         = 0.01;
         double  meshNodeFlattenRadM  = 5.0;
+        // 2026-09-11: nodes pinned as Steiner vertices, at their rim
+        // elevation, with the minimum separation demoting close clusters —
+        // all on by default (virtual junctions are never pinned).
+        bool    meshNodesAsVertices  = true;  ///< nodes → Steiner vertices
+        bool    meshNodesUseRim      = true;  ///< rim elevation instead of terrain
         bool    meshMinNodeSepOn     = true;
         double  meshMinNodeSepM      = 2.0;
         bool    meshThinningOn       = true;
-        double  meshThinningTol      = 0.6;   ///< normal-dot threshold
-        int     meshThinningPasses   = 3;
+        double  meshThinningTol      = 0.75;  ///< normal-dot threshold
+        int     meshThinningPasses   = 1;
+        bool    meshMinSpacingOn     = true;  ///< Poisson-disk minimum terrain point spacing
+        double  meshMinSpacingM      = 15.0;  ///< the dialog rounds to whole model units
         double  meshBoundaryBufferM  = 0.0;   ///< 0 = (auto)
         bool    meshMaxBoundaryEdgeOn = false;
         double  meshMaxBoundaryEdgeM = 20.0;
