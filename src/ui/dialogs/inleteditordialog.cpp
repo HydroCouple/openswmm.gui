@@ -28,6 +28,7 @@
 #include <QClipboard>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QGraphicsScene>
 #include <QHBoxLayout>
@@ -410,6 +411,19 @@ void InletEditorDialog::buildUi_()
     m_splitter->setStretchFactor(0, 1);
     m_splitter->setStretchFactor(1, 3);
     m_splitter->setStretchFactor(2, 3);
+
+    // Close row. Wired to close() rather than accept()/reject() so every exit
+    // (button, Esc, title bar) takes the same path. Not the default button —
+    // Enter in a field must never dismiss the editor.
+    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    closeBox->setObjectName(QStringLiteral("inlet_closeBox"));
+    closeBox->setContentsMargins(8, 6, 8, 6);   // outer runs at 0 margins
+    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
+    closeBtn->setObjectName(QStringLiteral("inlet_closeBtn"));
+    closeBtn->setAutoDefault(false);
+    closeBtn->setDefault(false);
+    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
+    outer->addWidget(closeBox);
 
     m_status = new QStatusBar(this);
     m_hintLabel = new QLabel(m_status);

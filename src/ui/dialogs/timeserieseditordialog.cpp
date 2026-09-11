@@ -31,6 +31,7 @@
 #include <QComboBox>
 #include <QDateTime>
 #include <QDateTimeEdit>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
@@ -559,6 +560,20 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     // the list pane is inserted at index 0. Setting them here would be
     // overwritten anyway. setSizes() in buildListPane_ overrides sizeHints so
     // the chart isn't squeezed to a sliver by the grid's larger sizeHint.
+
+    // ── Close row ───────────────────────────────────────────────────────────
+    // Wired to close() rather than accept()/reject(): on Qt >= 6.3 done()
+    // bypasses closeEvent(), which is where the point cache is disposed. Not
+    // the default button — Enter in a value cell must never dismiss the editor.
+    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    closeBox->setObjectName(QStringLiteral("ts_closeBox"));
+    closeBox->setContentsMargins(8, 6, 8, 6);   // outer runs at 0 margins
+    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
+    closeBtn->setObjectName(QStringLiteral("ts_closeBtn"));
+    closeBtn->setAutoDefault(false);
+    closeBtn->setDefault(false);
+    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
+    outer->addWidget(closeBox);
 
     // ── Status bar ──────────────────────────────────────────────────────────
     m_status = new QStatusBar(this);

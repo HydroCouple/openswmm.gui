@@ -10,6 +10,7 @@
  * simulation is covered by the chart-view smoke test; this exercises the
  * dialog-level wiring.
  */
+#include "dialog_a11y_checks.h"
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
 #include "ui/dialogs/timeserieseditordialog.h"
@@ -23,6 +24,7 @@
 #include <QAbstractItemDelegate>
 #include <QDateTime>
 #include <QDateTimeEdit>
+#include <QDialogButtonBox>
 #include <QStyleOptionViewItem>
 #include <QDir>
 #include <QDoubleSpinBox>
@@ -1178,6 +1180,31 @@ private slots:
         QCOMPARE(p.pointCount(), 1);
         QCOMPARE(p.pointAt(0).time, t(2026, 1, 1, 1));
         QCOMPARE(p.pointAt(0).value, 5.0);
+    }
+
+    // The editor used to be dismissable only from the title bar. The Close
+    // box must hide it, and must not be the default button — Enter in a
+    // value cell has to commit the cell, never close the editor.
+    void closeButton_HidesDialog()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dlg));
+
+        auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("ts_closeBox"));
+        QVERIFY(box);
+        auto *btn = box->button(QDialogButtonBox::Close);
+        QVERIFY(btn);
+        QVERIFY(!btn->isDefault());
+        QVERIFY(!btn->autoDefault());
+        swmmvis_test::assertDialogA11y(&dlg);
+
+        btn->click();
+        QTRY_VERIFY(!dlg.isVisible());
     }
 };
 
