@@ -25,6 +25,18 @@ OpenSWMMVisMapToolAddInletNode::OpenSWMMVisMapToolAddInletNode(
 {
 }
 
+OpenSWMMVisMapToolAddInletNode::~OpenSWMMVisMapToolAddInletNode()
+{
+    if (m_pendingDialog)
+        m_pendingDialog->close();   // WA_DeleteOnClose
+}
+
+openswmmvis::ui::InletJunctionSetupDialog *
+OpenSWMMVisMapToolAddInletNode::pendingDialog() const
+{
+    return m_pendingDialog.data();
+}
+
 QCursor OpenSWMMVisMapToolAddInletNode::cursor() const
 {
     return Qt::CrossCursor;
@@ -93,51 +105,78 @@ void OpenSWMMVisMapToolAddInletNode::mouseReleaseEvent(QMouseEvent *event)
         if (n1 >= 0) exclude << n1;
         if (n2 >= 0) exclude << n2;
     }
-    auto *widget = qobject_cast<QWidget *>(m_canvas);
-    openswmmvis::ui::InletJunctionSetupDialog dlg(hit.layer, exclude, widget);
-    if (dlg.exec() != QDialog::Accepted) {
-        emit statusMessageChanged(tr("Inlet junction cancelled."));
-        return;
-    }
+    // A second click while a setup panel is still open supersedes it.
+    if (m_pendingDialog)
+        m_pendingDialog->close();
 
-    const QString nodeName = ConduitSplitPick::nextNodeName(
-        hit.layer, QStringLiteral("inlet_junction"));
-    const QString linkName = ConduitSplitPick::nextSplitLinkName(hit.layer, hit.name);
+    // Non-modal floating panel: the user can pick the capture node on the
+    // map while it is open. The split runs from accepted(), with the hit
+    // re-validated then (the conduit may have been edited meanwhile).
+    auto *canvasWidget = qobject_cast<QWidget *>(m_canvas);
+    QWidget *parentTop = canvasWidget ? canvasWidget->window() : nullptr;
+    auto *dlg = new openswmmvis::ui::InletJunctionSetupDialog(hit.layer, exclude, parentTop);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    m_pendingDialog = dlg;
 
-    auto *cmd = new InsertInletJunctionCommand(hit.layer, hit.name, hit.t,
-                                               nodeName, linkName,
-                                               dlg.inletDesign(),
-                                               dlg.captureNode(), m_canvas);
-    if (m_canvas->undoStack())
-        m_canvas->undoStack()->push(cmd);
-    else
-        delete cmd;
-
-    if (hit.layer->nodeIndex(nodeName) >= 0) {
-        // swmm_conduit_split_inlet creates the row with AUTOMATIC placement;
-        // apply the chosen mode as its own undoable step so the setup dialog's
-        // third field is not silently dropped.
-        const int ni = hit.layer->nodeIndex(nodeName);
-        SWMM_InletUsage u{};
-        if (dlg.placement() != int(SWMM_INLET_AUTOMATIC)
-            && hit.layer->inletUsageFor(SWMM_INLET_HOST_NODE, ni, &u)) {
-            u.placement = dlg.placement();
-            hit.layer->pushInletUsageEdit(u);
+    QPointer<SWMMModelLayer> layer(hit.layer);
+    QPointer<MapCanvas>      canvas(m_canvas);
+    const QString splitLink = hit.name;
+    const double  t         = hit.t;
+    connect(dlg, &QDialog::accepted, this, [this, dlg, layer, canvas, splitLink, t]() {
+        if (!layer || !canvas) return;
+        if (layer->linkIndex(splitLink) < 0) {
+            emit statusMessageChanged(
+                tr("Conduit \"%1\" no longer exists — inlet junction not inserted.")
+                    .arg(splitLink));
+            return;
         }
+        const QString nodeName = ConduitSplitPick::nextNodeName(
+            layer, QStringLiteral("inlet_junction"));
+        const QString linkName = ConduitSplitPick::nextSplitLinkName(layer, splitLink);
 
-        hit.layer->setSelectedElements({{nodeName, SWMMModelLayer::kKindNode}});
-        emit inletJunctionAdded(nodeName, hit.name, linkName);
-        emit statusMessageChanged(
-            tr("Inserted inlet junction \"%1\" on \"%2\".")
-                .arg(nodeName, hit.name));
-    } else {
-        emit statusMessageChanged(
-            tr("Could not insert an inlet junction on \"%1\".").arg(hit.name));
-    }
+        auto *cmd = new InsertInletJunctionCommand(layer, splitLink, t,
+                                                   nodeName, linkName,
+                                                   dlg->inletDesign(),
+                                                   dlg->captureNode(), canvas);
+        if (canvas->undoStack())
+            canvas->undoStack()->push(cmd);
+        else
+            delete cmd;
+
+        if (layer->nodeIndex(nodeName) >= 0) {
+            // swmm_conduit_split_inlet creates the row with AUTOMATIC
+            // placement; apply the chosen mode as its own undoable step so
+            // the setup dialog's third field is not silently dropped.
+            const int ni = layer->nodeIndex(nodeName);
+            SWMM_InletUsage u{};
+            if (dlg->placement() != int(SWMM_INLET_AUTOMATIC)
+                && layer->inletUsageFor(SWMM_INLET_HOST_NODE, ni, &u)) {
+                u.placement = dlg->placement();
+                layer->pushInletUsageEdit(u);
+            }
+
+            layer->setSelectedElements({{nodeName, SWMMModelLayer::kKindNode}});
+            emit inletJunctionAdded(nodeName, splitLink, linkName);
+            emit statusMessageChanged(
+                tr("Inserted inlet junction \"%1\" on \"%2\".")
+                    .arg(nodeName, splitLink));
+        } else {
+            emit statusMessageChanged(
+                tr("Could not insert an inlet junction on \"%1\".").arg(splitLink));
+        }
+        canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                           QStringLiteral("addij-commit"));
+    });
+    connect(dlg, &QDialog::rejected, this, [this]() {
+        emit statusMessageChanged(tr("Inlet junction cancelled."));
+    });
+
+    dlg->show();
+    dlg->raise();
+    dlg->activateWindow();
 
     m_hover = {};
-    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
-                         QStringLiteral("addij-commit"));
+    m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addij-commit"));
 }
 
 void OpenSWMMVisMapToolAddInletNode::paint(QPainter *painter, const MapExtent &,

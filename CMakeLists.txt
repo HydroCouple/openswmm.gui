@@ -461,6 +461,10 @@ set(
         include/map/tools/maptoolselect.h
         include/map/tools/maptoolselectpolygon.h
         include/map/tools/maptoolplotpick.h
+        # Capture-node picker: one-shot node pick tool + the session that
+        # swaps it in and restores the previous tool.
+        include/map/tools/maptoolpicknode.h
+        include/map/nodepicksession.h
         include/map/tools/maptoolpick2dcells.h
         include/map/tools/maptoolmeshprofile.h
         include/map/tools/maptoolmeshselectvertex.h
@@ -1170,6 +1174,8 @@ set(
         src/map/tools/maptoolselect.cpp
         src/map/tools/maptoolselectpolygon.cpp
         src/map/tools/maptoolplotpick.cpp
+        src/map/tools/maptoolpicknode.cpp
+        src/map/nodepicksession.cpp
         src/map/tools/maptoolpick2dcells.cpp
         src/map/tools/maptoolmeshprofile.cpp
         src/map/tools/maptoolmeshselectvertex.cpp

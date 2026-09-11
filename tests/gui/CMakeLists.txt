@@ -3190,6 +3190,16 @@ add_swmmvis_gui_test(test_addnode_split_tool
 )
 swmmvis_link_full_app_deps(test_addnode_split_tool)
 
+# Capture-node pick on the map — NodePickSession + pick tool, the non-modal
+# InletJunctionSetupDialog, the inlet-junction tool's accepted() insert, and
+# the Properties-panel DataObjectPickerEditor writing through the layer.
+add_swmmvis_gui_test(test_capture_node_pick
+    test_capture_node_pick.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_capture_node_pick)
+
 # Offset mode / link direction round-trip — Open -> Save must keep the
 # authored LINK_OFFSETS convention (elevations stay elevations) and the
 # authored From/To of adverse-slope conduits, which the engine normalises at

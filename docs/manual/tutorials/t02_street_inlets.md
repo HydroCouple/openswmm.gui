@@ -220,8 +220,9 @@ the gutter fills to the top of the curb the node floods.
 To create one yourself, use **Model → Add Node → Add Inlet Junction** (ribbon
 **Model** tab, **Nodes** group). The status bar prompts *Click a street
 conduit to insert an inlet junction at that point.* Click anywhere on a street
-conduit and the tool splits it in two, then the modal **New Inlet Junction**
-dialog opens:
+conduit and the floating **New Inlet Junction** panel opens (the split
+happens when you press **OK**; the **…** button next to **Capture Node** lets
+you click the capture node on the map):
 
 | Control | What it sets |
 | ------- | ------------ |

@@ -8,6 +8,9 @@
 
 #include "inlet/inletregistry.h"
 #include "layers/swmmmodellayer.h"
+#include "map/mapcanvas.h"
+#include "map/nodepicksession.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"   // floatingPanelFlags
 #include "ui/dialogs/inleteditordialog.h"
 #include "ui/properties/xsectshapegeom.h"   // kXsectStreetId
 #include "ui/widgets/labeledcontrols.h"
@@ -20,6 +23,7 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 namespace openswmmvis::ui {
@@ -31,7 +35,12 @@ InletJunctionSetupDialog::InletJunctionSetupDialog(SWMMModelLayer *layer,
 {
     setObjectName(QStringLiteral("InletJunctionSetupDialog"));
     setWindowTitle(tr("New Inlet Junction"));
-    setModal(true);
+    // Non-modal floating panel: the map must stay clickable for the capture
+    // node pick (see the header). floatingPanelFlags() keeps it above the
+    // main window without stealing keyboard focus.
+    setModal(false);
+    setWindowFlags(floatingPanelFlags() | Qt::CustomizeWindowHint
+                   | Qt::WindowTitleHint | Qt::WindowCloseButtonHint);
 
     auto *root = new QVBoxLayout(this);
     auto *intro = new QLabel(
@@ -45,10 +54,13 @@ InletJunctionSetupDialog::InletJunctionSetupDialog(SWMMModelLayer *layer,
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
     m_designPicker = new LabeledPickerCombo(QString(), this);
+    m_designPicker->setObjectName(QStringLiteral("designPicker"));
     form->addRow(tr("Inlet Design"), m_designPicker);
 
-    m_captureCombo = new QComboBox(this);
-    form->addRow(tr("Capture Node"), m_captureCombo);
+    m_capturePicker = new LabeledPickerCombo(QString(), this);
+    m_capturePicker->setObjectName(QStringLiteral("capturePicker"));
+    m_capturePicker->button()->setToolTip(tr("Pick the capture node on the map"));
+    form->addRow(tr("Capture Node"), m_capturePicker);
 
     m_placement = new QComboBox(this);
     m_placement->addItem(tr("Automatic"), int(SWMM_INLET_AUTOMATIC));
@@ -57,6 +69,11 @@ InletJunctionSetupDialog::InletJunctionSetupDialog(SWMMModelLayer *layer,
     form->addRow(tr("Placement"), m_placement);
 
     root->addLayout(form);
+
+    m_pickHint = new QLabel(this);
+    m_pickHint->setWordWrap(true);
+    m_pickHint->setVisible(false);
+    root->addWidget(m_pickHint);
 
     m_buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
                                      this);
@@ -71,10 +88,20 @@ InletJunctionSetupDialog::InletJunctionSetupDialog(SWMMModelLayer *layer,
             this, [this](const QString &) { updateOkEnabled(); });
     connect(m_designPicker, &LabeledPickerCombo::pickerClicked,
             this, &InletJunctionSetupDialog::onDesignPickerClicked);
-    connect(m_captureCombo, &QComboBox::currentTextChanged,
+    connect(m_capturePicker, &LabeledPickerCombo::currentTextChanged,
             this, [this](const QString &) { updateOkEnabled(); });
+    connect(m_capturePicker, &LabeledPickerCombo::pickerClicked,
+            this, &InletJunctionSetupDialog::startCaptureNodePick);
+
+    // The map pick needs a canvas to pick on.
+    m_capturePicker->button()->setEnabled(m_layer && m_layer->editCanvas());
 
     updateOkEnabled();
+}
+
+InletJunctionSetupDialog::~InletJunctionSetupDialog()
+{
+    endCaptureNodePick();
 }
 
 void InletJunctionSetupDialog::refreshDesignItems(const QString &selected)
@@ -90,7 +117,7 @@ void InletJunctionSetupDialog::refreshDesignItems(const QString &selected)
 
 void InletJunctionSetupDialog::refreshCaptureItems()
 {
-    if (!m_captureCombo || !m_layer || !m_layer->engine()) return;
+    if (!m_capturePicker || !m_layer || !m_layer->engine()) return;
     SWMM_Engine eng = m_layer->engine();
 
     QStringList items;
@@ -105,11 +132,9 @@ void InletJunctionSetupDialog::refreshCaptureItems()
             if (*id) items << QString::fromUtf8(id);
     }
     items.sort(Qt::CaseInsensitive);
-    // No blank entry: OK stays disabled until a real node is chosen, and a
-    // placeholder would only make the disabled state look like a bug.
-    m_captureCombo->clear();
-    m_captureCombo->addItems(items);
-    if (!items.isEmpty()) m_captureCombo->setCurrentIndex(0);
+    // Preselect the first eligible node (the "(none)" placeholder keeps OK
+    // disabled otherwise).
+    m_capturePicker->setItems(items, items.isEmpty() ? QString() : items.first());
 }
 
 void InletJunctionSetupDialog::updateOkEnabled()
@@ -139,6 +164,74 @@ void InletJunctionSetupDialog::onDesignPickerClicked()
     updateOkEnabled();
 }
 
+// ── Capture node: pick on the map ───────────────────────────────────────
+
+void InletJunctionSetupDialog::setPickHint(const QString &text)
+{
+    if (!m_pickHint) return;
+    m_pickHint->setText(text);
+    m_pickHint->setVisible(!text.isEmpty());
+}
+
+void InletJunctionSetupDialog::startCaptureNodePick()
+{
+    MapCanvas *canvas = m_layer ? m_layer->editCanvas() : nullptr;
+    if (!canvas) return;
+    if (m_pick && m_pick->isActive()) return;
+    endCaptureNodePick();
+
+    m_pick = new NodePickSession(canvas, this);
+    connect(m_pick, &NodePickSession::nodePicked,
+            this, &InletJunctionSetupDialog::onCaptureNodePicked);
+    connect(m_pick, &NodePickSession::cancelled, this, [this]() {
+        setPickHint(QString());
+        if (m_pick) m_pick->deleteLater();
+    });
+    setPickHint(tr("Click a node on the map to make it the capture node. "
+                   "Esc cancels."));
+}
+
+void InletJunctionSetupDialog::endCaptureNodePick()
+{
+    if (m_pick) {
+        m_pick->finish();
+        m_pick->deleteLater();
+        m_pick.clear();
+    }
+    setPickHint(QString());
+}
+
+bool InletJunctionSetupDialog::isPickingCaptureNode() const
+{
+    return m_pick && m_pick->isActive();
+}
+
+void InletJunctionSetupDialog::onCaptureNodePicked(SWMMModelLayer *layer,
+                                                    const QString &name, int nodeIdx)
+{
+    if (!m_layer || layer != m_layer) {
+        setPickHint(tr("Pick a node of this model."));
+        return;
+    }
+    if (m_exclude.contains(nodeIdx)) {
+        setPickHint(tr("\"%1\" is an end of the host conduit — pick another node.")
+                        .arg(name));
+        return;
+    }
+    int isVirtual = 0;
+    swmm_node_is_virtual(m_layer->engine(), nodeIdx, &isVirtual);
+    if (isVirtual) {
+        setPickHint(tr("\"%1\" is a virtual or inlet junction and cannot receive "
+                       "the capture — pick another node.").arg(name));
+        return;
+    }
+    m_capturePicker->setCurrentText(name);
+    updateOkEnabled();
+    endCaptureNodePick();
+    raise();
+    activateWindow();
+}
+
 QString InletJunctionSetupDialog::inletDesign() const
 {
     return m_designPicker ? m_designPicker->currentText() : QString();
@@ -146,7 +239,7 @@ QString InletJunctionSetupDialog::inletDesign() const
 
 QString InletJunctionSetupDialog::captureNode() const
 {
-    return m_captureCombo ? m_captureCombo->currentText() : QString();
+    return m_capturePicker ? m_capturePicker->currentText() : QString();
 }
 
 int InletJunctionSetupDialog::placement() const
