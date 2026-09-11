@@ -5904,6 +5904,15 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
         if (meshLayer->sceneGeometryComplete() && progressGuard)
             progressGuard->finishStage(OpenStage::MeshSceneB);
 
+        // Dev/testing hook (pairs with SWMMVIS_OPEN_ON_STARTUP) — press
+        // Execute once the mesh lands, so the long-run harness
+        // (tests/output/gui_perf_2026-09-09/run_gui_bellinge.sh) can time and
+        // watch a GUI run with nobody at the keyboard and without granting the
+        // terminal macOS Accessibility (System Events refuses menu clicks and
+        // keystrokes otherwise). No-op unless the env var is set.
+        if (qEnvironmentVariableIsSet("SWMMVIS_RUN_ON_STARTUP"))
+            QTimer::singleShot(1500, this, [this]() { ui->actionExecute->trigger(); });
+
         // Dev/testing hook (pairs with SWMMVIS_OPEN_ON_STARTUP) — zoom to the
         // full extent once the mesh lands and save an in-process canvas grab.
         // QWidget::grab() runs the real paint pipeline (QSG render +
