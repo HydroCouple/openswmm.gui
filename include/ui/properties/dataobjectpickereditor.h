@@ -42,6 +42,9 @@ public:
     [[nodiscard]] DataObjectRef value() const noexcept { return m_ref; }
     void setValue(const DataObjectRef &ref);
 
+    /*! Adopt \p name as the current value (a map pick landed) and notify. */
+    void applyPickedName(const QString &name);
+
 signals:
     void valueChanged();
 

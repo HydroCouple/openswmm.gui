@@ -40,6 +40,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPointer>
 #include <QVariantMap>
 #include <QWidget>
 
@@ -1651,16 +1652,29 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
         // entry point rather than the generic flow.
         if (isNode
             && target == openswmmvis::ui::TypeConversionFlow::kInletNodeType) {
+            // Non-modal floating panel (the capture node can be picked on
+            // the map); the conversion runs from accepted(), which also
+            // keeps the confirm prompt out of this mouse handler.
             const int ni = hitLayer->nodeIndex(ref.name);
-            openswmmvis::ui::InletJunctionSetupDialog dlg(
-                hitLayer, ni >= 0 ? QVector<int>{ni} : QVector<int>{}, widget);
-            if (dlg.exec() != QDialog::Accepted) return;
-            if (openswmmvis::ui::TypeConversionFlow::runToInletJunction(
-                    widget, hitLayer, ref.name, currentType,
-                    dlg.inletDesign(), dlg.captureNode(), dlg.placement())) {
-                if (m_editKind != EditKind::None && m_editName == ref.name)
-                    clearEditMode();
-            }
+            QWidget *parentTop = widget ? widget->window() : nullptr;
+            auto *dlg = new openswmmvis::ui::InletJunctionSetupDialog(
+                hitLayer, ni >= 0 ? QVector<int>{ni} : QVector<int>{}, parentTop);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            QPointer<SWMMModelLayer> layer(hitLayer);
+            const QString name = ref.name;
+            connect(dlg, &QDialog::accepted, this,
+                    [this, dlg, layer, name, currentType, widget]() {
+                if (!layer || layer->nodeIndex(name) < 0) return;
+                if (openswmmvis::ui::TypeConversionFlow::runToInletJunction(
+                        widget, layer, name, currentType,
+                        dlg->inletDesign(), dlg->captureNode(), dlg->placement())) {
+                    if (m_editKind != EditKind::None && m_editName == name)
+                        clearEditMode();
+                }
+            });
+            dlg->show();
+            dlg->raise();
+            dlg->activateWindow();
             return;
         }
         if (openswmmvis::ui::TypeConversionFlow::run(

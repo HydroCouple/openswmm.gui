@@ -255,6 +255,7 @@ DataObjectRef SWMMNodePropertyAdapter::captureNodeRef() const
     r.engine = m_engine;
     r.layer  = m_layer;
     r.kind   = DataObjectRef::CaptureNode;
+    r.hostNodeIdx = nodeIdx();
     SWMM_InletUsage u{};
     if (readNodeUsage(m_engine, nodeIdx(), &u))
         if (const char *id = swmm_node_id(m_engine, u.capture_node_idx))

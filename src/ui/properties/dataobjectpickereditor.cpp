@@ -20,6 +20,11 @@
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/widgets/labeledcontrols.h"
+#include "map/mapcanvas.h"
+#include "map/nodepicksession.h"
+
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_nodes.h>
 
 #include <QComboBox>
 #include <QDialog>
@@ -202,6 +207,13 @@ void DataObjectPickerEditor::repopulate()
     m_suppressTextChange = false;
 }
 
+void DataObjectPickerEditor::applyPickedName(const QString &name)
+{
+    m_ref.currentName = name;
+    repopulate();
+    emit valueChanged();
+}
+
 void DataObjectPickerEditor::onComboTextChanged(const QString &text)
 {
     if (m_suppressTextChange) return;
@@ -239,11 +251,41 @@ void DataObjectPickerEditor::onPickerClicked()
                "are drawn on the map."));
         return;
     }
-    // Capture nodes are created on the map, like every other node.
+    // Capture node: pick it on the map. The property grid closes this cell
+    // editor the moment the canvas takes focus, so the session is parented
+    // to the LAYER and writes the pick through the layer's inlet-usage edit;
+    // the editor is only updated if it still exists.
     if (m_ref.kind == DataObjectRef::CaptureNode) {
-        QMessageBox::information(this, tr("Capture Node"),
-            tr("Pick the node the inlet discharges to. Virtual and inlet "
-               "junctions cannot receive an inlet's capture."));
+        MapCanvas *canvas = m_ref.layer ? m_ref.layer->editCanvas() : nullptr;
+        if (!canvas || m_ref.hostNodeIdx < 0) {
+            QMessageBox::information(this, tr("Capture Node"),
+                tr("Pick the node the inlet discharges to. Virtual and inlet "
+                   "junctions cannot receive an inlet's capture."));
+            return;
+        }
+        auto *session = new NodePickSession(canvas, m_ref.layer);
+        QPointer<DataObjectPickerEditor> self(this);
+        QPointer<SWMMModelLayer> layer(m_ref.layer);
+        const int host = m_ref.hostNodeIdx;
+        connect(session, &NodePickSession::nodePicked, session,
+                [session, self, layer, host](SWMMModelLayer *l, const QString &name, int idx) {
+                    if (!layer || l != layer) return;
+                    // Engine rule 627: virtual / inlet junctions cannot
+                    // receive the capture; nor can the inlet itself.
+                    int isVirtual = 0;
+                    swmm_node_is_virtual(layer->engine(), idx, &isVirtual);
+                    if (isVirtual || idx == host) return;   // keep picking
+                    SWMM_InletUsage u{};
+                    if (layer->inletUsageFor(SWMM_INLET_HOST_NODE, host, &u)
+                        && u.capture_node_idx != idx) {
+                        u.capture_node_idx = idx;
+                        layer->pushInletUsageEdit(u);
+                    }
+                    if (self) self->applyPickedName(name);
+                    session->finish();
+                    session->deleteLater();
+                });
+        connect(session, &NodePickSession::cancelled, session, &QObject::deleteLater);
         return;
     }
     // Inlet designs — dispatch straight to the Inlets editor, filtered to
