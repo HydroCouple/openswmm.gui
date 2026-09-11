@@ -2976,14 +2976,18 @@ void MeshGenerationDialog::buildUi()
         auto *g   = new QGroupBox(tr("1D geometry influence (optional)"), sourcesPage);
         auto *lay = new QVBoxLayout(g);
 
-        m_includeJunctions = new QCheckBox(tr("Junctions / outfalls / storage  →  Steiner vertices  (tag = node id)"), g);
+        m_includeJunctions = new QCheckBox(tr("Nodes (junctions, inlets, outfalls, storage, dividers)  →  Steiner vertices  (tag = node id)"), g);
+        m_includeJunctions->setObjectName(QStringLiteral("meshNodesAsVerticesBox"));
         m_includeJunctions->setToolTip(tr(
-            "Force a mesh vertex at every node location. Node clusters that\n"
-            "are close only for non-physical reasons (weir / orifice / pump\n"
-            "endpoints) then force very small cells around them.\n\n"
-            "Leave unchecked (default) to let mesh quality drive the cell\n"
-            "sizes; nodes are coupled to the mesh afterwards (coincident →\n"
-            "vertex, otherwise → containing cell)."));
+            "Checked (default): force a mesh vertex at every node location —\n"
+            "every node type except virtual junctions, which are split points\n"
+            "on a conduit with no rim of their own. Node clusters that are\n"
+            "close only for non-physical reasons (weir / orifice / pump\n"
+            "endpoints) would force very small cells around them; the\n"
+            "minimum node separation below demotes those to cell coupling.\n\n"
+            "Uncheck to let mesh quality drive the cell sizes; nodes are\n"
+            "coupled to the mesh afterwards (coincident → vertex, otherwise →\n"
+            "containing cell)."));
         m_includeConduits  = new QCheckBox(tr("Conduits  →  constraint segments  (marker = conduit id)"), g);
         m_includeSubcatch  = new QCheckBox(tr("Subcatchments  →  triangle regions  (tag = subcatchment id)"), g);
 
@@ -2992,11 +2996,12 @@ void MeshGenerationDialog::buildUi()
         // Node elevation source: interpolate to terrain (default) vs rim.
         m_nodesUseRim = new QCheckBox(
             tr("Use node rim elevation (invert + max depth) instead of terrain"), g);
+        m_nodesUseRim->setObjectName(QStringLiteral("meshNodesUseRimBox"));
         m_nodesUseRim->setToolTip(tr(
-            "Unchecked (default): node vertices are interpolated from the DTM,\n"
-            "like every other vertex.\n"
-            "Checked: node vertices are pinned to the rim elevation\n"
-            "(invert + maximum depth) read from the SWMM model.\n\n"
+            "Checked (default): node vertices are pinned to the rim elevation\n"
+            "(invert + maximum depth) read from the SWMM model.\n"
+            "Unchecked: node vertices are interpolated from the DTM, like\n"
+            "every other vertex.\n\n"
             "When no DTM is selected, nodes always use rim elevation and\n"
             "the rest of the mesh is interpolated (IDW) from those rims."));
         auto *rimRow = new QHBoxLayout;
@@ -3033,6 +3038,7 @@ void MeshGenerationDialog::buildUi()
         auto *sepRow = new QHBoxLayout;
         sepRow->setContentsMargins(20, 0, 0, 0);
         m_nodeMinSepBox = new QCheckBox(tr("Enforce minimum node separation:"), g);
+        m_nodeMinSepBox->setObjectName(QStringLiteral("meshMinNodeSepBox"));
         m_nodeMinSepBox->setToolTip(tr(
             "When two nodes are closer than this distance, only the first\n"
             "(junctions → outfalls → storage → dividers, model order) keeps a\n"
@@ -3044,6 +3050,7 @@ void MeshGenerationDialog::buildUi()
             "as constraints, their endpoints can still pin vertices at node\n"
             "locations regardless of this setting."));
         m_nodeMinSepSpin = new QDoubleSpinBox(g);
+        m_nodeMinSepSpin->setObjectName(QStringLiteral("meshMinNodeSepSpin"));
         m_nodeMinSepSpin->setRange(0.0, 1e9);
         m_nodeMinSepSpin->setDecimals(3);
         m_nodeMinSepSpin->setSingleStep(1.0);
@@ -3447,6 +3454,7 @@ void MeshGenerationDialog::buildUi()
         f->addRow(QString(), m_thinningBox);
 
         m_thinningToleranceSpin = new QDoubleSpinBox(g);
+        m_thinningToleranceSpin->setObjectName(QStringLiteral("meshThinningTolSpin"));
         m_thinningToleranceSpin->setRange(-1.0, 1.0);
         m_thinningToleranceSpin->setDecimals(8);
         m_thinningToleranceSpin->setSingleStep(0.001);
@@ -3459,11 +3467,13 @@ void MeshGenerationDialog::buildUi()
             "score ≥ threshold → flat or uniform-slope area → vertex is "
             "REMOVED.\n\n"
             "0.99 → keep bends > ~8° (fine detail)\n"
-            "0.95 → keep bends > ~18° (default — channels, levees, ridges)\n"
-            "0.90 → keep bends > ~26° (coarse — prominent breaks only)"));
+            "0.95 → keep bends > ~18° (channels, levees, ridges)\n"
+            "0.90 → keep bends > ~26° (coarse — prominent breaks only)\n"
+            "0.75 → keep bends > ~41° (default — major breaks only)"));
         f->addRow(tr("Normal dot threshold:"), m_thinningToleranceSpin);
 
         m_thinningIterationsSpin = new QSpinBox(g);
+        m_thinningIterationsSpin->setObjectName(QStringLiteral("meshThinningPassesSpin"));
         m_thinningIterationsSpin->setRange(0, std::numeric_limits<int>::max());
         m_thinningIterationsSpin->setSpecialValueText(tr("(unlimited)"));
         m_thinningIterationsSpin->setToolTip(tr(
@@ -3482,6 +3492,7 @@ void MeshGenerationDialog::buildUi()
 
         // ── Option A: Poisson-disk minimum spacing ─────────────────────────
         m_minSpacingBox = new QCheckBox(tr("Min point spacing (Poisson-disk):"), g);
+        m_minSpacingBox->setObjectName(QStringLiteral("meshMinSpacingBox"));
         m_minSpacingBox->setToolTip(tr(
             "Post-thinning pass: enforces a minimum Euclidean distance between "
             "any two surviving DTM Steiner points.\n\n"
@@ -3490,6 +3501,7 @@ void MeshGenerationDialog::buildUi()
             "Use to prevent micro-clusters from dominating the mesh even after "
             "normal-deviation thinning.  0 = auto (2 × pixel size)."));
         m_minSpacingSpin = new QDoubleSpinBox(g);
+        m_minSpacingSpin->setObjectName(QStringLiteral("meshMinSpacingSpin"));
         m_minSpacingSpin->setRange(0.0, 1e9);
         m_minSpacingSpin->setDecimals(3);
         m_minSpacingSpin->setSingleStep(1.0);
@@ -4118,21 +4130,23 @@ void MeshGenerationDialog::updateMinCellDerivedLabel()
 
 void MeshGenerationDialog::seedDefaults()
 {
-    // Junctions default OFF (Plan Part B, decision 2026-07-28): forcing a
-    // vertex at every node distorts the mesh around close node clusters
-    // (weir/orifice endpoints). Coupling is authored post-generation instead.
-    m_includeJunctions->setChecked(false);
+    // Iteration 4 — seed values come from the user-editable 2D Defaults
+    // preference page (Preferences → 2D Defaults). The compiled-in struct
+    // defaults carry the seeds (33° min angle per the 2026-07-31 decision,
+    // SI-canonical distances, thinning on 0.75/1, …).
+    const auto t = PreferencesManager::instance()->twoDDefaults();
+    // Nodes as Steiner vertices default ON (2026-09-11, reversing the
+    // 2026-07-28 Plan Part B decision): with rim elevations and the minimum
+    // node separation on as well, close clusters (weir / orifice endpoints)
+    // are demoted to cell coupling instead of forcing tiny cells. Virtual
+    // junctions are never pinned (collectInputs).
+    m_includeJunctions->setChecked(t.meshNodesAsVertices);
     m_includeConduits->setChecked(true);
     m_includeSubcatch->setChecked(true);
     m_mapNodesAfterGen->setChecked(true);
-    m_nodesUseRim->setChecked(false);   // interpolate nodes to terrain by default
+    m_nodesUseRim->setChecked(t.meshNodesUseRim);
     m_elevMethodCombo->setCurrentIndex(0);  // IDW
     m_nnVariantCombo->setCurrentIndex(0);   // Sibson
-    // Iteration 4 — seed values come from the user-editable 2D Defaults
-    // preference page (Preferences → 2D Defaults). The compiled-in struct
-    // defaults preserve the historical seeds (33° min angle per the
-    // 2026-07-31 decision, SI-canonical distances, thinning on 0.6/3, …).
-    const auto t = PreferencesManager::instance()->twoDDefaults();
     m_idwPowerSpin->setValue(t.meshIdwPower);
     m_maxAreaSpin->setValue(t.meshMaxArea);
     m_minAngleSpin->setValue(t.meshMinAngleDeg);
@@ -4150,8 +4164,10 @@ void MeshGenerationDialog::seedDefaults()
     m_thinningToleranceSpin->setValue(t.meshThinningTol);
     m_thinningIterationsSpin->setValue(t.meshThinningPasses);
     m_thinningMaxPointsSpin->setValue(0);
-    m_minSpacingBox->setChecked(false);
-    m_minSpacingSpin->setValue(0.0);
+    m_minSpacingBox->setChecked(t.meshMinSpacingOn);
+    // Whole model units (15 m → 15 m, or 49 ft): a fractional spacing would
+    // read as false precision.
+    m_minSpacingSpin->setValue(std::round(t.meshMinSpacingM * toUnit));
     m_boundaryBufferSpin->setValue(t.meshBoundaryBufferM * toUnit); // 0 = (auto)
     m_maxBoundaryEdgeBox->setChecked(t.meshMaxBoundaryEdgeOn);
     m_maxBoundaryEdgeSpin->setValue(t.meshMaxBoundaryEdgeM * toUnit);
@@ -4580,6 +4596,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                 if (name.isEmpty()) continue;
                 const int idx = layer->nodeIndex(name);
                 if (idx < 0) continue;
+                // Every node type is a candidate (junctions, inlet junctions,
+                // outfalls, storage, dividers) EXCEPT virtual junctions: they
+                // are zero-storage split points on a conduit with no rim of
+                // their own. They stay in couplingNodes below.
+                if (layer->nodeIsVirtual(idx)) continue;
                 double x = 0, y = 0;
                 if (!layer->cachedNodeCoord(idx, &x, &y)) continue;
 
