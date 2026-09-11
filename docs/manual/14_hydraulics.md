@@ -127,8 +127,12 @@ Creation asks first rather than inserting a half-configured node: the **Inlet
 Junction Setup** dialog collects the **Inlet Design** (with a "…" button that
 opens the Inlet editor filtered to the gutter types), the **Capture Node** (the
 list already excludes the host conduit's end nodes and every virtual or inlet
-junction) and the **Placement**. **OK** stays disabled until both identity fields
-are set, because the engine rejects a partial usage row. Link-drawing rejects
+junction; its "…" button lets you click the node on the map instead — the
+dialog is a floating panel, so the map stays live while it is open) and the
+**Placement**. **OK** stays disabled until both identity fields are set,
+because the engine rejects a partial usage row. The same map pick sits behind
+the "…" of an existing inlet junction's **Capture Node** property row.
+Link-drawing rejects
 inlet junctions as endpoints exactly as it rejects virtual junctions.
 
 \figtodo{14_inlet_junction_setup.png, The Inlet Junction Setup dialog}

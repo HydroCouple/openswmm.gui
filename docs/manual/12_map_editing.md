@@ -203,10 +203,12 @@ Conduits** as the default action.
   inlet, so a pipe is not a legal host; clicking one emits a status hint
   instead of splitting. (A drop inlet on a `RECT_OPEN` or `TRAPEZOIDAL`
   channel is an inlet-*usage* case, edited from the conduit's **Inlets** row.)
-- the insertion is configured **before** it happens. A modal **Inlet Junction
-  Setup** dialog collects the inlet design, the capture (underdrain) node and
+- the insertion is configured **before** it happens. A floating **New Inlet
+  Junction** panel collects the inlet design, the capture (underdrain) node and
   the placement, because the engine requires all three for the node to
-  validate. Virtual and inlet junctions are already excluded from the
+  validate. The panel is not modal: the **…** button next to **Capture Node**
+  lets you click the capture node on the map (Esc cancels the pick), and the
+  split happens when you press **OK**. Virtual and inlet junctions are already excluded from the
   capture-node list, and so are the host conduit's own two end nodes.
 
 Undo re-fuses the conduits and drops the `[INLET_USAGE]` row.
