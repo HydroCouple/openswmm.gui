@@ -23,11 +23,13 @@
 
 #include "curve/curveprovider.h"
 #include "curve/curveregistry.h"
+#include "dialog_a11y_checks.h"
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/panels/curvepointtablemodel.h"
 
 #include <QChartView>
 #include <QComboBox>
+#include <QDialogButtonBox>
 #include <QLineEdit>
 #include <QListView>
 #include <QObject>
@@ -287,6 +289,30 @@ private slots:
         dlg.pointTable()->selectRow(p->pointCount() - 1);
         dlg.invokeDeleteRows();
         QCOMPARE(p->pointCount(), n0 + 1);
+    }
+
+    // The editor used to be dismissable only from the title bar. The Close
+    // box must hide it, and must not be the default button — Enter in a point
+    // cell has to commit the cell, never close the editor.
+    void closeButton_HidesDialog()
+    {
+        CurveRegistry reg;
+        QVERIFY(reg.create(QStringLiteral("CV"), CurveType::Storage));
+        QUndoStack stack;
+        CurveEditorDialog dlg(&reg, &stack);
+        dlg.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dlg));
+
+        auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("curve_closeBox"));
+        QVERIFY(box);
+        auto *btn = box->button(QDialogButtonBox::Close);
+        QVERIFY(btn);
+        QVERIFY(!btn->isDefault());
+        QVERIFY(!btn->autoDefault());
+        swmmvis_test::assertDialogA11y(&dlg);
+
+        btn->click();
+        QTRY_VERIFY(!dlg.isVisible());
     }
 };
 

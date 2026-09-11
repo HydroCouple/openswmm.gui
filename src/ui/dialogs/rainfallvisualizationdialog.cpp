@@ -18,12 +18,14 @@
 #include <QActionGroup>
 #include <QChart>
 #include <QComboBox>
+#include <QDialogButtonBox>
 #include "plot/utctimeaxis.h"
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIcon>
 #include <QLabel>
 #include <QLineSeries>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSplitter>
@@ -264,6 +266,18 @@ void RainfallVisualizationDialog::buildUi_()
 
     outer->addWidget(m_emptyLabel);
     outer->addWidget(m_mainSplit, /*stretch=*/1);
+
+    // Close row. Wired to close() so every exit (button, Esc, title bar)
+    // takes the same path; WA_DeleteOnClose is set by the opener. Not the
+    // default button — Enter in the stats table must never dismiss the window.
+    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    closeBox->setObjectName(QStringLiteral("rainviz_closeBox"));
+    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
+    closeBtn->setObjectName(QStringLiteral("rainviz_closeBtn"));
+    closeBtn->setAutoDefault(false);
+    closeBtn->setDefault(false);
+    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
+    outer->addWidget(closeBox);
 }
 
 void RainfallVisualizationDialog::applyMode_()

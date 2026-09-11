@@ -49,6 +49,7 @@
  *  24. Delete confirmation bypass (deleteCurrentSilently) removes provider.
  */
 
+#include "dialog_a11y_checks.h"
 #include "transect/transectprovider.h"
 #include "transect/transectregistry.h"
 #include "transect/transectundocommands.h"
@@ -58,9 +59,11 @@
 #include "ui/models/transectstationtablemodel.h"
 #include "ui/widgets/transectchartview.h"
 
+#include <QDialogButtonBox>
 #include <QLineSeries>
 #include <QListView>
 #include <QObject>
+#include <QPushButton>
 #include <QSignalSpy>
 #include <QTableView>
 #include <QTest>
@@ -690,6 +693,32 @@ private slots:
         const QModelIndex root = tree->rootIndex();
         QVERIFY(root.isValid());   // not the invisible model root
         QCOMPARE(m->rowCount(root), 10);   // 10 Q_PROPERTYs of TransectPropertyBag
+    }
+
+    // The editor used to be dismissable only from the title bar. The Close
+    // box must hide it, and must not be the default button — Enter in a
+    // station/elevation cell has to commit the cell, never close the editor.
+    void closeButton_HidesDialog()
+    {
+        TransectRegistry reg;
+        auto *p = reg.create(QStringLiteral("T1"));
+        QVERIFY(p);
+        QVERIFY(p->setAllPoints({{0.0, 10.0}, {5.0, 0.0}, {10.0, 10.0}}));
+        QUndoStack stack;
+        TransectEditorDialog dlg(&reg, /*layer*/ nullptr, &stack);
+        dlg.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dlg));
+
+        auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("transect_closeBox"));
+        QVERIFY(box);
+        auto *btn = box->button(QDialogButtonBox::Close);
+        QVERIFY(btn);
+        QVERIFY(!btn->isDefault());
+        QVERIFY(!btn->autoDefault());
+        swmmvis_test::assertDialogA11y(&dlg);
+
+        btn->click();
+        QTRY_VERIFY(!dlg.isVisible());
     }
 };
 
