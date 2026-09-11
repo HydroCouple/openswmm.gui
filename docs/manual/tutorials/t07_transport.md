@@ -341,7 +341,7 @@ gates two of the four tabs below it.
 | Tab | Control | Writes |
 |---|---|---|
 | *(page header)* | **Solver:** — *Legacy (complete mix)*, *Eulerian ARD (advection–reaction–dispersion)*, *Lagrangian (LARD)* | `QUALITY_SOLVER` |
-| **Solver** | **Outfall backflow:** — *Hold last concentration (legacy)*, *Fresh (zero concentration and age)* | `OUTFALL_BACKFLOW_QUALITY` |
+| **General** | **Outfall backflow:** — *Hold last concentration (legacy)*, *Fresh (zero concentration and age)* | `OUTFALL_BACKFLOW_QUALITY` |
 | **Eulerian ARD** *(live only for that solver)* | **Scalar scheme:** — *MUSCL*, *Upwind*, *QUICKEST-ULTIMATE* | `FV_SCALAR_SCHEME` |
 | **Lagrangian (LARD)** *(live only for that solver)* | **Quality step:** (0–3600 s) | `QUALITY_STEP` |
 | | **Max segments per link:** (2–10000) | `MAX_SEGMENTS_PER_LINK` |

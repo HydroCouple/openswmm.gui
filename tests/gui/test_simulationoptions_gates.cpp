@@ -327,7 +327,7 @@ void TestSimulationOptionsGates::qualityTabGates()
         const int idx = solver->findData(QLatin1String(c.token));
         QVERIFY(idx >= 0);
         solver->setCurrentIndex(idx);
-        QVERIFY2(tabs->isTabEnabled(0), "Solver tab must never gate off");
+        QVERIFY2(tabs->isTabEnabled(0), "General tab must never gate off");
         QVERIFY2(tabs->isTabEnabled(1) == c.ard,
                  qPrintable(QStringLiteral("Eulerian ARD tab wrong under %1")
                                 .arg(QLatin1String(c.token))));
@@ -448,17 +448,17 @@ void TestSimulationOptionsGates::structure()
                               QStringLiteral("Dynamic Wave"),
                               QStringLiteral("Finite Volume"),
                               QStringLiteral("Unsteady Friction") } },
-        { "qualityTabs", { QStringLiteral("Solver"),
+        { "qualityTabs", { QStringLiteral("General"),
                            QStringLiteral("Eulerian ARD"),
                            QStringLiteral("Lagrangian (LARD)"),
                            QStringLiteral("Reserved Species") } },
         // Five, not PLAN §2's four: §1.3 reserved a Processes tab after
         // Coupling and that content (U1/U5) now exists.
         { "twoDTabs",   { QStringLiteral("Hydrodynamics"),
-                          QStringLiteral("Mesh & Closure"),
+                          QStringLiteral("Wetting & Drying"),
                           QStringLiteral("Coupling"),
                           QStringLiteral("Processes"),
-                          QStringLiteral("Rainfall & Output") } },
+                          QStringLiteral("Performance & Output") } },
     };
     for (const auto &set : kTabSets) {
         auto *tabs = dlg.findChild<QTabWidget *>(QLatin1String(set.tabs));

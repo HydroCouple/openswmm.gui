@@ -10,7 +10,11 @@
  * FLOW_ROUTING does on Routing & Hydraulics: it gates two of the four tabs
  * (PLAN §2.1).
  *
- * Tabs: Solver · Eulerian ARD · Lagrangian (LARD) · Reserved Species.
+ * Tabs: General · Eulerian ARD · Lagrangian (LARD) · Reserved Species.
+ *
+ * "General" is the tab that applies under every solver — the same role the
+ * "Routing" tab plays on Routing & Hydraulics. It is not called "Solver":
+ * the solver selector is the page header, not a control on that tab.
  *
  * FV_SCALAR_SCHEME stays on Eulerian ARD, not on Routing & Hydraulics: its
  * only live consumer is the ARD engine, which reads it under any routing
@@ -44,7 +48,7 @@ public:
     void refreshGates() override;
 
     /*! \brief Tab order, so the dialog can name gates without magic numbers. */
-    enum Tab { TabSolver = 0, TabArd, TabLard, TabReserved };
+    enum Tab { TabGeneral = 0, TabArd, TabLard, TabReserved };
 
     [[nodiscard]] QTabWidget *tabs() const { return m_tabs; }
     /*! \brief Current QUALITY_SOLVER token (LEGACY | EULERIAN_ARD | LAGRANGIAN). */

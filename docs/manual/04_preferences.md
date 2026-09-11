@@ -38,7 +38,7 @@ so neither is a single long scrolling column:
 | Page | Tabs |
 | --- | --- |
 | **Rendering** | Labels / Links & Nodes / GPU / 2D Mesh Edges |
-| **Simulation Defaults** | Processes & Modules / Hydraulics & Schedule / Dynamic Wave: Steps & Tolerances / Dynamic Wave: Solver / 2D Solver / 2D Coupling & Rainfall / 2D Mesh |
+| **Simulation Defaults** | Processes & Modules / Hydraulics & Schedule / Time Steps & Tolerances / Dynamic Wave / 2D Solver / 2D Coupling & Rainfall / 2D Mesh |
 
 *Simulation Defaults* absorbed what used to be two separate sidebar rows,
 *Dynamic Wave Defaults* and *2D Defaults*, as the four tabs after the first two.
@@ -133,9 +133,9 @@ Applied when **File → New** creates a blank project. Existing projects are
 unaffected — change those in **Model → Simulation Options…**
 (\ref manual_simulation_options).
 
-Seven tabs. The first two are the general defaults; the next two are the
-dynamic-wave half of the same story (the former *Dynamic Wave Defaults* row);
-the last three seed the `[2D_OPTIONS]` block of a new project and the starting
+Seven tabs. The first three are the general defaults; the fourth is the
+dynamic-wave-specific half of the same story; together the third and fourth
+are the former *Dynamic Wave Defaults* row. The last three seed the `[2D_OPTIONS]` block of a new project and the starting
 values of the mesh generator (the former *2D Defaults* row — see
 \ref manual_2d_mesh).
 
@@ -143,8 +143,8 @@ values of the mesh generator (the former *2D Defaults* row — see
 | --- | --- |
 | **Processes & Modules** | Process models · Process modules |
 | **Hydraulics & Schedule** | Hydraulics · Schedule |
-| **Dynamic Wave: Steps & Tolerances** | Time steps · Solver tolerances · Variable timestep |
-| **Dynamic Wave: Solver** | Conduit / channel · Solver |
+| **Time Steps & Tolerances** | Time steps · Solver tolerances · Variable timestep |
+| **Dynamic Wave** | Conduit / channel · Solver |
 | **2D Solver** | 2D solver · Wet/dry & VFR |
 | **2D Coupling & Rainfall** | 1D↔2D coupling · Rainfall & reporting |
 | **2D Mesh** | Mesh generation defaults |

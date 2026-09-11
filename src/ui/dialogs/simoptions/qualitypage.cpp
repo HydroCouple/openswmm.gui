@@ -82,13 +82,12 @@ void QualityPage::buildUi()
     auto *lardTab = new QWidget(m_tabs); auto *lardTabLay = new QVBoxLayout(lardTab);
     auto *resTab  = new QWidget(m_tabs); auto *resTabLay  = new QVBoxLayout(resTab);
 
-    // ── Solver ─────────────────────────────────────────────────────────
-    auto *solGroup = new QGroupBox(tr("Water quality solver"), solTab);
+    // ── General — what applies under EVERY solver ──────────────────────
+    auto *solGroup = new QGroupBox(tr("Boundary quality"), solTab);
     auto *solForm  = new QFormLayout(solGroup);
 
-    // Boundary re-entry quality at outfalls — solver-independent (both
-    // engines honor it), so it lives with the solver selection rather
-    // than in a per-solver group.
+    // Boundary re-entry quality at outfalls — solver-independent (both engines
+    // honour it), which is exactly what this tab is for.
     m_outfallBackflowCombo = new QComboBox(solGroup);
     m_outfallBackflowCombo->addItem(tr("Hold last concentration (legacy)"),
                                     QStringLiteral("LAST"));
@@ -232,7 +231,7 @@ void QualityPage::buildUi()
     lardTabLay->addStretch();
     resTabLay->addStretch();
 
-    m_tabs->addTab(solTab,  tr("Solver"));
+    m_tabs->addTab(solTab,  tr("General"));
     m_tabs->addTab(ardTab,  tr("Eulerian ARD"));
     m_tabs->addTab(lardTab, tr("Lagrangian (LARD)"));
     m_tabs->addTab(resTab,  tr("Reserved Species"));
