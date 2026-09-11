@@ -11,9 +11,11 @@
 #include "map/tools/conduitsplitpick.h"
 #include "map/tools/maptool.h"
 
+#include <QPointer>
 #include <QString>
 
 class SWMMModelLayer;
+namespace openswmmvis::ui { class InletJunctionSetupDialog; }
 
 /*!
  * \class OpenSWMMVisMapToolAddInletNode
@@ -28,11 +30,12 @@ class SWMMModelLayer;
  *            TRAPEZOIDAL channels are an inlet-USAGE case, edited from the
  *            conduit's Inlets row — not a node insertion.)
  *          - the insertion is configured BEFORE it happens (decision D-G6):
- *            a modal InletJunctionSetupDialog collects the inlet design and
- *            capture node, because the engine requires both for the node to
- *            validate. The dialog opens from the mouse RELEASE (the click is
- *            armed on press) — starting a modal session while the button is
- *            still down freezes input on macOS (see maptoolpick2dcells.h).
+ *            a NON-MODAL InletJunctionSetupDialog collects the inlet design
+ *            and capture node (the capture node can be picked on the map),
+ *            because the engine requires both for the node to validate. The
+ *            click is armed on press and the dialog shown from the RELEASE;
+ *            the split itself runs from the dialog's accepted() slot, never
+ *            inside a mouse handler (see maptoolpick2dcells.h for why).
  *
  *          Each insertion pushes an InsertInletJunctionCommand (engine-side
  *          `swmm_conduit_split_inlet`; undo re-fuses and drops the usage row).
@@ -44,6 +47,10 @@ class OpenSWMMVisMapToolAddInletNode : public OpenSWMMVisMapTool
 public:
     explicit OpenSWMMVisMapToolAddInletNode(MapCanvas *canvas,
                                             QObject *parent = nullptr);
+    ~OpenSWMMVisMapToolAddInletNode() override;
+
+    /*! The setup dialog currently waiting for the user, if any (test seam). */
+    [[nodiscard]] openswmmvis::ui::InletJunctionSetupDialog *pendingDialog() const;
 
     [[nodiscard]] QCursor cursor() const override;
 
@@ -65,6 +72,7 @@ signals:
 private:
     ConduitSplitPick::ConduitHit m_hover;   ///< live preview of the split point
     bool                         m_armed = false;
+    QPointer<openswmmvis::ui::InletJunctionSetupDialog> m_pendingDialog;
 };
 
 #endif // MAPTOOLADDINLETNODE_H

@@ -79,6 +79,11 @@ struct DataObjectRef
     Kind            kind        = TimeSeries;
     int             typeLock    = -1;       ///< Pattern: 0=MONTHLY 1=DAILY 2=HOURLY 3=WEEKEND; -1 = any
     QString         currentName;             ///< Currently-assigned object id; empty = unassigned
+    /*! CaptureNode only: node index of the inlet junction whose capture node
+     *  is being chosen. Lets a map pick be written through the layer even
+     *  after the property grid has closed the cell editor (it does so the
+     *  moment the map takes focus). Not part of equality. */
+    int             hostNodeIdx = -1;
 
     bool operator==(const DataObjectRef &other) const noexcept
     {
