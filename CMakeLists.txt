@@ -372,6 +372,7 @@ set(
         include/plot/plotattribute.h
         include/plot/numberformat.h
         include/plot/chartproperties.h
+        include/plot/utctimeaxis.h
         include/plot/seriesstatistics.h
         include/plot/rainfallseriesmodel.h
         include/plot/seriesstyle.h
@@ -1090,6 +1091,7 @@ set(
         src/plot/plotattribute.cpp
         src/plot/numberformat.cpp
         src/plot/chartproperties.cpp
+        src/plot/utctimeaxis.cpp
         src/plot/seriesstatistics.cpp
         src/plot/rainfallseriesmodel.cpp
         src/plot/seriesstyle.cpp

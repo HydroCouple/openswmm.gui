@@ -19,7 +19,7 @@
 #include <QChart>
 #include <QChartView>
 #include <QContextMenuEvent>
-#include <QDateTimeAxis>
+#include "plot/utctimeaxis.h"
 #include <QLineSeries>
 #include <QObject>
 #include <QSignalSpy>
@@ -79,7 +79,9 @@ QChart *TestComparisonPlotToolbar::makeDateChart(QDateTime &start, QDateTime &en
     series->append(start.toMSecsSinceEpoch(), 10.0);
     series->append(end.toMSecsSinceEpoch(), 20.0);
     chart->addSeries(series);
-    auto *xAxis = new QDateTimeAxis; xAxis->setRange(start, end);
+    // The production time axis (issue #11) — a QValueAxis by inheritance, so
+    // this also pins that the edge editor treats it as a date axis.
+    auto *xAxis = new openswmmvis::plot::UtcTimeAxis; xAxis->setRange(start, end);
     auto *yAxis = new QValueAxis;    yAxis->setRange(0.0, 30.0);
     chart->addAxis(xAxis, Qt::AlignBottom);
     chart->addAxis(yAxis, Qt::AlignLeft);
@@ -241,7 +243,7 @@ void TestComparisonPlotToolbar::dateTimeAxisEdgesAcceptDateTimes()
     auto *chart = makeDateChart(start, end);
     InteractiveChartView view(chart);
 
-    auto *xAxis = qobject_cast<QDateTimeAxis *>(chart->axes(Qt::Horizontal).first());
+    auto *xAxis = qobject_cast<openswmmvis::plot::UtcTimeAxis *>(chart->axes(Qt::Horizontal).first());
     QVERIFY(xAxis);
 
     const QDateTime nextStart = start.addSecs(3600);

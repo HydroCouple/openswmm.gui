@@ -7,6 +7,7 @@
 #include "ui/widgets/interactivechartview.h"
 
 #include "core/preferencesmanager.h"
+#include "plot/utctimeaxis.h"
 
 #include <QAbstractAxis>
 #include <QChart>
@@ -25,6 +26,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QRubberBand>
+#include <QTimeZone>
 #include <QToolTip>
 #include <QValueAxis>
 #include <QVariant>
@@ -243,6 +245,26 @@ bool InteractiveChartView::setAxisEdgeValue(AxisEdge edge, const QVariant &value
     auto *axis = axisForEdge(edge);
     if (!axis) return false;
 
+    // Time axes first: UtcTimeAxis IS a QValueAxis (via QCategoryAxis), so
+    // the numeric branch below would otherwise claim it (issue #11).
+    auto setDateEdge = [&](auto *dateAxis) {
+        const QDateTime dt = value.toDateTime();
+        if (!dt.isValid()) return false;
+
+        if (isMinEdge(edge)) {
+            if (dt >= dateAxis->max()) return false;
+            dateAxis->setMin(dt);
+        } else {
+            if (dt <= dateAxis->min()) return false;
+            dateAxis->setMax(dt);
+        }
+        return true;
+    };
+    if (auto *utcAxis = qobject_cast<openswmmvis::plot::UtcTimeAxis *>(axis))
+        return setDateEdge(utcAxis);
+    if (auto *dateAxis = qobject_cast<QDateTimeAxis *>(axis))
+        return setDateEdge(dateAxis);
+
     if (auto *valueAxis = qobject_cast<QValueAxis *>(axis)) {
         bool ok = false;
         const double v = value.toDouble(&ok);
@@ -258,20 +280,6 @@ bool InteractiveChartView::setAxisEdgeValue(AxisEdge edge, const QVariant &value
         return true;
     }
 
-    if (auto *dateAxis = qobject_cast<QDateTimeAxis *>(axis)) {
-        const QDateTime dt = value.toDateTime();
-        if (!dt.isValid()) return false;
-
-        if (isMinEdge(edge)) {
-            if (dt >= dateAxis->max()) return false;
-            dateAxis->setMin(dt);
-        } else {
-            if (dt <= dateAxis->min()) return false;
-            dateAxis->setMax(dt);
-        }
-        return true;
-    }
-
     return false;
 }
 
@@ -281,6 +289,45 @@ bool InteractiveChartView::editAxisEdge(AxisEdge edge)
     if (!axis) return false;
 
     const QString label = labelForEdge(edge);
+
+    // Time axes first: UtcTimeAxis IS a QValueAxis (via QCategoryAxis), so
+    // the numeric editor below would otherwise claim it and offer epoch
+    // milliseconds (issue #11). The editor works in UTC — model times are
+    // UTC end to end, and a local-zone QDateTimeEdit would display a shifted
+    // wall time and hand back a shifted instant.
+    auto editDateEdge = [&](auto *dateAxis) {
+        QDialog dlg(this);
+        dlg.setWindowTitle(tr("Edit Axis Range"));
+        auto *layout = new QFormLayout(&dlg);
+        auto *edit = new QDateTimeEdit(&dlg);
+        edit->setTimeZone(QTimeZone(QTimeZone::UTC));
+        edit->setCalendarPopup(true);
+        edit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+        edit->setDateTime(isMinEdge(edge) ? dateAxis->min() : dateAxis->max());
+        layout->addRow(tr("%1:").arg(label), edit);
+        auto *buttons = new QDialogButtonBox(
+            QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        layout->addWidget(buttons);
+        if (dlg.exec() != QDialog::Accepted) return false;
+
+        if (!setAxisEdgeValue(edge, edit->dateTime())) {
+            QMessageBox::warning(
+                this,
+                tr("Invalid Axis Range"),
+                isMinEdge(edge)
+                    ? tr("The minimum must be earlier than the current maximum.")
+                    : tr("The maximum must be later than the current minimum."));
+            return false;
+        }
+        return true;
+    };
+    if (auto *utcAxis = qobject_cast<openswmmvis::plot::UtcTimeAxis *>(axis))
+        return editDateEdge(utcAxis);
+    if (auto *dateAxis = qobject_cast<QDateTimeAxis *>(axis))
+        return editDateEdge(dateAxis);
+
     if (auto *valueAxis = qobject_cast<QValueAxis *>(axis)) {
         const double current = isMinEdge(edge) ? valueAxis->min() : valueAxis->max();
         bool accepted = false;
@@ -302,34 +349,6 @@ bool InteractiveChartView::editAxisEdge(AxisEdge edge)
                 isMinEdge(edge)
                     ? tr("The minimum must be a finite value less than the current maximum.")
                     : tr("The maximum must be a finite value greater than the current minimum."));
-            return false;
-        }
-        return true;
-    }
-
-    if (auto *dateAxis = qobject_cast<QDateTimeAxis *>(axis)) {
-        QDialog dlg(this);
-        dlg.setWindowTitle(tr("Edit Axis Range"));
-        auto *layout = new QFormLayout(&dlg);
-        auto *edit = new QDateTimeEdit(&dlg);
-        edit->setCalendarPopup(true);
-        edit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
-        edit->setDateTime(isMinEdge(edge) ? dateAxis->min() : dateAxis->max());
-        layout->addRow(tr("%1:").arg(label), edit);
-        auto *buttons = new QDialogButtonBox(
-            QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-        layout->addWidget(buttons);
-        if (dlg.exec() != QDialog::Accepted) return false;
-
-        if (!setAxisEdgeValue(edge, edit->dateTime())) {
-            QMessageBox::warning(
-                this,
-                tr("Invalid Axis Range"),
-                isMinEdge(edge)
-                    ? tr("The minimum must be earlier than the current maximum.")
-                    : tr("The maximum must be later than the current minimum."));
             return false;
         }
         return true;
@@ -502,13 +521,15 @@ void InteractiveChartView::mouseReleaseEvent(QMouseEvent *e)
         if (m_rubberBand) m_rubberBand->hide();
         if (chart() && std::abs(e->pos().x() - m_pressPos.x()) >= 5) {
             // Convert the rubber-band X-extent to data-X via chart->mapToValue.
-            // Use the first horizontal axis we find; if it's a QDateTimeAxis,
-            // emit datetime range, otherwise emit invalid.
+            // Use the first horizontal axis we find; if it's a time axis
+            // (UtcTimeAxis, or a plain QDateTimeAxis), emit a datetime range,
+            // otherwise emit invalid.
             const auto hAxes = chart()->axes(Qt::Horizontal);
-            auto *xAxis = hAxes.isEmpty()
-                            ? nullptr
-                            : qobject_cast<QDateTimeAxis*>(hAxes.first());
-            if (xAxis && !chart()->series().isEmpty()) {
+            QAbstractAxis *first = hAxes.isEmpty() ? nullptr : hAxes.first();
+            const bool timeAxis = first
+                && (qobject_cast<openswmmvis::plot::UtcTimeAxis *>(first)
+                    || qobject_cast<QDateTimeAxis *>(first));
+            if (timeAxis && !chart()->series().isEmpty()) {
                 const QPointF p0 = chart()->mapToValue(
                     QPointF(m_pressPos.x(), m_pressPos.y()),
                     chart()->series().first());
@@ -518,8 +539,8 @@ void InteractiveChartView::mouseReleaseEvent(QMouseEvent *e)
                 const qint64 ms0 = static_cast<qint64>(std::min(p0.x(), p1.x()));
                 const qint64 ms1 = static_cast<qint64>(std::max(p0.x(), p1.x()));
                 emit xRangeSelectionChanged(
-                    QDateTime::fromMSecsSinceEpoch(ms0),
-                    QDateTime::fromMSecsSinceEpoch(ms1));
+                    QDateTime::fromMSecsSinceEpoch(ms0, Qt::UTC),
+                    QDateTime::fromMSecsSinceEpoch(ms1, Qt::UTC));
             }
         } else {
             // Tap-and-release → clear any prior selection.
@@ -693,8 +714,11 @@ void InteractiveChartView::updateHoverTooltip(const QPointF &viewportPx)
         QToolTip::hideText();
         return;
     }
+    // Qt::UTC: model times are UTC end to end (issue #11). Without the spec
+    // this crosshair readout printed the viewer's local time directly beneath
+    // a plot of UTC data.
     const QDateTime dt = QDateTime::fromMSecsSinceEpoch(
-        static_cast<qint64>(cursorX));
+        static_cast<qint64>(cursorX), Qt::UTC);
     const QString text = QStringLiteral("%1\n%2: %3")
         .arg(bestName,
              dt.toString(QStringLiteral("yyyy-MM-dd hh:mm")),
