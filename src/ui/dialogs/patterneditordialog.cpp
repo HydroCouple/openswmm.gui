@@ -24,6 +24,7 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -514,6 +515,20 @@ void PatternEditorDialog::buildUi_()
     m_splitter->setStretchFactor(0, 1);
     m_splitter->setStretchFactor(1, 2);
     m_splitter->setStretchFactor(2, 3);
+
+    // ── Close row ───────────────────────────────────────────────────────────
+    // Wired to close() rather than accept()/reject(): on Qt >= 6.3 done()
+    // bypasses closeEvent(), which is where saveDialogSettings_() runs. Not
+    // the default button — Enter in a factor cell must never dismiss the editor.
+    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    closeBox->setObjectName(QStringLiteral("pattern_closeBox"));
+    closeBox->setContentsMargins(8, 6, 8, 6);   // outer runs at 0 margins
+    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
+    closeBtn->setObjectName(QStringLiteral("pattern_closeBtn"));
+    closeBtn->setAutoDefault(false);
+    closeBtn->setDefault(false);
+    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
+    outer->addWidget(closeBox);
 
     // ── Status bar ──────────────────────────────────────────────────────────
     m_status = new QStatusBar(this);

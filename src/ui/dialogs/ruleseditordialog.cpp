@@ -17,6 +17,7 @@
 #include "ui/theme/iconfactory.h"
 
 #include <QCloseEvent>
+#include <QDialogButtonBox>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -275,6 +276,20 @@ void RulesEditorDialog::buildUi_()
     // which together cover the user-visible paths. (Live in-place commit
     // happens on every text change via the debounce timer in the
     // validator's flushed handler — see onCodeEditorTextChanged_.)
+
+    // ── Close row ───────────────────────────────────────────────────────
+    // Wired to close() rather than accept()/reject(): on Qt >= 6.3 done()
+    // bypasses closeEvent(), which is where flushPendingEdit() commits the
+    // rule text. Not the default button — Enter in the rule editor must
+    // never dismiss the dialog.
+    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    closeBox->setObjectName(QStringLiteral("rules_closeBox"));
+    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
+    closeBtn->setObjectName(QStringLiteral("rules_closeBtn"));
+    closeBtn->setAutoDefault(false);
+    closeBtn->setDefault(false);
+    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
+    outer->addWidget(closeBox);
 }
 
 void RulesEditorDialog::buildCreateCard_()

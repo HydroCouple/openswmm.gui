@@ -319,6 +319,11 @@ alone 47). Same per-phase discipline as R-track: clean build, full `-L gui` gree
    QDialogButtonBox in the 9 dialogs that have rows (customreportdialog already includes
    the header but hand-rolls Close); do NOT bolt boxes onto box-less modeless editors
    (persistent tool windows) — verify Esc-close + sane initial focus instead.
+   *2026-09-11: reversed by the user — a Close `QDialogButtonBox` was added to all seven
+   modeless editors (Curve, Pattern, Timeseries, Inlet, Transect, Rules, RainfallViz), both
+   profile plot windows (MeshProfilePlot, RasterProfilePlot) and the transect editor's inline
+   Chart Properties popup, wired to `close()` so the `closeEvent` overrides still run and
+   with autoDefault off so Enter in a field cannot dismiss the editor.*
 7. **Tab order**: audit-and-fix-on-break only (iteration-1 philosophy); no blanket
    setTabOrder churn.
 
@@ -932,6 +937,8 @@ Deferred (documented, low-risk):
   auto-buddied). The a11y checker is in place to drive this follow-up.
 - Hand-rolled button-row → QDialogButtonBox conversions (9 dialogs;
   modeless editors keep their affordances deliberately).
+  *2026-09-11: the modeless-editor half is superseded — see the §6 amendment; every
+  box-less dialog now has a Close box.*
 - <b> pseudo-headings left as rich text (bold is theme-safe);
   sectionHeadingStyle() exists for new sites. RptSyntaxHighlighter's
   four report-syntax QColors left (report-content coloring).
