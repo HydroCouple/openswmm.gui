@@ -76,11 +76,17 @@ void TestTwoDDefaultsPrefs::compiledDefaultsPinTheContract()
     QCOMPARE(d.meshSimplifyEpsM, 0.1);
     QCOMPARE(d.meshSnapEpsM, 0.01);
     QCOMPARE(d.meshNodeFlattenRadM, 5.0);
+    // 2026-09-11 decision: nodes pinned at rim elevation with the minimum
+    // separation on; thinning 0.75 / 1 pass; Poisson-disk spacing 15 m on.
+    QVERIFY(d.meshNodesAsVertices);
+    QVERIFY(d.meshNodesUseRim);
     QVERIFY(d.meshMinNodeSepOn);
     QCOMPARE(d.meshMinNodeSepM, 2.0);
     QVERIFY(d.meshThinningOn);
-    QCOMPARE(d.meshThinningTol, 0.6);
-    QCOMPARE(d.meshThinningPasses, 3);
+    QCOMPARE(d.meshThinningTol, 0.75);
+    QCOMPARE(d.meshThinningPasses, 1);
+    QVERIFY(d.meshMinSpacingOn);
+    QCOMPARE(d.meshMinSpacingM, 15.0);
     QCOMPARE(d.meshBoundaryBufferM, 0.0);
     QVERIFY(!d.meshMaxBoundaryEdgeOn);
     QCOMPARE(d.meshMaxBoundaryEdgeM, 20.0);
@@ -118,11 +124,15 @@ void TestTwoDDefaultsPrefs::roundTripPersistsAllFields()
     d.meshSimplifyEpsM = 0.2;
     d.meshSnapEpsM = 0.02;
     d.meshNodeFlattenRadM = 8.0;
+    d.meshNodesAsVertices = false;
+    d.meshNodesUseRim = false;
     d.meshMinNodeSepOn = false;
     d.meshMinNodeSepM = 3.0;
     d.meshThinningOn = false;
     d.meshThinningTol = 0.5;
     d.meshThinningPasses = 5;
+    d.meshMinSpacingOn = false;
+    d.meshMinSpacingM = 7.5;
     d.meshBoundaryBufferM = 4.0;
     d.meshMaxBoundaryEdgeOn = true;
     d.meshMaxBoundaryEdgeM = 30.0;
@@ -157,11 +167,15 @@ void TestTwoDDefaultsPrefs::roundTripPersistsAllFields()
     QCOMPARE(r.meshSimplifyEpsM, d.meshSimplifyEpsM);
     QCOMPARE(r.meshSnapEpsM, d.meshSnapEpsM);
     QCOMPARE(r.meshNodeFlattenRadM, d.meshNodeFlattenRadM);
+    QCOMPARE(r.meshNodesAsVertices, d.meshNodesAsVertices);
+    QCOMPARE(r.meshNodesUseRim, d.meshNodesUseRim);
     QCOMPARE(r.meshMinNodeSepOn, d.meshMinNodeSepOn);
     QCOMPARE(r.meshMinNodeSepM, d.meshMinNodeSepM);
     QCOMPARE(r.meshThinningOn, d.meshThinningOn);
     QCOMPARE(r.meshThinningTol, d.meshThinningTol);
     QCOMPARE(r.meshThinningPasses, d.meshThinningPasses);
+    QCOMPARE(r.meshMinSpacingOn, d.meshMinSpacingOn);
+    QCOMPARE(r.meshMinSpacingM, d.meshMinSpacingM);
     QCOMPARE(r.meshBoundaryBufferM, d.meshBoundaryBufferM);
     QCOMPARE(r.meshMaxBoundaryEdgeOn, d.meshMaxBoundaryEdgeOn);
     QCOMPARE(r.meshMaxBoundaryEdgeM, d.meshMaxBoundaryEdgeM);

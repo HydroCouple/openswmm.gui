@@ -2820,6 +2820,17 @@ add_swmmvis_gui_test(test_meshmincelldialog
 )
 swmmvis_link_full_app_deps(test_meshmincelldialog)
 
+# Mesh-generation dialog seeds (2026-09-11 defaults): nodes as vertices at
+# rim elevation with the minimum separation on, thinning 0.75 / 1 pass, and
+# the Poisson-disk spacing on at 15 m rounded to whole model units (49 ft).
+# Needs the full app: the dialog takes a live SWMMVisProjectWindow.
+add_swmmvis_gui_test(test_meshdialog_seeds
+    test_meshdialog_seeds.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshdialog_seeds)
+
 # Feature layers are REACHABLE from the real main window (§6.2). Catalog and
 # ribbon tests run against synthetic rigs, so only a real SWMMVis catches the
 # case where the whole stack compiles but nothing constructs it.
