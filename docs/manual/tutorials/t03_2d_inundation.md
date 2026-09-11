@@ -242,8 +242,8 @@ Selecting `snoopy.2dm` and pressing **Set Active** writes the
 to the engine as well as to the canvas.
 
 The **2D Surface Routing** page maps one-to-one onto `[2D_OPTIONS]`. Its five
-tabs are **Hydrodynamics**, **Mesh & Closure**, **Coupling**, **Processes** and
-**Rainfall & Output**; the groups below sit on them in that order:
+tabs are **Hydrodynamics**, **Wetting & Drying**, **Coupling**, **Processes**
+and **Performance & Output**; the groups below sit on them in that order:
 
 | Group | Control | `[2D_OPTIONS]` key |
 | ----- | ------- | ------------------ |

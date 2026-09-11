@@ -35,8 +35,9 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   you to the nearest usable tab. *Models / Processes* becomes **Domains & Processes · Modules ·
   Flags**; *Dates & Times* becomes **Simulation Window · Time Steps · Events**; *Routing &
   Hydraulics* becomes **Routing · Dynamic Wave · Finite Volume · Unsteady Friction**; *Quality &
-  Transport* becomes **Solver · Eulerian ARD · Lagrangian (LARD) · Reserved Species**; *2D Surface
-  Routing* becomes **Hydrodynamics · Mesh & Closure · Coupling · Processes · Rainfall & Output**.
+  Transport* becomes **General · Eulerian ARD · Lagrangian (LARD) · Reserved Species**; *2D Surface
+  Routing* becomes **Hydrodynamics · Wetting & Drying · Coupling · Processes · Performance &
+  Output**.
   The *Routing & Hydraulics* page drops from roughly 35 controls in one scrolling column to at most
   13 per tab.
 
@@ -59,9 +60,9 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 - **Preferences — Rendering and Simulation Defaults gain tabs; two sidebar rows fold away.**
   *Rendering* becomes **Labels · Links & Nodes · GPU · 2D Mesh Edges**. The *Dynamic Wave Defaults*
   and *2D Defaults* rows fold into *Simulation Defaults* as **Processes & Modules · Hydraulics &
-  Schedule · Dynamic Wave: Steps & Tolerances · Dynamic Wave: Solver · 2D Solver · 2D Coupling &
-  Rainfall · 2D Mesh** — fifteen sidebar rows become thirteen. Every setting still writes the same
-  key; nothing was dropped. Neither page needs a scrollbar at 1280x800 any more, on any tab.
+  Schedule · Time Steps & Tolerances · Dynamic Wave · 2D Solver · 2D Coupling & Rainfall · 2D
+  Mesh** — fifteen sidebar rows become thirteen. Every setting still writes the same key; nothing
+  was dropped. Neither page needs a scrollbar at 1280x800 any more, on any tab.
 
 ### Fixed
 

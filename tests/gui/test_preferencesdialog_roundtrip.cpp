@@ -185,8 +185,8 @@ void TestPreferencesDialogRoundtrip::structure()
         { "simulationDefaultsTabs",
                            { QStringLiteral("Processes & Modules"),
                              QStringLiteral("Hydraulics & Schedule"),
-                             QStringLiteral("Dynamic Wave: Steps & Tolerances"),
-                             QStringLiteral("Dynamic Wave: Solver"),
+                             QStringLiteral("Time Steps & Tolerances"),
+                             QStringLiteral("Dynamic Wave"),
                              // Seven, not PLAN §3's five: the five 2D
                              // groups need 1318 px against a 746 px viewport
                              // (measured), so they split three ways.
