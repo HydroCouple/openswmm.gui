@@ -282,8 +282,8 @@ tells you whether `LTS_TIERS` is buying you anything.
 
 Set `CELL_CLOSURE` to VFR and re-run, then compare.
 
-**Simulation Options → 2D Surface Routing → Mesh & Closure**, in the
-**Cell closure (wetting / drying)** group:
+**Simulation Options → 2D Surface Routing → Wetting & Drying**, in the
+**Cell closure** group:
 
 | Control | Entries | Writes |
 |---|---|---|

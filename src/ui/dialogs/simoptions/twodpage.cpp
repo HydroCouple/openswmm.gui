@@ -240,21 +240,23 @@ void TwoDPage::buildUi()
 
     t2OutLay->addWidget(perfGroup);
 
-    auto *meshGroup = new QGroupBox(tr("Mesh"), t2Msh);
-    auto *meshForm  = new QFormLayout(meshGroup);
+    // Not "Mesh": every knob here is a depth below which the solver stops
+    // treating a cell as wet. Nothing in it describes the mesh.
+    auto *depthGroup = new QGroupBox(tr("Depth thresholds"), t2Msh);
+    auto *meshForm  = new QFormLayout(depthGroup);
 
-    m_dryDepthSpin = new QDoubleSpinBox(meshGroup);
+    m_dryDepthSpin = new QDoubleSpinBox(depthGroup);
     m_dryDepthSpin->setRange(0.0, 1.0);
     m_dryDepthSpin->setDecimals(6);
     m_dryDepthSpin->setSuffix(QStringLiteral(" m"));
     meshForm->addRow(tr("Dry depth threshold:"), m_dryDepthSpin);
 
-    m_limiterEpsSpin = new QDoubleSpinBox(meshGroup);
+    m_limiterEpsSpin = new QDoubleSpinBox(depthGroup);
     m_limiterEpsSpin->setRange(0.0, 1.0);
     m_limiterEpsSpin->setDecimals(9);
     meshForm->addRow(tr("Limiter epsilon:"), m_limiterEpsSpin);
 
-    m_fluxDhEpsSpin = new QDoubleSpinBox(meshGroup);
+    m_fluxDhEpsSpin = new QDoubleSpinBox(depthGroup);
     m_fluxDhEpsSpin->setRange(0.0, 1.0);
     m_fluxDhEpsSpin->setDecimals(6);
     m_fluxDhEpsSpin->setSuffix(QStringLiteral(" m"));
@@ -264,9 +266,9 @@ void TwoDPage::buildUi()
            "performance trials."));
     meshForm->addRow(tr("Flux head epsilon:"), m_fluxDhEpsSpin);
 
-    t2MshLay->addWidget(meshGroup);
+    t2MshLay->addWidget(depthGroup);
 
-    auto *closureGroup = new QGroupBox(tr("Cell closure (wetting / drying)"), t2Msh);
+    auto *closureGroup = new QGroupBox(tr("Cell closure"), t2Msh);
     auto *closureForm  = new QFormLayout(closureGroup);
 
     m_cellClosureCombo = new QComboBox(closureGroup);
@@ -827,10 +829,10 @@ void TwoDPage::buildUi()
     t2OutLay->addStretch();
 
     m_tabs->addTab(t2Hyd, tr("Hydrodynamics"));
-    m_tabs->addTab(t2Msh, tr("Mesh & Closure"));
+    m_tabs->addTab(t2Msh, tr("Wetting & Drying"));
     m_tabs->addTab(t2Cpl, tr("Coupling"));
     m_tabs->addTab(t2Prc, tr("Processes"));
-    m_tabs->addTab(t2Out, tr("Rainfall & Output"));
+    m_tabs->addTab(t2Out, tr("Performance & Output"));
 }
 
 void TwoDPage::tagWidgets()

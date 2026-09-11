@@ -242,7 +242,7 @@ Totals: 326 figures, 35 videos.
 - [ ] `18_mesh_page.png` (line 347) — The Mesh page listing candidate .2dm files next to the project
 - [ ] `18_2d_options.png` (line 372) — The 2D Surface Routing page — the Hydrodynamics tab with the explicit marcher
 - [ ] `18_2d_processes_tab.png` — 2D Surface Routing › Processes, with the process switches and the Groundwater group
-- [ ] `18_2d_output_tab.png` — 2D Surface Routing › Rainfall & Output, with the variables checklist and the size estimate
+- [ ] `18_2d_output_tab.png` — 2D Surface Routing › Performance & Output, with the variables checklist and the size estimate
 - [ ] `18_files_subtab.png` (line 470) — The Files sub-tab with the secondary file references and the scheduled hot-start saves
 - [ ] `18_output_subtab.png` (line 494) — The Output sub-tab with writer combos and the report contents group
 - [ ] `18_plugins_subtab.png` (line 533) — The Plugins sub-tab editing the model's PLUGINS section

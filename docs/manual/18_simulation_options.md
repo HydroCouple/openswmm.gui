@@ -26,8 +26,8 @@ what they apply to, so no page is a single long scrolling column:
 | **Models / Processes** | Domains & Processes / Modules / Flags |
 | **Dates & Times** | Simulation Window / Time Steps / Events |
 | **Routing & Hydraulics** | Routing / Dynamic Wave / Finite Volume / Unsteady Friction |
-| **Quality & Transport** | Solver / Eulerian ARD / Lagrangian (LARD) / Reserved Species |
-| **2D Surface Routing** | Hydrodynamics / Mesh & Closure / Coupling / Processes / Rainfall & Output |
+| **Quality & Transport** | General / Eulerian ARD / Lagrangian (LARD) / Reserved Species |
+| **2D Surface Routing** | Hydrodynamics / Wetting & Drying / Coupling / Processes / Performance & Output |
 
 Tabs and sidebar rows are **activated contextually**: a tab that does not apply
 to the current selection greys out rather than disappearing, and its tooltip
@@ -333,7 +333,7 @@ routing** does on *Routing & Hydraulics*: it gates two of the four tabs.
 
 | Tab | Enabled when |
 | --- | --- |
-| **Solver** | always |
+| **General** | always — what applies under every solver, as *Routing* does on *Routing & Hydraulics* |
 | **Eulerian ARD** | Solver is Eulerian ARD |
 | **Lagrangian (LARD)** | Solver is Lagrangian |
 | **Reserved Species** | always |
@@ -341,7 +341,9 @@ routing** does on *Routing & Hydraulics*: it gates two of the four tabs.
 Every key is written whatever the solver selection, so you can configure LARD
 before switching to it and the settings survive.
 
-#### Solver
+#### General
+
+**Boundary quality**
 
 | Control | Options | Writes |
 | --- | --- | --- |
@@ -455,8 +457,8 @@ project has no value for a key, the page shows the corresponding default from
 *Preferences* › *Simulation Defaults* › the **2D** tabs
 (\ref manual_preferences) — the same value **File → New** would synthesise.
 
-Five tabs: **Hydrodynamics**, **Mesh & Closure**, **Coupling**, **Processes**
-and **Rainfall & Output**.
+Five tabs: **Hydrodynamics**, **Wetting & Drying**, **Coupling**, **Processes**
+and **Performance & Output**.
 
 \figtodo{18_2d_options.png, The 2D Surface Routing page — the Hydrodynamics tab with the explicit marcher}
 
@@ -480,9 +482,11 @@ this engine, so there is no solver selector and these settings are always live.
 | **Max Froude number** | Froude cap on face discharge — the supercritical guard | `FROUDE_MAX` |
 | **Convective momentum flux (ADVECTION)** | Include the convective momentum flux at interior faces (Stelling–Duinmeijer staggered upwind) | `ADVECTION` |
 
-#### Mesh & Closure
+#### Wetting & Drying
 
-**Mesh**
+Everything that decides how a partially wet or drying cell is treated.
+
+**Depth thresholds**
 
 | Control | Meaning | Writes |
 | --- | --- | --- |
@@ -490,7 +494,7 @@ this engine, so there is no solver selector and these settings are always live.
 | **Limiter epsilon** | Limiter regularisation | `LIMITER_EPSILON` |
 | **Flux head epsilon** | Head-difference regularisation for the diffusive-wave flux, m | `FLUX_DH_EPS` |
 
-**Cell closure (wetting / drying)**
+**Cell closure**
 
 | Control | Options | Writes |
 | --- | --- | --- |
@@ -556,7 +560,7 @@ With **Subsurface** on, **Destination** above locks to the 2D aquifer:
 infiltrated water enters the column under the cell, which is the mutual
 exclusion the engine validates.
 
-#### Rainfall & Output
+#### Performance & Output
 
 **Performance**
 
