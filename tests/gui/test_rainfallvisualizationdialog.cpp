@@ -9,6 +9,7 @@
  * files alongside (`gage_files_rain.dat` / `gage_files_rain.csv`).
  */
 
+#include "dialog_a11y_checks.h"
 #include "layers/swmmmodellayer.h"
 #include "plot/rainfallseriesmodel.h"
 #include "ui/dialogs/rainfallvisualizationdialog.h"
@@ -18,10 +19,12 @@
 
 #include <QChart>
 #include <QComboBox>
+#include <QDialogButtonBox>
 #include "plot/utctimeaxis.h"
 #include <QDir>
 #include <QLineSeries>
 #include <QObject>
+#include <QPushButton>
 #include <QTableWidget>
 #include <QTest>
 
@@ -256,6 +259,29 @@ private slots:
         // An unknown id (stale ref) leaves the current view alone.
         dlg.setFocusGage(QStringLiteral("NO_SUCH_GAGE"));
         QCOMPARE(dlg.visibleGages(), QSet<QString>{otherId});
+    }
+
+    // The window used to be dismissable only from the title bar. The Close
+    // box must hide it, and must not be the default button — Enter in the
+    // stats table has to act on the table, never close the window.
+    void closeButton_HidesDialog()
+    {
+        auto layer = openLayer(QStringLiteral("gage_assignment_files.inp"));
+        QVERIFY(layer);
+        RainfallVisualizationDialog dlg(layer.get());
+        dlg.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dlg));
+
+        auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("rainviz_closeBox"));
+        QVERIFY(box);
+        auto *btn = box->button(QDialogButtonBox::Close);
+        QVERIFY(btn);
+        QVERIFY(!btn->isDefault());
+        QVERIFY(!btn->autoDefault());
+        swmmvis_test::assertDialogA11y(&dlg);
+
+        btn->click();
+        QTRY_VERIFY(!dlg.isVisible());
     }
 };
 

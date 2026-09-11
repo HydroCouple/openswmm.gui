@@ -22,6 +22,7 @@
  *  12. Adding a provider via the registry shows up in the list automatically.
  */
 
+#include "dialog_a11y_checks.h"
 #include "pattern/patternprovider.h"
 #include "pattern/patternregistry.h"
 #include "ui/dialogs/patterneditordialog.h"
@@ -32,6 +33,7 @@
 #include <QChartView>
 #include <QClipboard>
 #include <QComboBox>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QLineEdit>
@@ -627,14 +629,22 @@ private slots:
         QUndoStack stack;
 
         // Flip from default (step + markers) to smooth + no markers, then
-        // close the dialog. closeEvent flushes the settings.
+        // leave through the Close BUTTON. closeEvent flushes the settings,
+        // and on Qt >= 6.3 accept()/reject() skip closeEvent — so this pins
+        // the button to close(), not just to "the dialog went away".
         {
             PatternEditorDialog dlg(&reg, &stack);
             QVERIFY(dlg.isStepLinePreview());
             QVERIFY(dlg.arePreviewMarkersVisible());
             dlg.setStepLinePreview(false);
             dlg.setPreviewMarkersVisible(false);
-            dlg.close();
+            dlg.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&dlg));
+            auto *box = dlg.findChild<QDialogButtonBox *>(
+                QStringLiteral("pattern_closeBox"));
+            QVERIFY(box);
+            box->button(QDialogButtonBox::Close)->click();
+            QTRY_VERIFY(!dlg.isVisible());
         }
 
         // Re-open — the restored toggles take effect.
@@ -647,6 +657,30 @@ private slots:
             QVERIFY(p);
             QCOMPARE(dlg2.previewLineSeries()->count(), p->factorCount());
         }
+    }
+
+    // The editor used to be dismissable only from the title bar. The Close
+    // box must hide it, and must not be the default button — Enter in a
+    // factor cell has to commit the cell, never close the editor.
+    void closeButton_HidesDialog()
+    {
+        PatternRegistry reg;
+        QVERIFY(reg.create(QStringLiteral("PAT"), PatternType::Monthly));
+        QUndoStack stack;
+        PatternEditorDialog dlg(&reg, &stack);
+        dlg.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dlg));
+
+        auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("pattern_closeBox"));
+        QVERIFY(box);
+        auto *btn = box->button(QDialogButtonBox::Close);
+        QVERIFY(btn);
+        QVERIFY(!btn->isDefault());
+        QVERIFY(!btn->autoDefault());
+        swmmvis_test::assertDialogA11y(&dlg);
+
+        btn->click();
+        QTRY_VERIFY(!dlg.isVisible());
     }
 };
 
