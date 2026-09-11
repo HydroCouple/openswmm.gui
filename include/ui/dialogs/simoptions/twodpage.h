@@ -6,10 +6,15 @@
  *
  * Simulation Options → 2D Surface Routing.
  *
- * Tabs: Hydrodynamics · Mesh & Closure · Coupling · Processes · Rainfall &
- * Output. Five rather than PLAN §2's four: §1.3 reserved "a Processes tab
- * after Coupling", and that content (the 2D process switches and the
- * groundwater enables, U1/U5) now exists.
+ * Tabs: Hydrodynamics · Wetting & Drying · Coupling · Processes ·
+ * Performance & Output. Five rather than PLAN §2's four: §1.3 reserved "a
+ * Processes tab after Coupling", and that content (the 2D process switches and
+ * the groundwater enables, U1/U5) now exists.
+ *
+ * Two tab names depart from §2 because the content moved out from under them:
+ * "Rainfall & Output" lost its rainfall to the Processes tab, and "Mesh &
+ * Closure" never held a mesh setting — its first group is the depth thresholds
+ * that decide when a cell counts as wet.
  *
  * Every key on this page is an `[2D_OPTIONS]` key and goes through
  * `swmm_options_set_ext`, not the plain `[OPTIONS]` setter — so the page keeps
@@ -55,7 +60,7 @@ public:
     void refreshGates() override;
 
     /*! \brief Tab order, so the dialog can name tabs without magic numbers. */
-    enum Tab { TabHydrodynamics = 0, TabMesh, TabCoupling, TabProcesses, TabOutput };
+    enum Tab { TabHydrodynamics = 0, TabWetDry, TabCoupling, TabProcesses, TabOutput };
 
     [[nodiscard]] QTabWidget *tabs() const { return m_tabs; }
 

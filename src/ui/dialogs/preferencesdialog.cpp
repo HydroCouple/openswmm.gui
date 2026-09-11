@@ -813,8 +813,8 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
 
     tabs->addTab(pmTab,   tr("Processes & Modules"));
     tabs->addTab(hsTab,   tr("Hydraulics & Schedule"));
-    tabs->addTab(dwsTab,  tr("Dynamic Wave: Steps & Tolerances"));
-    tabs->addTab(dwvTab,  tr("Dynamic Wave: Solver"));
+    tabs->addTab(dwsTab,  tr("Time Steps & Tolerances"));
+    tabs->addTab(dwvTab,  tr("Dynamic Wave"));
     // PLAN §3 drew one "2D" tab. Its five groups need 1318 px against a 746 px
     // viewport at 1280x800 — measured, not estimated — so they split three
     // ways: exactly the arithmetic that gave the Simulation Options 2D page
