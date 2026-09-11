@@ -229,11 +229,15 @@ private:
     QDoubleSpinBox *m_twoDMeshSimplifyEpsSpin = nullptr;
     QDoubleSpinBox *m_twoDMeshSnapEpsSpin     = nullptr;
     QDoubleSpinBox *m_twoDMeshFlattenRadSpin  = nullptr;
+    QCheckBox      *m_twoDMeshNodesBox        = nullptr;  ///< nodes → Steiner vertices
+    QCheckBox      *m_twoDMeshNodesRimBox     = nullptr;  ///< rim elevation instead of terrain
     QCheckBox      *m_twoDMeshMinSepBox       = nullptr;
     QDoubleSpinBox *m_twoDMeshMinSepSpin      = nullptr;
     QCheckBox      *m_twoDMeshThinningBox     = nullptr;
     QDoubleSpinBox *m_twoDMeshThinningTolSpin = nullptr;
     QSpinBox       *m_twoDMeshThinningPassesSpin = nullptr;
+    QCheckBox      *m_twoDMeshMinSpacingBox   = nullptr;  ///< Poisson-disk min point spacing
+    QDoubleSpinBox *m_twoDMeshMinSpacingSpin  = nullptr;
     QDoubleSpinBox *m_twoDMeshBoundaryBufSpin = nullptr;
     QCheckBox      *m_twoDMeshMaxEdgeBox      = nullptr;
     QDoubleSpinBox *m_twoDMeshMaxEdgeSpin     = nullptr;
