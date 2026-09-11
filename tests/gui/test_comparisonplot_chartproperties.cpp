@@ -14,6 +14,7 @@
  * Self-contained: links chartproperties.cpp + Qt6 Charts.
  */
 #include "plot/chartproperties.h"
+#include "plot/utctimeaxis.h"
 #include "ui/dialogs/chartpropertiesdialog.h"
 
 #include <qpropertyitemdelegate.h>
@@ -43,6 +44,7 @@ private slots:
     void setterAreNoOpsAfterChartDeleted();
     void dialogUsesQPropertyModelDelegate();
     void statisticsNumberFormatRoundTripsThroughPropertySurface();
+    void xLabelFormatSkipsUtcTimeAxis();
 
 private:
     QChart *makeChart()
@@ -199,6 +201,45 @@ void TestComparisonPlotChartProperties::statisticsNumberFormatRoundTripsThroughP
     QCOMPARE(format.count, 2);
     QCOMPARE(format.custom, QStringLiteral("%.2f"));
 
+    delete chart;
+}
+
+void TestComparisonPlotChartProperties::xLabelFormatSkipsUtcTimeAxis()
+{
+    // Issue #11: UtcTimeAxis derives from QCategoryAxis → QValueAxis, so the
+    // "is a QValueAxis" test that routes printf label specs would stamp the
+    // X spec over its date labels unless ChartProperties skips it explicitly
+    // (QDateTimeAxis was skipped only by accident of its hierarchy).
+    auto *chart = new QChart;
+    auto *series = new QLineSeries;
+    const QDateTime t0(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC);
+    const QDateTime t1 = t0.addDays(1);
+    series->append(static_cast<qreal>(t0.toMSecsSinceEpoch()), 0.0);
+    series->append(static_cast<qreal>(t1.toMSecsSinceEpoch()), 10.0);
+    chart->addSeries(series);
+    auto *xAxis = new openswmmvis::plot::UtcTimeAxis;
+    xAxis->setFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
+    xAxis->setTickCount(3);
+    auto *yAxis = new QValueAxis;  yAxis->setRange(0.0, 10.0);
+    chart->addAxis(xAxis, Qt::AlignBottom);
+    chart->addAxis(yAxis, Qt::AlignLeft);
+    series->attachAxis(xAxis);
+    series->attachAxis(yAxis);
+    xAxis->setRange(t0, t1);
+    const QStringList dates{QStringLiteral("2026-01-01 00:00"),
+                            QStringLiteral("2026-01-01 12:00"),
+                            QStringLiteral("2026-01-02 00:00")};
+    QCOMPARE(xAxis->categoriesLabels(), dates);
+
+    ChartProperties props(chart);
+    props.setXAxisNumberFormat(ChartProperties::Decimals3);
+    props.setYAxisNumberFormat(ChartProperties::Decimals3);
+
+    QCOMPARE(xAxis->categoriesLabels(), dates);
+    QVERIFY2(xAxis->labelFormat().isEmpty(),
+             qPrintable(QStringLiteral("time axis got a numeric spec: %1")
+                            .arg(xAxis->labelFormat())));
+    QCOMPARE(yAxis->labelFormat(), QStringLiteral("%.3f"));
     delete chart;
 }
 

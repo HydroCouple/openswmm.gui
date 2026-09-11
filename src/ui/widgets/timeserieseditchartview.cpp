@@ -15,7 +15,7 @@
 #include <QChart>
 #include <QContextMenuEvent>
 #include <QDateTime>
-#include <QDateTimeAxis>
+#include "plot/utctimeaxis.h"
 #include <QElapsedTimer>
 #include <QLineSeries>
 #include <QList>
@@ -90,7 +90,7 @@ TimeseriesEditChartView::TimeseriesEditChartView(TimeseriesProvider *provider, Q
     c->addSeries(m_scatter);
     c->addSeries(m_selectedScatter);
 
-    m_xAxis = new QDateTimeAxis(c);
+    m_xAxis = new openswmmvis::plot::UtcTimeAxis(c);
     m_xAxis->setFormat(openswmmvis::core::swmmDateTimeDisplayFormat());
     c->addAxis(m_xAxis, Qt::AlignBottom);
 

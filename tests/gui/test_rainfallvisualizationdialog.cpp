@@ -18,7 +18,7 @@
 
 #include <QChart>
 #include <QComboBox>
-#include <QDateTimeAxis>
+#include "plot/utctimeaxis.h"
 #include <QDir>
 #include <QLineSeries>
 #include <QObject>
@@ -196,7 +196,7 @@ private slots:
         QVERIFY(axes.size() >= 2);
 
         // Small nudges — the rain fixtures span well under an hour, so a
-        // ±1 h nudge would invert the range and QDateTimeAxis would refuse it.
+        // ±1 h nudge would invert the range (UtcTimeAxis swaps the edges).
         const QDateTime lo = axes[0]->min().addSecs(300);
         const QDateTime hi = axes[0]->max().addSecs(-300);
         axes[0]->setRange(lo, hi);

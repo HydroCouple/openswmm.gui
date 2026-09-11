@@ -36,7 +36,7 @@
 
 class QChart;
 class QComboBox;
-class QDateTimeAxis;
+namespace openswmmvis::plot { class UtcTimeAxis; }
 class QLabel;
 class QSplitter;
 class QTableWidget;
@@ -93,9 +93,9 @@ public:
     }
 
     /*! \brief Per-gage panel X axes, in gage order (tests). */
-    QVector<QDateTimeAxis *> panelTimeAxes() const
+    QVector<openswmmvis::plot::UtcTimeAxis *> panelTimeAxes() const
     {
-        QVector<QDateTimeAxis *> out;
+        QVector<openswmmvis::plot::UtcTimeAxis *> out;
         for (const auto &p : m_panels) out.push_back(p.axisX);
         return out;
     }
@@ -120,7 +120,7 @@ private:
 
     struct GagePanel {
         QChart                    *chart = nullptr;
-        QDateTimeAxis             *axisX = nullptr;
+        openswmmvis::plot::UtcTimeAxis  *axisX = nullptr;
         QValueAxis                *axisY = nullptr;
         InteractiveChartView      *view  = nullptr;
         ChartAxisFormatController *fmt   = nullptr;
