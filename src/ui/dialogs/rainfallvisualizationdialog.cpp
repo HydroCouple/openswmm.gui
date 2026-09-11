@@ -18,7 +18,7 @@
 #include <QActionGroup>
 #include <QChart>
 #include <QComboBox>
-#include <QDateTimeAxis>
+#include "plot/utctimeaxis.h"
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIcon>
@@ -213,7 +213,7 @@ void RainfallVisualizationDialog::buildUi_()
         m_overlay.chart = new QChart();
         m_overlay.chart->legend()->setVisible(true);
         m_overlay.chart->legend()->setAlignment(Qt::AlignBottom);
-        m_overlay.axisX = new QDateTimeAxis(m_overlay.chart);
+        m_overlay.axisX = new openswmmvis::plot::UtcTimeAxis(m_overlay.chart);
         m_overlay.axisX->setFormat(openswmmvis::core::swmmDateTimeDisplayFormat());
         m_overlay.axisY = new QValueAxis(m_overlay.chart);
         m_overlay.chart->addAxis(m_overlay.axisX, Qt::AlignBottom);
@@ -386,7 +386,7 @@ void RainfallVisualizationDialog::rebuildCharts_()
         p.chart = new QChart();
         p.chart->legend()->setVisible(false);
         p.chart->setTitle(g.id);
-        p.axisX = new QDateTimeAxis(p.chart);
+        p.axisX = new openswmmvis::plot::UtcTimeAxis(p.chart);
         p.axisX->setFormat(openswmmvis::core::swmmDateTimeDisplayFormat());
         p.axisY = new QValueAxis(p.chart);
         p.axisY->setTitleText(basisAxisTitle_());
@@ -424,8 +424,8 @@ void RainfallVisualizationDialog::rebuildCharts_()
 
     // Shared time axis: mirror any panel's X range onto every other panel
     // (and the overlay), guarded against re-entry.
-    auto wireX = [this](QDateTimeAxis *src) {
-        connect(src, &QDateTimeAxis::rangeChanged, this,
+    auto wireX = [this](openswmmvis::plot::UtcTimeAxis *src) {
+        connect(src, &openswmmvis::plot::UtcTimeAxis::rangeChangedUtc, this,
                 [this, src](const QDateTime &lo, const QDateTime &hi) {
                     if (m_syncingX) return;
                     m_syncingX = true;

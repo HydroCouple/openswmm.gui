@@ -8,6 +8,7 @@
 
 #include "core/preferencesmanager.h"
 #include "plot/chartproperties.h"
+#include "plot/utctimeaxis.h"
 #include "ui/dialogs/chartpropertiesdialog.h"
 
 #include <QChart>
@@ -39,10 +40,15 @@ void ChartAxisFormatController::apply()
     if (!m_chart) return;
     const QString xSpec = m_x.printfSpec();
     const QString ySpec = m_y.printfSpec();
-    for (auto *ax : m_chart->axes(Qt::Horizontal))
-        if (auto *va = qobject_cast<QValueAxis *>(ax)) va->setLabelFormat(xSpec);
-    for (auto *ax : m_chart->axes(Qt::Vertical))
-        if (auto *va = qobject_cast<QValueAxis *>(ax)) va->setLabelFormat(ySpec);
+    // UtcTimeAxis must be skipped EXPLICITLY (issue #11): it derives from
+    // QCategoryAxis → QValueAxis, so unlike QDateTimeAxis it matches the cast
+    // below, and a numeric spec would replace its date labels.
+    auto applySpec = [](QAbstractAxis *ax, const QString &spec) {
+        if (qobject_cast<openswmmvis::plot::UtcTimeAxis *>(ax)) return;
+        if (auto *va = qobject_cast<QValueAxis *>(ax)) va->setLabelFormat(spec);
+    };
+    for (auto *ax : m_chart->axes(Qt::Horizontal)) applySpec(ax, xSpec);
+    for (auto *ax : m_chart->axes(Qt::Vertical))   applySpec(ax, ySpec);
 }
 
 void ChartAxisFormatController::openDialog(QWidget *parent)

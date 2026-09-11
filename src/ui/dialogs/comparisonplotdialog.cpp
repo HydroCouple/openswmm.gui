@@ -35,7 +35,7 @@
 #include <QPainter>
 #include <QColorDialog>
 #include <QComboBox>
-#include <QDateTimeAxis>
+#include "plot/utctimeaxis.h"
 #include <QDialogButtonBox>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -743,13 +743,13 @@ void ComparisonPlotDialog::wireXAxisSync(int rowIndex)
     if (rowIndex < 0 || rowIndex >= m_rowWidgets.size()) return;
     RowWidgets &rw = m_rowWidgets[rowIndex];
     if (!rw.xAxis) return;
-    connect(rw.xAxis, &QDateTimeAxis::rangeChanged,
+    connect(rw.xAxis, &openswmmvis::plot::UtcTimeAxis::rangeChangedUtc,
             this, [this, rowIndex](QDateTime lo, QDateTime hi) {
                 if (m_syncingX) return;
                 m_syncingX = true;
                 for (int r = 0; r < m_rowWidgets.size(); ++r) {
                     if (r == rowIndex) continue;
-                    QDateTimeAxis *ax = m_rowWidgets[r].xAxis;
+                    openswmmvis::plot::UtcTimeAxis *ax = m_rowWidgets[r].xAxis;
                     if (!ax) continue;
                     QSignalBlocker block(ax);
                     ax->setRange(lo, hi);
@@ -1397,8 +1397,8 @@ void ComparisonPlotDialog::appendChartTails()
                                std::max(yMax + pad, hadPoints ? rw.yAxis->max() : yMax + pad));
         }
         if (xMinMs < xMaxMs)
-            rw.xAxis->setRange(QDateTime::fromMSecsSinceEpoch(xMinMs),
-                                QDateTime::fromMSecsSinceEpoch(xMaxMs));
+            rw.xAxis->setRange(QDateTime::fromMSecsSinceEpoch(xMinMs, Qt::UTC),
+                                QDateTime::fromMSecsSinceEpoch(xMaxMs, Qt::UTC));
     }
     applyAnimationCursorToCharts();
 }
@@ -1432,7 +1432,7 @@ void ComparisonPlotDialog::rebuildCharts()
         rw.chart->setTitle(labelWithUnits(row.attribute, row.unitSystem));
         rw.chart->legend()->setVisible(true);
 
-        rw.xAxis = new QDateTimeAxis;
+        rw.xAxis = new openswmmvis::plot::UtcTimeAxis;
         rw.xAxis->setTitleText(tr("Time"));
         rw.xAxis->setFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
         rw.chart->addAxis(rw.xAxis, Qt::AlignBottom);
@@ -1515,8 +1515,8 @@ void ComparisonPlotDialog::rebuildCharts()
             rw.yAxis->setRange(0, 1);
         }
         if (xMinMs < xMaxMs) {
-            rw.xAxis->setRange(QDateTime::fromMSecsSinceEpoch(xMinMs),
-                                QDateTime::fromMSecsSinceEpoch(xMaxMs));
+            rw.xAxis->setRange(QDateTime::fromMSecsSinceEpoch(xMinMs, Qt::UTC),
+                                QDateTime::fromMSecsSinceEpoch(xMaxMs, Qt::UTC));
         }
 
         // Slice AT.2 — InteractiveChartView replaces plain QChartView so the
