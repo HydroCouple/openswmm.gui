@@ -20,6 +20,14 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- **Simulations run on a private thread pool, seed `THREADS 0`, and tell the engine about the GUI's
+  own threads** — the engine step loop shared the global `QThreadPool` with the per-tick map-render and
+  contour jobs; File ▸ New and the preferences reset wrote `THREADS = <all logical CPUs>`, which
+  bypasses the engine's performance-core clamp; `OPENSWMM_HOST_RESERVED_THREADS=3` is exported at
+  start-up so the engine counts the GUI, render and IO threads before deciding to spin-wait. On macOS
+  the app holds an `NSProcessInfo` activity for the length of a run (no App Nap), and the bundled
+  OpenMP plugin no longer resolves Homebrew's `libomp` ahead of the bundled one (two OpenMP runtimes in
+  one process). Live 2D slots skip their repaint while the layer is hidden.
 - **Simulation Options — contextual tabs instead of one long column per page** — the five densest
   sidebar pages now group their controls into inner tabs, and a tab that does not apply to the
   current selection greys out with a tooltip saying why rather than disappearing, so a gated option
@@ -57,6 +65,22 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Fixed
 
+- **Closing one project while another stayed open could crash later on any dock toggle** — the
+  layer tree, its model and the terrain toolbar kept a raw pointer to the closed project's map canvas,
+  and the MDI activation flip that any widget show/hide triggers sent `QObject::disconnect` through it
+  (the only crash on record in the September diagnostic reports; it is not a memory leak). They hold
+  `QPointer`s now, rebind on `destroyed`, and the main window moves the docks to a live project before
+  the closing one announces `aboutToClose`. `test_layertree_canvas_rebind`.
+- **Long live 2D runs no longer grow memory without bound or stall the GUI** — the live 2D history was
+  capped in frames only (a 155k-cell mesh reached ~9 GB before thinning); a byte budget
+  (*Preferences ▸ Simulation ▸ Live 2D history budget*, default 1024 MB) thins it to 75 %, the runner
+  skips a tick's 2D bundle while two are still queued (`2D ticks skipped (GUI busy)` in the runlog), the
+  message log keeps 20 000 rows and each job 5 000 warnings, one contour job runs at a time, the
+  label-texture cache is evicted past 512 entries, and the engine handle is closed on every exit path
+  of the worker.
+- **Live comparison charts re-read only the new tail of each series per tick** — every series was
+  resolved in full on every progress tick (a full-mesh copy per frame for 2D velocity / edge-flux /
+  rainfall series), which is what let the GUI thread fall behind the runner on long runs.
 - **`FV_SCALAR_SCHEME` was silently discarded** — the Scalar scheme combo on *Quality & Transport ▸
   Eulerian ARD* was laid out and tagged but neither read from nor written to the engine, so it
   always showed MUSCL and every edit was lost on Apply. Both halves are restored.

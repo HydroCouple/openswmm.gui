@@ -124,8 +124,9 @@ private slots:
     }
 
     // 2. Delete-path staleness: after remove()+saveToEngine() (what
-    //    DeleteDataObjectCommand::redo does) the row must disappear even
-    //    though saveToEngine never deletes the engine-side table.
+    //    DeleteDataObjectCommand::redo does) the row must disappear. Since
+    //    72d188e remove() also deletes the engine-side table (Phase A3), so
+    //    the engine no longer carries a row that could keep the leaf alive.
     void deletedProviderDisappearsDespiteEngineRow()
     {
         auto layer = openFixtureLayer();
@@ -145,9 +146,8 @@ private slots:
 
         QCOMPARE(layer->dataObjectCount(SWMMModelLayer::DataTimeSeries), 0);
         QCOMPARE(model.topRowForDataCategory(SWMMModelLayer::DataTimeSeries), -1);
-        // The engine still carries the table — engine-sourced counts would
-        // have kept the deleted row alive.
-        QVERIFY(swmm_table_index(layer->engine(), "TS1") >= 0);
+        // remove() deleted the engine copy too (registry contract since 72d188e).
+        QVERIFY(swmm_table_index(layer->engine(), "TS1") < 0);
     }
 
     // 3. Rename updates the leaf text.
