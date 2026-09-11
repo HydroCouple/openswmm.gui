@@ -37,7 +37,7 @@ class QLabel;
 class QChart;
 class QLineSeries;
 class QScatterSeries;
-class QDateTimeAxis;
+namespace openswmmvis::plot { class UtcTimeAxis; }
 class QValueAxis;
 class QSplitter;
 class QTreeWidget;
@@ -233,7 +233,7 @@ private:
         // Column 0 — time series.
         InteractiveChartView *view       = nullptr;
         QChart               *chart      = nullptr;
-        QDateTimeAxis        *xAxis      = nullptr;
+        openswmmvis::plot::UtcTimeAxis        *xAxis      = nullptr;
         QValueAxis           *yAxis      = nullptr;
         QLineSeries          *cursorLine = nullptr;
         QVector<QLineSeries*> series;     ///< Parallel to model row's seriesIndices.

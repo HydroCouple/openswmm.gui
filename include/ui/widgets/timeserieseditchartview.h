@@ -41,7 +41,7 @@
 class QChart;
 class QLineSeries;
 class QScatterSeries;
-class QDateTimeAxis;
+namespace openswmmvis::plot { class UtcTimeAxis; }
 class QValueAxis;
 class QRubberBand;
 class QUndoStack;
@@ -165,7 +165,7 @@ private:
     QLineSeries    *m_line             = nullptr;
     QScatterSeries *m_scatter          = nullptr;
     QScatterSeries *m_selectedScatter  = nullptr;
-    QDateTimeAxis  *m_xAxis            = nullptr;
+    openswmmvis::plot::UtcTimeAxis  *m_xAxis            = nullptr;
     QValueAxis     *m_yAxis            = nullptr;
     ChartAxisFormatController *m_axisFmt = nullptr;  ///< Not owned (dialog owns it).
 

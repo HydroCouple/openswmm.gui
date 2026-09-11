@@ -855,6 +855,10 @@ add_swmmvis_gui_test(test_comparisonplot_toolbar
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
     ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_comparisonplot_toolbar PRIVATE Qt6::Charts)
@@ -888,6 +892,10 @@ add_swmmvis_gui_test(test_timeseries_edit_chart_view
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_timeseries_edit_chart_view PRIVATE Qt6::Charts
@@ -941,6 +949,10 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutpersistence.h
@@ -998,6 +1010,10 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutpersistence.h
@@ -1161,6 +1177,10 @@ add_swmmvis_gui_test(test_pattern_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_pattern_editor_dialog PRIVATE Qt6::Charts Qt6::Svg
@@ -1205,6 +1225,10 @@ add_swmmvis_gui_test(test_curve_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_curve_editor_dialog PRIVATE Qt6::Charts Qt6::Svg
@@ -1363,11 +1387,25 @@ add_swmmvis_gui_test(test_userflags_roundtrip
 # Slice AT.2 — pins the recursion-guarded X-axis linking idiom used in
 # ComparisonPlotDialog::wireXAxisSync. Self-contained: in-test XAxisSyncBus
 # mirrors the dialog's pattern; no dialog code needed. Needs Qt6::Charts
-# for QDateTimeAxis.
+# for the UtcTimeAxis (issue #11) the dialog rows use.
 add_swmmvis_gui_test(test_comparisonplot_xaxis_link
     test_comparisonplot_xaxis_link.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
 )
 target_link_libraries(test_comparisonplot_xaxis_link PRIVATE Qt6::Charts)
+
+# Issue #11 — UtcTimeAxis renders tick labels in UTC whatever the process
+# zone. Runs under a non-UTC, DST-observing TZ so the "labels equal the UTC
+# run's" assertion is not vacuous on a UTC machine (Qt honours $TZ on Unix).
+add_swmmvis_gui_test(test_utctimeaxis
+    test_utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
+)
+target_link_libraries(test_utctimeaxis PRIVATE Qt6::Charts)
+set_property(TEST test_utctimeaxis APPEND PROPERTY
+    ENVIRONMENT_MODIFICATION "TZ=set:America/Denver")
 
 # Slice AT.3 — pins RangeSliderWidget invariants.
 add_swmmvis_gui_test(test_comparisonplot_rangeslider
@@ -1398,6 +1436,10 @@ add_swmmvis_gui_test(test_comparisonplot_chartproperties
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
     ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_comparisonplot_chartproperties PRIVATE

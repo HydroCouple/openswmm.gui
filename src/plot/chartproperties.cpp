@@ -14,6 +14,8 @@
 #include <QBrush>
 #include <QValueAxis>
 
+#include "plot/utctimeaxis.h"
+
 #include <algorithm>
 
 namespace openswmmvis::plot {
@@ -76,10 +78,17 @@ void ChartProperties::applyLabelFormats_()
     const QString ySpec = yFormat().printfSpec();
     // Only QValueAxis honours a printf label format; QDateTimeAxis (the
     // comparison-plot time axis) and QCategoryAxis are left untouched.
-    for (auto *ax : m_chart->axes(Qt::Horizontal))
-        if (auto *va = qobject_cast<QValueAxis*>(ax)) va->setLabelFormat(xSpec);
-    for (auto *ax : m_chart->axes(Qt::Vertical))
-        if (auto *va = qobject_cast<QValueAxis*>(ax)) va->setLabelFormat(ySpec);
+    //
+    // UtcTimeAxis must be skipped EXPLICITLY (issue #11). It derives from
+    // QCategoryAxis, which derives from QValueAxis, so unlike QDateTimeAxis it
+    // DOES match the cast below — and stamping a numeric spec on it would
+    // replace its date labels with "%.3f"-formatted epoch milliseconds.
+    auto applySpec = [](QAbstractAxis *ax, const QString &spec) {
+        if (qobject_cast<openswmmvis::plot::UtcTimeAxis*>(ax)) return;
+        if (auto *va = qobject_cast<QValueAxis*>(ax)) va->setLabelFormat(spec);
+    };
+    for (auto *ax : m_chart->axes(Qt::Horizontal)) applySpec(ax, xSpec);
+    for (auto *ax : m_chart->axes(Qt::Vertical))   applySpec(ax, ySpec);
 }
 
 QString ChartProperties::displayLabelFor(const QString &name) const
