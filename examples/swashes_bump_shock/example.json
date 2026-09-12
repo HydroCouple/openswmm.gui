@@ -1,0 +1,5 @@
+{
+    "name": "Bump: Transcritical with Shock (SWASHES 3.1.5)",
+    "description": "Flow chokes at the crest, goes supercritical, then returns to subcritical through a stationary hydraulic jump. Tests shock capture and jump position (analytic x = 11.67 m).",
+    "category": "Analytical Verification (SWASHES)"
+}

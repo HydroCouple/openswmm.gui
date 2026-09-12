@@ -30,6 +30,9 @@ struct ExampleInfo
 {
     QString displayName;   //!< From example.json "name", else prettified file/dir name.
     QString description;   //!< From example.json "description"; may be empty.
+    QString category;      //!< From example.json "category"; empty = the Welcome
+                           //!< panel's default group (it owns that group's label,
+                           //!< which needs tr() — this header stays widget-free).
     QString openPath;      //!< Absolute path of the .oswp (preferred) or .inp inside sourceRoot.
     QString sourceRoot;    //!< Directory to copy (dir example) or the single .inp file (flat example).
     bool    isDirectory = false;  //!< Directory-per-example vs legacy flat .inp.
@@ -89,10 +92,11 @@ QString preferredExamplesDir(const QString &version);
  *
  * Directory examples: every subdirectory containing at least one .oswp
  * (preferred open target) or .inp. Flat examples: every top-level .inp
- * (legacy single-file bundles). Display name/description come from an
- * optional example.json manifest ({"name": …, "description": …}) in the
- * subdirectory, falling back to the prettified dir/file base name
- * ('_'/'-' → spaces).
+ * (legacy single-file bundles). Display name/description/category come from
+ * an optional example.json manifest
+ * ({"name": …, "description": …, "category": …}) in the subdirectory,
+ * falling back to the prettified dir/file base name ('_'/'-' → spaces) and
+ * an empty category.
  */
 QVector<ExampleInfo> discoverExamples(const QString &dir);
 

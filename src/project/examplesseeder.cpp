@@ -197,6 +197,7 @@ QVector<ExampleInfo> discoverExamples(const QString &dirPath)
             const QString name = o.value(QStringLiteral("name")).toString();
             if (!name.isEmpty()) info.displayName = name;
             info.description = o.value(QStringLiteral("description")).toString();
+            info.category    = o.value(QStringLiteral("category")).toString();
         }
         out.append(info);
     }

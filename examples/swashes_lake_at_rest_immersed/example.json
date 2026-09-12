@@ -1,0 +1,5 @@
+{
+    "name": "Lake at Rest: Immersed Bump (SWASHES 3.1.1)",
+    "description": "Still water over a fully submerged bump. The well-balancedness test: a correct scheme holds the lake exactly at rest and generates no spurious velocity. 25 m frictionless channel.",
+    "category": "Analytical Verification (SWASHES)"
+}
