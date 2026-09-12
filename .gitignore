@@ -87,6 +87,11 @@ docs/test_output/
 # inside a fully-ignored directory).
 examples/*
 !examples/bellinge_2d
+# Curated SWASHES analytical-verification payloads. Directory-wise negation is
+# safe here: nothing is ever run inside the baseline (the Welcome page copies
+# an example out first), so these folders only ever hold the imported input
+# files. Rebuild them with scripts/import_swashes_examples.py.
+!examples/swashes_*/
 # The two flat single-file examples in _SWMMVIS_EXAMPLE_INPS
 # (CMakeLists.txt:1827-1828). Negated FILE-wise, not directory-wise: their
 # folders also hold generated run output (road_culvert.{out,rpt,2d.h5}) and

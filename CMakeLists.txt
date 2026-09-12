@@ -1852,6 +1852,23 @@ set(_SWMMVIS_EXAMPLE_INPS
 set(_SWMMVIS_EXAMPLE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/examples/bellinge_2d"
 )
+# Curated SWASHES analytical-verification cases (example.json groups them
+# under their own Welcome-page category). Decks are regenerated from the QA
+# suite by scripts/import_swashes_examples.py — input files only.
+foreach(_swashes_case IN ITEMS
+        swashes_bump_shock
+        swashes_bump_subcritical
+        swashes_bump_transcritical
+        swashes_lake_at_rest_immersed
+        swashes_macdonald_rain_sub
+        swashes_macdonald_short_sub2sup
+        swashes_p2d_jump_short
+        swashes_ritter_dry_dam_break
+        swashes_stoker_wet_dam_break
+        swashes_thacker_radial_2d)
+    list(APPEND _SWMMVIS_EXAMPLE_DIRS
+         "${CMAKE_CURRENT_SOURCE_DIR}/examples/${_swashes_case}")
+endforeach()
 if(APPLE)
     # POST_BUILD into Contents/Resources/examples; install(TARGETS ... BUNDLE) ships it,
     # same as the GDAL/PROJ Resources above. Wipe the dest first so the dir reflects

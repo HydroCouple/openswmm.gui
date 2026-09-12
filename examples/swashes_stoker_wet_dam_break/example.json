@@ -1,0 +1,5 @@
+{
+    "name": "Stoker: Dam Break on a Wet Bed (SWASHES 4.1.1)",
+    "description": "Instantaneous dam break over standing water: a rarefaction running upstream and a bore running downstream. The classic transient Riemann test, compared at t = 2, 4 and 6 s.",
+    "category": "Analytical Verification (SWASHES)"
+}
