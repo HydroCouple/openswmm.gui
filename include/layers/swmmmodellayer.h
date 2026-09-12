@@ -228,6 +228,16 @@ public:
     [[nodiscard]] SWMM_Engine engine() const;
 
     /*!
+     * \brief Whether the layer's CRS was ASSIGNED — read from the .inp's
+     *        [OPTIONS] CRS, or set after load by the user (CRS picker,
+     *        Simulation Options, canvas reprojection, .oswp restore) — as
+     *        opposed to auto-derived on open from [MAP] UNITS or the
+     *        preferences default. Only an assigned CRS is written back to
+     *        the .inp on save; a model that carried none must stay that way.
+     */
+    [[nodiscard]] bool crsAssigned() const noexcept { return m_crsAssigned; }
+
+    /*!
      * \brief Loads (or reloads) the SWMM input file and rebuilds geometry caches.
      * \returns true on success.
      */
@@ -2399,6 +2409,10 @@ private:
     // spurious geometryChanged().
     int  m_bulkDepth = 0;
     bool m_bulkDirty = false;
+
+    // See crsAssigned(). Set by srsChanged after load; the load path resets
+    // it to whether the .inp itself carried a CRS.
+    bool m_crsAssigned = false;
 
     /*!
      * \brief Uniform-grid spatial index over scene-space link bboxes.

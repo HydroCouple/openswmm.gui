@@ -465,6 +465,13 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
 {
     setLayerType(OpenSWMMVisLayer::SWMMModelLayer);
 
+    // Any CRS change after the load path's own resolution is an assignment
+    // (CRS picker, Simulation Options, canvas reprojection, .oswp restore).
+    // The load path overwrites the flag right after its own setSRS — see
+    // crsAssigned().
+    connect(this, &OpenSWMMVisLayer::srsChanged, this,
+            [this](SpatialReferenceSystem *) { m_crsAssigned = true; });
+
     // Default symbology. Marker shape per kind matches the legacy
     // hardcoded dispatch in drawNodeGlyph() / appendNodeGlyphTriangles() so
     // first-open visuals don't change for users who never opened the
@@ -1283,6 +1290,7 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         char crsBuf[512] = {};
         if (swmm_get_crs(m_engine, crsBuf, sizeof(crsBuf)) == 0 && crsBuf[0] != '\0')
             layerSRS = SpatialReferenceSystem::fromWktOrProj(QString::fromUtf8(crsBuf), this);
+        const bool crsFromInp = layerSRS != nullptr;
 
         if (!layerSRS) {
             auto *prefs = PreferencesManager::instance();
@@ -1322,6 +1330,10 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         if (!layerSRS)
             layerSRS = SpatialReferenceSystem::untitled(this);
         setSRS(layerSRS, true);
+        // setSRS's srsChanged marked this an assignment; it is one only when
+        // the .inp itself carried the CRS. A [MAP]-derived or preferences
+        // default is not written back on save (crsAssigned()).
+        m_crsAssigned = crsFromInp;
     }
 
     const qint64 msCrs = crsTimer.elapsed();  // CRS resolve + PROJ init
