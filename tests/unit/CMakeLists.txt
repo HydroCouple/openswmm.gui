@@ -498,7 +498,8 @@ add_swmmvis_unit_test(test_examplesseeder
     ${PROJECT_SOURCE_DIR}/src/project/examplesseeder.cpp
 )
 target_compile_definitions(test_examplesseeder
-    PRIVATE BELLINGE_EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/bellinge_2d")
+    PRIVATE BELLINGE_EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/bellinge_2d"
+            EXAMPLES_SOURCE_DIR="${PROJECT_SOURCE_DIR}/examples")
 
 # ---- QSG 2D 1M-cell rendering helpers (QSG_2D_1M_RENDERING plan) ----
 # All pure Qt-Core helpers extracted from the 2D mesh/results QSG renderers

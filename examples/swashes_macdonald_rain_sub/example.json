@@ -1,0 +1,5 @@
+{
+    "name": "MacDonald: Subcritical Channel with Rain (SWASHES 3.3.1)",
+    "description": "Steady subcritical profile in a 1000 m friction channel fed by uniform rainfall along its length, so discharge grows with x. Tests distributed lateral inflow against a closed-form solution. 1D only.",
+    "category": "Analytical Verification (SWASHES)"
+}

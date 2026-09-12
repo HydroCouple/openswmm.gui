@@ -1,0 +1,5 @@
+{
+    "name": "MacDonald: Short Channel, Sub-to-Supercritical (SWASHES 3.2.2)",
+    "description": "MacDonald's 100 m analytic friction profile passing smoothly through critical depth at x = 50 m. Tests the balance of bed slope, Manning friction and convective acceleration.",
+    "category": "Analytical Verification (SWASHES)"
+}

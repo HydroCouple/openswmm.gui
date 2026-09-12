@@ -1,0 +1,5 @@
+{
+    "name": "Ritter: Dam Break on a Dry Bed (SWASHES 4.1.2)",
+    "description": "Dam break onto a dry bed -- Ritter's solution. Tests the wet/dry front and its propagation speed, the hardest part of any shallow-water scheme.",
+    "category": "Analytical Verification (SWASHES)"
+}
