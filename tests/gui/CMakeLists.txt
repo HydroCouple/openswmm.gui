@@ -3027,6 +3027,16 @@ add_swmmvis_gui_test(test_savewarnings
 )
 swmmvis_link_full_app_deps(test_savewarnings)
 
+# [OPTIONS] CRS is the coordinate system of record: the .inp's CRS beats the
+# .oswp sidecar's on open, and the layer's assigned CRS is written on save
+# (a canvas reprojection used to leave the OLD CRS over the NEW coordinates).
+add_swmmvis_gui_test(test_crs_inp_roundtrip
+    test_crs_inp_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_crs_inp_roundtrip)
+
 # Phase GG0 — per-cell 2D infiltration. The two gates that discriminate:
 # undo of an assignment over an INHERITING cell must restore inheritance (not a
 # materialized copy that silently stops tracking its region), and every

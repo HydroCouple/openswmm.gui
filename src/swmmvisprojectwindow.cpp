@@ -1425,6 +1425,29 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     }
     meshSyncMs = stage.restart();
 
+    // The layer's CRS is the one the user assigned — via the CRS picker on
+    // open, the Simulation Options page, a canvas reprojection, or the .oswp.
+    // Push it into the engine's [OPTIONS] CRS so the written .inp declares
+    // it, whichever path set it (the reprojection path used to reach only
+    // the engine's spatial frame, which the .inp writer did not read).
+    // Only an authority-coded CRS is pushed: it is a single token the
+    // [OPTIONS] reader round-trips verbatim, whereas re-serialising a
+    // WKT-only CRS could alter the original string. A CRS the open merely
+    // DEFAULTED (from [MAP] UNITS or the preferences) is never written — a
+    // model that carried no CRS must stay that way; see crsAssigned().
+    const SpatialReferenceSystem *srs = mModelLayer->srs();
+    if (srs && mModelLayer->crsAssigned()) {
+        const QString auth = srs->toAuthority();
+        if (!srs->isLocal() && !auth.isEmpty() && auth != QStringLiteral("Local")) {
+            char cur[512] = {};
+            const bool same =
+                swmm_get_crs(mModelLayer->engine(), cur, sizeof cur) == 0
+                && QString::fromUtf8(cur) == auth;
+            if (!same)
+                mModelLayer->setOption(QByteArrayLiteral("CRS"), auth);
+        }
+    }
+
     // Snapshot a freshly generated/edited external 2D mesh BEFORE the engine
     // writes the model. The engine serialises its in-memory 2D mesh (still the
     // mesh loaded at open - there is no engine mesh-replace API), so on save it
