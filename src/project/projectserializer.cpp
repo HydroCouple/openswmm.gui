@@ -22,6 +22,8 @@
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
+
+#include <openswmm/engine/openswmm_model.h>   // swmm_get_crs
 #include "project/swmmvisproject.h"
 #include "swmmvisprojectwindow.h"
 
@@ -683,7 +685,19 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
 
     // Layer CRS. Applied before the canvas CRS so the on-the-fly
     // reprojection path in MapCanvas picks up the right transform.
-    if (layerObj.contains(kCrsAuthority) && layerObj.contains(kCrsCode)) {
+    //
+    // The .inp is authoritative: when its [OPTIONS] CRS is set, the model
+    // layer already resolved its SRS from it on open, and the .oswp copy is
+    // only the fallback for files that carry none. Applying the .oswp value
+    // on top used to re-label a model whose .inp had since been re-assigned
+    // (or reprojected) to a different CRS.
+    const bool inpHasCrs = [&] {
+        char buf[8] = {};
+        return layer->engine()
+            && swmm_get_crs(layer->engine(), buf, sizeof buf) == 0 && buf[0] != '\0';
+    }();
+    if (!inpHasCrs
+        && layerObj.contains(kCrsAuthority) && layerObj.contains(kCrsCode)) {
         const QString auth = layerObj.value(kCrsAuthority).toString();
         const int     code = layerObj.value(kCrsCode).toInt();
         if (!auth.isEmpty() && code > 0) {

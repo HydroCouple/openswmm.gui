@@ -66,6 +66,18 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Fixed
 
+- **The `.inp`'s `[OPTIONS] CRS` is the coordinate system of record, on open and on save** — two
+  fixes. On open, a CRS in the `.inp` now beats the `.oswp` sidecar's copy; the sidecar's value
+  applies only when the `.inp` carries none, where before it silently re-labelled a model whose
+  `.inp` had since been assigned or reprojected to a different CRS. On save, the layer's *assigned*
+  CRS is written to `[OPTIONS] CRS` whichever path assigned it: the CRS picker, Simulation Options,
+  a canvas reprojection, or the sidecar. The reprojection path used to reach only the engine's
+  spatial frame, which the `.inp` writer did not read, so a reprojected model was saved with its
+  NEW coordinates under the OLD `CRS` line and reopened in the wrong place. A CRS the open merely
+  defaulted (from `[MAP] UNITS` or the preferences' EPSG code) is never written back, so a model
+  that carried no CRS stays that way. Companion engine fix: `swmm_spatial_set_crs` and
+  `swmm_options_set("CRS")` now fill both engine stores, and `swmm_get_crs` and the writer fall
+  back to the spatial frame, so a GeoPackage-opened model keeps its CRS through an `.inp` save.
 - **Closing one project while another stayed open could crash later on any dock toggle** — the
   layer tree, its model and the terrain toolbar kept a raw pointer to the closed project's map canvas,
   and the MDI activation flip that any widget show/hide triggers sent `QObject::disconnect` through it
