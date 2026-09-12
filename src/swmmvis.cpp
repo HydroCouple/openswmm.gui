@@ -244,6 +244,7 @@
 #include <QStandardPaths>
 #include <QUrl>
 #include <QCommandLinkButton>
+#include <QMap>          // Welcome-page example grouping by manifest category
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QValidator>
@@ -773,11 +774,28 @@ void SWMMVis::initializeWelcomeScreen()
     // optional example.json manifest) and legacy flat .inp files. Every
     // click routes through openExampleCopy() — the baseline is never
     // opened in place.
+    //
+    // Examples are grouped by their manifest "category" under collapsible
+    // headers inside a scroll area: the bundled set outgrew a flat list once
+    // the SWASHES analytical-verification cases shipped. The uncategorized
+    // group (manifest without "category", and every legacy flat .inp) leads
+    // and starts expanded; named categories follow alphabetically, collapsed.
     if (auto *frame = ui->frameExampleProjects)
     {
-        auto *layout = new QVBoxLayout(frame);
+        auto *frameLayout = new QVBoxLayout(frame);
+        frameLayout->setContentsMargins(0, 0, 0, 0);
+
+        auto *area = new QScrollArea(frame);
+        area->setWidgetResizable(true);
+        area->setFrameShape(QFrame::NoFrame);
+        area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        frameLayout->addWidget(area);
+
+        auto *content = new QWidget(area);
+        auto *layout = new QVBoxLayout(content);
         layout->setContentsMargins(6, 6, 6, 6);
         layout->setSpacing(2);
+        area->setWidget(content);
 
         namespace ex = openswmmvis::project::examples;
         const QString examplesDir =
@@ -787,21 +805,67 @@ void SWMMVis::initializeWelcomeScreen()
 
         if (found.isEmpty())
         {
-            auto *label = new QLabel(tr("(No bundled examples found.)"), frame);
+            auto *label = new QLabel(tr("(No bundled examples found.)"), content);
             label->setStyleSheet(openswmmvis::ui::theme::hintStyle());
             layout->addWidget(label);
         }
         else
         {
-            for (const ex::ExampleInfo &info : found) {
-                auto *btn = new QCommandLinkButton(info.displayName, frame);
-                btn->setDescription(info.description.isEmpty()
-                    ? tr("Copy to a folder you choose, then open")
-                    : info.description);
-                btn->setIcon(QIcon(QStringLiteral(":/swmmvis/Open")));
-                connect(btn, &QCommandLinkButton::clicked, this,
-                        [this, info]{ openExampleCopy(info); });
-                layout->addWidget(btn);
+            // Group in discovery order (directory name) so entries keep the
+            // ordering the flat list had; QMap gives the alphabetical
+            // category order, with the empty default category sorting first.
+            QMap<QString, QVector<ex::ExampleInfo>> byCategory;
+            for (const ex::ExampleInfo &info : found)
+                byCategory[info.category].append(info);
+
+            bool firstGroup = true;
+            for (auto it = byCategory.cbegin(); it != byCategory.cend(); ++it)
+            {
+                const bool isDefault = it.key().isEmpty();
+                const QString title = isDefault ? tr("Getting Started") : it.key();
+
+                auto *group = new QWidget(content);
+                auto *groupLayout = new QVBoxLayout(group);
+                groupLayout->setContentsMargins(0, 0, 0, 0);
+                groupLayout->setSpacing(2);
+
+                auto *header = new QToolButton(content);
+                header->setText(tr("%1 (%2)").arg(title).arg(it.value().size()));
+                header->setCheckable(true);
+                header->setChecked(firstGroup);
+                header->setAutoRaise(true);
+                header->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+                // Bold via the font, not a stylesheet: any stylesheet on a
+                // QToolButton routes it through QStyleSheetStyle, which can
+                // drop the native arrow indicator set below.
+                QFont headerFont = header->font();
+                headerFont.setBold(true);
+                header->setFont(headerFont);
+                header->setArrowType(firstGroup ? Qt::DownArrow : Qt::RightArrow);
+                connect(header, &QToolButton::toggled, group,
+                        [header, group](bool on) {
+                            header->setArrowType(on ? Qt::DownArrow
+                                                    : Qt::RightArrow);
+                            group->setVisible(on);
+                        });
+                group->setVisible(firstGroup);
+                firstGroup = false;
+
+                // AlignLeft so the header hugs its text instead of centering
+                // across the panel width the way a stretched button would.
+                layout->addWidget(header, 0, Qt::AlignLeft);
+                layout->addWidget(group);
+
+                for (const ex::ExampleInfo &info : it.value()) {
+                    auto *btn = new QCommandLinkButton(info.displayName, group);
+                    btn->setDescription(info.description.isEmpty()
+                        ? tr("Copy to a folder you choose, then open")
+                        : info.description);
+                    btn->setIcon(QIcon(QStringLiteral(":/swmmvis/Open")));
+                    connect(btn, &QCommandLinkButton::clicked, this,
+                            [this, info]{ openExampleCopy(info); });
+                    groupLayout->addWidget(btn);
+                }
             }
         }
         layout->addStretch(1);

@@ -1,0 +1,5 @@
+{
+    "name": "Bump: Transcritical, No Shock (SWASHES 3.1.4)",
+    "description": "Steady flow that accelerates through critical depth at the crest and stays supercritical downstream. Tests the critical-point transition with no shock present.",
+    "category": "Analytical Verification (SWASHES)"
+}

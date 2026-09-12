@@ -174,7 +174,8 @@ TEST(ExamplesSeeder, DiscoveryFindsDirAndFlatExamples)
     ASSERT_TRUE(writeFile(root + "/big_model/model.inp", "I"));
     ASSERT_TRUE(writeFile(root + "/big_model/model.oswp", "{}"));
     ASSERT_TRUE(writeFile(root + "/big_model/example.json",
-                          R"({"name":"Big Model","description":"Desc."})"));
+                          R"({"name":"Big Model","description":"Desc.",)"
+                          R"("category":"Tutorials"})"));
     // Dir example with only .inp, no manifest → prettified dir name.
     ASSERT_TRUE(writeFile(root + "/inp_only_case/only.inp", "I"));
     // Empty subdir → ignored.
@@ -189,18 +190,37 @@ TEST(ExamplesSeeder, DiscoveryFindsDirAndFlatExamples)
     EXPECT_TRUE(big.isDirectory);
     EXPECT_EQ(big.displayName, QStringLiteral("Big Model"));
     EXPECT_EQ(big.description, QStringLiteral("Desc."));
+    EXPECT_EQ(big.category, QStringLiteral("Tutorials"));
     EXPECT_TRUE(big.openPath.endsWith(QStringLiteral("model.oswp")));
     EXPECT_EQ(big.sourceRoot, QDir(root + "/big_model").absolutePath());
 
+    // No manifest → no category, so the Welcome panel's default group owns it.
     const ExampleInfo &inpOnly = found[1];
     EXPECT_TRUE(inpOnly.isDirectory);
     EXPECT_EQ(inpOnly.displayName, QStringLiteral("inp only case"));
+    EXPECT_TRUE(inpOnly.category.isEmpty());
     EXPECT_TRUE(inpOnly.openPath.endsWith(QStringLiteral("only.inp")));
 
     const ExampleInfo &flat = found[2];
     EXPECT_FALSE(flat.isDirectory);
     EXPECT_EQ(flat.displayName, QStringLiteral("road culvert"));
+    EXPECT_TRUE(flat.category.isEmpty());
     EXPECT_EQ(flat.sourceRoot, flat.openPath);
+}
+
+TEST(ExamplesSeeder, DiscoveryOpensFirstInpByName)
+{
+    // The SWASHES payloads ship several solver decks side by side and rely on
+    // this ordering so 1d_dynwave.inp is the default open target.
+    QTemporaryDir tmp;
+    const QString root = tmp.filePath("examples");
+    ASSERT_TRUE(writeFile(root + "/case/2d_explicit.inp", "I"));
+    ASSERT_TRUE(writeFile(root + "/case/1d_fv.inp", "I"));
+    ASSERT_TRUE(writeFile(root + "/case/1d_dynwave.inp", "I"));
+
+    const QVector<ExampleInfo> found = discoverExamples(root);
+    ASSERT_EQ(found.size(), 1);
+    EXPECT_TRUE(found[0].openPath.endsWith(QStringLiteral("1d_dynwave.inp")));
 }
 
 TEST(ExamplesSeeder, DiscoveryOfMissingDirIsEmpty)
@@ -255,4 +275,63 @@ TEST(BellingeExample, CuratedPayloadIsSelfContained)
     EXPECT_TRUE(d.entryList({QStringLiteral("*.ovr"), QStringLiteral("*.out"),
                              QStringLiteral("*.rpt"), QStringLiteral("*.2d.h5")},
                             QDir::Files).isEmpty());
+}
+
+// ── Curated SWASHES payload guard ───────────────────────────────────────────
+// The 10 analytical-verification cases imported by
+// scripts/import_swashes_examples.py. Input files only: the QA suite that
+// generates these decks writes .rpt/.out/surface.h5/extracted.csv beside them,
+// and none of that may ride along into the shipped payload.
+
+TEST(SwashesExamples, CuratedPayloadIsInputOnly)
+{
+    const QDir examples(QStringLiteral(EXAMPLES_SOURCE_DIR));
+    ASSERT_TRUE(examples.exists()) << EXAMPLES_SOURCE_DIR;
+
+    const QStringList cases =
+        examples.entryList({QStringLiteral("swashes_*")}, QDir::Dirs, QDir::Name);
+    ASSERT_EQ(cases.size(), 10) << "expected the 10 curated SWASHES cases";
+
+    for (const QString &name : cases) {
+        const QDir d(examples.absoluteFilePath(name));
+        SCOPED_TRACE(name.toStdString());
+
+        // Every shipped file is an input the GUI or the user reads.
+        const QStringList allowed{
+            QStringLiteral("1d_dynwave.inp"), QStringLiteral("1d_fv.inp"),
+            QStringLiteral("2d_explicit.inp"), QStringLiteral("reference.csv"),
+            QStringLiteral("example.json"), QStringLiteral("README.md")};
+        const QStringList files =
+            d.entryList(QDir::Files | QDir::Hidden | QDir::System, QDir::Name);
+        for (const QString &f : files)
+            EXPECT_TRUE(allowed.contains(f)) << f.toStdString();
+        EXPECT_TRUE(d.entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+
+        // At least one deck, and the analytic reference it is compared against.
+        EXPECT_FALSE(d.entryList({QStringLiteral("*.inp")}, QDir::Files).isEmpty());
+        EXPECT_TRUE(QFile::exists(d.absoluteFilePath(QStringLiteral("reference.csv"))));
+
+        // Decks must stay self-contained — the Welcome page copies the folder
+        // elsewhere before opening, so an absolute path or an unshipped
+        // sidecar reference would break the copy.
+        for (const QString &deck : d.entryList({QStringLiteral("*.inp")}, QDir::Files)) {
+            QFile f(d.absoluteFilePath(deck));
+            ASSERT_TRUE(f.open(QIODevice::ReadOnly)) << deck.toStdString();
+            const QString text = QString::fromUtf8(f.readAll());
+            EXPECT_FALSE(text.contains(QStringLiteral("[FILES]")))
+                << deck.toStdString();
+            EXPECT_FALSE(text.contains(QStringLiteral("/Users/")))
+                << deck.toStdString();
+        }
+
+        // Manifest carries the display name and the shared category that
+        // groups these under their own Welcome-page header.
+        QFile manifest(d.absoluteFilePath(QStringLiteral("example.json")));
+        ASSERT_TRUE(manifest.open(QIODevice::ReadOnly));
+        const QJsonObject o = QJsonDocument::fromJson(manifest.readAll()).object();
+        EXPECT_FALSE(o.value(QStringLiteral("name")).toString().isEmpty());
+        EXPECT_FALSE(o.value(QStringLiteral("description")).toString().isEmpty());
+        EXPECT_EQ(o.value(QStringLiteral("category")).toString(),
+                  QStringLiteral("Analytical Verification (SWASHES)"));
+    }
 }
