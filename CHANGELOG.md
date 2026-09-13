@@ -76,6 +76,14 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   changed), and on the real payload the steady-state cost measures at about 5 ms. Known limitation,
   now documented in the seeder contract: an example removed from the bundle is not pruned from the
   mirror.
+- **SWASHES 1D example decks now carry node coordinates** — the eighteen `1d_dynwave.inp` and
+  `1d_fv.inp` decks had no `[COORDINATES]` section, so every node of a case drew at the origin, one
+  on top of another, when the example was opened. The QA suite's deck generator (`swasheslib.gen1d`)
+  now emits plan coordinates for every case, not only the bent-planform bend studies: a straight
+  channel runs along the x axis with each node at its true chainage `x_i = i·dx` on `y = 0`, and the
+  sacrificial spillway outfall of the closed-basin dam-break cases sits one cell beyond the end
+  instead of on the last junction. Coordinates are cosmetic to routing; the decks are otherwise
+  byte-identical to the previous import, and all eighteen open in the engine.
 - **The `.inp`'s `[OPTIONS] CRS` is the coordinate system of record, on open and on save** — two
   fixes. On open, a CRS in the `.inp` now beats the `.oswp` sidecar's copy; the sidecar's value
   applies only when the `.inp` carries none, where before it silently re-labelled a model whose
