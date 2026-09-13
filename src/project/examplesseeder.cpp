@@ -129,17 +129,17 @@ bool copyDirectoryRecursively(const QString &srcDir, const QString &dstDir,
 bool syncFromInstall(const QString &srcDir, const QString &dstDir,
                      const QString &version, QString *err)
 {
-    const QString markerPath = dstDir + QLatin1Char('/') + seedMarkerFileName();
-    {
-        QFile marker(markerPath);
-        if (marker.open(QIODevice::ReadOnly)
-            && QString::fromUtf8(marker.readAll()).trimmed() == version.trimmed())
-            return true;  // already seeded for this version
-    }
-
+    // Always walk. There used to be a fast path here that returned as soon
+    // as the marker matched the app version — but the payload changes
+    // within a version on every dev build and on any release that adds
+    // examples without a bump, and then the mirror the Welcome page scans
+    // never received them (the ten SWASHES cases were the first casualty).
+    // The walk is already incremental (size + mtime no-op per file), so the
+    // steady-state cost is one stat per payload file.
     if (!copyDirectoryRecursively(srcDir, dstDir, err))
         return false;
 
+    const QString markerPath = dstDir + QLatin1Char('/') + seedMarkerFileName();
     QFile marker(markerPath);
     if (!marker.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         if (err) *err = QStringLiteral("Could not write seed marker: %1")

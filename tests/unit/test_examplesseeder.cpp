@@ -13,12 +13,15 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+
+#include <cstdio>
 
 #include "project/examplesseeder.h"
 #include "project/projectserializer.h"
@@ -123,24 +126,84 @@ TEST(ExamplesSeeder, SyncSeedsAndWritesMarker)
     EXPECT_EQ(readFile(dst + "/" + seedMarkerFileName()), QByteArray("6.0.0"));
 }
 
-TEST(ExamplesSeeder, SyncMatchingMarkerIsFastPath)
+TEST(ExamplesSeeder, SyncAlwaysWalksEvenWhenMarkerMatches)
 {
+    // Contract change (2026-09-13): there is no marker-equals-version fast
+    // path any more. A same-version sync re-walks the payload, so a deleted
+    // mirror file IS restored and the marker still records the version.
     QTemporaryDir tmp;
     const QString src = tmp.filePath("install");
     const QString dst = tmp.filePath("appdata");
     ASSERT_TRUE(writeFile(src + "/model.inp", "M"));
     ASSERT_TRUE(syncFromInstall(src, dst, "6.0.0", nullptr));
 
-    // Delete a seeded file; a same-version sync must NOT restore it (the
-    // marker short-circuits the walk entirely).
     ASSERT_TRUE(QFile::remove(dst + "/model.inp"));
     ASSERT_TRUE(syncFromInstall(src, dst, "6.0.0", nullptr));
-    EXPECT_FALSE(QFile::exists(dst + "/model.inp"));
-
-    // A version bump re-walks and restores it.
-    ASSERT_TRUE(syncFromInstall(src, dst, "6.0.1", nullptr));
     EXPECT_EQ(readFile(dst + "/model.inp"), QByteArray("M"));
-    EXPECT_EQ(readFile(dst + "/" + seedMarkerFileName()), QByteArray("6.0.1"));
+    EXPECT_EQ(readFile(dst + "/" + seedMarkerFileName()), QByteArray("6.0.0"));
+}
+
+// The reported bug: the payload gained example directories without a version
+// bump, and the mirror the Welcome page scans never received them because the
+// marker already matched the version. Seed at V, add a directory to the
+// payload, sync again at the SAME V — the new directory must appear.
+TEST(ExamplesSeeder, SyncPicksUpPayloadAddedWithinSameVersion)
+{
+    QTemporaryDir tmp;
+    const QString src = tmp.filePath("install");
+    const QString dst = tmp.filePath("appdata");
+    ASSERT_TRUE(writeFile(src + "/site_drainage_model.inp", "OLD"));
+    ASSERT_TRUE(syncFromInstall(src, dst, "6.0.0", nullptr));
+    ASSERT_FALSE(QDir(dst + "/swashes_bump_shock").exists());
+
+    ASSERT_TRUE(writeFile(src + "/swashes_bump_shock/1d_dynwave.inp", "NEW"));
+    ASSERT_TRUE(writeFile(src + "/swashes_bump_shock/example.json",
+                          R"({"name":"Bump","category":"SWASHES"})"));
+
+    QString err;
+    ASSERT_TRUE(syncFromInstall(src, dst, "6.0.0", &err)) << err.toStdString();
+    EXPECT_EQ(readFile(dst + "/swashes_bump_shock/1d_dynwave.inp"), QByteArray("NEW"));
+    EXPECT_EQ(readFile(dst + "/site_drainage_model.inp"), QByteArray("OLD"));
+
+    // And the Welcome page's discovery over the mirror now lists it.
+    const QVector<ExampleInfo> found = discoverExamples(dst);
+    bool listed = false;
+    for (const ExampleInfo &info : found)
+        listed = listed || (info.isDirectory && info.category == QStringLiteral("SWASHES"));
+    EXPECT_TRUE(listed);
+}
+
+// Startup-cost guard for dropping the fast path (GUI_LOAD_PERF_REVIEW treats
+// Welcome-page startup as a live concern): a steady-state sync of the REAL
+// bundled payload — every file already mirrored — must stay cheap. Written
+// to a reviewable dir under tests/output, never a temp dir.
+TEST(ExamplesSeeder, SteadyStateSyncOfRealPayloadIsCheap)
+{
+    const QString src = QStringLiteral(EXAMPLES_SOURCE_DIR);
+    ASSERT_TRUE(QDir(src).exists()) << EXAMPLES_SOURCE_DIR;
+    QDir out(src); out.cdUp();                                  // <repo>
+    const QString dst = out.filePath(
+        QStringLiteral("tests/output/examplesseeder/steady_state_mirror"));
+    QDir(dst).removeRecursively();
+
+    QString err;
+    ASSERT_TRUE(syncFromInstall(src, dst, "test", &err)) << err.toStdString();  // cold: copies
+
+    QElapsedTimer t; t.start();
+    ASSERT_TRUE(syncFromInstall(src, dst, "test", &err)) << err.toStdString();  // warm: stats only
+    const qint64 warmMs = t.elapsed();
+    RecordProperty("steady_state_sync_ms", static_cast<int>(warmMs));
+    std::printf("[  INFO    ] steady-state sync of %s: %lld ms\n",
+                EXAMPLES_SOURCE_DIR, static_cast<long long>(warmMs));
+    EXPECT_LT(warmMs, 250) << "a no-op re-seed should be one stat per file";
+
+    // The warm walk touched nothing: a mirrored file keeps the payload mtime.
+    // (EXAMPLES_SOURCE_DIR is the uncurated repo tree; anchor on a SWASHES
+    // deck, which is in both it and the bundle.)
+    const QString rel = QStringLiteral("/swashes_bump_shock/1d_dynwave.inp");
+    const QFileInfo a(src + rel), b(dst + rel);
+    ASSERT_TRUE(a.exists() && b.exists()) << rel.toStdString();
+    EXPECT_EQ(a.lastModified(), b.lastModified());
 }
 
 #ifndef Q_OS_WIN
