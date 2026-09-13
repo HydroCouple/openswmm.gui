@@ -76,14 +76,21 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   changed), and on the real payload the steady-state cost measures at about 5 ms. Known limitation,
   now documented in the seeder contract: an example removed from the bundle is not pruned from the
   mirror.
-- **SWASHES 1D example decks now carry node coordinates** — the eighteen `1d_dynwave.inp` and
+- **SWASHES example decks share one plan frame per case** — the eighteen `1d_dynwave.inp` and
   `1d_fv.inp` decks had no `[COORDINATES]` section, so every node of a case drew at the origin, one
-  on top of another, when the example was opened. The QA suite's deck generator (`swasheslib.gen1d`)
-  now emits plan coordinates for every case, not only the bent-planform bend studies: a straight
-  channel runs along the x axis with each node at its true chainage `x_i = i·dx` on `y = 0`, and the
-  sacrificial spillway outfall of the closed-basin dam-break cases sits one cell beyond the end
-  instead of on the last junction. Coordinates are cosmetic to routing; the decks are otherwise
-  byte-identical to the previous import, and all eighteen open in the engine.
+  on top of another, when the example was opened; and once they had one, the 1D chain ran along the
+  bottom wall of the case's 2D strip rather than through its middle, because the straight 2D meshes
+  were written on `y ∈ [0, W]` while the bend meshes (and the new 1D chains) were centred on `y = 0`.
+  The QA suite's generators (`swasheslib.gen1d`, `swasheslib.gen2d`) now use one frame: the
+  centreline is `y = 0` in every deck, a straight channel runs along the x axis with each node at its
+  true chainage `x_i = i·dx`, straight 2D strips are written on `[−W/2, +W/2]` as the bend meshes
+  already were, and anything sacrificial sits past the outlet on the centreline — the closed-basin
+  spillway outfall at `(L+dx, 0)` and the dry dummy 1D pair each 2D deck carries at `(L+dx, 0)` and
+  `(L+2dx, 0)` with conduit Length equal to its plan distance. The 2D shift is applied only to the
+  written vertices (bed and initial conditions are still sampled in the analytic frame), so it is a
+  pure translation: rerunning the bump-shock and Ritter 2D decks before and after gives bit-identical
+  depth histories, maxima, continuity volumes and internal step counts. All twenty-six decks open in
+  the engine, and `SwashesExamples.DecksShareOneFrame` now gates the frame on the shipped payload.
 - **The `.inp`'s `[OPTIONS] CRS` is the coordinate system of record, on open and on save** — two
   fixes. On open, a CRS in the `.inp` now beats the `.oswp` sidecar's copy; the sidecar's value
   applies only when the `.inp` carries none, where before it silently re-labelled a model whose
