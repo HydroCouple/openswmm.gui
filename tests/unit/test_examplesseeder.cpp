@@ -19,8 +19,11 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMap>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 
+#include <cmath>
 #include <cstdio>
 
 #include "project/examplesseeder.h"
@@ -397,4 +400,111 @@ TEST(SwashesExamples, CuratedPayloadIsInputOnly)
         EXPECT_EQ(o.value(QStringLiteral("category")).toString(),
                   QStringLiteral("Analytical Verification (SWASHES)"));
     }
+}
+
+// ── One coordinate frame per case ───────────────────────────────────────────
+//
+// Every deck of a SWASHES case shares one plan frame so that opening the 1D
+// and 2D decks shows the channel in the same place: the centreline is y = 0,
+// nodes sit at their chainage x_i = i*dx from 0, the 2D strip is centred on
+// y = 0, and anything sacrificial (the closed-basin spillway OUTF, the dry
+// dummy pair JD1/OD1 in the 2D decks) sits past the outlet on the centreline
+// with conduit Length equal to plan distance. Before this gate the 1D chains
+// ran along the 2D strip's bottom wall (y = 0 vs a strip on [0, W]).
+
+namespace {
+
+struct XY { double x = 0, y = 0; };
+
+//! Parses `[SECTION]` rows of an .inp into token lists (comments/blank skipped).
+QVector<QStringList> sectionRows(const QString &text, const QString &section)
+{
+    QVector<QStringList> rows;
+    bool in = false;
+    for (const QString &raw : text.split(QLatin1Char('\n'))) {
+        const QString line = raw.trimmed();
+        if (line.startsWith(QLatin1Char('['))) { in = (line == section); continue; }
+        if (!in || line.isEmpty() || line.startsWith(QLatin1Char(';'))) continue;
+        rows.append(line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts));
+    }
+    return rows;
+}
+
+} // namespace
+
+TEST(SwashesExamples, DecksShareOneFrame)
+{
+    const QDir examples(QStringLiteral(EXAMPLES_SOURCE_DIR));
+    ASSERT_TRUE(examples.exists()) << EXAMPLES_SOURCE_DIR;
+    int checked1d = 0, checked2d = 0;
+
+    for (const QString &name : examples.entryList({QStringLiteral("swashes_*")}, QDir::Dirs, QDir::Name)) {
+        const QDir d(examples.absoluteFilePath(name));
+        SCOPED_TRACE(name.toStdString());
+
+        // 1D decks: a straight chain along +x on y = 0, starting at 0.
+        for (const QString &deck : {QStringLiteral("1d_dynwave.inp"), QStringLiteral("1d_fv.inp")}) {
+            if (!QFile::exists(d.absoluteFilePath(deck))) continue;
+            SCOPED_TRACE(deck.toStdString());
+            const QString text = QString::fromUtf8(readFile(d.absoluteFilePath(deck)));
+            const auto coords = sectionRows(text, QStringLiteral("[COORDINATES]"));
+            ASSERT_GE(coords.size(), 3);
+            double prevX = -1.0;
+            for (const QStringList &r : coords) {
+                ASSERT_EQ(r.size(), 3) << r.join(' ').toStdString();
+                const double x = r[1].toDouble(), y = r[2].toDouble();
+                EXPECT_DOUBLE_EQ(y, 0.0) << r[0].toStdString();
+                EXPECT_GE(x, prevX) << r[0].toStdString();          // written in chainage order
+                prevX = x;
+            }
+            EXPECT_DOUBLE_EQ(coords.first()[1].toDouble(), 0.0);   // starts at the origin
+            // Every conduit's Length equals its plan distance (straight chain).
+            QMap<QString, XY> at;
+            for (const QStringList &r : coords) at[r[0]] = {r[1].toDouble(), r[2].toDouble()};
+            for (const QStringList &c : sectionRows(text, QStringLiteral("[CONDUITS]"))) {
+                ASSERT_TRUE(at.contains(c[1]) && at.contains(c[2])) << c[0].toStdString();
+                const double plan = std::hypot(at[c[2]].x - at[c[1]].x, at[c[2]].y - at[c[1]].y);
+                EXPECT_NEAR(c[3].toDouble(), plan, 1e-6) << c[0].toStdString();
+            }
+            ++checked1d;
+        }
+
+        // 2D deck: strip centred on y = 0, x from 0; dummy pair past the outlet.
+        if (QFile::exists(d.absoluteFilePath(QStringLiteral("2d_explicit.inp")))) {
+            const QString text = QString::fromUtf8(readFile(d.absoluteFilePath(QStringLiteral("2d_explicit.inp"))));
+            const auto verts = sectionRows(text, QStringLiteral("[2D_VERTICES]"));
+            ASSERT_GE(verts.size(), 4);
+            double xmin = 1e300, xmax = -1e300, ymin = 1e300, ymax = -1e300;
+            for (const QStringList &v : verts) {
+                ASSERT_EQ(v.size(), 3) << v.join(' ').toStdString();
+                const double x = v[0].toDouble(), y = v[1].toDouble();
+                xmin = std::min(xmin, x); xmax = std::max(xmax, x);
+                ymin = std::min(ymin, y); ymax = std::max(ymax, y);
+            }
+            EXPECT_DOUBLE_EQ(xmin, 0.0);
+            EXPECT_NEAR(ymin, -ymax, 1e-9) << "strip not centred on y = 0";
+            EXPECT_GT(ymax, 0.0);
+
+            QMap<QString, XY> at;
+            for (const QStringList &r : sectionRows(text, QStringLiteral("[COORDINATES]")))
+                at[r[0]] = {r[1].toDouble(), r[2].toDouble()};
+            ASSERT_TRUE(at.contains(QStringLiteral("JD1")) && at.contains(QStringLiteral("OD1")));
+            for (const char *n : {"JD1", "OD1"}) {
+                EXPECT_DOUBLE_EQ(at[QLatin1String(n)].y, 0.0) << n;
+                EXPECT_GT(at[QLatin1String(n)].x, xmax) << n << " must sit past the outlet";
+            }
+            bool sawCd1 = false;
+            for (const QStringList &c : sectionRows(text, QStringLiteral("[CONDUITS]"))) {
+                if (c[0] != QStringLiteral("CD1")) continue;
+                sawCd1 = true;
+                EXPECT_NEAR(c[3].toDouble(), at[QStringLiteral("OD1")].x - at[QStringLiteral("JD1")].x, 1e-6)
+                    << "CD1 Length must equal its plan distance";
+            }
+            EXPECT_TRUE(sawCd1);
+            ++checked2d;
+        }
+    }
+    // Guard against a silently empty loop.
+    EXPECT_GE(checked1d, 2);
+    EXPECT_GE(checked2d, 1);
 }
