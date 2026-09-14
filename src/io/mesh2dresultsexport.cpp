@@ -981,6 +981,10 @@ bool exportMesh2DResults(const Mesh2DExportInputs &inputs,
         if (t < 0 || t >= frames)
             return fail(QStringLiteral("Time step %1 is outside the run (%2 steps).")
                             .arg(t).arg(frames));
+    // A live source may thin its history while the progress callback pumps
+    // events; the indices above would then name different frames. The caller
+    // pins the history, and this is the check that the pin held.
+    const int generation0 = inputs.source->historyGeneration();
 
     const int stepCount = int(options.timeSteps.size());
     const int total = std::max(1, int(vars.size()) * (stepCount + (options.includeMax ? 2 : 0)) + 4);
@@ -1040,6 +1044,9 @@ bool exportMesh2DResults(const Mesh2DExportInputs &inputs,
             && c2)
             return fail(kCancelled);
     }
+    if (inputs.source->historyGeneration() != generation0)
+        return fail(QStringLiteral("The live history was thinned while it was being "
+                                   "read — export again."));
 
     const double dryDepthModel = inputs.dryDepthM * inputs.unitFactor;
     const QString base = options.basePath;

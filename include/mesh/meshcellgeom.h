@@ -52,6 +52,52 @@ inline void edgeEndpoints(const MeshTriangle &t, int k, int &a, int &b) noexcept
     b = t.vertex((k + 2) % nv);
 }
 
+/*!
+ * \brief RT0 least-squares specific discharge (m²/s) of one cell from its
+ *        outward-positive normal edge fluxes (m³/s).
+ *
+ * The engine's own reconstruction (SurfaceFluxCalculator::computeFaceVelocity):
+ * with \c nv outward unit normals n_e and normal speeds q_e = flux_e/length_e,
+ * solve the nv×2 least-squares system N·q ≈ b via the normal equations
+ * (NᵀN) q = Nᵀ b. |q_e| is clamped to 10 against wet/dry-front spikes and a
+ * non-finite q_e is skipped so it cannot poison the 2×2 solve. Divide by the
+ * cell depth for velocity. The per-edge arrays are the flat
+ * \ref edgeSlot layout (\p cell's slots are read, nothing else).
+ * \returns false when the normal matrix is degenerate (outputs untouched).
+ */
+inline bool rt0CellDischarge(int cell, int nv,
+                             const float *flux, const float *length,
+                             const float *nx, const float *ny,
+                             double &qx, double &qy) noexcept
+{
+    constexpr double kQMax = 10.0;
+    double a00 = 0.0, a01 = 0.0, a11 = 0.0;  // NᵀN entries
+    double b0  = 0.0, b1  = 0.0;             // Nᵀ b entries
+    for (int e = 0; e < nv; ++e) {
+        const int idx = edgeSlot(cell, e);
+        const double len = length[idx];
+        if (len <= 1e-12) continue;
+        double q = double(flux[idx]) / len;
+        if (!std::isfinite(q)) continue;
+        if (q >  kQMax) q =  kQMax;
+        if (q < -kQMax) q = -kQMax;
+        const double enx = nx[idx], eny = ny[idx];
+        a00 += enx * enx;
+        a01 += enx * eny;
+        a11 += eny * eny;
+        b0  += enx * q;
+        b1  += eny * q;
+    }
+    const double det = a00 * a11 - a01 * a01;
+    // NaN-robust degeneracy gate: `abs(NaN) < eps` is false, so the inverted
+    // form is required to reject the cell instead of emitting NaN.
+    if (!(std::abs(det) >= 1e-12)) return false;
+    const double inv_det = 1.0 / det;
+    qx = ( a11 * b0 - a01 * b1) * inv_det;
+    qy = (-a01 * b0 + a00 * b1) * inv_det;
+    return true;
+}
+
 /*! \brief Per-cell derived geometry shared by every consumer. */
 struct CellGeom
 {
