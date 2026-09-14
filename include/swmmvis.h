@@ -27,6 +27,7 @@
 #include <QSettings>
 #include <functional>
 #include <optional>
+#include <utility>
 
 #include "core/openswmmvislogmessage.h"
 #include "layers/swmmmodellayer.h"        // NewProjectSpec (nested type)
@@ -842,6 +843,19 @@ private:
     // QPointer so the entry is auto-cleared if the layer is destroyed (e.g.
     // the user closes the project window mid-run).
     QHash<int, QPointer<class SWMM2DResultsLayer>> mActive2DResultsLayers;
+
+    /*! Post-run 2D adoption (the runner's finished handler): rename the live
+     *  layer, swap its source to the written .h5, re-arm the animation
+     *  controller, and drop the job's bookkeeping. Split out so a mid-run
+     *  export can DEFER it — the swap destroys the EngineMesh2DSource the
+     *  exporter is reading. */
+    void adoptFinished2DResults(int jobId, bool success, int errCode);
+
+    /*! True while onExport2DResults holds a live source (dialog + write).
+     *  Finished jobs arriving meanwhile queue in mDeferred2DFinish
+     *  (jobId → {success, errCode}) and are adopted when the export returns. */
+    bool                            mExport2DInFlight = false;
+    QHash<int, std::pair<bool, int>> mDeferred2DFinish;
 
     /*! Live 1D results (LIVE_1D_RESULTS_PLAN_V2 §4.3): per running job, the
      *  SWMMResultsLayer tailing its .out. Filled on the first progress tick

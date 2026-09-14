@@ -50,6 +50,7 @@ struct Mesh2DExportDialogInputs
     double           extentWidth = 0.0;         ///< mesh bounding box, model units
     double           extentHeight = 0.0;        ///< so the dialog can size the raster
     bool             hasVelocity = false;       ///< false disables the velocity variables
+    bool             live = false;              ///< the run is still going: "so far" wording
     QString          lengthUnit = QStringLiteral("m");   ///< spin-box suffix
     QString          defaultDir;        ///< where the file chooser opens
     QString          defaultBaseName;   ///< suggested file stem (the run's name)

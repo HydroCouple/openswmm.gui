@@ -1023,7 +1023,10 @@ void EngineMesh2DSource::pushFlux(std::vector<float> flux,
     // match; otherwise (depths came earlier and a new tick has begun, or
     // depths haven't arrived yet) append a tick with empty depths so that
     // readEdgeFluxAt at this index still works.
-    if (!flux.empty()) flux = toEdgeSlots_(std::move(flux));
+    if (!flux.empty()) {
+        flux = toEdgeSlots_(std::move(flux));
+        has_flux_ = true;
+    }
     if (!history_.empty() &&
         std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
     {
@@ -1092,17 +1095,52 @@ void EngineMesh2DSource::pushRainfall(std::vector<float> rainfall,
     enforceCap_();
 }
 
+void EngineMesh2DSource::pushHeads(std::vector<float> heads,
+                                    QDateTime simTime,
+                                    double elapsedSec)
+{
+    // Same tick-pairing convention as pushFlux.
+    if (!history_.empty() &&
+        std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
+    {
+        history_.back().heads = std::move(heads);
+        has_heads_ = true;
+        return;
+    }
+    Tick t;
+    t.heads       = std::move(heads);
+    t.sim_time    = simTime;
+    t.elapsed_sec = elapsedSec;
+    history_.emplace_back(std::move(t));
+    has_heads_ = true;
+    enforceCap_();
+}
+
+void EngineMesh2DSource::setEnvelopes(std::vector<float> maxDepth,
+                                       std::vector<float> maxVel)
+{
+    env_max_depth_ = std::move(maxDepth);
+    env_max_vel_   = std::move(maxVel);
+}
+
+void EngineMesh2DSource::setHistoryPinned(bool pinned)
+{
+    pinned_ = pinned;
+    if (!pinned_) enforceCap_();
+}
+
 size_t EngineMesh2DSource::historyBytes() const
 {
     size_t n = 0;
     for (const Tick& t : history_)
         n += t.depths.size() + t.flux.size() + t.vertex_depths.size()
-           + t.rainfall.size() + t.rain_cum.size();
+           + t.rainfall.size() + t.rain_cum.size() + t.heads.size();
     return n * sizeof(float);
 }
 
 void EngineMesh2DSource::enforceCap_()
 {
+    if (pinned_) return;   // an export holds frame indices; thin on unpin
     const bool overFrames = max_frames_ >= 8
                             && static_cast<int>(history_.size()) > max_frames_;
     const bool overBytes  = max_bytes_ > 0 && historyBytes() > max_bytes_;
@@ -1141,9 +1179,16 @@ bool EngineMesh2DSource::readDepthAt(int timeIdx, int cell, float& out)
 
 bool EngineMesh2DSource::hasFaceField(const char* dataset) const
 {
-    if (!has_rainfall_ || !dataset) return false;
-    return std::strcmp(dataset, "Mesh2_face_rainfall") == 0
-        || std::strcmp(dataset, "Mesh2_face_rain_cum") == 0;
+    if (!dataset) return false;
+    if (std::strcmp(dataset, "Mesh2_face_rainfall") == 0
+        || std::strcmp(dataset, "Mesh2_face_rain_cum") == 0)
+        return has_rainfall_;
+    if (std::strcmp(dataset, "Mesh2_face_head") == 0)
+        return has_heads_;
+    if (std::strcmp(dataset, "Mesh2_face_vx") == 0
+        || std::strcmp(dataset, "Mesh2_face_vy") == 0)
+        return has_flux_ && !edge_length_.empty();
+    return false;
 }
 
 bool EngineMesh2DSource::readFaceFieldAt(const char* dataset, int timeIdx,
@@ -1154,15 +1199,68 @@ bool EngineMesh2DSource::readFaceFieldAt(const char* dataset, int timeIdx,
         values.assign(cells_.size(), 0.0f);
         return false;
     }
+    const bool wantVx = std::strcmp(dataset, "Mesh2_face_vx") == 0;
+    const bool wantVy = std::strcmp(dataset, "Mesh2_face_vy") == 0;
+    if (wantVx || wantVy) {
+        std::vector<float> vx, vy;
+        if (!reconstructVelocity_(timeIdx, vx, vy)) {
+            values.assign(cells_.size(), 0.0f);
+            return false;
+        }
+        values = wantVx ? std::move(vx) : std::move(vy);
+        return true;
+    }
     const Tick& t = history_[timeIdx];
-    const auto& src = (std::strcmp(dataset, "Mesh2_face_rainfall") == 0)
-                          ? t.rainfall : t.rain_cum;
+    const auto& src = (std::strcmp(dataset, "Mesh2_face_rainfall") == 0) ? t.rainfall
+                    : (std::strcmp(dataset, "Mesh2_face_rain_cum") == 0) ? t.rain_cum
+                                                                          : t.heads;
     if (src.empty()) {
-        // Tick pushed before the rainfall message landed — caller skips it.
+        // Tick pushed before this field's message landed — caller skips it.
         values.assign(cells_.size(), 0.0f);
         return false;
     }
     values = src;
+    return true;
+}
+
+bool EngineMesh2DSource::reconstructVelocity_(int timeIdx, std::vector<float>& vx,
+                                              std::vector<float>& vy) const
+{
+    const Tick& t = history_[static_cast<size_t>(timeIdx)];
+    const size_t nCell  = cells_.size();
+    const size_t nSlots = size_t(mesh::edgeSlotCount(static_cast<int>(nCell)));
+    if (t.flux.size() != nSlots || t.depths.size() != nCell ||
+        edge_length_.size() != nSlots)
+        return false;
+
+    // The engine's computeFaceVelocity: RT0 specific discharge from the
+    // outward-positive edge fluxes, ÷ depth for velocity, zero below the
+    // dry threshold. The API flux already carries the outward sign, so this
+    // is the physical (down-gradient) velocity the HDF5 Mesh2_face_vx/vy hold.
+    vx.assign(nCell, 0.0f);
+    vy.assign(nCell, 0.0f);
+    for (size_t c = 0; c < nCell; ++c) {
+        const double depth = t.depths[c];
+        if (depth < dry_depth_) continue;
+        double qx = 0.0, qy = 0.0;
+        if (!mesh::rt0CellDischarge(static_cast<int>(c), cellVertexCount(cells_[c]),
+                                    t.flux.data(), edge_length_.data(),
+                                    edge_nx_.data(), edge_ny_.data(), qx, qy))
+            continue;
+        vx[c] = static_cast<float>(qx / depth);
+        vy[c] = static_cast<float>(qy / depth);
+    }
+    return true;
+}
+
+bool EngineMesh2DSource::readFaceEnvelope(const char* dataset, std::vector<float>& values)
+{
+    if (!dataset) return false;
+    const std::vector<float>* src = nullptr;
+    if (std::strcmp(dataset, "Mesh2_face_max_depth") == 0)         src = &env_max_depth_;
+    else if (std::strcmp(dataset, "Mesh2_face_max_velocity") == 0) src = &env_max_vel_;
+    if (!src || src->empty()) return false;
+    values = *src;
     return true;
 }
 
@@ -3012,12 +3110,9 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
         return;
     }
 
-    // RT0 cell-centred velocity reconstruction. For each CELL with nv
-    // outward unit normals n_e and signed normal speeds q_e = flux_e/length_e,
-    // solve the nv×2 least-squares system N · v ≈ q in closed form via the
-    // normal equations: (NᵀN) v = Nᵀ q, with NᵀN a 2×2 SPD matrix. The
-    // cell's vector is then written to each of its display sub-triangles.
-    constexpr float kQMax  = 10.0f;       // clamp |q_e| against wet/dry-front spikes (m/s)
+    // RT0 cell-centred reconstruction (mesh::rt0CellDischarge — the same
+    // per-cell solve the live export uses). The cell's vector is written to
+    // each of its display sub-triangles.
     const double    dryEps = dry_depth_;
 
     float running_max = 0.0f;
@@ -3027,38 +3122,12 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
         const float depth = current_depths_[size_t(c)];
         if (depth < dryEps) continue;
 
-        double a00 = 0.0, a01 = 0.0, a11 = 0.0;  // NᵀN entries
-        double b0  = 0.0, b1  = 0.0;             // Nᵀ q entries
-        const int nv = cellVertexCount(cells_[size_t(c)]);
-        for (int e = 0; e < nv; ++e) {
-            const int idx = mesh::edgeSlot(c, e);
-            const double nx = edge_nx_[idx];
-            const double ny = edge_ny_[idx];
-            const double len = edge_length_[idx];
-            if (len <= 1e-12) continue;
-            double q = current_flux_[idx] / len;
-            // Clamp against wet/dry-front spikes (flux can blow up when
-            // length-integrated edge flux divides by a near-zero length).
-            // NaN passes both clamp comparisons and would poison the normal
-            // equations → NaN vx/vy → the glyph pass extrudes garbage
-            // geometry (screen-crossing spike triangles). Skip the edge.
-            if (!std::isfinite(q)) continue;
-            if (q >  kQMax) q =  kQMax;
-            if (q < -kQMax) q = -kQMax;
-            a00 += nx * nx;
-            a01 += nx * ny;
-            a11 += ny * ny;
-            b0  += nx * q;
-            b1  += ny * q;
-        }
-        const double det = a00 * a11 - a01 * a01;
-        // NaN-robust degeneracy gate: `abs(NaN) < eps` is false, so the
-        // inverted form is required to zero the cell instead of emitting
-        // NaN velocities.
-        if (!(std::abs(det) >= 1e-12)) continue;
-        const double inv_det = 1.0 / det;
-        const double vx_model = ( a11 * b0 - a01 * b1) * inv_det;
-        const double vy_model = (-a01 * b0 + a00 * b1) * inv_det;
+        double vx_model = 0.0, vy_model = 0.0;
+        if (!mesh::rt0CellDischarge(c, cellVertexCount(cells_[size_t(c)]),
+                                    current_flux_.data(), edge_length_.data(),
+                                    edge_nx_.data(), edge_ny_.data(),
+                                    vx_model, vy_model))
+            continue;
 
         // Scene-space velocity: vy is flipped so the arrow points the right
         // way after the rebuildSceneGeometry_() Y-flip on vertex coords.
