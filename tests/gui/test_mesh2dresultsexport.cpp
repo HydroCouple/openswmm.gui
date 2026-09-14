@@ -200,12 +200,19 @@ public:
     {
         if (t < 0 || t >= int(frames_.size())) return false;
         d = frames_[size_t(t)];
+        // Live-source stand-in: the Nth depth read "thins" the history.
+        if (++reads_ == thinOnRead_) ++generation_;
         return true;
     }
     QDateTime simTimeAt(int t) const override
     {
         return QDateTime(QDate(2026, 1, 1), QTime(0, 0), QTimeZone::UTC).addSecs(qint64(t) * 300);
     }
+    int historyGeneration() const override { return generation_; }
+
+    //! Bump historyGeneration() from inside the \p nth readDepthsAt (1-based),
+    //! the way a live EngineMesh2DSource thins under an event-loop pump.
+    void thinOnRead(int nth) { thinOnRead_ = nth; }
 
     int cellsPerSide() const { return n_; }
 
@@ -214,6 +221,7 @@ private:
     std::vector<double> vx_, vy_, vz_;
     std::vector<std::array<int, 4>> cells_;
     std::vector<std::vector<float>> frames_;
+    int reads_ = 0, thinOnRead_ = 0, generation_ = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -272,6 +280,7 @@ private slots:
     void dryMaskWritesNoData();
     void cancelRemovesPartialOutputs();
     void maxFallsBackToAFrameScanWithoutEnvelopes();
+    void thinnedHistoryMidExportFails();
     void gridHintGivesExtentAndMedianCellSize();
 
 private:
@@ -878,6 +887,54 @@ void TestMesh2DResultsExport::maxFallsBackToAFrameScanWithoutEnvelopes()
     }
     QCOMPARE(seen, src.triangleCount());
     GDALClose(ds);
+}
+
+//! A live source that thins its history between two frame reads has renumbered
+//! the frames the caller asked for; the export must refuse rather than write
+//! the wrong time steps under the right labels. Nothing is left on disk.
+void TestMesh2DResultsExport::thinnedHistoryMidExportFails()
+{
+    FakeSource src(3);
+    src.setDepthFromCentroid([](double x, double y) { return 0.1 + 0.01 * x + 0.02 * y; });
+    src.appendScaledFrame(2.0f);
+    src.appendScaledFrame(0.5f);
+    src.thinOnRead(2);                           // thin while frames are being read
+
+    Mesh2DExportOptions opt;
+    opt.basePath   = QDir(out_).filePath(QStringLiteral("thinned"));
+    opt.format     = Mesh2DExportFormat::Shapefile;
+    opt.variables  = Mesh2DDepth;
+    opt.timeSteps  = {0, 1, 2};
+    opt.includeMax = false;
+
+    // The refusal happens before anything is written, so a leftover here can
+    // only be stale output from an earlier run — clear it so the check below
+    // sees this export's behaviour.
+    const QFileInfo fi(opt.basePath);
+    QDir outDir(fi.absolutePath());
+    for (const QString &stale : outDir.entryList({fi.fileName() + QStringLiteral("*")}, QDir::Files))
+        QVERIFY(outDir.remove(stale));
+
+    Mesh2DExportInputs in;
+    in.source = &src;
+
+    Mesh2DExportReport rep;
+    QVERIFY(!exportMesh2DResults(in, opt, {}, &rep));
+    QVERIFY2(rep.error.contains(QStringLiteral("thinned")), qPrintable(rep.error));
+    QVERIFY(rep.files.isEmpty());
+    const QStringList leftovers =
+        outDir.entryList({fi.fileName() + QStringLiteral("*")}, QDir::Files);
+    QVERIFY2(leftovers.isEmpty(), qPrintable(leftovers.join(QStringLiteral(", "))));
+
+    // Same source, no thinning: the export goes through — the guard is only
+    // tripped by a generation change.
+    FakeSource calm(3);
+    calm.setDepthFromCentroid([](double x, double y) { return 0.1 + 0.01 * x + 0.02 * y; });
+    calm.appendScaledFrame(2.0f);
+    calm.appendScaledFrame(0.5f);
+    in.source = &calm;
+    opt.basePath = QDir(out_).filePath(QStringLiteral("unthinned"));
+    QVERIFY2(exportMesh2DResults(in, opt, {}, &rep), qPrintable(rep.error));
 }
 
 //! Extent in model units, plus half the square root of the median cell area

@@ -203,6 +203,20 @@ signals:
     void twoDVertexDepthsAvailable(int jobId, QVector<double> vdepths,
                                     QDateTime simTime, double elapsedSec);
 
+    // Per-tick per-cell water-surface elevation (m) from
+    // swmm_2d_get_heads_bulk. Same cadence/pairing as twoDFluxAvailable;
+    // pushed into EngineMesh2DSource::pushHeads so a mid-run export writes
+    // the solver's head rather than a depth + bed approximation.
+    void twoDHeadsAvailable(int jobId, QVector<float> heads,
+                            QDateTime simTime, double elapsedSec);
+
+    // Per-tick cumulative per-cell maxima (m, m/s) from
+    // swmm_2d_get_stat_max_depths / swmm_2d_get_stat_max_velocities — the
+    // live ENVELOPES. Monotone, so no time stamp: the receiver keeps the
+    // newest payload only (EngineMesh2DSource::setEnvelopes).
+    void twoDEnvelopesAvailable(int jobId, QVector<float> maxDepth,
+                                QVector<float> maxVel);
+
 private:
     // Warning callback — fires on the worker thread during engine
     // open/initialize, posts back via QMetaObject::invokeMethod. The

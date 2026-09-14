@@ -7940,7 +7940,7 @@ void SWMMVis::onExport2DResults()
                      OpenSWMMVisLogMessage::Warning);
         return;
     }
-    auto *layer = pw->active2DResultsLayer();
+    QPointer<SWMM2DResultsLayer> layer = pw->active2DResultsLayer();
     IMesh2DSource *source = layer ? layer->source() : nullptr;
     if (!source || source->timeCount() <= 0)
     {
@@ -7949,19 +7949,36 @@ void SWMMVis::onExport2DResults()
                "selector, or run a simulation with 2D reporting enabled."));
         return;
     }
-    if (source->isLive())
-    {
-        // A live source thins its own history, so frame indices can shift
-        // underneath a long export.
-        QMessageBox::information(this, tr("Simulation Still Running"),
-            tr("Wait for the simulation to finish before exporting — a running "
-               "run keeps rewriting its stored frames."));
-        return;
-    }
+
+    // A live source keeps receiving ticks through every event-loop pump
+    // below (the modal dialog, the progress callback). Two things must not
+    // happen to it meanwhile: its history must not THIN (frame indices handed
+    // to the dialog would shift), and the runner's finished handler must not
+    // SWAP it for the .h5 (that destroys the object under the exporter).
+    // Pin the history and defer the adoption for the whole slot; appends
+    // still land, so the history grows at tick rate for as long as the
+    // dialog stays open (bounded by the runner's back-pressure).
+    const bool live = source->isLive();
+    if (auto *engineSrc = live ? dynamic_cast<EngineMesh2DSource *>(source) : nullptr)
+        engineSrc->setHistoryPinned(true);
+    mExport2DInFlight = true;
+    const auto releaseLive = qScopeGuard([this, layer, source]() {
+        // Unpin BEFORE the deferred adoption: the swap deletes the source.
+        // Only while the layer still holds it — a torn-down layer took the
+        // source with it.
+        if (layer && layer->source() == source)
+            if (auto *engineSrc = dynamic_cast<EngineMesh2DSource *>(source))
+                engineSrc->setHistoryPinned(false);
+        mExport2DInFlight = false;
+        const auto deferred = std::exchange(mDeferred2DFinish, {});
+        for (auto it = deferred.cbegin(); it != deferred.cend(); ++it)
+            adoptFinished2DResults(it.key(), it.value().first, it.value().second);
+    });
 
     const double unitFactor = layer->depthToMeshUnits();
 
     openswmmvis::ui::Mesh2DExportDialogInputs inputs;
+    inputs.live = live;
     for (int t = 0; t < source->timeCount(); ++t)
         inputs.times << source->simTimeAt(t);
     inputs.currentIndex = layer->currentTimeIndex();
@@ -7985,6 +8002,7 @@ void SWMMVis::onExport2DResults()
 
     openswmmvis::ui::Mesh2DResultsExportDialog dlg(inputs, this);
     if (dlg.exec() != QDialog::Accepted) return;
+    if (!layer || layer->source() != source) return;   // layer torn down under the dialog
 
     openswmmvis::io::Mesh2DExportInputs exportInputs;
     exportInputs.source     = source;
@@ -8962,6 +8980,7 @@ void SWMMVis::onRunSimulation()
                 // factor before setSource so the first build already uses it.
                 layer->setFallbackCoordinateScale(
                     undeclared2DCoordinateScale(pwGuard.data()));
+                EngineMesh2DSource *engineSource = source.get();
                 layer->setSource(std::move(source));
                 // Outputs inherit the model's CRS so the Properties
                 // window shows a real CRS for the live results layer.
@@ -8985,6 +9004,9 @@ void SWMMVis::onRunSimulation()
                         engineDry > 0.0)
                     {
                         layer->setDryDepth(engineDry);
+                        // Same cutoff for the source's on-demand velocity
+                        // reconstruction (the mid-run export's vx/vy).
+                        engineSource->setDryDepth(engineDry);
                     }
                 }
 
@@ -9117,6 +9139,38 @@ void SWMMVis::onRunSimulation()
                     simTime, elapsedSec);
             });
 
+    // Per-tick water-surface elevation — the live Mesh2_face_head, so a
+    // mid-run export writes the solver's head. Not rendered: no repaint.
+    connect(runner, &SimulationRunner::twoDHeadsAvailable, this,
+            [self](int twoDJobId, QVector<float> heads,
+                   QDateTime simTime, double elapsedSec) {
+                if (!self) return;
+                auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
+                if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
+                    return;
+                auto *engineSrc =
+                    dynamic_cast<EngineMesh2DSource *>(it.value()->source());
+                if (!engineSrc) return;
+                engineSrc->pushHeads(std::vector<float>(heads.begin(), heads.end()),
+                                     simTime, elapsedSec);
+            });
+
+    // Per-tick cumulative maxima — the live ENVELOPES the mid-run export's
+    // "max so far" reads. Latest payload wins; nothing is kept per frame.
+    connect(runner, &SimulationRunner::twoDEnvelopesAvailable, this,
+            [self](int twoDJobId, QVector<float> maxDepth, QVector<float> maxVel) {
+                if (!self) return;
+                auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
+                if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
+                    return;
+                auto *engineSrc =
+                    dynamic_cast<EngineMesh2DSource *>(it.value()->source());
+                if (!engineSrc) return;
+                engineSrc->setEnvelopes(
+                    std::vector<float>(maxDepth.begin(), maxDepth.end()),
+                    std::vector<float>(maxVel.begin(),   maxVel.end()));
+            });
+
     // On finished (success path), swap the layer's source from the live
     // EngineMesh2DSource to an HDF5Mesh2DSource so the user can scrub back.
     // The .h5 path was stashed on the layer in the twoDInitialized handler.
@@ -9134,116 +9188,131 @@ void SWMMVis::onRunSimulation()
                     if (auto *engineSrc =
                             dynamic_cast<EngineMesh2DSource *>(it.value()->source()))
                         engineSrc->markFinished();
-                // A cancelled run (success=false, errCode=0) is adopted like
-                // a finished one: the engine wrote and closed the .h5 up to
-                // the stop point, so the partial results are scrubbable and
-                // persist across save/reopen. Genuine failures (errCode!=0)
-                // keep the old skip.
-                const bool cancelled = !success && errCode == 0;
-                if ((success || cancelled) && it.value()) {
-                    SWMM2DResultsLayer *layer = it.value();
-                    // Run finished — drop the "(live)" qualifier so results read
-                    // as final and fully available for visualization. The
-                    // file-backed source is installed below when the .h5 is
-                    // present; otherwise the in-memory history from the live run
-                    // is retained (still a complete, scrubbable source).
-                    layer->setName(cancelled
-                                       ? QStringLiteral("2D Results (partial)")
-                                       : QStringLiteral("2D Results"));
-                    const QString h5Path =
-                        layer->property("snoopy_h5_path").toString();
-                    if (!h5Path.isEmpty() && QFileInfo::exists(h5Path)) {
-                        auto h5Src = std::make_unique<HDF5Mesh2DSource>();
-                        // Anchor the source's time axis to wall-clock so the
-                        // global animation slider's QDateTime ticks map to
-                        // 2D frame indices via SWMM2DResultsLayer::setCurrentSimTime.
-                        const QDateTime simStart =
-                            self->mSimulationStarts.value(finishedJobId);
-                        if (simStart.isValid())
-                            h5Src->setSimulationStart(simStart);
-                        if (h5Src->open(h5Path)) {
-                            const int nFrames = h5Src->timeCount();
-                            // Scan all frames for the run's actual peak so
-                            // the colour ramp + dry-cell threshold match
-                            // the data range. Without this, setSource()
-                            // defaults to the LAST frame (often fully
-                            // drained) AND the layer's auto-grown
-                            // max_depth_ may still be wider than the
-                            // actual peak, leaving everything dim.
-                            IMesh2DSource* srcRaw = h5Src.get();
-                            int   peakFrame = 0;
-                            float peakDepth = 0.0f;
-                            std::vector<float> probe;
-                            for (int t = 0; t < nFrames; ++t) {
-                                if (!srcRaw->readDepthsAt(t, probe)) continue;
-                                if (probe.empty()) continue;
-                                const float m = *std::max_element(probe.begin(),
-                                                                    probe.end());
-                                if (m > peakDepth) { peakDepth = m; peakFrame = t; }
-                            }
-
-                            layer->setSource(std::move(h5Src));
-
-                            // Auto-tune the ramp + dry threshold to the
-                            // actual data range. setMaxDepth pins the
-                            // upper end (disables further auto-grow);
-                            // dry_depth is biased to the floor so very
-                            // shallow runs still produce visible cells.
-                            if (peakDepth > 0.0f) {
-                                layer->setMaxDepth(peakDepth);
-                                // Refine-only: the 5%-of-peak heuristic may
-                                // LOWER the wet/dry cutoff (keeps very shallow
-                                // runs visible) but must never RAISE it above
-                                // the model DRY_DEPTH applied at run init —
-                                // raising it culled every cell shallower than
-                                // 5% of peak from the post-run scrub view
-                                // (0.59 m peak → 3 cm cutoff wiped the
-                                // shallow flooding the live view had shown).
-                                const double autoDry =
-                                    std::max(1e-5, 0.05 * double(peakDepth));
-                                if (autoDry < layer->dryDepth())
-                                    layer->setDryDepth(autoDry);
-                                layer->setCurrentTimeIndex(peakFrame);
-                            }
-
-                            self->onLogMessage(tr("2D scrub ready: %1 frames from %2. "
-                                                   "Peak depth %3 m at cell %4, frame %5.")
-                                                   .arg(nFrames)
-                                                   .arg(QFileInfo(h5Path).fileName())
-                                                   .arg(double(peakDepth), 0, 'f', 4)
-                                                   .arg(layer->currentPeak().second)
-                                                   .arg(peakFrame));
-                        }
-                    }
-
-                    // Run finished — refresh the 2D results selector so the
-                    // "(live)" label drops to "2D Results", and re-arm the
-                    // animation controller against the now-static (scrubbable)
-                    // source so play/scrub operate on the full results. The
-                    // detach + re-attach forces a clean state re-sync of the
-                    // toolbar range/cursor from the swapped source; it only
-                    // runs when this layer is the active 2D driver (no 1D
-                    // primary), mirroring the registration guard at run start.
-                    self->refreshActiveResultsCombos();
-                    // Arm the animation slider against the finished layer
-                    // whenever no 1D primary is driving — not only when this
-                    // layer was already the registered fallback. The run-start
-                    // registration is skipped when a (possibly stale) primary
-                    // existed at that moment, which left the controller with
-                    // NO driver after the run: seekToTime() bailed, the slider
-                    // was dead, and the 2D view froze on the peak frame until
-                    // an extent change forced a re-render.
-                    if (auto *ac = self->mAnimationController;
-                        ac && !ac->primaryLayer()) {
-                        ac->setFallback2DLayer(nullptr);   // force clean re-sync
-                        ac->setFallback2DLayer(layer);
-                    }
+                // A mid-run export is reading that source right now (this
+                // signal lands through its progress loop's processEvents);
+                // the swap below would destroy it under the exporter. Park
+                // the adoption until onExport2DResults returns.
+                if (self->mExport2DInFlight) {
+                    self->mDeferred2DFinish.insert(finishedJobId, {success, errCode});
+                    return;
                 }
-                self->mActive2DResultsLayers.erase(it);
-                self->mSimulationStarts.remove(finishedJobId);
+                self->adoptFinished2DResults(finishedJobId, success, errCode);
             });
 
     runner->start();
+}
+
+void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCode)
+{
+    auto it = mActive2DResultsLayers.find(finishedJobId);
+    if (it == mActive2DResultsLayers.end()) return;
+    // A cancelled run (success=false, errCode=0) is adopted like
+    // a finished one: the engine wrote and closed the .h5 up to
+    // the stop point, so the partial results are scrubbable and
+    // persist across save/reopen. Genuine failures (errCode!=0)
+    // keep the old skip.
+    const bool cancelled = !success && errCode == 0;
+    if ((success || cancelled) && it.value()) {
+        SWMM2DResultsLayer *layer = it.value();
+        // Run finished — drop the "(live)" qualifier so results read
+        // as final and fully available for visualization. The
+        // file-backed source is installed below when the .h5 is
+        // present; otherwise the in-memory history from the live run
+        // is retained (still a complete, scrubbable source).
+        layer->setName(cancelled
+                           ? QStringLiteral("2D Results (partial)")
+                           : QStringLiteral("2D Results"));
+        const QString h5Path =
+            layer->property("snoopy_h5_path").toString();
+        if (!h5Path.isEmpty() && QFileInfo::exists(h5Path)) {
+            auto h5Src = std::make_unique<HDF5Mesh2DSource>();
+            // Anchor the source's time axis to wall-clock so the
+            // global animation slider's QDateTime ticks map to
+            // 2D frame indices via SWMM2DResultsLayer::setCurrentSimTime.
+            const QDateTime simStart =
+                mSimulationStarts.value(finishedJobId);
+            if (simStart.isValid())
+                h5Src->setSimulationStart(simStart);
+            if (h5Src->open(h5Path)) {
+                const int nFrames = h5Src->timeCount();
+                // Scan all frames for the run's actual peak so
+                // the colour ramp + dry-cell threshold match
+                // the data range. Without this, setSource()
+                // defaults to the LAST frame (often fully
+                // drained) AND the layer's auto-grown
+                // max_depth_ may still be wider than the
+                // actual peak, leaving everything dim.
+                IMesh2DSource* srcRaw = h5Src.get();
+                int   peakFrame = 0;
+                float peakDepth = 0.0f;
+                std::vector<float> probe;
+                for (int t = 0; t < nFrames; ++t) {
+                    if (!srcRaw->readDepthsAt(t, probe)) continue;
+                    if (probe.empty()) continue;
+                    const float m = *std::max_element(probe.begin(),
+                                                        probe.end());
+                    if (m > peakDepth) { peakDepth = m; peakFrame = t; }
+                }
+
+                layer->setSource(std::move(h5Src));
+
+                // Auto-tune the ramp + dry threshold to the
+                // actual data range. setMaxDepth pins the
+                // upper end (disables further auto-grow);
+                // dry_depth is biased to the floor so very
+                // shallow runs still produce visible cells.
+                if (peakDepth > 0.0f) {
+                    layer->setMaxDepth(peakDepth);
+                    // Refine-only: the 5%-of-peak heuristic may
+                    // LOWER the wet/dry cutoff (keeps very shallow
+                    // runs visible) but must never RAISE it above
+                    // the model DRY_DEPTH applied at run init —
+                    // raising it culled every cell shallower than
+                    // 5% of peak from the post-run scrub view
+                    // (0.59 m peak → 3 cm cutoff wiped the
+                    // shallow flooding the live view had shown).
+                    const double autoDry =
+                        std::max(1e-5, 0.05 * double(peakDepth));
+                    if (autoDry < layer->dryDepth())
+                        layer->setDryDepth(autoDry);
+                    layer->setCurrentTimeIndex(peakFrame);
+                }
+
+                onLogMessage(tr("2D scrub ready: %1 frames from %2. "
+                                "Peak depth %3 m at cell %4, frame %5.")
+                                .arg(nFrames)
+                                .arg(QFileInfo(h5Path).fileName())
+                                .arg(double(peakDepth), 0, 'f', 4)
+                                .arg(layer->currentPeak().second)
+                                .arg(peakFrame));
+            }
+        }
+
+        // Run finished — refresh the 2D results selector so the
+        // "(live)" label drops to "2D Results", and re-arm the
+        // animation controller against the now-static (scrubbable)
+        // source so play/scrub operate on the full results. The
+        // detach + re-attach forces a clean state re-sync of the
+        // toolbar range/cursor from the swapped source; it only
+        // runs when this layer is the active 2D driver (no 1D
+        // primary), mirroring the registration guard at run start.
+        refreshActiveResultsCombos();
+        // Arm the animation slider against the finished layer
+        // whenever no 1D primary is driving — not only when this
+        // layer was already the registered fallback. The run-start
+        // registration is skipped when a (possibly stale) primary
+        // existed at that moment, which left the controller with
+        // NO driver after the run: seekToTime() bailed, the slider
+        // was dead, and the 2D view froze on the peak frame until
+        // an extent change forced a re-render.
+        if (auto *ac = mAnimationController;
+            ac && !ac->primaryLayer()) {
+            ac->setFallback2DLayer(nullptr);   // force clean re-sync
+            ac->setFallback2DLayer(layer);
+        }
+    }
+    mActive2DResultsLayers.erase(it);
+    mSimulationStarts.remove(finishedJobId);
 }
 
 void SWMMVis::onPlotTimeSeries()
