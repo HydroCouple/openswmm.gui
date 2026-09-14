@@ -50,7 +50,8 @@ Mesh2DResultsExportDialog::Mesh2DResultsExportDialog(Mesh2DExportDialogInputs in
     : QDialog(parent), m_in(std::move(inputs))
 {
     setObjectName(QStringLiteral("Mesh2DResultsExportDialog"));   // layout persistence
-    setWindowTitle(tr("Export 2D Results"));
+    setWindowTitle(m_in.live ? tr("Export 2D Results (run in progress)")
+                             : tr("Export 2D Results"));
     setModal(true);
     buildUi();
     revalidate();
@@ -120,7 +121,9 @@ void Mesh2DResultsExportDialog::buildUi()
         }
     }
 
-    m_includeMax = new QCheckBox(tr("Include the run &maxima (depth, water surface, speed)"),
+    m_includeMax = new QCheckBox(m_in.live
+                                     ? tr("Include the &maxima so far (depth, water surface, speed)")
+                                     : tr("Include the run &maxima (depth, water surface, speed)"),
                                  varGroup);
     m_includeMax->setObjectName(QStringLiteral("includeMaxCheck"));
     m_includeMax->setChecked(true);

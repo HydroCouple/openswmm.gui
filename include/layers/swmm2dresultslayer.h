@@ -339,6 +339,46 @@ public:
                       double elapsedSec);
 
     /*!
+     * \brief Append one tick's per-cell water-surface elevation (m,
+     * \c swmm_2d_get_heads_bulk) — the live counterpart of the HDF5
+     * \c Mesh2_face_head dataset, served back through \ref readFaceFieldAt
+     * under that name so a mid-run export writes the solver's VFR head
+     * rather than the depth + mean-bed approximation. Same tick pairing as
+     * \ref pushRainfall.
+     */
+    void pushHeads(std::vector<float> heads,
+                   QDateTime simTime,
+                   double elapsedSec);
+
+    /*!
+     * \brief Replace the cumulative per-cell envelopes (m, m/s) read via
+     * \c swmm_2d_get_stat_max_depths / \c _velocities — the live counterparts
+     * of the HDF5 ENVELOPES datasets, served through \ref readFaceEnvelope.
+     * Latest wins: the engine's envelope is monotone, so only the newest
+     * payload is kept (nothing per frame).
+     */
+    void setEnvelopes(std::vector<float> maxDepth, std::vector<float> maxVel);
+
+    /*!
+     * \brief Dry threshold (m) below which a cell's reconstructed velocity is
+     * zero — the engine's \c dry_depth cutoff in computeFaceVelocity. Set from
+     * \c swmm_2d_get_dry_depth at twoDInitialized; default = the layer's.
+     */
+    void   setDryDepth(double m) { dry_depth_ = m; }
+    double dryDepth() const noexcept { return dry_depth_; }
+
+    /*!
+     * \brief Hold the frame numbering still: while pinned, \ref pushDepths and
+     * friends still append but the history cap is not enforced (no thinning,
+     * no \ref historyGeneration bump), so an index handed out before the pin
+     * stays valid. Unpinning enforces the cap once. Used by the mid-run
+     * export, whose modal dialog and progress loop pump the event queue that
+     * delivers the ticks.
+     */
+    void setHistoryPinned(bool pinned);
+    bool historyPinned() const noexcept { return pinned_; }
+
+    /*!
      * \brief Install time-invariant edge geometry queried via
      * \c swmm_2d_edge_get_geometry_bulk once at twoDInitialized. Sizes are
      * \c mesh::edgeSlotCount(triangleCount()) each (a stride-3 array from an
@@ -399,9 +439,14 @@ public:
                           std::vector<float>& nx,
                           std::vector<float>& ny) override;
     bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths) override;
+    /*! Live fields: rainfall / rain_cum (when any tick carried them), head
+     *  (when any tick carried heads), and vx / vy — reconstructed on demand
+     *  from the tick's edge flux and the installed edge geometry with the
+     *  engine's own RT0 formula (mesh::rt0CellDischarge ÷ depth). */
     bool hasFaceField(const char* dataset) const override;
     bool readFaceFieldAt(const char* dataset, int timeIdx,
                          std::vector<float>& values) override;
+    bool readFaceEnvelope(const char* dataset, std::vector<float>& values) override;
 
 private:
     /*! Re-pack a stride-3 per-edge array (all-triangle engine) into the
@@ -417,16 +462,26 @@ private:
         std::vector<float> vertex_depths; ///< [vertex]; empty when engine lacks the heads API.
         std::vector<float> rainfall;   ///< [tri] m/s; empty when engine lacks the rainfall bulk API.
         std::vector<float> rain_cum;   ///< [tri] m³ cumulative; paired with rainfall.
+        std::vector<float> heads;      ///< [tri] m water surface; empty when not pushed.
         QDateTime          sim_time;
         double             elapsed_sec = 0.0;
     };
     std::vector<Tick> history_;
     bool              has_rainfall_ = false;   ///< any tick carried rainfall
+    bool              has_heads_    = false;   ///< any tick carried heads
+    bool              has_flux_     = false;   ///< any tick carried flux
+    std::vector<float> env_max_depth_;         ///< see setEnvelopes (empty = none yet)
+    std::vector<float> env_max_vel_;
+    double            dry_depth_    = 1e-4;    ///< see setDryDepth
     int               max_frames_   = 2000;    ///< see setMaxFrames
     size_t            max_bytes_    = 0;       ///< see setMaxBytes (0 = unlimited)
     int               generation_   = 0;       ///< see historyGeneration
     bool              finished_     = false;   ///< see markFinished
+    bool              pinned_       = false;   ///< see setHistoryPinned
     void enforceCap_();
+    /*! Both velocity components of one frame (engine SI m/s) via RT0. */
+    bool reconstructVelocity_(int timeIdx, std::vector<float>& vx,
+                              std::vector<float>& vy) const;
 
     // Time-invariant edge geometry; populated once at twoDInitialized via
     // setEdgeGeometry. Empty when the engine lacks the bulk geometry API.

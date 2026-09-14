@@ -14,22 +14,39 @@
  *     the envelope stays exact over the retained frames;
  *   - readDepthAt (per cell) agrees with readDepthsAt;
  *   - the per-tick GUI cost of push + refresh + envelope does not grow with
- *     the number of frames already held.
+ *     the number of frames already held;
+ *   - mid-run export support: a pinned history defers thinning, and the live
+ *     source serves head, RT0 velocity and the engine envelopes so
+ *     exportMesh2DResults on a live source writes velocity and the true max.
  */
 #include <QtTest>
 #include <QSignalSpy>
 #include <QElapsedTimer>
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QScopeGuard>
+#include <QTextStream>
 
+#include <gdal_priv.h>
+#include <ogrsf_frmts.h>
+
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <memory>
 #include <numeric>
 #include <vector>
 
+#include "core/preferencesmanager.h"
+#include "io/mesh2dresultsexport.h"
 #include "layers/swmm2dresultslayer.h"
+#include "mesh/meshcellgeom.h"
 #include "plot/irunlayer.h"
 #include "plot/mesh2drunlayer.h"
+#include "simulation/simulationrunner.h"
+
+using namespace openswmmvis::plot;   // Mesh2DRunLayer, ObjectRef, SeriesData, PlotAttribute
 
 namespace {
 
@@ -106,6 +123,14 @@ class TestLive2DCoalesce : public QObject
     Q_OBJECT
 
 private slots:
+
+    void initTestCase()
+    {
+        // Scope QSettings to this test so the tick-rate preference the live
+        // run test lowers never touches the user's real preferences.
+        QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
+        QCoreApplication::setApplicationName(QStringLiteral("live2d-coalesce-test"));
+    }
 
     void oneRangeEmissionAndOneFrameLoadPerTick()
     {
@@ -351,6 +376,387 @@ private slots:
         // envelope rescans and repeated frame loads); allow generous noise.
         QVERIFY2(late <= 2.5 * early + 2.0,
                  qPrintable(QStringLiteral("early %1 ms, late %2 ms per tick").arg(early).arg(late)));
+    }
+
+    // ---- mid-run export support --------------------------------------
+
+    /// While pinned the cap is not enforced (frames keep their indices and
+    /// the generation stays put); unpinning thins once.
+    void pinnedHistoryDefersThinning()
+    {
+        const Grid g = makeGrid(6, 4);
+        auto src = makeSource(g);
+        src->setMaxFrames(40);
+        src->setHistoryPinned(true);
+        for (int k = 0; k < 120; ++k)
+            src->pushDepths(frameDepths(g, k), tickTime(k), double(k));
+        QCOMPARE(src->timeCount(), 120);
+        QCOMPARE(src->historyGeneration(), 0);
+
+        src->setHistoryPinned(false);
+        QVERIFY2(src->timeCount() <= 40, qPrintable(QString::number(src->timeCount())));
+        QVERIFY(src->historyGeneration() > 0);
+        QCOMPARE(src->simTimeAt(src->timeCount() - 1), tickTime(119));
+    }
+
+    /// The live source serves the fields the export needs: head (pushed),
+    /// vx/vy (RT0 from flux ÷ depth, engine formula) and the envelopes.
+    void liveSourceServesHeadVelocityAndEnvelopes()
+    {
+        const Grid g = makeGrid(4, 3);
+        auto src = makeSource(g);
+        const size_t nCell = size_t(g.nCells);
+
+        // Nothing installed yet: no velocity, no envelope.
+        QVERIFY(!src->hasFaceField("Mesh2_face_vx"));
+        QVERIFY(!src->hasFaceField("Mesh2_face_head"));
+        std::vector<float> probe;
+        QVERIFY(!src->readFaceEnvelope("Mesh2_face_max_depth", probe));
+
+        // Edge geometry in the flat stride-4 layout: local edge k of cell c
+        // has endpoints v[(k+1)%3], v[(k+2)%3]; the normal points away from
+        // the centroid.
+        const size_t nSlots = size_t(mesh::edgeSlotCount(g.nCells));
+        std::vector<float> len(nSlots, 0.0f), enx(nSlots, 0.0f), eny(nSlots, 0.0f);
+        for (int c = 0; c < g.nCells; ++c) {
+            const auto &cell = g.cells[size_t(c)];
+            const double cx = (g.vx[size_t(cell[0])] + g.vx[size_t(cell[1])] + g.vx[size_t(cell[2])]) / 3.0;
+            const double cy = (g.vy[size_t(cell[0])] + g.vy[size_t(cell[1])] + g.vy[size_t(cell[2])]) / 3.0;
+            for (int k = 0; k < 3; ++k) {
+                const int a = cell[(k + 1) % 3], b = cell[(k + 2) % 3];
+                const double dx = g.vx[size_t(b)] - g.vx[size_t(a)];
+                const double dy = g.vy[size_t(b)] - g.vy[size_t(a)];
+                const double L  = std::hypot(dx, dy);
+                double nx = dy / L, ny = -dx / L;
+                const double mx = 0.5 * (g.vx[size_t(a)] + g.vx[size_t(b)]) - cx;
+                const double my = 0.5 * (g.vy[size_t(a)] + g.vy[size_t(b)]) - cy;
+                if (nx * mx + ny * my < 0.0) { nx = -nx; ny = -ny; }
+                const int slot = mesh::edgeSlot(c, k);
+                len[size_t(slot)] = float(L);
+                enx[size_t(slot)] = float(nx);
+                eny[size_t(slot)] = float(ny);
+            }
+        }
+        src->setEdgeGeometry(len, enx, eny);
+
+        // Uniform flow (u, w) at depth h; cell 0 dry. Outward-positive edge
+        // flux = h (v·n) L, so RT0 recovers h·v exactly and ÷h gives v.
+        constexpr double u = 0.3, w = -0.2, h = 0.5;
+        std::vector<float> depths(nCell, float(h)), heads(nCell), flux(nSlots, 0.0f);
+        depths[0] = 0.0f;
+        for (size_t c = 0; c < nCell; ++c) {
+            heads[c] = float(h + 10.0 + double(c));
+            for (int k = 0; k < 3; ++k) {
+                const size_t s = size_t(mesh::edgeSlot(int(c), k));
+                flux[s] = float(h * (u * enx[s] + w * eny[s]) * len[s]);
+            }
+        }
+        std::vector<float> maxD(nCell), maxV(nCell);
+        for (size_t c = 0; c < nCell; ++c) { maxD[c] = float(1.0 + c); maxV[c] = float(0.1 * c); }
+
+        src->pushDepths(depths, tickTime(0), 0.0);
+        src->pushFlux(flux, tickTime(0), 0.0);
+        src->pushHeads(heads, tickTime(0), 0.0);
+        src->setEnvelopes(maxD, maxV);
+        QCOMPARE(src->timeCount(), 1);
+
+        QVERIFY(src->hasFaceField("Mesh2_face_head"));
+        QVERIFY(src->hasFaceField("Mesh2_face_vx"));
+        QVERIFY(src->hasFaceField("Mesh2_face_vy"));
+        QVERIFY(!src->hasFaceField("Mesh2_face_rainfall"));   // never pushed
+
+        std::vector<float> got;
+        QVERIFY(src->readFaceFieldAt("Mesh2_face_head", 0, got));
+        QCOMPARE(got, heads);
+
+        std::vector<float> vx, vy;
+        QVERIFY(src->readFaceFieldAt("Mesh2_face_vx", 0, vx));
+        QVERIFY(src->readFaceFieldAt("Mesh2_face_vy", 0, vy));
+        QCOMPARE(int(vx.size()), g.nCells);
+        QCOMPARE(vx[0], 0.0f);                                  // dry cell
+        QCOMPARE(vy[0], 0.0f);
+        for (size_t c = 1; c < nCell; ++c) {
+            QVERIFY2(std::abs(vx[c] - float(u)) < 1e-5f,
+                     qPrintable(QStringLiteral("cell %1 vx %2").arg(c).arg(vx[c])));
+            QVERIFY2(std::abs(vy[c] - float(w)) < 1e-5f,
+                     qPrintable(QStringLiteral("cell %1 vy %2").arg(c).arg(vy[c])));
+        }
+        // The dry cutoff is the engine's: raise it above h and everything is 0.
+        src->setDryDepth(h + 0.1);
+        QVERIFY(src->readFaceFieldAt("Mesh2_face_vx", 0, vx));
+        QVERIFY(std::all_of(vx.begin(), vx.end(), [](float v) { return v == 0.0f; }));
+        src->setDryDepth(1e-4);
+
+        QVERIFY(src->readFaceEnvelope("Mesh2_face_max_depth", got));
+        QCOMPARE(got, maxD);
+        QVERIFY(src->readFaceEnvelope("Mesh2_face_max_velocity", got));
+        QCOMPARE(got, maxV);
+        QVERIFY(!src->readFaceEnvelope("Mesh2_face_max_head", got));   // no such envelope
+
+        // A later envelope replaces the earlier one (monotone: latest wins).
+        for (float &v : maxD) v += 1.0f;
+        src->setEnvelopes(maxD, maxV);
+        QVERIFY(src->readFaceEnvelope("Mesh2_face_max_depth", got));
+        QCOMPARE(got, maxD);
+
+        // End-to-end: the exporter on this LIVE source writes velocity and
+        // takes its max from the envelope, not from the single frame.
+        QVERIFY(src->isLive());
+        // Reviewable output root: <repo>/tests/output/mesh2d_export (the
+        // export test's convention; SWMMVIS_GUI_TEST_DATA is tests/gui/data).
+        QDir outRoot(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."))).absolutePath());
+        outRoot.cdUp();
+        outRoot.cdUp();
+        const QString outDir = outRoot.filePath(QStringLiteral("output/mesh2d_export"));
+        QVERIFY(QDir().mkpath(outDir));
+        openswmmvis::io::Mesh2DExportOptions opt;
+        opt.basePath   = QDir(outDir).filePath(QStringLiteral("live"));
+        opt.format     = openswmmvis::io::Mesh2DExportFormat::Shapefile;
+        opt.variables  = openswmmvis::io::Mesh2DDepth | openswmmvis::io::Mesh2DVmag;
+        opt.timeSteps  = {0};
+        opt.includeMax = true;
+        openswmmvis::io::Mesh2DExportInputs in;
+        in.source    = src.get();
+        in.dryDepthM = 1e-4;
+        openswmmvis::io::Mesh2DExportReport rep;
+        QVERIFY2(openswmmvis::io::exportMesh2DResults(in, opt, {}, &rep), qPrintable(rep.error));
+
+        auto *ds = static_cast<GDALDataset *>(GDALOpenEx(
+            (opt.basePath + QStringLiteral("_depth.shp")).toUtf8().constData(),
+            GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
+        QVERIFY(ds);
+        OGRLayer *layer = ds->GetLayer(0);
+        layer->ResetReading();
+        int seen = 0;
+        while (OGRFeature *f = layer->GetNextFeature()) {
+            const int id = f->GetFieldAsInteger("cell_id");
+            QVERIFY2(std::abs(f->GetFieldAsDouble("max") - double(maxD[size_t(id)])) < 1e-5,
+                     qPrintable(QStringLiteral("cell %1 max %2").arg(id).arg(f->GetFieldAsDouble("max"))));
+            OGRFeature::DestroyFeature(f);
+            ++seen;
+        }
+        GDALClose(ds);
+        QCOMPARE(seen, g.nCells);
+
+        ds = static_cast<GDALDataset *>(GDALOpenEx(
+            (opt.basePath + QStringLiteral("_vmag.shp")).toUtf8().constData(),
+            GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
+        QVERIFY(ds);
+        layer = ds->GetLayer(0);
+        layer->ResetReading();
+        const double speed = std::hypot(u, w);
+        while (OGRFeature *f = layer->GetNextFeature()) {
+            const int id = f->GetFieldAsInteger("cell_id");
+            const double want = (id == 0) ? 0.0 : speed;
+            QVERIFY2(std::abs(f->GetFieldAsDouble("t0001") - want) < 1e-5,
+                     qPrintable(QStringLiteral("cell %1 speed %2").arg(id).arg(f->GetFieldAsDouble("t0001"))));
+            OGRFeature::DestroyFeature(f);
+        }
+        GDALClose(ds);
+    }
+
+    /// A REAL run: the runner's ticks (depth, flux, head, envelopes) feed an
+    /// EngineMesh2DSource wired exactly as SWMMVis wires it, and the export
+    /// runs while ticks keep landing through its progress callback — under a
+    /// tight frame cap, so only the pin keeps the frame indices still. After
+    /// the run, the engine's own .h5 envelope must dominate the mid-run max.
+    /// Run artifacts: tests/gui/data/output_live2d_export/ (reviewable).
+    void liveRunExportsMidRunWithRealTicks()
+    {
+        const QString dir = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
+                                .absoluteFilePath(QStringLiteral("output_live2d_export"));
+        QVERIFY(QDir().mkpath(dir));
+        const QString inp = QDir(dir).filePath(QStringLiteral("live_run.inp"));
+        const QString rpt = QDir(dir).filePath(QStringLiteral("live_run.rpt"));
+        const QString out = QDir(dir).filePath(QStringLiteral("live_run.out"));
+        const QString h5  = QDir(dir).filePath(QStringLiteral("live_run.2d.h5"));
+        QFile::remove(h5);
+
+        // 16×16 squares of 5 m (512 triangles) on a gentle +x slope; a
+        // junction at the centre vertex takes a constant 0.2 m³/s and, with a
+        // 0.3 m pipe to the outfall, spills most of it onto the surface. Sized
+        // so the run lasts a couple of seconds: enough ticks to export
+        // mid-run and to overflow the 16-frame cap set below.
+        {
+            constexpr int n = 16;
+            QFile f(inp);
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+            QTextStream ts(&f);
+            ts << "[OPTIONS]\nFLOW_UNITS CMS\nINFILTRATION HORTON\nFLOW_ROUTING DYNWAVE\n"
+                  "START_DATE 01/01/2026\nSTART_TIME 00:00:00\nEND_DATE 01/01/2026\n"
+                  "END_TIME 12:00:00\nREPORT_STEP 0:05:00\nROUTING_STEP 5\n\n"
+                  "[JUNCTIONS]\nJ1 10 1 0 0 0\n\n[OUTFALLS]\nO1 9 FREE NO\n\n"
+                  "[CONDUITS]\nC1 J1 O1 100 0.013 0 0 0\n\n"
+                  "[XSECTIONS]\nC1 CIRCULAR 0.3 0 0 0 1\n\n"
+                  "[INFLOWS]\nJ1 FLOW TS1 FLOW 1.0 1.0\n\n"
+                  "[TIMESERIES]\nTS1 0:00 0.2\nTS1 6:00 0.2\n\n"
+                  "[2D_OPTIONS]\nMAX_TIMESTEP 2\nDRY_DEPTH 0.002\nCOUPLING_CD 0.7\n"
+                  "REPORT_2D YES\nOUTPUT_FILE live_run.2d.h5\n\n"
+                  "[2D_VERTICES]\n";
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i)
+                    ts << (5.0 * i) << ' ' << (5.0 * j) << ' ' << (11.0 - 0.02 * i) << '\n';
+            ts << "\n[2D_TRIANGLES]\n";
+            auto vid = [](int i, int j) { return j * (n + 1) + i; };
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    ts << vid(i, j) << ' ' << vid(i + 1, j) << ' ' << vid(i + 1, j + 1) << " 0.03\n";
+                    ts << vid(i, j) << ' ' << vid(i + 1, j + 1) << ' ' << vid(i, j + 1) << " 0.03\n";
+                }
+            ts << "\n[2D_VERTEX_NODE_MAP]\n" << vid(n / 2, n / 2) << " J1 0.7 2.5\n";
+        }
+
+        // Fast ticks (the preference floor) so a short run yields many.
+        auto *prefs = PreferencesManager::instance();
+        const int tickBefore = prefs->progressTickMs();
+        prefs->setProgressTickMs(50);
+        const auto restoreTick = qScopeGuard([prefs, tickBefore] {
+            prefs->setProgressTickMs(tickBefore);
+        });
+        qputenv("OPENSWMM_2D_BACKEND", "cpu");
+
+        auto *runner = new SimulationRunner(7, QStringLiteral("live_run.inp"),
+                                            inp, rpt, out, QStringLiteral("6.0.0"), this);
+        std::unique_ptr<EngineMesh2DSource> src;
+        int depthTicks = 0, fluxTicks = 0, headTicks = 0, envelopeTicks = 0;
+        connect(runner, &SimulationRunner::twoDInitialized, this,
+                [&](int, QString, QVector<double> vx, QVector<double> vy,
+                    QVector<double> vz, QVector<int> cellFlat) {
+                    std::vector<std::array<int, 4>> cells(size_t(cellFlat.size() / 4));
+                    for (size_t c = 0; c < cells.size(); ++c)
+                        cells[c] = { cellFlat[int(c) * 4], cellFlat[int(c) * 4 + 1],
+                                     cellFlat[int(c) * 4 + 2], cellFlat[int(c) * 4 + 3] };
+                    src = std::make_unique<EngineMesh2DSource>(
+                        std::vector<double>(vx.begin(), vx.end()),
+                        std::vector<double>(vy.begin(), vy.end()),
+                        std::vector<double>(vz.begin(), vz.end()), std::move(cells));
+                    src->setMaxFrames(16);           // thin aggressively
+                    src->setDryDepth(0.002);
+                });
+        connect(runner, &SimulationRunner::twoDEdgeGeometryAvailable, this,
+                [&](int, QVector<float> len, QVector<float> nx, QVector<float> ny) {
+                    if (src) src->setEdgeGeometry(std::vector<float>(len.begin(), len.end()),
+                                                  std::vector<float>(nx.begin(), nx.end()),
+                                                  std::vector<float>(ny.begin(), ny.end()));
+                });
+        connect(runner, &SimulationRunner::twoDDepthsAvailable, this,
+                [&](int, QVector<float> d, QDateTime t, double e) {
+                    if (src) { src->pushDepths(std::vector<float>(d.begin(), d.end()), t, e); ++depthTicks; }
+                });
+        connect(runner, &SimulationRunner::twoDFluxAvailable, this,
+                [&](int, QVector<float> q, QDateTime t, double e) {
+                    if (src) { src->pushFlux(std::vector<float>(q.begin(), q.end()), t, e); ++fluxTicks; }
+                });
+        connect(runner, &SimulationRunner::twoDHeadsAvailable, this,
+                [&](int, QVector<float> hd, QDateTime t, double e) {
+                    if (src) { src->pushHeads(std::vector<float>(hd.begin(), hd.end()), t, e); ++headTicks; }
+                });
+        connect(runner, &SimulationRunner::twoDEnvelopesAvailable, this,
+                [&](int, QVector<float> md, QVector<float> mv) {
+                    if (src) { src->setEnvelopes(std::vector<float>(md.begin(), md.end()),
+                                                 std::vector<float>(mv.begin(), mv.end())); ++envelopeTicks; }
+                });
+        connect(runner, &SimulationRunner::finished, this,
+                [&](int, bool, int, QString, double, double) { if (src) src->markFinished(); });
+        QSignalSpy finishedSpy(runner, &SimulationRunner::finished);
+        runner->start();
+
+        // Wait for a handful of ticks, with the run still going.
+        QTRY_VERIFY_WITH_TIMEOUT(src && src->timeCount() >= 4 && headTicks >= 4
+                                     && envelopeTicks >= 1 && fluxTicks >= 4, 60000);
+        QVERIFY2(src->isLive(), "the run finished before the export could start — "
+                                "make the deck longer");
+        QVERIFY(src->hasFaceField("Mesh2_face_head"));
+        QVERIFY(src->hasFaceField("Mesh2_face_vx"));
+        std::vector<float> env;
+        QVERIFY(src->readFaceEnvelope("Mesh2_face_max_depth", env));
+        QCOMPARE(int(env.size()), src->triangleCount());
+
+        // Mid-run export: pin, export three early frames with a progress
+        // callback that pumps the event loop (ticks land and append), unpin.
+        src->setHistoryPinned(true);
+        const int gen0 = src->historyGeneration();
+        const int framesAtStart = src->timeCount();
+        QDir outRoot(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA")).absolutePath());
+        outRoot.cdUp(); outRoot.cdUp();
+        const QString outDir = outRoot.filePath(QStringLiteral("output/mesh2d_export"));
+        QVERIFY(QDir().mkpath(outDir));
+        openswmmvis::io::Mesh2DExportOptions opt;
+        opt.basePath   = QDir(outDir).filePath(QStringLiteral("liverun"));
+        opt.format     = openswmmvis::io::Mesh2DExportFormat::Shapefile;
+        opt.variables  = openswmmvis::io::Mesh2DDepth | openswmmvis::io::Mesh2DHead
+                       | openswmmvis::io::Mesh2DVx | openswmmvis::io::Mesh2DVy
+                       | openswmmvis::io::Mesh2DVmag;
+        opt.timeSteps  = {0, 1, 2};
+        opt.includeMax = true;
+        openswmmvis::io::Mesh2DExportInputs in;
+        in.source    = src.get();
+        in.dryDepthM = 0.002;
+        openswmmvis::io::Mesh2DExportReport rep;
+        int pumps = 0;
+        const bool ok = openswmmvis::io::exportMesh2DResults(
+            in, opt, [&](int, int, const QString &) {
+                QCoreApplication::processEvents();   // ticks land here
+                ++pumps;
+                return true;
+            }, &rep);
+        QVERIFY2(ok, qPrintable(rep.error));
+        QVERIFY(pumps > 0);
+        QCOMPARE(src->historyGeneration(), gen0);           // the pin held
+        QVERIFY(src->timeCount() >= framesAtStart);          // appends only
+        QCOMPARE(rep.files.size(), 6);                       // 5 layers + times.csv
+        src->setHistoryPinned(false);
+
+        // The newest envelope the live source holds, for the post-run
+        // domination check.
+        std::vector<float> midRunMaxDepth;
+        QVERIFY(src->readFaceEnvelope("Mesh2_face_max_depth", midRunMaxDepth));
+
+        QTRY_VERIFY_WITH_TIMEOUT(finishedSpy.count() > 0, 120000);
+        QVERIFY2(finishedSpy.last().at(1).toBool(),
+                 qPrintable(QStringLiteral("run failed: %1").arg(finishedSpy.last().at(3).toString())));
+        QVERIFY(!src->isLive());
+        // The cap is back in force once the pin came off: a run with more
+        // ticks than the cap has thinned, and never holds more than the cap.
+        QVERIFY2(depthTicks > 16, qPrintable(QStringLiteral("only %1 ticks — the deck ran "
+                                                            "too fast to overflow the cap")
+                                                 .arg(depthTicks)));
+        QVERIFY(src->historyGeneration() > gen0);
+        QVERIFY(src->timeCount() <= 16);
+
+        // The engine's final envelope from the .h5 dominates what the live
+        // source held mid-run, cell by cell; and the live "max so far" the
+        // export wrote is >= every depth frame it wrote.
+        HDF5Mesh2DSource file;
+        QVERIFY2(file.open(h5), qPrintable(h5));
+        std::vector<float> fileMax;
+        QVERIFY(file.readFaceEnvelope("Mesh2_face_max_depth", fileMax));
+        QCOMPARE(fileMax.size(), midRunMaxDepth.size());
+        float filePeak = 0.0f;
+        for (size_t c = 0; c < fileMax.size(); ++c) {
+            QVERIFY2(fileMax[c] + 1e-6f >= midRunMaxDepth[c],
+                     qPrintable(QStringLiteral("cell %1: file %2 < live %3")
+                                    .arg(c).arg(fileMax[c]).arg(midRunMaxDepth[c])));
+            filePeak = std::max(filePeak, fileMax[c]);
+        }
+        QVERIFY2(filePeak > 0.002f, "the surface never got wet — the deck is not spilling");
+
+        auto *ds = static_cast<GDALDataset *>(GDALOpenEx(
+            (opt.basePath + QStringLiteral("_depth.shp")).toUtf8().constData(),
+            GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
+        QVERIFY(ds);
+        OGRLayer *layer = ds->GetLayer(0);
+        layer->ResetReading();
+        while (OGRFeature *f = layer->GetNextFeature()) {
+            const double mx = f->GetFieldAsDouble("max");
+            for (const char *fld : {"t0001", "t0002", "t0003"})
+                QVERIFY2(mx + 1e-6 >= f->GetFieldAsDouble(fld),
+                         qPrintable(QStringLiteral("cell %1: max %2 < %3 %4")
+                                        .arg(f->GetFieldAsInteger("cell_id")).arg(mx)
+                                        .arg(QLatin1String(fld)).arg(f->GetFieldAsDouble(fld))));
+            OGRFeature::DestroyFeature(f);
+        }
+        GDALClose(ds);
     }
 };
 

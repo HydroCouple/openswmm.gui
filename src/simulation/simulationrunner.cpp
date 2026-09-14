@@ -787,6 +787,50 @@ void SimulationRunner::start()
                         }
                     }
 
+                    // Per-tick water-surface elevation per cell, so the
+                    // mid-run export carries the solver's head (same SWMM_OK
+                    // gating as rainfall).
+                    {
+                        std::vector<double> rawHead(twoD_n_tri);
+                        if (swmm_2d_get_heads_bulk(eng, rawHead.data()) == SWMM_OK)
+                        {
+                            QVector<float> heads(twoD_n_tri);
+                            for (int t = 0; t < twoD_n_tri; ++t)
+                                heads[t] = static_cast<float>(rawHead[t]);
+                            QMetaObject::invokeMethod(rawSelf,
+                                [rawSelf, jobId, heads = std::move(heads),
+                                 curQDT, curTSec]() mutable {
+                                    emit rawSelf->twoDHeadsAvailable(
+                                        jobId, heads, curQDT, curTSec);
+                                },
+                                Qt::QueuedConnection);
+                        }
+                    }
+
+                    // Per-tick cumulative maxima (the live ENVELOPES) — the
+                    // engine updates them on its refresh cadence, so the
+                    // mid-run export's "max so far" includes sub-tick peaks
+                    // no retained frame saw. Both calls must succeed.
+                    {
+                        std::vector<double> rawMaxD(twoD_n_tri), rawMaxV(twoD_n_tri);
+                        if (swmm_2d_get_stat_max_depths(eng, rawMaxD.data()) == SWMM_OK
+                            && swmm_2d_get_stat_max_velocities(eng, rawMaxV.data()) == SWMM_OK)
+                        {
+                            QVector<float> maxD(twoD_n_tri), maxV(twoD_n_tri);
+                            for (int t = 0; t < twoD_n_tri; ++t) {
+                                maxD[t] = static_cast<float>(rawMaxD[t]);
+                                maxV[t] = static_cast<float>(rawMaxV[t]);
+                            }
+                            QMetaObject::invokeMethod(rawSelf,
+                                [rawSelf, jobId, maxD = std::move(maxD),
+                                 maxV = std::move(maxV)]() mutable {
+                                    emit rawSelf->twoDEnvelopesAvailable(
+                                        jobId, maxD, maxV);
+                                },
+                                Qt::QueuedConnection);
+                        }
+                    }
+
                     // Per-tick SIGNED vertex render depths (wet-masked
                     // η_v − z_v) — drives the smooth (Gouraud) depth fill +
                     // contour interpolation. Replaces the solver vertex-head
