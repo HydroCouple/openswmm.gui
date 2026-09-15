@@ -94,6 +94,12 @@ private slots:
     void onDeleteSelectedFeatureRows();
     void onFeatureTableContextMenu(const QPoint &pos);
 
+    // ----- Vertex grid ----------------------------------------------------
+    /*! Rebuild the vertex rows for the one selected feature, or clear. */
+    void refreshVertexTable();
+    /*! An X / Y / Z cell was edited → EditFeatureGeometryCommand. */
+    void onVertexCellChanged(int row, int column);
+
 private:
     void buildUi();
     /*! Rebuild the schema table, Z controls and status line from m_active. */
@@ -127,6 +133,25 @@ private:
     /*! Guards refreshFeatureTable()'s own setItem calls from being read back
      *  as user edits, and the selection round trip from echoing. */
     bool m_suppressFeatureEdits = false;
+
+    // Vertex grid — the coordinates of the ONE selected feature, one row per
+    // vertex. Each row carries its (part, ring, index) address, so interior
+    // rings and multi-part geometries are reachable; ring 0 is the exterior.
+    // Editable on the same terms as the feature grid: an open edit session.
+    QTableWidget *m_vertexTable     = nullptr;
+    QLabel       *m_vertexHintLabel = nullptr;
+    /*! Same role as m_suppressFeatureEdits, for the vertex grid. */
+    bool m_suppressVertexEdits = false;
+    /*! Set while onVertexCellChanged() runs. Rebuilding the grid from inside
+     *  cellChanged would delete the QTableWidgetItem Qt is still committing —
+     *  the view then loses focus and Tab stops advancing — and the write also
+     *  re-enters here via featuresChanged. While this is set refreshVertexTable()
+     *  defers; the handler queues exactly one rebuild as it leaves. */
+    bool m_vertexEditInFlight = false;
+    /*! The feature the vertex grid is showing; -1 when it is empty. Held as
+     *  qint64 rather than feature::FeatureId to keep this header free of the
+     *  feature headers. */
+    qint64 m_vertexFeatureId = -1;
 
     // Z
     QComboBox      *m_zSourceCombo  = nullptr;
