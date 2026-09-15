@@ -252,6 +252,85 @@ TEST(FeatureGeometryOgr, ThreeDLineRoundTripsZ)
 }
 
 // ---------------------------------------------------------------------------
+// Typed coordinate edits (Features dock → Vertices grid)
+// ---------------------------------------------------------------------------
+// The vertex grid edits one ordinate at a time through Ring::moveVertex on a
+// copy, then gates the copy on validate() before it becomes an
+// EditFeatureGeometryCommand. Both halves of that contract are pinned here,
+// because the panel itself has no test rig (PLAN §8 gate 7, test_featureviews,
+// was never built).
+
+TEST(FeatureGeometryRing, MoveVertexKeepsZOnItsVertex)
+{
+    // Typing an X must not disturb the elevation already sampled there.
+    Ring r = square(0.0, 0.0, 10.0);
+    r.z = {1.0, 2.0, kNaN, 4.0};
+
+    r.moveVertex(1, QPointF(50.0, -7.0));
+
+    EXPECT_EQ(r.pts.at(1), QPointF(50.0, -7.0));
+    ASSERT_EQ(r.z.size(), r.pts.size());
+    EXPECT_DOUBLE_EQ(r.z.at(0), 1.0);
+    EXPECT_DOUBLE_EQ(r.z.at(1), 2.0);   // rode along with its vertex
+    EXPECT_TRUE(std::isnan(r.z.at(2))); // still unsampled, not zeroed
+    EXPECT_DOUBLE_EQ(r.z.at(3), 4.0);
+}
+
+TEST(FeatureGeometryRing, MoveVertexOutOfRangeIsANoOp)
+{
+    // The grid re-resolves a row's stashed address against a freshly read
+    // geometry, which may have shrunk under a concurrent map edit.
+    Ring r = square(0.0, 0.0, 10.0);
+    const QVector<QPointF> before = r.pts;
+
+    r.moveVertex(-1, QPointF(99.0, 99.0));
+    r.moveVertex(r.size(), QPointF(99.0, 99.0));
+
+    EXPECT_EQ(r.pts, before);
+}
+
+TEST(FeatureGeometryValidate, MovingAHoleVertexOutOfTheExteriorIsRejected)
+{
+    FeatureGeometry g =
+        polygonWith(square(0.0, 0.0, 100.0), {square(10.0, 10.0, 10.0)});
+    ASSERT_TRUE(g.validate(GeometryType::Polygon, nullptr));
+
+    // Drag one hole corner clean outside the exterior — the rejection the
+    // grid turns into "Cannot move that vertex: …" and then reverts.
+    g.parts()[0].holes[0].moveVertex(2, QPointF(500.0, 500.0));
+
+    QString reason;
+    EXPECT_FALSE(g.validate(GeometryType::Polygon, &reason));
+    EXPECT_FALSE(reason.isEmpty());
+}
+
+TEST(FeatureGeometryValidate, MovingAVertexIntoSelfIntersectionIsRejected)
+{
+    FeatureGeometry g = polygonWith(square(0.0, 0.0, 100.0));
+    ASSERT_TRUE(g.validate(GeometryType::Polygon, nullptr));
+
+    // Pull one corner past the opposite edge: the segment from (100,0) to
+    // (-50,100) now crosses the closing segment at (0, 66.7).
+    g.parts()[0].exterior.moveVertex(2, QPointF(-50.0, 100.0));
+
+    QString reason;
+    EXPECT_FALSE(g.validate(GeometryType::Polygon, &reason));
+    EXPECT_FALSE(reason.isEmpty());
+}
+
+TEST(FeatureGeometryValidate, AnOrdinaryVertexMoveStaysValid)
+{
+    FeatureGeometry g =
+        polygonWith(square(0.0, 0.0, 100.0), {square(10.0, 10.0, 10.0)});
+
+    g.parts()[0].exterior.moveVertex(2, QPointF(140.0, 120.0));
+
+    QString reason;
+    EXPECT_TRUE(g.validate(GeometryType::Polygon, &reason))
+        << reason.toStdString();
+}
+
+// ---------------------------------------------------------------------------
 // validate()
 // ---------------------------------------------------------------------------
 
