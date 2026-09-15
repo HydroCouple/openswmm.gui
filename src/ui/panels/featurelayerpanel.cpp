@@ -24,17 +24,21 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScopeGuard>
 #include <QShortcut>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 using namespace openswmmvis::feature;
 using openswmmvis::map::AddFieldCommand;
@@ -46,6 +50,61 @@ namespace openswmmvis::ui {
 namespace {
 
 enum FieldColumn { ColName = 0, ColType = 1, ColDescription = 2, ColCount };
+
+//! Columns of the vertex grid.
+enum VertexColumn { VColPart = 0, VColRing, VColIndex, VColX, VColY, VColZ,
+                    VColCount };
+
+// The (part, ring, vertex) address rides on each row's first item, so a
+// rebuild or a sort cannot desynchronise row number from vertex — the same
+// guarantee the feature grid gets from stashing the id on column 0.
+constexpr int kPartRole  = Qt::UserRole;
+constexpr int kRingRole  = Qt::UserRole + 1;
+constexpr int kIndexRole = Qt::UserRole + 2;
+
+/*! Fixed-point with enough digits for projected metres (sub-micron) and for
+ *  degrees (~0.1 mm). Display only — an untouched coordinate is never written
+ *  back from its formatted text, so this rounding cannot creep into the
+ *  geometry. */
+QString formatOrdinate(double v)
+{
+    return QString::number(v, 'f', 6);
+}
+
+/*! Above this the grid refuses to populate; see refreshVertexTable(). */
+constexpr int kMaxVertexRows = 10000;
+
+/*!
+ * \brief Copy Z back from \p from into \p to everywhere except one vertex.
+ *
+ * \details FeatureLayer::sampleZ rewrites EVERY vertex of the feature, but the
+ *          Z-policy checkbox promises to re-sample "when a vertex moves" —
+ *          singular. Without this, nudging one X would silently discard every
+ *          Z the user had typed into the other rows. Only the vertex that
+ *          actually moved is over new ground. Structure is identical because
+ *          the caller samples with densify = false, so no vertices appear.
+ */
+void restoreZExcept(FeatureGeometry &to, const FeatureGeometry &from,
+                    int keepPart, int keepRing, int keepIndex)
+{
+    QVector<Part> &toParts = to.parts();
+    const QVector<Part> &fromParts = from.parts();
+    for (int p = 0; p < toParts.size() && p < fromParts.size(); ++p) {
+        const int ringCount =
+            std::min(toParts[p].holes.size(), fromParts.at(p).holes.size()) + 1;
+        for (int r = 0; r < ringCount; ++r) {
+            Ring &dst = (r == 0) ? toParts[p].exterior : toParts[p].holes[r - 1];
+            const Ring &src = (r == 0) ? fromParts.at(p).exterior
+                                       : fromParts.at(p).holes.at(r - 1);
+            if (!src.hasZ() || !dst.hasZ() || src.z.size() != dst.z.size())
+                continue;
+            for (int i = 0; i < dst.z.size(); ++i) {
+                if (p == keepPart && r == keepRing && i == keepIndex) continue;
+                dst.z[i] = src.z.at(i);
+            }
+        }
+    }
+}
 
 }   // namespace
 
@@ -172,6 +231,44 @@ void FeatureLayerPanel::buildUi()
         del->setContext(Qt::WidgetWithChildrenShortcut);
         connect(del, &QShortcut::activated,
                 this, &FeatureLayerPanel::onDeleteSelectedFeatureRows);
+    }
+
+    // ----- Vertex grid ----------------------------------------------------
+    // Numeric coordinate entry for the selected feature. The map tools are
+    // the fast way to move a vertex; this is the exact way. Both funnel
+    // through EditFeatureGeometryCommand, so an edit made here is the same
+    // undo step as the same edit made by dragging (CLAUDE.md §5.1).
+    //
+    // This reverses PLAN §4.4's "the property adapter shows per-vertex Z
+    // read-only" at the user's request — see the 2026-09-14 amendment in
+    // workplans/MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md.
+    {
+        auto *g = new QGroupBox(tr("Vertices"), page);
+        auto *lay = new QVBoxLayout(g);
+
+        m_vertexTable = new QTableWidget(0, VColCount, g);
+        m_vertexTable->setObjectName(QStringLiteral("featureVertexTable"));
+        m_vertexTable->verticalHeader()->setVisible(false);
+        m_vertexTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+        m_vertexTable->setSelectionMode(QAbstractItemView::SingleSelection);
+        m_vertexTable->setMinimumHeight(140);
+        m_vertexTable->setHorizontalHeaderLabels(
+            {tr("Part"), tr("Ring"), tr("#"), tr("X"), tr("Y"), tr("Z")});
+        m_vertexTable->setToolTip(
+            tr("Coordinates of the selected feature, in the layer's own CRS. "
+               "Ring 'exterior' is the outline; 'hole N' are interior rings. "
+               "Open an edit session to type new values."));
+        lay->addWidget(m_vertexTable);
+
+        m_vertexHintLabel = new QLabel(g);
+        m_vertexHintLabel->setWordWrap(true);
+        m_vertexHintLabel->setEnabled(false);
+        lay->addWidget(m_vertexHintLabel);
+
+        vbox->addWidget(g);
+
+        connect(m_vertexTable, &QTableWidget::cellChanged,
+                this, &FeatureLayerPanel::onVertexCellChanged);
     }
 
     // ----- Z -------------------------------------------------------------
@@ -491,6 +588,10 @@ void FeatureLayerPanel::refreshFeatureTable()
         m_deleteFeatBtn->setEnabled(false);
         m_featHintLabel->clear();
         m_suppressFeatureEdits = false;
+        // onFeatureSelectionChangedFromLayer() below is the usual route to the
+        // vertex grid, and it bails with no layer — clear it here instead, or
+        // it keeps showing the removed layer's coordinates.
+        refreshVertexTable();
         return;
     }
 
@@ -557,6 +658,10 @@ void FeatureLayerPanel::onFeatureSelectionChangedFromLayer()
         if (idItem && sel.contains(idItem->data(Qt::UserRole).toLongLong()))
             m_featureTable->selectRow(row);
     }
+    // The vertex grid shows whatever single feature is selected, so it
+    // follows the same signal — from the map, from the grid, or from a
+    // rebuild — instead of carrying a second notion of "current feature".
+    refreshVertexTable();
 }
 
 void FeatureLayerPanel::onFeatureCellChanged(int row, int column)
@@ -613,6 +718,285 @@ void FeatureLayerPanel::onFeatureSelectionChanged()
     // setSelectedFeatureIds is the same entry point the Select map tool uses,
     // so the map highlight follows the grid without a second mechanism.
     l->setSelectedFeatureIds(ids);
+
+    // selectionChanged only fires when the set actually changed; re-selecting
+    // the same row must still repopulate the vertex grid.
+    refreshVertexTable();
+}
+
+// ---------------------------------------------------------------------------
+// Vertex grid
+// ---------------------------------------------------------------------------
+
+void FeatureLayerPanel::refreshVertexTable()
+{
+    if (!m_vertexTable) return;
+    // A write from onVertexCellChanged() re-enters here through
+    // featuresChanged while Qt is still delivering cellChanged. Rebuilding now
+    // would destroy the item being committed; the handler queues one rebuild
+    // when it returns instead.
+    if (m_vertexEditInFlight) return;
+
+    // Every setItem below would otherwise return through cellChanged as a
+    // user edit, exactly as in refreshFeatureTable().
+    const QSignalBlocker block(m_vertexTable);
+    m_suppressVertexEdits = true;
+    const auto unsuppress = qScopeGuard([this] { m_suppressVertexEdits = false; });
+
+    // Keep the user's place: an edit rebuilds the grid, and a ring of 400
+    // vertices is unusable if every keystroke scrolls back to the top.
+    const qint64 previousId  = m_vertexFeatureId;
+    const int    previousRow = m_vertexTable->currentRow();
+
+    m_vertexTable->clearContents();
+    m_vertexTable->setRowCount(0);
+    m_vertexFeatureId = -1;
+
+    FeatureLayer *l = m_active.data();
+    if (!l) {
+        m_vertexHintLabel->setText(tr("No feature layer selected."));
+        return;
+    }
+
+    // Exactly one feature, or there is nothing unambiguous to show. The
+    // selection is the single source of truth, so this works whether the
+    // feature was picked in the grid above or on the map.
+    const QSet<long long> sel = l->selectedFeatureIds();
+    if (sel.size() != 1) {
+        m_vertexHintLabel->setText(
+            sel.isEmpty()
+                ? tr("Select one feature to see its coordinates.")
+                : tr("%n features selected — select exactly one to edit "
+                     "coordinates.", nullptr, static_cast<int>(sel.size())));
+        return;
+    }
+
+    const auto id = static_cast<FeatureId>(*sel.constBegin());
+    Feature f;
+    if (!l->feature(id, f)) {
+        m_vertexHintLabel->setText(tr("Feature %1 could not be read.").arg(id));
+        return;
+    }
+    m_vertexFeatureId = id;
+
+    const bool editing  = l->isEditing();
+    const bool threeD   = l->isThreeD();
+    const QVector<Part> &parts = f.geometry.parts();
+
+    // Six QTableWidgetItems per vertex: an imported boundary with tens of
+    // thousands of vertices would freeze the dock for seconds to build a grid
+    // nobody scrolls. Those are the geometries you edit on the map anyway.
+    const int total = f.geometry.vertexCount();
+    if (total > kMaxVertexRows) {
+        m_vertexFeatureId = -1;
+        m_vertexHintLabel->setText(
+            tr("Feature %1 has %2 vertices — too many to list. Use the vertex "
+               "tools on the map to edit it.").arg(id).arg(total));
+        return;
+    }
+
+    m_vertexTable->setRowCount(total);
+    int row = 0;
+    for (int p = 0; p < parts.size(); ++p) {
+        const Part &part = parts.at(p);
+        // Ring 0 is the exterior; 1..n are the holes, in storage order.
+        // NOTE: this is NOT the convention FeatureVertexRef uses in
+        // include/map/tools/maptoolfeatureedit.h, where the exterior is -1 and
+        // holes start at 0. The two addresses never meet — the grid resolves
+        // its own rows — but do not copy one into the other.
+        for (int r = 0; r <= part.holes.size(); ++r) {
+            const Ring &ring = (r == 0) ? part.exterior : part.holes.at(r - 1);
+            const bool zEditable = editing && threeD && ring.hasZ();
+
+            for (int i = 0; i < ring.size(); ++i, ++row) {
+                auto *partItem = new QTableWidgetItem(QString::number(p + 1));
+                partItem->setFlags(partItem->flags() & ~Qt::ItemIsEditable);
+                partItem->setData(kPartRole,  p);
+                partItem->setData(kRingRole,  r);
+                partItem->setData(kIndexRole, i);
+                m_vertexTable->setItem(row, VColPart, partItem);
+
+                auto *ringItem = new QTableWidgetItem(
+                    r == 0 ? tr("exterior") : tr("hole %1").arg(r));
+                ringItem->setFlags(ringItem->flags() & ~Qt::ItemIsEditable);
+                m_vertexTable->setItem(row, VColRing, ringItem);
+
+                auto *idxItem = new QTableWidgetItem(QString::number(i + 1));
+                idxItem->setFlags(idxItem->flags() & ~Qt::ItemIsEditable);
+                m_vertexTable->setItem(row, VColIndex, idxItem);
+
+                const QPointF pt = ring.pts.at(i);
+                auto *xItem = new QTableWidgetItem(formatOrdinate(pt.x()));
+                Qt::ItemFlags xf = xItem->flags();
+                xf.setFlag(Qt::ItemIsEditable, editing);
+                xItem->setFlags(xf);
+                m_vertexTable->setItem(row, VColX, xItem);
+
+                auto *yItem = new QTableWidgetItem(formatOrdinate(pt.y()));
+                Qt::ItemFlags yf = yItem->flags();
+                yf.setFlag(Qt::ItemIsEditable, editing);
+                yItem->setFlags(yf);
+                m_vertexTable->setItem(row, VColY, yItem);
+
+                // A 2D ring has no Z to show; an unsampled one has NaN, which
+                // is displayed blank rather than as 0 — see FeatureLayer's
+                // "NaN is the honest value" rule.
+                const double zv = ring.zAt(i);
+                QString zText = QStringLiteral("—");
+                if (ring.hasZ()) zText = std::isnan(zv) ? QString() : formatOrdinate(zv);
+                auto *zItem = new QTableWidgetItem(zText);
+                Qt::ItemFlags zf = zItem->flags();
+                zf.setFlag(Qt::ItemIsEditable, zEditable);
+                zItem->setFlags(zf);
+                m_vertexTable->setItem(row, VColZ, zItem);
+            }
+        }
+    }
+    m_vertexTable->setRowCount(row);
+    m_vertexTable->horizontalHeader()->setStretchLastSection(true);
+
+    if (previousId == m_vertexFeatureId) {
+        // Same feature, so the rows mean the same thing: put the cursor back.
+        if (previousRow >= 0 && previousRow < m_vertexTable->rowCount())
+            m_vertexTable->setCurrentCell(previousRow, VColX,
+                                          QItemSelectionModel::NoUpdate);
+    } else {
+        // A different feature: widths are re-fitted once, not on every edit,
+        // so a column the user widened survives their typing.
+        m_vertexTable->resizeColumnsToContents();
+    }
+
+    QStringList hints;
+    if (row == 0)
+        hints << tr("This feature has no vertices.");
+    if (!editing)
+        hints << tr("Read-only — turn on Edit Mode.");
+    if (!threeD) {
+        hints << tr("2D layer — no Z is stored.");
+    } else {
+        const ZPolicy zp = l->zPolicy();
+        if (zp.source == ZPolicy::Source::Raster
+            || zp.source == ZPolicy::Source::Mesh) {
+            hints << tr("Z is sampled from this layer's Z source: a typed Z is "
+                        "kept, but the next resample overwrites it.");
+            if (zp.resampleOnEdit)
+                hints << tr("Changing X or Y re-samples that vertex's Z.");
+        }
+    }
+    m_vertexHintLabel->setText(hints.join(QLatin1Char(' ')));
+}
+
+void FeatureLayerPanel::onVertexCellChanged(int row, int column)
+{
+    if (m_suppressVertexEdits) return;
+    if (column != VColX && column != VColY && column != VColZ) return;
+
+    // Every path below ends by re-reading the geometry: the typed text may have
+    // been rejected, rounded, or followed by a Z resample. The rebuild is
+    // QUEUED, never immediate — clearContents() here would delete the item Qt
+    // is still committing, which releases the open editor mid-flight and costs
+    // the table its focus. The flag also parks the rebuild that the write's own
+    // featuresChanged would trigger, so one edit means one rebuild.
+    m_vertexEditInFlight = true;
+    const auto finish = qScopeGuard([this] {
+        m_vertexEditInFlight = false;
+        QMetaObject::invokeMethod(this, &FeatureLayerPanel::refreshVertexTable,
+                                  Qt::QueuedConnection);
+    });
+
+    FeatureLayer *l = m_active.data();
+    if (!l || !m_canvas || !l->isEditing() || m_vertexFeatureId < 0) return;
+
+    const QTableWidgetItem *addr = m_vertexTable->item(row, VColPart);
+    const QTableWidgetItem *cell = m_vertexTable->item(row, column);
+    if (!addr || !cell) return;
+
+    const auto id = static_cast<FeatureId>(m_vertexFeatureId);
+    Feature f;
+    if (!l->feature(id, f)) return;
+
+    const FeatureGeometry oldGeom = f.geometry;
+    FeatureGeometry next = oldGeom;
+
+    // Bounds-check the row's stashed address against the geometry we just
+    // read, which a concurrent map edit may have shortened. (An insert that
+    // kept the indices in range would address the wrong vertex, but any such
+    // write emits featuresChanged and rebuilds this grid first.)
+    const int p = addr->data(kPartRole).toInt();
+    const int r = addr->data(kRingRole).toInt();
+    const int i = addr->data(kIndexRole).toInt();
+    if (p < 0 || p >= next.parts().size()) return;
+    Part &part = next.parts()[p];
+    if (r < 0 || r > part.holes.size())    return;
+    Ring &ring = (r == 0) ? part.exterior : part.holes[r - 1];
+    if (i < 0 || i >= ring.size())         return;
+
+    const QString text = cell->text().trimmed();
+
+    if (column == VColZ) {
+        if (!l->isThreeD() || !ring.hasZ()) return;
+        // Blank clears the sample back to NaN, the inverse of how an
+        // unsampled Z is displayed.
+        double zv = std::numeric_limits<double>::quiet_NaN();
+        if (!text.isEmpty()) {
+            bool ok = false;
+            zv = text.toDouble(&ok);
+            if (!ok) {
+                emit message(tr("\"%1\" is not a number.").arg(text));
+                return;
+            }
+        }
+        const double cur = ring.z.at(i);
+        if (std::isnan(zv) ? std::isnan(cur) : (zv == cur)) return;
+        ring.z[i] = zv;
+    } else {
+        bool ok = false;
+        const double v = text.toDouble(&ok);
+        if (!ok) {
+            emit message(tr("\"%1\" is not a number.").arg(text));
+            return;
+        }
+        // The ordinate the user did NOT touch is read from the geometry, never
+        // from its sibling cell: that cell holds a 6-decimal rendering, and
+        // taking it back would quietly quantise a coordinate nobody edited.
+        const QPointF cur = ring.pts.at(i);
+        // Compare the edited ordinate exactly. QPointF::operator== is a FUZZY
+        // compare, whose relative tolerance at a northing of 5e6 is ~5e-6 —
+        // coarser than the 1e-6 this grid invites the user to type, so a real
+        // edit would vanish with no message.
+        if (v == ((column == VColX) ? cur.x() : cur.y())) return;
+
+        ring.moveVertex(i, (column == VColX) ? QPointF(v, cur.y())
+                                             : QPointF(cur.x(), v));
+
+        // Moving a vertex can break the ring — self-intersection, or a hole
+        // escaping its exterior. Same gate the draw tools apply on commit.
+        // (Like them, orientation is left alone: validate() does not check it.)
+        QString reason;
+        if (!next.validate(l->geometryType(), &reason)) {
+            emit message(tr("Cannot move that vertex: %1").arg(reason));
+            return;                 // the queued rebuild restores the cell
+        }
+
+        // A moved vertex is over new ground, so its Z is re-sampled when the
+        // policy says so — the same rule maptoolfeatureedit.cpp applies after a
+        // drag. densify=false: no vertices are being added.
+        if (l->isThreeD() && l->zPolicy().resampleOnEdit) {
+            const FeatureGeometry typedZ = next;
+            l->sampleZ(next, m_canvas.data(), /*densify=*/false);
+            restoreZExcept(next, typedZ, p, r, i);
+        }
+    }
+
+    // Not mergeable: a typed coordinate is a discrete edit that should stand
+    // as its own undo step, unlike the drag it shares a command with.
+    auto *cmd = new map::EditFeatureGeometryCommand(
+        l, id, oldGeom, next,
+        column == VColZ ? tr("Edit vertex Z") : tr("Edit vertex position"),
+        /*mergeable=*/false, m_canvas.data());
+    if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
+    else                       { delete cmd; return; }
+    if (!cmd->lastError().isEmpty()) emit message(cmd->lastError());
 }
 
 void FeatureLayerPanel::onDeleteSelectedFeatureRows()
