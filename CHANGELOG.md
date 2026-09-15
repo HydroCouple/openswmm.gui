@@ -129,6 +129,23 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Added
 
+- **Type exact X, Y and Z for a feature's vertices** — the Features dock gains a **Vertices** section
+  listing every vertex of the single selected feature, one row per vertex, addressed by part and ring
+  so interior rings and multi-part geometries are reachable (ring `exterior` is the outline, `hole N`
+  an interior ring). All three ordinates are editable inside an edit session. An X or Y edit is gated
+  on `FeatureGeometry::validate` exactly as a drawn commit is, so a move that self-intersects a ring
+  or pushes a hole outside its exterior is refused and the cell reverts; the ordinate the user did
+  *not* touch is read from the geometry rather than from its sibling cell, so the six-decimal display
+  cannot quietly quantise a coordinate nobody edited. Each edit is one non-mergeable
+  `EditFeatureGeometryCommand` — the same undo step the same move produces by dragging, per the rule
+  that nothing writes to a feature layer outside a command. On a 3D layer a blank Z clears that
+  vertex back to unsampled (NaN, never zero), and when the Z source is a raster or the 2D mesh the
+  dock says plainly that a typed Z survives only until the next resample, and that changing X or Y
+  re-samples it when "Re-sample when a vertex moves" is on. Geometries above 10,000 vertices are not
+  listed — those are edited on the map. Reverses
+  `workplans/MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md` §4.4 ("the property adapter
+  shows per-vertex Z read-only") at the user's request; the plan carries a dated amendment in §4.4
+  and a B6 status note in §7.
 - **Ten SWASHES analytical-verification examples on the Welcome page** — cases from Delestre et al.
   (2013), *SWASHES: a compilation of shallow water analytic solutions for hydraulic and environmental
   studies* (doi 10.1002/fld.3741), each shipping the decks its case supports — `1d_dynwave.inp`
