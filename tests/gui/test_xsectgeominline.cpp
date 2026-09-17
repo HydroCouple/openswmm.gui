@@ -7,12 +7,13 @@
  * Inline cross-section geom1..geom4 — the direct-edit fields surfaced
  * alongside the compound XSection dialog in both the Property Browser and
  * the Attribute Table. Covers:
- *   - the shared shape/geom applicability helper (openswmmvis::
- *     xsectGeomApplies / xsectGeomLabel — the single source of truth used
- *     to grey out inapplicable geoms in both surfaces);
+ *   - the shared shape/geom helpers (openswmmvis::xsectGeomApplies /
+ *     xsectGeomLabel drive the per-shape LABELS and tooltips;
+ *     xsectGeomIsPickerIndex is the separate, narrower test for which
+ *     slots an inline numeric editor may write);
  *   - the SWMMLinkPropertyAdapter geom getters/setters: read-modify-write
- *     of the engine xsect tuple (shape + siblings preserved), and the
- *     "no-op when the geom doesn't apply to the current shape" guard;
+ *     of the engine xsect tuple (shape + siblings preserved), writable for
+ *     every shape, and the picker-index guard that is the sole exception;
  *   - the metaobject contract (geom1..4 are writable, NOTIFY-ing
  *     Q_PROPERTYs on Conduit / Orifice / Weir, absent on Pump / Outlet).
  *
@@ -28,8 +29,11 @@
 #include "ui/properties/xsectshapegeom.h"
 
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_initial_quality.h>  // Initial-quality UI round
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_pollutants.h>       // Initial-quality UI round
 
 #include <QObject>
 #include <QSignalSpy>
@@ -76,7 +80,8 @@ private slots:
         QVERIFY(!xsectGeomApplies(2, 3));
         // TRAPEZOIDAL (4): all four (depth, bottom width, two slopes).
         for (int k = 1; k <= 4; ++k) QVERIFY(xsectGeomApplies(4, k));
-        // IRREGULAR / STREET: geom1 is an index — none editable inline.
+        // IRREGULAR / STREET carry no named dimensions at all — geom1 is a
+        // list index and the rest are unused, so nothing gets a label.
         for (int k = 1; k <= 4; ++k) {
             QVERIFY(!xsectGeomApplies(SWMM_XSECT_IRREGULAR, k));
             QVERIFY(!xsectGeomApplies(SWMM_XSECT_STREET, k));
@@ -126,39 +131,62 @@ private slots:
         swmm_engine_destroy(e);
     }
 
-    void rejectedWhenGeomDoesNotApply()
+    //! A geom the current shape doesn't consume is still a real stored
+    //! number, so the write goes through and the value survives. This used
+    //! to be a no-op, which meant a CIRCULAR conduit offered three dead,
+    //! permanently blank geom fields and silently discarded a width typed
+    //! before switching to RECT_CLOSED.
+    void geomWritableEvenWhenShapeDoesNotUseIt()
     {
         SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
         QVERIFY(e);
         const int idx = swmm_link_index(e, "C1");
-        // CIRCULAR (shape 0): only geom1 (Diameter) applies.
+        // CIRCULAR (shape 0): only geom1 (Diameter) is *used* by the solver.
         QCOMPARE(swmm_link_set_xsect(e, idx, /*CIRCULAR=*/0, 2.0, 0, 0, 0), SWMM_OK);
 
         SWMMConduitPropertyAdapter a(e, QStringLiteral("C1"));
         QSignalSpy spy(&a, &SWMMLinkPropertyAdapter::changed);
 
-        // geom2 doesn't apply to CIRCULAR — no-op (no emit, g2 stays 0,
-        // shape unchanged).
+        // geom2 is unused by CIRCULAR but still writable + readable back.
         a.setXsectGeom2(9.0);
-        QCOMPARE(spy.count(), 0);
-        QCOMPARE(a.xsectGeom2(), 0.0);
-        QCOMPARE(a.xsectShapeId(), 0);
-
-        // geom1 applies — write goes through.
-        a.setXsectGeom1(3.5);
         QCOMPARE(spy.count(), 1);
+        QCOMPARE(a.xsectGeom2(), 9.0);
+        QCOMPARE(a.xsectShapeId(), 0);   // shape must not move
+
+        // geom1 likewise.
+        a.setXsectGeom1(3.5);
+        QCOMPARE(spy.count(), 2);
         QCOMPARE(a.xsectGeom1(), 3.5);
+        QCOMPARE(a.xsectGeom2(), 9.0);   // sibling preserved
+
+        // Switching to RECT_CLOSED now finds the width already there —
+        // the point of keeping the stored value.
+        QCOMPARE(swmm_link_set_xsect(e, idx, /*RECT_CLOSED=*/2, 3.5, 9.0, 0, 0),
+                 SWMM_OK);
+        QCOMPARE(a.xsectGeom2(), 9.0);
 
         swmm_engine_destroy(e);
     }
 
-    void geomRejectedForIrregularShape()
+    //! The one slot that must still refuse an inline numeric write: for
+    //! IRREGULAR (and STREET) geom1 holds a transect-list INDEX, so a raw
+    //! number would silently re-point the section at another transect.
+    //! Its siblings are plain unused storage and stay writable.
+    void pickerIndexGeomRejectsInlineWrite()
     {
         SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
         QVERIFY(e);
         const int idx = swmm_link_index(e, "C1");
-        // IRREGULAR: geom1 is a transect index — inline geoms are all
-        // dialog-managed, so even geom1 must reject an inline numeric write.
+        // set_xsect(IRREGULAR, index) now validates and BINDS the transect
+        // (it used to store the index as a depth and leave the reference
+        // dangling — the .inp save corruption family), so the fixture needs a
+        // real transect for index 0 to name.
+        QCOMPARE(swmm_transect_add(e, "T1"), SWMM_OK);
+        const int ti = swmm_transect_index(e, "T1");
+        QCOMPARE(swmm_transect_set_roughness(e, ti, 0.04, 0.04, 0.03), SWMM_OK);
+        QCOMPARE(swmm_transect_add_station(e, ti, 0.0, 10.0), SWMM_OK);
+        QCOMPARE(swmm_transect_add_station(e, ti, 5.0, 5.0), SWMM_OK);
+        QCOMPARE(swmm_transect_add_station(e, ti, 10.0, 10.0), SWMM_OK);
         QCOMPARE(swmm_link_set_xsect(e, idx, SWMM_XSECT_IRREGULAR, 0, 0, 0, 0),
                  SWMM_OK);
 
@@ -168,7 +196,27 @@ private slots:
         QCOMPARE(spy.count(), 0);
         QCOMPARE(a.xsectGeom1(), 0.0);
 
+        // geom2 on IRREGULAR is not an index — no reason to lock it.
+        a.setXsectGeom2(1.25);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(a.xsectGeom2(), 1.25);
+
         swmm_engine_destroy(e);
+    }
+
+    //! CUSTOM is the mixed case: geom1 is a real depth, geom2 is a
+    //! shape-curve index.
+    void customShapeLocksOnlyItsCurveIndex()
+    {
+        using namespace openswmmvis;
+        QVERIFY(!xsectGeomIsPickerIndex(SWMM_XSECT_CUSTOM, 1));
+        QVERIFY( xsectGeomIsPickerIndex(SWMM_XSECT_CUSTOM, 2));
+        QVERIFY( xsectGeomIsPickerIndex(SWMM_XSECT_IRREGULAR, 1));
+        QVERIFY( xsectGeomIsPickerIndex(SWMM_XSECT_STREET, 1));
+        // Everything else is a plain stored dimension.
+        QVERIFY(!xsectGeomIsPickerIndex(SWMM_XSECT_CIRCULAR, 1));
+        QVERIFY(!xsectGeomIsPickerIndex(SWMM_XSECT_CIRCULAR, 2));
+        QVERIFY(!xsectGeomIsPickerIndex(SWMM_XSECT_IRREGULAR, 2));
     }
 
     // -- Metaobject contract --------------------------------------------
@@ -221,6 +269,126 @@ private slots:
             SWMMOutletPropertyAdapter a(e, QStringLiteral("L1"));
             for (const QString &p : geoms)
                 QCOMPARE(a.metaObject()->indexOfProperty(p.toUtf8().constData()), -1);
+            swmm_engine_destroy(e);
+        }
+    }
+
+    // ====================================================================
+    // Initial-quality UI round — link-side "Initial Quality" cell
+    // ====================================================================
+
+    void initialQualityRefTracksEngineRows()
+    {
+        SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
+        QVERIFY(e);
+        QCOMPARE(swmm_pollutant_add(e, "TSS", 0 /*MG/L*/), SWMM_OK);
+        const int li = swmm_link_index(e, "C1");
+        QVERIFY(li >= 0);
+
+        SWMMConduitPropertyAdapter a(e, QStringLiteral("C1"));
+        auto ref = a.initialQualityRef();
+        QCOMPARE(ref.engine, e);
+        QCOMPARE(ref.isLink, 1);
+        QCOMPARE(ref.elementName, QStringLiteral("C1"));
+        QCOMPARE(ref.summary, QStringLiteral("(none)"));
+
+        // A NODE row for the same engine index must not leak into the
+        // LINK-scoped summary.
+        const int j1 = swmm_node_index(e, "J1");
+        QCOMPARE(swmm_init_quality_set(e, 0, j1, "TSS", 3.0), SWMM_OK);
+        QCOMPARE(a.initialQualityRef().summary, QStringLiteral("(none)"));
+
+        QCOMPARE(swmm_init_quality_set(e, 1, li, "TSS", 4.5), SWMM_OK);
+        QCOMPARE(a.initialQualityRef().summary, QStringLiteral("1 set"));
+
+        QVERIFY(a.metaObject()->indexOfProperty("initialQuality") >= 0);
+        QVERIFY(!a.displayLabelFor(
+            QStringLiteral("initialQuality")).isEmpty());
+        swmm_engine_destroy(e);
+    }
+
+    // ====================================================================
+    // Post-run summary rows (Attribute Table dynamics parity)
+    // ====================================================================
+
+    // Every link subclass carries the five shared stat* rows read-only;
+    // pumps additionally carry the utilisation trio, which the other kinds
+    // must NOT expose. Reading through the meta-object catches READ-
+    // accessor typos moc only surfaces at runtime; the never-run editing
+    // engine yields zeros.
+    void statRowsPerSubclassReadOnlyZeroPreRun()
+    {
+        const QStringList shared = {
+            QStringLiteral("statMaxFlow"),     QStringLiteral("statMaxVelocity"),
+            QStringLiteral("statMaxFilling"),  QStringLiteral("statVolFlow"),
+            QStringLiteral("statSurchargeTime"),
+        };
+        const QStringList pumpOnly = {
+            QStringLiteral("statPumpCycles"), QStringLiteral("statPumpOnTime"),
+            QStringLiteral("statPumpVolume"),
+        };
+
+        auto checkProps = [](SWMMLinkPropertyAdapter &a, const QStringList &props) {
+            const auto *mo = a.metaObject();
+            for (const QString &prop : props) {
+                const QByteArray p = prop.toLatin1();
+                const int idx = mo->indexOfProperty(p.constData());
+                QVERIFY2(idx >= 0, p.constData());
+                QVERIFY2(!mo->property(idx).isWritable(), p.constData());
+                const QVariant v = mo->property(idx).read(&a);
+                QVERIFY2(v.isValid(), p.constData());
+                QCOMPARE(v.toDouble(), 0.0);
+                QVERIFY2(!a.displayLabelFor(prop).isEmpty(), p.constData());
+            }
+        };
+
+        {
+            SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
+            QVERIFY(e);
+            SWMMConduitPropertyAdapter a(e, QStringLiteral("C1"));
+            checkProps(a, shared);
+            for (const QString &prop : pumpOnly)
+                QVERIFY2(a.metaObject()->indexOfProperty(
+                             prop.toLatin1().constData()) < 0,
+                         "pump utilisation rows must stay pump-only");
+            swmm_engine_destroy(e);
+        }
+        {
+            SWMM_Engine e = buildLinkFixture("P1", /*Pump=*/1);
+            QVERIFY(e);
+            SWMMPumpPropertyAdapter a(e, QStringLiteral("P1"));
+            checkProps(a, shared + pumpOnly);
+            swmm_engine_destroy(e);
+        }
+        {
+            SWMM_Engine e = buildLinkFixture("O1", /*Orifice=*/2);
+            QVERIFY(e);
+            SWMMOrificePropertyAdapter a(e, QStringLiteral("O1"));
+            checkProps(a, shared);
+            swmm_engine_destroy(e);
+        }
+        {
+            SWMM_Engine e = buildLinkFixture("T1", /*Outlet=*/4);
+            QVERIFY(e);
+            SWMMOutletPropertyAdapter a(e, QStringLiteral("T1"));
+            checkProps(a, shared);
+            swmm_engine_destroy(e);
+        }
+        {
+            SWMM_Engine e = buildLinkFixture("W1", /*Weir=*/3);
+            QVERIFY(e);
+            SWMMWeirPropertyAdapter a(e, QStringLiteral("W1"));
+            checkProps(a, shared);
+
+            // Stats-source plumbing: changed() fires once per new id, and a
+            // non-null id with no registry bound stays on the engine path.
+            QSignalSpy spy(&a, &SWMMLinkPropertyAdapter::changed);
+            const QUuid someRun = QUuid::createUuid();
+            a.setStatsSource(someRun);
+            QCOMPARE(spy.count(), 1);
+            a.setStatsSource(someRun);
+            QCOMPARE(spy.count(), 1);
+            QCOMPARE(a.statMaxFlow(), 0.0);
             swmm_engine_destroy(e);
         }
     }

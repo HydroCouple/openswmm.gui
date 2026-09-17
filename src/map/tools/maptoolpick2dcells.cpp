@@ -11,7 +11,9 @@
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
 #include "mesh/meshobjectref.h"
+#include "plot/mesh2drunlayer.h"
 #include "selection/selectionmanager.h"
+#include "ui/widgets/attributepickermenu.h"
 
 #include <QCursor>
 #include <QKeyEvent>
@@ -133,7 +135,7 @@ void MapToolPick2DCells::applySelection_(const QVector<int> &hits,
     m_selection->select(set, mode);
 }
 
-void MapToolPick2DCells::requestPlotAt_(const QPoint &pixel)
+void MapToolPick2DCells::requestPlotAt_(const QPoint &pixel, const QPoint &globalPos)
 {
     SWMM2DResultsLayer *layer = m_targetLayer.data();
     if (!layer) layer = findResultsLayer_();
@@ -148,8 +150,20 @@ void MapToolPick2DCells::requestPlotAt_(const QPoint &pixel)
             targets.push_back(idx);
         }
     }
-    if (!targets.isEmpty())
-        emit cellsPicked(layer, targets);
+    if (targets.isEmpty()) return;
+
+    // Same context-menu picker the 1D select tool uses; entries the layer
+    // can't serve (no edge flux → no velocity; no rainfall datasets) are
+    // greyed out via Mesh2DRunLayer::supportsAttribute.
+    using namespace openswmmvis;
+    const plot::Mesh2DRunLayer availability(layer);
+    const QVector<plot::PlotAttribute> attrs =
+        ui::AttributePickerMenu::execForMeshKind(
+            plot::ObjectRef::Kind::Mesh2DCell, globalPos, &availability,
+            tr("Not present in this run's 2D results — re-run with the "
+               "current engine."));
+    if (!attrs.isEmpty())
+        emit cellsPicked(layer, targets, attrs);
 }
 
 QPointF MapToolPick2DCells::pixelToScene_(int px, int py) const
@@ -256,7 +270,7 @@ void MapToolPick2DCells::mouseReleaseEvent(QMouseEvent *event)
     if (event->button() == Qt::RightButton) {
         if (m_pendingRightPlot) {
             m_pendingRightPlot = false;
-            requestPlotAt_(event->pos());
+            requestPlotAt_(event->pos(), event->globalPosition().toPoint());
         }
         return;
     }
@@ -304,9 +318,22 @@ void MapToolPick2DCells::mouseDoubleClickEvent(QMouseEvent *event)
     if (event->button() != Qt::LeftButton) return;
     if (!m_drawing) return;
 
-    // Double-click adds one vertex (the first click) — strip it before commit.
-    if (!m_lassoMapPts.isEmpty())
-        m_lassoMapPts.removeLast();
+    // Close the lasso ON the double-clicked point, whether or not this
+    // platform sent a MouseButtonPress ahead of the DblClick (see
+    // maptooladdsubcatchment.cpp). Stripping the last vertex unconditionally
+    // dropped the closing point and cost the lasso a whole corner.
+    if (!m_lassoMapPts.isEmpty()) {
+        int lx = 0, ly = 0;
+        toPixelCoords(m_lassoMapPts.last().x(), m_lassoMapPts.last().y(), lx, ly);
+        if (std::abs(lx - event->pos().x()) <= 2
+            && std::abs(ly - event->pos().y()) <= 2)
+            m_lassoMapPts.removeLast();
+    }
+    {
+        double mx = 0.0, my = 0.0;
+        toMapCoords(event->pos().x(), event->pos().y(), mx, my);
+        m_lassoMapPts.push_back(QPointF(mx, my));
+    }
     if (m_lassoMapPts.size() < 3) {
         m_drawing = false;
         m_lassoMapPts.clear();

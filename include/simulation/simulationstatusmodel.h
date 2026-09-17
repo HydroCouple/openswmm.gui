@@ -19,6 +19,7 @@ class SWMMVisProjectWindow;  // Forward declaration
  * @brief Status of a single simulation job.
  */
 enum class SimulationJobStatus {
+    Idle,       ///< Row exists for an open model; no run yet.
     Running,
     Success,
     Failed,
@@ -63,7 +64,15 @@ struct SimulationJobRecord {
 
     double  avgTimestepSec           = 0.0;  ///< running average engine timestep (seconds)
 
+    // 2D solver telemetry (swmm_2d_get_run_stats), pushed with each tick.
+    QString         twoDBackend;             ///< empty = no 2D run / not started
+    int             twoDMomentum = 0;        ///< 0 LOCAL_INERTIAL, 1 FULL_SWE, 2 DIFFUSIVE_WAVE
+    int             twoDLtsTiers = 0;        ///< configured LTS_TIERS
+    qint64          twoDSteps    = 0;        ///< cumulative marcher substeps
+    QVector<qint64> twoDTierCells;           ///< rebuild-sampled cells per LTS tier
+
     QStringList warnings;           ///< "[code] message" entries
+    int         droppedWarnings = 0; ///< oldest entries trimmed past the per-job cap
 };
 
 /**
@@ -102,7 +111,9 @@ public:
     static constexpr int ColDuration     = 9;
     static constexpr int ColAvgTimestep  = 10;
     static constexpr int ColVersion      = 11;
-    static constexpr int NumColumns      = 12;
+    static constexpr int Col2DBackend    = 12;   ///< "cpu · LOCAL_INERTIAL", "—" for 1D runs
+    static constexpr int ColLtsTiers     = 13;   ///< "4 tiers · t3 84 %"
+    static constexpr int NumColumns      = 14;
 
     explicit SimulationStatusModel(QObject *parent = nullptr);
 
@@ -123,6 +134,16 @@ public:
                                const QString &engineVersion = QString());
 
     /**
+     * @brief Return the job row bound to (model, engine version), creating
+     *        an Idle row if none exists yet. Used so an opened model shows
+     *        its simulation start / end dates before any run.
+     */
+    int  ensureJobForModel(SWMMVisProjectWindow *model,
+                           const QString &instanceName,
+                           const QString &inpPath,
+                           const QString &engineVersion);
+
+    /**
      * @brief Update progress for a running job.
      * @param runoffErrFrac   Live continuity error fraction (0.001 = 0.1 %).
      * @param routingErrFrac  Ditto for routing.
@@ -134,6 +155,16 @@ public:
                         double routingErrFrac = 0.0,
                         double avgTimestepSec = 0.0,
                         double twoDErrFrac = qQNaN());
+
+    /**
+     * 2D solver telemetry from SimulationRunner::twoDSolverStats: the backend
+     * label, momentum closure (0 LOCAL_INERTIAL, 1 FULL_SWE, 2 DIFFUSIVE_WAVE),
+     * configured LTS_TIERS, cumulative marcher substeps and the rebuild-sampled
+     * cells per LTS tier. Drives the "2D Solver" and "LTS Tiers" columns.
+     */
+    void updateTwoDSolverStats(int jobId, const QString &backend, int momentum,
+                               int ltsTiers, qint64 steps,
+                               const QVector<qint64> &tierCells);
 
     /** Set the engine-side simulation start / end dates for a job. */
     void setSimulationDates(int jobId,

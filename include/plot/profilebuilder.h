@@ -105,6 +105,54 @@ enum class OutputKind
     MinWaterSurface,
 };
 
+/*! Sentinel for BranchLink::bearingRad when a link's plan geometry is
+ *  degenerate and no honest bearing exists. Outside [-pi, pi], so a renderer
+ *  that forgets to check draws nothing sensible rather than a plausible-but-
+ *  wrong north spoke. */
+inline constexpr double kNoBearing = 1.0e9;
+
+/*!
+ * \struct BranchLink
+ * \brief One link incident to a path node, described from that node's point
+ *        of view.
+ *
+ *        Every link touching the node is recorded, including the one or two
+ *        the profile itself traverses (`onPath`). The renderer uses the set
+ *        two ways: off-path entries become truncated stubs butting against
+ *        the manhole tube, so a profile shows what else arrives at each
+ *        structure; and the whole set — path links included — becomes the
+ *        per-node plan rose, where the path spokes are what orient the
+ *        reader.
+ *
+ *        `bearingRad` is a MAP bearing measured at this node: 0 = +y (north),
+ *        increasing clockwise, in the layer CRS. It is the direction the link
+ *        leaves this node, taken from the first polyline point away from the
+ *        node, so a curved link reads by its local tangent rather than by the
+ *        straight line to its far end.
+ *
+ *        `intoNode` is the MODEL's flow direction (this node is the link's
+ *        To-node), not the profile traversal direction — a rose arrow should
+ *        show how the network is built, which is independent of which way the
+ *        user happened to draw the profile.
+ */
+struct BranchLink
+{
+    QString  name;
+    LinkKind kind       = LinkKind::Conduit;
+    double   invertElev = 0.0;   /*!< Absolute invert at THIS node — the node
+                                       invert plus the link's offset at this
+                                       end. Sets where the stub attaches. */
+    double   maxDepth   = 0.0;   /*!< Cross-section max depth (crown offset)
+                                       for the stub's thickness; 0 when the
+                                       link has no conduit geometry. */
+    bool     openTop    = false; /*!< Draw the stub with no soffit line. */
+    double   bearingRad = 0.0;   /*!< Plan bearing, 0 = north, clockwise. */
+    bool     intoNode   = false; /*!< Model flow arrives at this node. */
+    bool     onPath     = false; /*!< The profile traverses this link, so it
+                                       gets no stub (it is already drawn full
+                                       length) but does get a rose spoke. */
+};
+
 /*!
  * \struct NodeStatic
  * \brief Time-invariant per-node properties needed by the profile plot.
@@ -125,6 +173,16 @@ struct NodeStatic
     double   surchargeDepth  = 0.0;   /*!< extra depth allowed above rim
                                             before flooding occurs */
     NodeKind kind            = NodeKind::Junction;
+    /*! Inlet junction — a VirtualJunction that also captures street flow to
+     *  an off-profile underdrain node. Carried as a flag rather than a sixth
+     *  NodeKind so no existing kind switch changes meaning: it is drawn with
+     *  the virtual-junction break rectangle plus a small inlet glyph. */
+    bool     isInlet         = false;
+    /*! Every link incident to this node, path links included (see
+     *  BranchLink). Empty when the caller built the path from pure-logic
+     *  inputs without geometry — the renderer simply draws no stubs and no
+     *  rose, exactly as before this field existed. */
+    QVector<BranchLink> branches;
 };
 
 /*!
@@ -150,6 +208,14 @@ struct LinkStatic
                                         inlet (path-upstream) node invert.
                                         Read via swmm_link_get_crest_height.
                                         Zero for conduits / pumps / orifices. */
+    bool     openTop     = false; /*!< Draw with no soffit line (open channel,
+                                        or a street). Presentation only — see
+                                        linkFullDepth() in xsectsampler.h. */
+    bool     isStreet    = false; /*!< STREET cross-section: the invert is a
+                                        road gutter line and is drawn with the
+                                        pavement brush. Carried as a plain
+                                        flag so the renderer stays free of
+                                        engine shape codes. */
     LinkKind kind        = LinkKind::Conduit;
     bool     reversed    = false; /*!< True when traversal direction is the
                                         reverse of the underlying model link;
@@ -327,6 +393,33 @@ struct Diagnostic
 [[nodiscard]] SourceDerived compute(const PathStatic &path,
                                     const SourceSeries &src,
                                     double gravity);
+
+/*!
+ * \brief Live results: extend a `SourceDerived` built over the first
+ *        `derived.hglByPeriod.size()` periods of `src` with the periods
+ *        `src` has gained since. `src` must be the full (grown) series.
+ *        Appends one period-major row per new period and updates the
+ *        running envelopes; the result is identical to `compute()` over the
+ *        whole series (both use `accumulatePeriod`). Returns false and
+ *        leaves `derived` untouched when `src` does not validate, has fewer
+ *        periods than `derived`, or `derived` is not a compute() of this
+ *        path. A no-op success when nothing was appended.
+ */
+bool appendPeriods(const PathStatic &path,
+                   const SourceSeries &src,
+                   double gravity,
+                   SourceDerived &derived);
+
+/*!
+ * \brief The per-period kernel shared by `compute()` and `appendPeriods()`:
+ *        fills period `p`'s rows of `out` (which must already be sized and
+ *        NaN-filled for `p`) and folds the values into the envelopes.
+ */
+void accumulatePeriod(const PathStatic &path,
+                      const SourceSeries &src,
+                      int p,
+                      double gravity,
+                      SourceDerived &out);
 
 } // namespace ProfileBuilder
 

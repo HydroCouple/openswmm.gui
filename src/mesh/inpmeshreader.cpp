@@ -6,6 +6,8 @@
  */
 #include "mesh/inpmeshreader.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
+#include "mesh/meshinfil.h"
 
 #include <QChar>
 #include <QDir>
@@ -13,7 +15,6 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QPair>
-#include <QRegularExpression>
 
 #include <algorithm>
 
@@ -23,15 +24,21 @@ namespace {
 
 constexpr const char *kSecVertices       = "[2D_VERTICES]";
 constexpr const char *kSecTriangles      = "[2D_TRIANGLES]";
+constexpr const char *kSecQuads          = "[2D_QUADS]";                 // engine 2026-09-06 mixed meshes
 constexpr const char *kSecMeshFile       = "[2D_MESH_FILE]";
 constexpr const char *kSecVertexNodeMap  = "[2D_VERTEX_NODE_MAP]";      // 1D<->2D coupling
 constexpr const char *kSecTriangleNodeMap = "[2D_TRIANGLE_NODE_MAP]";   // node→cell coupling (Part C)
 constexpr const char *kSecBC             = "[2D_BOUNDARY_CONDITIONS]";  // §V.VD.1
 constexpr const char *kSecConveyance     = "[2D_EDGE_CONVEYANCE]";       // Engine §11A
+constexpr const char *kSecInfilOptions   = "[2D_INFILTRATION_OPTIONS]";  // GG0a
+constexpr const char *kSecInfilDefaults  = "[2D_INFILTRATION_DEFAULTS]"; // GG0a
+constexpr const char *kSecInfil          = "[2D_INFILTRATION]";          // GG0a
 
-/*! Per-row pre-mesh BC accumulator: (flat-index, value). Resolved to a
- *  sized QVector<MeshEdgeBC> after the mesh is known. */
-struct BCRow { int flat = -1; MeshEdgeBC bc; };
+/*! Per-row pre-mesh BC accumulator: (cell, local edge, value). Resolved to
+ *  a flat slot (`edgeSlot(cell, e)`) in a sized QVector<MeshEdgeBC> after the
+ *  mesh is known — only then can `e < cell.vertexCount()` be checked (a quad
+ *  has edges 0..3, a triangle 0..2). */
+struct BCRow { int cell = -1; int e = -1; MeshEdgeBC bc; };
 using BCRowList = QVector<BCRow>;
 
 /*! Per-row pre-mesh conveyance accumulator: (FROM_VERTEX, TO_VERTEX, value).
@@ -57,21 +64,104 @@ bool readTextFile(const QString &path, QString *out, QString *err)
     return true;
 }
 
-/*! Strip an inline trailing comment ("X Y Z ; comment" → "X Y Z"). */
-QString stripComment(QString line)
-{
-    const int semi = line.indexOf(QChar(';'));
-    if (semi >= 0) line.truncate(semi);
-    return line;
-}
-
-/*! Token-split a data line. Returns empty vector for comment/blank lines. */
+/*! Token-split a data line. Returns empty vector for comment/blank lines.
+ *
+ *  Hand-rolled rather than `split(QRegularExpression("\\s+"))`: this runs once
+ *  per line, i.e. ~2.3M times on a 1.5M-triangle `.2dm`, and the regex path
+ *  allocated a fresh QStringList plus a match context every time. Splitting on
+ *  QChar::isSpace over a view of the original string is behaviourally
+ *  identical (`\s` and isSpace agree on the whitespace this format uses) and
+ *  allocates only the tokens themselves. */
 QStringList tokenize(const QString &raw)
 {
-    const QString line = stripComment(raw).trimmed();
-    if (line.isEmpty()) return {};
-    static const QRegularExpression ws(QStringLiteral(R"(\s+)"));
-    return line.split(ws, Qt::SkipEmptyParts);
+    const QStringView line = QStringView(raw).left(
+        [&raw] {
+            const qsizetype semi = raw.indexOf(QChar(';'));
+            return semi >= 0 ? semi : raw.size();
+        }());
+
+    QStringList out;
+    qsizetype i = 0;
+    const qsizetype n = line.size();
+    while (i < n) {
+        while (i < n && line[i].isSpace()) ++i;
+        if (i >= n) break;
+        const qsizetype start = i;
+        while (i < n && !line[i].isSpace()) ++i;
+        out.append(line.mid(start, i - start).toString());
+    }
+    return out;
+}
+
+/*! GG0a — parse `METHOD [P1..P5] [DEST]` starting at \p first into \p row.
+ *
+ *  Mirrors the engine's `parseInfil2DRowTail` (SectionHandlers2D.cpp):
+ *  parameter columns are POSITIONAL and in PROJECT units, `-` means unset
+ *  (left as NaN here rather than 0, so the GUI can tell "not written" from
+ *  "written as zero"), trailing unused columns may be omitted, and DEST is
+ *  the final token when it is neither numeric nor `-`. Returns an empty
+ *  string on success, an error message otherwise. */
+QString parseInfilRowTail(const QStringList &tok, int first,
+                          const char *secName, InfilRow &row)
+{
+    const QString sec = QString::fromLatin1(secName);
+    if (tok.size() <= first)
+        return QStringLiteral("%1 missing METHOD").arg(sec);
+
+    bool okm = false;
+    row.method = infilMethodFromToken(tok[first], &okm);
+    if (!okm)
+        return QStringLiteral("%1 unknown METHOD: %2").arg(sec, tok[first]);
+
+    int end = int(tok.size());
+    if (end > first + 1) {
+        const QString &last = tok[end - 1];
+        bool numeric = false;
+        (void)last.toDouble(&numeric);
+        if (!numeric && last != QLatin1String("-")) {
+            bool okd = false;
+            row.dest = infilDestFromToken(last, &okd);
+            if (!okd)
+                return QStringLiteral("%1 unknown DEST: %2").arg(sec, last);
+            --end;
+        }
+    }
+
+    for (int k = first + 1; k < end; ++k) {
+        const int idx = k - (first + 1);
+        if (idx >= kInfilMaxParams)
+            return QStringLiteral("%1 too many parameter columns (max %2)")
+                .arg(sec).arg(kInfilMaxParams);
+        if (tok[k] == QLatin1String("-")) continue;   // unset
+        bool okv = false;
+        const double v = tok[k].toDouble(&okv);
+        if (!okv)
+            return QStringLiteral("%1 invalid parameter: %2").arg(sec, tok[k]);
+        row.p[idx] = v;
+    }
+    return {};
+}
+
+/*! GG0a — `INFIL_STEP` value: `h:mm:ss`, `h:mm`, or plain seconds. Matches
+ *  the engine's `openswmm::input::parse_time_seconds`. Returns a negative
+ *  value when the token is not a duration at all. */
+double parseInfilStepSeconds(const QString &token)
+{
+    bool ok = false;
+    const double plain = token.toDouble(&ok);
+    if (ok) return plain;                     // plain number = seconds
+
+    const QStringList parts = token.split(QChar(':'));
+    if (parts.isEmpty()) return -1.0;
+    double secs = 0.0;
+    const double scale[3] = {3600.0, 60.0, 1.0};
+    for (int i = 0; i < parts.size() && i < 3; ++i) {
+        bool okp = false;
+        const double v = parts[i].toDouble(&okp);
+        if (!okp) return -1.0;
+        secs += v * scale[i];
+    }
+    return secs;
 }
 
 /*! Parse the body lines of a section into the mesh result.
@@ -107,38 +197,60 @@ QString parseSection(const QString &sectionName,
         return {};
     }
 
-    if (sectionName.compare(QLatin1String(kSecTriangles), Qt::CaseInsensitive) == 0)
+    // [2D_TRIANGLES] `V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]` and, since the
+    // engine's mixed meshes (2D_TRI_QUAD_MESH_PLAN_2026-09-06), [2D_QUADS]
+    // `V1 V2 V3 V4 MANNINGS_N [INIT_DEPTH] [TAG]`. Both land in
+    // MeshResult::triangles in the engine's cell order — triangles first,
+    // then quads — so a quad row is only legal once no triangle row can
+    // follow it: a [2D_TRIANGLES] row after any [2D_QUADS] row is an error
+    // (same rule as the engine), otherwise every cell-addressed section
+    // behind it would silently renumber.
+    const bool isTriangles =
+        sectionName.compare(QLatin1String(kSecTriangles), Qt::CaseInsensitive) == 0;
+    const bool isQuads =
+        sectionName.compare(QLatin1String(kSecQuads), Qt::CaseInsensitive) == 0;
+    if (isTriangles || isQuads)
     {
+        const int nvert = isQuads ? 4 : 3;
+        const char *sec = isQuads ? kSecQuads : kSecTriangles;
         for (const QString &raw : bodyLines)
         {
             const QStringList tok = tokenize(raw);
             if (tok.isEmpty()) continue;
-            if (tok.size() < 3)
-                return QStringLiteral("[2D_TRIANGLES] needs V1 V2 V3 (got: %1)").arg(raw.trimmed());
-            bool ok0 = false, ok1 = false, ok2 = false;
-            const int v0 = tok[0].toInt(&ok0);
-            const int v1 = tok[1].toInt(&ok1);
-            const int v2 = tok[2].toInt(&ok2);
-            if (!ok0 || !ok1 || !ok2)
-                return QStringLiteral("[2D_TRIANGLES] non-integer vertex index (got: %1)").arg(raw.trimmed());
+            if (tok.size() < nvert)
+                return QStringLiteral("%1 needs %2 (got: %3)")
+                    .arg(QLatin1String(sec),
+                         isQuads ? QStringLiteral("V1 V2 V3 V4") : QStringLiteral("V1 V2 V3"),
+                         raw.trimmed());
+            if (isTriangles && !out.triangles.isEmpty() && out.triangles.last().isQuad())
+                return QStringLiteral("[2D_TRIANGLES] row after a [2D_QUADS] row: cells "
+                                      "are numbered triangles first, then quads (got: %1)")
+                    .arg(raw.trimmed());
             MeshTriangle t;
-            t.v0 = v0; t.v1 = v1; t.v2 = v2;
-            // tok[3] is MANNINGS_N. tok[4] is INIT_DEPTH when numeric
-            // (engine format `V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]`),
-            // otherwise the historical TAG; tok[5] is TAG after a depth.
-            if (tok.size() >= 4) {
+            for (int k = 0; k < nvert; ++k) {
+                bool okv = false;
+                const int v = tok[k].toInt(&okv);
+                if (!okv)
+                    return QStringLiteral("%1 non-integer vertex index (got: %2)")
+                        .arg(QLatin1String(sec), raw.trimmed());
+                t.setVertex(k, v);
+            }
+            // tok[nvert] is MANNINGS_N. tok[nvert+1] is INIT_DEPTH when
+            // numeric, otherwise the historical TAG; tok[nvert+2] is TAG
+            // after a depth.
+            if (tok.size() >= nvert + 1) {
                 bool okn = false;
-                const double n = tok[3].toDouble(&okn);
+                const double n = tok[nvert].toDouble(&okn);
                 if (okn) t.mannings = n;
             }
-            if (tok.size() >= 5) {
+            if (tok.size() >= nvert + 2) {
                 bool okd = false;
-                const double d = tok[4].toDouble(&okd);
+                const double d = tok[nvert + 1].toDouble(&okd);
                 if (okd) {
                     t.initDepth = d;
-                    if (tok.size() >= 6) t.tag = tok[5];
+                    if (tok.size() >= nvert + 3) t.tag = tok[nvert + 2];
                 } else {
-                    t.tag = tok[4];
+                    t.tag = tok[nvert + 1];
                 }
             }
             out.triangles.append(t);
@@ -154,6 +266,9 @@ QString parseSection(const QString &sectionName,
     if (sectionName.compare(QLatin1String(kSecVertexNodeMap),
                             Qt::CaseInsensitive) == 0)
     {
+        // Lazily built on the first tag-form row (see below). Stays empty for
+        // an all-index-form map, so index-form files pay nothing.
+        QHash<QString, int> tagToVertex;
         for (const QString &raw : bodyLines)
         {
             const QStringList tok = tokenize(raw);
@@ -170,9 +285,21 @@ QString parseSection(const QString &sectionName,
                 okv = false;   // numeric but not a valid index — try as tag
             if (!okv)
             {
-                v = -1;
-                for (int i = 0; i < out.vertices.size(); ++i)
-                    if (out.vertices[i].tag == tok[0]) { v = i; break; }
+                // Tag form. The old code scanned every vertex per row — and
+                // did NOT break on a miss — so a saved mesh (the writer
+                // PREFERS tag form) cost nCoupled x nVertices string compares:
+                // ~66 s at 100k coupled rows over 760k vertices, inside the
+                // worker with no progress output, i.e. indistinguishable from
+                // a hang. Build the index once, lazily, on the first tag row.
+                if (tagToVertex.isEmpty() && !out.vertices.isEmpty())
+                {
+                    tagToVertex.reserve(out.vertices.size());
+                    // First occurrence wins, matching the old forward scan.
+                    for (int i = out.vertices.size() - 1; i >= 0; --i)
+                        if (!out.vertices[i].tag.isEmpty())
+                            tagToVertex.insert(out.vertices[i].tag, i);
+                }
+                v = tagToVertex.value(tok[0], -1);
                 if (v < 0) continue;
             }
             out.vertices[v].coupledNode = tok[1];
@@ -199,6 +326,11 @@ QString parseSection(const QString &sectionName,
     if (sectionName.compare(QLatin1String(kSecTriangleNodeMap),
                             Qt::CaseInsensitive) == 0)
     {
+        // Same lazy tag index as [2D_VERTEX_NODE_MAP]. This scan is latent
+        // today (patchAttributeSections leaves triangleToNode empty, so only
+        // index-form rows get written) but fires the moment triangle coupling
+        // is emitted — over 1.5M triangles.
+        QHash<QString, int> tagToTriangle;
         for (const QString &raw : bodyLines)
         {
             const QStringList tok = tokenize(raw);
@@ -209,9 +341,15 @@ QString parseSection(const QString &sectionName,
                 okt = false;
             if (!okt)
             {
-                t = -1;
-                for (int i = 0; i < out.triangles.size(); ++i)
-                    if (out.triangles[i].tag == tok[0]) { t = i; break; }
+                if (tagToTriangle.isEmpty() && !out.triangles.isEmpty())
+                {
+                    // First triangle carrying the tag wins — same rule as the
+                    // engine parser and as the old forward scan.
+                    for (int i = out.triangles.size() - 1; i >= 0; --i)
+                        if (!out.triangles[i].tag.isEmpty())
+                            tagToTriangle.insert(out.triangles[i].tag, i);
+                }
+                t = tagToTriangle.value(tok[0], -1);
                 if (t < 0) continue;
             }
             CellCoupling cc;
@@ -232,6 +370,81 @@ QString parseSection(const QString &sectionName,
         return {};
     }
 
+    // GG0a — [2D_INFILTRATION_OPTIONS] — PARAMETER VALUE. Only INFIL_STEP is
+    // defined; anything else is ignored rather than rejected, so a file
+    // written by a newer engine still loads.
+    if (sectionName.compare(QLatin1String(kSecInfilOptions),
+                            Qt::CaseInsensitive) == 0)
+    {
+        for (const QString &raw : bodyLines)
+        {
+            const QStringList tok = tokenize(raw);
+            if (tok.size() < 2) continue;
+            if (tok[0].compare(QLatin1String("INFIL_STEP"),
+                               Qt::CaseInsensitive) != 0)
+                continue;
+            const double s = parseInfilStepSeconds(tok[1]);
+            if (s < 0.0)
+                return QStringLiteral("[2D_INFILTRATION_OPTIONS] invalid "
+                                      "INFIL_STEP (expected hh:mm:ss >= 0): %1")
+                    .arg(tok[1]);
+            out.infilOptions.infilStep = s;
+        }
+        return {};
+    }
+
+    // GG0a — [2D_INFILTRATION_DEFAULTS] — TAG METHOD [P1..P5] [DEST].
+    // `*` is the mesh-wide fallback and may appear anywhere in the section;
+    // rows are kept in file order so a save re-emits the same shape.
+    if (sectionName.compare(QLatin1String(kSecInfilDefaults),
+                            Qt::CaseInsensitive) == 0)
+    {
+        for (const QString &raw : bodyLines)
+        {
+            const QStringList tok = tokenize(raw);
+            if (tok.isEmpty()) continue;
+            if (tok.size() < 2)
+                return QStringLiteral("[2D_INFILTRATION_DEFAULTS] needs TAG "
+                                      "METHOD [P1..P5] [DEST] (got: %1)")
+                    .arg(raw.trimmed());
+            InfilDefaultRow d;
+            d.tag = tok[0];
+            const QString err =
+                parseInfilRowTail(tok, 1, kSecInfilDefaults, d.row);
+            if (!err.isEmpty()) return err;
+            out.infilDefaults.append(d);
+        }
+        return {};
+    }
+
+    // GG0a — [2D_INFILTRATION] — CELL METHOD [P1..P5] [DEST]. CELL is
+    // 1-BASED in the file and 0-based in MeshResult::infilOverrides. The
+    // upper bound is not checked here: the section may precede
+    // [2D_TRIANGLES] in the file (and, for an external mesh, live in a
+    // different file altogether), so out.triangles is not populated yet.
+    if (sectionName.compare(QLatin1String(kSecInfil), Qt::CaseInsensitive) == 0)
+    {
+        for (const QString &raw : bodyLines)
+        {
+            const QStringList tok = tokenize(raw);
+            if (tok.isEmpty()) continue;
+            if (tok.size() < 2)
+                return QStringLiteral("[2D_INFILTRATION] needs CELL METHOD "
+                                      "[P1..P5] [DEST] (got: %1)")
+                    .arg(raw.trimmed());
+            bool okc = false;
+            const int cell = tok[0].toInt(&okc);
+            if (!okc || cell < 1)
+                return QStringLiteral("[2D_INFILTRATION] invalid CELL index "
+                                      "(1-based): %1").arg(tok[0]);
+            InfilRow row;
+            const QString err = parseInfilRowTail(tok, 1, kSecInfil, row);
+            if (!err.isEmpty()) return err;
+            out.infilOverrides.insert(cell - 1, row);
+        }
+        return {};
+    }
+
     // Other sections (options) carry no rendering data.
     return {};
 }
@@ -246,10 +459,13 @@ QString parseBCLine(const QString &raw, BCRow &row)
         return QStringLiteral("[2D_BOUNDARY_CONDITIONS] needs TRI EDGE TYPE [PARAM_1 [PARAM_2 [GROUP]]] (got: %1)")
             .arg(raw.trimmed());
 
+    // TRI is the unified cell index (triangles first, then quads); EDGE is
+    // 0..2 for a triangle, 0..3 for a quad — the per-cell bound is checked
+    // once the mesh is known (resolveBCRows).
     bool okt = false, oke = false;
     const int tri = tok[0].toInt(&okt);
     const int e   = tok[1].toInt(&oke);
-    if (!okt || !oke || tri < 0 || e < 0 || e > 2)
+    if (!okt || !oke || tri < 0 || e < 0 || e >= kEdgeStride)
         return QStringLiteral("[2D_BOUNDARY_CONDITIONS] TRI/EDGE invalid (got: %1)")
             .arg(raw.trimmed());
 
@@ -258,7 +474,8 @@ QString parseBCLine(const QString &raw, BCRow &row)
     if (!typeOk)
         return QStringLiteral("[2D_BOUNDARY_CONDITIONS] unknown TYPE '%1'").arg(tok[2]);
 
-    row.flat = tri * 3 + e;
+    row.cell = tri;
+    row.e    = e;
     row.bc.type = type;
 
     auto paramOrStar = [&](int idx) -> QString {
@@ -377,6 +594,7 @@ QString parseSectionsFromText(const QString &text,
         }
         if (currentSection.compare(QLatin1String(kSecVertices),  Qt::CaseInsensitive) == 0) sawVertices = true;
         if (currentSection.compare(QLatin1String(kSecTriangles), Qt::CaseInsensitive) == 0) sawTriangles = true;
+        if (currentSection.compare(QLatin1String(kSecQuads),     Qt::CaseInsensitive) == 0) sawTriangles = true;  // an all-quad mesh is a mesh
         if (currentSection.compare(QLatin1String(kSecMeshFile),  Qt::CaseInsensitive) == 0)
         {
             // First "FILE <path>" token wins (mirrors the engine).
@@ -406,7 +624,7 @@ QString parseSectionsFromText(const QString &text,
                         body.clear();
                         return err;
                     }
-                    if (row.flat >= 0) bcRowsOut->append(row);
+                    if (row.cell >= 0) bcRowsOut->append(row);
                 }
             }
             body.clear();
@@ -452,9 +670,24 @@ QString parseSectionsFromText(const QString &text,
     return flush();
 }
 
-/*! Engine §11A — apply each `[2D_EDGE_CONVEYANCE]` row to every (tri, e)
+/*! §V.VD.1 — resolve accumulated BC rows into the flat, stride-kEdgeStride
+ *  edge vector once the mesh is known. A row is dropped when its cell is
+ *  out of range or its EDGE exceeds the cell's edge count (2 for a
+ *  triangle, 3 for a quad); later rows overwrite earlier ones. */
+void applyBCRows(const MeshResult &mesh,
+                 const BCRowList &rows,
+                 QVector<MeshEdgeBC> &edgeBCs)
+{
+    for (const auto &r : rows) {
+        if (r.cell < 0 || r.cell >= mesh.triangles.size()) continue;
+        if (r.e < 0 || r.e >= mesh.triangles[r.cell].vertexCount()) continue;
+        edgeBCs[edgeSlot(r.cell, r.e)] = r.bc;
+    }
+}
+
+/*! Engine §11A — apply each `[2D_EDGE_CONVEYANCE]` row to every (cell, e)
  *  slot whose endpoints match the row's vertex pair. Interior edges have
- *  two such slots (one per neighbouring triangle); both receive the same
+ *  two such slots (one per neighbouring cell); both receive the same
  *  value, matching the engine's symmetry invariant. Rows whose vertex pair
  *  doesn't match any edge are silently dropped (the writer canonicalises
  *  on the lower vertex pair, but the engine accepts either order). */
@@ -466,15 +699,16 @@ void applyConveyanceRows(const MeshResult &mesh,
     const int nslots = edgeBCs.size();
     // Build vertex-pair → list-of-flat-slots once. Key is the sorted pair.
     QHash<QPair<int,int>, QVector<int>> pairToSlots;
-    pairToSlots.reserve(mesh.triangles.size() * 3);
+    pairToSlots.reserve(edgeSlotCount(mesh.triangles.size()));
     for (int t = 0; t < mesh.triangles.size(); ++t) {
         const auto &tri = mesh.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
-                                                       : qMakePair(vb[e], va[e]);
-            pairToSlots[key].append(t * 3 + e);
+        const int ne = tri.vertexCount();
+        for (int e = 0; e < ne; ++e) {
+            int va = 0, vb = 0;
+            edgeEndpoints(tri, e, va, vb);
+            const QPair<int,int> key = (va < vb) ? qMakePair(va, vb)
+                                                 : qMakePair(vb, va);
+            pairToSlots[key].append(edgeSlot(t, e));
         }
     }
     for (const auto &r : rows) {
@@ -490,6 +724,23 @@ void applyConveyanceRows(const MeshResult &mesh,
 }
 
 } // namespace
+
+bool unitsHeaderIsSI(const QString &unitsHeader)
+{
+    // Keyword set copied from the engine's prescan2DUnitsHeader
+    // (openswmm.engine/src/engine/2d/input/SectionHandlers2D.cpp). Keep the
+    // two in step: a divergence silently changes whether the GUI thinks the
+    // engine rescaled the mesh. Issue #155.
+    static const QStringList kMetric = {
+        QStringLiteral("SI (m)"), QStringLiteral("m"),
+        QStringLiteral("metre"),  QStringLiteral("metres"),
+        QStringLiteral("meter"),  QStringLiteral("meters"),
+    };
+    const QString v = unitsHeader.trimmed();
+    for (const QString &k : kMetric)
+        if (v.compare(k, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
 
 InpMeshReadResult InpMeshReader::read(const QString &inpPath)
 {
@@ -584,17 +835,28 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
             result.isExternal = true;
             result.hasMesh    = true;
 
-            // Resolve BCs: start Wall-defaults of size n_triangles * 3,
-            // then overlay external rows first, then .inp rows (so .inp
-            // overrides on conflict).
+            // GG0a — [2D_INFILTRATION*] follow the mesh, so the sidecar is
+            // authoritative: a section the .2dm carries REPLACES the .inp's
+            // (which is what the engine's load2DMeshExternalFile does, so a
+            // stale inline copy can never be counted twice), and a section
+            // the .2dm omits keeps whatever the .inp supplied.
+            if (result.mesh.infilDefaults.isEmpty())
+                result.mesh.infilDefaults = inlineMesh.infilDefaults;
+            if (result.mesh.infilOverrides.isEmpty())
+                result.mesh.infilOverrides = inlineMesh.infilOverrides;
+            if (!(result.mesh.infilOptions.infilStep > 0.0))
+                result.mesh.infilOptions = inlineMesh.infilOptions;
+
+            // Resolve BCs: start Wall-defaults of size edgeSlotCount(n_cells)
+            // (stride kEdgeStride; slot 3 of a triangle is padding), then
+            // overlay external rows first, then .inp rows (so .inp overrides
+            // on conflict).
             // NB: `slots` is a Qt keyword macro — use `nslots`.
-            const int nslots = result.mesh.triangles.size() * 3;
+            const int nslots = edgeSlotCount(result.mesh.triangles.size());
             result.edgeBCs.resize(nslots);
             std::fill(result.edgeBCs.begin(), result.edgeBCs.end(), MeshEdgeBC{});
-            for (const auto &r : extBCs)
-                if (r.flat >= 0 && r.flat < nslots) result.edgeBCs[r.flat] = r.bc;
-            for (const auto &r : inlineBCs)
-                if (r.flat >= 0 && r.flat < nslots) result.edgeBCs[r.flat] = r.bc;
+            applyBCRows(result.mesh, extBCs,    result.edgeBCs);
+            applyBCRows(result.mesh, inlineBCs, result.edgeBCs);
             // Engine §11A — overlay external conveyance first, then .inp
             // (.inp wins on conflict; matches the BC precedence above).
             applyConveyanceRows(result.mesh, extConv,    result.edgeBCs);
@@ -612,11 +874,10 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
         result.isExternal = false;
         result.hasMesh    = true;
 
-        const int nslots = result.mesh.triangles.size() * 3;
+        const int nslots = edgeSlotCount(result.mesh.triangles.size());
         result.edgeBCs.resize(nslots);
         std::fill(result.edgeBCs.begin(), result.edgeBCs.end(), MeshEdgeBC{});
-        for (const auto &r : inlineBCs)
-            if (r.flat >= 0 && r.flat < nslots) result.edgeBCs[r.flat] = r.bc;
+        applyBCRows(result.mesh, inlineBCs, result.edgeBCs);
         applyConveyanceRows(result.mesh, inlineConv, result.edgeBCs);
     }
 

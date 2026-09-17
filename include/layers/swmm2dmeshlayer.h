@@ -27,6 +27,7 @@
 #include "mesh/meshedgebc.h"
 #include "render/isublayerhost.h"
 
+#include <QByteArray>
 #include <QColor>
 #include <QLineF>
 #include <QPair>
@@ -54,6 +55,8 @@ class MeshEdgeSublayer;
 class MeshNodeSublayer;
 class ContourBandSublayer;
 class IsolineSublayer;
+class MeshBcSublayer;
+class CoupledNodeSublayer;
 }
 
 class SWMM2DMeshLayer : public OpenSWMMVisLayer,
@@ -156,9 +159,22 @@ public:
     [[nodiscard]] bool isExternalMesh() const { return m_isExternal; }
     void setExternalMesh(bool external)      { m_isExternal = external; }
 
-    /*! Number of triangles in the loaded mesh — exposed as metadata in
-     *  the Properties window. */
+    /*! \brief True when the mesh file declared `;; UNITS: SI (m)` (or an
+     *  equivalent metric keyword). The engine then SKIPS its FLOW_UNITS-based
+     *  ft→m mesh scaling, so 2D results coordinates come back in the same
+     *  values as the mesh. Consumed by the 2D results layer's coordinate
+     *  fallback — see SWMM2DResultsLayer::setFallbackCoordinateScale and
+     *  issue #155. */
+    [[nodiscard]] bool meshUnitsSI() const { return m_meshUnitsSI; }
+    void setMeshUnitsSI(bool si)           { m_meshUnitsSI = si; }
+
+    /*! Number of cells (triangles + quads) in the loaded mesh — exposed as
+     *  metadata in the Properties window. Name kept for the Q_PROPERTY /
+     *  saved-project compatibility. */
     [[nodiscard]] int triangleCount() const { return int(m_mesh.triangles.size()); }
+
+    /*! Number of quadrilateral cells (O(n)). */
+    [[nodiscard]] int quadCount() const { return m_mesh.quadCount(); }
 
     /*! Number of vertices in the loaded mesh — exposed as metadata in
      *  the Properties window. */
@@ -170,10 +186,10 @@ public:
     /*! Total number of unique mesh edges. m_sceneEdges is the deduplicated
      *  edge set (exact, conformance-independent) built by
      *  rebuildSceneGeometry(); before that runs, fall back to the conforming-
-     *  triangulation identity total = (3·T + B)/2. */
+     *  mesh identity total = (Σ nv + B)/2 = (3·T + Q + B)/2. */
     [[nodiscard]] int edgeCount() const {
         if (!m_sceneEdges.isEmpty()) return int(m_sceneEdges.size());
-        return (3 * triangleCount() + boundaryEdgeCount()) / 2;
+        return (3 * triangleCount() + quadCount() + boundaryEdgeCount()) / 2;
     }
 
     /*! Steepest edge slope in the mesh (rise/run), cached during scene build. */
@@ -256,6 +272,27 @@ public:
 
     [[nodiscard]] quint64 geomRevision() const { return m_geomRevision; }
 
+    /*! \brief Has this layer's mesh state diverged from the engine's copy?
+     *
+     *  The save path pushes the whole mesh into the engine, which costs
+     *  O(nVertices x nTriangles) there (each swmm_2d_set_vertex_z rescans
+     *  every triangle). That is minutes on a million-cell mesh, so a save
+     *  must not pay it when nothing was edited.
+     *
+     *  Defaults to **true**: only a layer built from the very file the engine
+     *  parsed is known to agree with it, and that case says so explicitly via
+     *  SWMMVisProjectWindow::attachMeshLayer(layer, pristine = true). A mesh
+     *  generated or imported in-session leaves the engine holding the OLD
+     *  mesh, so it must stay dirty. */
+    [[nodiscard]] bool hasUnsavedMeshEdits() const { return m_editsDirty; }
+
+    /*! \brief Mark the layer's mesh state as diverged from the engine. */
+    void markMeshEdited() { m_editsDirty = true; }
+
+    /*! \brief Clear the divergence flag — only after a confirmed successful
+     *  write, so a failed save still re-pushes next time. */
+    void setMeshEditsSaved() { m_editsDirty = false; }
+
     // ---------------------------------------------------------------------
     // Slice §V.VA — mesh-editing foundation: BC storage, picker / hover
     // helpers, write-path apply* family, attributeChanged signal.
@@ -265,15 +302,20 @@ public:
     // subscribe to attributeChanged and write through the apply* helpers.
     // ---------------------------------------------------------------------
 
-    /*! \brief Per-edge BC values; flat-indexed [tri*3 + edgeLocal]. Sized
-     *  to `n_triangles * 3` after mesh load; interior-edge slots stay at
-     *  the default Wall value (engine ignores them). */
+    /*! \brief Per-edge BC values; flat-indexed by `mesh::edgeSlot(cell,
+     *  edgeLocal)` (stride mesh::kEdgeStride = 4). Sized to
+     *  `mesh::edgeSlotCount(n_cells)` after mesh load; interior-edge slots
+     *  and a triangle's unused slot 3 stay at the default Wall value
+     *  (engine ignores them). */
     [[nodiscard]] const QVector<mesh::MeshEdgeBC> &edgeBCs() const { return m_bc; }
 
     /*! \brief Mutable BC view — used by INP reader to bulk-populate after
      *  load. Prefer the apply* helpers for user-driven edits so views
-     *  receive the attributeChanged signal. */
-    QVector<mesh::MeshEdgeBC> &edgeBCsMutable() { return m_bc; }
+     *  receive the attributeChanged signal. Bumps the BC revision on
+     *  every access: both callers assign the whole vector through this
+     *  reference, and without the bump the bcSceneEdges() render cache
+     *  keyed on m_bcRevision served stale geometry after a bulk reload. */
+    QVector<mesh::MeshEdgeBC> &edgeBCsMutable() { ++m_bcRevision; return m_bc; }
 
     /*! \brief Vertex pick. Returns the closest vertex index to scene
      *  point (sx,sy) within \p tolPx screen-pixels, or -1 if none.
@@ -282,15 +324,16 @@ public:
     [[nodiscard]] int pickVertexAt(double sx, double sy,
                                     double tolPx, double pxPerSceneUnit) const;
 
-    /*! \brief Edge pick. Returns flat edge index `tri*3 + edgeLocal`
-     *  within \p tolPx of (sx,sy), or -1. When \p boundaryOnly is true,
-     *  interior edges are skipped. */
+    /*! \brief Edge pick. Returns flat edge slot `mesh::edgeSlot(cell,
+     *  edgeLocal)` within \p tolPx of (sx,sy), or -1. When \p boundaryOnly
+     *  is true, interior edges are skipped. */
     [[nodiscard]] int pickEdgeAt(double sx, double sy,
                                   double tolPx, double pxPerSceneUnit,
                                   bool boundaryOnly) const;
 
-    /*! \brief Triangle containing scene point (sx,sy), or -1 if outside
-     *  every triangle. */
+    /*! \brief Cell (mesh triangle/quad index) containing scene point
+     *  (sx,sy), or -1 if outside every cell. A quad is tested on its
+     *  sub-triangle fan. */
     [[nodiscard]] int locateTriangleAt(double sx, double sy) const;
 
     /*! \brief Triangle (cell) containing scene point \p scenePt, or -1.
@@ -398,6 +441,53 @@ public:
      *  Emits attributeChanged with the cell ref name. */
     bool applyMeshTriangleTag(int triIdx, const QString &tag);
 
+    /*! \brief Write a per-cell infiltration override ([2D_INFILTRATION] row,
+     *  GUI plan §3.2a). The cell stops inheriting from its region tag / the
+     *  '*' default until the override is cleared. Emits attributeChanged with
+     *  the cell ref name. */
+    bool applyMeshTriangleInfil(int triIdx, const mesh::InfilRow &row);
+
+    /*! \brief Erase the per-cell infiltration override, so the cell resolves
+     *  through its region tag / the '*' default again.
+     *
+     *  The inverse of applyMeshTriangleInfil, and NOT the same as writing back
+     *  the inherited numbers: a materialised override with identical values
+     *  looks right but silently stops tracking the region, so the next
+     *  region-level edit no longer reaches the cell. This is what
+     *  MeshSetTriangleInfilCommand::undo() calls for a cell that was
+     *  inheriting. Emits attributeChanged with the cell ref name. */
+    bool clearMeshTriangleInfil(int triIdx);
+
+    /*! \brief Write one `[2D_INFILTRATION_DEFAULTS]` row — the region-level
+     *  peer of applyMeshTriangleInfil.
+     *
+     *  \p tag is a [2D_TRIANGLES] TAG value, or "*" for the mesh-wide
+     *  fallback. Every cell carrying \p tag that has no per-cell override
+     *  starts resolving through the new row, so a region-level edit reaches
+     *  those cells WITHOUT materialising an override on any of them — which is
+     *  the whole point of engine D-I3, and the difference between an
+     *  assignment that stays editable as regions and one frozen into N
+     *  per-cell rows.
+     *
+     *  An existing row for \p tag is replaced in place (section order is
+     *  preserved); a new tag is appended. Rejects an empty tag.
+     *
+     *  Bumps the same attribute-cache revision its per-cell siblings do, so
+     *  the fill-colour cache cannot serve stale colours for an inherited
+     *  value. The edit has no single element ref — every inheriting cell moved
+     *  — so it emits meshEditsChanged() for views that repaint wholesale,
+     *  alongside a layer-scope attributeChanged() for the ones that only need
+     *  "this mesh was edited". */
+    bool applyMeshInfilDefault(const QString &tag, const mesh::InfilRow &row);
+
+    /*! \brief Erase the `[2D_INFILTRATION_DEFAULTS]` row for \p tag, so cells
+     *  carrying it fall through to the '*' row (or to no model at all).
+     *
+     *  The inverse of applyMeshInfilDefault, and what
+     *  MeshSetInfilDefaultsCommand::undo() calls for a tag that had no row
+     *  before the edit. Returns true when the row is already absent. */
+    bool clearMeshInfilDefault(const QString &tag);
+
     // ----- Selection highlighting (§V follow-up) ---------------------------
     /*! \brief Indices of mesh vertices currently selected for highlight
      *  rendering. Populated by the SelectionManager bridge (filtered to
@@ -405,7 +495,7 @@ public:
     [[nodiscard]] const QSet<int> &highlightedVertices() const { return m_selVertices; }
     void setHighlightedVertices(const QSet<int> &indices);
 
-    /*! \brief Flat edge indices (`tri * 3 + edgeLocal`) currently
+    /*! \brief Flat edge slots (`mesh::edgeSlot(cell, edgeLocal)`) currently
      *  selected for highlight rendering. */
     [[nodiscard]] const QSet<int> &highlightedEdges()    const { return m_selEdges; }
     void setHighlightedEdges(const QSet<int> &flatIndices);
@@ -485,6 +575,13 @@ public:
     [[nodiscard]] OpenSWMM::Render::MeshNodeSublayer    *meshNodeSublayer()    const { return m_meshNodeSublayer; }
     [[nodiscard]] OpenSWMM::Render::ContourBandSublayer *contourBandSublayer() const { return m_contourBandSublayer; }
     [[nodiscard]] OpenSWMM::Render::IsolineSublayer     *isolineSublayer()     const { return m_isolineSublayer; }
+    [[nodiscard]] OpenSWMM::Render::MeshBcSublayer      *meshBcSublayer()      const { return m_meshBcSublayer; }
+    [[nodiscard]] OpenSWMM::Render::CoupledNodeSublayer *coupledNodeSublayer() const { return m_coupledNodeSublayer; }
+
+    /*! Migration hook (ISublayerHost) — seeds the BC / coupled-node
+     *  sublayers from legacy MeshEdgeStyle / MeshNodeStyle JSON when a
+     *  pre-split project or style file is loaded. */
+    void onSublayersJsonLoaded(const QJsonObject &sublayersJson) override;
 
     /*! Slice US.3 — bed-elevation range of the loaded mesh, the data range the
      *  contour-band / isoline classification scheme classifies over. */
@@ -496,6 +593,53 @@ public:
      *  \p maxSamples so a "resample" on a multi-million-vertex mesh stays
      *  responsive; the resulting distribution is representative for binning. */
     [[nodiscard]] QVector<double> elevationSamples(int maxSamples = 200000) const;
+
+    // ----- Per-cell attribute colouring (MeshFillStyle::colorByAttribute) ---
+    //
+    // Values come from mesh::cellParamValue(), the single registry that also
+    // drives the editing toolbar and the attribute table — never read
+    // MeshTriangle::mannings directly, or the pending gw.* keys will not
+    // light up for free when the engine grows them.
+
+    /*! \brief Monotonic counter bumped on every per-cell attribute write.
+     *  The QSG renderer folds this into its fill-colour cache key so a
+     *  Manning's edit cannot serve a stale cached colour. */
+    [[nodiscard]] quint64 attrRevision() const { return m_attrRevision; }
+
+    /*! \brief Monotonic counter bumped on every edge-BC write / resize. */
+    [[nodiscard]] quint64 bcRevision() const { return m_bcRevision; }
+
+    /*! \brief Scene-edge indices whose slot carries a **non-Wall** BC.
+     *
+     *  Parallel index space to m_sceneEdges. Bounded by the boundary ring
+     *  rather than the cell count, which is the whole point: the interior
+     *  wireframe is correctly suppressed at far zoom (Qsg2DLodPolicy needs
+     *  ~32 px per cell before it draws edges at all), but the BC ring is a
+     *  small, semantically important subset that must stay visible at every
+     *  zoom. The renderer walks this vector instead of rescanning every edge
+     *  per frame.
+     *
+     *  Cached; recomputed when the BC or geometry revision moves. */
+    [[nodiscard]] const QVector<qint32> &bcSceneEdges() const;
+
+    /*! \brief Per-cell value of \p key, **parallel to m_sceneTris** (which
+     *  skips degenerate triangles, so it is not the mesh triangle order).
+     *  NaN marks an unset attribute. Cached; recomputed when the mesh
+     *  geometry or attribute revision moves. Empty for an unknown key. */
+    [[nodiscard]] const QVector<float> &cellAttributeValues(const QByteArray &key) const;
+
+    /*! \brief Strided sample of \p key for data-driven classification
+     *  (quantile / natural-breaks / std-dev), NaNs excluded. Empty when the
+     *  attribute has no data at all. Mirrors elevationSamples()'s striding so
+     *  the classification editor stays responsive on huge meshes. */
+    [[nodiscard]] QVector<double> cellAttributeSamples(const QByteArray &key,
+                                                        int maxSamples = 200000) const;
+
+    /*! \brief Observed [min,max] over the non-NaN values of \p key.
+     *  \returns false (leaving the outputs untouched) when the attribute has
+     *           no data — which is the case for every gw.* key today. */
+    [[nodiscard]] bool cellAttributeRange(const QByteArray &key,
+                                           double *vMin, double *vMax) const;
 
     // ----- OpenSWMMVisLayer interface ----------------------------------------
 
@@ -532,16 +676,52 @@ public:
 
     // ----- Scene-geometry structs (public for SWMM2DMeshQSGRenderer) ---------
 
-    /*! Per-triangle: scene-space vertices + per-vertex z (for hillshade). */
+    /*! Per fill triangle: scene-space vertices + per-vertex z (for hillshade).
+     *
+     *  m_sceneTris is the SUB-TRIANGLE FAN of the mesh cells (workplans/
+     *  TRI_QUAD_MESHING_PLAN_2026-09-06.md §5): one entry per triangle, two
+     *  per quad (split on the engine's VFR diagonal by mesh::cellGeom), each
+     *  carrying the index of the cell it belongs to. Entries of one cell are
+     *  consecutive — see m_cellSceneStart. Cells with an out-of-range vertex
+     *  id emit nothing. */
     struct SceneTri
     {
         QPointF a, b, c;
         float   zAvg;       ///< Average vertex z — elevation colour.
         float   z0, z1, z2; ///< Per-vertex z — hillshade face normal.
+        int     cell = -1;  ///< Mesh cell index (MeshResult::triangles).
     };
 
+    /*! Append the vertex elevations of a SceneTri fan to \p out, counting
+     *  every CELL vertex once: a quad's second sub-triangle shares the
+     *  diagonal with its first, so only its off-diagonal vertex is new.
+     *  Feeds the quantile / Jenks classification samplers. */
+    template <class Tris>
+    static void appendVertexElevationSamples(const Tris &tris, QVector<double> &out)
+    {
+        out.reserve(out.size() + int(tris.size()) * 3);
+        const SceneTri *prev = nullptr;
+        for (const SceneTri &t : tris) {
+            if (prev && t.cell >= 0 && t.cell == prev->cell) {
+                const QPointF p[3] = { t.a, t.b, t.c };
+                const float   z[3] = { t.z0, t.z1, t.z2 };
+                for (int k = 0; k < 3; ++k)
+                    if (p[k] != prev->a && p[k] != prev->b && p[k] != prev->c)
+                        out.push_back(double(z[k]));
+            } else {
+                out.push_back(double(t.z0));
+                out.push_back(double(t.z1));
+                out.push_back(double(t.z2));
+            }
+            prev = &t;
+        }
+    }
+
     /*! Per-edge: scene-space line + elevation + slope.
-     *  slope = |Δz| / horizontal_distance_in_map_units. */
+     *  slope = |Δz| / horizontal_distance_in_map_units.
+     *
+     *  NB the flat BC slot for an edge lives in the parallel
+     *  m_sceneEdgeSlot vector, not here — see the comment on that member. */
     struct SceneEdge
     {
         QLineF  line;
@@ -563,6 +743,24 @@ public:
     QVector<SceneTri>  m_sceneTris;
     QVector<SceneEdge> m_sceneEdges;
     QVector<SceneNode> m_sceneNodes;
+
+    /*! CSR map cell → fan: the SceneTris of cell c are
+     *  m_sceneTris[m_cellSceneStart[c] .. m_cellSceneStart[c+1]). Size
+     *  n_cells + 1; an empty range marks a cell skipped as degenerate.
+     *  Rebuilt with m_sceneTris (light and full builds). */
+    QVector<qint32>    m_cellSceneStart;
+
+    /*! Flat BC slot (`mesh::edgeSlot(cell, edgeLocal)`) for each entry of m_sceneEdges;
+     *  -1 when no slot could be resolved. Parallel vector rather than a field
+     *  on SceneEdge: SceneEdge is 40 bytes and an extra int pads it to 48,
+     *  whereas this costs exactly 4 bytes per edge and leaves the hot struct's
+     *  cache behaviour alone.
+     *
+     *  m_sceneEdges is deduplicated and buildMeshHeavyGeom is first-writer-
+     *  wins, which is exactly right here: a boundary edge belongs to one
+     *  triangle and keeps its own slot, while an interior edge is pushed
+     *  twice but both its slots are Wall by construction. */
+    QVector<qint32>    m_sceneEdgeSlot;
     double             m_zMin     = 0.0;
     double             m_zMax     = 0.0;
     float              m_maxSlope = 0.0f;
@@ -618,6 +816,11 @@ signals:
 private:
     void rebuildSceneGeometry();
 
+    /*! Index into m_sceneTris of the fan triangle containing (sx,sy), or -1.
+     *  locateTriangleAt() maps this back to the cell; sampleZAt() needs the
+     *  sub-triangle itself for the barycentric blend. */
+    [[nodiscard]] int locateSceneTriAt(double sx, double sy) const;
+
     /*! \brief Build the coarse LOD overview (m_overviewTris) from
      *  m_sceneTris. Called at the end of rebuildSceneGeometry(); a no-op
      *  for meshes below the size threshold (small meshes render full-res
@@ -629,15 +832,34 @@ private:
     // state. Lazy-built on first ruleList() call.
     mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
 
-    // §V.VA — keep m_bc sized to n_triangles * 3 in sync with the mesh,
+    // §V.VA — keep m_bc sized to mesh::edgeSlotCount(n_cells) in sync with the mesh,
     // and rebuild the vertex→triangles adjacency used by sampleZAt /
     // applyMeshVertexZ.
     void resizeBCsToMesh();
     void rebuildVertexAdjacency();
 
+    /*! Recompute the set of BC types present in m_bc and the fill sublayer's
+     *  "attribute has data" flag, and push both onto the sublayers, which
+     *  need them for their const, context-free legendSymbolItems().
+     *  O(n_slots + n_triangles) — call directly only from structural paths
+     *  (reload / resize / async adoption). */
+    void refreshSublayerLegendInputs();
+
+    /*! Coalesced form of the above for per-element write paths. A bulk edit
+     *  (MeshCommands assigning Manning's to 50k cells) would otherwise run
+     *  the O(n) scan once per cell; this collapses a whole batch into a
+     *  single queued refresh once the event loop comes back round. */
+    void scheduleLegendInputRefresh();
+    bool m_legendRefreshQueued = false;
+
+    /*! Shared tail of applyMeshInfilDefault / clearMeshInfilDefault — bumps
+     *  the attribute revision and emits the layer-scope + bulk signals. */
+    void announceInfilDefaultsChanged();
+
     mesh::MeshResult             m_mesh;
     QString                      m_sourcePath;
     bool                         m_isExternal    = false;
+    bool                         m_meshUnitsSI   = false;  ///< `;; UNITS: SI (m)` (#155)
     bool                         m_active        = false;
 
     // Mesh Tiled LOD plan P1.1 — see qsgOwnsRendering().
@@ -672,17 +894,46 @@ private:
     double                       m_vertexMinCellPx =   6.0;
 
     quint64                      m_geomRevision  = 0;
+    // See hasUnsavedMeshEdits(): conservative default, cleared only by an
+    // explicit pristine attach or a confirmed successful save.
+    bool                         m_editsDirty    = true;
     OGRCoordinateTransformation *m_transform     = nullptr;
     SWMM2DMeshGraphicsItem      *m_graphicsItem  = nullptr;
+
+    // Per-cell attribute / BC revisions. Separate from m_geomRevision so an
+    // attribute edit invalidates the renderer's fill-colour cache without
+    // forcing a full geometry rebuild, and so the cached attribute vector
+    // below knows when it went stale.
+    quint64                      m_attrRevision  = 0;
+    quint64                      m_bcRevision    = 0;
+
+    // Cache for bcSceneEdges(); keyed on both revisions because a geometry
+    // rebuild re-derives m_sceneEdgeSlot and a BC edit changes which slots
+    // are non-Wall.
+    mutable QVector<qint32>      m_bcSceneEdges;
+    mutable quint64              m_bcSceneEdgesBcRev   = ~quint64(0);
+    mutable quint64              m_bcSceneEdgesGeomRev = ~quint64(0);
+
+    // Single-slot cache for cellAttributeValues() — the renderer asks for the
+    // same key every frame, so one slot is enough and switching attributes is
+    // a one-off recompute.
+    mutable QByteArray           m_attrCacheKey;
+    mutable quint64              m_attrCacheGeomRev = ~quint64(0);
+    mutable quint64              m_attrCacheAttrRev = ~quint64(0);
+    mutable QVector<float>       m_attrCacheVals;
+    mutable double               m_attrCacheMin     = 0.0;
+    mutable double               m_attrCacheMax     = 0.0;
+    mutable bool                 m_attrCacheHasData = false;
 
     // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialised eagerly in
     // the ctor (default SingleSymbolRenderer) so renderer() never returns
     // null.  Paint refactor deferred until Slice BB ColorRamp ships.
     std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
 
-    // §V.VA — per-edge BC storage, sized to n_triangles * 3. Flat indexed
-    // as `tri * 3 + edgeLocal`. Interior-edge entries stay at the default
-    // Wall value; engine consults only boundary slots.
+    // §V.VA — per-edge BC storage, sized to mesh::edgeSlotCount(n_cells).
+    // Flat indexed as `mesh::edgeSlot(cell, edgeLocal)`. Interior-edge
+    // entries stay at the default Wall value; engine consults only boundary
+    // slots.
     QVector<mesh::MeshEdgeBC>    m_bc;
 
     // §V.VA — per-vertex CSR adjacency for fast incident-triangle lookup
@@ -692,9 +943,9 @@ private:
     QVector<int>                 m_vertTriPtr;  // size = n_vertices + 1
     QVector<int>                 m_vertTriIdx;  // size = sum of incidences
 
-    // §V.VA — precomputed boundary status per (tri, edgeLocal). Flat
-    // indexed `tri*3 + eLocal`. true = this edge slot is a boundary edge
-    // in the loaded mesh. Rebuilt alongside m_bc / adjacency.
+    // §V.VA — precomputed boundary status per (cell, edgeLocal). Flat
+    // indexed `mesh::edgeSlot(cell, eLocal)`. true = this edge slot is a
+    // boundary edge in the loaded mesh. Rebuilt alongside m_bc / adjacency.
     QVector<bool>                m_isBoundary;
 
     // Lazily built from m_isBoundary by boundaryGraph(); invalidated
@@ -719,6 +970,8 @@ private:
     OpenSWMM::Render::MeshNodeSublayer    *m_meshNodeSublayer    = nullptr;
     OpenSWMM::Render::ContourBandSublayer *m_contourBandSublayer = nullptr;
     OpenSWMM::Render::IsolineSublayer     *m_isolineSublayer     = nullptr;
+    OpenSWMM::Render::MeshBcSublayer      *m_meshBcSublayer      = nullptr;
+    OpenSWMM::Render::CoupledNodeSublayer *m_coupledNodeSublayer = nullptr;
 
     // User-customisable paint order (Slice GUI-2026-05-30 §2).
     mutable QList<OpenSWMM::Render::ISublayer *> m_sublayerOrder;

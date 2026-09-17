@@ -85,6 +85,8 @@ const NodeStyleDefault kDividerNodeDefault  = { QColor(0,   255, 0  ), Qt::darkB
 // Virtual junction — same blue dot as a junction; the dotted encircling
 // ring painted by the renderers follows the fill colour set here.
 const NodeStyleDefault kVirtualJunctionNodeDefault = { QColor(0, 120, 255), Qt::darkBlue, 1.0, 8.0 };
+// Inlet junction — same blue, one pixel larger, drawn as a diamond (D-G7).
+const NodeStyleDefault kInletJunctionNodeDefault   = { QColor(0, 120, 255), Qt::darkBlue, 1.0, 9.0 };
 
 constexpr int     kDefaultProgressTickMs        = 1000;
 constexpr double  kDefaultAnimationSpeed         = 1.0;
@@ -116,6 +118,7 @@ struct PrefixDefault { const char *kind; const char *prefix; };
 constexpr PrefixDefault kPrefixDefaults[] = {
     { "junction",     "J"   },
     { "virtual_junction", "VJ" },
+    { "inlet_junction", "IJ" },
     { "outfall",      "O"   },
     { "storage",      "S"   },
     { "divider",      "D"   },
@@ -703,6 +706,9 @@ QString canonicalNodeType(const QString &nodeType)
     if (k == QLatin1String("virtual_junction") || k == QLatin1String("virtualjunction")
         || k == QLatin1String("virtual junction") || k == QLatin1String("virtual junctions"))
         return QStringLiteral("VirtualJunction");
+    if (k == QLatin1String("inlet_junction") || k == QLatin1String("inletjunction")
+        || k == QLatin1String("inlet junction") || k == QLatin1String("inlet junctions"))
+        return QStringLiteral("InletJunction");
     return QStringLiteral("Junction");
 }
 
@@ -712,6 +718,7 @@ const NodeStyleDefault &defaultNodeStyleForKey(const QString &canonicalKey)
     if (canonicalKey == QLatin1String("Storage")) return kStorageNodeDefault;
     if (canonicalKey == QLatin1String("Divider")) return kDividerNodeDefault;
     if (canonicalKey == QLatin1String("VirtualJunction")) return kVirtualJunctionNodeDefault;
+    if (canonicalKey == QLatin1String("InletJunction"))   return kInletJunctionNodeDefault;
     return kJunctionNodeDefault;
 }
 } // anonymous
@@ -905,6 +912,153 @@ void PreferencesManager::setProgressTickMs(int ms)
                             .arg(kGroupRoot), ms);
     emit preferenceChanged(QStringLiteral("Simulation"),
                            QStringLiteral("ProgressTickMs"));
+}
+
+int PreferencesManager::live2DHistoryCap() const
+{
+    const int v = m_settings.value(QStringLiteral("%1/Simulation/Live2DHistoryCap")
+                                       .arg(kGroupRoot), 2000).toInt();
+    return (v < 100 || v > 200000) ? 2000 : v;
+}
+
+void PreferencesManager::setLive2DHistoryCap(int frames)
+{
+    if (frames < 100 || frames > 200000) return;
+    if (frames == live2DHistoryCap()) return;
+    m_settings.setValue(QStringLiteral("%1/Simulation/Live2DHistoryCap")
+                            .arg(kGroupRoot), frames);
+    emit preferenceChanged(QStringLiteral("Simulation"),
+                           QStringLiteral("Live2DHistoryCap"));
+}
+
+int PreferencesManager::live2DHistoryMB() const
+{
+    const int v = m_settings.value(QStringLiteral("%1/Simulation/Live2DHistoryMB")
+                                       .arg(kGroupRoot), 1024).toInt();
+    return (v < 64 || v > 32768) ? 1024 : v;
+}
+
+void PreferencesManager::setLive2DHistoryMB(int megabytes)
+{
+    if (megabytes < 64 || megabytes > 32768) return;
+    if (megabytes == live2DHistoryMB()) return;
+    m_settings.setValue(QStringLiteral("%1/Simulation/Live2DHistoryMB")
+                            .arg(kGroupRoot), megabytes);
+    emit preferenceChanged(QStringLiteral("Simulation"),
+                           QStringLiteral("Live2DHistoryMB"));
+}
+
+bool PreferencesManager::liveResults1DEnabled() const
+{
+    return m_settings.value(QStringLiteral("%1/Simulation/LiveResults1D")
+                                .arg(kGroupRoot),
+                            true).toBool();
+}
+
+void PreferencesManager::setLiveResults1DEnabled(bool on)
+{
+    if (on == liveResults1DEnabled()) return;
+    m_settings.setValue(QStringLiteral("%1/Simulation/LiveResults1D")
+                            .arg(kGroupRoot), on);
+    emit preferenceChanged(QStringLiteral("Simulation"),
+                           QStringLiteral("LiveResults1D"));
+}
+
+// ---------------------------------------------------------------------------
+// 2D mesh boundary-condition edge styling defaults
+// ---------------------------------------------------------------------------
+
+namespace {
+
+//! Settings key suffix per BC type, index = mesh::MeshBCTypes::Type.
+constexpr const char *kMeshBcNames[7] = {
+    "Wall", "NormalFlow", "StageConst", "StageTS",
+    "FlowConst", "FlowTS", "RatingCurve",
+};
+
+//! Must match MeshEdgeStyle's ctor defaults, or toggling a preference back to
+//! its factory value would not restore the factory render.
+const QColor kMeshBcDefaultColors[7] = {
+    QColor(0, 0, 0, 130),                          // Wall — plain edge colour
+    QColor(0x2c, 0xa0, 0x2c, 230),                 // Normal flow   — green
+    QColor(0x1f, 0x77, 0xb4, 235),                 // Stage (const) — blue
+    QColor(0x17, 0xbe, 0xcf, 235),                 // Stage (series)— cyan
+    QColor(0xff, 0x7f, 0x0e, 235),                 // Flow (const)  — orange
+    QColor(0xe3, 0x77, 0xc2, 235),                 // Flow (series) — pink
+    QColor(0x94, 0x67, 0xbd, 235),                 // Rating curve  — purple
+};
+
+constexpr double kMeshBcDefaultWidths[7] = {
+    0.35, 2.0, 2.4, 2.4, 2.4, 2.4, 2.4,
+};
+
+int clampBcType(int t) { return (t >= 0 && t < 7) ? t : 0; }
+
+} // namespace
+
+bool PreferencesManager::meshBcColorByType() const
+{
+    return m_settings.value(QStringLiteral("%1/Mesh2D/BcColorByType")
+                                .arg(kGroupRoot), true).toBool();
+}
+
+void PreferencesManager::setMeshBcColorByType(bool on)
+{
+    if (on == meshBcColorByType()) return;
+    m_settings.setValue(QStringLiteral("%1/Mesh2D/BcColorByType")
+                            .arg(kGroupRoot), on);
+    emit preferenceChanged(QStringLiteral("Mesh2D"),
+                           QStringLiteral("BcColorByType"));
+}
+
+QColor PreferencesManager::meshBcColor(int type) const
+{
+    const int t = clampBcType(type);
+    const QVariant v =
+        m_settings.value(QStringLiteral("%1/Mesh2D/BcColor/%2")
+                             .arg(QString::fromLatin1(kGroupRoot),
+                                  QString::fromLatin1(kMeshBcNames[t])));
+    if (v.isValid()) {
+        const QColor c(v.toString());
+        if (c.isValid()) return c;
+    }
+    return kMeshBcDefaultColors[t];
+}
+
+void PreferencesManager::setMeshBcColor(int type, const QColor &color)
+{
+    const int t = clampBcType(type);
+    if (!color.isValid() || color == meshBcColor(t)) return;
+    m_settings.setValue(QStringLiteral("%1/Mesh2D/BcColor/%2")
+                            .arg(QString::fromLatin1(kGroupRoot),
+                                 QString::fromLatin1(kMeshBcNames[t])),
+                        color.name(QColor::HexArgb));
+    emit preferenceChanged(QStringLiteral("Mesh2D"),
+                           QStringLiteral("BcColor/%1")
+                               .arg(QString::fromLatin1(kMeshBcNames[t])));
+}
+
+double PreferencesManager::meshBcWidthPx(int type) const
+{
+    const int t = clampBcType(type);
+    return m_settings.value(QStringLiteral("%1/Mesh2D/BcWidthPx/%2")
+                                .arg(QString::fromLatin1(kGroupRoot),
+                                     QString::fromLatin1(kMeshBcNames[t])),
+                            kMeshBcDefaultWidths[t]).toDouble();
+}
+
+void PreferencesManager::setMeshBcWidthPx(int type, double px)
+{
+    const int t = clampBcType(type);
+    px = qBound(0.1, px, 20.0);
+    if (qFuzzyCompare(px + 1.0, meshBcWidthPx(t) + 1.0)) return;
+    m_settings.setValue(QStringLiteral("%1/Mesh2D/BcWidthPx/%2")
+                            .arg(QString::fromLatin1(kGroupRoot),
+                                 QString::fromLatin1(kMeshBcNames[t])),
+                        px);
+    emit preferenceChanged(QStringLiteral("Mesh2D"),
+                           QStringLiteral("BcWidthPx/%1")
+                               .arg(QString::fromLatin1(kMeshBcNames[t])));
 }
 
 double PreferencesManager::animationSpeed() const
@@ -1450,6 +1604,8 @@ PreferencesManager::simulationDefaults() const
 
     d.nodeContinuity     = readSetting<QString>(s, QStringLiteral("NodeContinuity"),     d.nodeContinuity);
     d.andersonAccel      = readSetting<bool>(s,    QStringLiteral("AndersonAccel"),      d.andersonAccel);
+    d.unsteadyFriction   = readSetting<QString>(s, QStringLiteral("UnsteadyFriction"),   d.unsteadyFriction);
+    d.ufK3               = readSetting<double>(s,  QStringLiteral("UfK3"),               d.ufK3);
 
     d.threads            = readSetting<int>(s,    QStringLiteral("Threads"),             d.threads);
 
@@ -1504,6 +1660,8 @@ void PreferencesManager::setSimulationDefaults(const SimulationDefaults &d)
 
     put(QStringLiteral("NodeContinuity"),     d.nodeContinuity);
     put(QStringLiteral("AndersonAccel"),      d.andersonAccel);
+    put(QStringLiteral("UnsteadyFriction"),   d.unsteadyFriction);
+    put(QStringLiteral("UfK3"),               d.ufK3);
 
     put(QStringLiteral("Threads"),            d.threads);
 
@@ -1557,11 +1715,15 @@ PreferencesManager::TwoDDefaults PreferencesManager::twoDDefaults() const
     d.meshSimplifyEpsM      = readTwoDSetting<double>(s, QStringLiteral("MeshSimplifyEpsM"),      d.meshSimplifyEpsM);
     d.meshSnapEpsM          = readTwoDSetting<double>(s, QStringLiteral("MeshSnapEpsM"),          d.meshSnapEpsM);
     d.meshNodeFlattenRadM   = readTwoDSetting<double>(s, QStringLiteral("MeshNodeFlattenRadM"),   d.meshNodeFlattenRadM);
+    d.meshNodesAsVertices   = readTwoDSetting<bool>(s,   QStringLiteral("MeshNodesAsVertices"),   d.meshNodesAsVertices);
+    d.meshNodesUseRim       = readTwoDSetting<bool>(s,   QStringLiteral("MeshNodesUseRim"),       d.meshNodesUseRim);
     d.meshMinNodeSepOn      = readTwoDSetting<bool>(s,   QStringLiteral("MeshMinNodeSepOn"),      d.meshMinNodeSepOn);
     d.meshMinNodeSepM       = readTwoDSetting<double>(s, QStringLiteral("MeshMinNodeSepM"),       d.meshMinNodeSepM);
     d.meshThinningOn        = readTwoDSetting<bool>(s,   QStringLiteral("MeshThinningOn"),        d.meshThinningOn);
     d.meshThinningTol       = readTwoDSetting<double>(s, QStringLiteral("MeshThinningTol"),       d.meshThinningTol);
     d.meshThinningPasses    = readTwoDSetting<int>(s,    QStringLiteral("MeshThinningPasses"),    d.meshThinningPasses);
+    d.meshMinSpacingOn      = readTwoDSetting<bool>(s,   QStringLiteral("MeshMinSpacingOn"),      d.meshMinSpacingOn);
+    d.meshMinSpacingM       = readTwoDSetting<double>(s, QStringLiteral("MeshMinSpacingM"),       d.meshMinSpacingM);
     d.meshBoundaryBufferM   = readTwoDSetting<double>(s, QStringLiteral("MeshBoundaryBufferM"),   d.meshBoundaryBufferM);
     d.meshMaxBoundaryEdgeOn = readTwoDSetting<bool>(s,   QStringLiteral("MeshMaxBoundaryEdgeOn"), d.meshMaxBoundaryEdgeOn);
     d.meshMaxBoundaryEdgeM  = readTwoDSetting<double>(s, QStringLiteral("MeshMaxBoundaryEdgeM"),  d.meshMaxBoundaryEdgeM);
@@ -1604,11 +1766,15 @@ void PreferencesManager::setTwoDDefaults(const TwoDDefaults &d)
     put(QStringLiteral("MeshSimplifyEpsM"),      d.meshSimplifyEpsM);
     put(QStringLiteral("MeshSnapEpsM"),          d.meshSnapEpsM);
     put(QStringLiteral("MeshNodeFlattenRadM"),   d.meshNodeFlattenRadM);
+    put(QStringLiteral("MeshNodesAsVertices"),   d.meshNodesAsVertices);
+    put(QStringLiteral("MeshNodesUseRim"),       d.meshNodesUseRim);
     put(QStringLiteral("MeshMinNodeSepOn"),      d.meshMinNodeSepOn);
     put(QStringLiteral("MeshMinNodeSepM"),       d.meshMinNodeSepM);
     put(QStringLiteral("MeshThinningOn"),        d.meshThinningOn);
     put(QStringLiteral("MeshThinningTol"),       d.meshThinningTol);
     put(QStringLiteral("MeshThinningPasses"),    d.meshThinningPasses);
+    put(QStringLiteral("MeshMinSpacingOn"),      d.meshMinSpacingOn);
+    put(QStringLiteral("MeshMinSpacingM"),       d.meshMinSpacingM);
     put(QStringLiteral("MeshBoundaryBufferM"),   d.meshBoundaryBufferM);
     put(QStringLiteral("MeshMaxBoundaryEdgeOn"), d.meshMaxBoundaryEdgeOn);
     put(QStringLiteral("MeshMaxBoundaryEdgeM"),  d.meshMaxBoundaryEdgeM);

@@ -12,13 +12,19 @@
 #include "map/mapcanvas.h"
 #include "map/meshcommands.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshcellparams.h"
 #include "mesh/meshcellstats.h"
+#include "mesh/meshinfil.h"
 #include "mesh/meshobjectref.h"
 #include "ui/properties/dataobjectref.h"
 
+#include <QBrush>
 #include <QCoreApplication>
+#include <QFont>
+#include <QGuiApplication>
 #include <QLineF>
+#include <QPalette>
 
 #include <cmath>
 #include <limits>
@@ -116,6 +122,29 @@ ColumnSpec bcTypeCol()
     return c;
 }
 
+/*! A `mesh::CellParamSpec::Kind::Enum` per-cell parameter as a combo column.
+ *
+ *  The data half of each pair is the parameter's STORED value — the same
+ *  integer `mesh::cellParamValue()` returns and `applyCellParam()` accepts —
+ *  so the labels stay display-only, exactly the contract bcTypeCol() follows
+ *  for the BC type column. `infil.method` is the only such spec today; its
+ *  values run over the mesh::InfilMethod range (None = -1 … Constant = 5),
+ *  which is what CellParamSpec::min/max carry. */
+ColumnSpec enumCol(const mesh::CellParamSpec &s)
+{
+    ColumnSpec c;
+    c.key      = QString::fromUtf8(s.key);
+    c.label    = s.label;
+    c.tooltip  = s.tooltip;
+    c.editor   = EditorKind::Enum;
+    c.setter   = c.key;
+    c.minValue = s.min;
+    c.maxValue = s.max;
+    for (int i = 0; i < s.enumLabels.size(); ++i)
+        c.enumValues.append(QVariantList{s.enumLabels[i], int(s.min) + i});
+    return c;
+}
+
 /*! Does boundary-condition field \p key carry a value for type \p t?
  *
  *  Each BC type reads exactly one parameter, so the others are noise: a Wall
@@ -141,17 +170,15 @@ bool bcFieldApplies(mesh::MeshBCTypes::Type t, const QString &key)
     return false;
 }
 
-/*! Endpoint vertex indices of local edge \p e on triangle \p tri.
- *  Convention matches the layer's: e0 = (v1,v2), e1 = (v2,v0), e2 = (v0,v1). */
+/*! Endpoint vertex indices of local edge \p e on cell \p tri.
+ *  Convention is mesh::edgeEndpoints (edge e = v[(e+1)%nv], v[(e+2)%nv]);
+ *  \p e must be below the cell's vertex count (3 or 4). */
 bool edgeEndpoints(const mesh::MeshResult &m, int tri, int e, int *va, int *vb)
 {
-    if (tri < 0 || tri >= m.triangles.size() || e < 0 || e > 2) return false;
+    if (tri < 0 || tri >= m.triangles.size() || e < 0) return false;
     const mesh::MeshTriangle &t = m.triangles[tri];
-    switch (e) {
-    case 0: *va = t.v1; *vb = t.v2; break;
-    case 1: *va = t.v2; *vb = t.v0; break;
-    default: *va = t.v0; *vb = t.v1; break;
-    }
+    if (e >= t.vertexCount()) return false;
+    mesh::edgeEndpoints(t, e, *va, *vb);
     return *va >= 0 && *va < m.vertices.size()
         && *vb >= 0 && *vb < m.vertices.size();
 }
@@ -295,20 +322,26 @@ void MeshAttributeTableModel::rebuildColumns()
                    0.001, 1.0, 3, UnitKind::None,
                    tr("Coupling discharge coefficient ([2D_VERTEX_NODE_MAP] CD "
                       "column). Coupled vertices only; default 0.65."))
-            // The AREA column is metres² regardless of the project's flow
-            // units, so the unit is spelled into the label rather than
-            // resolved through UnitKind (which would read ft² in US units).
-            << num(QStringLiteral("couplingArea"), tr("Coupling Area (m²)"),
+            // The AREA column is mesh-length² — the engine scales it with the
+            // mesh coordinates (ft² on a US project unless the mesh file is
+            // tagged `;; UNITS: SI (m)`), so the label follows the layer.
+            << num(QStringLiteral("couplingArea"),
+                   tr("Coupling Area (%1)").arg(
+                       (m_layer && m_layer->meshUnitsSI())
+                           ? QStringLiteral("m²")
+                           : unitLabel(UnitKind::Length) + QStringLiteral("²")),
                    0.0001, 1.0e6, 3, UnitKind::None,
-                   tr("Coupling exchange area in m² ([2D_VERTEX_NODE_MAP] AREA "
-                      "column). Coupled vertices only; default 1.0."));
+                   tr("Coupling exchange area in the mesh's length units squared "
+                      "([2D_VERTEX_NODE_MAP] AREA column). Coupled vertices only; "
+                      "default 1.0."));
         break;
 
     case Kind::Edge:
         m_columnSpecs
             << ro(QStringLiteral("Edge"), tr("Edge"), UnitKind::None,
-                  tr("Owning triangle and local edge, as triangle:edge. An "
-                     "interior edge is listed once, under its lower slot."))
+                  tr("Owning cell and local edge, as cell:edge (edges 0..2 on "
+                     "a triangle, 0..3 on a quad). An interior edge is listed "
+                     "once, under its lower slot."))
             << ro(QStringLiteral("Boundary"), tr("Boundary"), UnitKind::None,
                   tr("Whether the edge lies on the mesh outline (or a hole). "
                      "Boundary conditions apply to these edges only."))
@@ -344,6 +377,9 @@ void MeshAttributeTableModel::rebuildColumns()
     case Kind::Cell:
         m_columnSpecs
             << ro(QStringLiteral("Index"), tr("Index"))
+            << ro(QStringLiteral("Vertices"), tr("Vertices"), UnitKind::None,
+                  tr("Corner count: 3 for a triangle ([2D_TRIANGLES]), 4 for "
+                     "a quadrilateral ([2D_QUADS])."))
             << ro(QStringLiteral("Area"), tr("Area (map units²)"))
             << ro(QStringLiteral("Centroid X"), tr("Centroid X"))
             << ro(QStringLiteral("Centroid Y"), tr("Centroid Y"))
@@ -359,6 +395,8 @@ void MeshAttributeTableModel::rebuildColumns()
                                     s.lengthUnit ? UnitKind::Length
                                                  : UnitKind::None,
                                     s.tooltip);
+            } else if (s.kind == mesh::CellParamSpec::Kind::Enum) {
+                m_columnSpecs << enumCol(s);
             } else {
                 m_columnSpecs << num(key, s.label, s.min, s.max, s.decimals,
                                      s.lengthUnit ? UnitKind::Length
@@ -382,11 +420,13 @@ void MeshAttributeTableModel::rebuildEdgeRows()
     if (!m_layer->sceneGeometryComplete()) return;
 
     const int nTri = m_layer->triangleCount();
+    const auto &cells = m_layer->mesh().triangles;
     m_edgeSlots.reserve((3 * nTri + 1) / 2);
     m_slotRow.reserve(3 * nTri);
     for (int t = 0; t < nTri; ++t) {
-        for (int e = 0; e < 3; ++e) {
-            const int flat = t * 3 + e;
+        const int nv = cells[t].vertexCount();   // 3 edges, or 4 on a quad
+        for (int e = 0; e < nv; ++e) {
+            const int flat = mesh::edgeSlot(t, e);
             // Scanning in increasing flat order means the first slot reached
             // is always the lower one, which becomes the canonical row.
             if (m_slotRow.contains(flat)) continue;
@@ -395,7 +435,7 @@ void MeshAttributeTableModel::rebuildEdgeRows()
             m_slotRow.insert(flat, row);
             const QPair<int,int> nbr = m_layer->findEdgeNeighbour(t, e);
             if (nbr.first >= 0 && nbr.second >= 0)
-                m_slotRow.insert(nbr.first * 3 + nbr.second, row);
+                m_slotRow.insert(mesh::edgeSlot(nbr.first, nbr.second), row);
         }
     }
 }
@@ -421,7 +461,7 @@ SWMMObjectRef MeshAttributeTableModel::refForRow(int row) const
     case Kind::Edge: {
         const int flat = slotForRow(row);
         if (flat < 0) return {};
-        return mesh::MeshObjectRef::edge(path, flat / 3, flat % 3);
+        return mesh::MeshObjectRef::edge(path, mesh::slotCell(flat), mesh::slotLocal(flat));
     }
     }
     return {};
@@ -450,7 +490,7 @@ int MeshAttributeTableModel::rowForRef(const SWMMObjectRef &ref) const
         if (!mesh::MeshObjectRef::parseEdge(ref, &lk, &t, &e)) return -1;
         if (lk != wantKey) return -1;
         // Either half of an interior pair maps to the one canonical row.
-        return m_slotRow.value(t * 3 + e, -1);
+        return m_slotRow.value(mesh::edgeSlot(t, e), -1);
     }
     }
     return -1;
@@ -471,21 +511,29 @@ QRectF MeshAttributeTableModel::elementExtent(int row, bool *ok) const
     case Kind::Edge: {
         const int flat = slotForRow(row);
         int va = -1, vb = -1;
-        if (flat < 0 || !edgeEndpoints(m, flat / 3, flat % 3, &va, &vb)) return {};
+        if (flat < 0 || !edgeEndpoints(m, mesh::slotCell(flat), mesh::slotLocal(flat), &va, &vb)) return {};
         if (ok) *ok = true;
         return QRectF(m.vertices[va].xy, m.vertices[vb].xy).normalized();
     }
     case Kind::Cell: {
         if (row >= m.triangles.size()) return {};
         const mesh::MeshTriangle &t = m.triangles[row];
-        if (t.v0 < 0 || t.v0 >= m.vertices.size()
-            || t.v1 < 0 || t.v1 >= m.vertices.size()
-            || t.v2 < 0 || t.v2 >= m.vertices.size())
-            return {};
-        QRectF r = QRectF(m.vertices[t.v0].xy, m.vertices[t.v1].xy).normalized();
-        const QPointF c = m.vertices[t.v2].xy;
+        const int nv = t.vertexCount();
+        for (int k = 0; k < nv; ++k) {
+            const int v = t.vertex(k);
+            if (v < 0 || v >= m.vertices.size()) return {};
+        }
+        // Bounding box by hand: QRectF::united() ignores a zero-size rect,
+        // so uniting QRectF(c, c) per vertex would drop every vertex after
+        // the first two (a quad's extent came back as one edge).
+        QPointF lo = m.vertices[t.v0].xy, hi = lo;
+        for (int k = 1; k < nv; ++k) {
+            const QPointF c = m.vertices[t.vertex(k)].xy;
+            lo.setX(qMin(lo.x(), c.x())); lo.setY(qMin(lo.y(), c.y()));
+            hi.setX(qMax(hi.x(), c.x())); hi.setY(qMax(hi.y(), c.y()));
+        }
         if (ok) *ok = true;
-        return r.united(QRectF(c, c));
+        return QRectF(lo, hi);
     }
     }
     return {};
@@ -516,12 +564,51 @@ bool MeshAttributeTableModel::rowIsBoundaryEdge(int row) const
     if (!m_layer || m_kind != Kind::Edge) return false;
     const int flat = slotForRow(row);
     if (flat < 0) return false;
-    return m_layer->isBoundaryEdge(flat / 3, flat % 3);
+    return m_layer->isBoundaryEdge(mesh::slotCell(flat), mesh::slotLocal(flat));
+}
+
+bool MeshAttributeTableModel::cellInfilParamApplies(int row,
+                                                    const QByteArray &key) const
+{
+    if (!m_layer || m_kind != Kind::Cell) return false;
+    if (key == "infil.method") return true;   // the method itself always applies
+    const mesh::ResolvedInfil r = mesh::resolveInfil(m_layer->mesh(), row);
+    return mesh::infilSlotForKey(r.row.method, key) >= 0;
+}
+
+mesh::InfilProvenance MeshAttributeTableModel::cellInfilProvenance(int row) const
+{
+    if (!m_layer || m_kind != Kind::Cell) return mesh::InfilProvenance::None;
+    return mesh::resolveInfil(m_layer->mesh(), row).provenance;
 }
 
 QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || !m_layer) return {};
+
+    // An infiltration value a cell INHERITS from its region tag (or from the
+    // mesh-wide '*' row) renders muted + italic, the same way the property
+    // panels mark a value that is only a default. An overridden cell renders
+    // normally, so "this number belongs to this cell" is visible at a glance
+    // — which matters because editing an inherited cell detaches it from its
+    // region for good.
+    if (role == Qt::FontRole || role == Qt::ForegroundRole) {
+        if (m_kind != Kind::Cell || m_firstCellParamCol < 0) return {};
+        const int col = index.column();
+        if (col < m_firstCellParamCol || col >= m_columnSpecs.size()) return {};
+        if (!m_columnSpecs[col].key.startsWith(QLatin1String("infil."))) return {};
+        const mesh::InfilProvenance p = cellInfilProvenance(index.row());
+        if (p != mesh::InfilProvenance::Tag && p != mesh::InfilProvenance::Star)
+            return {};
+        if (role == Qt::FontRole) {
+            QFont f;
+            f.setItalic(true);
+            return f;
+        }
+        return QBrush(QGuiApplication::palette().color(QPalette::Disabled,
+                                                       QPalette::Text));
+    }
+
     if (role != Qt::DisplayRole && role != Qt::EditRole
         && role != Qt::ToolTipRole)
         return {};
@@ -571,7 +658,7 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
     case Kind::Edge: {
         const int flat = slotForRow(row);
         if (flat < 0) return {};
-        const int tri = flat / 3, e = flat % 3;
+        const int tri = mesh::slotCell(flat), e = mesh::slotLocal(flat);
         if (spec.key == QLatin1String("Edge"))
             return QStringLiteral("%1:%2").arg(tri).arg(e);
         if (spec.key == QLatin1String("Boundary"))
@@ -616,16 +703,19 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
     case Kind::Cell: {
         if (row >= m.triangles.size()) return {};
         const mesh::MeshTriangle &t = m.triangles[row];
-        if (spec.key == QLatin1String("Index")) return row;
-        if (spec.key == QLatin1String("Area"))  return mesh::triangleArea(m, row);
+        if (spec.key == QLatin1String("Index"))    return row;
+        if (spec.key == QLatin1String("Vertices")) return t.vertexCount();
+        if (spec.key == QLatin1String("Area"))     return mesh::triangleArea(m, row);
         if (spec.key == QLatin1String("Centroid X")
             || spec.key == QLatin1String("Centroid Y")) {
-            if (t.v0 < 0 || t.v0 >= m.vertices.size()
-                || t.v1 < 0 || t.v1 >= m.vertices.size()
-                || t.v2 < 0 || t.v2 >= m.vertices.size())
-                return {};
-            const QPointF c = (m.vertices[t.v0].xy + m.vertices[t.v1].xy
-                               + m.vertices[t.v2].xy) / 3.0;
+            const int nv = t.vertexCount();
+            for (int k = 0; k < nv; ++k) {
+                const int v = t.vertex(k);
+                if (v < 0 || v >= m.vertices.size()) return {};
+            }
+            // Area centroid (mesh::cellGeom) — the vertex mean for a
+            // triangle, area-weighted over the sub-triangles for a quad.
+            const QPointF c = mesh::cellCentroid(m, row);
             return spec.key == QLatin1String("Centroid X") ? c.x() : c.y();
         }
         if (spec.key == QLatin1String("tag")) return t.tag;
@@ -635,6 +725,20 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         const mesh::CellParamSpec *cs = mesh::cellParamSpec(key);
         if (!cs) return {};
         if (!cs->enabled)
+            return role == Qt::EditRole ? QVariant() : QVariant(notApplicable());
+        if (cs->kind == mesh::CellParamSpec::Kind::Enum) {
+            // Same split bcType uses: the combo edits the enum integer, the
+            // display / query bar / CSV export see the human label. The label
+            // index is the value's offset from the spec's min — the mapping
+            // enumCol() builds its {label, data} pairs from.
+            const int ev = int(mesh::cellParamValue(m, row, key));
+            if (role == Qt::EditRole) return ev;
+            return cs->enumLabels.value(ev - int(cs->min), notApplicable());
+        }
+        // A parameter the row's resolved method does not read carries no
+        // meaning — show it inapplicable rather than as a stale number the
+        // engine ignores. Same idiom as the BC columns on an interior edge.
+        if (key.startsWith("infil.") && !cellInfilParamApplies(row, key))
             return role == Qt::EditRole ? QVariant() : QVariant(notApplicable());
         const double raw = mesh::cellParamValue(m, row, key);
         return std::isfinite(raw) ? raw : cs->defaultValue;
@@ -679,8 +783,15 @@ Qt::ItemFlags MeshAttributeTableModel::flags(const QModelIndex &index) const
         }
         break;
     }
-    case Kind::Cell:
+    case Kind::Cell: {
+        // Within a cell, only the infiltration parameters its resolved method
+        // actually reads. Set the method first, then its values — the same
+        // order the BC columns above impose.
+        const QByteArray key = spec.key.toUtf8();
+        if (key.startsWith("infil.") && !cellInfilParamApplies(index.row(), key))
+            return f;
         break;
+    }
     }
     return f | Qt::ItemIsEditable;
 }
@@ -711,16 +822,45 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index,
         const int flat = slotForRow(row);
         if (flat < 0) return false;
         changed = mesh::pushEdgeParamEdit(
-            m_layer, {qMakePair(flat / 3, flat % 3)}, key, v, m_canvas);
+            m_layer, {qMakePair(mesh::slotCell(flat), mesh::slotLocal(flat))}, key, v, m_canvas);
         break;
     }
     case Kind::Cell:
-        if (key == "tag")
+        if (key == "tag") {
             changed = mesh::pushCellTagEdit(m_layer, {row}, v.toString(),
                                             m_canvas);
-        else
+        } else if (key.startsWith("infil.")) {
+            // Infiltration is a ROW, not a set of independent columns: the
+            // edited field is folded into the cell's currently-resolved row
+            // and the whole thing is pushed through the one funnel that
+            // snapshots provenance, so undo can put an inheriting cell back
+            // to inheriting rather than to a materialised copy.
+            mesh::InfilRow next = mesh::resolveInfil(m_layer->mesh(), row).row;
+            if (key == "infil.method") {
+                bool okm = false;
+                const int mi = v.toInt(&okm);
+                if (!okm || mi < int(mesh::InfilMethod::None)
+                         || mi > int(mesh::InfilMethod::Constant))
+                    return false;
+                next.method = static_cast<mesh::InfilMethod>(mi);
+                // Slots the new method does not read carry no meaning — clear
+                // them so a method switch cannot leave a stale number behind.
+                for (int k = 0; k < mesh::kInfilMaxParams; ++k)
+                    if (!mesh::infilUsesParam(next.method, k))
+                        next.p[k] = std::numeric_limits<double>::quiet_NaN();
+            } else {
+                const int slot = mesh::infilSlotForKey(next.method, key);
+                if (slot < 0) return false;   // masked — flags() refuses it too
+                bool okv = false;
+                const double dv = v.toDouble(&okv);
+                if (!okv) return false;
+                next.p[slot] = dv;
+            }
+            changed = mesh::pushCellInfilEdit(m_layer, {row}, next, m_canvas);
+        } else {
             changed = mesh::pushCellParamEdit(m_layer, {row}, key,
                                               v.toDouble(), m_canvas);
+        }
         break;
     }
     if (changed <= 0) return false;

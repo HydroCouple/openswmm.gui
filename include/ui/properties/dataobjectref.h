@@ -55,6 +55,23 @@ struct DataObjectRef
                              ///  mesh vertex ([2D_VERTEX_NODE_MAP]). Selection
                              ///  only; nodes are created on the map, so the "…"
                              ///  button explains rather than offering a dialog.
+        Subcatchment   = 10, ///< Any subcatchment — the [OUTFALLS] RouteTo
+                             ///  target. Selection only (subcatchments are
+                             ///  drawn on the map); an empty pick clears the
+                             ///  routing.
+        Aquifer        = 11, ///< [AQUIFERS] entries — the subcatchment's
+                             ///  receiving aquifer ([GROUNDWATER]). "…"
+                             ///  opens AquiferEditorDialog::pickAquifer; an
+                             ///  empty pick clears the assignment.
+        Inlet          = 12, ///< [INLETS] designs — an inlet junction's or a
+                             ///  conduit's inlet design. "…" opens
+                             ///  InletEditorDialog::pickInlet, filtered by
+                             ///  the host's cross-section shape (`typeLock`
+                             ///  carries the SWMM_XSectShape id, -1 = any).
+        CaptureNode    = 13, ///< Receiving (underdrain) node of an inlet.
+                             ///  Every node EXCEPT virtual / inlet junctions
+                             ///  (engine rule 627). Selection only — nodes
+                             ///  are created on the map.
     };
 
     SWMM_Engine     engine      = nullptr;  ///< Engine handle (borrow)
@@ -62,6 +79,11 @@ struct DataObjectRef
     Kind            kind        = TimeSeries;
     int             typeLock    = -1;       ///< Pattern: 0=MONTHLY 1=DAILY 2=HOURLY 3=WEEKEND; -1 = any
     QString         currentName;             ///< Currently-assigned object id; empty = unassigned
+    /*! CaptureNode only: node index of the inlet junction whose capture node
+     *  is being chosen. Lets a map pick be written through the layer even
+     *  after the property grid has closed the cell editor (it does so the
+     *  moment the map takes focus). Not part of equality. */
+    int             hostNodeIdx = -1;
 
     bool operator==(const DataObjectRef &other) const noexcept
     {

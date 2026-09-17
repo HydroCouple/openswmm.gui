@@ -39,8 +39,10 @@ class ChartProperties : public QObject
 
 public:
     /*! \brief Axis label number mode; values mirror
-     *  openswmmvis::plot::NumberFormatMode (0=Decimals, 1=SignificantFigures). */
-    enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
+     *  openswmmvis::plot::NumberFormatMode (0=Decimals, 1=SignificantFigures,
+     *  2=Scientific, 3=Engineering, 4=Thousands). */
+    enum LabelFormatMode { Decimals = 0, SignificantFigures = 1,
+                           Scientific = 2, Engineering = 3, Thousands = 4 };
     Q_ENUM(LabelFormatMode)
 
     /*! Combined number format offered as ONE dropdown, replacing a mode enum
@@ -57,7 +59,15 @@ public:
         Decimals6 = 5,
         SigFigs3  = 6,
         SigFigs4  = 7,
-        SigFigs6  = 8
+        SigFigs6  = 8,
+        Scientific2      = 9,
+        Scientific3      = 10,
+        Scientific4      = 11,
+        Engineering2     = 12,
+        Engineering3     = 13,
+        ThousandsInteger = 14,
+        Thousands1       = 15,
+        Thousands2       = 16
     };
     Q_ENUM(AxisNumberFormat)
 

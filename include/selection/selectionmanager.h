@@ -65,6 +65,11 @@ struct SWMMObjectRef
         MeshVertex   = 18,
         MeshEdge     = 19,
         MeshCell     = 20,   ///< 2D mesh triangle/cell (see `MeshObjectRef::cell`)
+        // GIS vector feature layers (SVBC round B). The `name` field encodes
+        // "gis::<layerId>#f<fid>" (see `GisObjectRef::feature`), so features
+        // from several imported layers co-exist on the bus without
+        // collision, keyed by the layer's stable id.
+        Feature      = 21,
     };
 
     ObjectType objectType = Unknown;

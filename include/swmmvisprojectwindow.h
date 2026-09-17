@@ -76,11 +76,11 @@ public:
     bool isElevationOffsetMode() const { return mElevationOffsetMode; }
     void setElevationOffsetMode(bool elevation);
 
-    /*! Convert all link offsets between Depth and Elevation conventions
-     *  (legacy UpdateOffsets → ComputeDepth/ElevationOffsets parity) and mark
-     *  the project dirty. \param toElevation true → to Elevation, false → to
-     *  Depth. */
-    void convertLinkOffsets(bool toElevation);
+    /*! Apply the answer to the legacy UpdateOffsets convert prompt after the
+     *  mode flip (see SWMMModelLayer::convertLinkOffsets) and mark the project
+     *  dirty. \param toElevation the mode switched TO; \param convertValues the
+     *  prompt answer (true = Yes). */
+    void convertLinkOffsets(bool toElevation, bool convertValues);
 
     /*! Re-read LINK_OFFSETS from the engine into the cached
      *  mElevationOffsetMode flag. Used by the main-window listener for
@@ -99,8 +99,35 @@ public:
      * "clean" after a cell edit, so Run skips its auto-save and the engine
      * re-reads the stale .inp — the edit silently never reaches the solver.
      * Call once per mesh layer, right after it joins the canvas.
+     *
+     * \param pristine  Pass true only when the layer was built from the very
+     *   file the engine parsed, so the two meshes are known to agree and the
+     *   save path may skip re-pushing this layer until something edits it.
+     *   The default (false) is the safe one: a mesh generated or imported
+     *   in-session leaves the engine holding the old mesh.
      */
-    void attachMeshLayer(class SWMM2DMeshLayer *meshLayer);
+    void attachMeshLayer(class SWMM2DMeshLayer *meshLayer, bool pristine = false);
+
+    /*!
+     * \brief Browse-and-load an existing SWMMVis 2D mesh (.2dm) into this
+     *        project.
+     *
+     * Until now a .2dm could only reach a model by already sitting next to its
+     * .inp (Simulation Options → Mesh only lists siblings of the model file).
+     * This stages a mesh from anywhere on disk: the file is copied next to the
+     * .inp when it lives elsewhere — so the saved `[2D_MESH_FILE]` reference
+     * stays relative and the project remains portable — then parsed and built
+     * on a worker thread and added to the canvas as the ACTIVE external mesh.
+     * That is the layer the save path retargets `[2D_MESH_FILE]` at, so the
+     * import survives save → reopen.
+     *
+     * Existing mesh layers are kept (merely deactivated); a layer already
+     * reading the destination file is replaced rather than stacked, matching
+     * the mesh-generation path.
+     *
+     * Asynchronous — the outcome arrives via meshImportFinished().
+     */
+    void importMeshFileAsync(const QString &srcPath);
 
     /*!
      * \brief Non-blocking variant of loadModel().
@@ -110,8 +137,12 @@ public:
      * the load (SoA adoption, CRS resolution, canvas zoom) on the GUI thread
      * and then emits modelLoadFinished(). Safe against the window being
      * closed mid-load.
+     *
+     * \param progress Optional determinate-progress sink. The worker reports
+     *        into the EngineParse / SoaCopy / GeomCache stages; null is the
+     *        "nobody is watching" case used by tests and the sync path.
      */
-    void loadModelAsync();
+    void loadModelAsync(class OpenProgressModel *progress = nullptr);
 
     /*!
      * \brief In-memory File → New: build a blank BUILDING-state engine from
@@ -130,6 +161,14 @@ public:
     bool save(QString *errorOut = nullptr);
     bool saveAs(const QString &newPath, QString *errorOut = nullptr);
 
+    /*! Engine warnings the LAST successful saveAs() produced (empty when the
+     *  save was clean, or none has run). The writer reports through the
+     *  engine's warning list — notably "embedded [REACTION_*] sections are
+     *  lost from this save" (engine 7d43a1ff) — and saveAs() captures the
+     *  delta across the write so callers and tests can see exactly what THIS
+     *  save said, not the whole accumulated history. */
+    QStringList lastSaveWarnings() const { return mLastSaveWarnings; }
+
     /** Whether the project has unsaved changes. */
     bool hasChanges() const { return mHasChanges; }
 
@@ -146,6 +185,12 @@ public:
      *  prompt on close (Save As… / Discard / Cancel) — the model lives
      *  only in memory until the first successful Save As clears the flag. */
     bool isUntitled() const { return mUntitled; }
+
+    /*! True from the moment closeEvent() commits to closing (just before
+     *  aboutToClose() fires) — the window is still in the MDI area's
+     *  subWindowList() then, so callers that scan it for "live" project
+     *  windows must skip a closing one or they rebind to a dying canvas. */
+    bool isClosing() const { return mClosing; }
     void markUntitled();
 
     void activatePanTool();
@@ -213,6 +258,17 @@ public:
     class OpenSWMMVisMapToolAddVirtualNode *addVirtualJunctionTool() const
     { return mAddVirtualJunctionTool; }
 
+    /*! The generic add-node tools (junction / outfall / storage / divider),
+     *  which also split a conduit when the click lands on one. Exposed so
+     *  SWMMVis can route their statusMessageChanged to the status bar. */
+    QList<OpenSWMMVisMapToolAddNode *> addNodeTools() const
+    { return { mAddJunctionTool, mAddOutfallTool, mAddStorageTool, mAddDividerTool }; }
+
+    /*! Inlet-junction insertion tool (click-a-street-conduit split). Exposed
+     *  for the same reason as the virtual-junction tool above. */
+    class OpenSWMMVisMapToolAddInletNode *addInletJunctionTool() const
+    { return mAddInletJunctionTool; }
+
     /*! Slice CF.3 — Pick 2D mesh cells tool (box + lasso). Returns null
      *  until a SWMM2DResultsLayer exists on the canvas (created lazily
      *  on first access via activatePick2DCellsTool). */
@@ -274,6 +330,7 @@ public:
     QHash<class OpenSWMMVisMapTool *, QString> toolActionKeys() const;
     void activateAddJunctionTool();
     void activateAddVirtualJunctionTool();
+    void activateAddInletJunctionTool();
     void activateAddOutfallTool();
     void activateAddStorageTool();
     void activateAddDividerTool();
@@ -377,6 +434,20 @@ signals:
      *  loadModel() returns via out-params. */
     void modelLoadFinished(bool ok, const QList<QString> &warnings,
                            const QList<QString> &errors);
+    /*! Fired after a SUCCESSFUL save whose engine write emitted warnings —
+     *  the save-time analogue of the open path's warning routing. The list is
+     *  the delta across this write only. Data-loss notices (embedded
+     *  [REACTION_*] dropped) arrive here; SWMMVis routes every entry to the
+     *  log panel and escalates the data-loss family to a modal. */
+    void saveCompletedWithEngineWarnings(const QStringList &warnings);
+    /*! Completion signal for importMeshFileAsync(): fired exactly once per
+     *  call, on the GUI thread. \p meshPath is the file the new layer reads
+     *  (the copy inside the project folder, when one was made) and is empty
+     *  on failure. \p message is user-facing (an error, or a summary plus any
+     *  reader warning). */
+    void meshImportFinished(bool ok, const QString &message,
+                            const QString &meshPath);
+
     void hasChangesChanged(bool dirty);
     void editSessionChanged(bool active);
     void offsetModeChanged(bool elevation);
@@ -391,7 +462,8 @@ signals:
     /*! Slice CF.3 — forwards MapToolPick2DCells::cellsPicked up to the
      *  main window so it can open the Comparison Plot Dialog. */
     void pick2DCellsPicked(class SWMM2DResultsLayer *layer,
-                            const QVector<int> &triIdxList);
+                            const QVector<int> &triIdxList,
+                            const QVector<openswmmvis::plot::PlotAttribute> &attrs);
 
     /*! Forwards MapToolMeshProfile::profilePathTraced up to the main window
      *  so it can open the MeshProfilePlotDialog. The polyline is in scene
@@ -418,8 +490,10 @@ signals:
     void meshEdgeStatusMessage(const QString &message);
 
     /*! Forwards MapToolMeshSelectVertex::plotVertexSeriesRequested up to the
-     *  main window so it can plot interpolated depth/HGL for the vertices. */
-    void meshVertexSeriesRequested(class SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList);
+     *  main window so it can plot the chosen interpolated attributes
+     *  (depth / HGL) for the vertices. */
+    void meshVertexSeriesRequested(class SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList,
+                                   const QVector<openswmmvis::plot::PlotAttribute> &attrs);
 
     /*! Slice BC — fires whenever the active terrain raster changes
      *  (set / cleared / swapped) or its vertical-unit conversion
@@ -468,6 +542,8 @@ private:
     bool                 mElevationOffsetMode = false;  // OPTIONS LINK_OFFSETS = ELEVATION
     bool                 mUntitled            = false;  // Slice Y — never saved
     bool                 mClosePromptActive   = false;  // re-entrancy guard for closeEvent's prompt
+    bool                 mClosing             = false;  // see isClosing()
+    QStringList          mLastSaveWarnings;   // delta across the last successful engine write
     QString              mEngineVersion       = "6.0.0";  // Default to newest version
     QString              mNotesHtml;                      // [TITLE] notes (rich HTML)
     QJsonArray           mPending2DResultsRestore;        // .oswp 2D results entries
@@ -481,6 +557,7 @@ private:
     class OpenSWMMVisMapToolSelectProfile *mSelectProfileTool = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddJunctionTool   = nullptr;
     OpenSWMMVisMapToolAddVirtualNode *mAddVirtualJunctionTool = nullptr;
+    class OpenSWMMVisMapToolAddInletNode *mAddInletJunctionTool = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddOutfallTool    = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddStorageTool    = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddDividerTool    = nullptr;

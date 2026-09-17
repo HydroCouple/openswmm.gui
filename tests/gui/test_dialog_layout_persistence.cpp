@@ -24,6 +24,7 @@
 #include "ui/dialogs/dialoglayoutpersistence.h"
 #include "ui/dialogs/dialoglayoutwatcher.h"
 
+using openswmmvis::ui::clampToVisibleScreen;
 using openswmmvis::ui::DialogLayoutWatcher;
 using openswmmvis::ui::kNoLayoutPersistenceProp;
 using openswmmvis::ui::restoreDialogLayout;
@@ -98,6 +99,11 @@ private slots:
     void toggleRestoreFiresToggled();
     void emptyObjectNameIsNoOp();
     void offscreenRectGetsClamped();
+    void clampKeepsUsableRectUntouched();
+    void clampShrinksRectTooBigForItsScreen();
+    void clampKeepsTitleBarReachable();
+    void clampRescuesBarelyOverlappingRect();
+    void clampLeavesRectUsableOnSomeScreen();
     void watcherPersistsAcrossInstances();
     void watcherRespectsOptOutProperty();
     void watcherRestoresOncePerInstance();
@@ -242,6 +248,121 @@ void TestDialogLayoutPersistence::offscreenRectGetsClamped()
         onScreen = onScreen || screen->availableGeometry().contains(got.center());
     QVERIFY2(onScreen, qPrintable(QStringLiteral("clamped rect still off-screen: "
                                                  "%1,%2").arg(got.x()).arg(got.y())));
+}
+
+// ── clampToVisibleScreen() — the rules the old center-point test missed ────
+//
+// The previous clamp accepted any rect whose CENTER landed on a connected
+// screen, which let three unusable geometries through: oversized (title bar
+// and buttons off the edge), title-bar-above-the-menu-bar (nothing left to
+// drag), and barely-overlapping (a few pixels of body visible). These pin
+// each rule down against the current screen layout rather than hard-coded
+// numbers, so they hold on any test machine.
+
+void TestDialogLayoutPersistence::clampKeepsUsableRectUntouched()
+{
+    const QScreen *primary = QGuiApplication::primaryScreen();
+    QVERIFY(primary);
+    const QRect avail = primary->availableGeometry();
+
+    // Comfortably inside, well clear of every edge including the title strip.
+    const QRect fine(avail.x() + 120, avail.y() + 120,
+                     qMin(400, avail.width()  / 2),
+                     qMin(300, avail.height() / 2));
+    QCOMPARE(clampToVisibleScreen(fine, 28), fine);
+}
+
+void TestDialogLayoutPersistence::clampShrinksRectTooBigForItsScreen()
+{
+    const QScreen *primary = QGuiApplication::primaryScreen();
+    QVERIFY(primary);
+    const QRect avail = primary->availableGeometry();
+
+    // Centered on a valid screen — the old clamp passed this straight
+    // through — but twice as wide and tall as the screen can show.
+    QRect huge(0, 0, avail.width() * 2, avail.height() * 2);
+    huge.moveCenter(avail.center());
+
+    const QRect got = clampToVisibleScreen(huge, 28);
+    QVERIFY2(got.width()  <= avail.width(),
+             "clamped rect is still wider than its screen");
+    QVERIFY2(got.height() <= avail.height(),
+             "clamped rect is still taller than its screen");
+    QVERIFY2(avail.contains(got.adjusted(0, -28, 0, 0)),
+             "clamped rect (incl. title bar) is not fully on screen");
+}
+
+void TestDialogLayoutPersistence::clampKeepsTitleBarReachable()
+{
+    const QScreen *primary = QGuiApplication::primaryScreen();
+    QVERIFY(primary);
+    const QRect avail = primary->availableGeometry();
+
+    // Client rect starts 4 px below the top of the available area, so the
+    // 28 px title bar — the window's only drag handle — sits above it and
+    // under the menu bar. Body is plainly visible, so the old center test
+    // accepted it and the window could never be moved again.
+    const QRect tucked(avail.x() + 100, avail.y() + 4, 420, 300);
+    const QRect got = clampToVisibleScreen(tucked, 28);
+
+    QVERIFY2(got.top() - 28 >= avail.top(),
+             qPrintable(QStringLiteral("title bar still above the available "
+                                       "area: top=%1 avail.top=%2")
+                            .arg(got.top()).arg(avail.top())));
+}
+
+void TestDialogLayoutPersistence::clampRescuesBarelyOverlappingRect()
+{
+    const QScreen *primary = QGuiApplication::primaryScreen();
+    QVERIFY(primary);
+    const QRect avail = primary->availableGeometry();
+
+    // Only ~10 px of the window pokes onto the screen — its center is off,
+    // so even the old clamp would move it, but this asserts the new minimum
+    // visible-area contract explicitly.
+    const QRect sliver(avail.right() - 10, avail.y() + 200, 500, 360);
+    const QRect got = clampToVisibleScreen(sliver, 28);
+    const QRect visible = avail.intersected(got);
+
+    QVERIFY2(visible.width()  >= qMin(got.width(),  160),
+             "too little of the window is horizontally reachable");
+    QVERIFY2(visible.height() >= qMin(got.height(), 60),
+             "too little of the window is vertically reachable");
+}
+
+void TestDialogLayoutPersistence::clampLeavesRectUsableOnSomeScreen()
+{
+    // General postcondition: whatever screen the clamp settles on, the result
+    // must be genuinely usable there.
+    //
+    // NOTE this does NOT prove the largest-overlap screen SELECTION rule —
+    // CI runs single-screen (offscreen QPA: one 800x600 screen), where every
+    // candidate rule agrees. The rule that a window straddling two monitors
+    // keeps the one it mostly occupies, rather than being yanked to primary
+    // because its center fell in the gap between them, needs real hardware:
+    // see the multi-monitor steps in
+    // workplans/DIALOG_WINDOW_MANAGEMENT_VERIFICATION.md.
+    const auto screens = QGuiApplication::screens();
+    QVERIFY(!screens.isEmpty());
+
+    const QScreen *primary = QGuiApplication::primaryScreen();
+    QVERIFY(primary);
+    const QRect avail = primary->availableGeometry();
+
+    QRect mostlyHere(avail.x() + avail.width() - 300, avail.y() + 150, 400, 300);
+    const QRect got = clampToVisibleScreen(mostlyHere, 28);
+
+    // Whichever screen it ends up on, it must be genuinely usable there.
+    bool usable = false;
+    for (const QScreen *s : screens) {
+        const QRect a = s->availableGeometry();
+        const QRect vis = a.intersected(got);
+        if (vis.width() >= qMin(got.width(), 160)
+            && vis.height() >= qMin(got.height(), 60)
+            && got.top() - 28 >= a.top())
+            usable = true;
+    }
+    QVERIFY2(usable, "clamped rect is not usable on any connected screen");
 }
 
 void TestDialogLayoutPersistence::watcherPersistsAcrossInstances()

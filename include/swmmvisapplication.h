@@ -3,7 +3,7 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  QApplication subclass for the OpenSWMM GUI — sets up GDAL, static
+ * \brief  QApplication subclass for SWMMVis — sets up GDAL, static
  *         Qt resources, and the main window during application startup.
  *
  * \details Two application objects are provided:
@@ -86,7 +86,17 @@ protected:
      */
     bool eventFilter(QObject *watched, QEvent *event) override;
 
+    /*!
+     * \brief Last-resort guard around event delivery: an exception thrown by
+     *        a slot or event handler is logged (qCritical → Message Log tee)
+     *        and reported once through a throttled message box instead of
+     *        propagating out of exec() and terminating the application.
+     */
+    bool notify(QObject *receiver, QEvent *event) override;
+
 private:
+    void reportHandlerException(QObject *receiver, const QString &what);
+
     SWMMVis             *mSWMMVisGUI;           ///< Owned main window.
     SWMMVisSplashScreen *mSWMMVisSplashScreen;  ///< Owned splash screen.
 };

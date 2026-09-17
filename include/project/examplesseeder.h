@@ -7,9 +7,9 @@
  * Bundled-example seeding and discovery for the Welcome screen.
  *
  * The read-only install payload (macOS <bundle>/Resources/examples,
- * Linux/Windows <prefix>/share/openswmmgui/examples) is synced once per
- * app version into the per-user data dir
- * (QStandardPaths::AppLocalDataLocation + "/examples") at startup, and the
+ * Linux/Windows <prefix>/share/openswmmgui/examples) is synced
+ * incrementally into the per-user data dir
+ * (QStandardPaths::AppLocalDataLocation + "/examples") at every startup, and the
  * Welcome panel lists whatever directory the seeder hands back. Opening an
  * example ALWAYS copies it to a user-chosen folder first — the baseline
  * (both install payload and appdata mirror) is never opened in place, so
@@ -30,6 +30,9 @@ struct ExampleInfo
 {
     QString displayName;   //!< From example.json "name", else prettified file/dir name.
     QString description;   //!< From example.json "description"; may be empty.
+    QString category;      //!< From example.json "category"; empty = the Welcome
+                           //!< panel's default group (it owns that group's label,
+                           //!< which needs tr() — this header stays widget-free).
     QString openPath;      //!< Absolute path of the .oswp (preferred) or .inp inside sourceRoot.
     QString sourceRoot;    //!< Directory to copy (dir example) or the single .inp file (flat example).
     bool    isDirectory = false;  //!< Directory-per-example vs legacy flat .inp.
@@ -63,12 +66,19 @@ bool copyDirectoryRecursively(const QString &srcDir, const QString &dstDir,
                               QString *err = nullptr);
 
 /*!
- * \brief Syncs the install payload into the per-user dir with a version
- *        fast path.
+ * \brief Syncs the install payload into the per-user dir.
  *
- * When \a dstDir contains a marker file whose content equals \a version the
- * sync is skipped entirely. Otherwise the tree is copied (see
- * copyDirectoryRecursively) and the marker rewritten.
+ * The tree is always walked (see copyDirectoryRecursively — a per-file
+ * size + mtime no-op, so an up-to-date mirror costs one stat per file) and
+ * the marker is rewritten with \a version as a record of the last seeding
+ * app. There is deliberately no marker-equals-version fast path: the
+ * payload changes within a version on every dev build and on any release
+ * that adds examples without a version bump, and a fast path left the
+ * mirror — and therefore the Welcome page — without the new examples.
+ *
+ * Known limitation: the sync only adds and refreshes. An example removed
+ * from the install payload is NOT pruned from the mirror and keeps
+ * appearing on the Welcome page until the per-user examples dir is deleted.
  *
  * \return false when the destination could not be created/written.
  */
@@ -89,10 +99,11 @@ QString preferredExamplesDir(const QString &version);
  *
  * Directory examples: every subdirectory containing at least one .oswp
  * (preferred open target) or .inp. Flat examples: every top-level .inp
- * (legacy single-file bundles). Display name/description come from an
- * optional example.json manifest ({"name": …, "description": …}) in the
- * subdirectory, falling back to the prettified dir/file base name
- * ('_'/'-' → spaces).
+ * (legacy single-file bundles). Display name/description/category come from
+ * an optional example.json manifest
+ * ({"name": …, "description": …, "category": …}) in the subdirectory,
+ * falling back to the prettified dir/file base name ('_'/'-' → spaces) and
+ * an empty category.
  */
 QVector<ExampleInfo> discoverExamples(const QString &dir);
 

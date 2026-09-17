@@ -29,6 +29,7 @@
 
 #include "mesh/inpmeshreader.h"
 #include "mesh/meshresult.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshedgebc.h"
 #include "mesh/meshbctype.h"
 #include "mesh/meshenginesync.h"
@@ -86,7 +87,7 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     ASSERT_EQ(swmm_2d_vertex_count(e, &nv), 0);
     ASSERT_EQ(swmm_2d_triangle_count(e, &nt), 0);
     ASSERT_EQ(nv, meshState.vertices.size());
-    ASSERT_EQ(bcs.size(), nt * 3);
+    ASSERT_EQ(bcs.size(), mesh::edgeSlotCount(nt));
 
     // ---- Make the mesh edits ---------------------------------------------
     const double kZ = 555.5;   // vertex 0 elevation
@@ -103,13 +104,13 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     meshState.triangles[0].mannings   = kN;                        // roughness edit
     meshState.triangles[0].initDepth  = kD;                        // init-depth edit
     meshState.triangles[0].tag        = QStringLiteral("REGION_X");// triangle tag
-    bcs[0 * 3 + 0].conveyance = kC;
-    bcs[5 * 3 + 0].type       = mesh::MeshBCTypes::Type::SpecifiedStageConst;
-    bcs[5 * 3 + 0].head       = kH;
-    bcs[5 * 3 + 0].tseries.clear();   // ensure no stale name masks the head
-    bcs[7 * 3 + 0].type       = mesh::MeshBCTypes::Type::SpecifiedFlowConst;
-    bcs[7 * 3 + 0].flow       = kF;
-    bcs[7 * 3 + 0].tseries.clear();
+    bcs[mesh::edgeSlot(0, 0)].conveyance = kC;
+    bcs[mesh::edgeSlot(5, 0)].type       = mesh::MeshBCTypes::Type::SpecifiedStageConst;
+    bcs[mesh::edgeSlot(5, 0)].head       = kH;
+    bcs[mesh::edgeSlot(5, 0)].tseries.clear();   // ensure no stale name masks the head
+    bcs[mesh::edgeSlot(7, 0)].type       = mesh::MeshBCTypes::Type::SpecifiedFlowConst;
+    bcs[mesh::edgeSlot(7, 0)].flow       = kF;
+    bcs[mesh::edgeSlot(7, 0)].tseries.clear();
 
     // ---- Push edits into the engine, then serialise ----------------------
     QStringList warnings;
@@ -275,14 +276,14 @@ TEST(MeshEngineSync, EditsPersistInOpenedState)
         << "vertex_count must work in OPENED state";
     ASSERT_EQ(swmm_2d_triangle_count(e, &nt), 0);
     ASSERT_EQ(nv, meshState.vertices.size());
-    ASSERT_EQ(bcs.size(), nt * 3);
+    ASSERT_EQ(bcs.size(), mesh::edgeSlotCount(nt));
 
     // Edit a vertex Z, an edge conveyance, and an edge stage BC.
     meshState.vertices[0].z   = 333.3;
-    bcs[0 * 3 + 0].conveyance = 0.41;
-    bcs[5 * 3 + 0].type       = mesh::MeshBCTypes::Type::SpecifiedStageConst;
-    bcs[5 * 3 + 0].head       = 88.8;
-    bcs[5 * 3 + 0].tseries.clear();
+    bcs[mesh::edgeSlot(0, 0)].conveyance = 0.41;
+    bcs[mesh::edgeSlot(5, 0)].type       = mesh::MeshBCTypes::Type::SpecifiedStageConst;
+    bcs[mesh::edgeSlot(5, 0)].head       = 88.8;
+    bcs[mesh::edgeSlot(5, 0)].tseries.clear();
 
     QStringList warnings;
     ASSERT_TRUE(mesh::pushMeshEditsToEngine(e, meshState, bcs, &warnings));
@@ -298,4 +299,174 @@ TEST(MeshEngineSync, EditsPersistInOpenedState)
         << "edge conveyance edit not saved in OPENED state";
     EXPECT_TRUE(text.contains(QStringLiteral("88.8")))
         << "edge stage BC edit not saved in OPENED state";
+}
+
+// SVBC A8 — GUI/engine BC parity, per slot, read back through the engine's
+// OPENED-state getters (the setters' new mirror image). Against a pre-A8
+// engine every getter refuses with SWMM_ERR_BADPARAM (they carried the
+// solver-state guard) and the first ASSERT below goes red — that IS the
+// falsifier for this gate.
+TEST(MeshEngineSync, PushedBcStateReadsBackFromEngine)
+{
+    const QString inPath = QStringLiteral("mesh_sync_fixture.inp");
+    const mesh::InpMeshReadResult rr = mesh::InpMeshReader::read(inPath);
+    ASSERT_TRUE(rr.hasMesh) << rr.errorMsg.toStdString();
+    mesh::MeshResult          meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs       = rr.edgeBCs;
+
+    SWMM_Engine e = swmm_engine_create();
+    ASSERT_NE(e, nullptr);
+    // Deliberately NO swmm_engine_initialize: the GUI holds its engine in
+    // the plain OPENED state, and initialize activates the 2D router —
+    // which would let the pre-A8 solver-state guard pass and blunt this
+    // gate (the EditsPersistInOpenedState convention).
+    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
+                               "mesh_sync_parity.rpt", "mesh_sync_parity.out",
+                               nullptr), 0);
+    int nt = 0;
+    ASSERT_EQ(swmm_2d_triangle_count(e, &nt), 0);
+    ASSERT_EQ(bcs.size(), mesh::edgeSlotCount(nt));
+    ASSERT_GT(nt, 7);
+    // Pre-drain gate: before prepare_for_edit runs (inside
+    // pushMeshEditsToEngine), BoundaryData's live arrays are UNSIZED even
+    // for a deck with authored BC rows — the getter must refuse cleanly,
+    // not read past the end (unchecked indexing here segfaulted when this
+    // gate was first written; the CHECK_BC_SIZED guard is the fix).
+    { int et0 = -1;
+      EXPECT_NE(swmm_2d_get_edge_bc_type(e, 0, 0, &et0), 0)
+          << "pre-drain BC getter must refuse, not read unsized arrays"; }
+
+    // Name-carrying edits on the two slots the fixture keeps as boundary
+    // BCs; the names need not resolve — the setters store them verbatim
+    // with deferred resolution, so a missing-TS warning is acceptable.
+    bcs[mesh::edgeSlot(5, 0)].type    = mesh::MeshBCTypes::Type::SpecifiedStageTS;
+    bcs[mesh::edgeSlot(5, 0)].tseries = QStringLiteral("TS_PARITY");
+    bcs[mesh::edgeSlot(7, 0)].type    = mesh::MeshBCTypes::Type::SpecifiedFlowTS;
+    bcs[mesh::edgeSlot(7, 0)].tseries = QStringLiteral("TS_PARITY_Q");
+
+    QStringList warnings;
+    ASSERT_TRUE(mesh::pushMeshEditsToEngine(e, meshState, bcs, &warnings));
+
+    using T = mesh::MeshBCTypes::Type;
+    const auto engTypeOf = [](T t) {
+        switch (t) {
+        case T::Wall:                return SWMM_2D_BC_WALL;
+        case T::NormalFlow:          return SWMM_2D_BC_NORMAL_FLOW;
+        case T::SpecifiedStageConst:
+        case T::SpecifiedStageTS:    return SWMM_2D_BC_SPECIFIED_STAGE;
+        case T::SpecifiedFlowConst:
+        case T::SpecifiedFlowTS:     return SWMM_2D_BC_SPECIFIED_FLOW;
+        case T::RatingCurve:         return SWMM_2D_BC_RATING_CURVE;
+        }
+        return SWMM_2D_BC_WALL;
+    };
+
+    char buf[128];
+    for (int t = 0; t < nt; ++t) {
+        for (int k = 0; k < 3; ++k) {
+            const mesh::MeshEdgeBC &b = bcs[mesh::edgeSlot(t, k)];
+            int et = -1;
+            ASSERT_EQ(swmm_2d_get_edge_bc_type(e, t, k, &et), 0)
+                << "OPENED-state BC getter refused (pre-A8 solver guard?)";
+            EXPECT_EQ(et, engTypeOf(b.type)) << "type mismatch at " << t
+                                             << ":" << k;
+            ASSERT_EQ(swmm_2d_get_edge_bc_tseries_name(e, t, k, buf,
+                                                       sizeof buf), 0);
+            EXPECT_EQ(QString::fromUtf8(buf),
+                      b.type == T::SpecifiedStageTS ? b.tseries : QString())
+                << "stage-TS name mismatch at " << t << ":" << k;
+            ASSERT_EQ(swmm_2d_get_edge_bc_flow_tseries_name(e, t, k, buf,
+                                                            sizeof buf), 0);
+            EXPECT_EQ(QString::fromUtf8(buf),
+                      b.type == T::SpecifiedFlowTS ? b.tseries : QString())
+                << "flow-TS name mismatch at " << t << ":" << k;
+            ASSERT_EQ(swmm_2d_get_edge_bc_rating_curve_name(e, t, k, buf,
+                                                            sizeof buf), 0);
+            EXPECT_EQ(QString::fromUtf8(buf),
+                      b.type == T::RatingCurve ? b.curve : QString())
+                << "curve name mismatch at " << t << ":" << k;
+        }
+    }
+    swmm_engine_destroy(e);
+}
+
+// 2026-09-03 — 1D↔2D unit exchange. On a US-customary project the GUI's
+// editing engine is only OPENED, so the engine holds BC constants in DISPLAY
+// units (feet / CFS per metre) and scales them itself at initialize. The push
+// therefore has to send display units too; sending m³/s/m here made a constant
+// SPECIFIED_FLOW shrink by 0.0283 on every save → reopen of a US model.
+TEST(MeshEngineSync, UsProjectFlowBcRoundTripsInDisplayUnits)
+{
+    // Derive a CFS variant of the SI fixture on the fly: swap FLOW_UNITS and
+    // drop the `;; UNITS: SI (m)` mesh header so the engine treats the mesh
+    // (and its BC constants) as project feet.
+    const QString srcPath = QStringLiteral("mesh_sync_fixture.inp");
+    const QString inPath  = QStringLiteral("mesh_sync_fixture_cfs.inp");
+    const QString outPath = QStringLiteral("mesh_sync_cfs_out.inp");
+    {
+        QString text = readAll(srcPath);
+        ASSERT_FALSE(text.isEmpty());
+        text.replace(QStringLiteral("FLOW_UNITS           CMS"),
+                     QStringLiteral("FLOW_UNITS           CFS"));
+        text.remove(QRegularExpression(QStringLiteral("^;; UNITS: SI \\(m\\)\\s*\\n"),
+                                       QRegularExpression::MultilineOption));
+        ASSERT_TRUE(text.contains(QStringLiteral("FLOW_UNITS           CFS")));
+        // Header LINE gone (the fixture's descriptive comment block still
+        // mentions the token mid-line, which is not a header).
+        ASSERT_FALSE(QRegularExpression(QStringLiteral("^;; UNITS: SI \\(m\\)"),
+                                        QRegularExpression::MultilineOption)
+                         .match(text).hasMatch());
+        QFile f(inPath);
+        ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
+        f.write(text.toUtf8());
+    }
+
+    const mesh::InpMeshReadResult rr = mesh::InpMeshReader::read(inPath);
+    ASSERT_TRUE(rr.hasMesh) << rr.errorMsg.toStdString();
+    mesh::MeshResult          meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs       = rr.edgeBCs;
+
+    SWMM_Engine e = swmm_engine_create();
+    ASSERT_NE(e, nullptr);
+    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
+                               "mesh_sync_cfs.rpt", "mesh_sync_cfs.out", nullptr), 0);
+    // OPENED only — mirrors the GUI's editing engine.
+
+    const double kFlowCfsPerM = 1.25;   // display units, as the toolbar shows
+    const double kStageFt     = 97.7;
+    bcs[mesh::edgeSlot(7, 0)].type  = mesh::MeshBCTypes::Type::SpecifiedFlowConst;
+    bcs[mesh::edgeSlot(7, 0)].flow  = kFlowCfsPerM;
+    bcs[mesh::edgeSlot(7, 0)].tseries.clear();
+    bcs[mesh::edgeSlot(5, 0)].type  = mesh::MeshBCTypes::Type::SpecifiedStageConst;
+    bcs[mesh::edgeSlot(5, 0)].head  = kStageFt;
+    bcs[mesh::edgeSlot(5, 0)].tseries.clear();
+
+    QStringList warnings;
+    ASSERT_TRUE(mesh::pushMeshEditsToEngine(e, meshState, bcs, &warnings));
+
+    // The engine (pre-initialize) must hold the display value verbatim…
+    double engFlow = 0.0, engHead = 0.0;
+    ASSERT_EQ(swmm_2d_get_edge_bc_flow(e, 7, 0, &engFlow), 0);
+    ASSERT_EQ(swmm_2d_get_edge_bc_head(e, 5, 0, &engHead), 0);
+    EXPECT_NEAR(engFlow, kFlowCfsPerM, 1e-12) << "flow pushed in m³/s/m into an OPENED engine";
+    EXPECT_NEAR(engHead, kStageFt,     1e-12);
+
+    // …and write it back verbatim.
+    ASSERT_EQ(swmm_model_write(e, outPath.toUtf8().constData()), 0);
+    swmm_engine_destroy(e);
+    const QString text = readAll(outPath);
+    EXPECT_TRUE(text.contains(QStringLiteral("1.25"))) << "SPECIFIED_FLOW not written in CFS/m";
+    EXPECT_FALSE(text.contains(QStringLiteral("0.0353")))   // 1.25 × 0.02832
+        << "SPECIFIED_FLOW written in m³/s/m — will be converted again on reopen";
+
+    // Reopen + initialize: the engine converts exactly once.
+    SWMM_Engine e2 = swmm_engine_create();
+    ASSERT_EQ(swmm_engine_open(e2, outPath.toUtf8().constData(),
+                               "mesh_sync_cfs2.rpt", "mesh_sync_cfs2.out", nullptr), 0);
+    ASSERT_EQ(swmm_engine_initialize(e2), 0);
+    ASSERT_EQ(swmm_2d_get_edge_bc_flow(e2, 7, 0, &engFlow), 0);
+    ASSERT_EQ(swmm_2d_get_edge_bc_head(e2, 5, 0, &engHead), 0);
+    EXPECT_NEAR(engFlow, kFlowCfsPerM * 0.028316846592, 1e-9);
+    EXPECT_NEAR(engHead, kStageFt * 0.3048, 1e-6);
+    swmm_engine_destroy(e2);
 }

@@ -13,19 +13,27 @@ class QWidget;
 
 namespace openswmmvis::platform {
 
-/*! \brief Attach \p dialog as an NSWindow child window of its top-level
- *  parent's window.
+/*! \brief Attach \p dialog as an NSWindow child window of the nearest
+ *  non-dialog top-level window above it (the main / project window).
  *
  *  A child window stays ordered above its parent (so a click on the main
  *  window can't bury the dialog) but keeps its own normal window level — so
- *  when OpenSWMM is deactivated the dialog drops behind the other application's
+ *  when SWMMVis is deactivated the dialog drops behind the other application's
  *  windows instead of floating over them, and it stays visible rather than
  *  hiding. This is the macOS-native equivalent of the always-on-top hint,
  *  scoped to the application's own windows.
  *
+ *  \note The host is deliberately NOT `dialog->parentWidget()->window()`.
+ *  AppKit child windows move rigidly with their parent, so attaching a dialog
+ *  to another dialog glues the pair together (dragging a profile plot dragged
+ *  its time-series overlay with it). Dialogs are Qt-parented to other dialogs
+ *  on purpose — for lifetime coupling — so the walk skips over any dialog in
+ *  the parent chain and attaches to the first ordinary window. When the chain
+ *  holds nothing but dialogs, nothing is attached.
+ *
  *  Idempotent (safe to call again on re-show). No-op when \p dialog is not a
- *  window, has no top-level parent, or the native windows aren't realised yet.
- *  Only defined on macOS — callers must guard the call with Q_OS_MACOS. */
+ *  window, has no non-dialog top-level ancestor, or the native windows aren't
+ *  realised yet. Only defined on macOS — callers must guard with Q_OS_MACOS. */
 void attachAsChildWindow(QWidget *dialog);
 
 /*! \brief Detach \p dialog from its parent NSWindow (inverse of
@@ -44,6 +52,18 @@ void attachAsChildWindow(QWidget *dialog);
  *  window, or is not currently attached. Only defined on macOS — callers
  *  must guard the call with Q_OS_MACOS. */
 void detachFromParentWindow(QWidget *dialog);
+
+/*! \brief Hold a user-initiated NSProcessInfo activity while a simulation
+ *  runs, so App Nap does not throttle a backgrounded run (a run the user
+ *  Cmd-Tabbed away from could take far longer than the same deck in a
+ *  terminal). Reference counted: nested begin/end pairs from overlapping
+ *  runs hold one activity. Idle system sleep stays allowed. Only defined on
+ *  macOS — callers must guard with Q_OS_MACOS. */
+void beginSimulationActivity();
+
+/*! \brief Release the activity taken by beginSimulationActivity(); ends it
+ *  when the last overlapping run finishes. Extra calls are ignored. */
+void endSimulationActivity();
 
 } // namespace openswmmvis::platform
 

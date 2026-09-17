@@ -25,6 +25,8 @@
 #include <QPointer>
 #include <QString>
 
+class QComboBox;
+class QLabel;
 class QToolButton;
 class SWMMModelLayer;
 
@@ -63,6 +65,17 @@ public:
     [[nodiscard]] Mode mode() const noexcept { return m_mode; }
     void setMode(Mode mode);
 
+    /*! Scale (V:H) applied to LINK drawings, for the CURRENT mode:
+     *  0 = automatic (fill the pane, ratio stated on the drawing), >0 = an
+     *  explicit V:H ratio, 1.0 being true shape / true scale. Section and
+     *  profile keep their own value — a cross-section is only honest at 1:1,
+     *  while a profile is unreadable there — so switching mode restores that
+     *  mode's ratio rather than carrying the other one across. Node drawings
+     *  always fill the pane and ignore this. */
+    [[nodiscard]] double verticalExaggeration() const noexcept
+    { return m_mode == Mode::Profile ? m_profileVe : m_sectionVe; }
+    void setVerticalExaggeration(double ve);
+
 public slots:
     /*! Rebuild the current drawing from the engine. Cheap enough to call on
      *  every edit: one engine read plus one section sampling. */
@@ -75,12 +88,27 @@ public slots:
 private:
     void buildUi();
     void updateModeButtons();
+    /*! Point the V:H combo at the current mode's ratio without re-entering
+     *  setVerticalExaggeration. */
+    void syncVeCombo();
 
     QPointer<SWMMModelLayer> m_layer;
 
     sectionview::SectionPreviewWidget *m_preview     = nullptr;
     QToolButton                       *m_sectionBtn  = nullptr;
     QToolButton                       *m_profileBtn  = nullptr;
+    QLabel                            *m_veLabel     = nullptr;
+    QComboBox                         *m_veCombo     = nullptr;
+
+    /*! Per-mode V:H; 0 = automatic. Persisted across selections so a user who
+     *  works at one ratio is not put back on another by every click.
+     *
+     *  Section defaults to 1:1 because anything else distorts the true shape
+     *  of the barrel — the one thing a cross-section exists to show. Profile
+     *  defaults to 10:1, the conventional drainage-sheet exaggeration, since
+     *  a 0.25 % invert slope is invisible at true scale. */
+    double m_sectionVe = 1.0;
+    double m_profileVe = 10.0;
 
     /*! `SWMMObjectRef::ObjectType` of what is displayed; 0 = Unknown. */
     int     m_objectType = 0;

@@ -11,6 +11,7 @@
 #include "map/mapcanvas.h"
 #include "mesh/meshobjectref.h"
 #include "selection/selectionmanager.h"
+#include "ui/widgets/attributepickermenu.h"
 
 #include <QAction>
 #include <QKeyEvent>
@@ -115,10 +116,24 @@ void MapToolMeshSelectVertex::mousePressEvent(QMouseEvent *event)
             zAct->setEnabled(false);
         }
         menu.addSeparator();
-        QAction *plot = menu.addAction(tr("Plot depth / HGL time series"));
+        // Same attribute picker as the 1D select tool, as a submenu under the
+        // vertex header. Depth / HGL are always servable (interpolated from
+        // incident cells), so no availability gating.
+        using namespace openswmmvis;
+        QMenu *plotMenu = ui::AttributePickerMenu::createForObjectKind(
+            plot::ObjectRef::Kind::Mesh2DVertex, plot::UnitSystem::SI, nullptr);
+        plotMenu->setTitle(tr("Plot Time Series…"));
+        menu.addMenu(plotMenu);
         QAction *picked = menu.exec(event->globalPosition().toPoint());
-        if (picked == plot)
-            emit plotVertexSeriesRequested(m_target, selected);
+        if (picked && plotMenu->actions().contains(picked)) {
+            const plot::PlotAttribute a = ui::AttributePickerMenu::attributeFrom(picked);
+            const QVector<plot::PlotAttribute> attrs =
+                (a == plot::PlotAttribute::Unknown)          // "All attributes"
+                    ? plot::mesh2DVertexPlotAttributes()
+                    : QVector<plot::PlotAttribute>{a};
+            emit plotVertexSeriesRequested(m_target, selected, attrs);
+        }
+        delete plotMenu;
         return;
     }
 

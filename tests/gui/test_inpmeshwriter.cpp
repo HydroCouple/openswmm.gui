@@ -17,6 +17,8 @@
 
 #include "mesh/inpmeshreader.h"
 #include "mesh/inpmeshwriter.h"
+#include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshresult.h"
 
 using namespace mesh;
@@ -38,8 +40,43 @@ private:
         m.vertices.append({QPointF(100, 0),   1.5, 0, ""  });
         m.vertices.append({QPointF(100, 100), 2.0, 0, ""  });
         m.vertices.append({QPointF(0, 100),   1.2, 0, ""  });
-        m.triangles.append({0, 1, 2, "subcatch_S1"});
-        m.triangles.append({0, 2, 3, "" });
+        // v3 sits between v2 and tag since the tri-quad model landed —
+        // designate it (-1 = triangle) rather than relying on position.
+        m.triangles.append({0, 1, 2, -1, "subcatch_S1"});
+        m.triangles.append({0, 2, 3, -1, "" });
+        return m;
+    }
+
+    /*! Mixed mesh — a 2x1 strip of unit squares: the left square split
+     *  into two triangles, the right square a single quad (cell 2, the
+     *  engine's triangles-first order). Quad (1,2,5,4): edge 0 = (2,5),
+     *  edge 1 = (5,4), edge 2 = (4,1) shared with triangle 0's edge 0,
+     *  edge 3 = (1,2) on the bottom boundary. */
+    static MeshResult mixedMesh()
+    {
+        MeshResult m;
+        m.ok = true;
+        m.vertices.append({QPointF(0, 0), 1.0, 0, ""});
+        m.vertices.append({QPointF(1, 0), 1.1, 0, ""});
+        m.vertices.append({QPointF(2, 0), 1.2, 0, ""});
+        m.vertices.append({QPointF(0, 1), 1.3, 0, ""});
+        m.vertices.append({QPointF(1, 1), 1.4, 0, ""});
+        m.vertices.append({QPointF(2, 1), 1.5, 0, ""});
+        m.triangles.append({0, 1, 4, -1, "left"});
+        m.triangles.append({0, 4, 3, -1, ""});
+        m.triangles.append({1, 2, 5, 4, "street"});
+        m.triangles[2].initDepth = 0.25;
+        return m;
+    }
+
+    /*! Two quads (0,1,4,3) and (1,2,5,4) sharing edge (1,4): quad 0's edge 0
+     *  and quad 1's edge 2. */
+    static MeshResult quadPairMesh()
+    {
+        MeshResult m = mixedMesh();
+        m.triangles.clear();
+        m.triangles.append({0, 1, 4, 3, ""});
+        m.triangles.append({1, 2, 5, 4, ""});
         return m;
     }
 
@@ -551,6 +588,200 @@ private slots:
         QCOMPARE(r.mesh.triangles[1].initDepth, 0.15);
         QCOMPARE(r.mesh.triangles[0].mannings, 0.025);
         QCOMPARE(r.mesh.triangles[1].mannings, 0.035);
+    }
+
+    // ── TRI_QUAD_MESHING_PLAN phase G1 — [2D_QUADS] ─────────────────────────
+
+    /*! All-triangle output is pinned byte-for-byte: no [2D_QUADS] section,
+     *  the historical column layout. Any change here breaks the R3 gate
+     *  (all-triangle projects round-trip .inp byte-identically). */
+    void buildSectionText_allTrianglePinnedText()
+    {
+        CouplingMap none;
+        const QString text = InpMeshWriter::buildSectionText(sampleMesh(), none);
+        const QString expected = QStringLiteral(
+            "[2D_VERTICES]\n"
+            ";; X            Y            Z            TAG\n"
+            "0.000000  0.000000  1.000000  J1\n"
+            "100.000000  0.000000  1.500000\n"
+            "100.000000  100.000000  2.000000\n"
+            "0.000000  100.000000  1.200000\n"
+            "\n"
+            "[2D_TRIANGLES]\n"
+            ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n"
+            "0  1  2  0.0350  0.0000  subcatch_S1\n"
+            "0  2  3  0.0350  0.0000\n"
+            "\n");
+        QCOMPARE(text, expected);
+        QVERIFY(!text.contains("[2D_QUADS]"));
+    }
+
+    /*! A mixed mesh writes [2D_TRIANGLES] (triangle cells only) then
+     *  [2D_QUADS] (`V1 V2 V3 V4 MANNINGS_N INIT_DEPTH TAG`), and the text
+     *  survives reader -> writer byte-for-byte. */
+    void quadRow_roundTripsByteIdentical()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString inpPath = dir.filePath("mixed.inp");
+        {
+            QFile inp(inpPath);
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
+            inp.write(sampleInpText().toUtf8());
+            inp.close();
+        }
+        CouplingMap c;
+        c.triangleMannings.insert(0, 0.025);
+        c.triangleMannings.insert(2, 0.018);   // the quad
+        const QString first = InpMeshWriter::buildSectionText(mixedMesh(), c);
+
+        const int tSec = first.indexOf("[2D_TRIANGLES]");
+        const int qSec = first.indexOf("[2D_QUADS]");
+        QVERIFY(tSec >= 0 && qSec > tSec);
+        const QString triBlock  = first.mid(tSec, qSec - tSec);
+        QVERIFY(triBlock.contains("0  1  4  0.0250  0.0000  left\n"));
+        QVERIFY(triBlock.contains("0  4  3  0.0350  0.0000\n"));
+        QVERIFY(!triBlock.contains("1  2  5  4"));
+        QVERIFY(first.contains(";; V1   V2   V3   V4   MANNINGS_N   INIT_DEPTH   TAG\n"
+                               "1  2  5  4  0.0180  0.2500  street\n"));
+
+        QString err;
+        QVERIFY2(InpMeshWriter::writeInline(inpPath, mixedMesh(), c, 0.035, &err),
+                 qPrintable(err));
+        const InpMeshReadResult r = InpMeshReader::read(inpPath);
+        QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+        QVERIFY(r.hasMesh);
+        QCOMPARE(r.mesh.triangles.size(), 3);
+        QCOMPARE(r.mesh.quadCount(), 1);
+        QVERIFY(r.mesh.triangles[2].isQuad());
+        QCOMPARE(r.mesh.triangles[2].v3, 4);
+        QCOMPARE(r.mesh.triangles[2].mannings, 0.018);
+        QCOMPARE(r.mesh.triangles[2].initDepth, 0.25);
+        QCOMPARE(r.mesh.triangles[2].tag, QStringLiteral("street"));
+
+        // Re-emit from the parsed mesh with its own Manning values.
+        CouplingMap c2;
+        for (int i = 0; i < r.mesh.triangles.size(); ++i)
+            c2.triangleMannings.insert(i, r.mesh.triangles[i].mannings);
+        const QString second = InpMeshWriter::buildSectionText(r.mesh, c2);
+        QCOMPARE(second, first);
+    }
+
+    /*! A BC on a quad's edge 3 (its (V1,V2) side) is written as `TRI EDGE`
+     *  = (cell, 3) and read back into the same stride-4 slot. */
+    void bcRow_onQuadEdge3()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString inpPath = dir.filePath("bc.inp");
+        {
+            QFile inp(inpPath);
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
+            inp.write(sampleInpText().toUtf8());
+            inp.close();
+        }
+        const MeshResult m = mixedMesh();
+        QVector<MeshEdgeBC> bcs(mesh::edgeSlotCount(m.triangles.size()));
+        MeshEdgeBC nf;
+        nf.type  = MeshBCTypes::Type::NormalFlow;
+        nf.slope = 0.002;
+        bcs[mesh::edgeSlot(2, 3)] = nf;
+
+        const QString bcText = InpMeshWriter::buildBCSectionText(bcs);
+        QVERIFY2(bcText.contains("     2    3 NORMAL_FLOW"), qPrintable(bcText));
+
+        QString err;
+        QVERIFY2(InpMeshWriter::writeInline(inpPath, m, CouplingMap{}, bcs, 0.035, &err),
+                 qPrintable(err));
+        const InpMeshReadResult r = InpMeshReader::read(inpPath);
+        QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+        QCOMPARE(r.edgeBCs.size(), mesh::edgeSlotCount(3));
+        QCOMPARE(r.edgeBCs[mesh::edgeSlot(2, 3)].type, MeshBCTypes::Type::NormalFlow);
+        QCOMPARE(r.edgeBCs[mesh::edgeSlot(2, 3)].slope, 0.002);
+        // Every other slot (padding included) stays Wall.
+        int nonWall = 0;
+        for (const auto &b : r.edgeBCs) if (b.type != MeshBCTypes::Type::Wall) ++nonWall;
+        QCOMPARE(nonWall, 1);
+    }
+
+    /*! Conveyance on a quad-quad edge: the two neighbour slots collapse to
+     *  ONE vertex-pair row and both slots are repopulated on read. */
+    void conveyanceRow_onQuadQuadEdge()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString inpPath = dir.filePath("conv.inp");
+        {
+            QFile inp(inpPath);
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
+            inp.write(sampleInpText().toUtf8());
+            inp.close();
+        }
+        const MeshResult m = quadPairMesh();
+        QVector<MeshEdgeBC> bcs(mesh::edgeSlotCount(m.triangles.size()));
+        bcs[mesh::edgeSlot(0, 0)].conveyance = 0.5;   // (1,4) seen from quad 0
+        bcs[mesh::edgeSlot(1, 2)].conveyance = 0.5;   // (4,1) seen from quad 1
+
+        const QString convText = InpMeshWriter::buildConveyanceSectionText(m, bcs);
+        QCOMPARE(convText.count(QStringLiteral(" 0.5\n")), 1);
+        QVERIFY2(convText.contains("     1      4 0.5\n"), qPrintable(convText));
+
+        QString err;
+        QVERIFY2(InpMeshWriter::writeInline(inpPath, m, CouplingMap{}, bcs, 0.035, &err),
+                 qPrintable(err));
+        const InpMeshReadResult r = InpMeshReader::read(inpPath);
+        QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+        QCOMPARE(r.mesh.quadCount(), 2);
+        QCOMPARE(r.edgeBCs[mesh::edgeSlot(0, 0)].conveyance, 0.5);
+        QCOMPARE(r.edgeBCs[mesh::edgeSlot(1, 2)].conveyance, 0.5);
+        int nonDefault = 0;
+        for (const auto &b : r.edgeBCs) if (b.conveyance != 1.0) ++nonDefault;
+        QCOMPARE(nonDefault, 2);
+    }
+
+    /*! patchAttributeSections on a mixed mesh: [2D_QUADS] rows are rebuilt
+     *  from the quad cells (row j <-> cell n_tri + j), a file-side Manning
+     *  token survives a NaN layer value, and the count guard sees quads. */
+    void patchAttributeSections_mixedMesh()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString inpPath  = dir.filePath("project.inp");
+        const QString meshPath = dir.filePath("project.2dm");
+        {
+            QFile inp(inpPath);
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
+            inp.write("[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS  CMS\n\n");
+            inp.close();
+        }
+        CouplingMap c;
+        c.triangleMannings.insert(2, 0.018);
+        QVERIFY(InpMeshWriter::writeExternal(inpPath, meshPath, mixedMesh(), c, 0.035));
+
+        MeshResult edited = mixedMesh();
+        edited.triangles[2].tag = QStringLiteral("avenue");   // mannings stay NaN
+        QString err;
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err),
+                 qPrintable(err));
+        const InpMeshReadResult r = InpMeshReader::read(inpPath);
+        QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+        QCOMPARE(r.mesh.triangles.size(), 3);
+        QVERIFY(r.mesh.triangles[2].isQuad());
+        QCOMPARE(r.mesh.triangles[2].v3, 4);
+        QCOMPARE(r.mesh.triangles[2].mannings, 0.018);
+        QCOMPARE(r.mesh.triangles[2].initDepth, 0.25);
+        QCOMPARE(r.mesh.triangles[2].tag, QStringLiteral("avenue"));
+        QCOMPARE(r.mesh.triangles[0].mannings, 0.035);
+
+        // A quad-count mismatch is a different mesh: fail, file untouched.
+        QFile before(meshPath);
+        QVERIFY(before.open(QIODevice::ReadOnly));
+        const QByteArray snapshot = before.readAll();
+        before.close();
+        QVERIFY(!InpMeshWriter::patchAttributeSections(meshPath, quadPairMesh(), &err));
+        QFile after(meshPath);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        QCOMPARE(after.readAll(), snapshot);
     }
 };
 

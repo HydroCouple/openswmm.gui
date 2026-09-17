@@ -8,6 +8,7 @@
 #include "layers/swmmelementsymboladapter.h"
 #include "layers/hydrographmodels.h"
 #include "ui/dialogs/ilayerstylesubject.h"
+#include "ui/dialogs/simulationoptionsdialog.h"
 #include "timeseries/timeseriesregistry.h"
 #include "pattern/patternregistry.h"
 #include "curve/curveregistry.h"
@@ -23,12 +24,15 @@
 #include "ui/models/userflagsmodel.h"
 #include "transect/transectprovider.h"
 #include "timeseries/timeseriesprovider.h"
+#include "core/crsreproject.h"
 #include "core/editgeometry.h"
 #include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
 #include "map/swmmlayeritem.h"
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
+#include "map/mapcanvas.h"       // setEditCanvas() — undo host for mediated edits
+#include "map/mapundostack.h"    // SetInletUsageCommand
 #include "render/ifeaturerenderer.h"
 #include "render/multikindrenderer.h"
 #include "render/renderers/categorizedrenderer.h"
@@ -56,11 +60,13 @@
 #include <QPolygonF>
 #include <QRegularExpression>
 #include <QSet>
+#include <QTimer>
 #include <QtMath>
 #include <QVariant>
 
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 #include <limits>
 #include <string>
 #include <vector>
@@ -92,6 +98,13 @@
 // object kind + geometry-cache split by sub-step) so a slow open can be
 // attributed precisely. Off by default — no cost on the normal open path.
 Q_LOGGING_CATEGORY(lcLoadModel, "openswmm.load.model")
+// Selection-path timings — off by default; enable with
+// QT_LOGGING_RULES="openswmm.selection.perf.debug=true".
+Q_LOGGING_CATEGORY(lcSelPerf, "openswmm.selection.perf")
+// Bulk-delete timings (BULK_DELETE_AND_WINDOWS_OPEN_PERF_PLAN Phase 0):
+// the one-shot endBulkEdit close, split by sub-step. Enable with
+// QT_LOGGING_RULES="openswmm.bulkdelete=true".
+Q_LOGGING_CATEGORY(lcBulkDelLayer, "openswmm.bulkdelete")
 
 // ---------------------------------------------------------------------------
 // nanoflann adaptor + KD-tree types (private to this translation unit)
@@ -157,6 +170,7 @@ void applyLineSymbolToElement(const OpenSWMM::Render::SymbolLayer &layer,
     sym.outlineWidth         = spec.width;
     sym.showArrows           = spec.drawArrows;
     sym.arrowSize            = spec.arrows.lengthPx;
+    sym.arrowWidth           = spec.arrows.widthPx;
     sym.arrowColor           = spec.arrows.color;
     sym.arrowOnlyWhenFlowPos = spec.arrowOnlyWhenFlowPos;
     sym.showLabel            = spec.showLabel;
@@ -329,6 +343,7 @@ SymbolStyle styleFromElementSymbol(const SWMMElementSymbol &s, SWMMModelLayer::C
     if (layer.kind == SymbolLayerKind::SimpleLine) {
         layer.props.insert(QStringLiteral("drawArrows"),           s.showArrows);
         layer.props.insert(QStringLiteral("arrowLengthPx"),        s.arrowSize);
+        layer.props.insert(QStringLiteral("arrowWidthPx"),         s.arrowWidth);
         layer.props.insert(QStringLiteral("arrowColor"),           QVariant::fromValue(s.arrowColor));
         layer.props.insert(QStringLiteral("arrowOnlyWhenFlowPos"), s.arrowOnlyWhenFlowPos);
     }
@@ -404,6 +419,10 @@ SWMMElementSymbol elementSymbolFromStyle(const SymbolStyle &style,
         out.showArrows = layer.props.value(QStringLiteral("drawArrows")).toBool();
     if (layer.props.contains(QStringLiteral("arrowLengthPx")))
         out.arrowSize = layer.props.value(QStringLiteral("arrowLengthPx")).toDouble();
+    // Absent in projects written before the width became independent —
+    // leave the struct default (1.2 x length) so they render unchanged.
+    if (layer.props.contains(QStringLiteral("arrowWidthPx")))
+        out.arrowWidth = layer.props.value(QStringLiteral("arrowWidthPx")).toDouble();
     if (const QColor c = propColor(layer.props, "arrowColor"); c.isValid())
         out.arrowColor = c;
     if (layer.props.contains(QStringLiteral("arrowOnlyWhenFlowPos")))
@@ -446,6 +465,13 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
 {
     setLayerType(OpenSWMMVisLayer::SWMMModelLayer);
 
+    // Any CRS change after the load path's own resolution is an assignment
+    // (CRS picker, Simulation Options, canvas reprojection, .oswp restore).
+    // The load path overwrites the flag right after its own setSRS — see
+    // crsAssigned().
+    connect(this, &OpenSWMMVisLayer::srsChanged, this,
+            [this](SpatialReferenceSystem *) { m_crsAssigned = true; });
+
     // Default symbology. Marker shape per kind matches the legacy
     // hardcoded dispatch in drawNodeGlyph() / appendNodeGlyphTriangles() so
     // first-open visuals don't change for users who never opened the
@@ -461,6 +487,17 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     m_virtualJunctionSym.fillColor    = QColor(0, 120, 255);
     m_virtualJunctionSym.size         = 8.0;
     m_virtualJunctionSym.markerShape  = Marker::Circle;
+    // Inlet junctions: a filled diamond (D-G7) so they read apart from both
+    // the plain junction dot and the virtual junction's ringed dot. Tested
+    // before the virtual override — an inlet junction is also virtual.
+    m_inletJunctionSym.fillColor      = QColor(0, 120, 255);
+    m_inletJunctionSym.size           = 9.0;
+    m_inletJunctionSym.markerShape    = Marker::Diamond;
+    // Dashed host → capture-node connector (§3.2). fillColor is the line
+    // colour and outlineWidth the line width; no marker is drawn.
+    m_inletConnectorSym.fillColor     = QColor(0, 120, 255);
+    m_inletConnectorSym.outlineColor  = QColor(0, 120, 255);
+    m_inletConnectorSym.outlineWidth  = 1.5;
     m_outfallSym.fillColor    = QColor(220, 0, 0);     // red — outfalls stand out
     m_outfallSym.size         = 12.5;   // 1.25× the legacy 10 px triangle
     m_outfallSym.markerShape  = Marker::EquilateralTriangle;
@@ -515,17 +552,80 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     m_kindRenderers[CatPumps]          = makeSingleSymbolRenderer(m_pumpSym,        CatPumps);
     m_kindRenderers[CatOrifices]       = makeSingleSymbolRenderer(m_orificeSym,     CatOrifices);
     m_kindRenderers[CatWeirs]          = makeSingleSymbolRenderer(m_weirSym,        CatWeirs);
-    // No legacy m_outletSym field — seed from a defaulted symbol so the
-    // sub-row still has a renderer (the paint loop currently uses the
-    // weir colour for outlets; can be reset to defaults via the tree menu).
-    {
-        SWMMElementSymbol outletDefault;
-        outletDefault.fillColor    = QColor(140, 100, 60);
-        outletDefault.outlineWidth = 1.5;
-        m_kindRenderers[CatOutlets] = makeSingleSymbolRenderer(outletDefault, CatOutlets);
-    }
+    // Outlets have a real symbol channel (m_outletSym) since the
+    // adapter-ownership follow-up — seed the struct, then the renderer from
+    // it, exactly like every other kind. Values match the historical
+    // renderer-only seed so first-open visuals are unchanged. NOTE: the
+    // outlet link PEN stays prefs-driven (linkPenForType case 4) — this
+    // struct feeds flow arrows, labels, the renderer and persistence.
+    m_outletSym.fillColor    = QColor(140, 100, 60);
+    m_outletSym.outlineWidth = 1.5;
+
+    // Flow-direction arrows are on out of the box for every LINK kind —
+    // direction is the thing a drainage network is read for. Node and
+    // polygon kinds keep the struct default (off); their painters ignore
+    // the flag, but their editors would show it ticked.
+    m_conduitSym.showArrows = true;
+    m_pumpSym.showArrows    = true;
+    m_orificeSym.showArrows = true;
+    m_weirSym.showArrows    = true;
+    m_outletSym.showArrows  = true;
+    m_kindRenderers[CatOutlets] = makeSingleSymbolRenderer(m_outletSym, CatOutlets);
     m_kindRenderers[CatSubcatchments]  = makeSingleSymbolRenderer(m_subcatchSym,    CatSubcatchments);
     m_kindRenderers[CatRainGages]      = makeSingleSymbolRenderer(m_gageSym,        CatRainGages);
+
+    // Derived-style-cache invalidation channel. Self-connections so EVERY
+    // emitter is covered (several paths emit modelEdited directly instead of
+    // calling markEdited, and attribute edits emit only attributeChanged):
+    // bump the edit epoch (label-text cache staleness) and re-derive any
+    // graduated independent size-attribute value ranges from the edited data.
+    // Coalesced through a zero-timeout singleShot so a bulk edit loop that
+    // fires per-object signals costs one rebuild, not N.
+    const auto schedule = [this]() {
+        ++m_editRevision;   // epoch must move immediately for cache checks
+        if (m_derivedStyleCachesPending) return;
+        m_derivedStyleCachesPending = true;
+        QTimer::singleShot(0, this, [this]() {
+            m_derivedStyleCachesPending = false;
+            invalidateDerivedStyleCaches();
+        });
+    };
+    connect(this, &SWMMModelLayer::modelEdited, this, schedule);
+    connect(this, &SWMMModelLayer::attributeChanged,
+            this, [schedule](const QString &) { schedule(); });
+
+    // Inlet host → capture-node connector overlay: the geometry is derived
+    // from node coordinates and the engine's usage rows, so ANY attribute or
+    // geometry edit can invalidate it (a node move, a capture-node change, a
+    // usage add/remove). Rebuilt lazily on the next paint.
+    connect(this, &SWMMModelLayer::geometryChanged,
+            this, [this]() { m_inletConnectorsDirty = true; });
+    connect(this, &SWMMModelLayer::attributeChanged,
+            this, [this](const QString &) { m_inletConnectorsDirty = true; });
+    // applyNodeMove emits only repaintRequested + modelEdited (a coordinate
+    // is not "geometry" in that signal's sense), and a moved node IS an
+    // endpoint of every connector touching it — so listen to modelEdited too.
+    connect(this, &SWMMModelLayer::modelEdited,
+            this, [this]() { m_inletConnectorsDirty = true; });
+}
+
+void SWMMModelLayer::invalidateDerivedStyleCaches()
+{
+    // Graduated renderers with an independent size attribute normalise
+    // against a sampled value range — a data edit can move that range, so
+    // drop it and rebuild the kind's override cache (which re-derives the
+    // range via classifyGraduatedIfNeeded). Classification breaks are left
+    // alone: they follow the existing "editor clears breaks to re-classify"
+    // contract, and clearing them here would discard user intent.
+    for (int i = 0; i < NumCategories; ++i) {
+        const auto c = static_cast<Category>(i);
+        auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(
+            kindRenderer(c));
+        if (!g || !g->sizeAxisIndependent())
+            continue;
+        g->setSizeValueRange(0.0, 0.0);   // invalid → re-derived on rebuild
+        rebuildKindFeatureColors(c);
+    }
 }
 
 SWMMModelLayer::~SWMMModelLayer()
@@ -745,6 +845,10 @@ SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path,
         QString detail = QString::fromUtf8(swmm_get_last_error_msg(eng)).trimmed();
         if (detail.isEmpty())
             detail = QString::fromUtf8(swmm_error_message(openRc)).trimmed();
+        // close() before destroy: the C++ destructor only closes a RUNNING /
+        // ENDED engine, so a failed open skipped the IO-thread stop, file
+        // closes and plugin unload — repeatable while iterating on a bad deck.
+        swmm_engine_close(eng);
         swmm_engine_destroy(eng);
         return fail(detail.isEmpty()
             ? QStringLiteral("Failed to open model (error %1): %2")
@@ -752,6 +856,14 @@ SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path,
             : QStringLiteral("Failed to open model: %1\n%2")
                   .arg(path, detail));
     }
+
+    // The parser reverses adverse-slope conduits in place (From/To, offsets,
+    // losses, InitFlow sign) for DYNWAVE/FV routing. That is a solver
+    // convention, not an edit: the user must see and save the orientation they
+    // authored — legacy SWMM-GUI never shows the reversal because it saves its
+    // own object model. Runs use a separate strict open (SimulationRunner), so
+    // restoring the edit context does not affect hydraulics.
+    swmm_links_restore_authored_orientation(eng, nullptr);
 
     if (openMs) *openMs = timer.elapsed();
     return eng;
@@ -844,6 +956,14 @@ SWMM_Engine SWMMModelLayer::createBlankEngine(const NewProjectSpec &spec,
     if (spec.forNewEngine) {
         set("NODE_CONTINUITY", d.nodeContinuity);
         set("ANDERSON_ACCEL",  yn(d.andersonAccel));
+        // Unsteady friction (engine issue #156; GUI issue #10). Seeded only
+        // when the preference departs from the engine default (NONE) so a
+        // 6.x engine predating the #156 surface can still create blank
+        // projects — set() failures are fatal here, unlike the 2D block.
+        if (d.unsteadyFriction != QLatin1String("NONE")) {
+            set("UNSTEADY_FRICTION", d.unsteadyFriction);
+            set("UF_K3",             QString::number(d.ufK3, 'g', 6));
+        }
     }
 
     // [2D_OPTIONS] seed — warn-don't-fail: an engine built without the 2D
@@ -886,6 +1006,7 @@ SWMM_Engine SWMMModelLayer::createBlankEngine(const NewProjectSpec &spec,
         if (errorDetail) *errorDetail =
             QStringLiteral("Blank project defaults were refused by the "
                            "engine: %1").arg(failures.join(QStringLiteral("; ")));
+        swmm_engine_close(eng);      // see the failed-open path above
         swmm_engine_destroy(eng);
         return nullptr;
     }
@@ -938,6 +1059,9 @@ void SWMMModelLayer::buildFromEngine(SWMM_Engine engine,
         swmm_node_get_type(engine, i, &g.nodeType);
         g.objectType = 0;
         swmm_node_is_virtual(engine, i, &g.isVirtual);
+        // Inlet junctions are virtual junctions with a usage row; the flag
+        // is a separate engine query (older engines leave it 0).
+        swmm_node_is_inlet(engine, i, &g.isInlet);
         double x = 0, y = 0;
         swmm_spatial_get_node_coord(engine, i, &x, &y);
         g.x = x;
@@ -1166,6 +1290,7 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         char crsBuf[512] = {};
         if (swmm_get_crs(m_engine, crsBuf, sizeof(crsBuf)) == 0 && crsBuf[0] != '\0')
             layerSRS = SpatialReferenceSystem::fromWktOrProj(QString::fromUtf8(crsBuf), this);
+        const bool crsFromInp = layerSRS != nullptr;
 
         if (!layerSRS) {
             auto *prefs = PreferencesManager::instance();
@@ -1177,7 +1302,13 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
                 // finishModelLoad never opens the CRS picker for File → New.
                 QString mapUnits;
                 if (!m_modelFilePath.isEmpty()) {
+                    // Perf-plan Phase 0: this is a GUI-thread re-read of the
+                    // whole .inp (second read of the open) — time it.
+                    QElapsedTimer inpScanTimer;
+                    inpScanTimer.start();
                     mapUnits = readMapUnitsFromInp(m_modelFilePath);
+                    qCInfo(lcLoadModel) << "crs_inp_scan"
+                                        << inpScanTimer.elapsed() << "ms";
                 } else {
                     char fu[16] = {};
                     swmm_options_get(m_engine, "FLOW_UNITS", fu, sizeof(fu));
@@ -1199,6 +1330,10 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         if (!layerSRS)
             layerSRS = SpatialReferenceSystem::untitled(this);
         setSRS(layerSRS, true);
+        // setSRS's srsChanged marked this an assignment; it is one only when
+        // the .inp itself carried the CRS. A [MAP]-derived or preferences
+        // default is not written back on save (crsAssigned()).
+        m_crsAssigned = crsFromInp;
     }
 
     const qint64 msCrs = crsTimer.elapsed();  // CRS resolve + PROJ init
@@ -1494,6 +1629,51 @@ QString SWMMModelLayer::objectNameAt(Category c, int row) const
         return (row < m_gages.size()) ? m_gages[row].name : QString();
     default:
         return {};
+    }
+}
+
+int SWMMModelLayer::soaIndexAt(Category c, int row) const
+{
+    // Structural twin of objectNameAt() above — same guard, same override
+    // branch, same per-category buckets — returning the index instead of
+    // the name it resolves. They must stay in step; see the header note.
+    if (row < 0) return -1;
+
+    const auto itOverride = m_objectOrderOverrides.constFind(c);
+    if (itOverride != m_objectOrderOverrides.constEnd()) {
+        const auto &ord = *itOverride;
+        if (row >= ord.size()) return -1;
+        const int soaIdx = ord[row];
+        switch (c) {
+        case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers:
+            return (soaIdx >= 0 && soaIdx < m_nodes.size()) ? soaIdx : -1;
+        case CatConduits: case CatPumps: case CatOrifices:
+        case CatWeirs:    case CatOutlets:
+            return (soaIdx >= 0 && soaIdx < m_links.size()) ? soaIdx : -1;
+        case CatSubcatchments:
+            return (soaIdx >= 0 && soaIdx < m_catchments.size()) ? soaIdx : -1;
+        case CatRainGages:
+            return (soaIdx >= 0 && soaIdx < m_gages.size()) ? soaIdx : -1;
+        default: return -1;
+        }
+    }
+
+    switch (c) {
+    case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers: {
+        const auto &b = m_nodesByType[int(c) - int(CatJunctions)];
+        return (row < b.size()) ? b[row] : -1;
+    }
+    case CatConduits: case CatPumps: case CatOrifices:
+    case CatWeirs:    case CatOutlets: {
+        const auto &b = m_linksByType[int(c) - int(CatConduits)];
+        return (row < b.size()) ? b[row] : -1;
+    }
+    case CatSubcatchments:
+        return (row < m_catchments.size()) ? row : -1;
+    case CatRainGages:
+        return (row < m_gages.size()) ? row : -1;
+    default:
+        return -1;
     }
 }
 
@@ -2342,10 +2522,13 @@ SWMMElementSymbol SWMMModelLayer::outfallSymbol()      const { return m_outfallS
 SWMMElementSymbol SWMMModelLayer::storageSymbol()      const { return m_storageSym; }
 SWMMElementSymbol SWMMModelLayer::dividerSymbol()      const { return m_dividerSym; }
 SWMMElementSymbol SWMMModelLayer::virtualJunctionSymbol() const { return m_virtualJunctionSym; }
+SWMMElementSymbol SWMMModelLayer::inletJunctionSymbol()   const { return m_inletJunctionSym; }
+SWMMElementSymbol SWMMModelLayer::inletConnectorSymbol()  const { return m_inletConnectorSym; }
 SWMMElementSymbol SWMMModelLayer::conduitSymbol()      const { return m_conduitSym; }
 SWMMElementSymbol SWMMModelLayer::pumpSymbol()         const { return m_pumpSym; }
 SWMMElementSymbol SWMMModelLayer::orificeSymbol()      const { return m_orificeSym; }
 SWMMElementSymbol SWMMModelLayer::weirSymbol()         const { return m_weirSym; }
+SWMMElementSymbol SWMMModelLayer::outletSymbol()       const { return m_outletSym; }
 SWMMElementSymbol SWMMModelLayer::subcatchmentSymbol() const { return m_subcatchSym; }
 SWMMElementSymbol SWMMModelLayer::rainGageSymbol()     const { return m_gageSym; }
 
@@ -2367,28 +2550,103 @@ void SWMMModelLayer::syncSingleRendererFromStruct(Category c, const SWMMElementS
     m_ruleListDirty = true;
 }
 
-void SWMMModelLayer::setJunctionSymbol(const SWMMElementSymbol &s)    { m_junctionSym   = s; syncSingleRendererFromStruct(CatJunctions, s);     m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setOutfallSymbol(const SWMMElementSymbol &s)     { m_outfallSym    = s; syncSingleRendererFromStruct(CatOutfalls, s);      m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setStorageSymbol(const SWMMElementSymbol &s)     { m_storageSym    = s; syncSingleRendererFromStruct(CatStorage, s);       m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setDividerSymbol(const SWMMElementSymbol &s)     { m_dividerSym    = s; syncSingleRendererFromStruct(CatDividers, s);      m_needsRebuild = true; emit repaintRequested(); }
+// Each setter also resyncs the layer's persistent adapter for that kind so
+// every mounted editor reflects changes made through ANY path (renderer
+// back-write, style import, Cancel rollback). resyncSymbolAdapter never
+// re-invokes the writer, so there is no recursion.
+void SWMMModelLayer::setJunctionSymbol(const SWMMElementSymbol &s)    { m_junctionSym   = s; syncSingleRendererFromStruct(CatJunctions, s);     resyncSymbolAdapter(QStringLiteral("model.junctions"), s);     m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setOutfallSymbol(const SWMMElementSymbol &s)     { m_outfallSym    = s; syncSingleRendererFromStruct(CatOutfalls, s);      resyncSymbolAdapter(QStringLiteral("model.outfalls"), s);      m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setStorageSymbol(const SWMMElementSymbol &s)     { m_storageSym    = s; syncSingleRendererFromStruct(CatStorage, s);       resyncSymbolAdapter(QStringLiteral("model.storage"), s);       m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setDividerSymbol(const SWMMElementSymbol &s)     { m_dividerSym    = s; syncSingleRendererFromStruct(CatDividers, s);      resyncSymbolAdapter(QStringLiteral("model.dividers"), s);      m_needsRebuild = true; emit repaintRequested(); }
 // Virtual junctions share CatJunctions (D-G1: no persisted 5th category), so
 // there is no per-kind renderer to sync — that would clobber the regular
 // junction renderer's style. Struct write + repaint is the whole contract.
-void SWMMModelLayer::setVirtualJunctionSymbol(const SWMMElementSymbol &s) { m_virtualJunctionSym = s; m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setConduitSymbol(const SWMMElementSymbol &s)     { m_conduitSym    = s; syncSingleRendererFromStruct(CatConduits, s);      m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setPumpSymbol(const SWMMElementSymbol &s)        { m_pumpSym       = s; syncSingleRendererFromStruct(CatPumps, s);         m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setOrificeSymbol(const SWMMElementSymbol &s)     { m_orificeSym    = s; syncSingleRendererFromStruct(CatOrifices, s);      m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setWeirSymbol(const SWMMElementSymbol &s)        { m_weirSym       = s; syncSingleRendererFromStruct(CatWeirs, s);         m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setSubcatchmentSymbol(const SWMMElementSymbol &s){ m_subcatchSym   = s; syncSingleRendererFromStruct(CatSubcatchments, s); m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setRainGageSymbol(const SWMMElementSymbol &s)    { m_gageSym       = s; syncSingleRendererFromStruct(CatRainGages, s);     m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setVirtualJunctionSymbol(const SWMMElementSymbol &s) { m_virtualJunctionSym = s; resyncSymbolAdapter(QStringLiteral("model.virtualjunctions"), s); m_needsRebuild = true; emit repaintRequested(); }
+// Inlet junctions share CatJunctions too — same no-renderer-sync contract.
+void SWMMModelLayer::setInletJunctionSymbol(const SWMMElementSymbol &s) { m_inletJunctionSym = s; resyncSymbolAdapter(QStringLiteral("model.inletjunctions"), s); m_needsRebuild = true; emit repaintRequested(); }
+// The connector overlay has no features and no category; only a repaint.
+void SWMMModelLayer::setInletConnectorSymbol(const SWMMElementSymbol &s) { m_inletConnectorSym = s; resyncSymbolAdapter(QStringLiteral("model.inletconnectors"), s); emit repaintRequested(); }
+void SWMMModelLayer::setConduitSymbol(const SWMMElementSymbol &s)     { m_conduitSym    = s; syncSingleRendererFromStruct(CatConduits, s);      resyncSymbolAdapter(QStringLiteral("model.conduits"), s);      m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setPumpSymbol(const SWMMElementSymbol &s)        { m_pumpSym       = s; syncSingleRendererFromStruct(CatPumps, s);         resyncSymbolAdapter(QStringLiteral("model.pumps"), s);         m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setOrificeSymbol(const SWMMElementSymbol &s)     { m_orificeSym    = s; syncSingleRendererFromStruct(CatOrifices, s);      resyncSymbolAdapter(QStringLiteral("model.orifices"), s);      m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setWeirSymbol(const SWMMElementSymbol &s)        { m_weirSym       = s; syncSingleRendererFromStruct(CatWeirs, s);         resyncSymbolAdapter(QStringLiteral("model.weirs"), s);         m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setOutletSymbol(const SWMMElementSymbol &s)      { m_outletSym     = s; syncSingleRendererFromStruct(CatOutlets, s);       resyncSymbolAdapter(QStringLiteral("model.outlets"), s);       m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setSubcatchmentSymbol(const SWMMElementSymbol &s){ m_subcatchSym   = s; syncSingleRendererFromStruct(CatSubcatchments, s); resyncSymbolAdapter(QStringLiteral("model.subcatchments"), s); m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setRainGageSymbol(const SWMMElementSymbol &s)    { m_gageSym       = s; syncSingleRendererFromStruct(CatRainGages, s);     resyncSymbolAdapter(QStringLiteral("model.raingages"), s);     m_needsRebuild = true; emit repaintRequested(); }
+
+void SWMMModelLayer::resyncSymbolAdapter(const QString &routingId,
+                                         const SWMMElementSymbol &s)
+{
+    const auto it = m_symbolAdapters.constFind(routingId);
+    if (it != m_symbolAdapters.constEnd() && it.value())
+        it.value()->resyncFrom(s);
+}
+
+SwmmElementSymbolAdapter *SWMMModelLayer::elementSymbolAdapter(
+    const QString &routingId)
+{
+    // Table of routing id → (reader, writer). Outlets bind to their own
+    // symbol channel (m_outletSym); the outlet link PEN remains prefs-driven
+    // (see linkPenForType case 4) but arrows/labels/renderer/persistence
+    // all flow through this struct.
+    struct KindBinding {
+        const char *id;
+        SWMMElementSymbol (SWMMModelLayer::*read)() const;
+        void (SWMMModelLayer::*write)(const SWMMElementSymbol &);
+    };
+    static constexpr KindBinding kBindings[] = {
+        { "model.junctions",        &SWMMModelLayer::junctionSymbol,        &SWMMModelLayer::setJunctionSymbol },
+        { "model.outfalls",         &SWMMModelLayer::outfallSymbol,         &SWMMModelLayer::setOutfallSymbol },
+        { "model.storage",          &SWMMModelLayer::storageSymbol,         &SWMMModelLayer::setStorageSymbol },
+        { "model.dividers",         &SWMMModelLayer::dividerSymbol,         &SWMMModelLayer::setDividerSymbol },
+        { "model.virtualjunctions", &SWMMModelLayer::virtualJunctionSymbol, &SWMMModelLayer::setVirtualJunctionSymbol },
+        { "model.inletjunctions",   &SWMMModelLayer::inletJunctionSymbol,   &SWMMModelLayer::setInletJunctionSymbol },
+        { "model.inletconnectors",  &SWMMModelLayer::inletConnectorSymbol,  &SWMMModelLayer::setInletConnectorSymbol },
+        { "model.conduits",         &SWMMModelLayer::conduitSymbol,         &SWMMModelLayer::setConduitSymbol },
+        { "model.pumps",            &SWMMModelLayer::pumpSymbol,            &SWMMModelLayer::setPumpSymbol },
+        { "model.orifices",         &SWMMModelLayer::orificeSymbol,         &SWMMModelLayer::setOrificeSymbol },
+        { "model.weirs",            &SWMMModelLayer::weirSymbol,            &SWMMModelLayer::setWeirSymbol },
+        { "model.outlets",          &SWMMModelLayer::outletSymbol,          &SWMMModelLayer::setOutletSymbol },
+        { "model.subcatchments",    &SWMMModelLayer::subcatchmentSymbol,    &SWMMModelLayer::setSubcatchmentSymbol },
+        { "model.raingages",        &SWMMModelLayer::rainGageSymbol,        &SWMMModelLayer::setRainGageSymbol },
+    };
+
+    if (auto it = m_symbolAdapters.constFind(routingId);
+        it != m_symbolAdapters.constEnd() && it.value()) {
+        // Refresh the cached struct on every fetch so a freshly-mounted
+        // editor never shows stale state.
+        for (const auto &b : kBindings)
+            if (routingId == QLatin1String(b.id)) {
+                it.value()->resyncFrom((this->*b.read)());
+                break;
+            }
+        return it.value();
+    }
+
+    for (const auto &b : kBindings) {
+        if (routingId != QLatin1String(b.id))
+            continue;
+        auto write = b.write;
+        auto *adapter = new SwmmElementSymbolAdapter(
+            (this->*b.read)(),
+            [this, write](const SWMMElementSymbol &s) { (this->*write)(s); },
+            this);
+        m_symbolAdapters.insert(routingId, adapter);
+        return adapter;
+    }
+    return nullptr;
+}
 
 // ---------------------------------------------------------------------------
-// Slice U-4 — styleSubjects() exposes 11 per-kind SWMMElementSymbol
-// adapters for the unified LayerStyleDialog. Each adapter wraps a live
-// copy of the struct + a writer callback that pushes edits back through
-// the existing set*Symbol setters (which already flag m_needsRebuild and
-// emit repaintRequested). Cancel rollback is handled by the dialog via
-// each subject's snapshot/restore on the wrapped Q_PROPERTYs.
+// Slice U-4 — styleSubjects() exposes the 12 per-kind SWMMElementSymbol
+// adapters for the unified LayerStyleDialog.
+//
+// Adapter-ownership refactor: the subjects wrap the layer's PERSISTENT
+// adapter set (elementSymbolAdapter) instead of allocating a fresh set on
+// every call. One adapter per kind for the layer's lifetime means: no leak
+// per dialog open, and every UI surface (dialog subjects, SingleSymbolPanel,
+// kind tree) edits the same instance — which is what makes the dialog's
+// Cancel snapshot/rollback authoritative.
 // ---------------------------------------------------------------------------
 
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
@@ -2399,55 +2657,28 @@ SWMMModelLayer::styleSubjects()
 
     std::vector<std::unique_ptr<ILayerStyleSubject>> out;
 
-    auto addKind = [&](const QString &title,
-                       SWMMElementSymbol current,
-                       std::function<void(const SWMMElementSymbol &)> writer,
-                       const QString &routingId,
+    auto addKind = [&](const QString &title, const QString &routingId,
                        const QString &section)
     {
-        // Adapter owned by this layer via QObject parent-child.
-        auto *adapter = new SwmmElementSymbolAdapter(
-            std::move(current), std::move(writer), this);
-        out.push_back(std::make_unique<LayerStyleSubject>(
-            title, adapter, routingId, section));
+        if (auto *adapter = elementSymbolAdapter(routingId))
+            out.push_back(std::make_unique<LayerStyleSubject>(
+                title, adapter, routingId, section));
     };
 
-    addKind(tr("Junctions"), junctionSymbol(),
-            [this](const SWMMElementSymbol &s) { setJunctionSymbol(s); },
-            QStringLiteral("model.junctions"), QStringLiteral("Nodes"));
-    addKind(tr("Outfalls"), outfallSymbol(),
-            [this](const SWMMElementSymbol &s) { setOutfallSymbol(s); },
-            QStringLiteral("model.outfalls"), QStringLiteral("Nodes"));
-    addKind(tr("Storage"), storageSymbol(),
-            [this](const SWMMElementSymbol &s) { setStorageSymbol(s); },
-            QStringLiteral("model.storage"), QStringLiteral("Nodes"));
-    addKind(tr("Dividers"), dividerSymbol(),
-            [this](const SWMMElementSymbol &s) { setDividerSymbol(s); },
-            QStringLiteral("model.dividers"), QStringLiteral("Nodes"));
-    addKind(tr("Virtual junctions"), virtualJunctionSymbol(),
-            [this](const SWMMElementSymbol &s) { setVirtualJunctionSymbol(s); },
-            QStringLiteral("model.virtualjunctions"), QStringLiteral("Nodes"));
-    addKind(tr("Conduits"), conduitSymbol(),
-            [this](const SWMMElementSymbol &s) { setConduitSymbol(s); },
-            QStringLiteral("model.conduits"), QStringLiteral("Links"));
-    addKind(tr("Pumps"), pumpSymbol(),
-            [this](const SWMMElementSymbol &s) { setPumpSymbol(s); },
-            QStringLiteral("model.pumps"), QStringLiteral("Links"));
-    addKind(tr("Orifices"), orificeSymbol(),
-            [this](const SWMMElementSymbol &s) { setOrificeSymbol(s); },
-            QStringLiteral("model.orifices"), QStringLiteral("Links"));
-    addKind(tr("Weirs"), weirSymbol(),
-            [this](const SWMMElementSymbol &s) { setWeirSymbol(s); },
-            QStringLiteral("model.weirs"), QStringLiteral("Links"));
-    addKind(tr("Outlets"), conduitSymbol(),  // no setOutletSymbol — paint reuses conduit pen path
-            [this](const SWMMElementSymbol &s) { setConduitSymbol(s); },
-            QStringLiteral("model.outlets"), QStringLiteral("Links"));
-    addKind(tr("Subcatchments"), subcatchmentSymbol(),
-            [this](const SWMMElementSymbol &s) { setSubcatchmentSymbol(s); },
-            QStringLiteral("model.subcatchments"), QStringLiteral("Areas"));
-    addKind(tr("Rain gages"), rainGageSymbol(),
-            [this](const SWMMElementSymbol &s) { setRainGageSymbol(s); },
-            QStringLiteral("model.raingages"), QStringLiteral("Other"));
+    addKind(tr("Junctions"),         QStringLiteral("model.junctions"),        QStringLiteral("Nodes"));
+    addKind(tr("Outfalls"),          QStringLiteral("model.outfalls"),         QStringLiteral("Nodes"));
+    addKind(tr("Storage"),           QStringLiteral("model.storage"),          QStringLiteral("Nodes"));
+    addKind(tr("Dividers"),          QStringLiteral("model.dividers"),         QStringLiteral("Nodes"));
+    addKind(tr("Virtual junctions"), QStringLiteral("model.virtualjunctions"), QStringLiteral("Nodes"));
+    addKind(tr("Inlet junctions"),   QStringLiteral("model.inletjunctions"),   QStringLiteral("Nodes"));
+    addKind(tr("Inlet connectors"),  QStringLiteral("model.inletconnectors"),  QStringLiteral("Nodes"));
+    addKind(tr("Conduits"),          QStringLiteral("model.conduits"),         QStringLiteral("Links"));
+    addKind(tr("Pumps"),             QStringLiteral("model.pumps"),            QStringLiteral("Links"));
+    addKind(tr("Orifices"),          QStringLiteral("model.orifices"),         QStringLiteral("Links"));
+    addKind(tr("Weirs"),             QStringLiteral("model.weirs"),            QStringLiteral("Links"));
+    addKind(tr("Outlets"),           QStringLiteral("model.outlets"),          QStringLiteral("Links"));
+    addKind(tr("Subcatchments"),     QStringLiteral("model.subcatchments"),    QStringLiteral("Areas"));
+    addKind(tr("Rain gages"),        QStringLiteral("model.raingages"),        QStringLiteral("Other"));
 
     return out;
 }
@@ -2479,6 +2710,23 @@ void SWMMModelLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRende
 // Flow-direction arrows (Slice BI Phase 8.13.8-mini, 2026-05-24)
 // ---------------------------------------------------------------------------
 
+namespace {
+/*! Subject routing id for a link kind — the arrow setters below mutate the
+ *  symbol structs in place (bypassing set*Symbol), so they must resync the
+ *  persistent adapters themselves. */
+QString linkKindRoutingId(SWMMModelLayer::Category c)
+{
+    switch (c) {
+    case SWMMModelLayer::CatConduits: return QStringLiteral("model.conduits");
+    case SWMMModelLayer::CatPumps:    return QStringLiteral("model.pumps");
+    case SWMMModelLayer::CatOrifices: return QStringLiteral("model.orifices");
+    case SWMMModelLayer::CatWeirs:    return QStringLiteral("model.weirs");
+    case SWMMModelLayer::CatOutlets:  return QStringLiteral("model.outlets");
+    default:                          return QString();
+    }
+}
+} // namespace
+
 bool SWMMModelLayer::linkArrowsEnabled(Category c) const
 {
     switch (c) {
@@ -2504,6 +2752,7 @@ void SWMMModelLayer::setLinkArrowsEnabled(Category c, bool enabled)
     }
     if (sym->showArrows == enabled) return;
     sym->showArrows = enabled;
+    resyncSymbolAdapter(linkKindRoutingId(c), *sym);
     emit repaintRequested();
 }
 
@@ -2534,6 +2783,36 @@ void SWMMModelLayer::setLinkArrowSize(Category c, double pixels)
     }
     if (sym->arrowSize == pixels) return;
     sym->arrowSize = pixels;
+    resyncSymbolAdapter(linkKindRoutingId(c), *sym);
+    emit repaintRequested();
+}
+
+double SWMMModelLayer::linkArrowWidth(Category c) const
+{
+    switch (c) {
+    case CatConduits: return m_conduitSym.arrowWidth;
+    case CatPumps:    return m_pumpSym.arrowWidth;
+    case CatOrifices: return m_orificeSym.arrowWidth;
+    case CatWeirs:    return m_weirSym.arrowWidth;
+    case CatOutlets:  return m_outletSym.arrowWidth;
+    default:          return 12.0;
+    }
+}
+
+void SWMMModelLayer::setLinkArrowWidth(Category c, double pixels)
+{
+    SWMMElementSymbol *sym = nullptr;
+    switch (c) {
+    case CatConduits: sym = &m_conduitSym; break;
+    case CatPumps:    sym = &m_pumpSym;    break;
+    case CatOrifices: sym = &m_orificeSym; break;
+    case CatWeirs:    sym = &m_weirSym;    break;
+    case CatOutlets:  sym = &m_outletSym;  break;
+    default: return;
+    }
+    if (sym->arrowWidth == pixels) return;
+    sym->arrowWidth = pixels;
+    resyncSymbolAdapter(linkKindRoutingId(c), *sym);
     emit repaintRequested();
 }
 
@@ -2563,6 +2842,7 @@ void SWMMModelLayer::setLinkArrowColor(Category c, const QColor &col)
     }
     if (sym->arrowColor == col) return;
     sym->arrowColor = col;
+    resyncSymbolAdapter(linkKindRoutingId(c), *sym);
     emit repaintRequested();
 }
 
@@ -2591,6 +2871,7 @@ void SWMMModelLayer::setLinkArrowOnlyWhenFlowPos(Category c, bool onlyPos)
     }
     if (sym->arrowOnlyWhenFlowPos == onlyPos) return;
     sym->arrowOnlyWhenFlowPos = onlyPos;
+    resyncSymbolAdapter(linkKindRoutingId(c), *sym);
     emit repaintRequested();
 }
 
@@ -2763,7 +3044,7 @@ void SWMMModelLayer::setKindRenderer(
         case CatPumps:         setPumpSymbol(        elementSymbolFromStyle(style, m_pumpSym));        break;
         case CatOrifices:      setOrificeSymbol(     elementSymbolFromStyle(style, m_orificeSym));     break;
         case CatWeirs:         setWeirSymbol(        elementSymbolFromStyle(style, m_weirSym));        break;
-        case CatOutlets:       /* no legacy field — store renderer only */                              break;
+        case CatOutlets:       setOutletSymbol(      elementSymbolFromStyle(style, m_outletSym));      break;
         case CatSubcatchments: setSubcatchmentSymbol(elementSymbolFromStyle(style, m_subcatchSym));    break;
         case CatRainGages:     setRainGageSymbol(    elementSymbolFromStyle(style, m_gageSym));        break;
         case NumCategories:    break;
@@ -2959,21 +3240,10 @@ void SWMMModelLayer::buildRuleListLazy() const
             case L::CatWeirs:
                 applyAndWrite(&L::weirSymbol,        &L::setWeirSymbol);        break;
             case L::CatOutlets:
-                // Outlets share the conduit pen — same writer as the
-                // legacy styleSubjects path (see styleSubjects line
-                // ~1532). Arrow-only fields stored in m_outletSym
-                // (Slice FX.1) are written via per-kind setters here.
-                applyAndWrite(&L::conduitSymbol,     &L::setConduitSymbol);
-                {
-                    // Re-read the just-written Conduit symbol to copy
-                    // arrow fields onto the outlet-specific storage so
-                    // the per-kind arrow paint reads them.
-                    const SWMMElementSymbol c2 = self->conduitSymbol();
-                    self->setLinkArrowsEnabled    (L::CatOutlets, c2.showArrows);
-                    self->setLinkArrowSize        (L::CatOutlets, c2.arrowSize);
-                    self->setLinkArrowColor       (L::CatOutlets, c2.arrowColor);
-                    self->setLinkArrowOnlyWhenFlowPos(L::CatOutlets, c2.arrowOnlyWhenFlowPos);
-                }
+                // Outlets have their own symbol channel now — the whole
+                // struct (incl. the arrow fields the per-kind arrow paint
+                // reads from m_outletSym) writes through setOutletSymbol.
+                applyAndWrite(&L::outletSymbol,      &L::setOutletSymbol);
                 break;
             case L::CatSubcatchments:
                 applyAndWrite(&L::subcatchmentSymbol, &L::setSubcatchmentSymbol); break;
@@ -3033,29 +3303,42 @@ void SWMMModelLayer::classifyGraduatedIfNeeded(
     Category c, OpenSWMM::Render::GraduatedRenderer *g)
 {
     if (!g) return;
-    // Already classified (data-derived breaks present) — nothing to do. The
-    // editor clears breaks (clearBreaks / setBinner) to request a re-classify.
-    if (!g->lastBreaks().isEmpty()) return;
-    const QString attr = g->classifyAttribute();
-    if (attr.isEmpty()) return;
 
     const int n = categoryCount(c);
     if (n <= 0) return;
 
-    // Gather the classify attribute across this kind's features. Model fields
+    // Gather one static attribute across this kind's features. Model fields
     // are static (invertElev, diameter, length, …); identifyByName returns
     // them. A dynamic results name (e.g. "depth") simply isn't present here,
-    // so samples stay empty and classifyIfNeeded leaves the renderer alone —
-    // dynamic classification is the results layer's job.
-    QVector<double> samples;
-    samples.reserve(n);
-    for (int i = 0; i < n; ++i) {
-        const QVariant v = identifyByName(objectNameAt(c, i)).value(attr);
-        bool ok = false;
-        const double dv = v.toDouble(&ok);
-        if (ok && std::isfinite(dv)) samples.push_back(dv);
+    // so samples stay empty — dynamic classification is the results layer's
+    // job.
+    auto sampleAttr = [&](const QString &attr) {
+        QVector<double> samples;
+        samples.reserve(n);
+        for (int i = 0; i < n; ++i) {
+            const QVariant v = identifyByName(objectNameAt(c, i)).value(attr);
+            bool ok = false;
+            const double dv = v.toDouble(&ok);
+            if (ok && std::isfinite(dv)) samples.push_back(dv);
+        }
+        return samples;
+    };
+
+    // Classify only when breaks are absent (a fresh renderer, or after the
+    // editor's clearBreaks / setBinner request a re-classify).
+    if (g->lastBreaks().isEmpty() && !g->classifyAttribute().isEmpty())
+        OpenSWMM::Render::GraduatedRenderer::classifyIfNeeded(
+            g, sampleAttr(g->classifyAttribute()));
+
+    // Independent size attribute — derive its value range once (invalidated
+    // by setSizeAttribute) so sizeForValue/widthForValue can normalise.
+    if (g->sizeAxisIndependent() && !g->sizeValueRangeValid()) {
+        const QVector<double> samples = sampleAttr(g->sizeAttribute());
+        double mn = std::numeric_limits<double>::infinity();
+        double mx = -std::numeric_limits<double>::infinity();
+        for (double v : samples) { mn = std::min(mn, v); mx = std::max(mx, v); }
+        if (mx > mn) g->setSizeValueRange(mn, mx);
     }
-    OpenSWMM::Render::GraduatedRenderer::classifyIfNeeded(g, samples);
 }
 
 void SWMMModelLayer::rebuildKindFeatureColors(Category c)
@@ -3304,10 +3587,14 @@ void SWMMModelLayer::setSelectedElements(const QVector<SelectedElement> &sel)
     emit selectionChanged(m_selectedNames);
     const qint64 t_emit = t.elapsed() - t_flags;
     emit repaintRequested();
-    qDebug().noquote() << "[setSelectedElements] count=" << sel.size()
-                       << " flags_ms=" << t_flags
-                       << " emit_ms=" << t_emit
-                       << " total_ms=" << t.elapsed();
+    // Gated: this runs on every selection change — including each
+    // rubber-band tick and each query Apply — and the QString formatting
+    // plus the unbuffered stderr write is not free at 100k+ refs.
+    qCDebug(lcSelPerf).noquote()
+        << "[setSelectedElements] count=" << sel.size()
+        << " flags_ms=" << t_flags
+        << " emit_ms=" << t_emit
+        << " total_ms=" << t.elapsed();
 }
 
 void SWMMModelLayer::setSelectedElementNames(const QStringList &names)
@@ -3336,7 +3623,8 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
     return identifyAt(mapX, mapY, nullptr, tolerance);
 }
 
-QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
+QVariantMap SWMMModelLayer::identifyByName(const QString &name,
+                                           quint8 kindMask) const
 {
     QVariantMap m;
     if (name.isEmpty()) return m;
@@ -3348,14 +3636,18 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
     // reproduce the old semantics exactly: same kind precedence (node →
     // link → catchment → gage, enforced by the order of the tests below),
     // same lowest-index winner within a kind.
-    auto lookup = [&name](const QHash<QString, int> &h) -> int {
+    // kindMask gates each map so a category-scoped caller isn't shadowed by
+    // a same-named object of an earlier kind (SWMM namespaces are per-type).
+    auto lookup = [&name, kindMask](const QHash<QString, int> &h,
+                                    quint8 kindBit) -> int {
+        if (!(kindMask & kindBit)) return -1;
         const auto it = h.constFind(name);
         return (it == h.constEnd()) ? -1 : it.value();
     };
-    auto findNode  = [&]() { return lookup(m_nodeByName);  };
-    auto findLink  = [&]() { return lookup(m_linkByName);  };
-    auto findCatch = [&]() { return lookup(m_catchByName); };
-    auto findGage  = [&]() { return lookup(m_gageByName);  };
+    auto findNode  = [&]() { return lookup(m_nodeByName,  kKindNode);  };
+    auto findLink  = [&]() { return lookup(m_linkByName,  kKindLink);  };
+    auto findCatch = [&]() { return lookup(m_catchByName, kKindCatch); };
+    auto findGage  = [&]() { return lookup(m_gageByName,  kKindGage);  };
 
     if (int i = findNode(); i >= 0)
     {
@@ -3365,7 +3657,25 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
         m[QStringLiteral("X")]    = n.x;
         m[QStringLiteral("Y")]    = n.y;
         const char *kinds[] = {"Junction", "Outfall", "Storage", "Divider"};
-        if (n.nodeType == 0 && n.isVirtual)
+        // An inlet junction is also virtual, so it must be tested first.
+        if (n.nodeType == 0 && n.isInlet) {
+            m[QStringLiteral("Node type")] = QStringLiteral("Inlet Junction");
+            if (m_engine) {
+                const int ni = swmm_node_index(m_engine, n.name.toUtf8().constData());
+                SWMM_InletUsage u{};
+                if (ni >= 0 && inletUsageFor(SWMM_INLET_HOST_NODE, ni, &u)) {
+                    QString design, capture;
+                    if (const char *d = swmm_inlet_id(m_engine, u.design_idx))
+                        design = QString::fromUtf8(d);
+                    if (const char *c = swmm_node_id(m_engine, u.capture_node_idx))
+                        capture = QString::fromUtf8(c);
+                    m[QStringLiteral("Inlet")] =
+                        tr("%1 → %2").arg(design.isEmpty() ? tr("(none)") : design,
+                                          capture.isEmpty() ? tr("(none)") : capture);
+                }
+            }
+        }
+        else if (n.nodeType == 0 && n.isVirtual)
             m[QStringLiteral("Node type")] = QStringLiteral("Virtual Junction");
         else if (n.nodeType >= 0 && n.nodeType <= 3)
             m[QStringLiteral("Node type")] = QString::fromLatin1(kinds[n.nodeType]);
@@ -3392,8 +3702,9 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
                     m[QStringLiteral("Max overflow")] = v;
                 if (swmm_node_get_stat_vol_flooded(m_engine, idx, &v) == SWMM_OK)
                     m[QStringLiteral("Vol flooded")] = v;
+                // Engine reports SECONDS; the key advertises hours.
                 if (swmm_node_get_stat_time_flooded(m_engine, idx, &v) == SWMM_OK)
-                    m[QStringLiteral("Time flooded (hr)")] = v;
+                    m[QStringLiteral("Time flooded (hr)")] = v / 3600.0;
                 // Canonical static fields, keyed exactly as advertised by
                 // availableAttributes(). Graduated/categorized classification
                 // (classifyGraduatedIfNeeded) and the per-feature symbolFor
@@ -3779,7 +4090,9 @@ void SWMMModelLayer::populateScene(QGraphicsScene *scene,
                                     const MapExtent &canvasExtent,
                                     const SpatialReferenceSystem * /*canvasSRS*/)
 {
-    qDebug().noquote() << QStringLiteral("[populateScene] visible=%1 nodes=%2 links=%3 catch=%4 gages=%5 needsRebuild=%6 show(N/L/S/G)=%7/%8/%9/%10 hidden=%11")
+    // Gated: this builds an 11-argument QString BEFORE the isVisible()
+    // early-out below, so it ran in full on every populate of every model.
+    qCDebug(lcLoadModel).noquote() << QStringLiteral("[populateScene] visible=%1 nodes=%2 links=%3 catch=%4 gages=%5 needsRebuild=%6 show(N/L/S/G)=%7/%8/%9/%10 hidden=%11")
                               .arg(isVisible() ? "yes" : "no")
                               .arg(m_nodes.size()).arg(m_links.size())
                               .arg(m_catchments.size()).arg(m_gages.size())
@@ -4003,6 +4316,20 @@ int SWMMModelLayer::cachedNodeCount() const { return m_nodes.size(); }
 int SWMMModelLayer::cachedLinkCount() const { return m_links.size(); }
 int SWMMModelLayer::cachedGageCount() const { return m_gages.size(); }
 
+bool SWMMModelLayer::cachedGageCoord(int idx, double *x, double *y) const
+{
+    if (!m_engine || idx < 0 || idx >= m_gages.size())
+        return false;
+    double gx = 0.0, gy = 0.0;
+    // Straight from the engine, NOT m_gages — see the header note on why the
+    // cached position is unsafe for spatial work.
+    if (swmm_spatial_get_gage_coord(m_engine, idx, &gx, &gy) != SWMM_OK)
+        return false;
+    if (x) *x = gx;
+    if (y) *y = gy;
+    return true;
+}
+
 SWMMModelLayer::PickResult
 SWMMModelLayer::pickAt(double sceneX, double sceneY, double tolerance) const
 {
@@ -4129,6 +4456,28 @@ bool SWMMModelLayer::previewNodeMove(int idx, double newX, double newY)
     // batched item keeps its existing z-value / bounding rect. The
     // batched renderer re-reads coords on every paint anyway, so the
     // preview appears at the new position on the next frame.
+    emit repaintRequested();
+    return true;
+}
+
+bool SWMMModelLayer::previewGageMove(int idx, double newX, double newY)
+{
+    if (idx < 0 || idx >= m_gages.size()) return false;
+
+    m_gages[idx].x = newX;
+    m_gages[idx].y = newY;
+
+    // Same scene-point rewrite as applyGageMove (CRS transform + the
+    // scene-space Y flip). Engine state is UNTOUCHED — MoveGageCommand::redo
+    // commits via applyGageMove on release.
+    if (idx < m_gageScenePts.size())
+    {
+        double sx = newX, sy = newY;
+        if (m_transform) m_transform->Transform(1, &sx, &sy);
+        m_gageScenePts[idx] = QPointF(sx, -sy);
+    }
+
+    // Repaint only — same rationale as previewNodeMove above.
     emit repaintRequested();
     return true;
 }
@@ -4334,21 +4683,37 @@ namespace {
 // legacy GetOffsetElevation / GetOffsetDepth (Uupdate.pas):
 //   Depth  -> Elevation:  elev  = depth + invert  (depth 0 yields the invert).
 //   Elevation -> Depth:   depth = max(0, elev - invert)  (clamp inverts below).
-double convertedOffset(double value, double invert, bool toElevation)
+// The engine always stores offsets as DEPTHS above the node invert, whatever
+// LINK_OFFSETS says (PostParseResolver normalises elevations at open; the
+// .inp writer re-adds the invert on save). So the numbers the engine holds
+// are the same physical geometry in either mode, and legacy's two answers to
+// "Should all link offsets be converted?" map onto the depth store as:
+//   Yes  — same physics, new representation → nothing to do here; the option
+//          flip alone changes what the file and the editors show.
+//   No   — keep the displayed NUMBERS, so their meaning changes → reinterpret
+//          the current depth as the other convention's value:
+//            → ELEVATION: the depth d is now an elevation, depth' = max(0, d − invert)
+//            → DEPTH:     the elevation (d + invert) is now a depth, depth' = d + invert
+// Legacy rules (Uupdate.pas GetOffsetDepth/GetOffsetElevation) clamp at 0.
+double reinterpretedDepth(double depth, double invert, bool toElevation)
 {
     if (toElevation)
-        return value + invert;
-    const double depth = value - invert;
-    return depth > 0.0 ? depth : 0.0;
+    {
+        const double d = depth - invert;
+        return d > 0.0 ? d : 0.0;
+    }
+    return depth + invert;
 }
 } // namespace
 
-void SWMMModelLayer::convertLinkOffsets(bool toElevation)
+void SWMMModelLayer::convertLinkOffsets(bool toElevation, bool convertValues)
 {
     if (!m_engine)
         return;
 
-    const int n = swmm_link_count(m_engine);
+    // "Yes": the depth store is already right; only the presentation changes.
+    // The editors derive display values from the mode, so still refresh.
+    const int n = convertValues ? 0 : swmm_link_count(m_engine);
     for (int i = 0; i < n; ++i)
     {
         int type = 0;
@@ -4357,20 +4722,27 @@ void SWMMModelLayer::convertLinkOffsets(bool toElevation)
         if (type == SWMM_LINK_PUMP)   // pumps carry no offset — legacy skips them
             continue;
 
-        // Upstream offset (from-node invert) applies to conduits, orifices,
-        // weirs and outlets.
         int fromIdx = -1;
         double fromInvert = 0.0;
         swmm_link_get_from_node(m_engine, i, &fromIdx);
         if (fromIdx >= 0)
             swmm_node_get_invert_elev(m_engine, fromIdx, &fromInvert);
 
+        if (type == SWMM_LINK_WEIR || type == SWMM_LINK_OUTLET)
+        {
+            // Crest lives in the weir/outlet side table, not offset_up.
+            double crest = 0.0;
+            if (swmm_link_get_crest_height(m_engine, i, &crest) == SWMM_OK)
+                swmm_link_set_crest_height(m_engine, i,
+                                           reinterpretedDepth(crest, fromInvert, toElevation));
+            continue;
+        }
+
         double up = 0.0;
         if (swmm_link_get_offset_up(m_engine, i, &up) == SWMM_OK)
             swmm_link_set_offset_up(m_engine, i,
-                                    convertedOffset(up, fromInvert, toElevation));
+                                    reinterpretedDepth(up, fromInvert, toElevation));
 
-        // Downstream offset (to-node invert) is conduit-only.
         if (type == SWMM_LINK_CONDUIT)
         {
             int toIdx = -1;
@@ -4382,7 +4754,7 @@ void SWMMModelLayer::convertLinkOffsets(bool toElevation)
             double dn = 0.0;
             if (swmm_link_get_offset_dn(m_engine, i, &dn) == SWMM_OK)
                 swmm_link_set_offset_dn(m_engine, i,
-                                        convertedOffset(dn, toInvert, toElevation));
+                                        reinterpretedDepth(dn, toInvert, toElevation));
         }
     }
 
@@ -4497,6 +4869,8 @@ bool SWMMModelLayer::applyNodeConvert(const QString &name, int newNodeType,
 
     m_nodes[soaIdx].nodeType = newNodeType;
     m_nodes[soaIdx].isVirtual = 0;   // engine clears the flag on any conversion
+    m_nodes[soaIdx].isInlet   = 0;   // …and the inlet flag with it
+    m_inletConnectorsDirty = true;
     rebuildCategoryIndex();
 
     m_needsRebuild = true;       // scene items are bucketed by type
@@ -4543,6 +4917,65 @@ bool SWMMModelLayer::applyLinkConvert(const QString &name, int newLinkType,
     return true;
 }
 
+// Direction flip — the upstream node becomes the downstream node and vice
+// versa, with the physical link left exactly where it was. Everything that is
+// attached to a *specific end* has to travel with that end, which is why the
+// conduit branch below swaps the offset and loss-coefficient pairs rather than
+// leaving them on their slots; the engine performs the same swap internally
+// when it reverses an adverse-slope conduit at parse time (PostParseResolver).
+// The parse-time-derived fields it also fixes there (links.direction, conduit
+// slope) are not exposed by any C API and are recomputed from node1/node2 on
+// the next open, so there is nothing to do about them here.
+bool SWMMModelLayer::applyLinkFlip(int linkIdx)
+{
+    if (!m_engine || linkIdx < 0 || linkIdx >= m_links.size())
+        return false;
+
+    int fromIdx = -1;
+    int toIdx   = -1;
+    if (swmm_link_get_from_node(m_engine, linkIdx, &fromIdx) != SWMM_OK)
+        return false;
+    if (swmm_link_get_to_node(m_engine, linkIdx, &toIdx) != SWMM_OK)
+        return false;
+    if (swmm_link_set_nodes(m_engine, linkIdx, toIdx, fromIdx) != SWMM_OK)
+        return false;
+
+    // Conduits are the only links with a value at each end: orifices, weirs
+    // and outlets carry a single crest offset in offset_up and never use
+    // offset_dn (see convertLinkOffsets), so swapping would move the real
+    // value into a dead slot.
+    if (isConduit(linkIdx))
+    {
+        double up = 0.0, dn = 0.0;
+        if (swmm_link_get_offset_up(m_engine, linkIdx, &up) == SWMM_OK &&
+            swmm_link_get_offset_dn(m_engine, linkIdx, &dn) == SWMM_OK)
+        {
+            swmm_link_set_offset_up(m_engine, linkIdx, dn);
+            swmm_link_set_offset_dn(m_engine, linkIdx, up);
+        }
+
+        double inlet = 0.0, outlet = 0.0, avg = 0.0;
+        if (swmm_link_get_loss_coeff(m_engine, linkIdx, &inlet, &outlet, &avg) == SWMM_OK)
+            swmm_link_set_loss_coeff(m_engine, linkIdx, outlet, inlet, avg);
+    }
+
+    std::swap(m_links[linkIdx].fromNodeIdx, m_links[linkIdx].toNodeIdx);
+
+    // Interior vertices are stored upstream → downstream, so they have to be
+    // reversed or the drawn polyline zig-zags between the swapped endpoints.
+    // applyLinkInteriorVertices carries the whole geometry-edit contract:
+    // engine write, cached vertices, bbox, scene coords, m_needsRebuild,
+    // repaintRequested() and modelEdited().
+    QVector<QPointF> interior = m_links[linkIdx].vertices;
+    std::reverse(interior.begin(), interior.end());
+    applyLinkInteriorVertices(linkIdx, interior);
+
+    // The From/To cells and the swapped offsets are attribute data; the
+    // geometry path above does not announce them.
+    emit attributeChanged(m_links[linkIdx].name);
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Virtual junctions — split / fuse / flag
 // (engine-side semantics; see workplans/VIRTUAL_JUNCTION_GUI_PLAN_2026-08-01.md)
@@ -4558,12 +4991,25 @@ QString SWMMModelLayer::virtualJunctionRuleText(int code)
     case 613: return tr("Both conduit offsets at the node must be zero "
                         "(invert continuity).");
     case 615: return tr("The conduit inverts do not agree at the node.");
-    case 617: return tr("A virtual junction cannot receive lateral inflow "
-                        "(inflows, DWF, RDII, subcatchment outlets, LID "
-                        "drains or 2D coupling).");
+    case 617: return tr("A virtual junction cannot be coupled to a 2D "
+                        "surface mesh (it has no opening).");
     case 619: return tr("Virtual junctions require dynamic-wave (DYNWAVE) "
                         "flow routing.");
     case 621: return tr("Too many items on the [VIRTUAL_JUNCTIONS] line.");
+    // Inlet-junction rules (INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN §3.3).
+    case 623: return tr("An inlet junction sits between two STREET conduits "
+                        "(RECT_OPEN or TRAPEZOIDAL for a drop inlet).");
+    case 625: return tr("The inlet design named on this row does not exist.");
+    case 627: return tr("The capture node must be an existing node other "
+                        "than the inlet itself, and not a virtual or inlet "
+                        "junction.");
+    case 629: return tr("An inlet cannot be placed on both conduits of an "
+                        "inlet-junction pair.");
+    case 631: return tr("Too many items on the [INLET_USAGE] line.");
+    case 633: return tr("This inlet junction has no inlet design assigned.");
+    case 635: return tr("The inlet design is not compatible with the host's "
+                        "cross section (gutter inlets need STREET; drop "
+                        "inlets need RECT_OPEN or TRAPEZOIDAL).");
     default:  return tr("Engine error %1.").arg(code);
     }
 }
@@ -4588,10 +5034,96 @@ bool SWMMModelLayer::applySetVirtual(const QString &name, bool makeVirtual,
     }
 
     m_nodes[idx].isVirtual = makeVirtual ? 1 : 0;
+    // Demoting to a plain junction also drops the inlet role (an inlet
+    // junction is a virtual junction; the engine clears both).
+    if (!makeVirtual) {
+        m_nodes[idx].isInlet = 0;
+        m_inletConnectorsDirty = true;
+    }
     m_needsRebuild = true;           // marker symbol keys off the flag
     emit repaintRequested();
     emit attributeChanged(name);
     return true;
+}
+
+// Cache sync shared by every conduit-split entry point (plain virtual split
+// and swmm_conduit_split_inlet). The engine appends the inserted node and the
+// new downstream conduit at the tail of their arrays and partitions the
+// original conduit's interior vertices, so all three caches move together.
+void SWMMModelLayer::syncSplitCaches(int li, int newNode, int newLink,
+                                     const QString &newNodeName,
+                                     const QString &newLinkName,
+                                     const QString &origLinkName,
+                                     int isVirtual, int isInlet)
+{
+    // Interior-vertex reader (engine GET returns the FULL polyline
+    // [from-node, interior..., to-node]; the cache stores interior only).
+    auto readInterior = [this](int engLink) {
+        QVector<QPointF> interior;
+        int vc = 0;
+        swmm_spatial_get_link_vertex_count(m_engine, engLink, &vc);
+        if (vc > 2) {
+            QVector<double> vx(vc), vy(vc);
+            swmm_spatial_get_link_vertices(m_engine, engLink, vx.data(), vy.data(), vc);
+            interior.reserve(vc - 2);
+            for (int i = 1; i + 1 < vc; ++i)
+                interior.append(QPointF(vx[i], vy[i]));
+        }
+        return interior;
+    };
+
+    // --- New node cache entry (engine appended at the tail) ---
+    NodeGeom ng;
+    ng.name       = newNodeName;
+    ng.nodeType   = 0;                 // JUNCTION type code
+    ng.objectType = 0;
+    ng.isVirtual  = isVirtual;
+    ng.isInlet    = isInlet;
+    double nx = 0.0, ny = 0.0;
+    swmm_spatial_get_node_coord(m_engine, newNode, &nx, &ny);
+    ng.x = nx;
+    ng.y = ny;
+    m_nodes.append(ng);
+    forgetStaleObjectState(newNodeName, kKindNode);
+    refreshSceneCoordsForNode(m_nodes.size() - 1);
+    if (m_nodeSelectedFlag.size() < size_t(m_nodes.size()))
+        m_nodeSelectedFlag.resize(m_nodes.size(), 0);
+    if (m_nodeHiddenFlag.size() < size_t(m_nodes.size()))
+        m_nodeHiddenFlag.resize(m_nodes.size(), 0);
+
+    // --- New downstream conduit cache entry ---
+    LinkGeom lg;
+    lg.name     = newLinkName;
+    lg.linkType = 0;                   // CONDUIT
+    int lfrom = -1, lto = -1;
+    swmm_link_get_from_node(m_engine, newLink, &lfrom);
+    swmm_link_get_to_node(m_engine, newLink, &lto);
+    lg.fromNodeIdx = lfrom;
+    lg.toNodeIdx   = lto;
+    lg.vertices    = readInterior(newLink);
+    m_links.append(lg);
+    // `<base>_B` is exactly the name an earlier, since-fused split had — and
+    // the name its hidden / selected state was left under (see
+    // forgetStaleObjectState). Must precede rebuildCategoryIndex() below,
+    // which recounts hidden objects per category.
+    forgetStaleObjectState(newLinkName, kKindLink);
+    appendLinkSceneEntry();
+
+    // --- Original conduit: downstream end moved to the new node, interior
+    //     vertices partitioned by the engine ---
+    m_links[li].toNodeIdx = newNode;
+    m_links[li].vertices  = readInterior(li);
+    refreshSceneCoordsForLink(li);
+
+    rebuildCategoryIndex();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    m_inletConnectorsDirty = true;
+    recomputeExtentFromCaches();
+    if (m_batchedItem) m_batchedItem->refreshBoundingRect();
+    emit repaintRequested();
+    emit geometryChanged();
+    emit attributeChanged(origLinkName);
 }
 
 bool SWMMModelLayer::applyInsertVirtualJunction(const QString &linkName, double t,
@@ -4624,69 +5156,11 @@ bool SWMMModelLayer::applyInsertVirtualJunction(const QString &linkName, double 
         return false;
     }
 
-    // Interior-vertex reader (engine GET returns the FULL polyline
-    // [from-node, interior..., to-node]; the cache stores interior only).
-    auto readInterior = [this](int engLink) {
-        QVector<QPointF> interior;
-        int vc = 0;
-        swmm_spatial_get_link_vertex_count(m_engine, engLink, &vc);
-        if (vc > 2) {
-            QVector<double> vx(vc), vy(vc);
-            swmm_spatial_get_link_vertices(m_engine, engLink, vx.data(), vy.data(), vc);
-            interior.reserve(vc - 2);
-            for (int i = 1; i + 1 < vc; ++i)
-                interior.append(QPointF(vx[i], vy[i]));
-        }
-        return interior;
-    };
-
-    // --- New node cache entry (engine appended at the tail) ---
-    NodeGeom ng;
-    ng.name       = newNodeName;
-    ng.nodeType   = 0;                 // JUNCTION type code
-    ng.objectType = 0;
-    ng.isVirtual  = (rc == SWMM_OK) ? 1 : 0;
-    double nx = 0.0, ny = 0.0;
-    swmm_spatial_get_node_coord(m_engine, newNode, &nx, &ny);
-    ng.x = nx;
-    ng.y = ny;
-    m_nodes.append(ng);
-    refreshSceneCoordsForNode(m_nodes.size() - 1);
-    if (m_nodeSelectedFlag.size() < size_t(m_nodes.size()))
-        m_nodeSelectedFlag.resize(m_nodes.size(), 0);
-    if (m_nodeHiddenFlag.size() < size_t(m_nodes.size()))
-        m_nodeHiddenFlag.resize(m_nodes.size(), 0);
-
-    // --- New downstream conduit cache entry ---
-    LinkGeom lg;
-    lg.name     = newLinkName;
-    lg.linkType = 0;                   // CONDUIT
-    int lfrom = -1, lto = -1;
-    swmm_link_get_from_node(m_engine, newLink, &lfrom);
-    swmm_link_get_to_node(m_engine, newLink, &lto);
-    lg.fromNodeIdx = lfrom;
-    lg.toNodeIdx   = lto;
-    lg.vertices    = readInterior(newLink);
-    m_links.append(lg);
-    appendLinkSceneEntry();
-
-    // --- Original conduit: downstream end moved to the new node, interior
-    //     vertices partitioned by the engine ---
-    m_links[li].toNodeIdx = newNode;
-    m_links[li].vertices  = readInterior(li);
-    refreshSceneCoordsForLink(li);
+    syncSplitCaches(li, newNode, newLink, newNodeName, newLinkName, linkName,
+                    /*isVirtual=*/(rc == SWMM_OK) ? 1 : 0, /*isInlet=*/0);
 
     if (outNodeIdx) *outNodeIdx = newNode;
     if (outLinkIdx) *outLinkIdx = newLink;
-
-    rebuildCategoryIndex();
-    m_kdDirty = true;
-    m_needsRebuild = true;
-    recomputeExtentFromCaches();
-    if (m_batchedItem) m_batchedItem->refreshBoundingRect();
-    emit repaintRequested();
-    emit geometryChanged();
-    emit attributeChanged(linkName);
 
     if (rc != SWMM_OK) {
         // The split stood but the virtual flag was refused (should not happen
@@ -4730,8 +5204,85 @@ bool SWMMModelLayer::applyFuseVirtualJunction(const QString &nodeName,
         return false;
     }
 
-    // Cache sync mirrors the engine's deletions: node first (fixes up link
-    // from/to indices), then the retired downstream conduit.
+    syncFuseCaches(ni, dn, surviving);
+    return true;
+}
+
+bool SWMMModelLayer::applyInsertJunctionSplit(const QString &linkName, double t,
+                                              const QString &newNodeName,
+                                              const QString &newLinkName,
+                                              int *outNodeIdx, int *outLinkIdx,
+                                              QString *outError)
+{
+    if (outNodeIdx) *outNodeIdx = -1;
+    if (outLinkIdx) *outLinkIdx = -1;
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int li = swmm_link_index(m_engine, linkName.toUtf8().constData());
+    if (li < 0 || li >= m_links.size()) {
+        if (outError) *outError = tr("Conduit \"%1\" not found.").arg(linkName);
+        return false;
+    }
+
+    int newNode = -1, newLink = -1;
+    // make_virtual = 0: a plain junction. No VJ rule validation runs, so the
+    // only failure mode here is the split's own rejection.
+    const int rc = swmm_conduit_split(m_engine, li, t,
+                                      newNodeName.toUtf8().constData(),
+                                      newLinkName.toUtf8().constData(),
+                                      /*make_virtual=*/0, &newNode, &newLink);
+    if (rc != SWMM_OK || newNode < 0 || newLink < 0) {
+        if (outError) *outError = (rc == SWMM_ERR_BADPARAM)
+            ? tr("Split rejected: invalid position, duplicate name, or the "
+                 "link is not a conduit.")
+            : virtualJunctionRuleText(rc);
+        return false;
+    }
+
+    syncSplitCaches(li, newNode, newLink, newNodeName, newLinkName, linkName,
+                    /*isVirtual=*/0, /*isInlet=*/0);
+
+    if (outNodeIdx) *outNodeIdx = newNode;
+    if (outLinkIdx) *outLinkIdx = newLink;
+    return true;
+}
+
+bool SWMMModelLayer::applyFuseJunctionSplit(const QString &nodeName,
+                                            QString *outError)
+{
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int ni = swmm_node_index(m_engine, nodeName.toUtf8().constData());
+    if (ni < 0 || ni >= m_nodes.size()) {
+        if (outError) *outError = tr("Node \"%1\" not found.").arg(nodeName);
+        return false;
+    }
+
+    // Borrow the virtual-junction inverse: flag, fuse, and roll the flag back
+    // if the fuse is refused (a third link attached since the split, say) so a
+    // failed undo cannot leave a spurious virtual junction behind.
+    const bool wasVirtual = m_nodes[ni].isVirtual != 0;
+    if (!wasVirtual && !applySetVirtual(nodeName, true, outError))
+        return false;
+
+    if (!applyFuseVirtualJunction(nodeName, outError)) {
+        if (!wasVirtual)
+            applySetVirtual(nodeName, false);
+        return false;
+    }
+    return true;
+}
+
+// Cache sync shared by both fuse entry points (plain virtual fuse and
+// swmm_inlet_junction_fuse). Mirrors the engine's deletions: node first
+// (which fixes up link from/to indices), then the retired downstream conduit,
+// then the surviving conduit's new downstream end + merged vertices.
+void SWMMModelLayer::syncFuseCaches(int ni, int dn, int surviving)
+{
     m_nodes.removeAt(ni);
     compactNodeSceneEntry(ni);
     if (dn >= 0) {
@@ -4763,11 +5314,328 @@ bool SWMMModelLayer::applyFuseVirtualJunction(const QString &nodeName,
     rebuildCategoryIndex();
     m_kdDirty = true;
     m_needsRebuild = true;
+    m_inletConnectorsDirty = true;
     recomputeExtentFromCaches();
     if (m_batchedItem) m_batchedItem->refreshBoundingRect();
     emit repaintRequested();
     emit geometryChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Inlet junctions and inlet usage
+// (workplans/INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md §2.4/§3)
+// ---------------------------------------------------------------------------
+
+bool SWMMModelLayer::engineSupportsInletJunctions() const
+{
+    if (m_inletJunctionSupport >= 0)
+        return m_inletJunctionSupport == 1;
+    if (!m_engine) return false;   // do not cache a verdict without an engine
+
+    // There is no capability manifest yet (MULTI_ENGINE V2), so the probe is
+    // the pattern used for the FV / transport option groups: ask the engine
+    // and cache the answer. swmm_inlet_usage_count returns -1 on any engine
+    // that does not implement the surface; the node flag is the second half
+    // of the same feature and only answerable when a node exists.
+    bool ok = (swmm_inlet_usage_count(m_engine) >= 0);
+    if (ok && swmm_node_count(m_engine) > 0) {
+        int isInlet = 0;
+        ok = (swmm_node_is_inlet(m_engine, 0, &isInlet) == SWMM_OK);
+    }
+    m_inletJunctionSupport = ok ? 1 : 0;
+    return ok;
+}
+
+bool SWMMModelLayer::inletUsageFor(int hostKind, int hostIdx,
+                                   SWMM_InletUsage *out) const
+{
+    if (!m_engine || !out || hostIdx < 0) return false;
+    const int row = (hostKind == SWMM_INLET_HOST_NODE)
+        ? swmm_inlet_usage_find_node(m_engine, hostIdx)
+        : swmm_inlet_usage_find_link(m_engine, hostIdx);
+    if (row < 0) return false;
+    return swmm_inlet_usage_get(m_engine, row, out) == SWMM_OK;
+}
+
+bool SWMMModelLayer::applySetInletUsage(const SWMM_InletUsage &usage,
+                                        QString *outError)
+{
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    int row = -1;
+    const int rc = swmm_inlet_usage_set(m_engine, &usage, &row);
+    if (rc != SWMM_OK) {
+        if (outError) *outError = virtualJunctionRuleText(rc);
+        return false;
+    }
+
+    // Name the host so every mediated view (property tree, attribute table,
+    // object browser) re-reads exactly the row that changed.
+    QString hostName;
+    if (usage.host_kind == SWMM_INLET_HOST_NODE) {
+        if (const char *id = swmm_node_id(m_engine, usage.host_idx))
+            hostName = QString::fromUtf8(id);
+    } else if (const char *id = swmm_link_id(m_engine, usage.host_idx)) {
+        hostName = QString::fromUtf8(id);
+    }
+
+    m_inletConnectorsDirty = true;
+    markEdited();
+    emit repaintRequested();
+    if (!hostName.isEmpty()) emit attributeChanged(hostName);
     return true;
+}
+
+bool SWMMModelLayer::applyRemoveInletUsage(int hostKind, int hostIdx,
+                                           QString *outError)
+{
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int row = (hostKind == SWMM_INLET_HOST_NODE)
+        ? swmm_inlet_usage_find_node(m_engine, hostIdx)
+        : swmm_inlet_usage_find_link(m_engine, hostIdx);
+    if (row < 0) return true;   // nothing to remove — already in the target state
+
+    QString hostName;
+    if (hostKind == SWMM_INLET_HOST_NODE) {
+        if (const char *id = swmm_node_id(m_engine, hostIdx))
+            hostName = QString::fromUtf8(id);
+    } else if (const char *id = swmm_link_id(m_engine, hostIdx)) {
+        hostName = QString::fromUtf8(id);
+    }
+
+    const int rc = swmm_inlet_usage_remove(m_engine, row);
+    if (rc != SWMM_OK) {
+        if (outError) *outError = virtualJunctionRuleText(rc);
+        return false;
+    }
+
+    m_inletConnectorsDirty = true;
+    markEdited();
+    emit repaintRequested();
+    if (!hostName.isEmpty()) emit attributeChanged(hostName);
+    return true;
+}
+
+bool SWMMModelLayer::applySetInlet(const QString &name, bool makeInlet,
+                                   QString *outError)
+{
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int idx = swmm_node_index(m_engine, name.toUtf8().constData());
+    if (idx < 0 || idx >= m_nodes.size()) {
+        if (outError) *outError = tr("Node \"%1\" not found.").arg(name);
+        return false;
+    }
+
+    const int rc = swmm_node_set_inlet(m_engine, idx, makeInlet ? 1 : 0);
+    if (rc != SWMM_OK) {
+        if (outError) *outError = virtualJunctionRuleText(rc);
+        return false;
+    }
+
+    // Promotion also sets is_virtual engine-side; demotion clears only the
+    // inlet role and drops the usage row (see swmm_node_set_inlet).
+    m_nodes[idx].isInlet = makeInlet ? 1 : 0;
+    if (makeInlet) m_nodes[idx].isVirtual = 1;
+
+    m_inletConnectorsDirty = true;
+    m_needsRebuild = true;           // marker symbol keys off the flag
+    markEdited();
+    emit repaintRequested();
+    emit attributeChanged(name);
+    return true;
+}
+
+bool SWMMModelLayer::applyInsertInletJunction(const QString &linkName, double t,
+                                              const QString &newNodeName,
+                                              const QString &newLinkName,
+                                              const QString &inletId,
+                                              const QString &captureNode,
+                                              int *outNodeIdx, int *outLinkIdx,
+                                              QString *outError)
+{
+    if (outNodeIdx) *outNodeIdx = -1;
+    if (outLinkIdx) *outLinkIdx = -1;
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int li = swmm_link_index(m_engine, linkName.toUtf8().constData());
+    if (li < 0 || li >= m_links.size()) {
+        if (outError) *outError = tr("Conduit \"%1\" not found.").arg(linkName);
+        return false;
+    }
+
+    // swmm_conduit_split_inlet is atomic: on any failure after the split the
+    // engine fuses back, so a non-OK return leaves the caches untouched.
+    int newNode = -1, newLink = -1;
+    const int rc = swmm_conduit_split_inlet(m_engine, li, t,
+                                            newNodeName.toUtf8().constData(),
+                                            newLinkName.toUtf8().constData(),
+                                            inletId.toUtf8().constData(),
+                                            captureNode.toUtf8().constData(),
+                                            &newNode, &newLink);
+    if (rc != SWMM_OK || newNode < 0 || newLink < 0) {
+        if (outError) *outError = (rc == SWMM_ERR_BADPARAM)
+            ? tr("Split rejected: invalid position or duplicate name.")
+            : virtualJunctionRuleText(rc);
+        return false;
+    }
+
+    syncSplitCaches(li, newNode, newLink, newNodeName, newLinkName, linkName,
+                    /*isVirtual=*/1, /*isInlet=*/1);
+
+    if (outNodeIdx) *outNodeIdx = newNode;
+    if (outLinkIdx) *outLinkIdx = newLink;
+    markEdited();
+    return true;
+}
+
+bool SWMMModelLayer::applyFuseInletJunction(const QString &nodeName,
+                                            QString *outError)
+{
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int ni = swmm_node_index(m_engine, nodeName.toUtf8().constData());
+    if (ni < 0 || ni >= m_nodes.size()) {
+        if (outError) *outError = tr("Node \"%1\" not found.").arg(nodeName);
+        return false;
+    }
+    if (!m_nodes[ni].isInlet) {
+        if (outError) *outError = tr("\"%1\" is not an inlet junction.").arg(nodeName);
+        return false;
+    }
+
+    // Identify the downstream conduit BEFORE the engine deletes it.
+    int dn = -1;
+    for (int i = 0; i < m_links.size(); ++i) {
+        if (m_links[i].fromNodeIdx == ni) { dn = i; break; }
+    }
+
+    int surviving = -1;
+    const int rc = swmm_inlet_junction_fuse(m_engine, ni, &surviving);
+    if (rc != SWMM_OK) {
+        if (outError) *outError = (rc == SWMM_ERR_BADPARAM)
+            ? tr("\"%1\" is not an inlet junction.").arg(nodeName)
+            : virtualJunctionRuleText(rc);
+        return false;
+    }
+
+    syncFuseCaches(ni, dn, surviving);
+    markEdited();
+    return true;
+}
+
+// Out-of-line so QPointer<MapCanvas>'s static_cast to/from QObject* is
+// instantiated where MapCanvas is complete (the header forward-declares it —
+// same reason as include/ui/panels/legenddock.h).
+void SWMMModelLayer::setEditCanvas(MapCanvas *canvas) { m_editCanvas = canvas; }
+MapCanvas *SWMMModelLayer::editCanvas() const { return m_editCanvas; }
+
+bool SWMMModelLayer::pushInletUsageEdit(const SWMM_InletUsage &usage)
+{
+    if (m_editCanvas && m_editCanvas->undoStack()) {
+        m_editCanvas->undoStack()->push(
+            new SetInletUsageCommand(this, usage, /*removing=*/false,
+                                     m_editCanvas));
+        return true;
+    }
+    return applySetInletUsage(usage);
+}
+
+bool SWMMModelLayer::pushInletUsageRemoval(int hostKind, int hostIdx)
+{
+    if (m_editCanvas && m_editCanvas->undoStack()) {
+        SWMM_InletUsage u{};
+        u.host_kind = hostKind;
+        u.host_idx  = hostIdx;
+        m_editCanvas->undoStack()->push(
+            new SetInletUsageCommand(this, u, /*removing=*/true, m_editCanvas));
+        return true;
+    }
+    return applyRemoveInletUsage(hostKind, hostIdx);
+}
+
+const QVector<SWMMModelLayer::InletConnector> &
+SWMMModelLayer::inletConnectors() const
+{
+    if (m_inletConnectorsDirty) rebuildInletConnectors();
+    return m_inletConnectors;
+}
+
+void SWMMModelLayer::rebuildInletConnectors() const
+{
+    m_inletConnectors.clear();
+    m_inletConnectorsDirty = false;
+    if (!m_engine) return;
+
+    const int n = swmm_inlet_usage_count(m_engine);
+    if (n <= 0) return;                    // none, or an engine without the API
+    m_inletConnectors.reserve(n);
+
+    for (int i = 0; i < n; ++i) {
+        SWMM_InletUsage u{};
+        if (swmm_inlet_usage_get(m_engine, i, &u) != SWMM_OK) continue;
+        if (u.capture_node_idx < 0 || u.capture_node_idx >= m_nodes.size())
+            continue;
+
+        if (u.capture_node_idx >= m_nodeScenePts.size()) continue;
+
+        // Host end: the conduit's polyline midpoint for a link usage (legacy
+        // TMap.DrawInletSymbol), the node position for an inlet junction.
+        // Both taken from the SCENE caches — the same arrays the paint loops
+        // read — so the overlay needs no transform of its own and follows a
+        // CRS change automatically.
+        QPointF host;
+        if (u.host_kind == SWMM_INLET_HOST_NODE) {
+            if (u.host_idx < 0 || u.host_idx >= m_nodeScenePts.size()) continue;
+            host = m_nodeScenePts[u.host_idx];
+        } else {
+            if (u.host_idx < 0 || size_t(u.host_idx) >= m_linkVertexCount.size())
+                continue;
+            const uint32_t vc  = m_linkVertexCount[u.host_idx];
+            const uint32_t off = m_linkVertexOffset[u.host_idx];
+            if (vc < 2 || size_t((off + vc) * 2) > m_linkSceneFlat.size())
+                continue;
+            auto at = [&](uint32_t v) {
+                return QPointF(m_linkSceneFlat[size_t(off + v) * 2 + 0],
+                               m_linkSceneFlat[size_t(off + v) * 2 + 1]);
+            };
+            double total = 0.0;
+            for (uint32_t s = 0; s + 1 < vc; ++s) {
+                const QPointF a = at(s), b = at(s + 1);
+                total += std::hypot(b.x() - a.x(), b.y() - a.y());
+            }
+            host = at(vc - 1);
+            if (total <= 0.0) {
+                host = at(0);
+            } else {
+                double walked = 0.0;
+                for (uint32_t s = 0; s + 1 < vc; ++s) {
+                    const QPointF a = at(s), b = at(s + 1);
+                    const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
+                    if (walked + len >= total * 0.5) {
+                        const double f = (len > 0.0)
+                            ? (total * 0.5 - walked) / len : 0.0;
+                        host = a + (b - a) * f;
+                        break;
+                    }
+                    walked += len;
+                }
+            }
+        }
+
+        m_inletConnectors.append({ host, m_nodeScenePts[u.capture_node_idx] });
+    }
 }
 
 bool SWMMModelLayer::applyNodeAdd(const QString &name, int nodeType,
@@ -4800,8 +5668,14 @@ bool SWMMModelLayer::applyNodeAdd(const QString &name, int nodeType,
     g.y          = y;
     m_nodes.append(g);
     const int newSoaIdx = m_nodes.size() - 1;
+    forgetStaleObjectState(name, kKindNode);   // `J<n>` reuses a deleted node's name
 
     if (outIdx) *outIdx = idx;
+
+    // Undoing a bulk delete replays this once per restored object, so the
+    // add path needs the same escape as the delete path — otherwise undo
+    // costs more than the delete it reverses.
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
 
     // m_nodes changed → category index buckets + name→(cat,row) map go
     // stale. Rebuild before emitting repaintRequested so the Object
@@ -4914,7 +5788,13 @@ bool SWMMModelLayer::applyLinkAdd(const QString &name, int linkType,
     g.toNodeIdx   = n2;
     g.vertices    = interior;   // interior only, no node endpoints
     m_links.append(g);
+    forgetStaleObjectState(name, kKindLink);   // `C<n>` reuses a deleted link's name
     if (outIdx) *outIdx = idx;
+
+    // See applyNodeAdd: appendLinkSceneEntry() rebuilds the whole link
+    // spatial grid, so a bulk undo that restores N cascade links would pay
+    // N full grid rebuilds without this.
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
 
     // Incrementally extend the parallel scene-coord arrays for the new
     // tail link only — surviving links keep their already-transformed
@@ -4950,6 +5830,42 @@ bool SWMMModelLayer::rollbackTailLinkAdd(const QString &name)
 // Gage add / rollback
 // ---------------------------------------------------------------------------
 
+bool SWMMModelLayer::applyGageMove(int idx, double newX, double newY)
+{
+    if (idx < 0 || idx >= m_gages.size())
+        return false;
+
+    if (m_engine)
+    {
+        if (swmm_spatial_set_gage_coord(m_engine, idx, newX, newY) != 0)
+            return false;
+    }
+
+    m_gages[idx].x = newX;
+    m_gages[idx].y = newY;
+
+    // Refresh this gage's cached scene point the same way
+    // appendGageSceneEntry does for a fresh tail entry (CRS transform +
+    // the scene-space Y flip), so the canvas tracks the edit without a
+    // full rebuildSceneCoords().
+    if (idx < m_gageScenePts.size())
+    {
+        double sx = newX, sy = newY;
+        if (m_transform) m_transform->Transform(1, &sx, &sy);
+        m_gageScenePts[idx] = QPointF(sx, -sy);
+    }
+
+    m_kdDirty      = true;
+    m_needsRebuild = true;
+    ++m_geomRevision;
+    recomputeExtentFromCaches();   // keep cached model extent in sync
+    emit repaintRequested();
+    // [SYMBOLS] is authored data, so the model no longer matches the .inp
+    // even though only a repaint is needed.
+    emit modelEdited();
+    return true;
+}
+
 bool SWMMModelLayer::applyGageAdd(const QString &name, double x, double y,
                                    int *outIdx)
 {
@@ -4975,6 +5891,8 @@ bool SWMMModelLayer::applyGageAdd(const QString &name, double x, double y,
     g.y          = y;
     m_gages.append(g);
     if (outIdx) *outIdx = idx;
+
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
 
     appendGageSceneEntry();
     m_needsRebuild = true;
@@ -5043,6 +5961,8 @@ bool SWMMModelLayer::applySubcatchAdd(const QString &name,
     g.vertices = ring;
     m_catchments.append(g);
     if (outIdx) *outIdx = idx;
+
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
 
     appendCatchSceneEntry();
     m_needsRebuild = true;
@@ -5165,6 +6085,65 @@ bool SWMMModelLayer::applyRename(const QString &oldName, const QString &newName,
 }
 
 // ---------------------------------------------------------------------------
+// Bulk edit (see the BulkEdit guard in the header)
+// ---------------------------------------------------------------------------
+
+void SWMMModelLayer::beginBulkEdit()
+{
+    if (m_bulkDepth++ > 0) return;      // nested; outermost owns the state
+    m_bulkDirty = false;
+    // Two mechanisms on purpose. The early-returns in applyXxxAdd/Delete
+    // skip the WORK; blockSignals guarantees no signal escapes even from a
+    // mutator that was never edited — applySetVirtual in particular, which
+    // DeleteObjectCommand::restoreNode() calls on the undo path.
+    blockSignals(true);
+}
+
+void SWMMModelLayer::endBulkEdit()
+{
+    if (m_bulkDepth == 0) return;       // unbalanced close; nothing open
+    if (--m_bulkDepth > 0) return;      // inner scope; outer still owns it
+
+    blockSignals(false);
+    if (!m_bulkDirty) return;           // nothing mutated — nothing to say
+    m_bulkDirty = false;
+
+    // Perf-plan Phase 0: the one-shot batch close is where a bulk delete
+    // pays its O(model) costs — split them so profiles can rank the fixes.
+    QElapsedTimer bulkCloseTimer;
+    bulkCloseTimer.start();
+
+    // MUST precede buildGeometryCache(): rebuildSceneCoords() resolves every
+    // link polyline through fromNodeIdx/toNodeIdx, and the incremental
+    // renumber that normally maintains them was skipped for the whole batch.
+    syncLinkEndpointIndicesFromEngine();
+    const qint64 syncMs = bulkCloseTimer.elapsed();
+
+    buildGeometryCache();
+    const qint64 geomMs = bulkCloseTimer.elapsed() - syncMs;
+
+    m_needsRebuild = true;
+    if (m_batchedItem) m_batchedItem->refreshBoundingRect();
+    emit repaintRequested();
+    emit geometryChanged();
+    qCInfo(lcBulkDelLayer) << "endBulkEdit: endpoint_sync" << syncMs
+                           << "ms, geometry_cache" << geomMs
+                           << "ms, total" << bulkCloseTimer.elapsed() << "ms";
+}
+
+void SWMMModelLayer::syncLinkEndpointIndicesFromEngine()
+{
+    if (!m_engine) return;
+    for (int i = 0; i < m_links.size(); ++i) {
+        int n1 = -1, n2 = -1;
+        swmm_link_get_from_node(m_engine, i, &n1);
+        swmm_link_get_to_node  (m_engine, i, &n2);
+        m_links[i].fromNodeIdx = n1;
+        m_links[i].toNodeIdx   = n2;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Delete operations (engine cascade + cache rebuild)
 // ---------------------------------------------------------------------------
 
@@ -5176,30 +6155,49 @@ bool SWMMModelLayer::applyNodeDelete(const QString &name,
     const int nodeIdx = swmm_node_index(m_engine, utf8.constData());
     if (nodeIdx < 0) return false;
 
-    // Identify cascade links BEFORE deletion (engine indices still valid).
-    QVector<int> cascadeLinkSoaIndices;
-    for (int i = 0; i < m_links.size(); ++i) {
-        int n1 = -1, n2 = -1;
-        swmm_link_get_from_node(m_engine, i, &n1);
-        swmm_link_get_to_node(m_engine, i, &n2);
-        if (n1 == nodeIdx || n2 == nodeIdx) {
-            if (cascadeLinkNames) *cascadeLinkNames << m_links[i].name;
-            cascadeLinkSoaIndices << i;
-        }
+    // Ask the engine which links this deletion cascades instead of scanning
+    // every link with two getters each. The old scan cost 2*L engine calls
+    // per deleted node — 562k on an all-pipes model, for a node that
+    // typically touches two or three links.
+    //
+    // The engine erases cascade links in DESCENDING index order and records
+    // each index BEFORE erasing it, so every obj_idx here is a PRE-delete
+    // index. Because the SoA removal below is immediate (the bulk guard
+    // defers only derived work), those indices address m_links directly with
+    // no translation.
+    SWMM_ImpactReport report{};
+    if (swmm_node_delete(m_engine, nodeIdx, &report) != 0) {
+        swmm_impact_report_free(&report);
+        return false;
     }
 
-    if (swmm_node_delete(m_engine, nodeIdx, nullptr) != 0) return false;
+    QVector<int> cascadeLinkSoaIndices;
+    cascadeLinkSoaIndices.reserve(report.n_entries);
+    for (int i = 0; i < report.n_entries; ++i) {
+        const SWMM_ImpactEntry &e = report.entries[i];
+        if (e.obj_type != SWMM_REF_LINK || !e.cascaded) continue;
+        if (e.obj_idx < 0 || e.obj_idx >= m_links.size()) continue;
+        if (cascadeLinkNames) *cascadeLinkNames << m_links[e.obj_idx].name;
+        cascadeLinkSoaIndices << e.obj_idx;
+    }
+    swmm_impact_report_free(&report);
 
     // Remove cascade links from cache (reverse order preserves validity)
-    // and compact the parallel scene-coord arrays along with them.
+    // and compact the parallel scene-coord arrays along with them. In a
+    // bulk edit the SoA removal still happens now — only the parallel-array
+    // compaction is deferred, because compactLinkSceneEntry() rebuilds the
+    // whole link spatial grid per link.
+    const bool bulk = bulkEditActive();
     std::sort(cascadeLinkSoaIndices.rbegin(), cascadeLinkSoaIndices.rend());
     for (int li : cascadeLinkSoaIndices) {
         m_links.removeAt(li);
-        compactLinkSceneEntry(li);
+        if (!bulk) compactLinkSceneEntry(li);
     }
 
     // Remove the node itself.
     m_nodes.removeAt(nodeIdx);
+    if (bulk) { m_bulkDirty = true; return true; }
+
     compactNodeSceneEntry(nodeIdx);
     rebuildCategoryIndex();           // O(N) hash, no OGR transforms.
     recomputeExtentFromCaches();
@@ -5219,6 +6217,8 @@ bool SWMMModelLayer::applyLinkDelete(const QString &name)
     if (swmm_link_delete(m_engine, linkIdx, nullptr) != 0) return false;
 
     m_links.removeAt(linkIdx);
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
+
     compactLinkSceneEntry(linkIdx);
     rebuildCategoryIndex();
     m_needsRebuild = true;
@@ -5237,12 +6237,116 @@ bool SWMMModelLayer::applyGageDelete(const QString &name)
     if (swmm_gage_delete(m_engine, idx, nullptr) != 0) return false;
 
     m_gages.removeAt(idx);
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
+
     compactGageSceneEntry(idx);
     rebuildCategoryIndex();
     m_needsRebuild = true;
     emit repaintRequested();
     emit geometryChanged();
     return true;
+}
+
+bool SWMMModelLayer::applyDeleteMany(const QStringList &nodeNames,
+                                      const QStringList &linkNames,
+                                      const QStringList &subcatchNames,
+                                      const QStringList &gageNames,
+                                      QStringList *cascadeLinkNames)
+{
+    // Perf-plan Phase A2: one swmm_*_delete_many engine call per kind (one
+    // name-index rebuild per batch instead of one per delete — the measured
+    // dominant cost), then ONE order-preserving sweep per SoA vector instead
+    // of K O(N) removeAt calls.  The engine compacts without reordering, so
+    // its survivors are an exact subsequence of the pre-batch SoA: a
+    // two-pointer name walk identifies precisely the dropped rows — cascade
+    // deletions included — with no index bookkeeping across the batch.
+    if (!m_engine) return false;
+
+    // Nestable: inside a BulkEditCommand this joins the outer scope; called
+    // bare it supplies the single rebuild+repaint itself.
+    BulkEdit guard(this);
+
+    const auto resolve = [this](const QStringList &names, auto indexFn) {
+        QVector<int> idxs;
+        idxs.reserve(names.size());
+        for (const QString &n : names) {
+            const int i = indexFn(m_engine, n.toUtf8().constData());
+            if (i >= 0) idxs.append(i);
+        }
+        return idxs;
+    };
+    // Drop SoA rows whose name is gone from the engine.  `idFn(i)` is the
+    // engine's post-batch name at index i; survivors keep relative order.
+    const auto sweep = [](auto &vec, int engineCount, auto idFn,
+                          QStringList *dropped) {
+        int w = 0, ei = 0;
+        for (int r = 0; r < vec.size(); ++r) {
+            const char *id = (ei < engineCount) ? idFn(ei) : nullptr;
+            if (id && vec[r].name == QString::fromUtf8(id)) {
+                if (w != r) vec[w] = std::move(vec[r]);
+                ++w; ++ei;
+            } else if (dropped) {
+                *dropped << vec[r].name;
+            }
+        }
+        vec.resize(w);
+    };
+
+    bool any = false;
+
+    // Nodes first — their cascade removes links, so the link list below is
+    // resolved AFTER this batch (a cascade-deleted selected link resolves to
+    // -1 and is skipped, matching the per-object path's skipLinks rule).
+    if (!nodeNames.isEmpty()) {
+        const QVector<int> idxs = resolve(nodeNames, swmm_node_index);
+        if (!idxs.isEmpty()
+            && swmm_node_delete_many(m_engine, idxs.constData(),
+                                     idxs.size(), nullptr) == 0) {
+            sweep(m_nodes, swmm_node_count(m_engine),
+                  [this](int i) { return swmm_node_id(m_engine, i); },
+                  nullptr);
+            sweep(m_links, swmm_link_count(m_engine),
+                  [this](int i) { return swmm_link_id(m_engine, i); },
+                  cascadeLinkNames);
+            any = true;
+        }
+    }
+    if (!linkNames.isEmpty()) {
+        const QVector<int> idxs = resolve(linkNames, swmm_link_index);
+        if (!idxs.isEmpty()
+            && swmm_link_delete_many(m_engine, idxs.constData(),
+                                     idxs.size(), nullptr) == 0) {
+            sweep(m_links, swmm_link_count(m_engine),
+                  [this](int i) { return swmm_link_id(m_engine, i); },
+                  nullptr);
+            any = true;
+        }
+    }
+    if (!subcatchNames.isEmpty()) {
+        const QVector<int> idxs = resolve(subcatchNames, swmm_subcatch_index);
+        if (!idxs.isEmpty()
+            && swmm_subcatch_delete_many(m_engine, idxs.constData(),
+                                         idxs.size(), nullptr) == 0) {
+            sweep(m_catchments, swmm_subcatch_count(m_engine),
+                  [this](int i) { return swmm_subcatch_id(m_engine, i); },
+                  nullptr);
+            any = true;
+        }
+    }
+    if (!gageNames.isEmpty()) {
+        const QVector<int> idxs = resolve(gageNames, swmm_gage_index);
+        if (!idxs.isEmpty()
+            && swmm_gage_delete_many(m_engine, idxs.constData(),
+                                     idxs.size(), nullptr) == 0) {
+            sweep(m_gages, swmm_gage_count(m_engine),
+                  [this](int i) { return swmm_gage_id(m_engine, i); },
+                  nullptr);
+            any = true;
+        }
+    }
+
+    if (any) m_bulkDirty = true;
+    return any;
 }
 
 bool SWMMModelLayer::applySubcatchDelete(const QString &name)
@@ -5255,6 +6359,8 @@ bool SWMMModelLayer::applySubcatchDelete(const QString &name)
     if (swmm_subcatch_delete(m_engine, idx, nullptr) != 0) return false;
 
     m_catchments.removeAt(idx);
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
+
     compactCatchSceneEntry(idx);
     rebuildCategoryIndex();
     m_needsRebuild = true;
@@ -5334,6 +6440,24 @@ bool SWMMModelLayer::applyHydrographRenameGroup(const QString &oldName,
 
     // Empty name → model layer rebuilds everything (old name is gone).
     emit hydrographChanged(QString());
+    return true;
+}
+
+bool SWMMModelLayer::applySubcatchSetGage(int idx, const QString &gageName)
+{
+    if (!m_engine || idx < 0 || idx >= m_catchments.size())
+        return false;
+    if (gageName.isEmpty())
+        return false;   // SWMM requires a gage; clearing is not expressible
+
+    const int g = swmm_gage_index(m_engine, gageName.toUtf8().constData());
+    if (g < 0)
+        return false;
+    if (swmm_subcatch_set_gage(m_engine, idx, g) != SWMM_OK)
+        return false;
+
+    emit attributeChanged(m_catchments[idx].name);
+    emit modelEdited();
     return true;
 }
 
@@ -5462,6 +6586,8 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
         m_tsRegistry = reg;
         m_tsRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        // Anchor for relative-path DISPLAY in the timeseries editor. Refreshed
+        // below on every call too, so it follows a Save As.
         // Connect AFTER the initial seed so the bulk providerAdded burst
         // doesn't storm the Object Browser. Mutations fire at dialog
         // submit, which may precede the deferred saveToEngine flush —
@@ -5485,9 +6611,22 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
             connect(p, &TimeseriesProvider::pointsRemoved,   this, &SWMMModelLayer::markEdited);
             connect(p, &TimeseriesProvider::metadataChanged, this, &SWMMModelLayer::markEdited);
             connect(p, &TimeseriesProvider::sourceModeChanged, this, &SWMMModelLayer::markEdited);
+            connect(p, &TimeseriesProvider::timeModeChanged, this, &SWMMModelLayer::markEdited);
         };
         for (auto *p : reg->providers()) watch(p);
         connect(reg, &TimeseriesRegistry::providerAdded, this, watch);
+
+        // Keep the registry's cached simulation start live while an editor
+        // is open: START_DATE / START_TIME edits land through setOption(),
+        // which emits optionsChanged. (The tail of this function re-seeds on
+        // every call as well, covering paths that bypass setOption.)
+        connect(this, &SWMMModelLayer::optionsChanged, reg, [this, reg] {
+            reg->setSimulationStart(
+                SimulationOptionsDialog::parseEngineDateTime(
+                    getOption(QByteArrayLiteral("START_DATE"), QString()),
+                    getOption(QByteArrayLiteral("START_TIME"),
+                              QStringLiteral("00:00:00"))));
+        });
 
         // Deliberately NOT wired to the registry's saveToEngine flush: the
         // signals above already fire at edit time, so dirty tracking is
@@ -5496,6 +6635,16 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
         // project edited from it would dirty an untouched project and force a
         // needless full .inp rewrite on the next run.
     }
+    // Outside the construction branch so the anchor follows a Save As, which
+    // moves modelFilePath() without rebuilding the registry.
+    reg->setProjectAnchor(QFileInfo(modelFilePath()).absolutePath());
+    // Ditto for the simulation start (anchor for Relative-mode series and the
+    // seed time for a new series' first point).
+    reg->setSimulationStart(
+        SimulationOptionsDialog::parseEngineDateTime(
+            getOption(QByteArrayLiteral("START_DATE"), QString()),
+            getOption(QByteArrayLiteral("START_TIME"),
+                      QStringLiteral("00:00:00"))));
     return reg;
 }
 
@@ -6442,10 +7591,17 @@ void SWMMModelLayer::buildGeometryCache()
     // backbone. Previously this missed subcatchment polygons (which routinely
     // extend well outside the conduit network) and rain gages, causing the
     // canvas to crop them at the edges.
-    if (m_nodes.isEmpty() && m_links.isEmpty()
-        && m_catchments.isEmpty() && m_gages.isEmpty())
-        return;
-
+    //
+    // NO early-out on an empty model. There used to be one here, and it
+    // skipped the three cache rebuilds at the bottom of this function as
+    // well as the extent — so deleting EVERY object (select-all + Delete)
+    // left m_linkSceneFlat / m_linkVertexOffset / m_linkVertexCount holding
+    // the previous model, breaking their documented `size == m_links.size()`
+    // invariant. SWMMLayerQSGRenderer walks m_linkVertexCount rather than
+    // m_links, so every deleted link kept drawing while the object browser
+    // (fed by rebuildCategoryIndex() above) correctly showed them gone.
+    // The sweep below is empty-safe: with no geometry the bounds stay
+    // inverted and setExtent() is never reached, exactly as before.
     double xMin = std::numeric_limits<double>::max();
     double yMin = std::numeric_limits<double>::max();
     double xMax = std::numeric_limits<double>::lowest();
@@ -6722,27 +7878,88 @@ void SWMMModelLayer::rebuildFlagArrays()
 
 }
 
+void SWMMModelLayer::forgetStaleObjectState(const QString &name, quint8 kindBit)
+{
+    // Hidden: typed mask bit; membership without a mask entry is legacy
+    // "all kinds hidden" state (same convention as setObjectVisibleAt).
+    auto it = m_hiddenKindMask.find(name);
+    if (it == m_hiddenKindMask.end() && m_hiddenObjects.contains(name))
+        it = m_hiddenKindMask.insert(name, kKindAll);
+    if (it != m_hiddenKindMask.end()) {
+        it.value() &= ~kindBit;
+        // The sidecar restore marks every kind hidden for a name; a bit that
+        // names no live object of its kind is the same dead state and would
+        // otherwise be written back out on the next save, forever.
+        quint8 live = 0;
+        if (m_nodeByName.contains(name))  live |= kKindNode;
+        if (m_linkByName.contains(name))  live |= kKindLink;
+        if (m_catchByName.contains(name)) live |= kKindCatch;
+        if (m_gageByName.contains(name))  live |= kKindGage;
+        it.value() &= live;
+        if (it.value() == 0) {
+            m_hiddenKindMask.erase(it);
+            m_hiddenObjects.remove(name);
+        }
+    }
+
+    // Selected: strip the kind from any element carrying the name and
+    // re-derive the mirrors setSelectedElements() maintains.
+    if (m_selectedKindMask.value(name, 0) & kindBit) {
+        QVector<SelectedElement> keep;
+        keep.reserve(m_selectedElements.size());
+        for (SelectedElement e : m_selectedElements) {
+            if (e.name == name) {
+                e.kinds &= ~kindBit;
+                if (e.kinds == 0) continue;
+            }
+            keep.append(e);
+        }
+        m_selectedElements = keep;
+        m_selectedNames.clear();
+        m_selectedKindMask.clear();
+        for (const SelectedElement &e : m_selectedElements) {
+            quint8 &m = m_selectedKindMask[e.name];
+            if (m == 0)
+                m_selectedNames.append(e.name);
+            m |= e.kinds;
+        }
+    }
+}
+
 void SWMMModelLayer::rebuildSceneCoords()
 {
     // Transform every SoA point through m_transform once and apply the
     // scene Y-flip up front, so SWMMLayerItem::paint can hand the cached
     // QPointF straight to QPainter without per-frame math. This is the
     // hot path on big-model paints (121k links × N vertices each).
-    auto applyTransform = [this](double &x, double &y) {
-        if (m_transform) m_transform->Transform(1, &x, &y);
+    // Batched reprojection: gather into flat arrays, one OGR call per 64k
+    // points (CRSReproject::transformPointsInPlace), scatter back with the
+    // scene Y-flip. The old code called Transform(1, &x, &y) PER POINT — about
+    // 1.5M individual PROJ calls on a 100k-node / 280k-link model, which was
+    // the bulk of the geometry-cache stage. Failure semantics are preserved by
+    // the helper (an unprojectable point keeps its input value).
+    auto projectAll = [this](std::vector<double> &xs, std::vector<double> &ys) {
+        CRSReproject::transformPointsInPlace(m_transform, xs.data(), ys.data(),
+                                             int(xs.size()));
     };
-    auto toScenePt = [&](double mx, double my) {
-        applyTransform(mx, my);
-        return QPointF(mx, -my);  // matches toScene() in swmmlayeritem.cpp
-    };
+
+    std::vector<double> bx, by;   // reused scratch across all four passes
 
     m_nodeScenePts.resize(m_nodes.size());
+    bx.resize(m_nodes.size());
+    by.resize(m_nodes.size());
+    for (int i = 0; i < m_nodes.size(); ++i) { bx[i] = m_nodes[i].x; by[i] = m_nodes[i].y; }
+    projectAll(bx, by);
     for (int i = 0; i < m_nodes.size(); ++i)
-        m_nodeScenePts[i] = toScenePt(m_nodes[i].x, m_nodes[i].y);
+        m_nodeScenePts[i] = QPointF(bx[i], -by[i]);   // matches toScene() in swmmlayeritem.cpp
 
     m_gageScenePts.resize(m_gages.size());
+    bx.resize(m_gages.size());
+    by.resize(m_gages.size());
+    for (int i = 0; i < m_gages.size(); ++i) { bx[i] = m_gages[i].x; by[i] = m_gages[i].y; }
+    projectAll(bx, by);
     for (int i = 0; i < m_gages.size(); ++i)
-        m_gageScenePts[i] = toScenePt(m_gages[i].x, m_gages[i].y);
+        m_gageScenePts[i] = QPointF(bx[i], -by[i]);
 
     // Pack every link's vertices into one big float buffer. Pre-pass to
     // compute total vertex count + offsets so a single resize covers
@@ -6752,46 +7969,124 @@ void SWMMModelLayer::rebuildSceneCoords()
     m_linkVertexOffset.assign(m_links.size(), 0);
     m_linkVertexCount .assign(m_links.size(), 0);
     uint32_t totalVerts = 0;
-    for (int i = 0; i < m_links.size(); ++i) {
-        const QVector<QPointF> full = cachedLinkPolyline(i);
-        const uint32_t n = uint32_t(full.size());
-        m_linkVertexOffset[i] = totalVerts;
-        m_linkVertexCount [i] = n;
-        totalVerts += n;
+    {
+        // Offsets are pure arithmetic — the polyline is from-node + interior
+        // bends + to-node — so the old counting pre-pass, which materialised a
+        // fresh QVector<QPointF> per link via cachedLinkPolyline() just to read
+        // its size(), is not needed. On a 280k-link model that alone was 280k
+        // throwaway heap allocations before any projection happened.
+        const int nNodes = m_nodes.size();
+        for (int i = 0; i < m_links.size(); ++i) {
+            const LinkGeom &lg = m_links[i];
+            const bool fromOk = (lg.fromNodeIdx >= 0 && lg.fromNodeIdx < nNodes);
+            const bool toOk   = (lg.toNodeIdx   >= 0 && lg.toNodeIdx   < nNodes);
+            const uint32_t n  = uint32_t(lg.vertices.size())
+                              + (fromOk ? 1u : 0u) + (toOk ? 1u : 0u);
+            m_linkVertexOffset[i] = totalVerts;
+            m_linkVertexCount [i] = n;
+            totalVerts += n;
+        }
     }
     m_linkSceneFlat.assign(size_t(totalVerts) * 2, 0.0);
     m_linkSceneBBoxes.resize(m_links.size());
-    for (int i = 0; i < m_links.size(); ++i)
-        refreshSceneCoordsForLink(i);
+    {
+        // Gather every link vertex, project the whole set in batches, then
+        // scatter into the flat buffer and derive bboxes. Replaces
+        // refreshSceneCoordsForLink() per link, which transformed one point at
+        // a time — the single largest source of PROJ calls in this function.
+        const int nNodes = m_nodes.size();
+        bx.resize(totalVerts);
+        by.resize(totalVerts);
+        size_t w = 0;
+        for (int i = 0; i < m_links.size(); ++i) {
+            const LinkGeom &lg = m_links[i];
+            if (lg.fromNodeIdx >= 0 && lg.fromNodeIdx < nNodes) {
+                bx[w] = m_nodes[lg.fromNodeIdx].x;
+                by[w] = m_nodes[lg.fromNodeIdx].y;
+                ++w;
+            }
+            for (const QPointF &v : lg.vertices) { bx[w] = v.x(); by[w] = v.y(); ++w; }
+            if (lg.toNodeIdx >= 0 && lg.toNodeIdx < nNodes) {
+                bx[w] = m_nodes[lg.toNodeIdx].x;
+                by[w] = m_nodes[lg.toNodeIdx].y;
+                ++w;
+            }
+        }
+
+        projectAll(bx, by);
+
+        for (int i = 0; i < m_links.size(); ++i) {
+            const uint32_t off = m_linkVertexOffset[i];
+            const uint32_t n   = m_linkVertexCount[i];
+            QRectF bbox;
+            for (uint32_t v = 0; v < n; ++v) {
+                const double sx =  bx[off + v];
+                const double sy = -by[off + v];
+                m_linkSceneFlat[size_t(off + v) * 2 + 0] = sx;
+                m_linkSceneFlat[size_t(off + v) * 2 + 1] = sy;
+                const QPointF p(sx, sy);
+                if (v == 0) bbox = QRectF(p, QSizeF(0, 0));
+                else {
+                    if (p.x() < bbox.left())   bbox.setLeft  (p.x());
+                    if (p.x() > bbox.right())  bbox.setRight (p.x());
+                    if (p.y() < bbox.top())    bbox.setTop   (p.y());
+                    if (p.y() > bbox.bottom()) bbox.setBottom(p.y());
+                }
+            }
+            // Axis-aligned 2-point links (orifices/weirs whose from/to nodes
+            // share an x or y) collapse to a zero-extent rect; QRectF::isEmpty()
+            // then trips the spatial-grid skip and the link disappears from the
+            // map. Same sub-pixel inflation refreshSceneCoordsForLink applies —
+            // it must stay in BOTH paths.
+            if (bbox.width()  == 0.0) bbox.adjust(-1e-3, 0.0, 1e-3, 0.0);
+            if (bbox.height() == 0.0) bbox.adjust(0.0, -1e-3, 0.0, 1e-3);
+            m_linkSceneBBoxes[i] = bbox;
+        }
+    }
 
     m_catchScenePts.resize(m_catchments.size());
     m_catchSceneBBoxes.resize(m_catchments.size());
-    for (int i = 0; i < m_catchments.size(); ++i)
     {
-        const auto &verts = m_catchments[i].vertices;
-        QVector<QPointF> sp;
-        sp.reserve(verts.size());
-        QRectF bbox;
-        for (int v = 0; v < verts.size(); ++v) {
-            const QPointF p = toScenePt(verts[v].x(), verts[v].y());
-            sp.append(p);
-            if (v == 0) bbox = QRectF(p, QSizeF(0, 0));
-            else {
-                if (p.x() < bbox.left())   bbox.setLeft  (p.x());
-                if (p.x() > bbox.right())  bbox.setRight (p.x());
-                if (p.y() < bbox.top())    bbox.setTop   (p.y());
-                if (p.y() > bbox.bottom()) bbox.setBottom(p.y());
+        // One gather across EVERY catchment ring, one batched projection, then
+        // one scatter — rather than a projection call per polygon vertex.
+        size_t total = 0;
+        for (const CatchGeom &c : m_catchments) total += size_t(c.vertices.size());
+        bx.resize(total);
+        by.resize(total);
+        size_t w = 0;
+        for (const CatchGeom &c : m_catchments)
+            for (const QPointF &v : c.vertices) { bx[w] = v.x(); by[w] = v.y(); ++w; }
+
+        projectAll(bx, by);
+
+        size_t rd = 0;
+        for (int i = 0; i < m_catchments.size(); ++i) {
+            const int nv = m_catchments[i].vertices.size();
+            QVector<QPointF> sp;
+            sp.reserve(nv);
+            QRectF bbox;
+            for (int v = 0; v < nv; ++v, ++rd) {
+                const QPointF p(bx[rd], -by[rd]);
+                sp.append(p);
+                if (v == 0) bbox = QRectF(p, QSizeF(0, 0));
+                else {
+                    if (p.x() < bbox.left())   bbox.setLeft  (p.x());
+                    if (p.x() > bbox.right())  bbox.setRight (p.x());
+                    if (p.y() < bbox.top())    bbox.setTop   (p.y());
+                    if (p.y() > bbox.bottom()) bbox.setBottom(p.y());
+                }
             }
+            m_catchScenePts[i]    = std::move(sp);
+            m_catchSceneBBoxes[i] = bbox;
         }
-        m_catchScenePts[i]    = std::move(sp);
-        m_catchSceneBBoxes[i] = bbox;
     }
 
     // Rebuild the link spatial grid from the freshly-computed bboxes.
     // Paint queries this directly — see SWMMLayerItem::paint().
     QElapsedTimer gt; gt.start();
     m_linkGrid.rebuild(m_linkSceneBBoxes);
-    qDebug().noquote() << "[LinkSpatialGrid::rebuild] links=" << m_links.size()
+    qCDebug(lcLoadModel).noquote()
+                       << "[LinkSpatialGrid::rebuild] links=" << m_links.size()
                        << " cols=" << m_linkGrid.cols
                        << " rows=" << m_linkGrid.rows
                        << " elapsed_ms=" << gt.elapsed();

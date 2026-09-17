@@ -186,6 +186,20 @@ add_swmmvis_unit_test(test_meshspatialgrid
 # meshedgepropertyadapter.cpp (Q_PROPERTY / MOC validity).
 
 # Slice §V.VD.1 — [2D_BOUNDARY_CONDITIONS] writer / reader round-trip.
+# [2D_MESH_FILE] reference tokens are relative to the .inp, including `../`
+# forms for a mesh kept outside the model folder.
+add_swmmvis_unit_test(test_inpmeshwriter_relpath
+    test_inpmeshwriter_relpath.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshwriter.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
+    # The writer emits the GG0a [2D_INFILTRATION*] family, so it needs the
+    # mesh::infil* token/mask helpers.
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
+)
+
 add_swmmvis_unit_test(test_meshinpbcroundtrip
     test_meshinpbcroundtrip.cpp
     ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
@@ -194,6 +208,10 @@ add_swmmvis_unit_test(test_meshinpbcroundtrip
     ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshwriter.h
     ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+    # inpmeshreader/inpmeshwriter parse and emit the per-cell
+    # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
 )
 
@@ -243,9 +261,33 @@ if(TARGET openswmm_engine)
         ${PROJECT_SOURCE_DIR}/include/mesh/meshenginesync.h
         ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
         ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+        # inpmeshreader/inpmeshwriter parse and emit the per-cell
+        # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
         ${PROJECT_SOURCE_DIR}/src/mesh/meshenginesync.cpp
     )
     target_link_libraries(test_meshenginesync PRIVATE Qt6::Gui openswmm_engine)
+
+    # Save-path perf harness — times mesh read / engine open / mesh push /
+    # model write against a large synthetic mesh, in the OPENED-not-INITIALIZED
+    # engine state the GUI's saveAs actually runs in. Skips unless
+    # SWMM_PROFILE_SAVE_INP names a fixture, so CI is unaffected.
+    add_swmmvis_unit_test(test_savepathperf
+        test_savepathperf.cpp
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshedgebc.h
+        ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshreader.h
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshenginesync.h
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+        # inpmeshreader/inpmeshwriter parse and emit the per-cell
+        # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshenginesync.cpp
+    )
+    target_link_libraries(test_savepathperf PRIVATE Qt6::Gui openswmm_engine)
 endif()
 
 # Slice BB Phase 8.6.16 — shared model for legend overlay chrome.
@@ -310,6 +352,21 @@ if(TARGET openswmm_engine)
     target_link_libraries(test_timeseries_parse PRIVATE openswmm_engine)
 endif()
 
+# Multi-column series files (spec §4 task 1) — shared CSV/TSV/.tsf column
+# enumeration + single-column reader, plus the pure "path:col" token core
+# used by TimeseriesRegistry persistence. Fixtures: data/extcol_*.
+# QtCore-only apart from the engine datetime C API (same note as above).
+add_swmmvis_unit_test(test_externalcolumnfile
+    test_externalcolumnfile.cpp
+    ${PROJECT_SOURCE_DIR}/include/ui/util/externalcolumnfile.h
+    ${PROJECT_SOURCE_DIR}/include/ui/util/externalcolumnfilecore.h
+    ${PROJECT_SOURCE_DIR}/src/ui/util/externalcolumnfile.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/timeseriesparse.cpp
+)
+if(TARGET openswmm_engine)
+    target_link_libraries(test_externalcolumnfile PRIVATE openswmm_engine)
+endif()
+
 # ── SWMM DateTime consolidation (GH #1, #2) ─────────────────────────────────
 # Canonical QDateTime<->SWMM converter (include/core/swmmdatetime.h) parity
 # against the engine's native encode/decode. Header-only under test; links the
@@ -346,6 +403,17 @@ add_swmmvis_unit_test(test_timeseries_registry
 # TimeseriesRegistry::loadFromEngine pulls in openswmm engine headers + symbols.
 if(TARGET openswmm_engine)
     target_link_libraries(test_timeseries_registry PRIVATE openswmm_engine)
+endif()
+
+# Rainfall Visualization data model: pure series/stats math + an
+# engine-backed gage assembly case (needs the engine like the registry test).
+add_swmmvis_unit_test(test_rainfallseriesmodel
+    test_rainfallseriesmodel.cpp
+    ${PROJECT_SOURCE_DIR}/include/plot/rainfallseriesmodel.h
+    ${PROJECT_SOURCE_DIR}/src/plot/rainfallseriesmodel.cpp
+)
+if(TARGET openswmm_engine)
+    target_link_libraries(test_rainfallseriesmodel PRIVATE openswmm_engine)
 endif()
 
 add_swmmvis_unit_test(test_timeseries_table_model
@@ -393,6 +461,34 @@ target_link_libraries(test_rastergeoref PRIVATE Qt6::Gui GDAL::GDAL)
 target_compile_definitions(test_rastergeoref
     PRIVATE RASTERGEOREF_OUT_DIR="${PROJECT_SOURCE_DIR}/test_artifacts/localraster")
 
+# ---- Editable feature layers: geometry value type + OGR bridge ----
+# MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN 2026-09-07 §3.1. featuregeometry.cpp
+# is a leaf: Qt, OGR geometry, and the ring predicates in meshquadregion.cpp
+# (which it delegates to rather than reimplementing). Qt6::Gui supplies
+# QPolygonF, which both use.
+add_swmmvis_unit_test(test_featuregeometry
+    test_featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+)
+target_link_libraries(test_featuregeometry PRIVATE Qt6::Gui GDAL::GDAL)
+
+# ---- Editable feature layers: the GeoPackage read/write store ----
+# The repository's first OGR WRITE path, so these tests exercise the driver:
+# FID reuse on insert (the stable-id contract behind AddFeatureCommand) and a
+# concurrent read-only open seeing flushed writes (what a mesh worker does).
+# Artifacts land beside the fixtures — reviewable, not a temp dir (CLAUDE.md §4.1).
+add_swmmvis_unit_test(test_featurestore
+    test_featurestore.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featurestore.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+)
+target_link_libraries(test_featurestore PRIVATE Qt6::Gui GDAL::GDAL)
+target_compile_definitions(test_featurestore
+    PRIVATE FEATURESTORE_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data/featurestore_artifacts")
+
 # ---- Bundled-example seeder / discovery + curated Bellinge payload guard ----
 # QTemporaryDir fixtures for sync/copy/discovery; BELLINGE_EXAMPLE_DIR points
 # at the committed payload so curation regressions (result-layer refs creeping
@@ -402,7 +498,8 @@ add_swmmvis_unit_test(test_examplesseeder
     ${PROJECT_SOURCE_DIR}/src/project/examplesseeder.cpp
 )
 target_compile_definitions(test_examplesseeder
-    PRIVATE BELLINGE_EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/bellinge_2d")
+    PRIVATE BELLINGE_EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/bellinge_2d"
+            EXAMPLES_SOURCE_DIR="${PROJECT_SOURCE_DIR}/examples")
 
 # ---- QSG 2D 1M-cell rendering helpers (QSG_2D_1M_RENDERING plan) ----
 # All pure Qt-Core helpers extracted from the 2D mesh/results QSG renderers
@@ -466,3 +563,32 @@ add_swmmvis_unit_test(test_importplanning
     ${PROJECT_SOURCE_DIR}/src/ui/dialogs/import/importmapping.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/dialogs/import/importplanning.cpp
 )
+
+# INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN phase G5 — the engine contract the
+# GUI's inlet-junction commands stand on (split/fuse inverse, usage-row
+# round-trip, capture-node rule). Engine-only by necessity: SWMMModelLayer
+# cannot be linked headlessly. Fixture and artefacts live in reviewable
+# directories rather than a temp dir (CLAUDE.md §4.1).
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_inlet_junction_layer
+        test_inlet_junction_layer.cpp
+    )
+    target_link_libraries(test_inlet_junction_layer PRIVATE openswmm_engine)
+    target_compile_definitions(test_inlet_junction_layer PRIVATE
+        SWMMVIS_INLET_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/data/inlets"
+        SWMMVIS_INLET_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/inlets")
+endif()
+
+# The engine contract behind the plain-junction split tool: make_virtual = 0
+# really yields an ordinary junction, the halves conserve length, and the GUI's
+# undo (flag virtual, then fuse) is an exact inverse. Engine-only for the same
+# reason as the inlet test above.
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_junction_split_layer
+        test_junction_split_layer.cpp
+    )
+    target_link_libraries(test_junction_split_layer PRIVATE openswmm_engine)
+    target_compile_definitions(test_junction_split_layer PRIVATE
+        SWMMVIS_JSPLIT_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/data/inlets"
+        SWMMVIS_JSPLIT_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/junction_split")
+endif()

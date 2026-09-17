@@ -58,6 +58,12 @@ public:
     explicit MeshEditingToolbar(const QString &title, QWidget *parent = nullptr);
     ~MeshEditingToolbar() override;
 
+protected:
+    //! Flushes a node-list refresh that was deferred while hidden.
+    void showEvent(QShowEvent *event) override;
+
+public:
+
     /*! \brief Bind the toolbar to a new project canvas. Disconnects from
      *  the previous canvas's signals, populates the mesh combo from the
      *  new canvas's `SWMM2DMeshLayer` instances, and re-establishes the
@@ -133,6 +139,15 @@ public:
     [[nodiscard]] QWidget *cellTagWidget() const;
     void setCellEditorActions(QAction *paramAct, QAction *tagAct);
 
+    /*! \brief Place a cell-scoped action (currently "Assign Infiltration to
+     *  Selection…") in the 2D-cell cluster, beside the param / tag editors.
+     *
+     *  Enabled only while at least one cell is selected — the dialog it opens
+     *  reads the selection, so offering it with nothing selected is offering a
+     *  dead end. Disabled rather than hidden (unlike the editor widgets)
+     *  because the same QAction is mirrored into the Model ▸ Mesh menu. */
+    void addCellAction(QAction *action);
+
     /*! \brief Key of the parameter currently shown in the cell editor
      *         (mesh::CellParamSpec::key). Empty when the editor is absent. */
     [[nodiscard]] QByteArray currentCellParamKey() const;
@@ -172,7 +187,12 @@ private slots:
     void onVertexAreaCommit();       // coupling area → selected coupled vertices
     void onAutoCoupleClicked();      // couple vertices to coincident SWMM nodes
     void onRemapClicked();           // Remap 1D↔2D: vertex + cell coupling (Plan C.4)
+
+    /*! Unit label for the coupling AREA column: the active mesh's length
+     *  units squared ("m²" for an SI-tagged mesh, else project length²). */
+    [[nodiscard]] QString meshAreaUnitLabel() const;
     void onCellParamCommit();        // selected parameter → selected cells
+    void onCellEnumCommit(int index); // Kind::Enum editor → selected cells
     void onCellParamChanged(int index); // reconfigure the value editor
     void onCellTagCommit();          // descriptive triangle tag → selected cell
     void onSelectionChanged();
@@ -192,6 +212,12 @@ private:
      *  project is pure cost. */
     bool m_bcListsStale = false;
 
+    /*! refreshNodeList() was skipped because the toolbar was hidden, and must
+     *  run before the user can see the combo. See refreshNodeList() for why
+     *  deferring this one is safe when deferring the attribute table's model
+     *  was not. */
+    bool m_nodeListStale = false;
+
     void rebuildMeshCombo();
     void refreshGroupWidths();   // re-measure the ribbon groups after
                                  // contextual clusters show/hide
@@ -201,6 +227,15 @@ private:
     void refreshEdgeEditor();
     void refreshCellEditor();
     void updateEnabledState();
+    /*! \brief Write \p value into the currently selected cell parameter on
+     *  every selected cell, as one undo entry.
+     *
+     *  The `infil.*` keys are routed to mesh::pushCellInfilEdit rather than
+     *  mesh::pushCellParamEdit: only that command snapshots PROVENANCE, so
+     *  only its undo puts an inheriting cell back to inheriting instead of
+     *  leaving a materialised override carrying the same numbers. */
+    void commitCellParam(double value);
+
     QList<int> currentSelectedVertices() const;          // all selected vertex indices
     QList<QPair<int,int>> currentSelectedEdges() const;  // (tri, eLocal) pairs
     QList<int> currentSelectedCells() const;             // all selected triangle indices
@@ -261,9 +296,15 @@ private:
     QWidget       *m_cellParamPage  = nullptr;
     QComboBox     *m_cellParamCombo = nullptr;
     QDoubleSpinBox*m_cellValueSpin  = nullptr;
+    // Value editor for CellParamSpec::Kind::Enum parameters (infiltration
+    // method). Shares the slot the spin box occupies — exactly one of the two
+    // is visible, chosen by the selected parameter's kind. A −1…5 numeric
+    // spinner for an enumeration is not an editor, it is a puzzle.
+    QComboBox     *m_cellEnumCombo  = nullptr;
     QLineEdit     *m_cellTagEdit    = nullptr;   // descriptive triangle tag
     QAction       *m_actCellParam   = nullptr;   // embedding actions for hide
     QAction       *m_actCellTag     = nullptr;
+    QAction       *m_actCellInfil   = nullptr;   // "Assign Infiltration to Selection…"
     // Project depth unit ("ft"/"m") shown on length-valued parameters.
     QString        m_depthUnitLabel = QStringLiteral("m");
 
@@ -284,6 +325,11 @@ private:
     QAction       *m_actConveySpin  = nullptr;
 
     bool           m_suppressZSignal = false;
+    /*! True while refreshEdgeEditor() hydrates the BC widgets — the
+     *  commit slots early-return on it so a display refresh (including a
+     *  re-entrant one fired by a running bulk command's per-slot
+     *  attributeChanged) can never push an edit. */
+    bool           m_refreshingEdgeEditor = false;
 
     PickerFn       m_stageTSPicker;
     PickerFn       m_flowTSPicker;

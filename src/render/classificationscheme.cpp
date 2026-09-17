@@ -89,8 +89,36 @@ void ClassificationScheme::setManualBreaks(QVector<double> breaks)
 
 void ClassificationScheme::setRampName(const QString &name)
 {
+    // Same label = no-op, deliberately KEEPING any embedded custom payload
+    // (redundant setRampName("Custom 1") calls must not degrade to the
+    // builtin-lookup grayscale fallback). A different name means the user
+    // picked another ramp, so the stale custom payload is dropped.
     if (m_rampName == name) return;
     m_rampName = name;
+    m_hasCustomRamp = false;
+    m_customRamp = RasterColorRamp();
+    bump();
+}
+
+void ClassificationScheme::setCustomRamp(const RasterColorRamp &ramp, const QString &name)
+{
+    if (m_hasCustomRamp && m_rampName == name
+        && m_customRamp.stops == ramp.stops
+        && m_customRamp.interp == ramp.interp
+        && m_customRamp.clampMin == ramp.clampMin
+        && m_customRamp.clampMax == ramp.clampMax)
+        return;
+    m_customRamp = ramp;
+    m_hasCustomRamp = true;
+    m_rampName = name;
+    bump();
+}
+
+void ClassificationScheme::clearCustomRamp()
+{
+    if (!m_hasCustomRamp) return;
+    m_hasCustomRamp = false;
+    m_customRamp = RasterColorRamp();
     bump();
 }
 
@@ -117,6 +145,8 @@ void ClassificationScheme::setHighColor(const QColor &c)
 
 RasterColorRamp ClassificationScheme::resolvedRamp() const
 {
+    if (m_hasCustomRamp && !m_customRamp.stops.isEmpty())
+        return m_customRamp;
     if (!m_rampName.isEmpty())
         return RasterColorRamp::builtin(m_rampName);
     RasterColorRamp ramp;
@@ -398,6 +428,8 @@ QJsonObject ClassificationScheme::toJson() const
     obj.insert(QStringLiteral("mode"),       modeToString(m_mode));
     obj.insert(QStringLiteral("binner"),     m_binner.toJson());
     obj.insert(QStringLiteral("rampName"),   m_rampName);
+    if (m_hasCustomRamp)
+        obj.insert(QStringLiteral("customRamp"), m_customRamp.toJson());
     obj.insert(QStringLiteral("invertRamp"), m_invertRamp);
     obj.insert(QStringLiteral("lowColor"),   m_lowColor.name(QColor::HexArgb));
     obj.insert(QStringLiteral("highColor"),  m_highColor.name(QColor::HexArgb));
@@ -429,6 +461,14 @@ ClassificationScheme ClassificationScheme::fromJson(const QJsonObject &j)
     s.m_mode       = modeFromString(j.value(QStringLiteral("mode")).toString());
     s.m_binner     = IntervalBinner::fromJson(j.value(QStringLiteral("binner")).toObject());
     s.m_rampName   = j.value(QStringLiteral("rampName")).toString(s.m_rampName);
+    if (j.contains(QStringLiteral("customRamp"))) {
+        const RasterColorRamp cr =
+            RasterColorRamp::fromJson(j.value(QStringLiteral("customRamp")).toObject());
+        if (!cr.stops.isEmpty()) {
+            s.m_customRamp = cr;
+            s.m_hasCustomRamp = true;
+        }
+    }
     s.m_invertRamp = j.value(QStringLiteral("invertRamp")).toBool(s.m_invertRamp);
 
     auto readColor = [&](const char *key, QColor &slot) {
@@ -476,6 +516,12 @@ bool ClassificationScheme::operator==(const ClassificationScheme &o) const
            && m_binner.binCount() == o.m_binner.binCount()
            && m_binner.manualBreaks() == o.m_binner.manualBreaks()
            && m_rampName == o.m_rampName
+           && m_hasCustomRamp == o.m_hasCustomRamp
+           && (!m_hasCustomRamp
+               || (m_customRamp.stops == o.m_customRamp.stops
+                   && m_customRamp.interp == o.m_customRamp.interp
+                   && m_customRamp.clampMin == o.m_customRamp.clampMin
+                   && m_customRamp.clampMax == o.m_customRamp.clampMax))
            && m_invertRamp == o.m_invertRamp
            && m_lowColor == o.m_lowColor
            && m_highColor == o.m_highColor

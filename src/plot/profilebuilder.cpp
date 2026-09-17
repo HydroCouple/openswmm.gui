@@ -192,56 +192,8 @@ SourceDerived compute(const PathStatic &path,
     out.minWaterSurface.fill(kPosInf, N);
     out.maxWaterSurface.fill(kNegInf, N);
 
-    // nodeDepth is optional per the SourceSeries contract — present only when
-    // the caller pre-fetched it (the in-tree ProfileSourceFetcher does).  Test
-    // the per-node row size at use-time so a partial array still works.
-    const bool haveDepthArray = !src.nodeDepth.isEmpty();
-
-    for (int p = 0; p < P; ++p) {
-        // Hoist the inner-vector references for this period — sequential
-        // writes within these refs are the whole point of period-major.
-        auto &hglRow = out.hglByPeriod[p];
-        auto &eglRow = out.eglByPeriod[p];
-        auto &wsRow  = out.waterSurfaceByPeriod[p];
-
-        for (int n = 0; n < N; ++n) {
-            // HGL = NodeHead from the .out file (the engine's hydraulic
-            // grade line output). When this node is absent from the
-            // output file the row is empty — leave the slot at NaN so the
-            // widget skips that node/period instead of rendering a bogus
-            // line at elevation 0. HGL and water-surface are written
-            // independently — a node may have depth data but no head
-            // (or vice versa).
-            const auto &headRow = src.nodeHead[n];
-            if (p < headRow.size()) {
-                const double hgl = static_cast<double>(headRow[p]);
-                const double vh  = velocityHead(path, src, n, p, gravity);
-                const double egl = hgl + vh;
-                hglRow[n] = hgl;
-                eglRow[n] = egl;
-
-                if (hgl < out.minHgl[n]) out.minHgl[n] = hgl;
-                if (hgl > out.maxHgl[n]) out.maxHgl[n] = hgl;
-                if (egl < out.minEgl[n]) out.minEgl[n] = egl;
-                if (egl > out.maxEgl[n]) out.maxEgl[n] = egl;
-            }
-
-            // Water surface = invert + depth.  Distinct from HGL when the
-            // conduit is pressurized (HGL > rim → free-surface caps at
-            // rim). Sized defensively in case nodeDepth has fewer rows
-            // than nodes.
-            if (haveDepthArray && n < src.nodeDepth.size()) {
-                const auto &depthRow = src.nodeDepth[n];
-                if (p < depthRow.size()) {
-                    const double ws = path.nodes[n].invertElev
-                                      + static_cast<double>(depthRow[p]);
-                    wsRow[n] = ws;
-                    if (ws < out.minWaterSurface[n]) out.minWaterSurface[n] = ws;
-                    if (ws > out.maxWaterSurface[n]) out.maxWaterSurface[n] = ws;
-                }
-            }
-        }
-    }
+    for (int p = 0; p < P; ++p)
+        accumulatePeriod(path, src, p, gravity, out);
 
     // Zero-period guard: leave min/max at +inf/-inf so callers can detect
     // "no envelope data" rather than show misleading defaults.
@@ -255,6 +207,105 @@ SourceDerived compute(const PathStatic &path,
     }
 
     return out;
+}
+
+void accumulatePeriod(const PathStatic &path,
+                      const SourceSeries &src,
+                      int p,
+                      double gravity,
+                      SourceDerived &out)
+{
+    const int N = path.nodes.size();
+
+    // nodeDepth is optional per the SourceSeries contract — present only when
+    // the caller pre-fetched it (the in-tree ProfileSourceFetcher does).  Test
+    // the per-node row size at use-time so a partial array still works.
+    const bool haveDepthArray = !src.nodeDepth.isEmpty();
+
+    // Hoist the inner-vector references for this period — sequential
+    // writes within these refs are the whole point of period-major.
+    auto &hglRow = out.hglByPeriod[p];
+    auto &eglRow = out.eglByPeriod[p];
+    auto &wsRow  = out.waterSurfaceByPeriod[p];
+
+    for (int n = 0; n < N; ++n) {
+        // HGL = NodeHead from the .out file (the engine's hydraulic
+        // grade line output). When this node is absent from the
+        // output file the row is empty — leave the slot at NaN so the
+        // widget skips that node/period instead of rendering a bogus
+        // line at elevation 0. HGL and water-surface are written
+        // independently — a node may have depth data but no head
+        // (or vice versa).
+        const auto &headRow = src.nodeHead[n];
+        if (p < headRow.size()) {
+            const double hgl = static_cast<double>(headRow[p]);
+            const double vh  = velocityHead(path, src, n, p, gravity);
+            const double egl = hgl + vh;
+            hglRow[n] = hgl;
+            eglRow[n] = egl;
+
+            if (hgl < out.minHgl[n]) out.minHgl[n] = hgl;
+            if (hgl > out.maxHgl[n]) out.maxHgl[n] = hgl;
+            if (egl < out.minEgl[n]) out.minEgl[n] = egl;
+            if (egl > out.maxEgl[n]) out.maxEgl[n] = egl;
+        }
+
+        // Water surface = invert + depth.  Distinct from HGL when the
+        // conduit is pressurized (HGL > rim → free-surface caps at
+        // rim). Sized defensively in case nodeDepth has fewer rows
+        // than nodes.
+        if (haveDepthArray && n < src.nodeDepth.size()) {
+            const auto &depthRow = src.nodeDepth[n];
+            if (p < depthRow.size()) {
+                const double ws = path.nodes[n].invertElev
+                                  + static_cast<double>(depthRow[p]);
+                wsRow[n] = ws;
+                if (ws < out.minWaterSurface[n]) out.minWaterSurface[n] = ws;
+                if (ws > out.maxWaterSurface[n]) out.maxWaterSurface[n] = ws;
+            }
+        }
+    }
+}
+
+bool appendPeriods(const PathStatic &path,
+                   const SourceSeries &src,
+                   double gravity,
+                   SourceDerived &derived)
+{
+    const Diagnostic d = validate(path, src);
+    if (!d.error.isEmpty()) return false;
+
+    const int N    = path.nodes.size();
+    const int Pold = derived.hglByPeriod.size();
+    const int P    = src.periodCount;
+    if (P < Pold) return false;                     // source shrank: not an append
+    if (derived.eglByPeriod.size() != Pold || derived.waterSurfaceByPeriod.size() != Pold)
+        return false;
+    if (P == Pold) return true;
+
+    // A derived built over zero periods carries compute()'s 0.0 envelope
+    // placeholders; restart the running min/max exactly as compute() would.
+    if (Pold == 0) {
+        derived.minHgl.fill(kPosInf, N);
+        derived.maxHgl.fill(kNegInf, N);
+        derived.minEgl.fill(kPosInf, N);
+        derived.maxEgl.fill(kNegInf, N);
+        derived.minWaterSurface.fill(kPosInf, N);
+        derived.maxWaterSurface.fill(kNegInf, N);
+    } else if (derived.minHgl.size() != N) {
+        return false;
+    }
+
+    derived.hglByPeriod.resize(P);
+    derived.eglByPeriod.resize(P);
+    derived.waterSurfaceByPeriod.resize(P);
+    for (int p = Pold; p < P; ++p) {
+        derived.hglByPeriod[p].fill(std::numeric_limits<double>::quiet_NaN(), N);
+        derived.eglByPeriod[p].fill(std::numeric_limits<double>::quiet_NaN(), N);
+        derived.waterSurfaceByPeriod[p].fill(std::numeric_limits<double>::quiet_NaN(), N);
+        accumulatePeriod(path, src, p, gravity, derived);
+    }
+    return true;
 }
 
 } // namespace ProfileBuilder

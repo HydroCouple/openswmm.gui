@@ -50,6 +50,7 @@
 #include <QVector>
 #include <QWidget>
 
+#include <limits>
 #include <memory>
 #include <optional>
 
@@ -168,6 +169,33 @@ public:
     [[nodiscard]] LayerToggles layerToggles() const;
 
     /*!
+     * \struct Surface2DSample
+     * \brief One station of the 2D inundation overlay: the active 2D results
+     *        layer's water surface sampled where the path crosses the mesh.
+     *        `chainage` is REAL path chainage (converted to virtual x when
+     *        painting, like terrain samples). `bed` is the mesh bed elevation
+     *        at the station; `wse` is bed + interpolated depth, or NaN when
+     *        the station is dry / off-mesh / has no data (a gap).
+     */
+    struct Surface2DSample
+    {
+        double chainage = 0.0;
+        double bed      = std::numeric_limits<double>::quiet_NaN();
+        double wse      = std::numeric_limits<double>::quiet_NaN();
+    };
+
+    /*!
+     * \brief Replaces the 2D inundation overlay stations (static geometry +
+     *        the current frame's WSE). Pass an empty vector to clear. The
+     *        host re-sends the vector with fresh `wse` values on every
+     *        animation tick; `ProfilePlotOptions::show2DInundation` gates
+     *        drawing. Widens the y-extent to the wettest station.
+     */
+    void setSurface2DSamples(const QVector<Surface2DSample> &samples);
+    [[nodiscard]] const QVector<Surface2DSample> &surface2DSamples() const
+    { return m_surface2D; }
+
+    /*!
      * \brief Binds a ProfilePlotOptions object — the widget's theming
      *        (per-type fills/outlines, soil colours, line widths,
      *        legend position/font/opacity) is read from it.  Pass
@@ -186,7 +214,8 @@ public:
     /*!
      * \brief Hit-test: returns the path-node index whose manhole glyph is
      *        nearest \p widgetPos within a reasonable tolerance, or -1.
-     *        Used by Stage 6's edit-in-place context menu.
+     *        Virtual junctions count — their dashed rectangle shares the
+     *        manhole footprint.  Used by Stage 6's edit-in-place context menu.
      */
     [[nodiscard]] int nodeIndexAt(const QPoint &widgetPos) const;
 
@@ -218,6 +247,35 @@ public:
     bool setAxisEdgeValue(AxisEdge edge, double value);
     [[nodiscard]] QRectF visibleDataRange() const;
 
+    // ── Shared-x API (attribute tracks pane) ────────────────────────────
+    //
+    // The tracks pane below the profile reproduces this widget's horizontal
+    // pixel mapping exactly — same virtual-chainage x quantity, same left/
+    // right gutters — so the two charts stay column-aligned through every
+    // zoom and pan. Everything it needs is exposed here rather than
+    // duplicated: duplicated constants drift.
+
+    /*! Sets the visible x-range (virtual chainage). Y is untouched. Used by
+     *  the synced attribute-tracks pane to push its own pan/zoom back up.
+     *  Emits visibleXRangeChanged() (once) when the range actually moves. */
+    void setVisibleXRange(double vxMin, double vxMax);
+
+    /*! Per-node virtual chainage, rebuilt by recomputeBounds() on every
+     *  setPath()/setSeries(). Size matches the path's node count; empty
+     *  before the first setPath(). */
+    [[nodiscard]] const QVector<double> &virtualChainageTable() const
+    { return m_virtualChainage; }
+
+    /*! Maps a virtual x back to real chainage — public so the tracks pane
+     *  can label its shared x-axis with real stations, exactly like this
+     *  widget's own bottom ticks. */
+    [[nodiscard]] double virtualToRealChainage(double vx) const;
+
+    /*! The fixed horizontal gutters of the plot area, in pixels. The tracks
+     *  pane adopts the same values so data columns line up. */
+    [[nodiscard]] static int chartLeftMarginPx();
+    [[nodiscard]] static int chartRightMarginPx();
+
     /*! Zoom the view rect by \p factor around its centre.  `< 1` zooms in. */
     void zoomBy(double factor);
 
@@ -233,6 +291,15 @@ public:
     void setSelectedElementNames(const QStringList &names);
 
 signals:
+    /*!
+     * \brief Emitted whenever the visible x-range (virtual chainage)
+     *        changes — fit, zoom, pan, wheel, axis-edge edit, or a new
+     *        path/series recomputing the extent. Emitted at most once per
+     *        change (values are compared against the last emission).
+     *        Consumed by the attribute-tracks pane to stay column-aligned.
+     */
+    void visibleXRangeChanged(double vxMin, double vxMax);
+
     /*!
      * \brief Emitted on right-click over a node glyph; consumed by Stage 6
      *        to pop an edit-in-place context menu.
@@ -319,9 +386,8 @@ private:
         For zero-length links the result interpolates across the visual gap. */
     [[nodiscard]] double virtualXAlongLink(int linkIdx, double frac) const;
 
-    /*! Maps a virtual x back to the real chainage (interpolated within a
-        link).  Used by the bottom axis tick labels. */
-    [[nodiscard]] double virtualToRealChainage(double vx) const;
+    // (virtualToRealChainage is declared in the public section — the tracks
+    // pane labels its shared x-axis with it.)
 
     // ── Virtual-junction helpers ────────────────────────────────────────
 
@@ -344,21 +410,39 @@ private:
     void recomputeBounds();
     bool editAxisEdge(AxisEdge edge);
 
+    // Emits visibleXRangeChanged if m_dataXMin/Max moved since the last
+    // emission. Called after every x-mutation site so external consumers
+    // (the attribute-tracks pane) see exactly one signal per change.
+    void emitXRangeIfChanged();
+
     // Per-layer painters (broken out so the paint pipeline reads top-down).
     void paintBackgroundAndAxes  (QPainter &p) const;
     void paintLabelAxis          (QPainter &p) const;
     void paintSoilFill           (QPainter &p) const;
     void paintConduits           (QPainter &p) const;
     void paintNodes              (QPainter &p) const;
+    /*! Truncated stubs of the links a path node connects to that the profile
+     *  does NOT follow — drawn behind the manhole tube so the tube caps them.
+     *  Model-inflow links go on the upstream side, outflows downstream. */
+    void paintBranchStubs        (QPainter &p) const;
+    /*! Per-node plan rose above the rim: one spoke per connected link at its
+     *  map bearing, arrowheads showing flow direction, path links
+     *  highlighted. Suppressed where nodes are too close to draw one. */
+    void paintNodeRoses          (QPainter &p) const;
     void paintSelectionHighlights(QPainter &p) const;
     [[nodiscard]] QColor themeNodeFill   (ProfileBuilder::NodeKind k) const;
     [[nodiscard]] QColor themeNodeOutline(ProfileBuilder::NodeKind k) const;
+    /*! Pen for the dashed rectangle that marks a virtual junction.  Styled
+        independently of the physical node kinds, which carry a fill/outline
+        colour pair instead. */
+    [[nodiscard]] QPen   themeVirtualJunctionPen() const;
     [[nodiscard]] QColor themeLinkFill   (ProfileBuilder::LinkKind k) const;
     [[nodiscard]] QColor themeLinkOutline(ProfileBuilder::LinkKind k) const;
     [[nodiscard]] QColor themeSoilFill   () const;
     [[nodiscard]] QColor themeBeddingFill() const;
     [[nodiscard]] QPen   themeConduitOutlinePen() const;
     [[nodiscard]] QPen   themeLinkOutlinePen(ProfileBuilder::LinkKind k) const;
+    [[nodiscard]] QBrush themeStreetInvertBrush() const;
 
     // Per-kind dispatch helpers.  Each takes a series index into m_series.
     // The series carries its own resolved pen/brush; the helpers reach into
@@ -389,6 +473,18 @@ private:
     // WaterSurface-series only — in-pipe fill from invert to free-surface
     // depth (caps at rim under pressurization, unlike HGL).
     void paintWaterSurfaceFill   (QPainter &p, int seriesIdx) const;
+    // 2D inundation overlay — translucent band from the mesh bed up to the
+    // 2D water surface plus a WSE line, per contiguous wet run of stations.
+    // Drawn after the soil so it reads as water standing on the ground,
+    // and before the 1D fills/lines so the network's own HGL stays on top.
+    void paintSurface2D          (QPainter &p) const;
+    // Elevation of the DRAWN ground line at a real chainage — the sampled
+    // ground (DEM / 2D mesh) or rim-to-rim — so the 2D band fills exactly
+    // to it.
+    [[nodiscard]] double groundElevAtReal(double realX) const;
+    // Real path chainage → virtual x (zero-length links get a visual gap).
+    // Shared by the terrain ground line and the 2D overlay.
+    [[nodiscard]] double realChainageToVirtualX(double realX) const;
 
     void paintLegend             (QPainter &p) const;
     void paintTimeLabel          (QPainter &p) const;
@@ -409,6 +505,8 @@ private:
 
     ProfileBuilder::PathStatic   m_path;
     QVector<SeriesBinding>       m_series;
+    QVector<Surface2DSample>     m_surface2D;      /*!< 2D inundation overlay stations */
+    double                       m_surface2DMaxWse = std::numeric_limits<double>::quiet_NaN();
     LayerToggles                 m_toggles;
     QPointer<ProfilePlotOptions> m_options;        /*!< theming/legend source */
     QSet<QString>                m_selectedNames;  /*!< highlight set */
@@ -447,6 +545,9 @@ private:
     double                       m_dataYMin   = 0.0;
     double                       m_dataYMax   = 1.0;
     bool                         m_fitMode    = true;
+    // Last-emitted visibleXRangeChanged values (see emitXRangeIfChanged).
+    double                       m_lastEmittedXMin = std::numeric_limits<double>::quiet_NaN();
+    double                       m_lastEmittedXMax = std::numeric_limits<double>::quiet_NaN();
     Mode                         m_mode       = Mode::Identify;
     bool                         m_panActive  = false;     // pan-drag in progress
     bool                         m_zoomActive = false;     // zoom-rubberband in progress

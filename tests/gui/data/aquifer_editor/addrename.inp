@@ -1,0 +1,52 @@
+[OPTIONS]
+FLOW_UNITS           CFS
+FLOW_ROUTING         KINWAVE
+INFILTRATION         HORTON
+START_DATE           01/01/2026
+START_TIME           00:00:00
+END_DATE             01/01/2026
+END_TIME             01:00:00
+REPORT_STEP          00:05:00
+ROUTING_STEP         0:00:30
+
+[RAINGAGES]
+RG1  INTENSITY 0:05 1.0 TIMESERIES TS1
+
+[SUBCATCHMENTS]
+S1  RG1  J1  10.0  50  500  0.5  0
+
+[SUBAREAS]
+S1  0.01  0.1  0.05  0.05  25  OUTLET
+
+[INFILTRATION]
+S1  3.0  0.5  4.0  7  0
+
+[TIMESERIES]
+TS1  01/01/2026 00:00 1.0
+
+[JUNCTIONS]
+J1  100.0  10.0  0.0  0.0  0.0
+
+[OUTFALLS]
+O1  95.0  FREE
+
+[CONDUITS]
+C1  J1  O1  400.0  0.013  0  0
+
+[XSECTIONS]
+C1  CIRCULAR  1.5  0  0  0  1
+
+[PATTERNS]
+;; HR1 is HOURLY (24 factors over two lines) so the picker's MONTHLY filter has something to drop.
+EVAP1  MONTHLY  1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+HR1    HOURLY   1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+HR1    HOURLY   1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+
+[AQUIFERS]
+;;Name  Por  WP   FC   Ksat  Kslope  Tslope  ETu   ETs  Seep   Ebot  Egw   Umc   ETupat
+AQ1     0.5  0.15 0.30 5.0   10.0    15.0    0.35  2.0  0.002  90.0  100.0 0.35  EVAP1
+AQ2     0.4  0.10 0.20 2.0   5.0     10.0    0.20  1.0  0.001  80.0  85.0  0.20
+
+[GROUNDWATER]
+;;Subcatch  Aquifer  Node  Esurf  A1     B1  A2  B2  A3  Tw  Hstar
+S1          AQ1      J1    110.0  0.001  1   0   0   0   0   0

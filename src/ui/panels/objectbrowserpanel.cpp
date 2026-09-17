@@ -8,6 +8,7 @@
 #include "ui/panels/swmmobjecttreemodel.h"
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
+#include "ui/dialogs/inleteditordialog.h"
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/dialogs/ruleseditordialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
@@ -16,6 +17,7 @@
 #include "controls/controlruleregistry.h"
 #include "curve/curveprovider.h"
 #include "curve/curveregistry.h"
+#include "inlet/inletregistry.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "map/mapcanvas.h"
@@ -487,6 +489,11 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             }
         }
     }
+    QAction *actRainViz = nullptr;
+    if (ref.objectType == SWMMObjectRef::RainGage) {
+        actRainViz = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Chart")),
+                                    tr("Rainfall Visualization…"));
+    }
     QAction *actZoom = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
                                       tr("Zoom to Object"));
     actZoom->setEnabled(!m_canvas.isNull());
@@ -523,6 +530,10 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
         emit plotTimeSeriesRequested(ref);
         return;
     }
+    if (actRainViz && picked == actRainViz) {
+        emit rainfallVisualizationRequested(ref);
+        return;
+    }
     if (resultsActs.contains(picked)) {
         auto *layer = static_cast<SWMMResultsLayer *>(picked->data().value<void *>());
         emit plotTimeSeriesForLayerRequested(ref, layer);
@@ -545,21 +556,29 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             != QMessageBox::Yes)
             return;
 
-        // Drop the tree's own selection so the post-delete model refresh
-        // (driven by the layer's geometryChanged) doesn't try to hold a row
-        // that no longer exists.
-        if (auto *sm = m_view->selectionModel())
+        // Drop the selection so the post-delete model refresh (driven by the
+        // layer's geometryChanged) doesn't try to hold a row that no longer
+        // exists. Clear the canonical bus, not just the tree's own selection
+        // model — otherwise SelectionManager keeps a ref naming the deleted
+        // object and the reverse bridge republishes it as a phantom.
+        if (m_selMgr)
+            m_selMgr->clear();
+        else if (auto *sm = m_view->selectionModel())
             sm->clearSelection();
 
         if (m_canvas && m_canvas->undoStack()) {
             // Undoable path — a deleted node cascades its links inside
             // DeleteObjectCommand, exactly as the map / attribute-table
-            // deletes do.
-            m_canvas->undoStack()->push(
-                new DeleteObjectCommand(m_layer, ref.name, delKind, m_canvas));
+            // deletes do. One object, but the cascade is not one mutation:
+            // a node with 40 incident links pays 40 link-spatial-grid
+            // rebuilds inside applyNodeDelete without the bulk scope.
+            auto *macro = new BulkEditCommand(m_layer, tr("Delete \"%1\"").arg(ref.name));
+            new DeleteObjectCommand(m_layer, ref.name, delKind, m_canvas, macro);
+            m_canvas->undoStack()->push(macro);
         } else if (m_layer) {
             // No canvas/undo stack (headless / tests): perform the same
             // mutation DeleteObjectCommand::redo() would, minus the record.
+            SWMMModelLayer::BulkEdit guard(m_layer);
             switch (delKind) {
             case DeleteObjectCommand::DeleteNode:     m_layer->applyNodeDelete(ref.name);     break;
             case DeleteObjectCommand::DeleteLink:     m_layer->applyLinkDelete(ref.name);     break;
@@ -586,6 +605,7 @@ void ObjectBrowserPanel::onItemDoubleClicked(const QModelIndex &proxyIdx)
     case SWMMObjectRef::Curve:
     case SWMMObjectRef::TimePattern:
     case SWMMObjectRef::Transect:
+    case SWMMObjectRef::Inlet:
     case SWMMObjectRef::Control:
     case SWMMObjectRef::TimeSeries:
         openComprehensiveEditorFor(
@@ -670,6 +690,21 @@ void ObjectBrowserPanel::openComprehensiveEditorFor(SWMMModelLayer    *layer,
         if (!editor)
             editor = new TransectEditorDialog(reg, layer, undoStack, parent);
         editor->openForTransect(ref.name);
+        return;
+    }
+
+    // Inlets plan §2.2 — INLET leaves open the InletEditorDialog (modeless,
+    // MVC). Registry is owned by the layer; the dialog is kept alive across
+    // calls so the user can flick between designs via the left-pane list.
+    if (ref.objectType == SWMMObjectRef::Inlet) {
+        using openswmmvis::inlet::InletRegistry;
+        using openswmmvis::ui::InletEditorDialog;
+        auto *reg = qobject_cast<InletRegistry *>(layer->ensureInletRegistry());
+        if (!reg) return;
+        static QPointer<InletEditorDialog> editor;
+        if (!editor)
+            editor = new InletEditorDialog(reg, layer, undoStack, parent);
+        editor->openForInlet(ref.name);
         return;
     }
 
@@ -945,5 +980,14 @@ void ObjectBrowserPanel::launchAddNewEditor(SWMMModelLayer::DataCategory dc)
     }
     QUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
     entry->openCreateNew(m_layer, stack, this);
+}
+
+void ObjectBrowserPanel::launchBrowseEditor(SWMMModelLayer::DataCategory dc)
+{
+    if (!m_layer) return;
+    const auto *entry = ComprehensiveEditorRegistry::instance().find(dc);
+    if (!entry || !entry->openBrowse) return;
+    QUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
+    entry->openBrowse(m_layer, stack, this);
 }
 

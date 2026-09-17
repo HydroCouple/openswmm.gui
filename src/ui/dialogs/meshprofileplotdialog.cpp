@@ -29,6 +29,7 @@
 #include <QHeaderView>
 #include <QKeySequence>
 #include <QLabel>
+#include <QPushButton>
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeView>
@@ -72,9 +73,26 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
                 this, [this](int) { refreshCurrentDepths(); });
         connect(m_results, &SWMM2DResultsLayer::currentDateTimeChanged,
                 this, [this](const QDateTime &dt) { m_plot->setCurrentDateTime(dt); });
-        // Recompute the max-depth envelope when more frames stream in (live).
+        // Recompute the max-depth envelope when more frames stream in (live) —
+        // throttled to one full resample per second: buildMeshProfile walks
+        // ~2000 samples through three spatial lookups each, and a 1 Hz run
+        // used to trigger it on every tick (twice, before the layer coalesced
+        // its refreshes). Leading edge, so the first new frame shows at once;
+        // ticks arriving while the timer runs fold into one rebuild at expiry.
+        m_liveRebuild.setSingleShot(true);
+        m_liveRebuild.setInterval(1000);
+        connect(&m_liveRebuild, &QTimer::timeout, this, [this]() {
+            if (!m_liveRebuildPending) return;
+            m_liveRebuildPending = false;
+            rebuildProfile();
+            m_liveRebuild.start();
+        });
         connect(m_results, &SWMM2DResultsLayer::timeRangeChanged,
-                this, [this](int, int) { rebuildProfile(); });
+                this, [this](int, int) {
+            if (m_liveRebuild.isActive()) { m_liveRebuildPending = true; return; }
+            rebuildProfile();
+            m_liveRebuild.start();
+        });
 
         // Drive our own layer from the global animation clock so the profile
         // animates even when the layer is hidden. The canvas only advances
@@ -161,6 +179,17 @@ void MeshProfilePlotDialog::buildLayout()
     m_plot->setOptions(m_options);
     root->addWidget(m_plot, /*stretch=*/1);
 
+    // Close row, as ProfilePlotDialog has. Wired to close() so every exit
+    // (button, Esc, title bar) takes the same path.
+    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    closeBox->setObjectName(QStringLiteral("meshprof_closeBox"));
+    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
+    closeBtn->setObjectName(QStringLiteral("meshprof_closeBtn"));
+    closeBtn->setAutoDefault(false);
+    closeBtn->setDefault(false);
+    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
+    root->addWidget(closeBox);
+
     // Axis labels from the project unit system.
     auto *us = m_projectWindow ? m_projectWindow->unitSystem() : UnitSystem::instance();
     const QString unit = us ? us->lengthLabel() : QString();
@@ -200,8 +229,11 @@ void MeshProfilePlotDialog::refreshCurrentDepths()
     // cellHasSurface is frame-dependent (it reads the per-vertex signed-depth
     // field), so it must travel with the depth column — it gates which dry
     // gaps the painter may bridge.
+    // SI metres → mesh units, same factor buildMeshProfile applied to the
+    // initial depth column (see MeshProfileSampler).
+    const double dToMesh = m_results->depthToMeshUnits();
     for (const auto &s : m_profile.samples) {
-        depths.push_back(m_results->depthAtCellInterp(s.triIdx, s.scenePt));
+        depths.push_back(m_results->depthAtCellInterp(s.triIdx, s.scenePt) * dToMesh);
         hasSurface.push_back(m_results->cellHasSurface(s.triIdx));
     }
     m_plot->setCurrentDepths(depths, hasSurface);

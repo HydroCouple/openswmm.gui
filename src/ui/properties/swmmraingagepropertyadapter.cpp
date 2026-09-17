@@ -7,10 +7,12 @@
 #include "ui/properties/swmmraingagepropertyadapter.h"
 
 #include "layers/swmmmodellayer.h"   // USER_FLAGS Phase 4 — ensureUserFlagsModel()
+#include "ui/util/externalcolumnfile.h"  // column reconciliation after a path edit
 
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_tables.h>  // DA.2 parity — series id <-> index
+#include <openswmm/engine/openswmm_spatial.h>  // [SYMBOLS] gage X/Y
 
 int SWMMRainGagePropertyAdapter::idx() const
 {
@@ -21,6 +23,8 @@ int SWMMRainGagePropertyAdapter::idx() const
 QString SWMMRainGagePropertyAdapter::displayLabelFor(const QString &property) const
 {
     if (property == QLatin1String("name"))             return tr("Name");
+    if (property == QLatin1String("xCoord"))           return tr("X Coordinate");
+    if (property == QLatin1String("yCoord"))           return tr("Y Coordinate");
     if (property == QLatin1String("rainType"))         return tr("Rain Type");
     if (property == QLatin1String("rainInterval"))     return tr("Recording Interval (s)");
     if (property == QLatin1String("snowFactor"))       return tr("Snow Catch Factor (SCF)");
@@ -30,11 +34,58 @@ QString SWMMRainGagePropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QLatin1String("currentRainfall"))  return tr("Current Rainfall");
     if (property == QLatin1String("filePath"))         return tr("Rain File (path)");
     if (property == QLatin1String("resolvedFilePath")) return tr("Rain File (resolved)");
+    if (property == QLatin1String("fileColumn"))       return tr("Rain File Column");
+    if (property == QLatin1String("fileFormat"))       return tr("Rain File Format");
     if (property == QLatin1String("stationId"))        return tr("Station ID");
     if (property == QLatin1String("rainUnits"))        return tr("Rain Units");
     // USER_FLAGS Phase 4.
     if (property == QLatin1String("userFlags"))        return tr("User Flags");
     return {};
+}
+
+// ---------------------------------------------------------------------------
+// Map position ([SYMBOLS]) — reads straight from the engine; writes are
+// deferred to the panel so SWMMModelLayer::applyGageMove can move the cached
+// scene point with them (a bare swmm_spatial_set_gage_coord would leave the
+// canvas stale until the next geometry rebuild). Mirrors the node adapter.
+// ---------------------------------------------------------------------------
+
+double SWMMRainGagePropertyAdapter::xCoord() const
+{
+    const int i = idx();
+    if (i < 0) return 0.0;
+    double x = 0.0, y = 0.0;
+    swmm_spatial_get_gage_coord(m_engine, i, &x, &y);
+    return x;
+}
+
+double SWMMRainGagePropertyAdapter::yCoord() const
+{
+    const int i = idx();
+    if (i < 0) return 0.0;
+    double x = 0.0, y = 0.0;
+    swmm_spatial_get_gage_coord(m_engine, i, &x, &y);
+    return y;
+}
+
+void SWMMRainGagePropertyAdapter::setXCoord(double v)
+{
+    const int i = idx();
+    if (i < 0) return;
+    double cx = 0.0, cy = 0.0;
+    swmm_spatial_get_gage_coord(m_engine, i, &cx, &cy);
+    if (v == cx) return;
+    emit coordChangeRequested(v, cy);
+}
+
+void SWMMRainGagePropertyAdapter::setYCoord(double v)
+{
+    const int i = idx();
+    if (i < 0) return;
+    double cx = 0.0, cy = 0.0;
+    swmm_spatial_get_gage_coord(m_engine, i, &cx, &cy);
+    if (v == cy) return;
+    emit coordChangeRequested(cx, v);
 }
 
 SWMMRainGagePropertyAdapter::RainType SWMMRainGagePropertyAdapter::rainType() const
@@ -239,7 +290,82 @@ void SWMMRainGagePropertyAdapter::setFilePath(const QString &p)
     if (!m_engine || m_name.isEmpty()) return;
     if (swmm_file_path_set(m_engine, SWMM_FILE_RAINGAGE_DATA,
                             m_name.toUtf8().constData(),
-                            p.toUtf8().constData()) == SWMM_OK)
+                            p.toUtf8().constData()) != SWMM_OK)
+        return;
+
+    // The column belongs to the file, so a new file has to reconcile it: a
+    // stale name from the previous file would fail the run, and leaving a
+    // multi-column file unbound made the gage write the standard
+    // `FILE "path" Station Units` grammar for a file that has no station
+    // column (risk R3). Same rule as the timeseries dialog uses after Browse.
+    // Prefer the engine's resolved absolute, but fall back to the token just
+    // written: resolution happens at load/post-parse, so a path set from the
+    // browser has no .absolute yet and the headers would be read from nothing.
+    // Same precedence the attribute table's column options use.
+    const QString onDisk = resolvedFilePath().isEmpty() ? filePath()
+                                                        : resolvedFilePath();
+    const QString want =
+        openswmmvis::ui::reconcileColumnSelector(onDisk, fileColumn());
+    if (want != fileColumn())
+        swmm_gage_set_file_column(m_engine, idx(), want.toUtf8().constData());
+
+    emit changed();
+}
+
+// ----------------------------------------------------------------------------
+// Multi-column rain file (spec §4 task 4) — column selector + format probe.
+// The engine stores the column separately from the path (GageData.col_name)
+// and its writer composes the `FILE "path:col"` token; setting a non-empty
+// column flips the gage's file format to USER_CSV (see openswmm_gages.h).
+// ----------------------------------------------------------------------------
+
+QString SWMMRainGagePropertyAdapter::fileColumn() const
+{
+    const int i = idx();
+    if (i < 0) return {};
+    char buf[256] = {};
+    if (swmm_gage_get_file_column(m_engine, i, buf, sizeof(buf)) != SWMM_OK) return {};
+    return QString::fromUtf8(buf);
+}
+
+void SWMMRainGagePropertyAdapter::setFileColumn(const QString &c)
+{
+    const int i = idx();
+    if (i < 0) return;
+    if (swmm_gage_set_file_column(m_engine, i, c.toUtf8().constData()) == SWMM_OK)
+        emit changed();
+}
+
+int SWMMRainGagePropertyAdapter::fileFormat() const
+{
+    const int i = idx();
+    if (i < 0) return -1;
+    int v = -1;
+    swmm_gage_get_file_format(m_engine, i, &v);
+    return v;
+}
+
+SWMMRainGagePropertyAdapter::RainFileFormat
+SWMMRainGagePropertyAdapter::fileFormatEnum() const
+{
+    const int v = fileFormat();
+    if (v == MultiColumn) return MultiColumn;
+    if (v == AutoDetect)  return AutoDetect;
+    // Codes 0..4 are the NWS/DSI/HLY formats: never written by the engine, but
+    // if one ever appears it is station-based, which is the only distinction
+    // this row makes.
+    return StandardRainFile;
+}
+
+void SWMMRainGagePropertyAdapter::setFileFormat(int v)
+{
+    const int i = idx();
+    if (i < 0) return;
+    // The engine clears whichever row selector does not apply (station id for
+    // USER_CSV, column name for a station-based format), so both the Station ID
+    // and Rain File Column rows have to re-read — which the panel does off
+    // changed().
+    if (swmm_gage_set_file_format(m_engine, i, v) == SWMM_OK)
         emit changed();
 }
 

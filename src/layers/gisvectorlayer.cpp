@@ -17,6 +17,7 @@
 #include "render/rule.h"
 #include "render/rulelist.h"
 #include "render/symbollayer.h"
+#include "core/preferencesmanager.h"
 #include "render/symbolstyle.h"
 #include "render/featureref.h"
 
@@ -197,6 +198,12 @@ GISVectorLayer::GISVectorLayer(const QString &filePath,
             });
 
     GDALAllRegister(); // Idempotent – safe to call multiple times
+
+    // Default open mode. Seeded here rather than in the header so the GDAL
+    // constants stay out of it. A subclass that needs write access (FeatureLayer)
+    // calls setOpenFlags() and then openDataset() itself — it must therefore be
+    // constructed with an EMPTY filePath, because this ctor runs first.
+    m_openFlags = GDAL_OF_VECTOR | GDAL_OF_READONLY;
 
     if (!filePath.isEmpty())
         openDataset(filePath, layerName);
@@ -481,6 +488,11 @@ void GISVectorSymbol::fromJson(const QJsonObject &j)
 void GISVectorLayer::setSymbol(const GISVectorSymbol &symbol)
 {
     m_symbol = symbol;
+    // Keep the persistent adapter truthful for changes made through other
+    // paths (rule back-prop, style import, Cancel rollback). resyncFrom
+    // never re-invokes the writer, so there is no recursion.
+    if (m_symbolAdapter)
+        m_symbolAdapter->resyncFrom(m_symbol);
     m_needsRebuild = true;
     emit symbolChanged(symbol);
     emit repaintRequested();
@@ -553,20 +565,30 @@ QStringList GISVectorLayer::ogrFieldNames() const
 // this layer) as the single styleable subject. The adapter forwards
 // edits to setSymbol() which already flags the rebuild + emits
 // symbolChanged + repaintRequested.
+//
+// Adapter-ownership refactor: one PERSISTENT adapter per layer (created on
+// first call, resynced afterwards) instead of a fresh allocation per call —
+// stops the leak-per-dialog-open and makes the dialog's Cancel snapshot
+// restore the same instance every surface edits.
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
 GISVectorLayer::styleSubjects()
 {
     using openswmmvis::ui::ILayerStyleSubject;
     using openswmmvis::ui::LayerStyleSubject;
 
-    auto *adapter = new GisVectorSymbolAdapter(
-        m_symbol,
-        [this](const GISVectorSymbol &s) { setSymbol(s); },
-        this);
+    if (!m_symbolAdapter) {
+        m_symbolAdapter = new GisVectorSymbolAdapter(
+            m_symbol,
+            [this](const GISVectorSymbol &s) { setSymbol(s); },
+            this);
+    } else {
+        m_symbolAdapter->resyncFrom(m_symbol);
+    }
 
     std::vector<std::unique_ptr<ILayerStyleSubject>> out;
     out.push_back(std::make_unique<LayerStyleSubject>(
-        tr("Symbology"), adapter, QStringLiteral("vector.symbol"), QString()));
+        tr("Symbology"), m_symbolAdapter, QStringLiteral("vector.symbol"),
+        QString()));
     return out;
 }
 
@@ -639,10 +661,13 @@ QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
 }
 
 QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
-                                               const SpatialReferenceSystem * /*canvasSRS*/,
+                                               const SpatialReferenceSystem *canvasSRS,
                                                double tolerance) const
 {
     QList<QVariantMap> results;
+
+    // Pick against the same projected geometry the user is looking at.
+    ensureTransform(canvasSRS);
 
     if (!m_ogrLayer)
         return results;
@@ -696,6 +721,84 @@ QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
     return results;
 }
 
+QSet<long long> GISVectorLayer::featureIdsInRect(
+    const MapExtent &rectCanvasCrs) const
+{
+    QSet<long long> out;
+    if (!m_ogrLayer) return out;
+
+    // Rect corners → layer CRS when reprojected. The 4-corner bbox is fine
+    // HERE (unlike the old populate filter) because it is only a prefilter —
+    // the precise Intersects below decides membership.
+    double xMin = rectCanvasCrs.xMin(), yMin = rectCanvasCrs.yMin();
+    double xMax = rectCanvasCrs.xMax(), yMax = rectCanvasCrs.yMax();
+    if (m_transform) {
+        if (auto *inv = m_transform->GetInverse()) {
+            double xs[4] = {xMin, xMax, xMax, xMin};
+            double ys[4] = {yMin, yMin, yMax, yMax};
+            if (inv->Transform(4, xs, ys)) {
+                xMin = xs[0]; xMax = xs[0]; yMin = ys[0]; yMax = ys[0];
+                for (int i = 1; i < 4; ++i) {
+                    xMin = qMin(xMin, xs[i]); xMax = qMax(xMax, xs[i]);
+                    yMin = qMin(yMin, ys[i]); yMax = qMax(yMax, ys[i]);
+                }
+            }
+            OGRCoordinateTransformation::DestroyCT(inv);
+        }
+    }
+
+    OGRLinearRing ring;
+    ring.addPoint(xMin, yMin);
+    ring.addPoint(xMax, yMin);
+    ring.addPoint(xMax, yMax);
+    ring.addPoint(xMin, yMax);
+    ring.addPoint(xMin, yMin);
+    OGRPolygon rectGeom;
+    rectGeom.addRing(&ring);
+
+    // Save/restore any pre-existing spatial filter (clone first —
+    // SetSpatialFilter deletes the layer's internal filter, dangling the
+    // GetSpatialFilter return; the attribute-model reload discipline).
+    OGRGeometry *saved      = m_ogrLayer->GetSpatialFilter();
+    OGRGeometry *savedClone = saved ? saved->clone() : nullptr;
+
+    m_ogrLayer->SetSpatialFilterRect(xMin, yMin, xMax, yMax);
+    m_ogrLayer->ResetReading();
+    OGRFeature *feat = nullptr;
+    while ((feat = m_ogrLayer->GetNextFeature()) != nullptr) {
+        const OGRGeometry *g = feat->GetGeometryRef();
+        if (g && g->Intersects(&rectGeom))
+            out.insert(static_cast<long long>(feat->GetFID()));
+        OGRFeature::DestroyFeature(feat);
+    }
+
+    m_ogrLayer->SetSpatialFilter(savedClone);
+    if (savedClone) OGRGeometryFactory::destroyGeometry(savedClone);
+    m_ogrLayer->ResetReading();
+    return out;
+}
+
+QVector<QPointF> GISVectorLayer::selectedFeatureAnchors() const
+{
+    QVector<QPointF> out;
+    if (m_selectedIds.isEmpty()) return out;
+    const auto fidOf = [](QGraphicsItem *it) -> long long {
+        if (auto *p  = dynamic_cast<VectorPolygonPathItem *>(it))
+            return p->featureId();
+        if (auto *ln = dynamic_cast<VectorLineItem *>(it))
+            return ln->featureId();
+        if (auto *pt = dynamic_cast<VectorPointItem *>(it))
+            return pt->featureId();
+        return -1;
+    };
+    for (QGraphicsItem *it : m_sceneItems) {
+        const long long fid = fidOf(it);
+        if (fid >= 0 && m_selectedIds.contains(fid))
+            out.append(it->sceneBoundingRect().center());
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Scene population (QGraphicsScene / QGraphicsItems)
 // ---------------------------------------------------------------------------
@@ -710,59 +813,47 @@ static inline QPointF toScene(double mapX, double mapY)
 
 void GISVectorLayer::populateScene(QGraphicsScene *scene,
                                     const MapExtent &canvasExtent,
-                                    const SpatialReferenceSystem * /*canvasSRS*/)
+                                    const SpatialReferenceSystem *canvasSRS)
 {
+    Q_UNUSED(canvasExtent);
     if (!m_ogrLayer || !isVisible())
         return;
 
-    // Spatial filter must be in LAYER CRS (OGR layer holds layer-CRS data).
-    // Two cases:
-    //   - layer CRS == canvas CRS  →  m_transform is null  →  use canvas
-    //     extent directly (matching CRSes).
-    //   - layer CRS != canvas CRS  →  m_transform exists   →  inverse-
-    //     transform the four corners of canvasExtent into layer CRS, take
-    //     their bounding box. Without this, the filter rejects every
-    //     feature and the shapefile "doesn't render".
-    if (!m_transform)
-    {
-        m_ogrLayer->SetSpatialFilterRect(canvasExtent.xMin(), canvasExtent.yMin(),
-                                         canvasExtent.xMax(), canvasExtent.yMax());
-    }
-    else if (auto *inv = m_transform->GetInverse())
-    {
-        double xs[4] = {canvasExtent.xMin(), canvasExtent.xMax(),
-                        canvasExtent.xMax(), canvasExtent.xMin()};
-        double ys[4] = {canvasExtent.yMin(), canvasExtent.yMin(),
-                        canvasExtent.yMax(), canvasExtent.yMax()};
-        if (inv->Transform(4, xs, ys))
-        {
-            double xMin = xs[0], xMax = xs[0], yMin = ys[0], yMax = ys[0];
-            for (int i = 1; i < 4; ++i)
-            {
-                xMin = qMin(xMin, xs[i]); xMax = qMax(xMax, xs[i]);
-                yMin = qMin(yMin, ys[i]); yMax = qMax(yMax, ys[i]);
-            }
-            m_ogrLayer->SetSpatialFilterRect(xMin, yMin, xMax, yMax);
-        }
-        else
-        {
-            // Inverse transform failed (e.g. PROJ-side error) — fall back
-            // to no filter rather than silently dropping features.
-            m_ogrLayer->SetSpatialFilter(nullptr);
-        }
-        OGRCoordinateTransformation::DestroyCT(inv);
-    }
-    else
-    {
-        m_ogrLayer->SetSpatialFilter(nullptr);
-    }
+    // Reproject to the canvas CRS. Cheap after the first call (cached on the
+    // canvas WKT); without it the raw file coordinates are drawn as though
+    // they were already in the canvas CRS.
+    ensureTransform(canvasSRS);
+
+    // NO spatial filter: the item set lives for the layer's lifetime and the
+    // scene culls per frame (BSP index + render sourceRect), the same way
+    // SWMMLayerItem's exposed-rect cull works. Filtering here to the viewport
+    // froze the feature set to whatever extent was current at the last
+    // rebuild — refreshScene() ignores extent by design — so polygons only
+    // partially in view (or panned to later) simply vanished, and on
+    // reprojected layers the 4-corner inverse bbox additionally dropped
+    // edge-straddling features. The clear is defensive: identifyAt or an
+    // attribute reload may have left a filter behind.
+    m_ogrLayer->SetSpatialFilter(nullptr);
     m_ogrLayer->ResetReading();
+
+    QElapsedTimer populateTimer;
+    populateTimer.start();
+    const int itemsBefore = m_sceneItems.size();
 
     const double baseZ = layerZValue();
 
+    // Selection highlight follows the configured selection pen (the canvas
+    // beacon's convention) instead of hardcoded yellow; yellow stays the
+    // fallback when no preference is set.
+    QColor selColor = PreferencesManager::instance()
+                          ->selectionPen(QStringLiteral("node")).color();
+    if (!selColor.isValid()) selColor = Qt::yellow;
+    QColor selFill = selColor;
+    selFill.setAlpha(100);
+
     auto addPoint = [&](double mx, double my, qint64 fid, bool selected) {
         auto *item = new VectorPointItem(fid, mx, -my, m_symbol.markerSize / 2.0);
-        item->setBrush(QBrush(selected ? Qt::yellow : m_symbol.markerFill));
+        item->setBrush(QBrush(selected ? selColor : m_symbol.markerFill));
         item->setPen(QPen(m_symbol.markerOutline, m_symbol.markerOutlineW));
         item->setMarkerShape(int(m_symbol.markerShape));   // G-1 — canonical shape
         item->setHighlighted(selected);
@@ -778,7 +869,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         if (scenePts.size() < 2)
             return;
         auto *item = new VectorLineItem(fid, scenePts);
-        QPen pen = selected ? QPen(Qt::yellow, m_symbol.linePen.widthF() + 2)
+        QPen pen = selected ? QPen(selColor, m_symbol.linePen.widthF() + 2)
                             : m_symbol.linePen;
         // Cosmetic pen → width stays in screen pixels regardless of zoom.
         // Without this, a layer in a projected CRS (e.g. coords ~1e7) at
@@ -804,7 +895,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
             return;
         // Path-based item so interior rings render as holes (odd-even fill).
         auto *item = new VectorPolygonPathItem(fid, exterior, interiors);
-        QBrush brush = selected ? QBrush(QColor(255, 255, 0, 100)) : m_symbol.polygonFill;
+        QBrush brush = selected ? QBrush(selFill) : m_symbol.polygonFill;
         item->setBrush(brush);
         QPen polyPen = m_symbol.polygonOutline;
         polyPen.setCosmetic(true);
@@ -927,6 +1018,20 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
 
     // Remove spatial filter when done
     m_ogrLayer->SetSpatialFilter(nullptr);
+
+    // Perf evidence for any future batched-item port: full-populate is the
+    // correctness-bearing design (see header comment), and this line prices
+    // it per layer.
+    qCInfo(lcLoadVector).nospace()
+        << "[populate] " << name() << ": "
+        << (m_sceneItems.size() - itemsBefore) << " items in "
+        << populateTimer.elapsed() << " ms";
+
+    // A populate IS a rebuild: the scene now matches layer state, so the
+    // next refreshScene() must not churn the items. Without this, the
+    // constructor's `true` survives the canvas's add-time populate and the
+    // first refresh rebuilds every item for nothing.
+    m_needsRebuild = false;
 }
 
 void GISVectorLayer::depopulateScene(QGraphicsScene *scene)
@@ -945,7 +1050,9 @@ void GISVectorLayer::depopulateScene(QGraphicsScene *scene)
 
 void GISVectorLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS)
 {
-    rebuildTransform(newCanvasSRS);
+    // Drop the cache key so ensureTransform() rebuilds against the new CRS.
+    m_transformCanvasWkt.clear();
+    ensureTransform(newCanvasSRS);
     m_needsRebuild = true;
 }
 
@@ -1056,7 +1163,8 @@ struct GISVectorLayer::OpenResult
 };
 
 GISVectorLayer::OpenResult GISVectorLayer::doOpenWork(const QString &filePath,
-                                                     const QString &layerName)
+                                                      const QString &layerName,
+                                                      unsigned openFlags)
 {
     QElapsedTimer loadTimer;
     loadTimer.start();
@@ -1064,9 +1172,14 @@ GISVectorLayer::OpenResult GISVectorLayer::doOpenWork(const QString &filePath,
     OpenResult r;
     r.filePath = filePath;
 
+    // openFlags is passed rather than read from a member: this runs on a
+    // worker thread from openAsync() and has no `this`.
+    if (openFlags == 0)
+        openFlags = GDAL_OF_VECTOR | GDAL_OF_READONLY;
+
     r.dataset = static_cast<GDALDataset *>(
         GDALOpenEx(filePath.toUtf8().constData(),
-                   GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                   openFlags,
                    nullptr, nullptr, nullptr));
     if (!r.dataset)
     {
@@ -1142,7 +1255,7 @@ void GISVectorLayer::applyOpenResult(const OpenResult &r)
 
 void GISVectorLayer::openDataset(const QString &filePath, const QString &layerName)
 {
-    applyOpenResult(doOpenWork(filePath, layerName));
+    applyOpenResult(doOpenWork(filePath, layerName, m_openFlags));
 }
 
 void GISVectorLayer::openAsync(const QString &filePath, const QString &layerName)
@@ -1164,8 +1277,9 @@ void GISVectorLayer::openAsync(const QString &filePath, const QString &layerName
         emit self->openFinished(r.dataset != nullptr && r.ogrLayer != nullptr);
     });
     const QString path = filePath, layer = layerName;
-    watcher->setFuture(QtConcurrent::run([path, layer]() {
-        return doOpenWork(path, layer);
+    const unsigned flags = m_openFlags;   // by value — the worker has no `this`
+    watcher->setFuture(QtConcurrent::run([path, layer, flags]() {
+        return doOpenWork(path, layer, flags);
     }));
 }
 
@@ -1176,6 +1290,10 @@ void GISVectorLayer::closeDataset()
         OGRCoordinateTransformation::DestroyCT(m_transform);
         m_transform = nullptr;
     }
+    // Clear with the transform: a stale key would make ensureTransform() skip
+    // the rebuild after a re-open, leaving the new dataset unprojected.
+    m_transformCanvasWkt.clear();
+    m_warnedNoCRS = false;
 
     m_ogrLayer = nullptr;
 
@@ -1186,7 +1304,45 @@ void GISVectorLayer::closeDataset()
     }
 }
 
-void GISVectorLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS)
+void GISVectorLayer::ensureTransform(const SpatialReferenceSystem *canvasSRS) const
+{
+    if (!m_ogrLayer)
+        return;
+
+    // No canvas CRS to target — leave whatever transform exists alone.
+    if (!canvasSRS || !canvasSRS->ogrSpatialReference())
+        return;
+
+    // File declares no CRS: its coordinates are taken to be in the canvas CRS
+    // already. Say so once; a layer sitting in the wrong place should not be a
+    // mystery.
+    if (!m_ogrLayer->GetSpatialRef()) {
+        if (!m_warnedNoCRS) {
+            m_warnedNoCRS = true;
+            qCWarning(lcLoadVector).noquote()
+                << QStringLiteral("%1: file declares no CRS — assuming it is "
+                                  "already in the canvas CRS (%2). Supply a "
+                                  ".prj / CRS if the layer lands in the wrong "
+                                  "place.")
+                       .arg(QFileInfo(m_filePath).fileName(),
+                            canvasSRS->toAuthority());
+            emit const_cast<GISVectorLayer *>(this)->crsAssumed(m_filePath);
+        }
+        return;
+    }
+
+    // Rebuild only when the target CRS actually changes: populateScene() runs
+    // per repaint and OGRCreateCoordinateTransformation is far too costly to
+    // redo per frame.
+    const QString wkt = canvasSRS->toWkt();
+    if (!m_transformCanvasWkt.isEmpty() && m_transformCanvasWkt == wkt)
+        return;
+
+    rebuildTransform(canvasSRS);
+    m_transformCanvasWkt = wkt;
+}
+
+void GISVectorLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS) const
 {
     if (m_transform)
     {

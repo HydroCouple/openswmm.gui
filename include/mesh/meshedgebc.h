@@ -5,7 +5,8 @@
  * \license GPL-3.0-or-later
  *
  * Slice §V.VA — per-edge boundary condition value, stored on the
- * SWMM2DMeshLayer in a SoA QVector indexed flat: `tri * 3 + edgeLocal`.
+ * SWMM2DMeshLayer in a SoA QVector indexed flat: `mesh::edgeSlot(cell, edgeLocal)`
+ * (stride mesh::kEdgeStride = 4; slot 3 of a triangle is padding).
  * Mirrors openswmm::twoD::BoundaryData on the engine side. Interior-edge
  * slots are populated with `Wall` defaults but never consulted by the engine
  * (interior edges have a neighbour).

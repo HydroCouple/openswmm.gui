@@ -23,17 +23,22 @@
 #define MESHGENERATIONDIALOG_H
 
 #include "mesh/meshgenerator.h"
+#include "mesh/meshquadquality.h"
+#include "mesh/meshquadregion.h"
 #include "mesh/meshresult.h"
 #include "mesh/inpmeshwriter.h"
 #include "mesh/dtmthinner.h"
+#include "mesh/pslgminsize.h"
 
 #include <QDialog>
 #include <QFutureWatcher>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 class SWMMVisProjectWindow;
 class GISVectorLayer;
+class MeshRegionDefaultsWidget;
 
 class QCheckBox;
 class QComboBox;
@@ -46,6 +51,7 @@ class QProgressBar;
 class QPushButton;
 class QRadioButton;
 class QSpinBox;
+class QTableWidget;
 
 class MeshGenerationDialog : public QDialog
 {
@@ -157,6 +163,74 @@ public:
         // Mesh-quality knobs
         mesh::GenerationOptions genOpts;
 
+        // ── Mixed tri-quad output (TRI_QUAD_MESHING_PLAN §3, G2/G3) ──────
+        // Structured patches, already generated and validated on the main
+        // thread (mesh::makeTransfinitePatch / makeSweptPatch), handed to
+        // MeshGenerator::addPatch. genOpts.mergeTrianglePairs / quadMerge
+        // carry the G2 merge request; the worker runs the merge itself AFTER
+        // elevation fill and attribute seeding (so the bed-planarity test
+        // sees real z) rather than inside generate().
+        QVector<mesh::PatchMesh> patches;
+
+        // ── PSLG quad regions (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3.1) ──
+        // Regions the GUI thread could resolve itself (named subcatchments —
+        // rings come from SWMMModelLayer's cache, mesh CRS). The worker
+        // appends these AFTER the layer regions below and hands every region
+        // to MeshGenerator::addQuadRegion; the generator validates, resolves
+        // Auto mode, drops terrain Steiners inside Free rings and fills
+        // quadRegionReports().
+        QVector<mesh::QuadRegion> quadRegions;
+        // Polygon layers the WORKER reads with OGR (a GDAL handle must not
+        // cross threads — same rule as boundaryPath). One mesh::QuadRegion
+        // per feature exterior ring, reprojected to the mesh CRS when crsWkt
+        // differs from meshCRSWkt. Usually 0 or 1 entries.
+        struct QuadRegionLayerSpec { QString path, layerName, crsWkt; };
+        QVector<QuadRegionLayerSpec> quadRegionLayers;
+        /*! "Generate quadrilateral cells" (QUAD_EVERYWHERE_PLAN_2026-09-07.md
+         *  §3.5): quad-mesh the whole domain with no polygon required. Explicit
+         *  regions above stay optional overrides — each is subtracted from the
+         *  background and keeps its own mode / spacing. */
+        bool           quadEverywhere = false;
+        /*! Target quad edge for the background region; 0 = follow the size
+         *  field (graded), which is the default and the efficient choice. */
+        double         quadEverywhereSpacing = 0.0;
+        // Mode / spacing / aspect / alignment / tag applied to every region
+        // from a layer or subcatchment unless a per-feature attribute
+        // (quad_mode, quad_spacing, quad_aspect, quad_angle, tag) overrides it.
+        // ring, alignGuide and corners are unused here.
+        mesh::QuadRegion quadRegionDefaults;
+        // Acceptance bounds → genOpts.quadRegionBounds, and (for one set of
+        // numbers in the UI) genOpts.quadMerge.{minAngleDeg, maxAngleDeg,
+        // minScaledJacobian, maxAspect}. genOpts.quadCleanup stays default.
+        mesh::QuadQualityBounds quadBounds;
+
+        // 2026-08-17 — minimum cell size enforcement
+        // (MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17.md).  minSizePolicy
+        // carries h plus the derived radii; minSizeCleanup enables the
+        // post-Triangle sliver collapse.  Both inert when
+        // minSizePolicy.minCellSize <= 0, which is the default, so an
+        // untouched project reproduces its current mesh exactly.
+        mesh::pslg::MinSizePolicy minSizePolicy;
+        bool                      minSizeCleanup = true;
+
+        // 2026-09-01 — V2 enforcement mode
+        // (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN_2026-09-01.md Track A).
+        // When on (requires minSizePolicy.enabled()): coupling identities may
+        // merge within the weld radius (the merged node couples via its
+        // containing cell, the nodeMinSeparation demotion idiom), the
+        // effective node separation is raised to at least h, and the
+        // post-mesh cleanup may absorb slivers into identity vertices.
+        // Default off = V1 "advisory" behaviour, bit-identical meshes.
+        bool minSizeEnforce = false;
+
+        // 2026-09-01 — graded sizing (V2 plan Track B).  > 0 replaces the
+        // uniform maxArea cap with a size field that keeps maxArea AT the
+        // constrained features and lets the permitted area grow with distance
+        // at this Lipschitz slope — strictly fewer cells, smooth transitions.
+        // Requires genOpts.maxArea > 0 (there is no uniform cap to relax
+        // otherwise).  0 = off (uniform cap, existing behaviour).
+        double sizeGradation = 0.0;
+
         // Terrain-adaptive thinning
         bool                    doThinning = false;
         mesh::DTMThinnerOptions thinnerOpts;
@@ -215,6 +289,27 @@ public:
         // Mesh 2D ribbon (cell editor / Cell Data assignment).
         double               manningsN     = 0.035;
         double               initDepth     = 0.0;   // mesh length units
+
+        // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────────
+        // Read out of MeshRegionDefaultsWidget by collectInputs() and copied
+        // here BY VALUE — the worker must never touch the widget.
+        //
+        // infilDefaults goes straight to MeshResult::infilDefaults: the '*'
+        // row and the per-tag rows, unflattened. The pipeline deliberately
+        // writes NO per-cell infiltration rows, because materialising tag rows
+        // per triangle would destroy the inheritance engine decision D-I3 is
+        // built on. Empty unless a row names a method, so an untouched dialog
+        // emits no [2D_INFILTRATION*] section at all.
+        QVector<mesh::InfilDefaultRow> infilDefaults;
+
+        // Manning's n / initial depth are per-TRIANGLE data (MeshTriangle
+        // carries the fields), so region values for them are stamped onto the
+        // cells exactly as manningsN/initDepth above are — only infiltration
+        // uses the inheritance model. Keyed by MeshTriangle::tag, and empty
+        // until a region row is given a value of its own — while it is empty
+        // every triangle takes manningsN/initDepth exactly as it does today.
+        struct RegionHydraulics { double manningsN = 0.0; double initDepth = 0.0; };
+        QHash<QString, RegionHydraulics> regionHydraulics;
     };
 
     /*! \brief Result produced by the pipeline worker and consumed on the
@@ -247,6 +342,16 @@ private:
     void populateLayerCombos();
     void updateUnitDisplay();
     void updateZFactor();   // recomputes m_zFactorSpin from DTM + mesh vertical unit combos
+    /*! Refreshes the read-only "min triangle area / max vertex shift" line
+     *  under the Minimum Cell Size group. */
+    void updateMinCellDerivedLabel();
+
+    /*! Region tags the generated mesh will carry, in the order collectInputs()
+     *  creates their markers. Empty when no region source is selected, which
+     *  is what degenerates the region-defaults table to its single '*' row. */
+    [[nodiscard]] QStringList regionTags() const;
+    /*! Pushes regionTags() into the region-defaults table. */
+    void refreshRegionRows();
 
     /*! Collect all inputs from widgets + SWMMModelLayer on the main thread.
      *  Returns false and sets *errOut on any early-out condition (no project,
@@ -299,6 +404,7 @@ private:
     // ── Quality ─────────────────────────────────────────────────────
     QDoubleSpinBox *m_maxAreaSpin      = nullptr;
     QDoubleSpinBox *m_minAngleSpin     = nullptr;
+    QDoubleSpinBox *m_gradationSpin    = nullptr;  ///< size gradation g; (uniform) at 0
     QSpinBox       *m_maxSteinerSpin   = nullptr;
     // PSLG optimizations
     QDoubleSpinBox *m_simplifyEpsSpin  = nullptr; ///< RDP tolerance (map units; 0 = off)
@@ -307,6 +413,39 @@ private:
     // 2026-07-19 — optional boundary densification (edge split after RDP).
     QCheckBox      *m_maxBoundaryEdgeBox  = nullptr;
     QDoubleSpinBox *m_maxBoundaryEdgeSpin = nullptr; ///< split length (map units; (off) at 0)
+
+    // ── Minimum cell size (MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17) ──
+    QDoubleSpinBox *m_minCellSizeSpin      = nullptr; ///< h, map units; (off) at 0
+    QCheckBox      *m_minSizeEnforceBox    = nullptr; ///< V2 enforcement mode
+    QPushButton    *m_minCellSuggestBtn    = nullptr;
+    QDoubleSpinBox *m_trimAngleSpin        = nullptr; ///< corner trim threshold (deg)
+    QCheckBox      *m_trimAtNodesBox       = nullptr;
+    QCheckBox      *m_dropSubScaleHolesBox = nullptr;
+    QCheckBox      *m_cleanupBox           = nullptr; ///< post-mesh sliver collapse
+    QLabel         *m_minCellDerivedLabel  = nullptr; ///< derived area / shift readout
+
+    // ── Quad quality (TRI_QUAD_MESHING_PLAN §3 G2 merge + G3 patches;
+    //    QUAD_MESHING_REDESIGN_PLAN §5 bounds shared with quad regions) ──
+    QCheckBox      *m_quadMergeBox         = nullptr; ///< merge triangle pairs into quads (experimental)
+    QDoubleSpinBox *m_quadMinAngleSpin     = nullptr; ///< accept quads with angles >= (deg)
+    QDoubleSpinBox *m_quadMaxAngleSpin     = nullptr; ///< accept quads with angles <= (deg)
+    QDoubleSpinBox *m_quadMinSjSpin        = nullptr; ///< min scaled Jacobian (sine of worst corner)
+    QDoubleSpinBox *m_quadMaxAspectSpin    = nullptr; ///< max side ratio ((off) at 0)
+    QDoubleSpinBox *m_quadPlanaritySpin    = nullptr; ///< max bed non-planarity (length; (off) at 0)
+
+    // ── Quad regions (PSLG) (QUAD_MESHING_REDESIGN_PLAN §3.1 sources, §6.3) ──
+    QCheckBox      *m_quadEverywhereCheck    = nullptr; ///< quad-mesh the whole domain (no polygon needed)
+    QDoubleSpinBox *m_quadEverywhereSpacingSpin = nullptr; ///< background h; 0 = follow the size field
+    QComboBox      *m_quadRegionLayerCombo   = nullptr; ///< "(none)" + polygon GISVectorLayers
+    QLineEdit      *m_quadRegionSubcatchEdit = nullptr; ///< comma-separated subcatchment IDs
+    QComboBox      *m_quadRegionModeCombo    = nullptr; ///< default mesh::QuadRegionMode
+    QDoubleSpinBox *m_quadRegionSpacingSpin  = nullptr; ///< default h (map units; (from max area) at 0)
+    QDoubleSpinBox *m_quadRegionAspectSpin   = nullptr; ///< default aspectMax
+    QDoubleSpinBox *m_quadRegionAngleSpin    = nullptr; ///< default align angle ((from boundary) at min)
+    /*! One row per structured patch: Type | Points | N/Across | M/Along |
+     *  Width | Tag. Points are "x y; x y; …" in mesh CRS units — 4 corners
+     *  for a four-sided patch, the centreline for a swept patch. */
+    QTableWidget   *m_patchTable           = nullptr;
 
     // ── Thinning (terrain-adaptive Steiner points from DTM) ─────────
     QCheckBox      *m_thinningBox            = nullptr;
@@ -319,8 +458,13 @@ private:
     QDoubleSpinBox *m_boundaryBufferSpin = nullptr;
 
     // ── Uniform per-cell hydraulic seeds ────────────────────────────
+    // These two stay the editors for the '*' row; the region-defaults table
+    // below mirrors them read-only (GG0d, GUI plan §3.3).
     QDoubleSpinBox *m_manningsValueSpin  = nullptr;
     QDoubleSpinBox *m_initDepthSpin      = nullptr;
+
+    // ── Region defaults table (GG0d) ────────────────────────────────
+    MeshRegionDefaultsWidget *m_regionDefaults = nullptr;
 
     // ── Output ──────────────────────────────────────────────────────
     QRadioButton  *m_outputExternal = nullptr;

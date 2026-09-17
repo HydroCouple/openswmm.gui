@@ -7,9 +7,12 @@
 #include "ui/panels/swmmattributetablemodel.h"
 
 #include "core/unitsystem.h"
+#include "layers/gwsourcesummary.h"           // G5 — node Groundwater Sources cell
+#include "layers/swmmresultslayer.h"          // dynamics columns' output source
 #include "ui/models/userflagsmodel.h"
 #include "ui/properties/culvertcodes.h"      // ATTRIBUTE_EDITOR_WIRING Phase 0
 #include "ui/properties/dataobjectref.h"     // pump-curve picker cell
+#include "ui/properties/groundwatersummary.h" // Groundwater cell summary text
 #include "ui/properties/rainintervalref.h"   // DA.2 parity — H:MM interval helpers
 #include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
@@ -17,18 +20,24 @@
 #include "ui/properties/userflagseditref.h"  // per-object User Flags cell
 #include "ui/properties/storageshapegeom.h"  // storage-shape dimension applicability
 #include "ui/properties/xsectshapegeom.h"    // inline xsect-geom applicability
+#include "ui/util/externalcolumnfile.h"      // rain-file column enumeration
 
+#include <QHash>
 #include <QUndoCommand>
 #include <QUndoStack>
 
 #include <cmath>
+#include <cstring>
+#include <optional>
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_inflows.h>
+#include <openswmm/engine/openswmm_initial_quality.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_model.h>    // gage data-file path registry
+#include "ui/linkoffsetdisplay.h"              // mode-aware offset accessors
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_pollutants.h>
 #include <openswmm/engine/openswmm_quality.h>
@@ -56,11 +65,70 @@ int indexForName(SWMM_Engine engine, EntityKind kind, const char *name) {
     return -1;
 }
 
+// Which entity kind a category's rows are. Lets a cell resolve its engine
+// index straight from the row (SWMMModelLayer::soaIndexAt) instead of
+// re-deriving it from the name — the name path cost a QString copy, a
+// toUtf8() heap allocation and an engine hash probe on EVERY cell.
+std::optional<EntityKind> entityKindForCategory(SWMMModelLayer::Category cat) {
+    switch (cat) {
+    case SWMMModelLayer::CatJunctions:
+    case SWMMModelLayer::CatOutfalls:
+    case SWMMModelLayer::CatStorage:
+    case SWMMModelLayer::CatDividers:
+        return EntityKind::Node;
+    case SWMMModelLayer::CatConduits:
+    case SWMMModelLayer::CatPumps:
+    case SWMMModelLayer::CatOrifices:
+    case SWMMModelLayer::CatWeirs:
+    case SWMMModelLayer::CatOutlets:
+        return EntityKind::Link;
+    case SWMMModelLayer::CatSubcatchments:
+        return EntityKind::Subcatch;
+    case SWMMModelLayer::CatRainGages:
+        return EntityKind::Gage;
+    default:
+        return std::nullopt;
+    }
+}
+
+// Engine index for a category row.
+//
+// Takes the layer's O(1) soaIndexAt() path when the column's entity kind
+// is the category's own kind — which is the case for every column today,
+// since each setter tag's prefix matches its EntityKind 1:1 and a
+// category's schema only uses its own prefix. A cross-kind column would
+// fall back to the old name lookup rather than silently read a
+// neighbouring object, so the fast path is correct by construction and
+// not merely by audit.
+int engineIndexFor(SWMMModelLayer *layer, SWMMModelLayer::Category cat,
+                   int row, EntityKind kind) {
+    if (!layer) return -1;
+    if (entityKindForCategory(cat) == kind)
+        return layer->soaIndexAt(cat, row);
+    const QString name = layer->objectNameAt(cat, row);
+    if (name.isEmpty()) return -1;
+    return indexForName(layer->engine(), kind, name.toUtf8().constData());
+}
+
 // Phase 3 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — column-key prefix
 // and category → [USER_FLAG_VALUES] ObjectType token mapping for the
 // per-flag columns. Categories without a token (none today) get no
 // flag columns.
 const QString kUserFlagKeyPrefix = QStringLiteral("userflag:");
+
+// Initial-quality UI round — column-key prefix for the per-constituent
+// [INITIAL_QUALITY] override columns on node / link categories.
+const QString kInitQualityKeyPrefix = QStringLiteral("initq:");
+
+// YES/NO [OPTIONS] probe — gates the reserved water-age / temperature
+// initial-quality columns (mirrors InitialQualityDialog::optionOn).
+bool optionYes(SWMM_Engine engine, const char *key) {
+    char buf[16] = {0};
+    if (!engine ||
+        swmm_options_get(engine, key, buf, sizeof(buf)) != SWMM_OK)
+        return false;
+    return std::strcmp(buf, "YES") == 0;
+}
 
 QString userFlagObjectType(SWMMModelLayer::Category cat) {
     switch (cat) {
@@ -109,6 +177,25 @@ ColumnSpec tagCol(const QString &setterTag) {
     c.label  = QStringLiteral("Tag");
     c.editor = EditorKind::Text;
     c.setter = setterTag;
+    return c;
+}
+
+// Read-only column that still reads through an engine getter.
+//
+// `ro()` columns take their value from the identifyByName map; that map is
+// built per row and can't carry every computed / post-run number without
+// making a plain identify expensive. A getter-only tag keeps the read lazy
+// (one engine call, only for cells actually painted) while staying
+// non-editable: EditorKind::ReadOnly is what flags() and
+// commitValueDirect() test, and neither consults the tag.
+ColumnSpec roGet(const QString &key, const QString &label,
+                  const QString &getterTag, UnitKind unit = UnitKind::None) {
+    ColumnSpec c;
+    c.key    = key;
+    c.label  = label;
+    c.editor = EditorKind::ReadOnly;
+    c.setter = getterTag;
+    c.unit   = unit;
     return c;
 }
 
@@ -198,6 +285,7 @@ QVariantList outletRatingTypeValues();
 QVariantList gageRainTypeValues();
 QVariantList gageDataSourceValues();
 QVariantList gageRainUnitsValues();
+QVariantList gageFileFormatValues();
 
 // Compound-attribute column (Inflows / DWF / RDII / Treatment). The
 // cell holds a NodeCompoundEditRef built live in data(); the delegate
@@ -281,23 +369,138 @@ ColumnSpec nodeCoordY() {
                -1e12, 1e12, 4, UnitKind::None);
 }
 
-// Slice DB — read-only computed + statistics summary columns shared by
-// all four node categories. Values come from `identifyByName()` which
-// queries the engine getters; pre-run, the stat_* values read back as
-// zero. Editor stays `ReadOnly` so the cells display but don't accept
-// input.
-QList<ColumnSpec> nodeStatBlock() {
+// Rain-gage coordinate columns — the [SYMBOLS] twin of nodeCoordX/Y. Same
+// shape and the same reason for the special case in commitValueDirect:
+// swmm_spatial_set_gage_coord takes both coordinates, and applyGageMove is
+// what keeps the cached scene point in step with the engine.
+ColumnSpec gageCoordX() {
+    return num(QStringLiteral("X"), QStringLiteral("X Coordinate"),
+               QStringLiteral("gage_coord_x"),
+               -1e12, 1e12, 4, UnitKind::None);
+}
+ColumnSpec gageCoordY() {
+    return num(QStringLiteral("Y"), QStringLiteral("Y Coordinate"),
+               QStringLiteral("gage_coord_y"),
+               -1e12, 1e12, 4, UnitKind::None);
+}
+
+// Slice DB — read-only INPUT-TIME computed columns shared by all four node
+// categories. These are geometry the engine derives as links connect, so
+// they belong next to the inputs they're derived from. The post-run
+// statistics that used to live in this block moved to
+// `nodeDynamicsBlock()`, which `dynamicsForCategory()` appends last.
+QList<ColumnSpec> nodeComputedBlock() {
     return {
-        // Input-time computed.
-        ro(QStringLiteral("Crown elev"),  QStringLiteral("Crown Elev.")),
-        ro(QStringLiteral("Full volume"), QStringLiteral("Full Volume")),
-        ro(QStringLiteral("Degree"),      QStringLiteral("Connected Links")),
-        // Post-run summary statistics.
-        ro(QStringLiteral("Max depth (stat)"),  QStringLiteral("Max Depth (Sim.)")),
-        ro(QStringLiteral("Max overflow"),      QStringLiteral("Max Overflow")),
-        ro(QStringLiteral("Vol flooded"),       QStringLiteral("Vol. Flooded")),
-        ro(QStringLiteral("Time flooded (hr)"), QStringLiteral("Time Flooded (hr)")),
+        roGet(QStringLiteral("Crown elev"),  QStringLiteral("Crown Elev."),
+              QStringLiteral("node_crown_elev"),  UnitKind::Length),
+        roGet(QStringLiteral("Full volume"), QStringLiteral("Full Volume"),
+              QStringLiteral("node_full_volume"), UnitKind::Volume),
+        roGet(QStringLiteral("Degree"),      QStringLiteral("Connected Links"),
+              QStringLiteral("node_degree")),
     };
+}
+
+// ---------------------------------------------------------------------------
+// Dynamics blocks — post-run summary statistics.
+//
+// Every one of these reads an engine statistics vector, so all of them are
+// zero until a run has been initialized. They are appended AFTER the input
+// attributes and after the user-flag columns (see appendDynamicsColumns), so
+// the left of the table is always the model you can edit and the right is
+// always what the last run produced.
+// ---------------------------------------------------------------------------
+
+QList<ColumnSpec> nodeDynamicsBlock() {
+    return {
+        roGet(QStringLiteral("Max depth (stat)"),  QStringLiteral("Max Depth (Sim.)"),
+              QStringLiteral("node_stat_max_depth"),     UnitKind::Length),
+        roGet(QStringLiteral("Max overflow"),      QStringLiteral("Max Overflow"),
+              QStringLiteral("node_stat_max_overflow"),  UnitKind::FlowRate),
+        roGet(QStringLiteral("Vol flooded"),       QStringLiteral("Vol. Flooded"),
+              QStringLiteral("node_stat_vol_flooded"),   UnitKind::Volume),
+        roGet(QStringLiteral("Time flooded (hr)"), QStringLiteral("Time Flooded (hr)"),
+              QStringLiteral("node_stat_time_flooded")),
+    };
+}
+
+// Shared by all five link categories. `Max filling` is the engine's
+// max-depth / full-depth ratio, so it is dimensionless rather than a length.
+QList<ColumnSpec> linkDynamicsBlock() {
+    return {
+        roGet(QStringLiteral("Max flow (stat)"), QStringLiteral("Max Flow (Sim.)"),
+              QStringLiteral("link_stat_max_flow"),      UnitKind::FlowRate),
+        roGet(QStringLiteral("Max velocity"),    QStringLiteral("Max Velocity"),
+              QStringLiteral("link_stat_max_velocity"),  UnitKind::Velocity),
+        roGet(QStringLiteral("Max filling"),     QStringLiteral("Max/Full Depth"),
+              QStringLiteral("link_stat_max_filling")),
+        roGet(QStringLiteral("Flow volume"),     QStringLiteral("Total Flow Volume"),
+              QStringLiteral("link_stat_vol_flow"),      UnitKind::Volume),
+        roGet(QStringLiteral("Surcharge time (hr)"),
+              QStringLiteral("Time Surcharged (hr)"),
+              QStringLiteral("link_stat_surcharge_time")),
+    };
+}
+
+// Pump-only utilisation statistics, appended after the shared link block.
+QList<ColumnSpec> pumpDynamicsBlock() {
+    ColumnSpec cycles = roGet(QStringLiteral("Pump cycles"),
+                               QStringLiteral("Pump Cycles"),
+                               QStringLiteral("link_stat_pump_cycles"));
+    // Unlike its neighbours this one can be badly low, not just slightly, so
+    // say so where the user will see it. Reconstructing cycles from an output
+    // file cannot see a pump that switches off and back on entirely between
+    // two report times — see SWMMResultsLayer::linkStatPumpCycles.
+    cycles.tooltip = QObject::tr(
+        "Number of pump start-ups.\n\n"
+        "Counted from the results file at REPORT-step resolution, so this is "
+        "a lower bound: a pump that cycles off and back on between two report "
+        "times is not visible. Shorten REPORT_STEP for an exact count.");
+    return {
+        cycles,
+        roGet(QStringLiteral("Pump on time (hr)"), QStringLiteral("Pump On Time (hr)"),
+              QStringLiteral("link_stat_pump_on_time")),
+        roGet(QStringLiteral("Pump volume"),       QStringLiteral("Volume Pumped"),
+              QStringLiteral("link_stat_pump_volume"),   UnitKind::Volume),
+    };
+}
+
+QList<ColumnSpec> subcatchDynamicsBlock() {
+    return {
+        roGet(QStringLiteral("Total precip"),  QStringLiteral("Total Precipitation"),
+              QStringLiteral("subcatch_stat_precip"),     UnitKind::Volume),
+        roGet(QStringLiteral("Runoff volume"), QStringLiteral("Total Runoff Volume"),
+              QStringLiteral("subcatch_stat_runoff_vol"), UnitKind::Volume),
+        roGet(QStringLiteral("Peak runoff"),   QStringLiteral("Peak Runoff Rate"),
+              QStringLiteral("subcatch_stat_max_runoff"), UnitKind::FlowRate),
+    };
+}
+
+// The dynamics columns for a category, or an empty list where the engine
+// keeps no statistics (rain gages). Appended after everything else so the
+// block is always the right-hand end of the table.
+QList<ColumnSpec> dynamicsForCategory(SWMMModelLayer::Category cat)
+{
+    switch (cat) {
+    case SWMMModelLayer::CatJunctions:
+    case SWMMModelLayer::CatOutfalls:
+    case SWMMModelLayer::CatStorage:
+    case SWMMModelLayer::CatDividers:
+        return nodeDynamicsBlock();
+    case SWMMModelLayer::CatPumps: {
+        QList<ColumnSpec> cols = linkDynamicsBlock();
+        cols.append(pumpDynamicsBlock());
+        return cols;
+    }
+    case SWMMModelLayer::CatConduits:
+    case SWMMModelLayer::CatOrifices:
+    case SWMMModelLayer::CatWeirs:
+    case SWMMModelLayer::CatOutlets:
+        return linkDynamicsBlock();
+    case SWMMModelLayer::CatSubcatchments:
+        return subcatchDynamicsBlock();
+    default:
+        return {};
+    }
 }
 
 // Column schema per category.  Z.5.1 made `Name` always column 0;
@@ -324,7 +527,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Ponded area",     "Ponded Area",        "node_ponded_area",
                                                           0.0, 1e9, 2, UnitKind::Area),
         };
-        cols.append(nodeStatBlock());
+        cols.append(nodeComputedBlock());
         // Compound-attribute columns — each cell shows a "summary —
         // Edit…" button that opens NodeCompoundEditDialog at the right
         // page. Same widget the Property Browser uses, so editing from
@@ -337,6 +540,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                   "node_rdii_ref"));
         cols.append(compoundCol("Treatment", "Pollutant Treatment",
                                   "node_treatment_ref"));
+        cols.append(compoundCol("GW sources", "Groundwater Sources",
+                                  "node_groundwater_sources_ref"));
         return cols;
     }
     case SWMMModelLayer::CatOutfalls: {
@@ -365,13 +570,20 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             enumCol("Flap gate",   "Flap Gate",
                                                 "node_outfall_flap_gate",
                                                 yesNoValues()),
+            // [OUTFALLS] RouteTo — send the outfall's discharge onto a
+            // subcatchment instead of out of the system. Engine has always
+            // had the accessors; the table never surfaced them.
+            compoundCol("Route to", "Route To Subcatchment",
+                                                "node_outfall_route_to_ref"),
         };
-        cols.append(nodeStatBlock());
+        cols.append(nodeComputedBlock());
         cols.append(compoundCol("Inflows",   "External Inflows",  "node_inflows_ref"));
         cols.append(compoundCol("DWF",       "Dry Weather Flow",  "node_dwf_ref"));
         cols.append(compoundCol("RDII",      "RDII",              "node_rdii_ref"));
         cols.append(compoundCol("Treatment", "Pollutant Treatment",
                                   "node_treatment_ref"));
+        cols.append(compoundCol("GW sources", "Groundwater Sources",
+                                  "node_groundwater_sources_ref"));
         return cols;
     }
     case SWMMModelLayer::CatStorage: {
@@ -419,7 +631,16 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                         "node_storage_param2", 0.0, 1e9, 4, UnitKind::Length));
         cols.append(num("Shape param 3", "Shape Parameter 3",
                         "node_storage_param3", 0.0, 1e9, 4, UnitKind::None));
-        cols.append(nodeStatBlock());
+        // Green-Ampt exfiltration — the optional [STORAGE] tail (Psi / Ksat /
+        // IMD) that sits after the seepage rate. The engine reads and writes
+        // the triple atomically; the three columns read-modify-write it.
+        cols.append(num("Exfil suction", "Exfil. Suction Head",
+                        "node_exfil_suction", 0.0, 1e6, 4, UnitKind::Depression));
+        cols.append(num("Exfil conduct.", "Exfil. Conductivity",
+                        "node_exfil_ksat",    0.0, 1e6, 4, UnitKind::Rate));
+        cols.append(num("Exfil deficit",  "Exfil. Initial Deficit",
+                        "node_exfil_imd",     0.0, 1.0, 4));
+        cols.append(nodeComputedBlock());
         // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — browser
         // shows the four compound cells on every node kind.
         cols.append(compoundCol("Inflows",   "External Inflows",  "node_inflows_ref"));
@@ -427,6 +648,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         cols.append(compoundCol("RDII",      "RDII",              "node_rdii_ref"));
         cols.append(compoundCol("Treatment", "Pollutant Treatment",
                                   "node_treatment_ref"));
+        cols.append(compoundCol("GW sources", "Groundwater Sources",
+                                  "node_groundwater_sources_ref"));
         return cols;
     }
     case SWMMModelLayer::CatDividers: {
@@ -452,12 +675,14 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Ponded area",     "Ponded Area",        "node_ponded_area",
                                                           0.0, 1e9, 2, UnitKind::Area),
         };
-        cols.append(nodeStatBlock());
+        cols.append(nodeComputedBlock());
         cols.append(compoundCol("Inflows",   "External Inflows",  "node_inflows_ref"));
         cols.append(compoundCol("DWF",       "Dry Weather Flow",  "node_dwf_ref"));
         cols.append(compoundCol("RDII",      "RDII",              "node_rdii_ref"));
         cols.append(compoundCol("Treatment", "Pollutant Treatment",
                                   "node_treatment_ref"));
+        cols.append(compoundCol("GW sources", "Groundwater Sources",
+                                  "node_groundwater_sources_ref"));
         return cols;
     }
     case SWMMModelLayer::CatConduits:
@@ -473,6 +698,10 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             tagCol("link_tag"),
             num("Length",      "Length",        "link_length",
                                                   0.0, 1e9, 2, UnitKind::Length),
+            // Derived from the end-node inverts and offsets, so read-only.
+            // The engine stores it as a rise/run fraction (not a percent),
+            // and unlike the offsets it carries no unit conversion.
+            roGet("Slope",     "Slope (rise/run)", "link_slope"),
             num("Roughness",   "Manning's n",   "link_roughness",
                                                   1e-6, 1.0, 4),
             num("Offset up",   "Upstream Offset",   "link_offset_up",
@@ -646,6 +875,9 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         return {
             nameCol(),
             ro("Polygon vertices", "Vertex Count"),
+            // [TAGS] — every other spatial kind had this column; the
+            // subcatchment one was simply never added.
+            tagCol("subcatch_tag"),
             num("Area",      "Area",                  "subcatch_area",
                                                        0.0, 1e9, 4, UnitKind::SubcatchArea),
             num("Width",     "Width",                 "subcatch_width",
@@ -698,6 +930,9 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                    "subcatch_cn_dry",        0.0, 100.0, 4),
             // Compound cells (open SubcatchCompoundEditDialog tabs).
             compoundCol("Land uses",   "Land Use Coverage", "subcatch_landuse_ref"),
+            // G3 — receiving-aquifer picker (DataObjectRef cell), left of the
+            // Groundwater exchange editor cell.
+            compoundCol("Aquifer",     "Aquifer",           "subcatch_aquifer_ref"),
             compoundCol("Groundwater", "Groundwater",       "subcatch_groundwater_ref"),
             compoundCol("LID usage",   "LID Usage",         "subcatch_lid_ref"),
             compoundCol("Loadings",    "Initial Loadings",  "subcatch_loadings_ref"),
@@ -712,8 +947,25 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         ColumnSpec fileCol;
         fileCol.key    = QStringLiteral("Rain file");
         fileCol.label  = QStringLiteral("Rain File (path)");
-        fileCol.editor = EditorKind::Text;
+        // Multi-column series files (spec §4 task 4) — browse editor with
+        // the engine-loadable extensions; .tsf is the PCSWMM export format.
+        fileCol.editor     = EditorKind::FileBrowse;
+        fileCol.fileFilter = QStringLiteral(
+            "Rain data (*.csv *.tsv *.tsf *.txt *.dat);;All files (*)");
         fileCol.setter = QStringLiteral("gage_file_path");
+        // Rain-file column selector — combo of the file's header names via
+        // kFileColumnOptionsRole; writes swmm_gage_set_file_column (which
+        // flips the gage to USER_CSV). The engine writer composes the
+        // "path:col" token — the user never types the colon.
+        ColumnSpec fileColumnCol;
+        fileColumnCol.key    = QStringLiteral("Rain file column");
+        fileColumnCol.label  = QStringLiteral("Rain File Column");
+        fileColumnCol.editor = EditorKind::FileColumn;
+        fileColumnCol.setter = QStringLiteral("gage_file_column");
+        // Rain-file grammar (review A-2). Both the path and the column setters
+        // preserve USER_CSV engine-side, so without an explicit control a gage
+        // that ever had a column could never go back to a standard rain file
+        // and its Station ID would stay unusable.
         ColumnSpec stationCol;
         stationCol.key    = QStringLiteral("Station ID");
         stationCol.label  = QStringLiteral("Station ID");
@@ -730,8 +982,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         // source-specific rows (series picker vs. file path / station / units).
         return {
             nameCol(),
-            ro("X",    "X Coordinate"),
-            ro("Y",    "Y Coordinate"),
+            gageCoordX(),
+            gageCoordY(),
             enumCol("Rain type",   "Rain Type",   "gage_rain_type",
                                                   gageRainTypeValues()),
             intervalCol,
@@ -746,6 +998,9 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                   gageDataSourceValues()),
             compoundCol("Series name", "Series Name", "gage_series_ref"),
             fileCol,
+            enumCol("Rain file format", "Rain File Format", "gage_file_format",
+                                                  gageFileFormatValues()),
+            fileColumnCol,
             stationCol,
             enumCol("Rain units",  "Rain Units",  "gage_rain_units",
                                                   gageRainUnitsValues()),
@@ -800,9 +1055,16 @@ int lossSetAvg(SWMM_Engine e, int idx, double v) {
 // Inline cross-section geometry — geom1..geom4 surfaced as four
 // independent Numeric columns alongside the XSection compound cell. The
 // engine writes the whole (shape, g1..g4) tuple, so each setter
-// read-modify-writes (mirrors lossSet*). A write to a geom that doesn't
-// apply to the current shape is rejected (the cell is also made
-// non-editable by flags()), so a stray write can't corrupt the section.
+// read-modify-writes (mirrors lossSet*).
+//
+// All four cells show their stored value and accept edits whatever the
+// current shape is. They used to blank + grey every geom the live shape
+// didn't use, which read as "the editors are broken" — a CIRCULAR conduit
+// showed three permanently empty, uneditable columns — and threw away the
+// width a user had already typed when they flipped the shape. The only
+// slots still refused are the picker-owned indices (IRREGULAR / STREET
+// geom1, CUSTOM geom2), where a raw number would silently re-point the
+// section at another transect / curve.
 int xsectGeomGet(SWMM_Engine e, int idx, int ordinal, double *v) {
     int shape = 0; double g[4] = {0, 0, 0, 0};
     const int rc = swmm_link_get_xsect(e, idx, &shape, &g[0], &g[1], &g[2], &g[3]);
@@ -813,7 +1075,8 @@ int xsectGeomSet(SWMM_Engine e, int idx, int ordinal, double v) {
     int shape = 0; double g[4] = {0, 0, 0, 0};
     const int rc = swmm_link_get_xsect(e, idx, &shape, &g[0], &g[1], &g[2], &g[3]);
     if (rc != SWMM_OK) return rc;
-    if (!openswmmvis::xsectGeomApplies(shape, ordinal)) return SWMM_ERR_BADINDEX;
+    if (openswmmvis::xsectGeomIsPickerIndex(shape, ordinal))
+        return SWMM_ERR_BADINDEX;
     g[ordinal - 1] = v;
     return swmm_link_set_xsect(e, idx, shape, g[0], g[1], g[2], g[3]);
 }
@@ -1124,6 +1387,68 @@ int nodeMaxDepthSet(SWMM_Engine e, int idx, double v) {
                                  : swmm_node_set_max_depth(e, idx, v);
 }
 
+// Storage exfiltration — the [STORAGE] Green-Ampt tail (Psi / Ksat / IMD).
+// The engine reads and writes the triple atomically, so each column
+// read-modify-writes, exactly like the functional (A,B,C) coefficients.
+int exfilSuctionGet(SWMM_Engine e, int idx, double *v) {
+    double s = 0, k = 0, i = 0;
+    const int rc = swmm_node_get_exfil_params(e, idx, &s, &k, &i);
+    *v = s;  return rc;
+}
+int exfilKsatGet(SWMM_Engine e, int idx, double *v) {
+    double s = 0, k = 0, i = 0;
+    const int rc = swmm_node_get_exfil_params(e, idx, &s, &k, &i);
+    *v = k;  return rc;
+}
+int exfilImdGet(SWMM_Engine e, int idx, double *v) {
+    double s = 0, k = 0, i = 0;
+    const int rc = swmm_node_get_exfil_params(e, idx, &s, &k, &i);
+    *v = i;  return rc;
+}
+int exfilSuctionSet(SWMM_Engine e, int idx, double v) {
+    double s = 0, k = 0, i = 0;
+    const int rc = swmm_node_get_exfil_params(e, idx, &s, &k, &i);
+    if (rc != SWMM_OK) return rc;
+    return swmm_node_set_exfil_params(e, idx, v, k, i);
+}
+int exfilKsatSet(SWMM_Engine e, int idx, double v) {
+    double s = 0, k = 0, i = 0;
+    const int rc = swmm_node_get_exfil_params(e, idx, &s, &k, &i);
+    if (rc != SWMM_OK) return rc;
+    return swmm_node_set_exfil_params(e, idx, s, v, i);
+}
+int exfilImdSet(SWMM_Engine e, int idx, double v) {
+    double s = 0, k = 0, i = 0;
+    const int rc = swmm_node_get_exfil_params(e, idx, &s, &k, &i);
+    if (rc != SWMM_OK) return rc;
+    return swmm_node_set_exfil_params(e, idx, s, k, v);
+}
+
+// Durations the engine reports in SECONDS, shown in hours.
+//
+// The claim that used to sit here — "pump on-time is the one statistic the
+// engine reports in seconds; node time-flooded is already hours" — was
+// wrong about node time-flooded. `swmm_node_get_stat_time_flooded` and its
+// .out counterpart both return seconds (OutputReader multiplies the
+// flooded period count by report_step, and statsrpt.c divides by 3600 for
+// its display-only "hours" column), while the column here has always been
+// labelled "Time Flooded (hr)" — so the cell read 3600x high.
+//
+// Link surcharge time genuinely is hours already (linkStatsFor divides).
+int pumpOnTimeHoursGet(SWMM_Engine e, int idx, double *v) {
+    double seconds = 0.0;
+    const int rc = swmm_link_get_stat_pump_on_time(e, idx, &seconds);
+    *v = seconds / 3600.0;
+    return rc;
+}
+
+int nodeTimeFloodedHoursGet(SWMM_Engine e, int idx, double *v) {
+    double seconds = 0.0;
+    const int rc = swmm_node_get_stat_time_flooded(e, idx, &seconds);
+    *v = seconds / 3600.0;
+    return rc;
+}
+
 // Dispatch table — map a setter-tag string to the engine call.
 // Double-typed setters drive Numeric columns; Int-typed setters
 // drive Enum / Integer / Bool columns.  Each entry populates one
@@ -1143,7 +1468,66 @@ struct SetterEntry {
     int (*setFnS)(SWMM_Engine, int, const char*) = nullptr;
     int (*getFnS)(SWMM_Engine, int, char*, int)  = nullptr;
 };
-SetterEntry setterFor(const QString &tag) {
+
+// Output-file counterpart of the getter-only dynamics tags. Every accessor
+// here takes the object's NAME, because the .out file has its own indexing
+// scheme that need not match the engine's — SWMMResultsLayer resolves it.
+//
+// A null return means "this tag has no output counterpart"; the caller then
+// keeps the editing-engine path. That is the case for the three pump-only
+// statistics (cycles / on-time / volume pumped), which the binary output
+// format simply does not record.
+using ResultsStatFn = double (SWMMResultsLayer::*)(const QString &) const;
+ResultsStatFn resultsStatForUncached(const QString &tag) {
+    // Node
+    if (tag == QStringLiteral("node_stat_max_depth"))
+        return &SWMMResultsLayer::nodeStatMaxDepth;
+    if (tag == QStringLiteral("node_stat_max_overflow"))
+        return &SWMMResultsLayer::nodeStatMaxOverflow;
+    if (tag == QStringLiteral("node_stat_vol_flooded"))
+        return &SWMMResultsLayer::nodeStatVolFlooded;
+    if (tag == QStringLiteral("node_stat_time_flooded"))
+        return &SWMMResultsLayer::nodeStatTimeFlooded;
+    // Link
+    if (tag == QStringLiteral("link_stat_max_flow"))
+        return &SWMMResultsLayer::linkStatMaxFlow;
+    if (tag == QStringLiteral("link_stat_max_velocity"))
+        return &SWMMResultsLayer::linkStatMaxVelocity;
+    if (tag == QStringLiteral("link_stat_max_filling"))
+        return &SWMMResultsLayer::linkStatMaxFilling;
+    if (tag == QStringLiteral("link_stat_vol_flow"))
+        return &SWMMResultsLayer::linkStatVolFlow;
+    if (tag == QStringLiteral("link_stat_surcharge_time"))
+        return &SWMMResultsLayer::linkStatSurchargeTime;
+    // Pump utilisation. linkStatPumpOnTime already returns HOURS, so it
+    // stands in for pumpOnTimeHoursGet (the engine getter reports seconds)
+    // rather than for the raw C function.
+    if (tag == QStringLiteral("link_stat_pump_cycles"))
+        return &SWMMResultsLayer::linkStatPumpCycles;
+    if (tag == QStringLiteral("link_stat_pump_on_time"))
+        return &SWMMResultsLayer::linkStatPumpOnTime;
+    if (tag == QStringLiteral("link_stat_pump_volume"))
+        return &SWMMResultsLayer::linkStatPumpVolume;
+    // Subcatchment
+    if (tag == QStringLiteral("subcatch_stat_precip"))
+        return &SWMMResultsLayer::subcatchStatPrecip;
+    if (tag == QStringLiteral("subcatch_stat_runoff_vol"))
+        return &SWMMResultsLayer::subcatchStatRunoffVol;
+    if (tag == QStringLiteral("subcatch_stat_max_runoff"))
+        return &SWMMResultsLayer::subcatchStatMaxRunoff;
+    return nullptr;
+}
+
+// Memoised for the same reason as setterFor below — data() dispatches
+// through this for every dynamics cell it paints.
+ResultsStatFn resultsStatFor(const QString &tag) {
+    static QHash<QString, ResultsStatFn> cache;
+    const auto it = cache.constFind(tag);
+    if (it != cache.constEnd()) return *it;
+    return *cache.insert(tag, resultsStatForUncached(tag));
+}
+
+SetterEntry setterForUncached(const QString &tag) {
     SetterEntry e;
     // Node — numeric
     if (tag == QStringLiteral("node_invert_elev"))
@@ -1175,10 +1559,39 @@ SetterEntry setterFor(const QString &tag) {
         return {EntityKind::Node, &storageParam2Set, &storageParam2Get};
     if (tag == QStringLiteral("node_storage_param3"))
         return {EntityKind::Node, &storageParam3Set, &storageParam3Get};
+    // Storage exfiltration — [STORAGE] Green-Ampt tail (Psi / Ksat / IMD).
+    if (tag == QStringLiteral("node_exfil_suction"))
+        return {EntityKind::Node, &exfilSuctionSet, &exfilSuctionGet};
+    if (tag == QStringLiteral("node_exfil_ksat"))
+        return {EntityKind::Node, &exfilKsatSet,    &exfilKsatGet};
+    if (tag == QStringLiteral("node_exfil_imd"))
+        return {EntityKind::Node, &exfilImdSet,     &exfilImdGet};
     // ATTRIBUTE_EDITOR_WIRING parity pass — outfall fixed stage. The
     // setter also flips the outfall type to FIXED (engine invariant).
     if (tag == QStringLiteral("node_outfall_stage"))
         return {EntityKind::Node, &swmm_node_set_outfall_stage, &outfallStageGet};
+
+    // Node — getter-only (computed + post-run dynamics). No setFn: these
+    // tags exist so a ReadOnly column can reach the engine directly instead
+    // of going through identifyByName. flags() refuses ItemIsEditable for
+    // ReadOnly columns, so the missing setter can never be reached.
+    if (tag == QStringLiteral("node_crown_elev"))
+        return {EntityKind::Node, nullptr, &swmm_node_get_crown_elev};
+    if (tag == QStringLiteral("node_full_volume"))
+        return {EntityKind::Node, nullptr, &swmm_node_get_full_volume};
+    if (tag == QStringLiteral("node_stat_max_depth"))
+        return {EntityKind::Node, nullptr, &swmm_node_get_stat_max_depth};
+    if (tag == QStringLiteral("node_stat_max_overflow"))
+        return {EntityKind::Node, nullptr, &swmm_node_get_stat_max_overflow};
+    if (tag == QStringLiteral("node_stat_vol_flooded"))
+        return {EntityKind::Node, nullptr, &swmm_node_get_stat_vol_flooded};
+    if (tag == QStringLiteral("node_stat_time_flooded"))
+        return {EntityKind::Node, nullptr, &nodeTimeFloodedHoursGet};
+    if (tag == QStringLiteral("node_degree")) {
+        e.kind   = EntityKind::Node;
+        e.getFnI = &swmm_node_get_degree;
+        return e;
+    }
 
     // Node — int / enum
     if (tag == QStringLiteral("node_outfall_type")) {
@@ -1222,12 +1635,14 @@ SetterEntry setterFor(const QString &tag) {
         return {EntityKind::Link, &swmm_link_set_length,    &swmm_link_get_length};
     if (tag == QStringLiteral("link_roughness"))
         return {EntityKind::Link, &swmm_link_set_roughness, &swmm_link_get_roughness};
+    // Offsets are shown/edited in the LINK_OFFSETS convention (elevation when
+    // the mode is ELEVATION); the engine store stays in depths.
     if (tag == QStringLiteral("link_offset_up"))
-        return {EntityKind::Link, &swmm_link_set_offset_up, &swmm_link_get_offset_up};
+        return {EntityKind::Link, &linkoffsetdisplay::setOffsetUp, &linkoffsetdisplay::getOffsetUp};
     if (tag == QStringLiteral("link_offset_dn"))
-        return {EntityKind::Link, &swmm_link_set_offset_dn, &swmm_link_get_offset_dn};
+        return {EntityKind::Link, &linkoffsetdisplay::setOffsetDn, &linkoffsetdisplay::getOffsetDn};
     if (tag == QStringLiteral("link_crest_height"))
-        return {EntityKind::Link, &swmm_link_set_crest_height,    &swmm_link_get_crest_height};
+        return {EntityKind::Link, &linkoffsetdisplay::setCrestHeight, &linkoffsetdisplay::getCrestHeight};
     if (tag == QStringLiteral("link_discharge_coeff"))
         return {EntityKind::Link, &swmm_link_set_discharge_coeff, &swmm_link_get_discharge_coeff};
     if (tag == QStringLiteral("link_end_contractions"))
@@ -1326,6 +1741,30 @@ SetterEntry setterFor(const QString &tag) {
         return e;
     }
 
+    // Link — getter-only (computed + post-run dynamics); see the node
+    // getter-only block above for why these carry no setter.
+    if (tag == QStringLiteral("link_slope"))
+        return {EntityKind::Link, nullptr, &swmm_link_get_slope};
+    if (tag == QStringLiteral("link_stat_max_flow"))
+        return {EntityKind::Link, nullptr, &swmm_link_get_stat_max_flow};
+    if (tag == QStringLiteral("link_stat_max_velocity"))
+        return {EntityKind::Link, nullptr, &swmm_link_get_stat_max_velocity};
+    if (tag == QStringLiteral("link_stat_max_filling"))
+        return {EntityKind::Link, nullptr, &swmm_link_get_stat_max_filling};
+    if (tag == QStringLiteral("link_stat_vol_flow"))
+        return {EntityKind::Link, nullptr, &swmm_link_get_stat_vol_flow};
+    if (tag == QStringLiteral("link_stat_surcharge_time"))
+        return {EntityKind::Link, nullptr, &swmm_link_get_stat_surcharge_time};
+    if (tag == QStringLiteral("link_stat_pump_on_time"))
+        return {EntityKind::Link, nullptr, &pumpOnTimeHoursGet};
+    if (tag == QStringLiteral("link_stat_pump_volume"))
+        return {EntityKind::Link, nullptr, &swmm_link_get_stat_pump_volume};
+    if (tag == QStringLiteral("link_stat_pump_cycles")) {
+        e.kind   = EntityKind::Link;
+        e.getFnI = &swmm_link_get_stat_pump_cycles;
+        return e;
+    }
+
     // ATTRIBUTE_EDITOR_WIRING parity pass — rain gage rows.
     if (tag == QStringLiteral("gage_rain_type")) {
         e.kind = EntityKind::Gage;
@@ -1343,6 +1782,24 @@ SetterEntry setterFor(const QString &tag) {
         e.kind   = EntityKind::Gage;
         e.setFnS = &gageFilePathSet;
         e.getFnS = &gageFilePathGet;
+        return e;
+    }
+    // Multi-column rain file (spec §4 task 4) — the data column selected
+    // inside a CSV/TSV/TSF file. Setting a non-empty column switches the
+    // engine gage to USER_CSV ("FILE path:col"); mirrors
+    // SWMMRainGagePropertyAdapter::fileColumn / setFileColumn.
+    if (tag == QStringLiteral("gage_file_column")) {
+        e.kind   = EntityKind::Gage;
+        e.setFnS = &swmm_gage_set_file_column;
+        e.getFnS = &swmm_gage_get_file_column;
+        return e;
+    }
+    // Rain-file grammar (review A-2) — plain int codes, so the raw C-API
+    // matches setFnI/getFnI with no wrapper.
+    if (tag == QStringLiteral("gage_file_format")) {
+        e.kind   = EntityKind::Gage;
+        e.setFnI = &swmm_gage_set_file_format;
+        e.getFnI = &swmm_gage_get_file_format;
         return e;
     }
     if (tag == QStringLiteral("gage_interval")) {
@@ -1433,7 +1890,41 @@ SetterEntry setterFor(const QString &tag) {
         return {EntityKind::Subcatch, &swmm_subcatch_set_zero_imperv_pct,
                                       &swmm_subcatch_get_zero_imperv_pct};
 
+    // Subcatchment — string ([TAGS], mirrors node_tag / link_tag). The
+    // engine has always had these accessors; the table just never had the
+    // column, so subcatchments were the one spatial kind you couldn't tag
+    // from the Attribute Table.
+    if (tag == QStringLiteral("subcatch_tag")) {
+        e.kind   = EntityKind::Subcatch;
+        e.setFnS = &swmm_subcatch_set_tag;
+        e.getFnS = &swmm_subcatch_get_tag;
+        return e;
+    }
+
+    // Subcatchment — getter-only post-run dynamics.
+    if (tag == QStringLiteral("subcatch_stat_precip"))
+        return {EntityKind::Subcatch, nullptr, &swmm_subcatch_get_stat_precip};
+    if (tag == QStringLiteral("subcatch_stat_runoff_vol"))
+        return {EntityKind::Subcatch, nullptr, &swmm_subcatch_get_stat_runoff_vol};
+    if (tag == QStringLiteral("subcatch_stat_max_runoff"))
+        return {EntityKind::Subcatch, nullptr, &swmm_subcatch_get_stat_max_runoff};
+
     return {};
+}
+
+// The chain above is ~100 QString comparisons and used to run for EVERY
+// cell read — data(), flags() and commitValueDirect() all dispatch through
+// it — so a full-grid walk (filter, sort, export) paid it millions of
+// times. Memoise per tag; those three are GUI-thread-only, so a plain
+// function-local static needs no lock.
+//
+// Returns BY VALUE: SetterEntry is a kind plus a few function pointers,
+// and a reference into the hash would dangle on the next insert's rehash.
+SetterEntry setterFor(const QString &tag) {
+    static QHash<QString, SetterEntry> cache;
+    const auto it = cache.constFind(tag);
+    if (it != cache.constEnd()) return *it;
+    return *cache.insert(tag, setterForUncached(tag));
 }
 
 // Enum pair-list builders — the Enum delegate consumes a list of
@@ -1540,6 +2031,20 @@ QVariantList gageRainTypeValues() {
         makePair("CUMULATIVE", 2),
     };
 }
+//! Engine RainFileFormat::USER_CSV — the multi-column grammar.
+constexpr int kRainFormatUserCsv = 6;
+// Engine RainFileFormat codes. Only these three are ever assigned — the parser
+// writes USER_CSV for a "path:col" token and STAN_PRCP for a plain path, the
+// resolver can promote STAN_PRCP to USER_CSV, and a gage with no file stays
+// UNKNOWN. Codes 0..4 (NWS/DSI/HLY) exist in the engine header but are never
+// written, so offering them would offer unreachable states.
+QVariantList gageFileFormatValues() {
+    return {
+        makePair("AUTO-DETECT",  -1),
+        makePair("STANDARD",      5),
+        makePair("MULTI-COLUMN",  6),
+    };
+}
 QVariantList gageDataSourceValues() {
     return {
         makePair("TIMESERIES", 0),
@@ -1606,10 +2111,58 @@ void SWMMAttributeTableModel::setSource(SWMMModelLayer *layer,
     endResetModel();
 }
 
+void SWMMAttributeTableModel::setResultsSource(SWMMResultsLayer *layer)
+{
+    if (m_resultsSource == layer) return;
+    m_resultsSource = layer;
+
+    // Only the dynamics columns change, and none of them come from the row
+    // cache (they read through a getter tag every paint), so a full reset
+    // would be gratuitous — it would also drop the user's selection and
+    // scroll position every time the active run changes. A dataChanged over
+    // the whole grid repaints the affected cells and leaves both alone.
+    if (rowCount() > 0 && columnCount() > 0) {
+        emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1),
+                         {Qt::DisplayRole});
+    }
+}
+
+QString SWMMAttributeTableModel::offsetModeLabel(const ColumnSpec &spec) const
+{
+    // LINK_OFFSETS = ELEVATION: the offset columns read/write through the
+    // mode-aware linkoffsetdisplay accessors (setter tags link_offset_up /
+    // link_offset_dn) and therefore show elevations — label them as such.
+    // Resolved at render time, like the unit suffix, so a mode flip only
+    // needs a headerDataChanged.
+    const bool isUp = spec.setter == QLatin1String("link_offset_up");
+    const bool isDn = spec.setter == QLatin1String("link_offset_dn");
+    if (!isUp && !isDn) return spec.label;
+    if (!m_layer || !linkoffsetdisplay::elevationMode(m_layer->engine()))
+        return spec.label;
+    if (isDn) return tr("Downstream Elevation");
+    // Conduits / weirs label the upstream slot "Upstream Offset"; orifices
+    // and outlets carry a single "Offset" (also measured upstream).
+    return spec.label == QLatin1String("Offset") ? tr("Elevation")
+                                                 : tr("Upstream Elevation");
+}
+
+void SWMMAttributeTableModel::refreshHeaders()
+{
+    if (columnCount() > 0)
+        emit headerDataChanged(Qt::Horizontal, 0, columnCount() - 1);
+}
+
 void SWMMAttributeTableModel::rebuildColumnSchema()
 {
     m_columnSpecs = schemaForCategory(m_category);
+    appendInitialQualityColumns();
     appendUserFlagColumns();
+    // Dynamics last — after the initial-quality and user-flag columns the
+    // two append calls above tack on. Ordering the whole table as
+    // [inputs | initial quality | user flags | results] means the editable
+    // model never drifts rightwards as a project defines more flags, and
+    // the run output is always found at the same end.
+    appendDynamicsColumns();
     m_columnKeys.clear();
     m_columnLabels.clear();
     m_columnKeys.reserve(m_columnSpecs.size());
@@ -1628,6 +2181,54 @@ void SWMMAttributeTableModel::reload()
     m_rowCacheValid.assign(n, false);
     invalidateCompoundCache();
     endResetModel();
+}
+
+void SWMMAttributeTableModel::appendInitialQualityColumns()
+{
+    if (!m_layer) return;
+    const QString objType = userFlagObjectType(m_category);
+    if (objType != QStringLiteral("NODE") && objType != QStringLiteral("LINK"))
+        return;                 // [INITIAL_QUALITY] scopes are NODE | LINK only
+    SWMM_Engine eng = m_layer->engine();
+    if (!eng) return;
+
+    auto makeCol = [](const QString &cons, const QString &label,
+                      const QString &tooltip) {
+        ColumnSpec spec;
+        spec.key     = kInitQualityKeyPrefix + cons;
+        spec.label   = label;
+        spec.editor  = EditorKind::Text;  // blank commit clears the override
+        spec.setter  = QStringLiteral("initquality");  // marks editable;
+                                                       // commit dispatches
+                                                       // on the key
+        spec.tooltip = tooltip;
+        return spec;
+    };
+
+    const int np = swmm_pollutant_count(eng);
+    for (int p = 0; p < np; ++p) {
+        const char *id = swmm_pollutant_id(eng, p);
+        if (!id) continue;
+        const QString cons = QString::fromUtf8(id);
+        m_columnSpecs.append(makeCol(
+            cons, tr("Init. %1").arg(cons),
+            tr("[INITIAL_QUALITY] override — the element starts the run at "
+               "this %1 concentration instead of the pollutant's global "
+               "initial value. Blank = no override.").arg(cons)));
+    }
+    // Reserved species, offered only while their option is on — a value
+    // for an off species would be stored-but-inert (the engine warns), so
+    // the table does not invite it.
+    if (optionYes(eng, "WATER_AGE"))
+        m_columnSpecs.append(makeCol(
+            QStringLiteral("__WATER_AGE__"), tr("Init. Water Age (hr)"),
+            tr("[INITIAL_QUALITY] initial water age in hours (negative "
+               "extracts age). Blank = no override.")));
+    if (optionYes(eng, "HEAT_TRANSPORT"))
+        m_columnSpecs.append(makeCol(
+            QStringLiteral("__TEMPERATURE__"), tr("Init. Temperature (°C)"),
+            tr("[INITIAL_QUALITY] initial temperature in °C. Blank = no "
+               "override.")));
 }
 
 void SWMMAttributeTableModel::appendUserFlagColumns()
@@ -1673,6 +2274,11 @@ void SWMMAttributeTableModel::appendUserFlagColumns()
     }
 }
 
+void SWMMAttributeTableModel::appendDynamicsColumns()
+{
+    m_columnSpecs.append(dynamicsForCategory(m_category));
+}
+
 void SWMMAttributeTableModel::invalidateCompoundCache()
 {
     m_inflowCountByNode.clear();
@@ -1681,6 +2287,32 @@ void SWMMAttributeTableModel::invalidateCompoundCache()
     m_treatmentActiveByNode.clear();
     m_compoundPollutantCount = 0;
     m_compoundCacheBuilt     = false;
+    m_initQualityByElem.clear();
+    m_initQualityCacheBuilt  = false;
+}
+
+void SWMMAttributeTableModel::ensureInitQualityCacheBuilt() const
+{
+    if (m_initQualityCacheBuilt) return;
+    m_initQualityCacheBuilt = true;
+    m_initQualityByElem.clear();
+    if (!m_layer) return;
+    SWMM_Engine eng = m_layer->engine();
+    if (!eng) return;
+
+    const int wantLink =
+        userFlagObjectType(m_category) == QStringLiteral("LINK") ? 1 : 0;
+    const int total = swmm_init_quality_count(eng);
+    for (int i = 0; i < total; ++i) {
+        int is_link = 0, elem = -1;
+        char cons[128] = {0};
+        double value = 0.0;
+        if (swmm_init_quality_get(eng, i, &is_link, &elem,
+                                  cons, sizeof(cons), &value) != SWMM_OK)
+            continue;
+        if (is_link != wantLink) continue;
+        m_initQualityByElem[elem].insert(QString::fromUtf8(cons), value);
+    }
 }
 
 void SWMMAttributeTableModel::ensureCompoundCacheBuilt() const
@@ -1781,8 +2413,9 @@ QVariant SWMMAttributeTableModel::headerData(int section,
             return u.isEmpty() ? QVariant() : QVariant(tr("Units: %1").arg(u));
         }
         if (role == Qt::DisplayRole) {
-            if (u.isEmpty()) return spec.label;
-            return tr("%1 (%2)").arg(spec.label, u);
+            const QString label = offsetModeLabel(spec);
+            if (u.isEmpty()) return label;
+            return tr("%1 (%2)").arg(label, u);
         }
     }
     if (orientation == Qt::Vertical && role == Qt::DisplayRole)
@@ -1812,7 +2445,15 @@ QVariantMap SWMMAttributeTableModel::rowData(int row) const
     if (row < 0 || row >= m_rowCache.size()) return {};
     if (!m_rowCacheValid[row]) {
         const QString name = m_layer->objectNameAt(m_category, row);
-        m_rowCache[row]      = m_layer->identifyByName(name);
+        // Kind-scoped: this table is bound to ONE category, and SWMM names
+        // are per-type namespaces — without the mask a rain gage sharing its
+        // name with a subcatchment (or a link with a node) read the OTHER
+        // object's attribute map here. kindBitForCategory returns 0 for the
+        // non-spatial categories (curves, timeseries, …) — keep those on the
+        // unscoped lookup they always used.
+        const quint8 kindBit = SWMMModelLayer::kindBitForCategory(m_category);
+        m_rowCache[row] = m_layer->identifyByName(
+            name, kindBit ? kindBit : SWMMModelLayer::kKindAll);
         m_rowCacheValid[row] = true;
     }
     return m_rowCache[row];
@@ -1821,12 +2462,32 @@ QVariantMap SWMMAttributeTableModel::rowData(int row) const
 QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid()) return {};
-    if (role != Qt::DisplayRole && role != Qt::EditRole &&
-        role != Qt::ToolTipRole) return {};
 
     const int row = index.row();
     const int col = index.column();
     if (col < 0 || col >= m_columnSpecs.size()) return {};
+
+    // FileColumn cells (spec §4 task 4): the delegate asks for the row's
+    // available column names via this role. They come from the same header
+    // enumeration the timeseries dialog uses (engine detection parity), read
+    // from the gage's resolved rain-file path.
+    if (role == openswmmvis::kFileColumnOptionsRole) {
+        if (m_columnSpecs[col].editor != EditorKind::FileColumn || !m_layer)
+            return {};
+        const QString path = rainFileFor(row);
+        if (path.isEmpty()) return {};
+        // A headerless file yields display-only "col_N" names that the engine
+        // cannot resolve by name (it spends line 1 as the header row), so offer
+        // nothing rather than a pick that would fail at run time — an empty
+        // column means "first data column" (review B-4 / risk R1).
+        bool fabricated = false;
+        const QStringList headers =
+            openswmmvis::ui::readHeaders(path, nullptr, &fabricated);
+        return fabricated ? QStringList() : headers;
+    }
+
+    if (role != Qt::DisplayRole && role != Qt::EditRole &&
+        role != Qt::ToolTipRole) return {};
 
     // Column 0 is always Name — sourced directly from the layer to
     // avoid a per-paint identifyByName lookup for the most-common case.
@@ -1843,12 +2504,20 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
     if (role == Qt::ToolTipRole) {
         // Inline geom cells carry a shape-specific tooltip ("Diameter",
         // "Max Depth", …) since the column header is the generic "Geom N".
+        // Geoms the live shape doesn't consume are still shown and edited —
+        // the tooltip is where that gets explained, so the number isn't
+        // mistaken for one the solver reads.
         if (const int ord = xsectGeomOrdinalForTag(spec.setter); ord > 0) {
             const int shape = linkShapeForName(m_layer, objectNameAt(row));
-            if (shape < 0 || !openswmmvis::xsectGeomApplies(shape, ord))
-                return tr("Not used by this cross-section shape");
+            if (shape < 0) return QVariant();
+            if (openswmmvis::xsectGeomIsPickerIndex(shape, ord))
+                return tr("Set from the Cross Section editor — this slot holds "
+                          "a list index, not a dimension");
             const QString meaning = openswmmvis::xsectGeomLabel(shape, ord);
-            return meaning.isEmpty() ? QVariant() : QVariant(meaning);
+            if (!meaning.isEmpty()) return meaning;
+            const QString shapeName = openswmmvis::xsectShapeName(shape);
+            return tr("Stored value — not used by %1")
+                       .arg(shapeName.isEmpty() ? tr("this shape") : shapeName);
         }
         // Storage dimension cells do the same — the header is the generic
         // "Shape param N", so the tooltip is where "Base Length" / "Side Slope
@@ -1978,6 +2647,24 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             return QVariant::fromValue(dref);
         }
 
+        // [OUTFALLS] RouteTo — the discharge target subcatchment, or
+        // unassigned when the outfall discharges out of the system.
+        if (spec.setter == QStringLiteral("node_outfall_route_to_ref")) {
+            const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
+            if (nodeIdx < 0) return {};
+            DataObjectRef dref;
+            dref.engine = eng;
+            dref.layer  = m_layer;
+            dref.kind   = DataObjectRef::Subcatchment;
+            int sIdx = -1;
+            if (swmm_node_get_outfall_route_to(eng, nodeIdx, &sIdx) == SWMM_OK
+                && sIdx >= 0) {
+                if (const char *id = swmm_subcatch_id(eng, sIdx))
+                    dref.currentName = QString::fromUtf8(id);
+            }
+            return QVariant::fromValue(dref);
+        }
+
         // Parity pass — outfall stage-data pickers (DataObjectRef
         // cells). Mirrors SWMMNodePropertyAdapter::outfallTidalCurveRef
         // / outfallTimeseriesRef: the name resolves only when the
@@ -2041,6 +2728,22 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             return QVariant::fromValue(dref);
         }
 
+        // G3 — receiving-aquifer picker. Mirrors
+        // SWMMSubcatchPropertyAdapter::aquiferRef; write in commitValueDirect.
+        if (spec.setter == QStringLiteral("subcatch_aquifer_ref")) {
+            const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+            if (sIdx < 0) return {};
+            DataObjectRef dref;
+            dref.engine = eng;
+            dref.layer  = m_layer;
+            dref.kind   = DataObjectRef::Aquifer;
+            int aq = -1;
+            if (swmm_subcatch_get_aquifer(eng, sIdx, &aq) == SWMM_OK && aq >= 0)
+                if (const char *id = swmm_aquifer_id(eng, aq))
+                    dref.currentName = QString::fromUtf8(id);
+            return QVariant::fromValue(dref);
+        }
+
         // Phase 3 — subcatchment compound cells (land use / groundwater / LID
         // usage). The SubcatchCompoundEditDialog performs the engine writes;
         // the cell only carries the coordinate + a live summary.
@@ -2066,9 +2769,7 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                 sref.summary = assigned > 0 ? tr("%1 land use(s)").arg(assigned) : tr("(none)");
             } else if (spec.setter == QStringLiteral("subcatch_groundwater_ref")) {
                 sref.kind = SubcatchCompoundEditRef::Groundwater;
-                int aq = -1;
-                swmm_subcatch_get_aquifer(eng, sIdx, &aq);
-                sref.summary = aq >= 0 ? tr("aquifer set") : tr("(none)");
+                sref.summary = groundwaterSummary(eng, sIdx);
             } else if (spec.setter == QStringLiteral("subcatch_loadings_ref")) {
                 // [LOADINGS] initial buildup (iteration 4).
                 sref.kind = SubcatchCompoundEditRef::Loadings;
@@ -2149,6 +2850,15 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             ref.summary = (active > 0)
                 ? tr("%1 / %2 pollutants").arg(active).arg(nPollut)
                 : tr("(none)");
+        } else if (spec.setter == QStringLiteral("node_groundwater_sources_ref")) {
+            // G5 — navigation cell: same text as
+            // SWMMNodePropertyAdapter::groundwaterSourcesRef().
+            ref.kind = NodeCompoundEditRef::GroundwaterSources;
+            const QStringList subs =
+                OpenSWMMVis::Groundwater::groundwaterSourceSubcatchments(eng, nodeIdx);
+            ref.summary = subs.isEmpty()
+                ? tr("(none)")
+                : tr("from %1").arg(subs.join(QStringLiteral(", ")));
         }
         return QVariant::fromValue(ref);
     }
@@ -2175,19 +2885,45 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         return v;  // blank when unset (both Display and Edit roles)
     }
 
-    // Editable columns: read from the engine setter's matching
-    // getter so the value reflects post-commit state (the
-    // identifyByName cache doesn't track per-attribute updates).
-    if (spec.editor != EditorKind::ReadOnly && !spec.setter.isEmpty() && m_layer) {
-        // Inline geom cell that doesn't apply to this row's shape → blank
-        // (the cell is also non-editable via flags()), so a stale 0 isn't
-        // shown as if it were a real, editable dimension.
-        if (const int ord = xsectGeomOrdinalForTag(spec.setter); ord > 0) {
-            const int shape = linkShapeForName(m_layer, objectNameAt(row));
-            if (shape < 0 || !openswmmvis::xsectGeomApplies(shape, ord))
-                return {};
-        }
-        // Same for a storage dimension the live shape doesn't use — a paraboloid
+    // Initial-quality columns (initial-quality UI round): values live in
+    // the engine's [INITIAL_QUALITY] row store, keyed (scope, element,
+    // constituent). Unset reads as blank — the pollutant's global initial
+    // concentration then applies at run start.
+    if (spec.key.startsWith(kInitQualityKeyPrefix) && m_layer) {
+        SWMM_Engine eng = m_layer->engine();
+        const QString name = objectNameAt(row);
+        if (!eng || name.isEmpty()) return {};
+        const bool link =
+            userFlagObjectType(m_category) == QStringLiteral("LINK");
+        const int elemIdx = link
+            ? swmm_link_index(eng, name.toUtf8().constData())
+            : swmm_node_index(eng, name.toUtf8().constData());
+        if (elemIdx < 0) return {};
+        ensureInitQualityCacheBuilt();
+        const auto it = m_initQualityByElem.constFind(elemIdx);
+        if (it == m_initQualityByElem.constEnd()) return QString();
+        const auto vit =
+            it->constFind(spec.key.mid(kInitQualityKeyPrefix.size()));
+        if (vit == it->constEnd()) return QString();
+        return QString::number(*vit);  // blank when unset (both roles)
+    }
+
+    // Columns with an engine tag read through that tag's getter so the
+    // value reflects post-commit state (the identifyByName cache doesn't
+    // track per-attribute updates).
+    //
+    // ReadOnly specs may carry a tag too — then it is a GETTER-ONLY tag.
+    // That is how the computed (Slope) and post-run dynamics columns reach
+    // the engine without also having to be mirrored into identifyByName().
+    // flags() still refuses ItemIsEditable for ReadOnly, and
+    // commitValueDirect() still refuses the write, so a getter-only tag
+    // can never become an edit path.
+    if (!spec.setter.isEmpty() && m_layer) {
+        // Inline geom cells always show their stored value, whatever the
+        // shape — see xsectGeomSet. The tooltip above says which ones the
+        // live shape actually consumes.
+        //
+        // Storage dimensions the live shape doesn't use — a paraboloid
         // still carries whatever side slope a previous shape left in p3, and showing
         // that stale number as an editable value is worse than showing nothing.
         if (const int ord = storageParamOrdinalForTag(spec.setter); ord > 0) {
@@ -2195,10 +2931,17 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             if (shape < 0 || !openswmmvis::storageGeomApplies(shape, ord))
                 return {};
         }
+        // Post-run dynamics: when an output is bound, the value comes from
+        // THAT run's .out file, not the editing engine (which never runs a
+        // simulation and so has no statistics at all). Tags with no output
+        // counterpart — the three pump-only ones — fall through to the
+        // engine path below and keep their existing behaviour.
+        if (m_resultsSource) {
+            if (const auto fn = resultsStatFor(spec.setter))
+                return (m_resultsSource->*fn)(objectNameAt(row));
+        }
         const auto entry = setterFor(spec.setter);
-        const QString name = objectNameAt(row);
-        const int entIdx = indexForName(m_layer->engine(), entry.kind,
-                                          name.toUtf8().constData());
+        const int entIdx = engineIndexFor(m_layer, m_category, row, entry.kind);
         if (entIdx >= 0) {
             if (entry.getFn) {
                 double v = 0.0;
@@ -2272,12 +3015,13 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
                 && state == SWMM_STATE_RUNNING)
                 return f;  // no ItemIsEditable
         }
-        // Inline cross-section geom cells are editable only when the geom
-        // applies to this row's shape (e.g. Geom 2 on a CIRCULAR conduit,
-        // or any geom on IRREGULAR/STREET, is greyed — set via the dialog).
+        // Inline cross-section geom cells stay editable for every shape —
+        // the stored number is real and users need to pre-set a width
+        // before switching shape. Only the picker-owned index slots
+        // (IRREGULAR / STREET geom1, CUSTOM geom2) refuse an inline editor.
         if (const int ord = xsectGeomOrdinalForTag(spec.setter); ord > 0) {
             const int shape = linkShapeForName(m_layer, objectNameAt(index.row()));
-            if (shape < 0 || !openswmmvis::xsectGeomApplies(shape, ord))
+            if (shape < 0 || openswmmvis::xsectGeomIsPickerIndex(shape, ord))
                 return f;  // no ItemIsEditable
         }
         // Storage dimension cells: editable only for the shapes that use them.
@@ -2409,6 +3153,63 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         return true;
     }
 
+    // Initial-quality columns (initial-quality UI round). A numeric commit
+    // upserts the element's [INITIAL_QUALITY] row for the column's
+    // constituent; a blank commit removes it (back to "no override"). The
+    // engine setter validates the value (e.g. rejects a negative pollutant
+    // concentration), so a bad keystroke leaves the store untouched.
+    if (spec.key.startsWith(kInitQualityKeyPrefix)) {
+        SWMM_Engine eng = m_layer->engine();
+        const QString name = objectNameAt(row);
+        if (!eng || name.isEmpty()) return false;
+        const bool link =
+            userFlagObjectType(m_category) == QStringLiteral("LINK");
+        const int isLink = link ? 1 : 0;
+        const int elemIdx = link
+            ? swmm_link_index(eng, name.toUtf8().constData())
+            : swmm_node_index(eng, name.toUtf8().constData());
+        if (elemIdx < 0) return false;
+        const QString cons = spec.key.mid(kInitQualityKeyPrefix.size());
+        const QString s = value.toString().trimmed();
+
+        if (s.isEmpty()) {
+            // Find the element's row for this constituent and remove it.
+            // No row → nothing changed, refuse the commit (keeps the undo
+            // stack free of no-op commands).
+            const int total = swmm_init_quality_count(eng);
+            for (int i = 0; i < total; ++i) {
+                int rowIsLink = 0, rowElem = -1;
+                char rowCons[128] = {0};
+                double rowValue = 0.0;
+                if (swmm_init_quality_get(eng, i, &rowIsLink, &rowElem,
+                                          rowCons, sizeof(rowCons),
+                                          &rowValue) != SWMM_OK)
+                    continue;
+                if (rowIsLink != isLink || rowElem != elemIdx ||
+                    QString::fromUtf8(rowCons) != cons)
+                    continue;
+                if (swmm_init_quality_remove(eng, i) != SWMM_OK) return false;
+                invalidateCompoundCache();
+                emit dataChanged(index, index,
+                                 {Qt::DisplayRole, Qt::EditRole});
+                emit objectEdited(name);
+                return true;
+            }
+            return false;
+        }
+
+        bool numeric = false;
+        const double v = s.toDouble(&numeric);
+        if (!numeric) return false;
+        if (swmm_init_quality_set(eng, isLink, elemIdx,
+                                  cons.toUtf8().constData(), v) != SWMM_OK)
+            return false;
+        invalidateCompoundCache();
+        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+        emit objectEdited(name);
+        return true;
+    }
+
     // ATTRIBUTE_EDITOR_WIRING (2026-06-04) — picker cells
     // (DataObjectRef). Unlike the dialog-backed compound cells, the
     // DataObjectPickerEditor carries no setter callback (MVC contract:
@@ -2478,6 +3279,31 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
             const int g = swmm_gage_index(eng, dref.currentName.toUtf8().constData());
             if (g < 0) return false;
             rc = swmm_subcatch_set_gage(eng, sIdx, g);
+        } else if (spec.setter == QStringLiteral("subcatch_aquifer_ref")) {
+            // G3 — receiving aquifer. Mirrors
+            // SWMMSubcatchPropertyAdapter::setAquiferRef: an empty pick
+            // clears the assignment (-1); an unknown name is ignored.
+            const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+            if (sIdx < 0) return false;
+            int aq = -1;
+            if (!dref.currentName.isEmpty()) {
+                aq = swmm_aquifer_index(eng, dref.currentName.toUtf8().constData());
+                if (aq < 0) return false;
+            }
+            rc = swmm_subcatch_set_aquifer(eng, sIdx, aq);
+        } else if (spec.setter == QStringLiteral("node_outfall_route_to_ref")) {
+            // [OUTFALLS] RouteTo. Unlike the pickers above, an empty pick is
+            // meaningful here — it clears the routing (-1) so the outfall
+            // discharges out of the system again.
+            const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
+            if (nodeIdx < 0) return false;
+            int sub = -1;
+            if (!dref.currentName.isEmpty()) {
+                sub = swmm_subcatch_index(eng,
+                                           dref.currentName.toUtf8().constData());
+                if (sub < 0) return false;   // unknown subcatchment — ignore
+            }
+            rc = swmm_node_set_outfall_route_to(eng, nodeIdx, sub);
         } else if (spec.setter == QStringLiteral("subcatch_outlet_ref")) {
             // Combined node/subcatch outlet; node takes precedence on a name
             // collision. Mirrors SWMMSubcatchPropertyAdapter::setOutletRef.
@@ -2511,13 +3337,18 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
     // Compound columns — the actual writes (Add RDII, set treatment
     // expression, etc.) happen inside NodeCompoundEditDialog as the
     // user commits each row. By the time the delegate fires setData
-    // here, engine state is already updated. We just invalidate the
-    // row cache so the summary recomputes on the next paint and
-    // notify external listeners (Property Browser) to refresh.
+    // here, engine state is already updated. We invalidate the caches
+    // the summary is computed from and notify external listeners
+    // (Property Browser) to refresh.
     if (spec.editor == EditorKind::Compound) {
         const QString name = objectNameAt(row);
         if (row >= 0 && row < m_rowCacheValid.size())
             m_rowCacheValid[row] = false;
+        // The summary comes from the per-node compound counts, NOT from
+        // m_rowCache — dropping only the row cache (as this used to) left
+        // an inflow added through this very dialog reading "(none)" until
+        // a category switch rebuilt the model.
+        invalidateCompoundCache();
         const int lastCol = columnCount() - 1;
         emit dataChanged(this->index(row, 0), this->index(row, lastCol),
                          {Qt::DisplayRole, Qt::EditRole});
@@ -2556,6 +3387,33 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         return true;
     }
 
+    // Rain-gage X/Y — the [SYMBOLS] twin of the node coordinate case above,
+    // routed through applyGageMove for the same reason.
+    if (spec.setter == QStringLiteral("gage_coord_x") ||
+        spec.setter == QStringLiteral("gage_coord_y")) {
+        const QString name = objectNameAt(row);
+        const int gageIdx = swmm_gage_index(m_layer->engine(),
+                                            name.toUtf8().constData());
+        if (gageIdx < 0) return false;
+        double cx = 0.0, cy = 0.0;
+        if (swmm_spatial_get_gage_coord(m_layer->engine(), gageIdx,
+                                        &cx, &cy) != SWMM_OK) return false;
+        bool ok = false;
+        const double nv = value.toDouble(&ok);
+        if (!ok) return false;
+        const bool isX = (spec.setter == QStringLiteral("gage_coord_x"));
+        const double newX = isX ? nv : cx;
+        const double newY = isX ? cy : nv;
+        if (!m_layer->applyGageMove(gageIdx, newX, newY)) return false;
+        if (row >= 0 && row < m_rowCacheValid.size())
+            m_rowCacheValid[row] = false;
+        const int lastCol = columnCount() - 1;
+        emit dataChanged(this->index(row, 0), this->index(row, lastCol),
+                         {Qt::DisplayRole, Qt::EditRole});
+        emit objectEdited(name);
+        return true;
+    }
+
     // Slice AG.4 — storage shape flips between functional coefficients and a
     // tabular curve, which mutates the sibling Storage Curve cell. Commit via
     // the same dispatch table, then repaint the whole row so the curve cell
@@ -2582,10 +3440,11 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
     const auto entry = setterFor(spec.setter);
     if (!entry.setFn && !entry.setFnI && !entry.setFnS) return false;
 
-    const QString name = objectNameAt(row);
-    const int entIdx = indexForName(m_layer->engine(), entry.kind,
-                                      name.toUtf8().constData());
+    const int entIdx = engineIndexFor(m_layer, m_category, row, entry.kind);
     if (entIdx < 0) return false;
+    // Still needed for the objectEdited() signal below — paid once per
+    // commit, not once per cell read.
+    const QString name = objectNameAt(row);
 
     int rc = -1;
     if (entry.setFn) {
@@ -2620,10 +3479,94 @@ void SWMMAttributeTableModel::refreshObject(const QString &name)
     if (row < 0) return;
     if (row < m_rowCacheValid.size())
         m_rowCacheValid[row] = false;
+    // This is the mirror for edits made ANYWHERE else (Property Browser,
+    // compound dialogs, undo) — including ones that add or remove inflow /
+    // DWF / RDII / treatment entries, which the compound cells summarise.
+    // Without this the compound counts survived an external edit and the
+    // cell kept showing the pre-edit summary.
+    //
+    // Coarse on purpose: the counts are bucketed by a single engine-wide
+    // scan, so there is no per-node entry to drop (a missing key already
+    // means "zero entries"). The rebuild is lazy — nothing is recomputed
+    // unless a compound cell is actually painted afterwards.
+    invalidateCompoundCache();
     const int lastCol = columnCount() - 1;
     if (lastCol < 0) return;
     emit dataChanged(index(row, 0), index(row, lastCol),
                      {Qt::DisplayRole, Qt::EditRole});
+}
+
+int SWMMAttributeTableModel::columnForSetter(const QString &tag) const
+{
+    for (int c = 0; c < m_columnSpecs.size(); ++c)
+        if (m_columnSpecs[c].setter == tag) return c;
+    return -1;
+}
+
+QString SWMMAttributeTableModel::rainFileFor(int row) const
+{
+    if (!m_layer) return {};
+    SWMM_Engine eng = m_layer->engine();
+    const QString name = objectNameAt(row);
+    if (!eng || name.isEmpty()) return {};
+    char abs[1024]  = {};
+    char orig[1024] = {};
+    if (swmm_file_path_get(eng, SWMM_FILE_RAINGAGE_DATA,
+                           name.toUtf8().constData(),
+                           abs, int(sizeof(abs)),
+                           orig, int(sizeof(orig))) != SWMM_OK)
+        return {};
+    return QString::fromUtf8(abs[0] != '\0' ? abs : orig);
+}
+
+bool SWMMAttributeTableModel::commitRainFilePath(const QModelIndex &pathIndex,
+                                                  const QVariant &oldPath,
+                                                  const QVariant &newPath)
+{
+    const int row     = pathIndex.row();
+    const int pathCol = pathIndex.column();
+    const int colCol  = columnForSetter(QStringLiteral("gage_file_column"));
+    const int fmtCol  = columnForSetter(QStringLiteral("gage_file_format"));
+
+    // Read the siblings BEFORE the path is written: the column setter's
+    // implicit USER_CSV flip would otherwise be captured as the "old" format.
+    const QVariant oldColumn = (colCol >= 0)
+        ? data(index(row, colCol), Qt::EditRole) : QVariant();
+    const QVariant oldFormat = (fmtCol >= 0)
+        ? data(index(row, fmtCol), Qt::EditRole) : QVariant();
+
+    const auto commit = [&](int col, const QVariant &oldV, const QVariant &newV) {
+        if (col < 0 || oldV == newV) return;
+        if (m_undoStack)
+            m_undoStack->push(new AttributeEditCommand(this, row, col, oldV, newV,
+                                                       m_columnSpecs[col].label));
+        else
+            commitValueDirect(index(row, col), newV);
+    };
+
+    if (m_undoStack)
+        m_undoStack->beginMacro(tr("Set %1").arg(m_columnSpecs[pathCol].label));
+
+    commit(pathCol, oldPath, newPath);
+
+    // The engine now holds the new path, so its resolved form — and therefore
+    // the new file's headers — can be read.
+    if (colCol >= 0) {
+        const QString want = openswmmvis::ui::reconcileColumnSelector(
+            rainFileFor(row), oldColumn.toString());
+        if (want != oldColumn.toString()) {
+            // A non-empty column means the multi-column grammar. The engine
+            // flips the format itself, but that flip is invisible to the undo
+            // stack, so record it as its own command — otherwise undo would
+            // leave the gage USER_CSV with no column and Station ID greyed.
+            if (!want.isEmpty())
+                commit(fmtCol, oldFormat, QVariant(kRainFormatUserCsv));
+            commit(colCol, oldColumn, QVariant(want));
+        }
+    }
+
+    if (m_undoStack) m_undoStack->endMacro();
+    return true;
 }
 
 bool SWMMAttributeTableModel::setData(const QModelIndex &index,
@@ -2661,11 +3604,21 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index,
     if (spec.editor == EditorKind::Compound)
         return commitValueDirect(index, value);
 
+    const QVariant oldValueEarly = data(index, Qt::EditRole);
+
+    // A rain-file path edit reaches two more cells — see commitRainFilePath.
+    // Handled before the single-command path below (and regardless of whether a
+    // stack is attached, so both editors behave the same).
+    if (spec.setter == QStringLiteral("gage_file_path")) {
+        if (oldValueEarly == value) return true;  // no-op edit
+        return commitRainFilePath(index, oldValueEarly, value);
+    }
+
     // Wrap each numeric/enum commit in an undo command when a stack is attached.
     if (!m_undoStack)
         return commitValueDirect(index, value);
 
-    const QVariant oldValue = data(index, Qt::EditRole);
+    const QVariant oldValue = oldValueEarly;
     if (oldValue == value) return true;  // no-op edit
 
     m_undoStack->push(

@@ -1,0 +1,470 @@
+Test project /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build
+        Start 195: test_meshperf_baseline
+        Start 202: test_gisrastercrs
+        Start 130: test_reaction_expression_editor
+        Start 181: test_wfsservice
+  1/230 Test #130: test_reaction_expression_editor ........   Passed    0.52 sec
+        Start 189: test_2dresults_vizfixes
+  2/230 Test #189: test_2dresults_vizfixes ................   Passed    0.11 sec
+        Start 204: test_savewarnings
+  3/230 Test #181: test_wfsservice ........................   Passed    0.74 sec
+        Start 203: test_gisselectionsync
+  4/230 Test #203: test_gisselectionsync ..................   Passed    0.50 sec
+        Start 200: test_mesheditingtoolbar_bc
+  5/230 Test #204: test_savewarnings ......................   Passed    0.61 sec
+        Start 129: test_reactionsystemeditor
+  6/230 Test #202: test_gisrastercrs ......................   Passed    1.49 sec
+        Start 188: test_meshimport
+  7/230 Test #129: test_reactionsystemeditor ..............   Passed    0.48 sec
+        Start 128: test_initialqualitydialog
+  8/230 Test #200: test_mesheditingtoolbar_bc .............   Passed    0.64 sec
+        Start 201: test_gisvectorpopulate
+  9/230 Test #201: test_gisvectorpopulate .................   Passed    0.19 sec
+        Start 212: test_bulkdelete
+ 10/230 Test #128: test_initialqualitydialog ..............   Passed    0.41 sec
+        Start 127: test_wateragesourcesdialog
+ 11/230 Test #127: test_wateragesourcesdialog .............   Passed    0.32 sec
+        Start 157: test_pslgminsize
+ 12/230 Test #212: test_bulkdelete ........................   Passed    0.51 sec
+        Start 190: test_meshmincelldialog
+ 13/230 Test #188: test_meshimport ........................   Passed    1.18 sec
+        Start   6: test_basemapcrypto
+ 14/230 Test #157: test_pslgminsize .......................   Passed    0.68 sec
+        Start 187: test_meshsavedirty
+ 15/230 Test #190: test_meshmincelldialog .................   Passed    0.59 sec
+        Start  67: test_meshprofile_shoreline_render
+ 16/230 Test  #67: test_meshprofile_shoreline_render ......   Passed    0.31 sec
+        Start 208: test_attributetableschema
+ 17/230 Test #187: test_meshsavedirty .....................   Passed    0.62 sec
+        Start 222: lint_chrome_colors
+ 18/230 Test   #6: test_basemapcrypto .....................   Passed    1.24 sec
+        Start 186: test_dirtytracking_run
+ 19/230 Test #208: test_attributetableschema ..............   Passed    0.85 sec
+        Start 213: test_linkflip
+ 20/230 Test #222: lint_chrome_colors .....................   Passed    0.71 sec
+        Start   7: test_basemapconnectionstore
+ 21/230 Test #213: test_linkflip ..........................   Passed    0.23 sec
+        Start 211: test_batchtransform
+ 22/230 Test #186: test_dirtytracking_run .................   Passed    0.74 sec
+        Start 158: test_meshminsizecleanup
+ 23/230 Test #211: test_batchtransform ....................   Passed    0.16 sec
+        Start 197: test_meshasyncload
+ 24/230 Test #158: test_meshminsizecleanup ................   Passed    0.25 sec
+        Start 100: test_timeseries_editor_dialog
+ 25/230 Test   #7: test_basemapconnectionstore ............   Passed    0.60 sec
+        Start 220: test_mdi_tab_maximize
+ 26/230 Test #220: test_mdi_tab_maximize ..................   Passed    0.38 sec
+        Start 184: test_asyncload
+ 27/230 Test #100: test_timeseries_editor_dialog ..........   Passed    0.71 sec
+        Start 210: test_selectionops
+ 28/230 Test #197: test_meshasyncload .....................   Passed    0.94 sec
+        Start 139: test_sectiondiagram
+ 29/230 Test #139: test_sectiondiagram ....................   Passed    0.36 sec
+        Start 193: test_a11y_scene_exposure
+ 30/230 Test #184: test_asyncload .........................   Passed    0.71 sec
+        Start 209: test_raingagefilecolumn
+ 31/230 Test #209: test_raingagefilecolumn ................   Passed    0.15 sec
+        Start 205: test_meshinfil
+ 32/230 Test #210: test_selectionops ......................   Passed    0.72 sec
+        Start 191: test_gageassignintegration
+ 33/230 Test #193: test_a11y_scene_exposure ...............   Passed    0.31 sec
+        Start  95: test_plotvariablepickerdialog
+ 34/230 Test #205: test_meshinfil .........................   Passed    0.15 sec
+        Start 104: test_landuse_unified_editor
+ 35/230 Test #191: test_gageassignintegration .............   Passed    0.26 sec
+        Start 196: test_attrtableperf_baseline
+ 36/230 Test  #95: test_plotvariablepickerdialog ..........   Passed    0.33 sec
+        Start  99: test_timeseries_edit_chart_view
+ 37/230 Test #196: test_attrtableperf_baseline ............   Passed    0.10 sec
+        Start 103: test_subcatch_coverage_loadings
+ 38/230 Test #104: test_landuse_unified_editor ............   Passed    0.39 sec
+        Start 102: test_treatment_expression_editor
+ 39/230 Test #103: test_subcatch_coverage_loadings ........   Passed    0.31 sec
+        Start 164: test_mesh2dgroundwaterdialog
+ 40/230 Test  #99: test_timeseries_edit_chart_view ........   Passed    0.43 sec
+        Start 215: test_ui_form_audit
+ 41/230 Test #102: test_treatment_expression_editor .......   Passed    0.26 sec
+        Start 226: test_dialog_layout_persistence
+ 42/230 Test #164: test_mesh2dgroundwaterdialog ...........   Passed    0.35 sec
+        Start 105: test_pattern_editor_dialog
+ 43/230 Test #226: test_dialog_layout_persistence .........   Passed    0.36 sec
+        Start 101: test_objectbrowser_add_new_dispatch
+ 44/230 Test #215: test_ui_form_audit .....................   Passed    0.43 sec
+        Start 106: test_curve_editor_dialog
+ 45/230 Test #105: test_pattern_editor_dialog .............   Passed    0.43 sec
+        Start 178: test_simulationoptionsdialog
+ 46/230 Test #101: test_objectbrowser_add_new_dispatch ....   Passed    0.47 sec
+        Start 179: test_climatologydialog
+ 47/230 Test #106: test_curve_editor_dialog ...............   Passed    0.44 sec
+        Start 112: test_userflagvaluesdialog
+ 48/230 Test #178: test_simulationoptionsdialog ...........   Passed    0.44 sec
+        Start 192: test_namelookup_precedence
+ 49/230 Test #112: test_userflagvaluesdialog ..............   Passed    0.31 sec
+        Start 185: test_registry_rename
+ 50/230 Test #179: test_climatologydialog .................   Passed    0.42 sec
+        Start 229: test_dialog_a11y_standalone
+ 51/230 Test #192: test_namelookup_precedence .............   Passed    0.23 sec
+        Start 230: test_ribbongroup
+ 52/230 Test #185: test_registry_rename ...................   Passed    0.21 sec
+        Start  41: test_sublayer_fixtures
+ 53/230 Test  #41: test_sublayer_fixtures .................   Passed    0.18 sec
+        Start 107: test_transect_editor_dialog
+ 54/230 Test #229: test_dialog_a11y_standalone ............   Passed    0.37 sec
+        Start 111: test_userflagsdialog
+ 55/230 Test #230: test_ribbongroup .......................   Passed    0.36 sec
+        Start 225: test_shortcut_editor
+ 56/230 Test #111: test_userflagsdialog ...................   Passed    0.32 sec
+        Start 145: test_relativepathpicker
+ 57/230 Test #107: test_transect_editor_dialog ............   Passed    0.42 sec
+        Start 183: test_objectbrowser_tree_refresh
+ 58/230 Test #225: test_shortcut_editor ...................   Passed    0.28 sec
+        Start 224: test_command_palette
+ 59/230 Test #183: test_objectbrowser_tree_refresh ........   Passed    0.26 sec
+        Start 117: test_comparisonplot_chartproperties
+ 60/230 Test #145: test_relativepathpicker ................   Passed    0.36 sec
+        Start 182: test_typedselection
+ 61/230 Test #224: test_command_palette ...................   Passed    0.33 sec
+        Start 223: test_compact_toolbar
+ 62/230 Test #182: test_typedselection ....................   Passed    0.43 sec
+        Start 118: test_seriesstyleobject
+ 63/230 Test #117: test_comparisonplot_chartproperties ....   Passed    0.54 sec
+        Start 140: test_sectionmodelbuilders
+ 64/230 Test #140: test_sectionmodelbuilders ..............   Passed    0.23 sec
+        Start  98: test_comparisonplot_toolbar
+ 65/230 Test #223: test_compact_toolbar ...................   Passed    0.72 sec
+        Start 214: test_object_creation_defaults
+ 66/230 Test #118: test_seriesstyleobject .................   Passed    0.59 sec
+        Start 122: test_speciesplotting
+ 67/230 Test #122: test_speciesplotting ...................   Passed    0.06 sec
+        Start 143: test_crschangedialog
+ 68/230 Test #214: test_object_creation_defaults ..........   Passed    0.39 sec
+        Start 194: test_linkgrid_outliers
+ 69/230 Test  #98: test_comparisonplot_toolbar ............   Passed    0.56 sec
+        Start  42: test_rastergeoref
+ 70/230 Test #194: test_linkgrid_outliers .................   Passed    0.22 sec
+        Start 126: test_resultdescriptor
+ 71/230 Test #126: test_resultdescriptor ..................   Passed    0.04 sec
+        Start  90: test_meshbc_couplednode_sublayers
+ 72/230 Test  #90: test_meshbc_couplednode_sublayers ......   Passed    0.05 sec
+        Start 166: test_inpmeshreader
+ 73/230 Test  #42: test_rastergeoref ......................   Passed    0.20 sec
+        Start  94: test_comparisonplot_export
+ 74/230 Test #166: test_inpmeshreader .....................   Passed    0.07 sec
+        Start 125: test_species_attributes
+ 75/230 Test  #94: test_comparisonplot_export .............   Passed    0.05 sec
+        Start 135: test_nodepropertyadapter
+ 76/230 Test #125: test_species_attributes ................   Passed    0.11 sec
+        Start 161: test_dtmthinner_samplemany
+ 77/230 Test #143: test_crschangedialog ...................   Passed    0.60 sec
+        Start 162: test_dtmthinner_banded
+ 78/230 Test #135: test_nodepropertyadapter ...............   Passed    0.25 sec
+        Start  27: test_savepathperf
+ 79/230 Test  #27: test_savepathperf ......................   Passed    0.03 sec
+        Start  34: test_externalcolumnfile
+ 80/230 Test  #34: test_externalcolumnfile ................   Passed    0.05 sec
+        Start 206: test_meshattributetable
+ 81/230 Test #161: test_dtmthinner_samplemany .............   Passed    0.25 sec
+        Start 170: test_openprogress
+ 82/230 Test #162: test_dtmthinner_banded .................   Passed    0.20 sec
+        Start 198: test_meshboundarypath
+ 83/230 Test #170: test_openprogress ......................   Passed    0.07 sec
+        Start 207: test_render_invalidation
+ 84/230 Test #206: test_meshattributetable ................   Passed    0.13 sec
+        Start 199: test_meshcommands_vertex_edge
+ 85/230 Test #198: test_meshboundarypath ..................   Passed    0.15 sec
+        Start  20: test_inpmeshwriter_relpath
+ 86/230 Test #207: test_render_invalidation ...............   Passed    0.12 sec
+        Start 124: test_options_hydration_contract
+ 87/230 Test  #20: test_inpmeshwriter_relpath .............   Passed    0.04 sec
+        Start  59: test_selectionbeacon
+ 88/230 Test #199: test_meshcommands_vertex_edge ..........   Passed    0.13 sec
+        Start 155: test_dtmsampler
+ 89/230 Test  #59: test_selectionbeacon ...................   Passed    0.07 sec
+        Start 163: test_rasterprofilesampler
+ 90/230 Test #155: test_dtmsampler ........................   Passed    0.14 sec
+        Start  25: test_meshnodemapper
+ 91/230 Test #124: test_options_hydration_contract ........   Passed    0.21 sec
+        Start 176: test_arcgisrestrendering
+ 92/230 Test #163: test_rasterprofilesampler ..............   Passed    0.14 sec
+        Start  40: test_gdaldrivers
+ 93/230 Test  #25: test_meshnodemapper ....................   Passed    0.06 sec
+        Start 134: test_nonspatial_adapters
+ 94/230 Test #176: test_arcgisrestrendering ...............   Passed    0.09 sec
+        Start  26: test_meshenginesync
+ 95/230 Test  #40: test_gdaldrivers .......................   Passed    0.07 sec
+        Start 137: test_subcatchpropertyadapter
+ 96/230 Test  #26: test_meshenginesync ....................   Passed    0.08 sec
+        Start  97: test_object_defaults_prefs
+ 97/230 Test #134: test_nonspatial_adapters ...............   Passed    0.13 sec
+        Start 141: test_xsectgeominline
+ 98/230 Test #137: test_subcatchpropertyadapter ...........   Passed    0.10 sec
+        Start 227: test_profile_attribute_tracks
+ 99/230 Test #227: test_profile_attribute_tracks ..........   Passed    0.05 sec
+        Start 131: test_2d_vfr_options_contract
+100/230 Test  #97: test_object_defaults_prefs .............   Passed    0.10 sec
+        Start 108: test_timeseries_registry_engine
+101/230 Test #141: test_xsectgeominline ...................   Passed    0.11 sec
+        Start 154: test_nninterpvalues
+102/230 Test #154: test_nninterpvalues ....................   Passed    0.04 sec
+        Start  43: test_examplesseeder
+103/230 Test #131: test_2d_vfr_options_contract ...........   Passed    0.08 sec
+        Start 133: test_dataobjectnaming
+104/230 Test  #43: test_examplesseeder ....................   Passed    0.04 sec
+        Start  58: test_layerstylesubject
+105/230 Test #108: test_timeseries_registry_engine ........   Passed    0.10 sec
+        Start 151: test_layerreprojection
+106/230 Test  #58: test_layerstylesubject .................   Passed    0.04 sec
+        Start 150: test_gageassignment
+107/230 Test #133: test_dataobjectnaming ..................   Passed    0.09 sec
+        Start 160: test_meshstagecache
+108/230 Test #150: test_gageassignment ....................   Passed    0.05 sec
+        Start 132: test_simoptions_persistence_contract
+109/230 Test #151: test_layerreprojection .................   Passed    0.08 sec
+        Start 138: test_xsectsampler
+110/230 Test #160: test_meshstagecache ....................   Passed    0.06 sec
+        Start 149: test_gageblend
+111/230 Test #138: test_xsectsampler ......................   Passed    0.04 sec
+        Start  21: test_meshinpbcroundtrip
+112/230 Test #132: test_simoptions_persistence_contract ...   Passed    0.05 sec
+        Start  32: test_profilenetworkadapter
+113/230 Test  #32: test_profilenetworkadapter .............   Passed    0.02 sec
+        Start 228: test_dialog_registry
+114/230 Test #149: test_gageblend .........................   Passed    0.04 sec
+        Start  96: test_twod_defaults_prefs
+115/230 Test  #21: test_meshinpbcroundtrip ................   Passed    0.06 sec
+        Start  56: test_symbolprops_color
+116/230 Test #228: test_dialog_registry ...................   Passed    0.04 sec
+        Start 146: test_ioportabilitynormalizer
+117/230 Test  #56: test_symbolprops_color .................   Passed    0.06 sec
+        Start 180: test_simstatus_2derr
+118/230 Test #146: test_ioportabilitynormalizer ...........   Passed    0.09 sec
+        Start  33: test_timeseries_parse
+119/230 Test  #96: test_twod_defaults_prefs ...............   Passed    0.12 sec
+        Start 177: test_tilepyramidfallback
+120/230 Test  #33: test_timeseries_parse ..................   Passed    0.05 sec
+        Start 142: test_profilenetworkadapter_model
+121/230 Test #180: test_simstatus_2derr ...................   Passed    0.11 sec
+        Start 221: test_icon_factory
+122/230 Test #177: test_tilepyramidfallback ...............   Passed    0.12 sec
+        Start 136: test_typeconversionflow
+123/230 Test #142: test_profilenetworkadapter_model .......   Passed    0.09 sec
+        Start  93: test_comparisonplot_system_attrs
+124/230 Test #221: test_icon_factory ......................   Passed    0.10 sec
+        Start 156: test_pslgprep
+125/230 Test  #93: test_comparisonplot_system_attrs .......   Passed    0.05 sec
+        Start  70: test_map_pooling_extrapolation
+126/230 Test #136: test_typeconversionflow ................   Passed    0.09 sec
+        Start 110: test_userflagsmodel
+127/230 Test  #70: test_map_pooling_extrapolation .........   Passed    0.07 sec
+        Start  37: test_timeseries_undocommands
+128/230 Test #156: test_pslgprep ..........................   Passed    0.09 sec
+        Start  13: test_outputstatsregistry
+129/230 Test  #37: test_timeseries_undocommands ...........   Passed    0.03 sec
+        Start  46: test_qsgpremultiply
+130/230 Test #110: test_userflagsmodel ....................   Passed    0.08 sec
+        Start  39: test_timeseries_table_model
+131/230 Test  #13: test_outputstatsregistry ...............   Passed    0.03 sec
+        Start  69: test_vertexdepthreconstruct
+132/230 Test  #46: test_qsgpremultiply ....................   Passed    0.02 sec
+        Start  55: test_ifeaturerenderer
+133/230 Test  #39: test_timeseries_table_model ............   Passed    0.03 sec
+        Start  84: test_rulesymbologytab
+134/230 Test  #69: test_vertexdepthreconstruct ............   Passed    0.04 sec
+        Start  35: test_swmm_datetime
+135/230 Test  #55: test_ifeaturerenderer ..................   Passed    0.04 sec
+        Start 167: test_inpmeshwriter
+136/230 Test  #35: test_swmm_datetime .....................   Passed    0.02 sec
+        Start 165: test_meshcellparams
+137/230 Test  #84: test_rulesymbologytab ..................   Passed    0.05 sec
+        Start  14: test_sidecar_autocreate
+138/230 Test #167: test_inpmeshwriter .....................   Passed    0.05 sec
+        Start 115: test_comparisonplot_rangeslider
+139/230 Test #165: test_meshcellparams ....................   Passed    0.04 sec
+        Start 121: test_comparisonplot_pairs
+140/230 Test  #14: test_sidecar_autocreate ................   Passed    0.02 sec
+        Start  73: test_rulelistio
+141/230 Test #115: test_comparisonplot_rangeslider ........   Passed    0.04 sec
+        Start  80: test_polylineoffset
+142/230 Test #121: test_comparisonplot_pairs ..............   Passed    0.04 sec
+        Start  28: test_legendoverlaystyle
+143/230 Test  #73: test_rulelistio ........................   Passed    0.05 sec
+        Start 159: test_meshreorder
+144/230 Test  #28: test_legendoverlaystyle ................   Passed    0.03 sec
+        Start  68: test_profile_wse_extrapolation
+145/230 Test  #80: test_polylineoffset ....................   Passed    0.05 sec
+        Start 109: test_timeseries_datetime_roundtrip
+146/230 Test  #68: test_profile_wse_extrapolation .........   Passed    0.05 sec
+        Start  81: test_unclassedcolorsrenderer
+147/230 Test #159: test_meshreorder .......................   Passed    0.08 sec
+        Start  89: test_2d_sublayers
+148/230 Test #109: test_timeseries_datetime_roundtrip .....   Passed    0.06 sec
+        Start  12: test_rptparser
+149/230 Test  #81: test_unclassedcolorsrenderer ...........   Passed    0.05 sec
+        Start 216: test_action_catalog
+150/230 Test  #12: test_rptparser .........................   Passed    0.03 sec
+        Start  38: test_timeseries_registry
+151/230 Test  #89: test_2d_sublayers ......................   Passed    0.05 sec
+        Start  83: test_rastersymbollayers
+152/230 Test  #38: test_timeseries_registry ...............   Passed    0.03 sec
+        Start  82: test_symbollevels
+153/230 Test #216: test_action_catalog ....................   Passed    0.04 sec
+        Start 175: test_mesh2dh5reader
+154/230 Test  #83: test_rastersymbollayers ................   Passed    0.06 sec
+        Start  49: test_meshstaticgeometrybuffers
+155/230 Test  #82: test_symbollevels ......................   Passed    0.04 sec
+        Start  86: test_sublayer_interface
+156/230 Test  #49: test_meshstaticgeometrybuffers .........   Passed    0.02 sec
+        Start  78: test_joinspec
+157/230 Test #175: test_mesh2dh5reader ....................   Passed    0.06 sec
+        Start  74: test_rendererpanelcontext
+158/230 Test  #86: test_sublayer_interface ................   Passed    0.03 sec
+        Start 113: test_userflags_roundtrip
+159/230 Test  #78: test_joinspec ..........................   Passed    0.05 sec
+        Start  36: test_timeseries_provider
+160/230 Test  #74: test_rendererpanelcontext ..............   Passed    0.05 sec
+        Start  48: test_meshrenderchunkindex
+161/230 Test #113: test_userflags_roundtrip ...............   Passed    0.06 sec
+        Start  92: test_propertyeditorregistry
+162/230 Test  #36: test_timeseries_provider ...............   Passed    0.03 sec
+        Start  57: test_rule
+163/230 Test  #48: test_meshrenderchunkindex ..............   Passed    0.03 sec
+        Start  75: test_temporalspec
+164/230 Test  #57: test_rule ..............................   Passed    0.06 sec
+        Start 217: test_action_registry
+165/230 Test  #92: test_propertyeditorregistry ............   Passed    0.08 sec
+166/230 Test  #75: test_temporalspec ......................   Passed    0.07 sec
+        Start  87: test_sublayer_host_dispatch
+        Start  29: test_classificationscheme
+167/230 Test #217: test_action_registry ...................   Passed    0.05 sec
+168/230 Test  #29: test_classificationscheme ..............   Passed    0.03 sec
+        Start  71: test_profileplot_axis_edges
+        Start  19: test_meshspatialgrid
+169/230 Test  #87: test_sublayer_host_dispatch ............   Passed    0.06 sec
+        Start 120: test_comparisonplot_scatter
+170/230 Test  #19: test_meshspatialgrid ...................   Passed    0.04 sec
+        Start  16: test_profilerouter
+171/230 Test  #71: test_profileplot_axis_edges ............   Passed    0.05 sec
+        Start  50: test_contourjob
+172/230 Test  #16: test_profilerouter .....................   Passed    0.03 sec
+        Start   4: test_calibrationstats
+173/230 Test  #50: test_contourjob ........................   Passed    0.03 sec
+        Start  23: test_meshboundarygraph
+174/230 Test #120: test_comparisonplot_scatter ............   Passed    0.07 sec
+        Start  30: test_labelpainter
+175/230 Test   #4: test_calibrationstats ..................   Passed    0.02 sec
+        Start  47: test_qsg2d_lodpolicy
+176/230 Test  #23: test_meshboundarygraph .................   Passed    0.02 sec
+        Start  62: test_fillsymbollayer
+177/230 Test  #30: test_labelpainter ......................   Passed    0.03 sec
+        Start 123: test_comparisonplot_seriestree
+178/230 Test  #47: test_qsg2d_lodpolicy ...................   Passed    0.03 sec
+        Start 119: test_comparisonplot_statstab
+179/230 Test  #62: test_fillsymbollayer ...................   Passed    0.05 sec
+        Start  79: test_diagramspec
+180/230 Test #119: test_comparisonplot_statstab ...........   Passed    0.05 sec
+        Start 114: test_comparisonplot_xaxis_link
+181/230 Test  #79: test_diagramspec .......................   Passed    0.06 sec
+        Start  44: test_qsg2d_renderstats
+182/230 Test #123: test_comparisonplot_seriestree .........   Passed    0.09 sec
+        Start  88: test_featuresublayer
+183/230 Test #114: test_comparisonplot_xaxis_link .........   Passed    0.06 sec
+184/230 Test  #44: test_qsg2d_renderstats .................   Passed    0.03 sec
+        Start  52: test_importplanning
+        Start  51: test_scalarramplut
+185/230 Test  #88: test_featuresublayer ...................   Passed    0.06 sec
+        Start  85: test_irasterrenderer
+186/230 Test  #52: test_importplanning ....................   Passed    0.04 sec
+        Start  11: test_runpathresolver
+187/230 Test  #51: test_scalarramplut .....................   Passed    0.05 sec
+        Start  64: test_symbolstyleadapter
+188/230 Test  #11: test_runpathresolver ...................   Passed    0.04 sec
+        Start   1: test_unitsystem
+189/230 Test  #64: test_symbolstyleadapter ................   Passed    0.04 sec
+        Start  18: test_meshbctype
+190/230 Test  #85: test_irasterrenderer ...................   Passed    0.06 sec
+        Start  63: test_palettedrasterrenderer
+191/230 Test   #1: test_unitsystem ........................   Passed    0.03 sec
+        Start 153: test_nninterpdegenerate
+192/230 Test  #18: test_meshbctype ........................   Passed    0.04 sec
+        Start  53: test_dirtytrackingbasic
+193/230 Test  #63: test_palettedrasterrenderer ............   Passed    0.05 sec
+        Start   9: test_projectserializer_paths
+194/230 Test #153: test_nninterpdegenerate ................   Passed    0.05 sec
+        Start  77: test_auxiliarystoragespec
+195/230 Test  #53: test_dirtytrackingbasic ................   Passed    0.05 sec
+        Start  15: test_queryparser
+196/230 Test   #9: test_projectserializer_paths ...........   Passed    0.04 sec
+        Start  61: test_linesymbollayer
+197/230 Test  #77: test_auxiliarystoragespec ..............   Passed    0.06 sec
+        Start   5: test_thememanager
+198/230 Test  #15: test_queryparser .......................   Passed    0.04 sec
+        Start 116: test_cursorwindowslider
+199/230 Test  #61: test_linesymbollayer ...................   Passed    0.05 sec
+        Start   8: test_projectserializer_basemaps
+200/230 Test   #5: test_thememanager ......................   Passed    0.03 sec
+        Start  31: test_profilebuilder
+201/230 Test   #8: test_projectserializer_basemaps ........   Passed    0.02 sec
+        Start 174: test_multikindrenderer
+202/230 Test  #31: test_profilebuilder ....................   Passed    0.02 sec
+        Start 168: test_marchingtriangles
+203/230 Test #116: test_cursorwindowslider ................   Passed    0.04 sec
+        Start  10: test_saveaspathnormalizer
+204/230 Test  #10: test_saveaspathnormalizer ..............   Passed    0.02 sec
+        Start 144: test_aboutdialog
+205/230 Test #168: test_marchingtriangles .................   Passed    0.04 sec
+        Start  45: test_qsg2d_dirtystate
+206/230 Test #174: test_multikindrenderer .................   Passed    0.04 sec
+        Start  22: test_meshautocouple
+207/230 Test  #45: test_qsg2d_dirtystate ..................   Passed    0.02 sec
+        Start 218: test_theme_manager
+208/230 Test  #22: test_meshautocouple ....................   Passed    0.02 sec
+        Start 147: test_selectionmanager
+209/230 Test #144: test_aboutdialog .......................   Passed    0.04 sec
+        Start  65: test_binsampler
+210/230 Test #218: test_theme_manager .....................   Passed    0.04 sec
+        Start 219: test_theme_contrast
+211/230 Test  #65: test_binsampler ........................   Passed    0.04 sec
+        Start  60: test_markershape
+212/230 Test #147: test_selectionmanager ..................   Passed    0.09 sec
+        Start  54: test_layertreecategories
+213/230 Test #219: test_theme_contrast ....................   Passed    0.10 sec
+        Start  91: test_unitsystemfacade
+214/230 Test  #54: test_layertreecategories ...............   Passed    0.06 sec
+        Start 169: test_colorramp
+215/230 Test  #60: test_markershape .......................   Passed    0.11 sec
+        Start  17: test_meshobjectref
+216/230 Test #169: test_colorramp .........................   Passed    0.03 sec
+        Start   2: test_numberformat
+217/230 Test  #17: test_meshobjectref .....................   Passed    0.02 sec
+        Start  72: test_meshedgecount
+218/230 Test  #91: test_unitsystemfacade ..................   Passed    0.04 sec
+        Start 171: test_intervalbinner
+219/230 Test   #2: test_numberformat ......................   Passed    0.04 sec
+        Start  24: test_meshcellstats
+220/230 Test  #72: test_meshedgecount .....................   Passed    0.05 sec
+        Start  76: test_maskspec
+221/230 Test #171: test_intervalbinner ....................   Passed    0.06 sec
+        Start 152: test_meshgenerator
+222/230 Test  #24: test_meshcellstats .....................   Passed    0.04 sec
+        Start   3: test_projectserializer
+223/230 Test   #3: test_projectserializer .................   Passed    0.03 sec
+        Start 173: test_categoricalpalette
+224/230 Test  #76: test_maskspec ..........................   Passed    0.06 sec
+        Start 148: test_editgeometry
+225/230 Test #152: test_meshgenerator .....................   Passed    0.05 sec
+        Start  66: test_meshprofileinterp
+226/230 Test #173: test_categoricalpalette ................   Passed    0.03 sec
+        Start 172: test_datadefinedscalar
+227/230 Test #148: test_editgeometry ......................   Passed    0.03 sec
+228/230 Test  #66: test_meshprofileinterp .................   Passed    0.03 sec
+229/230 Test #172: test_datadefinedscalar .................   Passed    0.03 sec
+230/230 Test #195: test_meshperf_baseline .................   Passed   36.68 sec
+
+100% tests passed, 0 tests failed out of 230
+
+Label Time Summary:
+gui     =  74.96 sec*proc (178 tests)
+unit    =   3.85 sec*proc (52 tests)
+
+Total Test time (real) =  36.69 sec
+CTEST_EXIT=0

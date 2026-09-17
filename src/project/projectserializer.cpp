@@ -8,6 +8,7 @@
 
 #include "connections/basemapconnection.h"
 #include "layers/annotationlayer.h"
+#include "layers/featurelayer.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/gisvectorlayer.h"
 #include "layers/openswmmvislayer.h"
@@ -21,6 +22,8 @@
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
+
+#include <openswmm/engine/openswmm_model.h>   // swmm_get_crs
 #include "project/swmmvisproject.h"
 #include "swmmvisprojectwindow.h"
 
@@ -49,6 +52,7 @@
 #include "render/renderers/rulebasedrenderer.h"
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/legendoverlaystyle.h"
+#include "render/stylefileio.h"
 // Slice B.7 — Rule-level metadata persistence.
 #include "render/rule.h"
 #include "render/rulelist.h"
@@ -136,6 +140,18 @@ const QString kMeshContColor        = QStringLiteral("color");
 const QString kMeshContWidth        = QStringLiteral("width");
 const QString kMeshContFilled       = QStringLiteral("filled");      // BJ.2-filled
 const QString kMeshContFilledAlpha  = QStringLiteral("filledOpacity");// BJ.2-filled
+
+// Full sublayer state (visibility, opacity, and each SublayerStyle's toJson)
+// for the mesh layer's fill / edge / node / band / isoline sublayers — the
+// same payload SWMMResultsLayer already round-trips under
+// kResultLayerSublayers. Purely additive: the hand-rolled fields above stay
+// authoritative for anything they cover, and this is applied after them so
+// the richer sublayer state wins where the two overlap.
+//
+// Without this, style bag settings that have no hand-rolled field — the
+// fill ClassificationScheme, colorByAttribute, and the edge BC colours —
+// are lost on project reopen.
+const QString kMeshSublayers        = QStringLiteral("sublayers");
 
 // Per-layer IFeatureRenderer JSON (BI-MK.3, schema v5+, additive).
 // Holds whatever rendererId the layer's renderer() returns — typically
@@ -250,6 +266,11 @@ const QString kGisPath       = QStringLiteral("path");        // relative to the
 const QString kGisName       = QStringLiteral("name");
 const QString kGisVisible    = QStringLiteral("visible");
 const QString kGisOpacity    = QStringLiteral("opacity");
+// Raster symbology (renderBand / hillshade / rasterRenderer) — the same
+// block StyleFileIO::rasterStyleToJson emits, nested under one key on both
+// the GIS-layer record and the "localraster" basemap record. Additive; a
+// record without it restores the open-time default renderer.
+const QString kRasterStyle   = QStringLiteral("rasterStyle");
 const QString kGisLayerName  = QStringLiteral("layerName");   // vector sublayer (OGR layer)
 
 QJsonArray toJsonInts(const QVector<int> &v)
@@ -568,6 +589,9 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
             c[kMeshContFilledAlpha] = ml->filledContoursOpacity();
             m[kMeshContours]        = c;
 
+            m[kMeshSublayers] =
+                OpenSWMM::Render::ISublayerHost::saveSublayersToJson(*ml);
+
             meshArr.append(m);
         }
         if (!meshArr.isEmpty())
@@ -661,7 +685,19 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
 
     // Layer CRS. Applied before the canvas CRS so the on-the-fly
     // reprojection path in MapCanvas picks up the right transform.
-    if (layerObj.contains(kCrsAuthority) && layerObj.contains(kCrsCode)) {
+    //
+    // The .inp is authoritative: when its [OPTIONS] CRS is set, the model
+    // layer already resolved its SRS from it on open, and the .oswp copy is
+    // only the fallback for files that carry none. Applying the .oswp value
+    // on top used to re-label a model whose .inp had since been re-assigned
+    // (or reprojected) to a different CRS.
+    const bool inpHasCrs = [&] {
+        char buf[8] = {};
+        return layer->engine()
+            && swmm_get_crs(layer->engine(), buf, sizeof buf) == 0 && buf[0] != '\0';
+    }();
+    if (!inpHasCrs
+        && layerObj.contains(kCrsAuthority) && layerObj.contains(kCrsCode)) {
         const QString auth = layerObj.value(kCrsAuthority).toString();
         const int     code = layerObj.value(kCrsCode).toInt();
         if (!auth.isEmpty() && code > 0) {
@@ -938,6 +974,14 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
                 ml->setFilledContours(c.value(kMeshContFilled).toBool());
             if (c.contains(kMeshContFilledAlpha))
                 ml->setFilledContoursOpacity(c.value(kMeshContFilledAlpha).toDouble());
+
+            // Applied last: the hand-rolled fields above and the sublayer
+            // payload both carry visibility, and the sublayer state is the
+            // richer of the two. Absent in pre-schema projects → sublayers
+            // keep their compiled defaults.
+            if (m.contains(kMeshSublayers))
+                OpenSWMM::Render::ISublayerHost::loadSublayersFromJson(
+                    *ml, m.value(kMeshSublayers).toObject());
         }
     }
 
@@ -1245,6 +1289,7 @@ QJsonObject ProjectSerializer::serializeBasemapLayer(OpenSWMMVisLayer *layer,
         obj[kBmType] = QStringLiteral("localraster");
         obj[kBmName] = r->name();
         obj[kBmPath] = toRelativePath(r->filePath(), oswpPath);
+        obj[kRasterStyle] = OpenSWMM::Render::StyleFileIO::rasterStyleToJson(r);
         return obj;
     }
     if (auto *xyz = qobject_cast<XYZTileLayer *>(layer)) {
@@ -1332,6 +1377,17 @@ OpenSWMMVisLayer *ProjectSerializer::deserializeBasemapLayer(const QJsonObject &
         auto *layer = new GISRasterLayer(QString());
         layer->setIsBasemap(true);
         layer->setName(obj.value(kBmName).toString());
+        // Symbology is applied once the dataset is open (the open installs
+        // its own default renderer first; the persisted one must win).
+        if (obj.contains(kRasterStyle)) {
+            const QJsonObject style = obj.value(kRasterStyle).toObject();
+            QObject::connect(
+                layer, &GISRasterLayer::openFinished, layer,
+                [layer, style](bool ok) {
+                    if (ok) OpenSWMM::Render::StyleFileIO::applyRasterStyleJson(layer, style);
+                },
+                static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        }
         layer->openAsync(path);
         return layer;
     }
@@ -1358,6 +1414,25 @@ QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer,
         obj[kGisName]    = r->name();
         obj[kGisVisible] = r->isVisible();
         obj[kGisOpacity] = r->opacity();
+        obj[kRasterStyle] = OpenSWMM::Render::StyleFileIO::rasterStyleToJson(r);
+    } else if (auto *f = qobject_cast<FeatureLayer *>(layer)) {
+        // Editable feature layer. Checked BEFORE the GISVectorLayer branch
+        // because FeatureLayer derives from it — the base branch would
+        // otherwise claim it and the role / Z policy would be lost.
+        // Geometry itself lives in the project GeoPackage, so this record is
+        // still path-shaped like the other two.
+        if (f->gpkgPath().isEmpty()) return obj;
+        obj[kGisType]      = QStringLiteral("feature");
+        obj[kGisPath]      = toRelativePath(f->gpkgPath(), oswpPath);
+        obj[kGisName]      = f->name();
+        obj[kGisVisible]   = f->isVisible();
+        obj[kGisOpacity]   = f->opacity();
+        obj[kGisLayerName] = f->tableName();
+        // role / zPolicy / symbol
+        const QJsonObject extra = f->toJson();
+        for (auto it = extra.constBegin(); it != extra.constEnd(); ++it)
+            if (it.key() != QStringLiteral("layerName"))
+                obj[it.key()] = it.value();
     } else if (auto *v = qobject_cast<GISVectorLayer *>(layer)) {
         if (v->filePath().isEmpty()) return obj;
         obj[kGisType]      = QStringLiteral("vector");
@@ -1381,12 +1456,17 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
     if (rel.isEmpty()) return;
     const QString path = resolveStoredPath(rel, oswpPath);
     if (!QFile::exists(path)) {
-        if (warningsOut)
+        if (warningsOut) {
+            // The label used to read "Vector" for every non-raster type; with
+            // a third type that would be actively wrong.
+            const QString kindLabel =
+                type == QStringLiteral("raster")  ? QObject::tr("Raster")
+              : type == QStringLiteral("feature") ? QObject::tr("Feature")
+                                                  : QObject::tr("Vector");
             *warningsOut << QObject::tr(
                 "%1 layer file not found — layer skipped: %2")
-                   .arg(type == QStringLiteral("raster")
-                            ? QObject::tr("Raster") : QObject::tr("Vector"),
-                        path);
+                   .arg(kindLabel, path);
+        }
         return;
     }
 
@@ -1404,10 +1484,19 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
 
     if (type == QStringLiteral("raster")) {
         auto *layer = new GISRasterLayer(QString());
+        // Symbology block (may be absent on older projects). Applied after
+        // the open installs its dataset default and before the layer joins
+        // the canvas, so the first tiles are already styled.
+        const QJsonObject style = obj.value(kRasterStyle).toObject();
         QObject::connect(
             layer, &GISRasterLayer::openFinished, canvas,
-            [canvas, layer, applyCommon](bool ok) {
-                if (ok) { applyCommon(layer); canvas->addLayer(layer, /*pushUndo=*/false); }
+            [canvas, layer, applyCommon, style](bool ok) {
+                if (ok) {
+                    applyCommon(layer);
+                    if (!style.isEmpty())
+                        OpenSWMM::Render::StyleFileIO::applyRasterStyleJson(layer, style);
+                    canvas->addLayer(layer, /*pushUndo=*/false);
+                }
                 else    { layer->deleteLater(); }
             },
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
@@ -1423,5 +1512,26 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
             },
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
         layer->openAsync(path, layerName);
+    } else if (type == QStringLiteral("feature")) {
+        // Editable feature layer. Opened SYNCHRONOUSLY, unlike the other two:
+        // FeatureLayer::openTable must run with the GDAL_OF_UPDATE flag its
+        // ctor sets, and the async path would hand the dataset to the base
+        // before the store can attach to it. A project GeoPackage is local and
+        // small (it holds only what the user drew), so the synchronous open
+        // costs nothing comparable to a raster pyramid scan.
+        const QString table = obj.value(kGisLayerName).toString();
+        auto *layer = new FeatureLayer();
+        QString err;
+        if (!layer->openTable(path, table, &err)) {
+            if (warningsOut)
+                *warningsOut << QObject::tr(
+                    "Feature layer \"%1\" could not be opened — layer skipped: %2")
+                       .arg(table, err);
+            layer->deleteLater();
+            return;
+        }
+        layer->applyJson(obj);   // role, zPolicy, symbol
+        applyCommon(layer);
+        canvas->addLayer(layer, /*pushUndo=*/false);
     }
 }

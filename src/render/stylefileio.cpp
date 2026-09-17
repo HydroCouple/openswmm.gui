@@ -6,12 +6,15 @@
  */
 #include "render/stylefileio.h"
 
+#include "layers/gisrasterlayer.h"
 #include "layers/gisvectorlayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "render/ifeaturerenderer.h"
+#include "render/irasterrenderer.h"
 #include "render/labelconfig.h"
+#include "render/rasterrendererfactory.h"
 #include "render/renderers/categorizedrenderer.h"
 #include "render/renderers/graduatedrenderer.h"
 #include "render/renderers/rulebasedrenderer.h"
@@ -55,25 +58,72 @@ QString layerTypeTag(const OpenSWMMVisLayer *layer)
     if (qobject_cast<const SWMMModelLayer  *>(layer))  return QStringLiteral("SWMMModelLayer");
     if (qobject_cast<const SWMMResultsLayer *>(layer)) return QStringLiteral("SWMMResultsLayer");
     if (qobject_cast<const GISVectorLayer  *>(layer))  return QStringLiteral("GISVectorLayer");
+    if (qobject_cast<const GISRasterLayer  *>(layer))  return QStringLiteral("GISRasterLayer");
     return QStringLiteral("Layer");
 }
 
+constexpr const char *kRenderBand     = "renderBand";
+constexpr const char *kHillshade      = "hillshade";
+constexpr const char *kRasterRenderer = "rasterRenderer";
+
 } // namespace
+
+// ---------------------------------------------------------------------------
+// Raster style block (shared with ProjectSerializer)
+// ---------------------------------------------------------------------------
+
+QJsonObject StyleFileIO::rasterStyleToJson(const GISRasterLayer *layer)
+{
+    QJsonObject style;
+    if (!layer)
+        return style;
+    style[QLatin1String(kRenderBand)] = layer->renderBand();
+    QJsonObject hs;
+    hs[QStringLiteral("enabled")]  = layer->hillshadeEnabled();
+    hs[QStringLiteral("azimuth")]  = layer->hillshadeAzimuthDeg();
+    hs[QStringLiteral("altitude")] = layer->hillshadeAltitudeDeg();
+    hs[QStringLiteral("zFactor")]  = layer->hillshadeZFactor();
+    hs[QStringLiteral("strength")] = layer->hillshadeStrength();
+    style[QLatin1String(kHillshade)] = hs;
+    if (const auto *r = layer->rasterRenderer())
+        style[QLatin1String(kRasterRenderer)] = r->toJson();
+    return style;
+}
+
+void StyleFileIO::applyRasterStyleJson(GISRasterLayer *layer, const QJsonObject &style)
+{
+    if (!layer)
+        return;
+    // Order matters: band first (it re-seeds a graduated renderer), then
+    // hillshade, then the renderer — the persisted renderer wins.
+    if (style.contains(QLatin1String(kRenderBand)))
+        layer->setRenderBand(style.value(QLatin1String(kRenderBand)).toInt(1));
+    if (style.contains(QLatin1String(kHillshade))) {
+        const QJsonObject hs = style.value(QLatin1String(kHillshade)).toObject();
+        layer->setHillshadeParams(
+            hs.value(QStringLiteral("azimuth")).toDouble(layer->hillshadeAzimuthDeg()),
+            hs.value(QStringLiteral("altitude")).toDouble(layer->hillshadeAltitudeDeg()),
+            hs.value(QStringLiteral("zFactor")).toDouble(layer->hillshadeZFactor()),
+            hs.value(QStringLiteral("strength")).toDouble(layer->hillshadeStrength()));
+        layer->setHillshadeEnabled(
+            hs.value(QStringLiteral("enabled")).toBool(layer->hillshadeEnabled()));
+    }
+    if (style.contains(QLatin1String(kRasterRenderer))) {
+        if (auto r = makeRasterRenderer(style.value(QLatin1String(kRasterRenderer)).toObject()))
+            layer->setRasterRenderer(std::move(r));
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
 
-StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer,
-                                              const QString &path)
+QJsonObject StyleFileIO::styleToJson(const OpenSWMMVisLayer *layer)
 {
-    Result res;
-    if (!layer) {
-        res.errorMessage = QObject::tr("No layer provided to export.");
-        return res;
-    }
-
     QJsonObject root;
+    if (!layer)
+        return root;
+
     root[QStringLiteral("schema")]    = QString::fromLatin1(kSchema);
     root[QStringLiteral("layerType")] = layerTypeTag(layer);
 
@@ -91,9 +141,9 @@ StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer,
         }
         if (!kindObj.isEmpty())
             root[QStringLiteral("kindRenderers")] = kindObj;
-        const LabelConfig dl;
-        if (m->labelConfig() != dl)
-            root[QStringLiteral("labelConfig")] = m->labelConfig().toJson();
+        // Always include the label config (a Cancel/undo restore must be
+        // able to reset a mid-session enable back to the default).
+        root[QStringLiteral("labelConfig")] = m->labelConfig().toJson();
     }
     // SWMM results layer: per-kind only.
     if (auto *rl = qobject_cast<const SWMMResultsLayer *>(
@@ -106,16 +156,34 @@ StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer,
         }
         if (!kindObj.isEmpty())
             root[QStringLiteral("kindRenderers")] = kindObj;
+        root[QStringLiteral("labelConfig")] = rl->labelConfig().toJson();
     }
     // GIS vector layer: label config (lives inside the symbol bag).
     if (auto *vec = qobject_cast<const GISVectorLayer *>(
             const_cast<OpenSWMMVisLayer *>(layer))) {
-        const LabelConfig dl;
-        if (vec->labelConfig() != dl)
-            root[QStringLiteral("labelConfig")] = vec->labelConfig().toJson();
+        root[QStringLiteral("labelConfig")] = vec->labelConfig().toJson();
         // Symbol bag (markers, line, polygon, labels legacy fields).
         root[QStringLiteral("vectorSymbol")] = vec->symbol().toJson();
     }
+    // GIS raster layer: render band + hillshade + the raster renderer.
+    if (auto *ras = qobject_cast<const GISRasterLayer *>(layer)) {
+        const QJsonObject style = rasterStyleToJson(ras);
+        for (auto it = style.constBegin(); it != style.constEnd(); ++it)
+            root[it.key()] = it.value();
+    }
+    return root;
+}
+
+StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer,
+                                              const QString &path)
+{
+    Result res;
+    if (!layer) {
+        res.errorMessage = QObject::tr("No layer provided to export.");
+        return res;
+    }
+
+    const QJsonObject root = styleToJson(layer);
 
     QSaveFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -178,6 +246,20 @@ StyleFileIO::Result StyleFileIO::importNative(OpenSWMMVisLayer *layer,
             "Schema marker missing or unrecognised (got '%1') — proceeding anyway.")
             .arg(schema);
 
+    Result applied = applyStyleJson(layer, root);
+    applied.warnings = res.warnings + applied.warnings;
+    return applied;
+}
+
+StyleFileIO::Result StyleFileIO::applyStyleJson(OpenSWMMVisLayer *layer,
+                                                 const QJsonObject &root)
+{
+    Result res;
+    if (!layer) {
+        res.errorMessage = QObject::tr("No layer provided.");
+        return res;
+    }
+
     // Layer-level renderer.
     if (root.contains(QStringLiteral("renderer"))) {
         if (auto r = makeRenderer(root.value(QStringLiteral("renderer")).toObject()))
@@ -209,6 +291,11 @@ StyleFileIO::Result StyleFileIO::importNative(OpenSWMMVisLayer *layer,
             if (auto r = makeRenderer(kindObj.value(key).toObject()))
                 rl->setKindRenderer(c, std::move(r));
         }
+        if (root.contains(QStringLiteral("labelConfig"))) {
+            LabelConfig lc;
+            lc.fromJson(root.value(QStringLiteral("labelConfig")).toObject());
+            rl->setLabelConfig(lc);
+        }
     }
     if (auto *vec = qobject_cast<GISVectorLayer *>(layer)) {
         if (root.contains(QStringLiteral("vectorSymbol"))) {
@@ -222,6 +309,8 @@ StyleFileIO::Result StyleFileIO::importNative(OpenSWMMVisLayer *layer,
             vec->setLabelConfig(lc);
         }
     }
+    if (auto *ras = qobject_cast<GISRasterLayer *>(layer))
+        applyRasterStyleJson(ras, root);
     res.ok = true;
     return res;
 }

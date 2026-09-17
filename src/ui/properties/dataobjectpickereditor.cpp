@@ -6,16 +6,25 @@
 
 #include "ui/properties/dataobjectpickereditor.h"
 
+#include "aquifer/aquiferregistry.h"
 #include "curve/curveregistry.h"
 #include "layers/swmmmodellayer.h"
 #include "pattern/patternregistry.h"
 #include "timeseries/timeseriesregistry.h"
+#include "ui/dialogs/aquifereditordialog.h"
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
+#include "inlet/inletregistry.h"
+#include "ui/dialogs/inleteditordialog.h"
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/widgets/labeledcontrols.h"
+#include "map/mapcanvas.h"
+#include "map/nodepicksession.h"
+
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_nodes.h>
 
 #include <QComboBox>
 #include <QDialog>
@@ -26,6 +35,7 @@
 #include <QToolButton>
 
 #include <openswmm/engine/openswmm_gages.h>
+#include <openswmm/engine/openswmm_infrastructure.h>   // Inlet designs
 #include <openswmm/engine/openswmm_tables.h>
 #include <openswmm/engine/openswmm_nodes.h>          // SubcatchOutlet combined list
 #include <openswmm/engine/openswmm_subcatchments.h>  // SubcatchOutlet combined list
@@ -129,24 +139,63 @@ void DataObjectPickerEditor::repopulate()
             items.sort(Qt::CaseInsensitive);
             break;
         }
+        case DataObjectRef::Subcatchment: {
+            // [OUTFALLS] RouteTo target. Sorted so the dropdown reads the
+            // same way as the Subcatchments attribute table.
+            const int n = swmm_subcatch_count(m_ref.engine);
+            for (int i = 0; i < n; ++i)
+                if (const char *id = swmm_subcatch_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            items.sort(Qt::CaseInsensitive);
+            break;
+        }
         case DataObjectRef::SubcatchOutlet: {
             // Combined outlet target list: every node, then every subcatchment.
             // The owning adapter resolves the picked name back to a node-outlet
             // vs. cascade-outlet engine write.
+            // Virtual junctions are legal outlet targets too: a point
+            // lateral is integrated at the zero-storage node (engine plan
+            // VJ_LATERAL_INFLOW_PLAN_2026-09-04).
             const int nn = swmm_node_count(m_ref.engine);
-            for (int i = 0; i < nn; ++i) {
-                // Virtual junctions cannot receive lateral inflow — exclude
-                // them from outlet targets (engine validation backstops).
+            for (int i = 0; i < nn; ++i)
+                if (const char *id = swmm_node_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            const int ns = swmm_subcatch_count(m_ref.engine);
+            for (int i = 0; i < ns; ++i)
+                if (const char *id = swmm_subcatch_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            break;
+        }
+        case DataObjectRef::Aquifer: {
+            // [AQUIFERS] live in their own engine array (no table type).
+            const int n = swmm_aquifer_count(m_ref.engine);
+            for (int i = 0; i < n; ++i)
+                if (const char *id = swmm_aquifer_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            break;
+        }
+        case DataObjectRef::Inlet: {
+            // [INLETS] designs. Shape compatibility (STREET vs drop) is
+            // enforced by the engine on swmm_inlet_usage_set (rule 635); the
+            // combo lists every design so a mis-set one is still visible.
+            const int n = swmm_inlet_count(m_ref.engine);
+            for (int i = 0; i < n; ++i)
+                if (const char *id = swmm_inlet_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            break;
+        }
+        case DataObjectRef::CaptureNode: {
+            // Engine rule 627: the capture node must not be a virtual or
+            // inlet junction (they have no storage to receive the capture).
+            const int n = swmm_node_count(m_ref.engine);
+            for (int i = 0; i < n; ++i) {
                 int isVirtual = 0;
                 swmm_node_is_virtual(m_ref.engine, i, &isVirtual);
                 if (isVirtual) continue;
                 if (const char *id = swmm_node_id(m_ref.engine, i))
                     if (*id) items << QString::fromUtf8(id);
             }
-            const int ns = swmm_subcatch_count(m_ref.engine);
-            for (int i = 0; i < ns; ++i)
-                if (const char *id = swmm_subcatch_id(m_ref.engine, i))
-                    if (*id) items << QString::fromUtf8(id);
+            items.sort(Qt::CaseInsensitive);
             break;
         }
         }
@@ -156,6 +205,13 @@ void DataObjectPickerEditor::repopulate()
     m_suppressTextChange = true;
     m_combo->setItems(items, m_ref.currentName);
     m_suppressTextChange = false;
+}
+
+void DataObjectPickerEditor::applyPickedName(const QString &name)
+{
+    m_ref.currentName = name;
+    repopulate();
+    emit valueChanged();
 }
 
 void DataObjectPickerEditor::onComboTextChanged(const QString &text)
@@ -187,6 +243,66 @@ void DataObjectPickerEditor::onPickerClicked()
                "blank to remove the coupling. Nodes are added on the map."));
         return;
     }
+    // Subcatchments are drawn on the map, so the combo is the whole picker.
+    if (m_ref.kind == DataObjectRef::Subcatchment) {
+        QMessageBox::information(this, tr("Subcatchment"),
+            tr("Pick an existing subcatchment from the dropdown, or leave it "
+               "blank to send the discharge out of the system. Subcatchments "
+               "are drawn on the map."));
+        return;
+    }
+    // Capture node: pick it on the map. The property grid closes this cell
+    // editor the moment the canvas takes focus, so the session is parented
+    // to the LAYER and writes the pick through the layer's inlet-usage edit;
+    // the editor is only updated if it still exists.
+    if (m_ref.kind == DataObjectRef::CaptureNode) {
+        MapCanvas *canvas = m_ref.layer ? m_ref.layer->editCanvas() : nullptr;
+        if (!canvas || m_ref.hostNodeIdx < 0) {
+            QMessageBox::information(this, tr("Capture Node"),
+                tr("Pick the node the inlet discharges to. Virtual and inlet "
+                   "junctions cannot receive an inlet's capture."));
+            return;
+        }
+        auto *session = new NodePickSession(canvas, m_ref.layer);
+        QPointer<DataObjectPickerEditor> self(this);
+        QPointer<SWMMModelLayer> layer(m_ref.layer);
+        const int host = m_ref.hostNodeIdx;
+        connect(session, &NodePickSession::nodePicked, session,
+                [session, self, layer, host](SWMMModelLayer *l, const QString &name, int idx) {
+                    if (!layer || l != layer) return;
+                    // Engine rule 627: virtual / inlet junctions cannot
+                    // receive the capture; nor can the inlet itself.
+                    int isVirtual = 0;
+                    swmm_node_is_virtual(layer->engine(), idx, &isVirtual);
+                    if (isVirtual || idx == host) return;   // keep picking
+                    SWMM_InletUsage u{};
+                    if (layer->inletUsageFor(SWMM_INLET_HOST_NODE, host, &u)
+                        && u.capture_node_idx != idx) {
+                        u.capture_node_idx = idx;
+                        layer->pushInletUsageEdit(u);
+                    }
+                    if (self) self->applyPickedName(name);
+                    session->finish();
+                    session->deleteLater();
+                });
+        connect(session, &NodePickSession::cancelled, session, &QObject::deleteLater);
+        return;
+    }
+    // Inlet designs — dispatch straight to the Inlets editor, filtered to
+    // the designs compatible with the host's cross section (typeLock).
+    if (m_ref.kind == DataObjectRef::Inlet) {
+        using openswmmvis::inlet::InletRegistry;
+        using openswmmvis::ui::InletEditorDialog;
+        auto *reg = qobject_cast<InletRegistry *>(m_ref.layer->ensureInletRegistry());
+        if (!reg) return;
+        const QString chosen = InletEditorDialog::pickInlet(
+            reg, m_ref.layer, /*undoStack=*/nullptr, this, m_ref.typeLock);
+        if (chosen.isEmpty()) return;
+        m_ref.currentName = chosen;
+        repopulate();
+        emit valueChanged();
+        return;
+    }
     // The outlet picker is pure selection over existing nodes/subcatchments —
     // no "create new" target, so the browse button is a no-op note.
     if (m_ref.kind == DataObjectRef::SubcatchOutlet) {
@@ -208,6 +324,10 @@ void DataObjectPickerEditor::onPickerClicked()
     case DataObjectRef::RainGage:       /* handled above */                   break;
     case DataObjectRef::SubcatchOutlet: /* handled above */                   break;
     case DataObjectRef::Node:           /* handled above */                   break;
+    case DataObjectRef::Subcatchment:   /* handled above */                   break;
+    case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
+    case DataObjectRef::Inlet:          /* handled above */                   break;
+    case DataObjectRef::CaptureNode:    /* handled above */                   break;
     }
 
     // Slice BM.0-Add-New (2026-05-24) — gap categories (Transects / LID /
@@ -263,6 +383,18 @@ void DataObjectPickerEditor::onPickerClicked()
         if (!reg) return;
         chosen = CurveEditorDialog::pickCurve(
             reg, /*undoStack=*/nullptr, m_ref.currentName, this);
+        break;
+    }
+
+    case SWMMModelLayer::DataAquifers: {
+        using openswmmvis::aquifer::AquiferRegistry;
+        using openswmmvis::ui::AquiferEditorDialog;
+        auto *reg = qobject_cast<AquiferRegistry *>(m_ref.layer->ensureAquiferRegistry());
+        if (!reg) return;
+        // pickAquifer flushes the registry to the engine before returning,
+        // so the adapter's setter can resolve the name via swmm_aquifer_index.
+        chosen = AquiferEditorDialog::pickAquifer(
+            reg, m_ref.layer, m_ref.currentName, this);
         break;
     }
 

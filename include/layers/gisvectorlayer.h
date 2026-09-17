@@ -36,6 +36,7 @@ class OGRCoordinateTransformation;
 
 class SpatialReferenceSystem;
 class OpenSWMMVisWorkspace;
+class GisVectorSymbolAdapter;   // persistent symbol adapter — styleSubjects()
 
 namespace OpenSWMM::Render {
 class IFeatureRenderer;
@@ -304,6 +305,22 @@ public:
      */
     void clearSelection();
 
+    /*!
+     * \brief SVBC round B — fids of every feature whose GEOMETRY intersects
+     *        \p rectCanvasCrs (OGR bbox prefilter, then precise Intersects).
+     *        The rect arrives in canvas CRS and is inverse-transformed when
+     *        the layer is reprojected. Any pre-existing spatial filter is
+     *        saved and restored (clone dance).
+     */
+    [[nodiscard]] QSet<long long> featureIdsInRect(
+        const MapExtent &rectCanvasCrs) const;
+
+    /*!
+     * \brief Scene-space centres of the selected features' items — beacon
+     *        anchors for MapCanvas::flashSelection.
+     */
+    [[nodiscard]] QVector<QPointF> selectedFeatureAnchors() const;
+
     // ----- Identify -------------------------------------------------------
 
     /*!
@@ -353,18 +370,93 @@ signals:
     /*! \brief Emitted on the GUI thread when \ref openAsync() completes. */
     void openFinished(bool ok);
 
+    /*!
+     * \brief Emitted once when this layer's file declares no CRS and its
+     *        coordinates are therefore assumed to already be in the canvas CRS.
+     *
+     * \details Not an error — local-coordinate data legitimately has no CRS,
+     *          and this is what the layer has always done. It is surfaced so a
+     *          layer that lands in the wrong place has a stated reason.
+     */
+    void crsAssumed(const QString &filePath);
+
 private:
     // Worker-thread payload for openAsync(): GDALOpenEx + GetLayer + extent +
     // CRS produce this POD (no QObject state), folded into the layer on the
     // GUI thread by applyOpenResult(). Defined in the .cpp.
     struct OpenResult;
+    /*! \param openFlags  GDALOpenEx flags; see \ref setOpenFlags. Passed
+     *                    explicitly rather than read from a member because
+     *                    this runs on a worker thread with no `this`. */
     [[nodiscard]] static OpenResult doOpenWork(const QString &filePath,
-                                               const QString &layerName);
+                                               const QString &layerName,
+                                               unsigned openFlags);
     void applyOpenResult(const OpenResult &r);
 
+protected:
+    /*!
+     * \brief GDALOpenEx flags used by \ref openDataset and \ref openAsync.
+     *
+     * \details Read-only by default — every vector source in the application
+     *          is read-only except an editable feature layer. FeatureLayer
+     *          sets GDAL_OF_VECTOR | GDAL_OF_UPDATE via \ref setOpenFlags so
+     *          it can write through the same handle the paint loop reads,
+     *          instead of re-opening the GeoPackage after every edit.
+     *
+     *          A subclass that changes the flags MUST construct with an empty
+     *          filePath (the ctor only opens when the path is non-empty) and
+     *          call \ref openDataset itself afterwards; the base ctor runs
+     *          before the subclass exists.
+     */
+    void setOpenFlags(unsigned flags) { m_openFlags = flags; }
+    [[nodiscard]] unsigned openFlags() const { return m_openFlags; }
+
+    /*! \brief The open dataset, or nullptr. Non-owning; the layer closes it.
+     *         Exposed for subclasses that must reach GDAL directly (schema
+     *         changes, transaction control). */
+    [[nodiscard]] GDALDataset *dataset() const { return m_dataset; }
+
+    /*! \brief Force the next populateScene() to rebuild its items. Call after
+     *         mutating the underlying dataset so the scene reflects the write;
+     *         refreshScene() alone short-circuits on a clean dirty flag. */
+    void markSceneDirty() { m_needsRebuild = true; }
+
+    /*!
+     * \brief Open \p filePath / \p layerName synchronously.
+     *
+     * Protected rather than private because a subclass may produce its own
+     * dataset — WFSLayer fetches one over the network and hands GDAL the
+     * bytes — and has to open and close it itself.
+     */
     void openDataset(const QString &filePath, const QString &layerName);
+
+    //! Closes whatever is open, releasing the dataset.
     void closeDataset();
-    void rebuildTransform(const SpatialReferenceSystem *canvasSRS);
+
+private:
+    void rebuildTransform(const SpatialReferenceSystem *canvasSRS) const;
+
+    /*!
+     * \brief Make \ref m_transform current for \p canvasSRS, building it on
+     *        first use.
+     *
+     * \details rebuildTransform() used to be reachable only from
+     *          onCanvasCRSChanged(), so a layer added to a canvas whose CRS
+     *          never subsequently changed — the ordinary case — kept a null
+     *          transform and drew its raw file coordinates as though they were
+     *          already in the canvas CRS. Every entry point that is handed a
+     *          canvas CRS calls this first, so the transform exists from the
+     *          first paint. The canvas WKT is cached because populateScene()
+     *          runs per repaint and OGRCreateCoordinateTransformation is far
+     *          too expensive to redo per frame.
+     *
+     *          A layer whose file declares no CRS keeps a null transform: its
+     *          coordinates are assumed to be in the canvas CRS already (the
+     *          long-standing behaviour, and what local-coordinate data needs).
+     *          That assumption is announced once via \ref crsAssumed so a
+     *          misplaced layer is explicable instead of mysterious.
+     */
+    void ensureTransform(const SpatialReferenceSystem *canvasSRS) const;
 
     /*! \brief Derive a GISVectorSymbol from the active Rule's renderer
      *         and feed it through setSymbol(). Called when the Rule's
@@ -378,12 +470,27 @@ private:
     QString                      m_ogrLayerName;
     QString                      m_filterExpr;
     GISVectorSymbol              m_symbol;
+    // Persistent symbol adapter (adapter-ownership refactor) — lazily built
+    // by styleSubjects(), owned via QObject parenting.
+    GisVectorSymbolAdapter      *m_symbolAdapter = nullptr;
     // VS.10 — m_labelConfig moved to OpenSWMMVisLayer (base owns it now).
     QSet<long long>              m_selectedIds;
 
+    /*! GDALOpenEx flags; see \ref setOpenFlags. Stored rather than virtual
+     *  because \ref openDataset is reachable from the constructor, where a
+     *  virtual would not dispatch to the subclass. */
+    unsigned                     m_openFlags = 0;   // seeded in the ctor
+
     GDALDataset                 *m_dataset   = nullptr; /*!< Owned GDAL dataset. */
     OGRLayer                    *m_ogrLayer  = nullptr; /*!< Non-owning pointer into dataset. */
-    OGRCoordinateTransformation *m_transform = nullptr; /*!< Owned; layer CRS → canvas CRS. */
+    mutable OGRCoordinateTransformation *m_transform = nullptr; /*!< Owned; layer CRS → canvas CRS. */
+
+    /*! WKT of the canvas CRS \ref m_transform was built for; empty when none
+     *  has been built. Guards the per-repaint rebuild. */
+    mutable QString m_transformCanvasWkt;
+
+    /*! One-shot latch for the "file declares no CRS" notice (\ref crsAssumed). */
+    mutable bool m_warnedNoCRS = false;
 
     // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialised eagerly in
     // the ctor (default SingleSymbolRenderer) so renderer() never returns

@@ -78,14 +78,19 @@ public:
 
     /*! SHA-256 hex key for a Stage A entry.  Pass \p src for a file-backed
      *  boundary (subcatchHash empty), or \p subcatchHash for the
-     *  subcatchment source (src fields empty). */
+     *  subcatchment source (src fields empty).  \p minSizeEnforce is part of
+     *  the identity for the same reason \p minCellSize is: the stored rings
+     *  are CONDITIONED geometry, and enforcement mode changes what
+     *  conditioning may do to them. */
     static QByteArray boundaryKey(const FileIdentity &src,
                                   const QByteArray   &subcatchHash,
                                   const QString      &layerName,
                                   const QString      &boundaryCRSWkt,
                                   const QString      &meshCRSWkt,
                                   double simplifyEps,
-                                  double maxBoundaryEdgeLen);
+                                  double maxBoundaryEdgeLen,
+                                  double minCellSize = 0.0,
+                                  bool   minSizeEnforce = false);
 
     /*! SHA-256 hex key for a Stage B entry.  Only the thinning-relevant
      *  DTMThinnerOptions fields participate (gridSpacing, threshold,

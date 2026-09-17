@@ -21,6 +21,7 @@
 #ifndef OPENSWMMVIS_TIMESERIES_TIMESERIESREGISTRY_H
 #define OPENSWMMVIS_TIMESERIES_TIMESERIESREGISTRY_H
 
+#include <QDateTime>
 #include <QHash>
 #include <QObject>
 #include <QString>
@@ -73,6 +74,11 @@ public:
      *  creates one TimeseriesProvider per entry — loading all points via
      *  setAllPoints (so the monotone-time invariant gets validated up-front).
      *
+     *  FILE-backed series (a non-empty TIMESERIES_DATA file-path slot, token
+     *  "path[:column]") become ExternalFile-mode providers with the column
+     *  selector split out (drive-letter-aware, mirroring the engine); their
+     *  loaded points are the engine's resolved cache for that column.
+     *
      *  Pre-existing providers are NOT cleared; conflicts (duplicate name) are
      *  skipped silently. Caller should typically construct the registry empty
      *  and call this once on project open.
@@ -84,18 +90,23 @@ public:
      */
     int loadFromEngine(void *engineHandle);
 
-    /*! \brief Push every **Inline-mode** provider's points to the engine.
+    /*! \brief Push every Inline-mode and file-backed provider to the engine.
      *
      *  For each Inline provider:
      *   - If `swmm_table_index(eng, name)` finds an existing engine entry,
-     *     `swmm_table_clear` it and re-add every point.
+     *     `swmm_table_clear` it and re-add every point (also clearing any
+     *     stale FILE token, so a series Detached to Inline round-trips).
      *   - Otherwise call `swmm_timeseries_add` to create it, then add points.
      *
-     *  ExternalFile-mode and GeopackageObserved-mode providers are skipped
-     *  in this first cut — those persistence paths are owned by their
-     *  respective sub-phases (file write-back vs gpkg flush).
+     *  ExternalFile providers with a linked path persist as engine FILE
+     *  timeseries: the composed "path:col" token is written to the
+     *  TIMESERIES_DATA file-path slot (B4), so the .inp emits
+     *  `name FILE "path:col"` and dependents referencing the series by name
+     *  resolve to that file column. An unchanged reference is left verbatim
+     *  (a relative token stays relative). Pathless ExternalFile and
+     *  GeopackageObserved providers are still skipped.
      *
-     *  \returns the number of providers written (Inline mode only).
+     *  \returns the number of providers written.
      *
      *  Caller is responsible for engine state — the engine must be in
      *  SWMM_STATE_BUILDING for new-timeseries creation; `swmm_table_clear`
@@ -117,7 +128,37 @@ public:
      *  loadFromEngine / saveToEngine last operated on), or nullptr if none. */
     void *engineHandle() const noexcept { return m_engineHandle; }
 
+    /*! \brief Directory of the project's `.inp`, used to DISPLAY file-backed
+     *  series paths relatively (TimeseriesEditorDialog::setProjectAnchor).
+     *
+     *  Lives on the registry rather than being threaded through each dialog
+     *  because every timeseries dialog already receives the registry, while
+     *  the six construction sites have no common owner. Display only — the
+     *  provider still owns the absolute path, and the engine's InpWriter is
+     *  what rebases the token on save. Empty = show absolute paths.
+     */
+    QString projectAnchor() const { return m_projectAnchor; }
+    void setProjectAnchor(const QString &dir) { m_projectAnchor = dir; }
+
+    /*! \brief Simulation start (START_DATE + START_TIME), the anchor for
+     *  Relative-mode series and the seed time for a new series' first point.
+     *
+     *  Lives on the registry for the same reason projectAnchor does: every
+     *  timeseries dialog already receives the registry. Seeded (and
+     *  re-seeded) by SWMMModelLayer::ensureTimeseriesRegistry(), which also
+     *  forwards START_DATE / START_TIME option edits. Invalid = unknown. */
+    QDateTime simulationStart() const { return m_simulationStart; }
+    void setSimulationStart(const QDateTime &start)
+    {
+        if (start == m_simulationStart) return;
+        m_simulationStart = start;
+        emit simulationStartChanged(m_simulationStart);
+    }
+
 signals:
+    /*! \brief The cached simulation start date/time changed. */
+    void simulationStartChanged(const QDateTime &now);
+
     /*! \brief A provider was created and added to the registry. */
     void providerAdded(openswmmvis::timeseries::TimeseriesProvider *provider);
 
@@ -132,6 +173,8 @@ private:
     QVector<TimeseriesProvider *>  m_providers;            ///< Insertion order; we own each via Qt parenting.
     QHash<QString, TimeseriesProvider *> m_byLowerName;    ///< Case-insensitive index.
     void                          *m_engineHandle = nullptr; ///< Cached for the no-arg saveToEngine().
+    QString                        m_projectAnchor;          ///< .inp dir for relative display.
+    QDateTime                      m_simulationStart;        ///< START_DATE+TIME; anchor for relative series.
 
     void onProviderRenamed_(const QString& prev, const QString& now);
 };

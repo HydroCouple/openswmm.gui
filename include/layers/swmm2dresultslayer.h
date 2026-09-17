@@ -21,9 +21,13 @@
 #ifndef OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
 #define OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
 
+#include "io/mesh2dh5reader.h"       // openswmmvis::io::CoordinateReference
 #include "layers/openswmmvislayer.h"
 #include "layers/meshspatialgrid.h"
+#include "layers/vertexdepthreconstruct.h"   // VertexDepthReconstruct::CellSplit
 #include "map/mapextent.h"
+
+#include <ogr_spatialref.h>          // OGRCoordinateTransformation (issue #155)
 
 #include <QDateTime>
 #include <QLineF>
@@ -31,6 +35,7 @@
 #include <QPolygonF>
 #include <QRectF>
 #include <QSet>
+#include <QTimer>
 #include <QString>
 #include <QVector>
 
@@ -77,7 +82,12 @@ class IMesh2DSource
 public:
     virtual ~IMesh2DSource() = default;
 
-    /*! \brief Geometry counts. Stable for the lifetime of the source. */
+    /*! \brief Geometry counts. Stable for the lifetime of the source.
+     *
+     *  \c triangleCount() is the number of CELLS (engine faces — triangles
+     *  and, on a mixed mesh, quads; workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md).
+     *  Every per-face array (\ref readDepthsAt, \ref readFaceFieldAt) is
+     *  sized to it; the historical name is kept for its callers. */
     virtual int vertexCount()   const = 0;
     virtual int triangleCount() const = 0;
 
@@ -90,21 +100,81 @@ public:
      *  slider / Play. A completed file source returns false. */
     virtual bool isLive() const { return false; }
 
-    /*! \brief Fetch mesh geometry. Resizes outputs. */
+    /*! \brief Fetch mesh geometry as a DISPLAY triangle fan. Resizes outputs.
+     *
+     *  \p tris carries one triangle per triangle cell and two per quad (the
+     *  engine's VFR sub-triangle split, mesh::cellGeom), in cell order — so
+     *  \c tris.size() >= triangleCount(). Consumers that need per-cell values
+     *  must use \ref readCells and map fan triangles back to their cell. */
     virtual bool readMeshGeometry(std::vector<double>& vx,
                                    std::vector<double>& vy,
                                    std::vector<double>& vz,
                                    std::vector<std::array<int, 3>>& tris) = 0;
 
+    /*! \brief Fetch mesh geometry as CELLS: \p cells[i] = {v0,v1,v2,v3} with
+     *  v3 == -1 for a triangle (cyclic order for a quad), one entry per face,
+     *  engine order (triangles first, then quads). Resizes outputs.
+     *
+     *  Default: an all-triangle source — \ref readMeshGeometry's triangles
+     *  ARE the cells, so they are wrapped with v3 = -1. Mixed-mesh sources
+     *  override. */
+    virtual bool readCells(std::vector<double>& vx,
+                           std::vector<double>& vy,
+                           std::vector<double>& vz,
+                           std::vector<std::array<int, 4>>& cells)
+    {
+        std::vector<std::array<int, 3>> tris;
+        if (!readMeshGeometry(vx, vy, vz, tris)) return false;
+        cells.resize(tris.size());
+        for (size_t i = 0; i < tris.size(); ++i)
+            cells[i] = { tris[i][0], tris[i][1], tris[i][2], -1 };
+        return true;
+    }
+
+    /*!
+     * \brief How the coordinates from \ref readMeshGeometry relate to the
+     *        model CRS — see openswmmvis::io::CoordinateReference.
+     *
+     * Every source delivers SI metres (the 2D solver's internal unit), which
+     * for a foot-based model CRS is NOT the unit the coordinates must be
+     * reprojected from. The default returns an undeclared reference, so a
+     * source that cannot state the factor makes the layer fall back to the
+     * layer CRS's own linear unit rather than silently assuming 1.0.
+     */
+    virtual openswmmvis::io::CoordinateReference coordinateReference() const
+    {
+        return {};
+    }
+
     /*! \brief Fetch per-triangle depth at \p timeIdx. Resizes \p depths to triangleCount(). */
     virtual bool readDepthsAt(int timeIdx, std::vector<float>& depths) = 0;
+
+    /*! \brief One cell's depth at \p timeIdx. The default copies the whole
+     *  frame through \ref readDepthsAt; a source holding frames in memory
+     *  overrides it in O(1) so per-cell time series (comparison plots) do not
+     *  copy every frame per point. */
+    virtual bool readDepthAt(int timeIdx, int cell, float& out)
+    {
+        std::vector<float> row;
+        if (!readDepthsAt(timeIdx, row) || cell < 0 || cell >= static_cast<int>(row.size()))
+            return false;
+        out = row[static_cast<size_t>(cell)];
+        return true;
+    }
+
+    /*! \brief Bumps whenever frames are removed or reordered (a live source
+     *  thinning its history), invalidating anything cached per frame index.
+     *  Appends do not bump it. */
+    virtual int historyGeneration() const { return 0; }
 
     /*! \brief Wall-clock sim time at \p timeIdx (invalid if out of range or unknown). */
     virtual QDateTime simTimeAt(int timeIdx) const { (void)timeIdx; return {}; }
 
     /*!
      * \brief Fetch per-edge signed normal flux at \p timeIdx.
-     * \param flux  Resized to \c triangleCount()*3, indexed \c [tri*3 + localEdge].
+     * \param flux  Resized to \c mesh::edgeSlotCount(triangleCount()), indexed
+     *              \c mesh::edgeSlot(cell, localEdge) (stride mesh::kEdgeStride;
+     *              slot 3 of a triangle is padding).
      *              Units m² s⁻¹; positive flows outward through the edge's
      *              outward normal.
      * \returns true on success. Default implementation returns false so callers
@@ -118,8 +188,8 @@ public:
 
     /*!
      * \brief Fetch time-invariant edge geometry (length + outward unit normal).
-     * \param length Resized to \c triangleCount()*3 (m).
-     * \param nx,ny  Resized to \c triangleCount()*3 (dimensionless).
+     * \param length Resized to \c mesh::edgeSlotCount(triangleCount()) (m).
+     * \param nx,ny  Resized likewise (dimensionless); indexed \c mesh::edgeSlot.
      * \returns true on success. Default returns false.
      */
     virtual bool readEdgeGeometry(std::vector<float>& length,
@@ -150,6 +220,41 @@ public:
         (void)timeIdx; (void)vdepths;
         return false;
     }
+
+    /*!
+     * \brief Whether the source carries a named per-face \c [nTime, nFace]
+     *        field beyond depth (e.g. \c "Mesh2_face_rainfall",
+     *        \c "Mesh2_face_rain_cum"). Default: none — the live in-process
+     *        source streams depth/flux only.
+     */
+    virtual bool hasFaceField(const char* dataset) const
+    {
+        (void)dataset;
+        return false;
+    }
+
+    /*! \brief Fetch one time slice of a named per-face field (engine SI
+     *  units). Resized to \c triangleCount(). Default returns false. */
+    virtual bool readFaceFieldAt(const char* dataset, int timeIdx,
+                                 std::vector<float>& values)
+    {
+        (void)dataset; (void)timeIdx; (void)values;
+        return false;
+    }
+
+    /*!
+     * \brief Fetch a time-INVARIANT per-face \c [nFace] envelope written by the
+     *        engine's \c ENVELOPES output group (\c "Mesh2_face_max_depth",
+     *        \c "Mesh2_face_max_velocity"): the whole-run maximum per cell,
+     *        engine SI units, resized to \c triangleCount().
+     * \returns true on success. Default false — a source that cannot serve the
+     *          envelope makes the caller scan every frame instead.
+     */
+    virtual bool readFaceEnvelope(const char* dataset, std::vector<float>& values)
+    {
+        (void)dataset; (void)values;
+        return false;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -173,6 +278,16 @@ public:
                        std::vector<std::array<int,3>> tris);
 
     /*!
+     * \brief Mixed-mesh constructor: \p cells[i] = {v0,v1,v2,v3}, v3 == -1
+     * for a triangle (engine cell order, `swmm_2d_cell_get_vertices`).
+     * The triangle constructor above is this with every v3 = -1.
+     */
+    EngineMesh2DSource(std::vector<double>            vx,
+                       std::vector<double>            vy,
+                       std::vector<double>            vz,
+                       std::vector<std::array<int,4>> cells);
+
+    /*!
      * \brief Append one tick's worth of per-triangle depth.
      *
      * Pushed from `SimulationRunner::twoDDepthsAvailable` via queued connection
@@ -186,7 +301,9 @@ public:
      * \brief Append one tick's worth of per-edge signed normal flux.
      *
      * Mirrors \ref pushDepths but writes to the flux slot of the most recent
-     * tick. Expected size is \c triangleCount()*3. If called before
+     * tick. Expected size is \c mesh::edgeSlotCount(triangleCount()) (stride
+     * 4, `swmm_2d_edge_stride`); a stride-3 array from an all-triangle
+     * engine is re-packed to the padded layout. If called before
      * \c pushDepths for the same tick, the runner buffers the flux into the
      * pending slot and \c pushDepths will pair them. Empty flux vectors are
      * accepted (older engines without \c swmm_2d_get_edge_flux_bulk skip the
@@ -209,10 +326,64 @@ public:
                                 double elapsedSec);
 
     /*!
+     * \brief Append one tick's per-cell rainfall intensity (m/s) and
+     * cumulative rainfall volume (m³) — the live counterparts of the HDF5
+     * \c Mesh2_face_rainfall / \c Mesh2_face_rain_cum datasets, served back
+     * through \ref readFaceFieldAt under those names so rainfall plots work
+     * during a run exactly as they do post-run. Pairs with the tick whose
+     * elapsed time matches (same convention as \ref pushFlux).
+     */
+    void pushRainfall(std::vector<float> rainfall,
+                      std::vector<float> rainCum,
+                      QDateTime simTime,
+                      double elapsedSec);
+
+    /*!
+     * \brief Append one tick's per-cell water-surface elevation (m,
+     * \c swmm_2d_get_heads_bulk) — the live counterpart of the HDF5
+     * \c Mesh2_face_head dataset, served back through \ref readFaceFieldAt
+     * under that name so a mid-run export writes the solver's VFR head
+     * rather than the depth + mean-bed approximation. Same tick pairing as
+     * \ref pushRainfall.
+     */
+    void pushHeads(std::vector<float> heads,
+                   QDateTime simTime,
+                   double elapsedSec);
+
+    /*!
+     * \brief Replace the cumulative per-cell envelopes (m, m/s) read via
+     * \c swmm_2d_get_stat_max_depths / \c _velocities — the live counterparts
+     * of the HDF5 ENVELOPES datasets, served through \ref readFaceEnvelope.
+     * Latest wins: the engine's envelope is monotone, so only the newest
+     * payload is kept (nothing per frame).
+     */
+    void setEnvelopes(std::vector<float> maxDepth, std::vector<float> maxVel);
+
+    /*!
+     * \brief Dry threshold (m) below which a cell's reconstructed velocity is
+     * zero — the engine's \c dry_depth cutoff in computeFaceVelocity. Set from
+     * \c swmm_2d_get_dry_depth at twoDInitialized; default = the layer's.
+     */
+    void   setDryDepth(double m) { dry_depth_ = m; }
+    double dryDepth() const noexcept { return dry_depth_; }
+
+    /*!
+     * \brief Hold the frame numbering still: while pinned, \ref pushDepths and
+     * friends still append but the history cap is not enforced (no thinning,
+     * no \ref historyGeneration bump), so an index handed out before the pin
+     * stays valid. Unpinning enforces the cap once. Used by the mid-run
+     * export, whose modal dialog and progress loop pump the event queue that
+     * delivers the ticks.
+     */
+    void setHistoryPinned(bool pinned);
+    bool historyPinned() const noexcept { return pinned_; }
+
+    /*!
      * \brief Install time-invariant edge geometry queried via
      * \c swmm_2d_edge_get_geometry_bulk once at twoDInitialized. Sizes are
-     * \c triangleCount()*3 each. Optional — when not called, the source
-     * advertises no edge geometry (readEdgeGeometry returns false).
+     * \c mesh::edgeSlotCount(triangleCount()) each (a stride-3 array from an
+     * all-triangle engine is re-packed). Optional — when not called, the
+     * source advertises no edge geometry (readEdgeGeometry returns false).
      */
     void setEdgeGeometry(std::vector<float> length,
                          std::vector<float> nx,
@@ -220,13 +391,46 @@ public:
 
     // IMesh2DSource
     int  vertexCount()   const override { return static_cast<int>(vx_.size()); }
-    int  triangleCount() const override { return static_cast<int>(tris_.size()); }
+    int  triangleCount() const override { return static_cast<int>(cells_.size()); }
     int  timeCount()     const override { return static_cast<int>(history_.size()); }
-    bool isLive()        const override { return true; }   // streaming from the running sim
+    bool isLive()        const override { return !finished_; } // streaming from the running sim
+
+    /*! \brief Stop advertising as live once the run has ended. The retained
+     *  in-memory history stays fully scrubbable; it just is not growing any
+     *  more, so consumers that wait for new frames (the animation controller's
+     *  wait-at-end behaviour, follow-live) must stop waiting. Called on the
+     *  runner's finished signal, including the paths that keep this source
+     *  instead of swapping in the .h5-backed one. */
+    void markFinished() { finished_ = true; }
+    bool readDepthAt(int timeIdx, int cell, float& out) override;
+    int  historyGeneration() const override { return generation_; }
+
+    /*! \brief Cap on retained frames (default 2000). Past the cap the OLDER
+     *  half of the history is thinned 2:1 (frames keep their sim times, so
+     *  scrubbing by time is unaffected); \ref historyGeneration bumps. A
+     *  1 Hz tick on a 200 k-cell mesh is ~6 MB per frame — unbounded history
+     *  paged the machine on long runs. \p n < 8 disables the cap. */
+    void setMaxFrames(int n) { max_frames_ = n; enforceCap_(); }
+    int  maxFrames() const noexcept { return max_frames_; }
+
+    /*! \brief Byte budget for the retained history (0 = unlimited), checked
+     *  alongside the frame cap. The frame cap alone let a 155 k-cell mesh hold
+     *  ~9 GB (a frame is ~28 B/cell + 4 B/vertex). Past the budget the same
+     *  2:1 thinning repeats until the history is at or below 75 % of it, so a
+     *  big mesh does not re-thin on every tick at the boundary. Preferences →
+     *  Simulation → "Live 2D history budget". */
+    void   setMaxBytes(size_t bytes) { max_bytes_ = bytes; enforceCap_(); }
+    size_t maxBytes() const noexcept { return max_bytes_; }
+    /*! \brief Bytes held by the retained frames' payload vectors. */
+    size_t historyBytes() const;
     bool readMeshGeometry(std::vector<double>& vx,
                           std::vector<double>& vy,
                           std::vector<double>& vz,
                           std::vector<std::array<int, 3>>& tris) override;
+    bool readCells(std::vector<double>& vx,
+                   std::vector<double>& vy,
+                   std::vector<double>& vz,
+                   std::vector<std::array<int, 4>>& cells) override;
     bool readDepthsAt(int timeIdx, std::vector<float>& depths) override;
     QDateTime simTimeAt(int timeIdx) const override;
 
@@ -235,19 +439,49 @@ public:
                           std::vector<float>& nx,
                           std::vector<float>& ny) override;
     bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths) override;
+    /*! Live fields: rainfall / rain_cum (when any tick carried them), head
+     *  (when any tick carried heads), and vx / vy — reconstructed on demand
+     *  from the tick's edge flux and the installed edge geometry with the
+     *  engine's own RT0 formula (mesh::rt0CellDischarge ÷ depth). */
+    bool hasFaceField(const char* dataset) const override;
+    bool readFaceFieldAt(const char* dataset, int timeIdx,
+                         std::vector<float>& values) override;
+    bool readFaceEnvelope(const char* dataset, std::vector<float>& values) override;
 
 private:
+    /*! Re-pack a stride-3 per-edge array (all-triangle engine) into the
+     *  padded stride-4 slot layout; arrays already stride 4 pass through. */
+    std::vector<float> toEdgeSlots_(std::vector<float> a) const;
+
     std::vector<double>              vx_, vy_, vz_;
-    std::vector<std::array<int,3>>   tris_;
+    std::vector<std::array<int,4>>   cells_;   ///< {v0,v1,v2,v3}; v3 = -1 for a triangle
 
     struct Tick {
         std::vector<float> depths;
-        std::vector<float> flux;       ///< [tri*3 + localEdge]; empty when source has no flux feed.
+        std::vector<float> flux;       ///< [mesh::edgeSlot(cell, e)]; empty when source has no flux feed.
         std::vector<float> vertex_depths; ///< [vertex]; empty when engine lacks the heads API.
+        std::vector<float> rainfall;   ///< [tri] m/s; empty when engine lacks the rainfall bulk API.
+        std::vector<float> rain_cum;   ///< [tri] m³ cumulative; paired with rainfall.
+        std::vector<float> heads;      ///< [tri] m water surface; empty when not pushed.
         QDateTime          sim_time;
         double             elapsed_sec = 0.0;
     };
     std::vector<Tick> history_;
+    bool              has_rainfall_ = false;   ///< any tick carried rainfall
+    bool              has_heads_    = false;   ///< any tick carried heads
+    bool              has_flux_     = false;   ///< any tick carried flux
+    std::vector<float> env_max_depth_;         ///< see setEnvelopes (empty = none yet)
+    std::vector<float> env_max_vel_;
+    double            dry_depth_    = 1e-4;    ///< see setDryDepth
+    int               max_frames_   = 2000;    ///< see setMaxFrames
+    size_t            max_bytes_    = 0;       ///< see setMaxBytes (0 = unlimited)
+    int               generation_   = 0;       ///< see historyGeneration
+    bool              finished_     = false;   ///< see markFinished
+    bool              pinned_       = false;   ///< see setHistoryPinned
+    void enforceCap_();
+    /*! Both velocity components of one frame (engine SI m/s) via RT0. */
+    bool reconstructVelocity_(int timeIdx, std::vector<float>& vx,
+                              std::vector<float>& vy) const;
 
     // Time-invariant edge geometry; populated once at twoDInitialized via
     // setEdgeGeometry. Empty when the engine lacks the bulk geometry API.
@@ -277,6 +511,10 @@ public:
                           std::vector<double>& vy,
                           std::vector<double>& vz,
                           std::vector<std::array<int, 3>>& tris) override;
+    bool readCells(std::vector<double>& vx,
+                   std::vector<double>& vy,
+                   std::vector<double>& vz,
+                   std::vector<std::array<int, 4>>& cells) override;
     bool readDepthsAt(int timeIdx, std::vector<float>& depths) override;
     QDateTime simTimeAt(int timeIdx) const override;
 
@@ -285,6 +523,11 @@ public:
                           std::vector<float>& nx,
                           std::vector<float>& ny) override;
     bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths) override;
+    bool hasFaceField(const char* dataset) const override;
+    bool readFaceFieldAt(const char* dataset, int timeIdx,
+                         std::vector<float>& values) override;
+    bool readFaceEnvelope(const char* dataset, std::vector<float>& values) override;
+    openswmmvis::io::CoordinateReference coordinateReference() const override;
 
     /*! \brief Anchor wall-clock time for the simulation start (so /time
      *  (seconds since start) maps back to a QDateTime for the global slider). */
@@ -331,6 +574,28 @@ public:
 
     IMesh2DSource* source() noexcept { return source_.get(); }
     const IMesh2DSource* source() const noexcept { return source_.get(); }
+
+    /*!
+     * \brief Metres per model-CRS linear unit, for sources that declare none.
+     *
+     * The 2D solver runs in SI, so every result source hands this layer
+     * **metres** — which for a foot-based model CRS is not the unit the
+     * coordinates must be reprojected from (issue #155). Engine 6.0+ states
+     * the exact factor in the file's `/crs` variable and that always wins.
+     * A pre-6.0 `.2d.h5`, and the live in-process `EngineMesh2DSource`, carry
+     * no such statement, so the caller supplies it here.
+     *
+     * Use the engine's own rule, not the layer CRS's linear unit: the engine
+     * scales the mesh when `FLOW_UNITS` is US-customary **and** the mesh file
+     * did not declare `;; UNITS: SI (m)` — a condition the CRS cannot report,
+     * and which the engine's own `InpWriter` makes reachable on round-trip.
+     *
+     * \param metresPerModelUnit  0.3048 when the engine scaled, else 1.0.
+     *                            Non-positive / non-finite values are ignored.
+     *                            The default is 1.0, i.e. leave the
+     *                            coordinates alone.
+     */
+    void setFallbackCoordinateScale(double metresPerModelUnit);
 
     /*!
      * \brief Current time index displayed on the canvas. -1 = no frame yet.
@@ -537,20 +802,22 @@ public:
     // ----- Cell selection / picking (CF.3) ----------------------------------
 
     /*!
-     * \brief Return triangle indices whose scene-space centroid falls inside
-     *        \p sceneRect.  Linear scan over m_sceneTris — fine for meshes
-     *        up to ~100k tris; bigger meshes may want spatial indexing.
+     * \brief Return CELL indices whose scene-space (area) centroid falls inside
+     *        \p sceneRect.  Linear scan over the cells — fine for meshes
+     *        up to ~100k cells; bigger meshes may want spatial indexing.
      */
     [[nodiscard]] QVector<int> pickCellsInRect(const QRectF& sceneRect) const;
 
     /*!
-     * \brief Return triangle indices whose scene-space centroid falls inside
+     * \brief Return CELL indices whose scene-space centroid falls inside
      *        \p scenePoly (odd-even fill rule). Used by lasso-select.
      */
     [[nodiscard]] QVector<int> pickCellsInPolygon(const QPolygonF& scenePoly) const;
 
-    /*! \brief Return the triangle whose vertices contain \p scenePt, or -1.
-     *  Used by single-click cell pick and canvas-right-click hit test. */
+    /*! \brief Return the CELL containing \p scenePt, or -1 (barycentric test
+     *  on the display fan, mapped to the owning cell — a quad answers for
+     *  both of its sub-triangles). Used by single-click cell pick and the
+     *  canvas-right-click hit test. */
     [[nodiscard]] int pickCellAt(const QPointF& scenePt) const;
 
     /*! \brief Current-frame water depth (m) at \p scenePt: locates the
@@ -558,6 +825,16 @@ public:
      *  from the live SceneTri buffer. Returns 0 off-mesh / no-frame. Used by
      *  the mesh-profile cross-section to sample the animated depth column. */
     [[nodiscard]] float depthAtSceneNow(const QPointF& scenePt) const;
+
+    /*! \brief Factor that takes a 2D result DEPTH (engine SI metres — every
+     *  depth accessor on this layer returns metres) into the mesh layer's
+     *  vertical units, so `bed + depth * depthToMeshUnits()` is a valid water
+     *  surface elevation against `SWMM2DMeshLayer::sampleZAt` and the 1D
+     *  profile (project units). 1.0 for a metric project or an SI-tagged mesh;
+     *  1/0.3048 for a US project whose mesh is in feet. Same factor the XY
+     *  coordinates use (the mesh's linear unit is shared by all three axes) —
+     *  see resolveCoordinateScale_ / setFallbackCoordinateScale. */
+    [[nodiscard]] double depthToMeshUnits() const { return resolveCoordinateScale_(); }
 
     /*! \brief Current-frame water depth (m) at \p scenePt, **barycentrically
      *  interpolated** from the containing cell's per-vertex depths
@@ -688,11 +965,28 @@ public:
      *  geometry buffers without expanding corners. */
     QVector<QPointF>   m_sceneVerts;
 
-    /*! QSG-2D-1M — triangle → vertex-id triples backing m_sceneTris
+    /*! QSG-2D-1M — display triangle → vertex-id triples backing m_sceneTris
      *  (indices into m_sceneVerts). Read-only view for the renderer's
-     *  static indexed-geometry path. */
+     *  static indexed-geometry path. On a mixed mesh this is the sub-triangle
+     *  FAN (one entry per triangle cell, two per quad, cell order); see
+     *  \ref triCellMap / \ref cellTriRange for the cell mapping. */
     [[nodiscard]] const std::vector<std::array<int, 3>> &triVertexIndices() const noexcept
     { return tris_; }
+
+    /*! Cells (engine faces): {v0,v1,v2,v3}, v3 == -1 for a triangle. Indexed
+     *  by CELL — the index every public pick/highlight/plot API uses. */
+    [[nodiscard]] const std::vector<std::array<int, 4>> &cellVertexIndices() const noexcept
+    { return cells_; }
+
+    /*! Display triangle → owning cell (parallel to m_sceneTris / triVertexIndices). */
+    [[nodiscard]] const std::vector<int> &triCellMap() const noexcept { return triCell_; }
+
+    /*! CSR cell → display-triangle range: the fan triangles of cell c are
+     *  \c [cellTriRange()[c], cellTriRange()[c+1]). Size cellCount()+1. */
+    [[nodiscard]] const std::vector<int> &cellTriRange() const noexcept { return cellTri0_; }
+
+    /*! Number of cells (faces) in the current geometry. */
+    [[nodiscard]] int cellCount() const noexcept { return static_cast<int>(cells_.size()); }
 
     /*! QSG-2D-1M — bumped every rebuildSceneGeometry_. Lets the QSG
      *  renderer classify an ambiguous repaint into "geometry changed"
@@ -730,13 +1024,54 @@ private:
     void applyCurrentDepths_();     ///< Copy `current_depths_` into the SceneTri buffer.
     void applyCurrentFlux_();       ///< Run RT0 reconstruction → write vx/vy/vmag into SceneTri.
 
+    /*!
+     * \brief Metres-to-model-CRS-unit divisor for the source coordinates.
+     *
+     * Resolved in rebuildSceneGeometry_() from the source's
+     * CoordinateReference, falling back to setFallbackCoordinateScale()'s
+     * value for sources that declare nothing. 1.0 for a metric model, and the
+     * default when nobody supplied a fallback. Issue #155.
+     */
+    [[nodiscard]] double resolveCoordinateScale_() const;
+
     /*! QSG-2D-1M — see geomRevision(). */
     quint64 m_geomRevision = 0;
 
+    /*! Layer-CRS → canvas-CRS transform, rebuilt in onCanvasCRSChanged().
+     *  nullptr means "no reprojection needed" — CRSReproject treats a null
+     *  transform as a documented pass-through. Mirrors SWMM2DMeshLayer. */
+    OGRCoordinateTransformation *m_transform = nullptr;
+
+    /*! One-shot guard: the undeclared-CRS fallback warns once, not on every
+     *  geometry rebuild. Reset by setFallbackCoordinateScale(). */
+    mutable bool m_warnedUndeclaredCrs = false;
+
+    /*! Metres per model-CRS linear unit for sources that declare no `/crs`
+     *  variable — see setFallbackCoordinateScale(). 1.0 = leave coordinates
+     *  alone, the pre-#155 behaviour and the safe default. */
+    double m_fallbackMetresPerModelUnit = 1.0;
+
+    /*! Display triangle containing \p scenePt (index into m_sceneTris /
+     *  tris_), or -1. \ref pickCellAt is this mapped through triCell_. */
+    [[nodiscard]] int pickDisplayTriAt_(const QPointF& scenePt) const;
+    /*! Barycentric current-frame depth on display triangle \p triIdx (the
+     *  per-sub-triangle body of \ref depthAtCellInterp). */
+    [[nodiscard]] float depthAtDisplayTriInterp_(int triIdx, const QPointF& scenePt) const;
+
     std::unique_ptr<IMesh2DSource> source_;
     std::vector<double>            vx_, vy_, vz_;
-    std::vector<std::array<int,3>> tris_;
-    std::vector<float>             current_depths_;
+    // Mixed-mesh split (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md): the
+    // CELLS carry the per-face values; the display FAN (one sub-triangle per
+    // triangle cell, two per quad on the engine's VFR diagonal) is what the
+    // scene, hit-testing, contours and interpolation run on. Every per-face
+    // lookup for a display triangle goes through triCell_.
+    std::vector<std::array<int,4>> cells_;      ///< per CELL: {v0,v1,v2,v3}, v3 = -1 for a triangle
+    std::vector<std::array<int,3>> tris_;       ///< display fan, parallel to m_sceneTris
+    std::vector<int>               triCell_;    ///< display triangle → cell
+    std::vector<int>               cellTri0_;   ///< CSR: cell → first display triangle (size nCells+1)
+    std::vector<VertexDepthReconstruct::CellSplit> cellSplit_;  ///< per CELL, feeds the vertex reconstruction
+    std::vector<QPointF>           cellCentroidScene_;          ///< per CELL area centroid, scene space
+    std::vector<float>             current_depths_;             ///< per CELL
 
     // Sub-cell free-surface reconstruction for partial wet/dry rendering. The
     // engine reports a per-cell mean depth h = V/A under a flat-cell closure;
@@ -746,7 +1081,7 @@ private:
     // cellZc_ is each cell's centroid bed elevation (static; built once in
     // rebuildSceneGeometry_); the eta_* vectors are per-frame scratch reused by
     // applyCurrentDepths_ to avoid per-frame allocation.
-    std::vector<float>             cellZc_;       ///< per-cell centroid bed elev, parallel to tris_
+    std::vector<float>             cellZc_;       ///< per-CELL mean bed elev (cellGeom zMean), parallel to cells_
     std::vector<float>             eta_vsum_;     ///< scratch — per-vertex Σ(weight·η)
     std::vector<float>             eta_wsum_;     ///< scratch — per-vertex Σ(weight) (depth weight)
     std::vector<float>             vdepth_;       ///< scratch — per-vertex SIGNED depth (η_v − z_v), current frame
@@ -759,10 +1094,10 @@ private:
     std::vector<float>             vvy_;          ///< per-vertex velocity y (scene units)
 
     // CF.2 — per-tick flux + time-invariant edge geometry pulled once from the source.
-    std::vector<float>             current_flux_;     ///< [tri*3 + localEdge], m^2/s.
-    std::vector<float>             edge_length_;      ///< [tri*3], m.
-    std::vector<float>             edge_nx_;          ///< [tri*3], dimensionless.
-    std::vector<float>             edge_ny_;          ///< [tri*3], dimensionless.
+    std::vector<float>             current_flux_;     ///< [mesh::edgeSlot(cell, e)], m^2/s.
+    std::vector<float>             edge_length_;      ///< [mesh::edgeSlot(cell, e)], m.
+    std::vector<float>             edge_nx_;          ///< [mesh::edgeSlot(cell, e)], dimensionless.
+    std::vector<float>             edge_ny_;          ///< [mesh::edgeSlot(cell, e)], dimensionless.
     bool                           have_edge_geom_   = false;
     bool                           have_velocity_    = false;
     /*! Tri-state cache for hasEdgeFluxData(): 0 = not yet determined,
@@ -772,6 +1107,26 @@ private:
     int                            current_time_idx_ = -1;
     bool                           follow_live_      = true;  // live source: auto-advance to newest frame until the user scrubs
     bool                           live_render_enabled_ = true; // live source: master gate for streaming/render work (Issue 2 toggle)
+
+    // Live-tick coalescing. A tick arrives as up to four queued pushes
+    // (depths, flux, vertex depths, rainfall), each followed by a refresh
+    // request; the requests are folded into ONE range emission + ONE frame
+    // load per event-loop turn (scheduleLiveSync_ / liveSync_).
+    bool                           live_sync_pending_ = false;
+    bool                           live_range_dirty_  = false;
+    bool                           live_frame_dirty_  = false;
+    int                            last_range_hi_     = -1;   ///< last timeRangeChanged hi emitted
+    void scheduleLiveSync_();
+    void liveSync_();
+
+    // Incremental per-vertex max-depth envelope (maxDepthPerVertex): frames
+    // already folded in are not re-read on the next call. Keyed on the source
+    // and its history generation; the newest frame is always re-folded.
+    mutable std::vector<float>     vertMaxCache_;
+    mutable std::vector<uint8_t>   vertWetCache_;
+    mutable int                    vertMaxFramesDone_ = 0;
+    mutable const IMesh2DSource*   vertMaxSource_     = nullptr;
+    mutable int                    vertMaxGeneration_ = -1;
     double                         dry_depth_        = 1e-4;  // 0.1 mm — auto-tuned per project
     double                         max_depth_        = 0.01;  // 10 mm — auto-grows from data each tick
     bool                           max_depth_user_set_ = false;

@@ -13,11 +13,14 @@
 
 #include "contour/contourchain.h"
 #include "contour/marchingtriangles.h"
+#include "core/crsreproject.h"
 #include "core/swmmdatetime.h"
 #include "io/mesh2dh5reader.h"
 #include "layers/cellsurfaceinterp.h"
 #include "layers/vertexdepthreconstruct.h"
 #include "map/mapextent.h"
+#include "map/spatialreferencesystem.h"
+#include "mesh/meshcellgeom.h"
 
 #include "render/ifeaturerenderer.h"
 #include "render/labelpainter.h"
@@ -45,24 +48,28 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <utility>
 
 // ---------------------------------------------------------------------------
-// Inundation colour ramp — dry → light cyan → cyan → blue → magenta → yellow
-// Stops chosen so wet areas pop visually against the terrain-ramped mesh
-// layer below (which is heavily green/brown).
+// Inundation colour ramp (2026-09-01) — mirrors the "Water Depth" builtin
+// (RasterColorRamp::waterDepth): translucent near-white blue at barely-wet
+// deepening to a fully opaque navy at maximum depth (user direction: deeper
+// water = dark blue, shallower = lighter shade; the shoreline fades into
+// the terrain beneath). Keep the two in sync — this copy serves the CPU
+// paint path and the legend swatches.
 // ---------------------------------------------------------------------------
 
 namespace {
 
-struct Stop { double t; int r, g, b; };
+struct Stop { double t; int r, g, b, a; };
 constexpr Stop kInundationStops[] = {
-    {0.00, 0x9d, 0xe2, 0xf2},  // light cyan — barely wet
-    {0.20, 0x1e, 0x88, 0xe5},  // bright blue
-    {0.50, 0x05, 0x3c, 0x8a},  // deep navy
-    {0.75, 0xc6, 0x28, 0x28},  // crimson — danger
-    {1.00, 0xff, 0xeb, 0x3b},  // yellow — saturated
+    {0.00, 0xf7, 0xfb, 0xff, 100},  // near-white blue, translucent
+    {0.25, 0xc6, 0xdb, 0xef, 160},  // pale blue
+    {0.50, 0x6b, 0xae, 0xd6, 210},  // mid blue
+    {0.75, 0x21, 0x71, 0xb5, 240},  // strong blue
+    {1.00, 0x08, 0x30, 0x6b, 255},  // deep navy, fully opaque
 };
 
 void inundationColorRgba(double depth, double dry_depth, double max_depth,
@@ -84,7 +91,8 @@ void inundationColorRgba(double depth, double dry_depth, double max_depth,
     r = int(std::lround(lo.r + f * (hi.r - lo.r)));
     g = int(std::lround(lo.g + f * (hi.g - lo.g)));
     b = int(std::lround(lo.b + f * (hi.b - lo.b)));
-    a = 210;
+    // Alpha rides the ramp too: the shallow end is translucent by design.
+    a = int(std::lround(lo.a + f * (hi.a - lo.a)));
 }
 
 // CF.2 — sequential velocity-magnitude ramp (Viridis-inspired). Distinct
@@ -113,24 +121,34 @@ void velocityColorRgb(double vmag, double max_v, int& r, int& g, int& b)
     b = int(std::lround(lo.b + f * (hi.b - lo.b)));
 }
 
-int normalizeOneBasedConnectivity(std::vector<std::array<int, 3>>& tris,
+int cellVertexCount(const std::array<int, 4>& cell)
+{
+    return cell[3] >= 0 ? 4 : 3;
+}
+
+int normalizeOneBasedConnectivity(std::vector<std::array<int, 4>>& cells,
                                   int nVerts)
 {
-    if (tris.empty() || nVerts <= 0) return 0;
+    if (cells.empty() || nVerts <= 0) return 0;
 
     int minIdx = std::numeric_limits<int>::max();
     int maxIdx = std::numeric_limits<int>::lowest();
-    for (const auto& tri : tris) {
-        minIdx = std::min({minIdx, tri[0], tri[1], tri[2]});
-        maxIdx = std::max({maxIdx, tri[0], tri[1], tri[2]});
+    for (const auto& cell : cells) {
+        const int nv = cellVertexCount(cell);
+        for (int k = 0; k < nv; ++k) {
+            minIdx = std::min(minIdx, cell[k]);
+            maxIdx = std::max(maxIdx, cell[k]);
+        }
     }
 
     if (minIdx != 1 || maxIdx != nVerts)
         return 0;
 
-    for (auto& tri : tris)
-        for (int& v : tri)
-            --v;
+    for (auto& cell : cells) {
+        const int nv = cellVertexCount(cell);
+        for (int k = 0; k < nv; ++k)
+            --cell[k];
+    }
     return 1;
 }
 
@@ -140,6 +158,79 @@ bool triIndicesInRange(const std::array<int, 3>& tri, int nVerts)
         && tri[1] >= 0 && tri[1] < nVerts
         && tri[2] >= 0 && tri[2] < nVerts
         && tri[0] != tri[1] && tri[1] != tri[2] && tri[2] != tri[0];
+}
+
+bool cellIndicesInRange(const std::array<int, 4>& cell, int nVerts)
+{
+    const int nv = cellVertexCount(cell);
+    for (int k = 0; k < nv; ++k) {
+        if (cell[k] < 0 || cell[k] >= nVerts) return false;
+        for (int j = 0; j < k; ++j)
+            if (cell[j] == cell[k]) return false;
+    }
+    return true;
+}
+
+/*! Build the display fan of \p cells (one sub-triangle per triangle cell, two
+ *  per quad on the engine's VFR diagonal — mesh::cellGeom decides the split,
+ *  so map, mesh layer and solver agree) plus the fan→cell map and the CSR
+ *  cell→fan ranges. A cell with out-of-range/duplicate vertex ids yields
+ *  {-1,-1,-1} entries (its slot count is preserved so ranges stay valid).
+ *  \p vz is consulted for the quad diagonal (elevation ordering). */
+void buildDisplayFan(const std::vector<double>& vx,
+                     const std::vector<double>& vy,
+                     const std::vector<double>& vz,
+                     const std::vector<std::array<int, 4>>& cells,
+                     std::vector<std::array<int, 3>>& fan,
+                     std::vector<int>& triCell,
+                     std::vector<int>& cellTri0,
+                     std::vector<VertexDepthReconstruct::CellSplit>* split)
+{
+    const int nVerts = static_cast<int>(vx.size());
+    // mesh::cellGeom reads MeshVertex::xy / z only; the marker/tag fields
+    // stay default. Built once per geometry rebuild.
+    QVector<mesh::MeshVertex> mv(nVerts);
+    for (int i = 0; i < nVerts; ++i) {
+        mv[i].xy = QPointF(vx[size_t(i)], vy[size_t(i)]);
+        mv[i].z  = (size_t(i) < vz.size()) ? vz[size_t(i)] : 0.0;
+    }
+    fan.clear();
+    triCell.clear();
+    cellTri0.assign(cells.size() + 1, 0);
+    if (split) split->assign(cells.size(), {});
+    fan.reserve(cells.size() + cells.size() / 4);
+    triCell.reserve(fan.capacity());
+    for (size_t c = 0; c < cells.size(); ++c) {
+        const auto& cell = cells[c];
+        cellTri0[c] = static_cast<int>(fan.size());
+        const int nv = cellVertexCount(cell);
+        VertexDepthReconstruct::CellSplit cs;
+        cs.v = cell;
+        if (!cellIndicesInRange(cell, nVerts)) {
+            cs.nSub = (nv == 4) ? 2 : 1;
+            for (int s = 0; s < cs.nSub; ++s) {
+                cs.sub[s] = {-1, -1, -1};
+                fan.push_back({-1, -1, -1});
+                triCell.push_back(static_cast<int>(c));
+            }
+        } else {
+            mesh::MeshTriangle mt;
+            mt.v0 = cell[0]; mt.v1 = cell[1]; mt.v2 = cell[2]; mt.v3 = cell[3];
+            const mesh::CellGeom g = mesh::cellGeom(mv, mt);
+            cs.nSub = g.nSub;
+            for (int s = 0; s < g.nSub; ++s) {
+                cs.sub[s] = g.sub[s];
+                const QPointF &A = mv[g.sub[s][0]].xy, &B = mv[g.sub[s][1]].xy,
+                              &C = mv[g.sub[s][2]].xy;
+                cs.area[s] = 0.5 * std::abs((B.x() - A.x()) * (C.y() - A.y())
+                                          - (C.x() - A.x()) * (B.y() - A.y()));
+                fan.push_back(g.sub[s]);
+                triCell.push_back(static_cast<int>(c));
+            }
+        }
+        if (split) (*split)[c] = cs;
+    }
+    cellTri0[cells.size()] = static_cast<int>(fan.size());
 }
 
 double twiceSignedArea(const QPointF& a, const QPointF& b, const QPointF& c)
@@ -867,9 +958,39 @@ EngineMesh2DSource::EngineMesh2DSource(std::vector<double>            vx,
                                          std::vector<double>            vy,
                                          std::vector<double>            vz,
                                          std::vector<std::array<int,3>> tris)
+    : vx_(std::move(vx)), vy_(std::move(vy)), vz_(std::move(vz))
+{
+    cells_.resize(tris.size());
+    for (size_t i = 0; i < tris.size(); ++i)
+        cells_[i] = { tris[i][0], tris[i][1], tris[i][2], -1 };
+}
+
+EngineMesh2DSource::EngineMesh2DSource(std::vector<double>            vx,
+                                         std::vector<double>            vy,
+                                         std::vector<double>            vz,
+                                         std::vector<std::array<int,4>> cells)
     : vx_(std::move(vx)), vy_(std::move(vy)), vz_(std::move(vz)),
-      tris_(std::move(tris))
+      cells_(std::move(cells))
 {}
+
+std::vector<float> EngineMesh2DSource::toEdgeSlots_(std::vector<float> a) const
+{
+    // Transitional: an all-triangle engine may still hand the runner
+    // stride-3 bulk edge arrays (swmm_2d_edge_stride() == 3). Spread them
+    // into the padded stride-4 layout the layer indexes with mesh::edgeSlot;
+    // arrays already in that layout (or of any other size) pass through
+    // untouched so the layer's size checks decide.
+    const size_t nCells = cells_.size();
+    if (mesh::kEdgeStride == 3 || a.size() != nCells * 3 || nCells == 0)
+        return a;
+    for (const auto& c : cells_)
+        if (c[3] >= 0) return a;          // quads present: stride 3 cannot be right
+    std::vector<float> out(mesh::edgeSlotCount(static_cast<int>(nCells)), 0.0f);
+    for (size_t c = 0; c < nCells; ++c)
+        for (int e = 0; e < 3; ++e)
+            out[size_t(mesh::edgeSlot(static_cast<int>(c), e))] = a[c * 3 + size_t(e)];
+    return out;
+}
 
 void EngineMesh2DSource::pushDepths(std::vector<float> depths,
                                      QDateTime simTime,
@@ -891,6 +1012,7 @@ void EngineMesh2DSource::pushDepths(std::vector<float> depths,
     t.sim_time    = simTime;
     t.elapsed_sec = elapsedSec;
     history_.emplace_back(std::move(t));
+    enforceCap_();
 }
 
 void EngineMesh2DSource::pushFlux(std::vector<float> flux,
@@ -901,6 +1023,10 @@ void EngineMesh2DSource::pushFlux(std::vector<float> flux,
     // match; otherwise (depths came earlier and a new tick has begun, or
     // depths haven't arrived yet) append a tick with empty depths so that
     // readEdgeFluxAt at this index still works.
+    if (!flux.empty()) {
+        flux = toEdgeSlots_(std::move(flux));
+        has_flux_ = true;
+    }
     if (!history_.empty() &&
         std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
     {
@@ -912,6 +1038,7 @@ void EngineMesh2DSource::pushFlux(std::vector<float> flux,
     t.sim_time    = simTime;
     t.elapsed_sec = elapsedSec;
     history_.emplace_back(std::move(t));
+    enforceCap_();
 }
 
 void EngineMesh2DSource::pushVertexSignedDepths(std::vector<double> depths,
@@ -941,15 +1068,209 @@ void EngineMesh2DSource::pushVertexSignedDepths(std::vector<double> depths,
     t.sim_time      = simTime;
     t.elapsed_sec   = elapsedSec;
     history_.emplace_back(std::move(t));
+    enforceCap_();
+}
+
+void EngineMesh2DSource::pushRainfall(std::vector<float> rainfall,
+                                       std::vector<float> rainCum,
+                                       QDateTime simTime,
+                                       double elapsedSec)
+{
+    // Same tick-pairing convention as pushFlux.
+    if (!history_.empty() &&
+        std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
+    {
+        history_.back().rainfall = std::move(rainfall);
+        history_.back().rain_cum = std::move(rainCum);
+        has_rainfall_ = true;
+        return;
+    }
+    Tick t;
+    t.rainfall    = std::move(rainfall);
+    t.rain_cum    = std::move(rainCum);
+    t.sim_time    = simTime;
+    t.elapsed_sec = elapsedSec;
+    history_.emplace_back(std::move(t));
+    has_rainfall_ = true;
+    enforceCap_();
+}
+
+void EngineMesh2DSource::pushHeads(std::vector<float> heads,
+                                    QDateTime simTime,
+                                    double elapsedSec)
+{
+    // Same tick-pairing convention as pushFlux.
+    if (!history_.empty() &&
+        std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
+    {
+        history_.back().heads = std::move(heads);
+        has_heads_ = true;
+        return;
+    }
+    Tick t;
+    t.heads       = std::move(heads);
+    t.sim_time    = simTime;
+    t.elapsed_sec = elapsedSec;
+    history_.emplace_back(std::move(t));
+    has_heads_ = true;
+    enforceCap_();
+}
+
+void EngineMesh2DSource::setEnvelopes(std::vector<float> maxDepth,
+                                       std::vector<float> maxVel)
+{
+    env_max_depth_ = std::move(maxDepth);
+    env_max_vel_   = std::move(maxVel);
+}
+
+void EngineMesh2DSource::setHistoryPinned(bool pinned)
+{
+    pinned_ = pinned;
+    if (!pinned_) enforceCap_();
+}
+
+size_t EngineMesh2DSource::historyBytes() const
+{
+    size_t n = 0;
+    for (const Tick& t : history_)
+        n += t.depths.size() + t.flux.size() + t.vertex_depths.size()
+           + t.rainfall.size() + t.rain_cum.size() + t.heads.size();
+    return n * sizeof(float);
+}
+
+void EngineMesh2DSource::enforceCap_()
+{
+    if (pinned_) return;   // an export holds frame indices; thin on unpin
+    const bool overFrames = max_frames_ >= 8
+                            && static_cast<int>(history_.size()) > max_frames_;
+    const bool overBytes  = max_bytes_ > 0 && historyBytes() > max_bytes_;
+    if (!overFrames && !overBytes) return;
+
+    // Thin the OLDER half 2:1 (keep every other frame), keep the newer half
+    // whole: recent frames stay at full cadence, the far past coarsens
+    // geometrically. Sim times travel with the frames. Repeat until under
+    // both bounds; the byte target sits at 75 % of the budget so the next
+    // ticks do not land straight back on it.
+    const size_t byteTarget = max_bytes_ - max_bytes_ / 4;
+    while (history_.size() >= 8) {
+        const size_t n = history_.size(), half = n / 2;
+        std::vector<Tick> kept;
+        kept.reserve(n - half / 2);
+        for (size_t i = 0; i < half; i += 2) kept.emplace_back(std::move(history_[i]));
+        for (size_t i = half; i < n; ++i)   kept.emplace_back(std::move(history_[i]));
+        history_ = std::move(kept);
+
+        const bool framesOk = max_frames_ < 8
+                              || static_cast<int>(history_.size()) <= max_frames_;
+        const bool bytesOk  = max_bytes_ == 0 || historyBytes() <= byteTarget;
+        if (framesOk && bytesOk) break;
+    }
+    ++generation_;
+}
+
+bool EngineMesh2DSource::readDepthAt(int timeIdx, int cell, float& out)
+{
+    if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size())) return false;
+    const auto& d = history_[static_cast<size_t>(timeIdx)].depths;
+    if (cell < 0 || cell >= static_cast<int>(d.size())) return false;
+    out = d[static_cast<size_t>(cell)];
+    return true;
+}
+
+bool EngineMesh2DSource::hasFaceField(const char* dataset) const
+{
+    if (!dataset) return false;
+    if (std::strcmp(dataset, "Mesh2_face_rainfall") == 0
+        || std::strcmp(dataset, "Mesh2_face_rain_cum") == 0)
+        return has_rainfall_;
+    if (std::strcmp(dataset, "Mesh2_face_head") == 0)
+        return has_heads_;
+    if (std::strcmp(dataset, "Mesh2_face_vx") == 0
+        || std::strcmp(dataset, "Mesh2_face_vy") == 0)
+        return has_flux_ && !edge_length_.empty();
+    return false;
+}
+
+bool EngineMesh2DSource::readFaceFieldAt(const char* dataset, int timeIdx,
+                                          std::vector<float>& values)
+{
+    if (!hasFaceField(dataset)) return false;
+    if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size())) {
+        values.assign(cells_.size(), 0.0f);
+        return false;
+    }
+    const bool wantVx = std::strcmp(dataset, "Mesh2_face_vx") == 0;
+    const bool wantVy = std::strcmp(dataset, "Mesh2_face_vy") == 0;
+    if (wantVx || wantVy) {
+        std::vector<float> vx, vy;
+        if (!reconstructVelocity_(timeIdx, vx, vy)) {
+            values.assign(cells_.size(), 0.0f);
+            return false;
+        }
+        values = wantVx ? std::move(vx) : std::move(vy);
+        return true;
+    }
+    const Tick& t = history_[timeIdx];
+    const auto& src = (std::strcmp(dataset, "Mesh2_face_rainfall") == 0) ? t.rainfall
+                    : (std::strcmp(dataset, "Mesh2_face_rain_cum") == 0) ? t.rain_cum
+                                                                          : t.heads;
+    if (src.empty()) {
+        // Tick pushed before this field's message landed — caller skips it.
+        values.assign(cells_.size(), 0.0f);
+        return false;
+    }
+    values = src;
+    return true;
+}
+
+bool EngineMesh2DSource::reconstructVelocity_(int timeIdx, std::vector<float>& vx,
+                                              std::vector<float>& vy) const
+{
+    const Tick& t = history_[static_cast<size_t>(timeIdx)];
+    const size_t nCell  = cells_.size();
+    const size_t nSlots = size_t(mesh::edgeSlotCount(static_cast<int>(nCell)));
+    if (t.flux.size() != nSlots || t.depths.size() != nCell ||
+        edge_length_.size() != nSlots)
+        return false;
+
+    // The engine's computeFaceVelocity: RT0 specific discharge from the
+    // outward-positive edge fluxes, ÷ depth for velocity, zero below the
+    // dry threshold. The API flux already carries the outward sign, so this
+    // is the physical (down-gradient) velocity the HDF5 Mesh2_face_vx/vy hold.
+    vx.assign(nCell, 0.0f);
+    vy.assign(nCell, 0.0f);
+    for (size_t c = 0; c < nCell; ++c) {
+        const double depth = t.depths[c];
+        if (depth < dry_depth_) continue;
+        double qx = 0.0, qy = 0.0;
+        if (!mesh::rt0CellDischarge(static_cast<int>(c), cellVertexCount(cells_[c]),
+                                    t.flux.data(), edge_length_.data(),
+                                    edge_nx_.data(), edge_ny_.data(), qx, qy))
+            continue;
+        vx[c] = static_cast<float>(qx / depth);
+        vy[c] = static_cast<float>(qy / depth);
+    }
+    return true;
+}
+
+bool EngineMesh2DSource::readFaceEnvelope(const char* dataset, std::vector<float>& values)
+{
+    if (!dataset) return false;
+    const std::vector<float>* src = nullptr;
+    if (std::strcmp(dataset, "Mesh2_face_max_depth") == 0)         src = &env_max_depth_;
+    else if (std::strcmp(dataset, "Mesh2_face_max_velocity") == 0) src = &env_max_vel_;
+    if (!src || src->empty()) return false;
+    values = *src;
+    return true;
 }
 
 void EngineMesh2DSource::setEdgeGeometry(std::vector<float> length,
                                           std::vector<float> nx,
                                           std::vector<float> ny)
 {
-    edge_length_ = std::move(length);
-    edge_nx_     = std::move(nx);
-    edge_ny_     = std::move(ny);
+    edge_length_ = toEdgeSlots_(std::move(length));
+    edge_nx_     = toEdgeSlots_(std::move(nx));
+    edge_ny_     = toEdgeSlots_(std::move(ny));
 }
 
 bool EngineMesh2DSource::readMeshGeometry(std::vector<double>& vx,
@@ -960,14 +1281,27 @@ bool EngineMesh2DSource::readMeshGeometry(std::vector<double>& vx,
     vx   = vx_;
     vy   = vy_;
     vz   = vz_;
-    tris = tris_;
+    std::vector<int> triCell, cellTri0;
+    buildDisplayFan(vx_, vy_, vz_, cells_, tris, triCell, cellTri0, nullptr);
+    return true;
+}
+
+bool EngineMesh2DSource::readCells(std::vector<double>& vx,
+                                    std::vector<double>& vy,
+                                    std::vector<double>& vz,
+                                    std::vector<std::array<int, 4>>& cells)
+{
+    vx    = vx_;
+    vy    = vy_;
+    vz    = vz_;
+    cells = cells_;
     return true;
 }
 
 bool EngineMesh2DSource::readDepthsAt(int timeIdx, std::vector<float>& depths)
 {
     if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size())) {
-        depths.assign(tris_.size(), 0.0f);
+        depths.assign(cells_.size(), 0.0f);
         return false;
     }
     depths = history_[timeIdx].depths;
@@ -982,7 +1316,7 @@ QDateTime EngineMesh2DSource::simTimeAt(int i) const
 
 bool EngineMesh2DSource::readEdgeFluxAt(int timeIdx, std::vector<float>& flux)
 {
-    const size_t n3 = tris_.size() * 3;
+    const size_t n3 = size_t(mesh::edgeSlotCount(static_cast<int>(cells_.size())));
     if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size())) {
         flux.assign(n3, 0.0f);
         return false;
@@ -1040,7 +1374,8 @@ bool HDF5Mesh2DSource::open(const QString& path)
 }
 
 int HDF5Mesh2DSource::vertexCount() const   { return reader_->vertexCount(); }
-int HDF5Mesh2DSource::triangleCount() const { return reader_->triangleCount(); }
+// Cells (faces), not display triangles — per-face datasets are [nTime, nFace].
+int HDF5Mesh2DSource::triangleCount() const { return reader_->cellCount(); }
 int HDF5Mesh2DSource::timeCount() const     { return reader_->timeCount(); }
 
 bool HDF5Mesh2DSource::readMeshGeometry(std::vector<double>& vx,
@@ -1048,8 +1383,27 @@ bool HDF5Mesh2DSource::readMeshGeometry(std::vector<double>& vx,
                                           std::vector<double>& vz,
                                           std::vector<std::array<int, 3>>& tris)
 {
+    // The reader's readTriangles is the DISPLAY fan (G0/G1 contract).
     if (!reader_->readMeshGeometry(vx, vy, vz)) return false;
     return reader_->readTriangles(tris);
+}
+
+bool HDF5Mesh2DSource::readCells(std::vector<double>& vx,
+                                  std::vector<double>& vy,
+                                  std::vector<double>& vz,
+                                  std::vector<std::array<int, 4>>& cells)
+{
+    if (!reader_->readMeshGeometry(vx, vy, vz)) return false;
+    return reader_->readCells(cells);
+}
+
+openswmmvis::io::CoordinateReference
+HDF5Mesh2DSource::coordinateReference() const
+{
+    openswmmvis::io::CoordinateReference ref;
+    if (reader_)
+        reader_->readCoordinateReference(ref);   // leaves ref undeclared on old files
+    return ref;
 }
 
 bool HDF5Mesh2DSource::readDepthsAt(int timeIdx, std::vector<float>& depths)
@@ -1060,6 +1414,23 @@ bool HDF5Mesh2DSource::readDepthsAt(int timeIdx, std::vector<float>& depths)
 bool HDF5Mesh2DSource::readEdgeFluxAt(int timeIdx, std::vector<float>& flux)
 {
     return reader_->readEdgeFluxAt(timeIdx, flux);
+}
+
+bool HDF5Mesh2DSource::hasFaceField(const char* dataset) const
+{
+    return reader_ && reader_->hasFaceField(dataset);
+}
+
+bool HDF5Mesh2DSource::readFaceFieldAt(const char* dataset, int timeIdx,
+                                       std::vector<float>& values)
+{
+    return reader_->readFaceFieldAt(dataset, timeIdx, values);
+}
+
+bool HDF5Mesh2DSource::readFaceEnvelope(const char* dataset,
+                                        std::vector<float>& values)
+{
+    return reader_ && reader_->readFaceEnvelope(dataset, values);
 }
 
 bool HDF5Mesh2DSource::readEdgeGeometry(std::vector<float>& length,
@@ -1156,6 +1527,15 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     if (m_smoothDepthFillSublayer) m_smoothDepthFillSublayer->setVisible(false);
     if (m_contourBandSublayer)     m_contourBandSublayer->setVisible(true);
 
+    // 2026-09-01 — the depth contour bands default to the "Water Depth" ramp
+    // (translucent near-white blue → opaque deep navy). Overridden HERE, not
+    // in the ContourBandStyle constructor, because that style bag is shared
+    // with the mesh layer's ELEVATION bands, which must keep viridis. A
+    // project-saved style loads after construction and still wins.
+    if (m_contourBandSublayer)
+        if (auto *bs = m_contourBandSublayer->bandStyle())
+            bs->setColorRampName(QStringLiteral("Water Depth"));
+
     // Phase 9 (2026-05-25) — sublayer.invalidated() routes to the existing
     // graphics-item update path. This is what makes the layer-tree
     // checkbox + sublayer style edits actually show/hide / re-render the
@@ -1194,7 +1574,11 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     wireArrowRepaint(m_velocityVectorSublayer);
 }
 
-SWMM2DResultsLayer::~SWMM2DResultsLayer() = default;
+SWMM2DResultsLayer::~SWMM2DResultsLayer()
+{
+    OGRCoordinateTransformation::DestroyCT(m_transform);
+    m_transform = nullptr;
+}
 
 QList<OpenSWMM::Render::ISublayer *> SWMM2DResultsLayer::sublayers() const
 {
@@ -1271,7 +1655,7 @@ bool SWMM2DResultsLayer::hasEdgeFluxData() const
         return false;   // not yet knowable (e.g. live source with no frames); don't cache
     std::vector<float> probe;
     const bool ok = source_->readEdgeFluxAt(0, probe) &&
-                    probe.size() == static_cast<std::size_t>(nTri) * 3;
+                    probe.size() == static_cast<std::size_t>(mesh::edgeSlotCount(nTri));
     edge_flux_probe_ = ok ? 1 : -1;
     return ok;
 }
@@ -1280,6 +1664,9 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
 {
     source_ = std::move(source);
     current_time_idx_ = -1;
+    last_range_hi_    = -1;
+    live_range_dirty_ = live_frame_dirty_ = false;
+    vertMaxSource_    = nullptr;     // envelope cache belongs to the old source
     current_depths_.clear();
     current_flux_.clear();
     have_velocity_ = false;
@@ -1294,21 +1681,22 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
     // The layer's per-frame applyCurrentFlux_() only auto-GROWS max_velocity_;
     // without this seed it starts at the default (1 m/s) and shallow-flow
     // demos (snoopy peak ≈ 0.14 mm/s) end up with sub-pixel arrows.
-    // Cheap: 480 frames × 128 cells × 3 edges + 2×2 inverse per cell.
-    if (source_ && have_edge_geom_ && !tris_.empty() && n > 0 &&
+    // Cheap: 480 frames × 128 cells × nv edges + 2×2 inverse per cell.
+    if (source_ && have_edge_geom_ && !cells_.empty() && n > 0 &&
         !max_velocity_user_set_)
     {
         constexpr float kQMax = 10.0f;
-        const int nTri = static_cast<int>(tris_.size());
+        const int nCell = static_cast<int>(cells_.size());
         float scanned_max = 0.0f;
         std::vector<float> fluxBuf;
         for (int t = 0; t < n; ++t) {
             if (!source_->readEdgeFluxAt(t, fluxBuf)) continue;
-            if (static_cast<int>(fluxBuf.size()) != nTri * 3) continue;
-            for (int i = 0; i < nTri; ++i) {
+            if (static_cast<int>(fluxBuf.size()) != mesh::edgeSlotCount(nCell)) continue;
+            for (int i = 0; i < nCell; ++i) {
                 double a00 = 0, a01 = 0, a11 = 0, b0 = 0, b1 = 0;
-                for (int e = 0; e < 3; ++e) {
-                    const int idx = i * 3 + e;
+                const int nv = cellVertexCount(cells_[size_t(i)]);
+                for (int e = 0; e < nv; ++e) {
+                    const int idx = mesh::edgeSlot(i, e);
                     const double len = edge_length_[idx];
                     if (len <= 1e-12) continue;
                     double q = fluxBuf[idx] / len;
@@ -1343,13 +1731,13 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
     // until the user happens to scrub onto that exact frame — i.e. the max
     // depth doesn't reach the max colour. Skipped when the user pinned the
     // range explicitly. Cheap: n frames × cell count, one linear pass.
-    if (source_ && n > 0 && !tris_.empty() && !max_depth_user_set_)
+    if (source_ && n > 0 && !cells_.empty() && !max_depth_user_set_)
     {
         float scanned_max_depth = 0.0f;
         std::vector<float> depthBuf;
         for (int t = 0; t < n; ++t) {
             source_->readDepthsAt(t, depthBuf);
-            if (depthBuf.size() != tris_.size()) continue;
+            if (depthBuf.size() != cells_.size()) continue;
             for (float d : depthBuf)
                 if (std::isfinite(d) && d > scanned_max_depth)
                     scanned_max_depth = d;
@@ -1377,8 +1765,8 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
 
     current_time_idx_ = t;
     source_->readDepthsAt(t, current_depths_);
-    if (current_depths_.size() != tris_.size())
-        current_depths_.assign(tris_.size(), 0.0f);
+    if (current_depths_.size() != cells_.size())
+        current_depths_.assign(cells_.size(), 0.0f);
     // Sanitize at the single choke point every consumer reads from
     // (heatmap fill, per-vertex reconstruction, ramp autogrow, Quantile/Jenks
     // samples — CPU and QSG paths alike). A transient NaN/Inf cell depth from
@@ -1398,7 +1786,8 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
     }
     // Edge flux is optional — sources without it return false and leave
     // current_flux_ untouched. applyCurrentFlux_ checks the size and bails.
-    const std::size_t nEdgeValues = tris_.size() * 3;
+    const std::size_t nEdgeValues =
+        std::size_t(mesh::edgeSlotCount(static_cast<int>(cells_.size())));
     if (!have_edge_geom_
         || edge_length_.size() != nEdgeValues
         || edge_nx_.size()     != nEdgeValues
@@ -1461,11 +1850,53 @@ void SWMM2DResultsLayer::refreshCurrentFrame()
 {
     if (!source_) return;
     if (source_->isLive() && !live_render_enabled_) return;
+    if (source_->isLive()) {
+        // Coalesce with the other refresh requests of this tick.
+        live_frame_dirty_ = true;
+        scheduleLiveSync_();
+        return;
+    }
     const int n = source_->timeCount();
     if (n == 0) return;
     const int t = std::clamp(current_time_idx_ < 0 ? 0 : current_time_idx_,
                              0, n - 1);
     loadFrame_(t);
+}
+
+void SWMM2DResultsLayer::scheduleLiveSync_()
+{
+    if (live_sync_pending_) return;
+    live_sync_pending_ = true;
+    // Zero-length timer: runs after the queued pushes already posted for this
+    // tick have been delivered, so the four handlers cost one frame load.
+    QTimer::singleShot(0, this, [this]() { liveSync_(); });
+}
+
+void SWMM2DResultsLayer::liveSync_()
+{
+    live_sync_pending_ = false;
+    const bool wantRange = live_range_dirty_, wantFrame = live_frame_dirty_;
+    live_range_dirty_ = live_frame_dirty_ = false;
+    if (!source_ || !source_->isLive() || !live_render_enabled_) return;
+
+    const int n = source_->timeCount();
+    bool loaded = false;
+    if (wantRange) {
+        const int hi = std::max(0, n - 1);
+        if (hi != last_range_hi_) {
+            last_range_hi_ = hi;
+            emit timeRangeChanged(0, hi);
+        }
+        // Follow the newest frame until the user scrubs (see refreshTimeRange).
+        if (n > 0) {
+            if (current_time_idx_ < 0) { setCurrentTimeIndex(0); loaded = true; }
+            else if (follow_live_ && current_time_idx_ < n - 1) {
+                setCurrentTimeIndex(n - 1); loaded = true;
+            }
+        }
+    }
+    if (wantFrame && !loaded && n > 0)
+        loadFrame_(std::clamp(current_time_idx_ < 0 ? 0 : current_time_idx_, 0, n - 1));
 }
 
 void SWMM2DResultsLayer::setQsgOwnsRendering(bool own)
@@ -1515,7 +1946,13 @@ QVector<QPair<QString, QString>> SWMM2DResultsLayer::extendedMetadata() const
     md.append({ tr("Live"), source_->isLive() ? tr("yes (counts grow during run)")
                                                : tr("no") });
     md.append({ tr("Vertices"),          QString::number(source_->vertexCount()) });
-    md.append({ tr("Cells (triangles)"), QString::number(source_->triangleCount()) });
+    {
+        int nQuad = 0;
+        for (const auto& c : cells_) if (c[3] >= 0) ++nQuad;
+        const int nCell = source_->triangleCount();
+        md.append({ tr("Cells"), tr("%1 (%2 triangles, %3 quads)")
+                                     .arg(nCell).arg(nCell - nQuad).arg(nQuad) });
+    }
 
     const int n = source_->timeCount();
     md.append({ tr("Time steps"), QString::number(n) });
@@ -1548,21 +1985,22 @@ void SWMM2DResultsLayer::refreshTimeRange()
     // re-enabled (setLiveRenderEnabled(true) calls refreshTimeRange to catch up).
     if (source_->isLive() && !live_render_enabled_) return;
 
-    const int n = source_->timeCount();
-    emit timeRangeChanged(0, std::max(0, n - 1));
-    if (n <= 0) return;
-
     // Live (streaming) source: seed the first frame so the map isn't blank, then
     // follow the newest frame as ticks arrive so the run animates in place. The
     // moment the user drives playback (slider / Play), follow_live_ is cleared
     // (AnimationController::driverSetStep) so their chosen frame stays put; it
-    // re-arms when they seek back to the latest frame.
+    // re-arms when they seek back to the latest frame. Coalesced: the depth
+    // and flux handlers both call this per tick, and timeRangeChanged is only
+    // emitted when the range actually grew (liveSync_).
     if (source_->isLive()) {
-        if (current_time_idx_ < 0) { setCurrentTimeIndex(0); return; }
-        if (follow_live_ && current_time_idx_ < n - 1)
-            setCurrentTimeIndex(n - 1);
+        live_range_dirty_ = true;
+        scheduleLiveSync_();
         return;
     }
+
+    const int n = source_->timeCount();
+    emit timeRangeChanged(0, std::max(0, n - 1));
+    if (n <= 0) return;
     // Non-live (e.g. a file source still being appended) keeps follow-latest.
     if (current_time_idx_ < n - 1)
         setCurrentTimeIndex(n - 1);
@@ -1575,6 +2013,11 @@ void SWMM2DResultsLayer::closeSource()
     // → H5Fclose, releasing the file so the engine can truncate / rewrite.
     source_.reset();
     current_time_idx_ = -1;
+    last_range_hi_    = -1;
+    live_range_dirty_ = live_frame_dirty_ = false;
+    vertMaxSource_    = nullptr;
+    vertMaxCache_.clear();
+    vertWetCache_.clear();
     current_depths_.clear();
     current_flux_.clear();
     // Per-tri animated state is cleared on next setSource via
@@ -1926,10 +2369,11 @@ void SWMM2DResultsLayer::setCurrentSimTimeAsOf(QDateTime cursor)
 QVector<int> SWMM2DResultsLayer::pickCellsInRect(const QRectF& sceneRect) const
 {
     QVector<int> hits;
-    if (sceneRect.isNull() || m_sceneTris.isEmpty()) return hits;
-    hits.reserve(m_sceneTris.size() / 4);
-    for (int i = 0; i < m_sceneTris.size(); ++i) {
-        if (sceneRect.contains(m_sceneTris[i].centroid))
+    if (sceneRect.isNull() || cellCentroidScene_.empty()) return hits;
+    const int nCell = static_cast<int>(cellCentroidScene_.size());
+    hits.reserve(nCell / 4);
+    for (int i = 0; i < nCell; ++i) {
+        if (sceneRect.contains(cellCentroidScene_[size_t(i)]))
             hits.push_back(i);
     }
     return hits;
@@ -1938,10 +2382,11 @@ QVector<int> SWMM2DResultsLayer::pickCellsInRect(const QRectF& sceneRect) const
 QVector<int> SWMM2DResultsLayer::pickCellsInPolygon(const QPolygonF& scenePoly) const
 {
     QVector<int> hits;
-    if (scenePoly.size() < 3 || m_sceneTris.isEmpty()) return hits;
-    hits.reserve(m_sceneTris.size() / 4);
-    for (int i = 0; i < m_sceneTris.size(); ++i) {
-        if (scenePoly.containsPoint(m_sceneTris[i].centroid, Qt::OddEvenFill))
+    if (scenePoly.size() < 3 || cellCentroidScene_.empty()) return hits;
+    const int nCell = static_cast<int>(cellCentroidScene_.size());
+    hits.reserve(nCell / 4);
+    for (int i = 0; i < nCell; ++i) {
+        if (scenePoly.containsPoint(cellCentroidScene_[size_t(i)], Qt::OddEvenFill))
             hits.push_back(i);
     }
     return hits;
@@ -1976,6 +2421,13 @@ inline bool pointInTriangle(const QPointF& p,
 
 int SWMM2DResultsLayer::pickCellAt(const QPointF& scenePt) const
 {
+    const int tri = pickDisplayTriAt_(scenePt);
+    if (tri < 0 || tri >= static_cast<int>(triCell_.size())) return -1;
+    return triCell_[size_t(tri)];
+}
+
+int SWMM2DResultsLayer::pickDisplayTriAt_(const QPointF& scenePt) const
+{
     // Fast path: the spatial grid narrows the search to the one cell containing
     // the point — O(candidates) instead of an O(n) scan over all cells. The
     // containing triangle is guaranteed to be registered in that cell.
@@ -2001,22 +2453,40 @@ int SWMM2DResultsLayer::pickCellAt(const QPointF& scenePt) const
 
 float SWMM2DResultsLayer::depthAtSceneNow(const QPointF& scenePt) const
 {
-    const int idx = pickCellAt(scenePt);
+    const int idx = pickDisplayTriAt_(scenePt);
     if (idx < 0 || idx >= m_sceneTris.size()) return 0.0f;
-    return m_sceneTris[idx].depth;
+    return m_sceneTris[idx].depth;   // sub-triangle carries its CELL's depth
 }
 
 float SWMM2DResultsLayer::depthAtSceneInterp(const QPointF& scenePt) const
 {
-    return depthAtCellInterp(pickCellAt(scenePt), scenePt);
+    return depthAtDisplayTriInterp_(pickDisplayTriAt_(scenePt), scenePt);
 }
 
-float SWMM2DResultsLayer::depthAtCellInterp(int idx, const QPointF& scenePt) const
+float SWMM2DResultsLayer::depthAtCellInterp(int cell, const QPointF& scenePt) const
 {
-    // Interpolate depth at a point whose containing cell is already known
+    // Interpolate depth at a point whose containing CELL is already known
     // (e.g. the cached Sample::triIdx during animation), skipping the cell
-    // search entirely. Bounds-checks idx so a stale cached index can't crash —
-    // worst case it returns 0 until the profile rebuilds.
+    // search entirely. Bounds-checks so a stale cached index can't crash —
+    // worst case it returns 0 until the profile rebuilds. For a quad, pick
+    // the sub-triangle that contains the point (barycentric per sub-triangle,
+    // never bilinear); fall back to the first when the point sits on the
+    // boundary within rounding.
+    if (cell < 0 || cell + 1 >= static_cast<int>(cellTri0_.size()))
+        return 0.0f;
+    const int t0 = cellTri0_[size_t(cell)], t1 = cellTri0_[size_t(cell) + 1];
+    if (t0 >= t1) return 0.0f;
+    int idx = t0;
+    for (int t = t0; t < t1; ++t) {
+        if (t >= m_sceneTris.size()) break;
+        const auto& st = m_sceneTris[t];
+        if (pointInTriangle(scenePt, st.a, st.b, st.c)) { idx = t; break; }
+    }
+    return depthAtDisplayTriInterp_(idx, scenePt);
+}
+
+float SWMM2DResultsLayer::depthAtDisplayTriInterp_(int idx, const QPointF& scenePt) const
+{
     if (idx < 0 || idx >= m_sceneTris.size() ||
         idx >= static_cast<int>(tris_.size()))
         return 0.0f;
@@ -2045,11 +2515,17 @@ float SWMM2DResultsLayer::depthAtCellInterp(int idx, const QPointF& scenePt) con
     return float(d);
 }
 
-bool SWMM2DResultsLayer::cellHasSurface(int idx) const
+bool SWMM2DResultsLayer::cellHasSurface(int cell) const
 {
-    if (idx < 0 || idx >= m_sceneTris.size()) return false;
-    const auto& t = m_sceneTris[idx];
-    return t.dv0 != 0.0f || t.dv1 != 0.0f || t.dv2 != 0.0f;
+    // Any corner of any sub-triangle of the CELL (a quad's two share its four
+    // vertices, so this is "any of the cell's corners").
+    if (cell < 0 || cell + 1 >= static_cast<int>(cellTri0_.size())) return false;
+    const int t0 = cellTri0_[size_t(cell)], t1 = cellTri0_[size_t(cell) + 1];
+    for (int t = t0; t < t1 && t < m_sceneTris.size(); ++t) {
+        const auto& st = m_sceneTris[t];
+        if (st.dv0 != 0.0f || st.dv1 != 0.0f || st.dv2 != 0.0f) return true;
+    }
+    return false;
 }
 
 bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
@@ -2057,15 +2533,16 @@ bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
 {
     outVx = outVy = 0.0f;
     if (vvx_.empty() || vvy_.empty()) return false;
-    const int idx = pickCellAt(scenePt);
+    const int idx = pickDisplayTriAt_(scenePt);
     if (idx < 0 || idx >= m_sceneTris.size() ||
         idx >= static_cast<int>(tris_.size()))
         return false;
     // A cell the solver marks dry this frame carries no flow, even if its
     // vertices borrowed a velocity from a still-wet neighbour. Gate on the
     // cell's own mean depth so arrows never appear in a dry cell.
-    if (idx < static_cast<int>(current_depths_.size()) &&
-        current_depths_[idx] < float(dry_depth_))
+    const int cell = triCell_[size_t(idx)];
+    if (cell >= 0 && cell < static_cast<int>(current_depths_.size()) &&
+        current_depths_[size_t(cell)] < float(dry_depth_))
         return false;
 
     const auto& t   = m_sceneTris[idx];
@@ -2112,10 +2589,11 @@ QVector<float> SWMM2DResultsLayer::maxDepthPerVertex() const
     QVector<float> out;
     if (!source_) return out;
     const int nVert = source_->vertexCount();
-    const int nTri  = static_cast<int>(tris_.size());
+    const int nCell = static_cast<int>(cells_.size());
     const int nT    = source_->timeCount();
-    if (nVert <= 0 || nTri <= 0 || nT <= 0) return out;
-    if (static_cast<int>(cellZc_.size()) != nTri) return out;
+    if (nVert <= 0 || nCell <= 0 || nT <= 0) return out;
+    if (static_cast<int>(cellZc_.size()) != nCell ||
+        static_cast<int>(cellSplit_.size()) != nCell) return out;
 
     const float dryF = float(dry_depth_);
 
@@ -2126,33 +2604,47 @@ QVector<float> SWMM2DResultsLayer::maxDepthPerVertex() const
     // drift). NB: at interior sample points the interpolated envelope can sit
     // slightly above the interpolated animation (interp-of-max ≥ max-of-interp);
     // the two coincide exactly at mesh vertices, which is where consistency is
-    // observable. (Run once on profile build / time-range change, not per tick.)
-    std::vector<float>   vsum, wsum, frameDepth;   // scratch reused across frames
-    std::vector<float>   vertMax(size_t(nVert), 0.0f);
-    std::vector<uint8_t> vertWet(size_t(nVert), 0);
-    std::vector<float>   buf;
-    for (int t = 0; t < nT; ++t) {
+    // observable.
+    //
+    // Incremental: on a live source this is called on every time-range change
+    // (each tick), and re-reading all T frames made the profile dialog O(T²)
+    // over a run. Frames already folded into the cache are skipped; the newest
+    // frame is always re-folded because its depths can still be arriving
+    // (flux-first ticks). Thinning (historyGeneration) or a new source resets.
+    const int gen = source_->historyGeneration();
+    if (vertMaxSource_ != source_.get() || vertMaxGeneration_ != gen ||
+        static_cast<int>(vertMaxCache_.size()) != nVert) {
+        vertMaxCache_.assign(size_t(nVert), 0.0f);
+        vertWetCache_.assign(size_t(nVert), 0);
+        vertMaxFramesDone_ = 0;
+        vertMaxSource_     = source_.get();
+        vertMaxGeneration_ = gen;
+    }
+    std::vector<float> vsum, wsum, frameDepth;   // scratch reused across frames
+    std::vector<float> buf;
+    for (int t = std::min(vertMaxFramesDone_, nT); t < nT; ++t) {
         if (!source_->readDepthsAt(t, buf)) continue;
-        reconstructVertexSignedDepths(tris_, buf, cellZc_, vz_, dryF,
+        reconstructVertexSignedDepths(cellSplit_, buf, cellZc_, vz_, dryF,
                                       vsum, wsum, frameDepth);
         for (int v = 0; v < nVert; ++v) {
             if (wsum[v] <= 0.0f) continue;             // dry this frame
-            if (!vertWet[v] || frameDepth[v] > vertMax[v]) {
-                vertMax[v] = frameDepth[v];            // already signed (η_v − z_v)
-                vertWet[v] = 1;
+            if (!vertWetCache_[v] || frameDepth[v] > vertMaxCache_[v]) {
+                vertMaxCache_[v] = frameDepth[v];      // already signed (η_v − z_v)
+                vertWetCache_[v] = 1;
             }
         }
     }
+    vertMaxFramesDone_ = std::max(0, nT - 1);         // newest frame re-folds next call
     out = QVector<float>(nVert, 0.0f);
     for (int v = 0; v < nVert; ++v)
-        if (vertWet[v]) out[v] = vertMax[v];
+        if (vertWetCache_[v]) out[v] = vertMaxCache_[v];
     return out;
 }
 
 float SWMM2DResultsLayer::maxDepthAtSceneInterp(const QPointF& scenePt,
                                                 const QVector<float>& vertMax) const
 {
-    const int idx = pickCellAt(scenePt);
+    const int idx = pickDisplayTriAt_(scenePt);
     if (idx < 0 || idx >= m_sceneTris.size() || idx >= static_cast<int>(tris_.size()))
         return 0.0f;
     const auto& t   = m_sceneTris[idx];
@@ -2212,6 +2704,11 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     m_triGrid.clear();   // drop the stale index; every early-return path below
                          // leaves an empty grid so pickCellAt falls back safely.
     cellZc_.clear();
+    tris_.clear();
+    triCell_.clear();
+    cellTri0_.clear();
+    cellSplit_.clear();
+    cellCentroidScene_.clear();
     eta_vsum_.clear();
     eta_wsum_.clear();
     vdepth_.clear();
@@ -2228,10 +2725,12 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
 
     if (!source_) return;
 
-    if (!source_->readMeshGeometry(vx_, vy_, vz_, tris_)) {
+    // Cells first (per-face values live on them); the display fan is derived
+    // below once the vertex ids are validated.
+    if (!source_->readCells(vx_, vy_, vz_, cells_)) {
         return;
     }
-    if (tris_.empty()) return;
+    if (cells_.empty()) return;
     if (vx_.empty() || vy_.size() != vx_.size() || vz_.size() != vx_.size()) {
         qWarning("[2D-render] invalid mesh geometry vector sizes "
                  "(x=%llu y=%llu z=%llu)",
@@ -2241,38 +2740,83 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         vx_.clear();
         vy_.clear();
         vz_.clear();
-        tris_.clear();
+        cells_.clear();
         return;
     }
 
-    // Scene-space points: identity transform + Y-flip (scene grows downward,
-    // matching the mesh layer's convention). CRS transforms come later via
-    // onCanvasCRSChanged when the layer SRS framework is wired.
     const int nVerts = static_cast<int>(vx_.size());
-    const int normalizedStartIndex = normalizeOneBasedConnectivity(tris_, nVerts);
+    const int normalizedStartIndex = normalizeOneBasedConnectivity(cells_, nVerts);
     if (normalizedStartIndex != 0) {
-        qWarning("[2D-render] normalized 1-based 2D triangle connectivity "
+        qWarning("[2D-render] normalized 1-based 2D cell connectivity "
                  "to zero-based vertex ids");
     }
+
+    // Scene-space points, in three steps (issue #155):
+    //
+    //   1. metres → model-CRS linear unit. Every 2D source hands us SI metres
+    //      because the solver runs in SI; the model CRS may be foot-based
+    //      (EPSG:2249 & friends), in which case skipping this shrinks the
+    //      results ~0.3048x toward the CRS origin while the .2dm-backed
+    //      SWMM2DMeshLayer — which never leaves model units — sits correctly.
+    //   2. model CRS → canvas CRS, batched through OGR exactly as
+    //      SWMM2DMeshLayer::rebuildSceneGeometry does. m_transform is null
+    //      when the two match, which CRSReproject treats as a pass-through.
+    //   3. Y-flip, because the scene grows downward.
+    //
+    // Non-finite vertices are excluded from both bounds and pinned to (0,0),
+    // but still occupy a slot so triangle indices stay valid.
+    const double invScale = resolveCoordinateScale_();
 
     QVector<QPointF> scenePts;
     scenePts.reserve(nVerts);
     std::vector<char> validVerts(static_cast<size_t>(nVerts), 1);
+    // Scene-space bounds (canvas CRS, Y-flipped) → m_sceneBBox.
     double minX = std::numeric_limits<double>::max();
     double maxX = std::numeric_limits<double>::lowest();
     double minY = std::numeric_limits<double>::max();
     double maxY = std::numeric_limits<double>::lowest();
+    // Layer-CRS bounds (model units, NOT flipped) → setExtent. MapCanvas
+    // reprojects layer->extent() into the canvas CRS itself
+    // (MapCanvas::layerExtentInCanvasCRS), so handing it scene coordinates
+    // would transform them a second time — SWMM2DMeshLayer likewise keeps its
+    // extent in model coordinates.
+    double lMinX = std::numeric_limits<double>::max();
+    double lMaxX = std::numeric_limits<double>::lowest();
+    double lMinY = std::numeric_limits<double>::max();
+    double lMaxY = std::numeric_limits<double>::lowest();
     int badVerts = 0;
     bool haveValidVertex = false;
+
+    std::vector<double> bx(static_cast<size_t>(nVerts));
+    std::vector<double> by(static_cast<size_t>(nVerts));
     for (int i = 0; i < nVerts; ++i) {
-        double sx = vx_[i];
-        double sy = -vy_[i];
         if (!std::isfinite(vx_[i]) || !std::isfinite(vy_[i])
             || !std::isfinite(vz_[i])) {
             validVerts[size_t(i)] = 0;
-            sx = sy = 0.0;
             ++badVerts;
+            // Reprojecting garbage can throw OGR errors, so feed the transform
+            // a benign in-domain point; the slot is discarded below anyway.
+            bx[size_t(i)] = 0.0;
+            by[size_t(i)] = 0.0;
+            continue;
         }
+        const double mx = vx_[i] * invScale;
+        const double my = vy_[i] * invScale;
+        bx[size_t(i)] = mx;
+        by[size_t(i)] = my;
+        if (mx < lMinX) lMinX = mx;
+        if (mx > lMaxX) lMaxX = mx;
+        if (my < lMinY) lMinY = my;
+        if (my > lMaxY) lMaxY = my;
+    }
+    CRSReproject::transformPointsInPlace(m_transform, bx.data(), by.data(),
+                                         nVerts);
+
+    for (int i = 0; i < nVerts; ++i) {
+        double sx = bx[size_t(i)];
+        double sy = -by[size_t(i)];
+        if (!validVerts[size_t(i)])
+            sx = sy = 0.0;
         scenePts.append(QPointF(sx, sy));
         if (!validVerts[size_t(i)]) continue;
         haveValidVertex = true;
@@ -2287,7 +2831,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         vx_.clear();
         vy_.clear();
         vz_.clear();
-        tris_.clear();
+        cells_.clear();
         return;
     }
     if (badVerts > 0) {
@@ -2295,11 +2839,29 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
                  badVerts);
     }
     m_sceneBBox = QRectF(QPointF(minX, minY), QPointF(maxX, maxY));
-    setExtent(MapExtent(minX, -maxY, maxX, -minY));  // un-flip Y for layer extent
+    setExtent(MapExtent(lMinX, lMinY, lMaxX, lMaxY));  // layer CRS, not scene
     // QSG-2D-1M — shared-vertex cache for the renderer. If any source
     // vertex was non-finite, leave this empty so indexed fill/unique-marker
     // paths fall back to the validated per-triangle buffers below.
     m_sceneVerts = (badVerts == 0) ? scenePts : QVector<QPointF>();
+
+    // Invalidate cells that touch a non-finite vertex before the split so
+    // cellGeom never orders NaN elevations; their fan slots become {-1,-1,-1}.
+    {
+        for (auto& cell : cells_) {
+            const int nv = cellVertexCount(cell);
+            bool ok = cellIndicesInRange(cell, nVerts);
+            for (int k = 0; ok && k < nv; ++k)
+                if (!validVerts[size_t(cell[k])]) ok = false;
+            if (!ok) cell[0] = cell[1] = cell[2] = -1;   // v3 kept: slot count preserved
+        }
+    }
+
+    // Display fan (one sub-triangle per triangle cell, two per quad on the
+    // engine's VFR diagonal) + fan→cell / cell→fan maps + the per-cell split
+    // the vertex reconstruction consumes. Mixed meshes render, hit-test and
+    // contour on this fan; every per-face value is looked up through triCell_.
+    buildDisplayFan(vx_, vy_, vz_, cells_, tris_, triCell_, cellTri0_, &cellSplit_);
 
     m_sceneTris.resize(static_cast<int>(tris_.size()));
     int badTris = 0;
@@ -2309,11 +2871,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         st.vx = st.vy = st.vmag = 0.0f;
 
         const auto& tri = tris_[i];
-        const bool indicesOk = triIndicesInRange(tri, nVerts)
-            && validVerts[size_t(tri[0])]
-            && validVerts[size_t(tri[1])]
-            && validVerts[size_t(tri[2])];
-        if (!indicesOk) {
+        if (!triIndicesInRange(tri, nVerts)) {
             tris_[i] = {-1, -1, -1};
             st.a = st.b = st.c = st.centroid = QPointF();
             ++badTris;
@@ -2336,6 +2894,25 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     if (badTris > 0) {
         qWarning("[2D-render] collapsed %d invalid 2D mesh triangle(s); "
                  "depth contours will skip them", badTris);
+    }
+
+    // Per-CELL scene centroid (area centroid of the fan — for a triangle the
+    // vertex mean, for a quad the area-weighted mean of its two sub-triangles)
+    // for the rect/lasso picks, which answer in cell indices.
+    cellCentroidScene_.assign(cells_.size(), QPointF());
+    for (size_t c = 0; c < cells_.size(); ++c) {
+        const int t0 = cellTri0_[c], t1 = cellTri0_[c + 1];
+        double sx = 0.0, sy = 0.0, sa = 0.0;
+        for (int t = t0; t < t1; ++t) {
+            const SceneTri& st = m_sceneTris[t];
+            if (!triIndicesInRange(tris_[size_t(t)], nVerts)) continue;
+            const double a = std::abs(twiceSignedArea(st.a, st.b, st.c));
+            sx += a * st.centroid.x();
+            sy += a * st.centroid.y();
+            sa += a;
+        }
+        if (t1 - t0 == 1)      cellCentroidScene_[c] = m_sceneTris[t0].centroid;
+        else if (sa > 0.0)     cellCentroidScene_[c] = QPointF(sx / sa, sy / sa);
     }
 
     // Issue 3 — deduplicated wireframe edge set (each undirected edge stored
@@ -2361,10 +2938,12 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
             e.slope = (dist > 1e-9) ? float(dz / dist) : 0.0f;
             m_sceneEdges.append(e);
         };
-        for (const auto& tri : tris_) {
-            pushEdge(tri[0], tri[1]);
-            pushEdge(tri[1], tri[2]);
-            pushEdge(tri[2], tri[0]);
+        // Walk the CELL boundary (true quad outline — the VFR diagonal is a
+        // storage-model artefact, not a mesh edge, so it is never stroked).
+        for (const auto& cell : cells_) {
+            const int nv = cellVertexCount(cell);
+            for (int k = 0; k < nv; ++k)
+                pushEdge(cell[k], cell[(k + 1) % nv]);
         }
     }
 
@@ -2387,19 +2966,23 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     }
     m_triGrid.rebuild(triBBoxes);
 
-    // Per-cell centroid bed elevation = (z0+z1+z2)/3 (the engine's tri_cz). The
-    // engine's free surface is η = z_centroid + h, so this is the only per-cell
-    // geometry the per-frame reconstruction needs. Stored as float parallel to
-    // tris_; the per-frame eta_* scratch is sized here too so
+    // Per-cell mean bed elevation = mean of the cell's vertex z (the engine's
+    // tri_cz for a triangle; cellGeom's zMean). The engine's flat-closure free
+    // surface is η = z_mean + h — the fallback the per-frame reconstruction
+    // uses when a cell's vertex elevations are unusable. Stored as float
+    // parallel to cells_; the per-frame eta_* scratch is sized here too so
     // applyCurrentDepths_ never allocates.
-    cellZc_.resize(m_sceneTris.size());
-    for (int i = 0; i < m_sceneTris.size(); ++i) {
-        const auto& tri = tris_[i];
-        if (!triIndicesInRange(tri, nVerts)) {
+    cellZc_.resize(cells_.size());
+    for (size_t i = 0; i < cells_.size(); ++i) {
+        const auto& cell = cells_[i];
+        if (!cellIndicesInRange(cell, nVerts)) {
             cellZc_[i] = 0.0f;
             continue;
         }
-        const double zc = (vz_[tri[0]] + vz_[tri[1]] + vz_[tri[2]]) / 3.0;
+        const int nv = cellVertexCount(cell);
+        double zc = 0.0;
+        for (int k = 0; k < nv; ++k) zc += vz_[size_t(cell[k])];
+        zc /= double(nv);
         cellZc_[i] = std::isfinite(zc) ? float(zc) : 0.0f;
     }
     eta_vsum_.assign(nVerts, 0.0f);
@@ -2426,14 +3009,18 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
 
 void SWMM2DResultsLayer::applyCurrentDepths_()
 {
-    if (current_depths_.size() != tris_.size()) return;
-    const int nTri = static_cast<int>(tris_.size());
+    if (current_depths_.size() != cells_.size()) return;
+    const int nTri  = static_cast<int>(tris_.size());
+    const int nCell = static_cast<int>(cells_.size());
+    if (static_cast<int>(triCell_.size()) != nTri || m_sceneTris.size() != nTri) return;
     for (int i = 0; i < nTri; ++i) {
-        m_sceneTris[i].depth = current_depths_[i];
+        // Each display sub-triangle carries its CELL's mean depth.
+        m_sceneTris[i].depth = current_depths_[size_t(triCell_[size_t(i)])];
     }
 
     const int nVert = static_cast<int>(vx_.size());
-    if (static_cast<int>(cellZc_.size()) != nTri) return;   // geometry not built yet
+    if (static_cast<int>(cellZc_.size()) != nCell ||
+        static_cast<int>(cellSplit_.size()) != nCell) return;   // geometry not built yet
 
     // Prefer the engine/HDF5 reconstructed vertex field when available.
     // Live packets arrive after the cell-depth packet for the same elapsed
@@ -2470,10 +3057,13 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
         // and the max-depth envelope share fallback arithmetic. The eta_vsum_/
         // eta_wsum_ members are reused as scratch so this hot path never
         // allocates.
-        reconstructVertexSignedDepths(tris_, current_depths_, cellZc_, vz_,
+        reconstructVertexSignedDepths(cellSplit_, current_depths_, cellZc_, vz_,
                                       float(dry_depth_), eta_vsum_, eta_wsum_,
                                       vdepth_);
     }
+    // Per display sub-triangle from here on: a quad's two sub-triangles each
+    // take their corners from the shared vertex field and run the pooling
+    // extrapolation on their own planar bed (the VFR storage model).
     const int nVz = static_cast<int>(vz_.size());
     for (int i = 0; i < nTri; ++i) {
         const auto& tri = tris_[i];
@@ -2502,9 +3092,14 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
 void SWMM2DResultsLayer::applyCurrentFlux_()
 {
     have_velocity_ = false;
-    if (!have_edge_geom_ || tris_.empty() ||
-        current_flux_.size() != tris_.size() * 3 ||
-        edge_length_.size() != tris_.size() * 3) {
+    const int nCell = static_cast<int>(cells_.size());
+    const int nTri  = static_cast<int>(tris_.size());
+    const std::size_t nSlots = std::size_t(mesh::edgeSlotCount(nCell));
+    if (!have_edge_geom_ || cells_.empty() ||
+        current_flux_.size() != nSlots ||
+        edge_length_.size() != nSlots ||
+        static_cast<int>(current_depths_.size()) != nCell ||
+        static_cast<int>(triCell_.size()) != nTri) {
         // No flux data this tick — wipe per-tri velocities so an old frame
         // doesn't ghost when the user scrubs into a flux-less region.
         for (auto& st : m_sceneTris) {
@@ -2515,65 +3110,37 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
         return;
     }
 
-    // RT0 cell-centred velocity reconstruction. For each triangle with three
-    // outward unit normals n_e and signed normal speeds q_e = flux_e/length_e,
-    // solve the 3×2 least-squares system N · v ≈ q in closed form via the
-    // normal equations: (NᵀN) v = Nᵀ q, with NᵀN a 2×2 SPD matrix.
-    constexpr float kQMax  = 10.0f;       // clamp |q_e| against wet/dry-front spikes (m/s)
+    // RT0 cell-centred reconstruction (mesh::rt0CellDischarge — the same
+    // per-cell solve the live export uses). The cell's vector is written to
+    // each of its display sub-triangles.
     const double    dryEps = dry_depth_;
 
     float running_max = 0.0f;
-    const int nTri = static_cast<int>(tris_.size());
-    for (int t = 0; t < nTri; ++t) {
-        SceneTri& st = m_sceneTris[t];
+    std::vector<float> cellVx(size_t(nCell), 0.0f), cellVy(size_t(nCell), 0.0f),
+                       cellVm(size_t(nCell), 0.0f);
+    for (int c = 0; c < nCell; ++c) {
+        const float depth = current_depths_[size_t(c)];
+        if (depth < dryEps) continue;
 
-        if (st.depth < dryEps) {
-            st.vx = st.vy = st.vmag = 0.0f;
+        double vx_model = 0.0, vy_model = 0.0;
+        if (!mesh::rt0CellDischarge(c, cellVertexCount(cells_[size_t(c)]),
+                                    current_flux_.data(), edge_length_.data(),
+                                    edge_nx_.data(), edge_ny_.data(),
+                                    vx_model, vy_model))
             continue;
-        }
-
-        double a00 = 0.0, a01 = 0.0, a11 = 0.0;  // NᵀN entries
-        double b0  = 0.0, b1  = 0.0;             // Nᵀ q entries
-        for (int e = 0; e < 3; ++e) {
-            const int idx = t * 3 + e;
-            const double nx = edge_nx_[idx];
-            const double ny = edge_ny_[idx];
-            const double len = edge_length_[idx];
-            if (len <= 1e-12) continue;
-            double q = current_flux_[idx] / len;
-            // Clamp against wet/dry-front spikes (flux can blow up when
-            // length-integrated edge flux divides by a near-zero length).
-            // NaN passes both clamp comparisons and would poison the normal
-            // equations → NaN vx/vy → the glyph pass extrudes garbage
-            // geometry (screen-crossing spike triangles). Skip the edge.
-            if (!std::isfinite(q)) continue;
-            if (q >  kQMax) q =  kQMax;
-            if (q < -kQMax) q = -kQMax;
-            a00 += nx * nx;
-            a01 += nx * ny;
-            a11 += ny * ny;
-            b0  += nx * q;
-            b1  += ny * q;
-        }
-        const double det = a00 * a11 - a01 * a01;
-        // NaN-robust degeneracy gate: `abs(NaN) < eps` is false, so the
-        // inverted form is required to zero the cell instead of emitting
-        // NaN velocities.
-        if (!(std::abs(det) >= 1e-12)) {
-            st.vx = st.vy = st.vmag = 0.0f;
-            continue;
-        }
-        const double inv_det = 1.0 / det;
-        const double vx_model = ( a11 * b0 - a01 * b1) * inv_det;
-        const double vy_model = (-a01 * b0 + a00 * b1) * inv_det;
 
         // Scene-space velocity: vy is flipped so the arrow points the right
         // way after the rebuildSceneGeometry_() Y-flip on vertex coords.
-        st.vx   = static_cast<float>(vx_model);
-        st.vy   = static_cast<float>(-vy_model);
-        st.vmag = static_cast<float>(std::sqrt(vx_model * vx_model +
-                                                vy_model * vy_model));
-        if (st.vmag > running_max) running_max = st.vmag;
+        cellVx[size_t(c)] = static_cast<float>(vx_model);
+        cellVy[size_t(c)] = static_cast<float>(-vy_model);
+        cellVm[size_t(c)] = static_cast<float>(std::sqrt(vx_model * vx_model +
+                                                          vy_model * vy_model));
+        if (cellVm[size_t(c)] > running_max) running_max = cellVm[size_t(c)];
+    }
+    for (int t = 0; t < nTri; ++t) {
+        SceneTri& st = m_sceneTris[t];
+        const size_t c = size_t(triCell_[size_t(t)]);
+        st.vx = cellVx[c]; st.vy = cellVy[c]; st.vmag = cellVm[c];
     }
 
     have_velocity_ = (running_max > 0.0f);
@@ -2594,16 +3161,20 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
     vvy_.assign(static_cast<size_t>(nVert), 0.0f);
     if (have_velocity_) {
         std::vector<float> wsum(static_cast<size_t>(nVert), 0.0f);
-        for (int t = 0; t < nTri; ++t) {
-            const SceneTri& st = m_sceneTris[t];
-            if (st.depth < dryEps || st.vmag <= 0.0f) continue;
-            const float wgt = st.depth;               // depth weight
-            const auto& tri = tris_[t];
-            for (int k = 0; k < 3; ++k) {
-                const int vi = tri[k];
+        for (int c = 0; c < nCell; ++c) {
+            const float depth = current_depths_[size_t(c)];
+            if (depth < dryEps || cellVm[size_t(c)] <= 0.0f) continue;
+            const auto& cell = cells_[size_t(c)];
+            const int nv = cellVertexCount(cell);
+            // Depth weight × 3/nv: the plan's 1/nv-per-incident-cell rule,
+            // normalised so all-triangle meshes are unchanged (a quad's four
+            // corners each get 3/4 of a triangle's vote).
+            const float wgt = (nv == 3) ? depth : depth * 0.75f;
+            for (int k = 0; k < nv; ++k) {
+                const int vi = cell[k];
                 if (vi < 0 || vi >= nVert) continue;
-                vvx_[vi] += st.vx * wgt;
-                vvy_[vi] += st.vy * wgt;
+                vvx_[vi] += cellVx[size_t(c)] * wgt;
+                vvy_[vi] += cellVy[size_t(c)] * wgt;
                 wsum[vi] += wgt;
             }
         }
@@ -2677,12 +3248,86 @@ void SWMM2DResultsLayer::refreshScene(QGraphicsScene* scene,
     if (arrows_item_) arrows_item_->geometryChanged();
 }
 
-void SWMM2DResultsLayer::onCanvasCRSChanged(
-        const SpatialReferenceSystem* /*newCanvasSRS*/)
+void SWMM2DResultsLayer::setFallbackCoordinateScale(double metresPerModelUnit)
 {
-    // Reprojection seam — mirror SWMM2DMeshLayer's transform path when the
-    // layer gains an explicit SRS. For the MVP demo case (no reprojection)
-    // the identity transform set up in rebuildSceneGeometry_() is sufficient.
+    if (!(metresPerModelUnit > 0.0) || !std::isfinite(metresPerModelUnit))
+        return;
+    if (qFuzzyCompare(m_fallbackMetresPerModelUnit, metresPerModelUnit))
+        return;
+
+    m_fallbackMetresPerModelUnit = metresPerModelUnit;
+    m_warnedUndeclaredCrs = false;   // a new fallback deserves a fresh notice
+
+    if (source_) {
+        rebuildSceneGeometry_();
+        applyCurrentDepths_();
+        applyCurrentFlux_();
+        if (graphics_item_) graphics_item_->geometryChanged();
+        if (arrows_item_)   arrows_item_->geometryChanged();
+        emit repaintRequested();
+    }
+}
+
+double SWMM2DResultsLayer::resolveCoordinateScale_() const
+{
+    // Divisor that takes the source's SI metres back to the model CRS's own
+    // linear unit, so the OGR transform is fed coordinates in the unit its
+    // source CRS actually declares. Issue #155.
+    if (source_) {
+        const auto ref = source_->coordinateReference();
+        if (ref.declared && ref.metresPerModelUnit > 0.0
+            && std::isfinite(ref.metresPerModelUnit)) {
+            // Engine 6.0+ states the exact factor it applied, so this inverts
+            // the conversion precisely — including the engine's international
+            // foot, which is ~2 ppm off a US-survey-foot CRS's own unit.
+            return 1.0 / ref.metresPerModelUnit;
+        }
+    }
+
+    // Undeclared source: a pre-6.0 .2d.h5, or the live in-process engine
+    // source, which has no metadata channel. The caller supplies the factor
+    // via setFallbackCoordinateScale() because the authority is the engine's
+    // own rule (FLOW_UNITS, suppressed by a `;; UNITS: SI (m)` mesh header) —
+    // NOT the layer CRS's linear unit, which disagrees with the engine on
+    // exactly the models where the mesh and CRS units differ.
+    //
+    // The default of 1.0 is deliberate: unset, this leaves the coordinates
+    // untouched, which is what the layer did before #155 and keeps it in
+    // agreement with SWMM2DMeshLayer rather than inventing a new offset.
+    if (m_fallbackMetresPerModelUnit > 0.0
+        && !qFuzzyCompare(m_fallbackMetresPerModelUnit, 1.0)
+        && !m_warnedUndeclaredCrs) {
+        m_warnedUndeclaredCrs = true;
+        qWarning("[2D-render] %s: 2D result source declares no /crs variable; "
+                 "assuming engine SI metres and dividing by %.10f m per model "
+                 "unit. Re-run with OpenSWMM Engine 6.0+ for an exact, "
+                 "self-describing factor.",
+                 qUtf8Printable(name()),
+                 m_fallbackMetresPerModelUnit);
+    }
+    return 1.0 / m_fallbackMetresPerModelUnit;
+}
+
+void SWMM2DResultsLayer::onCanvasCRSChanged(
+        const SpatialReferenceSystem* newCanvasSRS)
+{
+    // Same transform path as SWMM2DMeshLayer::onCanvasCRSChanged — without it
+    // the results sat in model coordinates on a reprojected canvas while the
+    // mesh layer moved, separating terrain from inundation. Issue #155.
+    OGRCoordinateTransformation::DestroyCT(m_transform);
+    m_transform = nullptr;
+
+    if (srs() && newCanvasSRS
+        && srs()->ogrSpatialReference()
+        && newCanvasSRS->ogrSpatialReference()
+        && !srs()->ogrSpatialReference()->IsSame(
+                newCanvasSRS->ogrSpatialReference()))
+    {
+        m_transform = OGRCreateCoordinateTransformation(
+            srs()->ogrSpatialReference(),
+            newCanvasSRS->ogrSpatialReference());
+    }
+
     rebuildSceneGeometry_();
     applyCurrentDepths_();
     applyCurrentFlux_();
@@ -2709,6 +3354,21 @@ SWMM2DResultsLayer::sublayerLegendItems() const
     // 2026-06-21 — the depth color ramp legend section was removed along with
     // the depth-ramp sublayer. Contour bands (below) now carry the depth
     // legend rows.
+
+    // Direct-mesh depth fills (flat per-cell / Gouraud per-vertex) — each
+    // contributes a header + its ramp rows when visible. The sublayers stamp
+    // their own sublayerId, so legend right-click → Edit Style routes to the
+    // matching panel tab.
+    const auto appendFillSection = [&out, this](const OpenSWMM::Render::ISublayer *sub) {
+        if (!sub || !sub->isVisible()) return;
+        LegendSymbolItem header;
+        header.label = sub->displayName();
+        header.sublayerId = sub->id();
+        out.append(header);
+        out.append(sub->legendSymbolItems());
+    };
+    appendFillSection(m_cellDepthFillSublayer);
+    appendFillSection(m_smoothDepthFillSublayer);
 
     // Filled contour bands — the depth fill (default on). Single header row
     // + N band rows.
@@ -3075,8 +3735,9 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
         });
 
     // ── Mesh nodes (MeshNodeSpec wraps MarkerSpec) ──────────────────────
-    // Slice AN.4 — extended to write highlightTagged / taggedColor /
-    // taggedSizePx from the MeshNodeSymbolStyleAdapter's prop keys.
+    // The Slice AN.4 tagged-vertex prop back-prop is gone: tagged styling
+    // moved to CoupledNodeStyle (mesh layer's coupled-node sublayer), and
+    // the results renderer never honoured it anyway.
     QObject::connect(ruleHandles[5], &Rule::rendererReplaced, self,
         [self, ruleHandles, firstLayer]() {
             const SymbolLayer *layer = firstLayer(ruleHandles[5]);
@@ -3091,17 +3752,6 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
                 int shapeIdx = static_cast<int>(spec.marker.shape);
                 if (shapeIdx < 0 || shapeIdx > 3) shapeIdx = 0;
                 st->setShape(static_cast<MeshNodeStyle::MarkerShape>(shapeIdx));
-                const auto &p = layer->props;
-                if (p.contains(QStringLiteral("highlightTagged")))
-                    st->setHighlightTagged(
-                        p.value(QStringLiteral("highlightTagged")).toBool());
-                if (p.contains(QStringLiteral("taggedColor"))) {
-                    const QColor c = p.value(QStringLiteral("taggedColor")).value<QColor>();
-                    if (c.isValid()) st->setTaggedColor(c);
-                }
-                if (p.contains(QStringLiteral("taggedSizePx")))
-                    st->setTaggedSizePx(
-                        p.value(QStringLiteral("taggedSizePx")).toDouble());
             }
         });
 

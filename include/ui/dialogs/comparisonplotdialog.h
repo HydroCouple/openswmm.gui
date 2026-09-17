@@ -37,7 +37,7 @@ class QLabel;
 class QChart;
 class QLineSeries;
 class QScatterSeries;
-class QDateTimeAxis;
+namespace openswmmvis::plot { class UtcTimeAxis; }
 class QValueAxis;
 class QSplitter;
 class QTreeWidget;
@@ -88,6 +88,13 @@ public:
                   const openswmmvis::plot::ObjectRef& ref,
                   openswmmvis::plot::PlotAttribute attr);
 
+    /*! \brief Y2b-2 (amendment D-Y4): descriptor-shaped overload — a
+     *  fixed attribute or a species BY NAME. The enum overload above
+     *  forwards here. */
+    int addSeries(int runIndex,
+                  const openswmmvis::plot::ObjectRef& ref,
+                  const openswmmvis::plot::ResultDescriptor& descriptor);
+
     /*! \brief CF.3 — add per-cell series for the supplied attribute list.
      *  Returns the count of series successfully added. */
     int addCellSeries(int runIndex,
@@ -114,6 +121,12 @@ private slots:
     void onRowsChanged();
     void onAnimationTimeChanged(QDateTime t);
 
+    /*! Live results: append the points a growing run source gained since
+     *  the last build/append to every affected series, extending axes
+     *  outward only. Keeps every chart widget alive (no rebuildCharts).
+     *  Falls back to rebuildCharts() when the row layout changed. */
+    void appendChartTails();
+
     void onAddSeriesClicked();
     void onLoadObservedClicked();
     void onRemoveSelectedClicked();
@@ -128,6 +141,7 @@ private slots:
     void onModeActionTriggered();
     void onFitClicked();
     void onExportPngClicked();
+    void onExportDataClicked();
     void onAnimationCursorToggled(bool checked);
     void onAddSystemSeriesClicked();
 
@@ -161,6 +175,10 @@ private:
     void equaliseChartSplitterSizes();
     /*! \brief Hook up X-axis rangeChanged on a row's xAxis to mirror across rows. */
     void wireXAxisSync(int rowIndex);
+    /*! \brief Prompt for a CSV / SWMM .dat path and write the given series
+     *  (model indices). Shared by the toolbar Export Data action, the chart
+     *  row context menu, and the series-tree context menu. */
+    void exportSeriesData(const QVector<int>& seriesIndices);
 
     std::unique_ptr<openswmmvis::plot::ComparisonPlotModel> m_model;
 
@@ -188,6 +206,7 @@ private:
     QAction      *m_actZoomOut      = nullptr;
     QAction      *m_actFit          = nullptr;
     QAction      *m_actExport       = nullptr;
+    QAction      *m_actExportData   = nullptr;
     QAction      *m_actAnimCursor   = nullptr;
     QAction      *m_actAddSystem    = nullptr;
     QAction      *m_actAddFromMap   = nullptr;
@@ -214,10 +233,11 @@ private:
         // Column 0 — time series.
         InteractiveChartView *view       = nullptr;
         QChart               *chart      = nullptr;
-        QDateTimeAxis        *xAxis      = nullptr;
+        openswmmvis::plot::UtcTimeAxis        *xAxis      = nullptr;
         QValueAxis           *yAxis      = nullptr;
         QLineSeries          *cursorLine = nullptr;
         QVector<QLineSeries*> series;     ///< Parallel to model row's seriesIndices.
+        QVector<int>          consumed;   ///< Parallel to series: periods already plotted (live tail cursor).
 
         // Column 1 — 1v1 scatter (visible only when ≥2 runs produce
         // baseline↔comparison pairs). InteractiveChartView so toolbar

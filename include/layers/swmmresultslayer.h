@@ -11,6 +11,7 @@
 #define SWMMRESULTSLAYER_H
 
 #include "layers/openswmmvislayer.h"
+#include "layers/speciesattributes.h"
 #include "layers/gisrasterlayer.h"   // RasterColorRamp
 #include "layers/swmmmodellayer.h"
 
@@ -76,7 +77,7 @@ enum class SWMMResultVariable
 /*!
  * \class SWMMResultsLayer
  * \brief Overlays time-stepped simulation results on the SWMM network geometry.
- * \details Reads output from an OpenSWMMCore binary results file (.out), maps
+ * \details Reads output from an OpenSWMMEngine binary results file (.out), maps
  *          a selected variable at the current simulation time step to a colour
  *          ramp, and paints the network elements with those colours.
  *
@@ -237,6 +238,31 @@ public:
      */
     void openResultsAsync();
 
+    /*!
+     * \brief Open a results file the engine is still writing (live tail).
+     *
+     * Uses swmm_output_open_live: only the header needs to be on disk; the
+     * period count comes from the file size and grows via \ref refreshLive.
+     * Returns false WITHOUT emitting resultsError when the header is not
+     * there yet — the caller retries on the next progress tick. Zero
+     * periods is a valid live state (totalTimeSteps() == 0 until the first
+     * report step is flushed).
+     */
+    bool openResultsLive(QList<QString> &errors);
+
+    /*!
+     * \brief Re-count periods on a live file. Grows totalTimeSteps(), extends
+     *        endDateTime(), drops whole-file aggregate caches, and emits
+     *        totalTimeStepsChanged + \ref periodsAppended when new periods
+     *        appeared. When the writer's closing records have landed the
+     *        layer leaves live mode and emits \ref resultsFinalized.
+     * \returns the current period count (unchanged when not live).
+     */
+    int refreshLive();
+
+    /*! \brief True between openResultsLive() and the footer's arrival. */
+    [[nodiscard]] bool isLive() const noexcept { return m_live; }
+
     void closeResults();
 
     // ----- Per-output node summary statistics (Slice QA.3 + QA-01) -------
@@ -259,10 +285,72 @@ public:
     // implementation resolves it to the output-side index via the
     // already-built nodeOutputIndex() map. Returns 0.0 for unknown
     // names or when the underlying file is closed.
+    //
+    // Each aggregator is one O(n_periods) walk of the .out file, so all
+    // four are memoised per node index (see m_nodeStats / nodeStatsFor,
+    // cleared by closeResults()) — same reason and same shape as the
+    // link / subcatchment caches below.
     [[nodiscard]] double nodeStatMaxDepth(const QString &nodeName) const;
     [[nodiscard]] double nodeStatMaxOverflow(const QString &nodeName) const;
     [[nodiscard]] double nodeStatVolFlooded(const QString &nodeName) const;
     [[nodiscard]] double nodeStatTimeFlooded(const QString &nodeName) const;
+
+    // ----- Per-output link / subcatchment summary statistics -------------
+    //
+    // Peers of the four node accessors above, for the dynamics columns the
+    // Attribute Table shows for links and subcatchments. Unlike the node
+    // stats there is no `swmm_output_get_*_stat_*` engine API for these, so
+    // they are aggregated HERE by walking the .out file's per-period series
+    // once per object. The result is cached per output index (see
+    // m_linkStats / m_subcatchStats, cleared by closeResults()), as are the
+    // node stats above.
+    //
+    // PRECISION CAVEAT — identical in kind to the QA-01 node aggregators:
+    // the walk sees REPORT steps, not routing steps. Maxima are therefore
+    // the largest REPORTED value (a peak between two report times is
+    // missed), and the volume / duration integrals use the report step as
+    // dt. Expect small disagreement with the .rpt summary tables when
+    // REPORT_STEP is much coarser than ROUTING_STEP; they converge as the
+    // two approach each other.
+    //
+    // Units match the editing-engine getters they stand in for: flow and
+    // velocity in project flow / velocity units, filling dimensionless,
+    // volumes in project volume units, durations in hours. Volume is the
+    // one that needs work — the .out file stores a RATE in the file's own
+    // flow units, so the integral goes through Qcf/Ucf (see the .cpp).
+    //
+    // The three pump statistics reconstruct too, from a combination that is
+    // not obvious: the engine's on/off test is `setting > 0 && flow > 0`, and
+    // the .out file carries BOTH — flow directly, and `setting` as the
+    // CAPACITY variable, which for every non-conduit link is the pump speed /
+    // regulator opening rather than a fill ratio (legacy link.c). See the
+    // extra accuracy note on linkStatPumpCycles.
+    [[nodiscard]] double linkStatMaxFlow(const QString &linkName) const;
+    [[nodiscard]] double linkStatMaxVelocity(const QString &linkName) const;
+    [[nodiscard]] double linkStatMaxFilling(const QString &linkName) const;
+    [[nodiscard]] double linkStatVolFlow(const QString &linkName) const;
+    [[nodiscard]] double linkStatSurchargeTime(const QString &linkName) const;
+
+    /*! Pump start-up count.
+     *
+     *  ACCURACY: this is the statistic the report-step caveat hurts most, and
+     *  it is a LOWER BOUND rather than an approximation with a small error
+     *  bar. A pump that switches off and back on entirely between two report
+     *  times leaves no trace in the .out file, so that cycle is invisible.
+     *  Validated at REPORT_STEP 60 s / ROUTING_STEP 0.5 s: four of five pumps
+     *  counted exactly, the fifth read 2 against the report's 3. On-time and
+     *  volume pumped degrade gracefully over the same run (within 0.3 % and
+     *  0.04 %) because a brief outage barely moves an integral. */
+    [[nodiscard]] double linkStatPumpCycles(const QString &linkName) const;
+    /*! Pump on-time in HOURS — the Attribute Table column's unit. Note the
+     *  editing-engine getter it stands in for reports SECONDS; the model's
+     *  engine path wraps that in a conversion, and this path bypasses it. */
+    [[nodiscard]] double linkStatPumpOnTime(const QString &linkName) const;
+    [[nodiscard]] double linkStatPumpVolume(const QString &linkName) const;
+
+    [[nodiscard]] double subcatchStatPrecip(const QString &subName) const;
+    [[nodiscard]] double subcatchStatRunoffVol(const QString &subName) const;
+    [[nodiscard]] double subcatchStatMaxRunoff(const QString &subName) const;
 
     // ----- Animation ------------------------------------------------------
 
@@ -438,6 +526,14 @@ public:
     [[nodiscard]] QVector<OpenSWMM::Render::AttributeField>
         availableAttributes(OpenSWMMVis::SwmmCategory cat) const override;
 
+    /*! \brief Y2a — the loaded run's species names, in `.out` order
+     *         (pollutants plus the reserved age/temperature columns).
+     *  \details Empty when no results are open or the run carries no
+     *           quality. Read live from the reader rather than cached: the
+     *           handle is reopened on reload and a stale list would
+     *           repoint every species theme by a slot. */
+    [[nodiscard]] QStringList speciesNames() const;
+
     // ----- Legend ---------------------------------------------------------
 
     [[nodiscard]] bool showLegend() const;
@@ -578,6 +674,12 @@ signals:
     void currentTimeStepChanged(int step);
     void currentDateTimeChanged(const QDateTime &dt);
     void totalTimeStepsChanged(int count);
+    /*! Live tail: periods [firstNew, firstNew+count) are now readable. Views
+     *  that keep incremental state (plot tails) append from here; the
+     *  animation range follows totalTimeStepsChanged as before. */
+    void periodsAppended(int firstNew, int count);
+    /*! Live tail: the writer's closing records arrived; the file is final. */
+    void resultsFinalized();
     void variableChanged(SWMMResultVariable var);
     void showLegendChanged(bool show);
     void resultsOpened();
@@ -601,6 +703,10 @@ public:
                       const SpatialReferenceSystem *canvasSRS) override;
 
 private:
+    /*! Y2b-3 (D-G1 warn-on-miss): one warning per unresolvable species
+     *  token per run — reset in finishOpen when a new .out arrives. */
+    OpenSWMMVis::Species::SpeciesMissWarner m_speciesMissWarner;
+
     /*! \brief Shared post-open adoption used by both openResults() (sync) and
      *         openResultsAsync(): reads the header, builds id maps, installs
      *         eager renderers, pre-fetches period 0, and emits. \p msOpen is
@@ -666,6 +772,7 @@ private:
     // Animation state -----------------------------------------------------
     int                  m_currentStep    = 0;
     int                  m_totalSteps     = 0;
+    bool                 m_live           = false;   ///< openResultsLive() until the footer lands
     QDateTime            m_startDateTime;
     QDateTime            m_endDateTime;
     // 2026-07-19 — period 0's report time; see reportedStartDateTime().
@@ -783,6 +890,44 @@ private:
     QHash<QString, int>  m_nodeOutputIdx;
     QHash<QString, int>  m_linkOutputIdx;
     QHash<QString, int>  m_subcatchOutputIdx;
+
+    // Aggregated per-object summary statistics, keyed by OUTPUT index and
+    // filled lazily by linkStatsFor() / subcatchStatsFor(). Each miss costs
+    // one series read per contributing variable over the whole run, so the
+    // cache is what keeps an Attribute Table scroll from re-walking the
+    // .out file for every painted cell. Mutable so the const accessors can
+    // populate it; cleared by closeResults().
+    struct LinkStats {
+        double maxFlow = 0.0, maxVelocity = 0.0, maxFilling = 0.0;
+        double volFlow = 0.0, surchargeTimeHr = 0.0;
+        // Pumps only; left at zero for every other link type.
+        double pumpCycles = 0.0, pumpOnTimeHr = 0.0, pumpVolume = 0.0;
+    };
+    struct SubcatchStats {
+        double precipVol = 0.0, runoffVol = 0.0, maxRunoff = 0.0;
+    };
+    // Nodes get the same treatment. Their four values come from engine
+    // aggregators rather than being computed here, but each of those is
+    // still one O(n_periods) walk of the .out file — a seek plus a 4-byte
+    // read per period — so uncached they cost four whole-file walks per
+    // painted row, per repaint.
+    struct NodeStats {
+        double maxDepth = 0.0, maxOverflow = 0.0;
+        double volFlooded = 0.0;
+        //! HOURS. The engine aggregator returns seconds; converted on the
+        //! way in so every consumer of NodeStats sees the column's unit.
+        double timeFloodedHr = 0.0;
+    };
+    mutable QHash<int, LinkStats>     m_linkStats;
+    mutable QHash<int, SubcatchStats> m_subcatchStats;
+    mutable QHash<int, NodeStats>     m_nodeStats;
+
+    /*! Aggregate (and cache) the summary statistics for one output-side
+     *  link / subcatchment / node index. Returns a zeroed struct when the
+     *  file is closed or the index is out of range. */
+    [[nodiscard]] LinkStats     linkStatsFor(int outIdx) const;
+    [[nodiscard]] SubcatchStats subcatchStatsFor(int outIdx) const;
+    [[nodiscard]] NodeStats     nodeStatsFor(int outIdx) const;
 
     // GDAL coordinate transform -------------------------------------------
     class OGRCoordinateTransformation *m_transform = nullptr;

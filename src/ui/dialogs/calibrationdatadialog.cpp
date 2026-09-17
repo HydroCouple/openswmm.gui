@@ -95,7 +95,7 @@ void CalibrationDataDialog::onBrowseClicked()
     if (r < 0) return;
     const QString path = QFileDialog::getOpenFileName(this,
         tr("Observed time-series file"), QString(),
-        tr("CSV / TSV / DAT (*.csv *.tsv *.dat);;All files (*)"));
+        tr("CSV / TSV / TSF / DAT (*.csv *.tsv *.tsf *.dat);;All files (*)"));
     if (path.isEmpty()) return;
     if (!m_table->item(r, 3)) m_table->setItem(r, 3, new QTableWidgetItem());
     m_table->item(r, 3)->setText(path);

@@ -15,12 +15,15 @@
 
 #include <QDate>
 #include <QDateTime>
+#include <QItemSelectionModel>
 #include <QString>
 #include <QStringList>
+#include <QTableWidget>
 #include <QTime>
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 int SimulationOptionsDialog::parseEngineBool(const QString &s)
 {
@@ -35,12 +38,25 @@ int SimulationOptionsDialog::parseEngineBool(const QString &s)
 void SimulationOptionsDialog::fastPresetValues(int &out_threads,
                                                double &out_min_step_sec)
 {
-    // Conservative fast recipe (see FAST_RUN_RECIPE.md): all 8 P-cores + a 1.0 s
-    // step floor so the 2D coupling can't collapse the 1D adaptive step.
-    // ~2.6x on the Bellinge 1D/2D benchmark with BETTER mass balance than the
-    // as-shipped run (+2.8% vs -3.4% flow-routing continuity at 24h).
-    out_threads      = 8;
+    // Conservative fast recipe (see FAST_RUN_RECIPE.md): every PERFORMANCE
+    // core + a 1.0 s step floor so the 2D coupling can't collapse the 1D
+    // adaptive step. ~2.6x on the Bellinge 1D/2D benchmark (8 P-cores) with
+    // BETTER mass balance than the as-shipped run (+2.8% vs -3.4%
+    // flow-routing continuity at 24h). Efficiency cores are excluded on
+    // purpose: the barrier-synchronised solvers run at E-core speed when one
+    // joins the team (THREAD_LIMITS_AND_OVERSUBSCRIPTION_PLAN §5.1).
+    out_threads = fastPresetThreads();
     out_min_step_sec = 1.0;
+}
+
+int SimulationOptionsDialog::fastPresetThreads()
+{
+    SWMM_ThreadInfo ti{};
+    if (swmm_get_thread_info(&ti) == SWMM_OK) {
+        if (ti.perf_cores   > 0) return ti.perf_cores;
+        if (ti.logical_cpus > 0) return ti.logical_cpus;
+    }
+    return 8;   // benchmark machine fallback when the hardware query fails
 }
 
 QString SimulationOptionsDialog::engineBoolString(bool on)
@@ -147,4 +163,31 @@ bool SimulationOptionsDialog::optionValueEquals(const QString &a,
     // parsing; the relative tolerance only absorbs last-digit rounding.
     const double scale = std::max({1.0, std::abs(da), std::abs(db)});
     return std::abs(da - db) <= 1e-9 * scale;
+}
+
+QList<int> SimulationOptionsDialog::selectedRowsDescending(
+    const QTableWidget *table)
+{
+    QList<int> rows;
+    if (!table) return rows;
+
+    // The selection model sees row selections even when the cells hold only
+    // setCellWidget() editors and no QTableWidgetItems (the [EVENTS] table).
+    if (const auto *sel = table->selectionModel()) {
+        const auto idxs = sel->selectedRows();
+        rows.reserve(idxs.size());
+        for (const auto &idx : idxs)
+            rows.append(idx.row());
+    }
+
+    // Fallback for plain cell selections that don't span a full row.
+    if (rows.isEmpty()) {
+        const auto items = table->selectedItems();
+        for (const auto *it : items)
+            if (!rows.contains(it->row()))
+                rows.append(it->row());
+    }
+
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    return rows;
 }

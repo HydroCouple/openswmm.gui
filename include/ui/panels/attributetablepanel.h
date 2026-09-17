@@ -32,6 +32,7 @@ class QLineEdit;
 class QPushButton;
 class QRadioButton;
 class QSortFilterProxyModel;
+class QStyledItemDelegate;
 class QTableView;
 class QToolBar;
 class SWMMAttributeTableModel;
@@ -42,6 +43,7 @@ class GISVectorAttributeTableModel;   // read-only OGR-feature source (defined i
 class MapCanvas;
 class MeshAttributeTableModel;        // 2D mesh vertices / edges / cells source
 class SWMM2DMeshLayer;
+class SWMMResultsLayer;
 
 namespace openswmmvis { struct ColumnSpec; }
 
@@ -61,6 +63,21 @@ public:
     /*! Rebuild the category combo + reload the table model.  Called
      *  on `modelLoaded`. */
     void refresh();
+
+    /*! Point the post-run "dynamics" columns at a loaded 1D output.
+     *
+     *  Wired by SWMMVis to the project window's ACTIVE results layer — the
+     *  run chosen in the Analysis toolbar's "Results (1D)" combo — so the
+     *  table's right-hand statistics block always describes the run the
+     *  rest of the GUI is showing. Pass nullptr to fall back to the editing
+     *  engine (which has no statistics; see
+     *  SWMMAttributeTableModel::setResultsSource). */
+    void setResultsSource(SWMMResultsLayer *layer);
+
+    /*! Re-query the header strip without touching the data or the user's
+     *  selection. Used when a render-time label changes (LINK_OFFSETS mode
+     *  flips the offset columns to "… Elevation"). */
+    void refreshHeaders();
 
     /*! Switch the source combo to \p layer's entry (a GIS feature layer
      *  or tabular layer). Model / results layers keep the current SWMM
@@ -94,6 +111,18 @@ public:
      *  delete path is unit-testable without a modal, mirroring
      *  `selectionAsTsv()`. */
     int deleteObjects(const QStringList &names);
+
+    /*! True when the active source is an editable FeatureLayer in an open
+     *  edit session AND there is an undo stack to push onto. Gates cell
+     *  editing and the Delete path for feature layers; every other vector
+     *  source (shapefile, WFS, …) stays read-only. */
+    [[nodiscard]] bool featureSourceIsEditable() const;
+
+    /*! Delete the selected rows' features (undoable). Dialog-free, like
+     *  \ref deleteObjects, so the path is testable without a modal.
+     *  Returns the number deleted; 0 when the source is not an editable
+     *  feature layer. */
+    int deleteSelectedFeatures();
 
     /*! True when the bound category maps to a deletable object kind
      *  (junction/outfall/storage/divider/conduit/pump/orifice/weir/outlet/
@@ -196,10 +225,19 @@ private:
     void installColumnDelegates(const QList<openswmmvis::ColumnSpec> &specs,
                                 int clearUpTo);
 
+    /*! Delegates currently installed on the view — the outgoing set is
+     *  deleted (not just detached) on the next install, closing the
+     *  one-leaked-delegate-per-column-per-refresh hole (perf plan B2). */
+    QList<QStyledItemDelegate *> m_installedDelegates;
+
     /*! Bind the table to a mesh layer's vertices / edges / cells.
      *  `key` is the combo's `"mesh:<layerId>:<v|e|c>"` payload; a key that no
      *  longer resolves to a loaded layer clears the source. */
     void bindMeshSource(const QString &key);
+    /*! Point the GIS model at \p gis, give it the canvas (which is what makes
+     *  an editable FeatureLayer writable), and hook the layer's change signals
+     *  so a write from anywhere reloads the table. */
+    void bindGisSource(GISVectorLayer *gis);
 
     /*! True when the mesh table is the active source — the SWMM-only paths
      *  (delete, change type, object refs) all sit behind this. */
@@ -214,6 +252,12 @@ private:
      *  selection back into the rows, for the mesh source. */
     void meshSelectionToBus();
     void meshSelectionFromBus(const QSet<SWMMObjectRef> &current);
+
+    /*! SVBC round B — the same pair for the GIS feature-layer source,
+     *  keyed by FID through GisObjectRef ("gis::<layerId>#f<fid>"). */
+    [[nodiscard]] bool gisSourceActive() const;
+    void gisSelectionToBus();
+    void gisSelectionFromBus(const QSet<SWMMObjectRef> &current);
 
     /*! Slice Z.3 — collect the SWMMObjectRefs of all source rows
      *  whose identify map satisfies the current query predicate.

@@ -111,6 +111,14 @@ public:
     void setWindowMs(qint64 ms);
     void setWindowSec(double sec) { setWindowMs(static_cast<qint64>(sec * 1000.0)); }
 
+    // ----- Looping (toolbar "Cycle" checkbox) ----------------------------
+
+    /*! When on (the default), playback wraps to the start of the range on
+     *  reaching the end instead of pausing. Composes with the primary's
+     *  TemporalSpec: spec loop/pingPong still apply when this is off. */
+    void setLooping(bool on) { m_loop = on; }
+    [[nodiscard]] bool looping() const { return m_loop; }
+
 public slots:
     void play();
     void pause();
@@ -157,6 +165,11 @@ private:
     [[nodiscard]] int    driverCurrentStep() const;
     // Advance whichever driver is active to \p step.
     void driverSetStep(int step);
+    /*! \brief True while the active driver is still streaming frames from a
+     *  running simulation (1D live tail, or a live 2D mesh source). Used by
+     *  \ref onTimerTick to wait at the newest frame instead of pausing when
+     *  playback catches up to the writer with Cycle off. */
+    [[nodiscard]] bool   driverIsLive() const;
 
     /*! Slice Z.13-controller-range — effective [min, max] step range
      *  considering the primary's TemporalSpec.startTime/endTime. Falls
@@ -171,6 +184,7 @@ private:
     QPointer<SWMM2DResultsLayer>      m_fallback2D;
     QTimer *m_timer    = nullptr;
     bool    m_playing  = false;
+    bool    m_loop     = true;   ///< toolbar Cycle checkbox (default on)
     double  m_speed    = 1.0;
     qint64  m_windowMs = 0;   ///< look-back sync window (0 = floor with no band)
 

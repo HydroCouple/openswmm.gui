@@ -76,7 +76,10 @@ private slots:
         QCOMPARE(TypeConversionFlow::nodeTypeLabel(
                      TypeConversionFlow::kVirtualNodeType),
                  QStringLiteral("Virtual Junction"));
-        QVERIFY(TypeConversionFlow::nodeTypeLabel(5).isEmpty());
+        QCOMPARE(TypeConversionFlow::nodeTypeLabel(
+                     TypeConversionFlow::kInletNodeType),
+                 QStringLiteral("Inlet Junction"));
+        QVERIFY(TypeConversionFlow::nodeTypeLabel(6).isEmpty());
     }
 
     void linkLabels()
@@ -236,6 +239,13 @@ bool SWMMModelLayer::applyNodeConvert(const QString&, int, QStringList*,
 bool SWMMModelLayer::applyLinkConvert(const QString&, int, QStringList*,
                                       QStringList*, QString*) { return false; }
 bool SWMMModelLayer::applySetVirtual(const QString&, bool, QString*) { return false; }
+// Inlet-junction promotion / demotion + the usage row run() and
+// runToInletJunction() touch. Same never-called link-time stubs.
+bool SWMMModelLayer::applySetInlet(const QString&, bool, QString*) { return false; }
+bool SWMMModelLayer::applySetInletUsage(const SWMM_InletUsage&, QString*) { return false; }
+// run() reads the engine handle to probe the inlet flag before deciding how
+// to demote; nullptr short-circuits that probe.
+SWMM_Engine SWMMModelLayer::engine() const { return nullptr; }
 
 QTEST_MAIN(TestTypeConversionFlow)
 #include "test_typeconversionflow.moc"

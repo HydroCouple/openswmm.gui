@@ -12,7 +12,10 @@
 #include "ui/dialogs/simulationoptionsdialog.h"
 
 #include <QDateTime>
+#include <QDateTimeEdit>
+#include <QItemSelectionModel>
 #include <QObject>
+#include <QTableWidget>
 #include <QTest>
 
 class TestSimulationOptionsDialog : public QObject
@@ -41,6 +44,13 @@ private slots:
     // writeIfChanged — formatting drift must not read as an edit.
     void optionValueEqualsNumericForms();
     void optionValueEqualsNonNumeric();
+
+    // [EVENTS] table row-selection query behind the Remove button. The table
+    // populates cells exclusively with setCellWidget() editors — NO
+    // QTableWidgetItems — so this must read the selection model, not
+    // selectedItems() (the bug that left Remove permanently disabled).
+    void selectedRowsDescendingWidgetOnlyTable();
+    void selectedRowsDescendingItemFallback();
 };
 
 void TestSimulationOptionsDialog::parseEngineBoolKnownValues()
@@ -81,13 +91,19 @@ void TestSimulationOptionsDialog::engineBoolStringRoundTrip()
 void TestSimulationOptionsDialog::fastPresetHasBalancedRecipe()
 {
     // Locks the benchmarked "conservative fast" recipe (FAST_RUN_RECIPE.md) so a
-    // future edit can't silently drift it. THREADS=8 uses the M-series P-cores;
+    // future edit can't silently drift it. THREADS = the machine's performance
+    // cores (the benchmark's 8 M-series P-cores), else its logical CPUs;
     // MINIMUM_STEP=1.0 s floors the 1D step the 2D coupling would collapse, while
     // keeping mass balance as good as or better than the as-shipped default.
     int    threads = -1;
     double minStep = -1.0;
     SimulationOptionsDialog::fastPresetValues(threads, minStep);
-    QCOMPARE(threads, 8);
+    SWMM_ThreadInfo ti{};
+    QCOMPARE(swmm_get_thread_info(&ti), int(SWMM_OK));
+    const int expected = ti.perf_cores > 0 ? ti.perf_cores
+                       : ti.logical_cpus > 0 ? ti.logical_cpus : 8;
+    QCOMPARE(threads, expected);
+    QVERIFY(threads >= 1);
     QCOMPARE(minStep, 1.0);
     // Must sit inside the per-project spin range [0.01, 60.0] s.
     QVERIFY(minStep >= 0.01 && minStep <= 60.0);
@@ -261,6 +277,58 @@ void TestSimulationOptionsDialog::optionValueEqualsNonNumeric()
     // empty engine value followed by a numeric write is a real edit.
     QVERIFY(!eq(QString(),               QStringLiteral("0")));
     QVERIFY(!eq(QStringLiteral("AUTO"),  QStringLiteral("0")));
+}
+
+void TestSimulationOptionsDialog::selectedRowsDescendingWidgetOnlyTable()
+{
+    // Mirror the [EVENTS] table exactly: row selection, cell WIDGETS only,
+    // no QTableWidgetItem anywhere.
+    QTableWidget table(3, 2);
+    table.setSelectionBehavior(QAbstractItemView::SelectRows);
+    table.setSelectionMode(QAbstractItemView::ExtendedSelection);
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 2; ++c)
+            table.setCellWidget(r, c, new QDateTimeEdit(&table));
+
+    // No selection → empty (Remove stays disabled).
+    QVERIFY(SimulationOptionsDialog::selectedRowsDescending(&table).isEmpty());
+
+    // Single row selected → that row, even though selectedItems() is empty.
+    table.selectRow(1);
+    QVERIFY(table.selectedItems().isEmpty());  // the premise of the old bug
+    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table),
+             (QList<int>{1}));
+
+    // Multi-row selection → distinct rows, DESCENDING (removeRow-safe).
+    auto *sel = table.selectionModel();
+    sel->clearSelection();
+    sel->select(table.model()->index(0, 0),
+                QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    sel->select(table.model()->index(2, 0),
+                QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table),
+             (QList<int>{2, 0}));
+
+    // Null table → empty, no crash.
+    QVERIFY(SimulationOptionsDialog::selectedRowsDescending(nullptr).isEmpty());
+}
+
+void TestSimulationOptionsDialog::selectedRowsDescendingItemFallback()
+{
+    // A table with real items and plain cell selection (no full-row spans):
+    // selectedRows() reports nothing, the selectedItems() fallback kicks in.
+    QTableWidget table(3, 2);
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 2; ++c)
+            table.setItem(r, c, new QTableWidgetItem(QStringLiteral("x")));
+
+    auto *sel = table.selectionModel();
+    sel->select(table.model()->index(1, 0), QItemSelectionModel::Select);
+    sel->select(table.model()->index(0, 1), QItemSelectionModel::Select);
+
+    QVERIFY(sel->selectedRows().isEmpty());   // no full row selected
+    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table),
+             (QList<int>{1, 0}));
 }
 
 QTEST_MAIN(TestSimulationOptionsDialog)

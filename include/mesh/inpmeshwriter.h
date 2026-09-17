@@ -5,10 +5,11 @@
  * \license GPL-3.0-or-later
  *
  * Slice AU — emit `[2D_VERTICES]` / `[2D_TRIANGLES]` /
- * `[2D_VERTEX_NODE_MAP]` / `[2D_TRIANGLE_NODE_MAP]` sections from a
- * MeshResult + a CouplingMap, and patch them into a SWMM `.inp` file
- * (replacing existing sections in place). Format follows
- * `openswmm.engine/docs/2dModelStrategy.md` §1.4–1.7.
+ * `[2D_VERTEX_NODE_MAP]` / `[2D_TRIANGLE_NODE_MAP]` (plus the GG0a
+ * `[2D_INFILTRATION*]` family) sections from a MeshResult + a CouplingMap,
+ * and patch them into a SWMM `.inp` file (replacing existing sections in
+ * place). Format follows `openswmm.engine/docs/2dModelStrategy.md` §1.4–1.7
+ * and, for infiltration, the engine's `InpWriter.cpp emit2DInfilSections()`.
  */
 #ifndef OPENSWMMVIS_MESH_INPMESHWRITER_H
 #define OPENSWMMVIS_MESH_INPMESHWRITER_H
@@ -84,12 +85,23 @@ public:
         UnitInfo();
     };
 
-    /*! \brief Render the four 2D sections as a single text block.
+    /*! \brief Render the 2D mesh sections as a single text block.
      *
-     *  Order: `[2D_VERTICES]`, `[2D_TRIANGLES]`, `[2D_VERTEX_NODE_MAP]`,
-     *  `[2D_TRIANGLE_NODE_MAP]`. Each section starts with a `;;`-prefixed
+     *  Order: `[2D_VERTICES]`, `[2D_TRIANGLES]` (triangle cells),
+     *  `[2D_QUADS]` (`V1 V2 V3 V4 MANNINGS_N [INIT_DEPTH] [TAG]`, quad cells
+     *  — emitted ONLY when the mesh holds a quad, so all-triangle output is
+     *  byte-identical to the pre-quad writer), `[2D_VERTEX_NODE_MAP]`,
+     *  `[2D_TRIANGLE_NODE_MAP]`, then the GG0a infiltration family
+     *  `[2D_INFILTRATION_OPTIONS]` / `[2D_INFILTRATION_DEFAULTS]` /
+     *  `[2D_INFILTRATION]`. Each section starts with a `;;`-prefixed
      *  header comment. Sections with no content (e.g. empty
-     *  vertex_node_map) are omitted entirely.
+     *  vertex_node_map, a mesh with no infiltration data) are omitted
+     *  entirely.
+     *
+     *  The infiltration sections are per-cell mesh attributes, so they ride
+     *  with the mesh — into the `.2dm` in external mode, inline otherwise.
+     *  They are deliberately NOT appended to `[2D_TRIANGLES]`, whose columns
+     *  are positional.
      *
      *  \param mesh             output of MeshGenerator::generate()
      *  \param coupling         vertex/triangle → SWMM node map
@@ -125,8 +137,9 @@ public:
 
     /*! \brief Engine §11A — render the `[2D_EDGE_CONVEYANCE]` section.
      *
-     *  Walks \p bcs (flat-indexed `tri * 3 + edge`, parallel to \p mesh)
-     *  and emits one row per edge whose conveyance differs from the
+     *  Walks \p bcs (flat-indexed `mesh::edgeSlot(cell, edge)`, parallel to
+     *  \p mesh; endpoints via `mesh::edgeEndpoints`, every edge of a quad
+     *  included) and emits one row per edge whose conveyance differs from the
      *  default 1.0. Interior edges occupy two slots that the GUI keeps in
      *  sync (see SWMM2DMeshLayer::applyMeshEdgeConveyance), so the writer
      *  canonicalises on the first encountered vertex-pair and silently
@@ -233,7 +246,9 @@ public:
      *
      *  \param filePath  File whose BC/conveyance sections are replaced.
      *  \param mesh      Mesh the flat-indexed \p bcs parallels.
-     *  \param bcs       Per-edge BC state (`tri * 3 + edge`).
+     *  \param bcs       Per-edge BC state (`mesh::edgeSlot(cell, edge)`,
+     *                   stride `mesh::kEdgeStride`; rows are written as
+     *                   `TRI = slotCell, EDGE = slotLocal`, 0..3 for a quad).
      *  \param errorOut  Set on failure.
      *  \returns true on success. */
     [[nodiscard]] static bool patchBCSections(const QString &filePath,
@@ -241,10 +256,18 @@ public:
                                               const QVector<MeshEdgeBC> &bcs,
                                               QString *errorOut = nullptr);
 
-    /*! \brief Replace the `[2D_VERTICES]`, `[2D_TRIANGLES]`,
-     *         `[2D_VERTEX_NODE_MAP]` and `[2D_TRIANGLE_NODE_MAP]` sections of
-     *         \p filePath with sections rebuilt from the layer's editable
-     *         mesh state, leaving every other section untouched.
+    /*! \brief Replace the `[2D_VERTICES]`, `[2D_TRIANGLES]`, `[2D_QUADS]`,
+     *         `[2D_VERTEX_NODE_MAP]`, `[2D_TRIANGLE_NODE_MAP]` and
+     *         `[2D_INFILTRATION_OPTIONS]` / `[2D_INFILTRATION_DEFAULTS]` /
+     *         `[2D_INFILTRATION]` sections of \p filePath with sections
+     *         rebuilt from the layer's editable mesh state, leaving every
+     *         other section untouched.
+     *
+     *  **Every GUI-owned mesh-attribute section must be listed here.** A
+     *  section this function does not re-emit is discarded on every project
+     *  save, because the save path restores a pre-engine-write snapshot of
+     *  the mesh file first — see the comment at
+     *  `src/swmmvisprojectwindow.cpp:1414-1419`.
      *
      *  The BC-patch's sibling for mesh *attributes*: the post-save
      *  external-mesh restore rolls the sidecar back to its pre-write

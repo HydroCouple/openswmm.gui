@@ -30,9 +30,11 @@ class QPushButton;
 class QRadioButton;
 class QSpinBox;
 class QStackedWidget;
+class QVBoxLayout;
 
 class LinkRenderingPrefs;
 class NodeRenderingPrefs;
+class MeshBcRenderingPrefs;
 class SelectionRenderingPrefs;
 class QPropertyModel;
 
@@ -65,9 +67,16 @@ private:
     QWidget *buildCanvasPage();
     QWidget *buildRenderingPage();
     QWidget *buildSimulationPage();
+    /*! \brief The Simulation Defaults page: five inner tabs (PLAN §3).
+     *
+     *  Hosts what used to be the separate Dynamic Wave Defaults and 2D
+     *  Defaults sidebar rows, which now fill tab layouts this hands them
+     *  rather than returning pages of their own. */
     QWidget *buildSimulationDefaultsPage();
-    QWidget *buildDynamicWaveDefaultsPage();
-    QWidget *buildTwoDDefaultsPage();
+    void addDynamicWaveDefaultGroups(QVBoxLayout *stepsLay,
+                                     QVBoxLayout *solverLay);
+    void addTwoDDefaultGroups(QVBoxLayout *lay, QVBoxLayout *cplLay,
+                              QVBoxLayout *meshLay);
     QWidget *buildObjectDefaultsPage();
     QWidget *buildMapDisplayPage();
     QWidget *buildMeasureToolPage();
@@ -110,6 +119,11 @@ private:
     // setters directly into PreferencesManager, so writeToManager()
     // leaves them alone.
     SelectionRenderingPrefs *m_selectionPrefs  = nullptr;
+
+    // 2D mesh BC edge defaults — same QPropertyModel treatment as the
+    // selection pens above.
+    MeshBcRenderingPrefs    *m_meshBcPrefs     = nullptr;
+    QPropertyModel          *m_meshBcModel     = nullptr;
     QPropertyModel          *m_selectionModel  = nullptr;
 
     // Canvas
@@ -145,6 +159,8 @@ private:
 
     // Simulation
     QSpinBox   *m_progressTickMsSpin    = nullptr;
+    QSpinBox   *m_live2DHistoryCapSpin  = nullptr;
+    QSpinBox   *m_live2DHistoryMBSpin   = nullptr;
 
     // Simulation Defaults (applied to fresh blank projects).
     QComboBox      *m_simFlowUnitsCombo       = nullptr;
@@ -183,8 +199,11 @@ private:
     QComboBox      *m_simNodeContinuityCombo  = nullptr;
     QCheckBox      *m_simAndersonAccelBox     = nullptr;
     QSpinBox       *m_simThreadsSpin          = nullptr;
+    QComboBox      *m_simUnsteadyFrictionCombo = nullptr;    // UNSTEADY_FRICTION
+    QDoubleSpinBox *m_simUfK3Spin             = nullptr;     // UF_K3 (0–0.05)
 
-    // 2D Defaults — [2D_OPTIONS] solver keys + mesh-generation seeds.
+    // Simulation Defaults > 2D tabs — [2D_OPTIONS] solver keys plus the
+    // mesh-generation seeds.
     QDoubleSpinBox *m_twoDMaxTimestepSpin     = nullptr;   // seconds
     QDoubleSpinBox *m_twoDThetaSpin           = nullptr;
     QDoubleSpinBox *m_twoDCflSpin             = nullptr;
@@ -210,11 +229,15 @@ private:
     QDoubleSpinBox *m_twoDMeshSimplifyEpsSpin = nullptr;
     QDoubleSpinBox *m_twoDMeshSnapEpsSpin     = nullptr;
     QDoubleSpinBox *m_twoDMeshFlattenRadSpin  = nullptr;
+    QCheckBox      *m_twoDMeshNodesBox        = nullptr;  ///< nodes → Steiner vertices
+    QCheckBox      *m_twoDMeshNodesRimBox     = nullptr;  ///< rim elevation instead of terrain
     QCheckBox      *m_twoDMeshMinSepBox       = nullptr;
     QDoubleSpinBox *m_twoDMeshMinSepSpin      = nullptr;
     QCheckBox      *m_twoDMeshThinningBox     = nullptr;
     QDoubleSpinBox *m_twoDMeshThinningTolSpin = nullptr;
     QSpinBox       *m_twoDMeshThinningPassesSpin = nullptr;
+    QCheckBox      *m_twoDMeshMinSpacingBox   = nullptr;  ///< Poisson-disk min point spacing
+    QDoubleSpinBox *m_twoDMeshMinSpacingSpin  = nullptr;
     QDoubleSpinBox *m_twoDMeshBoundaryBufSpin = nullptr;
     QCheckBox      *m_twoDMeshMaxEdgeBox      = nullptr;
     QDoubleSpinBox *m_twoDMeshMaxEdgeSpin     = nullptr;

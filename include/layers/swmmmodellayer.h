@@ -3,7 +3,7 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  Map layer that renders an OpenSWMMCore network (nodes, links,
+ * \brief  Map layer that renders an OpenSWMMEngine network (nodes, links,
  *         subcatchments, rain gages) and provides geometry-editing and
  *         spatial-query APIs.
  */
@@ -32,16 +32,19 @@ struct SWMMKdTrees;
 #include <QDateTime>
 
 #include <openswmm/engine/openswmm_callbacks.h>  // SWMM_Engine typedef
+#include <openswmm/engine/openswmm_infrastructure.h>  // SWMM_InletUsage (by value)
 #include <QFont>
 #include <QMap>
 #include <QPen>
 #include <QBrush>
+#include <QPointer>
 #include <QPolygonF>
 #include <QSet>
 #include <QVariantMap>
 
 class OpenSWMMVisWorkspace;
 class SpatialReferenceSystem;
+class MapCanvas;   // setEditCanvas() — undo-stack host for mediated edits
 
 namespace OpenSWMM::Render {
 class IFeatureRenderer;
@@ -62,6 +65,9 @@ class HydrographDecayTableModel;
 namespace openswmmvis::ui {
 class UserFlagsModel;   // [USER_FLAGS] / [USER_FLAG_VALUES] store — see ensureUserFlagsModel().
 }
+
+// Persistent per-kind symbol adapter set — see elementSymbolAdapter().
+class SwmmElementSymbolAdapter;
 
 /*!
  * \struct SWMMElementSymbol
@@ -87,8 +93,19 @@ struct SWMMElementSymbol
     // Ignored for point / polygon kinds. The arrow points from the
     // link's upstream node to its downstream node — i.e. follows the
     // polyline tangent at the midpoint of the visible polyline.
-    bool    showArrows           = false;          /*!< Toggle off by default. */
-    double  arrowSize            = 10.0;           /*!< Arrowhead length in pixels. */
+    /*! Off in the shared default because this struct also backs node and
+     *  polygon kinds, whose editors would otherwise show a ticked "Show
+     *  flow arrows". The five LINK kinds are seeded on in the
+     *  SWMMModelLayer constructor. */
+    bool    showArrows           = false;
+    double  arrowSize            = 16.0;           /*!< Arrowhead length in pixels (along the link). */
+    /*! Arrowhead width in pixels, ACROSS the link — independent of the
+     *  length so an arrow can be made stubby or needle-thin. The default
+     *  is deliberately narrower than the length so the head reads as a
+     *  direction marker rather than a blob. Projects saved before the width
+     *  became independent carry no arrowWidthPx key and so adopt this
+     *  default (they previously drew at 1.2 x length). */
+    double  arrowWidth           = 8.0;
     QColor  arrowColor           = QColor(34, 34, 34);  /*!< Near-black. */
     // Slice FX.1 — was `true` by default, but that gates arrows on a
     // bound `.out` (every link has flow=0 pre-simulation). Users who
@@ -101,8 +118,8 @@ struct SWMMElementSymbol
 /*!
  * \class SWMMModelLayer
  * \brief Renders the SWMM network elements (nodes, links, subcatchments, rain gages)
- *        for one OpenSWMMCore model.
- * \details The layer uses the coordinate frame of the OpenSWMMCore model as its
+ *        for one OpenSWMMEngine model.
+ * \details The layer uses the coordinate frame of the OpenSWMMEngine model as its
  *          native CRS.  When the canvas CRS differs, coordinates are reprojected
  *          using GDAL's OGRCoordinateTransformation.
  *
@@ -209,6 +226,16 @@ public:
 
     /** Raw engine handle — valid only after a successful loadModel(). */
     [[nodiscard]] SWMM_Engine engine() const;
+
+    /*!
+     * \brief Whether the layer's CRS was ASSIGNED — read from the .inp's
+     *        [OPTIONS] CRS, or set after load by the user (CRS picker,
+     *        Simulation Options, canvas reprojection, .oswp restore) — as
+     *        opposed to auto-derived on open from [MAP] UNITS or the
+     *        preferences default. Only an assigned CRS is written back to
+     *        the .inp on save; a model that carried none must stay that way.
+     */
+    [[nodiscard]] bool crsAssigned() const noexcept { return m_crsAssigned; }
 
     /*!
      * \brief Loads (or reloads) the SWMM input file and rebuilds geometry caches.
@@ -323,11 +350,17 @@ public:
     // is overridden to keep the legacy m_showLabels flag in sync.
     void setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg) override;
 
-    /*! Per-kind QSG render scope. Each flag means "this kind is being
+    /*! Per-kind QSG render scope. Each flag means "this kind's GEOMETRY is
      *  drawn by the QSG (GPU) overlay; the CPU SWMMLayerItem must NOT
      *  draw it".  Symmetrically, the QSG renderer (SWMMLayerQSGRenderer)
-     *  uploads empty geometry for any kind NOT in the scope, so a kind
-     *  is drawn by exactly one pipeline.
+     *  uploads empty geometry for any kind NOT in the scope, so a kind's
+     *  geometry is drawn by exactly one pipeline.
+     *
+     *  EXCEPTION — text labels. Labels are ALWAYS painted by the CPU pass
+     *  (SWMMLayerItem's label block, deliberately not gated on these
+     *  flags); the QSG renderer has no text pipeline. This hybrid is the
+     *  documented contract (LAYER_STYLING_LABELING_PLAN_2026-08-16) — see
+     *  the doc comment atop swmmlayerqsgrenderer.cpp before changing it.
      *
      *  Progressive migration: nodes go QSG first, then links, then
      *  catchments. Default is empty — i.e. everything stays on the
@@ -430,6 +463,31 @@ public:
      *        Returns an empty string if the indices are out of range.
      */
     [[nodiscard]] QString objectNameAt(Category c, int row) const;
+
+    /*!
+     * \brief SoA index at (category, row) — the index `objectNameAt`
+     *        resolves the name from, and therefore also the ENGINE
+     *        index for that object. Returns -1 when out of range.
+     *
+     *        The SoA-index == engine-index invariant holds because
+     *        buildFromEngine() appends in engine order (0..count-1),
+     *        adds append to the tail on both sides, and deletes remove
+     *        the same slot from both. Existing code already depends on
+     *        it: applyNodeDelete() feeds a `swmm_node_index()` result
+     *        straight into `m_nodes.removeAt()`, and its cascade loop
+     *        passes one integer to both `swmm_link_get_from_node()` and
+     *        `m_links[i]`. See also applyLinkDelete / applyGageDelete /
+     *        applySubcatchDelete.
+     *
+     *        Callers that want a row's engine index MUST use this and
+     *        not a locally-written index lookup: this honours the
+     *        intra-category ordering overrides (`m_objectOrderOverrides`)
+     *        exactly as objectNameAt does, and a variant that forgets
+     *        that branch returns a different object under a user-sorted
+     *        category. Keep this function physically adjacent to
+     *        objectNameAt so the two cannot drift.
+     */
+    [[nodiscard]] int soaIndexAt(Category c, int row) const;
 
     /*!
      * \brief Slice BM.0 — number of non-spatial data objects in
@@ -644,6 +702,16 @@ public:
     [[nodiscard]] SWMMElementSymbol virtualJunctionSymbol() const;
     void setVirtualJunctionSymbol(const SWMMElementSymbol &s);
 
+    /*! Inlet junctions — same CatJunctions bucket as virtual junctions
+     *  (D-G1), distinct glyph. */
+    [[nodiscard]] SWMMElementSymbol inletJunctionSymbol() const;
+    void setInletJunctionSymbol(const SWMMElementSymbol &s);
+
+    /*! Dashed host → capture-node connector overlay (§3.2). Category-less:
+     *  it draws no features of its own, only the relation lines. */
+    [[nodiscard]] SWMMElementSymbol inletConnectorSymbol() const;
+    void setInletConnectorSymbol(const SWMMElementSymbol &s);
+
     [[nodiscard]] SWMMElementSymbol conduitSymbol()    const;
     void setConduitSymbol(const SWMMElementSymbol &s);
 
@@ -656,16 +724,48 @@ public:
     [[nodiscard]] SWMMElementSymbol weirSymbol()       const;
     void setWeirSymbol(const SWMMElementSymbol &s);
 
+    /*! Outlets now have a real symbol channel (previously aliased the
+     *  conduit symbol). NOTE: the link PEN for outlets still comes from
+     *  the preferences "outlet" pen (paint parity decision — see
+     *  linkPenForType in swmmlayeritem.cpp); this struct drives flow
+     *  arrows, labels, renderer seeding and persistence. */
+    [[nodiscard]] SWMMElementSymbol outletSymbol()     const;
+    void setOutletSymbol(const SWMMElementSymbol &s);
+
     [[nodiscard]] SWMMElementSymbol subcatchmentSymbol() const;
     void setSubcatchmentSymbol(const SWMMElementSymbol &s);
 
     [[nodiscard]] SWMMElementSymbol rainGageSymbol()   const;
     void setRainGageSymbol(const SWMMElementSymbol &s);
 
-    /*! Slice U-4 — expose the 11 per-kind SWMMElementSymbol adapters as
-     *  styleable subjects for the unified LayerStyleDialog. */
+    /*! Slice U-4 — expose the 12 per-kind SWMMElementSymbol adapters as
+     *  styleable subjects for the unified LayerStyleDialog.
+     *
+     *  Adapter-ownership refactor (LAYER_STYLING_LABELING_PLAN follow-up):
+     *  the subject wrappers are fresh per call (cheap, non-owning), but the
+     *  underlying SwmmElementSymbolAdapter QObjects are the layer's
+     *  PERSISTENT set from elementSymbolAdapter() — one instance per kind
+     *  for the layer's lifetime. Every UI surface (dialog subjects,
+     *  SingleSymbolPanel, kind tree) edits the same adapter, which is what
+     *  makes the dialog's Cancel snapshot/rollback authoritative and stops
+     *  the per-open adapter leak. */
     [[nodiscard]] std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
         styleSubjects() override;
+
+    /*!
+     * \brief The layer's persistent per-kind symbol adapter for a subject
+     *        routing id ("model.junctions" … "model.virtualjunctions").
+     *        Lazily constructed on first request, parented to the layer,
+     *        resynced from the live struct on every fetch. Returns nullptr
+     *        for unknown ids.
+     */
+    [[nodiscard]] SwmmElementSymbolAdapter *
+        elementSymbolAdapter(const QString &routingId);
+
+    /*! Data-edit epoch — bumped on every modelEdited / attributeChanged.
+     *  Consumers (label text cache) compare against their stored value to
+     *  detect stale derived data. */
+    [[nodiscard]] quint64 editRevision() const { return m_editRevision; }
 
     // ----- Renderer (Slice BI Phase 8.13.6.5) -----------------------------
     // The renderer is the §J.2 seam every future paint path will go through.
@@ -790,6 +890,9 @@ public:
     // repaintRequested when the underlying field actually changes.
     [[nodiscard]] double linkArrowSize(Category c) const;
     void setLinkArrowSize(Category c, double pixels);
+    /*! Arrowhead width ACROSS the link, independent of its length. */
+    [[nodiscard]] double linkArrowWidth(Category c) const;
+    void setLinkArrowWidth(Category c, double pixels);
     [[nodiscard]] QColor linkArrowColor(Category c) const;
     void setLinkArrowColor(Category c, const QColor &col);
     [[nodiscard]] bool   linkArrowOnlyWhenFlowPos(Category c) const;
@@ -950,8 +1053,16 @@ public:
      *          need its attribute map (Object Browser → PropertiesPanel).
      *          Returns an empty map if the name doesn't match any cached
      *          node / link / subcatchment / gage.
+     * \param kindMask kKind* bits limiting which kinds may match. SWMM names
+     *          are per-type namespaces (a gage and a subcatchment may legally
+     *          share a name), and the default kKindAll resolves collisions by
+     *          the legacy precedence node → link → catchment → gage — so a
+     *          caller that KNOWS the kind (e.g. the Attribute Table, scoped
+     *          to one category) must pass it or a shadowed gage/catchment
+     *          reads the wrong object's map.
      */
-    [[nodiscard]] QVariantMap identifyByName(const QString &name) const;
+    [[nodiscard]] QVariantMap identifyByName(const QString &name,
+                                             quint8 kindMask = kKindAll) const;
 
     /*!
      * \brief Layer-CRS bounding box of a cached object by name.
@@ -1164,6 +1275,32 @@ public:
     [[nodiscard]] QVector<QPointF> cachedLinkInteriorVertices(int idx) const;
 
     /*!
+     * \brief Number of links the render-facing scene-coordinate arrays
+     *        currently describe.
+     * \details Test seam. m_linkVertexCount / m_linkVertexOffset are what
+     *          SWMMLayerQSGRenderer walks when it draws links, and their
+     *          `size == m_links.size()` invariant is otherwise observable
+     *          only from inside that friend class — which is how a stale
+     *          set survived a delete-everything undetected.
+     */
+    [[nodiscard]] int renderLinkCount() const
+    { return int(m_linkVertexCount.size()); }
+
+    /*!
+     * \brief The hidden flag the renderers read for link \p idx — what
+     *        actually decides whether the base link pass emits it.
+     * \details Test seam, sibling of renderLinkCount(). The QSG base pass
+     *          skips a link whose flag is set; a selected link is still drawn
+     *          by the selection pass, which is why a wrongly-hidden link looks
+     *          fine until it is deselected.
+     */
+    [[nodiscard]] bool renderLinkHidden(int idx) const
+    {
+        return idx >= 0 && size_t(idx) < m_linkHiddenFlag.size()
+            && m_linkHiddenFlag[size_t(idx)] != 0;
+    }
+
+    /*!
      * \brief Cached layer-CRS polygon of a subcatchment by index. Vertex
      *        order matches the .inp [Polygons] section. Returns empty
      *        when \p idx is out of range or the subcatchment has no
@@ -1183,6 +1320,23 @@ public:
     [[nodiscard]] int cachedNodeCount() const;
     [[nodiscard]] int cachedLinkCount() const;
     [[nodiscard]] int cachedGageCount() const;
+
+    /*!
+     * \brief A rain gage's coordinate AS THE ENGINE STORES IT.
+     * \details Deliberately NOT the cached `m_gages` position. A gage with no
+     *          `[SYMBOLS]` row arrives at (0,0), and buildGeometryCache()
+     *          relocates such gages to the mean of every model vertex so they
+     *          do not stack on the origin — a display convenience that invents
+     *          a coordinate. Any spatial computation (Thiessen cells,
+     *          interpolation weights) must see the engine's own value, because
+     *          several un-located gages would otherwise all land on one
+     *          fabricated point and quietly dominate the result.
+     * \param idx Zero-based gage index.
+     * \returns false when \p idx is out of range or no engine is attached.
+     *          A returned (0,0) means "un-located" and callers should exclude
+     *          the gage rather than use it.
+     */
+    [[nodiscard]] bool cachedGageCoord(int idx, double *x, double *y) const;
 
     /*! Monotonically increasing counter, bumped at the end of every
      *  rebuildSceneCoords() call.  Renderers can compare against a cached
@@ -1294,6 +1448,14 @@ public:
      *  the index is out of range or no node cache exists. */
     bool previewNodeMove(int idx, double newX, double newY);
 
+    /*! Rain-gage twin of \ref previewNodeMove: rewrite the gage's cached
+     *  map coord + scene point only (no engine write, no modelEdited) so
+     *  the symbol follows the cursor during a drag. MoveGageCommand::redo
+     *  commits the final position via \ref applyGageMove on release.
+     *  Gages have no attached links or outlet lines, so this is just the
+     *  coord + scene-point rewrite and a repaint. */
+    bool previewGageMove(int idx, double newX, double newY);
+
     /*!
      * \brief Indices of links whose from/to endpoint is the given node.
      */
@@ -1330,19 +1492,21 @@ public:
     bool applyLinkLength(int linkIdx, double length);
 
     /*!
-     * \brief Convert every link's offsets between Depth and Elevation
-     *        conventions, mirroring the legacy SWMM-GUI ComputeDepthOffsets /
-     *        ComputeElevationOffsets (Uupdate.pas). Conduits convert both the
-     *        upstream (from-node) and downstream (to-node) offsets; orifices,
-     *        weirs and outlets convert only the upstream offset; pumps carry no
-     *        offset and are skipped. Setting the LINK_OFFSETS option only flips
-     *        a flag in the engine — the stored offset values must be recomputed
-     *        here. Emits `geometryChanged()` once so the Attribute Table and
-     *        Object Browser refresh in a single tick.
-     * \param toElevation  true  → Depth offsets become Elevation offsets;
-     *                      false → Elevation offsets become Depth offsets.
+     * \brief Apply the user's answer to legacy UpdateOffsets' "convert all
+     *        link offsets?" prompt after LINK_OFFSETS has been flipped.
+     *
+     * The engine stores offsets as depths in BOTH modes (the parser
+     * normalises elevations; the .inp writer re-adds the invert), so:
+     * - convertValues == true  (legacy "Yes": same physics, new numbers) is a
+     *   no-op on the store — the option flip alone changes file and display.
+     * - convertValues == false (legacy "No": same numbers, new meaning)
+     *   reinterprets each stored depth under the new convention. Conduits use
+     *   both ends, orifices offset_up, weirs/outlets the crest, pumps skipped.
+     * Emits `geometryChanged()` once when values were touched.
+     * \param toElevation   The mode just switched TO.
+     * \param convertValues The prompt answer (true = Yes).
      */
-    void convertLinkOffsets(bool toElevation);
+    void convertLinkOffsets(bool toElevation, bool convertValues);
 
     /*!
      * \brief Slice SC.1 — Write a cross-section to a link via
@@ -1395,6 +1559,28 @@ public:
                           QStringList *outWarnings = nullptr,
                           QString *outError = nullptr);
 
+    /*!
+     * \brief Reverse link \p linkIdx: the upstream node becomes the downstream
+     *        node and vice versa, leaving the physical link unchanged.
+     * \details Swaps node1/node2 via `swmm_link_set_nodes`, reverses the
+     *          interior vertices (the engine stores them upstream→downstream,
+     *          so without this the drawn polyline zig-zags), and — for conduits
+     *          only — swaps the two end-attached value pairs, offset_up/
+     *          offset_dn and the entry/exit loss coefficients, so the invert
+     *          profile and head losses stay exactly where they were. Mirrors
+     *          the engine's own adverse-slope reversal in PostParseResolver,
+     *          minus the parse-time-derived `direction` and conduit `slope`
+     *          (recomputed on the next engine open, and not exposed by any C
+     *          API). Non-conduits carry a single crest offset in offset_up with
+     *          offset_dn unused, so nothing is swapped for them.
+     *
+     *          Self-inverse: flipping twice restores the original state, which
+     *          is what lets FlipLinkCommand use one call for redo and undo.
+     *          Emits the applyLinkInteriorVertices() signal set (repaint +
+     *          modelEdited) plus attributeChanged() for the From/To cells.
+     */
+    bool applyLinkFlip(int linkIdx);
+
     // ===== Virtual junctions ==============================================
     // Engine-side split/fuse semantics (swmm_conduit_split /
     // swmm_virtual_junction_fuse / swmm_node_set_virtual) so CLI, Python,
@@ -1441,8 +1627,134 @@ public:
     bool applyFuseVirtualJunction(const QString &nodeName,
                                   QString *outError = nullptr);
 
-    /*! \brief Actionable text for a virtual-junction rule code (609..621). */
+    /*!
+     * \brief Split conduit \p linkName at \p t inserting a PLAIN junction, via
+     *        `swmm_conduit_split` with `make_virtual = 0`. Identical to
+     *        applyInsertVirtualJunction except that no virtual-junction rule
+     *        validation runs, so this is the split available to models that do
+     *        not route with DYNWAVE (virtual junctions require it — rule 619).
+     */
+    bool applyInsertJunctionSplit(const QString &linkName, double t,
+                                  const QString &newNodeName,
+                                  const QString &newLinkName,
+                                  int *outNodeIdx = nullptr,
+                                  int *outLinkIdx = nullptr,
+                                  QString *outError = nullptr);
+
+    /*!
+     * \brief Inverse of applyInsertJunctionSplit — re-fuses the conduit pair
+     *        and deletes the junction.
+     * \details Both the engine (`vj_fuse`) and applyFuseVirtualJunction guard
+     *          the fuse on the virtual flag, so this flags the node virtual
+     *          just long enough to reuse that exact inverse, then fuses. The
+     *          transient flag never persists: on success the node is deleted,
+     *          and on failure the flag is rolled back. Safe because a fresh
+     *          split leaves an identical-cross-section, zero-offset through
+     *          pair (VJ rules 609/611/613 pass) and the DYNWAVE rule 619 is
+     *          enforced only at parse time, never on edit.
+     */
+    bool applyFuseJunctionSplit(const QString &nodeName,
+                                QString *outError = nullptr);
+
+    /*! \brief Actionable text for a virtual-junction / inlet-junction rule
+     *         code (609..621 VJ, 623..635 inlet). */
     static QString virtualJunctionRuleText(int engineErrorCode);
+
+    // ===== Inlet junctions and inlet usage ================================
+    // Engine surface: swmm_node_is_inlet / _inlet_eligible / _set_inlet
+    // (openswmm_nodes.h), swmm_inlet_usage_* (openswmm_infrastructure.h),
+    // swmm_conduit_split_inlet / swmm_inlet_junction_fuse (openswmm_edit.h).
+    // See workplans/INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md.
+
+    /*! \brief True when cached node \p soaIdx is an inlet junction. An inlet
+     *         junction is also a virtual junction, so callers that branch on
+     *         both must test this one FIRST. */
+    [[nodiscard]] bool nodeIsInlet(int soaIdx) const {
+        return soaIdx >= 0 && soaIdx < m_nodes.size() &&
+               m_nodes[soaIdx].isInlet != 0;
+    }
+
+    /*! \brief Tri-state capability probe, cached for the layer's lifetime:
+     *         true when the bound engine exposes the inlet-junction surface.
+     *         Callers hide the add tool / Convert-To entries / usage page
+     *         when this is false. */
+    [[nodiscard]] bool engineSupportsInletJunctions() const;
+
+    /*! \brief Read the inlet-usage row hosted by (\p hostKind, \p hostIdx).
+     *  \param hostKind SWMM_INLET_HOST_LINK (0) or SWMM_INLET_HOST_NODE (1).
+     *  \returns false when no row exists (\p out untouched). */
+    [[nodiscard]] bool inletUsageFor(int hostKind, int hostIdx,
+                                     SWMM_InletUsage *out) const;
+
+    /*! \brief Create or replace the usage row for \p usage's host via
+     *         `swmm_inlet_usage_set`. Emits attributeChanged for the host
+     *         object + repaintRequested (the connector overlay follows). */
+    bool applySetInletUsage(const SWMM_InletUsage &usage,
+                            QString *outError = nullptr);
+
+    /*! \brief Remove the usage row hosted by (\p hostKind, \p hostIdx).
+     *         A missing row is a successful no-op. */
+    bool applyRemoveInletUsage(int hostKind, int hostIdx,
+                               QString *outError = nullptr);
+
+    /*! \brief Set or clear a node's inlet-junction flag via
+     *         `swmm_node_set_inlet`. Clearing leaves the node a virtual
+     *         junction and drops its usage row (engine contract). */
+    bool applySetInlet(const QString &name, bool makeInlet,
+                       QString *outError = nullptr);
+
+    /*! \brief Split STREET conduit \p linkName at \p t, inserting an inlet
+     *         junction wired to \p inletId / \p captureNode, via
+     *         `swmm_conduit_split_inlet` (atomic engine-side). Cache sync is
+     *         identical to applyInsertVirtualJunction. */
+    bool applyInsertInletJunction(const QString &linkName, double t,
+                                  const QString &newNodeName,
+                                  const QString &newLinkName,
+                                  const QString &inletId,
+                                  const QString &captureNode,
+                                  int *outNodeIdx = nullptr,
+                                  int *outLinkIdx = nullptr,
+                                  QString *outError = nullptr);
+
+    /*! \brief Inverse of applyInsertInletJunction — drops the usage row and
+     *         re-fuses the conduit pair (`swmm_inlet_junction_fuse`). */
+    bool applyFuseInletJunction(const QString &nodeName,
+                                QString *outError = nullptr);
+
+    /*! One dashed host → capture-node overlay line, in SCENE coordinates
+     *  (same space as m_nodeScenePts / the catchment outlet lines, so the
+     *  paint loops draw it with no extra transform). Rebuilt lazily from the
+     *  engine's usage rows; see inletConnectors(). */
+    struct InletConnector {
+        QPointF host;      ///< conduit midpoint (link host) or node position
+        QPointF capture;   ///< capture (underdrain) node position
+    };
+
+    /*! \brief The connector overlay geometry, rebuilt on demand when the
+     *         usage rows or the geometry changed. Empty when the engine has
+     *         no usage rows or predates the inlet-usage API. */
+    [[nodiscard]] const QVector<InletConnector> &inletConnectors() const;
+
+    /*! \brief Bind the canvas whose undo stack mediated edits push onto.
+     *  \details Property adapters have no canvas of their own, but an inlet
+     *           usage edit must be undoable exactly like the map-tool edits
+     *           (MVC contract: one mutation = one MapCommand). The project
+     *           window calls this once with its canvas; without it the layer
+     *           still applies edits, just not undoably (headless tests).
+     *
+     *           Both are defined out-of-line: Qt 6's QPointer<T> instantiates
+     *           a static_cast to/from QObject*, so it needs the COMPLETE
+     *           MapCanvas — which this header only forward-declares (same
+     *           reason as include/ui/panels/legenddock.h). */
+    void setEditCanvas(MapCanvas *canvas);
+    [[nodiscard]] MapCanvas *editCanvas() const;
+
+    /*! \brief Apply one inlet-usage row as a single undoable step. Pushes a
+     *         SetInletUsageCommand on the edit canvas's stack when one is
+     *         bound; falls back to applySetInletUsage() otherwise. */
+    bool pushInletUsageEdit(const SWMM_InletUsage &usage);
+    /*! \brief Undoable counterpart of applyRemoveInletUsage(). */
+    bool pushInletUsageRemoval(int hostKind, int hostIdx);
 
     /*!
      * \brief Apply interior vertices to a link: engine + cache, rebuilding
@@ -1456,6 +1768,23 @@ public:
      */
     bool applySubcatchVertices(int idx, const QVector<QPointF> &vertices);
     bool applySubcatchArea(int idx, double areaInModelUnits);
+
+    /*!
+     * \brief Assign a rain gage to a subcatchment: engine + change notification.
+     * \details Mirrors \ref applyHydrographSetGage. Until this existed the only
+     *          write paths were the property adapter and the attribute table,
+     *          both calling `swmm_subcatch_set_gage` directly and emitting only
+     *          their own local edit signal — which is why a bulk assignment had
+     *          no way to refresh every view. Routing through the layer emits
+     *          `attributeChanged` + `modelEdited` like every other mediated
+     *          edit.
+     * \param idx       Zero-based subcatchment index.
+     * \param gageName  Rain gage identifier. Must name an existing gage; an
+     *                  empty string is rejected, since SWMM requires a gage.
+     * \returns false when the index is out of range, the gage is unknown, or
+     *          the engine rejected the write.
+     */
+    bool applySubcatchSetGage(int idx, const QString &gageName);
 
     /*!
      * \brief Add a new node: engine + cache. Engine must be OPENED.
@@ -1495,6 +1824,19 @@ public:
 
     /*! Undo tail link add (swmm_link_pop_last). */
     bool rollbackTailLinkAdd(const QString &name);
+
+    /*!
+     * \brief Move a rain gage: engine `[SYMBOLS]` coordinate + cached scene
+     *        point, in lockstep (a bare `swmm_spatial_set_gage_coord` would
+     *        leave the canvas stale until the next geometry rebuild). The
+     *        rain-gage twin of \ref applyNodeMove; gages carry no attached
+     *        links, so there is no bbox pass.
+     * \param idx         Cache/engine gage index.
+     * \param newX, newY  New coordinate in the layer CRS.
+     * \returns           true on success. Emits repaintRequested() and
+     *                    modelEdited() ([SYMBOLS] is authored data).
+     */
+    bool applyGageMove(int idx, double newX, double newY);
 
     /*! Add a rain gage: engine + cache. */
     bool applyGageAdd(const QString &name, double x, double y,
@@ -1536,6 +1878,54 @@ public:
     bool applyRename(const QString &oldName, const QString &newName,
                      quint8 kindHint = kKindAll);
 
+    // ===== Bulk edit — coalesce the per-object cache-rebuild storm =======
+    //
+    // Every applyXxxAdd / applyXxxDelete rebuilds the whole derived cache
+    // (category index, model extent, link spatial grid) and then emits
+    // repaintRequested() + geometryChanged(), whose listeners each do
+    // O(model) work of their own. That is affordable for one object and
+    // quadratic for a selection: deleting 100 junctions from a 104k-node
+    // model costs ~21 s, of which only ~4.6 s is the engine.
+    //
+    // Inside a bulk edit the engine call and the SoA removal/append still
+    // happen IMMEDIATELY — only the derived work is deferred. That is
+    // deliberate: it keeps the "SoA index == engine index" invariant true
+    // at every instant, which the rest of this class relies on.
+    //
+    // Always use the RAII BulkEdit guard; never call beginBulkEdit() /
+    // endBulkEdit() by hand. A batch that begins and never ends would
+    // leave the layer permanently signal-blocked with stale caches.
+    class BulkEdit
+    {
+    public:
+        explicit BulkEdit(SWMMModelLayer *layer) : m_layer(layer)
+        {
+            if (m_layer) m_layer->beginBulkEdit();
+        }
+        ~BulkEdit()
+        {
+            if (m_layer) m_layer->endBulkEdit();
+        }
+        BulkEdit(const BulkEdit &)            = delete;
+        BulkEdit &operator=(const BulkEdit &) = delete;
+
+    private:
+        QPointer<SWMMModelLayer> m_layer;
+    };
+
+    /*! Open a bulk-edit scope. Nestable; only the outermost pair does work.
+     *  Prefer the BulkEdit guard. */
+    void beginBulkEdit();
+
+    /*! Close a bulk-edit scope. On the outermost close, rebuilds every
+     *  derived cache once and emits repaintRequested() + geometryChanged()
+     *  exactly once — but only if a mutation actually occurred. */
+    void endBulkEdit();
+
+    /*! True while a bulk-edit scope is open. The applyXxxAdd/Delete
+     *  helpers consult this to skip their per-object derived work. */
+    [[nodiscard]] bool bulkEditActive() const { return m_bulkDepth > 0; }
+
     /*!
      * \brief Delete a node, cascade-deleting all attached links.
      * \details Identifies cascade links before deletion so the caller can
@@ -1554,6 +1944,26 @@ public:
 
     /*! Delete a subcatchment. */
     bool applySubcatchDelete(const QString &name);
+
+    /*!
+     * \brief Batch deletion (perf-plan Phase A2): one swmm_*_delete_many
+     *        engine call per kind, one order-preserving SoA sweep per vector.
+     * \details Replaces K per-object deletes whose dominant cost was the
+     *          engine's per-delete name-index rehash plus K O(N) removeAt
+     *          calls.  Nodes delete first (cascading their links); link names
+     *          are resolved AFTER that batch, so a selected link the cascade
+     *          already removed is skipped, matching the per-object path.
+     *          Opens its own nestable BulkEdit scope — inside a
+     *          BulkEditCommand it joins the outer scope; called bare it
+     *          supplies the single rebuild+repaint itself.
+     * \param[out] cascadeLinkNames Names of links the node batch cascaded.
+     * \returns true when anything was deleted.
+     */
+    bool applyDeleteMany(const QStringList &nodeNames,
+                         const QStringList &linkNames,
+                         const QStringList &subcatchNames,
+                         const QStringList &gageNames,
+                         QStringList *cascadeLinkNames = nullptr);
 
     // ===== Slice BS Phase 6.9.2 — hydrograph + RDII decay MVC layer ======
     //
@@ -1892,7 +2302,12 @@ private:
                               QString *innerOut) const;
 
     struct NodeGeom    { double x, y; int objectType; int nodeType;
-                         int isVirtual = 0; QString name; };
+                         int isVirtual = 0;
+                         /*! Inlet junction (implies isVirtual). Mirrors
+                          *  swmm_node_is_inlet; the renderers bucket on it
+                          *  BEFORE isVirtual. */
+                         int isInlet = 0;
+                         QString name; };
     struct LinkGeom {
         QVector<QPointF> vertices;   // interior bend points only (no node endpoints)
         int              linkType    = -1;
@@ -1943,6 +2358,27 @@ private:
     void compactCatchSceneEntry(int catchIdx);
     void compactGageSceneEntry(int gageIdx);
 
+    /*!
+     * \brief Re-read every link's from/to node index from the engine.
+     * \details LinkGeom::fromNodeIdx / toNodeIdx is authoritative data, not
+     *          a derived cache: it is written only at load, VJ-fuse and
+     *          link-add, and rebuildSceneCoords() consumes it rather than
+     *          recomputing it. So buildGeometryCache() does NOT restore it,
+     *          while compactNodeSceneEntry() — which endBulkEdit() skipped —
+     *          is what renumbers it during ordinary single deletes.
+     *
+     *          Without this call at batch end, every link after a deleted
+     *          node would resolve to the wrong endpoints and be drawn
+     *          SILENTLY wrong. One O(L) pass, and stronger than replaying
+     *          the per-delete deltas because it reads truth from the engine
+     *          instead of assuming the deltas were all applied.
+     *
+     *          Called only from endBulkEdit() — deliberately NOT from
+     *          buildGeometryCache(), which is on the model-load path where
+     *          the SoA is already authoritative.
+     */
+    void syncLinkEndpointIndicesFromEngine();
+
     /*! Update name-keyed indices (m_objectLocation, m_nameToSoa,
      *  m_hiddenObjects/m_hiddenKindMask) when a single element is renamed.
      *  Geometry is unchanged, so this is the only work needed — caller
@@ -1966,6 +2402,17 @@ private:
     // SWMMLayerQSGRenderer uses this to invalidate its subcatchment
     // triangulation cache without needing a signal or pointer comparison.
     quint64 m_geomRevision = 0;
+
+    // Bulk-edit scope depth, and whether anything inside it actually
+    // mutated. m_bulkDirty gates the batch-end rebuild so an all-failed
+    // batch costs nothing — and so a batch of pure no-ops does not emit a
+    // spurious geometryChanged().
+    int  m_bulkDepth = 0;
+    bool m_bulkDirty = false;
+
+    // See crsAssigned(). Set by srsChanged after load; the load path resets
+    // it to whether the .inp itself carried a CRS.
+    bool m_crsAssigned = false;
 
     /*!
      * \brief Uniform-grid spatial index over scene-space link bboxes.
@@ -2206,10 +2653,57 @@ private:
      *  arrays match the canonical QString-keyed state. */
     void rebuildFlagArrays();
 
+    /*! A newly created object must start visible and unselected. Hidden and
+     *  selected state are keyed by NAME: a fused / deleted object's name
+     *  stays in `m_hiddenObjects` / `m_hiddenKindMask` (the .oswp sidecar
+     *  persists and re-applies that set without checking the object still
+     *  exists) and in the selection mirrors, and the generated names
+     *  (`<base>_B`, `J<n>`) deterministically reuse a dead object's name —
+     *  so the next split / add inherited the dead object's hidden bit the
+     *  moment rebuildFlagArrays() ran, and the new link vanished from the
+     *  map as soon as it was deselected. Drop \p kindBit for \p name from
+     *  both sets before the flag arrays are rebuilt from them. Pure state
+     *  fix-up: no signal, no count adjustment (a name with no live object
+     *  never counted towards m_hiddenCountByCategory). */
+    void forgetStaleObjectState(const QString &name, quint8 kindBit);
+
     SWMMElementSymbol            m_junctionSym;
     /*! Marker override for virtual junctions — same CatJunctions bucket
      *  (decision D-G1: no 5th persisted category), distinct glyph. */
     SWMMElementSymbol            m_virtualJunctionSym;
+    /*! Marker override for inlet junctions — same CatJunctions bucket,
+     *  tested BEFORE the virtual override (an inlet junction is virtual). */
+    SWMMElementSymbol            m_inletJunctionSym;
+    /*! Style of the dashed host → capture-node overlay (§3.2). Only
+     *  fillColor (line colour) and outlineWidth (line width) are read. */
+    SWMMElementSymbol            m_inletConnectorSym;
+
+    /*! Lazily-rebuilt overlay geometry; invalidated by attributeChanged /
+     *  geometryChanged self-connections in the ctor. */
+    mutable QVector<InletConnector> m_inletConnectors;
+    mutable bool                    m_inletConnectorsDirty = true;
+    /*! Tri-state engine capability cache: -1 unknown, 0 no, 1 yes. */
+    mutable int                     m_inletJunctionSupport = -1;
+    /*! Canvas whose undo stack mediated (non-map-tool) edits push onto.
+     *  Non-owning; see setEditCanvas(). */
+    QPointer<MapCanvas>             m_editCanvas;
+    /*! Rebuild m_inletConnectors from the engine's usage rows. */
+    void rebuildInletConnectors() const;
+
+    /*! Cache sync shared by every conduit-split entry point (plain virtual
+     *  split and the inlet-junction split). Appends the inserted node and
+     *  the new downstream conduit, re-reads the partitioned interior
+     *  vertices of both conduits, and emits the geometry signal set. */
+    void syncSplitCaches(int li, int newNode, int newLink,
+                         const QString &newNodeName,
+                         const QString &newLinkName,
+                         const QString &origLinkName,
+                         int isVirtual, int isInlet);
+
+    /*! Cache sync shared by both fuse entry points. Removes the node and the
+     *  retired downstream conduit, then re-reads the surviving conduit's
+     *  downstream end and merged interior vertices. */
+    void syncFuseCaches(int ni, int dn, int surviving);
     SWMMElementSymbol            m_outfallSym;
     SWMMElementSymbol            m_storageSym;
     SWMMElementSymbol            m_dividerSym;
@@ -2220,6 +2714,32 @@ private:
     SWMMElementSymbol            m_outletSym;   // Slice FX.1 — Outlets honor showArrows independently of Conduits.
     SWMMElementSymbol            m_subcatchSym;
     SWMMElementSymbol            m_gageSym;
+
+    // Persistent per-kind symbol adapters keyed by subject routing id
+    // ("model.junctions" …). Lazily built by elementSymbolAdapter(); owned
+    // via QObject parenting. set*Symbol keeps their cached structs truthful
+    // through resyncSymbolAdapter().
+    QHash<QString, SwmmElementSymbolAdapter *> m_symbolAdapters;
+    /*! Push the freshly-set struct into the persistent adapter (if built)
+     *  without re-invoking the writer. */
+    void resyncSymbolAdapter(const QString &routingId,
+                             const SWMMElementSymbol &s);
+
+    // Data-edit epoch for derived style/label caches. Bumped whenever
+    // modelEdited or attributeChanged fires (self-connections in the ctor)
+    // so consumers (SWMMLayerItem's label cache) can detect staleness
+    // without wiring their own signal plumbing. Distinct from
+    // m_geomRevision, which tracks scene-coordinate rebuilds only.
+    quint64 m_editRevision = 0;
+    /*! Coalescing guard — the ctor's self-connections bump m_editRevision
+     *  immediately but defer invalidateDerivedStyleCaches() through a
+     *  zero-timeout singleShot so bulk edits cost one rebuild. */
+    bool m_derivedStyleCachesPending = false;
+    /*! Invalidate style caches derived from model DATA: clears every
+     *  graduated kind renderer's independent size value range and rebuilds
+     *  that kind's override cache so sizes re-normalise against the edited
+     *  values. */
+    void invalidateDerivedStyleCaches();
 
     // Slice BI Phase 8.13.6.5 — renderer plumbing. Eagerly initialised in
     // the ctor (default placeholder: SingleSymbolRenderer) so renderer()

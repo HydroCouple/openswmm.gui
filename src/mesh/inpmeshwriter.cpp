@@ -9,10 +9,13 @@
  */
 #include "mesh/inpmeshwriter.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
+#include "mesh/meshinfil.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QList>
 #include <QPair>
 #include <QSaveFile>
 #include <QSet>
@@ -20,6 +23,7 @@
 
 #include <QtCore/QChar>
 
+#include <algorithm>
 #include <cmath>
 
 namespace mesh {
@@ -31,9 +35,16 @@ namespace {
 
 constexpr const char *kSecVertices       = "[2D_VERTICES]";
 constexpr const char *kSecTriangles      = "[2D_TRIANGLES]";
+constexpr const char *kSecQuads          = "[2D_QUADS]";                // engine 2026-09-06 mixed meshes
 constexpr const char *kSecVertexNodeMap  = "[2D_VERTEX_NODE_MAP]";
 constexpr const char *kSecTriangleNodeMap= "[2D_TRIANGLE_NODE_MAP]";
 constexpr const char *kSecMeshFile       = "[2D_MESH_FILE]";
+// GG0a — per-cell infiltration. These are per-cell mesh attributes, so they
+// follow the mesh: into the external .2dm when one is in use, inline
+// otherwise (engine SectionHandlers2D.cpp §5.5.5 parses them from both).
+constexpr const char *kSecInfilOptions   = "[2D_INFILTRATION_OPTIONS]";
+constexpr const char *kSecInfilDefaults  = "[2D_INFILTRATION_DEFAULTS]";
+constexpr const char *kSecInfil          = "[2D_INFILTRATION]";
 
 QString formatVertices(const MeshResult &mesh)
 {
@@ -59,34 +70,46 @@ QString formatVertices(const MeshResult &mesh)
     return out;
 }
 
-QString formatTriangles(const MeshResult &mesh,
-                        const CouplingMap &coupling,
-                        double defaultMannings)
+/*! One cell section: `[2D_TRIANGLES]` (\p quads false — triangle cells
+ *  only) or `[2D_QUADS]` (\p quads true — quad cells only, `V1 V2 V3 V4
+ *  MANNINGS_N [INIT_DEPTH] [TAG]`). MeshResult::triangles holds every cell
+ *  in engine order (triangles first, then quads), so the cell index used
+ *  for \p coupling lookups is the position in that vector. */
+QString formatCellSection(const MeshResult &mesh,
+                          const CouplingMap &coupling,
+                          double defaultMannings,
+                          bool quads)
 {
     QString out;
     QTextStream s(&out);
     s.setRealNumberNotation(QTextStream::FixedNotation);
     s.setRealNumberPrecision(4);
 
-    s << kSecTriangles << "\n";
+    s << (quads ? kSecQuads : kSecTriangles) << "\n";
     // INIT_DEPTH (m, engine default 0 = dry) sits between MANNINGS_N and
-    // TAG. Emit the column for every row whenever any triangle carries a
-    // depth or a tag, so TAG's position stays unambiguous on re-read.
+    // TAG. Emit the column for every row whenever any cell carries a
+    // depth or a tag, so TAG's position stays unambiguous on re-read (the
+    // engine applies the same mesh-wide rule to both sections).
     bool anyDepth = false, anyTag = false;
     for (const MeshTriangle &t : mesh.triangles) {
         if (!std::isnan(t.initDepth) && t.initDepth != 0.0) anyDepth = true;
         if (!t.tag.isEmpty()) anyTag = true;
     }
     const bool writeDepthCol = anyDepth || anyTag;
-    if (writeDepthCol)
-        s << ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n";
+    if (quads)
+        s << (writeDepthCol ? ";; V1   V2   V3   V4   MANNINGS_N   INIT_DEPTH   TAG\n"
+                            : ";; V1   V2   V3   V4   MANNINGS_N   TAG\n");
     else
-        s << ";; V1   V2   V3   MANNINGS_N   TAG\n";
+        s << (writeDepthCol ? ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n"
+                            : ";; V1   V2   V3   MANNINGS_N   TAG\n");
     for (int i = 0; i < mesh.triangles.size(); ++i)
     {
         const MeshTriangle &t = mesh.triangles[i];
+        if (t.isQuad() != quads) continue;
         const double n = coupling.triangleMannings.value(i, defaultMannings);
-        s << t.v0 << "  " << t.v1 << "  " << t.v2 << "  " << n;
+        s << t.v0 << "  " << t.v1 << "  " << t.v2;
+        if (quads) s << "  " << t.v3;
+        s << "  " << n;
         if (writeDepthCol)
             s << "  " << (std::isnan(t.initDepth) ? 0.0 : t.initDepth);
         if (!t.tag.isEmpty())
@@ -94,6 +117,19 @@ QString formatTriangles(const MeshResult &mesh,
         s << "\n";
     }
     s << "\n";
+    return out;
+}
+
+/*! `[2D_TRIANGLES]` followed by `[2D_QUADS]` — the latter ONLY when the
+ *  mesh holds a quad, so all-triangle output is byte-identical to the
+ *  pre-quad writer. */
+QString formatTriangles(const MeshResult &mesh,
+                        const CouplingMap &coupling,
+                        double defaultMannings)
+{
+    QString out = formatCellSection(mesh, coupling, defaultMannings, /*quads=*/false);
+    if (mesh.hasQuads())
+        out += formatCellSection(mesh, coupling, defaultMannings, /*quads=*/true);
     return out;
 }
 
@@ -166,6 +202,137 @@ QString formatTriangleNodeMap(const MeshResult &mesh,
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// GG0a — [2D_INFILTRATION_OPTIONS] / _DEFAULTS / [2D_INFILTRATION]
+//
+// Grammar mirrors the engine's InpWriter.cpp emit2DInfilSections() /
+// SectionHandlers2D.cpp parseInfil2DRowTail() byte-for-byte:
+//
+//     [2D_INFILTRATION_DEFAULTS]
+//     ;;TAG   METHOD   P1 P2 P3 P4 P5   DEST
+//     *       NONE
+//     LAWN    HORTON   3  0.5  4.14  7  0   LOST
+//     [2D_INFILTRATION]
+//     ;;CELL  METHOD   P1 P2 P3 P4 P5   DEST
+//     1043    CURVE_NUMBER  85  -  0.5  LOST
+//
+// - CELL is 1-BASED in the file, 0-based in MeshResult::infilOverrides.
+// - `-` means "unset"; the parser leaves the slot at its default.
+// - Trailing columns the method does not use are trimmed to
+//   mesh::infilParamCount(); the one interior unused slot (Curve Number's
+//   middle column) is emitted as `-` so the columns after it keep position.
+// - DEST is recognised as the last token when it is neither numeric nor `-`.
+// - A NONE row carries neither parameters nor a destination.
+//
+// NOT appended to [2D_TRIANGLES]: its columns are positional
+// (V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]) and appending would break every
+// existing mesh.
+// ---------------------------------------------------------------------------
+
+/*! `METHOD [P1..Pn] [DEST]` — the row tail shared by both sections. */
+QString formatInfilRowTail(const InfilRow &row)
+{
+    QString out = infilMethodToken(row.method);
+    if (row.isNone()) return out;   // no parameters, no destination
+    const int n = infilParamCount(row.method);
+    for (int k = 0; k < n && k < kInfilMaxParams; ++k) {
+        out += QChar(' ');
+        if (!infilUsesParam(row.method, k) || std::isnan(row.p[k]))
+            out += QStringLiteral("-");
+        else
+            out += QString::number(row.p[k], 'g', 12);
+    }
+    out += QChar(' ');
+    out += infilDestToken(row.dest);
+    return out;
+}
+
+/*! `[2D_INFILTRATION_OPTIONS]`. Omitted entirely when the cadence is at the
+ *  engine default (<= 0 = "use the project WET_STEP"). */
+QString formatInfilOptions(const MeshResult &mesh)
+{
+    const double s = mesh.infilOptions.infilStep;
+    if (!(s > 0.0)) return {};
+
+    // Same clock grammar the engine's fmt_step() emits and its
+    // parse_time_seconds() accepts: h:mm:ss for a whole number of seconds,
+    // plain seconds otherwise.
+    QString value;
+    const long r = std::lround(s);
+    if (std::fabs(s - double(r)) < 0.001) {
+        value = QStringLiteral("%1:%2:%3")
+                    .arg(r / 3600)
+                    .arg((r / 60) % 60, 2, 10, QChar('0'))
+                    .arg(r % 60,        2, 10, QChar('0'));
+    } else {
+        value = QString::number(s, 'g', 12);
+    }
+
+    QString out;
+    out += QChar('\n');
+    out += QLatin1String(kSecInfilOptions);
+    out += QChar('\n');
+    out += QStringLiteral(";;Parameter             Value\n");
+    out += QStringLiteral("INFIL_STEP             %1\n").arg(value);
+    return out;
+}
+
+/*! `[2D_INFILTRATION_DEFAULTS]` — the tag rows, `*` = mesh-wide fallback.
+ *  Emitted in authoring order so a hand-edited file keeps its shape. */
+QString formatInfilDefaults(const MeshResult &mesh)
+{
+    if (mesh.infilDefaults.isEmpty()) return {};
+
+    QString out;
+    out += QChar('\n');
+    out += QLatin1String(kSecInfilDefaults);
+    out += QChar('\n');
+    out += QStringLiteral(";;TAG           METHOD               "
+                          "P1           P2           P3           "
+                          "P4           P5           DEST\n");
+    for (const InfilDefaultRow &d : mesh.infilDefaults) {
+        if (d.tag.isEmpty()) continue;   // a tagless default has no meaning
+        out += QStringLiteral("%1 %2\n")
+                   .arg(d.tag, -15).arg(formatInfilRowTail(d.row));
+    }
+    return out;
+}
+
+/*! `[2D_INFILTRATION]` — the sparse per-cell overrides. QHash iteration order
+ *  is unspecified, so rows are emitted in ascending triangle order; without
+ *  that a save with no edits still produces a different file every time. */
+QString formatInfilOverrides(const MeshResult &mesh)
+{
+    if (mesh.infilOverrides.isEmpty()) return {};
+
+    QList<int> tris = mesh.infilOverrides.keys();
+    std::sort(tris.begin(), tris.end());
+
+    QString out;
+    out += QChar('\n');
+    out += QLatin1String(kSecInfil);
+    out += QChar('\n');
+    out += QStringLiteral(";;CELL          METHOD               "
+                          "P1           P2           P3           "
+                          "P4           P5           DEST\n");
+    for (int t : tris) {
+        if (t < 0 || t >= mesh.triangles.size()) continue;   // stale index
+        // CELL is 1-BASED in the file.
+        out += QStringLiteral("%1 %2\n")
+                   .arg(t + 1, -15)
+                   .arg(formatInfilRowTail(mesh.infilOverrides.value(t)));
+    }
+    return out;
+}
+
+/*! All three infiltration sections, in the engine's emission order. Empty
+ *  when the mesh carries no infiltration data at all. */
+QString formatInfilSections(const MeshResult &mesh)
+{
+    return formatInfilOptions(mesh) + formatInfilDefaults(mesh)
+         + formatInfilOverrides(mesh);
+}
+
 /*! Strip every section named in \p ours from \p originalText. */
 QString stripSections(const QString &originalText, const QStringList &ours)
 {
@@ -206,10 +373,19 @@ QString stripExistingMeshSections(const QString &originalText,
     QStringList ours = {
         QStringLiteral("[2D_VERTICES]"),
         QStringLiteral("[2D_TRIANGLES]"),
+        QStringLiteral("[2D_QUADS]"),
         QStringLiteral("[2D_VERTEX_NODE_MAP]"),
         QStringLiteral("[2D_TRIANGLE_NODE_MAP]"),
         QStringLiteral("[2D_BOUNDARY_CONDITIONS]"),    // §V.VD.1
         QStringLiteral("[2D_EDGE_CONVEYANCE]"),        // Engine §11A
+        // GG0a — per-cell infiltration follows the mesh, so the .inp's copy
+        // must go whenever the mesh moves out to a .2dm. Leaving it behind
+        // would not lose data (the engine lets a sidecar section replace the
+        // inline one) but it would strand a stale copy that resurrects the
+        // moment the user deletes every override.
+        QStringLiteral("[2D_INFILTRATION_OPTIONS]"),
+        QStringLiteral("[2D_INFILTRATION_DEFAULTS]"),
+        QStringLiteral("[2D_INFILTRATION]"),
     };
     if (alsoMeshFileRef)
         ours.append(QStringLiteral("[2D_MESH_FILE]"));
@@ -241,34 +417,47 @@ QStringList sectionDataRows(const QString &text, const char *secName)
     return rows;
 }
 
-/*! `[2D_TRIANGLES]` rebuild for patchAttributeSections: connectivity and TAG
- *  come from \p mesh; MANNINGS_N (and INIT_DEPTH) come from the mesh triangle
- *  when set, else from the same row of \p origRows so values authored at
+/*! `[2D_TRIANGLES]` / `[2D_QUADS]` rebuild for patchAttributeSections:
+ *  connectivity and TAG come from \p mesh; MANNINGS_N (and INIT_DEPTH) come
+ *  from the mesh cell when set, else from the same row of the original
+ *  section (\p origTriRows for triangle cells, \p origQuadRows for quad
+ *  cells — the j-th quad row is cell n_triangles + j) so values authored at
  *  generation time (or by hand) survive the rewrite (both stay NaN until the
- *  user edits them). Columns are positional (`V1 V2 V3 MANNINGS_N
- *  [INIT_DEPTH] [TAG]`; a numeric 5th token means INIT_DEPTH), so a row that
- *  must carry a depth or a tag needs a MANNINGS_N token to hold column 4 —
- *  when neither the mesh nor the original row has one, \p defaultMannings is
- *  materialized rather than dropping the later columns. */
+ *  user edits them). Columns are positional (`V1 V2 V3 [V4] MANNINGS_N
+ *  [INIT_DEPTH] [TAG]`; a numeric token after MANNINGS_N means INIT_DEPTH),
+ *  so a row that must carry a depth or a tag needs a MANNINGS_N token to
+ *  hold its column — when neither the mesh nor the original row has one,
+ *  \p defaultMannings is materialized rather than dropping the later
+ *  columns. `[2D_QUADS]` is emitted only when the mesh holds a quad. */
 QString formatTrianglesPreserving(const MeshResult &mesh,
-                                  const QStringList &origRows,
+                                  const QStringList &origTriRows,
+                                  const QStringList &origQuadRows,
                                   double defaultMannings)
 {
-    QString out;
-    QTextStream s(&out);
-    s.setRealNumberNotation(QTextStream::FixedNotation);
-    s.setRealNumberPrecision(4);
-
-    // Original-row INIT_DEPTH (numeric 5th token) so hand-authored depths
-    // survive the rewrite even when MeshTriangle::initDepth is unset.
-    auto origDepthTok = [&origRows](int i) -> QString {
-        if (i >= origRows.size()) return {};
+    // Row of the original section backing cell i (triangle rows and quad
+    // rows are numbered independently within their sections).
+    QVector<int> sectionRow(mesh.triangles.size());
+    {
+        int nt = 0, nq = 0;
+        for (int i = 0; i < mesh.triangles.size(); ++i)
+            sectionRow[i] = mesh.triangles[i].isQuad() ? nq++ : nt++;
+    }
+    auto origRow = [&](int i) -> QString {
+        const QStringList &rows = mesh.triangles[i].isQuad() ? origQuadRows : origTriRows;
+        const int k = sectionRow[i];
+        return k < rows.size() ? rows[k] : QString();
+    };
+    // Original-row INIT_DEPTH (numeric token after MANNINGS_N) so
+    // hand-authored depths survive the rewrite even when
+    // MeshTriangle::initDepth is unset.
+    auto origDepthTok = [&](int i) -> QString {
+        const int nvert = mesh.triangles[i].vertexCount();
         const QStringList tok =
-            origRows[i].simplified().split(QChar(' '), Qt::SkipEmptyParts);
-        if (tok.size() < 5) return {};
+            origRow(i).simplified().split(QChar(' '), Qt::SkipEmptyParts);
+        if (tok.size() < nvert + 2) return {};
         bool okd = false;
-        tok[4].toDouble(&okd);
-        return okd ? tok[4] : QString();
+        tok[nvert + 1].toDouble(&okd);
+        return okd ? tok[nvert + 1] : QString();
     };
 
     bool anyDepth = false, anyTag = false;
@@ -281,52 +470,69 @@ QString formatTrianglesPreserving(const MeshResult &mesh,
     }
     const bool writeDepthCol = anyDepth || anyTag;
 
-    s << kSecTriangles << "\n";
-    if (writeDepthCol)
-        s << ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n";
-    else
-        s << ";; V1   V2   V3   MANNINGS_N   TAG\n";
-    for (int i = 0; i < mesh.triangles.size(); ++i)
-    {
-        const MeshTriangle &t = mesh.triangles[i];
-        s << t.v0 << "  " << t.v1 << "  " << t.v2;
-        QString manningsTok;
-        if (std::isfinite(t.mannings) && t.mannings > 0.0)
-        {
-            manningsTok = QString::number(t.mannings, 'f', 4);
-        }
-        else if (i < origRows.size())
-        {
-            const QStringList tok =
-                origRows[i].simplified().split(QChar(' '), Qt::SkipEmptyParts);
-            bool okn = false;
-            if (tok.size() >= 4) tok[3].toDouble(&okn);
-            if (okn) manningsTok = tok[3];
-        }
-        // A depth or tag can only be written behind a MANNINGS_N token
-        // (columns are positional). Materialize the default rather than
-        // silently dropping the edit.
-        const bool needsLaterCols = writeDepthCol || !t.tag.isEmpty();
-        if (manningsTok.isEmpty() && needsLaterCols)
-            manningsTok = QString::number(defaultMannings, 'f', 4);
+    auto formatSection = [&](bool quads) -> QString {
+        QString out;
+        QTextStream s(&out);
+        s.setRealNumberNotation(QTextStream::FixedNotation);
+        s.setRealNumberPrecision(4);
 
-        if (!manningsTok.isEmpty())
-            s << "  " << manningsTok;
-        if (!manningsTok.isEmpty() && writeDepthCol)
+        s << (quads ? kSecQuads : kSecTriangles) << "\n";
+        if (quads)
+            s << (writeDepthCol ? ";; V1   V2   V3   V4   MANNINGS_N   INIT_DEPTH   TAG\n"
+                                : ";; V1   V2   V3   V4   MANNINGS_N   TAG\n");
+        else
+            s << (writeDepthCol ? ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n"
+                                : ";; V1   V2   V3   MANNINGS_N   TAG\n");
+        for (int i = 0; i < mesh.triangles.size(); ++i)
         {
-            if (std::isfinite(t.initDepth))
-                s << "  " << t.initDepth;
+            const MeshTriangle &t = mesh.triangles[i];
+            if (t.isQuad() != quads) continue;
+            const int nvert = t.vertexCount();
+            s << t.v0 << "  " << t.v1 << "  " << t.v2;
+            if (quads) s << "  " << t.v3;
+            QString manningsTok;
+            if (std::isfinite(t.mannings) && t.mannings > 0.0)
+            {
+                manningsTok = QString::number(t.mannings, 'f', 4);
+            }
             else
             {
-                const QString od = origDepthTok(i);
-                s << "  " << (od.isEmpty() ? QStringLiteral("0") : od);
+                const QStringList tok =
+                    origRow(i).simplified().split(QChar(' '), Qt::SkipEmptyParts);
+                bool okn = false;
+                if (tok.size() >= nvert + 1) tok[nvert].toDouble(&okn);
+                if (okn) manningsTok = tok[nvert];
             }
+            // A depth or tag can only be written behind a MANNINGS_N token
+            // (columns are positional). Materialize the default rather than
+            // silently dropping the edit.
+            const bool needsLaterCols = writeDepthCol || !t.tag.isEmpty();
+            if (manningsTok.isEmpty() && needsLaterCols)
+                manningsTok = QString::number(defaultMannings, 'f', 4);
+
+            if (!manningsTok.isEmpty())
+                s << "  " << manningsTok;
+            if (!manningsTok.isEmpty() && writeDepthCol)
+            {
+                if (std::isfinite(t.initDepth))
+                    s << "  " << t.initDepth;
+                else
+                {
+                    const QString od = origDepthTok(i);
+                    s << "  " << (od.isEmpty() ? QStringLiteral("0") : od);
+                }
+            }
+            if (!manningsTok.isEmpty() && !t.tag.isEmpty())
+                s << "  " << t.tag;
+            s << "\n";
         }
-        if (!manningsTok.isEmpty() && !t.tag.isEmpty())
-            s << "  " << t.tag;
         s << "\n";
-    }
-    s << "\n";
+        return out;
+    };
+
+    QString out = formatSection(/*quads=*/false);
+    if (mesh.hasQuads())
+        out += formatSection(/*quads=*/true);
     return out;
 }
 
@@ -355,6 +561,10 @@ QString InpMeshWriter::buildSectionText(const MeshResult &mesh,
     out += formatTriangles(mesh, coupling, defaultMannings);
     out += formatVertexNodeMap(mesh, coupling);
     out += formatTriangleNodeMap(mesh, coupling);
+    // GG0a — [2D_INFILTRATION*] ride with the mesh, so they belong in
+    // whichever file this text lands in (the .2dm in external mode, the .inp
+    // inline). Omitted entirely when the mesh carries no infiltration data.
+    out += formatInfilSections(mesh);
     return out;
 }
 
@@ -378,6 +588,29 @@ ReadResult readInp(const QString &inpPath)
     r.text = QString::fromUtf8(in.readAll());
     r.ok   = true;
     return r;
+}
+
+/*! The `[2D_MESH_FILE]` FILE token for \a meshPath as seen from \a inpPath.
+ *
+ *  Uses the same idiom as every other relative-path site in the project
+ *  (ProjectSerializer::toRelativePath, RelativePathPicker, PathBrowseDelegate):
+ *  QDir::relativeFilePath, then QFileInfo::isRelative to detect the cross-volume
+ *  case where Qt hands back the absolute path unchanged.
+ *
+ *  This replaced a prefix match (`meshAbs.startsWith(inpDir + '/')`) that could
+ *  only express a mesh living AT OR BELOW the .inp directory. A mesh kept in a
+ *  sibling folder — a shared mesh directory, the common reason to keep it out of
+ *  the model folder — got a machine-specific absolute path instead of
+ *  `../mesh/x.2dm`, so the project stopped being movable.
+ */
+QString meshRefToken(const QString &inpPath, const QString &meshPath)
+{
+    const QDir inpDir = QFileInfo(inpPath).absoluteDir();
+    const QString meshAbs =
+        QDir::cleanPath(QFileInfo(meshPath).absoluteFilePath());
+    const QString rel = inpDir.relativeFilePath(meshAbs);
+    // Cross-volume (different drive / UNC share): Qt returns the absolute path.
+    return QFileInfo(rel).isRelative() ? rel : meshAbs;
 }
 
 bool atomicWrite(const QString &path, const QString &text, QString *errorOut)
@@ -476,19 +709,9 @@ bool InpMeshWriter::writeExternal(const QString &inpPath,
     // emit a fresh one).
     QString patched = stripExistingMeshSections(r.text, /*alsoMeshFileRef=*/true);
 
-    // Path relative to the .inp directory when both files share a parent;
-    // absolute otherwise. Keeps the project portable when copied as a
-    // unit, falls back to absolute if the user pointed at a shared mesh
-    // directory elsewhere.
-    QString refPath;
-    {
-        const QString meshAbs = QFileInfo(meshPath).absoluteFilePath();
-        const QString inpDir  = inpFi.absoluteDir().absolutePath();
-        if (meshAbs.startsWith(inpDir + QChar('/')))
-            refPath = meshAbs.mid(inpDir.size() + 1);
-        else
-            refPath = meshAbs;
-    }
+    // Relative to the .inp directory, including `../` forms; absolute only
+    // when no relative form exists (different volume).
+    const QString refPath = meshRefToken(inpPath, meshPath);
 
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));
@@ -521,19 +744,9 @@ bool InpMeshWriter::writeMeshFileRef(const QString &inpPath,
     // exists on disk; we only repoint the reference.
     QString patched = stripExistingMeshSections(r.text, /*alsoMeshFileRef=*/true);
 
-    // Path relative to the .inp directory when both share a parent;
-    // absolute otherwise. Mirrors writeExternal so generation and
-    // retargeting produce identical reference forms.
-    const QFileInfo inpFi(inpPath);
-    QString refPath;
-    {
-        const QString meshAbs = QFileInfo(meshFilePath).absoluteFilePath();
-        const QString inpDir  = inpFi.absoluteDir().absolutePath();
-        if (meshAbs.startsWith(inpDir + QChar('/')))
-            refPath = meshAbs.mid(inpDir.size() + 1);
-        else
-            refPath = meshAbs;
-    }
+    // Same token rule as writeExternal, so generation and retargeting produce
+    // identical reference forms.
+    const QString refPath = meshRefToken(inpPath, meshFilePath);
 
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));
@@ -629,8 +842,10 @@ QString InpMeshWriter::buildBCSectionText(const QVector<MeshEdgeBC> &bcs)
         const auto &bc = bcs[flat];
         if (bc.type == MeshBCTypes::Type::Wall && bc.group.isEmpty())
             continue;  // skip default-Wall rows to keep section compact
-        const int tri = flat / 3;
-        const int e   = flat % 3;
+        // Unified cell index + local edge (0..2 triangle, 0..3 quad); a
+        // triangle's padding slot 3 stays default-Wall and is skipped above.
+        const int tri = slotCell(flat);
+        const int e   = slotLocal(flat);
         QString param1 = QStringLiteral("*");
         switch (bc.type) {
         case MeshBCTypes::Type::Wall:
@@ -692,19 +907,20 @@ QString InpMeshWriter::buildConveyanceSectionText(const MeshResult &mesh,
     emitted.reserve(bcs.size() / 2);
     for (int t = 0; t < mesh.triangles.size(); ++t) {
         const auto &tri = mesh.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const int flat = t * 3 + e;
+        const int ne = tri.vertexCount();
+        for (int e = 0; e < ne; ++e) {
+            const int flat = edgeSlot(t, e);
             if (flat >= bcs.size())                       continue;
             if (bcs[flat].conveyance == kDefault)         continue;  // omit defaults
-            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
-                                                       : qMakePair(vb[e], va[e]);
+            int va = 0, vb = 0;
+            edgeEndpoints(tri, e, va, vb);
+            const QPair<int,int> key = (va < vb) ? qMakePair(va, vb)
+                                                 : qMakePair(vb, va);
             if (emitted.contains(key))                    continue;  // interior dupe
             emitted.insert(key);
             out.append(QStringLiteral("%1 %2 %3\n")
-                           .arg(va[e], 6)
-                           .arg(vb[e], 6)
+                           .arg(va, 6)
+                           .arg(vb, 6)
                            .arg(QString::number(bcs[flat].conveyance, 'g', 6)));
         }
     }
@@ -814,13 +1030,17 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
     // patching would scramble it. Leave the file untouched.
     const QStringList vRows = sectionDataRows(r.text, kSecVertices);
     const QStringList tRows = sectionDataRows(r.text, kSecTriangles);
+    const QStringList qRows = sectionDataRows(r.text, kSecQuads);
+    const int nQuad = mesh.quadCount();
+    const int nTri  = mesh.triangles.size() - nQuad;
     if (vRows.size() != mesh.vertices.size()
-        || tRows.size() != mesh.triangles.size()) {
+        || tRows.size() != nTri || qRows.size() != nQuad) {
         if (errorOut)
             *errorOut = QStringLiteral(
-                "mesh file has %1 vertices / %2 triangles; layer has %3 / %4")
-                .arg(vRows.size()).arg(tRows.size())
-                .arg(mesh.vertices.size()).arg(mesh.triangles.size());
+                "mesh file has %1 vertices / %2 triangles / %3 quads; "
+                "layer has %4 / %5 / %6")
+                .arg(vRows.size()).arg(tRows.size()).arg(qRows.size())
+                .arg(mesh.vertices.size()).arg(nTri).arg(nQuad);
         return false;
     }
 
@@ -836,14 +1056,25 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
     QString patched = stripSections(
         r.text, {QLatin1String(kSecVertices),
                  QLatin1String(kSecTriangles),
+                 QLatin1String(kSecQuads),
                  QLatin1String(kSecVertexNodeMap),
-                 QLatin1String(kSecTriangleNodeMap)});
+                 QLatin1String(kSecTriangleNodeMap),
+                 // GG0a — a section missing from THIS list (and from the
+                 // re-emit below) is discarded on every save: the save path
+                 // restores a pre-engine-write snapshot of the mesh file and
+                 // re-emits the GUI's state through this function. The
+                 // vertex-Z comment at swmmvisprojectwindow.cpp:1414-1419
+                 // documents the same failure mode.
+                 QLatin1String(kSecInfilOptions),
+                 QLatin1String(kSecInfilDefaults),
+                 QLatin1String(kSecInfil)});
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));
     patched.append(formatVertices(mesh));
-    patched.append(formatTrianglesPreserving(mesh, tRows, defaultMannings));
+    patched.append(formatTrianglesPreserving(mesh, tRows, qRows, defaultMannings));
     patched.append(formatVertexNodeMap(mesh, cm));
     patched.append(formatTriangleNodeMap(mesh, cm));
+    patched.append(formatInfilSections(mesh));
     return atomicWrite(filePath, patched, errorOut);
 }
 

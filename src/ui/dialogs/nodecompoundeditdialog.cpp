@@ -12,6 +12,7 @@
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/widgets/labeledcontrols.h"
 #include "ui/widgets/treatmentexpressionedit.h"
+#include "layers/speciesattributes.h"   // Y4 — age as an inflow constituent
 #include "layers/swmmmodellayer.h"
 #include "pattern/patternregistry.h"
 #include "timeseries/timeseriesregistry.h"
@@ -38,6 +39,7 @@
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_reactions.h>   // U2: MSX inflow constituents
 #include <openswmm/engine/openswmm_quality.h>
 #include <openswmm/engine/openswmm_tables.h>
 
@@ -47,6 +49,7 @@ NodeCompoundEditDialog::NodeCompoundEditDialog(NodeCompoundEditRef ref,
 {
     const char *titles[] = {
         "External Inflows", "Dry Weather Flow", "RDII", "Pollutant Treatment",
+        "Groundwater Sources",   // no page here (G5); keeps titles[kind] in range
     };
     // Iteration 2 (D2) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("NodeCompoundEditDialog"));
@@ -88,12 +91,36 @@ void NodeCompoundEditDialog::populateConstituentCombo(QComboBox *c)
     if (!c || !m_ref.engine) return;
     QSignalBlocker block(c);
     c->clear();
-    c->addItem(QStringLiteral("FLOW"));
+    // Y4 (amendment D-Y4): FLOW + pollutants + the reserved age species.
+    // Item DATA carries the engine name; the label may differ (the age
+    // entry reads "Water age (hours)" so nobody types mg/L thinking it).
+    QStringList pollutants;
     const int n = swmm_pollutant_count(m_ref.engine);
     for (int i = 0; i < n; ++i) {
         const char *id = swmm_pollutant_id(m_ref.engine, i);
-        if (id && *id) c->addItem(QString::fromUtf8(id));
+        if (id && *id) pollutants << QString::fromUtf8(id);
     }
+    // U2 (2026-09-07): reactions-component BULK species are inflow
+    // constituents on the same footing as pollutants — CONCEN multiplies
+    // the node's inflow, MASS is a direct rate. WALL species are omitted:
+    // inflow water carries no wall-bound mass (the engine warns and drops
+    // such a row).
+    const int nsp = swmm_reaction_species_count(m_ref.engine);
+    for (int m = 0; m < nsp; ++m) {
+        char name[128] = {0}, units[32] = {0};
+        int isWall = 0;
+        double atol = 0.0, rtol = 0.0;
+        if (swmm_reaction_species_get(m_ref.engine, m, name, sizeof(name), &isWall,
+                                      units, sizeof(units), &atol, &rtol) != SWMM_OK)
+            continue;
+        if (isWall || !name[0]) continue;
+        const QString nm = QString::fromUtf8(name);
+        if (!pollutants.contains(nm)) pollutants << nm;
+    }
+    const QStringList names =
+        OpenSWMMVis::Species::inflowConstituentNames(pollutants);
+    for (const QString &name : names)
+        c->addItem(OpenSWMMVis::Species::inflowConstituentLabel(name), name);
 }
 
 void NodeCompoundEditDialog::populateTimeSeriesCombo(LabeledPickerCombo *p)
@@ -202,7 +229,10 @@ void NodeCompoundEditDialog::wirePicker(LabeledPickerCombo *picker,
 void NodeCompoundEditDialog::updateInflowsMassEnabled()
 {
     if (!m_inflowsConstCombo || !m_inflowsTypeCombo) return;
-    const bool isFlow = (m_inflowsConstCombo->currentText() == QLatin1String("FLOW"));
+    // Y4: pollutant-only — disabled for FLOW and the age species (the
+    // engine would take a MASS-typed age row as hours with a warning).
+    const bool isFlow = !OpenSWMMVis::Species::inflowMassAllowed(
+        m_inflowsConstCombo->currentData().toString());
     // QComboBox doesn't expose per-item enable directly; reach into its
     // underlying QStandardItemModel.
     auto *model = qobject_cast<QStandardItemModel *>(m_inflowsTypeCombo->model());
@@ -212,9 +242,14 @@ void NodeCompoundEditDialog::updateInflowsMassEnabled()
     Qt::ItemFlags f = massItem->flags();
     if (isFlow) {
         f &= ~(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-        // If MASS was selected, drop back to FLOW.
+        // If MASS was selected, drop back to something legal: FLOW for
+        // the FLOW constituent, CONCEN for the age species (its value
+        // is "the inflow carries age A", exactly CONCEN's shape).
         if (m_inflowsTypeCombo->currentIndex() == 2)
-            m_inflowsTypeCombo->setCurrentIndex(0);
+            m_inflowsTypeCombo->setCurrentIndex(
+                m_inflowsConstCombo->currentData().toString() ==
+                        QLatin1String("FLOW")
+                    ? 0 : 1);
     } else {
         f |= Qt::ItemIsEnabled | Qt::ItemIsSelectable;
     }
@@ -324,7 +359,8 @@ void NodeCompoundEditDialog::buildInflowsPage()
     connect(addBtn, &QPushButton::clicked, this, [this]() {
         const int idx = nodeIdx();
         if (idx < 0) return;
-        const QString constituent = m_inflowsConstCombo->currentText();
+        const QString constituent =
+            m_inflowsConstCombo->currentData().toString();
         const QByteArray cons = constituent.toUtf8();
         const QByteArray ts   = m_inflowsTsPicker->currentText().toUtf8();
         const QByteArray type = m_inflowsTypeCombo->currentText().toUtf8();
@@ -381,7 +417,12 @@ void NodeCompoundEditDialog::buildInflowsPage()
             QTableWidgetItem *it = m_inflowsTable->item(row, col);
             return it ? it->text() : QString();
         };
-        m_inflowsConstCombo->setCurrentText(cellText(0));
+        {
+            // The table shows engine names; the combo labels the reserved
+            // species — match by item DATA.
+            const int ci = m_inflowsConstCombo->findData(cellText(0));
+            if (ci >= 0) m_inflowsConstCombo->setCurrentIndex(ci);
+        }
         m_inflowsTypeCombo->setCurrentText(cellText(1));
         m_inflowsTsPicker->setCurrentText(cellText(2));
         m_inflowsBaseSpin->setValue(cellText(3).toDouble());
@@ -939,5 +980,7 @@ void NodeCompoundEditDialog::refreshActivePage()
             : tr("(none)");
         break;
     }
+    case NodeCompoundEditRef::GroundwaterSources:
+        break;   // no page here — NodeCompoundEditButton routes it elsewhere
     }
 }

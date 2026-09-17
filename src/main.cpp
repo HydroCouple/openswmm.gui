@@ -11,19 +11,106 @@
  * \warning
  * \todo
  */
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QLocale>
+#include <QMutex>
+#include <QStandardPaths>
 #include <QTranslator>
 #include <QScopedPointer>
 #include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QSurfaceFormat>
 #include <QtQml/qqml.h>
+#include <cstdlib>
+#include <exception>
+#include <string>
+
+#include <cstdio>
 
 #include "swmmvisapplication.h"
 #include "swmmvis.h"
 #include "map/swmmlayerqsgrenderer.h"
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
+
+// ── File-tee message handler ─────────────────────────────────────────────
+// BULK_DELETE_AND_WINDOWS_OPEN_PERF_PLAN Phase 0.  On Windows the app is a
+// WIN32_EXECUTABLE with no console and no message handler, so every
+// qDebug/qCInfo — including the openswmm.load.* profiling categories — goes
+// only to OutputDebugString and is unreachable without DebugView.  This
+// opt-in tee writes every message to a file the user can actually read.
+//
+// Opt in with SWMM_LOG_FILE=<path>, or SWMM_LOG_FILE=1 for the default
+// location under AppDataLocation/logs.  The chosen path is printed to
+// stderr and written as the file's first line, so the location is always
+// discoverable.  The previous handler is chained so platform behaviour
+// (and any handler a test installs LATER, which replaces this one) is
+// unchanged.  Messages arrive from worker threads too, hence the mutex.
+
+namespace {
+
+QtMessageHandler g_prevMessageHandler = nullptr;
+FILE            *g_logFileHandle      = nullptr;
+QBasicMutex      g_logFileMutex;
+
+void fileTeeMessageHandler(QtMsgType type, const QMessageLogContext &ctx,
+                           const QString &msg)
+{
+    {
+        QMutexLocker lock(&g_logFileMutex);
+        if (g_logFileHandle)
+        {
+            const QByteArray line =
+                QDateTime::currentDateTime()
+                    .toString(QStringLiteral("hh:mm:ss.zzz "))
+                    .toUtf8()
+                + (ctx.category ? QByteArray(ctx.category) + ": "
+                                : QByteArray())
+                + msg.toUtf8() + '\n';
+            std::fwrite(line.constData(), 1, size_t(line.size()),
+                        g_logFileHandle);
+            std::fflush(g_logFileHandle);
+        }
+    }
+    if (g_prevMessageHandler) g_prevMessageHandler(type, ctx, msg);
+}
+
+void installFileTeeIfRequested()
+{
+    const QByteArray req = qgetenv("SWMM_LOG_FILE");
+    if (req.isEmpty()) return;
+
+    QString path = QString::fromLocal8Bit(req);
+    if (path == QLatin1String("1") || path.compare(QLatin1String("auto"),
+                                                   Qt::CaseInsensitive) == 0)
+    {
+        const QString dir = QStandardPaths::writableLocation(
+                                QStandardPaths::AppDataLocation)
+                            + QStringLiteral("/logs");
+        QDir().mkpath(dir);
+        path = dir + QStringLiteral("/swmmvis-")
+             + QDateTime::currentDateTime().toString(
+                   QStringLiteral("yyyyMMdd-hhmmss"))
+             + QStringLiteral(".log");
+    }
+
+    g_logFileHandle = std::fopen(QFile::encodeName(path).constData(), "a");
+    if (!g_logFileHandle)
+    {
+        std::fprintf(stderr, "SWMM_LOG_FILE: cannot open '%s' for append\n",
+                     qPrintable(path));
+        return;
+    }
+    std::fprintf(g_logFileHandle, "== SWMMVis log %s ==\n",
+                 qPrintable(QDateTime::currentDateTime().toString(Qt::ISODate)));
+    std::fflush(g_logFileHandle);
+    std::fprintf(stderr, "SWMM_LOG_FILE: logging to %s\n", qPrintable(path));
+    g_prevMessageHandler = qInstallMessageHandler(fileTeeMessageHandler);
+}
+
+} // namespace
 
 /*!
  * \brief main
@@ -33,6 +120,25 @@
  */
 int main(int argc, char *argv[])
     {
+    // Perf-plan Phase 0 — opt-in file logging (SWMM_LOG_FILE).  Installed
+    // before anything can log so early open phases are captured.
+    installFileTeeIfRequested();
+
+    // Last resort: an uncaught exception on any thread ends the process —
+    // say why (through the message handler, so the file tee gets it too)
+    // before it does. The simulation runner and the event loop guard catch
+    // theirs; this covers everything else.
+    std::set_terminate([]() {
+        std::string what = "unknown";
+        if (auto ex = std::current_exception()) {
+            try { std::rethrow_exception(ex); }
+            catch (const std::exception &e) { what = e.what(); }
+            catch (...) { what = "non-standard exception"; }
+        }
+        qCritical("SWMMVis: terminating on an uncaught exception: %s", what.c_str());
+        std::abort();
+    });
+
     // §QSG-3 — Force the Qt Scene Graph onto the OpenGL RHI backend on
     // macOS instead of the default Metal. Symptom that drove this:
     // geometry uploaded to certain QSGGeometryNodes (specifically the
@@ -43,8 +149,32 @@ int main(int argc, char *argv[])
     // matching pixels in the grabbed FBO). The OpenGL backend doesn't
     // exhibit this bug. Must be set BEFORE QGuiApplication is constructed
     // or the env var has no effect.
-    qputenv("QSG_RHI_BACKEND", "opengl");
-    qputenv("QSG_RENDER_LOOP", "threaded");
+    //
+    // macOS ONLY (perf plan Phase B1, 2026-09-01): applied unconditionally
+    // this workaround forced Windows off Qt's D3D11 default onto desktop
+    // GL — and onto opengl32sw.dll software rasterization on weak-GL boxes
+    // (RDP, VMs, hybrid-GPU laptops), the prime "open is extremely laggy
+    // on Windows" suspect. Shaders ship HLSL 5.0 (qsb defaults) and no
+    // GL-only scenegraph code exists, so other platforms take Qt's native
+    // backend. Respect a pre-set env var so any platform can override for
+    // diagnostics (QSG_INFO=1 prints the active backend).
+#ifdef Q_OS_MACOS
+    if (!qEnvironmentVariableIsSet("QSG_RHI_BACKEND"))
+        qputenv("QSG_RHI_BACKEND", "opengl");
+    if (!qEnvironmentVariableIsSet("QSG_RENDER_LOOP"))
+        qputenv("QSG_RENDER_LOOP", "threaded");
+#endif
+
+    // The engine sizes its OpenMP team against the machine's logical CPUs
+    // and then spin-waits between barriers whenever that team "fits". In
+    // this process it shares the CPUs with the GUI thread, the threaded
+    // scene-graph render thread and its own IO thread — say so
+    // (OPENSWMM_HOST_RESERVED_THREADS is read by the engine's
+    // oversubscription check), so a THREADS = all-cores deck falls back to
+    // passive waits with a warning instead of stalling every barrier on a
+    // descheduled spinner. Respect a pre-set value.
+    if (!qEnvironmentVariableIsSet("OPENSWMM_HOST_RESERVED_THREADS"))
+        qputenv("OPENSWMM_HOST_RESERVED_THREADS", "3");
     // QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL); // or Qt::AA_UseOpenGLES
     // Alternatively, for Qt 6, force Metal:
     // qputenv("QSG_RHI_BACKEND", "metal");

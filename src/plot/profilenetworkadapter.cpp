@@ -10,6 +10,8 @@
 
 #include "plot/profilenetworkadapter.h"
 
+#include <cmath>
+
 #include <algorithm>
 
 namespace ProfileNetworkAdapter
@@ -86,6 +88,7 @@ ProfileBuilder::PathStatic buildPathStatic(
         ns.maxDepth       = n.maxDepth;
         ns.surchargeDepth = n.surchargeDepth;
         ns.kind           = n.kind;
+        ns.isInlet        = n.isInlet;
         out.nodes.push_back(ns);
     }
     for (const PathLinkInfo &l : links) {
@@ -96,12 +99,23 @@ ProfileBuilder::PathStatic buildPathStatic(
         ls.offset2     = l.offset2;
         ls.maxDepth    = l.maxDepth;
         ls.crestHeight = l.crestHeight;
+        ls.openTop     = l.openTop;
+        ls.isStreet    = l.isStreet;
         ls.kind        = l.kind;
         ls.reversed    = l.reversed;
         out.links.push_back(ls);
     }
     out.chainage = ProfileBuilder::computeChainage(out.links);
     return out;
+}
+
+double bearingFromPoints(const QPointF &at, const QPointF &away)
+{
+    const double dx = away.x() - at.x();
+    const double dy = away.y() - at.y();
+    if (dx == 0.0 && dy == 0.0) return ProfileBuilder::kNoBearing;
+    // (dx, dy) rather than (dy, dx): puts 0 at +y and grows clockwise.
+    return std::atan2(dx, dy);
 }
 
 } // namespace ProfileNetworkAdapter

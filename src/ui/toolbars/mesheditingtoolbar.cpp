@@ -9,11 +9,14 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
+#include "core/unitsystem.h"
 #include "map/mapcanvas.h"
 #include "map/meshcommands.h"
 #include "mesh/meshautocouple.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshcellparams.h"
+#include "mesh/meshinfil.h"
 #include "mesh/meshnodemapper.h"
 #include "mesh/meshhoverprobe.h"
 #include "mesh/meshobjectref.h"
@@ -23,6 +26,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QComboBox>
+#include <QShowEvent>
 #include <QDoubleSpinBox>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -30,6 +34,9 @@
 #include <QLabel>
 #include <QLayout>
 #include <QLineEdit>
+#include <QScopedValueRollback>
+
+#include <algorithm>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSizePolicy>
@@ -195,8 +202,8 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         "Map SWMM model nodes onto the active mesh.\n"
         "Nodes coincident with a mesh vertex use vertex coupling; other\n"
         "nodes inside the mesh couple to their containing cell (several\n"
-        "nodes may share one cell). Existing couplings are preserved unless\n"
-        "you choose a full re-map."));
+        "nodes may share one cell). All existing couplings are cleared\n"
+        "first (you will be asked to confirm)."));
     m_barCoupling->addAction(m_actRemap);
     connect(m_actRemap, &QAction::triggered,
             this, &MeshEditingToolbar::onRemapClicked);
@@ -236,12 +243,17 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         m_vertexAreaSpin->setDecimals(3);
         m_vertexAreaSpin->setSingleStep(0.1);
         m_vertexAreaSpin->setValue(1.0);
+        // Suffix follows the active mesh's units (refreshVertexEditor): the
+        // AREA column is mesh-length² — ft² on a US project unless the mesh
+        // file is tagged `;; UNITS: SI (m)` — and the engine scales it with
+        // the mesh. It is NOT always m².
         m_vertexAreaSpin->setSuffix(tr(" m²"));
         m_vertexAreaSpin->setKeyboardTracking(false);
         m_vertexAreaSpin->setToolTip(tr(
             "Coupling exchange area ([2D_VERTEX_NODE_MAP] AREA column), the\n"
-            "orifice-throat area of the 1D↔2D exchange in m².\n"
-            "Default 1.0 m². Applies to every selected coupled vertex."));
+            "orifice-throat area of the 1D↔2D exchange, in the mesh's length\n"
+            "units squared (project units unless the mesh file is tagged SI).\n"
+            "Default 1.0. Applies to every selected coupled vertex."));
         lay->addWidget(m_vertexAreaSpin);
         m_actVertexArea = m_barVertices->addWidget(page);
     }
@@ -283,12 +295,14 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
 
     // BC type combo.
     m_bcTypeCombo = new QComboBox(this);
+    m_bcTypeCombo->setObjectName(QStringLiteral("meshBcTypeCombo"));
     m_bcTypeCombo->setMinimumWidth(200);
     m_bcTypeCombo->setToolTip(tr(
         "Boundary condition type for the selected edge(s).\n"
         "Changes apply immediately to every selected edge.\n"
         "NB: NORMAL_FLOW needs a non-zero bed slope — with slope 0\n"
-        "the edge behaves as a Wall."));
+        "the edge behaves as a Wall. The slope is signed: positive\n"
+        "drains the domain, negative feeds it."));
     using mesh::MeshBCTypes;
     for (auto t : {MeshBCTypes::Type::Wall,
                    MeshBCTypes::Type::NormalFlow,
@@ -348,9 +362,17 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     // 0 Wall — empty page.
     m_bcParamStack->addWidget(new QWidget(m_bcParamStack));
     // 1 NormalFlow — slope spin.
-    makeSpinPage(&m_slopeSpin, tr("Slope:"), 0.0, 1.0, 5, 0.001,
-                 tr("Bed slope (dimensionless). Must be > 0 — the engine "
-                    "treats a zero slope as a wall (no auto-compute)."));
+    makeSpinPage(&m_slopeSpin, tr("Slope:"), -1.0, 1.0, 5, 0.001,
+                 tr("Bed slope (dimensionless), SIGNED.\n\n"
+                    "Positive — the bed falls away from the domain, so the "
+                    "edge drains it (Manning outflow).\n"
+                    "Negative — the bed falls toward the domain, so the edge "
+                    "feeds it at the same Manning rate.\n"
+                    "Zero — conveys nothing; the edge behaves as a wall "
+                    "(there is no auto-compute).\n\n"
+                    "An inflow slope conveys with the depth already in the "
+                    "boundary cell, so it cannot start a dry cell — use a "
+                    "Specified Flow edge for dry-bed inflow."));
     // 2 SpecifiedStageConst — stage spin.
     makeSpinPage(&m_stageSpin, tr("Stage:"), -1.0e6, 1.0e6, 3, 0.1,
                  tr("Prescribed water-surface elevation (project vertical units)."));
@@ -363,6 +385,15 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     makeNamePage(&m_flowTSCombo, tr("TS:"));
     // 6 RatingCurve — curve combo.
     makeNamePage(&m_curveCombo, tr("Curve:"));
+
+    // objectNames so tests (and Squish-style tooling) can findChild the
+    // param widgets — they are created inside the page lambdas above.
+    m_slopeSpin->setObjectName(QStringLiteral("meshBcSlopeSpin"));
+    m_stageSpin->setObjectName(QStringLiteral("meshBcStageSpin"));
+    m_stageTSCombo->setObjectName(QStringLiteral("meshBcStageTSCombo"));
+    m_flowSpin->setObjectName(QStringLiteral("meshBcFlowSpin"));
+    m_flowTSCombo->setObjectName(QStringLiteral("meshBcFlowTSCombo"));
+    m_curveCombo->setObjectName(QStringLiteral("meshBcCurveCombo"));
 
     m_actBCParamStack = m_barEdges->addWidget(m_bcParamStack);
 
@@ -390,6 +421,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         lay->setContentsMargins(0, 0, 0, 0);
         lay->addWidget(new QLabel(QStringLiteral("ψ:"), page));
         m_conveySpin = new QDoubleSpinBox(page);
+        m_conveySpin->setObjectName(QStringLiteral("meshBcConveySpin"));
         m_conveySpin->setRange(0.0, 1.0);
         m_conveySpin->setDecimals(3);
         m_conveySpin->setSingleStep(0.05);
@@ -463,10 +495,20 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         m_cellValueSpin->setKeyboardTracking(false);
         lay->addWidget(m_cellValueSpin);
 
+        // Kind::Enum parameters (the infiltration method) get a combo, not a
+        // numeric spinner over the enumeration's integer range. Both editors
+        // occupy the same slot; onCellParamChanged shows the right one.
+        m_cellEnumCombo = new QComboBox(m_cellParamPage);
+        m_cellEnumCombo->setMinimumWidth(150);
+        m_cellEnumCombo->setVisible(false);
+        lay->addWidget(m_cellEnumCombo);
+
         connect(m_cellParamCombo, qOverload<int>(&QComboBox::currentIndexChanged),
                 this, &MeshEditingToolbar::onCellParamChanged);
         connect(m_cellValueSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
                 this, &MeshEditingToolbar::onCellParamCommit);
+        connect(m_cellEnumCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+                this, &MeshEditingToolbar::onCellEnumCommit);
     }
     m_cellParamPage->setEnabled(false);
     onCellParamChanged(m_cellParamCombo->currentIndex());   // seed spin config
@@ -540,6 +582,14 @@ QAction *MeshEditingToolbar::addToolWidget(QWidget *widget)
 {
     if (!widget || !m_barResults) return nullptr;
     return m_barResults->addWidget(widget);
+}
+
+void MeshEditingToolbar::addCellAction(QAction *action)
+{
+    if (!action || !m_barResults) return;
+    m_actCellInfil = action;
+    m_barResults->addAction(action);
+    updateEnabledState();   // apply initial hidden state
 }
 
 void MeshEditingToolbar::addProfileAction(QAction *action)
@@ -788,8 +838,17 @@ QList<int> MeshEditingToolbar::currentSelectedVertices() const
     return out;
 }
 
+QString MeshEditingToolbar::meshAreaUnitLabel() const
+{
+    if (m_activeMesh && m_activeMesh->meshUnitsSI()) return QStringLiteral("m²");
+    auto *us = UnitSystem::instance();
+    return (us ? us->lengthLabel() : QStringLiteral("ft")) + QStringLiteral("²");
+}
+
 void MeshEditingToolbar::refreshVertexEditor()
 {
+    if (m_vertexAreaSpin)
+        m_vertexAreaSpin->setSuffix(QStringLiteral(" ") + meshAreaUnitLabel());
     const QList<int> verts = currentSelectedVertices();
     // The coupled-node dropdown's item list is refreshed on rebind; here we
     // only set the current value. Visibility/enablement is owned by
@@ -885,20 +944,52 @@ void MeshEditingToolbar::refreshEdgeEditor()
         m_edgeInfoLbl->setText(tr("Edges: (none)"));
         return;
     }
+    // Every widget write below is display-only. commitBCParam /
+    // commitConveyance / onBCTypeChanged early-return while this is set, so
+    // the per-slot attributeChanged emissions of a RUNNING bulk command
+    // cannot re-enter here and push a nested edit that rewrites
+    // already-updated edges with their old values (§V.VC.3).
+    const QScopedValueRollback<bool> refreshing(m_refreshingEdgeEditor, true);
+
     const auto edges = currentSelectedEdges();
     int nBoundary = 0;
     for (const auto &pr : edges)
         if (m_activeMesh->isBoundaryEdge(pr.first, pr.second)) ++nBoundary;
 
-    // Seed ψ from the first selected edge whenever there IS a selection —
-    // works for both single- and multi-edge selections, boundary or interior.
-    if (!edges.isEmpty() && m_conveySpin) {
-        const auto &bcs = m_activeMesh->edgeBCs();
-        const int flat0 = edges.front().first * 3 + edges.front().second;
-        if (flat0 >= 0 && flat0 < bcs.size()) {
-            QSignalBlocker block(m_conveySpin);
-            m_conveySpin->setValue(bcs[flat0].conveyance);
-        }
+    // Aggregate across the selection (refreshVertexEditor's same-flag
+    // convention): the BC fields aggregate over BOUNDARY edges — interior
+    // slots hold the default Wall value the engine ignores, and folding them
+    // in would report "mixed" for a perfectly uniform boundary run — while
+    // ψ aggregates over every selected edge (it applies to interior edges
+    // too).
+    const auto &bcs = m_activeMesh->edgeBCs();
+    bool typeSame = true, slopeSame = true, headSame = true, flowSame = true,
+         tsSame = true, curveSame = true, conveySame = true;
+    mesh::MeshEdgeBC first;
+    bool haveFirst = false;         // first BOUNDARY edge in sorted order
+    double convey0 = 1.0;
+    bool haveConvey = false;        // first edge of any kind
+    for (const auto &pr : edges) {
+        const int flat = mesh::edgeSlot(pr.first, pr.second);
+        if (flat < 0 || flat >= bcs.size()) continue;
+        const mesh::MeshEdgeBC &bc = bcs[flat];
+        if (!haveConvey) { convey0 = bc.conveyance; haveConvey = true; }
+        else if (bc.conveyance != convey0) conveySame = false;
+        if (!m_activeMesh->isBoundaryEdge(pr.first, pr.second)) continue;
+        if (!haveFirst) { first = bc; haveFirst = true; continue; }
+        if (bc.type    != first.type)    typeSame  = false;
+        if (bc.slope   != first.slope)   slopeSame = false;
+        if (bc.head    != first.head)    headSame  = false;
+        if (bc.flow    != first.flow)    flowSame  = false;
+        if (bc.tseries != first.tseries) tsSame    = false;
+        if (bc.curve   != first.curve)   curveSame = false;
+    }
+
+    // ψ: the uniform value, or the 1.000 default on disagreement (the
+    // vertex editor's Cd/Area convention).
+    if (m_conveySpin) {
+        QSignalBlocker block(m_conveySpin);
+        m_conveySpin->setValue((haveConvey && conveySame) ? convey0 : 1.000);
     }
 
     if (edges.isEmpty()) {
@@ -912,11 +1003,8 @@ void MeshEditingToolbar::refreshEdgeEditor()
         if (tri >= 0 && tri < triangles.size()) {
             const auto &t = triangles[tri];
             int va = -1, vb = -1;
-            switch (e) {
-            case 0: va = t.v1; vb = t.v2; break;
-            case 1: va = t.v2; vb = t.v0; break;
-            case 2: va = t.v0; vb = t.v1; break;
-            }
+            if (e >= 0 && e < t.vertexCount())
+                mesh::edgeEndpoints(t, e, va, vb);
             for (const auto &be : m_activeMesh->mesh().boundaryEdges) {
                 if ((be.v0 == va && be.v1 == vb) ||
                     (be.v0 == vb && be.v1 == va)) {
@@ -932,36 +1020,48 @@ void MeshEditingToolbar::refreshEdgeEditor()
     } else {
         m_edgeInfoLbl->setText(tr("Edges: %1 (%2 boundary)")
                                 .arg(edges.size()).arg(nBoundary));
+    }
 
-        // Populate combo + param widgets from the first selected edge's
-        // current BC value, so the user sees the existing state before
-        // editing. Mixed values across the multi-selection: combo flips
-        // to the first edge's type; spinboxes show its values; the user
-        // can Apply to overwrite all. (Slice §V.VC.2 will surface a
-        // "mixed" placeholder per the §V.VC plan once we have a
-        // dedicated "indeterminate" UI primitive.)
-        const auto &bcs = m_activeMesh->edgeBCs();
-        const int flat0 = edges.front().first * 3 + edges.front().second;
-        if (flat0 >= 0 && flat0 < bcs.size()) {
-            const mesh::MeshEdgeBC &bc = bcs[flat0];
-            const int comboIdx = m_bcTypeCombo
-                ? m_bcTypeCombo->findData(static_cast<int>(bc.type))
-                : -1;
-            if (comboIdx >= 0) {
-                QSignalBlocker block(m_bcTypeCombo);
-                m_bcTypeCombo->setCurrentIndex(comboIdx);
-                m_bcParamStack->setCurrentIndex(comboIdx);
-            }
-            if (m_slopeSpin)  { QSignalBlocker b(m_slopeSpin);  m_slopeSpin->setValue(bc.slope); }
-            if (m_stageSpin)  { QSignalBlocker b(m_stageSpin);  m_stageSpin->setValue(bc.head); }
-            if (m_flowSpin)   { QSignalBlocker b(m_flowSpin);   m_flowSpin->setValue(bc.flow); }
-            if (m_stageTSCombo && bc.type == mesh::MeshBCTypes::Type::SpecifiedStageTS)
-                m_stageTSCombo->setCurrentText(bc.tseries);
-            if (m_flowTSCombo && bc.type == mesh::MeshBCTypes::Type::SpecifiedFlowTS)
-                m_flowTSCombo->setCurrentText(bc.tseries);
-            if (m_curveCombo && bc.type == mesh::MeshBCTypes::Type::RatingCurve)
-                m_curveCombo->setCurrentText(bc.curve);
+    // Hydrate the BC widgets for ANY selection with at least one boundary
+    // edge — a single edge is just the N=1 uniform case (§V.VC.2, the
+    // "mixed" gap, closed with the existing placeholder idiom). Uniform
+    // fields show their value; a mixed type renders the combo empty
+    // (index -1 → updateEnabledState hides the param stack); a uniform
+    // type with mixed params shows type defaults in the spins and a
+    // <multiple> placeholder in the name combos. Every setter runs under
+    // a QSignalBlocker: these combos commit on currentTextChanged, so an
+    // unblocked display refresh WAS a bulk write of an arbitrary edge's
+    // value onto the whole selection.
+    if (haveFirst) {
+        const int comboIdx = (typeSame && m_bcTypeCombo)
+            ? m_bcTypeCombo->findData(static_cast<int>(first.type))
+            : -1;
+        if (m_bcTypeCombo) {
+            QSignalBlocker block(m_bcTypeCombo);
+            m_bcTypeCombo->setCurrentIndex(comboIdx);   // -1 renders empty
         }
+        if (m_bcParamStack && comboIdx >= 0
+            && comboIdx < m_bcParamStack->count())
+            m_bcParamStack->setCurrentIndex(comboIdx);
+        if (m_slopeSpin) { QSignalBlocker b(m_slopeSpin);
+            m_slopeSpin->setValue(slopeSame ? first.slope : 0.0); }
+        if (m_stageSpin) { QSignalBlocker b(m_stageSpin);
+            m_stageSpin->setValue(headSame ? first.head : 0.0); }
+        if (m_flowSpin)  { QSignalBlocker b(m_flowSpin);
+            m_flowSpin->setValue(flowSame ? first.flow : 0.0); }
+        const auto setNameCombo = [](QComboBox *combo, bool same,
+                                     const QString &value,
+                                     const QString &placeholder) {
+            if (!combo) return;
+            QSignalBlocker b(combo);
+            combo->setCurrentText(same ? value : QString());
+            if (combo->lineEdit())
+                combo->lineEdit()->setPlaceholderText(same ? QString()
+                                                           : placeholder);
+        };
+        setNameCombo(m_stageTSCombo, tsSame, first.tseries, tr("<multiple>"));
+        setNameCombo(m_flowTSCombo,  tsSame, first.tseries, tr("<multiple>"));
+        setNameCombo(m_curveCombo,   curveSame, first.curve, tr("<multiple>"));
     }
     updateEnabledState();
 }
@@ -1018,9 +1118,16 @@ void MeshEditingToolbar::refreshCellEditor()
             }
         }
     }
-    if (m_cellValueSpin) {
+    const bool isEnum = spec && spec->kind == mesh::CellParamSpec::Kind::Enum;
+    if (m_cellValueSpin && !isEnum) {
         QSignalBlocker block(m_cellValueSpin);
         m_cellValueSpin->setValue(valueSame ? commonValue : fallback);
+    }
+    if (m_cellEnumCombo && isEnum) {
+        QSignalBlocker block(m_cellEnumCombo);
+        const int row = m_cellEnumCombo->findData(
+            QVariant(valueSame ? commonValue : fallback));
+        m_cellEnumCombo->setCurrentIndex(row >= 0 ? row : 0);
     }
     if (m_cellTagEdit) {
         QSignalBlocker block(m_cellTagEdit);
@@ -1032,7 +1139,13 @@ void MeshEditingToolbar::refreshCellEditor()
         // Echo the live value + tag so single-cell edits are visibly confirmed
         // (these attributes are not drawn on the map).
         QString detail;
-        if (counted && valueSame && spec)
+        if (counted && valueSame && spec && isEnum) {
+            // Echo the enumeration's LABEL — "-1" is not a readable confirmation.
+            const int li = int(std::lround(commonValue - spec->min));
+            if (li >= 0 && li < spec->enumLabels.size())
+                detail = QStringLiteral("  %1=%2")
+                             .arg(spec->label, spec->enumLabels.at(li));
+        } else if (counted && valueSame && spec) {
             detail = QStringLiteral("  %1%2%3")
                          .arg(spec->prefix.isEmpty() ? spec->label + QStringLiteral("=")
                                                      : spec->prefix)
@@ -1040,6 +1153,7 @@ void MeshEditingToolbar::refreshCellEditor()
                          .arg(spec->lengthUnit && !m_depthUnitLabel.isEmpty()
                                   ? QStringLiteral(" ") + m_depthUnitLabel
                                   : QString());
+        }
         if (commonTag.isEmpty() || !tagSame)
             m_cellInfoLbl->setText(tr("Cell #%1%2").arg(cells.front()).arg(detail));
         else
@@ -1075,7 +1189,7 @@ void MeshEditingToolbar::onSelectionChanged()
                     QString lk;
                     int tri = -1, e = -1;
                     if (mesh::MeshObjectRef::parseEdge(ref, &lk, &tri, &e) && lk == wantKey)
-                        selE.insert(tri * 3 + e);
+                        selE.insert(mesh::edgeSlot(tri, e));
                 } else if (ref.objectType == SWMMObjectRef::MeshCell) {
                     QString lk;
                     int tri = -1;
@@ -1224,51 +1338,47 @@ void MeshEditingToolbar::onRemapClicked()
         return;
     }
 
-    // Preserve existing couplings by default; offer the full re-map.
-    bool preserve = true;
+    // Full re-map: every existing vertex and cell coupling is cleared first.
     {
         QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
         box.setWindowTitle(tr("Remap 1D↔2D"));
-        box.setText(tr("Map %1 SWMM node(s) onto the active mesh?").arg(nodes.size()));
+        box.setText(tr("Re-map %1 SWMM node(s) onto the active mesh?").arg(nodes.size()));
         box.setInformativeText(tr(
-            "\"Add missing\" keeps every existing coupling and maps only\n"
-            "nodes that are not yet coupled. \"Re-map all\" clears the cell\n"
-            "couplings and re-maps every node (manually edited vertex\n"
-            "couplings are kept)."));
-        QPushButton *addBtn   = box.addButton(tr("Add missing"), QMessageBox::AcceptRole);
-        QPushButton *remapBtn = box.addButton(tr("Re-map all"),  QMessageBox::DestructiveRole);
-        box.addButton(QMessageBox::Cancel);
-        box.setDefaultButton(addBtn);
+            "All existing 1D↔2D couplings on this mesh (vertex and cell,\n"
+            "including manually edited ones) will be cleared and rebuilt."));
+        QPushButton *remapBtn = box.addButton(tr("Clear && Re-map"), QMessageBox::DestructiveRole);
+        QPushButton *cancelBtn = box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(cancelBtn);
         box.exec();
-        if (box.clickedButton() == remapBtn)      preserve = false;
-        else if (box.clickedButton() != addBtn)   return;   // cancelled
+        if (box.clickedButton() != remapBtn) return;   // cancelled
     }
 
     mesh::MeshResult working = m_activeMesh->mesh();
-    if (!preserve)
-        working.cellCouplings.clear();
+    working.cellCouplings.clear();
+    for (mesh::MeshVertex &v : working.vertices)
+        v.coupledNode.clear();
 
-    const auto r = mesh::mapNodesToMesh(working, nodes, -1.0, preserve);
+    const auto r = mesh::mapNodesToMesh(working, nodes, -1.0, false);
 
-    // Apply — vertex couplings through the existing per-vertex mutator,
-    // cell rows wholesale (previous set returned for a future undo command).
+    // Apply — clear every vertex coupling, then set the new matches through
+    // the per-vertex mutator; cell rows wholesale (previous set returned for
+    // a future undo command).
+    const int nVerts = m_activeMesh->mesh().vertices.size();
+    for (int vi = 0; vi < nVerts; ++vi)
+        if (!r.vertexMatches.contains(vi))
+            m_activeMesh->applyMeshVertexCoupledNode(vi, QString());
     int vApplied = 0;
     for (auto it = r.vertexMatches.cbegin(); it != r.vertexMatches.cend(); ++it)
         if (m_activeMesh->applyMeshVertexCoupledNode(it.key(), it.value())) ++vApplied;
 
-    QVector<mesh::CellCoupling> rows =
-        preserve ? m_activeMesh->cellCouplings() : QVector<mesh::CellCoupling>{};
-    rows += r.cellMatches;
-    m_activeMesh->applyCellCouplings(rows);
+    m_activeMesh->applyCellCouplings(r.cellMatches);
 
     QString msg = tr("Vertex-coupled %1 node(s); cell-coupled %2 node(s).")
                       .arg(vApplied).arg(r.cellMatches.size());
     if (r.sharedCells > 0)
         msg += tr("\n%1 cell(s) received more than one node (e.g. weir/orifice "
                   "endpoints).").arg(r.sharedCells);
-    if (!r.skippedExisting.isEmpty())
-        msg += tr("\n%1 node(s) already coupled were left unchanged.")
-                   .arg(r.skippedExisting.size());
     if (!r.unmatched.isEmpty()) {
         QStringList head = r.unmatched.mid(0, 8);
         msg += tr("\n%1 node(s) fall outside the mesh: %2%3")
@@ -1295,10 +1405,29 @@ void MeshEditingToolbar::refreshGroupWidths()
 
 void MeshEditingToolbar::onCellParamChanged(int index)
 {
-    if (!m_cellParamCombo || !m_cellValueSpin) return;
+    if (!m_cellParamCombo || !m_cellValueSpin || !m_cellEnumCombo) return;
     const QByteArray key = m_cellParamCombo->itemData(index).toByteArray();
     const mesh::CellParamSpec *spec = mesh::cellParamSpec(key);
     if (!spec) return;
+
+    const bool isEnum = (spec->kind == mesh::CellParamSpec::Kind::Enum);
+    m_cellValueSpin->setVisible(!isEnum);
+    m_cellEnumCombo->setVisible(isEnum);
+
+    if (isEnum) {
+        // Registry contract: enumLabels[i] is the enumeration's i-th value in
+        // its own order, and spec->min is the first one — so the stored value
+        // is min + i, not the label index (mesh::InfilMethod::None is -1).
+        QSignalBlocker blockEnum(m_cellEnumCombo);
+        m_cellEnumCombo->clear();
+        for (int i = 0; i < spec->enumLabels.size(); ++i)
+            m_cellEnumCombo->addItem(spec->enumLabels.at(i),
+                                     QVariant(spec->min + double(i)));
+        m_cellEnumCombo->setToolTip(spec->tooltip);
+        blockEnum.unblock();
+        refreshCellEditor();
+        return;
+    }
 
     // Reconfiguring the range/decimals changes the spin's value, which would
     // otherwise commit the new parameter's default onto the selection.
@@ -1318,15 +1447,79 @@ void MeshEditingToolbar::onCellParamChanged(int index)
 
 void MeshEditingToolbar::onCellParamCommit()
 {
-    if (!m_activeMesh || !m_cellValueSpin) return;
+    if (!m_cellValueSpin) return;
+    commitCellParam(m_cellValueSpin->value());
+}
+
+void MeshEditingToolbar::onCellEnumCommit(int index)
+{
+    if (!m_cellEnumCombo || index < 0) return;
+    commitCellParam(m_cellEnumCombo->itemData(index).toDouble());
+}
+
+void MeshEditingToolbar::commitCellParam(double value)
+{
+    if (!m_activeMesh) return;
     const QList<int> cells = currentSelectedCells();
     if (cells.isEmpty()) return;
     const QByteArray key = currentCellParamKey();
     if (key.isEmpty()) return;
-    // One undo entry for the whole selection, on the same stack every other
-    // editing surface uses.
-    mesh::pushCellParamEdit(m_activeMesh, QVector<int>(cells.cbegin(), cells.cend()),
-                            key, m_cellValueSpin->value(), m_canvas);
+    const QVector<int> tris(cells.cbegin(), cells.cend());
+
+    if (!key.startsWith("infil.")) {
+        // One undo entry for the whole selection, on the same stack every
+        // other editing surface uses.
+        mesh::pushCellParamEdit(m_activeMesh, tris, key, value, m_canvas);
+        return;
+    }
+
+    // Infiltration must NOT take the generic path. MeshSetTriangleAttributeCommand
+    // (which pushCellParamEdit builds) restores the old NUMBER on undo, so
+    // undoing an edit made on a cell that was INHERITING from its region tag
+    // leaves a per-cell override carrying identical values — the cell silently
+    // stops tracking its region and the next region-level edit misses it.
+    // mesh::pushCellInfilEdit is the only helper that snapshots provenance.
+    //
+    // That command writes ONE row to many cells, while this edit changes one
+    // field of each cell's OWN resolved row (cells in the selection may resolve
+    // to different methods and numbers). So group the selection by the row it
+    // ends up with and push one command per distinct row, wrapped in a macro so
+    // the whole edit is still a single Ctrl+Z.
+    const mesh::MeshResult &m = m_activeMesh->mesh();
+    QVector<mesh::InfilRow> rows;
+    QVector<QVector<int>>   groups;
+    for (int t : tris) {
+        if (t < 0 || t >= m.triangles.size()) continue;
+        mesh::InfilRow next = mesh::resolveInfil(m, t).row;
+        if (key == "infil.method") {
+            const int mi = int(std::lround(value));
+            if (mi < int(mesh::InfilMethod::None)
+                || mi > int(mesh::InfilMethod::Constant))
+                return;
+            next.method = static_cast<mesh::InfilMethod>(mi);
+            // Slots the new method does not read carry no meaning — clear them
+            // so a method switch cannot leave a stale number behind.
+            for (int k = 0; k < mesh::kInfilMaxParams; ++k)
+                if (!mesh::infilUsesParam(next.method, k)) next.p[k] = qQNaN();
+        } else {
+            const int slot = mesh::infilSlotForKey(next.method, key);
+            if (slot < 0) continue;   // masked: this cell's method has no such slot
+            next.p[slot] = value;
+        }
+        int g = rows.indexOf(next);
+        if (g < 0) { rows.append(next); groups.append(QVector<int>()); g = rows.size() - 1; }
+        groups[g].append(t);
+    }
+    if (rows.isEmpty()) return;
+
+    MapUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
+    const bool macro = stack && rows.size() > 1;
+    if (macro)
+        stack->beginMacro(tr("Set infiltration on %n cell(s)", nullptr,
+                             int(tris.size())));
+    for (int g = 0; g < rows.size(); ++g)
+        mesh::pushCellInfilEdit(m_activeMesh, groups[g], rows[g], m_canvas);
+    if (macro) stack->endMacro();
 }
 
 void MeshEditingToolbar::onCellTagCommit()
@@ -1390,6 +1583,11 @@ void MeshEditingToolbar::updateEnabledState()
     if (m_actCellTag)    m_actCellTag->setVisible(showCellEdit);
     if (m_cellParamPage) m_cellParamPage->setEnabled(showCellEdit);
     if (m_cellTagEdit)   m_cellTagEdit->setEnabled(showCellEdit);
+    // The whole-row infiltration form reads the selection, so it is dead
+    // without one. Disabled rather than hidden, unlike the editor widgets
+    // above: the same QAction is mirrored into the Model ▸ Mesh menu, and a
+    // menu entry that disappears is harder to find than one that is greyed.
+    if (m_actCellInfil) m_actCellInfil->setEnabled(showCellEdit);
 
     // Slice §V.VC — BC controls follow Edit Edge mode + selection state.
     // BCs apply to boundary edges only, so the param stack enables only when
@@ -1453,11 +1651,17 @@ QList<QPair<int,int>> MeshEditingToolbar::currentSelectedEdges() const
         if (lk != wantKey) continue;
         out.append(qMakePair(tri, e));
     }
+    // SelectionManager holds a QSet, whose iteration order is hash-seeded
+    // per process — sort so "the first selected edge", command slot order,
+    // and everything displayed from this list are deterministic.
+    std::sort(out.begin(), out.end());
     return out;
 }
 
 void MeshEditingToolbar::onBCTypeChanged(int index)
 {
+    // Display-only refresh in progress — never commit from it (§V.VC.3).
+    if (m_refreshingEdgeEditor) return;
     // Stack index alignment matches the combo: see buildUi.
     if (m_bcParamStack && index >= 0 && index < m_bcParamStack->count())
         m_bcParamStack->setCurrentIndex(index);
@@ -1471,7 +1675,12 @@ void MeshEditingToolbar::onBCTypeChanged(int index)
 
 void MeshEditingToolbar::commitBCParam()
 {
+    if (m_refreshingEdgeEditor) return;   // display-only refresh (§V.VC.3)
     if (!m_activeMesh || !m_bcTypeCombo) return;
+    // Mixed-type display parks the combo at index -1, where currentData()
+    // is an invalid variant whose toInt() is 0 == Wall — committing from
+    // that state would silently wall off every selected edge.
+    if (m_bcTypeCombo->currentIndex() < 0) return;
     const auto edges = currentSelectedEdges();
     if (edges.isEmpty()) return;
 
@@ -1516,6 +1725,7 @@ void MeshEditingToolbar::commitBCParam()
 
 void MeshEditingToolbar::commitConveyance()
 {
+    if (m_refreshingEdgeEditor) return;   // display-only refresh (§V.VC.3)
     if (!m_activeMesh || !m_conveySpin) return;
     const auto edges = currentSelectedEdges();
     if (edges.isEmpty()) return;
@@ -1593,9 +1803,34 @@ void MeshEditingToolbar::refreshBCNameLists()
     repop(m_curveCombo,   curveNames);
 }
 
+void MeshEditingToolbar::showEvent(QShowEvent *event)
+{
+    QToolBar::showEvent(event);
+    if (m_nodeListStale) refreshNodeList();
+}
+
 void MeshEditingToolbar::refreshNodeList()
 {
     if (!m_vertexCoupledCombo) return;
+
+    // This is wired to SWMMModelLayer::geometryChanged, so it runs on EVERY
+    // model edit -- every object added, deleted or moved -- and it costs
+    // O(nodes) each time (150-400 ms on an all-pipes model). Paying that for
+    // a dropdown the user cannot see is pure waste, so defer while hidden and
+    // flush in showEvent().
+    //
+    // This is NOT a repeat of the reverted AttributeTablePanel::refresh
+    // deferral. That one was reverted because the table's MODEL is read
+    // programmatically by callers who never show the panel, so skipping it
+    // changed results. This combo has exactly one reader -- a user picking
+    // from it -- and the function already preserves currentText across
+    // repopulation, so a deferred flush is observationally identical.
+    if (!isVisible()) {
+        m_nodeListStale = true;
+        return;
+    }
+    m_nodeListStale = false;
+
     const QString keep = m_vertexCoupledCombo->currentText();
     QSignalBlocker block(m_vertexCoupledCombo);
     m_vertexCoupledCombo->clear();

@@ -29,6 +29,9 @@
 class QUndoStack;
 
 #include "layers/swmmmodellayer.h"
+// Not forward-declarable: m_resultsSource is a QPointer, which static_casts
+// through QObject* and so needs the complete type at instantiation.
+#include "layers/swmmresultslayer.h"
 
 namespace openswmmvis {
 
@@ -48,7 +51,20 @@ enum class EditorKind {
                 ///< presets). The cell stores/edits a clock string; the
                 ///< setter wrappers convert to/from engine seconds. First
                 ///< user: rain gage Recording Interval (DA.2 parity).
+    FileBrowse, ///< FileBrowseDelegate (QLineEdit + "…" QFileDialog button).
+                ///< ColumnSpec::fileFilter carries the dialog's name filter.
+                ///< First user: rain gage Rain File (path) — multi-column
+                ///< series files, spec §4 task 4.
+    FileColumn, ///< FileColumnDelegate (editable QComboBox). Per-row options
+                ///< come from the model via kFileColumnOptionsRole (the
+                ///< row's rain-file column headers). First user: rain gage
+                ///< Rain File Column.
 };
+
+/*! Custom data() role for EditorKind::FileColumn cells — returns the
+ *  QStringList of column names enumerated from the row's resolved data
+ *  file (ui/util/externalcolumnfile.h readHeaders). */
+inline constexpr int kFileColumnOptionsRole = Qt::UserRole + 21;
 
 /*! Round-4 follow-up 2026-05-12 — semantic unit class.  Resolves to
  *  a string at render time via `UnitSystem::instance()` so the
@@ -86,6 +102,7 @@ struct ColumnSpec {
     UnitKind     unit = UnitKind::None;  ///< Semantic unit (resolved at render)
     QString      tooltip;      ///< Header tooltip override (user-flag
                                ///< description); empty = unit tooltip.
+    QString      fileFilter;   ///< For FileBrowse: QFileDialog name filter.
 };
 
 } // namespace openswmmvis
@@ -100,6 +117,21 @@ public:
      *  column schema, then `beginResetModel` / `endResetModel`.  Pass
      *  a null layer to clear. */
     void setSource(SWMMModelLayer *layer, SWMMModelLayer::Category category);
+
+    /*! Bind the post-run "dynamics" columns to a loaded output.
+     *
+     *  Those columns used to read the EDITING engine's ambient statistics
+     *  (`swmm_node_get_stat_*` and friends). Nothing ever populates them:
+     *  SimulationRunner runs on its own throw-away SWMM_Engine (or an
+     *  out-of-process worker), so the editing engine never reaches the
+     *  ENDED state the stat getters need and every dynamics cell read back
+     *  zero. Pointing the model at the active results layer instead makes
+     *  the columns show the run the user actually selected, and re-pointing
+     *  it swaps every dynamics value to the new run.
+     *
+     *  Pass nullptr to fall back to the editing engine. */
+    void setResultsSource(SWMMResultsLayer *layer);
+    [[nodiscard]] SWMMResultsLayer *resultsSource() const { return m_resultsSource; }
 
     [[nodiscard]] SWMMModelLayer *layer() const noexcept { return m_layer; }
     [[nodiscard]] SWMMModelLayer::Category category() const noexcept
@@ -122,6 +154,11 @@ public:
      *  Returns the full spec list for the bound category so callers
      *  (e.g. AttributeTablePanel) can install delegates. */
     QList<openswmmvis::ColumnSpec> columnSpecs() const { return m_columnSpecs; }
+
+    /*! Re-query every horizontal header. Call after a change that alters a
+     *  render-time label without touching the schema (LINK_OFFSETS mode →
+     *  offset columns read "… Elevation"). */
+    void refreshHeaders();
 
     /*! Slice Z.5.5 — optional QUndoStack for cell-edit commands.
      *  When set, `setData()` wraps each commit in an `EditCommand`
@@ -167,13 +204,55 @@ signals:
 
 private:
     void rebuildColumnSchema();
+    /*! Header label for \p spec with the LINK_OFFSETS mode applied: the
+     *  offset columns read "Upstream/Downstream Elevation" in ELEVATION mode. */
+    QString offsetModeLabel(const openswmmvis::ColumnSpec &spec) const;
+    /*! Initial-quality UI round — append one editable column per
+     *  constituent (key "initq:<NAME>": every pollutant, plus water age /
+     *  temperature while their [OPTIONS] toggle is on) when the bound
+     *  category is a node or link kind. Cells read/write the engine's
+     *  [INITIAL_QUALITY] row store; blank = no override (the global
+     *  initial concentration applies), and clearing a cell removes the
+     *  element's row. */
+    void appendInitialQualityColumns();
     /*! Phase 3 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — append one
      *  editable column per defined user flag (key "userflag:<NAME>")
      *  when the bound category maps to an engine object type. */
     void appendUserFlagColumns();
+
+    /*! Append the category's post-run "dynamics" statistics columns.
+     *  Called last by `rebuildColumnSchema()` — after the user-flag
+     *  columns — so every table reads [inputs | user flags | results]
+     *  left to right. The columns are ReadOnly with a getter-only tag;
+     *  they read back zero until a simulation has been initialized. */
+    void appendDynamicsColumns();
     QVariantMap rowData(int row) const;
 
+    /*! Column index whose ColumnSpec::setter equals \p tag, or -1. Used where
+     *  one cell edit has to reach a sibling cell of the same row. */
+    [[nodiscard]] int columnForSetter(const QString &tag) const;
+
+    /*! The rain file bound to \p row, resolved absolute when the engine has
+     *  resolved it, else the original token. Empty when the row has no file. */
+    [[nodiscard]] QString rainFileFor(int row) const;
+
+    /*! Commit a rain-file path edit together with the column selector (and the
+     *  file-format flip that a column implies) as ONE undoable step.
+     *
+     *  A column belongs to the file it was picked from, so a path edit that
+     *  leaves a stale column behind writes a model whose run fails, and one
+     *  that leaves a multi-column file unbound writes the standard
+     *  `FILE "path" Station Units` grammar for a file with no station column
+     *  (review R3). Both writes therefore have to happen — and both have to
+     *  undo, which is why this is a QUndoStack macro rather than a second
+     *  engine write inside commitValueDirect: a write made there would sit
+     *  outside the edit command's captured state, so undo would restore the
+     *  path and keep the column. */
+    bool commitRainFilePath(const QModelIndex &pathIndex,
+                            const QVariant &oldPath, const QVariant &newPath);
+
     QPointer<SWMMModelLayer>           m_layer;
+    QPointer<SWMMResultsLayer>         m_resultsSource;  ///< Dynamics-column source
     SWMMModelLayer::Category           m_category = SWMMModelLayer::CatJunctions;
     QStringList                        m_columnKeys;     ///< Map keys from identifyByName
     QStringList                        m_columnLabels;   ///< User-facing header labels
@@ -201,6 +280,14 @@ private:
     mutable bool            m_compoundCacheBuilt     = false;
     void ensureCompoundCacheBuilt() const;
     void invalidateCompoundCache();
+
+    // Initial-quality UI round — element engine index → (constituent →
+    // value) for the bound category's scope (NODE or LINK), filled by one
+    // engine-wide scan so per-cell paints don't rescan the row store.
+    // Invalidated together with the compound caches.
+    mutable QHash<int, QHash<QString, double>> m_initQualityByElem;
+    mutable bool                               m_initQualityCacheBuilt = false;
+    void ensureInitQualityCacheBuilt() const;
 };
 
 #endif // SWMMATTRIBUTETABLEMODEL_H

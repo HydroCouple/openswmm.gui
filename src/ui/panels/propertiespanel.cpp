@@ -7,6 +7,7 @@
 #include "ui/panels/propertiespanel.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "layers/swmmresultslayer.h"     // active-run stats binding
 #include "map/tools/maptoolidentify.h"   // IdentifyResult
 #include "output/outputstatsregistry.h"  // Slice QA.2 (full type for QPointer / connect)
 #include "selection/selectionmanager.h"  // SWMMObjectRef::ObjectType
@@ -30,6 +31,9 @@
 // USER_FLAGS Phase 4 — per-object "User Flags" row ref + cell editor.
 #include "ui/properties/userflagseditbutton.h"
 #include "ui/properties/userflagseditref.h"
+// Initial-quality UI round — per-element "Initial Quality" row ref + cell editor.
+#include "ui/properties/initialqualityeditbutton.h"
+#include "ui/properties/initialqualityeditref.h"
 // Slice BM.0-Browse-Edit — right-click menu dispatches to editors via the registry.
 #include "ui/editors/comprehensiveeditorregistry.h"
 #include "ui/dialogs/curveeditordialog.h"
@@ -64,6 +68,7 @@
 #include "ui/properties/swmmtimeseriespropertyadapter.h"
 #include "ui/properties/swmmtransectpropertyadapter.h"
 
+#include <openswmm/engine/openswmm_gages.h>   // swmm_gage_index (X/Y move route)
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
@@ -258,6 +263,20 @@ void PropertiesPanel::setupUi()
     connect(m_openEditorButton, &QPushButton::clicked,
             this,                &PropertiesPanel::onOpenInEditorClicked);
 
+    // Rain gage extra: plot/compare rainfall series. Visible only while a
+    // rain gage adapter is bound (see showObject's gage block).
+    m_plotRainGageButton = new QPushButton(tr("Plot Rainfall…"), central);
+    m_plotRainGageButton->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
+    m_plotRainGageButton->setToolTip(
+        tr("Visualize and compare rain gage rainfall series."));
+    m_plotRainGageButton->hide();
+    vlay->addWidget(m_plotRainGageButton);
+    connect(m_plotRainGageButton, &QPushButton::clicked, this, [this] {
+        // Carry the bound gage so the dialog opens focused on it.
+        emit rainfallPlotRequested(m_dataAdapter ? m_dataAdapter->name()
+                                                 : QString());
+    });
+
     // Slice QA.2 — Stats source row. Hidden by default; surfaces only
     // when the bound registry has at least one loaded output and the
     // current adapter exposes stat rows (today: SWMMNodePropertyAdapter
@@ -364,6 +383,16 @@ void PropertiesPanel::setupUi()
     delegate->registerCustomTypeEditorCreator(
         QMetaType::Type(qMetaTypeId<UserFlagsEditRef>()),
         new QStandardItemEditorCreator<UserFlagsEditButton>());
+
+    // Initial-quality UI round — same dance for the per-element
+    // "Initial Quality" row (InitialQualityEditRef): converter shows the
+    // "n set" summary, editor creator hands out the button that opens
+    // InitialQualityDialog scoped to the element.
+    qRegisterMetaType<InitialQualityEditRef>("InitialQualityEditRef");
+    registerInitialQualityEditRefConverter();
+    delegate->registerCustomTypeEditorCreator(
+        QMetaType::Type(qMetaTypeId<InitialQualityEditRef>()),
+        new QStandardItemEditorCreator<InitialQualityEditButton>());
 #else
     m_model    = new QStandardItemModel(this);
 #endif
@@ -403,6 +432,7 @@ void PropertiesPanel::showObject(QObject *object, const QString &title)
     // generic-QObject views.
     m_dataObjectCategory = SWMMModelLayer::NumDataCategories;
     if (m_openEditorButton) m_openEditorButton->hide();
+    if (m_plotRainGageButton) m_plotRainGageButton->hide();
 
 #ifdef HAVE_QPROPERTYMODEL
     auto *pm = qobject_cast<QPropertyModel*>(m_model);
@@ -428,6 +458,7 @@ void PropertiesPanel::showIdentifyResults(const QList<IdentifyResult> &results)
     // prior data-object view.
     m_dataObjectCategory = SWMMModelLayer::NumDataCategories;
     if (m_openEditorButton) m_openEditorButton->hide();
+    if (m_plotRainGageButton) m_plotRainGageButton->hide();
 
     for (const auto &r : results)
         m_layerCombo->addItem(r.layerName);
@@ -456,6 +487,7 @@ void PropertiesPanel::clear()
     // 2026-05-29 — Panel is empty; no data-object to open.
     m_dataObjectCategory = SWMMModelLayer::NumDataCategories;
     if (m_openEditorButton) m_openEditorButton->hide();
+    if (m_plotRainGageButton) m_plotRainGageButton->hide();
 }
 
 // ---------------------------------------------------------------------------
@@ -520,6 +552,12 @@ void PropertiesPanel::onObjectEditedExternally(const QString &name)
     }
 #endif
     m_suppressEditForward = false;
+}
+
+void PropertiesPanel::onOffsetModeChanged()
+{
+    if (!m_linkAdapter || !m_layerCombo) return;
+    onLayerComboIndexChanged(m_layerCombo->currentIndex());
 }
 
 void PropertiesPanel::setProject(SWMMModelLayer *layer)
@@ -606,10 +644,20 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             default: {
                 // Virtual junctions are JUNCTION-typed; key off the flag
                 // BEFORE the kind so they get the trimmed adapter (no depth/
-                // ponding fields, no inflow compound rows).
+                // ponding fields; the inflow compound rows are kept — point
+                // laterals are allowed at a virtual junction).
+                //
+                // An inlet junction carries BOTH flags (it IS a virtual
+                // junction plus an [INLET_USAGE] row), so its probe must come
+                // first or it would never get the inlet rows.
+                int isInlet = 0;
+                swmm_node_is_inlet(m_swmmLayer->engine(), nodeIdx, &isInlet);
                 int isVirtual = 0;
                 swmm_node_is_virtual(m_swmmLayer->engine(), nodeIdx, &isVirtual);
-                if (isVirtual)
+                if (isInlet)
+                    m_nodeAdapter = new SWMMInletJunctionPropertyAdapter(
+                        m_swmmLayer->engine(), name, this);
+                else if (isVirtual)
                     m_nodeAdapter = new SWMMVirtualJunctionPropertyAdapter(
                         m_swmmLayer->engine(), name, this);
                 else
@@ -766,16 +814,22 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             // pointer so DataObjectRef-typed Q_PROPERTYs (pumpCurve) can
             // construct refs with the right layer for the picker editor.
             m_linkAdapter->setModelLayer(m_swmmLayer);
+            // Thread the per-project stats registry so the statMax* rows
+            // can dispatch through the bound run (mirror of the node
+            // adapter wiring below).
+            m_linkAdapter->setStatsRegistry(m_statsRegistry);
+            refreshStatsSourceCombo();
             if (pm) pm->setData(QVariant::fromValue<QObject *>(m_linkAdapter));
 
-            // Inline cross-section geoms (Conduit / Orifice / Weir) — grey
-            // out the geom rows that don't apply to the link's current
-            // shape, mirroring the dialog's per-shape field visibility
-            // (openswmmvis::xsectGeomApplies). Re-run on every changed()
-            // so editing the shape via the compound dialog re-evaluates
-            // the greying. No-op on Pump / Outlet (no geom rows) and on
-            // shapes where geom1 is an index (IRREGULAR / STREET → all
-            // greyed; the transect/street is set via the dialog picker).
+            // Inline cross-section geoms (Conduit / Orifice / Weir) stay
+            // editable for every shape — the stored geom is a real number
+            // whatever the live shape consumes, and blanking the rest read
+            // as broken editors. Only the picker-owned index slots
+            // (IRREGULAR / STREET geom1, CUSTOM geom2) are locked; those
+            // are set by the compound dialog's name picker. Re-run on every
+            // changed() so editing the shape via the dialog re-evaluates.
+            // No-op on Pump / Outlet (no geom rows). Mirrors the Attribute
+            // Table's flags() so the two surfaces never disagree.
             {
                 auto applyGeomRowFlags = [pm, this]() {
                     if (!pm || !m_linkAdapter) return;
@@ -783,7 +837,7 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                     for (int k = 1; k <= 4; ++k)
                         setRowEditable(pm, m_linkAdapter,
                                        QStringLiteral("geom%1").arg(k),
-                                       openswmmvis::xsectGeomApplies(shape, k));
+                                       !openswmmvis::xsectGeomIsPickerIndex(shape, k));
                 };
                 connect(m_linkAdapter, &SWMMLinkPropertyAdapter::changed,
                         pm, applyGeomRowFlags);
@@ -810,6 +864,9 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             // USER_FLAGS Phase 4 — layer binding so the User Flags row
             // reaches the shared UserFlagsModel.
             m_subcatchAdapter->setModelLayer(m_swmmLayer);
+            // Stats registry so the stat* rows follow the bound run.
+            m_subcatchAdapter->setStatsRegistry(m_statsRegistry);
+            refreshStatsSourceCombo();
             if (pm) pm->setData(QVariant::fromValue<QObject *>(m_subcatchAdapter));
             connect(m_subcatchAdapter, &SWMMSubcatchPropertyAdapter::changed,
                     this, [this, name]() {
@@ -882,6 +939,7 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
         if (auto *pm = qobject_cast<QPropertyModel *>(m_model)) pm->clear();
         m_dataObjectCategory = SWMMModelLayer::NumDataCategories;
         if (m_openEditorButton) m_openEditorButton->hide();
+        if (m_plotRainGageButton) m_plotRainGageButton->hide();
         return;
     }
     if (m_dataAdapter) { m_dataAdapter->deleteLater(); m_dataAdapter = nullptr; }
@@ -1020,6 +1078,7 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
         // Unknown; not our job — let the identify-result path handle it.
         if (auto *pm = qobject_cast<QPropertyModel *>(m_model)) pm->clear();
         if (m_openEditorButton) m_openEditorButton->hide();
+        if (m_plotRainGageButton) m_plotRainGageButton->hide();
         return;
     }
 
@@ -1060,19 +1119,46 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
     if (auto *gageAdapter =
             qobject_cast<SWMMRainGagePropertyAdapter*>(m_dataAdapter))
     {
+        if (m_plotRainGageButton) m_plotRainGageButton->show();
         if (auto *pm = qobject_cast<QPropertyModel*>(m_model)) {
             auto applyGageRowFlags = [pm, gageAdapter]() {
                 if (!pm) return;
                 const bool isFile = gageAdapter->dataSource() == 1; // FILE
+                // Multi-column rain files (spec §4 task 4): a USER_CSV (6)
+                // gage selects a column by name, not a station id — gate
+                // Station ID off for that format. UNKNOWN (-1, fresh gage)
+                // and STAN_PRCP (5) keep Station ID editable so a standard
+                // rain file can still be configured from scratch.
+                const int fmt = gageAdapter->fileFormat();
                 setRowEditable(pm, gageAdapter, QStringLiteral("seriesName"), !isFile);
                 setRowEditable(pm, gageAdapter, QStringLiteral("filePath"),    isFile);
-                setRowEditable(pm, gageAdapter, QStringLiteral("stationId"),   isFile);
+                setRowEditable(pm, gageAdapter, QStringLiteral("fileColumn"),  isFile);
+                // The grammar row itself — the only way back out of USER_CSV,
+                // and therefore the only way Station ID below can be un-greyed
+                // once a column has been picked.
+                setRowEditable(pm, gageAdapter, QStringLiteral("fileFormat"),  isFile);
+                setRowEditable(pm, gageAdapter, QStringLiteral("stationId"),
+                               isFile && fmt != 6 /* USER_CSV */);
                 setRowEditable(pm, gageAdapter, QStringLiteral("rainUnits"),   isFile);
             };
             connect(gageAdapter, &SWMMDataObjectPropertyAdapter::changed,
                     pm, applyGageRowFlags);
             applyGageRowFlags();
         }
+
+        // A rain gage is a placed object: route its X/Y edits through
+        // applyGageMove so the cached scene point and the model extent move
+        // with the engine value, exactly as the node path does. (A bare
+        // swmm_spatial_set_gage_coord would leave the canvas stale until the
+        // next geometry rebuild.)
+        connect(gageAdapter, &SWMMRainGagePropertyAdapter::coordChangeRequested,
+                this, [this, layer, name](double newX, double newY) {
+                    if (!layer || !layer->engine()) return;
+                    const int gi = swmm_gage_index(layer->engine(),
+                                                   name.toUtf8().constData());
+                    if (gi >= 0 && layer->applyGageMove(gi, newX, newY))
+                        emit objectEdited(name);
+                });
     }
 
     m_treeView->expandAll();
@@ -1234,7 +1320,10 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         // editor — skip the menu entirely (combo selection on the cell is
         // sufficient; right-click adds no value).
         if (ref.kind == DataObjectRef::RainGage
-            || ref.kind == DataObjectRef::SubcatchOutlet) return;
+            || ref.kind == DataObjectRef::SubcatchOutlet
+            // A capture node is picked from the existing nodes; there is no
+            // "Nodes" comprehensive editor to route the menu at.
+            || ref.kind == DataObjectRef::CaptureNode) return;
 
         // Kind → category (mirrors dataobjectpickereditor.cpp).
         SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
@@ -1246,8 +1335,11 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;
         case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
         case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
+        case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
+        case DataObjectRef::Inlet:          dc = SWMMModelLayer::DataInlets;      break;
         case DataObjectRef::RainGage:       /* unreachable, handled above */      break;
         case DataObjectRef::SubcatchOutlet: /* unreachable, handled above */      break;
+        case DataObjectRef::CaptureNode:    /* unreachable, handled above */      break;
         }
 
         const auto &reg = ComprehensiveEditorRegistry::instance();
@@ -1327,6 +1419,10 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
     if (metaId == qMetaTypeId<NodeCompoundEditRef>()) {
         const NodeCompoundEditRef ref = value.value<NodeCompoundEditRef>();
         if (!ref.engine || ref.nodeName.isEmpty()) return;
+        // Groundwater Sources is a navigational row (opens the owning
+        // subcatchment's GroundwaterExchangeDialog from its cell button);
+        // NodeCompoundEditDialog has no page for it.
+        if (ref.kind == NodeCompoundEditRef::GroundwaterSources) return;
 
         QAction *actEdit = menu.addAction(tr("Edit…"));
         QAction *picked  = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
@@ -1383,12 +1479,72 @@ void PropertiesPanel::setStatsRegistry(openswmmvis::OutputStatsRegistry *registr
     }
     refreshStatsSourceCombo();
 
-    // Push the registry pointer into the bound node adapter so its
-    // getters can dispatch through it. Done on every bind so the
-    // adapter never holds a stale pointer.
-    if (m_nodeAdapter) {
-        m_nodeAdapter->setStatsRegistry(m_statsRegistry);
+    // Push the registry pointer into every bound typed adapter so their
+    // getters can dispatch through it. Done on every bind so an adapter
+    // never holds a stale pointer.
+    if (m_nodeAdapter)     m_nodeAdapter->setStatsRegistry(m_statsRegistry);
+    if (m_linkAdapter)     m_linkAdapter->setStatsRegistry(m_statsRegistry);
+    if (m_subcatchAdapter) m_subcatchAdapter->setStatsRegistry(m_statsRegistry);
+}
+
+void PropertiesPanel::setActiveResultsLayer(SWMMResultsLayer *layer)
+{
+    if (m_activeStatsLayer != layer) {
+        if (m_activeStatsLayer)
+            disconnect(m_activeStatsLayer, nullptr, this, nullptr);
+        m_activeStatsLayer = layer;
+        if (m_activeStatsLayer) {
+            // A re-run into the same .out re-opens the layer's results in
+            // place (no activeResultsLayerChanged fires), and a live-tailed
+            // run finalizes without swapping layers. Both mean fresh
+            // statistics for the same bound source — re-read the rows.
+            connect(m_activeStatsLayer, &SWMMResultsLayer::resultsOpened,
+                    this, &PropertiesPanel::refreshAdapterStatValues);
+            connect(m_activeStatsLayer, &SWMMResultsLayer::resultsFinalized,
+                    this, &PropertiesPanel::refreshAdapterStatValues);
+        }
     }
+
+    // Follow the active run in the Stats-source combo (the layer is
+    // registered on canvas layerAdded, so its identity is present by the
+    // time it becomes active). Null layer → the editing-engine sentinel
+    // at row 0. Selection changes fire currentIndexChanged →
+    // applyStatsSourceToAdapter; an unchanged selection still needs the
+    // explicit refresh below so a re-run's new numbers repaint.
+    if (m_statsSourceCombo) {
+        QUuid targetId;
+        if (layer && m_statsRegistry) {
+            const auto ids = m_statsRegistry->identities();
+            for (const auto &id : ids) {
+                if (id.layer == layer) { targetId = id.stableId; break; }
+            }
+        }
+        int targetRow = 0;
+        for (int i = 0; i < m_statsSourceCombo->count(); ++i) {
+            const QVariant payload = m_statsSourceCombo->itemData(i);
+            if (payload.canConvert<QUuid>() && payload.toUuid() == targetId) {
+                targetRow = i;
+                break;
+            }
+        }
+        if (m_statsSourceCombo->currentIndex() != targetRow)
+            m_statsSourceCombo->setCurrentIndex(targetRow);
+    }
+    applyStatsSourceToAdapter();
+}
+
+void PropertiesPanel::refreshAdapterStatValues()
+{
+    // The values changed because a run produced new statistics — not a
+    // model edit — so don't forward objectEdited (it would mark the
+    // project dirty). QPropertyModel doesn't subscribe to NOTIFY signals;
+    // refreshValues() re-reads every row live (see onObjectEditedExternally).
+    m_suppressEditForward = true;
+#ifdef HAVE_QPROPERTYMODEL
+    if (auto *pm = qobject_cast<QPropertyModel*>(m_model))
+        pm->refreshValues();
+#endif
+    m_suppressEditForward = false;
 }
 
 void PropertiesPanel::refreshStatsSourceCombo()
@@ -1427,10 +1583,10 @@ void PropertiesPanel::refreshStatsSourceCombo()
 
     m_statsSourceCombo->setCurrentIndex(restoreIdx);
 
-    // Visibility: combo is meaningful only when (a) there's a node
-    // adapter currently displayed AND (b) at least one real output is
-    // loaded (count > 1 because the sentinel is always present).
-    const bool show = (m_nodeAdapter != nullptr)
+    // Visibility: combo is meaningful only when (a) an adapter with
+    // post-run stat rows is currently displayed AND (b) at least one real
+    // output is loaded (count > 1 because the sentinel is always present).
+    const bool show = (m_nodeAdapter || m_linkAdapter || m_subcatchAdapter)
                     && (m_statsSourceCombo->count() > 1);
     if (m_statsSourceLabel) m_statsSourceLabel->setVisible(show);
     m_statsSourceCombo->setVisible(show);
@@ -1444,8 +1600,17 @@ void PropertiesPanel::refreshStatsSourceCombo()
 
 void PropertiesPanel::applyStatsSourceToAdapter()
 {
-    if (!m_nodeAdapter || !m_statsSourceCombo) return;
+    if (!m_statsSourceCombo) return;
+    if (!m_nodeAdapter && !m_linkAdapter && !m_subcatchAdapter) return;
     const QVariant payload = m_statsSourceCombo->currentData();
     const QUuid id = payload.canConvert<QUuid>() ? payload.toUuid() : QUuid();
-    m_nodeAdapter->setStatsSource(id);
+    // setStatsSource emits the adapter's changed() — a view re-target,
+    // not a model edit, so keep it out of the objectEdited fan-out
+    // (which would mark the project dirty).
+    m_suppressEditForward = true;
+    if (m_nodeAdapter)     m_nodeAdapter->setStatsSource(id);
+    if (m_linkAdapter)     m_linkAdapter->setStatsSource(id);
+    if (m_subcatchAdapter) m_subcatchAdapter->setStatsSource(id);
+    m_suppressEditForward = false;
+    refreshAdapterStatValues();
 }

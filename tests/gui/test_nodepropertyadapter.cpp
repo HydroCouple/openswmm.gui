@@ -17,9 +17,12 @@
 #include "ui/properties/swmmnodepropertyadapter.h"
 
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_initial_quality.h>  // Initial-quality UI round
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_pollutants.h>       // Initial-quality UI round
 #include <openswmm/engine/openswmm_spatial.h>
+#include <openswmm/engine/openswmm_subcatchments.h>  // G5 — groundwater sources
 #include <openswmm/engine/openswmm_tables.h>  // Slice AG.4 — storage curve
 
 #include <QObject>
@@ -57,7 +60,7 @@ private:
     // J1 —C1— MID —C2— O1, with MID flagged as a virtual junction. The two
     // conduits are default-constructed, so they satisfy the virtual-junction
     // rules (identical cross-section, zero offsets, exactly two conduits, no
-    // lateral inflow) without any further setup.
+    // 2D coupling) without any further setup.
     SWMM_Engine buildVirtualJunctionFixture()
     {
         SWMM_Engine e = swmm_engine_new();
@@ -328,6 +331,8 @@ private slots:
             // Slice DB.2 — compound editor keys.
             QStringLiteral("inflows"), QStringLiteral("dwf"),
             QStringLiteral("rdii"),    QStringLiteral("treatment"),
+            // AQUIFER_GROUNDWATER_EXCHANGE G5 — node-side navigation row.
+            QStringLiteral("groundwaterSources"),
         };
         for (const QString &k : keys) {
             const QString label = a.displayLabelFor(k);
@@ -352,6 +357,8 @@ private slots:
             std::pair{a.dwfRef(),       NodeCompoundEditRef::Dwf},
             std::pair{a.rdiiRef(),      NodeCompoundEditRef::Rdii},
             std::pair{a.treatmentRef(), NodeCompoundEditRef::Treatment},
+            std::pair{a.groundwaterSourcesRef(),
+                      NodeCompoundEditRef::GroundwaterSources},
         };
         for (const auto &[ref, expectedKind] : refs) {
             QCOMPARE(ref.engine,   e);
@@ -377,6 +384,7 @@ private slots:
         const QStringList compoundProps = {
             QStringLiteral("inflows"), QStringLiteral("dwf"),
             QStringLiteral("rdii"),    QStringLiteral("treatment"),
+            QStringLiteral("groundwaterSources"),
         };
         auto checkAdvertises = [&](const QObject &a, const char *label) {
             const auto *mo = a.metaObject();
@@ -404,6 +412,79 @@ private slots:
         {
             SWMMDividerPropertyAdapter a(e, QStringLiteral("J1"));
             checkAdvertises(a, "Divider");
+        }
+        // Virtual junctions accept point laterals (engine plan
+        // VJ_LATERAL_INFLOW_PLAN_2026-09-04), so the trimmed adapter must
+        // advertise the same four compound rows.
+        {
+            SWMMVirtualJunctionPropertyAdapter a(e, QStringLiteral("J1"));
+            checkAdvertises(a, "VirtualJunction");
+        }
+
+        swmm_engine_destroy(e);
+    }
+
+    // AQUIFER_GROUNDWATER_EXCHANGE G5 — "from S1, S3" / "(none)" summary.
+    void groundwaterSourcesSummaryTracksEngine()
+    {
+        SWMM_Engine e = buildFixture();
+        QVERIFY(e);
+        SWMMJunctionPropertyAdapter a(e, QStringLiteral("J1"));
+        QCOMPARE(a.groundwaterSourcesRef().summary, QStringLiteral("(none)"));
+
+        const int j = swmm_node_index(e, "J1");
+        swmm_aquifer_add(e, "AQ1");
+        const int aq = swmm_aquifer_index(e, "AQ1");
+        swmm_subcatch_add(e, "S1");
+        swmm_subcatch_add(e, "S2");
+        swmm_subcatch_add(e, "S3");
+        // S2 points at J1 but has no aquifer → not a source.
+        swmm_subcatch_set_gw_node(e, swmm_subcatch_index(e, "S2"), j);
+        for (const char *id : {"S1", "S3"}) {
+            const int s = swmm_subcatch_index(e, id);
+            QCOMPARE(swmm_subcatch_set_aquifer(e, s, aq), SWMM_OK);
+            QCOMPARE(swmm_subcatch_set_gw_node(e, s, j), SWMM_OK);
+        }
+        QCOMPARE(a.groundwaterSourcesRef().summary, QStringLiteral("from S1, S3"));
+        QCOMPARE(a.groundwaterSourcesRef().kind,
+                 NodeCompoundEditRef::GroundwaterSources);
+
+        swmm_engine_destroy(e);
+    }
+
+    // ====================================================================
+    // Initial-quality UI round — per-element "Initial Quality" cell
+    // ====================================================================
+
+    void initialQualityRefTracksEngineRows()
+    {
+        SWMM_Engine e = buildFixture();
+        QVERIFY(e);
+        QCOMPARE(swmm_pollutant_add(e, "TSS", 0 /*MG/L*/), SWMM_OK);
+        const int jIdx = swmm_node_index(e, "J1");
+        QVERIFY(jIdx >= 0);
+
+        SWMMJunctionPropertyAdapter a(e, QStringLiteral("J1"));
+        auto ref = a.initialQualityRef();
+        QCOMPARE(ref.engine, e);
+        QCOMPARE(ref.isLink, 0);
+        QCOMPARE(ref.elementName, QStringLiteral("J1"));
+        QCOMPARE(ref.summary, QStringLiteral("(none)"));
+
+        // A row on ANOTHER node must not leak into J1's summary.
+        const int oIdx = swmm_node_index(e, "O1");
+        QCOMPARE(swmm_init_quality_set(e, 0, oIdx, "TSS", 3.0), SWMM_OK);
+        QCOMPARE(a.initialQualityRef().summary, QStringLiteral("(none)"));
+
+        QCOMPARE(swmm_init_quality_set(e, 0, jIdx, "TSS", 12.5), SWMM_OK);
+        QCOMPARE(a.initialQualityRef().summary, QStringLiteral("1 set"));
+
+        // The Q_PROPERTY surfaces on the node kinds that carry quality
+        // state (virtual junctions stay minimal by design).
+        QVERIFY(a.metaObject()->indexOfProperty("initialQuality") >= 0);
+        {
+            SWMMStoragePropertyAdapter s(e, QStringLiteral("J1"));
+            QVERIFY(s.metaObject()->indexOfProperty("initialQuality") >= 0);
         }
 
         swmm_engine_destroy(e);

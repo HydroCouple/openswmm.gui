@@ -66,6 +66,38 @@ const QVector<PlotAttribute> &systemPlotAttributes()
     return kList;
 }
 
+const QVector<PlotAttribute> &mesh2DCellPlotAttributes()
+{
+    static const QVector<PlotAttribute> kList = {
+        PlotAttribute::Mesh2DDepth,
+        PlotAttribute::Mesh2DHGL,
+        PlotAttribute::Mesh2DVelocityMag,
+        PlotAttribute::Mesh2DVelocityX,
+        PlotAttribute::Mesh2DVelocityY,
+        PlotAttribute::Mesh2DRainfall,
+        PlotAttribute::Mesh2DRainVolume,
+    };
+    return kList;
+}
+
+const QVector<PlotAttribute> &mesh2DEdgePlotAttributes()
+{
+    static const QVector<PlotAttribute> kList = {
+        PlotAttribute::Mesh2DEdgeFlow,
+        PlotAttribute::Mesh2DEdgeFlux,
+    };
+    return kList;
+}
+
+const QVector<PlotAttribute> &mesh2DVertexPlotAttributes()
+{
+    static const QVector<PlotAttribute> kList = {
+        PlotAttribute::Mesh2DDepth,
+        PlotAttribute::Mesh2DHGL,
+    };
+    return kList;
+}
+
 QString labelFor(PlotAttribute a)
 {
     switch (a) {
@@ -92,6 +124,8 @@ QString labelFor(PlotAttribute a)
     case PlotAttribute::Mesh2DVelocityY:   return QStringLiteral("Vy (2D cell)");
     case PlotAttribute::Mesh2DEdgeFlux:    return QStringLiteral("Edge flux (2D)");
     case PlotAttribute::Mesh2DEdgeFlow:    return QStringLiteral("Edge flow (2D)");
+    case PlotAttribute::Mesh2DRainfall:    return QStringLiteral("Rainfall (2D cell)");
+    case PlotAttribute::Mesh2DRainVolume:  return QStringLiteral("Rainfall volume (2D cell)");
     case PlotAttribute::SystemTemperature: return QStringLiteral("Air temperature");
     case PlotAttribute::SystemRainfall:    return QStringLiteral("Average rainfall");
     case PlotAttribute::SystemSnowDepth:   return QStringLiteral("Average snow depth");
@@ -124,6 +158,7 @@ QString unitsFor(PlotAttribute a, UnitSystem u)
 
     case PlotAttribute::NodeVolume:
     case PlotAttribute::LinkVolume:
+    case PlotAttribute::Mesh2DRainVolume:
         return us ? QStringLiteral("ft³") : QStringLiteral("m³");
 
     case PlotAttribute::NodeLateralInflow:
@@ -159,6 +194,7 @@ QString unitsFor(PlotAttribute a, UnitSystem u)
     case PlotAttribute::SubcatchInfil:
     case PlotAttribute::SystemRainfall:
     case PlotAttribute::SystemInfil:
+    case PlotAttribute::Mesh2DRainfall:
         return us ? QStringLiteral("in/hr") : QStringLiteral("mm/hr");
 
     case PlotAttribute::SubcatchSnowDepth:

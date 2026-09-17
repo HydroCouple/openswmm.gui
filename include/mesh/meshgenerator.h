@@ -18,6 +18,11 @@
 #define OPENSWMMVIS_MESH_MESHGENERATOR_H
 
 #include "meshresult.h"
+#include "meshpatch.h"
+#include "meshquadmerge.h"
+#include "meshquadcleanup.h"
+#include "meshquadmatch.h"
+#include "meshquadregion.h"
 #include "trirefinehook.h"
 
 #include <QHash>
@@ -73,6 +78,45 @@ struct GenerationOptions
     int    maxSteinerPoints   = -1; ///< -SN cap; -1 = unlimited.
     bool   quiet       = true;    ///< -Q (suppress Triangle's stderr).
     QString customSwitchString;   ///< If non-empty, overrides everything above. Advanced.
+
+    // ── Mixed tri-quad output (TRI_QUAD_MESHING_PLAN §3) ──────────────
+    /*! G2: after Triangle (and after any patches are stitched in), greedily
+     *  merge adjacent triangle pairs into convex quads (mesh/meshquadmerge.h).
+     *  Locked edges = every constrained segment (domain boundary, holes,
+     *  breaklines, patch boundaries). Off by default (plan decision D2). */
+    bool             mergeTrianglePairs = false;
+    QuadMergeOptions quadMerge;
+    /*! G3: snap radius (map units) used to match patch vertices against the
+     *  Triangle output vertices. 0 = the generator's own 1e-7 quantisation
+     *  (exact match of the coordinates the PSLG was built from). */
+    double           patchSnapEps = 0.0;
+
+    // ── Quad regions (QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §3–§4) ──
+    /*! Acceptance bounds for quads produced inside quad regions (template
+     *  and gap pairing, cleanup, smoothing). Independent of quadMerge. */
+    QuadQualityBounds quadRegionBounds;
+    /*! Cleanup / smoothing knobs applied to Free regions after pairing. */
+    QuadCleanupOptions quadCleanup;
+    /*! Free-region spacing when QuadRegion::spacing == 0 and no size function
+     *  is installed: side of the equilateral triangle of maxArea
+     *  (sqrt(4·maxArea/sqrt 3)); when that is 0 too the region is skipped
+     *  with a report line. With a size function, h = sqrt(2·targetAreaAt(centroid)). */
+    double quadRegionDefaultSpacing = 0.0;
+};
+
+/*! \brief Per-region outcome of generate() (MeshGenerator::quadRegionReports()). */
+struct QuadRegionReport
+{
+    int            index = -1;
+    QuadRegionMode requested = QuadRegionMode::Auto;
+    QuadRegionMode resolved  = QuadRegionMode::Free;   ///< After Auto classification / fallbacks.
+    double  spacing = 0.0;
+    int     quads = 0, triangles = 0;                    ///< Cells inside the region on exit.
+    int     templateQuads = 0, gapQuads = 0;
+    int     generatedPoints = 0, droppedSteiners = 0;    ///< Free: lattice points; marker-0 Steiners removed inside.
+    int     doubletsRemoved = 0, diagonalSwaps = 0, verticesMoved = 0;
+    double  minScaledJacobian = 1.0, medianRectangularity = 0.0;
+    QString message;                                     ///< Fallback reason / validation error; empty when clean.
 };
 
 /*! \brief Generate a 2D triangular mesh.
@@ -113,6 +157,27 @@ public:
     void reserveSteinerPoints(qsizetype additional);
     void addHole(const QPointF &interiorPointInsideHole);
     void addRegion(const RegionMarker &region);
+    /*! \brief Stitch a structured quad patch (mesh/meshpatch.h) into the
+     *  domain. Its boundary segments become PSLG constraints, its interior
+     *  a hole (seed = the first quad's centroid), and after Triangle runs
+     *  its quads are appended after every triangle with vertices merged by
+     *  coordinate against the Triangle output (GenerationOptions::patchSnapEps).
+     *  Patch vertices receive whatever elevation fill the caller applies to
+     *  MeshResult::vertices afterwards — same path as Triangle's own. */
+    void addPatch(const PatchMesh &patch);
+    /*! \brief Register a PSLG quad region (mesh/meshquadregion.h). Resolved in
+     *  generate(): the ring becomes a constraint loop; Mapped / Submapped
+     *  regions are meshed directly (as an internal patch); Free regions get a
+     *  cross-field aligned lattice of Steiner points, no Triangle refinement
+     *  inside (the -u hook returns "unconstrained" there), template + gap
+     *  pairing, cleanup and smoothing after Triangle. Marker-0 Steiner points
+     *  (terrain / aux) inside a Free ring are dropped; marker != 0 points
+     *  (junctions) are kept and pin the lattice. User RegionMarkers inside a
+     *  quad ring are dropped (their tag is inherited when the region's tag is
+     *  empty). Regions failing validation are skipped with a report line. */
+    void addQuadRegion(const QuadRegion &region);
+    /*! \brief One report per addQuadRegion() call, filled by generate(). */
+    [[nodiscard]] const QVector<QuadRegionReport> &quadRegionReports() const { return m_quadReports; }
     void setOptions(const GenerationOptions &opts);
 
     /*! \brief Install cancellation / progress / graded-sizing callbacks.
@@ -144,6 +209,9 @@ private:
     QVector<SteinerPoint>      m_steiners;
     QVector<QPointF>           m_holes;
     QVector<RegionMarker>      m_regions;
+    QVector<PatchMesh>         m_patches;
+    QVector<QuadRegion>        m_quadRegions;
+    mutable QVector<QuadRegionReport> m_quadReports;
     GenerationOptions          m_opts;
     RefineHook                 m_refineHook;
 

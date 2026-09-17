@@ -33,8 +33,15 @@ public:
     {
         auto *lay = new QVBoxLayout(this);
         lay->setContentsMargins(0, 0, 0, 0);
-        // Slice B.6a — Rule path takes priority.
-        if (ctx.rule) {
+        // Slice B.6a — Rule path takes priority. Hand it the kind context
+        // when we have it: the renderer still goes through the Rule, but the
+        // panel needs the layer + category to reach the per-kind flow-arrow
+        // channel, which is not renderer state and so has no Rule mirror.
+        if (ctx.rule && ctx.hostLayer && ctx.category.has_value()) {
+            auto *panel = new KindRendererPanel(ctx.rule, ctx.hostLayer,
+                                                *ctx.category, this);
+            lay->addWidget(panel, 1);
+        } else if (ctx.rule) {
             auto *panel = new KindRendererPanel(ctx.rule, this);
             lay->addWidget(panel, 1);
         } else if (ctx.hostLayer && ctx.category.has_value()) {

@@ -10,6 +10,7 @@
  * simulation is covered by the chart-view smoke test; this exercises the
  * dialog-level wiring.
  */
+#include "dialog_a11y_checks.h"
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
 #include "ui/dialogs/timeserieseditordialog.h"
@@ -23,17 +24,20 @@
 #include <QAbstractItemDelegate>
 #include <QDateTime>
 #include <QDateTimeEdit>
+#include <QDialogButtonBox>
 #include <QStyleOptionViewItem>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QItemSelectionModel>
 #include <QLineSeries>
+#include <QLabel>
 #include <QListView>
 #include <QObject>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSignalSpy>
+#include <QSortFilterProxyModel>
 #include <QTableView>
 #include <QTemporaryDir>
 #include <QTest>
@@ -601,6 +605,88 @@ private slots:
         QCOMPARE(combo->itemText(0), QStringLiteral("rain_a"));
     }
 
+    void linkExternalFile_UnmatchedColumnLoadsNothingAndShowsIt()
+    {
+        // Review B-3: a stored column that is not in the file is a hard error
+        // in the engine, so the GUI must not preview column 1 instead. Expect
+        // no points and a combo item that names the missing column, so display
+        // and provider state still agree.
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString path = tmp.filePath(QStringLiteral("renamed.csv"));
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+            QTextStream out(&f);
+            out << "time,rain_a,rain_b\n"
+                << "2026-01-01T00:00:00,1.0,10.0\n"
+                << "2026-01-01T06:00:00,2.0,20.0\n";
+        }
+
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_GONE"));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+
+        // Bind a real column first, then re-bind the column a re-exported file
+        // no longer has (the "headers changed under a saved model" case).
+        QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("rain_b")), 2);
+        QCOMPARE(p.pointCount(), 2);
+
+        QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("rain_old")), 0);
+        QCOMPARE(p.pointCount(), 0);                     // no bogus preview
+        QCOMPARE(p.columnSelector(), QStringLiteral("rain_old"));  // not rewritten
+
+        auto *combo = dlg.findChild<QComboBox *>();
+        QVERIFY(combo != nullptr);
+        QCOMPARE(combo->count(), 3);                     // 2 real + the missing one
+        QCOMPARE(combo->currentData().toString(), QStringLiteral("rain_old"));
+        QVERIFY(combo->currentText().contains(QStringLiteral("rain_old")));
+    }
+
+    void linkExternalFile_HeaderlessKeepsEmptySelectorAndRefusesOtherColumns()
+    {
+        // Review B-4 / risk R1 + the row off-by-one. The engine always spends
+        // the first content line on the header row, so a headerless 3-line
+        // file yields 2 points here too; and a fabricated "col_N" name is
+        // never stored (it cannot be resolved by the engine).
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString path = tmp.filePath(QStringLiteral("noheader.csv"));
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+            QTextStream out(&f);
+            out << "2026-01-01T00:00:00,1.0,10.0\n"
+                << "2026-01-01T06:00:00,2.0,20.0\n"
+                << "2026-01-01T12:00:00,3.0,30.0\n";
+        }
+
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_NOHDR"));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+
+        QCOMPARE(dlg.linkExternalFile(path), 2);   // line 1 spent as header
+        QCOMPARE(p.pointAt(0).value, 2.0);
+        QVERIFY(p.columnSelector().isEmpty());
+
+        auto *combo = dlg.findChild<QComboBox *>();
+        QVERIFY(combo != nullptr);
+        QCOMPARE(combo->count(), 2);
+        QCOMPARE(combo->itemText(1), QStringLiteral("col_2"));
+        // Every fabricated item carries an EMPTY selector, so nothing
+        // unresolvable can be persisted…
+        QVERIFY(combo->itemData(1).toString().isEmpty());
+        // …and picking a non-first column is refused outright: the binding and
+        // the loaded points stay on the first data column.
+        combo->setCurrentIndex(1);
+        QVERIFY(p.columnSelector().isEmpty());
+        QCOMPARE(p.pointCount(), 2);
+        QCOMPARE(p.pointAt(0).value, 2.0);
+        QCOMPARE(combo->currentIndex(), 0);
+    }
+
     void linkExternalFile_MultiColumnSelector()
     {
         QTemporaryDir tmp;
@@ -625,6 +711,97 @@ private slots:
         QCOMPARE(n, 2);
         QCOMPARE(p.pointAt(0).value, 10.0);
         QCOMPARE(p.pointAt(1).value, 20.0);
+    }
+
+    void linkExternalFile_TsfIdsHeaderAndAmPm()
+    {
+        // PCSWMM .tsf (spec §4 task 2): IDs-row column names, 3-row header,
+        // 12-hour AM/PM datetimes. Committed fixture — reviewable per
+        // CLAUDE.md §4.1.
+        const QString path =
+            qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."))
+            + QStringLiteral("/extcol_dialog_sample.tsf");
+
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("TSF_A"));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+
+        QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("RG2")), 3);
+        QCOMPARE(p.pointAt(0).value, 0.05);
+        QCOMPARE(p.pointAt(2).value, 0.25);
+        // 12:00:00 AM → midnight; 1:30:00 PM → 13:30.
+        QCOMPARE(p.pointAt(0).time, t(2007, 1, 1, 0));
+        QCOMPARE(p.pointAt(2).time, QDateTime(QDate(2007, 1, 1),
+                                              QTime(13, 30), Qt::UTC));
+
+        auto *combo = dlg.findChild<QComboBox *>();
+        QVERIFY(combo != nullptr);
+        QCOMPARE(combo->count(), 2);
+        QCOMPARE(combo->itemText(0), QStringLiteral("RG1"));
+        QCOMPARE(combo->itemText(1), QStringLiteral("RG2"));
+        QCOMPARE(combo->currentIndex(), 1);
+    }
+
+    void seriesSwitch_RepopulatesColumnCombo()
+    {
+        // B3 regression (spec §1.4): switching series must repopulate the
+        // column combo from the incoming provider's file and re-select its
+        // columnSelector — it used to keep the previous series' items.
+        const QString path =
+            qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."))
+            + QStringLiteral("/extcol_switch_multi.csv");
+
+        TimeseriesRegistry reg;
+        TimeseriesProvider &a = *reg.create(QStringLiteral("TS_FILE"));
+        TimeseriesProvider &b = *reg.create(QStringLiteral("TS_INLINE"));
+        QVERIFY(b.setAllPoints(fixture()));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &a);
+        dlg.show();
+        QTest::qWait(50);
+
+        QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("rain_b")), 2);
+        QCOMPARE(a.columnSelector(), QStringLiteral("rain_b"));
+
+        // Drive rebindActiveProvider_ through the list pane like a user click:
+        // away to the inline series, then back to the file-backed one.
+        // The series list is the only view driven by a QSortFilterProxyModel;
+        // a plain findChild<QListView*> would hit the column combo's popup
+        // view first (the source-mode card is built before the splitter).
+        QListView *list = nullptr;
+        for (auto *v : dlg.findChildren<QListView *>()) {
+            if (qobject_cast<QSortFilterProxyModel *>(v->model())) {
+                list = v;
+                break;
+            }
+        }
+        QVERIFY(list != nullptr);
+        auto selectByName = [&](const QString &name) {
+            QAbstractItemModel *m = list->model();
+            for (int r = 0; r < m->rowCount(); ++r) {
+                const QModelIndex idx = m->index(r, 0);
+                if (m->data(idx, Qt::DisplayRole).toString() == name) {
+                    list->setCurrentIndex(idx);
+                    return true;
+                }
+            }
+            return false;
+        };
+        QVERIFY(selectByName(QStringLiteral("TS_INLINE")));
+        QTest::qWait(20);
+        QVERIFY(selectByName(QStringLiteral("TS_FILE")));
+        QTest::qWait(20);
+
+        auto *combo = dlg.findChild<QComboBox *>();
+        QVERIFY(combo != nullptr);
+        QCOMPARE(combo->count(), 2);
+        QCOMPARE(combo->itemText(0), QStringLiteral("rain_a"));
+        QCOMPARE(combo->itemText(1), QStringLiteral("rain_b"));
+        // Shown item and provider state agree (items carry the real header
+        // name as userData).
+        QCOMPARE(combo->currentIndex(), 1);
+        QCOMPARE(combo->currentData().toString(), a.columnSelector());
     }
 
     void detachToInline_PreservesPointsAndFlipsMode()
@@ -853,7 +1030,9 @@ private slots:
         QVERIFY2(!toolbar->isEnabled(),
                  "createNew binds no provider, so the toolbar starts disabled");
 
-        auto *list = dlg->findChild<QListView *>();
+        // By name: a bare findChild<QListView*> can land on a QComboBox's
+        // internal popup view (the source card now hosts a time-mode combo).
+        auto *list = dlg->findChild<QListView *>(QStringLiteral("seriesListView"));
         QVERIFY(list);
         QVERIFY(list->model());
         QCOMPARE(list->model()->rowCount(), 1);
@@ -882,6 +1061,150 @@ private slots:
         list->selectionModel()->clearCurrentIndex();
         QVERIFY2(!toolbar->isEnabled(),
                  "with no series bound the toolbar must go back to disabled");
+    }
+
+    // ── Time modes (relative / absolute authoring form) ─────────────────────
+
+    void addRow_SeedsFromSimulationStart()
+    {
+        TimeseriesRegistry reg;
+        reg.setSimulationStart(t(2007, 1, 1, 6));
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QTest::qWait(20);
+
+        for (auto *a : dlg.findChildren<QAction *>())
+            if (a->text() == QStringLiteral("Add Row")) { a->trigger(); break; }
+        QCOMPARE(p.pointCount(), 1);
+        QCOMPARE(p.pointAt(0).time, t(2007, 1, 1, 6));
+    }
+
+    void timeModeCombo_SwitchesWithUndoAndBadge()
+    {
+        TimeseriesRegistry reg;
+        reg.setSimulationStart(t(2026, 1, 1, 0));
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QVERIFY(p.timeMode() == TimeseriesProvider::TimeMode::Absolute);
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QTest::qWait(20);
+
+        auto *holder = dlg.findChild<QWidget *>(QStringLiteral("timeModeRowHolder"));
+        QVERIFY(holder);
+        QVERIFY2(holder->isVisibleTo(&dlg), "time-mode row visible for Inline series");
+        auto *combo = holder->findChild<QComboBox *>();
+        QVERIFY(combo);
+        QCOMPARE(combo->currentData().toInt(), 0);   // Absolute
+
+        // Switch to Relative through the combo → provider follows, undoable.
+        combo->setCurrentIndex(combo->findData(1));
+        QCOMPARE(p.timeMode(), TimeseriesProvider::TimeMode::Relative);
+        QCOMPARE(p.relativeCount(), p.pointCount());
+        QCOMPARE(p.relativeAnchor(), t(2026, 1, 1, 0));
+        auto *badge = holder->findChild<QLabel *>(QStringLiteral("timeModeBadge"));
+        QVERIFY(badge && badge->isVisibleTo(&dlg) && !badge->text().isEmpty());
+
+        stack.undo();
+        QCOMPARE(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+        QTest::qWait(10);
+        QCOMPARE(combo->currentData().toInt(), 0);
+    }
+
+    void timeModeCombo_RefusedWhenPointsPrecedeStart()
+    {
+        TimeseriesRegistry reg;
+        reg.setSimulationStart(t(2026, 6, 1, 0));   // AFTER the fixture points
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QTest::qWait(20);
+
+        auto *holder = dlg.findChild<QWidget *>(QStringLiteral("timeModeRowHolder"));
+        QVERIFY(holder);
+        auto *combo = holder->findChild<QComboBox *>();
+        QVERIFY(combo);
+        combo->setCurrentIndex(combo->findData(1));
+        QTest::qWait(10);
+        // Refused: first point precedes the anchor → elapsed would be negative.
+        QCOMPARE(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+        QCOMPARE(combo->currentData().toInt(), 0);   // snapped back
+    }
+
+    void mixedProvider_ShowsReadOnlyMixedItem()
+    {
+        TimeseriesRegistry reg;
+        reg.setSimulationStart(t(2026, 1, 1, 0));
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        p.setRelativeInfo(2, t(2026, 1, 1, 0));   // loaded Mixed form
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QTest::qWait(20);
+
+        auto *holder = dlg.findChild<QWidget *>(QStringLiteral("timeModeRowHolder"));
+        QVERIFY(holder);
+        auto *combo = holder->findChild<QComboBox *>();
+        QVERIFY(combo);
+        QCOMPARE(combo->currentData().toInt(), 2);   // Mixed selected
+        QCOMPARE(combo->count(), 3);
+    }
+
+    void paste_ElapsedHoursFollowTimeMode()
+    {
+        TimeseriesRegistry reg;
+        reg.setSimulationStart(t(2026, 1, 1, 0));
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QTest::qWait(20);
+
+        // Absolute mode: a bare-number time cell must NOT paste.
+        QApplication::clipboard()->setText(QStringLiteral("1\t5.0"));
+        for (auto *a : dlg.findChildren<QAction *>())
+            if (a->text() == QStringLiteral("Paste")) { a->trigger(); break; }
+        QCOMPARE(p.pointCount(), 0);
+
+        // Relative mode: "1" is one elapsed hour from the anchor.
+        p.setTimeMode(TimeseriesProvider::TimeMode::Relative, t(2026, 1, 1, 0));
+        QTest::qWait(10);
+        for (auto *a : dlg.findChildren<QAction *>())
+            if (a->text() == QStringLiteral("Paste")) { a->trigger(); break; }
+        QCOMPARE(p.pointCount(), 1);
+        QCOMPARE(p.pointAt(0).time, t(2026, 1, 1, 1));
+        QCOMPARE(p.pointAt(0).value, 5.0);
+    }
+
+    // The editor used to be dismissable only from the title bar. The Close
+    // box must hide it, and must not be the default button — Enter in a
+    // value cell has to commit the cell, never close the editor.
+    void closeButton_HidesDialog()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        dlg.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dlg));
+
+        auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("ts_closeBox"));
+        QVERIFY(box);
+        auto *btn = box->button(QDialogButtonBox::Close);
+        QVERIFY(btn);
+        QVERIFY(!btn->isDefault());
+        QVERIFY(!btn->autoDefault());
+        swmmvis_test::assertDialogA11y(&dlg);
+
+        btn->click();
+        QTRY_VERIFY(!dlg.isVisible());
     }
 };
 

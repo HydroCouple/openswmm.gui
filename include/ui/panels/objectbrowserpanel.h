@@ -95,6 +95,11 @@ signals:
     void plotTimeSeriesForLayerRequested(const SWMMObjectRef &object,
                                           SWMMResultsLayer *layer);
 
+    /*! \brief Emitted when the user picks "Rainfall Visualization…" from a
+     *  rain gage's right-click menu. The dialog shows every gage; \p object
+     *  is carried for a future pre-highlight. */
+    void rainfallVisualizationRequested(const SWMMObjectRef &object);
+
 public:
     /*! Slice BM.0-Add-New (2026-05-24) — does this data category have a
      *  complex MVC editor wired into Add-New today? Returns true only for
@@ -113,6 +118,12 @@ public:
      *  context menu disables those, so this should be unreachable in
      *  production paths). */
     void launchAddNewEditor(SWMMModelLayer::DataCategory dc);
+
+    /*! 2026-08-31 — launch the per-category complex editor in review/browse
+     *  mode: nothing is created, the user picks from the editor's own list
+     *  (and can create via its Add/New button). Used by the Data menu and
+     *  the ribbon's Data Objects buttons. No-op for gap categories. */
+    void launchBrowseEditor(SWMMModelLayer::DataCategory dc);
 
     /*! 2026-05-29 — Open the comprehensive editor for an existing data
      *  object referenced by \p ref, with that object pre-selected for

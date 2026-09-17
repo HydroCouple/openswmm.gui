@@ -6,6 +6,8 @@
  */
 #include "plot/swmmoutrunlayer.h"
 
+#include "plot/resultdescriptor.h"
+
 #include "layers/swmmresultslayer.h"
 
 #include <openswmm/engine/openswmm_output.h>
@@ -95,7 +97,16 @@ void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
         out.errorMessage = QStringLiteral("Attribute not applicable to object kind");
         return;
     }
+    fetchSeriesByCode_(ref, varCode, out);
+}
 
+/// The shared tail of both getSeriesAt overloads: object resolution +
+/// bulk fetch + time axis, for an ALREADY-RESOLVED engine var code
+/// (fixed attribute or species column — Y2b-2). Preconditions checked by
+/// the callers: m_layer and its output handle are non-null.
+void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
+                                         SeriesData& out) const
+{
     int objIdx = -1;
     switch (ref.kind) {
     case ObjectRef::Kind::Node:     objIdx = m_layer->nodeOutputIndex(ref.name);     break;
@@ -118,25 +129,33 @@ void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
         return;
     }
 
-    // Fetch the full series in one bulk call.
-    std::vector<float> values(static_cast<std::size_t>(n_periods));
+    // Fetch [firstPeriod, n) in one bulk call — the whole series on a fresh
+    // chart, only the new tail on a live tick (see SeriesData::firstPeriod).
+    out.periodCount = n_periods;
+    int from = out.firstPeriod;
+    if (from < 0) from = 0;
+    if (from > n_periods) from = n_periods;
+    const int count = n_periods - from;
+    if (count == 0) { out.ok = true; return; }   // nothing new yet
+
+    std::vector<float> values(static_cast<std::size_t>(count));
     int rc = -1;
     switch (ref.kind) {
     case ObjectRef::Kind::Node:
         rc = swmm_output_get_node_series(handle, objIdx, varCode,
-                                          0, n_periods - 1, values.data());
+                                          from, n_periods - 1, values.data());
         break;
     case ObjectRef::Kind::Link:
         rc = swmm_output_get_link_series(handle, objIdx, varCode,
-                                          0, n_periods - 1, values.data());
+                                          from, n_periods - 1, values.data());
         break;
     case ObjectRef::Kind::Subcatch:
         rc = swmm_output_get_subcatch_series(handle, objIdx, varCode,
-                                              0, n_periods - 1, values.data());
+                                              from, n_periods - 1, values.data());
         break;
     case ObjectRef::Kind::System:
         rc = swmm_output_get_system_series(handle, varCode,
-                                            0, n_periods - 1, values.data());
+                                            from, n_periods - 1, values.data());
         break;
     default:
         break;
@@ -155,18 +174,65 @@ void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
     }
     const double step_days = static_cast<double>(stepSec) / 86400.0;
 
-    out.timesJulian.resize(static_cast<std::size_t>(n_periods));
-    out.values.resize(static_cast<std::size_t>(n_periods));
-    for (int i = 0; i < n_periods; ++i) {
+    out.timesJulian.resize(static_cast<std::size_t>(count));
+    out.values.resize(static_cast<std::size_t>(count));
+    for (int i = 0; i < count; ++i) {
         // SWMM .out report periods are 1-based in the file but the engine API
         // exposes 0-based indexing for start/end periods (start_period=0,
-        // end_period=n-1 returns n values).  Each value at index i corresponds
-        // to time t0 + (i+1) * stepSec (the engine writes at the END of each
+        // end_period=n-1 returns n values).  Each value at period p corresponds
+        // to time t0 + (p+1) * stepSec (the engine writes at the END of each
         // reporting interval — same convention TimeSeriesPlotDialog uses).
-        out.timesJulian[i] = t0 + (i + 1) * step_days;
+        const int p = from + i;
+        out.timesJulian[i] = t0 + (p + 1) * step_days;
         out.values[i]      = static_cast<double>(values[i]);
     }
     out.ok = true;
+}
+
+void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
+                                  const ResultDescriptor& descriptor,
+                                  SeriesData& out) const
+{
+    // Fixed attributes take the enum path unchanged.
+    if (!descriptor.isSpecies()) {
+        getSeriesAt(ref, descriptor.attr, out);
+        return;
+    }
+
+    out.ok = false;
+    out.errorMessage.clear();
+    out.timesJulian.clear();
+    out.values.clear();
+
+    if (!m_layer || !m_layer->outputHandle()) {
+        out.errorMessage = QStringLiteral("Result layer not available");
+        return;
+    }
+    // NAME → index → POLLUT_BASE + index against the run's LIVE species
+    // list (D-G1): a series saved against a reordered model resolves to
+    // the right column or to a precise miss — never to a wrong column.
+    const int varCode = speciesVariableCodeFor(
+        descriptor.species, m_layer->speciesNames(), ref.kind);
+    if (varCode < 0) {
+        out.errorMessage =
+            QStringLiteral("Run does not carry species '%1' for this "
+                           "object kind")
+                .arg(descriptor.species);
+        return;
+    }
+    fetchSeriesByCode_(ref, varCode, out);
+}
+
+QVector<ResultDescriptor> SwmmOutRunLayer::resultDescriptorsForKind(
+    ObjectRef::Kind kind) const
+{
+    // Y2b-1 (amendment D-Y4): the fixed set plus THIS run's species by
+    // name. A destroyed or quality-free layer degrades to the fixed set —
+    // exactly what a legacy .out should serve.
+    QStringList species;
+    if (m_layer)
+        species = m_layer->speciesNames();
+    return plot::resultDescriptorsForKind(kind, species);
 }
 
 } // namespace openswmmvis::plot

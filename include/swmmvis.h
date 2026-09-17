@@ -3,7 +3,7 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license MIT
- * \brief  Main application window for the OpenSWMM GUI.
+ * \brief  Main application window for SWMMVis.
  *
  * \details SWMMVis is a QMainWindow MDI host that coordinates:
  *  - Multiple SWMMVisProjectWindow sub-windows (one per loaded project).
@@ -27,11 +27,13 @@
 #include <QSettings>
 #include <functional>
 #include <optional>
+#include <utility>
 
 #include "core/openswmmvislogmessage.h"
 #include "layers/swmmmodellayer.h"        // NewProjectSpec (nested type)
 #include "selection/selectionmanager.h"   // SWMMObjectRef
-#include "plot/plotattribute.h"           // PlotAttribute (AT.2)
+#include "plot/plotattribute.h"
+#include "plot/resultdescriptor.h"           // PlotAttribute (AT.2)
 #include "plot/profilerouter.h"           // ProfileRouter::Path
 
 QT_BEGIN_NAMESPACE
@@ -40,6 +42,7 @@ QT_END_NAMESPACE
 
 namespace openswmmvis::ui { class CompactToolbarController; }
 namespace openswmmvis::ui { class ComparisonPlotDialog; }
+namespace openswmmvis::ui { class RainfallVisualizationDialog; }
 namespace openswmmvis::ui { class RibbonGroup; }
 namespace openswmmvis::project::examples { struct ExampleInfo; }
 
@@ -78,10 +81,13 @@ class ProfilePlotDialog;
 namespace openswmmvis::ui { class CursorWindowSlider; }
 namespace openswmmvis::ui { class LegendDock; }
 namespace openswmmvis::ui { class LayerStylingDock; }
+namespace openswmmvis::ui { class FeatureLayerPanel; }
+class FeatureLayer;
+class SWMMVisProjectWindow;
 
 /*!
  * \class SWMMVis
- * \brief Main application window for the OpenSWMM GUI.
+ * \brief Main application window for SWMMVis.
  *
  * \details Wraps MapCanvas, manages the project workspace/session, map tools,
  *          and all top-level UI interactions (menus, toolbars, status bar,
@@ -113,6 +119,23 @@ public:
      *         prompt can offer a real Save As and keep the window open on
      *         cancel. */
     bool saveProjectWindowAs(SWMMVisProjectWindow *pw);
+
+    /*! \brief Run the pre-save portability check for \p pw against
+     *         \p targetPath and log any warnings.
+     *
+     *  Advance preview of the cross-volume / missing-file diagnostics the
+     *  engine's writer produces, so they land in the log panel next to the
+     *  save-success line instead of only inside the saved file. Non-blocking.
+     *  Called from BOTH Save and Save As — it used to run only on Save As, so
+     *  a plain Save of a model with an unportable reference reported nothing.
+     *
+     *  \param pw          Project window; no-op when it has no live engine.
+     *  \param targetPath  Path the save will write to.
+     *  \param isGpkg      True for a GeoPackage export, false for `.inp`.
+     */
+    void logPortabilityPreflight(SWMMVisProjectWindow *pw,
+                                 const QString &targetPath,
+                                 bool isGpkg);
 
 public slots:
     /*!
@@ -159,6 +182,27 @@ private:
     void initializeSimulationStatusDockWidget();
     void initializeMessageLogDockWidget();
     void initializeLegendDockWidget();   // Slice BB Phase 8.6.11 / 8.6.16
+
+    // ── Editable feature layers (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN
+    //    §5.1, §6.2) ────────────────────────────────────────────────────
+    /*! Build the Features dock and tabify it behind the property browser. */
+    void initializeFeatureLayerDockWidget();
+    /*! Create the eight feature actions and wire them to the tools. */
+    void initializeFeatureLayerActions();
+    /*! `<model>.features.gpkg` beside the .inp, or empty when \p pw has no
+     *  saved model file — the guard that stops an orphan GeoPackage being
+     *  created next to an unsaved project. */
+    [[nodiscard]] QString featureGpkgPathFor(SWMMVisProjectWindow *pw) const;
+    /*! New Feature Layer flow: dialog → FeatureStore table → canvas → panel. */
+    void onNewFeatureLayer();
+    /*! Point every feature tool on \p pw's canvas at \p layer. */
+    void retargetFeatureTools(SWMMVisProjectWindow *pw, FeatureLayer *layer);
+    /*! Delete the active feature layer's selected features (undoable). */
+    void onDeleteSelectedFeatures();
+    /*! Reflect the active layer's edit session into the Edit Mode checkbox
+     *  and enable/disable the session-only actions. */
+    void syncFeatureEditState();
+
     void initializeMenus();
     void initializeSettings();
 
@@ -193,7 +237,7 @@ private:
     void applyEditSessionToActions(bool active);
     void applyProjectOpenToActions(bool open);
 
-    /*! Bold the active side of the "Offset Mode: Elevation [ ] Depth" status-bar
+    /*! Bold the active side of the "Offset Mode: Depth [ ] Elevation" status-bar
      *  toggle so the current LINK_OFFSETS convention is legible at a glance. */
     void updateOffsetModeLabels(bool elevation);
 
@@ -247,7 +291,8 @@ private slots:
                                bool ok,
                                const QList<QString> &warnings,
                                const QList<QString> &errors,
-                               qint64 elapsedMs);
+                               qint64 elapsedMs,
+                               class OpenProgressModel *progress = nullptr);
 
     /*! \brief Mesh Tiled LOD P1.2 — async half of the 2D mesh + prior-run
      *         HDF5 auto-load that finalizeSingleINPOpen() kicks off. The
@@ -258,7 +303,8 @@ private slots:
      *         (hidden-until-adopted: nothing is added on failure or if the
      *         window closed mid-load). Timing lands in openswmm.load.mesh. */
     void attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
-                                 const QString &filePath);
+                                 const QString &filePath,
+                                 class OpenProgressModel *progress = nullptr);
 
     /*! \brief Reopen a previous run's HDF5 2D results for \p filePath (the
      *         .inp). The .h5 comes from `[2D_OPTIONS] OUTPUT_FILE`, falling
@@ -266,9 +312,18 @@ private slots:
      *         settings and sublayer styles stashed on the window by
      *         ProjectSerializer::applySession are applied after the source
      *         opens. Runs whether or not a mesh layer was built — the HDF5
-     *         source carries its own geometry. */
+     *         source carries its own geometry.
+     *
+     *  \param h5Override when non-empty, load THIS .h5 instead of resolving
+     *         one from the model — the explicit path the Import menu's
+     *         "Add 2D Results…" browsed to. An explicit add also becomes the
+     *         active 2D layer unconditionally (an auto-load only claims the
+     *         slot when it is still empty) and leaves any pending sidecar
+     *         restore alone, since it is not the project-open pass. \p
+     *         filePath is still read for the model's DRY_DEPTH. */
     void maybeLoad2DResults(SWMMVisProjectWindow *window,
-                            const QString &filePath);
+                            const QString &filePath,
+                            const QString &h5Override = QString());
 
     /*! \brief Mount one selected 2D mesh cell in the Properties panel.
      *
@@ -362,6 +417,16 @@ private slots:
     /*! \brief Open the Add Basemap dialog pre-selected on the WMS/WMTS tab. */
     void onAddWMSLayer();
 
+    /*!
+     * \brief Add features from an OGC Web Feature Service.
+     *
+     * The feature half of the OGC family, which this program has not had:
+     * WMS, WMTS and WCS all answer with pictures, and a WFS answers with
+     * the data — so what it returns joins the layer tree as a vector layer
+     * that can be queried, classified and labelled.
+     */
+    void onAddWFSLayer();
+
     /*! \brief Prompt for an OGR vector file and add it as a GISVectorLayer. */
     void onAddVectorLayer();
 
@@ -371,11 +436,35 @@ private slots:
     /*! \brief Prompt for a SWMM `.out` file and add it as a SWMMResultsLayer. */
     void onAddSWMMResultsLayer();
 
+    /*! \brief Prompt for an existing SWMMVis 2D mesh (`.2dm`) anywhere on
+     *         disk and load it into the active project as the active mesh.
+     *         Delegates to SWMMVisProjectWindow::importMeshFileAsync. */
+    void onAddMesh2DLayer();
+
+    /*! \brief Prompt for a SWMMVis 2D results file (`.h5`) anywhere on disk
+     *         and add it as a SWMM2DResultsLayer, becoming the active 2D
+     *         results layer. Delegates the build to maybeLoad2DResults so an
+     *         explicitly added layer is identical to an auto-loaded one. */
+    void onAdd2DResultsLayer();
+
     /*! \brief Open the Simulation Options dialog for the active project. */
     void onSimulationOptions();
 
     /*! \brief Open the Climatology dialog at the given tab (ClimatologyDialog::Tab). */
     void onClimatology(int tab);
+
+    /*! \brief Open the Water Age Sources editor (Y3b — subplan G3g wiring). */
+    void onEditWaterAgeSources();
+
+    /*! \brief Open the per-element Initial Quality editor (G-A1). */
+    void onEditInitialQuality();
+
+    /*! \brief Open the Reaction System editor (G-B3). */
+    void onEditReactionSystem();
+
+    //! G4g: [HEAT_SOURCES] / [HEAT_FLUXES] / radiative-solar-cloud editor.
+    //! \param tab HeatConfigDialog::Tab to open on; -1 keeps the default.
+    void onEditHeatConfig(int tab = -1);
 
     // ── Toolbar quick-wins (Phase 2) ────────────────────────────────────────
     /*! \brief Show + focus the Object Browser search box. */
@@ -386,6 +475,10 @@ private slots:
     void onAddDelimitedData();
     /*! \brief Open the statistics dashboard for the active results layer. */
     void onSummarizeResults();
+
+    /*! \brief Export the active 2D results layer — chosen time steps and the
+     *  run maxima — to Shapefile, GeoPackage or GeoTIFF rasters. */
+    void onExport2DResults();
     /*! \brief Ctrl+C dispatcher: copies the focused Attribute Table's selected
      *         rows as TSV when focus is inside one, otherwise the active map
      *         view as an image. One shortcut registration, routed by focus —
@@ -451,6 +544,23 @@ private slots:
      *  once. */
     openswmmvis::ui::ComparisonPlotDialog *ensureComparisonPlotDialog();
 
+    /*! Find-or-create the shared Rainfall Visualization dialog
+     *  (WA_DeleteOnClose, parented to this main window). Re-binds the
+     *  active project's model layer on reuse. */
+    openswmmvis::ui::RainfallVisualizationDialog *ensureRainfallVisualizationDialog();
+
+    /*! Open / raise the Rainfall Visualization dialog for the active
+     *  project. Funnel for every entry point: the Analysis menu action,
+     *  the object browser's Rain Gages context menu, the map canvas's
+     *  gage right-click, and the rain gage property editor's
+     *  "Plot Rainfall…" button. */
+    void openRainfallVisualization();
+
+    /*! \ref openRainfallVisualization, then focus the dialog on the gage
+     *  \p ref names — the gage-scoped entry points (object browser, map
+     *  right-click) route here so only the picked gage plots. */
+    void openRainfallVisualizationFor(const SWMMObjectRef &ref);
+
     /*! Slice BL — open / focus the Comparison Plot dialog and add a
      *  series for \p ref on the active project's first SWMMResultsLayer.
      *  The dialog is created once and re-used; subsequent calls add
@@ -476,14 +586,28 @@ private slots:
                                                 openswmmvis::plot::PlotAttribute attribute,
                                                 SWMMResultsLayer *layer);
 
+    /*! Y2b-2 (amendment D-Y4): descriptor-shaped variants — a fixed
+     *  attribute or a species BY NAME; the quick map menus emit these.
+     *  An INVALID descriptor is the "All attributes" sentinel and fans
+     *  out across the run's full descriptor list, species included. The
+     *  enum variants above forward here. */
+    void openComparisonPlotForDescriptor(
+        const SWMMObjectRef &ref,
+        const openswmmvis::plot::ResultDescriptor &descriptor);
+    void openComparisonPlotForDescriptorOnLayer(
+        const SWMMObjectRef &ref,
+        const openswmmvis::plot::ResultDescriptor &descriptor,
+        SWMMResultsLayer *layer);
+
     /*! Profile-dialog overlay variant: opens / focuses a ComparisonPlotDialog
      *  parented to \p profileDlg (rather than this main window) and given
      *  Qt::Tool flags so it floats above the profile. Reused across multiple
      *  right-click "Plot Time Series" picks from the same profile; dies with
      *  the profile dialog. */
-    void openComparisonPlotOverlayForProfile(ProfilePlotDialog *profileDlg,
-                                              const SWMMObjectRef &ref,
-                                              openswmmvis::plot::PlotAttribute attribute);
+    void openComparisonPlotOverlayForProfile(
+        ProfilePlotDialog *profileDlg,
+        const SWMMObjectRef &ref,
+        const openswmmvis::plot::ResultDescriptor &descriptor);
 
     /*! Slice AT.2 — open / focus the dialog and add a system-wide series
      *  (rainfall, runoff, flooding, …). Resolved against the active
@@ -491,10 +615,11 @@ private slots:
     void openComparisonPlotForSystemAttribute(openswmmvis::plot::PlotAttribute attribute);
 
     /*! Slice CF.3 — open / focus the Comparison Plot dialog and add one
-     *  Mesh2D-cell series per (cell, ticked-attribute) on the given 2D
-     *  results layer. Called by MapToolPick2DCells. */
+     *  Mesh2D-cell series per (cell, attribute) on the given 2D results
+     *  layer. \p attrs comes from MapToolPick2DCells' context menu. */
     void openComparisonPlotForCells(class SWMM2DResultsLayer *layer,
-                                    const QVector<int> &triIdxList);
+                                    const QVector<int> &triIdxList,
+                                    const QVector<openswmmvis::plot::PlotAttribute> &attrs);
 
     /*! Slice AT.2 — toggle the MapToolPlotPick on/off in response to
      *  the dialog's "Add from Map…" action. Saves the previously active
@@ -522,10 +647,10 @@ private slots:
      *  TerrainToolbar::activeTerrain() with its vertical conversion factor. */
     void openTerrainProfilePlotFor(const QVector<QPointF> &scenePolyline);
 
-    /*! Slice US.A2 — context-sensitive Analysis "Plot Profile": dispatch to a
-     *  network (pipe HGL) profile or a 2D-surface profile based on selection +
-     *  what's loaded. \p forceMode: 0 = auto, 1 = network, 2 = mesh surface. */
-    void onPlotProfileTriggered(int forceMode = 0);
+    /*! Analysis "Plot Profile" — arms the network (pipe HGL) profile path
+     *  picker. The 2D surface profile is the separate actionPlotProfile2D
+     *  (created in initializeMapTools). */
+    void onPlotProfileTriggered();
 
     /*! Shared mesh-profile dialog builder. \p results may be null (bed-only). */
     void openMeshProfileDialog(const QVector<QPointF> &scenePolyline,
@@ -538,19 +663,36 @@ private slots:
     void openMeshEdgeFluxPlotFor(class SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal,
                                  openswmmvis::plot::PlotAttribute attr);
 
-    /*! Open the comparison plot with interpolated depth + HGL time series for
-     *  the selected mesh vertices (right-clicked in the vertex-select tool). */
-    void openMeshVertexSeriesFor(class SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList);
+    /*! Open the comparison plot with the chosen interpolated series (depth
+     *  and/or HGL) for the selected mesh vertices (right-clicked in the
+     *  vertex-select tool). */
+    void openMeshVertexSeriesFor(class SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList,
+                                 const QVector<openswmmvis::plot::PlotAttribute> &attrs);
 
     void onActiveSubWindowChanged(QMdiSubWindow *window);
 
     /*!
      * \brief Rebuild the macOS-style Window menu: Minimize / Zoom / separator /
-     *        dynamic list of open project sub-windows / separator / Bring All
-     *        to Front. Called on subWindowActivated and on every project
-     *        window's windowTitleChanged so dirty `*` markers refresh.
+     *        dynamic list of open project sub-windows / separator / open
+     *        modeless dialogs / separator / Bring All to Front / Reset Window
+     *        Positions. Called on subWindowActivated, on every project
+     *        window's windowTitleChanged so dirty `*` markers refresh, and on
+     *        DialogRegistry::openDialogsChanged.
      */
     void rebuildWindowMenu();
+
+    /*!
+     * \brief Recovery path for windows that have become unreachable — dragged
+     *        onto a monitor that was since disconnected, or restored from a
+     *        geometry that no longer maps onto any connected screen.
+     *
+     * Clears every saved window position (dialog `geometry` keys and the main
+     * window's), then moves the main window and all open modeless dialogs
+     * back onto the main window's current screen. Layout state that is not
+     * position data — splitter sizes, header widths, dock/toolbar arrangement
+     * — is deliberately preserved.
+     */
+    void resetWindowPositions();
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -605,9 +747,13 @@ private:
     QComboBox    *mComboBoxFlowUnits                   = nullptr;
     QComboBox    *mComboBoxEngineVersion               = nullptr;
     QProgressBar  *mProgressBar                       = nullptr;
+    /*! Stage text shown beside \ref mProgressBar ("Parsing 2D mesh…").
+     *  Hidden whenever the bar is. */
+    QLabel        *mProgressLabel                     = nullptr;
     QDateTimeEdit *mDateTimeEditAnimationTime         = nullptr;
     QLabel        *mLabelAnimationSpeed               = nullptr;
     QComboBox     *mComboAnimationSpeed               = nullptr;
+    QCheckBox     *mCheckBoxAnimationCycle            = nullptr;  // loop playback at end-of-range (default on)
     // Causal "as-of within timespan" sync controls (look-back window).
     QLabel        *mLabelAnimationWindow              = nullptr;
     QDoubleSpinBox *mSpinAnimationWindow              = nullptr;
@@ -633,6 +779,7 @@ private:
     QLabel        *mLabelActiveResults2D              = nullptr;
     QComboBox     *mComboActiveResults2D              = nullptr;
     QCheckBox     *mCheckBoxLive2D                    = nullptr;  // live 2D render on/off (Issue 2)
+    QCheckBox     *mCheckBoxLive1D                    = nullptr;  // live 1D results pref (LIVE_1D_RESULTS_PLAN_V2)
     class AnimationController *mAnimationController  = nullptr;
     class TerrainToolbar      *mTerrainToolbar       = nullptr;
     class MeshEditingToolbar  *mMeshEditingToolbar   = nullptr;   // Slice §V.VB
@@ -643,6 +790,7 @@ private:
     class QToolBar            *mToolBarModel         = nullptr;
     class QToolBar            *mToolBarMesh2D        = nullptr;
     class QToolBar            *mToolBarView          = nullptr;
+    class QToolBar            *mToolBarFeatures      = nullptr;
     // Iteration 2 (R3) — the two formerly .ui-authored bars, rebuilt in
     // code with the SAME objectNames so saved window state keeps working.
     class QToolBar            *mToolBarAnimation     = nullptr;
@@ -658,12 +806,21 @@ private:
 
     QSettings          mSettings;
     QStandardItemModel *mLogMessagesModel   = nullptr;
+    /*! Perf plan B2 — one Message-Log scrollToBottom per event-loop turn,
+     *  not one per appended row (engine-warning drains are bursts). */
+    bool                mLogScrollPending   = false;
     LayerTreePanel        *mLayerTreePanel        = nullptr;
     ObjectBrowserPanel    *mObjectBrowserPanel    = nullptr;
     PropertiesPanel        *mPropertiesPanel        = nullptr;
     // Slice SP.4 — dockable vector section / profile view of the selection.
     openswmmvis::ui::SectionViewPanel *mSectionViewPanel = nullptr;
     AttributeTablePanel   *mAttributeTablePanel   = nullptr;
+    // Editable feature layers — the Features dock and its host dock widget
+    // (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §5.1). Tabified behind the
+    // property browser; the panel picks which FeatureLayer the drawing tools
+    // target.
+    openswmmvis::ui::FeatureLayerPanel *mFeatureLayerPanel = nullptr;
+    class QDockWidget     *mFeatureDock           = nullptr;
     SimulationStatusModel *mSimStatusModel        = nullptr;
     // Slice BB Phase 8.6.11 / 8.6.16 — dockable per-class legend / style editor.
     openswmmvis::ui::LegendDock *mLegendDock      = nullptr;
@@ -687,6 +844,37 @@ private:
     // the user closes the project window mid-run).
     QHash<int, QPointer<class SWMM2DResultsLayer>> mActive2DResultsLayers;
 
+    /*! Post-run 2D adoption (the runner's finished handler): rename the live
+     *  layer, swap its source to the written .h5, re-arm the animation
+     *  controller, and drop the job's bookkeeping. Split out so a mid-run
+     *  export can DEFER it — the swap destroys the EngineMesh2DSource the
+     *  exporter is reading. */
+    void adoptFinished2DResults(int jobId, bool success, int errCode);
+
+    /*! True while onExport2DResults holds a live source (dialog + write).
+     *  Finished jobs arriving meanwhile queue in mDeferred2DFinish
+     *  (jobId → {success, errCode}) and are adopted when the export returns. */
+    bool                            mExport2DInFlight = false;
+    QHash<int, std::pair<bool, int>> mDeferred2DFinish;
+
+    /*! Live 1D results (LIVE_1D_RESULTS_PLAN_V2 §4.3): per running job, the
+     *  SWMMResultsLayer tailing its .out. Filled on the first progress tick
+     *  whose header is on disk, refreshed on every later tick, released in
+     *  the finished handler (which finalises the same layer in place). */
+    QHash<int, QPointer<class SWMMResultsLayer>> mLive1DLayers;
+
+    /*! Find the results layer bound to \p outPath on \p pw's canvas, or
+     *  create + add one. Shared by the live tick and the finish handler so
+     *  both bind the SAME layer object. */
+    class SWMMResultsLayer *findOrCreateResultsLayer(SWMMVisProjectWindow *pw,
+                                                     const QString &outPath,
+                                                     const QString &rptPath);
+
+    /*! Live 1D tick: open the job's .out live on first sight, else refresh
+     *  it; promotes the layer to active/primary once it holds data. */
+    void tickLive1DResults(int jobId, SWMMVisProjectWindow *pw,
+                           const QString &outPath, const QString &rptPath);
+
     // Per-job simulation start time captured from simulationDatesKnown so the
     // post-run HDF5Mesh2DSource can map its /time (days-since-start) to
     // calendar QDateTime for the global animation slider.
@@ -699,8 +887,54 @@ private:
     QPointer<class OpenSWMMVisMapToolPlotPick>     mPlotPickTool;
     QPointer<class OpenSWMMVisMapTool>             mPrevMapTool;
 
+    // ── Status-bar progress arbitration (LOAD_PERF Phase 1c) ──────────────
+    // One QProgressBar serves three producers: simulation runs (real
+    // percent), project opens (real percent), and a handful of genuinely
+    // unmeasurable operations (raster/table open) that still want a spinner.
+    // They are mutually exclusive, so ownership is explicit and every writer
+    // goes through applyProgressBarState().
+
+    /*! Who currently owns \ref mProgressBar. Simulation outranks Open: a run
+     *  is the longer, explicitly user-initiated task, and a 200 ms open must
+     *  not blank a 40-minute run's percentage. */
+    enum class ProgressOwner { None, Busy, Open, Simulation };
+
+    /*! In-flight project opens keyed by open id. The bar shows the MINIMUM
+     *  percent across them, matching the min-across-jobs rule the simulation
+     *  path already uses, so a multi-model .oswp reports the laggard. */
+    QHash<int, class OpenProgressModel *> mRunningOpens;
+    int  mNextOpenId       = 1;
+    int  mBusyRefCount     = 0;   //!< nesting depth of onSetProgressBarBusy(true)
+
+    /*! Single funnel that decides owner, range, value, label and visibility.
+     *  Every progress writer calls this rather than touching the widget. */
+    void applyProgressBarState();
+
+    /*! Create (and register) a progress model for one open. Ownership stays
+     *  with SWMMVis; \ref endOpenProgress destroys it. */
+    OpenProgressModel *beginOpenProgress();
+
+    /*! Retire the model for \p openId, hiding the bar if nothing else owns it. */
+    void endOpenProgress(int openId);
+
     /** Recompute the status-bar progress bar from mRunningSimProgress. */
     void updateSimulationProgressBar();
+
+    /** Log (once, at startup) any inherited OMP_* / OPENSWMM_2D_THREADS /
+     *  SWMM_DW_THREADS environment variable that limits or forces the
+     *  engine's thread counts. */
+    void logInheritedThreadEnvironment();
+
+    /**
+     * Push the model's START/END date options into its Simulation Status
+     * row (creating an Idle row if needed). No-op while a run is in flight
+     * for that (model, engine version) — the runner owns the dates then.
+     */
+    void refreshSimulationDatesForProject(class SWMMVisProjectWindow *pw);
+
+    /** Re-label the Properties panel / Attribute Table offset fields after a
+     *  LINK_OFFSETS (depth ↔ elevation) change. */
+    void refreshOffsetModeViews();
 
     /**
      * Drop every simulation-status / progress-bar trace bound to @p pw —
@@ -726,6 +960,7 @@ private:
     QAction           *mActionWindowMinimize    = nullptr;
     QAction           *mActionWindowZoom        = nullptr;
     QAction           *mActionWindowBringAllToFront = nullptr;
+    QAction           *mActionWindowResetPositions  = nullptr;
 
     OpenSWMMVisWorkspace *mProject              = nullptr;
     SWMMVisProjectWindow *mActiveProjectWindow  = nullptr;  // last-bound project; survives transient focus loss

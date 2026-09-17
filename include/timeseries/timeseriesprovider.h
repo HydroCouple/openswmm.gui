@@ -52,6 +52,24 @@ public:
     };
     Q_ENUM(SourceMode)
 
+    /*! \brief How the series' times were authored in the `.inp`.
+     *
+     *  SWMM `[TIMESERIES]` rows come in two forms: rows with an explicit
+     *  date (the date carries forward to date-less continuation rows until
+     *  the next dated row), and rows with only a time — elapsed since the
+     *  simulation start. Both may mix in one series: date-less HEAD rows are
+     *  relative to the start, the dated tail is absolute. The engine tracks
+     *  this per table (`swmm_timeseries_get/set_relative_info`); the provider
+     *  mirrors it so the editor can badge/author the format and the registry
+     *  can round-trip it. Points are ALWAYS stored as absolute QDateTimes
+     *  here — the mode only records how the leading rows are (re)emitted. */
+    enum class TimeMode {
+        Absolute,   ///< Every row carries (or inherits) an explicit date.
+        Relative,   ///< Every row is elapsed time from the simulation start.
+        Mixed       ///< Elapsed head rows + dated tail (loaded, not authored).
+    };
+    Q_ENUM(TimeMode)
+
     explicit TimeseriesProvider(QString name, QObject *parent = nullptr);
     ~TimeseriesProvider() override;
 
@@ -150,7 +168,39 @@ public:
     void setSourceMode(SourceMode mode);
     void setFileSource(QString path, QString columnSelector, QDateTime mtime);
 
+    // ── Time mode (relative / absolute authoring form) ──────────────────────
+
+    /*! \brief Derived mode: Relative when every point is in the relative
+     *  prefix (or an empty series carries relative intent), Absolute when
+     *  the prefix is empty, Mixed otherwise. */
+    TimeMode timeMode() const noexcept;
+
+    /*! \brief Leading points authored as elapsed-time-from-start. */
+    int relativeCount() const noexcept { return m_relativeCount; }
+
+    /*! \brief Simulation start the relative points' absolute times are
+     *  anchored to (invalid when the series has no relative rows). */
+    QDateTime relativeAnchor() const noexcept { return m_relativeAnchor; }
+
+    /*! \brief Raw restore used by registry load and undo: sets the prefix
+     *  count (clamped to [0, pointCount()]), the anchor, and — when
+     *  \a allRelativeIntent is 0/1 — the sticky "author every new row as
+     *  relative" flag (-1 derives it as count > 0 && count == pointCount(),
+     *  which for an EMPTY series means count > 0 requests relative intent).
+     *  Emits timeModeChanged() when the derived mode or anchor changes. */
+    void setRelativeInfo(int count, QDateTime anchor, int allRelativeIntent = -1);
+
+    /*! \brief User-facing mode switch. Relative marks every current point
+     *  relative and records \a anchorForRelative (when valid) as the anchor;
+     *  Absolute clears the prefix. Mixed is a loaded state, not a target —
+     *  requesting it is a no-op. */
+    void setTimeMode(TimeMode mode, QDateTime anchorForRelative = {});
+
 signals:
+    /*! \brief The derived timeMode() flipped, or the relative anchor moved.
+     *  Payload-free; subscribers re-read (metadataChanged style). */
+    void timeModeChanged();
+
     /*! \brief Points in [firstIndex, firstIndex+count) had their value changed in place. */
     void pointsChanged(int firstIndex, int count);
 
@@ -191,8 +241,20 @@ private:
     QDateTime                 m_fileMTime;
     QVector<TimeseriesPoint>  m_points;
 
+    // Time-mode state (see the TimeMode enum). m_allRelative is the sticky
+    // authoring intent: while true, mutators keep the prefix covering every
+    // point (and an empty series stays Relative for its first insert).
+    int                       m_relativeCount = 0;
+    bool                      m_allRelative = false;
+    QDateTime                 m_relativeAnchor;
+
     /*! \brief True iff \a pts is strictly ascending in time. Empty/single = true. */
     static bool isStrictMonotone_(const QVector<TimeseriesPoint>& pts);
+
+    /*! \brief Re-derive the prefix after a point mutation and emit
+     *  timeModeChanged() if the derived mode flipped. \a prevMode is
+     *  timeMode() captured before the mutation. */
+    void reconcileRelativeAfterMutation_(TimeMode prevMode);
 };
 
 } // namespace openswmmvis::timeseries

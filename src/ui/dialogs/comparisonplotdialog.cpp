@@ -14,6 +14,7 @@
 #include "plot/mesh2drunlayer.h"
 #include "plot/observedcsvrunlayer.h"
 #include "plot/fitmetrics.h"
+#include "plot/seriesdataexport.h"
 #include "plot/seriespairing.h"
 #include "plot/chartproperties.h"
 #include "ui/dialogs/chartpropertiesdialog.h"
@@ -34,7 +35,7 @@
 #include <QPainter>
 #include <QColorDialog>
 #include <QComboBox>
-#include <QDateTimeAxis>
+#include "plot/utctimeaxis.h"
 #include <QDialogButtonBox>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -303,6 +304,14 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onExportPngClicked);
     m_toolBar->addAction(m_actExport);
 
+    m_actExportData = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportCsv")),
+                                    tr("Export Data…"), this);
+    m_actExportData->setStatusTip(tr("Save the plotted time series to a CSV or SWMM .dat file"));
+    m_actExportData->setToolTip(m_actExportData->statusTip());
+    connect(m_actExportData, &QAction::triggered,
+            this, &ComparisonPlotDialog::onExportDataClicked);
+    m_toolBar->addAction(m_actExportData);
+
     m_toolBar->addSeparator();
 
     m_actAnimCursor = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("TimeCursor")),
@@ -513,6 +522,72 @@ void ComparisonPlotDialog::onExportPngClicked()
     }
 }
 
+void ComparisonPlotDialog::onExportDataClicked()
+{
+    QVector<int> all;
+    all.reserve(m_model->seriesCount());
+    for (int i = 0; i < m_model->seriesCount(); ++i)
+        all.push_back(i);
+    exportSeriesData(all);
+}
+
+void ComparisonPlotDialog::exportSeriesData(const QVector<int>& seriesIndices)
+{
+    // Resolve each requested series up front so an empty plot fails fast
+    // instead of after the file dialog.
+    QVector<plot::ExportSeries> exportable;
+    for (int sIdx : seriesIndices) {
+        if (sIdx < 0 || sIdx >= m_model->seriesCount()) continue;
+        plot::SeriesData data;
+        m_model->resolveSeries(sIdx, data);
+        if (!data.ok || data.timesJulian.empty()) continue;
+        exportable.push_back({ legendNameFor(m_model->spec(sIdx)),
+                               std::move(data.timesJulian),
+                               std::move(data.values) });
+    }
+    if (exportable.isEmpty()) {
+        QMessageBox::information(this, tr("Export Data"),
+                                 tr("There is no series data to export."));
+        return;
+    }
+
+    QString selectedFilter;
+    QString path = QFileDialog::getSaveFileName(
+        this, tr("Export Data"), QStringLiteral("timeseries.csv"),
+        tr("CSV file (*.csv);;SWMM time series (*.dat)"), &selectedFilter);
+    if (path.isEmpty()) return;
+
+    // The native dialog doesn't always swap the suffix when the user
+    // changes filters — honour the filter over a stale default suffix.
+    const bool wantDat = selectedFilter.contains(QStringLiteral("*.dat"));
+    if (wantDat && !path.endsWith(QStringLiteral(".dat"), Qt::CaseInsensitive)) {
+        if (path.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive))
+            path.chop(4);
+        path += QStringLiteral(".dat");
+    } else if (!wantDat &&
+               !path.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive) &&
+               !path.endsWith(QStringLiteral(".dat"), Qt::CaseInsensitive)) {
+        path += QStringLiteral(".csv");
+    }
+
+    QString err;
+    if (wantDat || path.endsWith(QStringLiteral(".dat"), Qt::CaseInsensitive)) {
+        const QStringList written = plot::writeSeriesDat(path, exportable, &err);
+        if (written.isEmpty()) {
+            QMessageBox::warning(this, tr("Export failed"), err);
+        } else if (written.size() > 1) {
+            // .dat holds one series per file — tell the user about the fan-out.
+            QMessageBox::information(this, tr("Export Data"),
+                tr("A SWMM .dat file holds one series, so %1 files were written:\n%2")
+                    .arg(written.size())
+                    .arg(written.join(QLatin1Char('\n'))));
+        }
+    } else {
+        if (!plot::writeSeriesCsv(path, exportable, &err))
+            QMessageBox::warning(this, tr("Export failed"), err);
+    }
+}
+
 void ComparisonPlotDialog::onAnimationCursorToggled(bool checked)
 {
     m_showCursor = checked;
@@ -668,13 +743,13 @@ void ComparisonPlotDialog::wireXAxisSync(int rowIndex)
     if (rowIndex < 0 || rowIndex >= m_rowWidgets.size()) return;
     RowWidgets &rw = m_rowWidgets[rowIndex];
     if (!rw.xAxis) return;
-    connect(rw.xAxis, &QDateTimeAxis::rangeChanged,
+    connect(rw.xAxis, &openswmmvis::plot::UtcTimeAxis::rangeChangedUtc,
             this, [this, rowIndex](QDateTime lo, QDateTime hi) {
                 if (m_syncingX) return;
                 m_syncingX = true;
                 for (int r = 0; r < m_rowWidgets.size(); ++r) {
                     if (r == rowIndex) continue;
-                    QDateTimeAxis *ax = m_rowWidgets[r].xAxis;
+                    openswmmvis::plot::UtcTimeAxis *ax = m_rowWidgets[r].xAxis;
                     if (!ax) continue;
                     QSignalBlocker block(ax);
                     ax->setRange(lo, hi);
@@ -708,6 +783,10 @@ int ComparisonPlotDialog::ensureRunSourceForLayer(SWMMResultsLayer *layer,
     const int idx = m_model->addRunSource(std::move(rs));
     if (makeBaseline)
         m_model->setBaseline(idx);
+    // Live 1D results: the layer grows while its run writes the .out;
+    // append the new points instead of rebuilding every chart.
+    connect(layer, &SWMMResultsLayer::periodsAppended, this,
+            [this](int, int) { appendChartTails(); }, Qt::UniqueConnection);
     return idx;
 }
 
@@ -715,15 +794,23 @@ int ComparisonPlotDialog::addSeries(int runIndex,
                                     const ObjectRef& ref,
                                     PlotAttribute attr)
 {
+    return addSeries(runIndex, ref, ResultDescriptor::forAttribute(attr));
+}
+
+int ComparisonPlotDialog::addSeries(int runIndex,
+                                    const ObjectRef& ref,
+                                    const ResultDescriptor& descriptor)
+{
     if (runIndex < 0 || runIndex >= m_model->runSourceCount())
         return -1;
-    if (attr == PlotAttribute::Unknown || !ref.isValid())
+    if (!descriptor.isValid() || !ref.isValid())
         return -1;
 
     SeriesSpec spec;
     spec.runIndex  = runIndex;
     spec.objectRef = ref;
-    spec.attribute = attr;
+    spec.attribute = descriptor.attr;
+    spec.species   = descriptor.species;
     return m_model->addSeries(std::move(spec));
 }
 
@@ -741,6 +828,10 @@ int ComparisonPlotDialog::ensureRunSourceForMeshLayer(SWMM2DResultsLayer *layer)
 
     RunSource rs;
     rs.layer = std::make_shared<Mesh2DRunLayer>(layer);
+    // Live 2D: frames stream in during the run; the run layer re-polls the
+    // source, so appending the tail is all that is needed.
+    connect(layer, &SWMM2DResultsLayer::timeRangeChanged, this,
+            [this](int, int) { appendChartTails(); }, Qt::UniqueConnection);
     return m_model->addRunSource(std::move(rs));
 }
 
@@ -810,7 +901,9 @@ QString ComparisonPlotDialog::legendNameFor(const SeriesSpec& spec) const
              spec.objectRef.kind == ObjectRef::Kind::Mesh2DCell
                 ? tr("Cell %1").arg(spec.objectRef.triIdx)
                 : spec.objectRef.name,
-             labelFor(spec.attribute));
+             // Y2b-2: a species series is named by the species label
+             // (the descriptor's authority), a fixed one as before.
+             spec.descriptor().label());
 }
 
 void ComparisonPlotDialog::onAnimationTimeChanged(QDateTime t)
@@ -922,6 +1015,7 @@ void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
         if (rowSiblingCount <= 1)
             plotOnly->setToolTip(tr("Only one series on this chart row"));
         QAction *editStyle = menu.addAction(tr("Edit Properties…"));
+        QAction *exportData = menu.addAction(tr("Export Series Data…"));
         menu.addSeparator();
         QAction *removeSeries = menu.addAction(tr("Remove Series"));
         QAction *chosen = menu.exec(m_seriesTree->viewport()->mapToGlobal(pos));
@@ -943,6 +1037,8 @@ void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
             }
         } else if (chosen == editStyle) {
             onSeriesItemDoubleClicked(item, 0);
+        } else if (chosen == exportData) {
+            exportSeriesData({ seriesIdx });
         } else if (chosen == removeSeries) {
             m_model->removeSeries(seriesIdx);
         }
@@ -1036,7 +1132,7 @@ void ComparisonPlotDialog::onLoadObservedClicked()
     const QString path = QFileDialog::getOpenFileName(this,
         tr("Load observed time series"),
         QString(),
-        tr("CSV / TSV / DAT (*.csv *.tsv *.dat);;All files (*)"));
+        tr("CSV / TSV / TSF / DAT (*.csv *.tsv *.tsf *.dat);;All files (*)"));
     if (path.isEmpty()) return;
 
     // 2) Pick the chart attribute this CSV's columns plot against.
@@ -1215,6 +1311,98 @@ void ComparisonPlotDialog::onAddSeriesClicked()
 // Charts area
 // ---------------------------------------------------------------------------
 
+void ComparisonPlotDialog::appendChartTails()
+{
+    // Incremental refresh for a growing run source (live 1D tail, live 2D
+    // stream). Every QChart / axis / QLineSeries stays alive; each series
+    // gets only the points newer than its last one, and axes are extended
+    // outward — never shrunk — so the plot does not jump under the user.
+    // If the row set changed shape since the last build, fall back to a
+    // full rebuild.
+    const QVector<AttributeRow> &rows = m_model->rows();
+    if (rows.size() != m_rowWidgets.size()) { rebuildCharts(); return; }
+
+    for (int r = 0; r < rows.size(); ++r) {
+        const AttributeRow &row = rows.at(r);
+        RowWidgets &rw = m_rowWidgets[r];
+        if (!rw.chart || !rw.xAxis || !rw.yAxis
+            || rw.series.size() != row.seriesIndices.size()
+            || rw.consumed.size() != rw.series.size()) {
+            rebuildCharts();
+            return;
+        }
+
+        // A row built with no data carries the [0,1] placeholder range;
+        // the first real points replace it instead of merging with it.
+        const bool hadPoints = std::any_of(rw.series.cbegin(), rw.series.cend(),
+                                           [](QLineSeries *s) { return s && s->count() > 0; });
+        double yMin = hadPoints ? rw.yAxis->min() :  std::numeric_limits<double>::infinity();
+        double yMax = hadPoints ? rw.yAxis->max() : -std::numeric_limits<double>::infinity();
+        qint64 xMinMs = hadPoints ? rw.xAxis->min().toMSecsSinceEpoch()
+                                  : std::numeric_limits<qint64>::max();
+        qint64 xMaxMs = hadPoints ? rw.xAxis->max().toMSecsSinceEpoch()
+                                  : std::numeric_limits<qint64>::min();
+        bool grew = false;
+
+        for (int k = 0; k < row.seriesIndices.size(); ++k) {
+            QLineSeries *line = rw.series[k];
+            if (!line) continue;
+            const int sIdx = row.seriesIndices[k];
+
+            // Ask for the tail only: periods [consumed, n). This used to
+            // re-resolve the WHOLE series on every live tick — O(run length)
+            // per tick per series, and for 2D velocity / rainfall a full-mesh
+            // copy per frame — which is what turned a slowdown into an
+            // ever-growing event-queue backlog on long runs.
+            SeriesData data;
+            data.firstPeriod = rw.consumed[k];
+            m_model->resolveSeries(sIdx, data);
+            if (data.ok && data.periodCount > 0 && data.periodCount < rw.consumed[k]) {
+                // The live 2D source thinned its history (frame indices
+                // shifted down): re-read from the start once; the time filter
+                // below drops everything already plotted.
+                data = SeriesData{};
+                m_model->resolveSeries(sIdx, data);
+            }
+            if (!data.ok) continue;
+            if (data.periodCount > 0) rw.consumed[k] = data.periodCount;
+
+            // Newest point already on the chart; append strictly after it.
+            const qint64 lastMs = line->count() > 0
+                ? static_cast<qint64>(line->at(line->count() - 1).x())
+                : std::numeric_limits<qint64>::min();
+            QList<QPointF> tail;
+            for (std::size_t i = 0; i < data.timesJulian.size(); ++i) {
+                const QDateTime dt =
+                    openswmmvis::core::swmmDateTimeToQDateTime(data.timesJulian[i]);
+                const double v = data.values[i];
+                if (!dt.isValid() || !std::isfinite(v)) continue;
+                const qint64 ms = dt.toMSecsSinceEpoch();
+                if (ms <= lastMs) continue;
+                tail.append(QPointF(static_cast<double>(ms), v));
+                if (v < yMin) yMin = v;
+                if (v > yMax) yMax = v;
+                if (ms < xMinMs) xMinMs = ms;
+                if (ms > xMaxMs) xMaxMs = ms;
+            }
+            if (!tail.isEmpty()) { line->append(tail); grew = true; }
+        }
+        if (!grew) continue;
+
+        // Extend outward only (yMin/yMax already include the old range when
+        // the row had points).
+        if (std::isfinite(yMin) && std::isfinite(yMax) && yMax > yMin) {
+            const double pad = 0.05 * (yMax - yMin);
+            rw.yAxis->setRange(std::min(yMin - pad, hadPoints ? rw.yAxis->min() : yMin - pad),
+                               std::max(yMax + pad, hadPoints ? rw.yAxis->max() : yMax + pad));
+        }
+        if (xMinMs < xMaxMs)
+            rw.xAxis->setRange(QDateTime::fromMSecsSinceEpoch(xMinMs, Qt::UTC),
+                                QDateTime::fromMSecsSinceEpoch(xMaxMs, Qt::UTC));
+    }
+    applyAnimationCursorToCharts();
+}
+
 void ComparisonPlotDialog::rebuildCharts()
 {
     // Tear down existing row frames (splitter children — deleting frame
@@ -1244,7 +1432,7 @@ void ComparisonPlotDialog::rebuildCharts()
         rw.chart->setTitle(labelWithUnits(row.attribute, row.unitSystem));
         rw.chart->legend()->setVisible(true);
 
-        rw.xAxis = new QDateTimeAxis;
+        rw.xAxis = new openswmmvis::plot::UtcTimeAxis;
         rw.xAxis->setTitleText(tr("Time"));
         rw.xAxis->setFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
         rw.chart->addAxis(rw.xAxis, Qt::AlignBottom);
@@ -1270,6 +1458,14 @@ void ComparisonPlotDialog::rebuildCharts()
 
             SeriesData data;
             m_model->resolveSeries(sIdx, data);
+            // Y2b-3 (D-G1 warn-on-miss): a series that cannot resolve —
+            // e.g. a saved species the reopened run does not carry —
+            // stays in the legend WITH its reason instead of silently
+            // drawing nothing the user has to puzzle over.
+            if (!data.ok && !data.errorMessage.isEmpty())
+                line->setName(QStringLiteral("%1 — %2")
+                                  .arg(legendNameFor(spec),
+                                       data.errorMessage));
             if (data.ok) {
                 for (std::size_t i = 0; i < data.timesJulian.size(); ++i) {
                     const QDateTime dt = openswmmvis::core::swmmDateTimeToQDateTime(data.timesJulian[i]);
@@ -1288,6 +1484,7 @@ void ComparisonPlotDialog::rebuildCharts()
             line->attachAxis(rw.xAxis);
             line->attachAxis(rw.yAxis);
             rw.series.push_back(line);
+            rw.consumed.push_back(data.ok ? data.periodCount : 0);
         }
 
         // CP.1 — Animation-cursor vertical line: dashed black, named so
@@ -1318,8 +1515,8 @@ void ComparisonPlotDialog::rebuildCharts()
             rw.yAxis->setRange(0, 1);
         }
         if (xMinMs < xMaxMs) {
-            rw.xAxis->setRange(QDateTime::fromMSecsSinceEpoch(xMinMs),
-                                QDateTime::fromMSecsSinceEpoch(xMaxMs));
+            rw.xAxis->setRange(QDateTime::fromMSecsSinceEpoch(xMinMs, Qt::UTC),
+                                QDateTime::fromMSecsSinceEpoch(xMaxMs, Qt::UTC));
         }
 
         // Slice AT.2 — InteractiveChartView replaces plain QChartView so the
@@ -1334,6 +1531,8 @@ void ComparisonPlotDialog::rebuildCharts()
                     QAction *reset    = menu.addAction(tr("Reset Zoom"));
                     QAction *fit      = menu.addAction(tr("Fit All Rows"));
                     menu.addSeparator();
+                    QAction *exportData = menu.addAction(tr("Export Row Data…"));
+                    menu.addSeparator();
                     QAction *props    = menu.addAction(tr("Chart Properties…"));
                     QAction *chosen = menu.exec(globalPos);
                     if (!chosen) return;
@@ -1342,6 +1541,9 @@ void ComparisonPlotDialog::rebuildCharts()
                         m_rowWidgets[r].view->resetZoom();
                     } else if (chosen == fit) {
                         rebuildCharts();
+                    } else if (chosen == exportData) {
+                        if (r < m_model->rows().size())
+                            exportSeriesData(m_model->rows().at(r).seriesIndices);
                     } else if (chosen == props && r < m_rowWidgets.size()
                                && m_rowWidgets[r].chart) {
                         auto *cp = new openswmmvis::plot::ChartProperties(

@@ -122,6 +122,19 @@ signals:
     void finished(int jobId, bool success, int errorCode, QString errorMessage,
                   double runoffErrFrac, double routingErrFrac,
                   double twoDErrFrac);
+    /**
+     * @brief 2D solver telemetry (swmm_2d_get_run_stats), emitted once after
+     *        start and with every progress tick of a 2D run.
+     * @param backend    solver label chosen at initialize, e.g.
+     *                   "cpu (explicit marcher)" or "omp (Kokkos OpenMP …)"
+     * @param momentum   0 LOCAL_INERTIAL, 1 FULL_SWE, 2 DIFFUSIVE_WAVE
+     * @param ltsTiers   configured [2D_OPTIONS] LTS_TIERS
+     * @param steps      cumulative marcher substeps so far
+     * @param tierCells  rebuild-sampled cells per LTS tier (empty until the
+     *                   first rebuild)
+     */
+    void twoDSolverStats(int jobId, QString backend, int momentum, int ltsTiers,
+                         qint64 steps, QVector<qint64> tierCells);
 
     // ── Slice CF.MVP — 2D inundation viz hooks ─────────────────────────────
     //
@@ -132,14 +145,17 @@ signals:
     // EngineMesh2DSource from these vectors and attaches a
     // SWMM2DResultsLayer to the canvas.
     //
-    // `triFlat` is connectivity flattened to [v0,v1,v2, v0,v1,v2, …] so it
-    // ships as a single QVector<int> (a registered Qt metatype) — saves
-    // adding a Q_DECLARE_METATYPE on std::array<int,3>.
+    // `cellFlat` is cell connectivity flattened to [v0,v1,v2,v3, v0,v1,v2,v3,
+    // …] — FOUR ints per cell (size = cellCount * 4), v3 = -1 for a triangle
+    // (mixed triangle/quad meshes, workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md)
+    // — so it ships as a single QVector<int> (a registered Qt metatype).
+    // Cells are in the engine's order (triangles first, then quads); a
+    // quad's vertices are in cyclic order.
     void twoDInitialized(int jobId, QString h5Path,
                           QVector<double> vx,
                           QVector<double> vy,
                           QVector<double> vz,
-                          QVector<int>    triFlat);
+                          QVector<int>    cellFlat);
 
     // Per-tick depth slice from swmm_2d_get_depths_bulk. Rate-limited to the
     // existing kTickIntervalMs budget (≈ 1 Hz). The GUI pushes each slice
@@ -151,7 +167,10 @@ signals:
     //
     // Emitted once at twoDInitialized after the engine builds its mesh, this
     // ships the time-invariant edge geometry (length + outward unit normal,
-    // both indexed [tri*3 + localEdge]). The GUI installs the arrays on the
+    // both indexed [cell*4 + localEdge] = mesh::edgeSlot, sized
+    // mesh::edgeSlotCount(cellCount); the engine's own stride (3 or 4,
+    // swmm_2d_edge_stride) is repacked before emission — slot 3 of a
+    // triangle is 0). The GUI installs the arrays on the
     // active EngineMesh2DSource so client-side RT0 reconstruction has
     // everything it needs without re-deriving from vertex coords.
     void twoDEdgeGeometryAvailable(int jobId,
@@ -159,11 +178,21 @@ signals:
                                     QVector<float> nx,
                                     QVector<float> ny);
 
-    // Per-tick signed edge flux from swmm_2d_get_edge_flux_bulk. Same cadence
-    // as twoDDepthsAvailable; pushed into EngineMesh2DSource::pushFlux on the
-    // GUI thread, paired with the matching depth tick by elapsedSec.
+    // Per-tick signed edge flux from swmm_2d_get_edge_flux_bulk, repacked to
+    // the same [cell*4 + localEdge] layout as twoDEdgeGeometryAvailable. Same
+    // cadence as twoDDepthsAvailable; pushed into EngineMesh2DSource::pushFlux
+    // on the GUI thread, paired with the matching depth tick by elapsedSec.
     void twoDFluxAvailable(int jobId, QVector<float> flux,
                             QDateTime simTime, double elapsedSec);
+
+    // Per-tick rainfall intensity (m/s) + cumulative rainfall volume (m³)
+    // per cell from swmm_2d_get_rainfall_bulk / swmm_2d_get_rain_volume_bulk.
+    // Same cadence/pairing as twoDFluxAvailable; pushed into
+    // EngineMesh2DSource::pushRainfall so the Rainfall / Rainfall volume
+    // cell series are plottable live.
+    void twoDRainfallAvailable(int jobId, QVector<float> rainfall,
+                               QVector<float> rainCum,
+                               QDateTime simTime, double elapsedSec);
 
     // Per-tick SIGNED vertex render depths from
     // swmm_2d_vertex_get_render_depths_bulk (the engine's wet-masked,
@@ -173,6 +202,20 @@ signals:
     // sub-cell shoreline intercept and must not be clamped.
     void twoDVertexDepthsAvailable(int jobId, QVector<double> vdepths,
                                     QDateTime simTime, double elapsedSec);
+
+    // Per-tick per-cell water-surface elevation (m) from
+    // swmm_2d_get_heads_bulk. Same cadence/pairing as twoDFluxAvailable;
+    // pushed into EngineMesh2DSource::pushHeads so a mid-run export writes
+    // the solver's head rather than a depth + bed approximation.
+    void twoDHeadsAvailable(int jobId, QVector<float> heads,
+                            QDateTime simTime, double elapsedSec);
+
+    // Per-tick cumulative per-cell maxima (m, m/s) from
+    // swmm_2d_get_stat_max_depths / swmm_2d_get_stat_max_velocities — the
+    // live ENVELOPES. Monotone, so no time stamp: the receiver keeps the
+    // newest payload only (EngineMesh2DSource::setEnvelopes).
+    void twoDEnvelopesAvailable(int jobId, QVector<float> maxDepth,
+                                QVector<float> maxVel);
 
 private:
     // Warning callback — fires on the worker thread during engine
@@ -191,6 +234,12 @@ private:
 
     std::atomic<bool> m_cancel{false};
     std::atomic<bool> m_paused{false};
+    // Back-pressure for the per-tick 2D payload bundle (depths, flux,
+    // rainfall, vertex depths — several MB per tick on a big mesh). Counts
+    // bundles posted to the GUI thread and not yet consumed; the worker
+    // skips a tick's bundle while two are still queued, so a GUI thread that
+    // falls behind never accumulates an unbounded event queue.
+    std::atomic<int>  m_pending2DTicks{0};
 };
 
 #endif // SIMULATIONRUNNER_H

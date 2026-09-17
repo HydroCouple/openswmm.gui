@@ -51,6 +51,67 @@ void TimeseriesProvider::disposePointCache()
     emit pointCacheDisposed();
 }
 
+// ── Time mode (relative / absolute authoring form) ──────────────────────────
+
+TimeseriesProvider::TimeMode TimeseriesProvider::timeMode() const noexcept
+{
+    if (m_points.isEmpty())
+        return m_allRelative ? TimeMode::Relative : TimeMode::Absolute;
+    if (m_relativeCount <= 0) return TimeMode::Absolute;
+    if (m_relativeCount >= m_points.size()) return TimeMode::Relative;
+    return TimeMode::Mixed;
+}
+
+void TimeseriesProvider::setRelativeInfo(int count, QDateTime anchor, int allRelativeIntent)
+{
+    const TimeMode prevMode  = timeMode();
+    const QDateTime prevAnchor = m_relativeAnchor;
+
+    // Derive the sticky intent BEFORE clamping so an empty series can carry
+    // "author as relative" forward to its first inserted point.
+    m_allRelative = (allRelativeIntent >= 0)
+        ? (allRelativeIntent != 0)
+        : (count > 0 && (m_points.isEmpty() || count >= m_points.size()));
+    m_relativeCount  = qBound(0, count, static_cast<int>(m_points.size()));
+    m_relativeAnchor = std::move(anchor);
+
+    if (timeMode() != prevMode || m_relativeAnchor != prevAnchor)
+        emit timeModeChanged();
+}
+
+void TimeseriesProvider::setTimeMode(TimeMode mode, QDateTime anchorForRelative)
+{
+    if (mode == TimeMode::Mixed) return;  // loaded state, not a target
+    const TimeMode prevMode    = timeMode();
+    const QDateTime prevAnchor = m_relativeAnchor;
+
+    if (mode == TimeMode::Relative) {
+        m_allRelative   = true;
+        m_relativeCount = m_points.size();
+        if (anchorForRelative.isValid())
+            m_relativeAnchor = std::move(anchorForRelative);
+    } else {
+        m_allRelative   = false;
+        m_relativeCount = 0;
+        // The anchor is kept: undo restores it via setRelativeInfo and the
+        // badge has no use for it while Absolute.
+    }
+
+    if (timeMode() != prevMode || m_relativeAnchor != prevAnchor)
+        emit timeModeChanged();
+}
+
+void TimeseriesProvider::reconcileRelativeAfterMutation_(TimeMode prevMode)
+{
+    if (m_allRelative)
+        m_relativeCount = m_points.size();
+    else
+        m_relativeCount = qBound(0, m_relativeCount,
+                                 static_cast<int>(m_points.size()));
+    if (timeMode() != prevMode)
+        emit timeModeChanged();
+}
+
 bool TimeseriesProvider::isStrictMonotone_(const QVector<TimeseriesPoint>& pts)
 {
     for (int i = 1; i < pts.size(); ++i) {
@@ -85,6 +146,7 @@ bool TimeseriesProvider::setAllPoints(QVector<TimeseriesPoint> newPoints, QStrin
         emit mutationRejected(reason);
         return false;
     }
+    const TimeMode prevMode = timeMode();
     m_points = std::move(newPoints);
     if (prevCount > 0) {
         qCDebug(lcTsLoadProvider) << "  emit pointsRemoved(0," << prevCount << ")";
@@ -94,6 +156,7 @@ bool TimeseriesProvider::setAllPoints(QVector<TimeseriesPoint> newPoints, QStrin
         qCDebug(lcTsLoadProvider) << "  emit pointsInserted(0," << m_points.size() << ")";
         emit pointsInserted(0, m_points.size());
     }
+    reconcileRelativeAfterMutation_(prevMode);
     qCDebug(lcTsLoadProvider) << "setAllPoints EXIT  took" << t.elapsed() << "ms";
     return true;
 }
@@ -162,8 +225,13 @@ int TimeseriesProvider::insertPoint(QDateTime time, double value, QString *reaso
         emit mutationRejected(reason);
         return -1;
     }
+    const TimeMode prevMode = timeMode();
     m_points.insert(it, TimeseriesPoint{std::move(time), value});
+    // An insert INSIDE the relative prefix extends it; the sticky
+    // all-relative intent is handled by the reconcile below.
+    if (!m_allRelative && at < m_relativeCount) ++m_relativeCount;
     emit pointsInserted(at, 1);
+    reconcileRelativeAfterMutation_(prevMode);
     return at;
 }
 
@@ -173,11 +241,14 @@ void TimeseriesProvider::removePointsAt(QVector<int> indices)
     // Dedup + sort descending so erases don't invalidate later indices.
     std::sort(indices.begin(), indices.end(), std::greater<int>());
     indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    const TimeMode prevMode = timeMode();
     for (int idx : indices) {
         if (idx < 0 || idx >= m_points.size()) continue;
         m_points.remove(idx);
+        if (idx < m_relativeCount) --m_relativeCount;
         emit pointsRemoved(idx, 1);
     }
+    reconcileRelativeAfterMutation_(prevMode);
 }
 
 void TimeseriesProvider::setName(QString newName)

@@ -48,6 +48,11 @@
         <file alias="PickFromMap">images/pick_from_map.svg</file>
         <file alias="ResultSources">images/result_sources.svg</file>
         <file alias="ChartProperties">images/chart_properties.svg</file>
+        <!-- Profile plot toolbar toggles -->
+        <file alias="AttributeTracks">images/attribute_tracks.svg</file>
+        <file alias="Inundation2D">images/inundation_2d.svg</file>
+        <!-- 2D surface profile — Analysis "2D Profile" and the Mesh 2D tab's trace tool. -->
+        <file alias="Profile2D">images/profile_2d.svg</file>
         <file alias="ExportImage">images/export_image.svg</file>
         <file alias="PlotStyle">images/plot_style.svg</file>
         <file alias="LockX">images/lock_x.svg</file>
@@ -77,6 +82,7 @@
         <file alias="SelectAll">images/select_all.svg</file>
         <file alias="SelectNone">images/select_none.svg</file>
         <file alias="ExportMap">images/export_map.svg</file>
+        <file alias="Export2DResults">images/export_2d_results.svg</file>
         <file alias="ClearRecent">images/clear_recent.svg</file>
         <file alias="UserFlags">images/user_flags.svg</file>
         <file alias="LandUse">images/land_use.svg</file>
@@ -87,6 +93,8 @@
         <file alias="Inlet">images/inlet.svg</file>
         <file alias="LidControl">images/lid_control.svg</file>
         <file alias="Pollutant">images/pollutant.svg</file>
+        <file alias="ReactionSystem">images/reaction_system.svg</file>
+        <file alias="HeatConfig">images/heat_config.svg</file>
         <file alias="StyleManager">images/style_manager.svg</file>
         <file alias="LayerStyling">images/layer_styling.svg</file>
         <file alias="DockLayers">images/dock_layers.svg</file>
@@ -133,6 +141,8 @@
         <file alias="Outlet">images/outlet.svg</file>
         <file alias="Junction">images/junction.svg</file>
         <file alias="VirtualJunction">images/virtual_junction.svg</file>
+        <file alias="JunctionSplit">images/junction_split.svg</file>
+        <file alias="InletJunction">images/inlet_junction.svg</file>
         <file alias="Subcatchment">images/subcatchment.svg</file>
         <file alias="Outfall">images/outfall.svg</file>
         <file alias="Report">images/report.svg</file>
@@ -154,11 +164,14 @@
         <file alias="AddBasemap">images/add_basemap.svg</file>
         <file alias="AddRaster">images/add_raster.svg</file>
         <file alias="AddSWMMOutput">images/add_swmm_output.svg</file>
+        <!-- File → Import → 2D Mesh: browse for an existing .2dm. -->
+        <file alias="AddMesh">images/add_mesh.svg</file>
         <file alias="InvertSelection">images/invert_selection.svg</file>
         <file alias="Options">images/options.svg</file>
         <file alias="CreateMesh">images/create_mesh.svg</file>
         <!-- FEATURE_LAYER_TO_SWMM_IMPORT — Tools → Import Feature Layer… -->
         <file alias="ImportGIS">images/import_gis.svg</file>
+        <file alias="AssignRainGages">images/assign_raingages.svg</file>
         <file alias="Plugin">images/plugin.svg</file>
         <!-- Slice BR Phase 6.8.1 — control-rule validation badges. -->
         <file alias="RuleValid">images/rule-valid.svg</file>

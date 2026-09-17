@@ -15,6 +15,7 @@
 #include <QObject>
 #include <QPair>
 #include <QPointF>
+#include <QPointer>
 #include <QString>
 #include <QUndoStack>
 #include <QVector>
@@ -42,6 +43,14 @@ struct NodeSnapshot
     // junction (and the drawn ground line with it).
     int     isVirtual      = 0;
     double  rimDepth       = 0;
+    // inlet junction: the second flag plus the [INLET_USAGE] row it owns.
+    // Without them, undoing the delete of an inlet junction resurrected a
+    // plain virtual junction and silently dropped the inlet.
+    int             isInlet      = 0;
+    bool            hasInletUsage = false;
+    SWMM_InletUsage inletUsage{};
+    QString         inletDesignId;   ///< resolved by name — indices shift
+    QString         captureNodeId;   ///< resolved by name — indices shift
     // outfall-specific
     int     outfallType    = 0;
     int     outfallFlapGate = 0;
@@ -340,6 +349,41 @@ private:
 };
 
 /*!
+ * \class MoveGageCommand
+ * \brief Records a rain-gage coordinate change for undo/redo — the
+ *        [SYMBOLS] twin of MoveNodeCommand.
+ * \details Commits through SWMMModelLayer::applyGageMove so the engine
+ *          value, cached scene point, spatial index and model extent move
+ *          together. Gages have no attached links, so there is no
+ *          auto-length leg. Consecutive commands moving the same gage
+ *          merge into a single undoable step, like node moves.
+ */
+class MoveGageCommand : public MapCommand
+{
+public:
+    MoveGageCommand(SWMMModelLayer *layer,
+                    int gageIdx,
+                    double oldX, double oldY,
+                    double newX, double newY,
+                    MapCanvas *canvas,
+                    QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+    int id() const override { return 14; }
+    bool mergeWith(const QUndoCommand *other) override;
+
+private:
+    SWMMModelLayer *m_layer   = nullptr;
+    int             m_gageIdx = -1;
+    double          m_oldX    = 0.0;
+    double          m_oldY    = 0.0;
+    double          m_newX    = 0.0;
+    double          m_newY    = 0.0;
+};
+
+/*!
  * \class EditVertexCommand
  * \brief Records a change to a link's interior polyline vertices.
  * \details Covers drag / insert / delete of interior (non-endpoint)
@@ -374,6 +418,31 @@ private:
     double              m_oldLen  = 0.0;
     double              m_newLen  = 0.0;
     bool                m_autoLengthApplied = false;
+};
+
+/*!
+ * \class FlipLinkCommand
+ * \brief Reverses a link's direction — upstream node becomes downstream.
+ * \details Delegates to SWMMModelLayer::applyLinkFlip(), which is
+ *          self-inverse, so redo() and undo() are the same call and no
+ *          before/after snapshot is needed.
+ */
+class FlipLinkCommand : public MapCommand
+{
+public:
+    FlipLinkCommand(SWMMModelLayer *layer,
+                    int linkIdx,
+                    MapCanvas *canvas,
+                    QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+    int id() const override { return 13; }
+
+private:
+    SWMMModelLayer *m_layer   = nullptr;
+    int             m_linkIdx = -1;
 };
 
 /*!
@@ -547,6 +616,137 @@ private:
 };
 
 /*!
+ * \class AssignSubcatchGagesCommand
+ * \brief Reassigns the rain gage of many subcatchments as ONE undo step.
+ * \details Carries parallel arrays rather than pushing a command per
+ *          subcatchment, following the mesh::pushCellParamEdits idiom: a bulk
+ *          spatial assignment is one user action and should cost one Ctrl+Z.
+ *
+ *          Rows already holding the target gage are filtered out by the
+ *          factory below, so redo() only touches what actually changes.
+ *
+ *          Everything is keyed by NAME, never by index — gage or subcatchment
+ *          deletion re-packs engine indices, and this command may be undone
+ *          long after that has happened.
+ */
+class AssignSubcatchGagesCommand : public MapCommand
+{
+public:
+    AssignSubcatchGagesCommand(SWMMModelLayer *layer,
+                               QStringList     subcatchNames,
+                               QStringList     newGages,
+                               QStringList     oldGages,
+                               const QString  &text,
+                               MapCanvas      *canvas,
+                               QUndoCommand   *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 47; }
+
+private:
+    /*! \brief Apply \p gages to \ref m_subcatchNames, skipping unknown names. */
+    void apply(const QStringList &gages);
+
+    SWMMModelLayer *m_layer = nullptr;
+    QStringList     m_subcatchNames;
+    QStringList     m_newGages;
+    QStringList     m_oldGages;
+};
+
+/*!
+ * \class ConfigureGageCommand
+ * \brief Snapshot/restore of a rain gage's data-source configuration.
+ * \details AddGageCommand only lays down ObjectDefaultsApplier defaults, so a
+ *          generated gage still needs its series, rain type, interval and
+ *          factors set. This also covers the reverse direction: DeleteObject-
+ *          Command::restoreGage brings a gage back with only its name and
+ *          coordinates, dropping exactly these fields, so pushing this command
+ *          before a delete lets undo put the configuration back.
+ */
+class ConfigureGageCommand : public MapCommand
+{
+public:
+    /*! \brief The subset of gage state this command owns. */
+    struct Config
+    {
+        int     dataSource  = 0;     ///< SWMM_GageDataSource (0 = TIMESERIES).
+        QString timeseries;          ///< Series name when dataSource is TIMESERIES.
+        int     rainType    = 0;     ///< SWMM_GageRainType.
+        double  intervalSec = 3600;  ///< Recording interval.
+        double  scaleFactor = 1.0;
+        double  snowFactor  = 1.0;
+    };
+
+    /*! \brief Read a gage's current configuration; \p ok reports success. */
+    [[nodiscard]] static Config capture(SWMMModelLayer *layer,
+                                        const QString &gageName,
+                                        bool *ok = nullptr);
+
+    ConfigureGageCommand(SWMMModelLayer *layer,
+                         QString         gageName,
+                         Config          newConfig,
+                         Config          oldConfig,
+                         MapCanvas      *canvas,
+                         QUndoCommand   *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 48; }
+
+private:
+    void apply(const Config &c);
+
+    SWMMModelLayer *m_layer = nullptr;
+    QString         m_gageName;
+    Config          m_new;
+    Config          m_old;
+};
+
+/*!
+ * \class BulkEditCommand
+ * \brief Macro command that holds one SWMMModelLayer::BulkEdit scope open
+ *        across every child command.
+ * \details Use this instead of a bare QUndoCommand whenever a macro carries
+ *          more than a couple of model mutations. Each child still does its
+ *          own engine call and SoA update; what the scope removes is the
+ *          per-child rebuild of the category index, the model extent and the
+ *          link spatial grid, plus the repaintRequested()/geometryChanged()
+ *          pair whose listeners each cost O(model).
+ *
+ *          The macro object is the ONLY correct attachment point. Guarding
+ *          the call site that builds the macro would cover the initial
+ *          QUndoStack::push() (which calls redo()) but not a later Ctrl+Z —
+ *          and undo replays the same storm through the add path, so an
+ *          unguarded undo is as slow as the delete it reverses.
+ *
+ *          Children are unchanged: QUndoCommand::redo() runs them in order
+ *          and QUndoCommand::undo() in reverse, exactly as before.
+ */
+class BulkEditCommand : public QUndoCommand
+{
+public:
+    BulkEditCommand(SWMMModelLayer *layer, const QString &text,
+                    QUndoCommand *parent = nullptr)
+        : QUndoCommand(text, parent), m_layer(layer) {}
+
+    void redo() override
+    {
+        SWMMModelLayer::BulkEdit guard(m_layer);
+        QUndoCommand::redo();
+    }
+
+    void undo() override
+    {
+        SWMMModelLayer::BulkEdit guard(m_layer);
+        QUndoCommand::undo();
+    }
+
+private:
+    QPointer<SWMMModelLayer> m_layer;
+};
+
+/*!
  * \class DeleteObjectCommand
  * \brief Undoable deletion of a node, link, rain gage, or subcatchment.
  * \details The constructor snapshots the object's full property state
@@ -564,6 +764,11 @@ public:
                         TargetKind kind, MapCanvas *canvas,
                         QUndoCommand *parent = nullptr);
 
+    /*! Batch mode (perf-plan Phase A2): the owning BatchDeleteCommand's one
+     *  swmm_*_delete_many call performs the deletion, so this child keeps
+     *  only its snapshot + undo role and redo() becomes a no-op. */
+    void setEngineAppliedByBatch(bool b) { m_engineAppliedByBatch = b; }
+
     void undo() override;
     void redo() override;
     int  id()   const override { return 16; }
@@ -580,11 +785,40 @@ private:
 
     SWMMModelLayer      *m_layer = nullptr;
     TargetKind           m_kind;
+    bool                 m_engineAppliedByBatch = false;
     NodeSnapshot         m_node;
     QVector<LinkSnapshot> m_cascadeLinks; // cascade-deleted links when a node is deleted
     LinkSnapshot         m_link;
     GageSnapshot         m_gage;
     SubcatchSnapshot     m_subcatch;
+};
+
+/*!
+ * \class BatchDeleteCommand
+ * \brief Undoable bulk deletion (perf-plan Phase A2): one engine
+ *        swmm_*_delete_many call per kind instead of K per-object deletes.
+ * \details The constructor creates one snapshot-only DeleteObjectCommand
+ *          child per target — every snapshot is taken BEFORE anything is
+ *          deleted, while all indices are still pre-batch — with
+ *          setEngineAppliedByBatch(true) so the children's redo() are
+ *          no-ops.  redo() performs the whole deletion through
+ *          SWMMModelLayer::applyDeleteMany inside the inherited BulkEdit
+ *          scope; undo() is inherited: children restore per-object in
+ *          reverse order (the rare direction — documented as O(K·N)).
+ */
+class BatchDeleteCommand : public BulkEditCommand
+{
+public:
+    struct Target { QString name; DeleteObjectCommand::TargetKind kind; };
+
+    BatchDeleteCommand(SWMMModelLayer *layer, const QList<Target> &targets,
+                       MapCanvas *canvas, const QString &text);
+
+    void redo() override;
+
+private:
+    QPointer<SWMMModelLayer> m_layer;
+    QStringList m_nodeNames, m_linkNames, m_subcatchNames, m_gageNames;
 };
 
 /*!
@@ -789,6 +1023,90 @@ private:
 };
 
 /*!
+ * \class InsertJunctionSplitCommand
+ * \brief Records a conduit split that inserts a plain (non-virtual) junction.
+ * \details redo() calls SWMMModelLayer::applyInsertJunctionSplit (engine
+ *          `swmm_conduit_split` with `make_virtual = 0`); undo() calls
+ *          applyFuseJunctionSplit, which flags the node virtual just long
+ *          enough to reuse the engine's exact fuse inverse and rolls the flag
+ *          back if the fuse is refused. Like the virtual-junction pair, a
+ *          split→fuse round-trip restores the model byte-identically, so no
+ *          snapshot machinery is needed.
+ */
+class InsertJunctionSplitCommand : public MapCommand
+{
+public:
+    InsertJunctionSplitCommand(SWMMModelLayer *layer,
+                               QString linkName, double t,
+                               QString nodeName, QString newLinkName,
+                               MapCanvas *canvas,
+                               QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 27; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QString m_linkName;      ///< conduit being split (name survives upstream)
+    double  m_t = 0.5;       ///< normalized split position
+    QString m_nodeName;      ///< inserted junction
+    QString m_newLinkName;   ///< new downstream conduit
+    bool    m_present = false;
+};
+
+/*!
+ * \class InsertNodeSplitCommand
+ * \brief Records "place a node ON a conduit": the conduit is split at the
+ *        picked point and a node of the requested SWMM type is inserted there
+ *        (ADDNODE_SPLIT_REDESIGN_PLAN_2026-09-10.md step 2).
+ * \details The engine's `swmm_conduit_split` always creates a JUNCTION, so
+ *          for STORAGE / DIVIDER redo() splits, then converts the new junction
+ *          with `applyNodeConvert` and applies the type's creation defaults
+ *          (the same ObjectDefaultsApplier pass AddNodeCommand runs). A plain
+ *          junction takes the split as-is — the engine's interpolated invert
+ *          and conduit-derived depth are better than the defaults. Undo runs
+ *          the inverse in reverse: convert back to a junction (the fuse
+ *          inverse only accepts junctions), then re-fuse the conduit pair.
+ *          OUTFALL is never accepted (an outfall must be terminal).
+ *
+ *          If the conversion is refused the node stays a junction and the
+ *          engine's message is kept in warnings(); the split itself stands.
+ */
+class InsertNodeSplitCommand : public MapCommand
+{
+public:
+    InsertNodeSplitCommand(SWMMModelLayer *layer,
+                           QString linkName, double t,
+                           QString nodeName, QString newLinkName,
+                           int nodeType,
+                           MapCanvas *canvas,
+                           QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 49; }
+
+    /*! Engine warnings / the conversion error from the last redo() (e.g. a
+     *  divider inserted mid-conduit has only two links until a third is drawn). */
+    [[nodiscard]] QStringList warnings() const { return m_warnings; }
+    /*! True when the node was actually retyped to nodeType (always true for a
+     *  junction, which needs no conversion). */
+    [[nodiscard]] bool retyped() const { return m_retyped; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QString m_linkName;      ///< conduit being split (name survives upstream)
+    double  m_t = 0.5;       ///< normalized split position
+    QString m_nodeName;      ///< inserted node
+    QString m_newLinkName;   ///< new downstream conduit
+    int     m_nodeType = 0;  ///< SWMM_NodeType (0 junction, 2 storage, 3 divider)
+    bool    m_present = false;
+    bool    m_retyped = false;
+    QStringList m_warnings;
+};
+
+/*!
  * \class FuseVirtualJunctionCommand
  * \brief Records the re-fusion (deletion) of a virtual junction.
  * \details The constructor snapshots what a re-split needs: the upstream/
@@ -821,6 +1139,113 @@ private:
     double  m_t = 0.5;       ///< L_up / (L_up + L_dn)
     double  m_invert = 0.0;  ///< node invert (grade break — not derivable)
     double  m_x = 0.0, m_y = 0.0;
+    bool    m_valid   = false;
+    bool    m_present = false;   ///< true iff the fuse is currently applied
+};
+
+/*!
+ * \class SetInletUsageCommand
+ * \brief Records a change to one inlet-usage row (conduit host or inlet
+ *        junction host — the same command serves both, per §2.4/§3.4 of
+ *        workplans/INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md).
+ * \details The constructor snapshots the host's PRIOR row (or its absence),
+ *          so undo restores the previous design / capture node / counts, or
+ *          removes the row again when there was none. redo() applies the new
+ *          row; passing an "absent" new state makes this a removal command.
+ */
+class SetInletUsageCommand : public MapCommand
+{
+public:
+    /*! \param newUsage   Row to install on redo.
+     *  \param removing   true to REMOVE the host's row instead of setting it
+     *                    (only newUsage.host_kind / host_idx are then read). */
+    SetInletUsageCommand(SWMMModelLayer *layer,
+                         const SWMM_InletUsage &newUsage,
+                         bool removing,
+                         MapCanvas *canvas,
+                         QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 24; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    SWMM_InletUsage m_new{};
+    SWMM_InletUsage m_old{};
+    bool m_removing  = false;   ///< redo removes rather than sets
+    bool m_hadOld    = false;   ///< a row existed before this command
+};
+
+/*!
+ * \class InsertInletJunctionCommand
+ * \brief Records a STREET-conduit split that inserts a configured inlet
+ *        junction (`swmm_conduit_split_inlet`).
+ * \details Like InsertVirtualJunctionCommand, undo is the engine's exact
+ *          inverse (`swmm_inlet_junction_fuse`), which removes the usage row
+ *          and re-fuses the pair — so no snapshot machinery is needed.
+ */
+class InsertInletJunctionCommand : public MapCommand
+{
+public:
+    InsertInletJunctionCommand(SWMMModelLayer *layer,
+                               QString linkName, double t,
+                               QString nodeName, QString newLinkName,
+                               QString inletId, QString captureNode,
+                               MapCanvas *canvas,
+                               QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 25; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QString m_linkName;      ///< conduit being split (name survives upstream)
+    double  m_t = 0.5;       ///< normalized split position
+    QString m_nodeName;      ///< inserted inlet junction
+    QString m_newLinkName;   ///< new downstream conduit
+    QString m_inletId;       ///< inlet design name
+    QString m_captureNode;   ///< receiving (underdrain) node name
+    bool    m_present = false;
+};
+
+/*!
+ * \class FuseInletJunctionCommand
+ * \brief Records the re-fusion (deletion) of an inlet junction.
+ * \details Snapshots what FuseVirtualJunctionCommand does (conduit names,
+ *          split ratio, invert, coordinate) PLUS the usage row, because the
+ *          fuse drops it. undo() re-splits through `swmm_conduit_split_inlet`
+ *          — which recreates a default usage row — then restores the exact
+ *          snapshot row via `swmm_inlet_usage_set`.
+ */
+class FuseInletJunctionCommand : public MapCommand
+{
+public:
+    FuseInletJunctionCommand(SWMMModelLayer *layer,
+                             QString nodeName,
+                             MapCanvas *canvas,
+                             QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 26; }
+
+    /*! \brief False when the node is not a two-conduit through inlet junction
+     *         with a readable usage row; the command must not be pushed. */
+    bool valid() const { return m_valid; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QString m_nodeName;
+    QString m_upLinkName;    ///< surviving conduit
+    QString m_dnLinkName;    ///< retired conduit (re-created on undo)
+    double  m_t = 0.5;       ///< L_up / (L_up + L_dn)
+    double  m_invert = 0.0;  ///< node invert (grade break — not derivable)
+    double  m_x = 0.0, m_y = 0.0;
+    QString m_inletId;       ///< design name at snapshot time
+    QString m_captureNode;   ///< capture node name at snapshot time
+    SWMM_InletUsage m_usage{};   ///< full row (counts, clogging, placement, …)
     bool    m_valid   = false;
     bool    m_present = false;   ///< true iff the fuse is currently applied
 };

@@ -40,6 +40,11 @@ class MeshEdgeStyle : public SublayerStyle
     Q_PROPERTY(double       slopeBreak           READ slopeBreak           WRITE setSlopeBreak           NOTIFY styleChanged)
     Q_PROPERTY(double       wideWidthPx          READ wideWidthPx          WRITE setWideWidthPx          NOTIFY styleChanged)
     Q_PROPERTY(QColor       wideColor            READ wideColor            WRITE setWideColor            NOTIFY styleChanged)
+
+    // Boundary-condition colouring moved to MeshBcStyle (meshbcsublayer.h)
+    // — BC indicators are their own sublayer now, with per-type visibility.
+    // Legacy "bc*"-prefixed JSON keys migrate in
+    // SWMM2DMeshLayer::onSublayersJsonLoaded.
     // Slice US (mesh) — edges can be classified by slope through the shared
     // ClassificationScheme. The default 2-class scheme mirrors the legacy
     // thin/wide slope split (colour = colour, wideColor = high class); the
@@ -88,6 +93,8 @@ private:
     /*! Seed the 2-class scheme from the legacy slopeBreak/color/wideColor so
      *  the default look (and pre-scheme saved styles) are preserved. */
     void seedSchemeFromLegacy();
+
+
 
     QColor       m_color               = QColor(0, 0, 0, 130);
     double       m_lineWidthPx         = 0.35;

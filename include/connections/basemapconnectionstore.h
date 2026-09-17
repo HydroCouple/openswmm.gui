@@ -71,6 +71,14 @@ public:
     QStringList wcsConnectionNames() const;
     void removeWCS(const QString &name);
 
+    // ------ WFS ------------------------------------------------------
+
+    void saveWFS(const WFSConnection &conn, const BasemapAuth &auth);
+    WFSConnection loadWFS(const QString &name) const;
+    BasemapAuth loadWFSAuth(const QString &name) const;
+    QStringList wfsConnectionNames() const;
+    void removeWFS(const QString &name);
+
     // ------ ArcGIS REST ----------------------------------------------
 
     void saveArcGIS(const ArcGISRestConnection &conn, const BasemapAuth &auth);

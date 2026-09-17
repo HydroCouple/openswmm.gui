@@ -1,5 +1,5 @@
 #
-# CMakeLists.txt — OpenSWMM GUI
+# CMakeLists.txt — SWMMVis
 #
 # SPDX-License-Identifier: MIT
 #
@@ -16,7 +16,25 @@ project(
     DESCRIPTION "A SWMM model setup, analysis, and visualization tool"
 )
 
-set(PROJECT_VERSION_SUFFIX "-alpha.3")
+# ---------------------------------------------------------------------------
+# Compile cache. The gui test targets each compile their own copies of the
+# app sources they list (330+ targets; single TUs recompiled up to ~27x per
+# full build), so a content-addressed compile cache collapses the duplicate
+# work into cache hits — including across the revert/reapply cycles the
+# validation workflow leans on. Opt out with -DSWMMVIS_USE_CCACHE=OFF, or
+# by pre-setting CMAKE_<LANG>_COMPILER_LAUNCHER yourself.
+# ---------------------------------------------------------------------------
+option(SWMMVIS_USE_CCACHE "Route compiles through ccache when available" ON)
+if(SWMMVIS_USE_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    find_program(SWMMVIS_CCACHE_EXECUTABLE ccache)
+    if(SWMMVIS_CCACHE_EXECUTABLE)
+        set(CMAKE_C_COMPILER_LAUNCHER   "${SWMMVIS_CCACHE_EXECUTABLE}")
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${SWMMVIS_CCACHE_EXECUTABLE}")
+        message(STATUS "ccache enabled: ${SWMMVIS_CCACHE_EXECUTABLE}")
+    endif()
+endif()
+
+set(PROJECT_VERSION_SUFFIX "-alpha.4")
 
 configure_file(
     ${PROJECT_SOURCE_DIR}/include/version.h.in
@@ -45,6 +63,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # charset, so the flag is MSVC-only.
 if(MSVC)
     add_compile_options(/utf-8)
+endif()
+
+# M_PI and friends are not standard C++; MSVC's <cmath> defines them only when
+# _USE_MATH_DEFINES is set before the header is first pulled in. 16 sources and
+# headers under src/mesh, src/ui, src/plot, src/layers, src/render and src/map
+# use M_PI, and include/mesh/meshquadquality.h is one of them — so the per-file
+# `#define _USE_MATH_DEFINES` idiom would have to be repeated in every one AND
+# stay ahead of every transitive <cmath> (Qt headers pull it in freely), which
+# is a rule that quietly breaks the next time someone reorders an include.
+# Defined once for the whole directory instead, like /utf-8 above: it only adds
+# the M_* constants, and it reaches the gui test targets too, which include the
+# same mesh headers. GCC/Clang expose M_PI by default, so this is MSVC-only.
+if(MSVC)
+    add_compile_definitions(_USE_MATH_DEFINES)
 endif()
 
 option(SWMMVIS_BUILD_TESTS "Build unit tests" ON)
@@ -93,6 +125,7 @@ include(FetchQPropertyModel)
 
 # ── openswmm.engine (hard dependency — sibling checkout or GitHub fetch) ─────
 include(FetchOpenSWMMEngine)
+include(FetchHydroCoupleOgc)
 
 # ── Triangle (Shewchuk) — vendored at vendor/triangle/. Compiled as a small
 #    static C library and linked into SWMMVis. See Slice AU. License is
@@ -167,14 +200,19 @@ set(
         include/core/preferencesmanager.h
         include/core/linkrenderingprefs.h
         include/core/noderenderingprefs.h
+        include/core/meshbcrenderingprefs.h
         include/core/selectionrenderingprefs.h
         include/core/unitsystem.h
+        include/core/loadprogress.h
         include/core/crsreproject.h
         include/core/editgeometry.h
+        include/core/gageassignment.h
+        include/core/gageblend.h
         include/core/gisdatapaths.h
         include/core/swmmdatetime.h
         include/core/swmmdatetimeformat.h
         include/selection/selectionmanager.h
+        include/selection/gisselectionbridge.h
         include/selection/selectionops.h
 
         # ── Animation ────────────────────────────────────────────────────────
@@ -221,6 +259,12 @@ set(
         include/render/renderers/singlebandpseudocolorrenderer.h
         # VS.6 — categorical / paletted raster renderer.
         include/render/renderers/palettedrasterrenderer.h
+        # Raster symbology — ClassificationScheme-driven graduated renderer,
+        # explicit RGB composite renderer, and the id→class factory used by
+        # StyleFileIO / ProjectSerializer.
+        include/render/renderers/graduatedrasterrenderer.h
+        include/render/renderers/multibandcolorrenderer.h
+        include/render/rasterrendererfactory.h
         # Slice S1 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — sublayer foundation:
         # ISublayer interface, SublayerStyle property-bag base, SizeUnit enum,
         # and the screen-pixel inverse-zoom helpers consumed by S2+ sublayers.
@@ -246,6 +290,10 @@ set(
         include/render/sublayers/isolinesublayer.h
         include/render/sublayers/contourbandsublayer.h
         include/render/sublayers/scalarfillsublayer.h
+        # Mesh styling restructure — BC indicators + coupled-node markers as
+        # first-class sublayers.
+        include/render/sublayers/meshbcsublayer.h
+        include/render/sublayers/couplednodesublayer.h
         # Slice Z.1 — layer-scope Rule + RuleList (Q_OBJECT classes;
         # AUTOMOC needs the headers in this list).
         include/render/rule.h
@@ -311,6 +359,9 @@ set(
         include/plot/profilebuilder.h
         include/plot/profilenetworkadapter.h
         include/plot/profileplotwidget.h
+        include/plot/profileattributesampler.h
+        include/plot/profileattributetrackoptions.h
+        include/plot/profileattributetrackswidget.h
         include/plot/profileplotoptions.h
         include/plot/profilesection.h
         include/plot/meshprofilesampler.h
@@ -321,12 +372,16 @@ set(
         include/plot/plotattribute.h
         include/plot/numberformat.h
         include/plot/chartproperties.h
+        include/plot/utctimeaxis.h
         include/plot/seriesstatistics.h
+        include/plot/rainfallseriesmodel.h
         include/plot/seriesstyle.h
         include/plot/seriesstyleobject.h
         include/plot/fitmetrics.h
         include/plot/irunlayer.h
+        include/plot/resultdescriptor.h
         include/plot/comparisonplotmodel.h
+        include/plot/seriesdataexport.h
         include/plot/swmmoutrunlayer.h
         include/plot/mesh2drunlayer.h
         include/plot/observedcsvrunlayer.h
@@ -335,15 +390,32 @@ set(
         include/layers/openswmmvislayer.h
         include/layers/tilepyramidlayer.h
         include/layers/gisvectorlayer.h
+        # Editable feature layers (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN
+        # 2026-09-07 §3). featuregeometry / featuretypes / featurestore are
+        # leaf modules — Qt + GDAL only, no layer or UI dependency — so they
+        # can also be linked into a leaf unit test without the full-app
+        # closure. featurestore.cpp is the repository's first OGR write path.
+        include/feature/featuregeometry.h
+        include/feature/featuretypes.h
+        include/feature/featurestore.h
+        include/layers/featurelayer.h
+        include/map/featurecommands.h
+        include/map/tools/maptoolfeaturedraw.h
+        include/map/tools/maptoolfeatureedit.h
+        include/ui/dialogs/newfeaturelayerdialog.h
+        include/ui/panels/featurelayerpanel.h
+        include/layers/gisobjectref.h
         include/layers/gisvectorsymboladapter.h
         include/layers/gisrasterlayer.h
         include/layers/wcslayer.h
         include/layers/wmslayer.h
         include/layers/wmtslayer.h
         include/layers/swmm_category.h
+        include/layers/wfslayer.h
         include/layers/swmmmodellayer.h
         include/layers/swmmelementsymboladapter.h
         include/layers/hydrographmodels.h
+        include/layers/speciesattributes.h
         include/layers/swmmresultslayer.h
         include/layers/tabulardatalayer.h
         include/layers/xyztilelayer.h
@@ -378,6 +450,7 @@ set(
         include/map/swmm2dmeshqsgrenderer.h
         include/map/swmm2dresultsqsgrenderer.h
         include/map/profilepathoverlay.h
+        include/map/selectionbeaconoverlay.h
         include/map/meshprofileoverlay.h
 
         # ── Map tools ────────────────────────────────────────────────────────
@@ -389,6 +462,10 @@ set(
         include/map/tools/maptoolselect.h
         include/map/tools/maptoolselectpolygon.h
         include/map/tools/maptoolplotpick.h
+        # Capture-node picker: one-shot node pick tool + the session that
+        # swaps it in and restores the previous tool.
+        include/map/tools/maptoolpicknode.h
+        include/map/nodepicksession.h
         include/map/tools/maptoolpick2dcells.h
         include/map/tools/maptoolmeshprofile.h
         include/map/tools/maptoolmeshselectvertex.h
@@ -396,6 +473,8 @@ set(
         include/map/tools/maptoolidentify.h
         include/map/tools/maptooladdnode.h
         include/map/tools/maptooladdvirtualnode.h
+        include/map/tools/conduitsplitpick.h
+        include/map/tools/maptooladdinletnode.h
         include/map/tools/maptooladdlink.h
         include/map/tools/maptooladdgage.h
         include/map/tools/maptooladdsubcatchment.h
@@ -415,6 +494,7 @@ set(
         include/layers/swmm2dmeshlayer.h
         include/layers/swmm2dresultslayer.h
         include/io/mesh2dh5reader.h
+        include/io/mesh2dresultsexport.h
         include/io/rptparser.h
         include/io/timeseriesparse.h
         include/io/gdaldrivers.h
@@ -441,6 +521,11 @@ set(
 
         # ── Climatology ([TEMPERATURE]/[EVAPORATION]/[ADJUSTMENTS]) ───────────
         include/ui/dialogs/climatologydialog.h
+        include/ui/dialogs/heatconfigdialog.h
+        include/ui/dialogs/wateragesourcesdialog.h
+        include/ui/dialogs/initialqualitydialog.h
+        include/ui/dialogs/reactionsystemeditordialog.h
+        include/ui/widgets/reactionexpressionedit.h
 
         # ── Transect (Slice BQ Phase 6.7.4) ──────────────────────────────────
         include/transect/transectprovider.h
@@ -486,14 +571,21 @@ set(
         # ── Inlet ([INLETS]) ─────────────────────────────────────────────────
         include/inlet/inletprovider.h
         include/inlet/inletregistry.h
+        include/inlet/inletundocommands.h
         include/ui/models/inletlistmodel.h
+        include/ui/dialogs/inletpropertybag.h
         include/ui/dialogs/inleteditordialog.h
+        include/ui/widgets/inletdrawingview.h
 
         # ── LID control ([LID_CONTROLS]) ─────────────────────────────────────
         include/lid/lidcontrolprovider.h
         include/lid/lidcontrolregistry.h
         include/ui/models/lidcontrollistmodel.h
         include/ui/dialogs/lidcontroleditordialog.h
+        # AQUIFER_GROUNDWATER_EXCHANGE G4/G5 — groundwater exchange editor
+        include/ui/dialogs/groundwaterexchangedialog.h
+        include/ui/properties/groundwatersummary.h
+        include/layers/gwsourcesummary.h
 
         # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
         include/ui/models/userflagsmodel.h
@@ -501,10 +593,13 @@ set(
         include/ui/dialogs/userflagvaluesdialog.h
         include/ui/properties/userflagseditref.h
         include/ui/properties/userflagseditbutton.h
+        include/ui/properties/initialqualityeditref.h
+        include/ui/properties/initialqualityeditbutton.h
 
         # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
         include/timeseries/timeseriesprovider.h
         include/timeseries/timeseriesregistry.h
+        include/timeseries/timeseriesseriescommands.h
         include/timeseries/timeseriesundocommands.h
         include/mesh/dtmsampler.h
         include/mesh/dtmthinner.h
@@ -517,12 +612,27 @@ set(
         include/mesh/meshenginesync.h
         include/mesh/meshedgebc.h
         include/mesh/meshgenerator.h
+        include/mesh/meshinfil.h
+        include/mesh/meshminsizecleanup.h
         include/mesh/meshreorder.h
         include/mesh/meshstagecache.h
+        include/mesh/pslgminsize.h
         include/mesh/pslgprep.h
+        include/mesh/sizefield.h
+        include/mesh/sms2dmreader.h
         include/mesh/meshhoverprobe.h
         include/mesh/meshobjectref.h
+        include/mesh/meshpatch.h
+        include/mesh/meshquadmerge.h
+        include/mesh/meshquadquality.h
+        include/mesh/meshquadregion.h
+        include/mesh/meshcrossfield.h
+        include/mesh/meshquadpoints.h
+        include/mesh/meshquadmatch.h
+        include/mesh/meshquadcleanup.h
+        include/mesh/meshsubmap.h
         include/mesh/meshresult.h
+        include/mesh/meshcellgeom.h
         include/mesh/trirefinehook.h
         include/plugins/filefilterregistry.h
 
@@ -540,7 +650,12 @@ set(
         include/ui/sectionview/sectionpreviewwidget.h
         include/ui/sectionview/sectionmodelbuilders.h
         include/ui/sectionview/lidlayerdiagram.h
+        include/ui/sectionview/aquiferdiagram.h
         include/ui/sectionview/xsecticonrenderer.h
+
+        # ── UI utilities ─────────────────────────────────────────────────────
+        include/ui/util/externalcolumnfile.h
+        include/ui/util/externalcolumnfilecore.h
 
         # ── UI panels ────────────────────────────────────────────────────────
         include/ui/panels/attributedelegates.h
@@ -672,14 +787,21 @@ set(
         include/ui/widgets/statssummarypanel.h
         include/ui/widgets/labeledcontrols.h
         include/ui/widgets/treatmentexpressionedit.h
+        include/ui/widgets/gwfexpressionedit.h
         # Slice BB-α — colour-ramp combobox with gradient-swatch dropdown.
         include/ui/widgets/colorrampcombobox.h
         # Slice US.1 — shared classification editor (UNIFIED_STYLING plan S1).
         include/ui/widgets/classificationeditor.h
+        # Colour-swatch table cell shared by the classification editor and
+        # the raster paletted class table.
+        include/ui/widgets/colorcelldelegate.h
         # Slice D1-a — ClassificationScheme property-grid cell editor + the
         # style-grid delegate factory (MESH_SUBLAYER_CLASSIFICATION_UI_PLAN).
         include/ui/widgets/classificationschemecelleditor.h
         include/ui/widgets/stylepropertydelegate.h
+        # Phase GG0d — mesh generation region-defaults table (INTEGRATED2D_GW
+        # GUI plan §3.3), extracted so buildUi() does not grow further (§7).
+        include/ui/widgets/meshregiondefaultswidget.h
 
         # ── Dialogs ──────────────────────────────────────────────────────────
         # Shared confirm → convert → summary flow for node/link type changes.
@@ -688,12 +810,16 @@ set(
         include/ui/dialogs/crsselectiondialog.h
         include/ui/dialogs/crschangedialog.h
         include/ui/dialogs/aboutdialog.h
+        include/ui/dialogs/mesh2daquifermodel.h
         include/ui/dialogs/mesh2dgroundwaterdialog.h
+        include/ui/dialogs/assignraingagesdialog.h
         include/ui/dialogs/meshattributeassigndialog.h
+        include/ui/dialogs/infilassigntoselectiondialog.h
         include/ui/dialogs/meshgenerationdialog.h
         include/ui/dialogs/nodecompoundeditdialog.h
         include/ui/dialogs/subcatchcompoundeditdialog.h
         include/ui/dialogs/linkcompoundeditdialog.h
+        include/ui/dialogs/inletjunctionsetupdialog.h
         include/ui/dialogs/hydrographgroupeditor.h
         include/ui/dialogs/newprojectdialog.h
         include/ui/dialogs/pluginsdialog.h
@@ -701,18 +827,30 @@ set(
         # Object Defaults preferences page (self-contained widget).
         include/ui/dialogs/objectdefaultspage.h
         include/ui/dialogs/simulationoptionsdialog.h
+        include/ui/dialogs/simoptions/enginecapabilities.h
+        include/ui/dialogs/simoptions/simoptionscontext.h
+        include/ui/dialogs/simoptions/simoptionspage.h
+        include/ui/dialogs/simoptions/datespage.h
+        include/ui/dialogs/simoptions/filespage.h
+        include/ui/dialogs/simoptions/hydraulicspage.h
+        include/ui/dialogs/simoptions/meshpage.h
+        include/ui/dialogs/simoptions/modelspage.h
+        include/ui/dialogs/simoptions/performancepage.h
+        include/ui/dialogs/simoptions/qualitypage.h
+        include/ui/dialogs/simoptions/spatialpage.h
+        include/ui/dialogs/simoptions/titlenotespage.h
+        include/ui/dialogs/simoptions/twodpage.h
         include/ui/dialogs/hotstartsavesmodel.h
         include/ui/dialogs/pathbrowsedelegate.h
         include/ui/dialogs/pluginstablemodel.h
+        include/ui/dialogs/processcomponentsmodel.h
         include/ui/dialogs/comparisonplotdialog.h
+        include/ui/dialogs/rainfallvisualizationdialog.h
         include/ui/dialogs/comparisonpairsdialog.h
         include/ui/dialogs/plotvariablepickerdialog.h
         include/ui/dialogs/chartpropertiesdialog.h
         # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
         include/ui/dialogs/legendpropertiesdialog.h
-        # Slice S3 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md §4.2) — modeless
-        # QPropertyModel-backed editor for one ISublayer's style bag.
-        include/ui/dialogs/sublayerstyledialog.h
         # Slice U-2 — ILayerStyleSubject interface for the unified
         # LayerStyleDialog. Each layer surfaces its styleable subjects
         # (sublayers, kind-symbols, raster-renderer config, etc.) via
@@ -750,27 +888,35 @@ set(
         include/ui/dialogs/editors/symbolstyleeditors.h
         # O2-1 — 2D results layer-level display panel.
         include/ui/dialogs/swmm2dresultsstylepanel.h
+        include/ui/dialogs/swmm2dmeshstylepanel.h
+        # Raster symbology — renderer chooser + classification / paletted /
+        # RGB pages for GISRasterLayer.
+        include/ui/dialogs/rastersymbologypanel.h
+        include/ui/dialogs/sublayertabhelpers.h
         # SE.4 — dedicated editors for the raster / mesh / 2D archetypes.
         include/ui/dialogs/editors/symbolstyleeditors2d.h
         include/ui/dialogs/editors/swmmelementsymboleditor.h
         include/ui/dialogs/editors/gisvectorsymboleditor.h
-        include/ui/dialogs/editors/rastercolorrampeditor.h
         include/ui/dialogs/editors/kindrendererpanel.h
         # Slice US.1 — classification bindings (UNIFIED_STYLING plan S1).
         include/ui/dialogs/editors/classificationbindings.h
         include/ui/dialogs/editors/markershapeeditor.h
-        include/ui/dialogs/editors/meshhillshadeeditor.h
         include/ui/widgets/colorbutton.h
+        include/ui/widgets/sunpositionthumb.h
+        include/ui/widgets/labelconfigeditor.h
+        include/ui/dialogs/labelexpressiondialog.h
         include/ui/widgets/dashstylecombo.h
         include/ui/widgets/markershapecombo.h
         include/ui/widgets/stylepreviewswatch.h
         include/ui/widgets/relativepathpicker.h
         include/ui/dialogs/dialoglayoutpersistence.h
         include/ui/dialogs/dialoglayoutwatcher.h
+        include/ui/dialogs/dialogregistry.h
         include/ui/dialogs/curveeditordialog.h
         include/ui/dialogs/patterneditordialog.h
         include/ui/dialogs/timeserieseditordialog.h
         include/ui/dialogs/colorrampeditordialog.h
+        include/ui/dialogs/mesh2dresultsexportdialog.h
         include/ui/dialogs/statisticsdashboarddialog.h
         include/ui/dialogs/statusreportdialog.h
         include/ui/dialogs/tabularresultsdialog.h
@@ -804,11 +950,15 @@ set(
         src/core/preferencesmanager.cpp
         src/core/linkrenderingprefs.cpp
         src/core/noderenderingprefs.cpp
+        src/core/meshbcrenderingprefs.cpp
         src/core/selectionrenderingprefs.cpp
         src/core/queryparser.cpp
         src/core/unitsystem.cpp
+        src/core/loadprogress.cpp
         src/core/crsreproject.cpp
         src/core/editgeometry.cpp
+        src/core/gageassignment.cpp
+        src/core/gageblend.cpp
         src/core/gisdatapaths.cpp
         src/core/basemapcrypto.cpp
 
@@ -817,6 +967,7 @@ set(
 
         # Selection
         src/selection/selectionmanager.cpp
+        src/selection/gisselectionbridge.cpp
         src/selection/selectionops.cpp
 
         # Animation
@@ -858,6 +1009,10 @@ set(
         src/render/renderers/singlebandpseudocolorrenderer.cpp
         # VS.6 — categorical / paletted raster renderer.
         src/render/renderers/palettedrasterrenderer.cpp
+        # Raster symbology — graduated + multiband renderers and factory.
+        src/render/renderers/graduatedrasterrenderer.cpp
+        src/render/renderers/multibandcolorrenderer.cpp
+        src/render/rasterrendererfactory.cpp
         # Slice BI-MK.1 Phase 8.13.40 — per-kind renderer dispatch adapter.
         src/render/multikindrenderer.cpp
         # Slice Z.1 — layer-scope Rule + RuleList (RENDERING_RULE_MODEL_PLAN.md).
@@ -915,6 +1070,8 @@ set(
         src/render/sublayers/isolinesublayer.cpp
         src/render/sublayers/contourbandsublayer.cpp
         src/render/sublayers/scalarfillsublayer.cpp
+        src/render/sublayers/meshbcsublayer.cpp
+        src/render/sublayers/couplednodesublayer.cpp
 
         # Plot
         src/plot/profilerouter.cpp
@@ -922,6 +1079,9 @@ set(
         src/plot/profilenetworkadapter.cpp
         src/plot/profilenetworkadapter_model.cpp
         src/plot/profileplotwidget.cpp
+        src/plot/profileattributesampler.cpp
+        src/plot/profileattributetrackoptions.cpp
+        src/plot/profileattributetrackswidget.cpp
         src/plot/profileplotoptions.cpp
         src/plot/meshprofilesampler.cpp
         src/plot/rasterprofilesampler.cpp
@@ -931,12 +1091,16 @@ set(
         src/plot/plotattribute.cpp
         src/plot/numberformat.cpp
         src/plot/chartproperties.cpp
+        src/plot/utctimeaxis.cpp
         src/plot/seriesstatistics.cpp
+        src/plot/rainfallseriesmodel.cpp
         src/plot/seriesstyle.cpp
         src/plot/seriesstyleobject.cpp
         src/plot/fitmetrics.cpp
         src/plot/seriespairing.cpp
         src/plot/comparisonplotmodel.cpp
+        src/plot/seriesdataexport.cpp
+        src/plot/resultdescriptor.cpp
         src/plot/swmmoutrunlayer.cpp
         src/plot/swmmoutrunlayer_codes.cpp
         src/plot/mesh2drunlayer.cpp
@@ -946,12 +1110,26 @@ set(
         src/layers/openswmmvislayer.cpp
         src/layers/tilepyramidlayer.cpp
         src/layers/gisvectorlayer.cpp
+        src/feature/featuregeometry.cpp
+        src/feature/featuretypes.cpp
+        src/feature/featurestore.cpp
+        src/layers/featurelayer.cpp
+        src/map/featurecommands.cpp
+        src/map/tools/maptoolfeaturedraw.cpp
+        src/map/tools/maptoolfeatureedit.cpp
+        src/ui/dialogs/newfeaturelayerdialog.cpp
+        src/ui/panels/featurelayerpanel.cpp
+        src/layers/gisobjectref.cpp
         src/layers/gisrasterlayer.cpp
         src/layers/wcslayer.cpp
         src/layers/wmslayer.cpp
         src/layers/wmtslayer.cpp
+        src/layers/wfslayer.cpp
         src/layers/swmmmodellayer.cpp
         src/layers/hydrographmodels.cpp
+        src/layers/speciesattributes.cpp
+        src/layers/vjsourcesummary.cpp
+        src/layers/gwsourcesummary.cpp
         src/layers/swmmresultslayer.cpp
         src/layers/tabulardatalayer.cpp
         src/layers/xyztilelayer.cpp
@@ -986,6 +1164,7 @@ set(
         src/map/swmm2dmeshqsgrenderer.cpp
         src/map/swmm2dresultsqsgrenderer.cpp
         src/map/profilepathoverlay.cpp
+        src/map/selectionbeaconoverlay.cpp
         src/map/meshprofileoverlay.cpp
 
         # Map tools
@@ -997,6 +1176,8 @@ set(
         src/map/tools/maptoolselect.cpp
         src/map/tools/maptoolselectpolygon.cpp
         src/map/tools/maptoolplotpick.cpp
+        src/map/tools/maptoolpicknode.cpp
+        src/map/nodepicksession.cpp
         src/map/tools/maptoolpick2dcells.cpp
         src/map/tools/maptoolmeshprofile.cpp
         src/map/tools/maptoolmeshselectvertex.cpp
@@ -1004,6 +1185,8 @@ set(
         src/map/tools/maptoolidentify.cpp
         src/map/tools/maptooladdnode.cpp
         src/map/tools/maptooladdvirtualnode.cpp
+        src/map/tools/conduitsplitpick.cpp
+        src/map/tools/maptooladdinletnode.cpp
         src/map/tools/maptooladdlink.cpp
         src/map/tools/maptooladdgage.cpp
         src/map/tools/maptooladdsubcatchment.cpp
@@ -1024,6 +1207,7 @@ set(
         src/layers/swmm2dresultslayer.cpp
         src/layers/meshspatialgrid.cpp
         src/io/mesh2dh5reader.cpp
+        src/io/mesh2dresultsexport.cpp
         src/io/rptparser.cpp
         src/io/timeseriesparse.cpp
         src/io/gdaldrivers.cpp
@@ -1053,9 +1237,15 @@ set(
         # Iteration 4 — treatment-expression editing stack (highlighter +
         # completing editor + cell delegate; NodeCompoundEditDialog Treatment).
         src/ui/widgets/treatmentexpressionedit.cpp
+        src/ui/widgets/gwfexpressionedit.cpp
 
         # ── Climatology ([TEMPERATURE]/[EVAPORATION]/[ADJUSTMENTS]) ───────────
         src/ui/dialogs/climatologydialog.cpp
+        src/ui/dialogs/heatconfigdialog.cpp
+        src/ui/dialogs/wateragesourcesdialog.cpp
+        src/ui/dialogs/initialqualitydialog.cpp
+        src/ui/dialogs/reactionsystemeditordialog.cpp
+        src/ui/widgets/reactionexpressionedit.cpp
 
         # ── Transect (Slice BQ Phase 6.7.4) ──────────────────────────────────
         src/transect/transectprovider.cpp
@@ -1101,14 +1291,20 @@ set(
         # ── Inlet ([INLETS]) ─────────────────────────────────────────────────
         src/inlet/inletprovider.cpp
         src/inlet/inletregistry.cpp
+        src/inlet/inletundocommands.cpp
         src/ui/models/inletlistmodel.cpp
+        src/ui/dialogs/inletpropertybag.cpp
         src/ui/dialogs/inleteditordialog.cpp
+        src/ui/widgets/inletdrawingview.cpp
 
         # ── LID control ([LID_CONTROLS]) ─────────────────────────────────────
         src/lid/lidcontrolprovider.cpp
         src/lid/lidcontrolregistry.cpp
         src/ui/models/lidcontrollistmodel.cpp
         src/ui/dialogs/lidcontroleditordialog.cpp
+        # AQUIFER_GROUNDWATER_EXCHANGE G4 — groundwater exchange editor
+        src/ui/dialogs/groundwaterexchangedialog.cpp
+        src/ui/properties/groundwatersummary.cpp
 
         # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
         src/ui/models/userflagsmodel.cpp
@@ -1116,10 +1312,13 @@ set(
         src/ui/dialogs/userflagvaluesdialog.cpp
         src/ui/properties/userflagseditref.cpp
         src/ui/properties/userflagseditbutton.cpp
+        src/ui/properties/initialqualityeditref.cpp
+        src/ui/properties/initialqualityeditbutton.cpp
 
         # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
         src/timeseries/timeseriesprovider.cpp
         src/timeseries/timeseriesregistry.cpp
+        src/timeseries/timeseriesseriescommands.cpp
         src/timeseries/timeseriesundocommands.cpp
         src/mesh/dtmsampler.cpp
         src/mesh/dtmthinner.cpp
@@ -1132,9 +1331,22 @@ set(
         src/mesh/meshcellstats.cpp
         src/mesh/meshenginesync.cpp
         src/mesh/meshgenerator.cpp
+        src/mesh/meshinfil.cpp
+        src/mesh/meshminsizecleanup.cpp
+        src/mesh/meshpatch.cpp
+        src/mesh/meshquadmerge.cpp
+        src/mesh/meshquadregion.cpp
+        src/mesh/meshcrossfield.cpp
+        src/mesh/meshquadpoints.cpp
+        src/mesh/meshquadmatch.cpp
+        src/mesh/meshquadcleanup.cpp
+        src/mesh/meshsubmap.cpp
         src/mesh/meshreorder.cpp
         src/mesh/meshstagecache.cpp
+        src/mesh/pslgminsize.cpp
         src/mesh/pslgprep.cpp
+        src/mesh/sizefield.cpp
+        src/mesh/sms2dmreader.cpp
         src/mesh/trirefinehook.cpp
         src/mesh/meshhoverprobe.cpp
         src/mesh/meshnodemapper.cpp
@@ -1150,6 +1362,9 @@ set(
         src/simulation/simulationrunner.cpp
         src/simulation/simulationstatusmodel.cpp
 
+        # UI utilities
+        src/ui/util/externalcolumnfile.cpp
+
         # UI panels
         src/ui/panels/attributedelegates.cpp
         src/ui/panels/propertiespanel.cpp
@@ -1161,6 +1376,7 @@ set(
         src/ui/sectionview/sectionpreviewwidget.cpp
         src/ui/sectionview/sectionmodelbuilders.cpp
         src/ui/sectionview/lidlayerdiagram.cpp
+        src/ui/sectionview/aquiferdiagram.cpp
         src/ui/sectionview/xsecticonrenderer.cpp
         src/ui/panels/attributetablepanel.cpp
         src/ui/panels/layertreepanel.cpp
@@ -1248,12 +1464,16 @@ set(
         src/ui/dialogs/crsselectiondialog.cpp
         src/ui/dialogs/crschangedialog.cpp
         src/ui/dialogs/aboutdialog.cpp
+        src/ui/dialogs/mesh2daquifermodel.cpp
         src/ui/dialogs/mesh2dgroundwaterdialog.cpp
+        src/ui/dialogs/assignraingagesdialog.cpp
         src/ui/dialogs/meshattributeassigndialog.cpp
+        src/ui/dialogs/infilassigntoselectiondialog.cpp
         src/ui/dialogs/meshgenerationdialog.cpp
         src/ui/dialogs/nodecompoundeditdialog.cpp
         src/ui/dialogs/subcatchcompoundeditdialog.cpp
         src/ui/dialogs/linkcompoundeditdialog.cpp
+        src/ui/dialogs/inletjunctionsetupdialog.cpp
         src/ui/dialogs/hydrographgroupeditor.cpp
         src/ui/dialogs/newprojectdialog.cpp
         src/ui/dialogs/pluginsdialog.cpp
@@ -1262,17 +1482,30 @@ set(
         src/ui/dialogs/objectdefaultspage.cpp
         src/ui/dialogs/simulationoptionsdialog.cpp
         src/ui/dialogs/simulationoptionshelpers.cpp
+        src/ui/dialogs/simoptions/enginecapabilities.cpp
+        src/ui/dialogs/simoptions/simoptionscontext.cpp
+        src/ui/dialogs/simoptions/simoptionspage.cpp
+        src/ui/dialogs/simoptions/datespage.cpp
+        src/ui/dialogs/simoptions/filespage.cpp
+        src/ui/dialogs/simoptions/hydraulicspage.cpp
+        src/ui/dialogs/simoptions/meshpage.cpp
+        src/ui/dialogs/simoptions/modelspage.cpp
+        src/ui/dialogs/simoptions/performancepage.cpp
+        src/ui/dialogs/simoptions/qualitypage.cpp
+        src/ui/dialogs/simoptions/spatialpage.cpp
+        src/ui/dialogs/simoptions/titlenotespage.cpp
+        src/ui/dialogs/simoptions/twodpage.cpp
         src/ui/dialogs/hotstartsavesmodel.cpp
         src/ui/dialogs/pathbrowsedelegate.cpp
         src/ui/dialogs/pluginstablemodel.cpp
+        src/ui/dialogs/processcomponentsmodel.cpp
         src/ui/dialogs/comparisonplotdialog.cpp
+        src/ui/dialogs/rainfallvisualizationdialog.cpp
         src/ui/dialogs/comparisonpairsdialog.cpp
         src/ui/dialogs/plotvariablepickerdialog.cpp
         src/ui/dialogs/chartpropertiesdialog.cpp
         # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
         src/ui/dialogs/legendpropertiesdialog.cpp
-        # Slice S3 — SublayerStyleDialog implementation.
-        src/ui/dialogs/sublayerstyledialog.cpp
         # Slice U-2 / U-3 — unified LayerStyleDialog + ILayerStyleSubject impl.
         src/ui/dialogs/ilayerstylesubject.cpp
         src/ui/dialogs/istyleeditorwidget.cpp
@@ -1302,15 +1535,16 @@ set(
         src/ui/dialogs/editors/symbolstyleeditors.cpp
         # O2-1 — 2D results layer-level display panel.
         src/ui/dialogs/swmm2dresultsstylepanel.cpp
+        src/ui/dialogs/swmm2dmeshstylepanel.cpp
+        src/ui/dialogs/rastersymbologypanel.cpp
         # SE.4 — dedicated editors for the raster / mesh / 2D archetypes.
         src/ui/dialogs/editors/symbolstyleeditors2d.cpp
         src/ui/dialogs/editors/swmmelementsymboleditor.cpp
         src/ui/dialogs/editors/gisvectorsymboleditor.cpp
-        src/ui/dialogs/editors/rastercolorrampeditor.cpp
         src/ui/dialogs/editors/kindrendererpanel.cpp
         # Slice US.1 — classification bindings impl (UNIFIED_STYLING plan S1).
         src/ui/dialogs/editors/classificationbindings.cpp
-        src/ui/dialogs/editors/meshhillshadeeditor.cpp
+        src/ui/widgets/sunpositionthumb.cpp
         src/ui/dialogs/editors/singlesymbolrendererpanel.cpp
         src/ui/dialogs/editors/markershapeeditor.cpp
         src/ui/dialogs/editors/graduatedrendererpanel.cpp
@@ -1321,15 +1555,19 @@ set(
         src/project/ioportabilitynormalizer.cpp
 
         src/ui/widgets/colorbutton.cpp
+        src/ui/widgets/labelconfigeditor.cpp
+        src/ui/dialogs/labelexpressiondialog.cpp
         src/ui/widgets/dashstylecombo.cpp
         src/ui/widgets/markershapecombo.cpp
         src/ui/widgets/stylepreviewswatch.cpp
         src/ui/dialogs/dialoglayoutpersistence.cpp
         src/ui/dialogs/dialoglayoutwatcher.cpp
+        src/ui/dialogs/dialogregistry.cpp
         src/ui/dialogs/curveeditordialog.cpp
         src/ui/dialogs/patterneditordialog.cpp
         src/ui/dialogs/timeserieseditordialog.cpp
         src/ui/dialogs/colorrampeditordialog.cpp
+        src/ui/dialogs/mesh2dresultsexportdialog.cpp
         src/ui/dialogs/statisticsdashboarddialog.cpp
         src/ui/dialogs/statusreportdialog.cpp
         src/ui/dialogs/tabularresultsdialog.cpp
@@ -1380,9 +1618,12 @@ set(
         src/ui/widgets/colorrampcombobox.cpp
         # Slice US.1 — shared classification editor impl (UNIFIED_STYLING plan S1).
         src/ui/widgets/classificationeditor.cpp
+        src/ui/widgets/colorcelldelegate.cpp
         # Slice D1-a — ClassificationScheme cell editor + style-grid delegate impl.
         src/ui/widgets/classificationschemecelleditor.cpp
         src/ui/widgets/stylepropertydelegate.cpp
+        # Phase GG0d — mesh generation region-defaults table impl.
+        src/ui/widgets/meshregiondefaultswidget.cpp
 
         # ── Forms ────────────────────────────────────────────────────────────
         forms/swmmvis.ui
@@ -1448,6 +1689,7 @@ target_link_libraries(SWMMVis
         Qt${QT_VERSION_MAJOR}::QuickWidgets
         Qt${QT_VERSION_MAJOR}::PrintSupport
         GDAL::GDAL
+        HydroCoupleOgc::HydroCoupleOgc
         OpenSSL::SSL
         OpenSSL::Crypto
         nanoflann::nanoflann
@@ -1610,6 +1852,23 @@ set(_SWMMVIS_EXAMPLE_INPS
 set(_SWMMVIS_EXAMPLE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/examples/bellinge_2d"
 )
+# Curated SWASHES analytical-verification cases (example.json groups them
+# under their own Welcome-page category). Decks are regenerated from the QA
+# suite by scripts/import_swashes_examples.py — input files only.
+foreach(_swashes_case IN ITEMS
+        swashes_bump_shock
+        swashes_bump_subcritical
+        swashes_bump_transcritical
+        swashes_lake_at_rest_immersed
+        swashes_macdonald_rain_sub
+        swashes_macdonald_short_sub2sup
+        swashes_p2d_jump_short
+        swashes_ritter_dry_dam_break
+        swashes_stoker_wet_dam_break
+        swashes_thacker_radial_2d)
+    list(APPEND _SWMMVIS_EXAMPLE_DIRS
+         "${CMAKE_CURRENT_SOURCE_DIR}/examples/${_swashes_case}")
+endforeach()
 if(APPLE)
     # POST_BUILD into Contents/Resources/examples; install(TARGETS ... BUNDLE) ships it,
     # same as the GDAL/PROJ Resources above. Wipe the dest first so the dir reflects
@@ -1690,12 +1949,23 @@ if(APPLE)
                 VERBATIM
             )
         endif()
-        # POST_BUILD: produce a self-contained .app in the build tree
+        # -qmldir is REQUIRED, not optional. Unlike windeployqt — which sniffs
+        # the QML marker out of the executable and deploys bin/qml unasked —
+        # macdeployqt only scans for QML imports when pointed at a source dir,
+        # and without it Contents/Resources/qml is never created. MapCanvas then
+        # loads qrc:/openswmm/qml/swmmlayer.qml into its QQuickWidget, the
+        # `import QtQuick` fails, setSource() leaves status != Ready,
+        # rootObject() is null, and all three QSG renderers (mesh, 2D results,
+        # 1D network) stay null. Because SWMMLayerItem::paint() skips the
+        # element kinds QSG owns, the packaged app then draws no lines, points
+        # or polygons at all — a silent, macOS-CI-only blank map. Dev builds hide
+        # it: they resolve QtQuick through the Qt install's own import path.
         add_custom_command(TARGET SWMMVis POST_BUILD
             COMMAND "${MACDEPLOYQT_EXECUTABLE}"
                     "$<TARGET_BUNDLE_DIR:SWMMVis>"
+                    "-qmldir=${CMAKE_CURRENT_SOURCE_DIR}/resources/qml"
                     -always-overwrite
-            COMMENT "macdeployqt: bundling Qt frameworks and linked dylibs (incl. GDAL)"
+            COMMENT "macdeployqt: bundling Qt frameworks, QML modules and linked dylibs (incl. GDAL)"
             VERBATIM
         )
     else()
@@ -1725,17 +1995,16 @@ if(APPLE)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${OPENSWMMENGINE_INSTALL_DIR}/bin/libomp.dylib"
                 "${_swmmvis_frameworks}/"
-        # The plugin links Homebrew's libomp by ABSOLUTE path. Left as-is the
-        # process loads TWO libomp runtimes (bundle copy via the engine +
-        # Homebrew copy via the plugin) and libomp aborts the app on its
-        # duplicate-runtime check the moment a big-mesh run loads the plugin.
-        # Rewrite the bundled copy to the bundled libomp; each -change is a
-        # no-op when that source path isn't present (Apple Silicon vs Intel).
-        COMMAND install_name_tool
-                -change /opt/homebrew/opt/libomp/lib/libomp.dylib
-                        @executable_path/../Frameworks/libomp.dylib
-                -change /usr/local/opt/libomp/lib/libomp.dylib
-                        @executable_path/../Frameworks/libomp.dylib
+        # The plugin depends on @rpath/libomp.dylib and carries Homebrew's
+        # libomp directory as its FIRST LC_RPATH, so inside the bundle it
+        # resolved Homebrew's copy while the engine resolved the bundled one:
+        # TWO OpenMP runtimes (two spinning teams) in one process on any mesh
+        # big enough to load the plugin. The previous `-change` of the
+        # absolute path was a no-op — the dependency is already @rpath.
+        # Delete the Homebrew rpaths instead; the plugin's @loader_path rpath
+        # then finds the bundled libomp beside it. Idempotent: on a rebuild the
+        # rpath is already gone and -delete_rpath's failure is ignored.
+        COMMAND sh -c "for p in /opt/homebrew/opt/libomp/lib /usr/local/opt/libomp/lib; do install_name_tool -delete_rpath \"$p\" \"$0\" 2>/dev/null; done; true"
                 "${_swmmvis_frameworks}/libopenswmm_gpu_omp.dylib"
         COMMENT "Bundle GPU plugin (openswmm_gpu_omp) + libomp into SWMMVis.app/Contents/Frameworks"
         VERBATIM
@@ -1788,6 +2057,36 @@ if(APPLE)
             "legacy (EPA-SWMM) engine option will fail to start a worker process.")
     endif()
 
+    # Refactored-engine command-line runner (openswmm). Shipped so the solver can
+    # be driven without the GUI — batch runs, scripting, CI — from a single
+    # install:
+    #     /Applications/SWMMVis.app/Contents/MacOS/openswmm model.inp [rpt] [out]
+    #
+    # Contents/MacOS is where an auxiliary executable belongs in a bundle: it
+    # stays inside the signed, notarisable unit and shares the dylibs already
+    # deployed in Contents/Frameworks. The engine ships it with an
+    # "@loader_path;@loader_path/../lib" rpath, neither of which resolves from
+    # Contents/MacOS, so add the Frameworks path the same way the legacy worker
+    # does. copy (not copy_if_different) keeps it pristine each build so
+    # add_rpath cannot accumulate duplicate entries.
+    set(_openswmm_cli "${OPENSWMMENGINE_INSTALL_DIR}/bin/openswmm")
+    if(EXISTS "${_openswmm_cli}")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                    "${_openswmm_cli}" "${_swmmvis_macos}/"
+            COMMAND install_name_tool -add_rpath "@loader_path/../Frameworks"
+                    "${_swmmvis_macos}/openswmm"
+            COMMAND codesign --force --sign "${_codesign_identity}"
+                    "${_swmmvis_macos}/openswmm"
+            COMMENT "Bundle engine CLI (openswmm) into SWMMVis.app"
+            VERBATIM
+        )
+    else()
+        message(WARNING
+            "openswmm CLI not found at ${_openswmm_cli} — the packaged app will "
+            "not include a standalone command-line runner.")
+    endif()
+
     add_custom_command(TARGET SWMMVis POST_BUILD
         COMMAND codesign --force --sign "${_codesign_identity}" --deep
                 "$<TARGET_BUNDLE_DIR:SWMMVis>"
@@ -1799,11 +2098,15 @@ if(APPLE)
 
     # INSTALL: macdeployqt must run again on the freshly-installed bundle because
     # cmake --install copies a clean bundle (without the POST_BUILD modifications).
+    # -qmldir must be repeated here for the same reason it is needed above: this
+    # is the bundle CPack turns into the shipped DMG, so if QML is missing HERE
+    # the released app is the one with the blank map.
     if(MACDEPLOYQT_EXECUTABLE)
         install(CODE
             "execute_process(COMMAND
                 \"${MACDEPLOYQT_EXECUTABLE}\"
                 \"\${CMAKE_INSTALL_PREFIX}/SWMMVis.app\"
+                \"-qmldir=${CMAKE_CURRENT_SOURCE_DIR}/resources/qml\"
                 -always-overwrite)"
             COMPONENT Runtime
         )
@@ -1969,6 +2272,27 @@ elseif(WIN32)
             "legacy (EPA-SWMM) engine option will fail to start a worker process.")
     endif()
 
+    # Refactored-engine command-line runner, so the solver can be driven without
+    # the GUI (batch runs, scripting, CI) from a single install:
+    #     openswmm.exe model.inp [rpt] [out]
+    # Installed beside SWMMVis.exe, where it picks up the engine DLL and the
+    # vcpkg runtime DLLs already deployed there.
+    set(_openswmm_cli "${OPENSWMMENGINE_INSTALL_DIR}/bin/openswmm.exe")
+    if(EXISTS "${_openswmm_cli}")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_openswmm_cli}" "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Bundle engine CLI (openswmm.exe) alongside SWMMVis.exe"
+            VERBATIM
+        )
+        install(PROGRAMS "${_openswmm_cli}"
+                DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
+    else()
+        message(WARNING
+            "openswmm.exe not found at ${_openswmm_cli} — the packaged app will "
+            "not include a standalone command-line runner.")
+    endif()
+
     install(TARGETS SWMMVis     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     # openswmm_engine is now a prebuilt IMPORTED target (find_package), so it
     # cannot be install(TARGETS)'d — install its runtime artifact (the DLL).
@@ -2085,6 +2409,26 @@ else()
             "legacy (EPA-SWMM) engine option will fail to start a worker process.")
     endif()
 
+    # Refactored-engine command-line runner, so the solver can be driven without
+    # the GUI (batch runs, scripting, CI) from a single install:
+    #     openswmm model.inp [rpt] [out]
+    # The engine builds it with an "$ORIGIN;$ORIGIN/../lib" RUNPATH, which
+    # resolves the co-located .so in the build tree and LIBDIR in the install
+    # tree — the same layout SWMMVis and the legacy worker already rely on.
+    set(_openswmm_cli "${OPENSWMMENGINE_INSTALL_DIR}/bin/openswmm")
+    if(EXISTS "${_openswmm_cli}")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_openswmm_cli}" "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Bundle engine CLI (openswmm) alongside SWMMVis"
+            VERBATIM
+        )
+    else()
+        message(WARNING
+            "openswmm CLI not found at ${_openswmm_cli} — the packaged app will "
+            "not include a standalone command-line runner.")
+    endif()
+
     set_target_properties(SWMMVis PROPERTIES
         BUILD_RPATH   "$ORIGIN"
         INSTALL_RPATH "$ORIGIN"
@@ -2149,6 +2493,52 @@ else()
                 DESTINATION ${CMAKE_INSTALL_BINDIR})
         install(IMPORTED_RUNTIME_ARTIFACTS OpenSWMMEngine::openswmm_legacy_engine
                 LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    endif()
+    # Engine CLI → BINDIR (beside SWMMVis); its $ORIGIN/../lib RUNPATH finds the
+    # engine .so installed in LIBDIR above.
+    if(EXISTS "${_openswmm_cli}")
+        install(PROGRAMS "${_openswmm_cli}"
+                DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
+endif()
+
+# ── QPropertyModel runtime library (issue #9) ────────────────────────────────
+# QPropertyModel arrives via FetchContent (cmake/FetchQPropertyModel.cmake), so
+# it builds into _deps/qpropertymodel-build/ and nothing puts it beside the
+# executable: windeployqt only knows Qt's own DLLs, and the explicit copies
+# above cover openswmm_engine and its GPU plugin. SWMMVis links it directly —
+# `dumpbin /dependents SWMMVis.exe` lists QPropertyModel.dll — so a run from a
+# clean build directory died immediately with STATUS_DLL_NOT_FOUND
+# (0xC0000135) until the DLL was copied in by hand.
+#
+# Placed after the platform chain rather than inside it: the library was
+# neither copied nor installed on ANY platform. Windows surfaced it first
+# because its loader has no rpath to fall back on.
+#
+# Guarded on the target being a SHARED library — QPropertyModel can be built
+# static, and then there is no runtime artifact to place and $<TARGET_FILE:…>
+# would name an import/archive file instead.
+if(TARGET QPropertyModel)
+    get_target_property(_qpm_type QPropertyModel TYPE)
+    if(_qpm_type STREQUAL "SHARED_LIBRARY")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:QPropertyModel>"
+                    "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Copy QPropertyModel alongside SWMMVis"
+            VERBATIM
+        )
+        if(APPLE)
+            # Into the bundle's Frameworks dir, where the app's @rpath points —
+            # matching how the other non-Qt runtime libraries are placed.
+            install(FILES "$<TARGET_FILE:QPropertyModel>"
+                DESTINATION "$<TARGET_BUNDLE_CONTENT_DIR:SWMMVis>/Frameworks"
+                COMPONENT Runtime)
+        else()
+            install(FILES "$<TARGET_FILE:QPropertyModel>"
+                DESTINATION ${CMAKE_INSTALL_BINDIR}
+                COMPONENT Runtime)
+        endif()
     endif()
 endif()
 

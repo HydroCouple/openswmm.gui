@@ -27,6 +27,7 @@
 #include <QHeaderView>
 #include <QKeySequence>
 #include <QLabel>
+#include <QPushButton>
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeView>
@@ -130,6 +131,17 @@ void RasterProfilePlotDialog::buildLayout()
     m_plot = new MeshProfilePlotWidget(this);
     m_plot->setOptions(m_options);
     root->addWidget(m_plot, /*stretch=*/1);
+
+    // Close row, as ProfilePlotDialog has. Wired to close() so every exit
+    // (button, Esc, title bar) takes the same path.
+    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    closeBox->setObjectName(QStringLiteral("rasterprof_closeBox"));
+    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
+    closeBtn->setObjectName(QStringLiteral("rasterprof_closeBtn"));
+    closeBtn->setAutoDefault(false);
+    closeBtn->setDefault(false);
+    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
+    root->addWidget(closeBox);
 
     // Axis labels from the project unit system — the sampler already converted
     // raw DEM Z into model vertical units via the terrain factor.

@@ -6,6 +6,7 @@
  */
 #include "ui/dialogs/meshgenerationdialog.h"
 #include "ui/theme/themehelpers.h"
+#include "ui/widgets/meshregiondefaultswidget.h"
 
 #include "ui/uiscrollhelpers.h"
 
@@ -24,6 +25,8 @@
 
 #include "mesh/meshgenerator.h"
 #include "mesh/meshnodemapper.h"
+#include "mesh/meshpatch.h"
+#include "mesh/meshquadmerge.h"
 #include "mesh/meshresult.h"
 #include "mesh/dtmthinner.h"
 #include "mesh/inpmeshwriter.h"
@@ -31,6 +34,9 @@
 #include "mesh/meshreorder.h"
 #include "mesh/meshstagecache.h"
 #include "mesh/pslgprep.h"
+#include "mesh/pslgminsize.h"
+#include "mesh/sizefield.h"
+#include "mesh/meshminsizecleanup.h"
 
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -60,6 +66,7 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -73,6 +80,8 @@
 #include <QSet>
 #include <QSpinBox>
 #include <QStringList>
+#include <QTableWidget>
+#include <QTabWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -153,6 +162,38 @@ static bool transformCheckedPt(OGRCoordinateTransformation *ct,
 }
 
 // ---------------------------------------------------------------------------
+// Quad region helpers (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3.1)
+// ---------------------------------------------------------------------------
+
+/*! \brief Log / attribute spelling of a mesh::QuadRegionMode. */
+static const char *quadRegionModeName(mesh::QuadRegionMode m)
+{
+    switch (m)
+    {
+    case mesh::QuadRegionMode::Auto:          return "auto";
+    case mesh::QuadRegionMode::Mapped:        return "mapped";
+    case mesh::QuadRegionMode::Submapped:     return "submapped";
+    case mesh::QuadRegionMode::Free:          return "free";
+    case mesh::QuadRegionMode::TrianglesOnly: return "triangles";
+    }
+    return "?";
+}
+
+/*! \brief Parse a `quad_mode` attribute value (case-insensitive). Returns
+ *         false and leaves \p out untouched on an unknown spelling. */
+static bool parseQuadRegionMode(const QString &s, mesh::QuadRegionMode *out)
+{
+    const QString t = s.trimmed().toLower();
+    if      (t == QLatin1String("auto"))      *out = mesh::QuadRegionMode::Auto;
+    else if (t == QLatin1String("mapped"))    *out = mesh::QuadRegionMode::Mapped;
+    else if (t == QLatin1String("submapped")) *out = mesh::QuadRegionMode::Submapped;
+    else if (t == QLatin1String("free"))      *out = mesh::QuadRegionMode::Free;
+    else if (t == QLatin1String("triangles")) *out = mesh::QuadRegionMode::TrianglesOnly;
+    else return false;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // Worker function — runs on QtConcurrent thread, NO widget access allowed.
 // ---------------------------------------------------------------------------
 
@@ -221,9 +262,14 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
             subHash = QCryptographicHash::hash(blob, QCryptographicHash::Sha256);
         }
+        // minCellSize participates in the key: the cached payload is the
+        // PREPARED (and, from 2026-08-17, conditioned) rings, so reusing an
+        // entry built at a different minimum size would silently mesh the
+        // wrong geometry.
         boundaryCacheKey = mesh::MeshStageCache::boundaryKey(
             srcId, subHash, in.boundaryLayerName, in.boundaryCRSWkt,
-            in.meshCRSWkt, in.pslgSimplifyEps, in.maxBoundaryEdgeLen);
+            in.meshCRSWkt, in.pslgSimplifyEps, in.maxBoundaryEdgeLen,
+            in.minSizePolicy.minCellSize, in.minSizeEnforce);
 
         QElapsedTimer cacheClock;
         cacheClock.start();
@@ -558,8 +604,18 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // constrained triangulation, before any quality pass can act).
             // Demoted nodes stay in couplingNodes, so the post-generation
             // mapper couples them via their containing CELL instead.
+            //
+            // Under V2 enforcement the separation is at least h: two pinned
+            // nodes closer than the minimum cell size are exactly what the
+            // conditioner downstream would otherwise be asked to fix, and
+            // demotion here is the cheaper, already-proven answer.
+            const double effNodeSep =
+                (in.minSizeEnforce && in.minSizePolicy.enabled())
+                    ? std::max(in.nodeMinSeparation,
+                               in.minSizePolicy.minCellSize)
+                    : in.nodeMinSeparation;
             const QVector<bool> keepNode =
-                mesh::pslg::greedyMinSeparation(nodeXY, in.nodeMinSeparation);
+                mesh::pslg::greedyMinSeparation(nodeXY, effNodeSep);
 
             int demoted = 0;
             for (int k = 0; k < nodeIdx.size(); ++k)
@@ -586,7 +642,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
             if (demoted > 0)
                 qCInfo(lcMeshPerf) << "[Mesh] node min separation"
-                                   << in.nodeMinSeparation << "-"
+                                   << effNodeSep << "-"
                                    << demoted << "node(s) demoted to cell coupling,"
                                    << (nodeIdx.size() - demoted) << "pinned as vertices";
         }
@@ -666,6 +722,96 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         // sources; tagged SWMM points (marker != 0) are never merged.
         snapAndDedupe(in.steinerPoints, in.pslgSnapEps);
         stageMark("candidate filtering + markers");
+    }
+
+    // ── Minimum cell size conditioning ──────────────────────────────
+    // MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17 §4.  Runs HERE, after markers
+    // exist (so tagged identity can be honoured as weld priority) and before
+    // hole-ring prep (so prepareHoleRings' own validation independently
+    // re-checks conditioned rings).  Terrain Steiner sampling happens later
+    // and its near-constraint filter reads the conditioned geometry, so DTM
+    // points are automatically kept clear of the conditioned features.
+    //
+    // Diagnostics run whenever a size is set, even if conditioning is
+    // subsequently abandoned: knowing WHERE the input cannot hold cells of
+    // size h is the actionable part.
+    if (in.minSizePolicy.enabled())
+    {
+        progress(12, QObject::tr("Conditioning geometry for minimum cell size…"));
+        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+
+        const double h = in.minSizePolicy.minCellSize;
+        {
+            const QVector<mesh::pslg::Violation> before =
+                mesh::pslg::analyseLocalFeatureSize(
+                    in.domains, in.holeRings, in.constraintSegs,
+                    in.steinerPoints, h, 20);
+            qCInfo(lcMeshPerf) << "[Mesh][minsize] h =" << h
+                               << "| worst input feature scale"
+                               << (before.isEmpty() ? h : before.first().lfs)
+                               << "|" << before.size() << "violation(s) sampled";
+            for (const mesh::pslg::Violation &v : before)
+                qCDebug(lcMeshPerf) << "[Mesh][minsize]  input"
+                                    << mesh::pslg::violationCauseName(v.cause)
+                                    << v.lfs << "at" << v.xy
+                                    << v.tagA << v.tagB;
+        }
+
+        // On a boundary-cache HIT the rings are already prepared (and were
+        // conditioned by the run that stored them, since minCellSize is part
+        // of the cache key).  Their seeds and validity flags were computed
+        // against those exact vertices, so the rings must stay byte-identical
+        // here — they take part as proximity context only.
+        mesh::pslg::MinSizePolicy pol = in.minSizePolicy;
+        pol.ringsReadOnly = bprepReady;
+
+        mesh::pslg::ConditionReport crep;
+        const bool ok = mesh::pslg::conditionMinSize(
+            &in.domains, &in.holeRings, &in.constraintSegs, &in.steinerPoints,
+            pol, &crep, [&promise] { return promise.isCanceled(); });
+
+        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+
+        if (ok)
+        {
+            qCInfo(lcMeshPerf) << "[Mesh][minsize]" << crep.summary();
+            if (crep.holesDropped > 0)
+                qWarning() << "[Mesh][minsize] dropped" << crep.holesDropped
+                           << "sub-scale hole ring(s) — the mesh now COVERS "
+                              "those regions.";
+            if (crep.duplicateSegments > 0)
+                qWarning() << "[Mesh][minsize]" << crep.duplicateSegments
+                           << "constrained segment(s) were welded onto geometry "
+                              "another alignment already occupied — Triangle "
+                              "keeps one, so that many edges lose their marker "
+                              "and the conduit tag it carried.";
+            if (crep.domainAreaBefore != crep.domainAreaAfter)
+                qCInfo(lcMeshPerf) << "[Mesh][minsize] domain area"
+                                   << crep.domainAreaBefore << "->"
+                                   << crep.domainAreaAfter
+                                   << "(boundary vertices moved by up to"
+                                   << crep.maxDisplacement << ")";
+            progress(13, QObject::tr("Geometry conditioned (%1 merged, "
+                                     "%2 split, %3 corner(s) trimmed)")
+                             .arg(crep.verticesWelded)
+                             .arg(crep.segmentsSplit)
+                             .arg(crep.cornersTrimmed));
+        }
+        else
+        {
+            // Fail-safe: the PSLG was restored untouched.  A slow correct mesh
+            // beats a Triangle abort, so carry on unconditioned and say so.
+            qWarning() << "[Mesh][minsize] conditioning abandoned —"
+                       << crep.summary()
+                       << "- generating with the original geometry.";
+            progress(13, QObject::tr("Minimum-size conditioning skipped "
+                                     "(geometry could not be conditioned safely)"));
+        }
+        for (const mesh::pslg::Violation &v : std::as_const(crep.residuals))
+            qCDebug(lcMeshPerf) << "[Mesh][minsize]  residual"
+                                << mesh::pslg::violationCauseName(v.cause)
+                                << v.lfs << "at" << v.xy << v.tagA << v.tagB;
+        stageMark("minimum cell size conditioning");
     }
 
     // ── Domain + holes ──────────────────────────────────────────────
@@ -749,9 +895,242 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
     for (const auto &cs : std::as_const(in.constraintSegs))
         g.addConstraintSegment(cs);
+
+    // ── PSLG quad regions (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3) ──
+    // Layer regions are read HERE with a fresh GDAL handle, exactly as the
+    // boundary layer is (handles must not cross threads); subcatchment
+    // regions arrive resolved from collectInputs and are appended after
+    // them.  Geometry only — the generator validates, classifies Auto, drops
+    // terrain Steiners inside Free rings and pairs / cleans / smooths
+    // (g.addQuadRegion below).
+    QVector<mesh::QuadRegion> quadRegions;
+    if (!in.quadRegionLayers.isEmpty())
+    {
+        progress(19, QObject::tr("Reading quad region polygons…"));
+        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+        qsizetype nRegionXformFailed = 0;
+        for (const auto &spec : std::as_const(in.quadRegionLayers))
+        {
+            OGRCoordinateTransformation *regionCT = nullptr;  // region layer → mesh CRS
+            if (!spec.crsWkt.isEmpty() && !in.meshCRSWkt.isEmpty())
+            {
+                OGRSpatialReference rSRS, mSRS;
+                if (rSRS.importFromWkt(spec.crsWkt.toUtf8().constData()) == OGRERR_NONE
+                    && mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData()) == OGRERR_NONE)
+                {
+                    rSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                    mSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                    if (!mSRS.IsSame(&rSRS))
+                        regionCT = OGRCreateCoordinateTransformation(&rSRS, &mSRS);
+                }
+            }
+
+            GDALDataset *ds = GDALDataset::Open(
+                spec.path.toUtf8().constData(),
+                GDAL_OF_VECTOR | GDAL_OF_READONLY);
+            if (!ds)
+            {
+                qWarning() << "[Mesh][quad] region layer open failed:" << spec.path
+                           << "— no quad regions from this layer.";
+                if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
+                continue;
+            }
+            OGRLayer *ol = spec.layerName.isEmpty()
+                               ? ds->GetLayer(0)
+                               : ds->GetLayerByName(spec.layerName.toUtf8().constData());
+            if (!ol)
+            {
+                qWarning() << "[Mesh][quad] region layer not found:" << spec.layerName;
+                GDALClose(ds);
+                if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
+                continue;
+            }
+
+            // Exterior ring only → mesh CRS → RDP with the same simplifier the
+            // domain rings use → QuadRegion carrying the dialog defaults, then
+            // the optional per-feature attribute overrides (case-insensitive
+            // field names; OGR's GetFieldIndex already ignores case).
+            auto pushRegion = [&](const OGRPolygon *poly, const OGRFeature *f) {
+                if (!poly) return;
+                const OGRLinearRing *ext = poly->getExteriorRing();
+                if (!ext || ext->getNumPoints() < 3) return;
+                const int n = ext->getNumPoints();
+                QVector<double> xs(n), ys(n);
+                for (int i = 0; i < n; ++i) { xs[i] = ext->getX(i); ys[i] = ext->getY(i); }
+                if (regionCT)
+                    nRegionXformFailed += transformChecked(regionCT, n, xs.data(), ys.data());
+                QVector<QPointF> pts;
+                pts.reserve(n);
+                for (int i = 0; i < n; ++i)
+                    if (std::isfinite(xs[i]) && std::isfinite(ys[i]))
+                        pts.append(QPointF(xs[i], ys[i]));
+                if (pts.size() < 3) return;
+
+                mesh::QuadRegion r = in.quadRegionDefaults;
+                r.ring = QPolygonF(simplifyRing(pts, in.pslgSimplifyEps));
+
+                auto fieldIdx = [f](const char *name) -> int {
+                    const int i = f->GetFieldIndex(name);
+                    return (i >= 0 && f->IsFieldSetAndNotNull(i)) ? i : -1;
+                };
+                if (const int i = fieldIdx("quad_mode"); i >= 0)
+                {
+                    const QString s = QString::fromUtf8(f->GetFieldAsString(i));
+                    if (!parseQuadRegionMode(s, &r.mode))
+                        qWarning() << "[Mesh][quad] unknown quad_mode" << s
+                                   << "on feature" << qint64(f->GetFID())
+                                   << "— using the dialog default";
+                }
+                if (const int i = fieldIdx("quad_spacing"); i >= 0) r.spacing   = f->GetFieldAsDouble(i);
+                if (const int i = fieldIdx("quad_aspect");  i >= 0) r.aspectMax = f->GetFieldAsDouble(i);
+                if (const int i = fieldIdx("quad_angle");   i >= 0)
+                {
+                    r.hasAlignAngle = true;
+                    r.alignAngleDeg = f->GetFieldAsDouble(i);
+                }
+                if      (const int i = fieldIdx("tag");  i >= 0) r.tag = QString::fromUtf8(f->GetFieldAsString(i));
+                else if (const int j = fieldIdx("name"); j >= 0) r.tag = QString::fromUtf8(f->GetFieldAsString(j));
+                quadRegions.append(std::move(r));
+            };
+
+            ol->ResetReading();
+            OGRFeature *f = nullptr;
+            bool cancelled = false;
+            while ((f = ol->GetNextFeature()) != nullptr)
+            {
+                if (const OGRGeometry *geom = f->GetGeometryRef())
+                {
+                    const auto gt = wkbFlatten(geom->getGeometryType());
+                    if (gt == wkbPolygon)
+                        pushRegion(geom->toPolygon(), f);
+                    else if (gt == wkbMultiPolygon)
+                    {
+                        const auto *mp = geom->toMultiPolygon();
+                        for (int i = 0; i < mp->getNumGeometries(); ++i)
+                            pushRegion(mp->getGeometryRef(i)->toPolygon(), f);
+                    }
+                }
+                OGRFeature::DestroyFeature(f);
+                if (promise.isCanceled()) { cancelled = true; break; }
+            }
+            GDALClose(ds);
+            if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
+            if (cancelled) { fail(QObject::tr("Cancelled.")); return; }
+        }
+        if (nRegionXformFailed > 0)
+        {
+            // Same rule as the boundary: a ring with dropped vertices is a
+            // different region from the one the user drew.
+            fail(QObject::tr(
+                "%1 quad region vertices could not be reprojected from the "
+                "region layer's CRS to the mesh CRS, so generation was "
+                "stopped.").arg(nRegionXformFailed));
+            return;
+        }
+        stageMark("quad region layer read");
+    }
+    const int nLayerQuadRegions = quadRegions.size();
+    // Subcatchment regions, after the layer ones; same RDP pass (plan §3.2).
+    for (const mesh::QuadRegion &src : std::as_const(in.quadRegions))
+    {
+        mesh::QuadRegion r = src;
+        r.ring = QPolygonF(simplifyRing(src.ring, in.pslgSimplifyEps));
+        quadRegions.append(std::move(r));
+    }
+    // ── Quads everywhere (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.1) ──────
+    // The toggle needs no polygon: each domain ring becomes a BACKGROUND
+    // region covering everything the explicit regions did not claim. Holes
+    // are the domain's own hole rings plus every explicit region's ring, so
+    // an explicit region keeps its own mode/spacing and the background fills
+    // around it. Only the worker can build this — the generator is given
+    // hole SEED POINTS, never hole rings.
+    const int nExplicitQuadRegions = quadRegions.size();
+    if (in.quadEverywhere)
+    {
+        QVector<QPolygonF> explicitRings;
+        explicitRings.reserve(quadRegions.size());
+        for (const mesh::QuadRegion &r : std::as_const(quadRegions))
+            explicitRings.append(r.ring);
+
+        for (const QPolygonF &dom : std::as_const(in.domains))
+        {
+            if (dom.size() < 3) continue;
+            mesh::QuadRegion bg;
+            bg.ring         = dom;
+            bg.isBackground = true;
+            bg.mode         = mesh::QuadRegionMode::Free;
+            bg.spacing      = in.quadEverywhereSpacing;   // 0 = follow the size field
+            bg.aspectMax    = in.quadRegionDefaults.aspectMax;
+            for (const auto &hr : std::as_const(in.holeRings))
+            {
+                const QPolygonF h(hr);
+                if (h.size() >= 3 && mesh::pointInRing(dom, h.first())) bg.holes.append(h);
+            }
+            for (const QPolygonF &er : std::as_const(explicitRings))
+                if (er.size() >= 3 && mesh::pointInRing(dom, er.first())) bg.holes.append(er);
+            quadRegions.append(std::move(bg));
+        }
+    }
+
+    if (!quadRegions.isEmpty())
+        qCInfo(lcMeshPerf).nospace()
+            << "[Mesh][quad] " << quadRegions.size() << " regions ("
+            << nLayerQuadRegions << " from layers, " << in.quadRegions.size()
+            << " from subcatchments, "
+            << (quadRegions.size() - nExplicitQuadRegions) << " background; default mode "
+            << quadRegionModeName(in.quadRegionDefaults.mode)
+            << ", spacing " << in.quadRegionDefaults.spacing
+            << ", aspect <= " << in.quadRegionDefaults.aspectMax << ")";
+
+    // Per-region area bounds are clamped to the refinement floor.
+    //
+    // This matters more than it looks.  Triangle honours regionlist area
+    // bounds only when its `vararea` flag is set, and that flag is set only by
+    // a BARE `a` switch — so today, with a numeric `a<maxArea>` emitted,
+    // RegionMarker::maxArea is silently inert.  Installing the size-function
+    // hook below drops the numeric switch and therefore switches region bounds
+    // ON for the first time.  Without this clamp a region could ask for cells
+    // below the floor the user just set.
+    const double areaFloor = in.minSizePolicy.enabled()
+                                 ? in.minSizePolicy.minTriangleArea()
+                                 : 0.0;
+    int nRegionClamped = 0;
     for (const auto &rm : std::as_const(in.regionMarkers))
-        g.addRegion(rm);
-    g.setOptions(in.genOpts);
+    {
+        mesh::RegionMarker r = rm;
+        if (areaFloor > 0.0 && r.maxArea > 0.0 && r.maxArea < areaFloor)
+        {
+            r.maxArea = areaFloor;
+            ++nRegionClamped;
+        }
+        g.addRegion(r);
+    }
+    if (nRegionClamped > 0)
+        qCInfo(lcMeshPerf) << "[Mesh][minsize] clamped" << nRegionClamped
+                           << "region area bound(s) up to the floor" << areaFloor;
+    {
+        // The G2 tri-pair merge runs in this worker after the elevation fill
+        // (its bed-planarity test needs sampled z), not inside generate().
+        mesh::GenerationOptions go = in.genOpts;
+        go.mergeTrianglePairs = false;
+        // Quad regions: acceptance bounds from the dialog; a Free region with
+        // spacing 0 and no size function takes the side of the equilateral
+        // triangle of maxArea (0 = none → the generator skips the region
+        // with a report line).  quadCleanup keeps its defaults (no UI).
+        go.quadRegionBounds = in.quadBounds;
+        go.quadRegionDefaultSpacing = (in.genOpts.maxArea > 0.0)
+            ? std::sqrt(4.0 * in.genOpts.maxArea / std::sqrt(3.0))
+            : 0.0;
+        g.setOptions(go);
+    }
+    // G3 structured patches: boundary → PSLG constraints, interior → hole,
+    // quads appended after the triangles by generate().
+    for (const mesh::PatchMesh &pm : std::as_const(in.patches))
+        g.addPatch(pm);
+    // PSLG quad regions (layer regions first, then subcatchments — the order
+    // quadRegionReports() is indexed in).
+    for (const mesh::QuadRegion &qr : std::as_const(quadRegions))
+        g.addQuadRegion(qr);
 
     // ── DTM (optional) — open once, shared for all elevation sampling ──
     // The DEM drives three steps: feature z-interpolation, terrain
@@ -1619,6 +1998,89 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     progress(40, QObject::tr("Running Triangle…"));
     if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
+    // Graded size field (V2 plan Track B).  Keeps the uniform cap AT the
+    // constrained features and lets the permitted area grow with distance at
+    // the user's Lipschitz slope — strictly fewer cells than the uniform cap,
+    // with the slope itself the smooth-transition guarantee.  Built from the
+    // CONDITIONED geometry so the field grades away from what Triangle will
+    // actually see.  Must outlive generate(): the hook samples it per
+    // candidate triangle.
+    mesh::SizeField sizeField;
+    bool useGrading = false;
+    if (in.sizeGradation > 0.0 && in.genOpts.maxArea > 0.0)
+    {
+        QRectF bbox;
+        for (const QPolygonF &d : std::as_const(in.domains))
+            bbox = bbox.isValid() ? bbox.united(d.boundingRect())
+                                  : d.boundingRect();
+
+        // Seeds: constraint segments, valid hole rings, tagged (SWMM node)
+        // Steiner points.  The outer domain ring is deliberately not a seed
+        // (see sizefield.h).
+        QVector<QVector<QPointF>> ringSeeds;
+        ringSeeds.reserve(bprep.holeRings.size());
+        for (int k = 0; k < bprep.holeRings.size(); ++k)
+            if (k < bprep.holeValid.size() && bprep.holeValid[k])
+                ringSeeds.append(bprep.holeRings[k]);
+        // Structured patch boundaries seed too (TRI_QUAD_MESHING_PLAN §3.2):
+        // the stitch keeps the near-feature cap instead of grading up to
+        // whatever the surrounding features permit, which is what fans
+        // slivers against the patch's boundary nodes.
+        for (const mesh::PatchMesh &pm : std::as_const(in.patches))
+            for (const auto &seg : pm.boundarySegments)
+                if (seg.first >= 0 && seg.first < pm.xy.size()
+                    && seg.second >= 0 && seg.second < pm.xy.size())
+                    ringSeeds.append({pm.xy[seg.first], pm.xy[seg.second]});
+        // Quad region rings seed for the same reason (QUAD_MESHING_REDESIGN
+        // §6.1): the triangles outside a region grade away from the region's
+        // spacing instead of jumping.  Per edge, wrap edge included — the
+        // size field treats a ring as an open path.
+        for (const mesh::QuadRegion &qr : std::as_const(quadRegions))
+        {
+            const int n = qr.ring.size();
+            for (int i = 0; i < n; ++i)
+            {
+                const QPointF &a = qr.ring[i], &b = qr.ring[(i + 1) % n];
+                if (a != b) ringSeeds.append({a, b});
+            }
+        }
+
+        mesh::SizeFieldOptions sfo;
+        // Side of the equilateral triangle of maxArea — the near-feature size.
+        sfo.nearSize  = std::sqrt(4.0 * in.genOpts.maxArea / std::sqrt(3.0));
+        sfo.gradation = in.sizeGradation;
+        sfo.areaFloor = areaFloor;
+        // With quads everywhere the DTM thinner's points are replaced by the
+        // lattice, so their density has to survive as a SIZE or terrain detail
+        // is lost (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.4). Only switched on
+        // for that case: it is exactly when the points stop being vertices.
+        sfo.terrainDensity = in.quadEverywhere;
+        useGrading = sizeField.build(bbox, in.constraintSegs, ringSeeds,
+                                     in.steinerPoints, sfo);
+        if (useGrading)
+        {
+            qCInfo(lcMeshPerf) << "[Mesh][grading] size field"
+                               << sizeField.cols() << "x" << sizeField.rows()
+                               << "at pitch" << sizeField.pitch()
+                               << "| near size" << sfo.nearSize
+                               << "| gradation" << sfo.gradation;
+            // Installing a size function switches Triangle to the bare `a`
+            // switch, which ACTIVATES per-region area bounds that a numeric
+            // `a<maxArea>` leaves inert (trirefinehook.h).  The clamp above
+            // bounds them to the refinement floor when one exists; either way
+            // a mesh that gains cells needs a traceable cause in the log.
+            if (!in.regionMarkers.isEmpty())
+                qCInfo(lcMeshPerf)
+                    << "[Mesh][grading]" << in.regionMarkers.size()
+                    << "region area bound(s) are ACTIVE under graded sizing "
+                       "(they are inert under a uniform cap)";
+        }
+        else
+            qWarning() << "[Mesh][grading] size field could not be built "
+                          "(no seed features?) — falling back to the uniform "
+                          "area cap.";
+    }
+
     // Triangle's refinement pass is otherwise uninterruptible — the Stop button
     // is dead for its entire duration, which on a large PSLG can be minutes.
     // The `-u` user-test hook is the only place Triangle calls back into us
@@ -1630,6 +2092,36 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             progress(45, QObject::tr("Refining mesh… (%1 M triangle tests)")
                              .arg(tests / 1000000));
         };
+        // Refinement floor.  Read trirefinehook.h before touching this: the
+        // hook returns the MAXIMUM permitted area and Triangle splits anything
+        // larger, so the only thing expressible here is "do not let the
+        // uniform cap drive subdivision below the floor the user asked for" —
+        // i.e. raise a too-small cap up to the floor.  Returning the floor
+        // when there is no cap would instead order the WHOLE domain refined to
+        // the minimum size, which is a vertex-count explosion and the exact
+        // opposite of the intent; <= 0 means unconstrained, so that is what an
+        // absent cap must return.
+        //
+        // Triangle never coarsens, so this cannot enlarge a cell the input
+        // demanded — that is the conditioning pass's job, not this one.
+        if (useGrading)
+        {
+            // The graded field already folds in the floor (SizeFieldOptions::
+            // areaFloor) and the near-feature cap, so it replaces both the
+            // uniform `-a` switch and the constant-floor lambda below.
+            hook.targetAreaAt = [&sizeField](double x, double y) {
+                return sizeField.targetAreaAt(x, y);
+            };
+        }
+        else if (areaFloor > 0.0)
+        {
+            // Constant across the domain, so resolve it once rather than per
+            // triangle test.  MinSizePolicy::refinementAreaCap owns the rule
+            // (and its regression test).
+            const double capped =
+                in.minSizePolicy.refinementAreaCap(in.genOpts.maxArea);
+            hook.targetAreaAt = [capped](double, double) { return capped; };
+        }
         g.setRefineHook(hook);
     }
 
@@ -1649,11 +2141,104 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         fail(QObject::tr("Triangle: %1").arg(result.errorMsg)); return;
     }
 
+    // ── Quad region reports (one line per addQuadRegion call) ────────
+    // Skipped regions are surfaced the way skipped hole rings are (the
+    // qWarning "[Mesh] Skipped" channel) so a silently-triangulated region
+    // is never mistaken for a quad one.
+    int nQuadRegionQuads = 0;
+    for (const mesh::QuadRegionReport &rep : g.quadRegionReports())
+    {
+        nQuadRegionQuads += rep.quads;
+        qCInfo(lcMeshPerf).nospace()
+            << "[Mesh][quad] region " << rep.index << ": "
+            << quadRegionModeName(rep.requested) << " -> "
+            << quadRegionModeName(rep.resolved)
+            << " | h " << rep.spacing
+            << " | " << rep.quads << " quads + " << rep.triangles << " tris"
+            << " (" << rep.templateQuads << " template, " << rep.gapQuads << " gap)"
+            << " | points " << rep.generatedPoints << " generated, "
+            << rep.droppedSteiners << " terrain dropped"
+            << " | min SJ " << rep.minScaledJacobian
+            << " | median rect " << rep.medianRectangularity
+            << (rep.message.isEmpty() ? QString() : QStringLiteral(" | ") + rep.message);
+        if (rep.message.startsWith(QLatin1String("skipped:")))
+            qWarning() << "[Mesh] Skipped quad region" << rep.index << "—"
+                       << rep.message.mid(int(qstrlen("skipped:"))).trimmed();
+    }
+
+    // ── Sub-scale cell cleanup ───────────────────────────────────────
+    // MIN_CELL_SIZE_ENFORCEMENT_PLAN §6 Phase 5.  Removes the slivers Triangle
+    // inserted on its own; it cannot remove ones the input demanded, because
+    // every constrained edge and every tagged/coupled vertex is protected.
+    // Runs BEFORE the Hilbert reorder so the reorder's locality is not wasted.
+    if (in.minSizeCleanup && in.minSizePolicy.enabled())
+    {
+        progress(52, QObject::tr("Removing sub-scale cells…"));
+        mesh::CleanupPolicy cpol;
+        cpol.minCellSize = in.minSizePolicy.minCellSize;
+        // V2 enforcement (plan Track A): let cleanup absorb slivers into a
+        // single identity vertex and collapse interior constrained edges.
+        // Distinct identities still never merge and a lost coupling still
+        // aborts the pass — those two rules are cleanup's own, not ours.
+        if (in.minSizeEnforce)
+        {
+            cpol.allowIdentityCollapse = true;
+            cpol.beta                  = 0.45;
+        }
+        mesh::CleanupReport crep;
+        const bool ok = mesh::collapseSubScaleCells(&result, cpol, &crep);
+        qCInfo(lcMeshPerf) << "[Mesh][minsize] cleanup:" << crep.summary();
+        if (!ok)
+            qWarning() << "[Mesh][minsize] sliver cleanup abandoned a pass — "
+                          "mesh restored to its pre-pass state.";
+        if (crep.skippedProtected > 0)
+            qCInfo(lcMeshPerf) << "[Mesh][minsize]" << crep.skippedProtected
+                               << "sub-scale cell(s) are bounded by constrained "
+                                  "or coupled geometry and cannot be collapsed — "
+                                  "these need a larger minimum cell size or "
+                                  "simpler input geometry.";
+        for (const QPointF &p : std::as_const(crep.unfixable))
+            qCDebug(lcMeshPerf) << "[Mesh][minsize]  protected sliver at" << p;
+        stageMark("sub-scale cell cleanup");
+    }
+
+    // Enforcement contract (V2 plan Track A): say plainly what was achieved
+    // against what was requested — "enforced" must never be a silent miss.
+    if (in.minSizePolicy.enabled() && !result.triangles.isEmpty())
+    {
+        double minArea = std::numeric_limits<double>::max();
+        for (const mesh::MeshTriangle &t : std::as_const(result.triangles))
+        {
+            if (t.v0 < 0 || t.v1 < 0 || t.v2 < 0) continue;
+            const QPointF &a = result.vertices[t.v0].xy;
+            const QPointF &b = result.vertices[t.v1].xy;
+            const QPointF &c = result.vertices[t.v2].xy;
+            const double ar = 0.5 * std::abs(
+                (b.x() - a.x()) * (c.y() - a.y())
+                - (c.x() - a.x()) * (b.y() - a.y()));
+            if (ar < minArea) minArea = ar;
+        }
+        // Side of the equilateral triangle of the smallest cell — comparable
+        // to the requested h.
+        const double side = std::sqrt(4.0 * minArea / std::sqrt(3.0));
+        qCInfo(lcMeshPerf).nospace()
+            << "[Mesh][minsize] requested h = "
+            << in.minSizePolicy.minCellSize
+            << (in.minSizeEnforce ? " (enforce)" : " (advisory)")
+            << " | achieved min cell side ~ " << side
+            << " (area " << minArea << ")";
+        if (side < 0.5 * in.minSizePolicy.minCellSize)
+            qWarning() << "[Mesh][minsize] the smallest cell is well below the"
+                       << "requested minimum — check the residual list above"
+                       << "for the features that could not be conditioned.";
+    }
+
     // ── Hilbert renumbering — locality for the engine's explicit marcher ──
-    // Pure permutation applied before any index-keyed consumer (elevation
-    // fill, node mapping, and coupling are all coordinate-keyed).  The
-    // engine's cell/vertex index is the file line order, so a well-ordered
-    // file benefits the marcher with zero engine changes (meshreorder.h).
+    // Pure permutation applied before any index-keyed consumer.  Elevation
+    // fill and node mapping are coordinate-keyed; the coupling map is
+    // marker-keyed (both permutation-safe).  The engine's cell/vertex index is
+    // the file line order, so a well-ordered file benefits the marcher with
+    // zero engine changes (meshreorder.h).
     stageClock.restart();
     const double spreadBefore = mesh::meanVertexIndexSpread(result);
     mesh::reorderMeshHilbert(&result);
@@ -1673,6 +2258,10 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // zInModelUnits marks vertices whose z is already in model/mesh units
     // (rim, feature Z, flattened terrain, or IDW from rim seeds) so they are
     // excluded from the raster-unit zConversionFactor multiply below.
+    //
+    // Quad regions (plan D7): Free-region smoothing already ran inside
+    // generate(), so every vertex xy here is final and the z sampled below
+    // is the one the mesh keeps — nothing to re-sample after this step.
     progress(70, useDTM
                  ? QObject::tr("Sampling DTM elevations…")
                  : QObject::tr("Interpolating elevations from junction rims…"));
@@ -1914,25 +2503,33 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // triangles. Vertex indices come pre-validated by MeshGenerator
             // (checked against Triangle's own point count at copy-out), but
             // this is a heap WRITE on the nodata-only path, so guard anyway.
-            auto triOk = [nv](const mesh::MeshTriangle &t) {
-                return t.v0 >= 0 && t.v0 < nv && t.v1 >= 0 && t.v1 < nv
-                    && t.v2 >= 0 && t.v2 < nv;
+            // A quad (patch cell) contributes its four ring edges, not a
+            // diagonal — the same neighbourhood the engine's median dual uses.
+            auto cellOk = [nv](const mesh::MeshTriangle &t) {
+                const int n = t.vertexCount();
+                for (int k = 0; k < n; ++k)
+                    if (t.vertex(k) < 0 || t.vertex(k) >= nv) return false;
+                return true;
             };
             QVector<qsizetype> off(nv + 1, 0);
             for (const mesh::MeshTriangle &t : result.triangles)
             {
-                if (!triOk(t)) continue;
-                off[t.v0 + 1] += 2; off[t.v1 + 1] += 2; off[t.v2 + 1] += 2;
+                if (!cellOk(t)) continue;
+                const int n = t.vertexCount();
+                for (int k = 0; k < n; ++k) off[t.vertex(k) + 1] += 2;
             }
             for (int i = 0; i < nv; ++i) off[i + 1] += off[i];
             QVector<int> adj(off[nv]);
             QVector<qsizetype> cur = off;
             for (const mesh::MeshTriangle &t : result.triangles)
             {
-                if (!triOk(t)) continue;
-                adj[cur[t.v0]++] = t.v1; adj[cur[t.v0]++] = t.v2;
-                adj[cur[t.v1]++] = t.v0; adj[cur[t.v1]++] = t.v2;
-                adj[cur[t.v2]++] = t.v0; adj[cur[t.v2]++] = t.v1;
+                if (!cellOk(t)) continue;
+                const int n = t.vertexCount();
+                for (int k = 0; k < n; ++k)
+                {
+                    const int a = t.vertex(k), b = t.vertex((k + 1) % n);
+                    adj[cur[a]++] = b; adj[cur[b]++] = a;
+                }
             }
 
             // Pass A — seed. Jacobi sweeps: collect every fill first, then
@@ -2092,11 +2689,64 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // the toolbar / properties panel read and what a later save patches, so
     // leaving them unset (NaN) makes a generated mesh report defaults it never
     // agreed to and drops the file's values on the next attribute rewrite.
+    // GG0d — a region row that was given its own roughness / depth overrides
+    // the '*' values on that region's cells. regionHydraulics is empty unless
+    // the user edited one, in which case this loop is exactly the loop it has
+    // always been.
     for (mesh::MeshTriangle &t : result.triangles)
     {
         t.mannings  = in.manningsN;
         t.initDepth = in.initDepth;
+
+        if (in.regionHydraulics.isEmpty() || t.tag.isEmpty()) continue;
+        const auto rh = in.regionHydraulics.constFind(t.tag);
+        if (rh == in.regionHydraulics.constEnd()) continue;
+        t.mannings  = rh->manningsN;
+        t.initDepth = rh->initDepth;
     }
+
+    // ── Region infiltration defaults (GG0d, GUI plan §3.3) ───────────
+    // Copied across as ROWS, not stamped per cell: engine decision D-I3 has
+    // the engine resolve `override > tag row > '*' row > none` itself, and
+    // materialising a per-cell row for every triangle here would flatten that
+    // inheritance and freeze the assignment. result.infilOverrides stays
+    // untouched — mesh generation authors no per-cell infiltration at all.
+    result.infilDefaults = in.infilDefaults;
+
+    // ── Tri-pair merge into quads (G2) ───────────────────────────────
+    // Last geometry step: runs on sampled elevations and seeded attributes
+    // so the planarity and attribute-equality rules see final values.
+    // Every constrained segment (domain outline, hole rings, breaklines,
+    // patch boundaries) is a locked edge — no quad straddles one.
+    const int nPatchQuads = result.quadCount();
+    int nMergedQuads = 0;
+    if (in.genOpts.mergeTrianglePairs)
+    {
+        progress(84, QObject::tr("Merging triangle pairs into quads…"));
+        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+        QSet<QPair<int, int>> locked;
+        locked.reserve(result.boundaryEdges.size());
+        for (const mesh::MeshEdge &e : std::as_const(result.boundaryEdges))
+            locked.insert(mesh::edgeKey(e.v0, e.v1));
+        QVector<int> oldToNew;
+        nMergedQuads = mesh::mergeTrianglePairs(result, in.genOpts.quadMerge,
+                                                locked, &oldToNew);
+        if (nMergedQuads > 0 && !coupling.triangleToNode.isEmpty())
+        {
+            QHash<int, QString> remapped;
+            for (auto it = coupling.triangleToNode.cbegin();
+                 it != coupling.triangleToNode.cend(); ++it)
+                remapped.insert(oldToNew.value(it.key(), it.key()), it.value());
+            coupling.triangleToNode = std::move(remapped);
+        }
+        stageMark("tri-pair merge");
+    }
+    qCInfo(lcMeshPerf).nospace()
+        << "[Mesh] cells: " << (result.triangles.size() - result.quadCount())
+        << " triangles + " << result.quadCount() << " quads ("
+        << nQuadRegionQuads << " from quad regions, "
+        << (nPatchQuads - nQuadRegionQuads) << " from structured patches, "
+        << nMergedQuads << " merged from triangle pairs)";
 
     // ── Write ────────────────────────────────────────────────────────
     progress(85, QObject::tr("Writing mesh file…"));
@@ -2326,14 +2976,18 @@ void MeshGenerationDialog::buildUi()
         auto *g   = new QGroupBox(tr("1D geometry influence (optional)"), sourcesPage);
         auto *lay = new QVBoxLayout(g);
 
-        m_includeJunctions = new QCheckBox(tr("Junctions / outfalls / storage  →  Steiner vertices  (tag = node id)"), g);
+        m_includeJunctions = new QCheckBox(tr("Nodes (junctions, inlets, outfalls, storage, dividers)  →  Steiner vertices  (tag = node id)"), g);
+        m_includeJunctions->setObjectName(QStringLiteral("meshNodesAsVerticesBox"));
         m_includeJunctions->setToolTip(tr(
-            "Force a mesh vertex at every node location. Node clusters that\n"
-            "are close only for non-physical reasons (weir / orifice / pump\n"
-            "endpoints) then force very small cells around them.\n\n"
-            "Leave unchecked (default) to let mesh quality drive the cell\n"
-            "sizes; nodes are coupled to the mesh afterwards (coincident →\n"
-            "vertex, otherwise → containing cell)."));
+            "Checked (default): force a mesh vertex at every node location —\n"
+            "every node type except virtual junctions, which are split points\n"
+            "on a conduit with no rim of their own. Node clusters that are\n"
+            "close only for non-physical reasons (weir / orifice / pump\n"
+            "endpoints) would force very small cells around them; the\n"
+            "minimum node separation below demotes those to cell coupling.\n\n"
+            "Uncheck to let mesh quality drive the cell sizes; nodes are\n"
+            "coupled to the mesh afterwards (coincident → vertex, otherwise →\n"
+            "containing cell)."));
         m_includeConduits  = new QCheckBox(tr("Conduits  →  constraint segments  (marker = conduit id)"), g);
         m_includeSubcatch  = new QCheckBox(tr("Subcatchments  →  triangle regions  (tag = subcatchment id)"), g);
 
@@ -2342,11 +2996,12 @@ void MeshGenerationDialog::buildUi()
         // Node elevation source: interpolate to terrain (default) vs rim.
         m_nodesUseRim = new QCheckBox(
             tr("Use node rim elevation (invert + max depth) instead of terrain"), g);
+        m_nodesUseRim->setObjectName(QStringLiteral("meshNodesUseRimBox"));
         m_nodesUseRim->setToolTip(tr(
-            "Unchecked (default): node vertices are interpolated from the DTM,\n"
-            "like every other vertex.\n"
-            "Checked: node vertices are pinned to the rim elevation\n"
-            "(invert + maximum depth) read from the SWMM model.\n\n"
+            "Checked (default): node vertices are pinned to the rim elevation\n"
+            "(invert + maximum depth) read from the SWMM model.\n"
+            "Unchecked: node vertices are interpolated from the DTM, like\n"
+            "every other vertex.\n\n"
             "When no DTM is selected, nodes always use rim elevation and\n"
             "the rest of the mesh is interpolated (IDW) from those rims."));
         auto *rimRow = new QHBoxLayout;
@@ -2383,6 +3038,7 @@ void MeshGenerationDialog::buildUi()
         auto *sepRow = new QHBoxLayout;
         sepRow->setContentsMargins(20, 0, 0, 0);
         m_nodeMinSepBox = new QCheckBox(tr("Enforce minimum node separation:"), g);
+        m_nodeMinSepBox->setObjectName(QStringLiteral("meshMinNodeSepBox"));
         m_nodeMinSepBox->setToolTip(tr(
             "When two nodes are closer than this distance, only the first\n"
             "(junctions → outfalls → storage → dividers, model order) keeps a\n"
@@ -2394,6 +3050,7 @@ void MeshGenerationDialog::buildUi()
             "as constraints, their endpoints can still pin vertices at node\n"
             "locations regardless of this setting."));
         m_nodeMinSepSpin = new QDoubleSpinBox(g);
+        m_nodeMinSepSpin->setObjectName(QStringLiteral("meshMinNodeSepSpin"));
         m_nodeMinSepSpin->setRange(0.0, 1e9);
         m_nodeMinSepSpin->setDecimals(3);
         m_nodeMinSepSpin->setSingleStep(1.0);
@@ -2496,9 +3153,43 @@ void MeshGenerationDialog::buildUi()
     // Tab 2 — Quality
     // "How to triangulate": Triangle knobs, PSLG opts, terrain thinning
     // ================================================================
+    // MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07 §2 — the eight
+    // groups below totalled 37 form rows plus a table (~1700 px) in one
+    // column, so the page only fit because addTab wraps it in a scroll area.
+    // They are now split across four inner tabs in pipeline order: size the
+    // triangles, enforce a floor, thin the terrain, decide on quads. Each
+    // group is moved WHOLE — no widget is renamed and no group is split, so
+    // test_meshmincelldialog (which finds "Minimum Cell Size" by title and
+    // asserts its 2-spin / 4-checkbox census) is unaffected.
+    //
+    // Every group is still constructed with `qualityPage` as its ctor parent;
+    // QLayout::addWidget reparents it to the inner page that owns the layout,
+    // which keeps this a minimal diff against the uncommitted quad work.
     auto *qualityPage = new QWidget;
-    auto *qualityVBox = new QVBoxLayout(qualityPage);
-    qualityVBox->setContentsMargins(8, 8, 8, 8);
+    auto *qualityOuter = new QVBoxLayout(qualityPage);
+    qualityOuter->setContentsMargins(0, 0, 0, 0);
+
+    auto *qualityTabs = new QTabWidget(qualityPage);
+    qualityTabs->setObjectName(QStringLiteral("meshQualityTabs"));
+    qualityOuter->addWidget(qualityTabs);
+
+    // Inner page + layout per tab. Named for the group they receive so the
+    // addWidget lines below read as their own documentation.
+    auto *sizingPage  = new QWidget(qualityTabs);
+    auto *sizingVBox  = new QVBoxLayout(sizingPage);
+    sizingVBox->setContentsMargins(8, 8, 8, 8);
+
+    auto *cellSizePage = new QWidget(qualityTabs);
+    auto *cellSizeVBox = new QVBoxLayout(cellSizePage);
+    cellSizeVBox->setContentsMargins(8, 8, 8, 8);
+
+    auto *terrainPage = new QWidget(qualityTabs);
+    auto *terrainVBox = new QVBoxLayout(terrainPage);
+    terrainVBox->setContentsMargins(8, 8, 8, 8);
+
+    auto *quadsPage   = new QWidget(qualityTabs);
+    auto *quadsVBox   = new QVBoxLayout(quadsPage);
+    quadsVBox->setContentsMargins(8, 8, 8, 8);
 
     // Triangle quality group
     {
@@ -2520,6 +3211,32 @@ void MeshGenerationDialog::buildUi()
         m_minAngleSpin->setToolTip(tr("Minimum triangle angle (0–33° reliable; above 33° may not terminate)."));
         f->addRow(tr("Min angle:"), m_minAngleSpin);
 
+        // V2 graded sizing (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN).
+        m_gradationSpin = new QDoubleSpinBox(g);
+        m_gradationSpin->setRange(0.0, 2.0);
+        m_gradationSpin->setDecimals(2);
+        m_gradationSpin->setSingleStep(0.05);
+        m_gradationSpin->setSpecialValueText(tr("(uniform)"));
+        m_gradationSpin->setToolTip(tr(
+            "How fast cells may grow with distance from constrained features "
+            "(conduits, hole edges, SWMM nodes).\n\n"
+            "0 = uniform: the max-area cap applies EVERYWHERE, however far a "
+            "cell is from anything that needs resolution.\n\n"
+            "> 0 = graded: cells at the features keep exactly the max-area "
+            "cap; away from them the permitted size grows at this slope, so "
+            "the mesh stays fine where it matters and coarsens smoothly "
+            "elsewhere — typically far fewer cells for the same feature "
+            "resolution.  0.25 is a good starting value.\n\n"
+            "Requires a max triangle area cap."));
+        f->addRow(tr("Size gradation:"), m_gradationSpin);
+
+        auto syncGradation = [this] {
+            if (m_gradationSpin && m_maxAreaSpin)
+                m_gradationSpin->setEnabled(m_maxAreaSpin->value() > 0.0);
+        };
+        connect(m_maxAreaSpin, &QDoubleSpinBox::valueChanged, this, syncGradation);
+        syncGradation();
+
         m_maxSteinerSpin = new QSpinBox(g);
         m_maxSteinerSpin->setRange(-1, 10'000'000);
         m_maxSteinerSpin->setSpecialValueText(tr("(unlimited)"));
@@ -2528,7 +3245,7 @@ void MeshGenerationDialog::buildUi()
         m_allowSteiner = new QCheckBox(tr("Allow Steiner refinement on boundary"), g);
         f->addRow(QString(), m_allowSteiner);
 
-        qualityVBox->addWidget(g);
+        sizingVBox->addWidget(g);   // Triangle quality
     }
 
     // PSLG optimisation group
@@ -2588,7 +3305,131 @@ void MeshGenerationDialog::buildUi()
         connect(m_maxBoundaryEdgeBox, &QCheckBox::toggled,
                 m_maxBoundaryEdgeSpin, &QWidget::setEnabled);
 
-        qualityVBox->addWidget(g);
+        sizingVBox->addWidget(g);   // PSLG Optimisation
+    }
+
+    // Minimum cell size group — MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17.
+    {
+        auto *g = new QGroupBox(tr("Minimum Cell Size"), qualityPage);
+        auto *f = new QFormLayout(g);
+        f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+
+        m_minCellSizeSpin = new QDoubleSpinBox(g);
+        m_minCellSizeSpin->setRange(0.0, 1e6);
+        m_minCellSizeSpin->setDecimals(3);
+        m_minCellSizeSpin->setSingleStep(0.5);
+        // suffix set by updateUnitDisplay()
+        m_minCellSizeSpin->setSpecialValueText(tr("(off)"));
+        m_minCellSizeSpin->setToolTip(tr(
+            "Smallest cell the mesh should contain, as a length.\n\n"
+            "Triangle cannot produce cells much smaller OR much larger than the "
+            "input geometry asks for: constrained polylines with vertices a few "
+            "centimetres apart, two alignments passing within a hair, or conduits "
+            "meeting at a sharp angle all force cells at that scale, and on the "
+            "2D solver a single sliver sets the timestep for the whole domain.\n\n"
+            "Setting a minimum therefore CHANGES THE INPUT GEOMETRY slightly: "
+            "vertices closer together than this are merged, short segments are "
+            "resampled away, dangling endpoints are welded onto the line they "
+            "nearly touch, and sharp corners are blunted.  Tagged SWMM nodes are "
+            "never moved and never merged with each other.\n\n"
+            "0 = off (no geometry changes; existing behaviour)."));
+        f->addRow(tr("Minimum cell si&ze:"), m_minCellSizeSpin);
+
+        m_minCellSuggestBtn = new QPushButton(tr("Suggest"), g);
+        m_minCellSuggestBtn->setToolTip(tr(
+            "Set the minimum to roughly a third of the side length implied by "
+            "Max triangle area."));
+        f->addRow(QString(), m_minCellSuggestBtn);
+        connect(m_minCellSuggestBtn, &QPushButton::clicked, this, [this] {
+            const double a = m_maxAreaSpin ? m_maxAreaSpin->value() : 0.0;
+            if (a <= 0.0 || !m_minCellSizeSpin) return;
+            // Side of the equilateral triangle with that area, then a third.
+            const double side = std::sqrt(4.0 * a / std::sqrt(3.0));
+            m_minCellSizeSpin->setValue(side / 3.0);
+        });
+
+        // V2 enforcement mode (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN
+        // Track A).  Measured on real SWMM models, the default (advisory)
+        // conditioning is nearly inert: the crowded vertices are almost all
+        // coupling identities it is forbidden to touch.
+        m_minSizeEnforceBox = new QCheckBox(
+            tr("Enforce — may move or merge SWMM coupling points"), g);
+        m_minSizeEnforceBox->setToolTip(tr(
+            "Off (advisory): tagged SWMM nodes and conduit endpoints never "
+            "move and never merge.  On real models nearly every crowded "
+            "vertex IS such an identity, so the minimum is rarely achieved.\n\n"
+            "On (enforce): two coupling identities closer than the minimum "
+            "cell size may merge into one mesh vertex, nodes closer than the "
+            "minimum are not pinned as vertices at all, and the post-mesh "
+            "cleanup may absorb slivers into an identity vertex.  No coupling "
+            "is ever LOST — a merged or demoted node couples to the 2D mesh "
+            "via its containing cell instead of a dedicated vertex (a "
+            "different exchange stencil, reported in the log).  No point "
+            "moves further than the weld radius shown below."));
+        f->addRow(QString(), m_minSizeEnforceBox);
+
+        m_trimAngleSpin = new QDoubleSpinBox(g);
+        m_trimAngleSpin->setRange(0.0, 60.0);
+        m_trimAngleSpin->setDecimals(1);
+        m_trimAngleSpin->setSuffix(QStringLiteral(" °"));
+        m_trimAngleSpin->setSpecialValueText(tr("(off)"));
+        m_trimAngleSpin->setToolTip(tr(
+            "Corners where two constraints meet more sharply than this are "
+            "blunted — the apex is cut back and bridged by a short segment.\n\n"
+            "Sharp input angles are the one cause of small cells that merging "
+            "cannot fix, because the two legs legitimately share their vertex; "
+            "the cells at such an apex shrink geometrically toward it.\n\n"
+            "Corners at tagged SWMM nodes are left alone (see below)."));
+        f->addRow(tr("Trim corners sharper than:"), m_trimAngleSpin);
+
+        m_trimAtNodesBox = new QCheckBox(tr("Also trim corners at SWMM nodes"), g);
+        m_trimAtNodesBox->setToolTip(tr(
+            "Off by default.  A manhole where two conduits meet at a sharp angle "
+            "is exactly where fine resolution is usually wanted, and the node is "
+            "a coupling location that must not move.\n\n"
+            "Turn on when the simulation timestep matters more than resolution at "
+            "the node."));
+        f->addRow(QString(), m_trimAtNodesBox);
+
+        m_dropSubScaleHolesBox =
+            new QCheckBox(tr("Drop holes smaller than one cell"), g);
+        m_dropSubScaleHolesBox->setToolTip(tr(
+            "Hole rings narrower than the minimum cell size cannot be meshed "
+            "around.  When checked they are removed, which means THE MESH COVERS "
+            "THEM — a modelling change, reported in the generation log."));
+        f->addRow(QString(), m_dropSubScaleHolesBox);
+
+        m_cleanupBox = new QCheckBox(tr("Collapse leftover slivers after meshing"), g);
+        m_cleanupBox->setToolTip(tr(
+            "A second, post-meshing pass that collapses very short edges "
+            "Triangle inserted on its own.\n\n"
+            "Constrained edges, the domain outline, and any vertex carrying a tag "
+            "or a coupled node are never touched, so this cannot fix a sliver the "
+            "input demanded — those are reported in the log instead."));
+        f->addRow(QString(), m_cleanupBox);
+
+        m_minCellDerivedLabel = new QLabel(g);
+        m_minCellDerivedLabel->setWordWrap(true);
+        m_minCellDerivedLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
+        f->addRow(QString(), m_minCellDerivedLabel);
+
+        auto syncMinCell = [this] {
+            const bool on = m_minCellSizeSpin && m_minCellSizeSpin->value() > 0.0;
+            if (m_minSizeEnforceBox)    m_minSizeEnforceBox->setEnabled(on);
+            if (m_trimAngleSpin)        m_trimAngleSpin->setEnabled(on);
+            if (m_trimAtNodesBox)       m_trimAtNodesBox->setEnabled(on);
+            if (m_dropSubScaleHolesBox) m_dropSubScaleHolesBox->setEnabled(on);
+            if (m_cleanupBox)           m_cleanupBox->setEnabled(on);
+            updateMinCellDerivedLabel();
+        };
+        connect(m_minSizeEnforceBox, &QCheckBox::toggled, this,
+                [this] { updateMinCellDerivedLabel(); });
+        connect(m_minCellSizeSpin, &QDoubleSpinBox::valueChanged, this, syncMinCell);
+        connect(m_minAngleSpin,    &QDoubleSpinBox::valueChanged, this,
+                [this] { updateMinCellDerivedLabel(); });
+        syncMinCell();
+
+        cellSizeVBox->addWidget(g);   // Minimum Cell Size
     }
 
     // Terrain-adaptive thinning group
@@ -2613,6 +3454,7 @@ void MeshGenerationDialog::buildUi()
         f->addRow(QString(), m_thinningBox);
 
         m_thinningToleranceSpin = new QDoubleSpinBox(g);
+        m_thinningToleranceSpin->setObjectName(QStringLiteral("meshThinningTolSpin"));
         m_thinningToleranceSpin->setRange(-1.0, 1.0);
         m_thinningToleranceSpin->setDecimals(8);
         m_thinningToleranceSpin->setSingleStep(0.001);
@@ -2625,11 +3467,13 @@ void MeshGenerationDialog::buildUi()
             "score ≥ threshold → flat or uniform-slope area → vertex is "
             "REMOVED.\n\n"
             "0.99 → keep bends > ~8° (fine detail)\n"
-            "0.95 → keep bends > ~18° (default — channels, levees, ridges)\n"
-            "0.90 → keep bends > ~26° (coarse — prominent breaks only)"));
+            "0.95 → keep bends > ~18° (channels, levees, ridges)\n"
+            "0.90 → keep bends > ~26° (coarse — prominent breaks only)\n"
+            "0.75 → keep bends > ~41° (default — major breaks only)"));
         f->addRow(tr("Normal dot threshold:"), m_thinningToleranceSpin);
 
         m_thinningIterationsSpin = new QSpinBox(g);
+        m_thinningIterationsSpin->setObjectName(QStringLiteral("meshThinningPassesSpin"));
         m_thinningIterationsSpin->setRange(0, std::numeric_limits<int>::max());
         m_thinningIterationsSpin->setSpecialValueText(tr("(unlimited)"));
         m_thinningIterationsSpin->setToolTip(tr(
@@ -2648,6 +3492,7 @@ void MeshGenerationDialog::buildUi()
 
         // ── Option A: Poisson-disk minimum spacing ─────────────────────────
         m_minSpacingBox = new QCheckBox(tr("Min point spacing (Poisson-disk):"), g);
+        m_minSpacingBox->setObjectName(QStringLiteral("meshMinSpacingBox"));
         m_minSpacingBox->setToolTip(tr(
             "Post-thinning pass: enforces a minimum Euclidean distance between "
             "any two surviving DTM Steiner points.\n\n"
@@ -2656,6 +3501,7 @@ void MeshGenerationDialog::buildUi()
             "Use to prevent micro-clusters from dominating the mesh even after "
             "normal-deviation thinning.  0 = auto (2 × pixel size)."));
         m_minSpacingSpin = new QDoubleSpinBox(g);
+        m_minSpacingSpin->setObjectName(QStringLiteral("meshMinSpacingSpin"));
         m_minSpacingSpin->setRange(0.0, 1e9);
         m_minSpacingSpin->setDecimals(3);
         m_minSpacingSpin->setSingleStep(1.0);
@@ -2682,7 +3528,7 @@ void MeshGenerationDialog::buildUi()
             "(auto) = half the effective terrain point spacing."));
         f->addRow(tr("Boundary buffer:"), m_boundaryBufferSpin);
 
-        qualityVBox->addWidget(g);
+        terrainVBox->addWidget(g);   // Terrain-Adaptive Thinning
     }
 
     auto syncThinning = [this]() {
@@ -2697,7 +3543,336 @@ void MeshGenerationDialog::buildUi()
     connect(m_minSpacingBox, &QCheckBox::toggled, m_minSpacingSpin, &QWidget::setEnabled);
     syncThinning();
 
-    qualityVBox->addStretch();
+    // Quad regions — PSLG-defined polygons meshed with quads
+    // (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3.1 sources, §6.3). Sources
+    // are a polygon layer and/or named subcatchments; the defaults below
+    // apply to every region unless a layer feature carries quad_mode /
+    // quad_spacing / quad_aspect / quad_angle / tag attributes.
+    // Quads everywhere — the toggle (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.5).
+    // No polygon required: the domain itself becomes the quad region.
+    {
+        auto *g = new QGroupBox(tr("Quadrilateral cells"), qualityPage);
+        auto *f = new QFormLayout(g);
+        f->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+
+        m_quadEverywhereCheck = new QCheckBox(tr("&Generate quadrilateral cells"), g);
+        m_quadEverywhereCheck->setToolTip(tr(
+            "Quad-mesh the whole domain — no polygon needs to be drawn or "
+            "picked.  Each domain ring is filled with a boundary-aligned quad "
+            "lattice; holes, conduits and breaklines are respected, and cells "
+            "that cannot be paired stay triangles (quad-dominant).\n\n"
+            "The regions below remain optional: each one is subtracted from "
+            "this background and meshed with its own mode and spacing, so use "
+            "them only where a particular area needs different treatment "
+            "(including 'Triangles only' to keep an area triangular)."));
+        f->addRow(m_quadEverywhereCheck);
+
+        m_quadEverywhereSpacingSpin = new QDoubleSpinBox(g);
+        m_quadEverywhereSpacingSpin->setRange(0.0, 1e7);
+        m_quadEverywhereSpacingSpin->setDecimals(3);
+        m_quadEverywhereSpacingSpin->setValue(0.0);
+        m_quadEverywhereSpacingSpin->setSpecialValueText(tr("(follow the size field)"));
+        m_quadEverywhereSpacingSpin->setToolTip(tr(
+            "Target quad edge length for the whole-domain lattice.\n\n"
+            "Leave at 0 — the recommended setting — to follow the graded size "
+            "field, so quads stay fine near conduits, inlets and breaklines and "
+            "coarsen away from them exactly as the triangles do today.  A fixed "
+            "value meshes the entire model at that one spacing, which on a large "
+            "model either loses local refinement or explodes the cell count."));
+        f->addRow(tr("Target quad si&ze:"), m_quadEverywhereSpacingSpin);
+
+        // Enabling is driven by the shared syncQuad() below, which also owns
+        // the quad-quality bounds (they apply to the background lattice too).
+        quadsVBox->addWidget(g);   // Quadrilateral cells
+    }
+    {
+        auto *g = new QGroupBox(tr("Quad regions (PSLG) — optional overrides"), qualityPage);
+        auto *f = new QFormLayout(g);
+        f->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+
+        auto *hint = new QLabel(tr(
+            "Optional.  Closed polygons inside the domain that need different "
+            "treatment from the rest: the ring becomes a constraint loop and the "
+            "interior is filled with its own quad lattice (or a structured grid "
+            "when the outline is rectangular).  With the toggle above off, these "
+            "are the only areas that get quads; with it on, each one is "
+            "subtracted from the whole-domain lattice."), g);
+        hint->setWordWrap(true);
+        hint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
+        f->addRow(hint);
+
+        m_quadRegionLayerCombo = new QComboBox(g);
+        m_quadRegionLayerCombo->setToolTip(tr(
+            "Polygon layer whose features become quad regions (exterior rings "
+            "only; read in the worker and reprojected to the mesh CRS).\n\n"
+            "Optional per-feature attributes override the defaults below:\n"
+            "  quad_mode     auto | mapped | submapped | free | triangles\n"
+            "  quad_spacing  target quad edge length (map units)\n"
+            "  quad_aspect   maximum side ratio\n"
+            "  quad_angle    alignment angle in degrees from +x\n"
+            "  tag / name    cell tag"));
+        f->addRow(tr("Region &layer:"), m_quadRegionLayerCombo);
+
+        m_quadRegionSubcatchEdit = new QLineEdit(g);
+        m_quadRegionSubcatchEdit->setPlaceholderText(tr("comma-separated subcatchment IDs"));
+        m_quadRegionSubcatchEdit->setToolTip(tr(
+            "Subcatchment polygons to quad-mesh, by ID.  Each becomes one "
+            "region with the defaults below and the tag subcatch_<ID>.  An "
+            "unknown ID stops generation with an error."));
+        f->addRow(tr("Subcatchments:"), m_quadRegionSubcatchEdit);
+
+        m_quadRegionModeCombo = new QComboBox(g);
+        m_quadRegionModeCombo->addItem(tr("Auto"),           int(mesh::QuadRegionMode::Auto));
+        m_quadRegionModeCombo->addItem(tr("Mapped"),         int(mesh::QuadRegionMode::Mapped));
+        m_quadRegionModeCombo->addItem(tr("Submapped"),      int(mesh::QuadRegionMode::Submapped));
+        m_quadRegionModeCombo->addItem(tr("Free"),           int(mesh::QuadRegionMode::Free));
+        m_quadRegionModeCombo->addItem(tr("Triangles only"), int(mesh::QuadRegionMode::TrianglesOnly));
+        m_quadRegionModeCombo->setToolTip(tr(
+            "Auto: four-cornered outlines → Mapped, rectilinear outlines → "
+            "Submapped, anything else → Free.\n"
+            "Mapped / Submapped: structured, perfectly rectangular quads "
+            "(fall back to Free when the outline does not allow it).\n"
+            "Free: cross-field aligned lattice, quad-dominant with a few "
+            "leftover triangles.\n"
+            "Triangles only: the ring is still a constraint loop, the "
+            "interior stays triangles."));
+        f->addRow(tr("Default mode:"), m_quadRegionModeCombo);
+
+        m_quadRegionSpacingSpin = new QDoubleSpinBox(g);
+        m_quadRegionSpacingSpin->setRange(0.0, 1e9);
+        m_quadRegionSpacingSpin->setDecimals(3);
+        m_quadRegionSpacingSpin->setSingleStep(1.0);
+        // suffix set by updateUnitDisplay()
+        m_quadRegionSpacingSpin->setSpecialValueText(tr("(from max area)"));
+        m_quadRegionSpacingSpin->setToolTip(tr(
+            "Target quad edge length inside a region.\n"
+            "0 = derive it from the size field at the region centroid, or "
+            "from Max triangle area when no size field is in use."));
+        f->addRow(tr("Default spacing:"), m_quadRegionSpacingSpin);
+
+        m_quadRegionAspectSpin = new QDoubleSpinBox(g);
+        m_quadRegionAspectSpin->setRange(1.0, 10.0);
+        m_quadRegionAspectSpin->setDecimals(2);
+        m_quadRegionAspectSpin->setSingleStep(0.25);
+        m_quadRegionAspectSpin->setToolTip(tr(
+            "Longest / shortest quad side accepted inside a Free region "
+            "after smoothing."));
+        f->addRow(tr("Default max aspect:"), m_quadRegionAspectSpin);
+
+        m_quadRegionAngleSpin = new QDoubleSpinBox(g);
+        m_quadRegionAngleSpin->setRange(-91.0, 90.0);
+        m_quadRegionAngleSpin->setDecimals(1);
+        m_quadRegionAngleSpin->setSingleStep(5.0);
+        m_quadRegionAngleSpin->setSuffix(QStringLiteral(" °"));
+        m_quadRegionAngleSpin->setSpecialValueText(tr("(from boundary)"));
+        m_quadRegionAngleSpin->setToolTip(tr(
+            "Free regions: constant lattice direction, degrees from +x "
+            "(counter-clockwise).\n"
+            "At the minimum, \"(from boundary)\", the direction field is "
+            "solved from the region's own edges instead."));
+        f->addRow(tr("Default alignment:"), m_quadRegionAngleSpin);
+
+        quadsVBox->addWidget(g);   // Quad regions
+    }
+
+    // Quad quality — bounds shared by the PSLG quad regions above and the
+    // G2 tri-pair merge (TRI_QUAD_MESHING_PLAN §3.1; defaults per
+    // QUAD_MESHING_REDESIGN_PLAN §5: 60°/120°, SJ >= 0.866, aspect <= 2).
+    {
+        auto *g = new QGroupBox(tr("Quad quality"), qualityPage);
+        auto *f = new QFormLayout(g);
+        f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+
+        m_quadMergeBox = new QCheckBox(
+            tr("Merge triangle pairs into quads (experimental — see tooltip)"), g);
+        m_quadMergeBox->setToolTip(tr(
+            "After triangulation, pair adjacent triangles into convex "
+            "quadrilaterals, best quality first. Unmatched triangles remain "
+            "(mixed mesh). Never merges across the domain outline, hole "
+            "rings, breaklines, patch or region boundaries, across region "
+            "tags, or between cells with different roughness / initial "
+            "depth.\n\n"
+            "Experimental: Triangle's refinement drives triangles toward "
+            "equilateral, and two equilateral triangles form a 60°/120° "
+            "rhombus — so this pass tends to produce diamond-shaped quads, "
+            "not rectangles, and leaves a salt of unmatched triangles.  "
+            "Quad regions (above) place the vertices for rectangular quads "
+            "and are the recommended path."));
+        f->addRow(QString(), m_quadMergeBox);
+
+        m_quadMinAngleSpin = new QDoubleSpinBox(g);
+        m_quadMinAngleSpin->setRange(0.0, 90.0);
+        m_quadMinAngleSpin->setDecimals(1);
+        m_quadMinAngleSpin->setSuffix(QStringLiteral(" °"));
+        m_quadMinAngleSpin->setValue(60.0);
+        m_quadMinAngleSpin->setToolTip(tr(
+            "Reject a quad whose smallest interior angle is below this.  "
+            "Applies to quad regions and to the triangle-pair merge."));
+        f->addRow(tr("Min quad angle:"), m_quadMinAngleSpin);
+
+        m_quadMaxAngleSpin = new QDoubleSpinBox(g);
+        m_quadMaxAngleSpin->setRange(90.0, 180.0);
+        m_quadMaxAngleSpin->setDecimals(1);
+        m_quadMaxAngleSpin->setSuffix(QStringLiteral(" °"));
+        m_quadMaxAngleSpin->setValue(120.0);
+        m_quadMaxAngleSpin->setToolTip(tr(
+            "Reject a quad whose largest interior angle is above this.  "
+            "Applies to quad regions and to the triangle-pair merge."));
+        f->addRow(tr("Max quad angle:"), m_quadMaxAngleSpin);
+
+        m_quadMinSjSpin = new QDoubleSpinBox(g);
+        m_quadMinSjSpin->setRange(0.0, 1.0);
+        m_quadMinSjSpin->setDecimals(3);   // 0.866 must survive the round trip
+        m_quadMinSjSpin->setSingleStep(0.05);
+        m_quadMinSjSpin->setValue(0.866);
+        m_quadMinSjSpin->setToolTip(tr(
+            "Minimum scaled Jacobian = sine of the worst corner (1 for a "
+            "rectangle, 0.866 at 60°/120°, 0 when a corner degenerates).  "
+            "Applies to quad regions and to the triangle-pair merge."));
+        f->addRow(tr("Min scaled Jacobian:"), m_quadMinSjSpin);
+
+        m_quadMaxAspectSpin = new QDoubleSpinBox(g);
+        m_quadMaxAspectSpin->setRange(0.0, 100.0);
+        m_quadMaxAspectSpin->setDecimals(2);
+        m_quadMaxAspectSpin->setSingleStep(0.25);
+        m_quadMaxAspectSpin->setSpecialValueText(tr("(off)"));
+        m_quadMaxAspectSpin->setValue(2.0);
+        m_quadMaxAspectSpin->setToolTip(tr(
+            "Reject a quad longer than this ratio (longest / shortest side, "
+            "opposite-side means).  0 = no limit.  Applies to quad regions "
+            "and to the triangle-pair merge."));
+        f->addRow(tr("Max aspect ratio:"), m_quadMaxAspectSpin);
+
+        m_quadPlanaritySpin = new QDoubleSpinBox(g);
+        m_quadPlanaritySpin->setRange(0.0, 1000.0);
+        m_quadPlanaritySpin->setDecimals(3);
+        m_quadPlanaritySpin->setSingleStep(0.05);
+        m_quadPlanaritySpin->setSpecialValueText(tr("(off)"));
+        m_quadPlanaritySpin->setToolTip(tr(
+            "Reject a merged quad whose four bed elevations deviate from a "
+            "plane by more than this, so a quad never hides a crest or "
+            "channel bank that the two triangles resolved. 0 = ignore."));
+        f->addRow(tr("Max bed non-planarity:"), m_quadPlanaritySpin);
+
+        // The four bounds matter whenever anything produces quads: a region
+        // source is selected OR the merge is on.  Planarity is merge-only.
+        auto syncQuad = [this] {
+            const bool merge   = m_quadMergeBox->isChecked();
+            const bool regions =
+                (m_quadRegionLayerCombo
+                 && m_quadRegionLayerCombo->currentData().value<void *>() != nullptr)
+                || (m_quadRegionSubcatchEdit
+                    && !m_quadRegionSubcatchEdit->text().trimmed().isEmpty());
+            const bool everywhere = m_quadEverywhereCheck && m_quadEverywhereCheck->isChecked();
+            const bool on = merge || regions || everywhere;
+            m_quadMinAngleSpin->setEnabled(on);
+            m_quadMaxAngleSpin->setEnabled(on);
+            m_quadMinSjSpin->setEnabled(on);
+            m_quadMaxAspectSpin->setEnabled(on);
+            m_quadPlanaritySpin->setEnabled(merge);
+            if (m_quadEverywhereSpacingSpin) m_quadEverywhereSpacingSpin->setEnabled(everywhere);
+        };
+        connect(m_quadMergeBox, &QCheckBox::toggled, this, syncQuad);
+        if (m_quadEverywhereCheck)
+            connect(m_quadEverywhereCheck, &QCheckBox::toggled, this, syncQuad);
+        connect(m_quadRegionLayerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [syncQuad](int) { syncQuad(); });
+        connect(m_quadRegionSubcatchEdit, &QLineEdit::textChanged,
+                this, [syncQuad](const QString &) { syncQuad(); });
+        syncQuad();
+
+        quadsVBox->addWidget(g);   // Quad quality
+    }
+
+    // Structured patches — G3 (TRI_QUAD_MESHING_PLAN §3.2). Coordinates are
+    // typed per row; there is no map-selection plumbing in this dialog.
+    {
+        auto *g   = new QGroupBox(tr("Structured quad patches"), qualityPage);
+        auto *lay = new QVBoxLayout(g);
+
+        auto *hint = new QLabel(tr(
+            "Four-corner patch: 4 corners as \"x y; x y; x y; x y\" (mesh CRS), "
+            "N × M quads (transfinite). Swept channel: centreline as "
+            "\"x y; x y; …\", quads Across the width, target spacing Along "
+            "the centreline (0 = one station per vertex), Width. The patch "
+            "interior is excluded from triangulation and its quads are "
+            "stitched to the surrounding triangles."), g);
+        hint->setWordWrap(true);
+        lay->addWidget(hint);
+
+        m_patchTable = new QTableWidget(0, 6, g);
+        m_patchTable->setHorizontalHeaderLabels(
+            {tr("Type"), tr("Points"), tr("N / Across"), tr("M / Along"),
+             tr("Width"), tr("Tag")});
+        m_patchTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+        m_patchTable->verticalHeader()->setVisible(false);
+        m_patchTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+        m_patchTable->setMinimumHeight(120);
+        lay->addWidget(m_patchTable);
+
+        auto addRow = [this](const QString &type, const QString &n,
+                             const QString &m, const QString &w) {
+            const int r = m_patchTable->rowCount();
+            m_patchTable->insertRow(r);
+            auto *typeItem = new QTableWidgetItem(type);
+            typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable);
+            m_patchTable->setItem(r, 0, typeItem);
+            m_patchTable->setItem(r, 1, new QTableWidgetItem(QString()));
+            m_patchTable->setItem(r, 2, new QTableWidgetItem(n));
+            m_patchTable->setItem(r, 3, new QTableWidgetItem(m));
+            m_patchTable->setItem(r, 4, new QTableWidgetItem(w));
+            m_patchTable->setItem(r, 5, new QTableWidgetItem(QString()));
+            m_patchTable->editItem(m_patchTable->item(r, 1));
+        };
+        auto *btns = new QHBoxLayout;
+        auto *addQuad  = new QPushButton(tr("Add four-corner patch"), g);
+        auto *addSwept = new QPushButton(tr("Add swept channel patch"), g);
+        auto *remove   = new QPushButton(tr("Remove"), g);
+        connect(addQuad,  &QPushButton::clicked, this, [addRow] {
+            addRow(QStringLiteral("Four-corner"), QStringLiteral("4"),
+                   QStringLiteral("4"), QString());
+        });
+        connect(addSwept, &QPushButton::clicked, this, [addRow] {
+            addRow(QStringLiteral("Swept"), QStringLiteral("2"),
+                   QStringLiteral("0"), QStringLiteral("10"));
+        });
+        connect(remove, &QPushButton::clicked, this, [this] {
+            const int r = m_patchTable->currentRow();
+            if (r >= 0) m_patchTable->removeRow(r);
+        });
+        btns->addWidget(addQuad);
+        btns->addWidget(addSwept);
+        btns->addWidget(remove);
+        btns->addStretch();
+        lay->addLayout(btns);
+
+        quadsVBox->addWidget(g);   // Structured quad patches
+    }
+
+    // Each inner page gets its own stretch so its groups sit at the top
+    // rather than spreading down a tall tab.
+    sizingVBox->addStretch();
+    cellSizeVBox->addStretch();
+    terrainVBox->addStretch();
+    quadsVBox->addStretch();
+
+    // Inner pages are scroll-wrapped individually: with the groups split
+    // four ways only "Quads" (15 rows + the patch table) can still exceed
+    // the dialog's 560 px default, and it degrades to a scroll instead of
+    // forcing the dialog taller. Tab titles are asserted verbatim by
+    // test_meshmincelldialog::qualityTabsStructure.
+    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(sizingPage,   qualityTabs),
+                        tr("Sizing"));
+    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(cellSizePage, qualityTabs),
+                        tr("Cell Size"));
+    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(terrainPage,  qualityTabs),
+                        tr("Terrain"));
+    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(quadsPage,    qualityTabs),
+                        tr("Quads"));
+
+    // The outer page holds only the tab widget, so it needs no scroll area
+    // of its own — but addTab is kept symmetrical with the other top-level
+    // tabs so the dialog's resize behaviour is unchanged.
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(qualityPage, tabs),
                  tr("Quality"));
 
@@ -2713,8 +3888,9 @@ void MeshGenerationDialog::buildUi()
 
     {
         auto *g   = new QGroupBox(tr("Initial cell values"), hydraulicsPage);
-        g->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
-        auto *form = new QFormLayout(g);
+        auto *groupVBox = new QVBoxLayout(g);
+        auto *form = new QFormLayout;
+        groupVBox->addLayout(form);
 
         m_manningsValueSpin = new QDoubleSpinBox(g);
         m_manningsValueSpin->setRange(0.001, 1.0);
@@ -2738,6 +3914,29 @@ void MeshGenerationDialog::buildUi()
                "([2D_TRIANGLES] INIT_DEPTH). 0 starts the surface dry."));
         form->addRow(tr("Initial depth:"), m_initDepthSpin);
 
+        // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────
+        // The two spin boxes above remain the '*' row's editors — the table
+        // mirrors them read-only — so a user who never touches the table
+        // produces exactly the mesh and the file this dialog produced before
+        // the table existed.
+        m_regionDefaults = new MeshRegionDefaultsWidget(g);
+        m_regionDefaults->setDepthUnit(dLbl);
+        m_regionDefaults->setStarHydraulics(m_manningsValueSpin->value(),
+                                            m_initDepthSpin->value());
+        connect(m_manningsValueSpin, &QDoubleSpinBox::valueChanged, this,
+                [this](double v) {
+                    m_regionDefaults->setStarHydraulics(v, m_initDepthSpin->value());
+                });
+        connect(m_initDepthSpin, &QDoubleSpinBox::valueChanged, this,
+                [this](double v) {
+                    m_regionDefaults->setStarHydraulics(m_manningsValueSpin->value(), v);
+                });
+        // Subcatchments are the only source of mesh::RegionMarker today, so
+        // that one checkbox decides whether the table has region rows at all.
+        connect(m_includeSubcatch, &QCheckBox::toggled,
+                this, &MeshGenerationDialog::refreshRegionRows);
+        groupVBox->addWidget(m_regionDefaults, 1);
+
         auto *hint = new QLabel(
             tr("Assign spatially varying values after generation from the "
                "Mesh 2D tab: select cells and edit them directly, or use "
@@ -2745,12 +3944,11 @@ void MeshGenerationDialog::buildUi()
             g);
         hint->setWordWrap(true);
         hint->setEnabled(false);
-        form->addRow(hint);
+        groupVBox->addWidget(hint);
 
-        hydraulicsVBox->addWidget(g);
+        hydraulicsVBox->addWidget(g, 1);
     }
 
-    hydraulicsVBox->addStretch();
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(hydraulicsPage, tabs),
                  tr("Hydraulics"));
 
@@ -2867,28 +4065,88 @@ void MeshGenerationDialog::updateUnitDisplay()
     if (m_boundaryBufferSpin)  m_boundaryBufferSpin->setSuffix(suf);
     if (m_maxBoundaryEdgeSpin) m_maxBoundaryEdgeSpin->setSuffix(suf);
 
+    if (m_minCellSizeSpin)     m_minCellSizeSpin->setSuffix(suf);
+    if (m_quadPlanaritySpin)   m_quadPlanaritySpin->setSuffix(suf);
+    if (m_quadRegionSpacingSpin) m_quadRegionSpacingSpin->setSuffix(suf);
+
     if (m_maxAreaSpin)
         m_maxAreaSpin->setToolTip(
             tr("Upper bound on triangle area (%1). 0 = no cap.").arg(len2));
+
+    updateMinCellDerivedLabel();
+}
+
+void MeshGenerationDialog::updateMinCellDerivedLabel()
+{
+    if (!m_minCellDerivedLabel) return;
+
+    const double h = m_minCellSizeSpin ? m_minCellSizeSpin->value() : 0.0;
+    if (h <= 0.0)
+    {
+        m_minCellDerivedLabel->setText(
+            tr("Off — the input geometry is used as-is and cell size is bounded "
+               "below only by the geometry itself."));
+        return;
+    }
+
+    const UnitSystem *us   = UnitSystem::instance();
+    const QString     len  = us->lengthLabel();
+    const QString     len2 = len + QStringLiteral("²");
+
+    mesh::pslg::MinSizePolicy p;
+    p.minCellSize = h;
+    p.resolveDefaults();
+
+    const bool enforce =
+        m_minSizeEnforceBox && m_minSizeEnforceBox->isChecked();
+    QString txt = enforce
+        ? tr("Refinement floor ≈ %1 %2 per cell; vertices closer than %3 %4 "
+             "are merged; no vertex moves further than %3 %4. Enforce: SWMM "
+             "coupling points closer than %3 %4 may merge or demote — the "
+             "affected nodes couple via their containing cell.")
+              .arg(p.minTriangleArea(), 0, 'g', 4)
+              .arg(len2)
+              .arg(p.weldRadius, 0, 'g', 4)
+              .arg(len)
+        : tr("Refinement floor ≈ %1 %2 per cell; vertices closer than "
+             "%3 %4 are merged; no vertex moves further than %3 %4. "
+             "Tagged SWMM nodes never move.")
+              .arg(p.minTriangleArea(), 0, 'g', 4)
+              .arg(len2)
+              .arg(p.weldRadius, 0, 'g', 4)
+              .arg(len);
+
+    // The angle bound is a real lever on sliver count near unavoidable sharp
+    // input angles, and 33° costs 2-4x the vertices of 26° for no practical
+    // benefit (see meshgenerator.h).  Worth saying so where it is actionable.
+    if (m_minAngleSpin && m_minAngleSpin->value() > 28.0)
+        txt += QLatin1Char(' ')
+             + tr("Min angle is %1° — consider 26–28° with a minimum cell size, "
+                  "as a high angle bound multiplies cells around sharp features.")
+                   .arg(m_minAngleSpin->value(), 0, 'f', 1);
+
+    m_minCellDerivedLabel->setText(txt);
 }
 
 void MeshGenerationDialog::seedDefaults()
 {
-    // Junctions default OFF (Plan Part B, decision 2026-07-28): forcing a
-    // vertex at every node distorts the mesh around close node clusters
-    // (weir/orifice endpoints). Coupling is authored post-generation instead.
-    m_includeJunctions->setChecked(false);
+    // Iteration 4 — seed values come from the user-editable 2D Defaults
+    // preference page (Preferences → 2D Defaults). The compiled-in struct
+    // defaults carry the seeds (33° min angle per the 2026-07-31 decision,
+    // SI-canonical distances, thinning on 0.75/1, …).
+    const auto t = PreferencesManager::instance()->twoDDefaults();
+    // Nodes as Steiner vertices default ON (2026-09-11, reversing the
+    // 2026-07-28 Plan Part B decision): with rim elevations and the minimum
+    // node separation on as well, close clusters (weir / orifice endpoints)
+    // are demoted to cell coupling instead of forcing tiny cells. Virtual
+    // junctions are never pinned (collectInputs).
+    m_includeJunctions->setChecked(t.meshNodesAsVertices);
     m_includeConduits->setChecked(true);
     m_includeSubcatch->setChecked(true);
     m_mapNodesAfterGen->setChecked(true);
-    m_nodesUseRim->setChecked(false);   // interpolate nodes to terrain by default
+    m_nodesUseRim->setChecked(t.meshNodesUseRim);
     m_elevMethodCombo->setCurrentIndex(0);  // IDW
     m_nnVariantCombo->setCurrentIndex(0);   // Sibson
-    // Iteration 4 — seed values come from the user-editable 2D Defaults
-    // preference page (Preferences → 2D Defaults). The compiled-in struct
-    // defaults preserve the historical seeds (33° min angle per the
-    // 2026-07-31 decision, SI-canonical distances, thinning on 0.6/3, …).
-    const auto t = PreferencesManager::instance()->twoDDefaults();
     m_idwPowerSpin->setValue(t.meshIdwPower);
     m_maxAreaSpin->setValue(t.meshMaxArea);
     m_minAngleSpin->setValue(t.meshMinAngleDeg);
@@ -2906,18 +4164,55 @@ void MeshGenerationDialog::seedDefaults()
     m_thinningToleranceSpin->setValue(t.meshThinningTol);
     m_thinningIterationsSpin->setValue(t.meshThinningPasses);
     m_thinningMaxPointsSpin->setValue(0);
-    m_minSpacingBox->setChecked(false);
-    m_minSpacingSpin->setValue(0.0);
+    m_minSpacingBox->setChecked(t.meshMinSpacingOn);
+    // Whole model units (15 m → 15 m, or 49 ft): a fractional spacing would
+    // read as false precision.
+    m_minSpacingSpin->setValue(std::round(t.meshMinSpacingM * toUnit));
     m_boundaryBufferSpin->setValue(t.meshBoundaryBufferM * toUnit); // 0 = (auto)
     m_maxBoundaryEdgeBox->setChecked(t.meshMaxBoundaryEdgeOn);
     m_maxBoundaryEdgeSpin->setValue(t.meshMaxBoundaryEdgeM * toUnit);
     m_maxBoundaryEdgeSpin->setEnabled(t.meshMaxBoundaryEdgeOn);
+    // Minimum cell size defaults OFF so an existing project reproduces its
+    // current mesh exactly; the rest of the group carries the policy defaults
+    // from MinSizePolicy and only bites once a size is entered.
+    if (m_minCellSizeSpin)      m_minCellSizeSpin->setValue(0.0);
+    if (m_minSizeEnforceBox)    m_minSizeEnforceBox->setChecked(false);
+    // Gradation defaults OFF (uniform cap) for the same regression-safety
+    // reason: an untouched project reproduces its current mesh exactly.
+    // 0.25 is the recommended value once turned on (tooltip).
+    if (m_gradationSpin)        m_gradationSpin->setValue(0.0);
+    if (m_trimAngleSpin)        m_trimAngleSpin->setValue(
+                                    mesh::pslg::MinSizePolicy{}.trimAngleDeg);
+    if (m_trimAtNodesBox)       m_trimAtNodesBox->setChecked(false);
+    if (m_dropSubScaleHolesBox) m_dropSubScaleHolesBox->setChecked(true);
+    if (m_cleanupBox)           m_cleanupBox->setChecked(true);
+    updateMinCellDerivedLabel();
+    // Quad regions + quad quality (QUAD_MESHING_REDESIGN_PLAN §5 defaults).
+    // No source selected → no regions; merge stays off.  Like the patch /
+    // merge controls before them, these are not persisted anywhere (no
+    // QSettings / preference page) — the plan's §6.3 persistence item is
+    // still open.
+    if (m_quadRegionLayerCombo)   m_quadRegionLayerCombo->setCurrentIndex(0);
+    if (m_quadRegionSubcatchEdit) m_quadRegionSubcatchEdit->clear();
+    if (m_quadRegionModeCombo)    m_quadRegionModeCombo->setCurrentIndex(0);   // Auto
+    if (m_quadRegionSpacingSpin)  m_quadRegionSpacingSpin->setValue(0.0);      // (from max area)
+    if (m_quadRegionAspectSpin)   m_quadRegionAspectSpin->setValue(mesh::QuadRegion{}.aspectMax);
+    if (m_quadRegionAngleSpin)    m_quadRegionAngleSpin->setValue(m_quadRegionAngleSpin->minimum());
+    if (m_quadMergeBox)           m_quadMergeBox->setChecked(false);
+    {
+        const mesh::QuadQualityBounds qb;
+        if (m_quadMinAngleSpin)  m_quadMinAngleSpin->setValue(qb.minAngleDeg);
+        if (m_quadMaxAngleSpin)  m_quadMaxAngleSpin->setValue(qb.maxAngleDeg);
+        if (m_quadMinSjSpin)     m_quadMinSjSpin->setValue(qb.minScaledJacobian);
+        if (m_quadMaxAspectSpin) m_quadMaxAspectSpin->setValue(qb.maxAspect);
+    }
     m_manningsValueSpin->setValue(t.meshManningsN);
     m_initDepthSpin->setValue(t.meshInitDepth);
     m_outputExternal->setChecked(t.meshOutputExternal);
     updateUnitDisplay();   // set suffixes and tooltip after values are seeded
     populateLayerCombos();
     updateZFactor();       // seed factor from current DTM + mesh vertical unit
+    refreshRegionRows();   // GG0d — region rows follow m_includeSubcatch
 
     if (m_pw && m_pw->modelLayer())
     {
@@ -2936,6 +4231,40 @@ void MeshGenerationDialog::seedDefaults()
                 fi.absoluteDir().filePath(fi.completeBaseName() + QStringLiteral(".2dm")));
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// GG0d — region tags for the region-defaults table (GUI plan §3.3)
+// ---------------------------------------------------------------------------
+
+/*! Same enumeration collectInputs() runs for PipelineInputs::subcatchSeeds,
+ *  carrying the "subcatch_%1" spelling the worker gives mesh::RegionMarker::tag
+ *  (and therefore MeshTriangle::tag). The table has to key on the FINAL tag or
+ *  its rows would never match a triangle. */
+QStringList MeshGenerationDialog::regionTags() const
+{
+    QStringList tags;
+    if (!m_includeSubcatch || !m_includeSubcatch->isChecked()) return tags;
+    if (!m_pw || !m_pw->modelLayer())                          return tags;
+
+    SWMMModelLayer *layer = m_pw->modelLayer();
+    const auto      cat   = SWMMModelLayer::CatSubcatchments;
+    for (int row = 0; row < layer->categoryCount(cat); ++row)
+    {
+        const QString name = layer->objectNameAt(cat, row);
+        if (name.isEmpty()) continue;
+        // A subcatchment with no extent gets no region marker, so it would
+        // never tag a triangle — leaving it out keeps the table honest.
+        if (!layer->objectExtent(name).isValid()) continue;
+        tags << QStringLiteral("subcatch_%1").arg(name);
+    }
+    return tags;
+}
+
+void MeshGenerationDialog::refreshRegionRows()
+{
+    if (m_regionDefaults)
+        m_regionDefaults->setRegionTags(regionTags());
 }
 
 void MeshGenerationDialog::populateLayerCombos()
@@ -2963,6 +4292,18 @@ void MeshGenerationDialog::populateLayerCombos()
     for (auto *L : layers)
         if (auto *v = qobject_cast<GISVectorLayer *>(L))
             m_boundaryLayerCombo->addItem(v->name(), QVariant::fromValue<void *>(v));
+
+    // Quad region layer: same source list and payload as the boundary combo
+    // (no subcatchment pseudo-entry — subcatchments are named in the edit).
+    if (m_quadRegionLayerCombo)
+    {
+        m_quadRegionLayerCombo->clear();
+        m_quadRegionLayerCombo->addItem(tr("(none)"),
+                                        QVariant::fromValue<void *>(nullptr));
+        for (auto *L : layers)
+            if (auto *v = qobject_cast<GISVectorLayer *>(L))
+                m_quadRegionLayerCombo->addItem(v->name(), QVariant::fromValue<void *>(v));
+    }
 
     // Decide whether a vector layer carries 3D geometry — uses the declared
     // layer type when known, otherwise probes the first feature.
@@ -3255,6 +4596,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                 if (name.isEmpty()) continue;
                 const int idx = layer->nodeIndex(name);
                 if (idx < 0) continue;
+                // Every node type is a candidate (junctions, inlet junctions,
+                // outfalls, storage, dividers) EXCEPT virtual junctions: they
+                // are zero-storage split points on a conduit with no rim of
+                // their own. They stay in couplingNodes below.
+                if (layer->nodeIsVirtual(idx)) continue;
                 double x = 0, y = 0;
                 if (!layer->cachedNodeCoord(idx, &x, &y)) continue;
 
@@ -3542,6 +4888,175 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->genOpts.allowSteiner     = m_allowSteiner->isChecked();
     out->genOpts.quiet            = true;
 
+    // ── Quad quality bounds (regions + G2 merge share one set) ───────
+    if (m_quadMinAngleSpin)
+    {
+        out->quadBounds.minAngleDeg       = m_quadMinAngleSpin->value();
+        out->quadBounds.maxAngleDeg       = m_quadMaxAngleSpin->value();
+        out->quadBounds.minScaledJacobian = m_quadMinSjSpin->value();
+        out->quadBounds.maxAspect         = m_quadMaxAspectSpin->value();   // 0 = off
+    }
+    out->genOpts.quadRegionBounds = out->quadBounds;
+
+    // ── Quads everywhere (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.5) ───
+    out->quadEverywhere = m_quadEverywhereCheck && m_quadEverywhereCheck->isChecked();
+    out->quadEverywhereSpacing =
+        m_quadEverywhereSpacingSpin ? m_quadEverywhereSpacingSpin->value() : 0.0;
+
+    // ── Quad cells (G2 merge) + structured patches (G3) ──────────────
+    out->genOpts.mergeTrianglePairs = m_quadMergeBox && m_quadMergeBox->isChecked();
+    if (m_quadMergeBox)
+    {
+        out->genOpts.quadMerge.minAngleDeg        = out->quadBounds.minAngleDeg;
+        out->genOpts.quadMerge.maxAngleDeg        = out->quadBounds.maxAngleDeg;
+        out->genOpts.quadMerge.minScaledJacobian  = out->quadBounds.minScaledJacobian;
+        out->genOpts.quadMerge.maxAspect          = out->quadBounds.maxAspect;
+        out->genOpts.quadMerge.maxBedNonPlanarity = m_quadPlanaritySpin->value();
+    }
+
+    // ── PSLG quad regions (QUAD_MESHING_REDESIGN_PLAN §3.1 sources) ──
+    // Defaults first (applied to every region the worker builds), then the
+    // layer identity (read on the worker, like the boundary layer), then the
+    // named subcatchments — those rings are already cached in the mesh CRS,
+    // so they are resolved here.  Distances are map units, as for every other
+    // distance spin in this dialog (no display→SI conversion on collect).
+    if (m_quadRegionModeCombo)
+    {
+        out->quadRegionDefaults.mode =
+            mesh::QuadRegionMode(m_quadRegionModeCombo->currentData().toInt());
+        out->quadRegionDefaults.spacing   = m_quadRegionSpacingSpin->value();
+        out->quadRegionDefaults.aspectMax = m_quadRegionAspectSpin->value();
+        // The special value at the minimum means "no fixed angle".
+        out->quadRegionDefaults.hasAlignAngle =
+            m_quadRegionAngleSpin->value() > m_quadRegionAngleSpin->minimum();
+        out->quadRegionDefaults.alignAngleDeg =
+            out->quadRegionDefaults.hasAlignAngle ? m_quadRegionAngleSpin->value() : 0.0;
+    }
+    if (m_quadRegionLayerCombo)
+        if (auto *qLayer = static_cast<GISVectorLayer *>(
+                m_quadRegionLayerCombo->currentData().value<void *>()))
+        {
+            PipelineInputs::QuadRegionLayerSpec spec;
+            spec.path      = qLayer->filePath();
+            spec.layerName = qLayer->ogrLayerName();
+            // Layer object, not file, is authoritative for the CRS (the user
+            // may have overridden it) — same as boundaryCRSWkt above.
+            if (qLayer->srs())
+                if (auto *qSRS = qLayer->srs()->ogrSpatialReference())
+                {
+                    char *wkt = nullptr;
+                    if (qSRS->exportToWkt(&wkt) == OGRERR_NONE)
+                        spec.crsWkt = QString::fromUtf8(wkt);
+                    CPLFree(wkt);
+                }
+            out->quadRegionLayers.append(std::move(spec));
+        }
+    if (m_quadRegionSubcatchEdit)
+    {
+        const QStringList ids = m_quadRegionSubcatchEdit->text()
+                                    .split(QLatin1Char(','), Qt::SkipEmptyParts);
+        const auto cat = SWMMModelLayer::CatSubcatchments;
+        for (const QString &rawId : ids)
+        {
+            const QString id = rawId.trimmed();
+            if (id.isEmpty()) continue;
+            // objectNameAt(CatSubcatchments, row) and cachedSubcatchVertices(row)
+            // index the same cache, so the row found by name is the ring's.
+            QVector<QPointF> ring;
+            bool found = false;
+            for (int row = 0; row < layer->categoryCount(cat); ++row)
+            {
+                if (layer->objectNameAt(cat, row) != id) continue;
+                found = true;
+                ring  = layer->cachedSubcatchVertices(row);
+                break;
+            }
+            if (!found)
+                return fail(tr("Quad region: subcatchment '%1' not found").arg(id));
+            if (ring.size() < 3)
+                return fail(tr("Quad region: subcatchment '%1' has no polygon").arg(id));
+            mesh::QuadRegion r = out->quadRegionDefaults;
+            r.ring = QPolygonF(ring);
+            // Same spelling the worker gives RegionMarker tags, so the cells
+            // inside match the region-defaults table rows.
+            r.tag  = QStringLiteral("subcatch_%1").arg(id);
+            out->quadRegions.append(std::move(r));
+        }
+    }
+    // Patch boundary vertices are matched to the Triangle output by the
+    // same snap radius the Steiner dedupe uses (0 = exact quantised match).
+    out->genOpts.patchSnapEps = m_snapEpsSpin->value();
+    for (int r = 0; m_patchTable && r < m_patchTable->rowCount(); ++r)
+    {
+        auto cell = [this, r](int c) {
+            const QTableWidgetItem *it = m_patchTable->item(r, c);
+            return it ? it->text().trimmed() : QString();
+        };
+        // "x y; x y; …" → points
+        QVector<QPointF> pts;
+        bool ptsOk = true;
+        const QStringList pairs = cell(1).split(QLatin1Char(';'), Qt::SkipEmptyParts);
+        for (const QString &pr : pairs)
+        {
+            const QStringList xy = pr.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            bool okx = false, oky = false;
+            if (xy.size() == 2)
+                pts.append(QPointF(xy[0].toDouble(&okx), xy[1].toDouble(&oky)));
+            if (!(okx && oky)) { ptsOk = false; break; }
+        }
+        if (!ptsOk)
+            return fail(tr("Structured patch row %1: points must be \"x y; x y; …\".").arg(r + 1));
+        const bool swept = cell(0).startsWith(QStringLiteral("Swept"), Qt::CaseInsensitive);
+        QString perr;
+        mesh::PatchMesh pm;
+        if (swept)
+        {
+            mesh::SweptPatch sp;
+            sp.centreline = pts;
+            sp.across     = cell(2).toInt();
+            sp.along      = cell(3).toDouble();
+            sp.width      = cell(4).toDouble();
+            sp.tag        = cell(5);
+            pm = mesh::makeSweptPatch(sp, &perr);
+        }
+        else
+        {
+            mesh::StructuredPatch st;
+            st.corners = pts;
+            st.n       = cell(2).toInt();
+            st.m       = cell(3).toInt();
+            st.tag     = cell(5);
+            pm = mesh::makeTransfinitePatch(st, &perr);
+        }
+        if (!perr.isEmpty())
+            return fail(tr("Structured patch row %1: %2").arg(r + 1).arg(perr));
+        out->patches.append(std::move(pm));
+    }
+
+    // ── Minimum cell size ────────────────────────────────────────────
+    out->minSizePolicy = mesh::pslg::MinSizePolicy{};
+    out->minSizePolicy.minCellSize =
+        m_minCellSizeSpin ? m_minCellSizeSpin->value() : 0.0;
+    out->minSizePolicy.trimAngleDeg =
+        m_trimAngleSpin ? m_trimAngleSpin->value() : 0.0;
+    out->minSizePolicy.trimAtTaggedNodes =
+        m_trimAtNodesBox && m_trimAtNodesBox->isChecked();
+    out->minSizePolicy.dropSubScaleHoles =
+        m_dropSubScaleHolesBox && m_dropSubScaleHolesBox->isChecked();
+    // V2 enforcement: identity merges inside the conditioner ride the same
+    // policy the weld stage already consults.
+    out->minSizeEnforce = m_minSizeEnforceBox && m_minSizeEnforceBox->isChecked()
+                          && out->minSizePolicy.minCellSize > 0.0;
+    out->minSizePolicy.allowIdentityMerge = out->minSizeEnforce;
+    out->minSizePolicy.resolveDefaults();
+    out->minSizeCleanup = m_cleanupBox && m_cleanupBox->isChecked();
+
+    // V2 graded sizing; meaningful only with a uniform cap to relax.
+    out->sizeGradation =
+        (m_gradationSpin && m_maxAreaSpin && m_maxAreaSpin->value() > 0.0)
+            ? m_gradationSpin->value()
+            : 0.0;
+
     // ── Thinning ─────────────────────────────────────────────────────
     out->doThinning                      = m_thinningBox->isChecked();
     out->thinnerOpts.normalDotThreshold  = m_thinningToleranceSpin->value();
@@ -3563,6 +5078,37 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->meshOutputPath = m_meshPathEdit->text().trimmed();
     out->manningsN      = m_manningsValueSpin->value();
     out->initDepth      = m_initDepthSpin->value();
+
+    // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────────
+    // Read on the GUI thread and copied BY VALUE — the worker never touches
+    // the widget. Both containers stay empty for a dialog whose table was
+    // never edited, so the pipeline below behaves exactly as it did before
+    // the table existed.
+    if (m_regionDefaults)
+    {
+        QString regionErr;
+        if (!m_regionDefaults->validate(&regionErr))
+            return fail(regionErr);
+
+        out->infilDefaults = m_regionDefaults->infilDefaults();
+
+        const auto rows = m_regionDefaults->rows();
+        for (const auto &r : rows)
+        {
+            // Row 0 is '*', whose values are already in manningsN/initDepth
+            // above; a region row with both cells blank is still inheriting
+            // and must not be materialised.
+            if (r.tag == QLatin1String("*")) continue;
+            const bool hasN = !std::isnan(r.manningsN);
+            const bool hasD = !std::isnan(r.initDepth);
+            if (!hasN && !hasD) continue;
+
+            PipelineInputs::RegionHydraulics rh;
+            rh.manningsN = hasN ? r.manningsN : out->manningsN;
+            rh.initDepth = hasD ? r.initDepth : out->initDepth;
+            out->regionHydraulics.insert(r.tag, rh);
+        }
+    }
 
     // ── Vertical Z conversion factor ─────────────────────────────────
     out->zConversionFactor = m_zFactorSpin ? m_zFactorSpin->value() : 1.0;

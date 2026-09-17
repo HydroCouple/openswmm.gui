@@ -232,6 +232,9 @@ bool hglEdgeCrown(const ProfileBuilder::LinkStatic &l,
 {
     using K = ProfileBuilder::LinkKind;
     if (l.maxDepth <= 0.0) return false;
+    // An open channel (or a street) has no ceiling to press against, so the
+    // water polygon must be free to follow the HGL above the bank line.
+    if (l.openTop) return false;
     if (l.kind == K::Conduit) {
         // Same path-oriented invariant as hglInletOutletInv: offset1 is at
         // nodeI, offset2 at nodeJ regardless of LinkStatic::reversed.
@@ -372,6 +375,7 @@ ProfilePlotWidget::ProfilePlotWidget(QWidget *parent)
 void ProfilePlotWidget::setPath(const ProfileBuilder::PathStatic &path)
 {
     m_path = path;
+    m_surface2DMaxWse = std::numeric_limits<double>::quiet_NaN();
     recomputeBounds();
     update();
 }
@@ -448,6 +452,22 @@ void ProfilePlotWidget::setLayerToggles(const LayerToggles &toggles)
     update();
 }
 
+void ProfilePlotWidget::setSurface2DSamples(const QVector<Surface2DSample> &samples)
+{
+    const bool stationsChanged = (samples.size() != m_surface2D.size());
+    m_surface2D = samples;
+    // Track the wettest station seen so the fitted y-extent doesn't jump
+    // frame to frame as the flood rises (only ever widens; setPath resets).
+    double mx = m_surface2DMaxWse;
+    for (const auto &s : m_surface2D)
+        if (isFinite(s.wse) && (!isFinite(mx) || s.wse > mx)) mx = s.wse;
+    const bool widen = isFinite(mx) && (!isFinite(m_surface2DMaxWse) || mx > m_surface2DMaxWse);
+    m_surface2DMaxWse = mx;
+    // A cleared / new station set changes what the legend and extent show.
+    if (widen || stationsChanged) recomputeBounds();
+    update();
+}
+
 void ProfilePlotWidget::setOptions(ProfilePlotOptions *options)
 {
     if (m_options == options) return;
@@ -485,6 +505,18 @@ QColor ProfilePlotWidget::themeNodeOutline(ProfileBuilder::NodeKind k) const
     case K::Divider:  return m_options->dividerOutline();
     }
     return outlineForNodeKind(k);
+}
+QPen ProfilePlotWidget::themeVirtualJunctionPen() const
+{
+    // The whole marker is one pen — a virtual junction has no fill and no rim
+    // glyph, so there is no colour pair to merge (see themeNodeFill, which
+    // routes it to Qt::transparent).
+    if (m_options) return m_options->virtualJunctionOutlinePen();
+    QPen pen(QColor(0x33, 0x33, 0x33), 1.0, Qt::CustomDashLine);
+    pen.setDashPattern({ 4.0, 3.0 });
+    pen.setCapStyle(Qt::FlatCap);
+    pen.setJoinStyle(Qt::MiterJoin);
+    return pen;
 }
 QColor ProfilePlotWidget::themeLinkFill(ProfileBuilder::LinkKind k) const
 {
@@ -524,6 +556,11 @@ QPen ProfilePlotWidget::themeConduitOutlinePen() const
 {
     if (m_options) return m_options->conduitOutlinePen();
     return QPen(QColor(0x33, 0x33, 0x33), kConduitLineWidth, Qt::SolidLine);
+}
+QBrush ProfilePlotWidget::themeStreetInvertBrush() const
+{
+    if (m_options) return m_options->streetInvertBrush();
+    return QBrush(QColor(0x55, 0x55, 0x55), Qt::BDiagPattern);
 }
 QPen ProfilePlotWidget::themeLinkOutlinePen(ProfileBuilder::LinkKind k) const
 {
@@ -567,6 +604,7 @@ void ProfilePlotWidget::recomputeBounds()
         m_autoYMin = 0.0; m_autoYMax = 1.0;
         if (m_fitMode) { m_dataXMin = m_autoXMin; m_dataXMax = m_autoXMax;
                          m_dataYMin = m_autoYMin; m_dataYMax = m_autoYMax; }
+        emitXRangeIfChanged();
         return;
     }
 
@@ -648,6 +686,10 @@ void ProfilePlotWidget::recomputeBounds()
             yMax = std::max(yMax, s.y());
         }
     }
+    // 2D overlay: only the wettest WSE seen so far widens the extent (the
+    // sampled ground, mesh or DEM, is already in terrainSamples above).
+    if (isFinite(m_surface2DMaxWse) && (!m_options || m_options->show2DInundation()))
+        yMax = std::max(yMax, m_surface2DMaxWse);
     if (!isFinite(yMin) || !isFinite(yMax) || yMax <= yMin) {
         yMin = 0.0; yMax = 1.0;
     }
@@ -676,6 +718,9 @@ void ProfilePlotWidget::recomputeBounds()
         m_dataXMin = m_autoXMin; m_dataXMax = m_autoXMax;
         m_dataYMin = m_autoYMin; m_dataYMax = m_autoYMax;
     }
+    // A new path/series can move the fitted extent — the tracks pane must
+    // learn about that just like any interactive range change.
+    emitXRangeIfChanged();
 }
 
 // ── Virtual-chainage helpers ────────────────────────────────────────────
@@ -763,6 +808,7 @@ void ProfilePlotWidget::fitToExtent()
     m_dataXMin = m_autoXMin; m_dataXMax = m_autoXMax;
     m_dataYMin = m_autoYMin; m_dataYMax = m_autoYMax;
     update();
+    emitXRangeIfChanged();
 }
 
 void ProfilePlotWidget::zoomBy(double factor)
@@ -776,7 +822,34 @@ void ProfilePlotWidget::zoomBy(double factor)
     m_dataXMin = cx - halfX; m_dataXMax = cx + halfX;
     m_dataYMin = cy - halfY; m_dataYMax = cy + halfY;
     update();
+    emitXRangeIfChanged();
 }
+
+void ProfilePlotWidget::setVisibleXRange(double vxMin, double vxMax)
+{
+    if (!std::isfinite(vxMin) || !std::isfinite(vxMax) || vxMax <= vxMin)
+        return;
+    if (vxMin == m_dataXMin && vxMax == m_dataXMax)
+        return;
+    m_fitMode = false;
+    m_dataXMin = vxMin;
+    m_dataXMax = vxMax;
+    update();
+    emitXRangeIfChanged();
+}
+
+void ProfilePlotWidget::emitXRangeIfChanged()
+{
+    // NaN sentinel start values guarantee the first real range is emitted.
+    if (m_dataXMin == m_lastEmittedXMin && m_dataXMax == m_lastEmittedXMax)
+        return;
+    m_lastEmittedXMin = m_dataXMin;
+    m_lastEmittedXMax = m_dataXMax;
+    emit visibleXRangeChanged(m_dataXMin, m_dataXMax);
+}
+
+int ProfilePlotWidget::chartLeftMarginPx()  { return kMarginLeft;  }
+int ProfilePlotWidget::chartRightMarginPx() { return kMarginRight; }
 
 void ProfilePlotWidget::setMode(Mode m)
 {
@@ -850,6 +923,7 @@ bool ProfilePlotWidget::setAxisEdgeValue(AxisEdge edge, double value)
 
     m_fitMode = false;
     update();
+    emitXRangeIfChanged();
     return true;
 }
 
@@ -985,9 +1059,9 @@ int ProfilePlotWidget::nodeIndexAt(const QPoint &widgetPos) const
     double bestDx   = std::numeric_limits<double>::infinity();
     for (int i = 0; i < m_path.nodes.size(); ++i) {
         const auto  &n     = m_path.nodes[i];
-        // Virtual junctions draw no tube, so there is nothing to click; the
-        // clicks in that band belong to the conduit running through it.
-        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) continue;
+        // Virtual junctions included: their dashed rectangle occupies the
+        // same footprint as a manhole tube (see paintNodes), so a click in
+        // that band picks the break rather than the conduit through it.
         const double chain = virtualX(i);
         const QPointF rim  = dataToPixel(chain, ProfileBuilder::groundElev(n));
         const QPointF inv  = dataToPixel(chain, n.invertElev);
@@ -1114,6 +1188,12 @@ void ProfilePlotWidget::paintEvent(QPaintEvent *)
     if (m_path.nodes.isEmpty()) return;
 
     paintSoilFill(p);
+    // 2D inundation overlay sits on the ground, under every 1D element so
+    // the network's structures and HGL remain fully legible above it.
+    paintSurface2D(p);
+    // Stubs before the conduits and the node tubes: they butt against the
+    // tube, so the tube must paint over their inner end.
+    paintBranchStubs(p);
     paintConduits(p);
 
     using K = ProfileBuilder::OutputKind;
@@ -1186,6 +1266,10 @@ void ProfilePlotWidget::paintEvent(QPaintEvent *)
             }
         }
     }
+
+    // Roses last of the geometry passes — they sit above the rim, outside
+    // every other pass's band, and must not be overdrawn by HGL lines.
+    paintNodeRoses(p);
 
     paintSelectionHighlights(p);
     paintLegend(p);
@@ -1306,6 +1390,7 @@ void ProfilePlotWidget::mouseMoveEvent(QMouseEvent *event)
         m_dataYMin += dyData; m_dataYMax += dyData;
         m_lastMousePos = event->pos();
         update();
+        emitXRangeIfChanged();
         return;
     }
     if (m_zoomActive && m_rubberBand) {
@@ -1408,6 +1493,7 @@ void ProfilePlotWidget::mouseReleaseEvent(QMouseEvent *event)
             }
         }
         update();
+        emitXRangeIfChanged();
         return;
     }
     QWidget::mouseReleaseEvent(event);
@@ -1449,6 +1535,7 @@ void ProfilePlotWidget::wheelEvent(QWheelEvent *event)
 
     event->accept();
     update();
+    emitXRangeIfChanged();
 }
 
 // ---------------------------------------------------------------------------
@@ -1524,6 +1611,125 @@ void ProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
     p.rotate(-90);
     p.drawText(QRectF(-80, -8, 160, 16),
                Qt::AlignHCenter | Qt::AlignVCenter, m_yLabel);
+    p.restore();
+}
+
+double ProfilePlotWidget::realChainageToVirtualX(double realX) const
+{
+    if (m_path.chainage.size() < 2 || m_virtualChainage.size() < 2)
+        return realX;
+    if (realX <= m_path.chainage.first()) return m_virtualChainage.first();
+    if (realX >= m_path.chainage.last())  return m_virtualChainage.last();
+    for (int i = 0; i + 1 < m_path.chainage.size(); ++i) {
+        const double ra = m_path.chainage[i];
+        const double rb = m_path.chainage[i + 1];
+        if (realX >= ra && realX <= rb) {
+            const double span = rb - ra;
+            const double t = (span > 0.0) ? (realX - ra) / span : 0.0;
+            const double va = m_virtualChainage[i];
+            const double vb = m_virtualChainage[i + 1];
+            return va + t * (vb - va);
+        }
+    }
+    return realX;
+}
+
+double ProfilePlotWidget::groundElevAtReal(double realX) const
+{
+    // Piecewise-linear lookup into whichever polyline paintSoilFill draws as
+    // the ground: the sampled ground (DEM or 2D mesh, per the dialog's
+    // ground-source option) or the node rims.
+    auto interp = [realX](auto begin, auto end, auto xOf, auto yOf) -> double {
+        double px = std::numeric_limits<double>::quiet_NaN();
+        double py = px;
+        for (auto it = begin; it != end; ++it) {
+            const double x = xOf(*it), y = yOf(*it);
+            if (!isFinite(x) || !isFinite(y)) continue;
+            if (x >= realX) {
+                if (!isFinite(px) || x == realX) return y;
+                const double t = (realX - px) / (x - px);
+                return py + t * (y - py);
+            }
+            px = x; py = y;
+        }
+        return py;   // past the last sample: hold
+    };
+    if (m_toggles.useTerrainGround && !m_path.terrainSamples.isEmpty())
+        return interp(m_path.terrainSamples.begin(), m_path.terrainSamples.end(),
+                      [](const QPointF &s) { return s.x(); },
+                      [](const QPointF &s) { return s.y(); });
+    // Rim mode: straight rim-to-rim between path nodes (real chainage).
+    struct RimPt { double x, y; };
+    QVector<RimPt> rims;
+    rims.reserve(m_path.nodes.size());
+    for (int i = 0; i < m_path.nodes.size() && i < m_path.chainage.size(); ++i)
+        rims.push_back({m_path.chainage[i], ProfileBuilder::groundElev(m_path.nodes[i])});
+    return interp(rims.begin(), rims.end(),
+                  [](const RimPt &r) { return r.x; },
+                  [](const RimPt &r) { return r.y; });
+}
+
+void ProfilePlotWidget::paintSurface2D(QPainter &p) const
+{
+    if (m_surface2D.isEmpty()) return;
+    if (m_options && !m_options->show2DInundation()) return;
+
+    const QPen   pen   = m_options ? m_options->inundation2DLinePen()
+                                   : QPen(QColor(0x00, 0x8B, 0x8B), 1.6);
+    const QBrush brush = m_options ? m_options->inundation2DFillBrush()
+                                   : QBrush(QColor(0x20, 0xB2, 0xAA, 90));
+
+    p.save();
+    p.setClipRect(plotRect());
+
+    // The band fills from the DRAWN ground line (DEM / mesh bed / rims —
+    // whatever paintSoilFill used) up to the 2D WSE, and only where the
+    // water surface actually stands above that ground; anything at or
+    // below ground is not shown.
+    const int n = m_surface2D.size();
+    QVector<double> ground(n);
+    for (int k = 0; k < n; ++k)
+        ground[k] = groundElevAtReal(m_surface2D[k].chainage);
+    auto wet = [&](int k) {
+        const Surface2DSample &s = m_surface2D[k];
+        return isFinite(ground[k]) && isFinite(s.wse) && s.wse > ground[k];
+    };
+    // Walk contiguous wet runs; each becomes one polygon: WSE polyline
+    // forward, ground polyline back.
+    int i = 0;
+    while (i < n) {
+        if (!wet(i)) { ++i; continue; }
+        int j = i;
+        while (j < n && wet(j)) ++j;
+        // [i, j) is a wet run.
+        QPolygonF band;
+        QVector<QPointF> top;
+        band.reserve((j - i) * 2);
+        top.reserve(j - i);
+        for (int k = i; k < j; ++k) {
+            const double vx = realChainageToVirtualX(m_surface2D[k].chainage);
+            top.push_back(dataToPixel(vx, m_surface2D[k].wse));
+        }
+        band.append(top);
+        for (int k = j - 1; k >= i; --k) {
+            const double vx = realChainageToVirtualX(m_surface2D[k].chainage);
+            band.push_back(dataToPixel(vx, ground[k]));
+        }
+        if (brush.style() != Qt::NoBrush && band.size() >= 3) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(brush);
+            p.drawPolygon(band);
+        }
+        if (pen.style() != Qt::NoPen && top.size() >= 2) {
+            p.setBrush(Qt::NoBrush);
+            p.setPen(pen);
+            p.drawPolyline(top.constData(), top.size());
+        } else if (pen.style() != Qt::NoPen && top.size() == 1) {
+            p.setPen(pen);
+            p.drawPoint(top.first());
+        }
+        i = j;
+    }
     p.restore();
 }
 
@@ -1633,36 +1839,26 @@ void ProfilePlotWidget::paintSoilFill(QPainter &p) const
     // contains it; otherwise the terrain ground line and the node row drift
     // apart whenever a zero-length link sits in between.
     auto terrainSampleToVirtualX = [&](double realX) -> double {
-        if (m_path.chainage.size() < 2 || m_virtualChainage.size() < 2)
-            return realX;
-        if (realX <= m_path.chainage.first()) return m_virtualChainage.first();
-        if (realX >= m_path.chainage.last())  return m_virtualChainage.last();
-        for (int i = 0; i + 1 < m_path.chainage.size(); ++i) {
-            const double ra = m_path.chainage[i];
-            const double rb = m_path.chainage[i + 1];
-            if (realX >= ra && realX <= rb) {
-                const double span = rb - ra;
-                const double t = (span > 0.0) ? (realX - ra) / span : 0.0;
-                const double va = m_virtualChainage[i];
-                const double vb = m_virtualChainage[i + 1];
-                return va + t * (vb - va);
-            }
-        }
-        return realX;
+        return realChainageToVirtualX(realX);
     };
 
-    // ---- Top edge: terrain samples if the user opted in and the path
-    // has DEM coverage, otherwise the rim line clamped to not dip below
-    // adjacent crowns.  For nodes with no max depth (typical outfalls)
+    // ---- Top edge: the rim line clamped to not dip below adjacent
+    // crowns, with the sampled ground (2D mesh / DEM) filling in between
+    // nodes when present.  For nodes with no max depth (typical outfalls)
     // the rim sits below the conduit crown — clamp so the polygon
     // pinches to zero rather than reaching into the pipe.
+    // Sampled ground (2D mesh / DEM) is woven BETWEEN the nodes: every node
+    // still contributes its own rim (invert + max depth, clamped to the
+    // adjacent crowns) with the manhole U-notch exactly as in the pure-1D
+    // profile, and the samples only shape the ground from one node to the
+    // next. The node crowns / maximum depths therefore render with 1D
+    // fidelity whatever the ground source.
+    const bool sampledGround =
+        m_toggles.useTerrainGround && !m_path.terrainSamples.isEmpty();
     QVector<QPointF> rimPx;
-    if (m_toggles.useTerrainGround && !m_path.terrainSamples.isEmpty()) {
-        rimPx.reserve(m_path.terrainSamples.size());
-        for (const QPointF &s : m_path.terrainSamples)
-            rimPx.push_back(dataToPixel(terrainSampleToVirtualX(s.x()), s.y()));
-    } else {
-        rimPx.reserve(m_path.nodes.size() * 3);
+    {
+        rimPx.reserve(m_path.nodes.size() * 3 + m_path.terrainSamples.size());
+        int sampleIdx = 0;   // cursor into the chainage-ordered samples
         for (int i = 0; i < m_path.nodes.size(); ++i) {
             const bool incomingExcavated =
                 (i > 0 && isExcavatedLink(i - 1));
@@ -1722,6 +1918,24 @@ void ProfilePlotWidget::paintSoilFill(QPainter &p) const
                                             m_path.nodes[i].invertElev));
                 rimPx.push_back(dataToPixel(chainAt(i),
                                             linkBottomOf(i)));
+            }
+            // ── Sampled ground strictly between this node and the next
+            //    (real chainage; stations coinciding with a node are the
+            //    node's business and are skipped).
+            if (sampledGround && i + 1 < m_path.nodes.size()
+                && i + 1 < m_path.chainage.size()) {
+                const double ra = m_path.chainage[i];
+                const double rb = m_path.chainage[i + 1];
+                const double eps = 1e-9 * std::max(1.0, std::fabs(rb));
+                while (sampleIdx < m_path.terrainSamples.size()
+                       && m_path.terrainSamples[sampleIdx].x() <= ra + eps)
+                    ++sampleIdx;
+                for (; sampleIdx < m_path.terrainSamples.size(); ++sampleIdx) {
+                    const QPointF &s = m_path.terrainSamples[sampleIdx];
+                    if (s.x() >= rb - eps) break;
+                    if (!std::isfinite(s.y())) continue;
+                    rimPx.push_back(dataToPixel(terrainSampleToVirtualX(s.x()), s.y()));
+                }
             }
         }
     }
@@ -1943,10 +2157,37 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
             p.setPen(Qt::NoPen);
             p.drawPath(body);
 
+            // An open channel is drawn as banks without a soffit: the crown
+            // line is the top of bank, so stroking it across would read as a
+            // closed box culvert. The end caps stay — they are the channel
+            // walls — but the span between them is left open.
             p.setPen(outlinePen);
             p.setBrush(Qt::NoBrush);
-            p.drawLine(upInv, dnInv);    // invert
-            p.drawLine(upCr,  dnCr);     // crown
+            if (l.openTop) {
+                // A street's invert is the gutter line of a road, so mark it:
+                // a pavement band under a heavier invert line, which is what
+                // distinguishes a street from any other open channel here.
+                if (l.isStreet) {
+                    QPainterPath pave;
+                    const double bandPx = std::max(3.0, penWidth * 2.5);
+                    pave.moveTo(upInv);
+                    pave.lineTo(dnInv);
+                    pave.lineTo(dnInv + QPointF(0.0, bandPx));
+                    pave.lineTo(upInv + QPointF(0.0, bandPx));
+                    pave.closeSubpath();
+                    p.setPen(Qt::NoPen);
+                    p.fillPath(pave, themeStreetInvertBrush());
+                    p.setPen(outlinePen);
+                }
+                QPen invPen = outlinePen;
+                invPen.setWidthF(penWidth * 1.6);
+                p.setPen(invPen);
+                p.drawLine(upInv, dnInv);    // invert / gutter line
+                p.setPen(outlinePen);
+            } else {
+                p.drawLine(upInv, dnInv);    // invert
+                p.drawLine(upCr,  dnCr);     // crown
+            }
             QPen capPen = outlinePen;
             capPen.setWidthF(penWidth * 0.7);
             p.setPen(capPen);
@@ -2030,6 +2271,181 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
     p.restore();
 }
 
+
+// ---------------------------------------------------------------------------
+// Node connectivity — branch stubs + plan rose
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+// Stub geometry, in pixels. The stub is deliberately short and of fixed
+// length: it is a connectivity cue, not a scale drawing of the branch, and a
+// length proportional to the branch's real length would dominate the profile
+// at exactly the junctions that matter most.
+constexpr qreal kStubLenPx      = 26.0;
+constexpr qreal kStubGapPx      = 3.5;   // clears the manhole tube half-width
+constexpr qreal kStubMinBorePx  = 3.0;   // so a small pipe is still readable
+constexpr qreal kStubTearPx     = 5.0;   // zig-zag amplitude at the cut end
+
+// Rose geometry.
+constexpr qreal kRoseRadiusPx   = 13.0;
+constexpr qreal kRoseGapPx      = 8.0;   // above the rim
+constexpr qreal kRoseArrowPx    = 4.0;
+
+} // namespace
+
+void ProfilePlotWidget::paintBranchStubs(QPainter &p) const
+{
+    if (m_options && !m_options->showBranchStubs()) return;
+
+    p.save();
+    p.setClipRect(plotRect());
+
+    for (int i = 0; i < m_path.nodes.size(); ++i) {
+        const auto &n = m_path.nodes[i];
+        if (n.branches.isEmpty()) continue;
+        // A virtual junction is a break point inside one pipe, not a
+        // structure — nothing branches off it, and it has no tube to butt
+        // a stub against.
+        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) continue;
+
+        const double chain = virtualX(i);
+
+        for (const auto &b : n.branches) {
+            if (b.onPath) continue;              // already drawn full length
+
+            // Model inflows enter from the upstream side, outflows leave
+            // downstream. This is the only sensible mapping: a branch has no
+            // intrinsic left/right in a longitudinal section, so flow
+            // direction is what carries meaning.
+            const qreal dir = b.intoNode ? -1.0 : +1.0;
+
+            const QPointF inv = dataToPixel(chain, b.invertElev);
+            const QPointF crn = dataToPixel(chain, b.invertElev + b.maxDepth);
+            qreal bore = std::abs(crn.y() - inv.y());
+            if (bore < kStubMinBorePx) bore = kStubMinBorePx;
+
+            const qreal x0 = inv.x() + dir * kStubGapPx;
+            const qreal x1 = x0      + dir * kStubLenPx;
+
+            QPen pen = themeLinkOutlinePen(b.kind);
+            if (m_selectedNames.contains(b.name)) {
+                pen.setColor(QColor(0xFF, 0x66, 0x00));
+                pen.setWidthF(pen.widthF() * 1.8);
+            }
+            p.setPen(pen);
+            p.setBrush(Qt::NoBrush);
+
+            // Barrel: invert and crown lines. Non-conduit kinds keep their
+            // own pen (dashed pump, etc.) so a stub reads as the same kind of
+            // thing it is on the map.
+            const qreal yInv = inv.y();
+            const qreal yCrn = yInv - bore;
+            p.drawLine(QPointF(x0, yInv), QPointF(x1, yInv));
+            // An open channel has no soffit here either — same rule as the
+            // on-path barrel, so a stub reads as the same kind of thing.
+            if (!b.openTop)
+                p.drawLine(QPointF(x0, yCrn), QPointF(x1, yCrn));
+
+            // Torn end — a zig-zag, so the stub reads as "continues off the
+            // section" rather than as a capped pipe that stops here.
+            QPolygonF tear;
+            const int  teeth = 3;
+            for (int t = 0; t <= teeth; ++t) {
+                const qreal f  = static_cast<qreal>(t) / teeth;
+                const qreal yy = yCrn + f * bore;
+                const qreal xx = x1 + ((t % 2) ? dir * kStubTearPx : 0.0);
+                tear << QPointF(xx, yy);
+            }
+            p.drawPolyline(tear);
+        }
+    }
+    p.restore();
+}
+
+void ProfilePlotWidget::paintNodeRoses(QPainter &p) const
+{
+    if (m_options && !m_options->showNodeRoses()) return;
+    if (m_path.nodes.size() < 1) return;
+
+    // A rose needs room. Where the profile packs nodes closer than one rose
+    // footprint, drawing them all would produce an unreadable smear of
+    // overlapping circles, so the pass drops out entirely rather than
+    // rendering something misleading.
+    if (m_path.nodes.size() > 1) {
+        qreal minGap = std::numeric_limits<qreal>::max();
+        for (int i = 1; i < m_path.nodes.size(); ++i)
+            minGap = std::min<qreal>(minGap,
+                                     std::abs(dataToPixel(virtualX(i), 0.0).x()
+                                              - dataToPixel(virtualX(i - 1), 0.0).x()));
+        // Checked BEFORE save() — nothing to unwind on this path.
+        if (minGap < 2.0 * kRoseRadiusPx + 4.0) return;
+    }
+
+    p.save();
+    p.setClipRect(plotRect().adjusted(0, -kRoseRadiusPx * 2.0, 0, 0));
+
+    for (int i = 0; i < m_path.nodes.size(); ++i) {
+        const auto &n = m_path.nodes[i];
+        if (n.branches.isEmpty()) continue;
+        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) continue;
+
+        const QPointF rim = dataToPixel(virtualX(i),
+                                        ProfileBuilder::groundElev(n));
+        const QPointF c(rim.x(), rim.y() - kRoseGapPx - kRoseRadiusPx);
+
+        // Dial
+        QPen dial(themeNodeOutline(n.kind));
+        dial.setWidthF(1.0);
+        p.setPen(dial);
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(c, kRoseRadiusPx, kRoseRadiusPx);
+
+        for (const auto &b : n.branches) {
+            if (b.bearingRad >= ProfileBuilder::kNoBearing) continue;
+
+            // Screen: bearing 0 = north = up, clockwise.
+            const qreal ux =  std::sin(b.bearingRad);
+            const qreal uy = -std::cos(b.bearingRad);
+            const QPointF tip(c.x() + ux * kRoseRadiusPx,
+                              c.y() + uy * kRoseRadiusPx);
+
+            QPen spoke = themeLinkOutlinePen(b.kind);
+            spoke.setStyle(Qt::SolidLine);
+            if (!b.onPath) {
+                QColor dim = spoke.color();
+                dim.setAlphaF(0.45f);
+                spoke.setColor(dim);
+                spoke.setWidthF(std::max(1.0, spoke.widthF() * 0.7));
+            }
+            p.setPen(spoke);
+            p.drawLine(c, tip);
+
+            // Arrowhead: toward the centre for an inflow, outward for an
+            // outflow, so the rose reads the network's own flow directions.
+            const qreal ax = b.intoNode ? -ux : ux;
+            const qreal ay = b.intoNode ? -uy : uy;
+            const QPointF head = b.intoNode
+                ? QPointF(c.x() + ux * kRoseRadiusPx * 0.45,
+                          c.y() + uy * kRoseRadiusPx * 0.45)
+                : tip;
+            const QPointF perp(-ay, ax);
+            QPolygonF arrow;
+            arrow << head
+                  << QPointF(head.x() - ax * kRoseArrowPx + perp.x() * kRoseArrowPx * 0.6,
+                             head.y() - ay * kRoseArrowPx + perp.y() * kRoseArrowPx * 0.6)
+                  << QPointF(head.x() - ax * kRoseArrowPx - perp.x() * kRoseArrowPx * 0.6,
+                             head.y() - ay * kRoseArrowPx - perp.y() * kRoseArrowPx * 0.6);
+            p.setBrush(spoke.color());
+            p.setPen(Qt::NoPen);
+            p.drawPolygon(arrow);
+            p.setBrush(Qt::NoBrush);
+        }
+    }
+    p.restore();
+}
+
 void ProfilePlotWidget::paintNodes(QPainter &p) const
 {
     p.save();
@@ -2053,20 +2469,43 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
         // Same reasoning for a virtual junction: it is a computational break
         // point inside one continuous pipe, not a structure, so there is no
         // manhole to draw. Its rim still shapes the ground line above.
-        // Mark the break itself with a thin dashed vertical line running
-        // from the node invert up to the ground line — the pipe (and the
-        // water in it) passes straight through, so the dash is the only
-        // indication of where the conduit was split.
+        // Mark the break with a dashed rectangle on the same footprint a
+        // manhole tube would occupy (invert → rim, tube width), so it reads
+        // as a node and hit-tests like one.  The pipe is drawn through it
+        // unbroken, so the rectangle's lower part overlaps a sliver of the
+        // conduits either side — that overlap is what shows the split.
         if (m_path.nodes[i].kind == ProfileBuilder::NodeKind::VirtualJunction) {
-            const auto &vn = m_path.nodes[i];
+            const auto &vn     = m_path.nodes[i];
             const double vchain = virtualX(i);
-            QPen vjPen = makeLinePen(plotTheme().plotConduit, 1.0,
-                                     /*dashed=*/true);
-            vjPen.setColor(withAlphaF(plotTheme().plotConduit, 0.6));
+            const QPointF vrim  = dataToPixel(vchain,
+                                              ProfileBuilder::groundElev(vn));
+            const QPointF vinv  = dataToPixel(vchain, vn.invertElev);
+            QPen vjPen = themeVirtualJunctionPen();
+            if (m_selectedNames.contains(vn.name)) {
+                vjPen.setColor(QColor(0xFF, 0x66, 0x00));   // bright orange
+                vjPen.setWidthF(vjPen.widthF() + 1.5);
+            }
             p.setBrush(Qt::NoBrush);
             p.setPen(vjPen);
-            p.drawLine(dataToPixel(vchain, vn.invertElev),
-                       dataToPixel(vchain, ProfileBuilder::groundElev(vn)));
+            p.drawRect(QRectF(QPointF(vrim.x() - kShaftHalfWidthPx, vrim.y()),
+                              QPointF(vrim.x() + kShaftHalfWidthPx, vinv.y())));
+            // An inlet junction is a virtual junction that also captures
+            // street flow to an off-profile underdrain node. The capture node
+            // is not on this profile, so mark the capture itself: a small
+            // downward-pointing filled triangle at the street surface.
+            if (vn.isInlet) {
+                constexpr qreal kInletGlyphHalfPx = 4.0;
+                const QPolygonF glyph({
+                    QPointF(vrim.x() - kInletGlyphHalfPx, vrim.y()),
+                    QPointF(vrim.x() + kInletGlyphHalfPx, vrim.y()),
+                    QPointF(vrim.x(), vrim.y() + 2.0 * kInletGlyphHalfPx) });
+                QPen glyphPen(vjPen.color());
+                glyphPen.setWidthF(1.0);
+                p.setPen(glyphPen);
+                p.setBrush(QBrush(vjPen.color()));
+                p.drawPolygon(glyph);
+                p.setBrush(Qt::NoBrush);
+            }
             continue;
         }
 
@@ -2237,23 +2676,44 @@ void ProfilePlotWidget::paintSelectionHighlights(QPainter &p) const
             const QPointF pUcr  = dataToPixel(xU, zUcr);
             const QPointF pDcr  = dataToPixel(xD, zDcr);
 
+            // Same per-end rule as paintConduits: no trim and no closing
+            // edge where the conduit meets a virtual junction, so the halo
+            // runs through the break exactly as the pipe it outlines does.
+            const bool vjUp = isVirtualNode(i);
+            const bool vjDn = isVirtualNode(i + 1);
+
             const double spanPx = pDinv.x() - pUinv.x();
             const double shiftPx = (spanPx > 4.0 * kShaftHalfWidthPx)
                                        ? kShaftHalfWidthPx
                                        : 0.0;
-            const double tFrac = (spanPx > 0.0) ? shiftPx / spanPx : 0.0;
-            auto shifted = [tFrac](const QPointF &up, const QPointF &dn,
-                                   bool isUpstream) -> QPointF {
+            const double tBase = (spanPx > 0.0) ? shiftPx / spanPx : 0.0;
+            const double tUp   = vjUp ? 0.0 : tBase;
+            const double tDn   = vjDn ? 0.0 : tBase;
+            auto shifted = [](const QPointF &up, const QPointF &dn,
+                              double tFrac, bool isUpstream) -> QPointF {
                 const QPointF dir = dn - up;
                 return isUpstream ? up + dir * tFrac : dn - dir * tFrac;
             };
+            const QPointF upInv = shifted(pUinv, pDinv, tUp, true);
+            const QPointF dnInv = shifted(pUinv, pDinv, tDn, false);
+            const QPointF upCr  = shifted(pUcr,  pDcr,  tUp, true);
+            const QPointF dnCr  = shifted(pUcr,  pDcr,  tDn, false);
 
             QPainterPath body;
-            body.moveTo(shifted(pUcr, pDcr, true));
-            body.lineTo(shifted(pUcr, pDcr, false));
-            body.lineTo(shifted(pUinv, pDinv, false));
-            body.lineTo(shifted(pUinv, pDinv, true));
-            body.closeSubpath();
+            if (vjUp && vjDn) {          // open at both ends: two rails
+                body.moveTo(upCr);  body.lineTo(dnCr);
+                body.moveTo(upInv); body.lineTo(dnInv);
+            } else if (vjUp) {           // open upstream
+                body.moveTo(upCr);  body.lineTo(dnCr);
+                body.lineTo(dnInv); body.lineTo(upInv);
+            } else if (vjDn) {           // open downstream
+                body.moveTo(dnCr);  body.lineTo(upCr);
+                body.lineTo(upInv); body.lineTo(dnInv);
+            } else {
+                body.moveTo(upCr);  body.lineTo(dnCr);
+                body.lineTo(dnInv); body.lineTo(upInv);
+                body.closeSubpath();
+            }
             p.drawPath(body);
         } else if (l.kind == ProfileBuilder::LinkKind::Weir) {
             const int inletIdx = l.reversed ? (i + 1) : i;
@@ -2290,9 +2750,25 @@ void ProfilePlotWidget::paintSelectionHighlights(QPainter &p) const
     for (int i = 0; i < m_path.nodes.size(); ++i) {
         const auto &n = m_path.nodes[i];
         if (!m_selectedNames.contains(n.name)) continue;
-        // Nothing is drawn for a virtual junction, so there is nothing to
-        // highlight — a tube here would contradict the unbroken pipe.
-        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) continue;
+        // A virtual junction is marked by a dashed rectangle rather than a
+        // manhole tube, so its halo is dashed on the same footprint — a
+        // solid one would contradict the unbroken pipe running through it.
+        // There is no rim glyph below to outline either.
+        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) {
+            const double vchain = virtualX(i);
+            const QPointF vrim  = dataToPixel(vchain,
+                                              ProfileBuilder::groundElev(n));
+            const QPointF vinv  = dataToPixel(vchain, n.invertElev);
+            QPen vjHalo = themeVirtualJunctionPen();
+            vjHalo.setColor(highlight);
+            vjHalo.setWidthF(vjHalo.widthF() + 2.5);
+            p.save();
+            p.setPen(vjHalo);
+            p.drawRect(QRectF(QPointF(vrim.x() - kShaftHalfWidthPx, vrim.y()),
+                              QPointF(vrim.x() + kShaftHalfWidthPx, vinv.y())));
+            p.restore();
+            continue;
+        }
 
         const bool incomingExc =
             (i > 0) && linkKindIsExcavated(m_path.links[i - 1].kind);
@@ -2609,6 +3085,18 @@ void ProfilePlotWidget::paintLegend(QPainter &p) const
         if (!pen.color().isValid()) pen.setColor(s.color);
         r.linePen   = pen;
         rows.push_back(r);
+    }
+    // 2D inundation overlay — one row whenever it is on and has stations.
+    if (!m_surface2D.isEmpty() && (!m_options || m_options->show2DInundation())) {
+        Row r;
+        r.text      = tr("2D water surface");
+        r.fillBrush = m_options ? m_options->inundation2DFillBrush()
+                                : QBrush(QColor(0x20, 0xB2, 0xAA, 90));
+        r.linePen   = m_options ? m_options->inundation2DLinePen()
+                                : QPen(QColor(0x00, 0x8B, 0x8B), 1.6);
+        r.hasFill   = (r.fillBrush.style() != Qt::NoBrush);
+        r.hasLine   = (r.linePen.style()   != Qt::NoPen);
+        if (r.hasFill || r.hasLine) rows.push_back(r);
     }
     if (rows.isEmpty()) return;
 

@@ -11,11 +11,16 @@
 #include "animation/animationcontroller.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/openswmmvislayer.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "layers/swmm2dresultslayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
+#include "plot/profileattributesampler.h"
+#include "plot/profileattributetrackoptions.h"
+#include "plot/profileattributetrackswidget.h"
 #include "plot/profilenetworkadapter.h"
 #include "plot/profileplotoptions.h"
 #include "plot/profilesourcefetcher.h"
@@ -30,6 +35,7 @@
 
 #include <ogr_spatialref.h>
 
+#include <algorithm>
 #include <limits>
 
 #include <QAction>
@@ -52,9 +58,24 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QSplitter>
 #include <QStyle>
+#include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
+
+namespace {
+/*! QSettings group holding the attribute-tracks selection + styling. One
+ *  app-wide group (not per-model): which attributes an engineer inspects is
+ *  a personal working preference, like the profile's layer toggles. */
+const char *const kTrackSettingsGroup = "ProfilePlot/AttributeTracks";
+
+/*! Smallest height the attribute-tracks pane can be dragged to, and the
+ *  threshold below which a shown pane counts as "not really visible" and is
+ *  re-expanded. Roughly one track row plus its axis. */
+constexpr int kTracksPaneMinHeightPx = 72;
+} // namespace
 
 namespace {
 
@@ -94,6 +115,16 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
     // model-driven Display Options dialog.  Any setter on it propagates
     // through the `changed()` signal.
     m_options = new ProfilePlotOptions(this);
+    // Attribute-tracks options — restored from settings before buildLayout()
+    // so the menu checks and pane visibility come up as the user left them.
+    // (readFrom emits changed() but nothing is connected yet — harmless.)
+    m_trackOptions = new ProfileAttributeTrackOptions(this);
+    {
+        QSettings s;
+        s.beginGroup(QLatin1String(kTrackSettingsGroup));
+        m_trackOptions->readFrom(s);
+        s.endGroup();
+    }
     // Promote the dialog to a regular top-level window so the OS gives it
     // minimize / maximize / zoom controls instead of the macOS "panel"
     // treatment that QDialog's default flags trigger.
@@ -138,8 +169,10 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
                 this, refreshForResultLayerChange);
     }
 
-    // Lifetime: this dialog is a top-level window parented to nullptr (so
-    // it gets its own dock icon on macOS), but it holds raw pointers to
+    // Lifetime: this dialog is a top-level window parented to its project
+    // sub-window (see SWMMVis::openProfilePlotFor — parentage keeps it in
+    // the Qt object tree so it closes with its document), and it holds
+    // raw pointers to
     // the primary project's model layer, animation controller, project
     // window, plus result-layer pointers belonging to *other* projects
     // when the user opts into multi-source comparison.  Each owning
@@ -242,6 +275,20 @@ void ProfilePlotDialog::buildLayout()
     m_sourceMenu = new QMenu(m_sourceButton);
     m_sourceButton->setMenu(m_sourceMenu);
     toolbar->addWidget(m_sourceButton);
+    // Quick toggle for the 2D inundation overlay; mirrors the
+    // show2DInundation option (also in Display Options).
+    m_actShow2D = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("Inundation2D")),
+        tr("2D Inundation"));
+    m_actShow2D->setObjectName(QStringLiteral("show2DInundation"));
+    m_actShow2D->setToolTip(tr("Overlay the active 2D results layer's water "
+                               "surface (mesh bed + interpolated depth) along "
+                               "the profile, animated with the cursor."));
+    m_actShow2D->setCheckable(true);
+    m_actShow2D->setChecked(m_options->show2DInundation());
+    connect(m_actShow2D, &QAction::toggled, this, [this](bool on) {
+        m_options->setShow2DInundation(on);   // options.changed → rebuild
+    });
     toolbar->addSeparator();
     auto *actExport  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportImage")),
                                           tr("Export PNG…"));
@@ -269,7 +316,56 @@ void ProfilePlotDialog::buildLayout()
     m_plot = new ProfilePlotWidget(this);
     m_plot->setPath(m_pathStatic);
     m_plot->setOptions(m_options);
-    centre->addWidget(m_plot, /*stretch=*/1);
+
+    // Attribute-tracks pane: the profile and the tracks share a vertical
+    // splitter. The splitter's objectName is load-bearing — the app-wide
+    // DialogLayoutWatcher persists named splitter state (incl. the
+    // collapsed position) under Dialogs/ProfilePlotDialog/splitter/….
+    m_profileSplit = new QSplitter(Qt::Vertical, this);
+    m_profileSplit->setObjectName(QStringLiteral("profileSplit"));
+    m_profileSplit->setChildrenCollapsible(false);
+    // The plot goes in through a holder whose right margin absorbs the tracks
+    // scroll area's vertical scrollbar. Both panes map x as
+    // `left + frac * (width - leftGutter - rightGutter)`, so column alignment
+    // holds only while their widths agree — and `setWidgetResizable(true)`
+    // shrinks the tracks widget to the VIEWPORT, i.e. by the scrollbar width
+    // the moment the pane has to scroll (which is exactly what the scroll area
+    // is here for). Without this the last node sits a full scrollbar-width
+    // off between the panes. Zero on styles with transient/overlay scrollbars.
+    m_plotHolder = new QWidget(m_profileSplit);
+    auto *plotHolderLayout = new QHBoxLayout(m_plotHolder);
+    plotHolderLayout->setContentsMargins(0, 0, 0, 0);
+    plotHolderLayout->setSpacing(0);
+    plotHolderLayout->addWidget(m_plot);
+    m_profileSplit->addWidget(m_plotHolder);
+    m_tracks = new ProfileAttributeTracksWidget;
+    m_tracks->setOptions(m_trackOptions);
+    // Scroll container: each track demands a fixed minimum height, and all
+    // 11 attributes at once would otherwise force the DIALOG taller than
+    // the screen. Inside a scroll area the pane scrolls instead.
+    m_tracksScroll = new QScrollArea(m_profileSplit);
+    m_tracksScroll->setWidgetResizable(true);
+    m_tracksScroll->setFrameShape(QFrame::NoFrame);
+    m_tracksScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_tracksScroll->setWidget(m_tracks);
+    m_profileSplit->addWidget(m_tracksScroll);
+    // The scrollbar comes and goes as tracks are added / the pane is dragged;
+    // the tracks widget resizes exactly when it does, so watch that.
+    m_tracks->installEventFilter(this);
+    // Neither pane collapses by dragging. The tracks pane used to be
+    // collapsible, with the master toggle unchecked once it hit zero — but
+    // a mere click on the handle grip could snap the pane to zero and hide
+    // it, and a persisted zero-height split made "Show tracks" appear to do
+    // nothing. The toggle is now the only hide affordance; the drag floor is
+    // the pane's minimum height.
+    m_profileSplit->setCollapsible(0, false);
+    m_profileSplit->setCollapsible(1, false);
+    m_tracksScroll->setMinimumHeight(kTracksPaneMinHeightPx);
+    m_profileSplit->setStretchFactor(0, 3);
+    m_profileSplit->setStretchFactor(1, 1);
+    centre->addWidget(m_profileSplit, /*stretch=*/1);
+
+    buildAttributeTracksUi(toolbar);
 
     // Distance / elevation axis labels — pulled from the active project's
     // UnitSystem so the suffix matches the rest of the GUI.  Re-applied
@@ -302,7 +398,7 @@ void ProfilePlotDialog::buildLayout()
     // Helpers: marshall LayerToggles ⇄ ProfilePlotOptions so the panel,
     // the plot widget, and the property-model-driven Display Options
     // dialog stay in sync.
-    auto togglesFromOptions = [](ProfilePlotOptions *o) {
+    auto togglesFromOptions = [this](ProfilePlotOptions *o) {
         ProfilePlotWidget::LayerToggles t;
         t.currentHglLine   = o->currentHglLine();
         t.currentHglFill   = o->currentHglFill();
@@ -315,7 +411,9 @@ void ProfilePlotDialog::buildLayout()
         t.inlineNodeLabels = o->inlineNodeLabels();
         t.labelOrientation = static_cast<ProfilePlotWidget::LayerToggles::LabelOrientation>(o->labelOrientation());
         t.labelAngleDeg    = o->labelAngleDeg();
-        t.useTerrainGround = o->useTerrainGround();
+        // The widget draws `terrainSamples` as the ground whenever this is
+        // set — DEM or 2D mesh alike; only NodeRims falls back to rims.
+        t.useTerrainGround = (resolvedGroundSource() != ProfilePlotOptions::NodeRims);
         return t;
     };
     auto applyTogglesToOptions = [](ProfilePlotOptions *o,
@@ -331,12 +429,17 @@ void ProfilePlotDialog::buildLayout()
         o->setInlineNodeLabels(t.inlineNodeLabels);
         o->setLabelOrientation(static_cast<ProfilePlotOptions::LabelOrientation>(t.labelOrientation));
         o->setLabelAngleDeg   (t.labelAngleDeg);
-        o->setUseTerrainGround(t.useTerrainGround);
+        o->setGroundSource    (t.useTerrainGround ? ProfilePlotOptions::TerrainDEM
+                                                  : ProfilePlotOptions::Auto);
     };
 
     Q_UNUSED(applyTogglesToOptions);  // panel-side sync removed; kept the
                                        // lambda for future use.
 
+    // Initial ground line: Auto samples the 2D mesh when the project has
+    // one, so the first paint already shows the mesh surface between nodes.
+    rebuildTerrainSamples();
+    m_plot->setPath(m_pathStatic);
     // Initial push: options → plot widget (visibility / labels / terrain).
     m_plot->setLayerToggles(togglesFromOptions(m_options));
     // Record the plot-level styles as they stand now, so the FIRST edit is
@@ -345,20 +448,32 @@ void ProfilePlotDialog::buildLayout()
     pushEditedPlotStylesToSources();
 
     // Options → plot.  Drives visibility, label rendering, and the
-    // terrain re-sample whenever the user toggles "Use terrain DEM".
+    // ground re-sample whenever the resolved ground source changes.
     // Also reruns rebindSources so per-output visibility flips propagate
     // to the series list (the widget reads visibility from series, not
     // from LayerToggles).
     connect(m_options, &ProfilePlotOptions::changed, this,
             [this, togglesFromOptions]() {
         const auto t = togglesFromOptions(m_options);
-        const bool terrainChanged =
-            (t.useTerrainGround != m_plot->layerToggles().useTerrainGround);
+        // Re-sample when the RESOLVED source moves (rims ⇄ mesh ⇄ DEM) —
+        // mesh and DEM both set useTerrainGround, so compare the source.
+        const bool terrainChanged = (resolvedGroundSource() != m_lastGroundSource);
         m_plot->setLayerToggles(t);
         if (terrainChanged) {
             rebuildTerrainSamples();
             m_plot->setPath(m_pathStatic);
+            // setPath rebuilt the virtual-chainage table — re-share it.
+            syncTracksAxes();
         }
+        // 2D inundation overlay follows its option (Display Options tree or
+        // the toolbar toggle — both write the same property).
+        const bool want2D = m_options->show2DInundation();
+        if (m_actShow2D && m_actShow2D->isChecked() != want2D) {
+            QSignalBlocker b(m_actShow2D);
+            m_actShow2D->setChecked(want2D);
+        }
+        if (want2D != (m_surface2DLayer != nullptr))
+            rebuildSurface2DStations();
         // A plot-level line style the user just edited has to reach the
         // sources before the series are rebuilt from them — otherwise the
         // edit is invisible (see pushEditedPlotStylesToSources).
@@ -395,6 +510,7 @@ void ProfilePlotDialog::buildLayout()
                                              m_anim.data(),
                                              m_projectWindow.data(),
                                              this);
+        dlg->setTrackOptions(m_trackOptions);   // adds the Attribute Tracks tab
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->setWindowFlags(dlg->windowFlags()
                             | openswmmvis::ui::floatingPanelFlags());
@@ -457,9 +573,14 @@ void ProfilePlotDialog::buildLayout()
             this, tr("Export Profile Plot"),
             QString(), tr("PNG image (*.png)"));
         if (path.isEmpty()) return;
-        QPixmap pix(m_plot->size());
+        // Render the splitter contents — profile plus (when visible) the
+        // attribute tracks — so the export matches what the user sees.
+        QWidget *target = (m_tracks && m_tracks->isVisible())
+                              ? static_cast<QWidget *>(m_profileSplit)
+                              : static_cast<QWidget *>(m_plot);
+        QPixmap pix(target->size());
         pix.fill(Qt::white);
-        m_plot->render(&pix);
+        target->render(&pix);
         pix.save(path, "PNG");
     });
 
@@ -505,7 +626,28 @@ void ProfilePlotDialog::buildLayout()
             rebuildTerrainSamples();
             m_plot->setPath(m_pathStatic);
         });
+        // 2D inundation overlay follows the Analysis toolbar's active 2D
+        // results layer (swap / clear / load-after-open all re-sample).
+        connect(m_projectWindow, &SWMMVisProjectWindow::active2DResultsLayerChanged,
+                this, [this](SWMM2DResultsLayer *) {
+            rebuildSurface2DStations();
+        });
     }
+    // A mesh layer appearing / disappearing flips what `Auto` resolves to
+    // (and what an explicit Mesh2D can sample): re-derive the ground line.
+    if (m_canvas) {
+        auto onLayersChanged = [this, togglesFromOptions](OpenSWMMVisLayer *l) {
+            if (!qobject_cast<SWMM2DMeshLayer *>(l)) return;
+            rebuildTerrainSamples();
+            m_plot->setLayerToggles(togglesFromOptions(m_options));
+            m_plot->setPath(m_pathStatic);
+            syncTracksAxes();
+            rebuildSurface2DStations();
+        };
+        connect(m_canvas, &MapCanvas::layerAdded,   this, onLayersChanged);
+        connect(m_canvas, &MapCanvas::layerRemoved, this, onLayersChanged);
+    }
+    rebuildSurface2DStations();
 
     // Double-click in the plot → zoom the main map to that element.
     auto zoomCanvasToBounds = [this](double xMin, double yMin,
@@ -591,6 +733,16 @@ void ProfilePlotDialog::buildLayout()
             ? openswmmvis::plot::unitSystemFromFlowUnits(us->flowUnits())
             : openswmmvis::plot::UnitSystem::US;
     };
+    // Y2b-2 follow-up (amendment D-Y4): the species offered in the picker
+    // come from the project's ACTIVE 1D results layer — the same layer the
+    // overlay ComparisonPlotDialog will plot against — read live at menu
+    // time so a run swap between right-clicks stays honest.
+    auto speciesForMenu = [this]() -> QStringList {
+        if (!m_projectWindow) return {};
+        if (auto *rl = m_projectWindow->activeResultsLayer())
+            return rl->speciesNames();
+        return {};
+    };
 
     // Right-click "Plot Time Series…" mirrors the map view: instead of a
     // flat action we expose the same attribute-picker submenu (depth,
@@ -599,13 +751,13 @@ void ProfilePlotDialog::buildLayout()
     // routes into the ComparisonPlotDialog the same way as map clicks.
     connect(m_plot, &ProfilePlotWidget::nodeRightClicked, this,
             [this, zoomToNode, selectNode, openOptionsDialog,
-             resolvePlotUnitSystem](int idx, const QPoint &globalPos) {
+             resolvePlotUnitSystem, speciesForMenu](int idx, const QPoint &globalPos) {
         if (idx < 0 || idx >= m_pathStatic.nodes.size()) return;
         QMenu menu(this);
         QAction *zoomAct = menu.addAction(tr("Zoom to on map"));
         QMenu *plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
             openswmmvis::plot::ObjectRef::Kind::Node,
-            resolvePlotUnitSystem(), &menu);
+            resolvePlotUnitSystem(), &menu, speciesForMenu());
         if (plotSubmenu) {
             plotSubmenu->setTitle(tr("Plot Time Series…"));
             plotSubmenu->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Chart")));
@@ -621,19 +773,21 @@ void ProfilePlotDialog::buildLayout()
             SWMMObjectRef ref;
             ref.objectType = SWMMObjectRef::Node;
             ref.name       = m_pathStatic.nodes[idx].name;
+            // descriptorFrom tells fixed / species / sentinel apart —
+            // attributeFrom would read a species action as the sentinel.
             emit plotAttributeRequested(
-                ref, openswmmvis::ui::AttributePickerMenu::attributeFrom(chosen));
+                ref, openswmmvis::ui::AttributePickerMenu::descriptorFrom(chosen));
         }
     });
     connect(m_plot, &ProfilePlotWidget::linkRightClicked, this,
             [this, zoomToLink, selectLink, openOptionsDialog,
-             resolvePlotUnitSystem](int idx, const QPoint &globalPos) {
+             resolvePlotUnitSystem, speciesForMenu](int idx, const QPoint &globalPos) {
         if (idx < 0 || idx >= m_pathStatic.links.size()) return;
         QMenu menu(this);
         QAction *zoomAct = menu.addAction(tr("Zoom to on map"));
         QMenu *plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
             openswmmvis::plot::ObjectRef::Kind::Link,
-            resolvePlotUnitSystem(), &menu);
+            resolvePlotUnitSystem(), &menu, speciesForMenu());
         if (plotSubmenu) {
             plotSubmenu->setTitle(tr("Plot Time Series…"));
             plotSubmenu->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Chart")));
@@ -649,8 +803,10 @@ void ProfilePlotDialog::buildLayout()
             SWMMObjectRef ref;
             ref.objectType = SWMMObjectRef::Link;
             ref.name       = m_pathStatic.links[idx].name;
+            // descriptorFrom tells fixed / species / sentinel apart —
+            // attributeFrom would read a species action as the sentinel.
             emit plotAttributeRequested(
-                ref, openswmmvis::ui::AttributePickerMenu::attributeFrom(chosen));
+                ref, openswmmvis::ui::AttributePickerMenu::descriptorFrom(chosen));
         }
     });
     // Right-click on blank profile background still shows a context menu
@@ -798,6 +954,9 @@ void ProfilePlotDialog::populateSourcesPanel()
         ++total;
     }
     m_sourceButton->setText(tr("Sources (%1/%2)").arg(checked).arg(total));
+
+    // The source set defines which species the Tracks menu can offer.
+    refreshTracksMenuSpecies();
 }
 
 void ProfilePlotDialog::subscribeProjectClose(SWMMVisProjectWindow *pw)
@@ -1052,8 +1211,11 @@ void ProfilePlotDialog::rebindSources()
         QVector<ProfilePlotWidget::SeriesBinding> bindings;
         QHash<SWMMResultsLayer *,
               std::shared_ptr<ProfileBuilder::SourceDerived>> freshEntries;
+        QHash<SWMMResultsLayer *,
+              std::shared_ptr<ProfileBuilder::SourceSeries>> freshSeries;
     };
 
+    ++m_rebindsInFlight;
     auto future = QtConcurrent::run(
         [jobs, pathSnapshot, gravity, cacheSnapshot,
          optCurrentHglLine, optCurrentHglFill, optCurrentEgl,
@@ -1074,11 +1236,12 @@ void ProfilePlotDialog::rebindSources()
             if (cacheIt != cacheSnapshot.constEnd() && *cacheIt) {
                 derived = *cacheIt;
             } else {
-                auto series = ProfileSourceFetcher::fetch(j.layer, pathSnapshot,
-                                                            j.sourceId);
+                auto series = std::make_shared<ProfileBuilder::SourceSeries>(
+                    ProfileSourceFetcher::fetch(j.layer, pathSnapshot, j.sourceId));
                 derived = std::make_shared<ProfileBuilder::SourceDerived>(
-                    ProfileBuilder::compute(pathSnapshot, series, gravity));
+                    ProfileBuilder::compute(pathSnapshot, *series, gravity));
                 result.freshEntries.insert(j.layer.data(), derived);
+                result.freshSeries.insert(j.layer.data(), series);
             }
 
             auto pushSeries = [&](K kind, const QString &suffix,
@@ -1153,6 +1316,7 @@ void ProfilePlotDialog::rebindSources()
     auto *watcher = new QFutureWatcher<RebindResult>(this);
     connect(watcher, &QFutureWatcher<RebindResult>::finished,
             this, [this, watcher, cookie]() {
+        --m_rebindsInFlight;
         if (cookie == m_loadCookie) {
             const RebindResult r = watcher->result();
             // Merge newly-fetched entries into the live cache and wire
@@ -1161,6 +1325,7 @@ void ProfilePlotDialog::rebindSources()
             for (auto it = r.freshEntries.constBegin();
                  it != r.freshEntries.constEnd(); ++it) {
                 m_sourceCache.insert(it.key(), it.value());
+                m_sourceSeriesCache.insert(it.key(), r.freshSeries.value(it.key()));
                 ensureCacheInvalidationWired(it.key());
             }
             m_plot->setSeries(r.bindings);
@@ -1171,6 +1336,11 @@ void ProfilePlotDialog::rebindSources()
                 if (auto *primary = m_anim->primaryLayer())
                     onAnimationTimeChanged(primary->currentDateTime());
             }
+            // setSeries recomputed the profile's bounds/virtual table —
+            // re-share the axes and rebuild the tracks pane against the
+            // (possibly changed) checked-source set.
+            syncTracksAxes();
+            rebuildTracks();
         }
         watcher->deleteLater();
     });
@@ -1181,6 +1351,12 @@ void ProfilePlotDialog::invalidateSourceCacheFor(SWMMResultsLayer *layer)
 {
     if (!layer) return;
     m_sourceCache.remove(layer);
+    m_sourceSeriesCache.remove(layer);
+    // Attribute-tracks cache entries for this layer are equally stale.
+    for (auto it = m_attrCache.begin(); it != m_attrCache.end();) {
+        if (it.key().first == layer) it = m_attrCache.erase(it);
+        else                         ++it;
+    }
 }
 
 void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
@@ -1190,32 +1366,156 @@ void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
     m_cacheWired.insert(layer);
 
     // New `.out` opened on this layer (re-run, "Open Results", etc.) →
-    // the cached SourceDerived is now stale.
+    // the cached SourceDerived is now stale — and the run's species list
+    // may have changed, so the Tracks menu's species entries follow.
     connect(layer, &SWMMResultsLayer::resultsOpened,
-            this, [this, layer]() { invalidateSourceCacheFor(layer); });
+            this, [this, layer]() {
+                invalidateSourceCacheFor(layer);
+                refreshTracksMenuSpecies();
+            });
     // Layer pointed at a different results file.
     connect(layer, &SWMMResultsLayer::resultsFilePathChanged,
             this, [this, layer]() { invalidateSourceCacheFor(layer); });
+    // Live 1D results: the run is still writing this layer's .out and new
+    // periods just became readable — append them in place rather than
+    // dropping the cache (which would refetch the whole file every tick).
+    connect(layer, &SWMMResultsLayer::periodsAppended,
+            this, [this, layer](int, int) { appendLivePeriods(layer); });
     // Layer destroyed → drop the cache entry AND the wired flag so the
     // hash never holds a dangling key.
     connect(layer, &QObject::destroyed,
             this, [this, layer]() {
-                m_sourceCache.remove(layer);
+                invalidateSourceCacheFor(layer);   // source + attribute caches
                 m_cacheWired.remove(layer);
+                // Discard any in-flight fetch: its result hash is keyed by
+                // this (now dangling) raw pointer, and merging it would both
+                // cache a dead key and re-wire signals on a destroyed
+                // object. The next rebind/rebuild starts clean.
+                ++m_loadCookie;
+                ++m_trackLoadCookie;
             });
+}
+
+void ProfilePlotDialog::appendLivePeriods(SWMMResultsLayer *layer)
+{
+    if (!layer || !m_plot) return;
+    // A worker may be reading the cached SourceDerived right now; mutating
+    // it here would race. Skip — the next tick's appendTail starts from
+    // series.periodCount and catches up on everything missed.
+    if (m_rebindsInFlight > 0) return;
+
+    auto series  = m_sourceSeriesCache.value(layer);
+    auto derived = m_sourceCache.value(layer);
+    if (!series || !derived) {
+        // Nothing cached (layer not checked as a source yet, or evicted):
+        // a full rebind is the correct path and is cheap for a short file.
+        invalidateSourceCacheFor(layer);
+        rebindSources();
+        return;
+    }
+
+    const bool grew =
+        ProfileSourceFetcher::appendTail(layer, m_pathStatic, *series) &&
+        ProfileBuilder::appendPeriods(m_pathStatic, *series,
+                                      ProfileBuilder::kGravityFps2, *derived);
+    if (!grew) {
+        invalidateSourceCacheFor(layer);
+        rebindSources();
+        return;
+    }
+
+    // Every SeriesBinding holds a shared_ptr to the derived we just grew;
+    // re-set the same bindings so the widget refits its bounds and repaints.
+    m_plot->setSeries(m_plot->series());
+    syncTracksAxes();
+    // Attribute tracks read their own series from the layer — drop this
+    // layer's cached tracks so the pane re-reads the grown file. The re-read
+    // is a full-range fetch of every visible track, so it is throttled to one
+    // per 2 s (leading edge): a 1 Hz run used to refetch everything per tick,
+    // O(periods) each, i.e. quadratic over the run.
+    auto dropAndRebuild = [this](SWMMResultsLayer *l) {
+        for (auto it = m_attrCache.begin(); it != m_attrCache.end();) {
+            if (it.key().first == l) it = m_attrCache.erase(it);
+            else                     ++it;
+        }
+        rebuildTracks();
+    };
+    if (!m_liveTracksWired) {
+        m_liveTracksWired = true;
+        m_liveTracksThrottle.setSingleShot(true);
+        m_liveTracksThrottle.setInterval(2000);
+        connect(&m_liveTracksThrottle, &QTimer::timeout, this, [this, dropAndRebuild]() {
+            if (!m_liveTracksPending || !m_liveTracksLayer) return;
+            m_liveTracksPending = false;
+            dropAndRebuild(m_liveTracksLayer.data());
+            m_liveTracksThrottle.start();
+        });
+    }
+    m_liveTracksLayer = layer;
+    if (m_liveTracksThrottle.isActive()) { m_liveTracksPending = true; return; }
+    dropAndRebuild(layer);
+    m_liveTracksThrottle.start();
 }
 
 // ---------------------------------------------------------------------------
 // Animation-cursor sync
 // ---------------------------------------------------------------------------
 
+SWMM2DMeshLayer *ProfilePlotDialog::firstMeshLayer() const
+{
+    if (!m_canvas) return nullptr;
+    for (OpenSWMMVisLayer *l : m_canvas->layers())
+        if (auto *m = qobject_cast<SWMM2DMeshLayer *>(l)) return m;
+    return nullptr;
+}
+
+ProfilePlotOptions::GroundSource ProfilePlotDialog::resolvedGroundSource() const
+{
+    using GS = ProfilePlotOptions::GroundSource;
+    const GS s = m_options ? m_options->groundSource() : GS::Auto;
+    if (s != GS::Auto) return s;
+    return firstMeshLayer() ? GS::Mesh2D : GS::NodeRims;
+}
+
 void ProfilePlotDialog::rebuildTerrainSamples()
 {
+    using GS = ProfilePlotOptions::GroundSource;
     m_pathStatic.terrainSamples.clear();
-    if (!m_options || !m_options->useTerrainGround()) return;
-    if (!m_projectWindow || !m_model)                                   return;
-    if (m_routerPath.linkIds.size() + 1 != m_routerPath.nodes.size())   return;
-    if (m_pathStatic.chainage.size() != m_pathStatic.nodes.size())      return;
+    if (m_groundMesh)
+        disconnect(m_groundMesh.data(), nullptr, this, nullptr);
+    m_groundMesh = nullptr;
+    if (!m_options || !m_projectWindow || !m_model) return;
+
+    const GS source = resolvedGroundSource();
+    m_lastGroundSource = source;
+
+    if (source == GS::Mesh2D) {
+        // Ground = 2D mesh vertex elevations, barycentrically interpolated at
+        // every path station (same sampler as the 2D mesh profile). Stations
+        // off the mesh are skipped, so partial coverage leaves the node row
+        // to carry the rest.
+        SWMM2DMeshLayer *mesh = firstMeshLayer();
+        if (!mesh) return;
+        forEachPathStationScene([&](double chain, const QPointF &sp) {
+            const double z = mesh->sampleZAt(sp.x(), sp.y());
+            if (std::isfinite(z))
+                m_pathStatic.terrainSamples.push_back(QPointF(chain, z));
+        });
+        // Vertex-Z edits / remesh / deferred geometry → re-sample.
+        m_groundMesh = mesh;
+        auto resample = [this] {
+            rebuildTerrainSamples();
+            m_plot->setPath(m_pathStatic);
+            syncTracksAxes();
+        };
+        connect(mesh, &SWMM2DMeshLayer::meshEditsChanged,   this, resample);
+        connect(mesh, &SWMM2DMeshLayer::sceneGeometryReady, this, resample);
+        connect(mesh, &SWMM2DMeshLayer::attributeChanged,   this,
+                [resample](const QString &) { resample(); });
+        return;
+    }
+
+    if (source != GS::TerrainDEM) return;   // NodeRims: no samples
 
     // Live-look up the *current* terrain + vertical factor + canvas SRS
     // from the project window so the ground line always reflects the
@@ -1227,32 +1527,55 @@ void ProfilePlotDialog::rebuildTerrainSamples()
     const SpatialReferenceSystem *canvasSRS =
         m_canvas ? m_canvas->canvasSRS() : nullptr;
 
-    constexpr int    kMaxSamplesPerSegment = 20;
-    constexpr double kSampleStepHint       = 5.0;  // model units
+    // GISRasterLayer::valueAt expects coords in the *canvas* CRS (it does
+    // its own canvas→raster transform internally); forEachPathStationScene
+    // delivers canvas-CRS x and NEGATED y, so undo the flip here.
+    forEachPathStationScene([&](double chain, const QPointF &sp) {
+        bool ok = false;
+        const double zRaw = terrain->valueAt(sp.x(), -sp.y(), canvasSRS, /*band=*/1, &ok);
+        if (!ok || !std::isfinite(zRaw)) return;   // outside DEM
+        // Convert raster vertical unit → model vertical unit so
+        // the ground line lines up with the node inverts / rims.
+        const double z = zRaw * terrainFactor;
+        m_pathStatic.terrainSamples.push_back(QPointF(chain, z));
+    });
+}
 
+void ProfilePlotDialog::forEachPathStationScene(
+    const std::function<void(double, const QPointF &)> &fn) const
+{
+    if (!m_canvas || !m_model) return;
     // The model's cached node / polyline coords live in the *model layer*
-    // CRS.  GISRasterLayer::valueAt expects coords in the *canvas* CRS
-    // (it does its own canvas→raster transform internally).  When the
-    // two differ we have to project each model-CRS sample into canvas-CRS
-    // first, otherwise we'd sample the raster at the wrong pixel and the
-    // ground line ends up misaligned with the network.
+    // CRS. Project each station into the canvas CRS when the two differ,
+    // otherwise DEM / mesh samples land at the wrong place and the ground
+    // line ends up misaligned with the network. The 2D scene is the canvas
+    // CRS with Y negated (SWMM2DResultsLayer / SWMM2DMeshLayer convention).
+    const SpatialReferenceSystem *canvasSRS = m_canvas->canvasSRS();
     SpatialReferenceSystem *modelSRS = m_model->srs();
     OGRCoordinateTransformation *modelToCanvas = nullptr;
-    const bool needTransform =
-        (modelSRS && canvasSRS && !modelSRS->equals(*canvasSRS));
-    if (needTransform)
+    if (modelSRS && canvasSRS && !modelSRS->equals(*canvasSRS))
         modelToCanvas = modelSRS->createTransformationTo(*canvasSRS);
 
-    auto sampleZ = [terrain, canvasSRS, modelToCanvas](double mx, double my, bool &ok) {
+    forEachPathStation([&](double chain, double mx, double my) {
         double cx = mx, cy = my;
         if (modelToCanvas) {
             double tx = mx, ty = my;
-            if (modelToCanvas->Transform(1, &tx, &ty)) {
-                cx = tx; cy = ty;
-            }
+            if (modelToCanvas->Transform(1, &tx, &ty)) { cx = tx; cy = ty; }
         }
-        return terrain->valueAt(cx, cy, canvasSRS, /*band=*/1, &ok);
-    };
+        fn(chain, QPointF(cx, -cy));
+    });
+    if (modelToCanvas) OGRCoordinateTransformation::DestroyCT(modelToCanvas);
+}
+
+void ProfilePlotDialog::forEachPathStation(
+    const std::function<void(double, double, double)> &fn) const
+{
+    if (!m_model) return;
+    if (m_routerPath.linkIds.size() + 1 != m_routerPath.nodes.size())   return;
+    if (m_pathStatic.chainage.size() != m_pathStatic.nodes.size())      return;
+
+    constexpr int    kMaxSamplesPerSegment = 20;
+    constexpr double kSampleStepHint       = 5.0;  // model units
 
     for (int li = 0; li < m_routerPath.linkIds.size(); ++li) {
         const int engLink = m_routerPath.linkIds[li];
@@ -1305,19 +1628,88 @@ void ProfilePlotDialog::rebuildTerrainSamples()
                 const double x  = a.x() + t * (b.x() - a.x());
                 const double y  = a.y() + t * (b.y() - a.y());
                 const double pd = cumPoly[v] + t * segLen;
-                bool ok = false;
-                const double zRaw = sampleZ(x, y, ok);
-                if (!ok || !std::isfinite(zRaw)) continue;   // outside DEM
-                // Convert raster vertical unit → model vertical unit so
-                // the ground line lines up with the node inverts / rims.
-                const double z = zRaw * terrainFactor;
-                m_pathStatic.terrainSamples.push_back(
-                    QPointF(chainForPoly(pd), z));
+                fn(chainForPoly(pd), x, y);
             }
         }
     }
+}
 
-    if (modelToCanvas) OGRCoordinateTransformation::DestroyCT(modelToCanvas);
+// ---------------------------------------------------------------------------
+// 2D inundation overlay
+// ---------------------------------------------------------------------------
+
+void ProfilePlotDialog::rebuildSurface2DStations()
+{
+    m_surface2D.clear();
+    if (m_surface2DLayer)
+        disconnect(m_surface2DLayer.data(), nullptr, this, nullptr);
+    m_surface2DLayer = nullptr;
+
+    auto clearPlot = [this] { m_plot->setSurface2DSamples({}); };
+    if (!m_options || !m_options->show2DInundation()) { clearPlot(); return; }
+    if (!m_projectWindow || !m_model || !m_canvas)   { clearPlot(); return; }
+
+    SWMM2DResultsLayer *results = m_projectWindow->active2DResultsLayer();
+    if (!results || !results->source())               { clearPlot(); return; }
+
+    // Bed elevation comes from the mesh layer's triangulation (the same
+    // sampler the 2D mesh profile uses); the results layer has no z field.
+    SWMM2DMeshLayer *mesh = firstMeshLayer();
+    if (!mesh)                                        { clearPlot(); return; }
+
+    forEachPathStationScene([&](double chain, const QPointF &sp) {
+        const double bed = mesh->sampleZAt(sp.x(), sp.y());
+        if (!std::isfinite(bed)) return;                 // off the mesh
+        const int tri = results->pickCellAt(sp);
+        if (tri < 0) return;
+        Surface2DStation st;
+        st.chainage = chain;
+        st.scenePt  = sp;
+        st.triIdx   = tri;
+        st.bed      = bed;
+        m_surface2D.push_back(st);
+    });
+
+    if (m_surface2D.isEmpty())                        { clearPlot(); return; }
+
+    m_surface2DLayer = results;
+    // Frame changes (canvas animation of a visible layer, or our own
+    // setCurrentSimTimeAsOf from onAnimationTimeChanged) → re-read depths.
+    connect(results, &SWMM2DResultsLayer::currentTimeChanged,
+            this, [this](int) { refreshSurface2DDepths(); });
+    connect(results, &QObject::destroyed, this, [this] {
+        m_surface2D.clear();
+        m_surface2DLayer = nullptr;
+        m_plot->setSurface2DSamples({});
+    });
+    refreshSurface2DDepths();
+}
+
+void ProfilePlotDialog::refreshSurface2DDepths()
+{
+    QVector<ProfilePlotWidget::Surface2DSample> out;
+    if (m_surface2DLayer && !m_surface2D.isEmpty()) {
+        out.reserve(m_surface2D.size());
+        // 2D depths are engine SI metres; the bed (mesh layer) and the 1D
+        // profile are in project units (feet on a US model). Bring the depth
+        // onto the mesh's vertical units before adding it to the bed.
+        const double dToMesh = m_surface2DLayer->depthToMeshUnits();
+        for (const Surface2DStation &st : m_surface2D) {
+            ProfilePlotWidget::Surface2DSample s;
+            s.chainage = st.chainage;
+            s.bed      = st.bed;
+            // WSE = bed + barycentric depth, only where the cell carries a
+            // valid free surface this frame; dry / no-data stations stay
+            // NaN and render as gaps (same rule as the 2D mesh profile).
+            if (m_surface2DLayer->cellHasSurface(st.triIdx)) {
+                const double d = m_surface2DLayer->depthAtCellInterp(st.triIdx, st.scenePt)
+                                 * dToMesh;
+                if (std::isfinite(d) && d > 0.0) s.wse = st.bed + d;
+            }
+            out.push_back(s);
+        }
+    }
+    m_plot->setSurface2DSamples(out);
 }
 
 void ProfilePlotDialog::onAnimationTimeChanged(const QDateTime &dt)
@@ -1328,4 +1720,465 @@ void ProfilePlotDialog::onAnimationTimeChanged(const QDateTime &dt)
     const int period = primary->periodIndexForDateTime(dt);
     m_plot->setCurrentPeriod(/*sourceIdx=*/0, period);
     m_plot->setCurrentDateTime(dt);
+    if (m_tracks)
+        m_tracks->setCurrentPeriod(period);
+    // Advance the 2D layer ourselves: the canvas only steps VISIBLE 2D
+    // layers, so a hidden layer's overlay would otherwise freeze. No-op
+    // when already on that frame; currentTimeChanged → refreshSurface2DDepths.
+    if (m_surface2DLayer)
+        m_surface2DLayer->setCurrentSimTimeAsOf(dt);
+}
+
+// ---------------------------------------------------------------------------
+// Attribute tracks (synced pane below the profile)
+// ---------------------------------------------------------------------------
+
+void ProfilePlotDialog::buildAttributeTracksUi(QToolBar *toolbar)
+{
+    using openswmmvis::plot::PlotAttribute;
+    using openswmmvis::plot::labelFor;
+
+    // ── Toolbar: "Tracks ▾" attribute picker + master show/hide toggle ──
+    auto *tracksButton = new QToolButton(toolbar);
+    tracksButton->setText(tr("Tracks"));
+    tracksButton->setIcon(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")));
+    tracksButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    tracksButton->setPopupMode(QToolButton::InstantPopup);
+    tracksButton->setToolTip(
+        tr("Attribute Tracks — add profile charts of node/link attributes "
+           "below the plot, x-axis synced to the profile"));
+    m_tracksMenu = new QMenu(tracksButton);
+    tracksButton->setMenu(m_tracksMenu);
+    toolbar->addSeparator();
+    toolbar->addWidget(tracksButton);
+
+    // Checkable menu entries — one per trackable attribute, grouped.
+    // QAction::setData carries the enum so one handler serves all.
+    // (Species entries carry a QString token instead — see
+    // refreshTracksMenuSpecies; the data's variant TYPE tells them apart.)
+    auto addAttrActions = [this](const QString &sectionTitle,
+                                 const QVector<PlotAttribute> &attrs) {
+        QAction *section = m_tracksMenu->addSection(sectionTitle);
+        for (PlotAttribute a : attrs) {
+            QAction *act = m_tracksMenu->addAction(labelFor(a));
+            act->setCheckable(true);
+            act->setChecked(m_trackOptions->isAttributeVisible(a));
+            act->setData(int(a));
+            connect(act, &QAction::toggled, this, [this, a](bool on) {
+                // Options object is the single source of truth; its
+                // changed() drives the rebuild and menu re-sync.
+                m_trackOptions->setAttributeVisible(a, on);
+            });
+        }
+        return section;
+    };
+    addAttrActions(tr("Node attributes"),
+                   openswmmvis::plot::nodePlotAttributes());
+    m_tracksLinkSection =
+        addAttrActions(tr("Link attributes"),
+                       openswmmvis::plot::linkPlotAttributes());
+    refreshTracksMenuSpecies();
+
+    // Master show/hide toggle. Named ⇒ its checked state persists via the
+    // DialogLayoutWatcher toggle group, like ComparisonPlotDialog's panel
+    // toggles.
+    m_actShowTracks = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("AttributeTracks")),
+        tr("Show Attribute Tracks"));
+    m_actShowTracks->setObjectName(QStringLiteral("showAttributeTracks"));
+    m_actShowTracks->setCheckable(true);
+    m_actShowTracks->setChecked(true);
+    connect(m_actShowTracks, &QAction::toggled, this, [this](bool on) {
+        if (!on && m_profileSplit && m_tracksScroll
+            && m_tracksScroll->isVisible()) {
+            // Remember the expanded proportions for the re-show.
+            const QList<int> sizes = m_profileSplit->sizes();
+            if (sizes.size() == 2 && sizes[1] >= kTracksPaneMinHeightPx)
+                m_lastSplitSizes = sizes;
+        }
+        updateTracksPaneVisibility();   // re-show also re-expands the pane
+    });
+
+    // Remember the user's split so a hide/re-show round-trips it.
+    connect(m_profileSplit, &QSplitter::splitterMoved, this, [this]() {
+        if (!m_tracksScroll || !m_tracksScroll->isVisible()) return;
+        const QList<int> sizes = m_profileSplit->sizes();
+        if (sizes.size() == 2 && sizes[1] >= kTracksPaneMinHeightPx)
+            m_lastSplitSizes = sizes;
+    });
+
+    // ── X-axis sync, both directions, one re-entrancy guard ────────────
+    connect(m_plot, &ProfilePlotWidget::visibleXRangeChanged, this,
+            [this](double vxMin, double vxMax) {
+        if (m_syncingX) return;
+        m_syncingX = true;
+        m_tracks->setVisibleXRange(vxMin, vxMax);
+        m_syncingX = false;
+    });
+    connect(m_tracks, &ProfileAttributeTracksWidget::visibleXRangeChanged,
+            this, [this](double vxMin, double vxMax) {
+        if (m_syncingX) return;
+        m_syncingX = true;
+        m_plot->setVisibleXRange(vxMin, vxMax);
+        m_syncingX = false;
+    });
+
+    // ── Options changed → persist, re-sync menu checks, rebuild ────────
+    connect(m_trackOptions, &ProfileAttributeTrackOptions::changed, this,
+            [this]() {
+        QSettings s;
+        s.beginGroup(QLatin1String(kTrackSettingsGroup));
+        m_trackOptions->writeTo(s);
+        s.endGroup();
+        // Menu checks follow the options object (the Display Options tree
+        // edits the same instance) — block the actions' toggled() so this
+        // re-sync can't loop back into setAttributeVisible.
+        if (m_tracksMenu) {
+            const auto acts = m_tracksMenu->actions();
+            for (QAction *act : acts) {
+                if (!act->isCheckable() || !act->data().isValid()) continue;
+                QSignalBlocker block(act);
+                // Species entries carry the scope-qualified token as a
+                // QString; fixed attributes carry the enum as an int.
+                if (act->data().typeId() == QMetaType::QString) {
+                    const QString token = act->data().toString();
+                    const bool nodeScope =
+                        token.endsWith(QLatin1String("@node"));
+                    act->setChecked(m_trackOptions->isSpeciesTrackVisible(
+                        token.left(token.size() - 5), nodeScope));
+                } else {
+                    const auto a = PlotAttribute(act->data().toInt());
+                    act->setChecked(m_trackOptions->isAttributeVisible(a));
+                }
+            }
+        }
+        rebuildTracks();
+    });
+
+    syncTracksAxes();
+    updateTracksPaneVisibility();
+    // Initial data load happens through rebindSources() → rebuildTracks().
+}
+
+void ProfilePlotDialog::refreshTracksMenuSpecies()
+{
+    // Y2b-2 follow-up (amendment D-Y4): one checkable entry per species ×
+    // scope, sitting with its scope's fixed attributes. The offered set is
+    // the union across the current source layers — a species only one
+    // overlay run carries is still trackable (the other sources render an
+    // empty row for it, same as any element they don't know).
+    if (!m_tracksMenu || !m_trackOptions) return;
+
+    for (QAction *act : std::as_const(m_speciesTrackActions)) {
+        m_tracksMenu->removeAction(act);
+        delete act;
+    }
+    m_speciesTrackActions.clear();
+
+    QStringList species;
+    const QList<SWMMResultsLayer *> layers =
+        openswmmvis::ui::profileResultSources(m_anim.data(),
+                                              m_projectWindow.data(),
+                                              m_canvas.data());
+    for (SWMMResultsLayer *l : layers) {
+        if (!l) continue;
+        for (const QString &sp : l->speciesNames())
+            if (!sp.isEmpty() && !species.contains(sp))
+                species.append(sp);
+    }
+    if (species.isEmpty()) return;
+
+    auto addSpeciesAction = [this](const QString &sp, bool nodeScope,
+                                   QAction *before) {
+        const auto d = openswmmvis::plot::ResultDescriptor::forSpecies(sp);
+        auto *act = new QAction(d.label(), m_tracksMenu);
+        act->setCheckable(true);
+        act->setChecked(m_trackOptions->isSpeciesTrackVisible(sp, nodeScope));
+        act->setData(sp + (nodeScope ? QLatin1String("@node")
+                                     : QLatin1String("@link")));
+        connect(act, &QAction::toggled, this, [this, sp, nodeScope](bool on) {
+            m_trackOptions->setSpeciesTrackVisible(sp, nodeScope, on);
+        });
+        if (before) m_tracksMenu->insertAction(before, act);
+        else        m_tracksMenu->addAction(act);
+        m_speciesTrackActions.push_back(act);
+    };
+    for (const QString &sp : std::as_const(species))
+        addSpeciesAction(sp, /*nodeScope=*/true, m_tracksLinkSection);
+    for (const QString &sp : std::as_const(species))
+        addSpeciesAction(sp, /*nodeScope=*/false, nullptr);
+}
+
+void ProfilePlotDialog::updateTracksPaneVisibility()
+{
+    if (!m_tracksScroll || !m_profileSplit) return;
+    const bool any  = m_trackOptions && m_trackOptions->anyAttributeVisible();
+    const bool show = any && (!m_actShowTracks || m_actShowTracks->isChecked());
+    if (m_actShowTracks) m_actShowTracks->setEnabled(any);
+    // Hiding the pane also hides the splitter handle — with no attribute
+    // selected the dialog looks exactly as it did before this feature.
+    m_tracksScroll->setVisible(show);
+    if (show) ensureTracksPaneExpanded();
+    syncTracksGutter();   // hidden pane ⇒ give the plot its full width back
+}
+
+void ProfilePlotDialog::ensureTracksPaneExpanded()
+{
+    if (!m_profileSplit || !m_tracksScroll) return;
+    QList<int> sizes = m_profileSplit->sizes();
+    if (sizes.size() != 2) return;
+    // A zero / sliver pane is what a persisted collapsed split (older
+    // sessions could drag it to zero) or a fresh show() leaves behind, and
+    // it reads as "the tracks never appeared". Restore the last good split,
+    // else fall back to the 3:1 default.
+    if (sizes[1] >= kTracksPaneMinHeightPx) return;
+    if (m_lastSplitSizes.size() == 2 && m_lastSplitSizes[1] >= kTracksPaneMinHeightPx) {
+        m_profileSplit->setSizes(m_lastSplitSizes);
+        return;
+    }
+    const int total = std::max(sizes[0] + sizes[1], 4 * kTracksPaneMinHeightPx);
+    const int tracks = std::max(kTracksPaneMinHeightPx, total / 4);
+    m_profileSplit->setSizes({ total - tracks, tracks });
+}
+
+void ProfilePlotDialog::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    // DialogLayoutWatcher restores the named splitter's state synchronously
+    // during this same Show — possibly a zero-height tracks pane persisted
+    // by an older session that could still drag-collapse it. The toggle is
+    // the source of truth: if it says shown, make sure the pane actually
+    // has height once the restore has settled.
+    QTimer::singleShot(0, this, [this]() {
+        if (!m_tracksScroll || !m_tracksScroll->isVisible()) return;
+        ensureTracksPaneExpanded();
+    });
+}
+
+bool ProfilePlotDialog::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_tracks && event->type() == QEvent::Resize)
+        syncTracksGutter();
+    return QDialog::eventFilter(watched, event);
+}
+
+void ProfilePlotDialog::syncTracksGutter()
+{
+    if (!m_plotHolder || !m_tracksScroll) return;
+    // How much narrower the tracks widget is than the pane it sits in — the
+    // vertical scrollbar, or 0 where the style draws it as an overlay. With
+    // the pane hidden there is nothing to line up with, and the plot must get
+    // the full width back (§3.1: no attribute selected ⇒ dialog looks exactly
+    // as it did before this feature).
+    const int deficit = m_tracksScroll->isVisible()
+        ? std::max(0, m_tracksScroll->width()
+                      - m_tracksScroll->viewport()->width())
+        : 0;
+    auto *lay = m_plotHolder->layout();
+    if (!lay) return;
+    const QMargins m = lay->contentsMargins();
+    if (m.right() == deficit) return;
+    lay->setContentsMargins(m.left(), m.top(), deficit, m.bottom());
+}
+
+void ProfilePlotDialog::syncTracksAxes()
+{
+    if (!m_tracks || !m_plot) return;
+    syncTracksGutter();
+    m_tracks->setVirtualChainage(m_plot->virtualChainageTable());
+    m_tracks->setHorizontalMargins(ProfilePlotWidget::chartLeftMarginPx(),
+                                   ProfilePlotWidget::chartRightMarginPx());
+    m_tracks->setRealChainageMapper(
+        [plot = QPointer<ProfilePlotWidget>(m_plot)](double vx) {
+            return plot ? plot->virtualToRealChainage(vx) : vx;
+        });
+    const QRectF r = m_plot->visibleDataRange();
+    m_tracks->setVisibleXRange(r.left(), r.right());
+
+    auto *us = m_projectWindow ? m_projectWindow->unitSystem()
+                               : UnitSystem::instance();
+    const QString unit = us ? us->lengthLabel() : QString();
+    m_tracks->setXLabel(unit.isEmpty() ? tr("Distance")
+                                       : tr("Distance (%1)").arg(unit));
+}
+
+void ProfilePlotDialog::rebuildTracks()
+{
+    using openswmmvis::plot::PlotAttribute;
+    if (!m_tracks || !m_trackOptions) return;
+
+    updateTracksPaneVisibility();
+
+    const QVector<PlotAttribute> attrs = m_trackOptions->visibleAttributes();
+    const QVector<QPair<QString, bool>> speciesTracks =
+        m_trackOptions->visibleSpeciesTracks();
+    if ((attrs.isEmpty() && speciesTracks.isEmpty()) || !m_sourceMenu) {
+        m_tracks->setTracks({});
+        return;
+    }
+
+    // ── Collect checked sources (GUI thread — safe QObject reads) ──────
+    struct TrackJob {
+        QString sourceId;
+        QColor  color;
+        bool    primary = false;
+        QPointer<SWMMResultsLayer> layer;
+    };
+    QVector<TrackJob> jobs;
+    SWMMResultsLayer *primaryLayer = m_anim ? m_anim->primaryLayer() : nullptr;
+    const auto actions = m_sourceMenu->actions();
+    for (QAction *act : actions) {
+        if (!act || !act->isChecked()) continue;
+        QPointer<SWMMResultsLayer> layer = m_actionLayer.value(act);
+        if (!layer) continue;
+        TrackJob j;
+        j.sourceId = layer->scenarioName().isEmpty()
+                         ? QFileInfo(layer->resultsFilePath()).completeBaseName()
+                         : layer->scenarioName();
+        j.color   = layer->profileLineColor();
+        j.primary = (layer.data() == primaryLayer);
+        j.layer   = layer;
+        jobs.push_back(j);
+    }
+    if (jobs.isEmpty()) {
+        m_tracks->setTracks({});
+        return;
+    }
+    // Envelopes are drawn for the primary source; if the animation primary
+    // isn't among the checked sources, promote the first so the band still
+    // has an owner.
+    if (std::none_of(jobs.cbegin(), jobs.cend(),
+                     [](const TrackJob &j) { return j.primary; }))
+        jobs[0].primary = true;
+
+    // ── Resolve titles/pens on the GUI thread ──────────────────────────
+    namespace P = openswmmvis::plot;
+    P::UnitSystem us = P::UnitSystem::US;
+    if (primaryLayer)
+        us = P::unitSystemFromFlowUnits(primaryLayer->flowUnits());
+    struct TrackSpec {
+        PlotAttribute attr = PlotAttribute::Unknown;
+        QString species;            ///< empty = fixed attribute track
+        bool    isNode = true;
+        QString title;
+        QPen    pen;
+        QString cacheKey;
+    };
+    QVector<TrackSpec> specs;
+    specs.reserve(attrs.size() + speciesTracks.size());
+    for (PlotAttribute a : attrs) {
+        TrackSpec spec;
+        spec.attr     = a;
+        spec.isNode   = ProfileAttributeSampler::isNodeAttribute(a);
+        spec.title    = P::labelWithUnits(a, us);
+        spec.pen      = m_trackOptions->penFor(a);
+        spec.cacheKey = QStringLiteral("a:%1").arg(int(a));
+        specs.push_back(spec);
+    }
+    // Species tracks (Y2b-2 follow-up) — name-keyed; a visible species no
+    // checked source carries (e.g. persisted from another model) is
+    // skipped rather than rendered as a permanently-empty track.
+    for (const auto &st : speciesTracks) {
+        const bool known = std::any_of(
+            jobs.cbegin(), jobs.cend(), [&st](const TrackJob &j) {
+                return j.layer && j.layer->speciesNames().contains(st.first);
+            });
+        if (!known) continue;
+        const auto d = P::ResultDescriptor::forSpecies(st.first);
+        TrackSpec spec;
+        spec.species  = st.first;
+        spec.isNode   = st.second;
+        spec.title    = tr("%1 (%2) — %3")
+                            .arg(d.label(), d.unitLabel(us),
+                                 st.second ? tr("nodes") : tr("links"));
+        spec.pen      = m_trackOptions->speciesTrackPenFor(st.first, st.second);
+        spec.cacheKey = st.first + (st.second ? QLatin1String("@node")
+                                              : QLatin1String("@link"));
+        specs.push_back(spec);
+    }
+    if (specs.isEmpty()) {
+        m_tracks->setTracks({});
+        return;
+    }
+
+    // ── Fetch off-thread; cookie guards stale returns (rebindSources
+    // pattern). Cache snapshot shares refcounted profiles with the worker.
+    const int  cookie        = ++m_trackLoadCookie;
+    const auto pathSnapshot  = m_pathStatic;
+    const auto cacheSnapshot = m_attrCache;
+
+    using TW = ProfileAttributeTracksWidget;
+    struct TracksResult {
+        QVector<TW::Track> tracks;
+        QHash<QPair<SWMMResultsLayer *, QString>,
+              std::shared_ptr<const ProfileAttributeSampler::AttributeProfile>>
+            fresh;
+    };
+
+    auto future = QtConcurrent::run(
+        [jobs, specs, pathSnapshot, cacheSnapshot]() -> TracksResult {
+        TracksResult res;
+        res.tracks.reserve(specs.size());
+        for (const TrackSpec &spec : specs) {
+            TW::Track t;
+            t.attribute       = spec.attr;
+            t.isNodeAttribute = spec.isNode;
+            t.title           = spec.title;
+            t.pen             = spec.pen;
+            for (const TrackJob &j : jobs) {
+                if (!j.layer) continue;
+                const auto key = qMakePair(j.layer.data(), spec.cacheKey);
+                std::shared_ptr<const ProfileAttributeSampler::AttributeProfile>
+                    prof;
+                if (const auto it = cacheSnapshot.constFind(key);
+                    it != cacheSnapshot.constEnd() && *it) {
+                    prof = *it;
+                } else if (const auto ft = res.fresh.constFind(key);
+                           ft != res.fresh.constEnd()) {
+                    prof = *ft;
+                } else {
+                    prof = std::make_shared<
+                        const ProfileAttributeSampler::AttributeProfile>(
+                        spec.species.isEmpty()
+                            ? ProfileAttributeSampler::fetch(
+                                  j.layer, pathSnapshot, spec.attr)
+                            : ProfileAttributeSampler::fetchSpecies(
+                                  j.layer, pathSnapshot, spec.species,
+                                  spec.isNode));
+                    res.fresh.insert(key, prof);
+                }
+                TW::SourceProfile sp;
+                sp.label   = j.sourceId;
+                sp.color   = j.color;
+                sp.primary = j.primary;
+                sp.data    = prof;
+                t.sources.push_back(sp);
+            }
+            res.tracks.push_back(t);
+        }
+        return res;
+    });
+
+    auto *watcher = new QFutureWatcher<TracksResult>(this);
+    connect(watcher, &QFutureWatcher<TracksResult>::finished,
+            this, [this, watcher, cookie]() {
+        if (cookie == m_trackLoadCookie) {
+            const TracksResult r = watcher->result();
+            for (auto it = r.fresh.constBegin(); it != r.fresh.constEnd();
+                 ++it) {
+                m_attrCache.insert(it.key(), it.value());
+                ensureCacheInvalidationWired(it.key().first);
+            }
+            m_tracks->setTracks(r.tracks);
+            // Land the animated curve on the current period straight away.
+            if (m_anim) {
+                if (auto *primary = m_anim->primaryLayer())
+                    m_tracks->setCurrentPeriod(primary->periodIndexForDateTime(
+                        primary->currentDateTime()));
+            }
+        }
+        watcher->deleteLater();
+    });
+    watcher->setFuture(future);
 }

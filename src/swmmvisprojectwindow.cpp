@@ -16,6 +16,11 @@
 #include "layers/swmmresultslayer.h"        // Slice QA.2 — registry hookup
 #include "layers/swmm2dresultslayer.h"      // active 2D analysis layer
 #include "mesh/meshenginesync.h"            // push mesh-layer edits into the engine before save
+#include "mesh/inpmeshreader.h"             // parse a browsed-for .2dm on import
+#include "mesh/inpmeshwriter.h"             // convert an SMS 2DM import to section format
+#include "mesh/meshcellgeom.h"
+#include "mesh/sms2dmreader.h"              // SMS / Aquaveo 2DM cards (G5)
+#include "mesh/meshcellgeom.h"              // edgeSlotCount for the BC SoA size check
 #include "mesh/inpmeshwriter.h"             // retarget [2D_MESH_FILE] after save
 #include "output/outputstatsregistry.h"     // Slice QA.2 — owns the registry
 #include "project/openswmmvisworkspace.h"
@@ -28,6 +33,7 @@
 #include "map/tools/maptoolselectprofile.h"
 #include "map/tools/maptooladdnode.h"
 #include "map/tools/maptooladdvirtualnode.h"
+#include "map/tools/maptooladdinletnode.h"
 #include "map/tools/maptooladdlink.h"
 #include "map/tools/maptooladdgage.h"
 #include "map/tools/maptooladdsubcatchment.h"
@@ -41,17 +47,22 @@
 #include "map/spatialreferencesystem.h"
 #include "ui/dialogs/crsselectiondialog.h"
 
+#include "core/loadprogress.h"
 #include "core/openswmmvislogmessage.h"
 #include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
 #include "map/openswmmvisscene.h"
 #include "plugins/filefilterregistry.h"
+#include "selection/gisselectionbridge.h"
 #include "selection/selectionmanager.h"
 #include "mesh/meshobjectref.h"             // MeshCell ref parsing for cell highlight
 
+#include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDebug>
+#include <QDir>
+#include <QElapsedTimer>
 #include <QLoggingCategory>
 #include <QEvent>
 #include <QFile>
@@ -73,6 +84,7 @@
 
 #include "core/measurementunitmanager.h"
 
+#include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
 
@@ -122,6 +134,13 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     mCanvas = new MapCanvas(this);
     setWidget(mCanvas);
 
+    // SVBC round B — GIS feature layers ↔ selection bus, both directions.
+    // A small owned QObject rather than inline lambdas (the SWMM bridge
+    // below) so it is testable with a bare canvas + manager fixture. It
+    // subscribes to layerAdded/layerRemoved itself, covering layers loaded
+    // at any point in the window's life.
+    new GisSelectionBridge(mSelectionManager, mCanvas, this);
+
     // Slice QA.2 — keep the stats registry in lockstep with the
     // canvas's SWMMResultsLayer set. layerAdded fires after the layer
     // is in the canvas's layer list; layerRemoved fires before removal
@@ -146,6 +165,10 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                              ? QStringLiteral("Untitled")
                              : QFileInfo(filePath).baseName());
     mModelLayer->setVisible(!filePath.isEmpty());
+    // Undo host for mediated edits made outside a map tool (the property
+    // panel's inlet-usage rows), so they land on the same stack as every
+    // map edit rather than mutating the engine unrecoverably.
+    mModelLayer->setEditCanvas(mCanvas);
 
     // Mirror the prefs' link colours into the layer's per-link-type
     // symbol structs. The painter / GL renderers read the full QPen
@@ -183,21 +206,23 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // below match the canonical "Junction" / "Outfall" / … forms.
     auto applyNodeStyleFromPreferences = [this]() {
         auto *prefs = PreferencesManager::instance();
-        const QString kinds[5] = {
+        const QString kinds[6] = {
             QStringLiteral("junction"),
             QStringLiteral("outfall"),
             QStringLiteral("storage"),
             QStringLiteral("divider"),
             QStringLiteral("virtual_junction"),
+            QStringLiteral("inlet_junction"),
         };
-        SWMMElementSymbol syms[5] = {
+        SWMMElementSymbol syms[6] = {
             mModelLayer->junctionSymbol(),
             mModelLayer->outfallSymbol(),
             mModelLayer->storageSymbol(),
             mModelLayer->dividerSymbol(),
             mModelLayer->virtualJunctionSymbol(),
+            mModelLayer->inletJunctionSymbol(),
         };
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 6; ++i) {
             const QBrush fill    = prefs->nodeBrush(kinds[i]);
             const QPen   outline = prefs->nodePen(kinds[i]);
             const double sizePx  = prefs->nodeSize(kinds[i]);
@@ -211,6 +236,13 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
         mModelLayer->setStorageSymbol(syms[2]);
         mModelLayer->setDividerSymbol(syms[3]);
         mModelLayer->setVirtualJunctionSymbol(syms[4]);
+        mModelLayer->setInletJunctionSymbol(syms[5]);
+        // The dashed connector overlay follows the inlet-junction colour so
+        // the relation and its node read as one thing (§3.2).
+        auto connector = mModelLayer->inletConnectorSymbol();
+        connector.fillColor    = syms[5].fillColor;
+        connector.outlineColor = syms[5].fillColor;
+        mModelLayer->setInletConnectorSymbol(connector);
     };
     applyNodeStyleFromPreferences();
 
@@ -322,6 +354,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // Pass element-kind keys so tools read the configurable prefix from PreferencesManager.
     mAddJunctionTool  = new OpenSWMMVisMapToolAddNode(mCanvas, 0, QStringLiteral("junction"),     this);
     mAddVirtualJunctionTool = new OpenSWMMVisMapToolAddVirtualNode(mCanvas, this);
+    mAddInletJunctionTool   = new OpenSWMMVisMapToolAddInletNode(mCanvas, this);
     mAddOutfallTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 1, QStringLiteral("outfall"),      this);
     mAddStorageTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 2, QStringLiteral("storage"),      this);
     mAddDividerTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 3, QStringLiteral("divider"),      this);
@@ -545,11 +578,11 @@ void SWMMVisProjectWindow::setElevationOffsetMode(bool elevation)
     emit offsetModeChanged(elevation);
 }
 
-void SWMMVisProjectWindow::convertLinkOffsets(bool toElevation)
+void SWMMVisProjectWindow::convertLinkOffsets(bool toElevation, bool convertValues)
 {
     if (!mModelLayer)
         return;
-    mModelLayer->convertLinkOffsets(toElevation);
+    mModelLayer->convertLinkOffsets(toElevation, convertValues);
     setHasChanges(true);
 }
 
@@ -558,6 +591,20 @@ namespace {
 // turns these on. Gated because the [postZoom] sample walks EVERY scene item
 // (167k on a large model) purely to report a count.
 Q_LOGGING_CATEGORY(lcLoadWindow, "openswmm.load.window")
+
+// Do the engine's 2D mesh and this layer's agree on size? Used by the save
+// path to confirm that a layer flagged "no unsaved mesh edits" really is still
+// in step with the engine before skipping the (very expensive) re-push. Counts
+// are the same discriminator pushMeshEditsToEngine itself uses to decide
+// whether an index-wise push is meaningful, and both calls are O(1).
+bool engineMeshMatches(SWMM_Engine engine, const mesh::MeshResult &m)
+{
+    if (!engine) return false;
+    int nv = 0, nt = 0;
+    if (swmm_2d_vertex_count(engine, &nv) != 0) return false;
+    if (swmm_2d_triangle_count(engine, &nt) != 0) return false;
+    return nv == m.vertices.size() && nt == m.triangles.size();
+}
 }  // namespace
 
 bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &errors)
@@ -567,7 +614,7 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
     return finishModelLoad(warnings, errors);
 }
 
-void SWMMVisProjectWindow::loadModelAsync()
+void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
 {
     // Engine create+open (the dominant load cost — full .inp parse) runs in a
     // worker thread so the GUI stays responsive and the status-bar busy
@@ -599,6 +646,24 @@ void SWMMVisProjectWindow::loadModelAsync()
     // engine instead of touching dead widgets.
     QPointer<SWMMVisProjectWindow> self(this);
     auto *watcher = new QFutureWatcher<AsyncOpenOutcome>();
+
+    // Determinate progress: the worker packs (stage, localPct) into the
+    // QPromise's single integer channel and this handler — on the GUI thread,
+    // courtesy of QFutureWatcher — unpacks it into the model. QPointer guards
+    // the model being retired while the worker is still running.
+    QPointer<OpenProgressModel> progressGuard(progress);
+    QObject::connect(watcher, &QFutureWatcherBase::progressValueChanged, watcher,
+                     [progressGuard](int packed) {
+        // packed == 0 is the valid encoding for (EngineParse, 0%), which is
+        // also what QFutureWatcher emits on reset — harmless either way, since
+        // a 0% local report cannot advance the monotonic model.
+        if (!progressGuard || packed < 0)
+            return;
+        const OpenStage stage = unpackLoadProgressStage(packed);
+        progressGuard->setStage(stage, unpackLoadProgressPct(packed),
+                                OpenProgressModel::stageLabel(stage));
+    });
+
     QObject::connect(watcher, &QFutureWatcherBase::finished, watcher,
                      [watcher, self, layer, wasVisible]() {
         const AsyncOpenOutcome outcome = watcher->result();
@@ -629,16 +694,29 @@ void SWMMVisProjectWindow::loadModelAsync()
         emit self->modelLoadFinished(ok, warnings, errors);
     });
 
-    watcher->setFuture(QtConcurrent::run([path, layer]() {
+    // QPromise overload (same shape MeshGenerationDialog uses) so the worker
+    // can report determinate progress. The range spans every stage the worker
+    // owns; see packLoadProgress() for the encoding.
+    watcher->setFuture(QtConcurrent::run(
+        [path, layer](QPromise<AsyncOpenOutcome> &promise) {
+        promise.setProgressRange(
+            0, packLoadProgress(OpenStage::GeomCache, 100));
+
         AsyncOpenOutcome outcome;
+        promise.setProgressValue(packLoadProgress(OpenStage::EngineParse, 0));
         outcome.engine = SWMMModelLayer::openEngineForPath(
             path, &outcome.errorDetail, &outcome.openMs);
+
         // SoA copy + buildGeometryCache on the worker (the old GUI-thread
         // freeze). No m_engine assignment / signals here — adoptOpenEngine
         // finalizes on the GUI thread.
-        if (outcome.engine)
-            layer->buildFromEngine(outcome.engine, &outcome.soaMs, &outcome.geomMs);
-        return outcome;
+        if (outcome.engine) {
+            promise.setProgressValue(packLoadProgress(OpenStage::SoaCopy, 0));
+            layer->buildFromEngine(outcome.engine, &outcome.soaMs,
+                                   &outcome.geomMs);
+            promise.setProgressValue(packLoadProgress(OpenStage::GeomCache, 100));
+        }
+        promise.addResult(outcome);
     }));
 }
 
@@ -923,18 +1001,278 @@ void SWMMVisProjectWindow::setHasChanges(bool dirty)
     emit hasChangesChanged(dirty);
 }
 
-void SWMMVisProjectWindow::attachMeshLayer(SWMM2DMeshLayer *meshLayer)
+void SWMMVisProjectWindow::attachMeshLayer(SWMM2DMeshLayer *meshLayer, bool pristine)
 {
     if (!meshLayer)
         return;
+    // A layer parsed from the very file the engine opened already agrees with
+    // the engine's in-memory mesh, so the save path can skip re-pushing it.
+    // Every other origin (mesh generated or imported in-session) leaves the
+    // engine holding the OLD mesh and must stay dirty — hence the default.
+    if (pristine)
+        meshLayer->setMeshEditsSaved();
     // Per-element edits (vertex Z, edge BC/conveyance, cell Manning's n /
     // initial depth / tag) report through attributeChanged; bulk coupling
     // rewrites report through meshEditsChanged. Both are project data that
-    // must reach the .inp, so both dirty the project.
+    // must reach the .inp, so both dirty the project — and both mean the
+    // layer's mesh has diverged from the engine's, so both arm the re-push.
     connect(meshLayer, &SWMM2DMeshLayer::attributeChanged, this,
-            [this](const QString &) { setHasChanges(true); });
+            [this, meshLayer](const QString &) {
+                meshLayer->markMeshEdited();
+                setHasChanges(true);
+            });
     connect(meshLayer, &SWMM2DMeshLayer::meshEditsChanged, this,
-            [this]() { setHasChanges(true); });
+            [this, meshLayer]() {
+                meshLayer->markMeshEdited();
+                setHasChanges(true);
+            });
+}
+
+void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
+{
+    auto fail = [this](const QString &msg) {
+        emit meshImportFinished(false, msg, QString());
+    };
+
+    if (!canvas() || !mModelLayer) {
+        fail(tr("Open a project first — a 2D mesh attaches to a model."));
+        return;
+    }
+
+    const QFileInfo srcFi(srcPath);
+    if (!srcFi.exists() || !srcFi.isFile()) {
+        fail(tr("Mesh file not found: %1").arg(srcPath));
+        return;
+    }
+
+    // ── Stage the file into the project folder ───────────────────────────
+    // A sibling of the .inp is referenced relatively by
+    // InpMeshWriter::writeMeshFileRef, which keeps the project portable and
+    // makes the mesh visible in Simulation Options → Mesh. An unsaved project
+    // has no folder yet, so the mesh is read where it lies; the first save
+    // writes an absolute reference.
+    QString meshPath = srcFi.absoluteFilePath();
+    bool    copied   = false;
+    const QString modelPath = mModelLayer->modelFilePath();
+    if (!modelPath.isEmpty())
+    {
+        const QDir dir = QFileInfo(modelPath).absoluteDir();
+        if (srcFi.absolutePath() != dir.absolutePath())
+        {
+            QString destPath = dir.absoluteFilePath(srcFi.fileName());
+            if (QFileInfo::exists(destPath))
+            {
+                // Never silently clobber a mesh already in the project — the
+                // existing file may be the one the model currently runs on.
+                QMessageBox box(QMessageBox::Question, tr("Import 2D Mesh"),
+                    tr("The project folder already contains a file named %1.")
+                        .arg(srcFi.fileName()), QMessageBox::NoButton, this);
+                box.setInformativeText(
+                    tr("Overwrite it with the imported mesh, or keep both?"));
+                QPushButton *overwrite =
+                    box.addButton(tr("Overwrite"), QMessageBox::DestructiveRole);
+                QPushButton *keepBoth =
+                    box.addButton(tr("Keep Both"), QMessageBox::AcceptRole);
+                box.addButton(QMessageBox::Cancel);
+                box.setDefaultButton(keepBoth);
+                box.exec();
+
+                if (box.clickedButton() == overwrite) {
+                    if (!QFile::remove(destPath)) {
+                        fail(tr("Could not replace %1 — it may be open in "
+                                "another program.").arg(destPath));
+                        return;
+                    }
+                } else if (box.clickedButton() == keepBoth) {
+                    const QString base = srcFi.completeBaseName();
+                    const QString ext  = srcFi.suffix();
+                    int n = 1;
+                    do {
+                        destPath = dir.absoluteFilePath(
+                            QStringLiteral("%1_%2.%3").arg(base).arg(n++).arg(ext));
+                    } while (QFileInfo::exists(destPath));
+                } else {
+                    fail(tr("2D mesh import cancelled."));
+                    return;
+                }
+            }
+            if (!QFile::copy(srcFi.absoluteFilePath(), destPath)) {
+                fail(tr("Could not copy %1 into the project folder %2.")
+                         .arg(srcFi.fileName(), dir.absolutePath()));
+                return;
+            }
+            meshPath = destPath;
+            copied   = true;
+        }
+    }
+
+    // ── Parse + build on a worker ────────────────────────────────────────
+    // Same split as the file-open path (SWMMVis::attachMesh2DLayersAsync):
+    // parsing and the light scene-geometry build are the expensive halves and
+    // must not freeze the GUI on a multi-million-triangle mesh.
+    struct ImportOutcome {
+        SWMM2DMeshLayer *layer = nullptr;
+        QString errorMsg;
+        QString warning;
+        int     nVerts = 0;
+        int     nTris  = 0;
+    };
+
+    // Receiver is `this` and the watcher is our child, so the handler cannot
+    // outlive the window; only the canvas/model teardown order is guarded below.
+    auto *watcher = new QFutureWatcher<ImportOutcome>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, meshPath, copied]() {
+        ImportOutcome out;
+        try {
+            out = watcher->result();
+        } catch (const std::exception &e) {
+            out.errorMsg = tr("Reading the 2D mesh failed: %1")
+                               .arg(QString::fromUtf8(e.what()));
+        }
+        watcher->deleteLater();
+
+        if (!out.layer) {
+            // A copy we made is worthless without a parseable mesh behind it.
+            if (copied) QFile::remove(meshPath);
+            emit meshImportFinished(false, out.errorMsg, QString());
+            return;
+        }
+        if (!canvas() || !mModelLayer) {   // project torn down mid-parse
+            delete out.layer;
+            return;
+        }
+
+        SWMM2DMeshLayer *meshLayer = out.layer;
+
+        // The imported mesh becomes the active one — that is what the save
+        // path retargets [2D_MESH_FILE] at. A layer already reading this exact
+        // file is replaced, not stacked: a stale duplicate also gets pushed
+        // into the engine on save and can win, resurrecting the old mesh.
+        const QString canonical = QFileInfo(meshPath).absoluteFilePath();
+        QList<SWMM2DMeshLayer *> stale;
+        for (OpenSWMMVisLayer *l : canvas()->layers()) {
+            auto *m = qobject_cast<SWMM2DMeshLayer *>(l);
+            if (!m) continue;
+            m->setActiveMesh(false);
+            if (!m->sourcePath().isEmpty()
+                && QFileInfo(m->sourcePath()).absoluteFilePath() == canonical)
+                stale.append(m);
+        }
+        for (SWMM2DMeshLayer *m : stale) {
+            const int idx = canvas()->layers().indexOf(m);
+            if (idx >= 0)
+                if (OpenSWMMVisLayer *taken =
+                        canvas()->takeLayer(idx, /*pushUndo=*/false))
+                    taken->deleteLater();
+        }
+
+        // Mesh coordinates are in the model CRS; the layer reprojects to
+        // canvas CRS. SRS assignment stays on the GUI thread — a QObject
+        // child cannot be created cross-thread.
+        if (mModelLayer->srs())
+            meshLayer->setSRS(
+                new SpatialReferenceSystem(*mModelLayer->srs(), meshLayer),
+                /*ownsSRS=*/true);
+        canvas()->addLayer(meshLayer, /*pushUndo=*/true);
+        attachMeshLayer(meshLayer);
+        meshLayer->finishSceneGeometryAsync();
+
+        // Mirror the linkage into the engine's in-memory model, or the next
+        // save re-serialises the .inp with mesh_file empty and the model
+        // silently reverts to 1D (same trap the generation dialog documents).
+        if (mModelLayer->engine()) {
+            const QString modelPath = mModelLayer->modelFilePath();
+            const QString ref =
+                (!modelPath.isEmpty()
+                 && QFileInfo(meshPath).absolutePath()
+                        == QFileInfo(modelPath).absolutePath())
+                    ? QFileInfo(meshPath).fileName()
+                    : canonical;
+            swmm_options_set_ext(mModelLayer->engine(), "MESH_FILE",
+                                 ref.toUtf8().constData());
+        }
+
+        setHasChanges(true);
+
+        QString msg = tr("Imported 2D mesh %1: %2 vertices, %3 triangles.")
+                          .arg(QFileInfo(meshPath).fileName())
+                          .arg(out.nVerts).arg(out.nTris);
+        if (copied)
+            msg += tr(" Copied into the project folder.");
+        if (!out.warning.isEmpty())
+            msg += QStringLiteral(" ") + out.warning;
+        emit meshImportFinished(true, msg, meshPath);
+    });
+
+    watcher->setFuture(QtConcurrent::run([meshPath]() -> ImportOutcome {
+        ImportOutcome out;
+        // A SWMMVis .2dm is section-formatted exactly like the inline mesh
+        // block of an .inp, so the same reader parses it directly. An SMS /
+        // Aquaveo 2DM (ND / E3T / E4Q cards, phase G5 of the tri-quad plan)
+        // is recognised by its cards, parsed by Sms2dmReader (E4Q kept as
+        // quad cells) and CONVERTED in place: the staged copy is rewritten in
+        // the section format, because the engine's [2D_MESH_FILE] reference
+        // must point at a file the engine can read.
+        mesh::InpMeshReadResult read;
+        if (mesh::Sms2dmReader::looksLikeSms2dm(meshPath)) {
+            mesh::MeshResult sms = mesh::Sms2dmReader::read(meshPath, /*splitQuads=*/false);
+            if (!sms.ok) {
+                out.errorMsg = sms.errorMsg;
+                return out;
+            }
+            const QString text = mesh::InpMeshWriter::buildSectionText(
+                sms, mesh::CouplingMap{}, /*defaultMannings=*/0.035);
+            QFile f(meshPath);
+            if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                out.errorMsg = QCoreApplication::translate("SWMMVisProjectWindow",
+                    "Could not rewrite %1 in SWMMVis mesh format.")
+                    .arg(QFileInfo(meshPath).fileName());
+                return out;
+            }
+            f.write(QStringLiteral(";; Converted from SMS 2DM by SWMMVis (E3T -> "
+                                   "[2D_TRIANGLES], E4Q -> [2D_QUADS]).\n").toUtf8());
+            f.write(text.toUtf8());
+            f.close();
+            read.hasMesh = true;
+            read.mesh    = std::move(sms);
+            read.edgeBCs.resize(mesh::edgeSlotCount(read.mesh.triangles.size()));
+            read.warning = QCoreApplication::translate("SWMMVisProjectWindow",
+                "SMS 2DM mesh converted to SWMMVis format (%1 triangles, %2 quads).")
+                .arg(read.mesh.triangles.size() - read.mesh.quadCount())
+                .arg(read.mesh.quadCount());
+        } else {
+            read = mesh::InpMeshReader::read(meshPath);
+        }
+        if (!read.hasMesh) {
+            out.errorMsg = read.errorMsg.isEmpty()
+                ? QCoreApplication::translate("SWMMVisProjectWindow",
+                      "%1 does not contain a SWMMVis 2D mesh — no "
+                      "[2D_VERTICES] / [2D_TRIANGLES] sections were found.")
+                      .arg(QFileInfo(meshPath).fileName())
+                : read.errorMsg;
+            return out;
+        }
+        out.warning = read.warning;
+
+        const QVector<mesh::MeshEdgeBC> edgeBCs = read.edgeBCs;
+        auto *layer = new SWMM2DMeshLayer(std::move(read.mesh), meshPath,
+                                          /*parent=*/nullptr,
+                                          /*deferHeavyGeometry=*/true);
+        layer->setExternalMesh(true);
+        layer->setActiveMesh(true);
+        layer->setName(QFileInfo(meshPath).fileName());
+        // Deferred build ⇒ the BC slots don't exist yet; size against the
+        // triangle count directly, as the file-open path does.
+        if (edgeBCs.size() == mesh::edgeSlotCount(layer->triangleCount()))
+            layer->edgeBCsMutable() = edgeBCs;
+        out.nVerts = layer->vertexCount();
+        out.nTris  = layer->triangleCount();
+        // Only the owning (worker) thread may push the object across.
+        layer->moveToThread(qApp->thread());
+        out.layer = layer;
+        return out;
+    }));
 }
 
 void SWMMVisProjectWindow::setEditSessionActive(bool active)
@@ -1001,6 +1339,18 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         return false;
     }
 
+    // Save-path perf breakdown — QT_LOGGING_RULES="openswmm.save.perf=true".
+    // `stage` is restarted at every boundary; `total` runs for the whole call.
+    // dmReads/dmWrites count full-file passes over the external .2dm sidecar,
+    // so the write amplification is measured rather than asserted.
+    QElapsedTimer total, stage;
+    total.start();
+    stage.start();
+    qint64 meshSyncMs = 0, snapshotMs = 0, engineWriteMs = 0, restoreMs = 0;
+    qint64 attrPatchMs = 0, bcPatchMs = 0, meshRefMs = 0, inlinePatchMs = 0,
+           oswpMs = 0;
+    int dmReads = 0, dmWrites = 0;
+
     // AA-3.3 — pick the writer plugin by matching the path's extension
     // against FileFilterRegistry's InputRead entries (built-in `.inp`
     // writer + any plugin-supplied writers like GeoPackage).  Empty
@@ -1033,11 +1383,24 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // (its mesh no longer matches the layer's — e.g. a mesh generated or
     // replaced this session). The engine write below would drop those edits,
     // so they are re-emitted straight into the written .inp afterwards.
+    // Pushing an UNEDITED mesh is pure waste and is the single biggest cost of
+    // saving a large-mesh model: the push is O(nVertices x nTriangles) inside
+    // the engine (each swmm_2d_set_vertex_z rescans every triangle), which is
+    // minutes at a million cells. A layer only diverges from the engine when
+    // something edited it, or when it was generated/imported this session —
+    // both of which leave hasUnsavedMeshEdits() true.
     QVector<SWMM2DMeshLayer *> inlineNeedsAttrPatch;
+    QVector<SWMM2DMeshLayer *> meshLayersPushed;
+    int meshLayersSkipped = 0;
     if (canvas()) {
         for (OpenSWMMVisLayer *l : canvas()->layers()) {
             auto *meshLayer = qobject_cast<SWMM2DMeshLayer *>(l);
             if (!meshLayer || meshLayer->mesh().vertices.isEmpty()) continue;
+            if (!meshLayer->hasUnsavedMeshEdits()
+                && engineMeshMatches(mModelLayer->engine(), meshLayer->mesh())) {
+                ++meshLayersSkipped;
+                continue;
+            }
             QStringList syncWarnings;
             bool trianglesSynced = false;
             mesh::pushMeshEditsToEngine(mModelLayer->engine(), meshLayer->mesh(),
@@ -1045,8 +1408,43 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                                         &trianglesSynced);
             for (const QString &w : syncWarnings)
                 qWarning().noquote() << w;
-            if (!trianglesSynced && !meshLayer->isExternalMesh())
+            // GG0a — per-cell infiltration has no engine push path yet (the
+            // C API binding lands in GG0f), so the engine writes the
+            // [2D_INFILTRATION*] sections from whatever it parsed at open.
+            // An inline mesh carrying GUI infiltration edits therefore has to
+            // be re-patched even when its triangles DID reach the engine,
+            // otherwise every save silently reverts them.
+            const mesh::MeshResult &lm = meshLayer->mesh();
+            const bool carriesInfil = !lm.infilDefaults.isEmpty()
+                                   || !lm.infilOverrides.isEmpty()
+                                   || lm.infilOptions.infilStep > 0.0;
+            if ((!trianglesSynced || carriesInfil) && !meshLayer->isExternalMesh())
                 inlineNeedsAttrPatch.append(meshLayer);
+            meshLayersPushed.append(meshLayer);
+        }
+    }
+    meshSyncMs = stage.restart();
+
+    // The layer's CRS is the one the user assigned — via the CRS picker on
+    // open, the Simulation Options page, a canvas reprojection, or the .oswp.
+    // Push it into the engine's [OPTIONS] CRS so the written .inp declares
+    // it, whichever path set it (the reprojection path used to reach only
+    // the engine's spatial frame, which the .inp writer did not read).
+    // Only an authority-coded CRS is pushed: it is a single token the
+    // [OPTIONS] reader round-trips verbatim, whereas re-serialising a
+    // WKT-only CRS could alter the original string. A CRS the open merely
+    // DEFAULTED (from [MAP] UNITS or the preferences) is never written — a
+    // model that carried no CRS must stay that way; see crsAssigned().
+    const SpatialReferenceSystem *srs = mModelLayer->srs();
+    if (srs && mModelLayer->crsAssigned()) {
+        const QString auth = srs->toAuthority();
+        if (!srs->isLocal() && !auth.isEmpty() && auth != QStringLiteral("Local")) {
+            char cur[512] = {};
+            const bool same =
+                swmm_get_crs(mModelLayer->engine(), cur, sizeof cur) == 0
+                && QString::fromUtf8(cur) == auth;
+            if (!same)
+                mModelLayer->setOption(QByteArrayLiteral("CRS"), auth);
         }
     }
 
@@ -1063,34 +1461,73 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"),
                                                Qt::CaseInsensitive) == 0)
     {
-        for (OpenSWMMVisLayer *l : canvas()->layers())
-        {
-            auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
-            if (!ml) continue;
+        // Which mesh gets written into [2D_MESH_FILE] is the user's explicit
+        // choice — the ACTIVE mesh (Simulation Options -> Set Active Mesh, and
+        // the flag the editing tools and renderers already treat as the single
+        // source of truth). Taking whichever external layer happened to sit
+        // first in canvas order silently retargeted the .inp at a different
+        // mesh whenever a project carried more than one, so the model reopened
+        // on the wrong mesh — or on none, if that layer's file had gone.
+        // Fall back to the first usable external layer when nothing is marked
+        // active, which is the single-mesh case this used to handle.
+        auto usableExternal = [](SWMM2DMeshLayer *ml) {
+            if (!ml || !ml->isExternalMesh()) return false;
             // Inline meshes have no external file to protect — their
             // sourcePath() is the .inp itself, so snapshotting and re-pointing
             // it would overwrite the model the engine just wrote and strip the
             // inline [2D_*] sections. The engine already serialises them.
-            if (!ml->isExternalMesh()) continue;
             const QString p = ml->sourcePath();
-            if (p.isEmpty() || !QFileInfo::exists(p)) continue;
-            QFile mf(p);
+            return !p.isEmpty() && QFileInfo::exists(p);
+        };
+        SWMM2DMeshLayer *chosen  = nullptr;
+        SWMM2DMeshLayer *fallback = nullptr;
+        for (OpenSWMMVisLayer *l : canvas()->layers())
+        {
+            auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
+            if (!usableExternal(ml)) continue;
+            if (!fallback) fallback = ml;
+            if (ml->isActiveMesh()) { chosen = ml; break; }
+        }
+        if (!chosen) chosen = fallback;
+        if (chosen)
+        {
+            QFile mf(chosen->sourcePath());
             if (mf.open(QIODevice::ReadOnly))
             {
                 extMeshSnapshot = mf.readAll();
-                extMeshPath     = p;
-                extMeshLayer    = ml;
+                ++dmReads;
+                extMeshPath     = chosen->sourcePath();
+                extMeshLayer    = chosen;
             }
-            break;
         }
     }
+    snapshotMs = stage.restart();
 
     QByteArray utf8 = newPath.toUtf8();
     QByteArray idUtf8 = pluginId.toUtf8();
+    // The engine's warning list is cumulative, so the count taken here brackets
+    // exactly what THIS write appends. The writer reports data loss through it
+    // ("embedded [REACTION_*] sections are ... lost from this save", engine
+    // 7d43a1ff) — before that fix the sink was never wired and the loss was
+    // silent all the way to the user; reading the delta here is the GUI half.
+    const int engineWarnsBefore =
+        swmm_get_warning_count(mModelLayer->engine());
     int rc = swmm_model_write_with_plugin(
         mModelLayer->engine(),
         utf8.constData(),
         pluginId.isEmpty() ? nullptr : idUtf8.constData());
+    engineWriteMs = stage.restart();
+    mLastSaveWarnings.clear();
+    if (rc == 0)
+    {
+        const int engineWarnsAfter =
+            swmm_get_warning_count(mModelLayer->engine());
+        for (int i = engineWarnsBefore; i < engineWarnsAfter; ++i)
+            mLastSaveWarnings.append(QString::fromUtf8(
+                swmm_get_warning_at(mModelLayer->engine(), i)).trimmed());
+    }
+    // The engine emits the external sidecar itself when [2D_MESH_FILE] resolves.
+    if (!extMeshPath.isEmpty()) ++dmWrites;
     if (rc != 0)
     {
         if (errorOut) *errorOut =
@@ -1110,14 +1547,21 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         {
             QFile mf(extMeshPath);
             if (mf.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            {
                 mf.write(extMeshSnapshot);
+                ++dmWrites;
+            }
         }
+        restoreMs = stage.restart();
         // Same for the mesh *attribute* edits: the snapshot predates the
-        // engine's write of the current vertex elevation / tag / coupling and
-        // triangle Manning / tag state, so the restore above just discarded
-        // them — without this re-emit a vertex-Z edit survives in the session
-        // but silently reverts in the saved sidecar, and the next run reads
-        // the old elevations.
+        // engine's write of the current vertex elevation / tag / coupling,
+        // triangle Manning / tag and per-cell infiltration state, so the
+        // restore above just discarded them — without this re-emit a vertex-Z
+        // edit survives in the session but silently reverts in the saved
+        // sidecar, and the next run reads the old elevations. Every
+        // GUI-owned mesh-attribute section must therefore appear in
+        // InpMeshWriter::patchAttributeSections; one that does not is lost on
+        // every save.
         if (extMeshLayer)
         {
             QString attrErr;
@@ -1125,14 +1569,17 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                     extMeshPath, extMeshLayer->mesh(), &attrErr))
                 qWarning().noquote()
                     << "Post-save 2D mesh attribute re-emit failed:" << attrErr;
+            ++dmReads;
+            ++dmWrites;
         }
+        attrPatchMs = stage.restart();
         // The snapshot predates the engine's write of the current
         // BC/conveyance edits into the sidecar, so the restore above just
         // discarded them — re-emit the layer's per-edge state into the
         // restored .2dm.
         if (extMeshLayer
             && extMeshLayer->edgeBCs().size()
-                   == extMeshLayer->mesh().triangles.size() * 3)
+                   == mesh::edgeSlotCount(extMeshLayer->mesh().triangles.size()))
         {
             QString bcErr;
             if (!mesh::InpMeshWriter::patchBCSections(
@@ -1140,17 +1587,23 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                     extMeshLayer->edgeBCs(), &bcErr))
                 qWarning().noquote()
                     << "Post-save 2D BC re-emit failed:" << bcErr;
+            ++dmReads;
+            ++dmWrites;
         }
+        bcPatchMs = stage.restart();
         QString meshErr;
         if (!mesh::InpMeshWriter::writeMeshFileRef(newPath, extMeshPath, &meshErr))
             qWarning().noquote()
                 << "Post-save 2D mesh retarget failed:" << meshErr;
+        meshRefMs = stage.restart();
     }
 
     // Inline meshes whose per-cell attributes never reached the engine: patch
     // them into the just-written .inp directly. Without this a Manning's n /
     // initial depth / tag edit is silently lost whenever the engine's mesh has
-    // drifted from the layer's (mesh generated or replaced in-session).
+    // drifted from the layer's (mesh generated or replaced in-session), and a
+    // per-cell infiltration edit is lost unconditionally (no engine push path
+    // until GG0f).
     for (SWMM2DMeshLayer *ml : inlineNeedsAttrPatch)
     {
         QString attrErr;
@@ -1161,9 +1614,9 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         // patching would corrupt it. Tell the user rather than losing the
         // edits quietly.
         const QString msg =
-            tr("2D mesh cell attributes (Manning's n / initial depth / tag) "
-               "could not be saved to %1: %2. Re-open the model, or "
-               "regenerate the mesh, before editing cell attributes.")
+            tr("2D mesh cell attributes (Manning's n / initial depth / tag / "
+               "infiltration) could not be saved to %1: %2. Re-open the model, "
+               "or regenerate the mesh, before editing cell attributes.")
                 .arg(QFileInfo(newPath).fileName(), attrErr);
         qWarning().noquote() << msg;
         if (auto *mw = window())
@@ -1173,6 +1626,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                 Q_ARG(OpenSWMMVisLogMessage::LogMessageType,
                       OpenSWMMVisLogMessage::LogMessageType::Warning));
     }
+    inlinePatchMs = stage.restart();
 
     // If saved to a new path, point the layer at it so subsequent Save targets the new file.
     if (newPath != mModelLayer->modelFilePath())
@@ -1188,6 +1642,10 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         updateWindowTitle();
     }
     setHasChanges(false);
+    // Only now that the write is known to have succeeded: a failed save must
+    // leave the layers dirty so the next attempt re-pushes them.
+    for (SWMM2DMeshLayer *ml : meshLayersPushed)
+        ml->setMeshEditsSaved();
 
     // Slice RB.1+2 — sidecar auto-create. Every successful built-in .inp
     // write also produces a sibling .oswp project file. Plugin-driven
@@ -1215,6 +1673,30 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             }
         }
     }
+    oswpMs = stage.restart();
+
+    qCInfo(lcSavePerf).nospace()
+        << "[save][stages] meshPushed=" << meshLayersPushed.size()
+        << " meshSkipped=" << meshLayersSkipped
+        << " meshSync=" << meshSyncMs
+        << " snapshot=" << snapshotMs
+        << " engineWrite=" << engineWriteMs
+        << " restore=" << restoreMs
+        << " attrPatch=" << attrPatchMs
+        << " bcPatch=" << bcPatchMs
+        << " meshRef=" << meshRefMs
+        << " inlinePatch=" << inlinePatchMs
+        << " oswp=" << oswpMs
+        << " dmReads=" << dmReads
+        << " dmWrites=" << dmWrites
+        << " total=" << total.elapsed() << " ms";
+
+    // Emitted last so subscribers see the save fully settled (sidecars
+    // written, mesh references patched). Every save path funnels through
+    // here — Save, Save As, auto-save-before-run, the 2D OUTPUT_FILE
+    // default — so one connection in SWMMVis covers them all.
+    if (!mLastSaveWarnings.isEmpty())
+        emit saveCompletedWithEngineWarnings(mLastSaveWarnings);
     return true;
 }
 
@@ -1359,6 +1841,7 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
     // Final commit point — emit before the Qt teardown chain runs so
     // observers (profile-plot dialog, etc.) can still touch our model
     // layer / canvas / results layers in their handlers.
+    mClosing = true;
     emit aboutToClose();
     QMdiSubWindow::closeEvent(event);
 }
@@ -1500,6 +1983,7 @@ bool SWMMVisProjectWindow::hasMeshLayer() const
 }
 void SWMMVisProjectWindow::activateAddJunctionTool()    { mCanvas->setActiveTool(mAddJunctionTool); }
 void SWMMVisProjectWindow::activateAddVirtualJunctionTool() { mCanvas->setActiveTool(mAddVirtualJunctionTool); }
+void SWMMVisProjectWindow::activateAddInletJunctionTool()   { mCanvas->setActiveTool(mAddInletJunctionTool); }
 void SWMMVisProjectWindow::activateAddOutfallTool()     { mCanvas->setActiveTool(mAddOutfallTool); }
 void SWMMVisProjectWindow::activateAddStorageTool()     { mCanvas->setActiveTool(mAddStorageTool); }
 void SWMMVisProjectWindow::activateAddDividerTool()     { mCanvas->setActiveTool(mAddDividerTool); }
@@ -1544,6 +2028,7 @@ QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() cons
         { mSelectProfileTool,  QStringLiteral("actionPlotProfile")    },
         { mAddJunctionTool,    QStringLiteral("actionAddJunction")    },
         { mAddVirtualJunctionTool, QStringLiteral("actionAddVirtualJunction") },
+        { mAddInletJunctionTool,   QStringLiteral("actionAddInletJunction")   },
         { mAddOutfallTool,     QStringLiteral("actionAddOutfall")     },
         { mAddStorageTool,     QStringLiteral("actionAddStorage")     },
         { mAddDividerTool,     QStringLiteral("actionAddFlowDivider") },
@@ -1560,10 +2045,9 @@ QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() cons
         { mAddTextTool,          QStringLiteral("actionAddText")          },
         { mPick2DCellsTool,      QStringLiteral("actionPick2DCells")      },
         { mMeshProfileTool,      QStringLiteral("actionMeshProfile")      },
-        // US.A1 — analysis mesh-profile tool shares the Plot Profile action's
-        // checked state with the network select-profile tool (two tools per
-        // key is safe in the checked-state sync).
-        { mAnalysisMeshProfileTool, QStringLiteral("actionPlotProfile")   },
+        // Analysis "Plot 2D Profile" — its own action since the 1D / 2D
+        // profile entries were split apart.
+        { mAnalysisMeshProfileTool, QStringLiteral("actionPlotProfile2D") },
         // Terrain-toolbar DEM profile-trace — its own action, so picking Select
         // (or any other canvas tool) unchecks it like the mesh variants.
         { mTerrainProfileTool,   QStringLiteral("actionTerrainProfile")   },

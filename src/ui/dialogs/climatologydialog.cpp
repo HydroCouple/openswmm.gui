@@ -11,6 +11,7 @@
 
 #include "core/swmmdatetime.h"
 #include "ui/uiscrollhelpers.h"
+#include "ui/widgets/relativepathpicker.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -116,6 +117,7 @@ void ClimatologyDialog::buildUi()
     buildTemperatureTab(m_tabs);
     buildEvaporationTab(m_tabs);
     buildWindTab(m_tabs);
+    buildHumidityTab(m_tabs);
     buildSnowTab(m_tabs);
     buildAdcTab(m_tabs);
     buildAdjustmentsTab(m_tabs);
@@ -149,15 +151,17 @@ void ClimatologyDialog::buildTemperatureTab(QTabWidget *tabs)
     populateTimeseriesCombo(m_tempTs);
     form->addRow(tr("Ti&me Series:"), m_tempTs);
 
-    auto *fileRow = new QWidget;
-    auto *fileLay = new QHBoxLayout(fileRow);
-    fileLay->setContentsMargins(0, 0, 0, 0);
-    m_tempFile = new QLineEdit;
-    auto *browse = new QPushButton(tr("Browse…"));
-    fileLay->addWidget(m_tempFile);
-    fileLay->addWidget(browse);
-    form->addRow(tr("C&limate File:"), fileRow);
-    connect(browse, &QPushButton::clicked, this, &ClimatologyDialog::onBrowseTempFile);
+    // Same picker the [FILES] tab uses, so a browsed climate file is shown —
+    // and committed — relative to the project like every other secondary file
+    // reference. This row used to be a bare QLineEdit whose Browse… wrote the
+    // raw QFileDialog result, so the field flipped to an absolute path the
+    // moment the user picked a file even though the .inp stored it relative.
+    m_tempFile = new openswmmvis::ui::RelativePathPicker;
+    m_tempFile->setProjectAnchor(m_projectAnchor);
+    m_tempFile->setDialogCaption(tr("Select Climate File"));
+    m_tempFile->setFileFilter(tr("Data files (*.dat *.txt);;All files (*)"));
+    m_tempFile->setAcceptMode(QFileDialog::AcceptOpen);
+    form->addRow(tr("C&limate File:"), m_tempFile);
 
     m_tempStartCheck = new QCheckBox(tr("Start reading file at"));
     m_tempStartDate = new QDateEdit;
@@ -194,14 +198,6 @@ void ClimatologyDialog::onTempSourceChanged()
     if (m_tempStartCheck) m_tempStartCheck->setEnabled(file);
     if (m_tempStartDate)  m_tempStartDate->setEnabled(file && m_tempStartCheck->isChecked());
     if (m_tempUnits) m_tempUnits->setEnabled(file);
-}
-
-void ClimatologyDialog::onBrowseTempFile()
-{
-    const QString fn = QFileDialog::getOpenFileName(
-        this, tr("Select Climate File"), m_tempFile ? m_tempFile->text() : QString(),
-        tr("Data files (*.dat *.txt);;All files (*)"));
-    if (!fn.isEmpty() && m_tempFile) m_tempFile->setText(fn);
 }
 
 // ---------------------------------------------------------------------------
@@ -324,6 +320,91 @@ void ClimatologyDialog::onWindTypeChanged()
 {
     if (m_windMonthly && m_windType)
         m_windMonthly->setEnabled(m_windType->currentData().toInt() == 0);
+}
+
+// ---------------------------------------------------------------------------
+// Humidity ([TEMPERATURE] HUMIDITY — heat-model met input)
+// ---------------------------------------------------------------------------
+
+void ClimatologyDialog::buildHumidityTab(QTabWidget *tabs)
+{
+    auto *page = new QWidget;
+    auto *form = new QFormLayout(page);
+
+    auto *note = new QLabel(tr("Air humidity drives the heat model's latent, "
+                               "sensible and atmospheric-longwave fluxes."));
+    note->setWordWrap(true);
+    form->addRow(note);
+
+    m_humVar = new QComboBox;
+    m_humVar->setObjectName(QStringLiteral("clim_humVar"));
+    m_humVar->addItem(tr("Relative Humidity (%)"), 0);                 // RELATIVE
+    m_humVar->addItem(tr("Dew Point Temperature (%1)")
+                          .arg(isSI() ? tr("°C") : tr("°F")), 1); // DEWPOINT
+    form->addRow(tr("Q&uantity:"), m_humVar);
+
+    m_humType = new QComboBox;
+    m_humType->setObjectName(QStringLiteral("clim_humType"));
+    m_humType->addItem(tr("Constant Value"), 0);     // CONSTANT
+    m_humType->addItem(tr("Monthly Averages"), 1);   // MONTHLY
+    m_humType->addItem(tr("Time Series"), 2);        // TIMESERIES
+    form->addRow(tr("&Source of Humidity Data:"), m_humType);
+
+    // Stacked controls — page index == engine humidity_type enum.
+    m_humStack = new QStackedWidget;
+    // 0 CONSTANT
+    {
+        auto *w = new QWidget; auto *l = new QFormLayout(w);
+        m_humConstant = new QDoubleSpinBox;
+        m_humConstant->setObjectName(QStringLiteral("clim_humConstant"));
+        m_humConstant->setRange(-200.0, 200.0);
+        m_humConstant->setDecimals(2);
+        l->addRow(tr("Value:"), m_humConstant);
+        m_humStack->addWidget(w);
+    }
+    // 1 MONTHLY
+    {
+        auto *w = new QWidget; auto *l = new QVBoxLayout(w);
+        m_humMonthly = makeMonthlyTable(tr("Value"));
+        l->addWidget(m_humMonthly);
+        m_humStack->addWidget(w);
+    }
+    // 2 TIMESERIES
+    {
+        auto *w = new QWidget; auto *l = new QFormLayout(w);
+        m_humTs = new QComboBox; m_humTs->setEditable(true);
+        populateTimeseriesCombo(m_humTs);
+        l->addRow(tr("Time Series:"), m_humTs);
+        m_humStack->addWidget(w);
+    }
+    form->addRow(m_humStack);
+
+    connect(m_humType, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &ClimatologyDialog::onHumidityTypeChanged);
+    connect(m_humVar, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &ClimatologyDialog::onHumidityVarChanged);
+
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("&Humidity"));
+}
+
+void ClimatologyDialog::onHumidityTypeChanged()
+{
+    if (!m_humType || !m_humStack) return;
+    const int type = m_humType->currentData().toInt();
+    if (type >= 0 && type < m_humStack->count())
+        m_humStack->setCurrentIndex(type);
+}
+
+void ClimatologyDialog::onHumidityVarChanged()
+{
+    if (!m_humVar || !m_humConstant || !m_humMonthly) return;
+    const bool dew = m_humVar->currentData().toInt() == 1;
+    // RH is a percentage; a dew point is a temperature in project units.
+    m_humConstant->setRange(dew ? -200.0 : 0.0, dew ? 200.0 : 100.0);
+    m_humConstant->setSuffix(dew ? (isSI() ? tr(" °C") : tr(" °F")) : tr(" %"));
+    m_humMonthly->setHorizontalHeaderLabels(QStringList{
+        dew ? (isSI() ? tr("Dew Point (°C)") : tr("Dew Point (°F)"))
+            : tr("RH (%)")});
 }
 
 // ---------------------------------------------------------------------------
@@ -479,6 +560,14 @@ void ClimatologyDialog::populatePatternCombo(QComboBox *combo) const
 // Engine I/O
 // ---------------------------------------------------------------------------
 
+void ClimatologyDialog::setProjectAnchor(const QString &dir)
+{
+    m_projectAnchor = dir;
+    // The picker exists by the time any caller can reach this (buildUi runs in
+    // the constructor) and re-renders its display on anchor change.
+    if (m_tempFile) m_tempFile->setProjectAnchor(dir);
+}
+
 void ClimatologyDialog::readFromEngine()
 {
     if (!m_engine) return;
@@ -492,9 +581,11 @@ void ClimatologyDialog::readFromEngine()
     char absb[512] = {}, orig[512] = {};
     if (swmm_file_path_get(m_engine, SWMM_FILE_CLIMATE_TEMP, "",
                            absb, sizeof(absb), orig, sizeof(orig)) == SWMM_OK) {
-        const QString shown = orig[0] ? QString::fromUtf8(orig)
-                                      : QString::fromUtf8(absb);
-        m_tempFile->setText(shown);
+        // The picker holds the absolute form and renders it against the
+        // anchor; prefer the resolved path, falling back to the authored
+        // token for a programmatic model the resolver never touched.
+        m_tempFile->setPath(absb[0] ? QString::fromUtf8(absb)
+                                    : QString::fromUtf8(orig));
     }
     if (swmm_climate_get_temp_file_start(m_engine, &d) == SWMM_OK && d > 0.0) {
         m_tempStartCheck->setChecked(true);
@@ -540,6 +631,27 @@ void ClimatologyDialog::readFromEngine()
     }
     onWindTypeChanged();
 
+    // Humidity
+    if (swmm_climate_get_humidity_variable(m_engine, &i) == SWMM_OK) {
+        const int idx = m_humVar->findData(i);
+        if (idx >= 0) m_humVar->setCurrentIndex(idx);
+    }
+    onHumidityVarChanged();   // set ranges before values land
+    if (swmm_climate_get_humidity_type(m_engine, &i) == SWMM_OK) {
+        const int idx = m_humType->findData(i);
+        if (idx >= 0) m_humType->setCurrentIndex(idx);
+    }
+    {
+        double h[12] = {};
+        if (swmm_climate_get_humidity_monthly(m_engine, h, 12) == SWMM_OK) {
+            writeColumn(m_humMonthly, 0, h, 12);
+            m_humConstant->setValue(h[0]);
+        }
+    }
+    if (swmm_climate_get_humidity_timeseries(m_engine, buf, sizeof(buf)) == SWMM_OK)
+        m_humTs->setCurrentText(QString::fromUtf8(buf));
+    onHumidityTypeChanged();
+
     // Snow melt
     if (swmm_climate_get_snow_temp(m_engine, &d) == SWMM_OK) m_snowTemp->setValue(d);
     if (swmm_climate_get_ati_weight(m_engine, &d) == SWMM_OK) m_atiWeight->setValue(d);
@@ -584,9 +696,12 @@ void ClimatologyDialog::writeToEngine()
     if (!m_tempTs->currentText().trimmed().isEmpty())
         swmm_climate_set_temp_timeseries(m_engine,
             m_tempTs->currentText().trimmed().toUtf8().constData());
-    if (m_tempSource->currentIndex() == 2 && !m_tempFile->text().trimmed().isEmpty())
+    // Commit the DISPLAYED form: relative to the project when it can be, which
+    // is what the .inp will carry anyway. displayPath() falls back to the
+    // absolute path when no relative form exists (different volume).
+    if (m_tempSource->currentIndex() == 2 && !m_tempFile->absolutePath().isEmpty())
         swmm_file_path_set(m_engine, SWMM_FILE_CLIMATE_TEMP, "",
-                           m_tempFile->text().trimmed().toUtf8().constData());
+                           m_tempFile->displayPath().toUtf8().constData());
     if (m_tempStartCheck->isChecked())
         swmm_climate_set_temp_file_start(m_engine,
             openswmmvis::core::qDateTimeToSwmmDateTime(
@@ -624,6 +739,23 @@ void ClimatologyDialog::writeToEngine()
         readColumn(m_windMonthly, 0, w, 12);
         swmm_climate_set_wind_monthly(m_engine, w, 12);
     }
+
+    // Humidity
+    swmm_climate_set_humidity_variable(m_engine, m_humVar->currentData().toInt());
+    const int humType = m_humType->currentData().toInt();
+    swmm_climate_set_humidity_type(m_engine, humType);
+    {
+        double h[12] = {};
+        if (humType == 0) {
+            for (int k = 0; k < 12; ++k) h[k] = m_humConstant->value();
+        } else {
+            readColumn(m_humMonthly, 0, h, 12);
+        }
+        swmm_climate_set_humidity_monthly(m_engine, h, 12);
+    }
+    if (humType == 2 && !m_humTs->currentText().trimmed().isEmpty())
+        swmm_climate_set_humidity_timeseries(m_engine,
+            m_humTs->currentText().trimmed().toUtf8().constData());
 
     // Snow melt
     swmm_climate_set_snow_temp(m_engine, m_snowTemp->value());
@@ -663,7 +795,7 @@ QString ClimatologyDialog::serialize() const
     QString s;
     s += QString::number(m_tempSource->currentIndex()) + '|';
     s += m_tempTs->currentText() + '|';
-    s += m_tempFile->text() + '|';
+    s += m_tempFile->absolutePath() + '|';
     s += (m_tempStartCheck->isChecked()
               ? m_tempStartDate->date().toString(Qt::ISODate) : QString()) + '|';
     s += QString::number(m_tempUnits->currentData().toInt()) + '|';
@@ -673,6 +805,10 @@ QString ClimatologyDialog::serialize() const
     s += m_recovery->currentText() + '|';
     s += QString(m_dryOnly->isChecked() ? "1" : "0") + '|';
     s += QString::number(m_windType->currentData().toInt()) + '|';
+    s += QString::number(m_humVar->currentData().toInt()) + '|';
+    s += QString::number(m_humType->currentData().toInt()) + '|';
+    s += QString::number(m_humConstant->value()) + '|';
+    s += m_humTs->currentText() + '|';
     s += QString::number(m_snowTemp->value()) + '|';
     s += QString::number(m_atiWeight->value()) + '|';
     s += QString::number(m_negMelt->value()) + '|';
@@ -687,6 +823,7 @@ QString ClimatologyDialog::serialize() const
     grid(m_evapMonthly, 12, 1);
     grid(m_panCoeff, 12, 1);
     grid(m_windMonthly, 12, 1);
+    grid(m_humMonthly, 12, 1);
     grid(m_adc, 10, 2);
     grid(m_adjust, 12, 4);
     return s;

@@ -27,7 +27,7 @@ class SWMMModelLayer;
 /*!
  * \class OpenSWMMVisWorkspace
  * \brief Top-level project container managing sessions, the SWMM model layer,
- *        and persistence paths for one OpenSWMM project.
+ *        and persistence paths for one SWMMVis project.
  *
  * \details The workspace is the owner of:
  *  - The project file path (`.oswp` or a path to an `.inp`).

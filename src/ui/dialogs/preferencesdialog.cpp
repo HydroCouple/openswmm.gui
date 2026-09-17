@@ -9,10 +9,12 @@
 #include "plot/numberformat.h"
 
 #include "ui/dialogs/objectdefaultspage.h"
+#include "ui/dialogs/simulationoptionsdialog.h"
 
 #include "core/linkrenderingprefs.h"
 #include "core/noderenderingprefs.h"
 #include "core/preferencesmanager.h"
+#include "core/meshbcrenderingprefs.h"
 #include "core/selectionrenderingprefs.h"
 #include "ui/dialogs/licenseagreementdialog.h"
 #include "ui/theme/thememanager.h"
@@ -31,6 +33,7 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QTabWidget>
 #include <QDoubleSpinBox>
 #include <QFontDialog>
 #include <QFormLayout>
@@ -68,6 +71,10 @@ void PreferencesDialog::buildUi()
     root->addLayout(split, 1);
 
     m_categoryList = new QListWidget(this);
+    // Named so the restructure's structural test can reach the sidebar by
+    // objectName instead of a friend declaration (same seam as the Simulation
+    // Options dialog).
+    m_categoryList->setObjectName(QStringLiteral("categories"));
     m_categoryList->setMinimumWidth(180);
     split->addWidget(m_categoryList);
 
@@ -90,9 +97,8 @@ void PreferencesDialog::buildUi()
     addCategory(tr("Canvas && CRS"),         buildCanvasPage());
     addCategory(tr("Rendering"),             buildRenderingPage());
     addCategory(tr("Simulation"),            buildSimulationPage());
+    // Dynamic Wave Defaults and 2D Defaults fold in as tabs (PLAN §3).
     addCategory(tr("Simulation Defaults"),   buildSimulationDefaultsPage());
-    addCategory(tr("Dynamic Wave Defaults"), buildDynamicWaveDefaultsPage());
-    addCategory(tr("2D Defaults"),           buildTwoDDefaultsPage());
     addCategory(tr("Object Defaults"),       buildObjectDefaultsPage());
     addCategory(tr("Map Display"),           buildMapDisplayPage());
     addCategory(tr("Measure Tool"),          buildMeasureToolPage());
@@ -148,7 +154,7 @@ QWidget *PreferencesDialog::buildGeneralPage()
 
     m_defaultEngineCombo = new QComboBox(page);
     m_defaultEngineCombo->addItem(
-        tr("OpenSWMM %1 (refactored)").arg(QLatin1String(SWMM_VERSION_FULL)),
+        tr("SWMMVis %1 (refactored)").arg(QLatin1String(SWMM_VERSION_FULL)),
         QLatin1String(SWMM_VERSION));
     m_defaultEngineCombo->addItem(
         tr("SWMM %1 (legacy)").arg(QLatin1String(OPENSWMM_LEGACY_FULL_VERSION)),
@@ -407,6 +413,16 @@ QWidget *PreferencesDialog::buildRenderingPage()
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(12);
 
+    // T7 — five stacked groups become four tabs (PLAN §3). Each QGroupBox
+    // moves whole; addWidget re-parents it into its tab.
+    auto *tabs = new QTabWidget(page);
+    tabs->setObjectName(QStringLiteral("renderingTabs"));
+    outer->addWidget(tabs, 1);
+    auto *labelsTab = new QWidget(tabs); auto *labelsLay = new QVBoxLayout(labelsTab);
+    auto *lnTab     = new QWidget(tabs); auto *lnLay     = new QVBoxLayout(lnTab);
+    auto *gpuTab    = new QWidget(tabs); auto *gpuLay    = new QVBoxLayout(gpuTab);
+    auto *bcTab     = new QWidget(tabs); auto *bcTabLay  = new QVBoxLayout(bcTab);
+
     auto *f    = new QFormLayout();
 
     m_labelLodSpin = new QDoubleSpinBox(page);
@@ -421,7 +437,8 @@ QWidget *PreferencesDialog::buildRenderingPage()
 
     auto *lodGroup = new QGroupBox(tr("Label Rendering"), page);
     lodGroup->setLayout(f);
-    outer->addWidget(lodGroup);
+    labelsLay->addWidget(lodGroup);
+    labelsLay->addStretch(0);
 
     // Link pens — full QPen editor per link type. QPenPropertyItem
     // exposes width / dash-offset / style / cap / join / brush as
@@ -454,7 +471,7 @@ QWidget *PreferencesDialog::buildRenderingPage()
     tree->resizeColumnToContents(0);
     lv->addWidget(tree, 1);
 
-    outer->addWidget(linkGroup, 1);
+    lnLay->addWidget(linkGroup, 1);
 
     // Node symbols — outline pen, fill brush, and marker size per node
     // type. Same QPropertyModel pattern as link pens above: the bridge
@@ -467,7 +484,8 @@ QWidget *PreferencesDialog::buildRenderingPage()
 
     auto *nodeIntro = new QLabel(
         tr("Edit marker size, fill brush, and outline pen per node type "
-           "(Junction, Outfall, Storage, Divider, Virtual Junction). Expand "
+           "(Junction, Outfall, Storage, Divider, Virtual Junction, Inlet "
+           "Junction). Expand "
            "a row to access individual pen and brush attributes. Changes "
            "apply immediately to open project views."),
         nodeGroup);
@@ -488,7 +506,7 @@ QWidget *PreferencesDialog::buildRenderingPage()
     nodeTree->resizeColumnToContents(0);
     nv->addWidget(nodeTree, 1);
 
-    outer->addWidget(nodeGroup, 1);
+    lnLay->addWidget(nodeGroup, 1);
 
     // ── GPU rendering (Slice §QSG-4) ──────────────────────────────────────
     auto *gpuGroup = new QGroupBox(tr("GPU Rendering"), page);
@@ -514,9 +532,48 @@ QWidget *PreferencesDialog::buildRenderingPage()
         "issues — the legacy QPainter path remains the fallback. "
         "(App-wide kill-switch: OPENSWMM_QSG_MESH=0.)"));
     xv->addWidget(m_qsgMeshBox);
-    outer->addWidget(gpuGroup);
+    gpuLay->addWidget(gpuGroup);
+    gpuLay->addStretch(0);
 
-    outer->addStretch(0);
+    // ── 2D mesh boundary-condition edge defaults ─────────────────────────
+    auto *bcGroup = new QGroupBox(tr("2D Mesh Boundary-Condition Edges"), page);
+    auto *bcv     = new QVBoxLayout(bcGroup);
+    bcv->setContentsMargins(8, 8, 8, 8);
+
+    auto *bcIntro = new QLabel(
+        tr("Default colour and width for the mesh's Boundary Conditions "
+           "sublayer, one entry per BC type. \"Colour by type\" shows or "
+           "hides the sublayer on open meshes immediately. Wall edges are "
+           "the interior wireframe and use the layer's own edge width.\n\n"
+           "Edits here apply live to open meshes you have not styled "
+           "individually; a layer styled through its own Boundary "
+           "Conditions tab keeps those settings, which are saved with the "
+           "project."),
+        bcGroup);
+    bcIntro->setWordWrap(true);
+    bcv->addWidget(bcIntro);
+
+    m_meshBcPrefs = new MeshBcRenderingPrefs(this);
+    m_meshBcModel = new QPropertyModel(this);
+    m_meshBcModel->setData(
+        QVariant::fromValue(static_cast<QObject*>(m_meshBcPrefs)));
+
+    auto *bcTree = new QTreeView(bcGroup);
+    bcTree->setModel(m_meshBcModel);
+    bcTree->setItemDelegate(new QPropertyItemDelegate(m_meshBcModel));
+    bcTree->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    bcTree->setAlternatingRowColors(true);
+    bcTree->setMinimumHeight(240);
+    bcTree->expandToDepth(0);
+    bcTree->resizeColumnToContents(0);
+    bcv->addWidget(bcTree, 1);
+
+    bcTabLay->addWidget(bcGroup, 1);
+
+    tabs->addTab(labelsTab, tr("Labels"));
+    tabs->addTab(lnTab,     tr("Links & Nodes"));
+    tabs->addTab(gpuTab,    tr("GPU"));
+    tabs->addTab(bcTab,     tr("2D Mesh Edges"));
 
     return page;
 }
@@ -536,6 +593,28 @@ QWidget *PreferencesDialog::buildSimulationPage()
         "more overhead. Default 1000 ms (1 Hz)."));
     f->addRow(tr("Progress-tick interval"),       m_progressTickMsSpin);
 
+    m_live2DHistoryCapSpin = new QSpinBox(page);
+    m_live2DHistoryCapSpin->setRange(100, 200000);
+    m_live2DHistoryCapSpin->setSingleStep(500);
+    m_live2DHistoryCapSpin->setSuffix(tr(" frames"));
+    m_live2DHistoryCapSpin->setToolTip(tr(
+        "Frames of live 2D results kept in memory while a run streams. Past "
+        "the cap the older half is thinned 2:1 (frames keep their times), so "
+        "memory stays bounded on long runs of large meshes."));
+    f->addRow(tr("Live 2D history cap"),          m_live2DHistoryCapSpin);
+
+    m_live2DHistoryMBSpin = new QSpinBox(page);
+    m_live2DHistoryMBSpin->setRange(64, 32768);
+    m_live2DHistoryMBSpin->setSingleStep(256);
+    m_live2DHistoryMBSpin->setSuffix(tr(" MB"));
+    m_live2DHistoryMBSpin->setToolTip(tr(
+        "Memory budget for the live 2D frames, applied together with the "
+        "frame cap — a frame costs roughly 28 bytes per cell plus 4 per "
+        "vertex, so the frame cap alone lets a large mesh hold gigabytes. "
+        "Past the budget the older half is thinned 2:1 until the history is "
+        "at 75 % of it."));
+    f->addRow(tr("Live 2D history budget"),       m_live2DHistoryMBSpin);
+
     return page;
 }
 
@@ -552,6 +631,28 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
            "per project to change a running model."), page);
     intro->setWordWrap(true);
     outer->addWidget(intro);
+
+    // T7 — the Dynamic Wave Defaults and 2D Defaults sidebar rows fold in here
+    // as tabs (PLAN §3): fifteen rows become thirteen, and no page needs a
+    // scrollbar at 1280x800. Every QGroupBox moves whole; the two folded
+    // builders now fill the tab layouts they are handed rather than returning
+    // a page of their own.
+    auto *tabs = new QTabWidget(page);
+    tabs->setObjectName(QStringLiteral("simulationDefaultsTabs"));
+    outer->addWidget(tabs, 1);
+    auto *pmTab   = new QWidget(tabs); auto *pmLay       = new QVBoxLayout(pmTab);
+    auto *hsTab   = new QWidget(tabs); auto *hsLay       = new QVBoxLayout(hsTab);
+    auto *dwsTab  = new QWidget(tabs); auto *dwStepLay   = new QVBoxLayout(dwsTab);
+    auto *dwvTab  = new QWidget(tabs); auto *dwSolvLay   = new QVBoxLayout(dwvTab);
+    auto *twoTab  = new QWidget(tabs); auto *twoDLay     = new QVBoxLayout(twoTab);
+    auto *tcplTab = new QWidget(tabs); auto *twoDCplLay  = new QVBoxLayout(tcplTab);
+    auto *tmshTab = new QWidget(tabs); auto *twoDMeshLay = new QVBoxLayout(tmshTab);
+    // The tab frame and the page's scroll area already pad; the layouts'
+    // default 9 px margins on top of that are what pushed the densest tab
+    // past an 800 px-tall window.
+    for (QVBoxLayout *l : {pmLay, hsLay, dwStepLay, dwSolvLay,
+                           twoDLay, twoDCplLay, twoDMeshLay})
+        l->setContentsMargins(0, 6, 0, 0);
 
     // ── Process models ───────────────────────────────────────────────────
     auto *procGroup = new QGroupBox(tr("Process models"), page);
@@ -578,7 +679,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simFlowRoutingCombo->addItem(tr("Finite Volume"),  QStringLiteral("FV"));
     procForm->addRow(tr("H&ydraulic routing method (FLOW_ROUTING)"), m_simFlowRoutingCombo);
 
-    outer->addWidget(procGroup);
+    pmLay->addWidget(procGroup);
 
     // ── Process toggles (all default OFF) ────────────────────────────────
     auto *togGroup = new QGroupBox(tr("Process modules (off by default)"), page);
@@ -615,7 +716,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     togLay->addWidget(m_simIgnoreQualityBox);
     togLay->addWidget(m_simAllowPondingBox);
     togLay->addWidget(m_simSkipSteadyStateBox);
-    outer->addWidget(togGroup);
+    pmLay->addWidget(togGroup);
 
     // ── Geometry / hydraulics defaults ───────────────────────────────────
     auto *geomGroup = new QGroupBox(tr("Hydraulics"), page);
@@ -627,7 +728,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simMinSlopePctSpin->setSuffix(QStringLiteral(" %"));
     m_simMinSlopePctSpin->setToolTip(tr("Minimum conduit slope (MIN_SLOPE)."));
     geomForm->addRow(tr("Minimum conduit slope"), m_simMinSlopePctSpin);
-    outer->addWidget(geomGroup);
+    hsLay->addWidget(geomGroup);
 
     // ── Schedule defaults ────────────────────────────────────────────────
     auto *schedGroup = new QGroupBox(tr("Schedule"), page);
@@ -646,7 +747,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simDryDaysSpin->setSuffix(QStringLiteral(" d"));
     schedForm->addRow(tr("Antecedent dry days (DRY_DAYS)"), m_simDryDaysSpin);
 
-    outer->addWidget(schedGroup);
+    hsLay->addWidget(schedGroup);
 
     // ── Time-step defaults ───────────────────────────────────────────────
     auto *stepGroup = new QGroupBox(tr("Time steps"), page);
@@ -677,7 +778,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simRoutingStepSpin->setSuffix(QStringLiteral(" s"));
     stepForm->addRow(tr("Routing (ROUTING_STEP)"), m_simRoutingStepSpin);
 
-    outer->addWidget(stepGroup);
+    dwStepLay->addWidget(stepGroup);
 
     // ── Tolerances ───────────────────────────────────────────────────────
     auto *tolGroup = new QGroupBox(tr("Solver tolerances"), page);
@@ -697,18 +798,40 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simMaxTrialsSpin->setRange(1, 100);
     tolForm->addRow(tr("Ma&x trials (MAX_TRIALS)"), m_simMaxTrialsSpin);
 
-    outer->addWidget(tolGroup);
+    dwStepLay->addWidget(tolGroup);
 
-    outer->addStretch(1);
+    addDynamicWaveDefaultGroups(dwStepLay, dwSolvLay);
+    addTwoDDefaultGroups(twoDLay, twoDCplLay, twoDMeshLay);
+
+    pmLay->addStretch(1);
+    hsLay->addStretch(1);
+    dwStepLay->addStretch(1);
+    dwSolvLay->addStretch(1);
+    twoDLay->addStretch(1);
+    twoDCplLay->addStretch(1);
+    twoDMeshLay->addStretch(1);
+
+    tabs->addTab(pmTab,   tr("Processes & Modules"));
+    tabs->addTab(hsTab,   tr("Hydraulics & Schedule"));
+    tabs->addTab(dwsTab,  tr("Time Steps & Tolerances"));
+    tabs->addTab(dwvTab,  tr("Dynamic Wave"));
+    // PLAN §3 drew one "2D" tab. Its five groups need 1318 px against a 746 px
+    // viewport at 1280x800 — measured, not estimated — so they split three
+    // ways: exactly the arithmetic that gave the Simulation Options 2D page
+    // five tabs rather than §2's four. Every group still moves whole.
+    tabs->addTab(twoTab,  tr("2D Solver"));
+    tabs->addTab(tcplTab, tr("2D Coupling & Rainfall"));
+    tabs->addTab(tmshTab, tr("2D Mesh"));
+
     return page;
 }
 
-QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
+void PreferencesDialog::addDynamicWaveDefaultGroups(QVBoxLayout *stepsLay,
+                                                    QVBoxLayout *solverLay)
 {
-    auto *page  = new QWidget(this);
-    auto *outer = new QVBoxLayout(page);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(12);
+    // Construction parent only: every group below is re-parented by the
+    // addWidget that files it under its tab.
+    QWidget *const page = this;
 
     auto *intro = new QLabel(
         tr("Dynamic-wave-specific defaults. Some keys (semi-implicit node "
@@ -716,7 +839,7 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
            "engine is the refactored engine; legacy engine .inp output stays "
            "SWMM5-compatible."), page);
     intro->setWordWrap(true);
-    outer->addWidget(intro);
+    solverLay->addWidget(intro);
 
     auto *condGroup = new QGroupBox(tr("Conduit / channel"), page);
     auto *condForm  = new QFormLayout(condGroup);
@@ -745,9 +868,37 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
     m_simSurchargeCombo->addItem(tr("EXTRAN (legacy)"),    QStringLiteral("EXTRAN"));
     m_simSurchargeCombo->addItem(tr("SLOT (Preissmann)"),  QStringLiteral("SLOT"));
     m_simSurchargeCombo->addItem(tr("DYNAMIC_SLOT"),       QStringLiteral("DYNAMIC_SLOT"));
+    m_simSurchargeCombo->addItem(tr("TPA (experimental)"), QStringLiteral("TPA"));
     condForm->addRow(tr("Surcharge method"), m_simSurchargeCombo);
 
-    outer->addWidget(condGroup);
+    m_simUnsteadyFrictionCombo = new QComboBox(condGroup);
+    m_simUnsteadyFrictionCombo->addItem(tr("None"),      QStringLiteral("NONE"));
+    m_simUnsteadyFrictionCombo->addItem(tr("Vitkovsky"), QStringLiteral("VITKOVSKY"));
+    m_simUnsteadyFrictionCombo->setToolTip(tr(
+        "UNSTEADY_FRICTION. Consumed by dynamic-wave and finite-volume "
+        "routing; requires the refactored engine."));
+    condForm->addRow(tr("Unsteady friction"), m_simUnsteadyFrictionCombo);
+
+    m_simUfK3Spin = new QDoubleSpinBox(condGroup);
+    m_simUfK3Spin->setRange(0.0, 0.05);
+    m_simUfK3Spin->setDecimals(3);
+    m_simUfK3Spin->setSingleStep(0.005);
+    m_simUfK3Spin->setToolTip(tr(
+        "UF_K3. Vitkovsky coefficient; used only when an unsteady-friction "
+        "method is selected."));
+    condForm->addRow(tr("Unsteady friction k3 (UF_K3)"), m_simUfK3Spin);
+
+    auto syncUfK3 = [this]() {
+        m_simUfK3Spin->setEnabled(
+            m_simUnsteadyFrictionCombo->currentData().toString()
+                != QStringLiteral("NONE"));
+    };
+    connect(m_simUnsteadyFrictionCombo,
+            qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [syncUfK3](int) { syncUfK3(); });
+    syncUfK3();
+
+    solverLay->addWidget(condGroup);
 
     // ── Variable timestep ────────────────────────────────────────────────
     auto *vsGroup = new QGroupBox(tr("Variable timestep"), page);
@@ -789,7 +940,7 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
     connect(m_simVariableStepBox, &QCheckBox::toggled, this,
             [syncVsFields](bool) { syncVsFields(); });
     syncVsFields();
-    outer->addWidget(vsGroup);
+    stepsLay->addWidget(vsGroup);
 
     // ── Convergence + solver ─────────────────────────────────────────────
     auto *solvGroup = new QGroupBox(tr("Solver"), page);
@@ -816,23 +967,37 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
     m_simThreadsSpin = new QSpinBox(solvGroup);
     m_simThreadsSpin->setRange(0, 256);
     m_simThreadsSpin->setSpecialValueText(tr("auto"));
-    m_simThreadsSpin->setToolTip(tr(
-        "Number of OpenMP worker threads written to [OPTIONS] THREADS for "
-        "new projects. 0 = engine auto. The Reset button maxes this to the "
-        "machine's logical-processor count."));
+    {
+        SWMM_ThreadInfo ti{};
+        swmm_get_thread_info(&ti);
+        m_simThreadsSpin->setToolTip(
+            tr("Number of OpenMP worker threads written to [OPTIONS] THREADS for "
+               "new projects. 0 = engine auto. Values above the machine's logical "
+               "processors are allowed but oversubscribe the CPU. The Reset button "
+               "sets this to the machine's logical-processor count.\n\n%1")
+                .arg(SimulationOptionsDialog::threadLimitsSummary(ti)));
+        // Suffix shows the hardware limit next to the value (0 = auto has none).
+        const int logical = ti.logical_cpus;
+        auto updateSuffix = [this, logical](int v) {
+            if (v == 0 || logical <= 0) { m_simThreadsSpin->setSuffix(QString()); return; }
+            m_simThreadsSpin->setSuffix(v > logical
+                ? tr(" / %1 logical — oversubscribed").arg(logical)
+                : tr(" / %1 logical").arg(logical));
+        };
+        connect(m_simThreadsSpin, qOverload<int>(&QSpinBox::valueChanged), this, updateSuffix);
+        updateSuffix(m_simThreadsSpin->value());
+    }
     solvForm->addRow(tr("Worker threads (THREADS)"), m_simThreadsSpin);
 
-    outer->addWidget(solvGroup);
-    outer->addStretch(1);
-    return page;
+    solverLay->addWidget(solvGroup);
 }
 
-QWidget *PreferencesDialog::buildTwoDDefaultsPage()
+void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
+                                             QVBoxLayout *cplLay,
+                                             QVBoxLayout *meshLay)
 {
-    auto *page  = new QWidget(this);
-    auto *outer = new QVBoxLayout(page);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(12);
+    // Construction parent only — see addDynamicWaveDefaultGroups.
+    QWidget *const page = this;
 
     auto *intro = new QLabel(
         tr("Defaults for the 2D overland-flow model: the [2D_OPTIONS] keys "
@@ -842,7 +1007,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
            "dialog starts from. Distances are metres; the mesh dialog "
            "converts to the project's unit system."), page);
     intro->setWordWrap(true);
-    outer->addWidget(intro);
+    lay->addWidget(intro);
 
     // ── 2D solver ────────────────────────────────────────────────────────
     auto *solvGroup = new QGroupBox(tr("2D solver ([2D_OPTIONS])"), page);
@@ -889,7 +1054,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
            "reproduces the established pure local-inertial results."));
     solvForm->addRow(QString(), m_twoDAdvectionBox);
 
-    outer->addWidget(solvGroup);
+    lay->addWidget(solvGroup);
 
     // ── Wet/dry & VFR ────────────────────────────────────────────────────
     auto *wetGroup = new QGroupBox(tr("Wet/dry && VFR"), page);
@@ -928,7 +1093,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     wetForm->addRow(tr("VFR minimum wet fraction (VFR_MIN_WET_FRAC)"),
                     m_twoDVfrMinWetFracSpin);
 
-    outer->addWidget(wetGroup);
+    lay->addWidget(wetGroup);
 
     // ── Coupling ─────────────────────────────────────────────────────────
     auto *cplGroup = new QGroupBox(tr("1D↔2D coupling"), page);
@@ -950,7 +1115,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
         tr("Auto exchange area (COUPLING_AREA AUTO)"), cplGroup);
     cplForm->addRow(QString(), m_twoDCouplingAreaAutoBox);
 
-    outer->addWidget(cplGroup);
+    cplLay->addWidget(cplGroup);
 
     // ── Rainfall & reporting ─────────────────────────────────────────────
     auto *rainGroup = new QGroupBox(tr("Rainfall && reporting"), page);
@@ -966,7 +1131,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     m_twoDReport2DBox = new QCheckBox(tr("Report 2D results (REPORT_2D)"), rainGroup);
     rainForm->addRow(QString(), m_twoDReport2DBox);
 
-    outer->addWidget(rainGroup);
+    cplLay->addWidget(rainGroup);
 
     // ── Mesh generation seeds ────────────────────────────────────────────
     auto *meshGroup = new QGroupBox(tr("Mesh generation defaults"), page);
@@ -1006,6 +1171,20 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     m_twoDMeshSnapEpsSpin->setSuffix(QStringLiteral(" m"));
     meshForm->addRow(tr("Snap tolerance"), m_twoDMeshSnapEpsSpin);
 
+    // One row for both node seeds: 2D Mesh is the tallest Simulation
+    // Defaults tab and a QTabWidget sizes to its tallest page, so every
+    // extra row here makes ALL seven tabs scroll at 1280x800
+    // (test_preferencesdialog_roundtrip::noScrollAt1280x800).
+    m_twoDMeshNodesBox = new QCheckBox(tr("Nodes as mesh vertices (except virtual junctions)"),
+                                       meshGroup);
+    m_twoDMeshNodesRimBox = new QCheckBox(tr("at rim elevation instead of terrain"),
+                                          meshGroup);
+    auto *nodesRow = new QHBoxLayout;
+    nodesRow->addWidget(m_twoDMeshNodesBox);
+    nodesRow->addWidget(m_twoDMeshNodesRimBox);
+    nodesRow->addStretch();
+    meshForm->addRow(QString(), nodesRow);
+
     m_twoDMeshFlattenRadSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshFlattenRadSpin->setRange(0.0, 1000.0);
     m_twoDMeshFlattenRadSpin->setDecimals(2);
@@ -1030,6 +1209,17 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     m_twoDMeshThinningPassesSpin = new QSpinBox(meshGroup);
     m_twoDMeshThinningPassesSpin->setRange(1, 64);
     meshForm->addRow(tr("Thinning passes"), m_twoDMeshThinningPassesSpin);
+    // Checkbox as the row label (same single-row idiom as the mesh dialog).
+    m_twoDMeshMinSpacingBox = new QCheckBox(tr("Minimum terrain point spacing"), meshGroup);
+    m_twoDMeshMinSpacingBox->setToolTip(tr("Poisson-disk filter over the thinned DTM points."));
+    m_twoDMeshMinSpacingSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshMinSpacingSpin->setRange(0.0, 1000.0);
+    m_twoDMeshMinSpacingSpin->setDecimals(2);
+    m_twoDMeshMinSpacingSpin->setSuffix(QStringLiteral(" m"));
+    m_twoDMeshMinSpacingSpin->setToolTip(tr(
+        "Seeded into the mesh dialog rounded to whole model units\n"
+        "(15 m → 15 m, or 49 ft)."));
+    meshForm->addRow(m_twoDMeshMinSpacingBox, m_twoDMeshMinSpacingSpin);
 
     m_twoDMeshBoundaryBufSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshBoundaryBufSpin->setRange(0.0, 1000.0);
@@ -1065,9 +1255,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
         tr("Write mesh to external file ([2D_MESH_FILE])"), meshGroup);
     meshForm->addRow(QString(), m_twoDMeshOutputExternalBox);
 
-    outer->addWidget(meshGroup);
-    outer->addStretch(1);
-    return page;
+    meshLay->addWidget(meshGroup);
 }
 
 QWidget *PreferencesDialog::buildMapDisplayPage()
@@ -1296,6 +1484,14 @@ QWidget *PreferencesDialog::buildPlotsPage()
         formatCombo->addItem(tr("3 significant figures"),      openswmmvis::plot::SigFigs3);
         formatCombo->addItem(tr("4 significant figures"),      openswmmvis::plot::SigFigs4);
         formatCombo->addItem(tr("6 significant figures"),      openswmmvis::plot::SigFigs6);
+        formatCombo->addItem(tr("1.23e+01  (scientific, 2 decimals)"),   openswmmvis::plot::Scientific2);
+        formatCombo->addItem(tr("1.235e+01  (scientific, 3 decimals)"),  openswmmvis::plot::Scientific3);
+        formatCombo->addItem(tr("1.2346e+01  (scientific, 4 decimals)"), openswmmvis::plot::Scientific4);
+        formatCombo->addItem(tr("12.35e+00  (engineering, 2 decimals)"), openswmmvis::plot::Engineering2);
+        formatCombo->addItem(tr("12.346e+00  (engineering, 3 decimals)"),openswmmvis::plot::Engineering3);
+        formatCombo->addItem(tr("12,346  (thousands, integer)"),         openswmmvis::plot::ThousandsInteger);
+        formatCombo->addItem(tr("12,345.7  (thousands, 1 decimal)"),     openswmmvis::plot::Thousands1);
+        formatCombo->addItem(tr("12,345.68  (thousands, 2 decimals)"),   openswmmvis::plot::Thousands2);
         formatCombo->setToolTip(tr(
             "Default number format for this axis on newly-opened plots. "
             "Each plot can override it in its own options."));
@@ -1444,6 +1640,8 @@ void PreferencesDialog::readFromManager()
     if (m_nodeStyleModel) m_nodeStyleModel->refreshValues();
 
     m_progressTickMsSpin->setValue(p->progressTickMs());
+    m_live2DHistoryCapSpin->setValue(p->live2DHistoryCap());
+    m_live2DHistoryMBSpin->setValue(p->live2DHistoryMB());
 
     // Simulation Defaults
     {
@@ -1486,6 +1684,8 @@ void PreferencesDialog::readFromManager()
         selData(m_simNormalFlowCombo,       d.normalFlowLimited);
         selData(m_simForceMainCombo,        d.forceMainEquation);
         selData(m_simSurchargeCombo,        d.surchargeMethod);
+        selData(m_simUnsteadyFrictionCombo, d.unsteadyFriction);
+        m_simUfK3Spin            ->setValue(d.ufK3);
 
         m_simVariableStepBox     ->setChecked(d.variableStepOn);
         m_simVariableStepFactorSpin->setValue(d.variableStepFactor);
@@ -1498,7 +1698,8 @@ void PreferencesDialog::readFromManager()
         m_simThreadsSpin         ->setValue(d.threads);
     }
 
-    // 2D Defaults (shared widget-apply helper — also used by Reset)
+    // Simulation Defaults > 2D tabs (shared widget-apply helper — also
+    // used by Reset)
     applyTwoDDefaultsToWidgets(p->twoDDefaults());
 
     // Object Defaults (self-contained page — pulls both US and SI sets)
@@ -1601,11 +1802,15 @@ void PreferencesDialog::applyTwoDDefaultsToWidgets(
     m_twoDMeshSimplifyEpsSpin   ->setValue(d.meshSimplifyEpsM);
     m_twoDMeshSnapEpsSpin       ->setValue(d.meshSnapEpsM);
     m_twoDMeshFlattenRadSpin    ->setValue(d.meshNodeFlattenRadM);
+    m_twoDMeshNodesBox          ->setChecked(d.meshNodesAsVertices);
+    m_twoDMeshNodesRimBox       ->setChecked(d.meshNodesUseRim);
     m_twoDMeshMinSepBox         ->setChecked(d.meshMinNodeSepOn);
     m_twoDMeshMinSepSpin        ->setValue(d.meshMinNodeSepM);
     m_twoDMeshThinningBox       ->setChecked(d.meshThinningOn);
     m_twoDMeshThinningTolSpin   ->setValue(d.meshThinningTol);
     m_twoDMeshThinningPassesSpin->setValue(d.meshThinningPasses);
+    m_twoDMeshMinSpacingBox     ->setChecked(d.meshMinSpacingOn);
+    m_twoDMeshMinSpacingSpin    ->setValue(d.meshMinSpacingM);
     m_twoDMeshBoundaryBufSpin   ->setValue(d.meshBoundaryBufferM);
     m_twoDMeshMaxEdgeBox        ->setChecked(d.meshMaxBoundaryEdgeOn);
     m_twoDMeshMaxEdgeSpin       ->setValue(d.meshMaxBoundaryEdgeM);
@@ -1673,6 +1878,8 @@ void PreferencesDialog::writeToManager()
     // setters at edit time — nothing to flush here.
 
     p->setProgressTickMs(m_progressTickMsSpin->value());
+    p->setLive2DHistoryCap(m_live2DHistoryCapSpin->value());
+    p->setLive2DHistoryMB(m_live2DHistoryMBSpin->value());
 
     // Simulation Defaults — package the page state and persist via one setter.
     {
@@ -1710,6 +1917,8 @@ void PreferencesDialog::writeToManager()
         d.normalFlowLimited  =  m_simNormalFlowCombo     ->currentData().toString();
         d.forceMainEquation  =  m_simForceMainCombo      ->currentData().toString();
         d.surchargeMethod    =  m_simSurchargeCombo      ->currentData().toString();
+        d.unsteadyFriction   =  m_simUnsteadyFrictionCombo->currentData().toString();
+        d.ufK3               =  m_simUfK3Spin            ->value();
         d.variableStepOn     =  m_simVariableStepBox     ->isChecked();
         d.variableStepFactor =  m_simVariableStepFactorSpin->value();
         d.minRoutingStepSec  =  m_simMinRoutingStepSpin  ->value();
@@ -1722,7 +1931,8 @@ void PreferencesDialog::writeToManager()
         p->setSimulationDefaults(d);
     }
 
-    // 2D Defaults — package the page state and persist via one setter.
+    // Simulation Defaults > 2D tabs — package the state, persist via one
+    // setter.
     {
         PreferencesManager::TwoDDefaults d;
         d.maxTimestepSec     = m_twoDMaxTimestepSpin    ->value();
@@ -1751,11 +1961,15 @@ void PreferencesDialog::writeToManager()
         d.meshSimplifyEpsM      = m_twoDMeshSimplifyEpsSpin   ->value();
         d.meshSnapEpsM          = m_twoDMeshSnapEpsSpin       ->value();
         d.meshNodeFlattenRadM   = m_twoDMeshFlattenRadSpin    ->value();
+        d.meshNodesAsVertices   = m_twoDMeshNodesBox          ->isChecked();
+        d.meshNodesUseRim       = m_twoDMeshNodesRimBox       ->isChecked();
         d.meshMinNodeSepOn      = m_twoDMeshMinSepBox         ->isChecked();
         d.meshMinNodeSepM       = m_twoDMeshMinSepSpin        ->value();
         d.meshThinningOn        = m_twoDMeshThinningBox       ->isChecked();
         d.meshThinningTol       = m_twoDMeshThinningTolSpin   ->value();
         d.meshThinningPasses    = m_twoDMeshThinningPassesSpin->value();
+        d.meshMinSpacingOn      = m_twoDMeshMinSpacingBox     ->isChecked();
+        d.meshMinSpacingM       = m_twoDMeshMinSpacingSpin    ->value();
         d.meshBoundaryBufferM   = m_twoDMeshBoundaryBufSpin   ->value();
         d.meshMaxBoundaryEdgeOn = m_twoDMeshMaxEdgeBox        ->isChecked();
         d.meshMaxBoundaryEdgeM  = m_twoDMeshMaxEdgeSpin       ->value();
@@ -1926,7 +2140,8 @@ void PreferencesDialog::onResetToDefaults()
                                    QStringLiteral("outfall"),
                                    QStringLiteral("storage"),
                                    QStringLiteral("divider"),
-                                   QStringLiteral("virtual_junction") };
+                                   QStringLiteral("virtual_junction"),
+                                   QStringLiteral("inlet_junction") };
         for (const QString &k : keys) p->resetNodeStyleToDefault(k);
         if (m_nodeStyleModel) m_nodeStyleModel->refreshValues();
     }
@@ -1944,11 +2159,14 @@ void PreferencesDialog::onResetToDefaults()
     };
 
     m_progressTickMsSpin->setValue(1000);
+    m_live2DHistoryCapSpin->setValue(2000);
+    m_live2DHistoryMBSpin->setValue(1024);
 
-    // Simulation Defaults — restore the struct's compile-time seeds and
-    // max the THREADS knob to the machine's logical-processor count
-    // (per the user request: "Number of threads should be maxed to the
-    // total number of logical processors").
+    // Simulation Defaults — restore the struct's compile-time seeds. THREADS
+    // resets to 0 (engine auto). It used to reset to the logical-processor
+    // count, but an explicit count bypasses the engine's Apple Silicon
+    // performance-core clamp and lets the OpenMP team spin against the GUI's
+    // own threads (engine measurement: T=8 unclamped 204 s vs T=4 57 s).
     {
         const PreferencesManager::SimulationDefaults d;  // compile-time defaults
         auto sel = [](QComboBox *c, const QString &v) {
@@ -1986,6 +2204,8 @@ void PreferencesDialog::onResetToDefaults()
         sel(m_simNormalFlowCombo,   d.normalFlowLimited);
         sel(m_simForceMainCombo,    d.forceMainEquation);
         sel(m_simSurchargeCombo,    d.surchargeMethod);
+        sel(m_simUnsteadyFrictionCombo, d.unsteadyFriction);
+        m_simUfK3Spin            ->setValue(d.ufK3);
 
         m_simVariableStepBox     ->setChecked(d.variableStepOn);
         m_simVariableStepFactorSpin->setValue(d.variableStepFactor);
@@ -1996,8 +2216,7 @@ void PreferencesDialog::onResetToDefaults()
         sel(m_simNodeContinuityCombo, d.nodeContinuity);
         m_simAndersonAccelBox    ->setChecked(d.andersonAccel);
 
-        const int hwThreads = QThread::idealThreadCount();
-        m_simThreadsSpin         ->setValue(hwThreads > 0 ? hwThreads : 0);
+        m_simThreadsSpin         ->setValue(0);
     }
 
     // 2D defaults — compile-time struct defaults straight to the widgets.

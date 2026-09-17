@@ -22,6 +22,7 @@
 #include <QChartView>
 #include <QClipboard>
 #include <QComboBox>
+#include <QDialogButtonBox>
 #include <QGuiApplication>
 #include <QItemSelection>
 #include <QItemSelectionModel>
@@ -153,9 +154,9 @@ QString CurveEditorDialog::pickCurve(CurveRegistry *registry,
     }
     dlg.exec();
 
-    // Return whatever's currently highlighted — applies to all exit paths
-    // (Apply, OK, Close). All edits are already persisted through the
-    // registry MVC layer regardless of which button was used.
+    // Return whatever's currently highlighted — applies to every exit path
+    // (Close button, Esc, title-bar close). All edits are already persisted
+    // through the registry MVC layer regardless of how the dialog was left.
     auto *p = dlg.currentProvider();
     return p ? p->name() : QString();
 }
@@ -535,6 +536,20 @@ void CurveEditorDialog::buildUi_()
     m_splitter->setStretchFactor(0, 1);
     m_splitter->setStretchFactor(1, 2);
     m_splitter->setStretchFactor(2, 3);
+
+    // Close row. Wired to close() rather than accept()/reject(): on Qt >= 6.3
+    // done() bypasses closeEvent(), and close() is the one path every exit
+    // (button, Esc, title bar) shares. Not the default button — Enter in a
+    // table cell must never dismiss the editor.
+    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    closeBox->setObjectName(QStringLiteral("curve_closeBox"));
+    closeBox->setContentsMargins(8, 6, 8, 6);   // outer runs at 0 margins
+    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
+    closeBtn->setObjectName(QStringLiteral("curve_closeBtn"));
+    closeBtn->setAutoDefault(false);
+    closeBtn->setDefault(false);
+    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
+    outer->addWidget(closeBox);
 
     m_status = new QStatusBar(this);
     m_countLabel = new QLabel(m_status);

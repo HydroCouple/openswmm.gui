@@ -11,6 +11,7 @@
 
 #include "map/tools/maptool.h"
 #include "plot/plotattribute.h"
+#include "plot/resultdescriptor.h"
 #include "selection/selectionmanager.h"
 
 #include <QPoint>
@@ -21,6 +22,7 @@
 
 class OpenSWMMVisLayer;
 class SWMMModelLayer;
+class FeatureLayer;
 
 /*!
  * \class OpenSWMMVisMapToolSelect
@@ -94,7 +96,7 @@ signals:
      *  from the right-click attribute submenu on a map object. Carries
      *  `PlotAttribute::Unknown` for the "All attributes" entry. */
     void plotAttributeRequested(const SWMMObjectRef &ref,
-                                openswmmvis::plot::PlotAttribute attribute);
+                                const openswmmvis::plot::ResultDescriptor &descriptor);
 
     /*! \brief Variant of \ref plotAttributeRequested that names a specific
      *  results layer. Emitted from the two-level "Plot Time Series ▸
@@ -102,13 +104,26 @@ signals:
      *  Output (.out) layer is loaded on the canvas. The receiver plots
      *  against that exact \p layer (no auto-pick-first-found). */
     void plotAttributeForLayerRequested(const SWMMObjectRef &ref,
-                                         openswmmvis::plot::PlotAttribute attribute,
+                                         const openswmmvis::plot::ResultDescriptor &descriptor,
                                          class SWMMResultsLayer *layer);
 
     /*! \brief Slice AT.2 — emitted when the user picks a system-wide
      *  variable from the background right-click menu ("Plot System
      *  Variable…" submenu). */
     void plotSystemRequested(openswmmvis::plot::PlotAttribute attribute);
+
+    /*! \brief The user chose "Delete selected feature(s)" from the background
+     *  right-click menu, offered only while \p layer has an open edit session
+     *  and a non-empty selection. The tool does not delete anything itself:
+     *  the main window owns the undo stack and the error reporting, and this
+     *  keeps map right-click, the Del key and the Features grid on one path. */
+    void deleteFeaturesRequested(FeatureLayer *layer);
+
+    /*! \brief Emitted from the right-click menu's "Rainfall Visualization…"
+     *  action on a rain gage hit. The main window opens the shared Rainfall
+     *  Visualization dialog focused on that gage — the map twin of the
+     *  Object Browser's identically-named signal. */
+    void rainfallVisualizationRequested(const SWMMObjectRef &ref);
 
 private:
     void selectAtPoint(const QPoint &pixel, Qt::KeyboardModifiers mods);
@@ -126,7 +141,9 @@ private:
     // the overlay and can be dragged without switching tools. Escape or
     // double-clicking empty space exits back to normal selection behaviour.
 
-    enum class EditKind { None, Node, Link, Subcatch };
+    // Gage rides the Node code path (one whole-object handle, drag =
+    // move) but previews/commits through the rain-gage move APIs.
+    enum class EditKind { None, Node, Gage, Link, Subcatch };
 
     /*! Enter edit mode for the given layer object. */
     void enterEditMode(SWMMModelLayer *layer, const QString &name,
@@ -141,6 +158,8 @@ private:
     void applyGroupDragDelta(double dx, double dy);
     /*! Commit a completed node-handle drag. */
     void commitNodeDrag(double newX, double newY);
+    /*! Commit a completed rain-gage handle drag (no auto-length leg). */
+    void commitGageDrag(double newX, double newY);
     /*! Commit \p newInterior as the link's interior vertices. */
     void commitLinkDrag(QVector<QPointF> newInterior);
     /*! Commit \p newVertices as the subcatchment's polygon. */

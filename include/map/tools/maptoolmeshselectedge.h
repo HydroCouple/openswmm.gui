@@ -80,7 +80,7 @@ private:
     SWMM2DMeshLayer *findActiveMeshLayer_() const;
     QPointF pixelToScene_(int px, int py) const;
 
-    /*! Flat edge slot (`tri*3 + eLocal`) nearest \p pos, or -1. */
+    /*! Flat edge slot (`mesh::edgeSlot(cell, eLocal)`) nearest \p pos, or -1. */
     int  pickEdgeAtPixel_(const QPoint &pos, bool boundaryOnly) const;
     /*! Handle one Ctrl/⌘ + click: set the anchor, or commit the path. */
     void handlePathClick_(const QPoint &pos);

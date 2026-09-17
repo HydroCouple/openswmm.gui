@@ -7,9 +7,13 @@
 
 #include "ui/sectionview/xsectsampler.h"
 
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_xsect.h>
 
 #include <algorithm>
+#include <QtMath>   // M_PI on MSVC
+
 #include <cmath>
 #include <utility>
 
@@ -179,9 +183,29 @@ QPolygonF XsectSampler::outline(int samples) const
 
     const int n = std::clamp(samples, 8, 512);
 
+    // Chebyshev (cosine) spacing rather than a uniform ladder.
+    //
+    // Sampling depth uniformly is the wrong distribution for a section outline:
+    // width changes fastest where the boundary is closest to horizontal — at
+    // the invert and the crown — so a uniform ladder puts the fewest points
+    // exactly where curvature is highest, and a circular pipe comes out looking
+    // faceted at the top and bottom while the springline is over-sampled.
+    // y_i = yFull * (1 - cos(pi*i/n))/2 clusters points towards both ends,
+    // which is where the detail is.
+    //
+    // The endpoints stay exact (i = 0 → 0, i = n → yFull) and, for even n, so
+    // does mid-depth (i = n/2 → yFull/2) — which matters because that is where
+    // the widest chord of a circular or elliptical section lies, and the
+    // outline's bounding box is checked against the engine's own wMax.
     QVector<double> depths(n + 1);
-    for (int i = 0; i <= n; ++i)
-        depths[i] = p.yFull * static_cast<double>(i) / static_cast<double>(n);
+    for (int i = 0; i <= n; ++i) {
+        const double t = static_cast<double>(i) / static_cast<double>(n);
+        depths[i] = p.yFull * 0.5 * (1.0 - std::cos(M_PI * t));
+    }
+    // Guard the ends against rounding drift so the polygon still closes exactly
+    // on the invert and the crown.
+    depths.front() = 0.0;
+    depths.back()  = p.yFull;
 
     const QVector<double> widths = widthsAtDepths(depths);
     if (widths.size() != depths.size()) return {};
@@ -197,6 +221,88 @@ QPolygonF XsectSampler::outline(int samples) const
         poly << QPointF(-0.5 * widths[i], depths[i]);
 
     return poly;
+}
+
+// ---- Link geometry resolution -------------------------------------------
+
+XsectSampler samplerFromStreetIndex(SWMM_Engine engine, int streetIdx, bool si)
+{
+    if (!engine || streetIdx < 0 || streetIdx >= swmm_street_count(engine))
+        return {};
+
+    double tCrown = 0.0, hCurb = 0.0, sx = 0.0, nRoad = 0.0;
+    double gutterDepress = 0.0, gutterWidth = 0.0;
+    int    sides = 1;
+    double backWidth = 0.0, backSlope = 0.0, backN = 0.0;
+
+    if (swmm_street_get_params(engine, streetIdx, &tCrown, &hCurb, &sx, &nRoad,
+                               &gutterDepress, &gutterWidth, &sides,
+                               &backWidth, &backSlope, &backN) != SWMM_OK)
+        return {};
+
+    return XsectSampler::fromStreet(tCrown, hCurb, sx, nRoad,
+                                    gutterDepress, gutterWidth, sides,
+                                    backWidth, backSlope, backN, si);
+}
+
+XsectSampler samplerForLink(SWMM_Engine engine, int linkIdx, int shape,
+                            double g1, double g2, double g3, double g4,
+                            bool si)
+{
+    if (shape == SWMM_XSECT_IRREGULAR)
+        return XsectSampler::fromLink(engine, linkIdx);
+
+    if (shape == SWMM_XSECT_STREET) {
+        XsectSampler s = samplerFromStreetIndex(
+            engine, static_cast<int>(std::lround(g1)), si);
+        if (s.isValid()) return s;
+        return XsectSampler::fromLink(engine, linkIdx);
+    }
+    if (shape == SWMM_XSECT_CUSTOM)
+        return XsectSampler::fromLink(engine, linkIdx);
+
+    return XsectSampler::fromShape(shape, g1, g2, g3, g4, si);
+}
+
+double linkFullDepth(SWMM_Engine engine, int linkIdx, int shape,
+                     double g1, double g2, double g3, double g4,
+                     bool si, bool *outOpenTop)
+{
+    // Shapes whose geom1 is a table index, not a dimension, plus CUSTOM whose
+    // depth lives on the referenced SHAPE curve. Everything else already has
+    // its full depth in g1, so skip building a sampler for the common case.
+    const bool needsSampler = (shape == SWMM_XSECT_STREET)
+                           || (shape == SWMM_XSECT_IRREGULAR)
+                           || (shape == SWMM_XSECT_CUSTOM);
+
+    // A street is hydraulically closed to the solver but must be DRAWN open:
+    // the engine's isOpen() whitelist omits STREET_XSECT by design, and
+    // tests/gui/test_xsectsampler.cpp pins that, so the difference belongs
+    // here in presentation rather than in the engine.
+    const bool streetOpen = (shape == SWMM_XSECT_STREET);
+
+    if (!needsSampler) {
+        if (outOpenTop) {
+            const XsectSampler s =
+                XsectSampler::fromShape(shape, g1, g2, g3, g4, si);
+            *outOpenTop = s.isValid() ? s.fullProps().open : false;
+        }
+        return g1;
+    }
+
+    const XsectSampler s =
+        samplerForLink(engine, linkIdx, shape, g1, g2, g3, g4, si);
+    if (!s.isValid()) {
+        // Unresolvable geometry (BUILDING lifecycle, missing table). Report no
+        // depth rather than the index that sits in g1 — a crown drawn at
+        // invert + streetIndex is worse than no crown at all.
+        if (outOpenTop) *outOpenTop = streetOpen;
+        return 0.0;
+    }
+
+    const XsectFullProps p = s.fullProps();
+    if (outOpenTop) *outOpenTop = p.open || streetOpen;
+    return p.yFull;
 }
 
 } // namespace openswmmvis::sectionview

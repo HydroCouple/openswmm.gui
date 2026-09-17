@@ -38,6 +38,7 @@
 #include "render/qsg2ddirtystate.h"
 #include "render/qsg2dlodpolicy.h"
 
+#include <QByteArray>
 #include <QHash>
 #include <QPointer>
 #include <QQuickItem>
@@ -49,6 +50,8 @@
 #include <vector>
 
 class QSGTexture;
+class QSGGeometryNode;
+class QSGTransformNode;
 class SWMM2DMeshLayer;
 
 class SWMM2DMeshQSGRenderer : public QQuickItem
@@ -82,6 +85,31 @@ private:
     QPointer<SWMM2DMeshLayer> m_layer;
     quint64                   m_contentRev = 0;
     MapExtent                 m_extent;
+
+    /*! Named handles to every child of the scene root, populated when the
+     *  root is (re)built in updatePaintNode. Replaces the old positional
+     *  nextSibling() re-walk, which silently static_cast a plain QSGNode to
+     *  QSGGeometryNode (memory corruption, not a loud failure) whenever the
+     *  construction order drifted. m_sceneRoot guards staleness: when the
+     *  scene graph hands us a different (or null) root, the whole tree and
+     *  these pointers are rebuilt together. Pointers are owned by the scene
+     *  graph via the root's child list — never delete individually. */
+    struct SceneNodes {
+        QSGGeometryNode *tri        = nullptr;
+        QSGGeometryNode *isoband    = nullptr;
+        QSGGeometryNode *edgeThin   = nullptr;
+        QSGGeometryNode *edgeWide   = nullptr;
+        QSGGeometryNode *edgeBc[6]  = {};      // non-Wall BC types
+        QSGGeometryNode *contour    = nullptr;
+        QSGNode         *contourLabels = nullptr;
+        QSGGeometryNode *nodeMark   = nullptr;
+        QSGGeometryNode *coupledMark = nullptr;
+        QSGGeometryNode *selTri     = nullptr;
+        QSGGeometryNode *selEdge    = nullptr;
+        QSGGeometryNode *selVert    = nullptr;
+    };
+    SceneNodes        m_nodes;
+    QSGTransformNode *m_sceneRoot = nullptr;
 
     // Fixed scene-space anchor (bbox centre) — keeps float vertex coords
     // small even in UTM coordinates; stable across pans. Recomputed only
@@ -175,8 +203,19 @@ private:
     // triangle becomes visible. Bit 24 is set on every written entry so
     // a legitimate black triangle (RGB 0,0,0) is still distinguishable
     // from "not yet computed".
+    //
+    // colorByAttribute (MeshFillStyle) widens two of these fields:
+    //   m_fillCacheRev      also XORs the layer's attrRevision(), so a
+    //                       per-cell Manning's edit invalidates the colours.
+    //   m_fillCacheZMin/Max hold the *classification* range — the attribute's
+    //                       observed span in attribute mode, the elevation
+    //                       span in the historic elevation mode.
+    //   m_fillCacheAttrKey  which attribute the cached colours were built
+    //                       from; switching attributes changes nothing else
+    //                       in the key, so it must be compared on its own.
     bool                       m_fillCacheValid       = false;
     quint64                    m_fillCacheRev         = 0;
+    QByteArray                 m_fillCacheAttrKey;
     double                     m_fillCacheZMin        = 0.0;
     double                     m_fillCacheZMax        = 0.0;
     double                     m_fillCacheAzimuth     = 0.0;

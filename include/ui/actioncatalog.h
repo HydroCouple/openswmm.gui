@@ -97,6 +97,8 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     // ── Model authoring (enabled while a project is open) ───────────────
     {"model.addJunction",     "actionAddJunction",      "Model", "",  "Junction", "model", "Model/Add Node", RequiresProject},
     {"model.addVirtualJunction", "actionAddVirtualJunction", "Model", "",  "VirtualJunction", "model", "Model/Add Node", RequiresProject},
+    {"model.addJunctionSplit", "actionAddJunctionSplit", "Model", "",  "JunctionSplit", "model", "Model/Add Node", RequiresProject},
+    {"model.addInletJunction", "actionAddInletJunction", "Model", "",  "InletJunction", "model", "Model/Add Node", RequiresProject},
     {"model.addOutfall",      "actionAddOutfall",       "Model", "",  "Outfall", "model", "Model/Add Node", RequiresProject},
     {"model.addFlowDivider",  "actionAddFlowDivider",   "Model", "",  "Divider", "model", "Model/Add Node", RequiresProject},
     {"model.addStorage",      "actionAddStorage",       "Model", "",  "Storage", "model", "Model/Add Node", RequiresProject},
@@ -109,9 +111,30 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"model.addRainGage",     "actionRainGauge",        "Model", "",  "Rainfall", "model", "Model", RequiresProject},
     {"model.addText",         "actionAddText",          "Model", "",  "Text", "model", "Model", RequiresProject},
     {"model.importFeatureLayer", "actionImportFeatureLayer", "Model", "", "ImportGIS", "model", "Model", NoTags},
+    {"model.assignRainGages", "actionAssignRainGages", "Model", "", "AssignRainGages", "model", "Model", RequiresProject},
     {"model.simulationOptions",  "actionOptions",       "Model", "",  "Options", "model", "Model", NoTags},
     {"model.userFlags",       "actionUserFlags",        "Model", "",  "UserFlags", "model", "Model", NoTags},
+    {"model.editReactionSystem", "actionEditReactionSystem", "Model", "", "ReactionSystem", "model", "Model", NoTags},
+    {"model.editHeatConfig",  "actionEditHeatConfig",   "Model", "",  "HeatConfig", "model", "Model", NoTags},
     {"model.generateMesh",    "actionGenerateMesh",     "Model", "",  "CreateMesh", "mesh2d", "Model", NoTags},
+
+    // ── Feature layers (user-drawn GeoPackage-backed vector layers;
+    //    MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §5.1) ─────────────────
+    // RequiresProject: every one of these writes into the project's own
+    // .features.gpkg, which is derived from the model path, so none of them
+    // means anything before a project is open.
+    {"features.newLayer",     "actionNewFeatureLayer",    "Features", "", "AddVector",    "features", "Model/Feature Layers", RequiresProject},
+    // Edit mode gates the seven tools and the attribute grid, the way a GIS
+    // package does: nothing on a feature layer is mutable until it is on.
+    {"features.editMode",     "actionFeatureEditMode",    "Features", "", "Edit",         "features", "Model/Feature Layers", RequiresProject},
+    {"features.delete",       "actionFeatureDelete",      "Features", "Del", "Delete",    "features", "Model/Feature Layers", RequiresProject},
+    {"features.drawPoint",    "actionFeatureDrawPoint",   "Features", "", "Node",         "features", "Model/Feature Layers", RequiresProject},
+    {"features.drawLine",     "actionFeatureDrawLine",    "Features", "", "Polyline",     "features", "Model/Feature Layers", RequiresProject},
+    {"features.drawPolygon",  "actionFeatureDrawPolygon", "Features", "", "Polygon",      "features", "Model/Feature Layers", RequiresProject},
+    {"features.addPart",      "actionFeatureAddPart",     "Features", "", "Add",          "features", "Model/Feature Layers", RequiresProject},
+    {"features.addHole",      "actionFeatureAddHole",     "Features", "", "Clear",        "features", "Model/Feature Layers", RequiresProject},
+    {"features.editVertex",   "actionFeatureEditVertex",  "Features", "", "InsertVertex", "features", "Model/Feature Layers", RequiresProject},
+    {"features.moveFeature",  "actionFeatureMove",        "Features", "", "Move",         "features", "Model/Feature Layers", RequiresProject},
 
     // ── Climatology ─────────────────────────────────────────────────────
     {"climate.temperature",   "actionTemperature",      "Climate", "", "Thermometer", "model", "Model/Climate", NoTags},
@@ -122,19 +145,19 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
 
     // ── Data objects (programmatic Data menu; objectNames assigned at
     //    creation in initializeMenus) ─────────────────────────────────────
-    {"data.newTimeSeries",    "actionNewTimeSeries",    "Data", "", "AddTimeSeries", "model", "Model/Add Data Object", NoTags},
-    {"data.newCurve",         "actionNewCurve",         "Data", "", "AddCurve", "model", "Model/Add Data Object", NoTags},
-    {"data.newPattern",       "actionNewPattern",       "Data", "", "AddPattern", "model", "Model/Add Data Object", NoTags},
-    {"data.newLidControl",    "actionNewLidControl",    "Data", "", "LidControl", "model", "Model/Add Data Object", NoTags},
-    {"data.newPollutant",     "actionNewPollutant",     "Data", "", "Pollutant", "model", "Model/Add Data Object", NoTags},
-    {"data.newLandUse",       "actionNewLandUse",       "Data", "", "LandUse",      "", "Model/Add Data Object", NoTags},
-    {"data.newAquifer",       "actionNewAquifer",       "Data", "", "Aquifer",      "", "Model/Add Data Object", NoTags},
-    {"data.newSnowpack",      "actionNewSnowpack",      "Data", "", "Snowpack",      "", "Model/Add Data Object", NoTags},
-    {"data.newControlRule",   "actionNewControlRule",   "Data", "", "AddControlRule", "model", "Model/Add Data Object", NoTags},
-    {"data.newTransect",      "actionNewTransect",      "Data", "", "AddTransect", "model", "Model/Add Data Object", NoTags},
-    {"data.newUnitHydrograph","actionNewUnitHydrograph","Data", "", "UnitHydrograph",      "", "Model/Add Data Object", NoTags},
-    {"data.newStreet",        "actionNewStreet",        "Data", "", "Street",      "", "Model/Add Data Object", NoTags},
-    {"data.newInlet",         "actionNewInlet",         "Data", "", "Inlet",      "", "Model/Add Data Object", NoTags},
+    {"data.newTimeSeries",    "actionNewTimeSeries",    "Data", "", "AddTimeSeries", "model", "Model/Data Objects", NoTags},
+    {"data.newCurve",         "actionNewCurve",         "Data", "", "AddCurve", "model", "Model/Data Objects", NoTags},
+    {"data.newPattern",       "actionNewPattern",       "Data", "", "AddPattern", "model", "Model/Data Objects", NoTags},
+    {"data.newLidControl",    "actionNewLidControl",    "Data", "", "LidControl", "model", "Model/Data Objects", NoTags},
+    {"data.newPollutant",     "actionNewPollutant",     "Data", "", "Pollutant", "model", "Model/Data Objects", NoTags},
+    {"data.newLandUse",       "actionNewLandUse",       "Data", "", "LandUse",      "", "Model/Data Objects", NoTags},
+    {"data.newAquifer",       "actionNewAquifer",       "Data", "", "Aquifer", "model", "Model/Data Objects", NoTags},
+    {"data.newSnowpack",      "actionNewSnowpack",      "Data", "", "Snowpack",      "", "Model/Data Objects", NoTags},
+    {"data.newControlRule",   "actionNewControlRule",   "Data", "", "AddControlRule", "model", "Model/Data Objects", NoTags},
+    {"data.newTransect",      "actionNewTransect",      "Data", "", "AddTransect", "model", "Model/Data Objects", NoTags},
+    {"data.newUnitHydrograph","actionNewUnitHydrograph","Data", "", "UnitHydrograph",      "", "Model/Data Objects", NoTags},
+    {"data.newStreet",        "actionNewStreet",        "Data", "", "Street", "model", "Model/Data Objects", NoTags},
+    {"data.newInlet",         "actionNewInlet",         "Data", "", "Inlet", "model", "Model/Data Objects", NoTags},
 
     // ── Layer / data import ─────────────────────────────────────────────
     {"import.swmmOutput",     "actionAddSWMMOutput",    "Import", "", "AddSWMMOutput", "home", "File/Import", NoTags},
@@ -143,6 +166,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"import.wms",            "actionAddWMSData",       "Import", "", "AddWMS", "home", "File/Import", NoTags},
     {"import.delimited",      "actionAddDelimeteredData","Import", "", "AddDelimetered", "home", "File/Import", NoTags},
     {"import.basemap",        "actionAddBasemap",       "Import", "", "AddBasemap",     "", "File/Import", NoTags},
+    {"import.mesh2d",         "actionAddMesh2D",        "Import", "", "AddMesh", "home", "File/Import", NoTags},
 
     // ── Simulation ──────────────────────────────────────────────────────
     {"sim.run",               "actionExecute",          "Simulation", "Ctrl+R", "Execute", "home", "Analysis", NoTags},
@@ -164,11 +188,13 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"analysis.tabularView",     "actionTabularView",          "Analysis", "Ctrl+Shift+A", "TableView", "analysis", "Analysis", NoTags},
     {"analysis.plotTimeSeries",  "actionPlotTimeSeries",       "Analysis", "Ctrl+T",       "Chart", "analysis", "Analysis", NoTags},
     {"analysis.plotProfile",     "actionPlotProfile",          "Analysis", "Ctrl+Shift+T", "Profile", "analysis", "Analysis", NoTags},
+    {"analysis.plotProfile2D",   "actionPlotProfile2D",        "Analysis", "",             "Profile2D", "analysis", "Analysis", NoTags},
     {"analysis.flowBalanceDown", "actionFlowBalanceDownstream","Analysis", "",             "FlowBalanceDownstream", "analysis", "Analysis", NoTags},
     {"analysis.flowBalanceUp",   "actionFlowBalanceUpstream",  "Analysis", "",             "FlowBalanceUpstream", "analysis", "Analysis", NoTags},
     {"analysis.travelTimeDown",  "actionTravelTimeDownstream", "Analysis", "",             "TravelTimeDownstream", "analysis", "Analysis", NoTags},
     {"analysis.travelTimeUp",    "actionTravelTimeUpstream",   "Analysis", "",             "TravelTimeUpstream", "analysis", "Analysis", NoTags},
     {"analysis.massBalance",     "actionShowMassBalance",      "Analysis", "",             "Chartpie", "analysis", "Analysis", NoTags},
+    {"analysis.export2DResults", "actionExport2DResults",      "Analysis", "",             "Export2DResults", "analysis", "Analysis", NoTags},
 
     // ── Mesh 2D / terrain ───────────────────────────────────────────────
     {"mesh.selectVertices",   "actionMeshSelectVertex", "Mesh 2D", "", "SelectTriNode", "mesh2d", "Model/Mesh", Contextual2D},
@@ -193,6 +219,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"view.dock.legend",        "actionToggleDockLegend",         "Panels", "Ctrl+Alt+5", "DockLegend", "view", "View/Panels", NoTags},
     {"view.dock.simulationStatus","actionToggleDockSimulationStatus","Panels","Ctrl+Alt+6","DockSimulationStatus", "view", "View/Panels", NoTags},
     {"view.dock.messageLogs",   "actionToggleDockMessageLogs",    "Panels", "Ctrl+Alt+7", "DockMessageLogs", "view", "View/Panels", NoTags},
+    {"view.dock.features",      "actionToggleDockFeatures",       "Panels", "Ctrl+Alt+0", "Layers", "view", "View/Panels", NoTags},
     {"view.showWelcome",        "actionShowWelcome",              "View",   "",           "Help", "view", "Help", NoTags},
 
     // ── Tools / window / help ───────────────────────────────────────────
@@ -209,7 +236,7 @@ inline constexpr std::size_t kActionCatalogSize = std::size(kActionCatalog);
 
 /// Known compact-toolbar tab ids ("" = menu-only entry).
 inline constexpr const char *kActionCatalogTabs[] = {
-    "home", "model", "mesh2d", "analysis", "results", "view",
+    "home", "model", "mesh2d", "analysis", "results", "view", "features",
 };
 
 }   // namespace openswmmvis::ui

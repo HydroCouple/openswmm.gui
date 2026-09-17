@@ -10,22 +10,28 @@
 #include "swmmvisprojectwindow.h"
 #include "map/mapextent.h"
 #include "map/mapundostack.h"
+#include "layers/featurelayer.h"
 #include "layers/gisvectorlayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
+#include "layers/vjsourcesummary.h"
+#include "layers/gwsourcesummary.h"
 
 #include "core/editgeometry.h"
 #include "core/unitsystem.h"
 #include "ui/widgets/attributepickermenu.h"
 #include "ui/dialogs/typeconversionflow.h"
+#include "ui/dialogs/inletjunctionsetupdialog.h"
 
 #include <openswmm/engine/openswmm_subcatchments.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_gages.h>
 
 #include <QAction>
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QLoggingCategory>
 #include <QIcon>
 #include <QKeyEvent>
 #include <QMenu>
@@ -34,13 +40,21 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPointer>
 #include <QVariantMap>
 #include <QWidget>
 
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_edit.h>   // SWMM_ImpactReport — cascade lookup
 #include <openswmm/engine/openswmm_engine.h>
 
 #include <algorithm>
+
+// Bulk-delete timings (BULK_DELETE_AND_WINDOWS_OPEN_PERF_PLAN Phase 0) —
+// per-file definition of the shared "openswmm.bulkdelete" category (the
+// lcTsLoad* idiom; swmmmodellayer.cpp times the endBulkEdit close under the
+// same name). Enable with QT_LOGGING_RULES="openswmm.bulkdelete=true".
+Q_LOGGING_CATEGORY(lcBulkDelTool, "openswmm.bulkdelete")
 
 namespace {
 // identifyAt "elementType" string → SWMMModelLayer kind bit. SWMM names
@@ -66,6 +80,21 @@ quint8 kindBitForObjectType(int objectType)
     case SWMMObjectRef::RainGage:     return SWMMModelLayer::kKindGage;
     default:                          return SWMMModelLayer::kKindAll;
     }
+}
+
+// G5 — delete-prompt sentence for nodes that receive groundwater from
+// subcatchments ([GROUNDWATER] Node). Empty when none of `nodeIdxs` does.
+QString groundwaterSourcesNote(SWMM_Engine eng, const QList<int> &nodeIdxs)
+{
+    int n = 0;
+    for (int ni : nodeIdxs)
+        n += OpenSWMMVis::Groundwater::groundwaterSourceSubcatchments(eng, ni).size();
+    if (n == 0) return {};
+    return (nodeIdxs.size() == 1)
+        ? QObject::tr("%n subcatchment(s) discharge groundwater to this node "
+                      "and will lose their receiving node.", nullptr, n)
+        : QObject::tr("%n subcatchment(s) discharge groundwater to the selected "
+                      "nodes and will lose their receiving node.", nullptr, n);
 }
 } // namespace
 
@@ -143,7 +172,8 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
                 // one and do a single-handle drag.
                 const bool groupDrag = m_editSelectedHandles.size() > 1
                                        && m_editSelectedHandles.contains(h)
-                                       && m_editKind != EditKind::Node;
+                                       && m_editKind != EditKind::Node
+                                       && m_editKind != EditKind::Gage;
                 if (!groupDrag)
                 {
                     m_editSelectedHandles.clear();
@@ -163,7 +193,8 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
                 toMapCoords(event->pos().x(), event->pos().y(), mgx, mgy);
                 m_editGroupDragPrev = QPointF(mgx, mgy);
 
-                if (m_editKind == EditKind::Node)
+                if (m_editKind == EditKind::Node
+                    || m_editKind == EditKind::Gage)
                 {
                     m_editNodeOrigX = m_editHandles[h].x();
                     m_editNodeOrigY = m_editHandles[h].y();
@@ -396,7 +427,8 @@ void OpenSWMMVisMapToolSelect::mouseMoveEvent(QMouseEvent *event)
 
         const bool groupDrag = m_editSelectedHandles.size() > 1
                                && m_editSelectedHandles.contains(m_editDragHandle)
-                               && m_editKind != EditKind::Node;
+                               && m_editKind != EditKind::Node
+                               && m_editKind != EditKind::Gage;
         const bool centroidTranslate =
             m_editKind == EditKind::Subcatch && m_editDragHandle == 0;
 
@@ -455,6 +487,8 @@ void OpenSWMMVisMapToolSelect::mouseMoveEvent(QMouseEvent *event)
 
         if (m_editKind == EditKind::Node && m_editLayer && m_editSoaIdx >= 0)
             m_editLayer->previewNodeMove(m_editSoaIdx, sx, sy);
+        else if (m_editKind == EditKind::Gage && m_editLayer && m_editSoaIdx >= 0)
+            m_editLayer->previewGageMove(m_editSoaIdx, sx, sy);
 
         if (m_canvas)
             m_canvas->invalidate(MapCanvas::Overlay | MapCanvas::Scene,
@@ -565,6 +599,8 @@ void OpenSWMMVisMapToolSelect::mouseReleaseEvent(QMouseEvent *event)
         {
             if (m_editKind == EditKind::Node)
                 commitNodeDrag(m_editHandles[0].x(), m_editHandles[0].y());
+            else if (m_editKind == EditKind::Gage)
+                commitGageDrag(m_editHandles[0].x(), m_editHandles[0].y());
             else if (m_editKind == EditKind::Link)
                 commitLinkDrag(m_editHandles);
             else if (m_editKind == EditKind::Subcatch)
@@ -596,10 +632,14 @@ void OpenSWMMVisMapToolSelect::keyPressEvent(QKeyEvent *event)
     if (event->key() == Qt::Key_Escape && m_editKind != EditKind::None)
     {
         // Cancel any in-flight drag, then exit edit mode.
-        if (m_editDragging && m_editKind == EditKind::Node
-            && m_editLayer && m_editSoaIdx >= 0)
-            m_editLayer->previewNodeMove(m_editSoaIdx,
-                                         m_editNodeOrigX, m_editNodeOrigY);
+        if (m_editDragging && m_editLayer && m_editSoaIdx >= 0) {
+            if (m_editKind == EditKind::Node)
+                m_editLayer->previewNodeMove(m_editSoaIdx,
+                                             m_editNodeOrigX, m_editNodeOrigY);
+            else if (m_editKind == EditKind::Gage)
+                m_editLayer->previewGageMove(m_editSoaIdx,
+                                             m_editNodeOrigX, m_editNodeOrigY);
+        }
         m_editDragging   = false;
         m_editDragHandle = -1;
         clearEditMode();
@@ -649,6 +689,12 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     const QVector<SWMMModelLayer::SelectedElement> selected = sl->selectedElements();
     if (selected.isEmpty()) return;
 
+    // Perf-plan Phase 0: split the delete pipeline — cascade/classify
+    // (impact analysis per node), then command build + execution (the
+    // undo-stack push runs every engine delete synchronously).
+    QElapsedTimer deleteTimer;
+    deleteTimer.start();
+
     // Classify each selected object from its TYPED kind bits — SWMM names
     // are per-type namespaces, so classifying by name (findObjectLocation,
     // a single-keyed hash) could delete a same-named object of the wrong
@@ -667,17 +713,22 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
         const int ni = sl->nodeIndex(e.name);
         if (ni < 0) continue;
         nodeNames.insert(e.name);
-        // Find cascade links.
-        const int nLinks = swmm_link_count(eng);
-        for (int li = 0; li < nLinks; ++li) {
-            int n1 = -1, n2 = -1;
-            swmm_link_get_from_node(eng, li, &n1);
-            swmm_link_get_to_node(eng, li, &n2);
-            if (n1 == ni || n2 == ni) {
-                const char *lid = swmm_link_id(eng, li);
-                if (lid) skipLinks.insert(QString::fromUtf8(lid));
+        // Find cascade links. This loop is nested inside the per-node loop,
+        // so the old full scan was O(K*L) with two engine getters per link:
+        // deleting 1000 selected nodes from an all-pipes model meant ~562
+        // MILLION engine calls before a single object was removed. The
+        // engine already knows the answer — ask it once per node.
+        // Nothing is deleted yet, so every reported index is still live.
+        SWMM_ImpactReport report{};
+        if (swmm_node_analyze_impact(eng, ni, &report) == 0) {
+            for (int i = 0; i < report.n_entries; ++i) {
+                const SWMM_ImpactEntry &en = report.entries[i];
+                if (en.obj_type != SWMM_REF_LINK || !en.cascaded) continue;
+                if (const char *lid = swmm_link_id(eng, en.obj_idx))
+                    skipLinks.insert(QString::fromUtf8(lid));
             }
         }
+        swmm_impact_report_free(&report);
     }
 
     // Second pass: build the delete list, excluding cascade-handled links.
@@ -706,15 +757,46 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
         && toDelete.first().kind == DeleteObjectCommand::DeleteNode) {
         const int ni = sl->nodeIndex(toDelete.first().name);
         if (ni >= 0 && sl->nodeIsVirtual(ni)) {
+            // An inlet junction is also virtual; it gets the same three
+            // buttons, a matching title, and one extra sentence naming the
+            // inlet that goes away with it.
+            const bool isInlet = sl->nodeIsInlet(ni);
             auto *widget = qobject_cast<QWidget *>(m_canvas);
             QMessageBox box(widget);
-            box.setWindowTitle(QObject::tr("Delete Virtual Junction"));
-            box.setText(QObject::tr("\"%1\" is a virtual junction.")
-                            .arg(toDelete.first().name));
-            box.setInformativeText(QObject::tr(
+            box.setWindowTitle(isInlet
+                ? QObject::tr("Delete Inlet Junction")
+                : QObject::tr("Delete Virtual Junction"));
+            box.setText(isInlet
+                ? QObject::tr("\"%1\" is an inlet junction.")
+                      .arg(toDelete.first().name)
+                : QObject::tr("\"%1\" is a virtual junction.")
+                      .arg(toDelete.first().name));
+            QString info = QObject::tr(
                 "Re-fuse merges its two conduits back into one (the upstream "
                 "conduit's name survives). Delete removes the node and both "
-                "conduits."));
+                "conduits.");
+            if (isInlet) {
+                // Both choices drop the usage row, so name what is lost.
+                SWMM_InletUsage u{};
+                if (sl->inletUsageFor(SWMM_INLET_HOST_NODE, ni, &u)) {
+                    QString design, capture;
+                    if (const char *d = swmm_inlet_id(eng, u.design_idx))
+                        design = QString::fromUtf8(d);
+                    if (const char *c = swmm_node_id(eng, u.capture_node_idx))
+                        capture = QString::fromUtf8(c);
+                    info += QLatin1Char(' ')
+                        + QObject::tr("Inlet %1 → %2 will be removed.")
+                              .arg(design, capture);
+                }
+            }
+            // A fed virtual junction loses its sources either way (engine
+            // node-delete cascade) — say so before the choice is made.
+            const QString sources =
+                OpenSWMMVis::VirtualJunction::lateralSourceSummary(eng, ni);
+            if (!sources.isEmpty()) info += QLatin1Char(' ') + sources;
+            const QString gw = groundwaterSourcesNote(eng, {ni});
+            if (!gw.isEmpty()) info += QLatin1Char(' ') + gw;
+            box.setInformativeText(info);
             auto *fuseBtn = box.addButton(QObject::tr("Re-fuse Conduits"),
                                           QMessageBox::AcceptRole);
             auto *delBtn  = box.addButton(QObject::tr("Delete Node && Conduits"),
@@ -726,9 +808,20 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             if (box.clickedButton() == fuseBtn) {
                 sl->setSelectedElementNames({});
                 emit selectionChanged(sl);
-                auto *cmd = new FuseVirtualJunctionCommand(
-                    sl, toDelete.first().name, m_canvas);
-                if (!cmd->valid()) { delete cmd; return; }
+                // The inlet variant snapshots the usage row too, so undo
+                // brings the inlet back with the node.
+                QUndoCommand *cmd = nullptr;
+                if (isInlet) {
+                    auto *ic = new FuseInletJunctionCommand(
+                        sl, toDelete.first().name, m_canvas);
+                    if (!ic->valid()) { delete ic; return; }
+                    cmd = ic;
+                } else {
+                    auto *vc = new FuseVirtualJunctionCommand(
+                        sl, toDelete.first().name, m_canvas);
+                    if (!vc->valid()) { delete vc; return; }
+                    cmd = vc;
+                }
                 if (m_canvas->undoStack())
                     m_canvas->undoStack()->push(cmd);
                 else
@@ -740,7 +833,7 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             // Explicit cascade delete chosen — skip the generic confirm.
             sl->setSelectedElementNames({});
             emit selectionChanged(sl);
-            auto *macro = new QUndoCommand(QObject::tr("Delete Objects"));
+            auto *macro = new BulkEditCommand(sl, QObject::tr("Delete Objects"));
             new DeleteObjectCommand(sl, toDelete.first().name,
                                     DeleteObjectCommand::DeleteNode,
                                     m_canvas, macro);
@@ -767,17 +860,45 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             if (n2 >= 0 && sl->nodeIsVirtual(n2)) vjNode = n2;
         }
         if (vjNode >= 0) {
+            const bool vjIsInlet = sl->nodeIsInlet(vjNode);
             const QString vjName = QString::fromUtf8(swmm_node_id(eng, vjNode));
             auto *widget = qobject_cast<QWidget *>(m_canvas);
             QMessageBox box(widget);
-            box.setWindowTitle(QObject::tr("Conduit Belongs to a Virtual Junction"));
-            box.setText(QObject::tr("\"%1\" is one of the two conduits of "
-                                    "virtual junction \"%2\".")
-                            .arg(toDelete.first().name, vjName));
-            box.setInformativeText(QObject::tr(
+            box.setWindowTitle(vjIsInlet
+                ? QObject::tr("Conduit Belongs to an Inlet Junction")
+                : QObject::tr("Conduit Belongs to a Virtual Junction"));
+            box.setText(vjIsInlet
+                ? QObject::tr("\"%1\" is one of the two conduits of "
+                              "inlet junction \"%2\".")
+                      .arg(toDelete.first().name, vjName)
+                : QObject::tr("\"%1\" is one of the two conduits of "
+                              "virtual junction \"%2\".")
+                      .arg(toDelete.first().name, vjName));
+            QString info = QObject::tr(
                 "Re-fuse merges the pair back into one conduit. Delete removes "
                 "this conduit and demotes \"%1\" to a regular junction.")
-                    .arg(vjName));
+                    .arg(vjName);
+            if (vjIsInlet) {
+                SWMM_InletUsage u{};
+                if (sl->inletUsageFor(SWMM_INLET_HOST_NODE, vjNode, &u)) {
+                    QString design, capture;
+                    if (const char *d = swmm_inlet_id(eng, u.design_idx))
+                        design = QString::fromUtf8(d);
+                    if (const char *c = swmm_node_id(eng, u.capture_node_idx))
+                        capture = QString::fromUtf8(c);
+                    info += QLatin1Char(' ')
+                        + QObject::tr("Inlet %1 → %2 will be removed.")
+                              .arg(design, capture);
+                }
+            }
+            // Re-fusing drops the node's sources (engine node-delete
+            // cascade); demoting keeps them on the regular junction.
+            const QString sources =
+                OpenSWMMVis::VirtualJunction::lateralSourceSummary(eng, vjNode);
+            if (!sources.isEmpty()) info += QLatin1Char(' ') + sources;
+            const QString gw = groundwaterSourcesNote(eng, {vjNode});
+            if (!gw.isEmpty()) info += QLatin1Char(' ') + gw;
+            box.setInformativeText(info);
             auto *fuseBtn = box.addButton(QObject::tr("Re-fuse Conduits"),
                                           QMessageBox::AcceptRole);
             auto *delBtn  = box.addButton(QObject::tr("Delete Conduit"),
@@ -789,8 +910,16 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             if (box.clickedButton() == fuseBtn) {
                 sl->setSelectedElementNames({});
                 emit selectionChanged(sl);
-                auto *cmd = new FuseVirtualJunctionCommand(sl, vjName, m_canvas);
-                if (!cmd->valid()) { delete cmd; return; }
+                QUndoCommand *cmd = nullptr;
+                if (vjIsInlet) {
+                    auto *ic = new FuseInletJunctionCommand(sl, vjName, m_canvas);
+                    if (!ic->valid()) { delete ic; return; }
+                    cmd = ic;
+                } else {
+                    auto *vc = new FuseVirtualJunctionCommand(sl, vjName, m_canvas);
+                    if (!vc->valid()) { delete vc; return; }
+                    cmd = vc;
+                }
                 if (m_canvas->undoStack())
                     m_canvas->undoStack()->push(cmd);
                 else
@@ -800,17 +929,32 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             if (box.clickedButton() != delBtn)
                 return;   // cancelled
             // Demote the node so the model stays valid, then fall through to
-            // the standard confirm + delete path.
+            // the standard confirm + delete path. The inlet role has to go
+            // first: swmm_node_set_virtual(0) on an inlet junction would
+            // leave a usage row pointing at a plain junction.
+            if (vjIsInlet) sl->applySetInlet(vjName, false);
             sl->applySetVirtual(vjName, false);
         }
     }
 
     // Confirm.
+    const qint64 classifyMs = deleteTimer.elapsed();
+
     const int n = toDelete.size();
-    const QString msg = (n == 1)
+    QString msg = (n == 1)
         ? QObject::tr("Delete \"%1\"? This cannot be undone by simple Ctrl+Z "
                       "if other edits follow.").arg(toDelete.first().name)
         : QObject::tr("Delete %1 selected objects?").arg(n);
+    // G5 — a node that receives groundwater: the engine nulls the
+    // subcatchments' gw_node on delete, so say so up front.
+    {
+        QList<int> nodeIdxs;
+        for (const ObjInfo &obj : toDelete)
+            if (obj.kind == DeleteObjectCommand::DeleteNode)
+                nodeIdxs.append(sl->nodeIndex(obj.name));
+        const QString gw = groundwaterSourcesNote(eng, nodeIdxs);
+        if (!gw.isEmpty()) msg += QLatin1Char(' ') + gw;
+    }
 
     auto *widget = qobject_cast<QWidget *>(m_canvas);
     const auto btn = QMessageBox::question(
@@ -822,15 +966,32 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     sl->setSelectedElementNames({});
     emit selectionChanged(sl);
 
-    // Group all deletes under one parent so Ctrl+Z undoes them together.
-    auto *macro = new QUndoCommand(QObject::tr("Delete Objects"));
+    // Group all deletes under one parent so Ctrl+Z undoes them together, and
+    // so the whole batch shares a single cache rebuild in both directions.
+    // BatchDeleteCommand (perf-plan Phase A2) snapshots every target first,
+    // then deletes through ONE swmm_*_delete_many engine call per kind.
+    // (The confirm dialog above sat between the two timing sections, so the
+    // user's think time never pollutes the numbers.)
+    QElapsedTimer execTimer;
+    execTimer.start();
+    QList<BatchDeleteCommand::Target> targets;
+    targets.reserve(toDelete.size());
     for (const ObjInfo &obj : toDelete)
-        new DeleteObjectCommand(sl, obj.name, obj.kind, m_canvas, macro);
+        targets.append({obj.name, obj.kind});
+    auto *macro =
+        new BatchDeleteCommand(sl, targets, m_canvas,
+                               QObject::tr("Delete Objects"));
+    const qint64 snapshotMs = execTimer.elapsed();
 
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(macro);
     else
         delete macro;
+    qCInfo(lcBulkDelTool) << "deleteSelectedObjects:" << n << "object(s) —"
+                          << "classify" << classifyMs
+                          << "ms, snapshots" << snapshotMs
+                          << "ms, execute+close"
+                          << (execTimer.elapsed() - snapshotMs) << "ms";
 }
 
 void OpenSWMMVisMapToolSelect::paint(QPainter *painter,
@@ -901,9 +1062,10 @@ void OpenSWMMVisMapToolSelect::paint(QPainter *painter,
                               kEditHandlePx * 2, kEditHandlePx * 2);
         }
     }
-    else if (m_editKind == EditKind::Node && !m_editHandles.isEmpty())
+    else if ((m_editKind == EditKind::Node || m_editKind == EditKind::Gage)
+             && !m_editHandles.isEmpty())
     {
-        // Node handle — circle with crosshair.
+        // Node / rain-gage handle — circle with crosshair.
         int px = 0, py = 0;
         toPixelCoords(m_editHandles[0].x(), m_editHandles[0].y(), px, py);
 
@@ -1086,12 +1248,14 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel,
 
             vl->setSelectedFeatureIds(ids);
             emit selectionChanged(vl);
+            return;   // one click selects one object across all layers
         }
     }
 
     // Clicked on empty space with no modifier → clear selections across
-    // all SWMM layers so the Attribute Panel empties out. Ignore when
-    // Shift/Ctrl is held so partial selections don't vanish on a miss.
+    // all SWMM and GIS layers so the Attribute Panel / Table empty out.
+    // Ignore when Shift/Ctrl is held so partial selections don't vanish
+    // on a miss.
     if (!(mods & (Qt::ShiftModifier | Qt::ControlModifier)))
     {
         for (OpenSWMMVisLayer *l : m_canvas->layers()) {
@@ -1099,6 +1263,11 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel,
                 if (!sl->selectedElementNames().isEmpty()) {
                     sl->clearSelection();
                     emit selectionChanged(sl);
+                }
+            } else if (auto *vl = qobject_cast<GISVectorLayer *>(l)) {
+                if (!vl->selectedFeatureIds().isEmpty()) {
+                    vl->clearSelection();
+                    emit selectionChanged(vl);
                 }
             }
         }
@@ -1208,10 +1377,22 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
 
         if (auto *vl = qobject_cast<GISVectorLayer *>(l))
         {
-            // TODO: implement rect-based selection via GDAL spatial filter
-            // For now use a simple extent-overlap check
-            Q_UNUSED(selection)
-            emit selectionChanged(vl);
+            // Precise geometry hit-test in the layer (bbox prefilter via
+            // OGR spatial filter, then OGRGeometry::Intersects), with the
+            // SWMM modifier semantics: Shift = union, Ctrl = subtract,
+            // plain = replace.
+            const QSet<long long> hit = vl->featureIdsInRect(selection);
+            QSet<long long> ids;
+            if (mods & Qt::ControlModifier)
+                ids = vl->selectedFeatureIds() - hit;
+            else if (mods & Qt::ShiftModifier)
+                ids = vl->selectedFeatureIds() + hit;
+            else
+                ids = hit;
+            if (ids != vl->selectedFeatureIds()) {
+                vl->setSelectedFeatureIds(ids);
+                emit selectionChanged(vl);
+            }
         }
     }
 }
@@ -1256,17 +1437,47 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty())
     {
         QMenu bgMenu(widget);
+
+        // A feature layer in an edit session offers Delete on its current
+        // selection — the same action as the Del key and the Features grid,
+        // so the three routes cannot drift apart. Only inside a session, and
+        // only with something selected, so an ordinary right-click on empty
+        // map is unchanged.
+        FeatureLayer *editing = nullptr;
+        for (OpenSWMMVisLayer *l : m_canvas->layers()) {
+            auto *fl = qobject_cast<FeatureLayer *>(l);
+            if (fl && fl->isEditing() && !fl->selectedFeatureIds().isEmpty()) {
+                editing = fl;
+                break;
+            }
+        }
+        QAction *actDeleteFeat = nullptr;
+        if (editing) {
+            const int n = editing->selectedFeatureIds().size();
+            actDeleteFeat = bgMenu.addAction(
+                QIcon(QStringLiteral(":/swmmvis/Delete")),
+                QObject::tr("Delete %n selected feature(s)", nullptr, n));
+            bgMenu.addSeparator();
+        }
+
         QMenu *sysMenu = openswmmvis::ui::AttributePickerMenu::createForSystem(
             openswmmvis::plot::UnitSystem::US, &bgMenu);
         if (sysMenu) {
             sysMenu->setTitle(QObject::tr("Plot System Variable…"));
             sysMenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
             bgMenu.addMenu(sysMenu);
-            QAction *picked = bgMenu.exec(globalPt);
-            const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
-            if (attr != openswmmvis::plot::PlotAttribute::Unknown)
-                emit plotSystemRequested(attr);
         }
+        if (!sysMenu && !actDeleteFeat)
+            return;                        // nothing to show
+
+        QAction *picked = bgMenu.exec(globalPt);
+        if (actDeleteFeat && picked == actDeleteFeat) {
+            emit deleteFeaturesRequested(editing);
+            return;
+        }
+        const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
+        if (attr != openswmmvis::plot::PlotAttribute::Unknown)
+            emit plotSystemRequested(attr);
         return;
     }
 
@@ -1279,8 +1490,17 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     QAction *actZoom = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
                                       QObject::tr("Zoom to Object"));
 
+    // Rain gage — its "plot" is the shared Rainfall Visualization dialog,
+    // opened focused on this gage (same funnel as the Object Browser's
+    // context menu and the property editor's Plot Rainfall button).
+    QAction *actRainViz = nullptr;
+    if (ref.objectType == SWMMObjectRef::RainGage) {
+        actRainViz = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Chart")),
+                                    QObject::tr("Rainfall Visualization…"));
+    }
+
     // Slice AT.2 — submenu of attributes valid for this object kind
-    // (Node/Link/Subcatchment). RainGage still has no plot entry.
+    // (Node/Link/Subcatchment).
     //
     // Results-first selection: when more than one SWMM Output (.out)
     // layer is loaded, the entry becomes a two-level submenu
@@ -1311,7 +1531,9 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     if (plotKind != PlotKind::Unknown) {
         if (resultsLayers.size() <= 1) {
             plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-                plotKind, openswmmvis::plot::UnitSystem::US, &menu);
+                plotKind, openswmmvis::plot::UnitSystem::US, &menu,
+                resultsLayers.isEmpty() ? QStringList()
+                                        : resultsLayers.first()->speciesNames());
             if (plotSubmenu) {
                 plotSubmenu->setTitle(QObject::tr("Plot Time Series…"));
                 plotSubmenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
@@ -1322,7 +1544,8 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
                                            QObject::tr("Plot Time Series"));
             for (SWMMResultsLayer *r : resultsLayers) {
                 QMenu *attrMenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-                    plotKind, openswmmvis::plot::UnitSystem::US, topPlot);
+                    plotKind, openswmmvis::plot::UnitSystem::US, topPlot,
+                    r->speciesNames());
                 if (!attrMenu) continue;
                 attrMenu->setTitle(r->name());
                 topPlot->addMenu(attrMenu);
@@ -1358,18 +1581,31 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
             // node reports kVirtualNodeType so "Junction" (demote) becomes
             // an offered target, and the "Virtual Junction" target is
             // greyed out with the violated rule when the engine's usage
-            // rules (two identical conduits, no inflows, …) aren't met.
+            // rules (two identical conduits, zero offsets, no 2D coupling,
+            // …) aren't met — point inflows do not disqualify a node.
             constexpr int kVJ = openswmmvis::ui::TypeConversionFlow::kVirtualNodeType;
-            int vjRule = 0;
+            // Inlet junctions are the same story one level down: they carry
+            // BOTH flags, so the probe order is inlet → virtual, and the
+            // "Inlet Junction" target is offered only when the engine's inlet
+            // rules hold (all the VJ rules plus 623: both conduits STREET).
+            constexpr int kIJ = openswmmvis::ui::TypeConversionFlow::kInletNodeType;
+            const bool inletSupported = hitLayer->engineSupportsInletJunctions();
+            int vjRule = 0, ijRule = 0;
             if (isNode) {
+                int isInlet = 0;
+                swmm_node_is_inlet(eng, idx, &isInlet);
                 int isVirtual = 0;
                 swmm_node_is_virtual(eng, idx, &isVirtual);
-                if (isVirtual) currentType = kVJ;
+                if      (isInlet)   currentType = kIJ;
+                else if (isVirtual) currentType = kVJ;
                 swmm_node_virtual_eligible(eng, idx, &vjRule);
+                swmm_node_inlet_eligible(eng, idx, /*for_drop_inlet=*/0, &ijRule);
             }
             QMenu *convertMenu = menu.addMenu(QObject::tr("Convert To"));
             convertMenu->setToolTipsVisible(true);
-            const int nKinds = 5;
+            // 5 SWMM kinds + Virtual Junction (+ Inlet Junction when the
+            // engine supports it, and only for nodes).
+            const int nKinds = (isNode && inletSupported) ? 6 : 5;
             for (int t = 0; t < nKinds; ++t) {
                 if (t == currentType) continue;
                 const QString label = isNode
@@ -1380,24 +1616,85 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
                     act->setEnabled(false);
                     act->setToolTip(SWMMModelLayer::virtualJunctionRuleText(vjRule));
                 }
+                if (isNode && t == kIJ && ijRule != 0) {
+                    act->setEnabled(false);
+                    act->setToolTip(SWMMModelLayer::virtualJunctionRuleText(ijRule));
+                }
                 convertTargets.insert(act, t);
             }
         }
     }
+
+    // Flip Direction — links only. Swaps the upstream and downstream nodes
+    // without moving the link; see SWMMModelLayer::applyLinkFlip.
+    QAction *actFlip = nullptr;
+    if (hitLayer && hitLayer->engine() && ref.objectType == SWMMObjectRef::Link)
+        actFlip = menu.addAction(QObject::tr("Flip Direction"));
 
     QAction *actDelete = menu.addAction(QObject::tr("Delete…"));
 
     QAction *picked = menu.exec(globalPt);
     if (!picked) return;
 
+    if (actRainViz && picked == actRainViz) {
+        emit rainfallVisualizationRequested(ref);
+        return;
+    }
+
     // Convert To ▸ dispatch — run the shared confirm/convert/summary flow.
     // On success drop any now-stale inline vertex-edit session on this
     // element (e.g. conduit handles after a convert to pump).
     if (convertTargets.contains(picked) && hitLayer) {
         const bool isNode = (ref.objectType == SWMMObjectRef::Node);
+        const int target = convertTargets.value(picked);
+        // Promoting to an inlet junction needs an inlet design and a capture
+        // node up front (D-G6), so it takes the setup dialog and its own
+        // entry point rather than the generic flow.
+        if (isNode
+            && target == openswmmvis::ui::TypeConversionFlow::kInletNodeType) {
+            // Non-modal floating panel (the capture node can be picked on
+            // the map); the conversion runs from accepted(), which also
+            // keeps the confirm prompt out of this mouse handler.
+            const int ni = hitLayer->nodeIndex(ref.name);
+            QWidget *parentTop = widget ? widget->window() : nullptr;
+            auto *dlg = new openswmmvis::ui::InletJunctionSetupDialog(
+                hitLayer, ni >= 0 ? QVector<int>{ni} : QVector<int>{}, parentTop);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            QPointer<SWMMModelLayer> layer(hitLayer);
+            const QString name = ref.name;
+            connect(dlg, &QDialog::accepted, this,
+                    [this, dlg, layer, name, currentType, widget]() {
+                if (!layer || layer->nodeIndex(name) < 0) return;
+                if (openswmmvis::ui::TypeConversionFlow::runToInletJunction(
+                        widget, layer, name, currentType,
+                        dlg->inletDesign(), dlg->captureNode(), dlg->placement())) {
+                    if (m_editKind != EditKind::None && m_editName == name)
+                        clearEditMode();
+                }
+            });
+            dlg->show();
+            dlg->raise();
+            dlg->activateWindow();
+            return;
+        }
         if (openswmmvis::ui::TypeConversionFlow::run(
                 widget, hitLayer, isNode, ref.name,
-                currentType, convertTargets.value(picked))) {
+                currentType, target)) {
+            if (m_editKind != EditKind::None && m_editName == ref.name)
+                clearEditMode();
+        }
+        return;
+    }
+
+    // Flip Direction dispatch — undoable (the flip is self-inverse), so no
+    // confirmation prompt. Any inline vertex-edit session on this link is
+    // dropped because the interior vertices just reversed, which invalidates
+    // the handle indices the session holds.
+    if (actFlip && picked == actFlip && hitLayer && m_canvas) {
+        const int linkIdx = hitLayer->linkIndex(ref.name);
+        if (linkIdx >= 0) {
+            m_canvas->undoStack()->push(
+                new FlipLinkCommand(hitLayer, linkIdx, m_canvas));
             if (m_editKind != EditKind::None && m_editName == ref.name)
                 clearEditMode();
         }
@@ -1408,8 +1705,10 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     // attributeFrom() returns Unknown for the "All attributes" sentinel;
     // we forward that verbatim so swmmvis.cpp can fan out the series.
     if (plotSubmenu && picked->parent() == plotSubmenu) {
-        const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
-        emit plotAttributeRequested(ref, attr);
+        // Y2b-2: descriptorFrom tells fixed / species / sentinel apart —
+        // attributeFrom would read a species action as the sentinel.
+        emit plotAttributeRequested(
+            ref, openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked));
         return;
     }
     // Two-level layout: the picked QAction's parent is the per-layer
@@ -1418,8 +1717,9 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     if (!perLayerSubmenus.isEmpty()) {
         auto *parentMenu = qobject_cast<QMenu *>(picked->parent());
         if (parentMenu && submenuToLayer.contains(parentMenu)) {
-            const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
-            emit plotAttributeForLayerRequested(ref, attr, submenuToLayer.value(parentMenu));
+            emit plotAttributeForLayerRequested(
+                ref, openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked),
+                submenuToLayer.value(parentMenu));
             return;
         }
     }
@@ -1520,6 +1820,12 @@ void OpenSWMMVisMapToolSelect::mouseDoubleClickEvent(QMouseEvent *event)
             return;
         }
 
+        if (r.cat == SWMMModelLayer::CatRainGages)
+        {
+            enterEditMode(sl, r.name, EditKind::Gage, r.soaIndex);
+            return;
+        }
+
         if (r.cat == SWMMModelLayer::CatConduits
          || r.cat == SWMMModelLayer::CatPumps
          || r.cat == SWMMModelLayer::CatOrifices
@@ -1561,6 +1867,14 @@ void OpenSWMMVisMapToolSelect::enterEditMode(SWMMModelLayer *layer,
         m_editNodeOrigX = x;
         m_editNodeOrigY = y;
     }
+    else if (kind == EditKind::Gage)
+    {
+        double x = 0.0, y = 0.0;
+        layer->cachedGageCoord(soaIndex, &x, &y);
+        m_editHandles   = { QPointF(x, y) };
+        m_editNodeOrigX = x;
+        m_editNodeOrigY = y;
+    }
     else if (kind == EditKind::Link)
     {
         m_editHandles = layer->cachedLinkInteriorVertices(soaIndex);
@@ -1588,10 +1902,15 @@ void OpenSWMMVisMapToolSelect::enterEditMode(SWMMModelLayer *layer,
 
 void OpenSWMMVisMapToolSelect::clearEditMode()
 {
-    // Roll back any live node-drag preview.
-    if (m_editDragging && m_editKind == EditKind::Node
-        && m_editLayer && m_editSoaIdx >= 0)
-        m_editLayer->previewNodeMove(m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY);
+    // Roll back any live node/gage-drag preview.
+    if (m_editDragging && m_editLayer && m_editSoaIdx >= 0) {
+        if (m_editKind == EditKind::Node)
+            m_editLayer->previewNodeMove(m_editSoaIdx,
+                                         m_editNodeOrigX, m_editNodeOrigY);
+        else if (m_editKind == EditKind::Gage)
+            m_editLayer->previewGageMove(m_editSoaIdx,
+                                         m_editNodeOrigX, m_editNodeOrigY);
+    }
 
     m_editKind             = EditKind::None;
     m_editLayer            = nullptr;
@@ -1671,6 +1990,32 @@ void OpenSWMMVisMapToolSelect::commitNodeDrag(double newX, double newY)
 
     m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                          QStringLiteral("select-edit-node-commit"));
+}
+
+void OpenSWMMVisMapToolSelect::commitGageDrag(double newX, double newY)
+{
+    if (!m_editLayer || m_editSoaIdx < 0 || !m_canvas) return;
+
+    // Restore cached state before pushing so MoveGageCommand::undo has
+    // the correct original coord to revert to. No auto-length leg —
+    // gages have no attached links.
+    m_editLayer->previewGageMove(m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY);
+
+    auto *cmd = new MoveGageCommand(m_editLayer, m_editSoaIdx,
+                                    m_editNodeOrigX, m_editNodeOrigY,
+                                    newX, newY, m_canvas);
+    if (m_canvas->undoStack())
+        m_canvas->undoStack()->push(cmd);
+    else
+        delete cmd;
+
+    // Update handle and snapshot so subsequent drags in the same session work.
+    m_editHandles[0] = QPointF(newX, newY);
+    m_editNodeOrigX  = newX;
+    m_editNodeOrigY  = newY;
+
+    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                         QStringLiteral("select-edit-gage-commit"));
 }
 
 void OpenSWMMVisMapToolSelect::commitLinkDrag(QVector<QPointF> newInterior)
@@ -1864,15 +2209,21 @@ void OpenSWMMVisMapToolSelect::deleteSelectedEditHandles()
 
             if (btn != QMessageBox::Yes) return;
 
-            // Delete the whole subcatchment.
-            auto *cmd = new DeleteObjectCommand(
-                m_editLayer, m_editName,
-                DeleteObjectCommand::DeleteSubcatch, m_canvas);
+            // Delete the whole subcatchment.  Wrapped in a BulkEditCommand
+            // (the previously unguarded delete site — perf-plan Phase A2):
+            // the macro is what keeps a later Ctrl+Z from replaying the
+            // restore storm unguarded.
+            auto *macro =
+                new BulkEditCommand(m_editLayer,
+                                    QObject::tr("Delete Subcatchment"));
+            new DeleteObjectCommand(m_editLayer, m_editName,
+                                    DeleteObjectCommand::DeleteSubcatch,
+                                    m_canvas, macro);
             clearEditMode(); // exit edit mode before the object disappears
             if (m_canvas->undoStack())
-                m_canvas->undoStack()->push(cmd);
+                m_canvas->undoStack()->push(macro);
             else
-                delete cmd;
+                delete macro;
         }
     }
 }

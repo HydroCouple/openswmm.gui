@@ -15,6 +15,7 @@
 #include <QDebug>
 
 #include "layers/openswmmvislayer.h"
+#include "layers/swmmelementsymboladapter.h"   // persistent per-kind adapters
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "render/sublayers/feature/featuresublayer.h"
@@ -22,13 +23,14 @@
 // Slice B.6c — Rule-aware Single Symbol panel.
 #include "render/rule.h"
 #include "render/symbolstyleadapter.h"
-#include "ui/dialogs/ilayerstylesubject.h"
 #include "ui/dialogs/istyleeditorwidget.h"
 
 #include <QHeaderView>
 #include <QLabel>
 #include <QTreeView>
 #include <QVBoxLayout>
+
+#include <memory>   // m_styleAdapter (previously came via ilayerstylesubject.h)
 
 // SE.4 — the QPropertyModel generic-grid fallback was removed from the
 // symbology editor. Every *SymbolStyleAdapter archetype now has a dedicated
@@ -75,44 +77,32 @@ public:
                 if (auto *sub = res->featureSublayer(*m_ctx.category))
                     style = sub->style();
             }
-            // For SWMMModelLayer the per-kind subject is the existing
-            // SwmmElementSymbolAdapter; surface it via styleSubjects().
-            else if (qobject_cast<SWMMModelLayer *>(m_ctx.hostLayer)) {
-                // Walk the layer's subjects to find one matching the
-                // current category's routing id.
-                auto subjects = m_ctx.hostLayer->styleSubjects();
-                for (auto &sub : subjects) {
-                    QString r = sub->routingId();
-                    // routingId convention: "model.<kindName>" — extract
-                    // the suffix and match against the category.
-                    if (r.startsWith(QStringLiteral("model."))) {
-                        const QString catSuffix = r.mid(6);
-                        const QString want = [&]() -> QString {
-                            switch (*m_ctx.category) {
-                                case OpenSWMMVis::CatJunctions:     return QStringLiteral("junctions");
-                                case OpenSWMMVis::CatOutfalls:      return QStringLiteral("outfalls");
-                                case OpenSWMMVis::CatStorage:       return QStringLiteral("storage");
-                                case OpenSWMMVis::CatDividers:      return QStringLiteral("dividers");
-                                case OpenSWMMVis::CatConduits:      return QStringLiteral("conduits");
-                                case OpenSWMMVis::CatPumps:         return QStringLiteral("pumps");
-                                case OpenSWMMVis::CatOrifices:      return QStringLiteral("orifices");
-                                case OpenSWMMVis::CatWeirs:         return QStringLiteral("weirs");
-                                case OpenSWMMVis::CatOutlets:       return QStringLiteral("outlets");
-                                case OpenSWMMVis::CatSubcatchments: return QStringLiteral("subcatchments");
-                                case OpenSWMMVis::CatRainGages:     return QStringLiteral("raingages");
-                                default:                            return QString();
-                            }
-                        }();
-                        if (catSuffix == want) {
-                            // Move the unique_ptr into our member so the
-                            // subject (and the heap-allocated adapter it
-                            // owns) outlive this panel.
-                            m_modelSubject = std::move(sub);
-                            style = m_modelSubject->propertyObject();
-                            break;
-                        }
+            // For SWMMModelLayer the per-kind subject is the layer's
+            // PERSISTENT SwmmElementSymbolAdapter — same instance the
+            // dialog's subjects wrap, so edits made here are covered by
+            // the dialog's Cancel snapshot and nothing leaks. (Previously
+            // this walked a freshly-allocated styleSubjects() set and
+            // orphaned the 11 unused adapters on the layer per mount.)
+            else if (auto *swmm = qobject_cast<SWMMModelLayer *>(m_ctx.hostLayer)) {
+                const QString suffix = [&]() -> QString {
+                    switch (*m_ctx.category) {
+                        case OpenSWMMVis::CatJunctions:     return QStringLiteral("junctions");
+                        case OpenSWMMVis::CatOutfalls:      return QStringLiteral("outfalls");
+                        case OpenSWMMVis::CatStorage:       return QStringLiteral("storage");
+                        case OpenSWMMVis::CatDividers:      return QStringLiteral("dividers");
+                        case OpenSWMMVis::CatConduits:      return QStringLiteral("conduits");
+                        case OpenSWMMVis::CatPumps:         return QStringLiteral("pumps");
+                        case OpenSWMMVis::CatOrifices:      return QStringLiteral("orifices");
+                        case OpenSWMMVis::CatWeirs:         return QStringLiteral("weirs");
+                        case OpenSWMMVis::CatOutlets:       return QStringLiteral("outlets");
+                        case OpenSWMMVis::CatSubcatchments: return QStringLiteral("subcatchments");
+                        case OpenSWMMVis::CatRainGages:     return QStringLiteral("raingages");
+                        default:                            return QString();
                     }
-                }
+                }();
+                if (!suffix.isEmpty())
+                    style = swmm->elementSymbolAdapter(
+                        QStringLiteral("model.") + suffix);
             }
         }
 
@@ -143,7 +133,6 @@ public:
 
 private:
     RendererPanelContext  m_ctx;
-    std::unique_ptr<ILayerStyleSubject>                  m_modelSubject;
     // Slice SS.1 — the factory returns one of four concrete subclasses
     // (Point / Line / Polygon / generic), so we hold it as the base
     // QObject. The QPropertyModel / StyleEditorRegistry only need a

@@ -14,6 +14,7 @@
 
 #include "core/preferencesmanager.h"
 #include "core/swmmdatetime.h"
+#include "mesh/meshcellgeom.h"   // mesh::kEdgeStride / edgeSlot — 2D edge-slot layout
 
 #include <QDateTime>
 #include <QDir>
@@ -24,11 +25,71 @@
 #include <QRegularExpression>
 #include <QThread>
 #include <QVector>
+#include <exception>
+#include <memory>
+#include <new>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
+#include <QThreadPool>
 #include <QProcess>
 #include <QJsonDocument>
 #include <QJsonObject>
+
+namespace {
+
+// Append-only per-run log beside the report (<rpt stem>.runlog.txt): the
+// phases the worker passed through, the outcome and the timing. Flushed per
+// line so a hard crash still leaves what happened up to that point. Written
+// by the worker thread only.
+struct RunLog {
+    QFile file;
+    explicit RunLog(const QString &rptPath)
+    {
+        const QFileInfo fi(rptPath);
+        file.setFileName(fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
+                         + QStringLiteral(".runlog.txt"));
+        file.open(QIODevice::Append | QIODevice::Text);
+    }
+    void line(const QString &text)
+    {
+        if (!file.isOpen()) return;
+        file.write((QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
+                    + QLatin1Char(' ') + text + QLatin1Char('\n')).toUtf8());
+        file.flush();
+    }
+};
+
+// Test-only fault injection: SWMMVIS_TEST_FAULT="<phase>:<kind>" makes the
+// worker fail deliberately at that phase (kind "bad_alloc" throws,
+// "numerical" returns SWMM_ERR_NUMERICAL from a step). Empty = inert.
+struct TestFault {
+    QString phase, kind;
+    bool at(const char *p) const { return phase == QLatin1String(p); }
+};
+
+// swmm_2d_get_run_stats → SimulationRunner::twoDSolverStats, queued onto the
+// GUI thread. Called from the worker with the engine still open; a refused
+// read (2D not active, solver finalised) simply emits nothing.
+void emitTwoDSolverStats(SimulationRunner *self, int jobId, SWMM_Engine eng)
+{
+    SWMM_2DRunStats st{};
+    if (swmm_2d_get_run_stats(eng, &st) != SWMM_OK) return;
+    QVector<qint64> tiers;
+    for (int k = 0; k < st.n_tiers && k < 8; ++k)
+        tiers.push_back(st.tier_cells[k]);
+    const QString backend  = QString::fromUtf8(st.backend);
+    const int     momentum = st.momentum;
+    const int     ltsTiers = st.lts_tiers;
+    const qint64  steps    = st.steps;
+    QMetaObject::invokeMethod(self,
+        [self, jobId, backend, momentum, ltsTiers, steps, tiers]() {
+            emit self->twoDSolverStats(jobId, backend, momentum, ltsTiers,
+                                       steps, tiers);
+        },
+        Qt::QueuedConnection);
+}
+
+} // namespace
 #include <QCoreApplication>
 #include <QtNumeric>
 
@@ -160,16 +221,37 @@ QString SimulationRunner::parseTwoDOutputFile(const QString &inpPath)
 // ---------------------------------------------------------------------------
 
 struct SimulationResult {
-    bool    success;
-    int     errorCode;
+    bool    success        = false;
+    int     errorCode      = 0;
     QString errorMessage;
-    double  runoffErrFrac;
-    double  routingErrFrac;
+    double  runoffErrFrac  = 0.0;
+    double  routingErrFrac = 0.0;
     // Defaulted so brace-init error returns report "no 2D value".
     double  twoDErrFrac = qQNaN();
+    /// Where the run was when it failed ("open", "initialize", "start",
+    /// "step at <sim time>", "end"); empty on success.
+    QString phase;
 };
 
 Q_DECLARE_METATYPE(SimulationResult)
+
+namespace {
+
+// A failed SimulationResult for an exception that escaped the worker body.
+SimulationResult exceptionResult(const QString &phase, const QString &what, RunLog *log)
+{
+    SimulationResult r;
+    r.success      = false;
+    r.errorCode    = SWMM_ERR_INTERNAL;
+    r.phase        = phase;
+    r.errorMessage = QCoreApplication::translate(
+        "SimulationRunner", "Simulation worker threw during %1: %2")
+        .arg(phase.isEmpty() ? QStringLiteral("run") : phase, what);
+    if (log) log->line(QStringLiteral("EXCEPTION phase=%1 %2").arg(phase, what));
+    return r;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Construction
@@ -204,6 +286,24 @@ SimulationRunner::SimulationRunner(int jobId,
     (void)s_metatypesRegistered;
 }
 
+namespace {
+// The engine's step loop must NOT share the GLOBAL QThreadPool with the
+// per-tick map-render, contour and .out-rescan jobs the GUI queues while a
+// run streams: on a saturated pool the engine queued behind them and they
+// behind the engine (a run on a 10-core Mac spent its time waiting on
+// render jobs). A private pool; a few runs may still overlap.
+QThreadPool *enginePool()
+{
+    static QThreadPool pool;
+    static const bool initialised = []() {
+        pool.setMaxThreadCount(4);
+        return true;
+    }();
+    Q_UNUSED(initialised)
+    return &pool;
+}
+} // namespace
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -215,16 +315,46 @@ void SimulationRunner::start()
     // Capture everything the lambda needs by value; the runner pointer is
     // passed as user_data to the C callbacks (safe because the runner lives
     // until after finished() fires and the caller calls deleteLater()).
-    const QByteArray inp = m_inpPath.toUtf8();
-    const QByteArray rpt = m_rptPath.toUtf8();
-    const QByteArray out = m_outPath.toUtf8();
+    // Absolute paths: the worker pins the process cwd to the model folder for
+    // the run (CwdGuard below), after which a relative .inp/.rpt/.out would
+    // resolve against the wrong directory and the engine could not open it.
+    const QByteArray inp = QFileInfo(m_inpPath).absoluteFilePath().toUtf8();
+    const QByteArray rpt = QFileInfo(m_rptPath).absoluteFilePath().toUtf8();
+    const QByteArray out = QFileInfo(m_outPath).absoluteFilePath().toUtf8();
     SimulationRunner *rawSelf = this;
+
+    // Shared with the worker: the phase it is in (read by the exception
+    // guard), the per-run log, and the test-only fault spec.
+    auto phase  = std::make_shared<QString>();
+    auto runLog = std::make_shared<RunLog>(m_rptPath);
+    TestFault fault;
+    {
+        const QString spec = qEnvironmentVariable("SWMMVIS_TEST_FAULT");
+        const int c = spec.indexOf(QLatin1Char(':'));
+        if (c > 0) { fault.phase = spec.left(c); fault.kind = spec.mid(c + 1); }
+    }
+    runLog->line(QStringLiteral("run %1 (engine %2)").arg(m_inpPath, m_engineVersion));
 
     auto *watcher = new QFutureWatcher<SimulationResult>(this);
 
     connect(watcher, &QFutureWatcher<SimulationResult>::finished, this,
             [this, watcher]() {
-                SimulationResult res = watcher->result();
+                // result() rethrows anything the worker let escape — that
+                // would land on the GUI thread inside a signal emission and
+                // terminate the application. The worker body is guarded
+                // below, so this is belt-and-braces.
+                SimulationResult res;
+                try {
+                    res = watcher->result();
+                } catch (const std::exception &e) {
+                    res.errorCode    = SWMM_ERR_INTERNAL;
+                    res.errorMessage = tr("Simulation worker failed: %1")
+                                           .arg(QString::fromUtf8(e.what()));
+                } catch (...) {
+                    res.errorCode    = SWMM_ERR_INTERNAL;
+                    res.errorMessage = tr("Simulation worker failed with a "
+                                          "non-standard exception");
+                }
                 watcher->deleteLater();
                 emit finished(m_jobId, res.success, res.errorCode,
                               res.errorMessage, res.runoffErrFrac, res.routingErrFrac,
@@ -236,8 +366,8 @@ void SimulationRunner::start()
     const int tickIntervalMs = PreferencesManager::instance()->progressTickMs();
     const QString engineVersion = m_engineVersion;
 
-    watcher->setFuture(
-        QtConcurrent::run([inp, rpt, out, rawSelf, tickIntervalMs, engineVersion]() -> SimulationResult {
+    auto body = [inp, rpt, out, rawSelf, tickIntervalMs, engineVersion,
+                 phase, runLog, fault]() -> SimulationResult {
             // The engine resolves RELATIVE sidecar paths named in the .inp —
             // [RAINGAGES] FILE, interface files, hotstarts — against the
             // PROCESS working directory. The GUI runs the engine in-process,
@@ -269,27 +399,65 @@ void SimulationRunner::start()
 
             if (!useLegacy) {
                 // ===== REFACTORED ENGINE PATH =====
-            SWMM_Engine eng = swmm_engine_create();
+            // Owns the handle for the whole body: every early return and any
+            // exception (the injected bad_alloc below included) closes and
+            // destroys it. A throw between create and the explicit destroy
+            // used to leak the parsed model and, for a 2D run, the whole
+            // mesh + solver state. close() is safe in every engine state.
+            struct EngineGuard {
+                SWMM_Engine eng = swmm_engine_create();
+                ~EngineGuard()
+                {
+                    if (!eng) return;
+                    swmm_engine_close(eng);
+                    swmm_engine_destroy(eng);
+                }
+            } engineGuard;
+            SWMM_Engine eng = engineGuard.eng;
+
+            // Specific failure text. The engine records the actual cause
+            // ("ERROR 209: ...", "USE HOTSTART: ...") retrievable via
+            // swmm_get_last_error_msg; swmm_error_message(code) is only the
+            // generic category ("Input file parse error") — same reason the
+            // end-of-run capture below reads the engine message first. Must
+            // be read BEFORE close/destroy.
+            auto engineFailureText = [](SWMM_Engine e, int code) -> QString {
+                QString msg =
+                    QString::fromUtf8(swmm_get_last_error_msg(e)).trimmed();
+                if (msg.isEmpty())
+                    msg = QString::fromUtf8(swmm_error_message(code));
+                return msg;
+            };
 
             // Open
+            *phase = QStringLiteral("open");
+            runLog->line(QStringLiteral("open"));
             int rc = swmm_engine_open(eng,
                                       inp.constData(),
                                       rpt.constData(),
                                       out.constData(),
                                       nullptr);
             if (rc != SWMM_OK) {
-                const QString msg = QString::fromUtf8(swmm_error_message(rc));
-                swmm_engine_destroy(eng);
-                return {false, rc, msg, 0.0, 0.0};
+                QString msg = engineFailureText(eng, rc);
+                // A failed parse usually records several errors — surface
+                // them all in the log, not just the first.
+                const int nErr = swmm_get_error_count(eng);
+                for (int i = 0; i < nErr; ++i) {
+                    const QString e =
+                        QString::fromUtf8(swmm_get_error_at(eng, i)).trimmed();
+                    if (!e.isEmpty() && e != msg)
+                        msg += QLatin1Char('\n') + e;
+                }
+                return {false, rc, msg, 0.0, 0.0};   // engineGuard closes + destroys
             }
 
             // Initialize
+            *phase = QStringLiteral("initialize");
+            runLog->line(QStringLiteral("initialize"));
             rc = swmm_engine_initialize(eng);
             if (rc != SWMM_OK) {
-                const QString msg = QString::fromUtf8(swmm_error_message(rc));
-                swmm_engine_close(eng);
-                swmm_engine_destroy(eng);
-                return {false, rc, msg, 0.0, 0.0};
+                const QString msg = engineFailureText(eng, rc);
+                return {false, rc, msg, 0.0, 0.0};   // engineGuard closes + destroys
             }
 
             // Register the warning callback only. The engine's
@@ -308,22 +476,42 @@ void SimulationRunner::start()
             // post-run scrub source).
             int twoD_active = 0;
             swmm_2d_is_active(eng, &twoD_active);
-            int twoD_n_tri  = 0;
+            int twoD_n_tri  = 0;   // CELL count (triangles + quads; historical name)
             int twoD_n_vert = 0;
+            // Engine bulk edge arrays are [cell*stride + e], stride 3 for an
+            // all-triangle mesh and 4 once any quad exists
+            // (swmm_2d_edge_stride). Everything shipped to the GUI is
+            // repacked to mesh::kEdgeStride (4) so downstream uses ONE layout
+            // (mesh::edgeSlot). Bulk buffers pulled from the engine are sized
+            // twoD_n_tri * twoD_edge_stride.
+            int twoD_edge_stride = 3;
             if (twoD_active) {
-                swmm_2d_triangle_count(eng, &twoD_n_tri);
+                if (swmm_2d_cell_count(eng, &twoD_n_tri) != SWMM_OK)
+                    swmm_2d_triangle_count(eng, &twoD_n_tri);   // older engine
                 swmm_2d_vertex_count(eng, &twoD_n_vert);
+                if (swmm_2d_edge_stride(eng, &twoD_edge_stride) != SWMM_OK
+                    || (twoD_edge_stride != 3 && twoD_edge_stride != mesh::kEdgeStride))
+                    twoD_edge_stride = 3;
                 if (twoD_n_tri > 0 && twoD_n_vert > 0) {
                     QVector<double> vx(twoD_n_vert), vy(twoD_n_vert),
                                     vz(twoD_n_vert);
                     swmm_2d_vertex_get_xyz_bulk(eng, vx.data(), vy.data(), vz.data());
-                    QVector<int> triFlat(twoD_n_tri * 3);
+                    // Cell connectivity, flat [v0,v1,v2,v3] per cell with
+                    // v3 = -1 for a triangle (mixed tri/quad meshes).
+                    QVector<int> cellFlat(twoD_n_tri * 4, -1);
                     for (int t = 0; t < twoD_n_tri; ++t) {
-                        int v0 = 0, v1 = 0, v2 = 0;
-                        swmm_2d_triangle_get_vertices(eng, t, &v0, &v1, &v2);
-                        triFlat[t * 3 + 0] = v0;
-                        triFlat[t * 3 + 1] = v1;
-                        triFlat[t * 3 + 2] = v2;
+                        int v[4] = {-1, -1, -1, -1};
+                        int nv = 0;
+                        if (swmm_2d_cell_get_vertices(eng, t, v, &nv) != SWMM_OK) {
+                            // Older engine without the cell API: triangles only.
+                            swmm_2d_triangle_get_vertices(eng, t, &v[0], &v[1], &v[2]);
+                            v[3] = -1;
+                            nv = 3;
+                        }
+                        cellFlat[t * 4 + 0] = v[0];
+                        cellFlat[t * 4 + 1] = v[1];
+                        cellFlat[t * 4 + 2] = v[2];
+                        cellFlat[t * 4 + 3] = (nv >= 4) ? v[3] : -1;
                     }
                     const QString h5Path = parseTwoDOutputFile(QString::fromUtf8(inp));
                     const int jobId = rawSelf->m_jobId;
@@ -331,9 +519,9 @@ void SimulationRunner::start()
                         [rawSelf, jobId, h5Path,
                          vx = std::move(vx), vy = std::move(vy),
                          vz = std::move(vz),
-                         triFlat = std::move(triFlat)]() mutable {
+                         cellFlat = std::move(cellFlat)]() mutable {
                             emit rawSelf->twoDInitialized(
-                                jobId, h5Path, vx, vy, vz, triFlat);
+                                jobId, h5Path, vx, vy, vz, cellFlat);
                         },
                         Qt::QueuedConnection);
 
@@ -341,17 +529,23 @@ void SimulationRunner::start()
                     // can reconstruct cell-centred velocity from per-tick
                     // flux without re-deriving lengths/normals from vertex
                     // coords. Engine returns doubles; convert to float for
-                    // the wire (RT0 doesn't need double precision).
-                    const int n3 = twoD_n_tri * 3;
-                    std::vector<double> rawLen(n3), rawNx(n3), rawNy(n3);
+                    // the wire (RT0 doesn't need double precision) and
+                    // repack to stride mesh::kEdgeStride.
+                    const int nEng = twoD_n_tri * twoD_edge_stride;
+                    const int n3   = mesh::edgeSlotCount(twoD_n_tri);
+                    std::vector<double> rawLen(nEng), rawNx(nEng), rawNy(nEng);
                     if (swmm_2d_edge_get_geometry_bulk(
                             eng, rawLen.data(), rawNx.data(), rawNy.data()) == SWMM_OK)
                     {
-                        QVector<float> qLen(n3), qNx(n3), qNy(n3);
-                        for (int i = 0; i < n3; ++i) {
-                            qLen[i] = static_cast<float>(rawLen[i]);
-                            qNx[i]  = static_cast<float>(rawNx[i]);
-                            qNy[i]  = static_cast<float>(rawNy[i]);
+                        QVector<float> qLen(n3, 0.0f), qNx(n3, 0.0f), qNy(n3, 0.0f);
+                        for (int c = 0; c < twoD_n_tri; ++c) {
+                            for (int e = 0; e < twoD_edge_stride; ++e) {
+                                const int src = c * twoD_edge_stride + e;
+                                const int dst = mesh::edgeSlot(c, e);
+                                qLen[dst] = static_cast<float>(rawLen[src]);
+                                qNx[dst]  = static_cast<float>(rawNx[src]);
+                                qNy[dst]  = static_cast<float>(rawNy[src]);
+                            }
                         }
                         QMetaObject::invokeMethod(rawSelf,
                             [rawSelf, jobId,
@@ -367,12 +561,12 @@ void SimulationRunner::start()
             }
 
             // Start
+            *phase = QStringLiteral("start");
+            runLog->line(QStringLiteral("start"));
             rc = swmm_engine_start(eng, 1 /* save_results */);
             if (rc != SWMM_OK) {
-                const QString msg = QString::fromUtf8(swmm_error_message(rc));
-                swmm_engine_close(eng);
-                swmm_engine_destroy(eng);
-                return {false, rc, msg, 0.0, 0.0};
+                const QString msg = engineFailureText(eng, rc);
+                return {false, rc, msg, 0.0, 0.0};   // engineGuard closes + destroys
             }
 
             // Step loop — polls m_cancel and m_paused on every iteration.
@@ -426,11 +620,22 @@ void SimulationRunner::start()
                                                       twoDErr0);
                     },
                     Qt::QueuedConnection);
+                // The 2D backend / closure / LTS_TIERS are known as soon as
+                // the solver is chosen at start — show them before the first
+                // step, which on a large mesh can take a while.
+                if (twoD_active) emitTwoDSolverStats(rawSelf, jobId, eng);
             }
 
+            // NOTE on units: swmm_engine_step()'s out-parameter is the
+            // CUMULATIVE elapsed time in DAYS (SWMMEngine.cpp:
+            // *elapsed_time = current_time / SEC_PER_DAY), not a per-step
+            // delta and not seconds. It is used here only to detect the end
+            // of the run (elapsed <= 0.0); every quantity reported to the GUI
+            // comes from swmm_get_current_time(), which is seconds since the
+            // simulation start.
             double elapsed = 0.0;
             qint64 stepCount = 0;
-            double totalElapsedSec = 0.0;
+            qint64 skipped2DTicks = 0;   // bundles dropped because the GUI thread was behind
             QElapsedTimer tickTimer;
             tickTimer.start();
             // Rate-limit GUI emissions to `tickIntervalMs` (user pref,
@@ -439,17 +644,26 @@ void SimulationRunner::start()
             // the GUI event loop.
             const qint64 kTickIntervalMs = tickIntervalMs;
             qint64 lastTickMs = -kTickIntervalMs; // fire immediately on first step
+            *phase = QStringLiteral("step");
+            runLog->line(QStringLiteral("step loop"));
+            // A step failure is captured HERE, with the engine's specific
+            // message and error list, before end()/report() can disturb them.
+            int     stepFailCode = SWMM_OK;
+            QString stepFailMsg, stepFailPhase;
             while (!rawSelf->m_cancel.load()) {
                 if (rawSelf->m_paused.load()) {
                     QThread::msleep(50);
                     continue;
                 }
                 rc = swmm_engine_step(eng, &elapsed);
+                if (fault.at("step") && stepCount == 2) {
+                    if (fault.kind == QLatin1String("bad_alloc")) throw std::bad_alloc();
+                    if (fault.kind == QLatin1String("numerical")) rc = SWMM_ERR_NUMERICAL;
+                }
                 if (rc != SWMM_OK || elapsed <= 0.0)
                     break;
 
                 ++stepCount;
-                totalElapsedSec += elapsed;
 
                 const qint64 nowMs = tickTimer.elapsed();
                 if (nowMs - lastTickMs < kTickIntervalMs)
@@ -471,7 +685,13 @@ void SimulationRunner::start()
                 if (twoD_active)
                     swmm_2d_get_continuity_error(eng, &twoDErr);
 
-                const double avgTs = stepCount > 0 ? totalElapsedSec / double(stepCount) : 0.0;
+                // Running average routing step (seconds) — same formula the
+                // out-of-process worker path uses below. It was previously
+                // summing swmm_engine_step()'s CUMULATIVE elapsed DAYS, which
+                // grows as dt*(N+1)/(2*86400): on a 10 s routing step it reads
+                // ~0.01 around step 200 and creeps up from there, so a healthy
+                // run looked permanently stalled.
+                const double avgTs = stepCount > 0 ? curTSec / double(stepCount) : 0.0;
                 const int jobId = rawSelf->m_jobId;
                 const QDateTime curQDT = simStart.isValid()
                     ? simStart.addMSecs(static_cast<qint64>(curTSec * 1000.0))
@@ -483,6 +703,8 @@ void SimulationRunner::start()
                                                       twoDErr);
                     },
                     Qt::QueuedConnection);
+                // Marcher substeps + LTS tier occupancy, same cadence.
+                if (twoD_active) emitTwoDSolverStats(rawSelf, jobId, eng);
 
                 // ── Slice CF.MVP — per-tick 2D depth slice ─────────────────
                 // Rate-limited by the surrounding kTickIntervalMs gate. Pulls
@@ -492,7 +714,19 @@ void SimulationRunner::start()
                 // downcast to float for the wire because mm-level depth
                 // precision is plenty for colour mapping and the HDF5
                 // reader produces float to match.
+                // Back-pressure: the four queued payloads below are only
+                // rate-limited on THIS side. If the GUI thread takes longer
+                // than a tick to digest a bundle, the event queue grew
+                // without bound (each entry pinning a full-mesh copy). Skip
+                // the bundle while two are still queued; progress went out
+                // above regardless, and the next tick catches up.
+                if (twoD_active && twoD_n_tri > 0
+                    && rawSelf->m_pending2DTicks.load() >= 2) {
+                    ++skipped2DTicks;
+                    continue;
+                }
                 if (twoD_active && twoD_n_tri > 0) {
+                    rawSelf->m_pending2DTicks.fetch_add(1);
                     std::vector<double> raw(twoD_n_tri);
                     swmm_2d_get_depths_bulk(eng, raw.data());
                     QVector<float> depths(twoD_n_tri);
@@ -500,9 +734,9 @@ void SimulationRunner::start()
                         depths[t] = static_cast<float>(raw[t]);
                     QMetaObject::invokeMethod(rawSelf,
                         [rawSelf, jobId, depths = std::move(depths),
-                         curQDT, totalElapsedSec]() mutable {
+                         curQDT, curTSec]() mutable {
                             emit rawSelf->twoDDepthsAvailable(
-                                jobId, depths, curQDT, totalElapsedSec);
+                                jobId, depths, curQDT, curTSec);
                         },
                         Qt::QueuedConnection);
 
@@ -510,20 +744,91 @@ void SimulationRunner::start()
                     // depth slice via the matching elapsedSec on the GUI side
                     // so a single tick maps to a single history frame in
                     // EngineMesh2DSource regardless of queue ordering.
-                    const int n3 = twoD_n_tri * 3;
-                    std::vector<double> rawFlux(n3);
+                    // Engine stride (3|4) in, mesh::kEdgeStride out.
+                    const int nEng = twoD_n_tri * twoD_edge_stride;
+                    std::vector<double> rawFlux(nEng);
                     if (swmm_2d_get_edge_flux_bulk(eng, rawFlux.data()) == SWMM_OK)
                     {
-                        QVector<float> flux(n3);
-                        for (int i = 0; i < n3; ++i)
-                            flux[i] = static_cast<float>(rawFlux[i]);
+                        QVector<float> flux(mesh::edgeSlotCount(twoD_n_tri), 0.0f);
+                        for (int c = 0; c < twoD_n_tri; ++c)
+                            for (int e = 0; e < twoD_edge_stride; ++e)
+                                flux[mesh::edgeSlot(c, e)] =
+                                    static_cast<float>(rawFlux[c * twoD_edge_stride + e]);
                         QMetaObject::invokeMethod(rawSelf,
                             [rawSelf, jobId, flux = std::move(flux),
-                             curQDT, totalElapsedSec]() mutable {
+                             curQDT, curTSec]() mutable {
                                 emit rawSelf->twoDFluxAvailable(
-                                    jobId, flux, curQDT, totalElapsedSec);
+                                    jobId, flux, curQDT, curTSec);
                             },
                             Qt::QueuedConnection);
+                    }
+
+                    // Per-tick rainfall intensity + cumulative volume per
+                    // cell. Both calls must succeed (older engines lack
+                    // them) or nothing is emitted and the GUI keeps the
+                    // Rainfall entries greyed out until the HDF5 swap-in.
+                    {
+                        std::vector<double> rawRain(twoD_n_tri), rawCum(twoD_n_tri);
+                        if (swmm_2d_get_rainfall_bulk(eng, rawRain.data()) == SWMM_OK
+                            && swmm_2d_get_rain_volume_bulk(eng, rawCum.data()) == SWMM_OK)
+                        {
+                            QVector<float> rain(twoD_n_tri), cum(twoD_n_tri);
+                            for (int t = 0; t < twoD_n_tri; ++t) {
+                                rain[t] = static_cast<float>(rawRain[t]);
+                                cum[t]  = static_cast<float>(rawCum[t]);
+                            }
+                            QMetaObject::invokeMethod(rawSelf,
+                                [rawSelf, jobId, rain = std::move(rain),
+                                 cum = std::move(cum), curQDT, curTSec]() mutable {
+                                    emit rawSelf->twoDRainfallAvailable(
+                                        jobId, rain, cum, curQDT, curTSec);
+                                },
+                                Qt::QueuedConnection);
+                        }
+                    }
+
+                    // Per-tick water-surface elevation per cell, so the
+                    // mid-run export carries the solver's head (same SWMM_OK
+                    // gating as rainfall).
+                    {
+                        std::vector<double> rawHead(twoD_n_tri);
+                        if (swmm_2d_get_heads_bulk(eng, rawHead.data()) == SWMM_OK)
+                        {
+                            QVector<float> heads(twoD_n_tri);
+                            for (int t = 0; t < twoD_n_tri; ++t)
+                                heads[t] = static_cast<float>(rawHead[t]);
+                            QMetaObject::invokeMethod(rawSelf,
+                                [rawSelf, jobId, heads = std::move(heads),
+                                 curQDT, curTSec]() mutable {
+                                    emit rawSelf->twoDHeadsAvailable(
+                                        jobId, heads, curQDT, curTSec);
+                                },
+                                Qt::QueuedConnection);
+                        }
+                    }
+
+                    // Per-tick cumulative maxima (the live ENVELOPES) — the
+                    // engine updates them on its refresh cadence, so the
+                    // mid-run export's "max so far" includes sub-tick peaks
+                    // no retained frame saw. Both calls must succeed.
+                    {
+                        std::vector<double> rawMaxD(twoD_n_tri), rawMaxV(twoD_n_tri);
+                        if (swmm_2d_get_stat_max_depths(eng, rawMaxD.data()) == SWMM_OK
+                            && swmm_2d_get_stat_max_velocities(eng, rawMaxV.data()) == SWMM_OK)
+                        {
+                            QVector<float> maxD(twoD_n_tri), maxV(twoD_n_tri);
+                            for (int t = 0; t < twoD_n_tri; ++t) {
+                                maxD[t] = static_cast<float>(rawMaxD[t]);
+                                maxV[t] = static_cast<float>(rawMaxV[t]);
+                            }
+                            QMetaObject::invokeMethod(rawSelf,
+                                [rawSelf, jobId, maxD = std::move(maxD),
+                                 maxV = std::move(maxV)]() mutable {
+                                    emit rawSelf->twoDEnvelopesAvailable(
+                                        jobId, maxD, maxV);
+                                },
+                                Qt::QueuedConnection);
+                        }
                     }
 
                     // Per-tick SIGNED vertex render depths (wet-masked
@@ -541,17 +846,56 @@ void SimulationRunner::start()
                         {
                             QMetaObject::invokeMethod(rawSelf,
                                 [rawSelf, jobId, vdepths = std::move(vdepths),
-                                 curQDT, totalElapsedSec]() mutable {
+                                 curQDT, curTSec]() mutable {
                                     emit rawSelf->twoDVertexDepthsAvailable(
-                                        jobId, vdepths, curQDT, totalElapsedSec);
+                                        jobId, vdepths, curQDT, curTSec);
                                 },
                                 Qt::QueuedConnection);
                         }
                     }
+                    // Trailing marker: same receiver, so it is delivered
+                    // after the bundle's payloads (FIFO) — i.e. once the GUI
+                    // thread has run every slot for this tick.
+                    QMetaObject::invokeMethod(rawSelf,
+                        [rawSelf]() { rawSelf->m_pending2DTicks.fetch_sub(1); },
+                        Qt::QueuedConnection);
                 }
             }
+            if (skipped2DTicks > 0)
+                runLog->line(QStringLiteral("2D ticks skipped (GUI busy): %1")
+                                 .arg(skipped2DTicks));
+
+            if (rc != SWMM_OK) {
+                stepFailCode = rc;
+                const double simSec = elapsed * 86400.0;
+                stepFailPhase = QStringLiteral("step at %1").arg(
+                    simStart.isValid()
+                        ? simStart.addMSecs(qint64(simSec * 1000.0)).toString(Qt::ISODate)
+                        : QStringLiteral("%1 s").arg(simSec, 0, 'f', 0));
+                QString msg = engineFailureText(eng, rc);
+                // The engine's error list carries the specific cause (a
+                // diverging node, a plugin failure …) — surface all of it.
+                const int nErr = swmm_get_error_count(eng);
+                for (int i = 0; i < nErr; ++i) {
+                    const QString e =
+                        QString::fromUtf8(swmm_get_error_at(eng, i)).trimmed();
+                    if (!e.isEmpty() && !msg.contains(e))
+                        msg += QLatin1Char('\n') + e;
+                }
+                stepFailMsg = (rc == SWMM_ERR_NUMERICAL)
+                    ? QStringLiteral("Routing diverged (%1): %2").arg(stepFailPhase, msg)
+                    : QStringLiteral("%1 (%2)").arg(msg, stepFailPhase);
+                *phase = stepFailPhase;
+                runLog->line(QStringLiteral("step FAILED code=%1 %2").arg(rc).arg(stepFailMsg));
+            }
+
+            // Final 2D solver telemetry — a short run can finish before any
+            // progress tick, and end() finalises the marcher's counters.
+            if (twoD_active) emitTwoDSolverStats(rawSelf, rawSelf->m_jobId, eng);
 
             // End
+            if (stepFailCode == SWMM_OK) *phase = QStringLiteral("end");
+            runLog->line(QStringLiteral("end"));
             swmm_engine_end(eng);
 
             // Continuity errors (available after end)
@@ -581,8 +925,8 @@ void SimulationRunner::start()
             // on big 2D models but threw away everything the run had
             // computed.)
             swmm_engine_report(eng);
-            swmm_engine_close (eng);
-            swmm_engine_destroy(eng);
+            // close + destroy: engineGuard, at scope exit (after the return
+            // value below is built — same order as the explicit calls were).
 
             if (cancelled)
                 return {false, 0,
@@ -590,11 +934,15 @@ void SimulationRunner::start()
                                        "stop point"),
                         runoffErr, routingErr, twoDErr};
 
+            if (stepFailCode != SWMM_OK)
+                return {false, stepFailCode, stepFailMsg, runoffErr, routingErr, twoDErr,
+                        stepFailPhase};
             if (lastErr != SWMM_OK) {
                 const QString msg = !lastErrMsg.isEmpty()
                     ? lastErrMsg
                     : QString::fromUtf8(swmm_error_message(lastErr));
-                return {false, lastErr, msg, runoffErr, routingErr, twoDErr};
+                return {false, lastErr, msg, runoffErr, routingErr, twoDErr,
+                        QStringLiteral("end")};
             }
             return {true, SWMM_OK, {}, runoffErr, routingErr, twoDErr};
 
@@ -782,8 +1130,33 @@ void SimulationRunner::start()
 
                 return {true, 0, QString(), runoffErrFrac, routingErrFrac};
             }
-        })
-    );
+        };
+
+    watcher->setFuture(QtConcurrent::run(enginePool(),
+        [body, phase, runLog]() -> SimulationResult {
+            // Last line of defence for the run: nothing thrown by the worker
+            // may escape the future. Report it as a failed run, with the
+            // phase it was in, and write it to the run log.
+            try {
+                SimulationResult r = body();
+                if (!r.success && r.phase.isEmpty()) r.phase = *phase;
+                runLog->line(r.success
+                    ? QStringLiteral("finished: success")
+                    : QStringLiteral("finished: %1 code=%2 phase=%3 %4")
+                          .arg(r.errorCode == 0 ? QStringLiteral("cancelled")
+                                                : QStringLiteral("FAILED"))
+                          .arg(r.errorCode).arg(r.phase, r.errorMessage));
+                return r;
+            } catch (const std::bad_alloc &) {
+                return exceptionResult(*phase,
+                    QStringLiteral("out of memory (std::bad_alloc)"), runLog.get());
+            } catch (const std::exception &e) {
+                return exceptionResult(*phase, QString::fromUtf8(e.what()), runLog.get());
+            } catch (...) {
+                return exceptionResult(*phase,
+                    QStringLiteral("non-standard exception"), runLog.get());
+            }
+        }));
 }
 
 void SimulationRunner::cancel()

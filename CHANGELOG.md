@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the OpenSWMM GUI are documented in this file.
+All notable changes to SWMMVis are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -10,14 +10,632 @@ legacy Delphi GUI baseline), so the `6.0.0-alpha.2` and `6.0.0-alpha.3`
 headings below are delimited by the version strings in `CMakeLists.txt`
 (`PROJECT_VERSION_SUFFIX`) and `vcpkg.json` rather than by tags:
 `6.0.0-alpha.2` covers the SWMMVis rewrite up to and including
-2026-07-12, and `6.0.0-alpha.3` covers everything from the
-`6.0.0-alpha.3` version bump onward. No `v6.0.0-alpha.2` tag was ever
-cut. Generated with support from [`git-cliff`](https://git-cliff.org)
-(config: `cliff.toml`).
+2026-07-12, `6.0.0-alpha.3` covers everything from the
+`6.0.0-alpha.3` version bump to the `6.0.0-alpha.4` bump (2026-09-08),
+and `6.0.0-alpha.4` covers everything from that bump onward. No
+`v6.0.0-alpha.2` tag was ever cut. Generated with support from
+[`git-cliff`](https://git-cliff.org) (config: `cliff.toml`).
 
 ## [Unreleased]
 
+### Changed
+
+- **Simulations run on a private thread pool, seed `THREADS 0`, and tell the engine about the GUI's
+  own threads** — the engine step loop shared the global `QThreadPool` with the per-tick map-render and
+  contour jobs; File ▸ New and the preferences reset wrote `THREADS = <all logical CPUs>`, which
+  bypasses the engine's performance-core clamp; `OPENSWMM_HOST_RESERVED_THREADS=3` is exported at
+  start-up so the engine counts the GUI, render and IO threads before deciding to spin-wait. On macOS
+  the app holds an `NSProcessInfo` activity for the length of a run (no App Nap), and the bundled
+  OpenMP plugin no longer resolves Homebrew's `libomp` ahead of the bundled one (two OpenMP runtimes in
+  one process). Live 2D slots skip their repaint while the layer is hidden.
+- **Simulation Options — contextual tabs instead of one long column per page** — the five densest
+  sidebar pages now group their controls into inner tabs, and a tab that does not apply to the
+  current selection greys out with a tooltip saying why rather than disappearing, so a gated option
+  stays discoverable. Changing a selector while you are looking at the tab it just disabled moves
+  you to the nearest usable tab. *Models / Processes* becomes **Domains & Processes · Modules ·
+  Flags**; *Dates & Times* becomes **Simulation Window · Time Steps · Events**; *Routing &
+  Hydraulics* becomes **Routing · Dynamic Wave · Finite Volume · Unsteady Friction**; *Quality &
+  Transport* becomes **General · Eulerian ARD · Lagrangian (LARD) · Reserved Species**; *2D Surface
+  Routing* becomes **Hydrodynamics · Wetting & Drying · Coupling · Processes · Performance &
+  Output**.
+  The *Routing & Hydraulics* page drops from roughly 35 controls in one scrolling column to at most
+  13 per tab.
+
+- **Simulation Options — two selectors move into page headers** — `FLOW_ROUTING` was built on
+  *Models / Processes* and wired on *Routing & Hydraulics*; it now lives in the *Routing &
+  Hydraulics* page header, above the tab bar, because it gates three of that page's four tabs.
+  *Models / Processes* keeps a read-only one-line mirror with a link across, so there is still one
+  key and one editor. `QUALITY_SOLVER` gets the same treatment on *Quality & Transport*.
+
+- **Simulation Options — `SKIP_STEADY_STATE`, `LAT_FLOW_TOL` and `SYS_FLOW_TOL` move** from *Dates
+  & Times* to *Routing & Hydraulics ▸ Routing*, the tab that applies under every solver. The engine
+  tests for a steady period from the main routing step with no routing-model guard, so the flag is
+  honoured under kinematic wave and steady flow as well as dynamic wave; putting it on the Dynamic
+  Wave tab would have implied otherwise.
+
+- **Simulation Options — the 2D Surface Routing and Quality & Transport sidebar rows now gate.**
+  The 2D row follows the 2D-module toggle on *Models / Processes ▸ Modules* as before; the Quality
+  & Transport row is new, and greys out on a model with no pollutants, no water age and no heat.
+
+- **Preferences — Rendering and Simulation Defaults gain tabs; two sidebar rows fold away.**
+  *Rendering* becomes **Labels · Links & Nodes · GPU · 2D Mesh Edges**. The *Dynamic Wave Defaults*
+  and *2D Defaults* rows fold into *Simulation Defaults* as **Processes & Modules · Hydraulics &
+  Schedule · Time Steps & Tolerances · Dynamic Wave · 2D Solver · 2D Coupling & Rainfall · 2D
+  Mesh** — fifteen sidebar rows become thirteen. Every setting still writes the same key; nothing
+  was dropped. Neither page needs a scrollbar at 1280x800 any more, on any tab.
+
+### Fixed
+
+- **Examples added to the bundle now reach the Welcome page on an existing install** — the Welcome
+  page lists a per-user mirror of the bundled examples, and the startup sync that fills that mirror
+  returned early whenever its marker file already matched the application version. The bundled payload
+  changes within a version on every development build, and on any release that adds examples without
+  a version bump, so the ten SWASHES cases were copied into the bundle but never into the mirror, and
+  the panel kept showing the three examples seeded on Sep 5. The sync now walks the payload on every
+  startup; the walk was already incremental (one size-and-mtime check per file, copying only what
+  changed), and on the real payload the steady-state cost measures at about 5 ms. Known limitation,
+  now documented in the seeder contract: an example removed from the bundle is not pruned from the
+  mirror.
+- **SWASHES example decks share one plan frame per case** — the eighteen `1d_dynwave.inp` and
+  `1d_fv.inp` decks had no `[COORDINATES]` section, so every node of a case drew at the origin, one
+  on top of another, when the example was opened; and once they had one, the 1D chain ran along the
+  bottom wall of the case's 2D strip rather than through its middle, because the straight 2D meshes
+  were written on `y ∈ [0, W]` while the bend meshes (and the new 1D chains) were centred on `y = 0`.
+  The QA suite's generators (`swasheslib.gen1d`, `swasheslib.gen2d`) now use one frame: the
+  centreline is `y = 0` in every deck, a straight channel runs along the x axis with each node at its
+  true chainage `x_i = i·dx`, straight 2D strips are written on `[−W/2, +W/2]` as the bend meshes
+  already were, and anything sacrificial sits past the outlet on the centreline — the closed-basin
+  spillway outfall at `(L+dx, 0)` and the dry dummy 1D pair each 2D deck carries at `(L+dx, 0)` and
+  `(L+2dx, 0)` with conduit Length equal to its plan distance. The 2D shift is applied only to the
+  written vertices (bed and initial conditions are still sampled in the analytic frame), so it is a
+  pure translation: rerunning the bump-shock and Ritter 2D decks before and after gives bit-identical
+  depth histories, maxima, continuity volumes and internal step counts. All twenty-six decks open in
+  the engine, and `SwashesExamples.DecksShareOneFrame` now gates the frame on the shipped payload.
+- **The `.inp`'s `[OPTIONS] CRS` is the coordinate system of record, on open and on save** — two
+  fixes. On open, a CRS in the `.inp` now beats the `.oswp` sidecar's copy; the sidecar's value
+  applies only when the `.inp` carries none, where before it silently re-labelled a model whose
+  `.inp` had since been assigned or reprojected to a different CRS. On save, the layer's *assigned*
+  CRS is written to `[OPTIONS] CRS` whichever path assigned it: the CRS picker, Simulation Options,
+  a canvas reprojection, or the sidecar. The reprojection path used to reach only the engine's
+  spatial frame, which the `.inp` writer did not read, so a reprojected model was saved with its
+  NEW coordinates under the OLD `CRS` line and reopened in the wrong place. A CRS the open merely
+  defaulted (from `[MAP] UNITS` or the preferences' EPSG code) is never written back, so a model
+  that carried no CRS stays that way. Companion engine fix: `swmm_spatial_set_crs` and
+  `swmm_options_set("CRS")` now fill both engine stores, and `swmm_get_crs` and the writer fall
+  back to the spatial frame, so a GeoPackage-opened model keeps its CRS through an `.inp` save.
+- **Closing one project while another stayed open could crash later on any dock toggle** — the
+  layer tree, its model and the terrain toolbar kept a raw pointer to the closed project's map canvas,
+  and the MDI activation flip that any widget show/hide triggers sent `QObject::disconnect` through it
+  (the only crash on record in the September diagnostic reports; it is not a memory leak). They hold
+  `QPointer`s now, rebind on `destroyed`, and the main window moves the docks to a live project before
+  the closing one announces `aboutToClose`. `test_layertree_canvas_rebind`.
+- **Long live 2D runs no longer grow memory without bound or stall the GUI** — the live 2D history was
+  capped in frames only (a 155k-cell mesh reached ~9 GB before thinning); a byte budget
+  (*Preferences ▸ Simulation ▸ Live 2D history budget*, default 1024 MB) thins it to 75 %, the runner
+  skips a tick's 2D bundle while two are still queued (`2D ticks skipped (GUI busy)` in the runlog), the
+  message log keeps 20 000 rows and each job 5 000 warnings, one contour job runs at a time, the
+  label-texture cache is evicted past 512 entries, and the engine handle is closed on every exit path
+  of the worker.
+- **Live comparison charts re-read only the new tail of each series per tick** — every series was
+  resolved in full on every progress tick (a full-mesh copy per frame for 2D velocity / edge-flux /
+  rainfall series), which is what let the GUI thread fall behind the runner on long runs.
+- **`FV_SCALAR_SCHEME` was silently discarded** — the Scalar scheme combo on *Quality & Transport ▸
+  Eulerian ARD* was laid out and tagged but neither read from nor written to the engine, so it
+  always showed MUSCL and every edit was lost on Apply. Both halves are restored.
+
+- **The CRS Change… and Detect from coordinates buttons on *Spatial & CRS* did nothing** — the page
+  builder returned before reaching its two `connect()` calls, so the buttons were built, laid out
+  and never wired. The manual's "Known gap in this build" note for that page is retired with them.
+
 ### Added
+
+- **Type exact X, Y and Z for a feature's vertices** — the Features dock gains a **Vertices** section
+  listing every vertex of the single selected feature, one row per vertex, addressed by part and ring
+  so interior rings and multi-part geometries are reachable (ring `exterior` is the outline, `hole N`
+  an interior ring). All three ordinates are editable inside an edit session. An X or Y edit is gated
+  on `FeatureGeometry::validate` exactly as a drawn commit is, so a move that self-intersects a ring
+  or pushes a hole outside its exterior is refused and the cell reverts; the ordinate the user did
+  *not* touch is read from the geometry rather than from its sibling cell, so the six-decimal display
+  cannot quietly quantise a coordinate nobody edited. Each edit is one non-mergeable
+  `EditFeatureGeometryCommand` — the same undo step the same move produces by dragging, per the rule
+  that nothing writes to a feature layer outside a command. On a 3D layer a blank Z clears that
+  vertex back to unsampled (NaN, never zero), and when the Z source is a raster or the 2D mesh the
+  dock says plainly that a typed Z survives only until the next resample, and that changing X or Y
+  re-samples it when "Re-sample when a vertex moves" is on. Geometries above 10,000 vertices are not
+  listed — those are edited on the map. Reverses
+  `workplans/MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md` §4.4 ("the property adapter
+  shows per-vertex Z read-only") at the user's request; the plan carries a dated amendment in §4.4
+  and a B6 status note in §7.
+- **Ten SWASHES analytical-verification examples on the Welcome page** — cases from Delestre et al.
+  (2013), *SWASHES: a compilation of shallow water analytic solutions for hydraulic and environmental
+  studies* (doi 10.1002/fld.3741), each shipping the decks its case supports — `1d_dynwave.inp`
+  (dynamic-wave routing, the default open target), `1d_fv.inp` (finite-volume routing) and
+  `2d_explicit.inp` (2D shallow-water mesh) — alongside `reference.csv` with the closed-form depth
+  and unit discharge, and a `README.md` covering geometry, boundary conditions and comparison times.
+  Coverage spans well-balancedness (lake at rest), the three steady bump transitions, MacDonald
+  friction profiles with and without rainfall, a pseudo-2D varying-width hydraulic jump, wet- and
+  dry-bed dam breaks, and 2D radial wetting/drying. Input files only — no results or reports ship.
+  Decks are generated by the openswmm.engine SWASHES benchmark suite and imported byte-for-byte via
+  the new `scripts/import_swashes_examples.py`. On a machine that had already run an earlier build
+  of this version the ten cases did not appear until the example-seeding fix under *Fixed*.
+- **Welcome page examples are grouped and scrollable** — `example.json` gains a `category` field, and
+  the Example Projects panel now renders one collapsible header per category inside a scroll area
+  with each group's entry count. Uncategorized examples (and every legacy flat `.inp`) collect under
+  **Getting Started**, which leads the list expanded; named categories follow alphabetically,
+  collapsed. A directory example holding several `.inp` files and no `.oswp` opens its
+  alphabetically first deck, while the copy still carries the whole folder.
+- **Export 2D Results** — a new Export group on the Analysis ribbon hands a finished 2D run to GIS,
+  as ESRI Shapefile, GeoPackage or GeoTIFF rasters. The dialog offers depth, water surface
+  elevation, the two velocity components and speed; any set of time steps (with All / None /
+  Current buttons and an "Every Nth" stride for a long run); and the whole-run maxima. Output is one
+  file or layer per variable, with one field or raster band per selected step (`t0001`…, named after
+  the DBF's 10-character limit) plus `max`, and a `_times.csv` sidecar mapping every field back to
+  its frame index and datetime. Maxima come from the engine's own `ENVELOPES` datasets where the
+  file carries them — those track the solver's refresh cadence, so they catch peaks that fall
+  between reported output frames — and otherwise from a scan of every frame. Vector output writes
+  one polygon per mesh cell, triangle or quad, taken from the engine's cell connectivity rather than
+  the renderer's display fan. Raster output interpolates the cell-centred values onto the pixel grid
+  by natural neighbour, inverse distance weighting over the k nearest cells, or a per-cell
+  Green–Gauss gradient reconstruction limited to the neighbouring cells' range; every method
+  resolves the containing cell first, so a pixel outside the mesh stays NoData instead of being
+  extrapolated across a hole. Dry cells can be masked to NoData, and everything is written in the
+  model's own units and CRS.
+
+- **Junction on Conduit** — a new Nodes-group tool that splits a conduit at the clicked point and
+  inserts an ordinary junction, alongside the existing Virtual Junction and Inlet Junction tools.
+  Virtual junctions require DYNWAVE routing, so this is the only split available to models routed
+  with steady or kinematic wave. Undo re-fuses the pair. Conduits only — pumps, weirs, orifices and
+  outlets have no length to divide, and the tool says so in the status bar.
+
+### Fixed
+
+- **Opening Simulation Options on a 1D model no longer dirties the project** — pressing Apply (or
+  OK) with no edits wrote `IGNORE_2D YES` into any deck that carries no 2D sections. The 2D-module
+  checkbox has two different meanings on the two sides of the dialog: reading it back from a model
+  with no mesh leaves it unchecked to *describe* the model, but the write turned that description
+  into a *preference*, inventing an "ignore 2D" the user never asked for and marking the project
+  modified. `IGNORE_2D` is now written only once the checkbox carries a real intent — a stored
+  per-project preference, or the user actually toggling it — and the same condition guards the
+  preference itself, so an inferred state can no longer promote itself to an intent on the next
+  Apply. The engine reports `IGNORE_2D` as `NO` by default and never serialises it, so the key's
+  presence cannot be used to tell the two apart.
+
+- **Double-click now closes a drawing on the point clicked** — the subcatchment, feature-layer
+  polygon/line and 2D cell lasso tools discarded the double-clicked vertex, on the mistaken
+  assumption that Qt delivers two presses for a double-click (it delivers `Press, Release, DblClick`,
+  so only one press ever reached the tool). Beyond the missing corner, this silently created
+  *nothing* whenever the dropped vertex left the shape below its commit floor — a triangle drawn as
+  click, click, double-click, or a two-click feature line.
+- **STREET conduits render correctly in the profile plot** — `swmm_link_get_xsect` reports `geom1` as
+  a table *index* for STREET and IRREGULAR, and the profile adapter was assigning it to the conduit's
+  max depth. A street on the first street of a model therefore drew as a zero-height tube with its
+  crown line on top of its invert. Depth now comes from the engine's own section geometry, resolved
+  through the same helper the Section View uses.
+- **Open channels are drawn open in the profile plot** — every conduit was previously given a closed
+  crown line regardless of cross-section, so open channels (RECT_OPEN, TRAPEZOIDAL, TRIANGULAR,
+  PARABOLIC, IRREGULAR) read as box culverts and the HGL fill was clamped to a soffit that does not
+  exist. Streets additionally carry a pavement brush on the gutter line, themeable as
+  `streetInvertBrush`.
+
+## [6.0.0-alpha.4] — 2026-09-08
+
+### Added
+
+- **Live 1D/2D profile plotting no longer hangs the UI on long runs** — the 2D results layer
+  coalesces a tick's four pushes into one `timeRangeChanged` (only when the range grew) and one frame
+  load per event-loop turn (it used to fire the range twice and load the frame 3–4 times per tick);
+  `maxDepthPerVertex()` is incremental (a live run used to re-read every frame on every tick, O(T²)
+  over the run); the live source caps its history (Preferences → Simulation → "Live 2D history cap",
+  default 2000 frames, older half thinned 2:1) instead of growing without bound; per-cell depth
+  series read one value per frame instead of copying the mesh; the 2D profile dialog resamples at
+  most once per second and the 1D profile re-reads its attribute tracks at most once per two seconds
+  while a run streams.
+- **Simulation runs are the last point of failure capture** — the runner's worker is wrapped so
+  nothing thrown inside it (out-of-memory included) can escape the future and terminate the
+  application: it becomes `finished(false, 99, "Simulation worker threw during <phase>: …")`. A step
+  that returns an error now keeps the engine's specific message and error list ("Routing diverged
+  (step at <sim time>): …" for a numerical abort) instead of whatever `end()` left behind. Every run
+  writes an append-only `<report stem>.runlog.txt` (phases, failure, outcome). The Simulation Status
+  dock shows the failure as a red, copyable child row (right-click → Copy on any cell), the
+  application guards event delivery (`notify()`: logged + one throttled message box) and installs a
+  terminate handler that names the uncaught exception in the log. The runner also absolutises its
+  .inp/.rpt/.out before pinning the working directory (a relative .inp used to fail to open).
+- **Simulation Status: "2D Solver" and "LTS Tiers" columns** — the runner reads the engine's
+  `swmm_2d_get_run_stats` once after start and on every progress tick, so a 2D run shows which backend
+  it is on (CPU marcher vs Kokkos plugin), its momentum closure and the live LTS tier occupancy
+  (tooltips carry the full label, substep count and every tier's share). The engine's
+  `2D solver: …` advisory reaches the Message Log through the warning path.
+- **Mixed triangle/quadrilateral 2D meshes (tri-quad)** — `workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md`,
+  paired with the engine's `[2D_QUADS]` / `MOMENTUM_EQUATION` work (engine
+  `plans/HANDOFF_2D_TRIQUAD_FULLSWE_2026-09-06.md`). *Uncompiled in the authoring environment —
+  syntax-checked against Qt 6.2 / GDAL headers only; see the handoff.*
+  - Data model: `MeshTriangle` carries `v3` (a quad when ≥ 0), `vertexCount()/vertex(k)`;
+    `mesh/meshcellgeom.h` is the single source for the edge rule `edge k = (v[(k+1)%nv], v[(k+2)%nv])`,
+    the padded stride-4 edge slots (`edgeSlot`), and the Begnudelli–Sanders sub-triangle split
+    (`cellGeom`) every renderer / hit-test / profile / contour uses — what the map shows is what the
+    engine stores.
+  - I/O: `[2D_QUADS]` read/write (cells triangles-first, byte-identical all-triangle output), BC rows on
+    a quad's fourth edge, conveyance on quad edges; HDF5 results reader accepts `Mesh2_face_nodes [n,3|4]`
+    (+ `_FillValue`, `Mesh2_face_nv`) and exposes cells, the display fan and a face map; live engine
+    results use the `swmm_2d_cell_*` API and stride-4 edge arrays; SMS 2DM (`ND/E3T/E4Q`) import,
+    converted to the section format on import.
+  - Rendering / analysis: mesh and results layers draw quads as their two sub-triangles with true
+    polygon outlines; vertex reconstruction weights 1/nv per incident cell; RT0 velocity over nv faces;
+    attribute table "Vertices" column; cell statistics (quad count, quad angles, bed non-planarity);
+    min-size cleanup never touches quads; Hilbert reorder keeps triangles before quads.
+  - Generation: "Merge triangle pairs into quads" (greedy quality pairing, never across breaklines /
+    boundary / BC edges, tag- and attribute-consistent) and "Structured quad patches" (four-corner
+    transfinite and swept-channel patches stitched into the Triangle PSLG as constrained holes) in the
+    mesh generation dialog; 2D options tab exposes `MOMENTUM_EQUATION` and `RECONSTRUCTION_ORDER`.
+  - Tests: new `test_meshquadmerge`, `test_meshpatch`, `test_sms2dmreader`; mixed-mesh cases added to the
+    mesh layer, results, reader/writer, reorder, cleanup and edge-count suites.
+- **Mesh generation: PSLG quad regions (Mapped / Submapped / Free) with cross-field aligned lattices,
+  template + blossom pairing, cleanup/smoothing; quad-quality metrics (scaled Jacobian, rectangularity,
+  aspect); tri-pair merge defaults tightened to 60°/120° and re-scored** —
+  `workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md`. Verified on macOS arm64 / Qt 6.9.3 / clang:
+  full build, the mesh suites green, no-region output byte-identical to `2991931`, and the engine runs a
+  generated mixed deck at rest (max |Δh| = 0 over 1442 steps) with 2D continuity 0.000 % on a sloping
+  storm; see `tests/output/quad_redesign_2026-09-06/README.md`.
+  - `MeshGenerator::addQuadRegion` + `quadRegionReports()`: a closed ring inside the domain becomes a
+    constraint loop; Auto classification picks Mapped (4 corners → polyline transfinite,
+    `makeMappedPatch`), Submapped (rectilinear outline → `mesh/meshsubmap.h` grid decomposition) or Free
+    (4-RoSy cross field `mesh/meshcrossfield.h` → frontal lattice `mesh/meshquadpoints.h` → Triangle with
+    refinement suppressed inside → template + Edmonds-blossom pairing `mesh/meshquadmatch.h` → doublet /
+    diagonal-swap cleanup and guarded smoothing `mesh/meshquadcleanup.h`). Marker-0 terrain Steiners
+    inside a Free ring are dropped; junctions pin the lattice; invalid regions are skipped with a
+    `skipped: …` report line. The mesh is unchanged when no region is added.
+  - `mesh/meshquadquality.h` (header-only): scaled Jacobian, rectangularity, aspect, skew, convexity,
+    `QuadQualityBounds` (60°/120°, SJ ≥ 0.866, aspect ≤ 2), `quadScore`; `QuadStats` gains min SJ,
+    median rectangularity, max aspect, non-convex count, irregular interior vertices and an SJ histogram.
+  - Tri-pair merge (`QuadMergeOptions`) now defaults to 60°/120°, `minScaledJacobian` 0.866,
+    `maxAspect` 2 and ranks candidates by `quadScore`.
+  - Dialog: *Quad regions (PSLG)* group (region layer with `quad_mode` / `quad_spacing` / `quad_aspect`
+    / `quad_angle` / `tag` attributes, subcatchment IDs, default mode / spacing / aspect / alignment),
+    one `[Mesh][quad] region i: …` log line per region.
+  - Tests (plan §7 gates 1–8): `test_meshquadquality`, `test_meshquadregion`, `test_meshcrossfield`,
+    `test_meshquadpoints`, `test_meshquadmatch` (blossom vs brute force on 200 random graphs),
+    `test_meshquadcleanup`, `test_meshsubmap`, `test_meshquadregion_e2e` (writes
+    `tests/output/quad_redesign_2026-09-06/e2e_report.txt`); polyline transfinite / mapped-patch cases in
+    `test_meshpatch`; manual click-through in `tests/manual/mesh_quad_redesign/README.md`. One known
+    limitation is recorded as `QEXPECT_FAIL` in the e2e suite: a junction pinned inside a Free region
+    leaves a seam of ≈ 12 % triangles around it (≥ 85 % quads asserted). Two gaps found by the suite were
+    fixed before hand-off: marker-0 Steiners within h of a Free ring (outside as well as inside) are
+    dropped so Triangle never splits the ring segments, and smoothing guards every quad against the
+    0.866 floor rather than only the incident minimum. With no region added the generator output is
+    byte-identical to HEAD `2991931` (`tests/output/quad_redesign_2026-09-06/bitcheck/`).
+
+- **Inlets editor rebuilt, and the Inlet Junction node.** The Inlets editor
+  is three-pane (design list / name, type and grouped property tree / a
+  to-scale plan-and-section drawing with dimension callouts that follows the
+  selected type: Grate, Curb Opening, Slotted, Custom, the COMBO sweeper) with
+  undo, rename-collision refusal and an impact prompt on delete; designs now
+  load from the engine instead of showing defaults. *Inlet Junction* joins
+  the Nodes group: the Add tool splits a STREET conduit at the click and opens
+  a setup dialog (design, capture node, count, clogging, flow restriction,
+  local depression, placement), *Convert To ▸ Inlet Junction* promotes a
+  junction between two same-section street conduits, deleting one offers to
+  re-fuse the conduits, and the node has its own property adapter (read-only
+  approach street, crown elevation, degree), symbology row, identify popup
+  and profile-plot glyph. Conduits get an inlet-usage form (design → capture
+  node) on their *Inlets* row, and a dashed connector is drawn from each inlet
+  (conduit midpoint or junction) to its capture node. *Street* and *Inlet*
+  join the Model ribbon's Data Objects group after *Transect*. Requires an
+  engine that ships `swmm_node_is_inlet`; older engines hide the feature.
+  (`test_inlet_editor`, `test_inlet_junction_layer`.)
+
+- **Runs on a SWMM 5.x engine use a SWMM 5 profile of the model.** Run
+  writes `<stem>.swmm5.inp` next to the run outputs through
+  `swmm_model_write_compat` and feeds the 5.x worker that file: virtual and
+  inlet junctions become ordinary junctions (an inlet junction keeps its
+  inlet as an `[INLET_USAGE]` row on its approach conduit), v6-only sections
+  and option keys are left out, `FV` routing and `DYNAMIC_SLOT`/`TPA`
+  surcharge are mapped, and every substitution the engine reports is logged
+  as a run warning. The project's `.inp` is untouched. Previously the worker
+  read the canonical file and failed on `[VIRTUAL_JUNCTIONS]` /
+  `[INLET_JUNCTIONS]` with ERROR 205/209.
+
+- **Aquifer editor and Groundwater Exchange editor.** *Aquifer* joins the
+  Model tab's Data Objects group (left of *LID Control*); the rebuilt
+  `AquiferEditorDialog` is three-pane (list / grouped form / live two-zone
+  illustration built by `buildAquiferDiagram`) and now edits the monthly
+  upper-evaporation pattern, applies soft validation and deletes through
+  `swmm_aquifer_delete` with an impact prompt (previously deletion never
+  reached the engine and the pattern was dropped on save). Subcatchments
+  gain an *Aquifer* picker row/column (`DataObjectRef::Aquifer`); the
+  Groundwater compound row/cell opens the new `GroundwaterExchangeDialog`
+  (receiving node, surface elevation, A1/B1/A2/B2/A3/Twgr/Hstar and the
+  `[GWF]` LATERAL/DEEP expressions via `GwfExpressionEdit` — engine
+  vocabulary completion + per-keystroke `swmm_gwf_validate_expression`),
+  replacing the Groundwater page of `SubcatchCompoundEditDialog`. Nodes get
+  a read-only *Groundwater Sources* row/cell (`gwsourcesummary`) whose
+  Edit… opens the exchange editor for the discharging subcatchment, and
+  node-delete prompts list affected subcatchments. `SWMMAquiferPropertyAdapter`
+  is no longer a stub. Requires the engine `[GWF]` API. Plan:
+  `workplans/AQUIFER_GROUNDWATER_EXCHANGE_GUI_PLAN_2026-09-05.md`; manual:
+  aquifers and groundwater section.
+
+- **Live 1D results (6.x engine and legacy workers).** While a run is in
+  progress the `.out` is opened live (`SWMMResultsLayer::openResultsLive`,
+  engine `swmm_output_open_live`) on the first progress tick whose header is
+  on disk and re-counted on every later tick (`refreshLive`, emitting
+  `totalTimeStepsChanged` + `periodsAppended`). The results layer, animation
+  range, comparison plots (`ComparisonPlotDialog::appendChartTails`, also
+  wired to 2D `timeRangeChanged`) and profile plots
+  (`ProfileSourceFetcher::appendTail` + `ProfileBuilder::appendPeriods`) grow
+  with the run; on finish the same layer adopts the footer in place — no
+  swap, no jump. Toggle: Results toolbar " 1D" checkbox → preference
+  `liveResults1DEnabled` (default on). Plan:
+  `workplans/LIVE_1D_RESULTS_PLAN_V2_2026-09-03.md`.
+
+- **Separate "Profile" and "2D Profile" on the Analysis tab.** The 2D
+  surface profile is now its own action (`actionPlotProfile2D`, Analysis
+  menu ▸ Plot 2D Profile, ribbon Plots group) instead of a dropdown
+  override on Plot Profile, which is network-only again. New themed
+  `Profile2D` glyph — the Profile sectional block with a triangulated
+  surface — shared with the Mesh 2D tab's profile-trace tool, which was
+  using an unthemed raw resource icon.
+
+- **Profile ground-line source option.** `ProfilePlotOptions::groundSource`
+  (Auto / NodeRims / Mesh2D / TerrainDEM) replaces the "Use terrain DEM"
+  checkbox. Auto — the default — samples the 2D mesh vertex elevations
+  (barycentric) at the path stations whenever the project has a mesh
+  layer, else falls back to the rim-to-rim line; explicit choices override.
+  The line re-samples when a mesh layer is added/removed or its vertices
+  are edited. The 2D inundation band fills up from whichever ground is
+  drawn. Sampled ground (mesh or DEM) only shapes the soil BETWEEN nodes:
+  every node keeps its 1D rim (invert + max depth, crown-clamped) and
+  manhole notch exactly as in the pure-1D profile.
+
+- **More axis number-format styles.** The axis format enumerator (profile
+  Display Options, chart properties, Preferences ▸ Plots) gains
+  Scientific (2/3/4 decimals), Engineering (12.35e+03; 2/3 decimals) and
+  Thousands (locale group separators; integer/1/2 decimals) presets on top
+  of the decimals / significant-figure ones. `NumberFormat::format`
+  renders every style exactly; `printfSpec()` (Qt `QValueAxis` labels)
+  degrades Engineering to `%e` and Thousands to `%f`, since Qt axis labels
+  are printf-only.
+
+- **2D inundation overlay on the 1D profile plot.** When the project has
+  an active 2D results layer, the profile samples its water surface (mesh
+  bed + barycentric depth) at the same densified stations the terrain
+  ground line uses. While the overlay is on, the drawn ground line is the
+  mesh bed interpolated at those stations (not the rim-to-rim line; an
+  enabled terrain DEM still takes precedence), and a translucent band
+  fills from that ground line up to the 2D WSE with a line on top — only
+  where the water surface stands above the ground, and beneath every 1D
+  element so the network's own HGL stays intact. Animates with the profile cursor (the dialog steps
+  the 2D layer itself, so a hidden layer still updates). Toggle via the
+  toolbar's "2D Inundation" button or Display Options ▸ "Show 2D
+  inundation" (`ProfilePlotOptions::show2DInundation`, plus pen/brush
+  properties); default on. Dry / off-mesh / no-data stations leave gaps.
+
+- **2D right-click plotting uses the 1D-style context menu.** Right-clicking
+  a 2D cell selection, a mesh edge, or a mesh vertex now pops the same
+  `AttributePickerMenu` used for nodes/links (one entry per attribute plus
+  "All attributes") instead of the cell checkbox dialog / the fixed two-item
+  edge menu / the depth+HGL-only vertex entry. Entries the results source
+  can't serve are greyed out with a tooltip.
+
+- **2D cell rainfall series.** New plot attributes `Rainfall (2D cell)`
+  (mm/hr, from `/Mesh2_face_rainfall`) and `Rainfall volume (2D cell)`
+  (cumulative m³, from the engine's new `/Mesh2_face_rain_cum`).
+  `Mesh2DH5Reader::readFaceFieldAt` / `hasFaceField` read any named
+  per-face dataset with a probe-once presence cache; older files grey the
+  entries out. Live runs serve the same two fields from
+  `EngineMesh2DSource` (per-tick `SimulationRunner::twoDRainfallAvailable`
+  via the engine's `swmm_2d_get_rainfall_bulk` /
+  `swmm_2d_get_rain_volume_bulk`), so the entries are enabled during
+  rendering, not only after the HDF5 swap-in.
+
+- **Heat Configuration editor (G4g)** — Model ▸ Heat Configuration… edits
+  `[HEAT_SOURCES]` inlet temperatures (with per-node DWF/external-inflow
+  overrides), `[HEAT_FLUXES]` module toggles, and the H6a
+  `[RADIATIVE_FLUXES]` / `[SOLAR_RADIATION]` / `[CLOUD_COVER]` forcing
+  across five tabs. Dependency-light against `openswmm_heat.h`, the
+  writeIfChanged discipline throughout (an untouched OK writes nothing and
+  invents neither `[HEAT_SOURCES]` rows nor cloud cover), authoring limits
+  mirror the engine parser, and the COMPUTED-shortwave option is gated on
+  an explicit site. Unblocked by the engine's IO3a–IO3c save chain: edits
+  survive `swmm_model_write` on every model. ~~Known gap recorded: the
+  engine exposes no getter for a bound shortwave/cloud timeseries NAME, so
+  those combos rebind behind a "(keep current series)" placeholder.~~
+  **Gap closed (2026-09-01):** the engine gained the name getters
+  (`d868b2c3`), and the shortwave/cloud combos now display and preselect
+  the bound series; OK rebinds only when the selection actually moves.
+
+- **Water quality and transport reach the GUI.** Simulation Options gains a
+  **Quality & Transport** page exposing the quality solver choice (legacy,
+  Eulerian ARD, Lagrangian) and the transport keys — water age, quality
+  substepping, dispersion — that the engine grew alongside it. Species become
+  first-class result attributes: themeable on the map like any built-in
+  quantity, and present in every plotting surface (the variable pickers, the
+  time-series charts, the comparison plots), with a saved species selection
+  that warns and degrades gracefully when the run it reloads against no
+  longer carries that species. Water age gets its editors: a **Water Age
+  Sources** dialog for the initial state and boundary ages, reachable from
+  the model menus, and an age constituent in the node inflow editor —
+  hours-labelled, with the MASS units choice gated off and a CONCEN fallback,
+  since an age inflow is a concentration statement. (`ebf28ae`, `dcc20e6`,
+  `f5e0d9b`, `bc4e07c`, `dae4bad`, `7a5f732`, `9e63357`, `94ff3b5`.)
+
+- **Minimum cell size for mesh generation.** Constraining lines and polylines
+  force Triangle to emit cells at whatever scale the input geometry contains —
+  GIS vertices centimetres apart, two alignments passing within a hair, conduits
+  meeting at a sharp angle — and on the 2D solver one sliver sets the CFL
+  timestep for the whole domain. The Generate Mesh dialog gains a **Minimum Cell
+  Size** group (Quality tab) that enforces a floor by conditioning the input
+  PSLG before triangulation: constraint polylines are resampled to a minimum
+  segment length, vertices closer together than the minimum are merged, endpoints
+  that nearly touch a line are welded onto it, sharp corners are blunted, and
+  sub-scale hole rings are dropped. Tagged SWMM nodes never move and are never
+  merged into each other, so coupling identity is preserved; conduits shorter
+  than one cell are demoted to point constraints and couple through the existing
+  post-generation node mapper. A second, optional post-meshing pass collapses
+  leftover slivers that Triangle inserted on its own, protecting every
+  constrained edge and coupled vertex. Geometry changes, domain area before/after,
+  and any location that still cannot hold a cell of the requested size are
+  reported in the generation log. **Defaults to off**, so existing projects
+  reproduce their current mesh exactly.
+
+### Fixed
+
+- **Offset Mode toggle and ELEVATION-mode round-trip.** The status-bar
+  toggle read `Elevation [ ] Depth` while its checked state meant ELEVATION,
+  so the knob sat beside the wrong label; it now reads `Depth [ ] Elevation`
+  (DEPTH = default = left/off, matching legacy `DefOptions`). Offsets and
+  crests in the Attribute Table and Properties panel are now shown and edited
+  in the file's convention (`ui/linkoffsetdisplay.h` adds/removes the node
+  invert; the engine store stays in depths), the convert prompt maps onto
+  that store the way legacy `UpdateOffsets` does (Yes = same physics, No =
+  same numbers reinterpreted) and covers weir/outlet crests, and the model
+  layer restores authored From/To on adverse-slope conduits after open so a
+  save no longer flips them. New `test_offsetmode_roundtrip` on
+  `offset_authored_fixture.inp`.
+
+- **2D results land on top of the 2D mesh in a foot-based CRS.** Two faults
+  stacked. The engine writes 2D result coordinates in SI metres whatever the
+  model's unit, and the results layer treated them as model units — so a model
+  in EPSG:2249 (US survey foot) drew its inundation at ~0.3048x scale, pulled
+  toward the CRS origin, while the `.2dm`-backed mesh layer sat correctly. And
+  the results layer never reprojected at all: `onCanvasCRSChanged` discarded
+  its argument and the geometry rebuild applied only a Y-flip, so terrain and
+  inundation also separated whenever the canvas CRS differed from the model's.
+  The layer now divides by the `metres_per_model_unit` factor the engine 6.0+
+  `/crs` variable declares, then reprojects model CRS → canvas CRS through the
+  same batched OGR path `SWMM2DMeshLayer` uses. Results written by an older
+  engine (and the live in-process source, which has no metadata channel) carry
+  no declaration; for those the factor is derived the way the engine derives
+  it — `FLOW_UNITS`, suppressed by a `;; UNITS: SI (m)` mesh header — and one
+  warning is logged, so existing `.2d.h5` files render correctly without
+  re-running. (Issue #155.)
+
+- **External file references are now relative for every kind of file.** Saving a
+  model already rebased rainfall, timeseries, climate, interface and hot-start
+  paths against the destination directory, but four slots were written verbatim:
+  the external `.2dm` mesh, the 2D `OUTPUT_FILE`, per-unit LID report files, and
+  the 2D mesh reference emitted by the GUI's own mesh writer. The mesh writer
+  computed its token by prefix match, so a mesh kept in a *sibling* folder — the
+  usual reason to keep it out of the model directory — was written as a
+  machine-specific absolute path instead of `../shared/terrain.2dm`. All four now
+  go through the same relativisation as everything else, `../` forms included.
+  `[PLUGINS]` paths stay absolute by design: they name installed libraries, not
+  model data.
+
+- **A dangling 2D mesh reference survives Save As.** When the external `.2dm`
+  could not be loaded there was no mesh in memory to write alongside the new
+  `.inp`, yet the reference was copied through unchanged — so it silently
+  re-resolved against the *destination* folder, found nothing, and the saved
+  model opened 1D-only with no diagnostic. It is now re-anchored to keep naming
+  the file it originally pointed at. When the mesh *is* loaded the existing
+  behaviour is unchanged and now covered by tests: the mesh travels with the
+  `.inp` and the original `.2dm` is never overwritten.
+
+- **Climate file was opened against the working directory.** `[TEMPERATURE] FILE`
+  was opened using the token as authored rather than its resolved path, so a
+  relative reference resolved against the process CWD instead of the model
+  directory. `ClimateFileReader::open` returns `false` in that case and nothing
+  checked it, so the run proceeded with no climate data at all — a clean-looking
+  result with silently missing evaporation and temperature. It now opens the
+  resolved path and warns when the file cannot be read.
+
+- **`WRITE_ABSOLUTE_PATHS` set through the API had no effect on the save.**
+  `swmm_options_set_ext(engine, "WRITE_ABSOLUTE_PATHS", "YES")` fell through to
+  the generic extension-option map instead of the real project option, so the
+  save still wrote relative paths while the emitted deck declared `YES` — and the
+  *next* open honoured it. The key now sets the option it names.
+
+- **Portability warnings only appeared on Save As.** A plain Save skipped the
+  pre-save portability check entirely, so cross-volume or missing references went
+  unreported unless the user happened to use Save As. Both routes now run it.
+
+- **Time Series editor showed absolute paths for file-backed series.**
+  `setProjectAnchor` had no caller anywhere in the application, leaving the
+  relative-display path unreachable — the editor showed a raw absolute path even
+  though the token written to the `.inp` was relative. The anchor is now carried
+  on the timeseries registry and follows the project through a Save As.
+
+- **Per-region mesh area bounds were silently ignored.** Triangle honours
+  `[2D] REGION` area bounds only when its `vararea` flag is set, and that flag
+  is set only by a bare `a` switch — but the generator emitted the numeric
+  `a<maxArea>` form whenever a uniform cap was configured, which suppressed it.
+  Region bounds now take effect when the refinement size function is installed
+  (minimum cell size enabled), and are clamped up to the refinement floor so a
+  region cannot request cells below the configured minimum. Projects that set
+  both a uniform max area and per-subcatchment region areas may see a higher
+  cell count than before, because the region bounds are now applied.
+
+- **Attribute tracks under the profile plot.** The profile plot dialog gains a
+  collapsible pane of stacked mini-charts ("tracks"), one per selected result
+  attribute — node depth, head, volume, lateral/total inflow, overflow; link
+  flow, depth, velocity, volume, capacity — each with its own y-axis, plotted
+  along the path and sharing the profile's x-axis: zooming or panning either
+  pane moves both, column-for-column. Tracks animate with the simulation clock
+  and show a min/max envelope band for the primary source; overlaid comparison
+  sources are tinted with their scenario color. Pick attributes from the new
+  "Tracks" toolbar menu; style pens, track height, titles and envelopes from
+  the new Attribute Tracks tab in Display Options. The pane collapses by
+  dragging the splitter, via the toolbar toggle, or automatically when no
+  attribute is selected — and remembers its state.
+
+- **Window menu lists open dialogs, plus "Reset Window Positions".** Modeless
+  dialogs (plots, editors, options panels) are ordinary top-level windows that
+  can be dragged onto any monitor, so on macOS they could become genuinely
+  unreachable — a natively-stacked dialog does not appear in Mission Control.
+  The Window menu now lists every open dialog, most recently used first, and
+  selecting one moves it back onto a connected screen *before* raising it.
+  **Reset Window Positions** discards all saved window geometry and gathers the
+  main window and every open dialog onto the current screen; layout state that
+  is not position data (splitter sizes, header widths, dock/toolbar
+  arrangement) is preserved.
+- **Opt-in pure-Qt dialog stacking.** Set `OPENSWMM_DIALOG_STACKING=qt` (or the
+  `Window/DialogStacking` preference) to keep dialogs above the main window by
+  re-raising them on activation instead of attaching them as native macOS child
+  windows. Dialogs are then fully independent windows that cannot be dragged
+  off-screen by the window they were attached to. Defaults to the previous
+  native behaviour on macOS.
+
+### Fixed
+
+- **Moving one plot dialog no longer moves another.** Opening a time-series
+  plot from a profile plot glued the two windows together: on macOS every
+  modeless dialog was attached as an AppKit child window of its Qt parent, and
+  child windows move rigidly with their parent. Dialogs are now attached to the
+  nearest ordinary window instead, skipping any dialog in the parent chain, so
+  windows that are parented to each other for lifetime reasons — the profile
+  overlay plot, and the Display Options dialogs of the profile, mesh-profile and
+  raster-profile plots — move independently again.
+- **Windows can no longer be restored off-screen.** Saved geometry was accepted
+  whenever its center point landed on any connected screen, which still allowed
+  a window restored from a larger display to be too big for the current one, or
+  to have its title bar — the only drag handle — tucked under the menu bar. The
+  restore now picks the screen the window most overlaps, shrinks it to fit, and
+  guarantees a grabbable portion stays visible. The main window is clamped this
+  way too; previously its geometry was restored with no validation at all.
+- **Time-series plots opened from the map no longer hijack the profile plot's
+  overlay.** A recursive child lookup matched the profile-parented overlay
+  dialog, because the profile plot is itself a descendant of the main window.
+  The two dialogs also shared one saved-geometry key and so fought over their
+  position; the overlay now stores its own (existing saved positions for it are
+  reset once).
+
+- **Zoomable, pannable section diagrams.** Every section/profile/LID diagram
+  now supports scroll-to-zoom about the cursor, middle-button drag to pan, and
+  middle double-click to zoom to extents. Zoom scales the geometry only —
+  labels keep their point size, so zooming spreads the drawing out from under
+  crowded dimension text rather than magnifying the crowding. The view is
+  preserved while values are edited and reset when the subject changes.
+- **Illustrated LID layer diagrams.** LID controls are drawn with material
+  patterns (stippled planting media, open gravel outlines, angular base-course
+  aggregate, paver joints, drainage-mat lattice, hatched native soil), planting
+  appropriate to the type (shrubs for bioretention and rain gardens, turf for
+  green roofs and swales), ponded water to the berm, a perforated underdrain
+  drawn in section at its offset, and inflow/infiltration arrows. Each of the
+  eight types also gets its own illustration — a rain barrel with lid and roof
+  leader, a green roof with deck and parapets, a paved surface for permeable
+  pavement, a trapezoidal channel for a vegetative swale, a geotextile wrap for
+  an infiltration trench, and a disconnected downspout for rooftop
+  disconnection — so the type is legible at a glance rather than only from the
+  combo box.
 
 - **Section View dock + engine-accurate cross-section drawings (Slice SP).**
   New dockable **Section View** panel (View ▸ Panels ▸ Section View, tabbed
@@ -44,23 +662,60 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
   Browser and the Attribute Table. `CUSTOM` is withheld from the picker until
   a shape-curve picker exists (its geom2 is a curve index).
 
+### Changed
+
+- **Model toolbar `Draw` group split** into *Subcatchments*, *Rain Gages* and
+  *Annotation*; the Data Objects menu lists *Streets* and *Inlets* after
+  *Transects*; `inlet.svg` redrawn (curb + grate) and `inlet_junction.svg`
+  added.
+
+- **Profiles no longer exaggerate slope to fill the pane.** The link profile
+  used independent axis scaling stretched to fill the drawing area, which tied
+  the vertical exaggeration to the pane's aspect ratio — the same 0.25 % pipe
+  read as ~1.3 % in a short dock and ~2.7 % in a tall one, with nothing on the
+  drawing to say so. The exaggeration is now derived from the model's own
+  proportions — a reach naturally 27:1 long-to-deep, drawn towards a 6:1
+  target, asks for 4.4x and snaps down to 4x — so it is identical at every
+  dock size. It caps at 10:1 and the achieved V:H is stated on the drawing. A
+  short or steep reach comes out at true scale with no distortion at all. The Section View dock gains a **V:H** selector (Auto, 1:1,
+  2:1, 5:1, 10:1, 20:1, 50:1) for an explicit choice.
+- **Section outlines are sampled on a cosine-spaced depth ladder** instead of a
+  uniform one, at a higher default density (240 intervals). Width changes
+  fastest at the invert and the crown, so a uniform ladder put the fewest
+  points where curvature is highest and left circular and egg-shaped pipes
+  visibly faceted top and bottom.
+
 ### Fixed
 
 - **Welcome screen painted in the wrong theme, and model tabs floated over
-  it as small framed windows.** `QMdiArea` snapshots its backdrop brush
-  once in its constructor and has no `PaletteChange` handling, so the
-  theme installed after the main window was built never reached it — and
-  `welcomeWidget`, a plain `QWidget` that paints no background of its own,
-  showed that stale brush across the whole tab. Separately, `TabbedView`
-  never hides an inactive sub-window; it relies on the active one being
-  maximized, a state Qt hands over only from a predecessor that is both
-  maximized *and* visible. Hiding the welcome tab in place (startup toggle
-  off, or the tab's X) broke that chain and left the next tab in Normal
-  state — a small child window, default Qt window icon and all, painted
-  over the welcome screen. `installMdiWorkspaceChrome()` now tracks the
-  theme token on the backdrop and re-asserts the maximized state on every
-  activation, skipping explicitly hidden sub-windows so a dismissed
-  welcome tab stays dismissed.
+  it as small framed windows.** Three separate causes, all landing on the
+  welcome tab.
+
+  `QMdiArea` snapshots its backdrop brush once in its constructor and has
+  no `PaletteChange` handling, so the theme installed after the main window
+  was built never reached it — and `welcomeWidget`, a plain `QWidget` that
+  paints no background of its own, showed that stale brush across the whole
+  tab.
+
+  That same transparency is why a model tab appeared *over* the welcome
+  screen after welcome → model → welcome. In `TabbedView` `QMdiArea` never
+  hides the outgoing sub-window: `_q_deactivateAllWindows` only calls
+  `showNormal()` on it and counts on the incoming maximized window to cover
+  the viewport. The model therefore stays in the viewport as a 200×150
+  framed child, correctly z-ordered *underneath* the welcome — but a
+  welcome that paints nothing is not a cover, so the user saw a detached,
+  undocked model window through it. `welcomeWidget` now fills with
+  `QPalette::Window` (already the `surfaceWindow` token the backdrop uses,
+  so the screen looks unchanged, and re-read at every paint so the
+  Appearance switch still tracks).
+
+  Finally, Qt hands the maximized state over only from a predecessor that
+  is both maximized *and* visible. Hiding the welcome tab in place (startup
+  toggle off, or the tab's X) broke that chain and left the next tab in
+  Normal state. The two document-open boundaries and the tab-close path now
+  maximize the incoming window themselves, which repairs that lifecycle
+  edge without making ordinary tab switching anything but a plain switch —
+  so a welcome tab the user dismissed stays dismissed.
 
 - **Cross-section editor never showed the transect picker for IRREGULAR
   conduits.** `LinkCompoundEditDialog` compared the shape against a stale

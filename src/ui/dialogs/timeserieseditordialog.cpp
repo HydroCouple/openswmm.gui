@@ -10,6 +10,7 @@
 
 #include "core/swmmdatetime.h"
 #include "io/timeseriesparse.h"
+#include "ui/util/externalcolumnfile.h"
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
 #include "timeseries/timeseriesundocommands.h"
@@ -30,6 +31,7 @@
 #include <QComboBox>
 #include <QDateTime>
 #include <QDateTimeEdit>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
@@ -92,6 +94,20 @@ TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesRegistry *registry,
     , m_undoStack(undoStack)
     , m_registry(registry)
 {
+    // Default the relative-path display anchor from the registry, which the
+    // model layer keeps pointed at the project's .inp directory. setProjectAnchor
+    // had no production caller, so m_projectAnchor was permanently empty and
+    // every file-backed series showed a raw absolute path — even though the
+    // path written to the .inp was relative. An explicit setProjectAnchor()
+    // still overrides this.
+    if (m_registry) m_projectAnchor = m_registry->projectAnchor();
+
+    // Keep the relative-mode badge honest while the Simulation Options
+    // dialog edits START_DATE / START_TIME with this editor open.
+    if (m_registry)
+        connect(m_registry, &TimeseriesRegistry::simulationStartChanged,
+                this, [this]() { refreshTimeModeRow_(); });
+
     setWindowTitle(tr("Time Series Editor"));
     // Step E.2 — objectName drives QSettings group + helper findChild lookup.
     setObjectName(QStringLiteral("TimeseriesEditorDialog"));
@@ -545,6 +561,20 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     // overwritten anyway. setSizes() in buildListPane_ overrides sizeHints so
     // the chart isn't squeezed to a sliver by the grid's larger sizeHint.
 
+    // ── Close row ───────────────────────────────────────────────────────────
+    // Wired to close() rather than accept()/reject(): on Qt >= 6.3 done()
+    // bypasses closeEvent(), which is where the point cache is disposed. Not
+    // the default button — Enter in a value cell must never dismiss the editor.
+    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    closeBox->setObjectName(QStringLiteral("ts_closeBox"));
+    closeBox->setContentsMargins(8, 6, 8, 6);   // outer runs at 0 margins
+    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
+    closeBtn->setObjectName(QStringLiteral("ts_closeBtn"));
+    closeBtn->setAutoDefault(false);
+    closeBtn->setDefault(false);
+    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
+    outer->addWidget(closeBox);
+
     // ── Status bar ──────────────────────────────────────────────────────────
     m_status = new QStatusBar(this);
     m_countLabel = new QLabel(m_status);
@@ -617,6 +647,8 @@ void TimeseriesEditorDialog::wireProviderSignals_()
                 this, [this]() { refreshSourceModeCardForProvider_(); });
         connect(p, &TimeseriesProvider::metadataChanged,
                 this, [this]() { refreshSourceModeCardForProvider_(); });
+        connect(p, &TimeseriesProvider::timeModeChanged,
+                this, [this]() { refreshTimeModeRow_(); });
     }
 }
 
@@ -728,15 +760,19 @@ using openswmmvis::timeseries::InsertPointCommand;
 using openswmmvis::timeseries::TimeseriesPoint;
 
 /*! \brief Pick a sensible default timestamp for a fresh row:
- *   - empty provider                → now (UTC)
+ *   - empty provider                → the simulation start (fallback: now UTC)
  *   - one point                     → last + 1 hour
  *   - two or more points            → last + median interval
  *  This keeps the strict-monotone-time invariant trivially satisfied without
- *  asking the user to type a date for the common "append next point" case. */
-QDateTime defaultNextTime(const TimeseriesProvider *p)
+ *  asking the user to type a date for the common "append next point" case.
+ *  Seeding an empty series at the simulation start (not wall-clock "now")
+ *  matches how SWMM applies the data — a series' first point is almost
+ *  always meant to land inside the simulation window, and a Relative-mode
+ *  series starts at elapsed 0:00 by definition. */
+QDateTime defaultNextTime(const TimeseriesProvider *p, const QDateTime &emptySeed)
 {
     if (!p || p->pointCount() == 0)
-        return QDateTime::currentDateTimeUtc();
+        return emptySeed.isValid() ? emptySeed : QDateTime::currentDateTimeUtc();
 
     const auto &pts = p->points();
     const QDateTime last = pts.back().time;
@@ -798,14 +834,17 @@ void TimeseriesEditorDialog::onAddRowTriggered_()
     }
 
     const int n = first->pointCount();
+    const QDateTime seed = (m_registry && m_registry->simulationStart().isValid())
+                               ? m_registry->simulationStart()
+                               : QDateTime::currentDateTimeUtc();
     QDateTime t;
     double v = 0.0;
     if (n == 0) {
-        t = QDateTime::currentDateTimeUtc();
+        t = seed;
         v = 0.0;
     } else if (selectedRow < 0 || selectedRow >= n - 1) {
         // No selection or last row → append after the last point.
-        t = defaultNextTime(first);
+        t = defaultNextTime(first, seed);
         v = first->pointAt(n - 1).value;
     } else {
         // Insert between selectedRow and the row after; midpoint in time
@@ -887,6 +926,10 @@ void TimeseriesEditorDialog::onCopyRowsTriggered_()
     }
 
     // Format: timestamp \t v0 \t v1 \t ... per row, ISO 8601 timestamps.
+    // Deliberately absolute even for Relative-mode series: the grid's basis
+    // is absolute date/times in every mode, so copy/paste round-trips inside
+    // the GUI stay unambiguous. Elapsed-time emission is the engine
+    // InpWriter's job at save time, not the clipboard's.
     QStringList lines;
     lines.reserve(rows.size());
     for (int row : rows) {
@@ -934,6 +977,21 @@ void TimeseriesEditorDialog::onPasteRowsTriggered_()
     int rejected = 0;
     if (m_undoStack) m_undoStack->beginMacro(tr("Paste timeseries rows"));
 
+    // For a Relative/Mixed series, a bare-number time cell is elapsed HOURS
+    // from the series' anchor (the SWMM time-only form, e.g. "1.5<TAB>4.2"),
+    // so hand parseRow that anchor as its numeric fallback base. Absolute
+    // series keep the NaN base: a bare number stays unparseable rather than
+    // silently landing at an arbitrary date.
+    double fallbackBase = std::numeric_limits<double>::quiet_NaN();
+    if (first->timeMode() != TimeseriesProvider::TimeMode::Absolute) {
+        QDateTime anchor = first->relativeAnchor().isValid()
+                               ? first->relativeAnchor()
+                               : (m_registry ? m_registry->simulationStart()
+                                             : QDateTime());
+        if (anchor.isValid())
+            fallbackBase = openswmmvis::core::qDateTimeToSwmmDateTime(anchor);
+    }
+
     for (const QString &line : lines) {
         const QString trimmed = line.trimmed();
         if (trimmed.isEmpty() || trimmed.startsWith('#') || trimmed.startsWith(';'))
@@ -943,7 +1001,7 @@ void TimeseriesEditorDialog::onPasteRowsTriggered_()
         double tJulian = std::numeric_limits<double>::quiet_NaN();
         std::vector<double> vals;
         if (!openswmmvis::io::parseRow(trimmed, delim, tJulian, vals,
-                                       std::numeric_limits<double>::quiet_NaN())) {
+                                       fallbackBase)) {
             ++rejected;
             continue;
         }
@@ -1061,7 +1119,7 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
     row2->addWidget(m_extPathEdit, /*stretch=*/2);
 
     m_extBrowseBtn = new QPushButton(tr("Browse…"), m_sourceCard);
-    m_extBrowseBtn->setToolTip(tr("Pick a CSV / TSV / .dat file"));
+    m_extBrowseBtn->setToolTip(tr("Pick a CSV / TSV / PCSWMM .tsf / .dat file"));
     row2->addWidget(m_extBrowseBtn);
 
     row2->addWidget(new QLabel(tr("Column:"), m_sourceCard));
@@ -1088,6 +1146,31 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
     extRowHolder->setObjectName(QStringLiteral("extRowHolder"));
     cardLayout->addWidget(extRowHolder);
 
+    // Row 3 — time mode (Inline series only). SWMM [TIMESERIES] rows are
+    // either dated or elapsed-time-from-simulation-start; the grid always
+    // DISPLAYS absolute date/times, so the badge is what tells the user a
+    // Relative series is saved as elapsed times.
+    auto *row3 = new QHBoxLayout();
+    row3->addWidget(new QLabel(tr("Time mode:"), m_sourceCard));
+
+    m_timeModeCombo = new QComboBox(m_sourceCard);
+    m_timeModeCombo->addItem(tr("Absolute (dated)"), 0);
+    m_timeModeCombo->addItem(tr("Relative to simulation start"), 1);
+    m_timeModeCombo->setToolTip(
+        tr("How the series' times are written to the project file: explicit "
+           "dates, or elapsed time from the simulation START_DATE/START_TIME"));
+    row3->addWidget(m_timeModeCombo);
+
+    m_timeModeBadge = new QLabel(m_sourceCard);
+    m_timeModeBadge->setObjectName(QStringLiteral("timeModeBadge"));
+    m_timeModeBadge->setStyleSheet(openswmmvis::ui::theme::hintItalicStyle());
+    row3->addWidget(m_timeModeBadge, /*stretch=*/1);
+
+    auto *timeModeRowHolder = new QWidget(m_sourceCard);
+    timeModeRowHolder->setLayout(row3);
+    timeModeRowHolder->setObjectName(QStringLiteral("timeModeRowHolder"));
+    cardLayout->addWidget(timeModeRowHolder);
+
     // Insert below toolbar (toolbar is at index 0).
     outer->insertWidget(1, m_sourceCard);
 
@@ -1103,6 +1186,8 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
             this, &TimeseriesEditorDialog::onColumnSelectorChanged_);
     connect(m_extReloadBtn,    &QPushButton::clicked, this, &TimeseriesEditorDialog::onReloadExternalFile_);
     connect(m_extDetachBtn,    &QPushButton::clicked, this, &TimeseriesEditorDialog::onDetachToInline_);
+    connect(m_timeModeCombo,   qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &TimeseriesEditorDialog::onTimeModeComboChanged_);
 
     refreshSourceModeCardForProvider_();
 }
@@ -1205,6 +1290,134 @@ void TimeseriesEditorDialog::refreshSourceModeCardForProvider_()
     if (m_actPaste)     m_actPaste->setEnabled(!editsBlocked);
     // Copy stays enabled (read-only operation).
     // Undo/Redo stay enabled (they may undo into a mutable state).
+
+    refreshTimeModeRow_();
+}
+
+void TimeseriesEditorDialog::refreshTimeModeRow_()
+{
+    if (!m_timeModeCombo || !m_sourceCard) return;
+    auto *holder = m_sourceCard->findChild<QWidget *>(
+        QStringLiteral("timeModeRowHolder"));
+    if (!holder) return;
+
+    if (m_providers.isEmpty() || !m_providers.first()) {
+        holder->setVisible(false);
+        return;
+    }
+    auto *p = m_providers.first().data();
+
+    // Relative vs absolute is an INLINE [TIMESERIES] authoring form; file
+    // and geopackage sources always carry their own absolute timestamps.
+    const bool isInline =
+        (p->sourceMode() == TimeseriesProvider::SourceMode::Inline);
+    holder->setVisible(isInline);
+    if (!isInline) return;
+
+    const auto mode = p->timeMode();
+    {
+        QSignalBlocker b(m_timeModeCombo);
+        // The read-only "Mixed" item exists only while the provider IS mixed
+        // (a loaded series with an elapsed head and dated tail).
+        int mixedIdx = m_timeModeCombo->findData(2);
+        if (mode == TimeseriesProvider::TimeMode::Mixed) {
+            if (mixedIdx < 0) {
+                m_timeModeCombo->addItem(
+                    tr("Mixed (elapsed prefix + dated rows)"), 2);
+                mixedIdx = m_timeModeCombo->count() - 1;
+            }
+            m_timeModeCombo->setCurrentIndex(mixedIdx);
+        } else {
+            if (mixedIdx >= 0) m_timeModeCombo->removeItem(mixedIdx);
+            m_timeModeCombo->setCurrentIndex(
+                m_timeModeCombo->findData(
+                    mode == TimeseriesProvider::TimeMode::Relative ? 1 : 0));
+        }
+    }
+
+    if (mode == TimeseriesProvider::TimeMode::Absolute) {
+        m_timeModeBadge->clear();
+        m_timeModeBadge->hide();
+        return;
+    }
+    QDateTime anchor = p->relativeAnchor();
+    if (!anchor.isValid() && m_registry) anchor = m_registry->simulationStart();
+    QString text = anchor.isValid()
+        ? tr("Times shown as dates — saved as elapsed time from simulation "
+             "start (%1)")
+              .arg(anchor.toString(openswmmvis::core::swmmDateTimeDisplayFormat()))
+        : tr("Times shown as dates — saved as elapsed time from the "
+             "simulation start");
+    if (m_registry) {
+        const QDateTime simStart = m_registry->simulationStart();
+        if (simStart.isValid() && anchor.isValid() && simStart != anchor)
+            text += tr(" — re-anchors to the new start (%1) on next open")
+                        .arg(simStart.toString(
+                            openswmmvis::core::swmmDateTimeDisplayFormat()));
+    }
+    m_timeModeBadge->setText(text);
+    m_timeModeBadge->show();
+}
+
+void TimeseriesEditorDialog::onTimeModeComboChanged_(int index)
+{
+    if (m_providers.isEmpty() || !m_providers.first()) return;
+    auto *p = m_providers.first().data();
+
+    const int data = m_timeModeCombo->itemData(index).toInt();
+    if (data == 2) {  // read-only Mixed item — snap back
+        refreshTimeModeRow_();
+        return;
+    }
+    const auto newMode = (data == 1) ? TimeseriesProvider::TimeMode::Relative
+                                     : TimeseriesProvider::TimeMode::Absolute;
+    if (newMode == p->timeMode()) {
+        refreshTimeModeRow_();
+        return;
+    }
+
+    QDateTime anchor;
+    if (newMode == TimeseriesProvider::TimeMode::Relative) {
+        anchor = m_registry ? m_registry->simulationStart() : QDateTime();
+        if (!anchor.isValid()) {
+            if (m_status)
+                m_status->showMessage(
+                    tr("Cannot switch to relative times: the project has no "
+                       "simulation START_DATE."), 5000);
+            refreshTimeModeRow_();
+            return;
+        }
+        if (p->pointCount() > 0 && p->pointAt(0).time < anchor) {
+            if (m_status)
+                m_status->showMessage(
+                    tr("Cannot switch to relative times: the first point "
+                       "(%1) precedes the simulation start (%2), so its "
+                       "elapsed time would be negative.")
+                        .arg(p->pointAt(0).time.toString(
+                                 openswmmvis::core::swmmDateTimeDisplayFormat()),
+                             anchor.toString(
+                                 openswmmvis::core::swmmDateTimeDisplayFormat())),
+                    6000);
+            refreshTimeModeRow_();
+            return;
+        }
+    }
+
+    // Column-wise siblings (SharedGrid) keep one common time vector, so the
+    // mode flip applies to every bound provider, mirroring add/paste.
+    if (m_undoStack) {
+        m_undoStack->beginMacro(tr("Change timeseries time mode"));
+        for (const auto &pp : m_providers) {
+            if (!pp) continue;
+            m_undoStack->push(new openswmmvis::timeseries::SetTimeModeCommand(
+                pp.data(), newMode, anchor));
+        }
+        m_undoStack->endMacro();
+    } else {
+        for (const auto &pp : m_providers)
+            if (pp) pp->setTimeMode(newMode, anchor);
+    }
+    refreshTimeModeRow_();
 }
 
 void TimeseriesEditorDialog::onSourceModeRadioToggled_()
@@ -1233,23 +1446,67 @@ int TimeseriesEditorDialog::linkExternalFile(const QString &path, const QString 
     if (m_providers.isEmpty() || !m_providers.first()) return 0;
     auto *p = m_providers.first().data();
     QStringList headers;
-    const int n = loadExternalFileIntoProvider_(p, path, columnSelector, &headers);
-    if (m_extColumnCombo) {
-        QSignalBlocker b(m_extColumnCombo);
-        m_extColumnCombo->clear();
-        if (headers.isEmpty()) {
-            m_extColumnCombo->addItem(tr("(no header — single column)"));
-        } else {
-            for (const QString &h : std::as_const(headers))
-                m_extColumnCombo->addItem(h);
-            if (!columnSelector.isEmpty()) {
-                const int idx = headers.indexOf(columnSelector);
-                if (idx >= 0) m_extColumnCombo->setCurrentIndex(idx);
+    QString error;
+    bool fabricated = false;
+    const int n = loadExternalFileIntoProvider_(p, path, columnSelector, &headers,
+                                               &error, &fabricated);
+    populateColumnCombo_(headers, columnSelector, fabricated);
+    refreshSourceModeCardForProvider_();
+    if (!error.isEmpty() && m_status) m_status->showMessage(error, 6000);
+    return n;
+}
+
+void TimeseriesEditorDialog::populateColumnCombo_(const QStringList &headers,
+                                                  const QString &columnSelector,
+                                                  bool fabricatedHeaders)
+{
+    if (!m_extColumnCombo) return;
+    m_extHeadersFabricated = fabricatedHeaders;
+    // Each item carries the REAL header name as userData — never the display
+    // text (B3 — combo display and provider state must agree). Display-only
+    // names (headerless placeholder, "col_N", .dat "value") carry an empty
+    // string instead, so selecting one cannot leak an unresolvable name into
+    // the provider's columnSelector.
+    QSignalBlocker b(m_extColumnCombo);
+    m_extColumnCombo->clear();
+    if (headers.isEmpty()) {
+        m_extColumnCombo->addItem(tr("(no header — single column)"), QString());
+        return;
+    }
+
+    // Display-only "col_N" / .dat "value" names carry an EMPTY selector, so
+    // picking one can never persist a name the engine cannot resolve; only
+    // the first (index 0) is loadable, enforced in onColumnSelectorChanged_
+    // (review B-4).
+    for (const QString &h : std::as_const(headers))
+        m_extColumnCombo->addItem(h, fabricatedHeaders ? QString() : h);
+
+    if (columnSelector.isEmpty()) return;
+
+    // Case-insensitive match — engine parity (find_column). A headerless file
+    // resolves NO name, so a stored one is unresolvable there by definition.
+    int found = -1;
+    if (!fabricatedHeaders) {
+        for (int i = 0; i < headers.size(); ++i) {
+            if (headers.at(i).compare(columnSelector, Qt::CaseInsensitive) == 0) {
+                found = i;
+                break;
             }
         }
     }
-    refreshSourceModeCardForProvider_();
-    return n;
+    if (found < 0) {
+        // The stored column cannot be resolved in this file (headers changed
+        // under a saved model, or the file has no header row). Show it as its
+        // own item instead of silently leaving item 0 selected — the engine
+        // refuses to open such a reference, so the user has to see it
+        // (review B-3): combo display and provider state stay equal.
+        m_extColumnCombo->addItem(
+            fabricatedHeaders ? tr("%1 (file has no header row)").arg(columnSelector)
+                              : tr("%1 (not in file)").arg(columnSelector),
+            columnSelector);
+        found = m_extColumnCombo->count() - 1;
+    }
+    m_extColumnCombo->setCurrentIndex(found);
 }
 
 void TimeseriesEditorDialog::onBrowseExternalFile_()
@@ -1260,26 +1517,36 @@ void TimeseriesEditorDialog::onBrowseExternalFile_()
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Choose timeseries file"),
         p->filePath().isEmpty() ? QString() : QFileInfo(p->filePath()).absolutePath(),
-        tr("Timeseries (*.csv *.tsv *.dat *.txt);;All files (*)"));
+        tr("Timeseries (*.csv *.tsv *.tsf *.dat *.txt);;All files (*)"));
     if (path.isEmpty()) return;
 
     QStringList headers;
-    const int n = loadExternalFileIntoProvider_(p, path, /*column=*/QString(), &headers);
+    QString error;
+    bool fabricated = false;
+    const int n = loadExternalFileIntoProvider_(p, path, /*column=*/QString(),
+                                               &headers, &error, &fabricated);
 
-    // Populate the column-selector combo from the header row.
-    {
-        QSignalBlocker b(m_extColumnCombo);
-        m_extColumnCombo->clear();
-        if (headers.isEmpty()) {
-            m_extColumnCombo->addItem(tr("(no header — single column)"));
-        } else {
-            for (const QString &h : std::as_const(headers))
-                m_extColumnCombo->addItem(h);
-        }
-    }
+    // Populate the column-selector combo from the header row, then align the
+    // provider's columnSelector with the item the combo now SHOWS (item 0).
+    // Loading with an empty selector reads the first data column, so this is
+    // a metadata-only sync — no reload needed (B3: Browse used to leave the
+    // combo on item 0 while columnSelector stayed "").
+    //
+    // Only REAL header names are synced: fabricated ones (.dat's "value"
+    // placeholder, a headerless file's "col_N") don't exist in the file, so
+    // persisting them in a "path:col" token would fail the engine's
+    // column-by-name lookup — "" (first data column) is the correct stored
+    // selector for those files. readColumn reports fabrication directly, so
+    // this no longer pattern-matches the fabricated name (a real file may
+    // legitimately have a column called "col_1").
+    populateColumnCombo_(headers, /*columnSelector=*/QString(), fabricated);
+    if (!fabricated && !headers.isEmpty())
+        p->setFileSource(path, headers.first(), QFileInfo(path).lastModified());
     refreshSourceModeCardForProvider_();
     if (m_status) {
-        if (n > 0)
+        if (!error.isEmpty())
+            m_status->showMessage(error, 6000);
+        else if (n > 0)
             m_status->showMessage(tr("Loaded %1 point(s) from %2").arg(n).arg(QFileInfo(path).fileName()), 4000);
         else
             m_status->showMessage(tr("File parse returned 0 points — check format."), 4000);
@@ -1292,9 +1559,34 @@ void TimeseriesEditorDialog::onColumnSelectorChanged_(int index)
     auto *p = m_providers.first().data();
     if (p->filePath().isEmpty()) return;
 
-    const QString col = m_extColumnCombo->itemText(index);
-    loadExternalFileIntoProvider_(p, p->filePath(), col);
+    // A headerless file gives the engine nothing to match a column name
+    // against — only its first data column is addressable (via an empty
+    // selector). Refuse the pick instead of writing a token the engine
+    // cannot resolve (review B-4 / risk R1).
+    if (m_extHeadersFabricated && index > 0) {
+        if (m_status)
+            m_status->showMessage(
+                tr("%1 has no header row, so only its first column can be "
+                   "selected — a \"col_N\" name cannot be saved or read back. "
+                   "Add a header row to bind another column.")
+                    .arg(QFileInfo(p->filePath()).fileName()),
+                8000);
+        // Refuse the pick: put the combo back on the item that matches what
+        // the provider actually holds, so display and state stay equal.
+        QSignalBlocker b(m_extColumnCombo);
+        const int keep = m_extColumnCombo->findData(p->columnSelector());
+        m_extColumnCombo->setCurrentIndex(keep >= 0 ? keep : 0);
+        return;
+    }
+
+    // userData carries the real header name (empty for the headerless
+    // placeholder) — never the display text (B3).
+    const QString col = m_extColumnCombo->itemData(index).toString();
+    QString error;
+    loadExternalFileIntoProvider_(p, p->filePath(), col, /*headersOut=*/nullptr,
+                                 &error);
     refreshSourceModeCardForProvider_();
+    if (!error.isEmpty() && m_status) m_status->showMessage(error, 6000);
 }
 
 void TimeseriesEditorDialog::onReloadExternalFile_()
@@ -1302,11 +1594,17 @@ void TimeseriesEditorDialog::onReloadExternalFile_()
     if (m_providers.isEmpty() || !m_providers.first()) return;
     auto *p = m_providers.first().data();
     if (p->filePath().isEmpty()) return;
-    const QString col = m_extColumnCombo ? m_extColumnCombo->currentText() : QString();
-    const int n = loadExternalFileIntoProvider_(p, p->filePath(), col);
+    const QString col = m_extColumnCombo ? m_extColumnCombo->currentData().toString()
+                                         : QString();
+    QString error;
+    const int n = loadExternalFileIntoProvider_(p, p->filePath(), col,
+                                               /*headersOut=*/nullptr, &error);
     refreshSourceModeCardForProvider_();
     if (m_status)
-        m_status->showMessage(tr("Reloaded %1 point(s)").arg(n), 3000);
+        m_status->showMessage(error.isEmpty()
+                                  ? tr("Reloaded %1 point(s)").arg(n)
+                                  : error,
+                              error.isEmpty() ? 3000 : 6000);
 }
 
 void TimeseriesEditorDialog::onDetachToInline_()
@@ -1330,8 +1628,11 @@ void TimeseriesEditorDialog::onDetachToInline_()
 
 int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
     TimeseriesProvider *p, const QString &path,
-    const QString &columnSelector, QStringList *columnHeadersOut)
+    const QString &columnSelector, QStringList *columnHeadersOut,
+    QString *errorOut, bool *fabricatedOut)
 {
+    if (errorOut) errorOut->clear();
+    if (fabricatedOut) *fabricatedOut = false;
     // Re-entrancy counter — a value >1 means a signal slot fired the load
     // again while we were still inside it (a feedback loop is a plausible
     // stall cause, e.g. populating the column combo refires onColumnSelectorChanged_).
@@ -1353,6 +1654,9 @@ int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qCWarning(lcTsLoadDialog) << "  QFile::open FAILED" << f.errorString();
+        if (errorOut)
+            *errorOut = tr("Cannot open %1 — %2")
+                            .arg(QFileInfo(path).fileName(), f.errorString());
         return 0;
     }
     qCDebug(lcTsLoadDialog) << "  file size =" << f.size() << "bytes";
@@ -1366,9 +1670,11 @@ int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
     if (QFileInfo(path).suffix().compare(QStringLiteral("dat"),
                                           Qt::CaseInsensitive) == 0) {
         // .dat has no header — fabricate one placeholder column name so the
-        // grid / chart / column selector all have something to bind to.
+        // grid / chart / column selector all have something to bind to. It is
+        // a placeholder, not a real column: never persist it in a token.
         const QStringList headers{ QStringLiteral("value") };
         if (columnHeadersOut) *columnHeadersOut = headers;
+        if (fabricatedOut) *fabricatedOut = true;
 
         openswmmvis::io::SwmmDatState state;
         // Anchor for "elapsed-only" .dat files (no date tokens) — the engine
@@ -1420,65 +1726,46 @@ int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
         return pts.size();
     }
 
-    QString headerLine;
-    while (!in.atEnd()) {
-        headerLine = in.readLine();
-        const QString tr = headerLine.trimmed();
-        if (!tr.isEmpty() && !tr.startsWith('#') && !tr.startsWith(';'))
-            break;
-    }
-    if (headerLine.isEmpty()) return 0;
-
-    const QChar delim = openswmmvis::io::guessDelimiter(headerLine);
-
-    // Decide whether headerLine is itself a data row by trying to parse it
-    // as one. If parse succeeds, fabricate "col_N" headers and treat the
-    // line as data (mirrors ObservedCsvRunLayer's heuristic).
-    double probeT = std::numeric_limits<double>::quiet_NaN();
-    std::vector<double> probeVals;
-    const bool headerLooksLikeData =
-        openswmmvis::io::parseRow(headerLine, delim, probeT, probeVals,
-                                   std::numeric_limits<double>::quiet_NaN());
-
+    // CSV / TSV / PCSWMM .tsf — the shared column-file util (spec §4 task 1).
+    // Header enumeration (incl. the header-vs-data probe + "col_N"
+    // fabrication that used to live inline here), TSF "IDs:" 3-row header
+    // handling, AM/PM datetimes and the column-selector resolution all
+    // mirror the engine's MultiColumnSeriesFile rules.
     QStringList headers;
-    const QStringList rawCells = headerLine.split(delim);
-    if (headerLooksLikeData) {
-        for (int c = 1; c < rawCells.size(); ++c)
-            headers << QStringLiteral("col_%1").arg(c);
-    } else {
-        for (int c = 1; c < rawCells.size(); ++c)
-            headers << rawCells.at(c).trimmed();
-    }
+    QVector<openswmmvis::ui::ExternalSeriesPoint> raw;
+    QString parseError;
+    QElapsedTimer tParse; tParse.start();
+    bool fabricated = false;
+    const int n = openswmmvis::ui::readColumn(path, columnSelector, raw,
+                                              &headers, &parseError, &fabricated);
     if (columnHeadersOut) *columnHeadersOut = headers;
-
-    // Resolve the active column index from selector ("" → 0; otherwise match
-    // by header text; if no match, fall back to 0).
-    int activeColIdx = 0;
-    if (!columnSelector.isEmpty()) {
-        const int idx = headers.indexOf(columnSelector);
-        if (idx >= 0) activeColIdx = idx;
+    if (fabricatedOut) *fabricatedOut = fabricated;
+    if (n < 0) {
+        qCWarning(lcTsLoadDialog) << "  readColumn FAILED:" << parseError;
+        if (errorOut) *errorOut = parseError;
+        // The load failed — typically a column this file does not contain,
+        // which is a hard error in the engine too (review B-3). When the
+        // provider is already bound to THIS file, drop its points: leaving the
+        // previously loaded column on screen under the requested selector is
+        // exactly the silent substitution this fix removes. A failed Browse to
+        // a *different* file is left alone, so it cannot discard the series
+        // the user still has.
+        if (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile
+            && p->filePath() == path) {
+            p->setFileSource(path, columnSelector, QFileInfo(path).lastModified());
+            p->setAllPoints({});
+        }
+        return 0;
     }
+    qCDebug(lcTsLoadDialog) << "  readColumn:" << n << "point(s),"
+                            << headers.size() << "column(s) in"
+                            << tParse.elapsed() << "ms";
 
     QVector<TimeseriesPoint> pts;
-    if (headerLooksLikeData && activeColIdx < static_cast<int>(probeVals.size())) {
-        pts.push_back({openswmmvis::core::swmmDateTimeToQDateTime(probeT),
-                       probeVals[static_cast<std::size_t>(activeColIdx)]});
-    }
-
-    while (!in.atEnd()) {
-        const QString line = in.readLine();
-        const QString trimmed = line.trimmed();
-        if (trimmed.isEmpty() || trimmed.startsWith('#') || trimmed.startsWith(';'))
-            continue;
-        double tJ = std::numeric_limits<double>::quiet_NaN();
-        std::vector<double> vals;
-        if (!openswmmvis::io::parseRow(trimmed, delim, tJ, vals,
-                                       std::numeric_limits<double>::quiet_NaN()))
-            continue;
-        if (activeColIdx >= static_cast<int>(vals.size())) continue;
-        pts.push_back({openswmmvis::core::swmmDateTimeToQDateTime(tJ),
-                       vals[static_cast<std::size_t>(activeColIdx)]});
-    }
+    pts.reserve(raw.size());
+    for (const auto &sp : std::as_const(raw))
+        pts.push_back({openswmmvis::core::swmmDateTimeToQDateTime(sp.timeJulian),
+                       sp.value});
 
     // Record file metadata + push points into the provider (via setAllPoints
     // so the monotone-time invariant is validated). Source mode flips to
@@ -1784,6 +2071,9 @@ void TimeseriesEditorDialog::buildListPane_()
     m_listProxy->sort(0, Qt::AscendingOrder);
 
     m_listView = new QListView(m_listPane);
+    // Named lookup for tests: a bare findChild<QListView*> can land on a
+    // QComboBox's internal popup view (e.g. the time-mode combo) instead.
+    m_listView->setObjectName(QStringLiteral("seriesListView"));
     m_listView->setModel(m_listProxy);
     m_listView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_listView->setEditTriggers(QAbstractItemView::SelectedClicked
@@ -1890,10 +2180,41 @@ void TimeseriesEditorDialog::rebindActiveProvider_(TimeseriesProvider *p)
     // Step F — lazy-load the incoming provider's cache if it's ExternalFile
     // and not currently resident. Inline / Gpkg always report loaded so
     // they no-op here.
+    //
+    // B3 fix (spec §1.4): the column combo must be repopulated on EVERY
+    // series switch — this call used to pass columnHeadersOut = nullptr, so
+    // the combo kept the previous series' items (or stayed empty/disabled)
+    // and the enable gate in refreshSourceModeCardForProvider_ then read a
+    // stale count. When the cache is already resident the headers are
+    // re-enumerated cheaply (header row only) instead of re-reading points.
     if (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile
-        && !p->isPointCacheLoaded()
         && !p->filePath().isEmpty()) {
-        loadExternalFileIntoProvider_(p, p->filePath(), p->columnSelector());
+        QStringList headers;
+        QString loadError;
+        bool fabricated = false;
+        if (!p->isPointCacheLoaded()) {
+            loadExternalFileIntoProvider_(p, p->filePath(), p->columnSelector(),
+                                          &headers, &loadError, &fabricated);
+        } else if (QFileInfo(p->filePath()).suffix()
+                       .compare(QStringLiteral("dat"), Qt::CaseInsensitive) == 0) {
+            headers << QStringLiteral("value");   // .dat placeholder column
+            fabricated = true;
+        } else {
+            headers = openswmmvis::ui::readHeaders(p->filePath(), nullptr,
+                                                   &fabricated);
+        }
+        populateColumnCombo_(headers, p->columnSelector(), fabricated);
+        // A stored column that no longer exists in the file is the review's
+        // B-3 case: the engine refuses to open it, so say so here rather than
+        // charting some other column.
+        if (!loadError.isEmpty() && m_status)
+            m_status->showMessage(loadError, 8000);
+    } else if (m_extColumnCombo) {
+        // Risk R5: switching to an Inline / path-less series used to leave the
+        // previous series' column items in the (disabled) combo.
+        QSignalBlocker b(m_extColumnCombo);
+        m_extColumnCombo->clear();
+        m_extHeadersFabricated = false;
     }
 
     if (m_tableModel) m_tableModel->setProviders({p});
@@ -1940,6 +2261,13 @@ void TimeseriesEditorDialog::onNewSeriesClicked_()
         name = QStringLiteral("TS%1").arg(i);
     auto *p = m_registry->create(name);
     if (!p) return;
+    // New inline series default to the SWMM time-only form (elapsed times
+    // from the simulation start) — the legacy GUI's blank-date default.
+    // Requires a known simulation start; otherwise the series stays
+    // Absolute and the user can flip it once START_DATE is set.
+    if (m_registry->simulationStart().isValid())
+        p->setTimeMode(TimeseriesProvider::TimeMode::Relative,
+                       m_registry->simulationStart());
     const int row = m_listModel ? m_listModel->rowOf(p) : -1;
     if (row >= 0 && m_listView) {
         const QModelIndex src = m_listModel->index(row, 0);

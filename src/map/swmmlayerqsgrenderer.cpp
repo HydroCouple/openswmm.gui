@@ -8,6 +8,16 @@
  * subcatchments, node glyphs, gages) via QSGGeometryNode, with
  * selection coloring per class. Native Metal / Vulkan / D3D11 via
  * QRhi underneath; no QPainter, no GL paint engine quirks.
+ *
+ * LABELS ARE INTENTIONALLY NOT DRAWN HERE. The label contract
+ * (LAYER_STYLING_LABELING_PLAN_2026-08-16) is a hybrid: even when this
+ * QSG overlay owns every geometry kind (qsgOwnsKind), text labels are
+ * painted by the CPU pass in SWMMLayerItem::paint — screen-space via the
+ * shared LabelPainter, deliberately NOT gated on qsgOwnsKind. A pure-QSG
+ * glyph pipeline (atlas + text nodes) was evaluated and rejected: the CPU
+ * overlay is correct, zoom-stable, and cheap relative to geometry upload.
+ * If you add a text pass here, remove the CPU label block in
+ * swmmlayeritem.cpp or labels will double-draw.
  */
 #include "map/swmmlayerqsgrenderer.h"
 
@@ -460,6 +470,7 @@ void appendDisc(std::vector<QSGGeometry::Point2D> &out,
 void appendFlowArrowColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
                             const double *xy, uint32_t count,
                             double ox, double oy, float lenScene,
+                            float widthScene,
                             uchar cr, uchar cg, uchar cb, uchar ca)
 {
     if (count < 2 || !xy || lenScene <= 0.f) return;
@@ -482,7 +493,10 @@ void appendFlowArrowColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
         acc += segLen;
     }
 
-    const double w  = lenScene * 0.6;   // arrow half-width (matches CPU)
+    // Independent width across the link; non-positive falls back to the
+    // historic 1.2 x length (matches CPU drawFlowArrow).
+    const double w  = (widthScene > 0.f ? double(widthScene)
+                                        : double(lenScene) * 1.2) * 0.5;
     const double cs = std::cos(ang), sn = std::sin(ang);
     auto v=[&](double lx,double ly){
         QSGGeometry::ColoredPoint2D p;
@@ -527,6 +541,25 @@ QSGGeometryNode *makeColoredNode(QSGGeometry::DrawingMode mode)
     return node;
 }
 
+// Dirty flags for a geometry upload. A node whose geometry held ZERO vertices
+// has no batch: the batch renderer skips empty elements when it builds
+// batches, and a later DirtyGeometry on an element without a batch is a no-op
+// (Qt's Renderer::nodeChanged only re-uploads or invalidates an EXISTING
+// batch). Such a node never paints again until something else forces a batch
+// rebuild — a layer toggle, a full tree rebuild. That is exactly the empty
+// project: the first frame uploads nothing to every bucket, so the junctions
+// and conduits the user then draws never reach the screen (and it is why the
+// selection overlays used to "silently swallow" their first upload).
+// DirtyMaterial on an unbatched element is the flag that requests
+// BuildBatches, so raise it together with DirtyGeometry whenever a bucket goes
+// from empty to populated.
+inline QSGNode::DirtyState geometryDirtyFlags(bool wasEmpty, int n)
+{
+    return (wasEmpty && n > 0)
+        ? (QSGNode::DirtyGeometry | QSGNode::DirtyMaterial)
+        : QSGNode::DirtyState(QSGNode::DirtyGeometry);
+}
+
 void uploadColoredVerts(QSGGeometryNode *node,
                         const std::vector<QSGGeometry::ColoredPoint2D> &verts)
 {
@@ -543,11 +576,12 @@ void uploadColoredVerts(QSGGeometryNode *node,
     auto fill = [](QSGGeometryNode *gn,
                    const QSGGeometry::ColoredPoint2D *src, int n) {
         auto *geo = gn->geometry();
+        const bool wasEmpty = geo->vertexCount() == 0;
         if (geo->vertexCount() != n) geo->allocate(n);
         if (n > 0)
             std::memcpy(geo->vertexDataAsColoredPoint2D(), src,
                         size_t(n) * sizeof(QSGGeometry::ColoredPoint2D));
-        gn->markDirty(QSGNode::DirtyGeometry);
+        gn->markDirty(geometryDirtyFlags(wasEmpty, n));   // see uploadVerts
     };
 
     // Chunk 0 → the node itself.
@@ -597,9 +631,10 @@ void uploadVerts(QSGGeometryNode *node, const std::vector<QSGGeometry::Point2D> 
 {
     auto *geo = node->geometry();
     const int n = int(verts.size());
+    const bool wasEmpty = geo->vertexCount() == 0;
     if (geo->vertexCount() != n) geo->allocate(n);
     if (n > 0) std::memcpy(geo->vertexData(), verts.data(), n*sizeof(QSGGeometry::Point2D));
-    node->markDirty(QSGNode::DirtyGeometry);
+    node->markDirty(geometryDirtyFlags(wasEmpty, n));
 }
 
 void setNodeColor(QSGGeometryNode *node, QColor color)
@@ -1145,7 +1180,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             // draw last (over the links). The arrow points along the polyline
             // from→to direction, which is upstream→downstream.
             struct ArrowStyle { bool on; bool onlyFlowPos; float lenScene;
-                                uchar r,g,b,a; };
+                                float widScene; uchar r,g,b,a; };
             ArrowStyle astyle[5];
             {
                 // CPU-parity — arrows fade with the kind's (sub-layer)
@@ -1159,6 +1194,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     const uchar aa = uchar(c.alpha());
                     return ArrowStyle{ s.showArrows, s.arrowOnlyWhenFlowPos,
                                        float(s.arrowSize * invView),
+                                       float(s.arrowWidth * invView),
                                        premul(uchar(c.red()), aa),
                                        premul(uchar(c.green()), aa),
                                        premul(uchar(c.blue()), aa), aa };
@@ -1172,6 +1208,37 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             const bool anyArrows = astyle[0].on||astyle[1].on||astyle[2].on
                                  ||astyle[3].on||astyle[4].on;
             std::vector<QSGGeometry::ColoredPoint2D> arrowTri;
+
+            // Diagnostic, opt-in via SWMMVIS_LOG_LINK_DRAW=1 (same idiom as
+            // SWMMVIS_LOG_REDRAW / OPENSWMM_2D_RENDER_DEBUG). Reports, once
+            // per frame, why the LAST link in the SoA — the one a conduit
+            // split appends — is or is not emitted. Answers in one run
+            // whether a vanished split half is missing geometry, hidden,
+            // culled, or absent from the arrays altogether.
+            static const bool kLogLinkDraw =
+                qEnvironmentVariableIntValue("SWMMVIS_LOG_LINK_DRAW") > 0;
+            if (kLogLinkDraw && !counts.empty()) {
+                const size_t t  = counts.size() - 1;
+                const bool hasBB = int(t) < lBboxes.size();
+                const QRectF bb  = hasBB ? lBboxes[int(t)] : QRectF();
+                const bool culled = hasBB
+                    && (bb.right()  < cullX0 || bb.left() > cullX1
+                     || bb.bottom() < cullY0 || bb.top()  > cullY1);
+                qInfo().nospace()
+                    << "[linkdraw] tail=" << t
+                    << " renderLinks=" << m_layer->renderLinkCount()
+                    << " soaLinks=" << m_layer->cachedLinkCount()
+                    << " name=" << (int(t) < links.size()
+                                    ? links[int(t)].name : QStringLiteral("<none>"))
+                    << " vcount=" << counts[t]
+                    << " hidden=" << (t < lHid.size() ? int(lHid[t]) : -1)
+                    << " bbox=" << bb
+                    << " cull=[" << cullX0 << "," << cullY0
+                    << " .. " << cullX1 << "," << cullY1 << "]"
+                    << " culled=" << culled
+                    << " drawn=" << (counts[t] >= 2
+                                     && !(t < lHid.size() && lHid[t]) && !culled);
+            }
 
             std::vector<QSGGeometry::ColoredPoint2D> baseTri;
             std::vector<QSGGeometry::Point2D>        selTri;
@@ -1212,7 +1279,17 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                                ? links[int(i)].linkType : 0;
                 const QColor fc = m_layer->featureColor(kLinkCat[lt], int(i));
                 const QColor lc = fc.isValid() ? fc : lstyle[lt].color;
-                const float  hw = lstyle[lt].hw;   // per-type line half-width
+                // Per-feature stroke width, falling back to the per-type pen.
+                // For LINE archetypes the renderer writes its width axis into
+                // the symbol's "width" prop, and rebuildKindFeatureColors
+                // stores that in the size channel (it reads "size" first, then
+                // "width"), so featureSize() is the width for link kinds.
+                // Without this, "Width by value" on a Graduated conduit theme
+                // was computed, cached and then silently dropped here — every
+                // link drew at its kind's fixed pen width.
+                const double wOv = m_layer->featureSize(kLinkCat[lt], int(i));
+                const float  hw  = (wOv > 0.0) ? float(wOv * invView)
+                                               : lstyle[lt].hw;
                 const qreal lkop = m_layer->categoryOpacity(kLinkCat[lt]);  // per-kind opacity
                 const uchar lA=uchar(lkop < 1.0 ? lc.alpha() * lkop : lc.alpha());
                 const uchar lR=premul(uchar(lc.red()), lA),
@@ -1237,7 +1314,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (anyArrows && astyle[lt].on
                     && !(astyle[lt].onlyFlowPos && m_layer->linkFlow(int(i)) <= 0.0))
                     appendFlowArrowColored(arrowTri, p, cnt, ox, oy,
-                                           astyle[lt].lenScene, astyle[lt].r,
+                                           astyle[lt].lenScene,
+                                           astyle[lt].widScene, astyle[lt].r,
                                            astyle[lt].g, astyle[lt].b, astyle[lt].a);
             }
             // Append arrows last so they overlay the link segments (matches the
@@ -1274,6 +1352,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             uchar sR,sG,sB,sA; unpack(m_layer->storageSymbol().fillColor, sR,sG,sB,sA);
             uchar dR,dG,dB,dA; unpack(m_layer->dividerSymbol().fillColor, dR,dG,dB,dA);
             uchar vR,vG,vB,vA; unpack(m_layer->m_virtualJunctionSym.fillColor,vR,vG,vB,vA);
+            uchar iR,iG,iB,iA; unpack(m_layer->m_inletJunctionSym.fillColor,  iR,iG,iB,iA);
             // Per-kind marker shape, looked up once per frame to keep
             // the inner loop branch-free on the symbol struct.
             const auto jShape = m_layer->junctionSymbol().markerShape;
@@ -1281,6 +1360,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             const auto sShape = m_layer->storageSymbol().markerShape;
             const auto dShape = m_layer->dividerSymbol().markerShape;
             const auto vShape = m_layer->m_virtualJunctionSym.markerShape;
+            const auto iShape = m_layer->m_inletJunctionSym.markerShape;
             const auto &nps   = m_layer->m_nodeScenePts;
             const auto &nodes = m_layer->m_nodes;
             const auto &nHid  = m_layer->m_nodeHiddenFlag;
@@ -1307,8 +1387,17 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 // Virtual junctions — same bucket/category (D-G1: no
                 // persisted 5th category), the virtual symbol's dot; the
                 // distinguishing dotted ring is emitted after the glyph.
-                const bool isVJ = (nt == 0 && nodes[i].isVirtual);
-                if (isVJ) {
+                // Inlet junctions carry BOTH flags, so they are tested first
+                // and take the inlet symbol (and no dotted ring — the diamond
+                // is what sets them apart).
+                const bool isIJ = (nt == 0 && nodes[i].isInlet);
+                const bool isVJ = (nt == 0 && nodes[i].isVirtual && !isIJ);
+                if (isIJ) {
+                    pxR = float(m_layer->m_inletJunctionSym.size)*0.5f;
+                    cR=iR; cG=iG; cB=iB; cA=iA;
+                    shape = iShape;
+                }
+                else if (isVJ) {
                     pxR = float(m_layer->m_virtualJunctionSym.size)*0.5f;
                     cR=vR; cG=vG; cB=vB; cA=vA;
                     shape = vShape;

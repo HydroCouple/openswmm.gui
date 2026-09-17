@@ -33,8 +33,10 @@ public:
     Q_ENUM(LabelOrientation)
 
     /*! \brief Axis label number mode; values mirror
-     *  openswmmvis::plot::NumberFormatMode (0=Decimals, 1=SignificantFigures). */
-    enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
+     *  openswmmvis::plot::NumberFormatMode (0=Decimals, 1=SignificantFigures,
+     *  2=Scientific, 3=Engineering, 4=Thousands). */
+    enum LabelFormatMode { Decimals = 0, SignificantFigures = 1,
+                           Scientific = 2, Engineering = 3, Thousands = 4 };
     Q_ENUM(LabelFormatMode)
 
     /*! Combined axis number format offered to the user as ONE dropdown.
@@ -52,7 +54,15 @@ public:
         Decimals6 = 5,
         SigFigs3  = 6,
         SigFigs4  = 7,
-        SigFigs6  = 8
+        SigFigs6  = 8,
+        Scientific2      = 9,
+        Scientific3      = 10,
+        Scientific4      = 11,
+        Engineering2     = 12,
+        Engineering3     = 13,
+        ThousandsInteger = 14,
+        Thousands1       = 15,
+        Thousands2       = 16
     };
     Q_ENUM(AxisNumberFormat)
 
@@ -63,6 +73,11 @@ public:
     enum TimeLabelPosition { TimeTopRight = 0, TimeTopLeft = 1,
                              TimeBottomLeft = 2, TimeBottomRight = 3 };
     Q_ENUM(TimeLabelPosition)
+
+    /*! \brief Ground-line source. `Auto` resolves to `Mesh2D` when the
+     *  project has a 2D mesh layer, else `NodeRims`. */
+    enum GroundSource { Auto = 0, NodeRims = 1, Mesh2D = 2, TerrainDEM = 3 };
+    Q_ENUM(GroundSource)
 
     // ── Layer visibility ────────────────────────────────────────────────
     // Live HGL is split into two independent toggles: the stroked line
@@ -97,8 +112,28 @@ public:
     Q_PROPERTY(QString yLabelFormat
                READ yLabelFormat     WRITE setYLabelFormat     NOTIFY changed)
 
-    // ── Ground / terrain ────────────────────────────────────────────────
-    Q_PROPERTY(bool useTerrainGround READ useTerrainGround WRITE setUseTerrainGround NOTIFY changed)
+    // ── Ground line source ──────────────────────────────────────────────
+    // Where the soil's top edge comes from. Auto (default) = the 2D mesh
+    // vertex elevations interpolated at the path stations whenever the
+    // project has a mesh layer, else the node rims (invert + max depth).
+    Q_PROPERTY(ProfilePlotOptions::GroundSource groundSource
+               READ groundSource WRITE setGroundSource NOTIFY changed)
+
+    // ── 2D inundation overlay ───────────────────────────────────────────
+    // Water surface of the active 2D results layer sampled along the path
+    // (mesh bed + interpolated depth), drawn as a band above the ground with
+    // a WSE line, animated with the profile cursor. Nothing draws when the
+    // project has no active 2D results layer.
+    Q_PROPERTY(bool   show2DInundation   READ show2DInundation   WRITE setShow2DInundation   NOTIFY changed)
+    Q_PROPERTY(QPen   inundation2DLinePen   READ inundation2DLinePen   WRITE setInundation2DLinePen   NOTIFY changed)
+    Q_PROPERTY(QBrush inundation2DFillBrush READ inundation2DFillBrush WRITE setInundation2DFillBrush NOTIFY changed)
+
+    // ── Node connectivity ───────────────────────────────────────────────
+    // What ELSE meets each node on the path: truncated stubs of the links
+    // the profile does not follow, and a small plan rose giving every
+    // connected link's map bearing and flow direction.
+    Q_PROPERTY(bool showBranchStubs  READ showBranchStubs  WRITE setShowBranchStubs  NOTIFY changed)
+    Q_PROPERTY(bool showNodeRoses    READ showNodeRoses    WRITE setShowNodeRoses    NOTIFY changed)
 
     // ── Flooding indicator (animated wedge above the rim) ───────────────
     Q_PROPERTY(double floodRadiusPx  READ floodRadiusPx   WRITE setFloodRadiusPx   NOTIFY changed)
@@ -114,6 +149,13 @@ public:
     Q_PROPERTY(QColor storageOutline  READ storageOutline  WRITE setStorageOutline  NOTIFY changed)
     Q_PROPERTY(QColor dividerFill     READ dividerFill     WRITE setDividerFill     NOTIFY changed)
     Q_PROPERTY(QColor dividerOutline  READ dividerOutline  WRITE setDividerOutline  NOTIFY changed)
+    // A virtual junction is a break point inside a pipe, not a structure: it
+    // draws as a dashed outline rectangle over the conduit running through
+    // it, with no fill and no rim glyph.  One pen therefore carries its whole
+    // appearance — colour, width, style and dash pattern — instead of the
+    // fill/outline colour pair the physical node kinds use.
+    Q_PROPERTY(QPen   virtualJunctionOutlinePen READ virtualJunctionOutlinePen
+               WRITE setVirtualJunctionOutlinePen NOTIFY changed)
 
     // ── Theming: link-type colours ──────────────────────────────────────
     Q_PROPERTY(QColor conduitFill     READ conduitFill     WRITE setConduitFill     NOTIFY changed)
@@ -148,6 +190,7 @@ public:
     Q_PROPERTY(QPen   weirOutlinePen    READ weirOutlinePen    WRITE setWeirOutlinePen    NOTIFY changed)
     Q_PROPERTY(QPen   pumpOutlinePen    READ pumpOutlinePen    WRITE setPumpOutlinePen    NOTIFY changed)
     Q_PROPERTY(QPen   outletOutlinePen  READ outletOutlinePen  WRITE setOutletOutlinePen  NOTIFY changed)
+    Q_PROPERTY(QBrush streetInvertBrush READ streetInvertBrush WRITE setStreetInvertBrush NOTIFY changed)
 
     // ── Legend ──────────────────────────────────────────────────────────
     Q_PROPERTY(bool legendVisible    READ legendVisible    WRITE setLegendVisible    NOTIFY changed)
@@ -204,7 +247,12 @@ public:
     { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode), m_xLabelPrecision, m_xLabelFormatStr }; }
     openswmmvis::plot::NumberFormat yFormat() const
     { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision, m_yLabelFormatStr }; }
-    bool     useTerrainGround() const { return m_useTerrainGround; }
+    GroundSource groundSource() const { return m_groundSource; }
+    bool     show2DInundation() const { return m_show2DInundation; }
+    QPen     inundation2DLinePen()   const { return m_inundation2DLinePen; }
+    QBrush   inundation2DFillBrush() const { return m_inundation2DFillBrush; }
+    bool     showBranchStubs()  const { return m_showBranchStubs; }
+    bool     showNodeRoses()    const { return m_showNodeRoses; }
 
     double   floodRadiusPx()    const { return m_floodRadiusPx; }
     int      floodSweepDeg()    const { return m_floodSweepDeg; }
@@ -218,6 +266,7 @@ public:
     QColor storageOutline()  const { return m_storageOutline; }
     QColor dividerFill()     const { return m_dividerFill; }
     QColor dividerOutline()  const { return m_dividerOutline; }
+    QPen   virtualJunctionOutlinePen() const { return m_virtualJunctionOutlinePen; }
     QColor conduitFill()     const { return m_conduitFill; }
     QColor conduitOutline()  const { return m_conduitOutline; }
     QColor pumpFill()        const { return m_pumpFill; }
@@ -241,6 +290,9 @@ public:
     QPen   weirOutlinePen()    const { return m_weirOutlinePen; }
     QPen   pumpOutlinePen()    const { return m_pumpOutlinePen; }
     QPen   outletOutlinePen()  const { return m_outletOutlinePen; }
+    /*! Pavement band drawn under a STREET conduit's gutter line, so a street
+     *  reads as a road rather than as any other open channel. */
+    QBrush streetInvertBrush() const { return m_streetInvertBrush; }
     bool   legendVisible()   const { return m_legendVisible; }
     LegendPosition legendPosition() const { return m_legendPosition; }
     QFont  legendFont()      const { return m_legendFont; }
@@ -274,7 +326,12 @@ public slots:
     void setYLabelFormatMode(LabelFormatMode m);
     void setYLabelPrecision (int count);
     void setYLabelFormat    (const QString &spec);
-    void setUseTerrainGround(bool v);
+    void setGroundSource(GroundSource s);
+    void setShow2DInundation(bool v);
+    void setInundation2DLinePen  (const QPen   &p);
+    void setInundation2DFillBrush(const QBrush &b);
+    void setShowBranchStubs (bool v);
+    void setShowNodeRoses   (bool v);
     void setFloodRadiusPx (double r);
     void setFloodSweepDeg (int deg);
     void setFloodColor    (const QColor &c);
@@ -286,6 +343,7 @@ public slots:
     void setStorageOutline (const QColor &c);
     void setDividerFill    (const QColor &c);
     void setDividerOutline (const QColor &c);
+    void setVirtualJunctionOutlinePen(const QPen &p);
     void setConduitFill    (const QColor &c);
     void setConduitOutline (const QColor &c);
     void setPumpFill       (const QColor &c);
@@ -309,6 +367,7 @@ public slots:
     void setWeirOutlinePen   (const QPen &p);
     void setPumpOutlinePen   (const QPen &p);
     void setOutletOutlinePen (const QPen &p);
+    void setStreetInvertBrush(const QBrush &b);
     void setLegendVisible  (bool v);
     void setLegendPosition (LegendPosition p);
     void setLegendFont     (const QFont &f);
@@ -345,7 +404,15 @@ private:
     LabelFormatMode  m_yLabelMode       = Decimals;
     int              m_yLabelPrecision  = 2;
     QString          m_yLabelFormatStr;           // optional printf override; empty = use mode+precision
-    bool             m_useTerrainGround = false;
+    GroundSource     m_groundSource     = Auto;
+    // On by default: the overlay is inert without an active 2D results
+    // layer, and a coupled model's user expects the surface water shown.
+    bool             m_show2DInundation = true;
+    // Teal, distinct from the HGL blues so the two water surfaces read apart.
+    QPen             m_inundation2DLinePen   = QPen(QColor(0x00, 0x8B, 0x8B), 1.6, Qt::SolidLine);
+    QBrush           m_inundation2DFillBrush {QColor(0x20, 0xB2, 0xAA, 90), Qt::SolidPattern};
+    bool             m_showBranchStubs  = true;
+    bool             m_showNodeRoses    = true;
 
     // Flooding-glyph defaults: a 60° wedge with a 15 px radius reads at
     // small zoom levels without crowding adjacent rim glyphs.  Colour is
@@ -365,6 +432,11 @@ private:
     QColor m_storageOutline  {0x2D, 0x6A, 0x2D};
     QColor m_dividerFill     {0xFF, 0xE5, 0x99};
     QColor m_dividerOutline  {0x9C, 0x6F, 0x14};
+    // Dash pattern / cap / join are set in the constructor — QPen needs the
+    // calls.  Dark grey like the conduit outline it overlaps, but thinner and
+    // dashed so it reads as a marker rather than a structure.
+    QPen   m_virtualJunctionOutlinePen =
+        QPen(QColor(0x33, 0x33, 0x33), 1.0, Qt::CustomDashLine);
     QColor m_conduitFill     {0xEE, 0xEE, 0xEE};
     QColor m_conduitOutline  {0x33, 0x33, 0x33};
     QColor m_pumpFill        {0xFF, 0xD6, 0xA5};
@@ -392,6 +464,7 @@ private:
     QPen   m_weirOutlinePen    = QPen(QColor(0x3E, 0x2A, 0x1E), 1.5, Qt::SolidLine);
     QPen   m_pumpOutlinePen    = QPen(QColor(0xC2, 0x70, 0x1A), 1.2, Qt::SolidLine);
     QPen   m_outletOutlinePen  = QPen(QColor(0xA3, 0x3D, 0x4C), 1.2, Qt::SolidLine);
+    QBrush m_streetInvertBrush {QColor(0x55, 0x55, 0x55), Qt::BDiagPattern};
 
     // Legend defaults.
     bool           m_legendVisible  = true;

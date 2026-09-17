@@ -9,6 +9,11 @@
 namespace OpenSWMM::Render
 {
 
+// Boundary-condition colouring moved to MeshBcStyle (meshbcsublayer.cpp) —
+// BC indicators are their own sublayer now. Legacy "bc*"-prefixed keys in a
+// style file are ignored here and migrated by
+// SWMM2DMeshLayer::onSublayersJsonLoaded.
+
 MeshEdgeStyle::MeshEdgeStyle(QObject *parent) : SublayerStyle(parent)
 {
     seedSchemeFromLegacy();
@@ -102,6 +107,9 @@ void MeshEdgeStyle::fromJson(const QJsonObject &j)
         if (c.isValid()) m_wideColor = c;
     }
 
+    // Legacy "colorByBC" / "bc*" keys are intentionally ignored here — they
+    // migrate to the MeshBcSublayer in SWMM2DMeshLayer::onSublayersJsonLoaded.
+
     if (j.contains(QStringLiteral("classification")))
         m_scheme = ClassificationScheme::fromJson(j.value(QStringLiteral("classification")).toObject());
     else
@@ -133,6 +141,8 @@ void MeshEdgeSublayer::setOpacity(qreal o)
 
 QList<LegendSymbolItem> MeshEdgeSublayer::legendSymbolItems() const
 {
+    // BC legend rows moved to MeshBcSublayer — this sublayer is the plain
+    // wireframe only.
     LegendSymbolItem item;
     item.label      = tr("Mesh Edges");
     item.sublayerId = m_id;

@@ -12,6 +12,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QUuid>                            // Stats-source identity (QA.2 mirror)
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -20,6 +21,8 @@
 #include "ui/properties/subcatchcompoundeditref.h" // Phase 3 — landuse/GW/LID
 
 class SWMMModelLayer;
+
+namespace openswmmvis { class OutputStatsRegistry; }    // QA.2 mirror
 
 class SWMMSubcatchPropertyAdapter : public QObject
 {
@@ -73,6 +76,10 @@ class SWMMSubcatchPropertyAdapter : public QObject
     // Compound cells (open SubcatchCompoundEditDialog tabs).
     Q_PROPERTY(SubcatchCompoundEditRef landUse
                READ landUseRef     WRITE setLandUseRef     NOTIFY changed)
+    /*! Receiving aquifer ([GROUNDWATER] aquifer column). Picker over
+     *  [AQUIFERS] names; an empty pick clears the assignment (-1). The
+     *  routing parameters live in the `groundwater` exchange editor. */
+    Q_PROPERTY(DataObjectRef aquifer READ aquiferRef WRITE setAquiferRef NOTIFY changed)
     Q_PROPERTY(SubcatchCompoundEditRef groundwater
                READ groundwaterRef WRITE setGroundwaterRef NOTIFY changed)
     Q_PROPERTY(SubcatchCompoundEditRef lidUsage
@@ -84,6 +91,13 @@ class SWMMSubcatchPropertyAdapter : public QObject
      *  user-flag assignments row (see SWMMNodePropertyAdapter). */
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
+
+    // Read-only post-run summary (no WRITE → non-editable). Mirrors the
+    // Attribute Table's subcatchment dynamics columns; values follow the
+    // bound stats source (see setStatsSource below).
+    Q_PROPERTY(double statPrecip    READ statPrecip    NOTIFY changed)
+    Q_PROPERTY(double statRunoffVol READ statRunoffVol NOTIFY changed)
+    Q_PROPERTY(double statMaxRunoff READ statMaxRunoff NOTIFY changed)
 
 public:
     /*! Infiltration model codes (engine [INFILTRATION] order). */
@@ -131,9 +145,22 @@ public:
     [[nodiscard]] double cnNumber()       const;
     [[nodiscard]] double cnDryTime()      const;
     [[nodiscard]] SubcatchCompoundEditRef landUseRef()     const;
+    [[nodiscard]] DataObjectRef           aquiferRef()     const;
     [[nodiscard]] SubcatchCompoundEditRef groundwaterRef() const;
     [[nodiscard]] SubcatchCompoundEditRef lidUsageRef()    const;
     [[nodiscard]] SubcatchCompoundEditRef loadingsRef()    const;
+
+    // Read-only post-run summary getters. Zero until a run's results are
+    // bound via setStatsSource (mirror of SWMMNodePropertyAdapter QA.2).
+    [[nodiscard]] double statPrecip()    const;
+    [[nodiscard]] double statRunoffVol() const;
+    [[nodiscard]] double statMaxRunoff() const;
+
+    /*! Stats-source dispatch — see SWMMNodePropertyAdapter (Slice QA.2)
+     *  for the full contract. */
+    void setStatsRegistry(openswmmvis::OutputStatsRegistry *registry);
+    void setStatsSource(const QUuid &id);
+    [[nodiscard]] QUuid statsSourceId() const { return m_statsSourceId; }
 
     /*! See SWMMNodePropertyAdapter::displayLabelFor. */
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
@@ -166,6 +193,7 @@ public slots:
     void setGaInitDeficit(double v);
     void setCnNumber(double v);
     void setCnDryTime(double v);
+    void setAquiferRef(const DataObjectRef &r);
     // Compound refs are coordinates only; the dialog performs the writes.
     void setLandUseRef(const SubcatchCompoundEditRef &)     { emit changed(); }
     void setGroundwaterRef(const SubcatchCompoundEditRef &) { emit changed(); }
@@ -194,6 +222,10 @@ private:
     SWMM_Engine     m_engine;
     QString         m_name;
     SWMMModelLayer *m_layer = nullptr;   ///< USER_FLAGS Phase 4 — borrow.
+
+    /// Stats-source dispatch state — see SWMMNodePropertyAdapter.
+    QUuid                              m_statsSourceId;
+    openswmmvis::OutputStatsRegistry  *m_statsRegistry = nullptr;
 };
 
 #endif // SWMMSUBCATCHPROPERTYADAPTER_H

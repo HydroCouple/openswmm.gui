@@ -578,12 +578,16 @@
       <string>&amp;Import</string>
      </property>
      <addaction name="actionAddSWMMOutput"/>
+     <addaction name="actionAdd2DResults"/>
      <addaction name="separator"/>
      <addaction name="actionAddVectorData"/>
      <addaction name="actionAddRasterData"/>
      <addaction name="actionAddWMSData"/>
+     <addaction name="actionAddWFSData"/>
      <addaction name="actionAddBasemap"/>
      <addaction name="actionAddDelimeteredData"/>
+     <addaction name="separator"/>
+     <addaction name="actionAddMesh2D"/>
     </widget>
     <addaction name="actionNew"/>
     <addaction name="actionOpen"/>
@@ -641,6 +645,7 @@
      </property>
      <addaction name="actionAddJunction"/>
      <addaction name="actionAddVirtualJunction"/>
+     <addaction name="actionAddInletJunction"/>
      <addaction name="actionAddOutfall"/>
      <addaction name="actionAddFlowDivider"/>
      <addaction name="actionAddStorage"/>
@@ -672,9 +677,14 @@
     <addaction name="menuClimate"/>
     <addaction name="actionAddText"/>
     <addaction name="separator"/>
+    <addaction name="actionAssignRainGages"/>
     <addaction name="actionImportFeatureLayer"/>
     <addaction name="separator"/>
     <addaction name="actionOptions"/>
+    <addaction name="actionEditWaterAgeSources"/>
+    <addaction name="actionEditInitialQuality"/>
+    <addaction name="actionEditReactionSystem"/>
+    <addaction name="actionEditHeatConfig"/>
     <addaction name="actionUserFlags"/>
     <addaction name="separator"/>
     <addaction name="actionGenerateMesh"/>
@@ -1329,10 +1339,10 @@
     <string>&amp;Plot Profile</string>
    </property>
    <property name="toolTip">
-    <string>Plot a longitudinal profile. Picks a network (pipe HGL) profile when a SWMM model is loaded, or a 2D-surface (terrain + water depth) profile for a mesh. Use the dropdown to force either.</string>
+    <string>Plot a network (pipe HGL) longitudinal profile: pick a path of nodes and links on the map. For a 2D-surface profile use Plot 2D Profile.</string>
    </property>
    <property name="statusTip">
-    <string>Plot a network or 2D-surface longitudinal profile</string>
+    <string>Plot a network longitudinal profile</string>
    </property>
    <property name="whatsThis">
     <string>Plot Profile</string>
@@ -1386,6 +1396,50 @@
     <enum>QAction::TextHeuristicRole</enum>
    </property>
   </action>
+  <action name="actionEditWaterAgeSources">
+   <property name="text">
+    <string>Water Age Sources...</string>
+   </property>
+   <property name="toolTip">
+    <string>Initial age of water entering by each source pathway (WATER_AGE_SOURCES)</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionEditInitialQuality">
+   <property name="text">
+    <string>Initial Quality...</string>
+   </property>
+   <property name="toolTip">
+    <string>Per-node and per-link initial concentrations (INITIAL_QUALITY)</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionEditReactionSystem">
+   <property name="text">
+    <string>Reaction System...</string>
+   </property>
+   <property name="toolTip">
+    <string>Multispecies reaction system: species, kinetics, and the .rxn file (REACTION_*)</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionEditHeatConfig">
+   <property name="text">
+    <string>Heat Configuration...</string>
+   </property>
+   <property name="toolTip">
+    <string>Heat transport: [HEAT_SOURCES] inlet temperatures, [HEAT_FLUXES] modules, and radiative / solar / cloud forcing</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
   <action name="actionAddText">
    <property name="checkable">
     <bool>true</bool>
@@ -1435,6 +1489,21 @@
    </property>
    <property name="toolTip">
     <string>Add Virtual Junction (split a conduit at the picked point)</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddInletJunction">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/InletJunction</normaloff>:/swmmvis/InletJunction</iconset>
+   </property>
+   <property name="text">
+    <string>Add Inlet Junction</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Inlet Junction (split a street conduit at the picked point)</string>
    </property>
    <property name="menuRole">
     <enum>QAction::TextHeuristicRole</enum>
@@ -1713,6 +1782,24 @@
     <enum>QAction::NoRole</enum>
    </property>
   </action>
+  <action name="actionAssignRainGages">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AssignRainGages</normaloff>:/swmmvis/AssignRainGages</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Assign Rain Gages…</string>
+   </property>
+   <property name="toolTip">
+    <string>Bind rain gages to subcatchments spatially — by Thiessen area majority, or by natural-neighbour interpolation that generates one gage per distinct weight vector — previewed first and applied as a single undoable step.</string>
+   </property>
+   <property name="statusTip">
+    <string>Assign rain gages to subcatchments by location (Model → Assign Rain Gages…)</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
   <action name="actionImportFeatureLayer">
    <property name="icon">
     <iconset resource="../resources/swmmvis.qrc">
@@ -1778,6 +1865,36 @@
     <enum>QAction::NoRole</enum>
    </property>
   </action>
+  <action name="actionAddMesh2D">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AddMesh</normaloff>:/swmmvis/AddMesh</iconset>
+   </property>
+   <property name="text">
+    <string>Add 2D Mesh…</string>
+   </property>
+   <property name="toolTip">
+    <string>Browse for an existing SWMM 2D mesh (.2dm) and load it into this project</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAdd2DResults">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AddSWMMOutput</normaloff>:/swmmvis/AddSWMMOutput</iconset>
+   </property>
+   <property name="text">
+    <string>Add 2D Results…</string>
+   </property>
+   <property name="toolTip">
+    <string>Browse for an SWMM 2D results file (.h5) and load it into this project</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
   <action name="actionAddRasterData">
    <property name="icon">
     <iconset resource="../resources/swmmvis.qrc">
@@ -1803,6 +1920,17 @@
    </property>
    <property name="toolTip">
     <string>Add Vector Data</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAddWFSData">
+   <property name="text">
+    <string>Add WFS Data</string>
+   </property>
+   <property name="toolTip">
+    <string>Add features from a Web Feature Service</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>

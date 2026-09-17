@@ -1,0 +1,86 @@
+/* Styles for the SWMMVis user manual (docs/manual). Loaded after
+   doxygen-awesome.css via HTML_EXTRA_STYLESHEET. Figure and video blocks
+   are emitted by the \fig, \figtodo, \video and \videotodo aliases in
+   docs/Doxyfile. */
+
+figure.manual-figure,
+figure.manual-video {
+    margin: 1.5em 0;
+    padding: 0;
+    max-width: 100%;
+}
+
+figure.manual-figure img {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--separator-color, #ddd);
+    border-radius: var(--border-radius-medium, 6px);
+}
+
+figure.manual-figure figcaption,
+figure.manual-video figcaption {
+    margin-top: 0.5em;
+    font-size: 0.92em;
+    color: var(--page-secondary-foreground-color, #555);
+    text-align: center;
+}
+
+.manual-figure-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4em;
+    min-height: 220px;
+    border: 2px dashed var(--primary-color, #1779c4);
+    border-radius: var(--border-radius-medium, 6px);
+    background: repeating-linear-gradient(
+        45deg,
+        rgba(23, 121, 196, 0.05),
+        rgba(23, 121, 196, 0.05) 12px,
+        transparent 12px,
+        transparent 24px);
+}
+
+.manual-figure-tag {
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    font-size: 0.8em;
+    color: var(--primary-color, #1779c4);
+}
+
+.manual-figure-file {
+    font-family: var(--font-family-monospace, monospace);
+    font-size: 0.85em;
+    color: var(--page-secondary-foreground-color, #555);
+}
+
+.manual-video-frame {
+    position: relative;
+    width: 100%;
+    max-width: 960px;
+    margin: 0 auto;
+    aspect-ratio: 16 / 9;
+}
+
+.manual-video-frame iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: var(--border-radius-medium, 6px);
+}
+
+/* Menu-path styling: File → Import → Add Vector Data */
+.manual-menu {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Wide reference tables scroll instead of overflowing the page. */
+div.contents table.markdownTable {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+}

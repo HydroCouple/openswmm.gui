@@ -19,8 +19,9 @@
  * Row identity:
  *  - Vertices — row == vertex index.
  *  - Cells    — row == triangle index.
- *  - Edges    — one row per UNIQUE edge. The mesh stores edges per triangle
- *               corner (`tri * 3 + edgeLocal`), so an interior edge occupies
+ *  - Edges    — one row per UNIQUE edge. The mesh stores edges per cell
+ *               slot (`mesh::edgeSlot(cell, edgeLocal)`, 3 edges on a
+ *               triangle, 4 on a quad), so an interior edge occupies
  *               two slots; those collapse onto the lower slot, and
  *               `rowForRef` resolves either half to that one row.
  *
@@ -31,6 +32,7 @@
 #ifndef OPENSWMMVIS_UI_PANELS_MESHATTRIBUTETABLEMODEL_H
 #define OPENSWMMVIS_UI_PANELS_MESHATTRIBUTETABLEMODEL_H
 
+#include "mesh/meshinfil.h"                      // mesh::InfilProvenance
 #include "selection/selectionmanager.h"
 #include "ui/panels/swmmattributetablemodel.h"   // openswmmvis::ColumnSpec
 
@@ -124,7 +126,20 @@ private:
      *  the Vertex / Cell kinds. */
     [[nodiscard]] bool rowIsBoundaryEdge(int row) const;
 
-    /*! Flat slot (`tri * 3 + edgeLocal`) for an Edge row, or -1. */
+    /*! True when infiltration parameter \p key carries a value for the method
+     *  resolved on cell \p row — the same per-row masking idiom
+     *  rowIsBoundaryEdge() applies to the BC columns. A parameter the row's
+     *  method does not read renders "—" and refuses edits, so a Curve Number
+     *  cell cannot be left carrying a Horton decay constant nothing reads.
+     *  Always false for the Vertex / Edge kinds. */
+    [[nodiscard]] bool cellInfilParamApplies(int row, const QByteArray &key) const;
+
+    /*! Where cell \p row's infiltration row came from. Drives the muted /
+     *  italic rendering that tells an inherited (region tag or '*' default)
+     *  value apart from a per-cell override. */
+    [[nodiscard]] mesh::InfilProvenance cellInfilProvenance(int row) const;
+
+    /*! Flat slot (`mesh::edgeSlot(cell, edgeLocal)`) for an Edge row, or -1. */
     [[nodiscard]] int slotForRow(int row) const;
 
     /*! True when a SWMM model with a live engine is bound, i.e. when the

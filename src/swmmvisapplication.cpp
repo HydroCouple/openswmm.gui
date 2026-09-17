@@ -18,6 +18,9 @@
 #include <QTimer>
 #include <QDialog>
 #include <QEvent>
+#include <QElapsedTimer>
+#include <QMessageBox>
+#include <exception>
 // #ifdef Q_OS_WIN
 // #include <windows.h> // for Sleep
 // #endif
@@ -31,6 +34,7 @@
 #include "core/preferencesmanager.h"
 #include "ui/dialogs/licenseagreementdialog.h"
 #include "ui/dialogs/dialoglayoutwatcher.h"
+#include "ui/dialogs/dialogregistry.h"
 #include "ui/theme/thememanager.h"
 #include "platform/macoswindowutils.h"
 
@@ -51,7 +55,7 @@ SWMMVisCoreApplication::SWMMVisCoreApplication(int& argc, char* argv[])
 
     QString version = QString("%1").arg(SWMM_VERSION);
     setApplicationVersion(version);
-    setApplicationName("OpenSWMM Stormwater Management Model");
+    setApplicationName("SWMMVis Stormwater Management Model");
 }
 
 /*!
@@ -61,6 +65,39 @@ SWMMVisCoreApplication::SWMMVisCoreApplication(int& argc, char* argv[])
 SWMMVisCoreApplication::~SWMMVisCoreApplication()
 {
 
+}
+
+bool SWMMVisApplication::notify(QObject *receiver, QEvent *event)
+{
+    try {
+        return QApplication::notify(receiver, event);
+    } catch (const std::exception &e) {
+        reportHandlerException(receiver, QString::fromUtf8(e.what()));
+    } catch (...) {
+        reportHandlerException(receiver, QStringLiteral("non-standard exception"));
+    }
+    return false;
+}
+
+void SWMMVisApplication::reportHandlerException(QObject *receiver, const QString &what)
+{
+    const QString where = receiver
+        ? QString::fromLatin1(receiver->metaObject()->className())
+        : QStringLiteral("?");
+    qCritical("SWMMVis: exception escaped an event handler (%s): %s",
+              qPrintable(where), qPrintable(what));
+    // One dialog per burst — a handler that throws on every paint or timer
+    // tick would otherwise bury the user in message boxes. Deferred so the
+    // box is not raised from inside notify().
+    static QElapsedTimer sinceLast;
+    if (sinceLast.isValid() && sinceLast.elapsed() < 10000) return;
+    sinceLast.start();
+    QTimer::singleShot(0, this, [where, what]() {
+        QMessageBox::critical(nullptr, tr("Internal error"),
+            tr("An error escaped an event handler in %1:\n%2\n\n"
+               "The application kept running; the message is in the log. "
+               "Save your work and consider restarting.").arg(where, what));
+    });
 }
 
 /*!
@@ -94,7 +131,7 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
 
     QString version = QString("%1").arg(SWMM_VERSION);
     setApplicationVersion(version);
-    setApplicationName("OpenSWMM Stormwater Management Model");
+    setApplicationName("SWMMVis Stormwater Management Model");
     setApplicationDisplayName("SWMM");
 
     // Seed bundled examples into the per-user data dir before the Welcome
@@ -126,6 +163,18 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     // (see dialoglayoutwatcher.h). A separate filter so the macOS
     // stacking logic above stays untangled from persistence.
     installEventFilter(new openswmmvis::ui::DialogLayoutWatcher(this));
+
+    // Register of open modeless dialogs in most-recently-used order. Feeds
+    // the Window menu (so a dialog dragged onto a since-disconnected monitor
+    // is still reachable) and, when the Qt stacking mode is selected, the
+    // raise-on-activate pass that replaces the AppKit child-window
+    // attachment. Mode is resolved once here — see dialogregistry.h.
+    {
+        auto *registry = openswmmvis::ui::DialogRegistry::instance();
+        registry->setStackingMode(
+            openswmmvis::ui::DialogRegistry::configuredStackingMode());
+        installEventFilter(registry);
+    }
 
     //set up splash screen
     QPixmap pixmap(":/swmmvis/splashscreen");
@@ -235,7 +284,16 @@ bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
                     // separately by firing pickers on mouse RELEASE (ddca63d).
                     // If a freeze reappears, first look for a dialog shown from
                     // inside a mousePressEvent before suspecting this.
-                    if (dlg->windowModality() == Qt::NonModal)
+                    //
+                    // Skipped entirely in QtRaiseOnActivate mode, where
+                    // DialogRegistry re-raises dialogs on activation instead —
+                    // no native gluing, so a dialog can never be dragged
+                    // off-screen by the window it happens to be attached to.
+                    using openswmmvis::ui::DialogRegistry;
+                    const bool nativeStacking =
+                        DialogRegistry::instance()->stackingMode()
+                            == DialogRegistry::StackingMode::NativeChildWindow;
+                    if (nativeStacking && dlg->windowModality() == Qt::NonModal)
                         openswmmvis::platform::attachAsChildWindow(dlg);
 #endif
                 });

@@ -29,6 +29,13 @@ ProfilePlotOptions::ProfilePlotOptions(QObject *parent)
     m_eglLinePen.setDashPattern({12.0, 6.0});
     m_eglLinePen.setCapStyle(Qt::FlatCap);
 
+    // Virtual-junction marker: a short 4/3 dash, tight enough to stay legible
+    // on the 7 px top and bottom edges of its rectangle.  Flat caps and mitre
+    // joins keep the corners square where the dashes meet.
+    m_virtualJunctionOutlinePen.setDashPattern({4.0, 3.0});
+    m_virtualJunctionOutlinePen.setCapStyle(Qt::FlatCap);
+    m_virtualJunctionOutlinePen.setJoinStyle(Qt::MiterJoin);
+
     // Inherit the global default axis precision; per-plot edits override it.
     auto *prefs = PreferencesManager::instance();
     m_xLabelMode      = static_cast<LabelFormatMode>(prefs->plotXAxisFormatMode());
@@ -61,7 +68,11 @@ QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
         { QStringLiteral("yAxisNumberFormat"), QObject::tr("Y Axis — Number format") },
         { QStringLiteral("yLabelFormat"),      QObject::tr("Y Axis — Custom format") },
         // Ground
-        { QStringLiteral("useTerrainGround"), QObject::tr("Use terrain DEM for ground") },
+        { QStringLiteral("groundSource"),     QObject::tr("Ground line source (Auto = 2D mesh if present, else node rims)") },
+        // 2D inundation overlay
+        { QStringLiteral("show2DInundation"),      QObject::tr("Show 2D inundation (active 2D results)") },
+        { QStringLiteral("inundation2DLinePen"),   QObject::tr("2D water surface line pen") },
+        { QStringLiteral("inundation2DFillBrush"), QObject::tr("2D inundation fill brush") },
         // Flooding indicator
         { QStringLiteral("floodRadiusPx"),    QObject::tr("Flooding glyph radius (px)") },
         { QStringLiteral("floodSweepDeg"),    QObject::tr("Flooding glyph sweep angle (°)") },
@@ -75,6 +86,8 @@ QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
         { QStringLiteral("storageOutline"),   QObject::tr("Storage outline") },
         { QStringLiteral("dividerFill"),      QObject::tr("Divider fill") },
         { QStringLiteral("dividerOutline"),   QObject::tr("Divider outline") },
+        { QStringLiteral("virtualJunctionOutlinePen"),
+                                              QObject::tr("Virtual junction marker") },
         // Theme — links
         { QStringLiteral("conduitFill"),      QObject::tr("Conduit fill") },
         { QStringLiteral("conduitOutline"),   QObject::tr("Conduit outline") },
@@ -176,7 +189,12 @@ void ProfilePlotOptions::setYLabelPrecision (int count) {
     SET_PRIM(m_yLabelPrecision, c);
 }
 void ProfilePlotOptions::setYLabelFormat    (const QString &spec) { SET_OBJ(m_yLabelFormatStr, spec); }
-void ProfilePlotOptions::setUseTerrainGround(bool v)   { SET_PRIM(m_useTerrainGround, v); }
+void ProfilePlotOptions::setGroundSource(GroundSource s) { SET_PRIM(m_groundSource, s); }
+void ProfilePlotOptions::setShow2DInundation(bool v)   { SET_PRIM(m_show2DInundation, v); }
+void ProfilePlotOptions::setInundation2DLinePen  (const QPen   &p) { SET_OBJ(m_inundation2DLinePen, p); }
+void ProfilePlotOptions::setInundation2DFillBrush(const QBrush &b) { SET_OBJ(m_inundation2DFillBrush, b); }
+void ProfilePlotOptions::setShowBranchStubs (bool v)  { SET_PRIM(m_showBranchStubs, v); }
+void ProfilePlotOptions::setShowNodeRoses   (bool v)  { SET_PRIM(m_showNodeRoses, v); }
 void ProfilePlotOptions::setFloodRadiusPx (double r) {
     r = std::clamp(r, 4.0, 60.0);
     SET_PRIM(m_floodRadiusPx, r);
@@ -196,6 +214,8 @@ void ProfilePlotOptions::setStorageFill    (const QColor &c) { SET_OBJ(m_storage
 void ProfilePlotOptions::setStorageOutline (const QColor &c) { SET_OBJ(m_storageOutline, c); }
 void ProfilePlotOptions::setDividerFill    (const QColor &c) { SET_OBJ(m_dividerFill, c); }
 void ProfilePlotOptions::setDividerOutline (const QColor &c) { SET_OBJ(m_dividerOutline, c); }
+void ProfilePlotOptions::setVirtualJunctionOutlinePen(const QPen &p)
+{ SET_OBJ(m_virtualJunctionOutlinePen, p); }
 void ProfilePlotOptions::setConduitFill    (const QColor &c) { SET_OBJ(m_conduitFill, c); }
 void ProfilePlotOptions::setConduitOutline (const QColor &c) { SET_OBJ(m_conduitOutline, c); }
 void ProfilePlotOptions::setPumpFill       (const QColor &c) { SET_OBJ(m_pumpFill, c); }
@@ -219,6 +239,7 @@ void ProfilePlotOptions::setOrificeOutlinePen(const QPen &p) { SET_OBJ(m_orifice
 void ProfilePlotOptions::setWeirOutlinePen   (const QPen &p) { SET_OBJ(m_weirOutlinePen,    p); }
 void ProfilePlotOptions::setPumpOutlinePen   (const QPen &p) { SET_OBJ(m_pumpOutlinePen,    p); }
 void ProfilePlotOptions::setOutletOutlinePen (const QPen &p) { SET_OBJ(m_outletOutlinePen,  p); }
+void ProfilePlotOptions::setStreetInvertBrush(const QBrush &b) { SET_OBJ(m_streetInvertBrush, b); }
 
 // ── Legend ──────────────────────────────────────────────────────────────
 void ProfilePlotOptions::setLegendVisible (bool v)             { SET_PRIM(m_legendVisible, v); }

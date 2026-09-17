@@ -125,13 +125,23 @@ struct RasterColorRamp
     [[nodiscard]] static RasterColorRamp rainbow(double min = 0.0, double max = 1.0);
     [[nodiscard]] static RasterColorRamp bluered(double min = 0.0, double max = 1.0);
 
+    /*! 2026-09-01 — sequential water-depth ramp for the 2D inundation /
+     *  smooth-depth fill: very light blue at ~40% opacity for barely-wet
+     *  cells (the shoreline fades into the terrain beneath) deepening to a
+     *  fully opaque navy at maximum depth (user direction: deeper water =
+     *  dark blue, shallower = lighter shade). The only builtin carrying an
+     *  alpha gradient in its stops — interpolation and JSON round-trip
+     *  alpha already, so it rides the existing machinery unchanged. */
+    [[nodiscard]] static RasterColorRamp waterDepth(double min = 0.0, double max = 1.0);
+
     /*! Look up a built-in ramp by short name (case-insensitive). Returns
      *  `grayscale()` when the name is unknown so callers never get an
      *  invalid ramp. Recognised names: "grayscale", "viridis", "plasma",
      *  "magma", "inferno", "cividis", "turbo", "rdbu", "rdylgn",
      *  "spectral", "brbg", "legacy-swmm-5interval", "legacy-swmm-pollutant", "terrain",
      *  plus Slice BB-β Plotly entries: "plotly3", "icefire", "blackbody",
-     *  "electric", "hot", "jet", "picnic", "portland", "rainbow", "bluered". */
+     *  "electric", "hot", "jet", "picnic", "portland", "rainbow", "bluered",
+     *  and the 2026-09-01 depth-fill default "water-depth". */
     [[nodiscard]] static RasterColorRamp builtin(const QString &name);
 
     /*! Names of all built-in ramps, in catalogue order. Used by the

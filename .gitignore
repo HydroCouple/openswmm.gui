@@ -87,6 +87,23 @@ docs/test_output/
 # inside a fully-ignored directory).
 examples/*
 !examples/bellinge_2d
+# Curated SWASHES analytical-verification payloads. Directory-wise negation is
+# safe here: nothing is ever run inside the baseline (the Welcome page copies
+# an example out first), so these folders only ever hold the imported input
+# files. Rebuild them with scripts/import_swashes_examples.py.
+!examples/swashes_*/
+# The two flat single-file examples in _SWMMVIS_EXAMPLE_INPS
+# (CMakeLists.txt:1827-1828). Negated FILE-wise, not directory-wise: their
+# folders also hold generated run output (road_culvert.{out,rpt,2d.h5}) and
+# generator scripts, none of which is bundled. Each folder therefore needs
+# three lines — re-include the folder, re-exclude its contents, re-include
+# the one payload — because git cannot negate inside an excluded directory.
+!examples/demo_road_culvert/
+examples/demo_road_culvert/*
+!examples/demo_road_culvert/road_culvert.inp
+!examples/site_drainage/
+examples/site_drainage/*
+!examples/site_drainage/site_drainage_model.inp
 .idea/
 .DS_Store
 
@@ -95,8 +112,10 @@ examples/*
 tests/perf-data/mesh/*.2dm
 tests/perf-data/mesh/*.inp
 
-# --- Work plans, agent artifacts & local testing output (not for the repo) ---
-workplans/
+# --- Agent artifacts & local testing output (not for the repo) ---
+# workplans/ is TRACKED as of 2026-09-01 (same decision as the engine repo's
+# plans/transport: the plan corpus was version-controlled nowhere).
+workplans/_scratch/
 test_artifacts/
 tests/output/
 tests/scratch/
@@ -113,3 +132,10 @@ tests/gui/data/typed_selection_fixture.rpt
 tests/gui/data/userflags_phase5_out.inp
 tests/unit/data/mesh_sync*_out.inp
 tests/unit/data/2d_complete_example.h5
+tests/unit/data/featurestore_artifacts/
+
+# SWMM run outputs are never sources (user rule 2026-09-05). A tracked
+# read-fixture needs `git add -f`; the two tests/unit/data/*.rpt predate this.
+*.out
+*.rpt
+*.oswp

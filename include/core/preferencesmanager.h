@@ -226,12 +226,51 @@ public:
     void saveCustomColorRamp(const QString &name, const RasterColorRamp &ramp);
     void removeCustomColorRamp(const QString &name);
 
+    // ── 2D mesh boundary-condition edge styling ──────────────────────────
+    /*! Defaults a NEW mesh-edge sublayer style adopts for boundary-condition
+     *  edge rendering. Per-layer edits still win and are persisted with the
+     *  project / style file — these only seed a style that has never been
+     *  configured, exactly like nodePen()/linkPen() seed object symbology.
+     *
+     *  \p type is a mesh::MeshBCTypes::Type value (0 = Wall .. 6 = rating
+     *  curve). Out-of-range indices fold onto Wall.
+     *
+     *  Width has no Wall entry: Wall edges ARE the interior wireframe and
+     *  are drawn at the edge style's own lineWidthPx. */
+    [[nodiscard]] bool   meshBcColorByType() const;
+    void setMeshBcColorByType(bool on);
+
+    [[nodiscard]] QColor meshBcColor(int type) const;
+    void setMeshBcColor(int type, const QColor &color);
+
+    [[nodiscard]] double meshBcWidthPx(int type) const;
+    void setMeshBcWidthPx(int type, double px);
+
     // ── Simulation ───────────────────────────────────────────────────────
     /*! Progress-tick interval (ms) for live UI updates while a
      *  simulation runs. 1 Hz by default — short enough to feel live,
      *  long enough to not starve the event loop on small models. */
     [[nodiscard]] int progressTickMs() const;
     void setProgressTickMs(int ms);
+
+    /*! Live 2D results: maximum frames kept in memory while a run streams
+     *  (default 2000). Past the cap the older half is thinned 2:1; frames
+     *  keep their sim times. Range 100–200000. */
+    [[nodiscard]] int live2DHistoryCap() const;
+    void setLive2DHistoryCap(int frames);
+
+    /*! Live 2D results: byte budget (MB) for the frames kept in memory,
+     *  applied alongside the frame cap — the frame cap alone let a large mesh
+     *  hold gigabytes. Default 1024 MB, range 64–32768. */
+    [[nodiscard]] int live2DHistoryMB() const;
+    void setLive2DHistoryMB(int megabytes);
+
+    /*! Live 1D results: open the run's .out while the engine writes it and
+     *  grow the results layer (map animation, profile + comparison plots)
+     *  on every progress tick. Applies to the 6.x engine and the legacy
+     *  workers alike (both flush per report period). Default true. */
+    [[nodiscard]] bool liveResults1DEnabled() const;
+    void setLiveResults1DEnabled(bool on);
 
     /*! Default animation playback speed multiplier restored at startup.
      *  Valid values: 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 (mirrors the
@@ -323,7 +362,8 @@ public:
     /*! App-wide default for how chart plots render numbers, separately for
      *  the X and Y axes. A plot inherits these unless its own properties
      *  dialog overrides them. `*FormatMode` is `NumberFormatMode` as int
-     *  (0=Decimals, 1=SignificantFigures); `*Precision` is the digit count
+     *  (0=Decimals, 1=SignificantFigures, 2=Scientific, 3=Engineering,
+     *  4=Thousands); `*Precision` is the digit count
      *  (decimals 0–10, sig figs 1–10). Time/date axes are unaffected. */
     [[nodiscard]] int  plotXAxisFormatMode() const;  ///< Default 0 (Decimals)
     void setPlotXAxisFormatMode(int mode);
@@ -433,6 +473,15 @@ public:
         QString nodeContinuity      = QStringLiteral("SEMI_IMPLICIT");
         bool    andersonAccel       = true;
 
+        // Mixed-flow options (engine issue #156; GUI issue #10). Applies to
+        // dynamic-wave and FV routing; new-engine only like nodeContinuity.
+        // The sibling #156 keys deliberately do NOT live here:
+        // TPA_CELERITY follows the DPS_* rule (method-specific, engine-side
+        // default), FV_PRESSURE_CLOSURE follows the FV_* gap, and
+        // REPORT_SIGNED_HEADS follows the RPT_* rule (no report keys here).
+        QString unsteadyFriction    = QStringLiteral("NONE");  ///< UNSTEADY_FRICTION
+        double  ufK3                = 0.015;                   ///< UF_K3 (Vitkovsky k3)
+
         /*! THREADS option. 0 = let the engine auto-pick (default in INP). The
          *  GUI defaults the live value to QThread::idealThreadCount() so a
          *  fresh project starts maxed out, but the persisted preference is 0
@@ -481,11 +530,18 @@ public:
         double  meshSimplifyEpsM     = 0.1;
         double  meshSnapEpsM         = 0.01;
         double  meshNodeFlattenRadM  = 5.0;
+        // 2026-09-11: nodes pinned as Steiner vertices, at their rim
+        // elevation, with the minimum separation demoting close clusters —
+        // all on by default (virtual junctions are never pinned).
+        bool    meshNodesAsVertices  = true;  ///< nodes → Steiner vertices
+        bool    meshNodesUseRim      = true;  ///< rim elevation instead of terrain
         bool    meshMinNodeSepOn     = true;
         double  meshMinNodeSepM      = 2.0;
         bool    meshThinningOn       = true;
-        double  meshThinningTol      = 0.6;   ///< normal-dot threshold
-        int     meshThinningPasses   = 3;
+        double  meshThinningTol      = 0.75;  ///< normal-dot threshold
+        int     meshThinningPasses   = 1;
+        bool    meshMinSpacingOn     = true;  ///< Poisson-disk minimum terrain point spacing
+        double  meshMinSpacingM      = 15.0;  ///< the dialog rounds to whole model units
         double  meshBoundaryBufferM  = 0.0;   ///< 0 = (auto)
         bool    meshMaxBoundaryEdgeOn = false;
         double  meshMaxBoundaryEdgeM = 20.0;

@@ -91,6 +91,10 @@ enum class PlotAttribute {
     // F_e, m³/s). Flow is that value directly; unit-width flux is F_e ÷ edge length.
     Mesh2DEdgeFlux    = 36, ///< m²/s / ft²/s — unit-width flux q = F_e / edge length
     Mesh2DEdgeFlow    = 37, ///< m³/s / ft³/s — volumetric flow Q across a mesh edge (= F_e)
+
+    // ----- 2D mesh-cell rainfall (engine Mesh2_face_rainfall / _rain_cum) --
+    Mesh2DRainfall    = 38, ///< mm/hr / in/hr — rainfall intensity applied to the cell
+    Mesh2DRainVolume  = 39, ///< m³ / ft³ — cumulative rainfall volume applied to the cell
 };
 
 /*! \brief Short human label, e.g. "Depth", "Flow", "Velocity |V|". */
@@ -126,14 +130,25 @@ const QVector<PlotAttribute> &subcatchPlotAttributes();
  *  long-standing system picker menu: Rainfall first, Temperature last). */
 const QVector<PlotAttribute> &systemPlotAttributes();
 
-/*! \brief True iff the attribute is a 2D mesh quantity (CF.3). */
+/*! \brief The 7 per-2D-cell attributes, presentation order. */
+const QVector<PlotAttribute> &mesh2DCellPlotAttributes();
+
+/*! \brief The 2 per-2D-edge attributes (flow, unit-width flux). */
+const QVector<PlotAttribute> &mesh2DEdgePlotAttributes();
+
+/*! \brief The 2 per-2D-vertex attributes (depth, HGL — interpolated). */
+const QVector<PlotAttribute> &mesh2DVertexPlotAttributes();
+
+/*! \brief True iff the attribute is a 2D mesh-cell quantity (CF.3). */
 inline bool isMesh2DAttribute(PlotAttribute a) noexcept
 {
     return a == PlotAttribute::Mesh2DDepth      ||
            a == PlotAttribute::Mesh2DHGL        ||
            a == PlotAttribute::Mesh2DVelocityMag||
            a == PlotAttribute::Mesh2DVelocityX  ||
-           a == PlotAttribute::Mesh2DVelocityY;
+           a == PlotAttribute::Mesh2DVelocityY  ||
+           a == PlotAttribute::Mesh2DRainfall   ||
+           a == PlotAttribute::Mesh2DRainVolume;
 }
 
 /*! \brief True iff the attribute is a system-wide quantity (Slice AT.2).

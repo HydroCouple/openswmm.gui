@@ -76,8 +76,9 @@ void StatsSummaryPanel::loadNumberFormat()
     s.beginGroup(QStringLiteral("ComparisonPlotDialog/StatsFormat"));
     const int defaultMode = static_cast<int>(m_valueFormat.mode);
     const int mode = s.value(QStringLiteral("mode"), defaultMode).toInt();
-    m_valueFormat.mode = mode == static_cast<int>(NumberFormatMode::SignificantFigures)
-                             ? NumberFormatMode::SignificantFigures
+    m_valueFormat.mode = (mode >= static_cast<int>(NumberFormatMode::Decimals)
+                          && mode <= static_cast<int>(NumberFormatMode::Thousands))
+                             ? static_cast<NumberFormatMode>(mode)
                              : NumberFormatMode::Decimals;
     m_valueFormat.count = s.value(QStringLiteral("precision"), m_valueFormat.count).toInt();
     m_valueFormat.custom = s.value(QStringLiteral("custom"), m_valueFormat.custom).toString();
@@ -240,8 +241,17 @@ void StatsSummaryPanel::rebuildTabs()
         populateTab(table, r);
         applyColumnVisibility(table);
 
+        // Y2b-3: species rows label by the descriptor authority — a
+        // species row carries attribute == Unknown, and labelFor(Unknown)
+        // would caption the tab "Unknown".
+        const openswmmvis::plot::ResultDescriptor rowDesc =
+            row.species.isEmpty()
+                ? openswmmvis::plot::ResultDescriptor::forAttribute(
+                      row.attribute)
+                : openswmmvis::plot::ResultDescriptor::forSpecies(
+                      row.species);
         const QString tabLabel = QStringLiteral("%1 (%2)")
-            .arg(labelFor(row.attribute), row.unitsLabel);
+            .arg(rowDesc.label(), row.unitsLabel);
         m_tabs->addTab(table, tabLabel);
     }
 }

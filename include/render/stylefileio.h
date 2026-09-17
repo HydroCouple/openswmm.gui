@@ -30,9 +30,11 @@
 #ifndef OPENSWMM_RENDER_STYLEFILEIO_H
 #define OPENSWMM_RENDER_STYLEFILEIO_H
 
+#include <QJsonObject>
 #include <QString>
 #include <QStringList>
 
+class GISRasterLayer;
 class OpenSWMMVisLayer;
 
 namespace OpenSWMM::Render {
@@ -54,6 +56,27 @@ public:
      *  native (.swmm-style.json) vs QGIS (.qml) by the file extension
      *  (and falls back to content sniffing on extension mismatch). */
     static Result importStyle(OpenSWMMVisLayer *layer, const QString &path);
+
+    /*! In-memory counterparts of exportStyle / importNative — the same
+     *  JSON shape, no file involved. Used by LayerStyleDialog's Cancel /
+     *  undo machinery to snapshot + restore the full renderer state (kind
+     *  renderers, layer renderer, label config) that the per-subject
+     *  Q_PROPERTY snapshots don't cover. styleToJson ALWAYS includes
+     *  labelConfig (unlike exportStyle's file output, which elides the
+     *  default) so a restore can reset a mid-session label enable. */
+    static QJsonObject styleToJson(const OpenSWMMVisLayer *layer);
+    static Result applyStyleJson(OpenSWMMVisLayer *layer, const QJsonObject &root);
+
+    /*! Raster-layer style block — `{ renderBand, hillshade{…}, rasterRenderer
+     *  {…} }`. styleToJson/applyStyleJson merge it into the root object, and
+     *  ProjectSerializer nests the same block in the .oswp layer record, so
+     *  Cancel / undo / style files / projects all round-trip one shape.
+     *  applyRasterStyleJson restores in the order band → hillshade →
+     *  renderer, so the renderer restored last is authoritative (a band
+     *  change re-seeds a graduated renderer from band statistics). Missing
+     *  keys leave the corresponding state untouched. */
+    static QJsonObject rasterStyleToJson(const GISRasterLayer *layer);
+    static void applyRasterStyleJson(GISRasterLayer *layer, const QJsonObject &style);
 
 private:
     static Result importNative(OpenSWMMVisLayer *layer, const QString &path);

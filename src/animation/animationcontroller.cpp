@@ -203,6 +203,14 @@ void AnimationController::driverSetStep(int step)
     }
 }
 
+bool AnimationController::driverIsLive() const
+{
+    if (m_primaryLayer) return m_primaryLayer->isLive();
+    if (m_fallback2D)   return m_fallback2D->source()
+                                && m_fallback2D->source()->isLive();
+    return false;
+}
+
 QDateTime AnimationController::driverStartTime() const
 {
     // 2026-07-19 — use the REPORTED start (period 0's time), not the
@@ -328,7 +336,10 @@ void AnimationController::play()
     if (m_playing)
         return;
 
-    if (driverCurrentStep() >= driverTotalSteps() - 1)
+    // Parked at the end: rewind so Play restarts the animation. Not while
+    // live — there the tail is a "waiting for the next frame" position, so
+    // Play should resume following the stream, not jump back to the start.
+    if (driverCurrentStep() >= driverTotalSteps() - 1 && !driverIsLive())
         driverSetStep(0);
 
     // Slice Z.13-controller — reset direction at the start of every
@@ -452,19 +463,20 @@ void AnimationController::onTimerTick()
     }
 
     // Slice Z.13-controller — end-of-range behaviour comes from the
-    // primary's TemporalSpec when enabled. Three behaviours:
-    //   - default (spec disabled OR loop=false, pingPong=false): pause
-    //     on reaching the end. Preserves the legacy UX.
-    //   - loop=true, pingPong=false: wrap to rangeMin and keep playing.
+    // toolbar Cycle checkbox (m_loop, default on) OR the primary's
+    // TemporalSpec when enabled. Three behaviours:
+    //   - m_loop=false AND (spec disabled OR loop=false, pingPong=false):
+    //     pause on reaching the end. Preserves the legacy UX.
+    //   - loop: wrap to rangeMin and keep playing.
     //   - pingPong=true (implies loop=true per the spec doc): reverse
     //     direction and step backwards until hitting rangeMin, then
     //     reverse again. Forward-and-back forever.
-    bool loop     = false;
+    bool loop     = m_loop;
     bool pingPong = false;
     if (m_primaryLayer) {
         const auto &spec = m_primaryLayer->temporalSpec();
         if (spec.enabled) {
-            loop     = spec.loop || spec.pingPong;
+            loop     = loop || spec.loop || spec.pingPong;
             pingPong = spec.pingPong;
         }
     } else if (m_fallback2D) {
@@ -473,7 +485,7 @@ void AnimationController::onTimerTick()
         // handled in updateTimerInterval below.
         const auto &spec = m_fallback2D->temporalSpec();
         if (spec.enabled) {
-            loop     = spec.loop || spec.pingPong;
+            loop     = loop || spec.loop || spec.pingPong;
             pingPong = spec.pingPong;
         }
     }
@@ -502,6 +514,17 @@ void AnimationController::onTimerTick()
     if (next > rMax) {
         if (loop) {
             driverSetStep(rMin);
+        } else if (driverIsLive()) {
+            // Live rendering, Cycle off — frames are still streaming in, so
+            // reaching the end just means we caught up with the writer, not
+            // that playback is over. Park on the newest available frame and
+            // leave the timer running: the next tick picks up automatically
+            // once the range grows. Applies to both the 1D live tail and a
+            // live 2D mesh source (driverIsLive covers both). When the run
+            // ends the driver stops reporting live and the pause below takes
+            // over on the following tick.
+            if (cur != rMax)
+                driverSetStep(rMax);
         } else {
             pause();
         }

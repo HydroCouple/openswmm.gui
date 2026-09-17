@@ -33,6 +33,7 @@
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_edit.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
 
 // ===========================================================================
 // MapUndoStack
@@ -287,6 +288,45 @@ void MoveNodeCommand::undo()
         m_layer->applyLinkLength(rec.linkIdx, rec.oldLen);
 }
 
+MoveGageCommand::MoveGageCommand(SWMMModelLayer *layer,
+                                 int gageIdx,
+                                 double oldX, double oldY,
+                                 double newX, double newY,
+                                 MapCanvas *canvas,
+                                 QUndoCommand *parent)
+    : MapCommand(QObject::tr("Move Rain Gage"), canvas, parent),
+      m_layer(layer),
+      m_gageIdx(gageIdx),
+      m_oldX(oldX), m_oldY(oldY),
+      m_newX(newX), m_newY(newY)
+{
+}
+
+void MoveGageCommand::redo()
+{
+    if (!m_layer) return;
+    m_layer->applyGageMove(m_gageIdx, m_newX, m_newY);
+}
+
+void MoveGageCommand::undo()
+{
+    if (!m_layer) return;
+    m_layer->applyGageMove(m_gageIdx, m_oldX, m_oldY);
+}
+
+bool MoveGageCommand::mergeWith(const QUndoCommand *other)
+{
+    if (other->id() != id()) return false;
+    const auto *cmd = static_cast<const MoveGageCommand *>(other);
+    if (cmd->m_layer != m_layer || cmd->m_gageIdx != m_gageIdx)
+        return false;
+    // Collapse to the latest terminal coordinate; the original oldX/oldY
+    // stays so one undo returns to the pre-drag position.
+    m_newX = cmd->m_newX;
+    m_newY = cmd->m_newY;
+    return true;
+}
+
 bool MoveNodeCommand::mergeWith(const QUndoCommand *other)
 {
     if (other->id() != id()) return false;
@@ -357,6 +397,33 @@ void EditVertexCommand::undo()
     m_layer->applyLinkInteriorVertices(m_linkIdx, m_oldInterior);
     if (m_autoLengthApplied)
         m_layer->applyLinkLength(m_linkIdx, m_oldLen);
+}
+
+// ===========================================================================
+// FlipLinkCommand
+// ===========================================================================
+
+FlipLinkCommand::FlipLinkCommand(SWMMModelLayer *layer,
+                                 int linkIdx,
+                                 MapCanvas *canvas,
+                                 QUndoCommand *parent)
+    : MapCommand(QObject::tr("Flip Link Direction"), canvas, parent),
+      m_layer(layer),
+      m_linkIdx(linkIdx)
+{
+}
+
+// applyLinkFlip is self-inverse — flipping twice restores the original
+// endpoints, vertex order, offsets and loss coefficients — so both directions
+// are the same call.
+void FlipLinkCommand::redo()
+{
+    if (m_layer) m_layer->applyLinkFlip(m_linkIdx);
+}
+
+void FlipLinkCommand::undo()
+{
+    if (m_layer) m_layer->applyLinkFlip(m_linkIdx);
 }
 
 // ===========================================================================
@@ -675,6 +742,127 @@ void AddSubcatchmentCommand::undo()
 }
 
 // ===========================================================================
+// AssignSubcatchGagesCommand
+// ===========================================================================
+
+AssignSubcatchGagesCommand::AssignSubcatchGagesCommand(SWMMModelLayer *layer,
+                                                       QStringList     subcatchNames,
+                                                       QStringList     newGages,
+                                                       QStringList     oldGages,
+                                                       const QString  &text,
+                                                       MapCanvas      *canvas,
+                                                       QUndoCommand   *parent)
+    : MapCommand(text, canvas, parent)
+    , m_layer(layer)
+    , m_subcatchNames(std::move(subcatchNames))
+    , m_newGages(std::move(newGages))
+    , m_oldGages(std::move(oldGages))
+{}
+
+void AssignSubcatchGagesCommand::apply(const QStringList &gages)
+{
+    if (!m_layer || !m_layer->engine())
+        return;
+    SWMM_Engine eng = m_layer->engine();
+
+    for (int i = 0; i < m_subcatchNames.size() && i < gages.size(); ++i)
+    {
+        const QString &gage = gages[i];
+        if (gage.isEmpty())
+            continue;   // no prior gage to restore; SWMM cannot express "none"
+
+        // Resolve afresh every time: an intervening delete may have re-packed
+        // indices since this command was built.
+        const int sIdx =
+            swmm_subcatch_index(eng, m_subcatchNames[i].toUtf8().constData());
+        if (sIdx < 0)
+            continue;   // subcatchment gone (e.g. an undone add) — clean no-op
+        m_layer->applySubcatchSetGage(sIdx, gage);
+    }
+
+    if (m_canvas)
+        m_canvas->invalidate(MapCanvas::Scene,
+                             QStringLiteral("assign-subcatch-gages"));
+}
+
+void AssignSubcatchGagesCommand::redo() { apply(m_newGages); }
+void AssignSubcatchGagesCommand::undo() { apply(m_oldGages); }
+
+// ===========================================================================
+// ConfigureGageCommand
+// ===========================================================================
+
+ConfigureGageCommand::Config
+ConfigureGageCommand::capture(SWMMModelLayer *layer, const QString &gageName, bool *ok)
+{
+    Config c;
+    if (ok) *ok = false;
+    if (!layer || !layer->engine())
+        return c;
+
+    SWMM_Engine eng = layer->engine();
+    const int idx = swmm_gage_index(eng, gageName.toUtf8().constData());
+    if (idx < 0)
+        return c;
+
+    swmm_gage_get_data_source(eng, idx, &c.dataSource);
+    swmm_gage_get_rain_type(eng, idx, &c.rainType);
+    swmm_gage_get_rain_interval(eng, idx, &c.intervalSec);
+    swmm_gage_get_scale_factor(eng, idx, &c.scaleFactor);
+    swmm_gage_get_snow_factor(eng, idx, &c.snowFactor);
+
+    char buf[256] = {0};
+    if (swmm_gage_get_timeseries(eng, idx, buf, static_cast<int>(sizeof(buf))) == SWMM_OK)
+        c.timeseries = QString::fromUtf8(buf);
+
+    if (ok) *ok = true;
+    return c;
+}
+
+ConfigureGageCommand::ConfigureGageCommand(SWMMModelLayer *layer,
+                                           QString         gageName,
+                                           Config          newConfig,
+                                           Config          oldConfig,
+                                           MapCanvas      *canvas,
+                                           QUndoCommand   *parent)
+    : MapCommand(QObject::tr("Configure Rain Gage"), canvas, parent)
+    , m_layer(layer)
+    , m_gageName(std::move(gageName))
+    , m_new(std::move(newConfig))
+    , m_old(std::move(oldConfig))
+{}
+
+void ConfigureGageCommand::apply(const Config &c)
+{
+    if (!m_layer || !m_layer->engine())
+        return;
+    SWMM_Engine eng = m_layer->engine();
+    const int idx = swmm_gage_index(eng, m_gageName.toUtf8().constData());
+    if (idx < 0)
+        return;   // gage vanished (e.g. an undone add) — clean no-op
+
+    swmm_gage_set_rain_type(eng, idx, c.rainType);
+    swmm_gage_set_rain_interval(eng, idx, c.intervalSec);
+    swmm_gage_set_scale_factor(eng, idx, c.scaleFactor);
+    swmm_gage_set_snow_factor(eng, idx, c.snowFactor);
+
+    // Order matters: swmm_gage_set_timeseries validates that the series exists
+    // and sets the source itself, so it must run after the scalars and only
+    // when a series is actually named.
+    if (c.dataSource == SWMM_GAGE_TIMESERIES && !c.timeseries.isEmpty())
+        swmm_gage_set_timeseries(eng, idx, c.timeseries.toUtf8().constData());
+    else
+        swmm_gage_set_data_source(eng, idx, c.dataSource);
+
+    m_layer->markEdited();
+    if (m_canvas)
+        m_canvas->invalidate(MapCanvas::Scene, QStringLiteral("configure-gage"));
+}
+
+void ConfigureGageCommand::redo() { apply(m_new); }
+void ConfigureGageCommand::undo() { apply(m_old); }
+
+// ===========================================================================
 // DeleteObjectCommand (Slice F-2) — helpers
 // ===========================================================================
 
@@ -768,20 +956,38 @@ void DeleteObjectCommand::snapshotNode(const QString &name)
     swmm_node_get_ponded_area(eng,     idx, &m_node.pondedArea);
     swmm_node_is_virtual(eng,          idx, &m_node.isVirtual);
     swmm_node_get_rim_depth(eng,       idx, &m_node.rimDepth);
+    // Inlet junction: the flag AND its usage row. The row is stored with the
+    // design / capture-node NAMES because the delete renumbers both arrays.
+    swmm_node_is_inlet(eng,            idx, &m_node.isInlet);
+    if (m_node.isInlet) {
+        const int row = swmm_inlet_usage_find_node(eng, idx);
+        if (row >= 0
+            && swmm_inlet_usage_get(eng, row, &m_node.inletUsage) == SWMM_OK) {
+            m_node.hasInletUsage = true;
+            if (const char *d = swmm_inlet_id(eng, m_node.inletUsage.design_idx))
+                m_node.inletDesignId = QString::fromUtf8(d);
+            if (const char *c = swmm_node_id(eng, m_node.inletUsage.capture_node_idx))
+                m_node.captureNodeId = QString::fromUtf8(c);
+        }
+    }
     swmm_node_get_outfall_type(eng,    idx, &m_node.outfallType);
     swmm_node_get_outfall_flap_gate(eng, idx, &m_node.outfallFlapGate);
     swmm_node_get_storage_seep_rate(eng, idx, &m_node.seepRate);
     swmm_node_get_divider_type(eng,    idx, &m_node.dividerType);
 
-    // Snapshot cascade links (identified by node index before delete).
-    const int nLinks = swmm_link_count(eng);
-    for (int li = 0; li < nLinks; ++li) {
-        int n1 = -1, n2 = -1;
-        swmm_link_get_from_node(eng, li, &n1);
-        swmm_link_get_to_node(eng, li, &n2);
-        if (n1 == idx || n2 == idx)
-            m_cascadeLinks << snapshotLinkByIdx(eng, li);
+    // Snapshot cascade links. This runs BEFORE the delete, so use the
+    // read-only analyzer rather than scanning all L links with two getters
+    // each — the scan cost 2*L engine calls per command constructed, which
+    // for a selection of K nodes is O(K*L) before anything is even deleted.
+    SWMM_ImpactReport report{};
+    if (swmm_node_analyze_impact(eng, idx, &report) == 0) {
+        for (int i = 0; i < report.n_entries; ++i) {
+            const SWMM_ImpactEntry &e = report.entries[i];
+            if (e.obj_type == SWMM_REF_LINK && e.cascaded)
+                m_cascadeLinks << snapshotLinkByIdx(eng, e.obj_idx);
+        }
     }
+    swmm_impact_report_free(&report);
 }
 
 void DeleteObjectCommand::snapshotLink(const QString &name)
@@ -823,6 +1029,11 @@ void DeleteObjectCommand::snapshotSubcatch(const QString &name)
 
 void DeleteObjectCommand::redo()
 {
+    // Batch mode: the owning BatchDeleteCommand's swmm_*_delete_many call
+    // already deleted this object — this child exists for its snapshot and
+    // its undo() only.
+    if (m_engineAppliedByBatch) return;
+
     switch (m_kind) {
     case DeleteNode:    m_layer->applyNodeDelete(m_node.name);       break;
     case DeleteLink:    m_layer->applyLinkDelete(m_link.name);       break;
@@ -890,6 +1101,25 @@ void DeleteObjectCommand::restoreNode()
         if (idx >= 0) {
             swmm_node_set_rim_depth(eng, idx, m_node.rimDepth);
             m_layer->applySetVirtual(m_node.name, true, nullptr);
+        }
+    }
+
+    // Inlet role LAST of all: swmm_node_set_inlet re-checks the virtual rules
+    // plus 623 (both conduits STREET), so it can only pass once the cascade
+    // links are back and the node is virtual again. The usage row follows —
+    // the flag alone would leave the model failing validation with 633.
+    if (m_node.isInlet && m_layer->applySetInlet(m_node.name, true, nullptr)
+        && m_node.hasInletUsage) {
+        const int idx     = swmm_node_index(eng, m_node.name.toUtf8().constData());
+        const int design  = swmm_inlet_index(eng, m_node.inletDesignId.toUtf8().constData());
+        const int capture = swmm_node_index(eng, m_node.captureNodeId.toUtf8().constData());
+        if (idx >= 0 && design >= 0 && capture >= 0) {
+            SWMM_InletUsage u  = m_node.inletUsage;
+            u.host_kind        = SWMM_INLET_HOST_NODE;
+            u.host_idx         = idx;
+            u.design_idx       = design;
+            u.capture_node_idx = capture;
+            m_layer->applySetInletUsage(u, nullptr);
         }
     }
 }
@@ -979,6 +1209,42 @@ void AddAnnotationCommand::undo()
 }
 
 // ===========================================================================
+// BatchDeleteCommand  (perf-plan Phase A2)
+// ===========================================================================
+
+BatchDeleteCommand::BatchDeleteCommand(SWMMModelLayer *layer,
+                                       const QList<Target> &targets,
+                                       MapCanvas *canvas, const QString &text)
+    : BulkEditCommand(layer, text)
+    , m_layer(layer)
+{
+    // Children snapshot in construction order, BEFORE anything is deleted,
+    // so every snapshot (and its cascade-link analysis) sees pre-batch
+    // indices.  Their redo() are no-ops; undo() restores per-object in
+    // reverse creation order under the inherited BulkEdit scope.
+    for (const Target &t : targets) {
+        auto *child = new DeleteObjectCommand(layer, t.name, t.kind, canvas,
+                                              this);
+        child->setEngineAppliedByBatch(true);
+        switch (t.kind) {
+        case DeleteObjectCommand::DeleteNode:     m_nodeNames << t.name;     break;
+        case DeleteObjectCommand::DeleteLink:     m_linkNames << t.name;     break;
+        case DeleteObjectCommand::DeleteGage:     m_gageNames << t.name;     break;
+        case DeleteObjectCommand::DeleteSubcatch: m_subcatchNames << t.name; break;
+        }
+    }
+}
+
+void BatchDeleteCommand::redo()
+{
+    if (!m_layer) return;
+    SWMMModelLayer::BulkEdit guard(m_layer);
+    m_layer->applyDeleteMany(m_nodeNames, m_linkNames, m_subcatchNames,
+                             m_gageNames);
+    QUndoCommand::redo();   // children are snapshot-only no-ops
+}
+
+// ===========================================================================
 // DeleteDataObjectCommand  (Slice — GUI delete for data objects, 2026-07-22)
 // ---------------------------------------------------------------------------
 // Curve / TimeSeries / Transect deletion routed through the owning registry.
@@ -1033,33 +1299,33 @@ DeleteDataObjectCommand::DeleteDataObjectCommand(SWMMModelLayer      *layer,
 
 void DeleteDataObjectCommand::redo()
 {
+    // remove() is engine-authoritative since perf-plan Phase A3 (it deletes
+    // the engine table/transect itself), so the old full saveToEngine()
+    // reflush — which rewrote EVERY remaining provider's contents per
+    // delete, O(total data) — is gone.  The undo direction still reflushes
+    // (restore* below): re-creating one object is the rare path and the
+    // registries have no single-provider save.
     if (!m_layer) return;
     switch (m_ref.objectType) {
     case SWMMObjectRef::Curve: {
         auto *reg = dd_curveReg(m_layer);
         if (!reg) return;
-        if (auto *p = reg->findByName(m_ref.name)) {
-            reg->remove(p);                      // deletes the provider
-            reg->saveToEngine(m_layer->engine());
-        }
+        if (auto *p = reg->findByName(m_ref.name))
+            reg->remove(p);
         break;
     }
     case SWMMObjectRef::TimeSeries: {
         auto *reg = dd_tsReg(m_layer);
         if (!reg) return;
-        if (auto *p = reg->findByName(m_ref.name)) {
+        if (auto *p = reg->findByName(m_ref.name))
             reg->remove(p);
-            reg->saveToEngine(m_layer->engine());
-        }
         break;
     }
     case SWMMObjectRef::Transect: {
         auto *reg = dd_txReg(m_layer);
         if (!reg) return;
-        if (auto *p = reg->findByName(m_ref.name)) {
+        if (auto *p = reg->findByName(m_ref.name))
             reg->remove(p);
-            reg->saveToEngine(m_layer->engine());
-        }
         break;
     }
     default: break;
@@ -1227,6 +1493,114 @@ void InsertVirtualJunctionCommand::undo()
 }
 
 // ===========================================================================
+// InsertJunctionSplitCommand
+// ===========================================================================
+
+InsertJunctionSplitCommand::InsertJunctionSplitCommand(
+        SWMMModelLayer *layer, QString linkName, double t,
+        QString nodeName, QString newLinkName,
+        MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(QObject::tr("Insert Junction \"%1\"").arg(nodeName),
+                 canvas, parent),
+      m_layer(layer),
+      m_linkName(std::move(linkName)),
+      m_t(t),
+      m_nodeName(std::move(nodeName)),
+      m_newLinkName(std::move(newLinkName))
+{
+}
+
+void InsertJunctionSplitCommand::redo()
+{
+    if (!m_layer || m_present) return;
+    if (m_layer->applyInsertJunctionSplit(m_linkName, m_t,
+                                          m_nodeName, m_newLinkName))
+        m_present = true;
+}
+
+void InsertJunctionSplitCommand::undo()
+{
+    if (!m_layer || !m_present) return;
+    // Re-fusing the conduit pair is the exact engine-side inverse of the
+    // split. It can legitimately fail if the junction has since acquired a
+    // third link through a non-undoable edit; m_present then stays true so a
+    // later redo() does not attempt a second split.
+    if (m_layer->applyFuseJunctionSplit(m_nodeName))
+        m_present = false;
+}
+
+// ===========================================================================
+// InsertNodeSplitCommand
+// ===========================================================================
+
+namespace {
+constexpr int kNodeTypeJunction = 0;   // SWMM_NODE_JUNCTION
+}
+
+InsertNodeSplitCommand::InsertNodeSplitCommand(
+        SWMMModelLayer *layer, QString linkName, double t,
+        QString nodeName, QString newLinkName, int nodeType,
+        MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(QObject::tr("Insert Node \"%1\" on \"%2\"").arg(nodeName, linkName),
+                 canvas, parent),
+      m_layer(layer),
+      m_linkName(std::move(linkName)),
+      m_t(t),
+      m_nodeName(std::move(nodeName)),
+      m_newLinkName(std::move(newLinkName)),
+      m_nodeType(nodeType)
+{
+}
+
+void InsertNodeSplitCommand::redo()
+{
+    if (!m_layer || m_present) return;
+    m_warnings.clear();
+    m_retyped = false;
+    if (!m_layer->applyInsertJunctionSplit(m_linkName, m_t, m_nodeName, m_newLinkName))
+        return;
+    m_present = true;
+
+    if (m_nodeType == kNodeTypeJunction) {
+        m_retyped = true;   // nothing to convert — the split's junction IS the node
+        return;
+    }
+
+    QStringList cleared, warnings;
+    QString error;
+    if (!m_layer->applyNodeConvert(m_nodeName, m_nodeType, &cleared, &warnings, &error)) {
+        m_warnings << (error.isEmpty()
+                           ? QObject::tr("Could not convert \"%1\" to the requested node type.")
+                                 .arg(m_nodeName)
+                           : error);
+        return;   // the split stands; the node stays a junction
+    }
+    m_retyped = true;
+    m_warnings = warnings;
+
+    // Creation defaults for the new type (max depth, functional storage, …),
+    // exactly what a free placement gets from AddNodeCommand.
+    SWMM_Engine eng = m_layer->engine();
+    const int idx = swmm_node_index(eng, m_nodeName.toUtf8().constData());
+    if (idx >= 0)
+        ObjectDefaultsApplier::applyNodeDefaults(eng, idx, m_nodeType);
+}
+
+void InsertNodeSplitCommand::undo()
+{
+    if (!m_layer || !m_present) return;
+    // The fuse inverse borrows the virtual-junction path, which only accepts
+    // a JUNCTION — demote first (a no-op for a junction / a refused convert).
+    if (m_retyped && m_nodeType != kNodeTypeJunction) {
+        if (!m_layer->applyNodeConvert(m_nodeName, kNodeTypeJunction))
+            return;   // leave m_present so a later redo() does not re-split
+        m_retyped = false;
+    }
+    if (m_layer->applyFuseJunctionSplit(m_nodeName))
+        m_present = false;
+}
+
+// ===========================================================================
 // FuseVirtualJunctionCommand
 // ===========================================================================
 
@@ -1295,4 +1669,167 @@ void FuseVirtualJunctionCommand::undo()
     if (ni < 0) return;
     swmm_node_set_invert_elev(eng, ni, m_invert);
     m_layer->applyNodeMove(ni, m_x, m_y);
+}
+
+// ===========================================================================
+// SetInletUsageCommand
+// ===========================================================================
+
+SetInletUsageCommand::SetInletUsageCommand(
+        SWMMModelLayer *layer, const SWMM_InletUsage &newUsage, bool removing,
+        MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(removing ? QObject::tr("Remove Inlet")
+                          : QObject::tr("Edit Inlet"),
+                 canvas, parent),
+      m_layer(layer),
+      m_new(newUsage),
+      m_removing(removing)
+{
+    // Snapshot the host's prior row so undo can put it back verbatim; its
+    // absence is equally meaningful (undo then removes).
+    if (m_layer)
+        m_hadOld = m_layer->inletUsageFor(m_new.host_kind, m_new.host_idx, &m_old);
+}
+
+void SetInletUsageCommand::redo()
+{
+    if (!m_layer) return;
+    if (m_removing)
+        m_layer->applyRemoveInletUsage(m_new.host_kind, m_new.host_idx);
+    else
+        m_layer->applySetInletUsage(m_new);
+}
+
+void SetInletUsageCommand::undo()
+{
+    if (!m_layer) return;
+    if (m_hadOld)
+        m_layer->applySetInletUsage(m_old);
+    else
+        m_layer->applyRemoveInletUsage(m_new.host_kind, m_new.host_idx);
+}
+
+// ===========================================================================
+// InsertInletJunctionCommand
+// ===========================================================================
+
+InsertInletJunctionCommand::InsertInletJunctionCommand(
+        SWMMModelLayer *layer, QString linkName, double t,
+        QString nodeName, QString newLinkName,
+        QString inletId, QString captureNode,
+        MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(QObject::tr("Insert Inlet Junction \"%1\"").arg(nodeName),
+                 canvas, parent),
+      m_layer(layer),
+      m_linkName(std::move(linkName)),
+      m_t(t),
+      m_nodeName(std::move(nodeName)),
+      m_newLinkName(std::move(newLinkName)),
+      m_inletId(std::move(inletId)),
+      m_captureNode(std::move(captureNode))
+{
+}
+
+void InsertInletJunctionCommand::redo()
+{
+    if (!m_layer || m_present) return;
+    if (m_layer->applyInsertInletJunction(m_linkName, m_t, m_nodeName,
+                                          m_newLinkName, m_inletId,
+                                          m_captureNode))
+        m_present = true;
+}
+
+void InsertInletJunctionCommand::undo()
+{
+    if (!m_layer || !m_present) return;
+    // swmm_inlet_junction_fuse is the exact inverse of the split: it drops
+    // the usage row the split created, then fuses the pair back.
+    if (m_layer->applyFuseInletJunction(m_nodeName))
+        m_present = false;
+}
+
+// ===========================================================================
+// FuseInletJunctionCommand
+// ===========================================================================
+
+FuseInletJunctionCommand::FuseInletJunctionCommand(
+        SWMMModelLayer *layer, QString nodeName,
+        MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(QObject::tr("Fuse Inlet Junction \"%1\"").arg(nodeName),
+                 canvas, parent),
+      m_layer(layer),
+      m_nodeName(std::move(nodeName))
+{
+    // Same snapshot as FuseVirtualJunctionCommand plus the usage row, which
+    // the fuse deletes and the re-split cannot reconstruct beyond its
+    // defaults (1 inlet, 0 % clogged, no limit, AUTOMATIC placement).
+    if (!m_layer) return;
+    SWMM_Engine eng = m_layer->engine();
+    if (!eng) return;
+    const int ni = swmm_node_index(eng, m_nodeName.toUtf8().constData());
+    if (ni < 0) return;
+
+    int up = -1, dn = -1;
+    const int nLinks = swmm_link_count(eng);
+    for (int i = 0; i < nLinks; ++i) {
+        int n1 = -1, n2 = -1;
+        swmm_link_get_from_node(eng, i, &n1);
+        swmm_link_get_to_node(eng, i, &n2);
+        if (n2 == ni) up = i;
+        if (n1 == ni) dn = i;
+    }
+    if (up < 0 || dn < 0 || up == dn) return;
+
+    double lu = 0.0, ld = 0.0;
+    swmm_link_get_length(eng, up, &lu);
+    swmm_link_get_length(eng, dn, &ld);
+    if (lu + ld <= 0.0) return;
+
+    if (!m_layer->inletUsageFor(SWMM_INLET_HOST_NODE, ni, &m_usage)) return;
+    if (const char *d = swmm_inlet_id(eng, m_usage.design_idx))
+        m_inletId = QString::fromUtf8(d);
+    if (const char *c = swmm_node_id(eng, m_usage.capture_node_idx))
+        m_captureNode = QString::fromUtf8(c);
+    if (m_inletId.isEmpty() || m_captureNode.isEmpty()) return;
+
+    m_upLinkName = QString::fromUtf8(swmm_link_id(eng, up));
+    m_dnLinkName = QString::fromUtf8(swmm_link_id(eng, dn));
+    m_t = lu / (lu + ld);
+    swmm_node_get_invert_elev(eng, ni, &m_invert);
+    swmm_spatial_get_node_coord(eng, ni, &m_x, &m_y);
+    m_valid = true;
+}
+
+void FuseInletJunctionCommand::redo()
+{
+    if (!m_layer || !m_valid || m_present) return;
+    if (m_layer->applyFuseInletJunction(m_nodeName))
+        m_present = true;
+}
+
+void FuseInletJunctionCommand::undo()
+{
+    if (!m_layer || !m_present) return;
+    if (!m_layer->applyInsertInletJunction(m_upLinkName, m_t, m_nodeName,
+                                           m_dnLinkName, m_inletId,
+                                           m_captureNode))
+        return;
+    m_present = false;
+
+    SWMM_Engine eng = m_layer->engine();
+    if (!eng) return;
+    const int ni = swmm_node_index(eng, m_nodeName.toUtf8().constData());
+    if (ni < 0) return;
+    // Restore the grade-break invert and map coordinate (the split
+    // interpolates both), then the full usage row over the split's defaults.
+    swmm_node_set_invert_elev(eng, ni, m_invert);
+    m_layer->applyNodeMove(ni, m_x, m_y);
+
+    SWMM_InletUsage u = m_usage;
+    u.host_idx = ni;                            // indices may have shifted
+    u.capture_node_idx =
+        swmm_node_index(eng, m_captureNode.toUtf8().constData());
+    u.design_idx = swmm_inlet_index(eng, m_inletId.toUtf8().constData());
+    if (u.capture_node_idx >= 0 && u.design_idx >= 0)
+        m_layer->applySetInletUsage(u);
 }

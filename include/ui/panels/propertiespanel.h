@@ -15,6 +15,7 @@
 
 #include <QDockWidget>
 #include <QList>
+#include <QPointer>
 #include <QVariantMap>
 
 class QTreeView;
@@ -28,6 +29,7 @@ class QPropertyItemDelegate;
 #endif
 class OpenSWMMVisLayer;
 class SWMMModelLayer;
+class SWMMResultsLayer;
 class SWMMNodePropertyAdapter;
 class SWMMLinkPropertyAdapter;
 class SWMMSubcatchPropertyAdapter;
@@ -99,6 +101,17 @@ public:
      *  yet). Idempotent — repeated calls re-wire signals safely. */
     void setStatsRegistry(openswmmvis::OutputStatsRegistry *registry);
 
+    /*! Bind the project's ACTIVE 1D results layer so the panel's post-run
+     *  summary rows follow the active run the same way the Attribute
+     *  Table's dynamics columns do (SWMMVis calls this on tab activation
+     *  and on every activeResultsLayerChanged). Selects the layer's row in
+     *  the Stats-source combo — the combo remains a manual override until
+     *  the active layer next changes — and re-reads the stat rows whenever
+     *  the bound layer's results are (re)opened or finalized, so a re-run
+     *  into the same .out refreshes in place. Pass nullptr to fall back to
+     *  the "(editing engine)" sentinel. */
+    void setActiveResultsLayer(SWMMResultsLayer *layer);
+
     /*! Slice DA.2 — show a non-spatial Data Object (curve, time series,
      *  pattern, LID control, pollutant, land use, aquifer, snowpack,
      *  control rule, transect, hydrograph group, street, inlet, or
@@ -121,6 +134,11 @@ public slots:
      *  bound or the name doesn't match. */
     void onObjectEditedExternally(const QString &name);
 
+    /*! LINK_OFFSETS mode changed: a bound link's offset rows are labelled
+     *  "Inlet/Outlet Offset" vs "… Elevation", and the label is captured when
+     *  the adapter is bound, so replay the bind. No-op unless a link is shown. */
+    void onOffsetModeChanged();
+
 signals:
 
     /*!
@@ -140,6 +158,11 @@ signals:
      *  change.  Wired in `SWMMVis`.  Suppressed when the adapter's
      *  `changed()` was triggered by `onObjectEditedExternally`. */
     void objectEdited(const QString &name);
+
+    /*! \brief The rain gage "Plot Rainfall…" button was clicked; the main
+     *  window opens the shared Rainfall Visualization dialog focused on
+     *  \a gageId (the bound gage — empty if no adapter is bound). */
+    void rainfallPlotRequested(const QString &gageId);
 
 private slots:
     void onLayerComboIndexChanged(int index);
@@ -172,10 +195,20 @@ private:
      *  current selection by stableId when possible. */
     void refreshStatsSourceCombo();
 
-    /*! Slice QA.2 — push the combo's current selection into the bound
-     *  node adapter (idempotent; no-op when the node adapter is null
-     *  or the combo's payload is missing). */
+    /*! Slice QA.2 — push the combo's current selection into every bound
+     *  typed adapter (node / link / subcatchment; idempotent; no-op when
+     *  no adapter is bound or the combo's payload is missing), then
+     *  re-read the property values. Edit-forwarding is suppressed for
+     *  the duration — a stats-source change is a view change, not a
+     *  model edit. */
     void applyStatsSourceToAdapter();
+
+    /*! Re-read every property row from the bound adapters without
+     *  forwarding objectEdited (the values changed because a RUN
+     *  produced new statistics, not because the user edited the model).
+     *  Connected to the active results layer's resultsOpened /
+     *  resultsFinalized signals. */
+    void refreshAdapterStatValues();
 
     QTreeView                *m_treeView       = nullptr;
     QComboBox                *m_layerCombo     = nullptr;
@@ -185,6 +218,9 @@ private:
      *  category in its dedicated CRUD editor. Hidden unless a data
      *  adapter is bound to a category with a shipped editor. */
     QPushButton              *m_openEditorButton = nullptr;
+    /*! Rain gage extra — opens the Rainfall Visualization dialog. Visible
+     *  only while a rain gage adapter is bound. */
+    QPushButton              *m_plotRainGageButton = nullptr;
     /*! 2026-05-29 — DataCategory of the currently shown data adapter,
      *  or `NumDataCategories` when the panel is not showing a data
      *  object (spatial selection, layer properties, identify, or
@@ -218,6 +254,11 @@ private:
     /// Slice QA.2 — bound registry; null when no project is active. The
     /// panel never owns the registry (SWMMVisProjectWindow does).
     openswmmvis::OutputStatsRegistry *m_statsRegistry = nullptr;
+
+    /// The project's active 1D results layer (the run the Attribute
+    /// Table's dynamics columns read). QPointer — the layer may be
+    /// closed/destroyed at any time.
+    QPointer<SWMMResultsLayer> m_activeStatsLayer;
 };
 
 #endif // PROPERTIESPANEL_H

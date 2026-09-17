@@ -32,7 +32,6 @@
 #include <QAction>
 #include <QMenu>
 #include <QToolBar>
-#include <QToolButton>
 
 void SWMMVis::registerActions()
 {
@@ -170,17 +169,21 @@ void SWMMVis::initializeCompactToolbar()
         {"actionSelectDownstream",      QT_TR_NOOP("Downstream")},
         {"actionSelectByPolygon",       QT_TR_NOOP("Select by\nPolygon")},
         {"actionAddSWMMOutput",         QT_TR_NOOP("SWMM\nOutput")},
+        {"actionAdd2DResults",          QT_TR_NOOP("2D\nResults")},
         {"actionAddVectorData",         QT_TR_NOOP("Vector\nData")},
         {"actionAddRasterData",         QT_TR_NOOP("Raster\nData")},
         {"actionAddWMSData",            QT_TR_NOOP("Web\nLayers")},
         {"actionAddDelimeteredData",    QT_TR_NOOP("Delimited")},
         {"actionAddBasemap",            QT_TR_NOOP("Basemap")},
+        {"actionAddMesh2D",             QT_TR_NOOP("2D Mesh")},
         {"actionPauseExecution",        QT_TR_NOOP("Pause")},
         {"actionCancelExecution",       QT_TR_NOOP("Cancel")},
         // Model
         {"actionEditExisting",          QT_TR_NOOP("Edit\nExisting")},
         {"actionAddJunction",           QT_TR_NOOP("Junction")},
         {"actionAddVirtualJunction",    QT_TR_NOOP("Virtual\nJunction")},
+        {"actionAddJunctionSplit",      QT_TR_NOOP("Junction\non Conduit")},
+        {"actionAddInletJunction",      QT_TR_NOOP("Inlet\nJunction")},
         {"actionAddOutfall",            QT_TR_NOOP("Outfall")},
         {"actionAddFlowDivider",        QT_TR_NOOP("Flow\nDivider")},
         {"actionAddStorage",            QT_TR_NOOP("Storage")},
@@ -198,12 +201,18 @@ void SWMMVis::initializeCompactToolbar()
         {"actionNewPattern",            QT_TR_NOOP("Pattern")},
         {"actionNewControlRule",        QT_TR_NOOP("Control\nRule")},
         {"actionNewTransect",           QT_TR_NOOP("Transect")},
+        {"actionNewStreet",             QT_TR_NOOP("Street")},
+        {"actionNewInlet",              QT_TR_NOOP("Inlet")},
+        {"actionNewAquifer",            QT_TR_NOOP("Aquifer")},
         {"actionNewLidControl",         QT_TR_NOOP("LID\nControl")},
         {"actionNewPollutant",          QT_TR_NOOP("Pollutant")},
         {"actionNewLandUse",            QT_TR_NOOP("Land\nUse")},
+        {"actionEditReactionSystem",    QT_TR_NOOP("Reaction\nSystem")},
+        {"actionEditHeatConfig",        QT_TR_NOOP("Heat")},
         {"actionOptions",               QT_TR_NOOP("Simulation\nOptions")},
         {"actionUserFlags",             QT_TR_NOOP("User\nFlags")},
         {"actionImportFeatureLayer",    QT_TR_NOOP("Import\nFeature Layer")},
+        {"actionAssignRainGages",       QT_TR_NOOP("Assign\nRain Gages")},
         {"actionGenerateMesh",          QT_TR_NOOP("Generate\nMesh")},
         {"actionMeshAssignFromRaster",  QT_TR_NOOP("From\nRaster")},
         {"actionMeshAssignFromVector",  QT_TR_NOOP("From\nShapefile")},
@@ -219,6 +228,8 @@ void SWMMVis::initializeCompactToolbar()
         {"actionShowMassBalance",       QT_TR_NOOP("Mass\nBalance")},
         {"actionPlotTimeSeries",        QT_TR_NOOP("Time\nSeries")},
         {"actionPlotProfile",           QT_TR_NOOP("Profile")},
+        {"actionPlotProfile2D",         QT_TR_NOOP("2D Profile")},
+        {"actionExport2DResults",       QT_TR_NOOP("Export\n2D Results")},
         // Results
         {"actionSkipBack",              QT_TR_NOOP("Skip\nBack")},
         {"actionSkipForward",           QT_TR_NOOP("Skip\nForward")},
@@ -230,6 +241,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionToggleDockProperties",       QT_TR_NOOP("Properties")},
         {"actionToggleDockSectionView",      QT_TR_NOOP("Section\nView")},
         {"actionToggleDockAttributeTable",   QT_TR_NOOP("Attribute\nTable")},
+        {"actionToggleDockFeatures",         QT_TR_NOOP("Features")},
         {"actionToggleDockLegend",           QT_TR_NOOP("Legend")},
         {"actionToggleDockSimulationStatus", QT_TR_NOOP("Simulation\nStatus")},
         {"actionToggleDockMessageLogs",      QT_TR_NOOP("Message\nLogs")},
@@ -267,9 +279,10 @@ void SWMMVis::initializeCompactToolbar()
     // Iteration 3 — import sources unstacked: every source is its own
     // button (auto-compact still demotes the group when width demands).
     addGroup(mToolBarHome, tr("Import"),
-             {"actionAddSWMMOutput", "actionAddVectorData",
-              "actionAddRasterData", "actionAddWMSData",
-              "actionAddDelimeteredData", "actionAddBasemap"});
+             {"actionAddSWMMOutput", "actionAdd2DResults",
+              "actionAddVectorData", "actionAddRasterData",
+              "actionAddWMSData", "actionAddDelimeteredData",
+              "actionAddBasemap", "actionAddMesh2D"});
     addGroup(mToolBarHome, tr("Run"),
              {"actionExecute", "actionPauseExecution", "actionCancelExecution"});
 
@@ -280,13 +293,15 @@ void SWMMVis::initializeCompactToolbar()
     // Iteration 3 — node/link tools unstacked into captioned groups so
     // every draw tool is a visible, individually-toggled button.
     addGroup(mToolBarModel, tr("Nodes"),
-             {"actionAddJunction", "actionAddVirtualJunction", "actionAddOutfall",
-              "actionAddFlowDivider", "actionAddStorage"});
+             {"actionAddJunction", "actionAddJunctionSplit",
+              "actionAddVirtualJunction", "actionAddInletJunction",
+              "actionAddOutfall", "actionAddFlowDivider", "actionAddStorage"});
     addGroup(mToolBarModel, tr("Links"),
              {"actionAddPipe", "actionAddPump", "actionAddOrifice",
               "actionAddWeir", "actionAddOutlet"});
-    addGroup(mToolBarModel, tr("Draw"),
-             {"actionAddSubcatchment", "actionRainGauge", "actionAddText"});
+    addGroup(mToolBarModel, tr("Subcatchments"), {"actionAddSubcatchment"});
+    addGroup(mToolBarModel, tr("Rain Gages"),    {"actionRainGauge"});
+    addGroup(mToolBarModel, tr("Annotation"),    {"actionAddText"});
     {
         auto *group = new RibbonGroup(tr("Climate"), this);
         group->addFamily(QStringLiteral("climate"),
@@ -299,11 +314,41 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarModel, tr("Data Objects"),
              {"actionNewTimeSeries", "actionNewCurve", "actionNewPattern",
               "actionNewControlRule", "actionNewTransect",
-              "actionNewLidControl", "actionNewPollutant",
-              "actionNewLandUse"});
+              "actionNewStreet", "actionNewInlet",
+              "actionNewAquifer", "actionNewLidControl", "actionNewPollutant",
+              "actionNewLandUse", "actionEditReactionSystem",
+              "actionEditHeatConfig"});
     addGroup(mToolBarModel, tr("Setup"),
              {"actionOptions", "actionUserFlags", "actionImportFeatureLayer"});
+    addGroup(mToolBarModel, tr("Tools"), {"actionAssignRainGages"});
     addGroup(mToolBarModel, tr("Mesh 2D"), {"actionGenerateMesh"});
+
+    // Features — editable, GeoPackage-backed layers the user draws
+    // (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §5.1). Its own tab rather
+    // than a Model group: the drawing tools are modal and there are eight of
+    // them, and none of it edits the SWMM network.
+    mToolBarFeatures = new QToolBar(tr("Features"), this);
+    mToolBarFeatures->setObjectName(QStringLiteral("toolBarFeatures"));
+    // Select leads, exactly as it does on the Model bar: the drawing tools
+    // are modal, so getting back to plain selection is the most frequent
+    // next action and must not cost a tab switch. Same QAction instance as
+    // Home and Model — RibbonGroup adds a button bound to it, it does not
+    // reparent — so all three faces stay checked/unchecked together.
+    addGroup(mToolBarFeatures, tr("Select"), {"actionSelect"});
+    addGroup(mToolBarFeatures, tr("Layer"),  {"actionNewFeatureLayer"});
+    addGroup(mToolBarFeatures, tr("Edit"),   {"actionFeatureEditMode",
+                                              "actionFeatureDelete"});
+    addGroup(mToolBarFeatures, tr("Draw"),   {"actionFeatureDrawPoint",
+                                              "actionFeatureDrawLine",
+                                              "actionFeatureDrawPolygon"});
+    addGroup(mToolBarFeatures, tr("Modify"), {"actionFeatureAddPart",
+                                              "actionFeatureAddHole",
+                                              "actionFeatureEditVertex",
+                                              "actionFeatureMove"});
+    // The Features dock toggle is NOT here: it belongs with every other dock
+    // toggle in View > Panels, which is where a user goes looking for a panel
+    // they closed. Putting it on this tab too would mean the one place it is
+    // unreachable is the tab you land on after closing it.
 
     mToolBarMesh2D = new QToolBar(tr("Mesh 2D"), this);
     mToolBarMesh2D->setObjectName(QStringLiteral("toolBarMesh2D"));
@@ -318,7 +363,7 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarView, tr("Panels"),
              {"actionToggleDockLayers", "actionToggleDockObjectBrowser",
               "actionToggleDockProperties", "actionToggleDockSectionView",
-              "actionToggleDockAttributeTable",
+              "actionToggleDockAttributeTable", "actionToggleDockFeatures",
               "actionToggleDockLegend", "actionToggleDockSimulationStatus",
               "actionToggleDockMessageLogs"});
     addGroup(mToolBarView, tr("Styling"),
@@ -343,29 +388,13 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarAnalysis, tr("Report"),
              {"actionSummarizeResults", "actionReport", "actionTabularView"});
     mGroupPlots = addGroup(mToolBarAnalysis, tr("Plots"),
-                           {"actionPlotTimeSeries", "actionPlotProfile"});
+                           {"actionPlotTimeSeries", "actionPlotProfile",
+                            "actionPlotProfile2D"});
     addGroup(mToolBarAnalysis, tr("Network Analysis"),
              {"actionFlowBalanceDownstream", "actionFlowBalanceUpstream",
               "actionTravelTimeDownstream", "actionTravelTimeUpstream",
               "actionShowMassBalance"});
-
-    // US.A2 — explicit override dropdown on the Plot Profile face: force
-    // a Network or 2D-Surface profile even when both are loaded. Moved
-    // here from initializeMapTools() (R3): the ribbon button must exist
-    // before a menu can be attached to it.
-    {
-        auto *menu = new QMenu(this);
-        QAction *net  = menu->addAction(tr("Network Profile…"));
-        QAction *surf = menu->addAction(tr("Surface (2D mesh) Profile…"));
-        connect(net,  &QAction::triggered, this,
-                [this]() { onPlotProfileTriggered(1); });
-        connect(surf, &QAction::triggered, this,
-                [this]() { onPlotProfileTriggered(2); });
-        if (auto *btn = mGroupPlots->buttonForAction(ui->actionPlotProfile)) {
-            btn->setMenu(menu);
-            btn->setPopupMode(QToolButton::MenuButtonPopup);
-        }
-    }
+    addGroup(mToolBarAnalysis, tr("Export"), {"actionExport2DResults"});
 
     // Left-pack (iteration 3): groups are horizontally Fixed, so an
     // Expanding zero-min trailing spacer absorbs the leftover row width
@@ -374,7 +403,7 @@ void SWMMVis::initializeCompactToolbar()
     // takes the slack there. RibbonCompactor discounts the spacer's one
     // inter-item spacing by objectName.
     for (QToolBar *bar : {mToolBarHome, mToolBarModel, mToolBarMesh2D,
-                          mToolBarView, mToolBarAnalysis}) {
+                          mToolBarView, mToolBarAnalysis, mToolBarFeatures}) {
         auto *spacer = new QWidget(bar);
         spacer->setObjectName(QStringLiteral("ribbonBarSpacer"));
         spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -398,6 +427,11 @@ void SWMMVis::initializeCompactToolbar()
                             QList<QToolBar *>{mToolBarMesh2D,
                                               static_cast<QToolBar *>(mMeshEditingToolbar)},
                             /*contextual*/ true);
+    // Non-contextual: the New Feature Layer action must be reachable before
+    // any feature layer exists, so the tab cannot be gated on having one.
+    // Its actions are still project-gated by applyProjectOpenToActions.
+    mCompactToolbar->addTab(QStringLiteral("features"), tr("Features"),
+                            {mToolBarFeatures});
     mCompactToolbar->addTab(QStringLiteral("analysis"), tr("Analysis"),
                             {mToolBarAnalysis});
     mCompactToolbar->addTab(QStringLiteral("results"), tr("Results"),
@@ -411,7 +445,8 @@ void SWMMVis::initializeCompactToolbar()
     // (promotions only past the 32 px dead band). Terrain/MeshEditing
     // sibling bars host no groups and stay as-is.
     for (QToolBar *bar : {mToolBarHome, mToolBarModel, mToolBarMesh2D,
-                          mToolBarView, mToolBarAnalysis, mToolBarAnimation}) {
+                          mToolBarView, mToolBarAnalysis, mToolBarAnimation,
+                          mToolBarFeatures}) {
         const auto groups = bar->findChildren<RibbonGroup *>(
             Qt::FindDirectChildrenOnly);
         if (!groups.isEmpty())

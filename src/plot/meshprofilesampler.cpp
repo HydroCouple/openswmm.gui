@@ -81,6 +81,11 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
     if (out.hasResults)
         vertMax = results->maxDepthPerVertex();
 
+    // 2D depths are engine SI metres; the ground line (mesh layer Z) is in the
+    // mesh's own units (feet on a US model). Scale depths onto the mesh units
+    // so WSE = ground + depth and the axis label (project length unit) agree.
+    const double dToMesh = results ? results->depthToMeshUnits() : 1.0;
+
     // Mesh-triangle index per emitted sample, parallel to out.samples. Drives
     // the cell-boundary crossing pass below (where the line leaves one mesh
     // cell for the next). Kept on the mesh (ground) triangulation so it works
@@ -102,8 +107,8 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
                 // Barycentric (smooth) depth + envelope — same interpolation
                 // basis as the ground line, so WSE = ground + depth no longer
                 // steps at cell boundaries (matches the contour map).
-                s.depthNow = results->depthAtSceneInterp(sp);
-                s.maxDepth = results->maxDepthAtSceneInterp(sp, vertMax);
+                s.depthNow = results->depthAtSceneInterp(sp) * dToMesh;
+                s.maxDepth = results->maxDepthAtSceneInterp(sp, vertMax) * dToMesh;
                 s.cellHasSurface = results->cellHasSurface(tri);
             }
         }

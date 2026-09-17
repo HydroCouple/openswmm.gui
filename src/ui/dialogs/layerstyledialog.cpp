@@ -21,12 +21,15 @@
 #include "render/stylefileio.h"
 #include "ui/dialogs/crsselectiondialog.h"
 #include "layers/openswmmvislayer.h"
+#include "layers/gisrasterlayer.h"
 #include "layers/gisvectorlayer.h"
 #include "layers/gisvectorsymboladapter.h"   // G-1/G-2 — tabbed point/line/polygon editor
+#include "ui/dialogs/rastersymbologypanel.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "layers/swmm2dresultslayer.h"
 #include "layers/swmm2dmeshlayer.h"
+#include "ui/dialogs/swmm2dmeshstylepanel.h"
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
 #include "layers/wcslayer.h"
 #include "layers/wmslayer.h"
@@ -77,11 +80,22 @@ namespace {
 
 // #36 — app-level undo for symbology edits. Captures the layer's style-subject
 // snapshots before/after a dialog session and restores them on undo/redo by
-// re-acquiring styleSubjects() (the subjects write through to the layer). This
-// covers exactly what the dialog's snapshot/Cancel mechanism covers.
-void applyStyleSnapshots(OpenSWMMVisLayer *layer, const std::vector<QJsonObject> &snaps)
+// re-acquiring styleSubjects() (the subjects write through to the layer).
+//
+// Adapter-ownership refactor: the styleJson pair carries the FULL renderer
+// state (kind renderers, layer renderer, label config) via
+// StyleFileIO::styleToJson/applyStyleJson — the piece the per-subject
+// Q_PROPERTY snapshots never covered (KindRendererPanel & co. write through
+// setKindRenderer, not through adapters). Apply order: renderers first (a
+// SingleSymbol install back-writes the legacy structs), then the subject
+// snapshots so struct-level detail wins.
+void applyStyleSnapshots(OpenSWMMVisLayer *layer,
+                         const QJsonObject &styleJson,
+                         const std::vector<QJsonObject> &snaps)
 {
     if (!layer) return;
+    if (!styleJson.isEmpty())
+        OpenSWMM::Render::StyleFileIO::applyStyleJson(layer, styleJson);
     auto subs = layer->styleSubjects();
     const size_t n = std::min(subs.size(), snaps.size());
     for (size_t i = 0; i < n; ++i)
@@ -92,23 +106,29 @@ class EditLayerStyleCommand : public QUndoCommand
 {
 public:
     EditLayerStyleCommand(OpenSWMMVisLayer *layer,
+                          QJsonObject styleBefore, QJsonObject styleAfter,
                           std::vector<QJsonObject> before,
                           std::vector<QJsonObject> after)
-        : m_layer(layer), m_before(std::move(before)), m_after(std::move(after))
+        : m_layer(layer),
+          m_styleBefore(std::move(styleBefore)),
+          m_styleAfter(std::move(styleAfter)),
+          m_before(std::move(before)), m_after(std::move(after))
     {
         setText(QCoreApplication::translate("LayerStyleDialog", "Edit layer style")
                 + (layer ? QStringLiteral(" — %1").arg(layer->objectName()) : QString()));
     }
-    void undo() override { applyStyleSnapshots(m_layer.data(), m_before); }
+    void undo() override { applyStyleSnapshots(m_layer.data(), m_styleBefore, m_before); }
     void redo() override
     {
         // QUndoStack::push fires redo() immediately; the layer is already in
         // the "after" state (edits applied live), so the first redo is a
         // harmless re-apply.
-        applyStyleSnapshots(m_layer.data(), m_after);
+        applyStyleSnapshots(m_layer.data(), m_styleAfter, m_after);
     }
 private:
     QPointer<OpenSWMMVisLayer> m_layer;
+    QJsonObject                m_styleBefore;
+    QJsonObject                m_styleAfter;
     std::vector<QJsonObject>   m_before;
     std::vector<QJsonObject>   m_after;
 };
@@ -399,6 +419,10 @@ LayerStyleDialog::LayerStyleDialog(OpenSWMMVisLayer *layer,
         readFromLayer();
         snapshotSubjects();
         m_undoBaseline = m_subjectSnapshots;   // #36 — open-time state for undo
+        // Full renderer-state baseline (kind renderers + label config) —
+        // the part Cancel/undo can't reconstruct from subject snapshots.
+        m_styleSnapshot     = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
+        m_undoStyleBaseline = m_styleSnapshot;
         focusInitialSubject();
     }
 
@@ -589,15 +613,15 @@ void LayerStyleDialog::buildSymbologyTab()
         // colour/shape styling stays on the layer-tree sub-rows.
         auto *panel = new Swmm2DResultsStylePanel(r2d, page);
         root->addWidget(panel, 1);
-    } else if (qobject_cast<SWMM2DMeshLayer *>(m_layer.data())) {
-        // The 2D mesh layer's terrain styling (hillshade light + relief,
-        // bed-elevation contours, and per-sublayer fill/edge/node styles)
-        // lives on styleSubjects() + the StyleEditorRegistry
-        // (MeshHillshadeEditor), NOT on a single renderer — so the generic
-        // SymbologyTab below would show none of it. Build the subjects panel:
-        // a "Mesh / TIN" tab (hillshade + contour controls) plus a
-        // "Sublayers" group with each sublayer style.
-        root->addWidget(buildSubjectsPanel(m_subjects, page), 1);
+    } else if (auto *m2d = qobject_cast<SWMM2DMeshLayer *>(m_layer.data())) {
+        // Per-sublayer tabbed panel (Terrain Fill / Elevation Bands /
+        // Isolines / Mesh Edges / Mesh Vertices / Boundary Conditions /
+        // Coupled Nodes) — the mirror of the 2D results branch above.
+        // Replaces the combined "Mesh / TIN" form (MeshHillshadeEditor,
+        // retired). styleSubjects() still supplies the snapshot/undo
+        // coverage for the layer's hillshade props + every sublayer bag.
+        auto *panel = new Swmm2DMeshStylePanel(m2d, page);
+        root->addWidget(panel, 1);
     } else if (qobject_cast<GISVectorLayer *>(m_layer.data())) {
         // G-1/G-2 — GIS vector uses its purpose-built tabbed editor
         // (Marker / Line / Polygon / Labels). It writes the GISVectorSymbol
@@ -618,8 +642,16 @@ void LayerStyleDialog::buildSymbologyTab()
             ctx.hostLayer = m_layer.data();
             root->addWidget(new SymbologyTab(ctx, page), 1);
         }
+    } else if (auto *ras = qobject_cast<GISRasterLayer *>(m_layer.data())) {
+        // GIS raster / DEM — renderer chooser (Singleband pseudocolor /
+        // Paletted / Multiband colour) over the shared ClassificationEditor,
+        // the paletted class table, RGB band picks and the hillshade group.
+        // Writes live into the layer's IRasterRenderer; Cancel / undo
+        // restore through StyleFileIO's raster block.
+        root->addWidget(OpenSWMM::Ui::wrapInScrollArea(
+                            new RasterSymbologyPanel(ras, page), page), 1);
     } else {
-        // Single-renderer layers (raster/DEM, 2D mesh).
+        // Single-renderer layers (2D mesh).
         RendererPanelContext ctx;
         ctx.hostLayer = m_layer.data();
         auto *tab = new SymbologyTab(ctx, page);
@@ -1013,10 +1045,19 @@ void LayerStyleDialog::restoreSubjectsFromSnapshot()
 void LayerStyleDialog::focusInitialSubject()
 {
     if (m_initialRoutingId.isEmpty()) return;
-    // Until Slice X.5 lands the tree-based Symbology, just bring the
-    // Symbology tab to the foreground when an initialRoutingId is provided.
+    // Bring the Symbology tab to the foreground when an initialRoutingId is
+    // provided. Compare with the mnemonic ampersand stripped — the tab is
+    // added as tr("S&ymbology"), so a literal compare against tr("Symbology")
+    // never matches.
+    const auto plainTabText = [](QString t) {
+        t.remove(QLatin1Char('&'));
+        return t;
+    };
+    // Compare against the SAME translated source string the tab was added
+    // with ("S&ymbology") so the match survives translation.
+    const QString target = plainTabText(tr("S&ymbology"));
     for (int i = 0; i < m_tabs->count(); ++i) {
-        if (m_tabs->tabText(i) == tr("Symbology")) {
+        if (plainTabText(m_tabs->tabText(i)) == target) {
             m_tabs->setCurrentIndex(i);
             // Walk the inner QTabWidget if present.
             auto *inner = m_tabs->widget(i)->findChild<QTabWidget *>();
@@ -1041,6 +1082,10 @@ void LayerStyleDialog::onApply()
 {
     writeGeneralRenderingToLayer();
     snapshotSubjects();
+    // Apply commits the current state as the new Cancel baseline — including
+    // the full renderer JSON (kind renderers + label config).
+    if (m_layer)
+        m_styleSnapshot = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
     m_snapshotName    = m_layer ? m_layer->name()     : m_snapshotName;
     m_snapshotVisible = m_layer ? m_layer->isVisible() : m_snapshotVisible;
     m_snapshotOpacity = m_layer ? m_layer->opacity()  : m_snapshotOpacity;
@@ -1051,16 +1096,20 @@ void LayerStyleDialog::onAccept()
     writeGeneralRenderingToLayer();
 
     // #36 — if an undo stack was supplied and the symbology actually changed,
-    // push one command capturing the open-time vs final subject snapshots so
-    // the whole dialog edit is a single undoable step after the dialog closes.
+    // push one command capturing the open-time vs final state (full renderer
+    // JSON + subject snapshots) so the whole dialog edit is a single
+    // undoable step after the dialog closes.
     if (m_undoStack && m_layer && !m_subjects.empty()) {
         std::vector<QJsonObject> after;
         after.reserve(m_subjects.size());
         for (const auto &s : m_subjects)
             after.push_back(s ? s->snapshot() : QJsonObject{});
-        if (after != m_undoBaseline)
+        const QJsonObject styleAfter =
+            OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
+        if (after != m_undoBaseline || styleAfter != m_undoStyleBaseline)
             m_undoStack->push(new EditLayerStyleCommand(
-                m_layer.data(), m_undoBaseline, std::move(after)));
+                m_layer.data(), m_undoStyleBaseline, styleAfter,
+                m_undoBaseline, std::move(after)));
     }
     accept();
 }
@@ -1074,16 +1123,22 @@ void LayerStyleDialog::onCancel()
             m_layer->setVisible(m_snapshotVisible);
         if (!qFuzzyCompare(m_layer->opacity(), m_snapshotOpacity))
             m_layer->setOpacity(m_snapshotOpacity);
+
+        // Adapter-ownership refactor — Cancel now rolls SYMBOLOGY back too.
+        // The historical reason this was disabled (the dialog's m_subjects
+        // wrapped different adapter instances from the ones the panels
+        // edited, so restoring wrote a stale parallel copy) is gone: every
+        // surface edits the layer's persistent adapters, and the snapshots
+        // taken at open/Apply time are authoritative. Renderer state (kind
+        // renderers, label config) is restored from the full-style JSON
+        // first, then subject snapshots re-apply struct-level detail.
+        const QJsonObject styleNow =
+            OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
+        if (styleNow != m_styleSnapshot)
+            OpenSWMM::Render::StyleFileIO::applyStyleJson(m_layer,
+                                                          m_styleSnapshot);
+        restoreSubjectsFromSnapshot();
     }
-    // NOTE: symbology edits are applied live to the layer's renderer/struct as
-    // the user edits (and reflected on the map immediately), so they are
-    // treated as committed — Cancel does NOT revert them. Reverting here
-    // restored a *separate, stale* styleSubjects() snapshot (the dialog's
-    // m_subjects are different adapter instances from the ones the Symbology
-    // panel edits), which clobbered the user's change back to the open-time
-    // colour. Only the explicit name / visibility / opacity fields above are
-    // rolled back on Cancel.
-    //   restoreSubjectsFromSnapshot();   // intentionally disabled — see above
     reject();
 }
 
@@ -1135,10 +1190,16 @@ void LayerStyleDialog::onImportStyle()
                                   tr("Imported with warnings:\n\n%1")
                                       .arg(res.warnings.join(QChar('\n'))));
     }
-    // Re-snapshot subjects so Cancel doesn't try to revert what we
-    // just imported, and refresh tab editors against the new state.
-    if (m_layer)
+    // Re-baseline EVERYTHING so Cancel/undo treat the import as the new
+    // reference state instead of reverting it: subjects, their snapshots,
+    // the undo baseline, and the full-style JSON.
+    if (m_layer) {
         m_subjects = m_layer->styleSubjects();
+        snapshotSubjects();
+        m_undoBaseline      = m_subjectSnapshots;
+        m_styleSnapshot     = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
+        m_undoStyleBaseline = m_styleSnapshot;
+    }
 }
 
 void LayerStyleDialog::onPickCRS()
