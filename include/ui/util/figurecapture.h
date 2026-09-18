@@ -5,8 +5,8 @@
  * \license GPL-3.0-or-later
  * \brief  Manifest-driven screenshot capture for the user manual's figures.
  *
- * The manual (docs/manual/) declares every screenshot as \figtodo{file,caption}
- * and turns into \fig{file,caption} once the PNG exists in
+ * The manual (docs/manual/) declares every screenshot as a \c \\figtodo
+ * placeholder and turns it into \c \\fig once the PNG exists in
  * docs/manual/images/. This class produces those PNGs without a human at the
  * keyboard: SWMMVIS_CAPTURE_MANIFEST=<abs .json> names a list of figures, each
  * describing the UI state to reach and the widget to grab.
@@ -56,6 +56,7 @@ struct FigureSpec {
     QString    widget;              //!< objectName to grab, resolved under the host
     bool       wholeWindow = false; //!< grab the main window itself
     QString    page;                //!< tab / list-row text to select in the target
+    QString    tab;                 //!< sub-tab to select after \a page (sidebar + tab)
     QSize      size;                //!< resize the target before grabbing
     FigureLane lane        = FigureLane::Offscreen;
     int        settleMs    = 0;     //!< extra settle before the grab (0 = default)

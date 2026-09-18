@@ -217,6 +217,7 @@ bool FigureCapture::loadManifest(QString *error)
         spec.widget      = o.value(QStringLiteral("widget")).toString();
         spec.wholeWindow = o.value(QStringLiteral("window")).toBool(false);
         spec.page        = o.value(QStringLiteral("page")).toString();
+        spec.tab         = o.value(QStringLiteral("tab")).toString();
         spec.size     = sizeFromString_(o.value(QStringLiteral("size")).toString());
         spec.lane     = laneFromString_(o.value(QStringLiteral("lane")).toString());
         spec.settleMs = o.value(QStringLiteral("settleMs")).toInt(0);
@@ -382,6 +383,20 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         dismissDialogs();
         finishSpec(r);
         return;
+    }
+
+    // A sidebar page often carries its own tab strip: let the page switch lay
+    // out first, then pick the tab inside whatever it revealed.
+    if (!spec.tab.isEmpty()) {
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        if (!selectPage(target, spec.tab)) {
+            r.status    = QStringLiteral("failed");
+            r.detail    = QStringLiteral("no tab matching '%1'").arg(spec.tab);
+            r.elapsedMs = int(mSpecTimer.elapsed());
+            dismissDialogs();
+            finishSpec(r);
+            return;
+        }
     }
 
     // Let the resize / page switch lay out before the pixels are read.
