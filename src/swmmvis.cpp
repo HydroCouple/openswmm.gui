@@ -83,6 +83,7 @@
 #include "ui/mdiworkspacechrome.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
+#include "ui/util/figurecapture.h"
 #include "io/gdaldrivers.h"
 #include "ui/dialogs/sublayerselectiondialog.h"
 #include <QScreen>
@@ -368,6 +369,14 @@ SWMMVis::SWMMVis(QWidget *parent)
         QTimer::singleShot(0, this, [this, startupInp]() {
             openSingleINP(startupInp);
         });
+
+    // Dev/testing hook — SWMMVIS_CAPTURE_MANIFEST=<json> drives a whole list of
+    // user-manual figures to PNG and quits (docs/manual/figures.json). Pairs
+    // with SWMMVIS_OPEN_ON_STARTUP above: one launch per model captures every
+    // figure that model serves. No-op unless the env var names a manifest.
+    if (auto *capture =
+            openswmmvis::ui::FigureCapture::createIfRequested(this, this))
+        capture->start();
 }
 
 SWMMVis::~SWMMVis()
