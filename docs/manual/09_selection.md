@@ -90,7 +90,7 @@ halo, polygon outline and glyph outline, and the fill brush for polygonal and
 glyph classes. A link pen width is *additive*: a width of 2 means a 2 px halo
 on top of the link's own pen.
 
-\figtodo{09_select_tool_preferences.png, Preferences → Selection with the click tolerance; drag threshold and selection pens}
+\fig{09_select_tool_preferences.png, Preferences → Selection with the click tolerance; drag threshold and selection pens}
 
 ### Select by Polygon
 

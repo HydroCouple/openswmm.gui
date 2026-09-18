@@ -22,7 +22,7 @@ modifies a model that is already open; the *Simulation Defaults* and *Object
 Defaults* pages only affect what happens next — a new project, or the next
 object you draw.
 
-\figtodo{04_preferences_general.png, The Preferences dialog with the category list on the left and the General page selected}
+\fig{04_preferences_general.png, The Preferences dialog with the category list on the left and the General page selected}
 
 ## Step-by-step
 
@@ -86,7 +86,7 @@ on the next keypress.
 | **Clear selection when clicking empty space** | Whether a miss deselects |
 | **Selection Pens & Fills** | A property tree with the stroke pen for each selection class (link halo, polygon outline, glyph outline) and the fill brush for the polygonal and glyph classes. Expand a row for colour, width, style, dash, cap and join. **Link pen width is additive** — a width of 2 draws a 2 px halo on top of the link's own pen |
 
-\figtodo{04_preferences_selection.png, The Selection page with the Selection Pens and Fills property tree expanded}
+\fig{04_preferences_selection.png, The Selection page with the Selection Pens and Fills property tree expanded}
 
 ### Canvas & CRS
 
@@ -117,7 +117,7 @@ per group in the table below.
 
 See \ref manual_styling and \ref manual_performance.
 
-\figtodo{04_preferences_rendering.png, The Rendering page with the Link Pens tree and the GPU rendering checkboxes}
+\fig{04_preferences_rendering.png, The Rendering page on the Links & Nodes tab with the Link Pens and Node Symbols trees — GPU rendering has its own tab}
 
 ### Simulation
 
@@ -180,7 +180,7 @@ OpenSWMM 6.
 | **Rainfall & reporting** | Direct 2D rainfall (Natural neighbour; System mean; None) · Report 2D results | `RAINFALL_MODE`; `REPORT_2D` |
 | **Mesh generation defaults** | Minimum triangle angle · Maximum triangle area (m²) · Maximum Steiner points · IDW power · Simplify tolerance · Snap tolerance · Nodes as mesh vertices (except virtual junctions) · Use node rim elevation instead of terrain · Node flatten radius · Enforce minimum node separation and its distance · Thin DTM points with tolerance and pass count · Minimum terrain point spacing · Boundary point filter buffer · Densify long boundary edges with a maximum edge length · Constant Manning's n · Constant initial depth · write the mesh to an external `.2dm` | The mesh generator's starting values |
 
-\figtodo{04_preferences_2d_defaults.png, Simulation Defaults - the 2D Solver tab beside the 2D Mesh tab}
+\fig{04_preferences_2d_defaults.png, Simulation Defaults - the 2D Solver tab beside the 2D Mesh tab}
 
 ### Object Defaults
 
@@ -202,7 +202,7 @@ The page is a four-tab form:
 **Reset to defaults** restores both sets to the compiled-in seeds — you still have
 to press **Apply** or **OK**.
 
-\figtodo{04_preferences_object_defaults.png, The Object Defaults page on the Links tab with the unit-system selector at the top}
+\fig{04_preferences_object_defaults.png, The Object Defaults page on the Links tab with the unit-system selector at the top}
 
 ### Map Display
 
@@ -284,7 +284,7 @@ updates the other. The mode drives a token-based palette and a small style-sheet
 overlay on Qt's Fusion style, and action icons are re-tinted through the
 theme-aware icon factory.
 
-\figtodo{04_preferences_appearance.png, The Appearance page with the System; Light and Dark radio buttons}
+\fig{04_preferences_appearance.png, The Appearance page with the System; Light and Dark radio buttons}
 
 ### Keyboard
 

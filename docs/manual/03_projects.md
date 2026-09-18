@@ -403,7 +403,7 @@ discards them. Two changes are destructive and ask for confirmation first:
 removing a flag that is already defined, and changing the type of a flag that may
 carry values. A round that actually changed something marks the project dirty.
 
-\figtodo{03_user_flags_dialog.png, The User Flags dialog with three flag definitions of different types}
+\fig{03_user_flags_dialog.png, The User Flags dialog with four flag definitions — one of each type}
 
 #### User Flag Values — the per-object editor
 
