@@ -10,7 +10,7 @@ Almost every control on this dialog maps to one `[OPTIONS]` key (or one
 `[2D_OPTIONS]`, `[REPORT]`, `[FILES]`, `[EVENTS]` or `[PLUGINS]` entry) in the
 `.inp` file.
 
-\figtodo{18_options_dialog.png, The Simulation Options dialog with the category sidebar and the Models / Processes page}
+\fig{18_options_dialog.png, The Simulation Options dialog with the category sidebar and the Models / Processes page}
 
 ## Where to find it
 
@@ -70,11 +70,11 @@ list** and **Numbered list**. When the dialog was opened from a project window
 the formatted text is kept in the project's `.oswp` sidecar; the plain text
 always round-trips through the engine into `[TITLE]`.
 
-\figtodo{18_title_notes.png, The Title / Notes page with its formatting toolbar}
+\fig{18_title_notes.png, The Title / Notes page with its formatting toolbar}
 
 ### Models / Processes
 
-\figtodo{18_models_processes.png, The Models / Processes page — the Domains & Processes tab with the process models and the transport matrix}
+\fig{18_models_processes.png, The Models / Processes page — the Domains & Processes tab with the process models and the transport matrix}
 
 Three tabs: **Domains & Processes**, **Modules** and **Flags**.
 
@@ -127,7 +127,7 @@ Mesh page — mesh generation works regardless — but the coupled run does not.
 
 ### Dates & Times
 
-\figtodo{18_dates_times.png, The Dates & Times page — the Simulation Window tab}
+\fig{18_dates_times.png, The Dates & Times page — the Simulation Window tab}
 
 Three tabs: **Simulation Window**, **Time Steps** and **Events**.
 
@@ -186,7 +186,7 @@ non-blocking warning you can override.
 
 ### Routing & Hydraulics
 
-\figtodo{18_routing_hydraulics.png, The Routing & Hydraulics page — the FLOW_ROUTING header above four contextual tabs}
+\fig{18_routing_hydraulics.png, The Routing & Hydraulics page — the FLOW_ROUTING header above four contextual tabs}
 
 The headline page of the dialog. **Flow routing** sits in a page header above
 the tab bar, always visible, and gates three of the four tabs below it:
@@ -294,7 +294,7 @@ deck sets it. Decks that set the retired `FV_NODE_COUPLING`, `FV_NODE_DT`,
 `FV_NODE_PICARD` or `VIRTUAL_JUNCTION_MOMENTUM FULL` still open; the engine
 warns once and uses the built-in behaviour.
 
-\figtodo{18_fv_groups.png, The finite-volume solver and performance groups enabled under FV routing}
+\fig{18_fv_groups.png, The finite-volume solver and performance groups enabled under FV routing}
 
 **Finite volume performance** — also FV-only:
 
@@ -319,7 +319,7 @@ it — it belongs to neither alone.
 
 ### Quality & Transport
 
-\figtodo{18_quality_transport.png, The Quality & Transport page — the QUALITY_SOLVER header above four contextual tabs}
+\fig{18_quality_transport.png, The Quality & Transport page — the QUALITY_SOLVER header above four contextual tabs}
 
 The sidebar row itself greys out on a model with nothing to transport — no
 pollutants, no water age, no heat.
@@ -390,7 +390,7 @@ open.
 
 ### System / Performance
 
-\figtodo{18_performance.png, The System / Performance page with the thread spin and the effective-thread summary}
+\fig{18_performance.png, The System / Performance page with the thread spin and the effective-thread summary}
 
 | Control | Meaning | Writes |
 | --- | --- | --- |
@@ -416,7 +416,7 @@ The `IGNORE_*` flags are on *Models / Processes*, not here — they are about
 
 ### Spatial & CRS
 
-\figtodo{18_spatial_crs.png, The Spatial & CRS page showing the layer CRS and the model extent}
+\fig{18_spatial_crs.png, The Spatial & CRS page showing the layer CRS and the model extent}
 
 | Control | What it shows | Writes |
 | --- | --- | --- |
@@ -431,7 +431,7 @@ bar (see \ref manual_crs).
 
 ### Mesh
 
-\figtodo{18_mesh_page.png, The Mesh page listing candidate .2dm files next to the project}
+\fig{18_mesh_page.png, The Mesh page listing candidate .2dm files next to the project}
 
 This page picks which 2D mesh configuration the engine reads. It lists every
 `*.2dm` file sitting next to the project `.inp`, plus a synthetic
@@ -460,7 +460,7 @@ project has no value for a key, the page shows the corresponding default from
 Five tabs: **Hydrodynamics**, **Wetting & Drying**, **Coupling**, **Processes**
 and **Performance & Output**.
 
-\figtodo{18_2d_options.png, The 2D Surface Routing page — the Hydrodynamics tab with the explicit marcher}
+\fig{18_2d_options.png, The 2D Surface Routing page — the Hydrodynamics tab with the explicit marcher}
 
 #### Hydrodynamics
 
@@ -595,7 +595,7 @@ tutorials that mention a CVODE solver, linear solver or preconditioner for the
 This page has three nested sub-tabs so the unrelated concerns do not compete for
 vertical space.
 
-\figtodo{18_files_subtab.png, The Files sub-tab with the secondary file references and the scheduled hot-start saves}
+\fig{18_files_subtab.png, The Files sub-tab with the secondary file references and the scheduled hot-start saves}
 
 **Files sub-tab.** *Secondary file references (.inp [FILES] section)* — each row
 is a path picker showing the path relative to the project directory, with a
@@ -619,7 +619,7 @@ as *(end of run)* to write at the end of the simulation; otherwise the engine
 writes when the simulation clock crosses that time. Both cells are always-open
 editors, so no click-to-edit is needed.
 
-\figtodo{18_output_subtab.png, The Output sub-tab with writer combos and the report contents group}
+\fig{18_output_subtab.png, The Output sub-tab with writer combos and the report contents group}
 
 **Output sub-tab.** *Writer / Container* selects which plugin drives each of the
 three writer roles:
@@ -658,7 +658,7 @@ round-trips comma-separated; an empty list collapses to `NONE`. They write
 folder, matching extension). The **Browse…** filters follow the extension the
 selected writer plugin advertises.
 
-\figtodo{18_plugins_subtab.png, The Plugins sub-tab editing the model's PLUGINS section}
+\fig{18_plugins_subtab.png, The Plugins sub-tab editing the model's PLUGINS section}
 
 **Plugins sub-tab.** A two-column table over the model's `[PLUGINS]` section:
 

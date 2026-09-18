@@ -1,0 +1,128 @@
+{
+  "_comment": [
+    "Capture manifest for the user manual's figures (docs/manual/images/).",
+    "Driven by scripts/capture_manual_figures.sh, which launches the app with",
+    "SWMMVIS_CAPTURE_MANIFEST pointed here. One launch per 'model' group.",
+    "",
+    "Row fields: name (must match a live \\figtodo), action (ActionCatalog id),",
+    "widget (objectName), window (grab the main window), page (sidebar/tab text),",
+    "tab (sub-tab after page), size (WxH), lane (offscreen|live|human), settleMs.",
+    "",
+    "lane:'live' rows need a real display — scene-graph content reads back blank",
+    "under the offscreen platform. lane:'human' rows are native menus/pickers the",
+    "engine refuses to drive; they are listed in tests/manual/manual_figures/."
+  ],
+
+  "defaults": {
+    "outDir": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/output/manual_figures",
+    "theme": "light",
+    "window": "1600x1000",
+    "maxWidth": 1400,
+    "renderScale": 2.0,
+    "startupMs": 3000,
+    "settleMs": 700
+  },
+
+  "models": {
+    "_comment": "Passed to the launcher as SWMMVIS_OPEN_ON_STARTUP, not read by the engine.",
+    "twod": "docs/manual/tutorials/models/2d_complete_example.inp",
+    "site": "examples/site_drainage/site_drainage_model.inp",
+    "transport": "docs/manual/tutorials/models/transport_demo.inp"
+  },
+
+  "figures": [
+    {
+      "name": "18_options_dialog.png",
+      "action": "model.simulationOptions",
+      "page": "Models / Processes",
+      "size": "980x760"
+    },
+    {
+      "name": "18_title_notes.png",
+      "action": "model.simulationOptions",
+      "page": "Title / Notes",
+      "size": "980x760"
+    },
+    {
+      "name": "18_models_processes.png",
+      "action": "model.simulationOptions",
+      "page": "Models / Processes",
+      "tab": "Domains & Processes",
+      "size": "980x760"
+    },
+    {
+      "name": "18_dates_times.png",
+      "action": "model.simulationOptions",
+      "page": "Dates & Times",
+      "tab": "Simulation Window",
+      "size": "980x760"
+    },
+    {
+      "name": "18_routing_hydraulics.png",
+      "action": "model.simulationOptions",
+      "page": "Routing & Hydraulics",
+      "size": "980x760"
+    },
+    {
+      "name": "18_performance.png",
+      "action": "model.simulationOptions",
+      "page": "System / Performance",
+      "size": "980x760"
+    },
+    {
+      "name": "18_spatial_crs.png",
+      "action": "model.simulationOptions",
+      "page": "Spatial & CRS",
+      "size": "980x760"
+    },
+    {
+      "name": "18_mesh_page.png",
+      "action": "model.simulationOptions",
+      "page": "Mesh",
+      "size": "980x760"
+    },
+    {
+      "name": "18_2d_options.png",
+      "action": "model.simulationOptions",
+      "page": "2D Surface Routing",
+      "tab": "Hydrodynamics",
+      "size": "980x760"
+    },
+    {
+      "name": "18_files_subtab.png",
+      "action": "model.simulationOptions",
+      "page": "Files / Output / Plugins",
+      "tab": "Files",
+      "size": "980x760"
+    },
+    {
+      "name": "18_output_subtab.png",
+      "action": "model.simulationOptions",
+      "page": "Files / Output / Plugins",
+      "tab": "Output",
+      "size": "980x760"
+    },
+    {
+      "name": "18_plugins_subtab.png",
+      "action": "model.simulationOptions",
+      "page": "Files / Output / Plugins",
+      "tab": "Plugins",
+      "size": "980x760"
+    },
+
+    {
+      "_note": "Both of these need a model whose routing/quality settings make the page live; captured on a separate launch, not with the 'twod' group.",
+      "name": "18_fv_groups.png",
+      "action": "model.simulationOptions",
+      "page": "Routing & Hydraulics",
+      "tab": "Finite Volume",
+      "size": "980x760"
+    },
+    {
+      "name": "18_quality_transport.png",
+      "action": "model.simulationOptions",
+      "page": "Quality & Transport",
+      "size": "980x760"
+    }
+  ]
+}
