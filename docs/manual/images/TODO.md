@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 312 figures, 37 videos. Published so far: 14.
+Remaining: 312 figures, 35 videos. Published so far: 14.
 
 ## 01_introduction.md
 

@@ -58,9 +58,11 @@
       "size": "980x760"
     },
     {
+      "_note": "Pin the tab. Without it the page inherits whichever tab a previous capture left current, which produced a greyed Finite Volume tab under a dynamic-wave model instead of the default Routing tab.",
       "name": "18_routing_hydraulics.png",
       "action": "model.simulationOptions",
       "page": "Routing & Hydraulics",
+      "tab": "Routing",
       "size": "980x760"
     },
     {
@@ -122,6 +124,7 @@
       "name": "18_quality_transport.png",
       "action": "model.simulationOptions",
       "page": "Quality & Transport",
+      "tab": "General",
       "size": "980x760"
     }
   ]
