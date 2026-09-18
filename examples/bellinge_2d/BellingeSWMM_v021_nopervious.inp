@@ -5,6 +5,7 @@
 [OPTIONS]
 ;;Option               Value
 FLOW_UNITS           CMS
+CRS                  EPSG:25832
 INFILTRATION         HORTON
 FLOW_ROUTING         DYNWAVE
 LINK_OFFSETS         DEPTH

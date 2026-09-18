@@ -343,6 +343,52 @@ TEST(BellingeExample, CuratedPayloadIsSelfContained)
                             QDir::Files).isEmpty());
 }
 
+// The deck must declare its CRS, and it must be the one the mesh was built in.
+//
+// Bellinge's coordinates are ETRS89 / UTM 32N eastings and northings, but the
+// deck shipped without an [OPTIONS] CRS line. With no CRS the model layer falls
+// back to `[MAP] Units` — which this deck sets to NONE, so localFromMapUnits()
+// yields a LOCAL_CS. The project then opens unprojected: basemaps, WMS and the
+// EPSG:4326 DEM have no real frame to transform against, and because the result
+// is "Local (m)" rather than "Untitled (Local)" the CRS picker never prompts.
+// Only the .2dm header recorded the truth, and that tag is parsed into
+// MeshData::sourceCrsTag but never applied to a layer SRS.
+//
+// Asserting both sides here keeps them from drifting apart again: the deck is
+// what the engine reads (swmm_get_crs -> the layer SRS, and crsAssigned() true
+// so it round-trips on save), the .2dm tag is what the mesh was generated in.
+TEST(BellingeExample, DeclaresTheProjectedCrsAndAgreesWithTheMesh)
+{
+    const QString dir = QStringLiteral(BELLINGE_EXAMPLE_DIR);
+    ASSERT_TRUE(QFileInfo(dir).isDir()) << dir.toStdString();
+
+    QFile inp(dir + QStringLiteral("/BellingeSWMM_v021_nopervious.inp"));
+    ASSERT_TRUE(inp.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString deck = QString::fromUtf8(inp.readAll());
+
+    // The [OPTIONS] CRS key, as the engine's reader sees it: whitespace-split,
+    // value = second token.
+    const QRegularExpression crsLine(
+        QStringLiteral("^CRS[ \\t]+(\\S+)"),
+        QRegularExpression::MultilineOption);
+    const QRegularExpressionMatch m = crsLine.match(deck);
+    ASSERT_TRUE(m.hasMatch())
+        << "the Bellinge deck declares no [OPTIONS] CRS - it will open as a "
+           "local, unprojected model";
+    EXPECT_EQ(m.captured(1), QStringLiteral("EPSG:25832"));
+
+    // The mesh header records the frame the mesh was generated in.
+    QFile mesh(dir + QStringLiteral("/BellingeSWMM_v021_nopervious.2dm"));
+    ASSERT_TRUE(mesh.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString head = QString::fromUtf8(mesh.read(4096));
+    const QRegularExpressionMatch sm =
+        QRegularExpression(QStringLiteral(";;\\s*SOURCE_CRS:\\s*(\\S+)")).match(head);
+    ASSERT_TRUE(sm.hasMatch()) << "the .2dm lost its SOURCE_CRS tag";
+    EXPECT_EQ(sm.captured(1), m.captured(1))
+        << "deck CRS and mesh SOURCE_CRS disagree - the mesh would be placed "
+           "in a different frame from the network";
+}
+
 // ── Curated SWASHES payload guard ───────────────────────────────────────────
 // The 10 analytical-verification cases imported by
 // scripts/import_swashes_examples.py. Input files only: the QA suite that
