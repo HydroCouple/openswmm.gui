@@ -159,6 +159,9 @@ QWidget *PreferencesDialog::buildGeneralPage()
     m_defaultEngineCombo->addItem(
         tr("SWMM %1 (legacy)").arg(QLatin1String(OPENSWMM_LEGACY_FULL_VERSION)),
         QLatin1String(LEGACY_SWMM_VERSION));
+#ifdef SWMMVIS_HAVE_ENGINE_524
+    m_defaultEngineCombo->addItem(tr("SWMM 5.2.4 (EPA)"), QStringLiteral("5.2.4"));
+#endif
     m_defaultEngineCombo->setToolTip(tr(
         "Engine version selected by default when a new project opens. "
         "The status-bar engine picker remains available for per-project overrides."));

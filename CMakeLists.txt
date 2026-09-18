@@ -127,6 +127,11 @@ include(FetchQPropertyModel)
 include(FetchOpenSWMMEngine)
 include(FetchHydroCoupleOgc)
 
+# ── Additional engine versions shipped as subprocess workers ────────────────
+# EPA SWMM 5.2.4 (pinned tag on the build-v5.2.4 branch), compiled statically
+# into openswmm-legacy-worker-5.2.4 and bundled beside the 5.3.0 worker.
+include(EngineVersions)
+
 # ── Triangle (Shewchuk) — vendored at vendor/triangle/. Compiled as a small
 #    static C library and linked into SWMMVis. See Slice AU. License is
 #    Shewchuk's research/institutional-free terms — already documented at
@@ -2057,6 +2062,27 @@ if(APPLE)
             "legacy (EPA-SWMM) engine option will fail to start a worker process.")
     endif()
 
+    # Bundle the EPA SWMM 5.2.4 worker (openswmm-legacy-worker-5.2.4, built by
+    # cmake/EngineVersions.cmake). Static solver → no engine dylib to copy; its
+    # only non-system dependency is @rpath/libomp.dylib, already in
+    # Contents/Frameworks above, reached through the added rpath once the
+    # Homebrew rpaths are deleted (same idiom as the GPU plugin). The genex
+    # in a POST_BUILD command adds no build dependency, hence add_dependencies.
+    if(TARGET openswmm_legacy_worker_524)
+        add_dependencies(SWMMVis openswmm_legacy_worker_524)
+        set(_worker524 "${_swmmvis_macos}/$<TARGET_FILE_NAME:openswmm_legacy_worker_524>")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                    "$<TARGET_FILE:openswmm_legacy_worker_524>" "${_swmmvis_macos}/"
+            COMMAND install_name_tool -add_rpath "@loader_path/../Frameworks" "${_worker524}"
+            COMMAND sh -c "for p in /opt/homebrew/opt/libomp/lib /usr/local/opt/libomp/lib; do install_name_tool -delete_rpath \"$p\" \"$0\" 2>/dev/null; done; true"
+                    "${_worker524}"
+            COMMAND codesign --force --sign "${_codesign_identity}" "${_worker524}"
+            COMMENT "Bundle SWMM 5.2.4 legacy worker (static) into SWMMVis.app"
+            VERBATIM
+        )
+    endif()
+
     # Refactored-engine command-line runner (openswmm). Shipped so the solver can
     # be driven without the GUI — batch runs, scripting, CI — from a single
     # install:
@@ -2272,6 +2298,19 @@ elseif(WIN32)
             "legacy (EPA-SWMM) engine option will fail to start a worker process.")
     endif()
 
+    # EPA SWMM 5.2.4 worker (static, built by cmake/EngineVersions.cmake): copy
+    # beside the exe like the 5.3.0 one. Its install rule lives with the target.
+    if(TARGET openswmm_legacy_worker_524)
+        add_dependencies(SWMMVis openswmm_legacy_worker_524)
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:openswmm_legacy_worker_524>"
+                    "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Bundle SWMM 5.2.4 legacy worker alongside SWMMVis.exe"
+            VERBATIM
+        )
+    endif()
+
     # Refactored-engine command-line runner, so the solver can be driven without
     # the GUI (batch runs, scripting, CI) from a single install:
     #     openswmm.exe model.inp [rpt] [out]
@@ -2407,6 +2446,20 @@ else()
         message(WARNING
             "openswmm-legacy-worker not found at ${_legacy_worker} — the GUI's "
             "legacy (EPA-SWMM) engine option will fail to start a worker process.")
+    endif()
+
+    # EPA SWMM 5.2.4 worker (static, built by cmake/EngineVersions.cmake): copy
+    # beside the binary like the 5.3.0 one. libgomp is handled by linuxdeploy as
+    # for the GPU plugin. Its install rule lives with the target.
+    if(TARGET openswmm_legacy_worker_524)
+        add_dependencies(SWMMVis openswmm_legacy_worker_524)
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:openswmm_legacy_worker_524>"
+                    "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Bundle SWMM 5.2.4 legacy worker alongside SWMMVis"
+            VERBATIM
+        )
     endif()
 
     # Refactored-engine command-line runner, so the solver can be driven without

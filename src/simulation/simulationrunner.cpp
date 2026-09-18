@@ -15,6 +15,7 @@
 #include "core/preferencesmanager.h"
 #include "core/swmmdatetime.h"
 #include "mesh/meshcellgeom.h"   // mesh::kEdgeStride / edgeSlot — 2D edge-slot layout
+#include "legacy_version.h"      // LEGACY_SWMM_VERSION — the unversioned worker's engine
 
 #include <QDateTime>
 #include <QDir>
@@ -118,24 +119,32 @@ QDateTime oaDateToQDateTime(double oaDate)
 }
 
 /**
- * @brief Find the openswmm-legacy-worker executable.
+ * @brief Find the legacy worker executable for a 5.x engine version.
  *
- * Searches in:
+ * Workers are versioned: `openswmm-legacy-worker-<version>` (the 5.2.4 one is
+ * built by cmake/EngineVersions.cmake). The unversioned `openswmm-legacy-worker`
+ * the 6.x engine install ships IS the 5.3.0 worker, so it is accepted as a
+ * fallback for LEGACY_SWMM_VERSION only — never for any other version, or a
+ * missing 5.2.4 worker would silently run the model on 5.3.0.
+ *
+ * Searches, for each candidate name, in:
  *  1. Same directory as the current executable
  *  2. {app_dir}/bin/{CONFIG}/ (debug/release subdirs)
  *  3. {app_dir}/../bin/{CONFIG}/
- *  4. System PATH
  *
- * @return Path to worker executable, or empty string if not found.
+ * @return Absolute path to the worker, or an empty string if none was found.
  */
-QString findLegacyWorker()
+QString findLegacyWorker(const QString &version)
 {
-    const QString workerName =
 #ifdef Q_OS_WIN
-        QStringLiteral("openswmm-legacy-worker.exe");
+    const QString exeSuffix = QStringLiteral(".exe");
 #else
-        QStringLiteral("openswmm-legacy-worker");
+    const QString exeSuffix;
 #endif
+    QStringList workerNames;
+    workerNames << QStringLiteral("openswmm-legacy-worker-") + version + exeSuffix;
+    if (version == QLatin1String(LEGACY_SWMM_VERSION))
+        workerNames << QStringLiteral("openswmm-legacy-worker") + exeSuffix;
 
     const QString appDir = QCoreApplication::applicationDirPath();
 
@@ -162,15 +171,19 @@ QString findLegacyWorker()
         searchPaths << root + "/openswmm_engine/src/legacy/worker";
     }
 
-    for (const QString &dir : searchPaths) {
-        const QString candidate = QFileInfo(dir + "/" + workerName).absoluteFilePath();
-        if (QFile::exists(candidate))
-            return candidate;
+    for (const QString &workerName : workerNames) {
+        for (const QString &dir : searchPaths) {
+            const QString candidate = QFileInfo(dir + "/" + workerName).absoluteFilePath();
+            if (QFile::exists(candidate))
+                return candidate;
+        }
     }
 
-    // Fall back to PATH
-    qWarning() << "Legacy worker executable not found — searched:" << searchPaths;
-    return workerName;   // let QProcess try PATH; it will fail with a clear error
+    // Empty on a miss so the caller's not-found check actually fires (the old
+    // bare-name fallback to PATH made that check dead code).
+    qWarning() << "Legacy worker executable not found for engine" << version
+               << "— looked for" << workerNames << "in" << searchPaths;
+    return QString();
 }
 
 } // anonymous namespace
@@ -951,9 +964,12 @@ void SimulationRunner::start()
                 // Spawn worker process for isolated legacy engine execution.
                 // Each worker has its own global state, allowing true parallelism.
 
-                const QString workerPath = findLegacyWorker();
+                const QString workerPath = findLegacyWorker(engineVersion);
                 if (workerPath.isEmpty()) {
-                    return {false, 1, QStringLiteral("Legacy worker executable not found"), 0.0, 0.0};
+                    return {false, 1,
+                            QStringLiteral("Legacy worker executable not found (openswmm-legacy-worker-%1)")
+                                .arg(engineVersion),
+                            0.0, 0.0};
                 }
 
                 QProcess worker;

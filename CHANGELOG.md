@@ -146,6 +146,25 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   `workplans/MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md` §4.4 ("the property adapter
   shows per-vertex Z read-only") at the user's request; the plan carries a dated amendment in §4.4
   and a B6 status note in §7.
+- **EPA SWMM 5.2.4 is a selectable engine** — "SWMM 5.2.4 (EPA)" joins the status-bar engine picker
+  and the Preferences default (MULTI_ENGINE plan V2 M-1/M-2). The build fetches the 5.2.4 sources
+  by **pinned tag** (`OPENSWMM_ENGINE_524_TAG`, default `v5.2.4-swmmvis.1`, from
+  `HydroCouple/openswmm.engine` branch `build-v5.2.4`; a sibling checkout at
+  `../openswmm.engine.v524` or `../swmm5.2.4/openswmm.engine.5.2.4` is used when present, and CI can
+  pass `FETCHCONTENT_SOURCE_DIR_OPENSWMM_ENGINE_524`), populates source only — the branch's own
+  CMake is not parent-safe — and compiles `src/solver/*.c` + the SWMMVis worker statically into
+  `openswmm-legacy-worker-5.2.4` with the branch's floating-point policy (`-ffp-contract=off
+  -fno-fast-math` / `/fp:precise`), so the bundled worker reproduces the numbers the 5.2.4 parity
+  gate certifies (13/13 decks byte-identical to the branch's own `runswmm`). Bundled beside the
+  5.3.0 worker on all three platforms; `SWMMVIS_ENABLE_ENGINE_524=OFF` drops it. The runner now
+  looks workers up by version (`openswmm-legacy-worker-<version>`, the unversioned name only for
+  5.3.0) and a version with no worker fails naming the missing file instead of running another
+  engine. The 5.2.4 branch carries the backports the worker needs — unknown sections and options
+  skipped with a warning (stock 5.2.4 stops with ERROR 205 on the `[USER_FLAGS]`/`NODE_CONTINUITY`
+  the compat writer removes anyway), `swmm_setWarningCallback`, `swmm_getRunningMassBalErr` (a
+  pure getter: the end-of-run one it mirrors adds node storage into the per-node continuity
+  column), `swmm_ENDDATE`, and a per-period `fflush` so Live 1D tails it. `cmake/EngineVersions.cmake`,
+  `cmake/LegacyEngineWorker.cmake`; `test_simrunner_legacy_524`.
 - **Ten SWASHES analytical-verification examples on the Welcome page** — cases from Delestre et al.
   (2013), *SWASHES: a compilation of shallow water analytic solutions for hydraulic and environmental
   studies* (doi 10.1002/fld.3741), each shipping the decks its case supports — `1d_dynwave.inp`

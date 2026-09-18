@@ -2060,6 +2060,12 @@ void SWMMVis::initializeStatusBar()
     mComboBoxEngineVersion->addItem(
         tr("SWMM %1 (Legacy)").arg(QLatin1String(OPENSWMM_LEGACY_FULL_VERSION)),
         QLatin1String(LEGACY_SWMM_VERSION));
+#ifdef SWMMVIS_HAVE_ENGINE_524
+    // Stock EPA SWMM 5.2.4, run through openswmm-legacy-worker-5.2.4 (built and
+    // bundled by cmake/EngineVersions.cmake). Same "5." family as the legacy
+    // engine above, so the SWMM 5 compat write and capability gating apply.
+    mComboBoxEngineVersion->addItem(tr("SWMM 5.2.4 (EPA)"), QStringLiteral("5.2.4"));
+#endif
     mComboBoxEngineVersion->setToolTip(tr("Select which SWMM engine version to use when running simulations"));
     mComboBoxEngineVersion->setEnabled(false);
     connect(mComboBoxEngineVersion, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -8703,8 +8709,16 @@ void SWMMVis::onRunSimulation()
             rptFi.completeBaseName() + QStringLiteral(".swmm5.inp"));
         SWMM_Engine eng = pw->modelLayer()->engine();
         const int warnBefore = swmm_get_warning_count(eng);
+        // Only the in-tree legacy engine (LEGACY_SWMM_VERSION) parses the
+        // OpenSWMM grammar extensions — subcatchment and rain-gage scale
+        // factors, and the '*' snowpack placeholder that carries them. Any
+        // other 5.x engine (stock EPA 5.2.4) reads those as an undefined
+        // object, so it gets the stricter profile that drops them (warned).
+        const int profile = (engineVer == QLatin1String(LEGACY_SWMM_VERSION))
+                                ? SWMM_INP_PROFILE_SWMM5
+                                : SWMM_INP_PROFILE_SWMM5_STOCK;
         const int rc = swmm_model_write_compat(eng, runInpPath.toUtf8().constData(),
-                                               SWMM_INP_PROFILE_SWMM5);
+                                               profile);
         if (rc != SWMM_OK) {
             onLogMessage(tr("Could not write the SWMM 5.x input file %1 (engine code %2); "
                             "the run was not started.").arg(runInpPath).arg(rc),
