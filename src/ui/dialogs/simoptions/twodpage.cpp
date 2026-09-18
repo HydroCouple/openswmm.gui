@@ -829,10 +829,10 @@ void TwoDPage::buildUi()
     t2OutLay->addStretch();
 
     m_tabs->addTab(t2Hyd, tr("Hydrodynamics"));
-    m_tabs->addTab(t2Msh, tr("Wetting & Drying"));
+    m_tabs->addTab(t2Msh, tr("Wetting && Drying"));
     m_tabs->addTab(t2Cpl, tr("Coupling"));
     m_tabs->addTab(t2Prc, tr("Processes"));
-    m_tabs->addTab(t2Out, tr("Performance & Output"));
+    m_tabs->addTab(t2Out, tr("Performance && Output"));
 }
 
 void TwoDPage::tagWidgets()
