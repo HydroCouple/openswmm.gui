@@ -57,6 +57,7 @@ struct FigureSpec {
     bool       wholeWindow = false; //!< grab the main window itself
     QString    page;                //!< tab / list-row text to select in the target
     QString    tab;                 //!< sub-tab to select after \a page (sidebar + tab)
+    QString    type;                //!< text to type into the target's first line edit
     QSize      size;                //!< resize the target before grabbing
     FigureLane lane        = FigureLane::Offscreen;
     int        settleMs    = 0;     //!< extra settle before the grab (0 = default)
