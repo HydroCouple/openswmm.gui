@@ -2589,6 +2589,24 @@ add_swmmvis_gui_test(test_simrunner_failures
 )
 target_link_libraries(test_simrunner_failures PRIVATE Qt6::Concurrent)
 
+# SimulationRunner on EPA SWMM 5.2.4 through the bundled versioned worker
+# (cmake/EngineVersions.cmake): protocol, engine identity in the .out, the
+# skip+warn backports, and a loud failure when no worker exists for a version.
+if(TARGET openswmm_legacy_worker_524)
+    add_swmmvis_gui_test(test_simrunner_legacy_524
+        test_simrunner_legacy_524.cpp
+        ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+        ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
+        ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+        ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+        ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
+        ${CMAKE_SOURCE_DIR}/include/simulation/simulationstatusmodel.h
+        ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    )
+    target_link_libraries(test_simrunner_legacy_524 PRIVATE Qt6::Concurrent)
+    add_dependencies(test_simrunner_legacy_524 openswmm_legacy_worker_524)
+endif()
+
 # LayerTreeModel test (test_layertreemodel.cpp) is parked until the
 # `swmmvis_core` static-library extraction lands. Compiling layertreepanel.cpp
 # in isolation pulls in Qt6Network + GIS layer + WMS dialog code — too much to
