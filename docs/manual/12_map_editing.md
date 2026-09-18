@@ -311,7 +311,7 @@ default. The conduit length default and the subcatchment area default are
 skipped entirely when auto-length is on. Undoing a delete restores the deleted
 object's captured properties, never these defaults.
 
-\figtodo{12_object_defaults_page.png, The Object Defaults preferences page on the Links tab}
+\fig{12_object_defaults_page.png, The Object Defaults preferences page on the Links tab}
 
 ### Auto-Length and Auto-Area
 

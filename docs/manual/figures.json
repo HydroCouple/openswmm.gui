@@ -126,6 +126,99 @@
       "page": "Quality & Transport",
       "tab": "General",
       "size": "980x760"
+    },
+
+    {
+      "name": "04_preferences_general.png",
+      "action": "app.preferences",
+      "page": "General",
+      "size": "1360x820"
+    },
+    {
+      "name": "04_preferences_selection.png",
+      "action": "app.preferences",
+      "page": "Selection",
+      "size": "1360x820"
+    },
+    {
+      "name": "04_preferences_rendering.png",
+      "action": "app.preferences",
+      "page": "Rendering",
+      "tab": "Links & Nodes",
+      "size": "1360x820"
+    },
+    {
+      "name": "04_preferences_2d_defaults.png",
+      "action": "app.preferences",
+      "page": "Simulation Defaults",
+      "tab": "2D Solver",
+      "size": "1360x820"
+    },
+    {
+      "name": "04_preferences_object_defaults.png",
+      "action": "app.preferences",
+      "page": "Object Defaults",
+      "tab": "Links",
+      "size": "1360x820"
+    },
+    {
+      "name": "04_preferences_appearance.png",
+      "action": "app.preferences",
+      "page": "Appearance",
+      "size": "1360x820"
+    },
+    {
+      "name": "02_shortcut_editor.png",
+      "action": "app.preferences",
+      "page": "Keyboard",
+      "size": "1360x820"
+    },
+    {
+      "name": "a01_shortcut_editor.png",
+      "action": "app.preferences",
+      "page": "Keyboard",
+      "size": "1360x820"
+    },
+    {
+      "name": "12_object_defaults_page.png",
+      "action": "app.preferences",
+      "page": "Object Defaults",
+      "tab": "Links",
+      "size": "1360x820"
+    },
+    {
+      "name": "09_select_tool_preferences.png",
+      "action": "app.preferences",
+      "page": "Selection",
+      "size": "1360x820"
+    },
+
+    {
+      "name": "02_command_palette.png",
+      "action": "app.commandPalette",
+      "type": "mesh",
+      "size": "760x520"
+    },
+    {
+      "name": "a01_command_palette.png",
+      "action": "app.commandPalette",
+      "type": "mesh",
+      "size": "760x520"
+    },
+    {
+      "name": "03_user_flags_dialog.png",
+      "action": "model.userFlags",
+      "size": "760x560"
+    },
+    {
+      "name": "a06_about_dialog.png",
+      "action": "app.about",
+      "size": "900x640"
+    },
+    {
+      "name": "01_about_dialog.png",
+      "action": "app.about",
+      "size": "900x640"
     }
   ]
 }
