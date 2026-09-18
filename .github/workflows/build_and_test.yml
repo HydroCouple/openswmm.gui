@@ -55,6 +55,13 @@ env:
   # the engine ref the GUI is developed against.
   OPENSWMM_ENGINE_REPO: HydroCouple/openswmm.engine
   OPENSWMM_ENGINE_REF: swmm6_rel
+  # EPA SWMM 5.2.4 lives in the SAME repo on branch build-v5.2.4; the GUI pins a
+  # TAG, never the branch, because the bundled worker's numbers are certified by
+  # that tag's parity gate. Only the sources are consumed — the GUI compiles
+  # src/solver/*.c itself (cmake/LegacyEngineWorker.cmake), so there is nothing
+  # to build or install from this checkout. Keep in lockstep with
+  # OPENSWMM_ENGINE_524_TAG in cmake/EngineVersions.cmake.
+  OPENSWMM_ENGINE_524_REF: v5.2.4-swmmvis.1
 
 jobs:
   build:
@@ -327,6 +334,21 @@ jobs:
           ref: ${{ env.OPENSWMM_ENGINE_REF }}
           path: openswmm.engine
           fetch-depth: 0
+
+      # EPA SWMM 5.2.4 sources for the bundled openswmm-legacy-worker-5.2.4.
+      # Handed to CMake as FETCHCONTENT_SOURCE_DIR_OPENSWMM_ENGINE_524 in the
+      # Configure step, which makes cmake/EngineVersions.cmake skip BOTH its
+      # sibling-directory probe and its network FetchContent — a CI configure
+      # must never reach out to github.com mid-build. fetch-depth 1: only the
+      # tagged tree is read, never its history. `openswmm.engine.v524` is the
+      # sibling name the multi-engine plan standardised on.
+      - name: Checkout EPA SWMM 5.2.4 sources
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.OPENSWMM_ENGINE_REPO }}
+          ref: ${{ env.OPENSWMM_ENGINE_524_REF }}
+          path: openswmm.engine.v524
+          fetch-depth: 1
 
       # ── vcpkg binary cache: RESTORE ─────────────────────────────────────────
       # Sits here (not with the other setup steps) for one reason: the cache key
@@ -619,9 +641,17 @@ jobs:
           # all four platforms quickly — skips compiling ~130 test targets and
           # the ctest run below is gated off in lockstep. Revert BOTH together:
           # set this back to ON and remove the `if: false` on the Test step.
+          #
+          # SWMMVIS_ENABLE_ENGINE_524 already defaults ON; it is passed
+          # explicitly so that shipping the 5.2.4 worker is a stated property of
+          # the release build rather than an inherited default — if the default
+          # is ever flipped, the packages must still carry it, and the gates
+          # below must be the thing that fails, not the shipped .dmg/.exe.
           cmake --preset=${{ matrix.cmake_preset }} \
             -DSWMMVIS_BUILD_TESTS=OFF \
             -DOPENSWMMENGINE_INSTALL_DIR="${{ github.workspace }}/openswmm.engine/install/${{ matrix.cmake_preset }}" \
+            -DSWMMVIS_ENABLE_ENGINE_524=ON \
+            -DFETCHCONTENT_SOURCE_DIR_OPENSWMM_ENGINE_524="${{ github.workspace }}/openswmm.engine.v524" \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
             -DCMAKE_C_COMPILER_LAUNCHER=$CMAKE_COMPILER_LAUNCHER \
             -DCMAKE_CXX_COMPILER_LAUNCHER=$CMAKE_COMPILER_LAUNCHER \
@@ -814,6 +844,74 @@ jobs:
             fi
             echo "Legacy dylib bundled: $LEG"
           fi
+          # The EPA 5.2.4 worker must ship too, under its VERSIONED name. The
+          # unversioned name above is the 5.3.0 worker and is still expected —
+          # simulationrunner.cpp accepts it only for LEGACY_SWMM_VERSION — so
+          # this is an additional requirement, not a replacement. Without it the
+          # "SWMM 5.2.4 (EPA)" picker entry is present (the #ifdef is compiled
+          # in) but every run fails at launch.
+          W524=$(find "$DIST" \
+                   \( -name 'openswmm-legacy-worker-5.2.4' \
+                      -o -name 'openswmm-legacy-worker-5.2.4.exe' \) \
+                   2>/dev/null | head -1 || true)
+          if [ -z "$W524" ]; then
+            echo "::error::EPA SWMM 5.2.4 worker not bundled into installed GUI tree ($DIST)"
+            find "$DIST" -name 'openswmm-legacy-worker*' | sort
+            exit 1
+          fi
+          echo "EPA 5.2.4 worker bundled in GUI: $W524"
+          echo "W524=$W524" >> "$GITHUB_ENV"
+
+      # Gate: the bundled 5.2.4 worker must actually RUN. Presence alone is a
+      # weak gate — a worker that aborts on every deck, or one silently linked
+      # against the wrong solver, still passes a `find`. This runs the exact
+      # binary that ships (out of dist/, after install-time codesign/deploy
+      # rewrote it) on the 5.2.4 tag's own smoke deck and checks four things:
+      #
+      #   1. the SWMMVis worker protocol — a `dates` line, at least one
+      #      `progress` line, and a terminating `continuity` line. The last one
+      #      is load-bearing: continuity comes from swmm_getRunningMassBalErr,
+      #      one of the M-1 backports, so its presence proves the checkout really
+      #      is at the -swmmvis tag and not stock 5.2.4.
+      #   2. a `warning` line — worker_smoke.inp deliberately carries an unknown
+      #      [USER_FLAGS] section and an unknown NODE_CONTINUITY option; stock
+      #      5.2.4 stops with ERROR 205 on those, the backported build warns and
+      #      skips. This is what makes the GUI's compat write survivable.
+      #   3. exit code 0.
+      #   4. the binary output header really says 5.2.4 — INT4 at byte offset 4
+      #      of the .out is VERSION (src/solver/output.c writes MAGICNUMBER then
+      #      VERSION; consts.h defines it 52004). Catches a worker accidentally
+      #      built from the 6.x or 5.3.0 solver sources, which no name check can.
+      - name: Verify bundled 5.2.4 worker runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          DECK="openswmm.engine.v524/tests/data/worker_smoke.inp"
+          [ -f "$DECK" ] || { echo "::error::smoke deck missing: $DECK"; exit 1; }
+          OUTDIR="tests/output/ci_worker_524"
+          mkdir -p "$OUTDIR"
+          rc=0
+          "$W524" "$DECK" "$OUTDIR/smoke.rpt" "$OUTDIR/smoke.out" 200 \
+            > "$OUTDIR/stdout.jsonl" 2> "$OUTDIR/stderr.txt" || rc=$?
+          echo "--- worker stdout (first 20 lines) ---"; head -20 "$OUTDIR/stdout.jsonl" || true
+          echo "--- worker stderr (first 20 lines) ---"; head -20 "$OUTDIR/stderr.txt" || true
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::5.2.4 worker exited $rc on $DECK"; exit 1
+          fi
+          for t in dates progress continuity warning; do
+            if ! grep -q "\"type\":\"$t\"" "$OUTDIR/stdout.jsonl"; then
+              echo "::error::5.2.4 worker emitted no \"$t\" line"; exit 1
+            fi
+          done
+          [ -s "$OUTDIR/smoke.out" ] || { echo "::error::5.2.4 worker wrote no .out"; exit 1; }
+          # python3 on ubuntu/macOS; windows-latest's git-bash resolves `python`.
+          PY=python3; command -v $PY >/dev/null 2>&1 || PY=python
+          VER=$("$PY" -c "import struct,sys; f=open(sys.argv[1],'rb'); f.seek(4); print(struct.unpack('<i', f.read(4))[0])" "$OUTDIR/smoke.out")
+          if [ "$VER" != "52004" ]; then
+            echo "::error::.out header version is $VER, expected 52004 — the bundled worker is not EPA SWMM 5.2.4"
+            exit 1
+          fi
+          echo "5.2.4 worker ran: protocol OK, .out version $VER"
 
       # Gate: the GUI must ship the PROJ + GDAL data directories, or the
       # packaged app enumerates zero coordinate reference systems and the CRS
