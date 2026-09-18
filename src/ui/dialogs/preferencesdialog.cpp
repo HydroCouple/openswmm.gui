@@ -94,7 +94,7 @@ void PreferencesDialog::buildUi()
     };
     addCategory(tr("General"),               buildGeneralPage());
     addCategory(tr("Selection"),             buildSelectionPage());
-    addCategory(tr("Canvas && CRS"),         buildCanvasPage());
+    addCategory(tr("Canvas & CRS"),          buildCanvasPage());
     addCategory(tr("Rendering"),             buildRenderingPage());
     addCategory(tr("Simulation"),            buildSimulationPage());
     // Dynamic Wave Defaults and 2D Defaults fold in as tabs (PLAN §3).
@@ -574,7 +574,7 @@ QWidget *PreferencesDialog::buildRenderingPage()
     bcTabLay->addWidget(bcGroup, 1);
 
     tabs->addTab(labelsTab, tr("Labels"));
-    tabs->addTab(lnTab,     tr("Links & Nodes"));
+    tabs->addTab(lnTab,     tr("Links && Nodes"));
     tabs->addTab(gpuTab,    tr("GPU"));
     tabs->addTab(bcTab,     tr("2D Mesh Edges"));
 
@@ -814,16 +814,16 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     twoDCplLay->addStretch(1);
     twoDMeshLay->addStretch(1);
 
-    tabs->addTab(pmTab,   tr("Processes & Modules"));
-    tabs->addTab(hsTab,   tr("Hydraulics & Schedule"));
-    tabs->addTab(dwsTab,  tr("Time Steps & Tolerances"));
+    tabs->addTab(pmTab,   tr("Processes && Modules"));
+    tabs->addTab(hsTab,   tr("Hydraulics && Schedule"));
+    tabs->addTab(dwsTab,  tr("Time Steps && Tolerances"));
     tabs->addTab(dwvTab,  tr("Dynamic Wave"));
     // PLAN §3 drew one "2D" tab. Its five groups need 1318 px against a 746 px
     // viewport at 1280x800 — measured, not estimated — so they split three
     // ways: exactly the arithmetic that gave the Simulation Options 2D page
     // five tabs rather than §2's four. Every group still moves whole.
     tabs->addTab(twoTab,  tr("2D Solver"));
-    tabs->addTab(tcplTab, tr("2D Coupling & Rainfall"));
+    tabs->addTab(tcplTab, tr("2D Coupling && Rainfall"));
     tabs->addTab(tmshTab, tr("2D Mesh"));
 
     return page;

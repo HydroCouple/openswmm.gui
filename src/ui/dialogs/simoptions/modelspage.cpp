@@ -284,7 +284,7 @@ void ModelsPage::buildUi()
     modLay->addStretch();
     flgLay->addStretch();
 
-    m_tabs->addTab(domTab, tr("Domains & Processes"));
+    m_tabs->addTab(domTab, tr("Domains && Processes"));
     m_tabs->addTab(modTab, tr("Modules"));
     m_tabs->addTab(flgTab, tr("Flags"));
 
