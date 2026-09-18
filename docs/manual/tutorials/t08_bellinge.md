@@ -102,8 +102,10 @@ back looking the way you left it.
 
 ### 3. Add the DEM and a basemap, and sort out the CRS
 
-The project is in **EPSG:25832** (ETRS89 / UTM 32N); the `.2dm` header says so
-explicitly:
+The project is in **EPSG:25832** (ETRS89 / UTM 32N). The deck declares it as
+`CRS EPSG:25832` under `[OPTIONS]`, so the model opens already projected and you
+should not be prompted to pick a CRS. The `.2dm` header records the same frame
+for the mesh:
 
 ```
 ;; UNITS: metre

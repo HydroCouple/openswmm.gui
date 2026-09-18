@@ -66,6 +66,16 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Fixed
 
+- **The bundled Bellinge example declares its coordinate reference system** — the deck shipped with no
+  `[OPTIONS] CRS`, so the model layer fell back to `[MAP] Units`, which this deck sets to `NONE`;
+  `localFromMapUnits()` turned that into a local, unprojected CRS. The example therefore opened with
+  no real spatial frame — basemaps, WMS layers and the EPSG:4326 DEM had nothing to transform
+  against — and because the fallback resolves to "Local (m)" rather than "Untitled (Local)" the CRS
+  picker never prompted, so nothing pointed at the problem. Only the `.2dm` header carried the truth,
+  in a `;; SOURCE_CRS:` tag that is parsed into `MeshData::sourceCrsTag` but never applied to a layer.
+  The deck now declares `CRS EPSG:25832` (ETRS89 / UTM 32N), which is what its eastings and northings
+  have always been. `BellingeExample.DeclaresTheProjectedCrsAndAgreesWithTheMesh` gates both the deck
+  key and its agreement with the mesh tag so the two cannot drift apart again.
 - **Examples added to the bundle now reach the Welcome page on an existing install** — the Welcome
   page lists a per-user mirror of the bundled examples, and the startup sync that fills that mirror
   returned early whenever its marker file already matched the application version. The bundled payload
