@@ -20,6 +20,7 @@
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QLineEdit>
 #include <QListView>
 #include <QListWidget>
 #include <QLoggingCategory>
@@ -218,6 +219,7 @@ bool FigureCapture::loadManifest(QString *error)
         spec.wholeWindow = o.value(QStringLiteral("window")).toBool(false);
         spec.page        = o.value(QStringLiteral("page")).toString();
         spec.tab         = o.value(QStringLiteral("tab")).toString();
+        spec.type        = o.value(QStringLiteral("type")).toString();
         spec.size     = sizeFromString_(o.value(QStringLiteral("size")).toString());
         spec.lane     = laneFromString_(o.value(QStringLiteral("lane")).toString());
         spec.settleMs = o.value(QStringLiteral("settleMs")).toInt(0);
@@ -397,6 +399,32 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
             finishSpec(r);
             return;
         }
+    }
+
+    // Several figures show a filtered view — a command palette narrowed to a
+    // few matches, an object browser filtered by name. Drive the first visible
+    // line edit rather than leaving the figure contradicting its caption.
+    if (!spec.type.isEmpty()) {
+        QLineEdit *edit = nullptr;
+        const auto edits = target->findChildren<QLineEdit *>();
+        for (QLineEdit *e : edits) {
+            if (e->isVisibleTo(target) && e->isEnabled() && !e->isReadOnly()) {
+                edit = e;
+                break;
+            }
+        }
+        if (!edit) {
+            r.status    = QStringLiteral("failed");
+            r.detail    = QStringLiteral("no editable line edit to type '%1' into")
+                              .arg(spec.type);
+            r.elapsedMs = int(mSpecTimer.elapsed());
+            dismissDialogs();
+            finishSpec(r);
+            return;
+        }
+        edit->setFocus(Qt::OtherFocusReason);
+        edit->setText(spec.type);          // emits textChanged: filters apply
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
     }
 
     // Let the resize / page switch lay out before the pixels are read.
