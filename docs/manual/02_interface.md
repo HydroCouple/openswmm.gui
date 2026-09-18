@@ -395,7 +395,7 @@ to dismiss. Commands that are currently disabled are greyed and cannot be
 triggered, which makes the palette a quick way to find out *why* something is
 unavailable.
 
-\figtodo{02_command_palette.png, The Command Palette filtered to a few matching commands}
+\fig{02_command_palette.png, The Command Palette filtered to a few matching commands}
 
 \videotodo{A tour of the window — switching ribbon tabs; revealing the contextual Mesh 2D tab; rearranging docks and finding a command with the Command Palette}
 
@@ -421,7 +421,7 @@ list only produces a warning. Overrides are stored under `SWMMVis::Shortcuts`,
 keyed by the command's stable id, so they survive upgrades. The full default list
 is in \ref manual_shortcuts.
 
-\figtodo{02_shortcut_editor.png, The Keyboard page of Preferences with a command selected and its key-sequence editor}
+\fig{02_shortcut_editor.png, The Keyboard page of Preferences with a command selected and its key-sequence editor}
 
 ### Theme
 

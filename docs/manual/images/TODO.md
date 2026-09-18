@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 312 figures, 35 videos. Published so far: 14.
+Remaining: 297 figures, 35 videos. Published so far: 29.
 
 ## 01_introduction.md
 
@@ -20,7 +20,6 @@ Remaining: 312 figures, 35 videos. Published so far: 14.
 - [ ] `01_welcome_page.png` (line 248) — The Welcome page showing Start Modeling; Open Recent Files; Learn SWMM and Example Projects
 - [ ] `01_example_copy_prompt.png` (line 319) — Choosing the destination folder before an example is copied and opened
 - [ ] `01_first_model_open.png` (line 360) — A freshly opened example model on the map canvas with the status bar bound to the project
-- [ ] `01_about_dialog.png` (line 377) — The About dialog listing shipped components with the licence text for the selected entry
 
 ## 02_interface.md
 
@@ -31,8 +30,6 @@ Remaining: 312 figures, 35 videos. Published so far: 14.
 - [ ] `02_menu_model_expanded.png` (line 320) — The Model menu expanded with the Add Node; Add Link; Climate; Data Objects and Mesh submenus
 - [ ] `02_docks_default_layout.png` (line 360) — The default dock arrangement with Layers on the left; Object Browser and Properties on the right and Message Logs at the bottom
 - [ ] `02_status_bar.png` (line 385) — The status bar with the Engine; Flow Units; Offset Mode; Auto-Length; Coordinates; Map Scale and CRS widgets
-- [ ] `02_command_palette.png` (line 398) — The Command Palette filtered to a few matching commands
-- [ ] `02_shortcut_editor.png` (line 424) — The Keyboard page of Preferences with a command selected and its key-sequence editor
 
 ## 03_projects.md
 
@@ -42,17 +39,7 @@ Remaining: 312 figures, 35 videos. Published so far: 14.
 - [ ] `03_two_projects_tabs.png` (line 180) — Two projects open in adjacent tabs with different flow units in the status bar
 - [ ] `03_hotstart_saves_table.png` (line 211) — The scheduled hot-start saves table with one dated row and one end-of-run row
 - [ ] `03_portability_warnings.png` (line 380) — Message Logs showing a portability pre-flight warning after a Save As
-- [ ] `03_user_flags_dialog.png` (line 406) — The User Flags dialog with three flag definitions of different types
 - [ ] `03_user_flag_values.png` (line 425) — The User Flag Values dialog for a selected junction with one boolean and one real flag
-
-## 04_preferences.md
-
-- [ ] `04_preferences_general.png` (line 25) — The Preferences dialog with the category list on the left and the General page selected
-- [ ] `04_preferences_selection.png` (line 89) — The Selection page with the Selection Pens and Fills property tree expanded
-- [ ] `04_preferences_rendering.png` (line 120) — The Rendering page with the Link Pens tree and the GPU rendering checkboxes
-- [ ] `04_preferences_2d_defaults.png` (line 183) — Simulation Defaults - the 2D Solver tab beside the 2D Mesh tab
-- [ ] `04_preferences_object_defaults.png` (line 205) — The Object Defaults page on the Links tab with the unit-system selector at the top
-- [ ] `04_preferences_appearance.png` (line 287) — The Appearance page with the System; Light and Dark radio buttons
 
 ## 05_map_navigation.md
 
@@ -94,7 +81,6 @@ Remaining: 312 figures, 35 videos. Published so far: 14.
 ## 09_selection.md
 
 - [ ] `09_selection_overview.png` (line 10) — A selection made on the map mirrored in the Object Browser; the Properties panel and the Attribute Table
-- [ ] `09_select_tool_preferences.png` (line 93) — Preferences → Selection with the click tolerance; drag threshold and selection pens
 - [ ] `09_select_by_polygon.png` (line 109) — A lasso being drawn across a sewer network with the enclosed objects highlighted
 - [ ] `09_search_filter.png` (line 146) — The Object Browser filtered to names containing OUT
 - [ ] `09_select_upstream.png` (line 177) — The upstream subnetwork of a selected outfall highlighted on the map
@@ -133,7 +119,6 @@ Remaining: 312 figures, 35 videos. Published so far: 14.
 - [ ] `12_inlet_junction_setup.png` (line 216) — The Inlet Junction Setup dialog collecting a design and a capture node
 - [ ] `12_add_conduit_snap.png` (line 231) — Drawing a conduit with the snap indicator ringing the target node
 - [ ] `12_annotation_style_dialog.png` (line 290) — The Add Text Annotation dialog with the halo and background groups expanded
-- [ ] `12_object_defaults_page.png` (line 314) — The Object Defaults preferences page on the Links tab
 - [ ] `12_import_feature_layer.png` (line 338) — The Import Feature Layer dialog with the attribute mapping table and a preview
 
 ## 13_hydrology.md
@@ -185,7 +170,7 @@ Remaining: 312 figures, 35 videos. Published so far: 14.
 
 - [ ] `16_quality_overview.png` (line 14) — The Model menu quality entries — Data Objects with Pollutants and Land Uses; plus Initial Quality; Reaction System and Heat Configuration
 - [ ] `16_pollutant_editor.png` (line 45) — The Pollutants editor — list pane on the left and the field form on the right
-- [ ] `16_landuse_editor.png` (line 76) — The Land Uses editor with the General && Sweeping tab
+- [ ] `16_landuse_editor.png` (line 76) — The Land Uses editor with the General & Sweeping tab
 - [ ] `16_landuse_buildup.png` (line 92) — The Buildup tab — one row per pollutant with function and coefficients
 - [ ] `16_landuse_washoff.png` (line 110) — The Washoff tab with per-pollutant coefficients and sweeping and BMP efficiencies
 - [ ] `16_treatment_editor.png` (line 140) — The Treatment page of the node compound editor with a validated expression
@@ -287,8 +272,6 @@ Remaining: 312 figures, 35 videos. Published so far: 14.
 
 - [ ] `a01_mesh_edge_path_pick.png` (line 186) — Ctrl-clicking two boundary edges to select the whole run between them
 - [ ] `a01_timeseries_editor_keys.png` (line 217) — The time-series editor toolbar showing the Insert; Delete; Copy and Paste actions
-- [ ] `a01_shortcut_editor.png` (line 239) — The Keyboard page of Preferences with a command selected and a new sequence being recorded
-- [ ] `a01_command_palette.png` (line 308) — The command palette filtered to a few commands showing category chips and shortcuts
 
 ## appendices/a02_file_formats.md
 
@@ -314,7 +297,6 @@ Remaining: 312 figures, 35 videos. Published so far: 14.
 
 ## appendices/a06_about.md
 
-- [ ] `a06_about_dialog.png` (line 23) — The About dialog with a component selected and its licence in the right pane
 - [ ] `a06_license_agreement.png` (line 94) — The startup License Agreement dialog
 
 ## manual.md

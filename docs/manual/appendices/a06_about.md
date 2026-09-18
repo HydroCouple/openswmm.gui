@@ -20,7 +20,7 @@ Window title **About SWMMVis**. A header strip across the top, a filterable
 master list of components on the left, and licence text plus metadata on the
 right.
 
-\figtodo{a06_about_dialog.png, The About dialog with a component selected and its licence in the right pane}
+\fig{a06_about_dialog.png, The About dialog with a component selected and its licence in the right pane}
 
 The header strip shows, and the **Copy environment** button copies:
 
