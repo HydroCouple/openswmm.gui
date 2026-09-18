@@ -8,6 +8,7 @@
 #include "platform/macoswindowutils.h"
 
 #include <QDialog>
+#include <QGuiApplication>
 #include <QWidget>
 
 #import <AppKit/AppKit.h>
@@ -15,6 +16,20 @@
 namespace openswmmvis::platform {
 
 namespace {
+
+/*! True only when Qt is actually driving Cocoa.
+ *
+ *  Every AppKit path below reaches the NSWindow through
+ *  reinterpret_cast<NSView *>(winId()). That cast is valid ONLY on the cocoa
+ *  QPA. Under the offscreen / minimal platforms winId() still returns a
+ *  NON-NULL synthetic id that is not an NSView*, so the null guards further
+ *  down sail straight past it and the first property access crashes inside
+ *  objc_msgSend. Gate on the platform name instead of pointer nullness. */
+bool cocoaPlatform_()
+{
+    return QGuiApplication::platformName().compare(
+               QLatin1String("cocoa"), Qt::CaseInsensitive) == 0;
+}
 
 /*! Resolve the window a dialog should be ordered above.
  *
@@ -53,7 +68,7 @@ QWidget *stackingHostFor_(QWidget *dialog)
 
 void attachAsChildWindow(QWidget *dialog)
 {
-    if (!dialog || !dialog->isWindow())
+    if (!dialog || !dialog->isWindow() || !cocoaPlatform_())
         return;
 
     QWidget *parentTop = stackingHostFor_(dialog);
@@ -88,7 +103,7 @@ void attachAsChildWindow(QWidget *dialog)
 
 void detachFromParentWindow(QWidget *dialog)
 {
-    if (!dialog || !dialog->isWindow())
+    if (!dialog || !dialog->isWindow() || !cocoaPlatform_())
         return;
 
     // internalWinId() (unlike winId()) does not force native-window creation —
