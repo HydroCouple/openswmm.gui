@@ -46,8 +46,14 @@ FIG_RE = re.compile(r"\\(figtodo|fig)\{([^,}]+),([^}]*)\}")
 
 
 def manual_pages() -> list[Path]:
-    """Every built manual page. README.md is authoring notes, not a page."""
-    return sorted(p for p in MANUAL.rglob("*.md") if p.name != "README.md")
+    """Every built manual page.
+
+    README.md is authoring notes and images/TODO.md is this script's own
+    output — both mention \\figtodo and \\videotodo in prose, so counting them
+    inflates the totals and makes each run disagree with the last.
+    """
+    skip = {(MANUAL / "README.md").resolve(), (IMAGES / "TODO.md").resolve()}
+    return sorted(p for p in MANUAL.rglob("*.md") if p.resolve() not in skip)
 
 
 def png_size(path: Path) -> tuple[int, int]:
@@ -151,14 +157,20 @@ def cmd_audit(_args: argparse.Namespace) -> int:
 def cmd_flip(args: argparse.Namespace) -> int:
     stage = Path(args.from_dir).resolve()
     refs = scan()
-    pending = {name: (page, lineno)
-               for page, lineno, kind, name, _ in refs if kind == "figtodo"}
+    pending = {name for _, _, kind, name, _ in refs if kind == "figtodo"}
+    published = {name for _, _, kind, name, _ in refs if kind == "fig"}
+    known = pending | published
 
+    # A figure that is already \fig is not an error: re-capturing after a UI
+    # change and republishing over it is the whole point of keeping a manifest.
+    # Those rows are updated in place; only the \figtodo ones get flipped.
     if args.chapter:
         prefix = f"{args.chapter}_"
-        names = sorted(n for n in pending if n.startswith(prefix))
+        names = sorted(n for n in known
+                       if n.startswith(prefix) and (stage / n).exists())
         if not names:
-            print(f"no placeholders left with prefix '{prefix}'", file=sys.stderr)
+            print(f"nothing staged in {stage} with prefix '{prefix}'",
+                  file=sys.stderr)
             return 1
     else:
         names = args.names
@@ -171,8 +183,9 @@ def cmd_flip(args: argparse.Namespace) -> int:
     staged: dict[str, Path] = {}
     errors: list[str] = []
     for name in names:
-        if name not in pending:
-            errors.append(f"{name}: not a live \\figtodo (already flipped?)")
+        if name not in known:
+            errors.append(f"{name}: no \\figtodo or \\fig in the manual "
+                          f"references it")
             continue
         src = stage / name
         if not src.exists():
@@ -204,7 +217,8 @@ def cmd_flip(args: argparse.Namespace) -> int:
         shutil.copy2(src, dst)
         if oxipng:
             subprocess.run([oxipng, "-o", "2", "-q", str(dst)], check=False)
-        print(f"  published {name} ({dst.stat().st_size // 1024} KB)")
+        verb = "updated  " if name in published else "published"
+        print(f"  {verb} {name} ({dst.stat().st_size // 1024} KB)")
 
     # Flip the placeholders. Anchored on the exact file name, so a caption can
     # never be matched by accident; all occurrences, since a figure may be
