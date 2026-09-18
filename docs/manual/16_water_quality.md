@@ -73,9 +73,9 @@ with the detail pane split into three tabs. Rows in the two function tables are
 the model's pollutants and re-dimension automatically as pollutants are added,
 removed or renamed while the dialog is open.
 
-\figtodo{16_landuse_editor.png, The Land Uses editor with the General && Sweeping tab}
+\figtodo{16_landuse_editor.png, The Land Uses editor with the General & Sweeping tab}
 
-**General && Sweeping** tab:
+**General & Sweeping** tab:
 
 | Control | What it does | Writes |
 | --- | --- | --- |
