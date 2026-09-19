@@ -12,6 +12,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QComboBox>
 #include <QDialog>
 #include <QDir>
 #include <QFile>
@@ -188,6 +189,29 @@ QModelIndex findRow_(QAbstractItemModel *model, const QModelIndex &parent,
             return hit;
     }
     return {};
+}
+
+QString stripMnemonic_(const QString &text);
+
+/*! Tab, list, tree and combo labels under \a root, for a failure message. */
+QString offeredPages_(QWidget *root)
+{
+    QStringList out;
+    const auto bars = root->findChildren<QTabBar *>();
+    for (QTabBar *bar : bars)
+        for (int i = 0; i < bar->count(); ++i)
+            out << QStringLiteral("tab:") + stripMnemonic_(bar->tabText(i));
+    const auto lists = root->findChildren<QListWidget *>();
+    for (QListWidget *lw : lists)
+        for (int i = 0; i < lw->count(); ++i)
+            out << QStringLiteral("list:") + stripMnemonic_(lw->item(i)->text());
+    const auto combos = root->findChildren<QComboBox *>();
+    for (QComboBox *combo : combos)
+        for (int i = 0; i < combo->count(); ++i)
+            out << QStringLiteral("%1combo:%2")
+                       .arg(combo->isVisibleTo(root) ? QString() : QStringLiteral("hidden-"),
+                            stripMnemonic_(combo->itemText(i)));
+    return out.join(QStringLiteral(", "));
 }
 
 /*! Menu mnemonics ("&Model") must not defeat a plain-text page match. */
@@ -429,14 +453,36 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
 
     // --- a named widget already in the window (docks, panels, ribbon) ------
     if (!spec.widget.isEmpty()) {
+        // An action alongside a widget is a PRECONDITION, not the figure: a
+        // dock that starts hidden has to be toggled on before it can be
+        // grabbed. The widget stays the target either way.
+        if (!spec.action.isEmpty()) {
+            QAction *act = ActionRegistry::instance()->action(spec.action);
+            if (!act)
+                act = mHost->findChild<QAction *>(spec.action);
+            if (!act) {
+                FigureResult r;
+                r.name   = spec.name;
+                r.status = QStringLiteral("failed");
+                r.detail = QStringLiteral("no action with catalog id or objectName '%1'")
+                               .arg(spec.action);
+                finishSpec(r);
+                return;
+            }
+            if (!act->isCheckable() || !act->isChecked())
+                act->trigger();
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        }
+
         QTimer::singleShot(settle, this, [this, spec]() {
             QWidget *w = descendant_(mHost, spec.widget);
             if (!w) {
                 FigureResult r;
                 r.name      = spec.name;
                 r.status    = QStringLiteral("failed");
-                r.detail    = QStringLiteral("no widget named or classed '%1'")
-                                  .arg(spec.widget);
+                r.detail    = QStringLiteral("no widget named or classed '%1'"
+                                             " — classes present: %2")
+                                  .arg(spec.widget, offeredClasses_(mHost));
                 r.elapsedMs = int(mSpecTimer.elapsed());
                 finishSpec(r);
                 return;
@@ -549,7 +595,8 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
     if (!spec.page.isEmpty()
         && !selectPage(target, spec.page) && !selectPage(mHost, spec.page)) {
         r.status    = QStringLiteral("failed");
-        r.detail    = QStringLiteral("no page matching '%1'").arg(spec.page);
+        r.detail    = QStringLiteral("no page matching '%1' — pages offered: %2")
+                          .arg(spec.page, offeredPages_(target));
         r.elapsedMs = int(mSpecTimer.elapsed());
         dismissOpenedBy(spec);
         finishSpec(r);
@@ -562,7 +609,8 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
         if (!selectPage(target, spec.tab) && !selectPage(mHost, spec.tab)) {
             r.status    = QStringLiteral("failed");
-            r.detail    = QStringLiteral("no tab matching '%1'").arg(spec.tab);
+            r.detail    = QStringLiteral("no tab matching '%1' — pages offered: %2")
+                              .arg(spec.tab, offeredPages_(target));
             r.elapsedMs = int(mSpecTimer.elapsed());
             dismissOpenedBy(spec);
             finishSpec(r);
@@ -815,6 +863,25 @@ bool FigureCapture::selectPage(QWidget *target, const QString &page) const
             if (stripMnemonic_(item->text(0)).compare(
                     wanted, Qt::CaseInsensitive) == 0) {
                 tree->setCurrentItem(item);
+                return true;
+            }
+        }
+    }
+
+    // 5. A combo that drives the page, LAST so it never pre-empts a real tab
+    //    strip. The Attribute Table's category is a combo, not a tab bar, and
+    //    it reacts to currentIndexChanged — so setting the index is enough.
+    const auto combos = target->findChildren<QComboBox *>();
+    for (QComboBox *combo : combos) {
+        if (!combo->isVisibleTo(target))
+            continue;
+        for (int i = 0; i < combo->count(); ++i) {
+            // These carry counts too ("Conduits (11)"), same as the Layers
+            // panel's rows — a manifest names the category, not the tally.
+            const QString label = stripMnemonic_(combo->itemText(i));
+            if (label.compare(wanted, Qt::CaseInsensitive) == 0
+                || stripCount_(label).compare(wanted, Qt::CaseInsensitive) == 0) {
+                combo->setCurrentIndex(i);
                 return true;
             }
         }

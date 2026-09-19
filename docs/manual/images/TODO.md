@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 261 figures, 35 videos. Published so far: 65.
+Remaining: 257 figures, 35 videos. Published so far: 69.
 
 ## 01_introduction.md
 
@@ -48,7 +48,6 @@ Remaining: 261 figures, 35 videos. Published so far: 65.
 
 ## 06_crs.md
 
-- [ ] `06_status_bar_crs_button.png` (line 20) — The Coordinate Reference System button on the status bar
 - [ ] `06_crs_required_prompt.png` (line 59) — The CRS Required prompt with Choose CRS; Use local projected and Abort Open
 - [ ] `06_crs_change_dialog.png` (line 104) — The CRS change dialog offering Reproject stored coordinates or Re-render only
 - [ ] `06_2d_results_alignment.png` (line 195) — A 2D results layer correctly aligned over the mesh and the 1D network
@@ -56,8 +55,8 @@ Remaining: 261 figures, 35 videos. Published so far: 65.
 ## 07_layers.md
 
 - [ ] `07_layers_panel.png` (line 30) — The Layers panel with a basemap; a DEM; a SWMM model layer and a results layer
-- [ ] `07_layer_context_menu.png` (line 113) — The layer-row context menu with the Styles submenu open
-- [ ] `07_sublayer_selection_dialog.png` (line 191) — The sublayer selection dialog listing the layers inside a GeoPackage
+- [ ] `07_layer_context_menu.png` (line 135) — The layer-row context menu with the Styles submenu open
+- [ ] `07_sublayer_selection_dialog.png` (line 213) — The sublayer selection dialog listing the layers inside a GeoPackage
 
 ## 08_styling.md
 
@@ -91,7 +90,6 @@ Remaining: 261 figures, 35 videos. Published so far: 65.
 
 ## 11_attribute_tables.md
 
-- [ ] `11_attribute_table_dock.png` (line 11) — The Attribute Table dock showing the Conduits category with the query bar and selection radios
 - [ ] `11_dynamics_columns.png` (line 111) — The right-hand dynamics block of the Conduits table after a run
 - [ ] `11_query_and_selection.png` (line 175) — A WHERE clause matching 47 of 1205 rows with the Replace radio armed
 - [ ] `11_apply_value_to_rows.png` (line 217) — The right-click menu offering to apply one roughness value to twelve selected conduits
@@ -100,7 +98,6 @@ Remaining: 261 figures, 35 videos. Published so far: 65.
 
 ## 12_map_editing.md
 
-- [ ] `12_editing_toolbar.png` (line 11) — The Model ribbon tab with the Edit; Nodes; Links; Subcatchments; Rain Gages and Annotation groups
 - [ ] `12_inline_vertex_edit.png` (line 86) — A conduit in edit mode with interior vertex handles and two selected
 - [ ] `12_add_node_terrain.png` (line 150) — Placing a junction with a DTM active on the Terrain toolbar
 - [ ] `12_inlet_junction_setup.png` (line 216) — The Inlet Junction Setup dialog collecting a design and a capture node
@@ -124,7 +121,6 @@ Remaining: 261 figures, 35 videos. Published so far: 65.
 
 ## 14_hydraulics.md
 
-- [ ] `14_model_ribbon_nodes_links.png` (line 29) — The Model ribbon tab with the node and link groups
 - [ ] `14_offset_mode_toggle.png` (line 49) — The status-bar offset-mode toggle in elevation mode
 - [ ] `14_inlet_junction_setup.png` (line 138) — The Inlet Junction Setup dialog
 - [ ] `14_inlet_junction_properties.png` (line 140) — Inlet junction property rows with the dashed capture-node connector on the map

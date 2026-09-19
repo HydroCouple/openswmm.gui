@@ -8,7 +8,7 @@ annotations — then move things, edit their vertices, snap them to each other,
 and undo any of it. Or skip the drawing entirely and import an existing GIS
 feature layer as SWMM objects.
 
-\figtodo{12_editing_toolbar.png, The Model ribbon tab with the Edit; Nodes; Links; Subcatchments; Rain Gages and Annotation groups}
+\fig{12_editing_toolbar.png, The Model ribbon tab with the Edit; Nodes; Links; Subcatchments; Rain Gages and Annotation groups}
 
 ## Where to find it
 
