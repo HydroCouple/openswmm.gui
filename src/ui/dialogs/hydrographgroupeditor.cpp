@@ -316,7 +316,9 @@ QWidget *HydrographGroupEditor::buildMiddlePane()
         pv->setContentsMargins(6, 6, 6, 6);
 
         auto *hint = new QLabel(tr(
-            "R = fraction of rainfall that becomes I&&I. T = time to peak (h). "
+            // Plain QLabel with no buddy, so Qt does not process mnemonics and
+            // "&&" would render literally — the hint read "becomes I&&I".
+            "R = fraction of rainfall that becomes I&I. T = time to peak (h). "
             "K = ratio of recession-limb time to time-to-peak (≥ 0). Base time = "
             "T·(1+K); the falling limb spans K·T hours."), page);
         hint->setWordWrap(true);

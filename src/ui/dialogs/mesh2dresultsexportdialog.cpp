@@ -88,7 +88,7 @@ void Mesh2DResultsExportDialog::buildUi()
     m_browse->setObjectName(QStringLiteral("browseButton"));
     pathRow->addWidget(m_path, 1);
     pathRow->addWidget(m_browse);
-    outputForm->addRow(tr("Save &to"), pathRow);
+    outputForm->addRow(tr("Save to"), pathRow);
     root->addWidget(outputGroup);
 
     // ── Variables ───────────────────────────────────────────────────────

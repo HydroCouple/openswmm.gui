@@ -37,7 +37,7 @@ The dialog reads the model on open and writes on **OK**; it compares a signature
 of every widget against the values it read, so pressing **OK** without editing
 anything writes nothing.
 
-\figtodo{15_climatology_tabs.png, The Climatology dialog showing its seven tabs}
+\fig{15_climatology_tabs.png, The Climatology dialog showing its seven tabs}
 
 ## Step-by-step
 
@@ -137,7 +137,7 @@ Elevation, latitude and longitude are the classic snowmelt-model site fields.
 They are *not* the same fields the heat-transport solar model uses — those are
 separate, and in different units; see below.
 
-\figtodo{15_snowmelt_tab.png, The Snow Melt tab}
+\fig{15_snowmelt_tab.png, The Snow Melt tab}
 
 ### Areal Depletion tab — `[ADC]`
 

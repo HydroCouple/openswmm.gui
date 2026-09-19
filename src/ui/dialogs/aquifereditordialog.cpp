@@ -243,7 +243,11 @@ void AquiferEditorDialog::buildUi_()
     m_patternBtn->setFixedWidth(28);
     patRow->addWidget(m_patternCombo, 1);
     patRow->addWidget(m_patternBtn);
-    evapForm->addRow(tr("Evap. Patte&rn"), patRow);
+    // No mnemonic: this is the addRow(QString, QLayout *) overload, which has
+    // no widget to make a buddy of, so Qt draws the "&" literally — the label
+    // read "Evap. Patte&rn". (The "&&" on the next line is a literal ampersand
+    // and is correct.)
+    evapForm->addRow(tr("Evap. Pattern"), patRow);
 
     addGroup(tr("Elevations && Losses"), { AquiferProvider::BottomElev,
                                            AquiferProvider::WaterTableElev,

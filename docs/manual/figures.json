@@ -281,6 +281,83 @@
       "name": "10_properties_panel.png",
       "widget": "dockWidgetPropertiesPanel",
       "tab": "Properties"
+    },
+    {
+      "name": "13_lid_control_editor.png",
+      "action": "data.newLidControl",
+      "size": "1000x760",
+      "select": "first"
+    },
+    {
+      "name": "13_snowpack_editor.png",
+      "action": "data.newSnowpack",
+      "size": "1000x760",
+      "select": "first"
+    },
+    {
+      "name": "13_aquifer_editor.png",
+      "action": "data.newAquifer",
+      "size": "1500x860",
+      "select": "first",
+      "_model": "tests/gui/data/aquifer_editor/diagram.inp"
+    },
+    {
+      "name": "13_unit_hydrograph_editor.png",
+      "action": "data.newUnitHydrograph",
+      "size": "1100x780",
+      "select": "first",
+      "lane": "live",
+      "_note": "Contains a chart. QtCharts paints its axes offscreen but not the series, so the plot area comes back empty \u2014 region-blank, which the blankness score cannot see.",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "17_timeseries_editor.png",
+      "action": "data.newTimeSeries",
+      "size": "1200x780",
+      "select": "first",
+      "lane": "live",
+      "_note": "Contains a chart. QtCharts paints its axes offscreen but not the series, so the plot area comes back empty \u2014 region-blank, which the blankness score cannot see.",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "17_pattern_editor.png",
+      "action": "data.newPattern",
+      "size": "1700x780",
+      "select": "kurve1",
+      "lane": "live",
+      "_note": "Needs a pattern with real diurnal variation; the small fixtures are all factors of 1.0, which draws a flat line.",
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp"
+    },
+    {
+      "name": "17_curve_editor.png",
+      "action": "data.newCurve",
+      "size": "1100x760",
+      "select": "first",
+      "lane": "live",
+      "_note": "Contains a chart. QtCharts paints its axes offscreen but not the series, so the plot area comes back empty \u2014 region-blank, which the blankness score cannot see.",
+      "_model": "docs/manual/tutorials/models/2d_complete_example.inp"
+    },
+    {
+      "name": "15_climatology_tabs.png",
+      "action": "climate.temperature",
+      "size": "1100x760"
+    },
+    {
+      "name": "15_snowmelt_tab.png",
+      "action": "climate.snow",
+      "size": "1100x760"
+    },
+    {
+      "name": "15_heat_solar_tab.png",
+      "action": "model.editHeatConfig",
+      "tab": "Solar",
+      "size": "1100x760"
+    },
+    {
+      "name": "15_heat_radiative_tab.png",
+      "action": "model.editHeatConfig",
+      "tab": "Radiative",
+      "size": "1100x760"
     }
   ]
 }

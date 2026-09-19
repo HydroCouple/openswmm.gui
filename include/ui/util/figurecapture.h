@@ -58,6 +58,7 @@ struct FigureSpec {
     QString    page;                //!< tab / list-row text to select in the target
     QString    tab;                 //!< sub-tab to select after \a page (sidebar + tab)
     QString    type;                //!< text to type into the target's first line edit
+    QString    select;              //!< item to select in the target's list ("first", or its text)
     QSize      size;                //!< resize the target before grabbing
     QSize      hostSize;            //!< resize the MAIN WINDOW first (layout-dependent widgets)
     FigureLane lane        = FigureLane::Offscreen;
@@ -120,6 +121,8 @@ private:
     QWidget *activeDialog() const;
     /*! \brief Select \a page inside \a target (tab bar, list + stack, tree). */
     bool selectPage(QWidget *target, const QString &page) const;
+    /*! \brief Select an item in the target's first populated item view. */
+    bool selectItem(QWidget *target, const QString &which) const;
     /*! \brief Close whatever the row opened, without touching the model. */
     void dismissDialogs();
     /*! \brief dismissDialogs(), but only for a row that opens something. */

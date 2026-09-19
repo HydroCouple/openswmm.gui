@@ -139,7 +139,7 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     scaleRow->addWidget(m_minScaleSpin, 1);
     scaleRow->addWidget(new QLabel(tr("In 1:"), this));
     scaleRow->addWidget(m_maxScaleSpin, 1);
-    form->addRow(tr("Scale &window:"), scaleRow);
+    form->addRow(tr("Scale window:"), scaleRow);
 
     // Background frame.
     auto *bgRow = new QHBoxLayout;
