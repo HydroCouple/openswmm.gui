@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 293 figures, 35 videos. Published so far: 33.
+Remaining: 287 figures, 35 videos. Published so far: 39.
 
 ## 01_introduction.md
 
@@ -127,7 +127,6 @@ Remaining: 293 figures, 35 videos. Published so far: 33.
 - [ ] `13_lid_control_editor.png` (line 206) — The LID Control editor with the layer-stack diagram
 - [ ] `13_lid_types.png` (line 208) — The LID type list showing all eight control types
 - [ ] `13_snowpack_editor.png` (line 230) — The Snow Pack editor showing the four parameter groups
-- [ ] `13_aquifer_editor.png` (line 256) — The Aquifer editor with the two-zone illustration
 - [ ] `13_groundwater_exchange.png` (line 311) — The Groundwater Exchange dialog with a validated LATERAL expression
 - [ ] `13_unit_hydrograph_editor.png` (line 364) — The Unit Hydrograph editor with the RTK tab and the preview plot
 - [ ] `13_rdii_decay_tab.png` (line 366) — The Initial Abstraction tab showing linear IA and the exponential decay table
@@ -152,11 +151,9 @@ Remaining: 293 figures, 35 videos. Published so far: 33.
 
 ## 15_climate.md
 
-- [ ] `15_climatology_tabs.png` (line 40) — The Climatology dialog showing its seven tabs
 - [ ] `15_temperature_tab.png` (line 67) — The Temperature tab with an external climate file selected
 - [ ] `15_evaporation_tab.png` (line 90) — The Evaporation tab with monthly averages
 - [ ] `15_wind_tab.png` (line 102) — The Wind Speed tab with monthly averages
-- [ ] `15_snowmelt_tab.png` (line 140) — The Snow Melt tab
 - [ ] `15_areal_depletion_tab.png` (line 152) — The Areal Depletion tab with the four preset buttons
 - [ ] `15_adjustments_tab.png` (line 165) — The Adjustments tab with monthly multipliers
 - [ ] `15_heat_solar_tab.png` (line 213) — The Solar tab of the Heat Configuration dialog
@@ -183,12 +180,9 @@ Remaining: 293 figures, 35 videos. Published so far: 33.
 ## 17_data_objects.md
 
 - [ ] `17_data_objects_menu.png` (line 13) — The Model → Data Objects submenu
-- [ ] `17_timeseries_editor.png` (line 46) — The Time Series editor — series list; point grid and chart
 - [ ] `17_timeseries_chart_edit.png` (line 101) — Editing time-series points on the chart with a rubber-band selection
 - [ ] `17_timeseries_source_card.png` (line 126) — The source card linking a series to a CSV column
-- [ ] `17_curve_editor.png` (line 152) — The Curve editor with a storage curve and its preview chart
 - [ ] `17_curve_type_combo.png` (line 186) — The curve type combo with the eleven SWMM curve types
-- [ ] `17_pattern_editor.png` (line 193) — The Time Pattern editor with an hourly pattern and its step-line preview
 - [ ] `17_observed_comparison.png` (line 238) — A comparison plot with an observed series loaded alongside a simulated one
 
 ## 19_2d_mesh.md

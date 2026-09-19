@@ -20,6 +20,7 @@
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QAbstractItemView>
 #include <QLineEdit>
 #include <QListView>
 #include <QListWidget>
@@ -220,6 +221,7 @@ bool FigureCapture::loadManifest(QString *error)
         spec.page        = o.value(QStringLiteral("page")).toString();
         spec.tab         = o.value(QStringLiteral("tab")).toString();
         spec.type        = o.value(QStringLiteral("type")).toString();
+        spec.select      = o.value(QStringLiteral("select")).toString();
         spec.size     = sizeFromString_(o.value(QStringLiteral("size")).toString());
         spec.hostSize = sizeFromString_(o.value(QStringLiteral("hostSize")).toString());
         spec.lane     = laneFromString_(o.value(QStringLiteral("lane")).toString());
@@ -238,6 +240,13 @@ void FigureCapture::applyDefaults()
 {
     mDefaultSettleMs = mDefaults.value(QStringLiteral("settleMs")).toInt(600);
     mStartupMs       = mDefaults.value(QStringLiteral("startupMs")).toInt(2500);
+    // A big model (Bellinge is 38 MB) is still loading when the manifest's
+    // startup wait expires, and every row then finds an empty editor. The
+    // launcher raises the wait for those runs rather than slowing every run.
+    if (const int override =
+            qEnvironmentVariable("SWMMVIS_CAPTURE_STARTUP_MS").toInt();
+        override > 0)
+        mStartupMs = override;
     mWatchdogMs      = mDefaults.value(QStringLiteral("watchdogMs")).toInt(20000);
     mMaxWidth        = mDefaults.value(QStringLiteral("maxWidth")).toInt(1400);
     mRenderScale     = mDefaults.value(QStringLiteral("renderScale")).toDouble(2.0);
@@ -414,6 +423,15 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         }
     }
 
+    if (!spec.select.isEmpty() && !selectItem(target, spec.select)) {
+        r.status    = QStringLiteral("failed");
+        r.detail    = QStringLiteral("no item matching '%1' to select").arg(spec.select);
+        r.elapsedMs = int(mSpecTimer.elapsed());
+        dismissOpenedBy(spec);
+        finishSpec(r);
+        return;
+    }
+
     // Several figures show a filtered view — a command palette narrowed to a
     // few matches, an object browser filtered by name. Drive the first visible
     // line edit rather than leaving the figure contradicting its caption.
@@ -556,6 +574,44 @@ bool FigureCapture::selectPage(QWidget *target, const QString &page) const
         }
     }
 
+    return false;
+}
+
+bool FigureCapture::selectItem(QWidget *target, const QString &which) const
+{
+    // A list-and-detail editor opens with its list populated but nothing
+    // current, so the detail pane is blank and the figure contradicts its
+    // caption ("the series list; point grid and chart" over an empty grid).
+    // One pass over every item view covers QListWidget, QListView, QTreeWidget
+    // and QTableView alike.
+    const bool wantFirst =
+        which.compare(QLatin1String("first"), Qt::CaseInsensitive) == 0;
+
+    const auto views = target->findChildren<QAbstractItemView *>();
+    for (QAbstractItemView *view : views) {
+        if (!view->isVisibleTo(target) || !view->model())
+            continue;
+        QAbstractItemModel *model = view->model();
+        const int rows = model->rowCount(view->rootIndex());
+        if (rows <= 0)
+            continue;
+
+        if (wantFirst) {
+            const QModelIndex idx = model->index(0, 0, view->rootIndex());
+            if (!idx.isValid())
+                continue;
+            view->setCurrentIndex(idx);
+            return true;
+        }
+        for (int r = 0; r < rows; ++r) {
+            const QModelIndex idx = model->index(r, 0, view->rootIndex());
+            if (idx.data(Qt::DisplayRole).toString().compare(
+                    which, Qt::CaseInsensitive) == 0) {
+                view->setCurrentIndex(idx);
+                return true;
+            }
+        }
+    }
     return false;
 }
 
