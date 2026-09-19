@@ -118,7 +118,9 @@ KindTreeSymbologyPanel::KindTreeSymbologyPanel(OpenSWMMVisLayer *hostLayer,
     m_tree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_tree->header()->setStretchLastSection(false);
     m_tree->header()->resizeSection(0, 180);
-    m_tree->header()->resizeSection(1, 40);
+    // Wide enough for the header word itself: seeded at 40 the column opened
+    // showing "Rende" for every user, every time.
+    m_tree->header()->resizeSection(1, 80);
     splitter->addWidget(m_tree);
 
     // ── Right — per-kind editor stack ──────────────────────────────────
@@ -130,14 +132,20 @@ KindTreeSymbologyPanel::KindTreeSymbologyPanel(OpenSWMMVisLayer *hostLayer,
     splitter->setSizes({220, 560});
     root->addWidget(splitter);
 
-    buildTree();
-
+    // Connect BEFORE building: buildTree() pre-selects the first kind, and
+    // with the connect after it that selection reached no one — the panel
+    // opened with Junctions highlighted and the editor pane empty until you
+    // clicked a kind yourself. Population itself is safe to hear: buildTree()
+    // holds m_suppressEdits for its whole run, which is what onTreeItemChanged
+    // checks.
     connect(m_tree->selectionModel(),
             &QItemSelectionModel::currentRowChanged,
             this,
             [this](const QModelIndex &, const QModelIndex &) { onTreeSelectionChanged(); });
     connect(m_model, &QStandardItemModel::itemChanged,
             this, &KindTreeSymbologyPanel::onTreeItemChanged);
+
+    buildTree();
 }
 
 // ---------------------------------------------------------------------------
