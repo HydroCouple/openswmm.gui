@@ -42,7 +42,7 @@ pollutants on the left with **New** and **Delete**, the field form for the
 selected pollutant on the right. Edits apply as you type; **Close** dismisses
 the dialog (there is no Cancel — a mistake is undone with **Edit → Undo**).
 
-\figtodo{16_pollutant_editor.png, The Pollutants editor — list pane on the left and the field form on the right}
+\fig{16_pollutant_editor.png, The Pollutants editor — list pane on the left and the field form on the right}
 
 | Control | What it does | Writes |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ with the detail pane split into three tabs. Rows in the two function tables are
 the model's pollutants and re-dimension automatically as pollutants are added,
 removed or renamed while the dialog is open.
 
-\figtodo{16_landuse_editor.png, The Land Uses editor with the General & Sweeping tab}
+\fig{16_landuse_editor.png, The Land Uses editor with the General & Sweeping tab}
 
 **General & Sweeping** tab:
 
@@ -89,7 +89,7 @@ form.
 
 **Buildup** tab — one row per pollutant, writing `[BUILDUP]`:
 
-\figtodo{16_landuse_buildup.png, The Buildup tab — one row per pollutant with function and coefficients}
+\fig{16_landuse_buildup.png, The Buildup tab — one row per pollutant with function and coefficients}
 
 | Column | What it does |
 | --- | --- |
@@ -107,7 +107,7 @@ the reference.
 
 **Washoff** tab — one row per pollutant, writing `[WASHOFF]`:
 
-\figtodo{16_landuse_washoff.png, The Washoff tab with per-pollutant coefficients and sweeping and BMP efficiencies}
+\fig{16_landuse_washoff.png, The Washoff tab with per-pollutant coefficients and sweeping and BMP efficiencies}
 
 | Column | What it does |
 | --- | --- |
@@ -186,7 +186,7 @@ rejected edit is rolled back and the reason appears in the status line at the
 bottom of the dialog, so the model can never reach a state that will not
 compile. Persistence to disk happens only on **Save to File**.
 
-\figtodo{16_reaction_system_species.png, The Reaction System editor on the Species tab}
+\fig{16_reaction_system_species.png, The Reaction System editor on the Species tab}
 
 **Options** tab — writes `[REACTION_OPTIONS]` in the `.rxn` file:
 
@@ -216,7 +216,7 @@ Removal is refused while an expression still references the name.
 can reuse in the kinetic expressions, edited in the same expression cell as the
 expressions themselves. An invalid term is refused and the previous one is kept.
 
-\figtodo{16_reaction_expressions.png, The Expressions tab with the syntax-highlighted expression editor and the validation banner}
+\fig{16_reaction_expressions.png, The Expressions tab — one row per species and scope with its rate expression}
 
 **Expressions** tab — writes `[REACTION_PIPES]` and `[REACTION_TANKS]`. There
 are two rows per species, one for each scope:
@@ -261,7 +261,7 @@ keeps you on the tab and reports the error); **Discard text edits** re-reads
 the engine instead. The structured tabs and the File tab are two views of one
 state, which is what keeps them in step.
 
-\figtodo{16_reaction_file_tab.png, The File tab showing the serialised .rxn text}
+\fig{16_reaction_file_tab.png, The File tab showing the serialised .rxn text}
 
 **Save to File** writes the `.rxn` file registered for this model in
 `[PROCESS_COMPONENTS]`. When no reactions component is bound yet, SWMMVis
@@ -284,7 +284,7 @@ also selects the transport engine — the two keys are written together.
 **Model → Water Age Sources…** sets the age that water carries as it enters the
 model by each pathway.
 
-\figtodo{16_water_age_sources.png, The Water Age Sources dialog — global ages above and per-node overrides below}
+\fig{16_water_age_sources.png, The Water Age Sources dialog — global ages above and per-node overrides below}
 
 The **Global source ages** table has one row per pathway, all in hours:
 
@@ -319,7 +319,7 @@ Transport* page of **Model → Simulation Options…**, writing `HEAT_TRANSPORT 
 in `[OPTIONS]`. **Model → Heat Configuration…** then configures the sources and
 the flux modules. The dialog has five tabs.
 
-\figtodo{16_heat_sources.png, The Sources tab of the Heat Configuration dialog}
+\fig{16_heat_sources.png, The Sources tab of the Heat Configuration dialog}
 
 **Sources** tab — writes `[HEAT_SOURCES]`. Seven rows, the same pathways as the
 water-age table, each with a **Set** check box and a **Temperature** spin
@@ -337,7 +337,7 @@ for **Dry weather flow** and **External inflow** only.
 | **Radiative exchange (shortwave + longwave)** | `RADIATIVE_EXCHANGE` |
 | **LID layer conduction** | `LAYER_CONDUCTION` |
 
-\figtodo{16_heat_radiative.png, The Radiative tab with the shortwave mode radio buttons and the radiative parameters}
+\fig{16_heat_radiative.png, The Radiative tab with the shortwave mode radio buttons and the radiative parameters}
 
 **Radiative** tab — writes `[RADIATIVE_FLUXES]`. *Incoming shortwave* is one of
 three modes:
@@ -361,7 +361,7 @@ model)*: **Aerosol depth at 380 nm**, **Aerosol depth at 500 nm**,
 Selecting **Computed** without a latitude and longitude is refused with a
 prompt to fill the Solar tab first.
 
-\figtodo{16_heat_solar.png, The Solar tab with the site geometry and Bird atmosphere parameters}
+\fig{16_heat_solar.png, The Solar tab with the site geometry and Bird atmosphere parameters}
 
 **Cloud** tab — writes `[CLOUD_COVER]`. A **Cloud cover configured** check box
 (clear it and the model is treated as clear sky), a **Fraction [0..1]**, a

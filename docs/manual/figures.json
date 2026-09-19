@@ -351,13 +351,102 @@
       "name": "15_heat_solar_tab.png",
       "action": "model.editHeatConfig",
       "tab": "Solar",
-      "size": "1100x760"
+      "size": "1200x780",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp"
     },
     {
       "name": "15_heat_radiative_tab.png",
       "action": "model.editHeatConfig",
       "tab": "Radiative",
-      "size": "1100x760"
+      "size": "1200x780",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+    },
+    {
+      "name": "16_pollutant_editor.png",
+      "action": "data.newPollutant",
+      "select": "first",
+      "size": "1100x760",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+    },
+    {
+      "name": "16_landuse_editor.png",
+      "action": "data.newLandUse",
+      "select": "first",
+      "tab": "General & Sweeping",
+      "size": "1200x780",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "16_landuse_buildup.png",
+      "action": "data.newLandUse",
+      "select": "first",
+      "tab": "Buildup",
+      "size": "1200x780",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "16_landuse_washoff.png",
+      "action": "data.newLandUse",
+      "select": "first",
+      "tab": "Washoff",
+      "size": "1200x780",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "16_reaction_system_species.png",
+      "action": "model.editReactionSystem",
+      "tab": "Species",
+      "size": "1300x820",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+    },
+    {
+      "name": "16_reaction_expressions.png",
+      "action": "model.editReactionSystem",
+      "tab": "Expressions",
+      "size": "1300x820",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+    },
+    {
+      "name": "16_reaction_file_tab.png",
+      "action": "model.editReactionSystem",
+      "tab": "File",
+      "size": "1300x820",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+    },
+    {
+      "name": "16_heat_sources.png",
+      "action": "model.editHeatConfig",
+      "tab": "Sources",
+      "size": "1200x780",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+    },
+    {
+      "name": "16_heat_radiative.png",
+      "action": "model.editHeatConfig",
+      "tab": "Radiative",
+      "size": "1200x780",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+    },
+    {
+      "name": "16_heat_solar.png",
+      "action": "model.editHeatConfig",
+      "tab": "Solar",
+      "size": "1200x780",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+    },
+    {
+      "name": "16_initial_quality.png",
+      "action": "actionEditInitialQuality",
+      "size": "1100x700",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "_note": "Not in the ActionCatalog; reached by the QAction objectName."
+    },
+    {
+      "name": "16_water_age_sources.png",
+      "action": "actionEditWaterAgeSources",
+      "size": "1100x760",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "_note": "Not in the ActionCatalog; reached by the QAction objectName."
     }
   ]
 }
