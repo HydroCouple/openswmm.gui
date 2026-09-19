@@ -83,7 +83,7 @@ select, titled with the sample count and the bin range.
 
 **Analysis → Report** (and **Analysis → Show Mass Balance**, which is wired to the
 same handler) opens the two-panel report viewer over the `.rpt` file the run
-wrote. It is described in \ref manual_running: a run selector when several runs
+wrote. It is described in \ref manual_running — a run selector when several runs
 are loaded, a filterable section list, the full monospace report with a search bar
 and a regular-expression toggle, and a continuity-error banner when a
 *Continuity Error (%)* value in the report exceeds the alert threshold.

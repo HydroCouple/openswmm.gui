@@ -78,6 +78,9 @@ engine capabilities. They are ordered from the classic 1D workflow to full
 - \subpage manual_performance — redraw policy, large models and performance tuning
 - \subpage manual_troubleshooting — common problems and their fixes
 - \subpage manual_about — about, credits and licences
+- \subpage manual_reference_tables — units, soil, curve number, Manning's n, culvert and pipe-size tables
+- \subpage manual_error_codes — every numbered error and warning
+- \subpage manual_property_index — which chapter documents which object property
 
 ## Conventions used in this manual
 

@@ -1125,7 +1125,7 @@ EXCLUDE_PATTERNS       = */build/* \
                          */ui_*.h \
                          */qrc_* \
                          */manual/images/* \
-                         */manual/tutorials/*
+                         */manual/tutorials/models/*
 
 # The EXCLUDE_SYMBOLS tag can be used to specify one or more symbol names
 # (namespaces, classes, functions, etc.) that should be excluded from the
@@ -2588,7 +2588,7 @@ TAGFILES               =
 # tag file that is based on the input files it reads. See section "Linking to
 # external documentation" for more information about the usage of tag files.
 
-GENERATE_TAGFILE       =
+GENERATE_TAGFILE       = html/openswmm.gui.tag
 
 # If the ALLEXTERNALS tag is set to YES, all external classes and namespaces
 # will be listed in the class and namespace index. If set to NO, only the

@@ -192,10 +192,47 @@ release. Successful exports are logged to the **Message Logs** panel.
 
 ### Print
 
-**File → Print** (`Ctrl+P`) opens the platform print dialog, then scales the
-current canvas view to the printable area, preserving its aspect ratio. There is
-no page-layout composer, header/footer or legend placement — what you get is the
-map view as it appears on screen.
+**File → Print** (`Ctrl+P`) prints the **active map canvas**, and nothing else.
+Reports, attribute tables, plots, profiles and legends have no print path of
+their own; to put one of those on paper, export or copy it and print from the
+receiving application.
+
+The command opens the platform print dialog at high resolution, then draws the
+canvas into the printable area at the top left, scaled to fit and preserving its
+aspect ratio. Cancelling the dialog prints nothing.
+
+The platform dialog *is* the page setup. Paper size, orientation, margins and
+scaling live there, and on macOS its preview pane is the only print preview —
+SWMMVis has no page-setup or print-preview dialog of its own, and no
+page-layout composer, header, footer or legend placement.
+
+One thing is worth knowing before you print: the image sent to the printer is a
+grab of the canvas **at its on-screen size**, then enlarged into a
+high-resolution printer page. Print sharpness is therefore bounded by how large
+the map is on screen, not by the printer's resolution. Maximise the window — and
+widen the canvas by collapsing the docked panels — before printing anything you
+intend to keep.
+
+If no project window is active, the command does nothing and writes
+*Print: no active map view.* to the **Message Logs** panel. A successful print
+is logged as *Printed map view.*
+
+### Copy the current view
+
+**Edit → Copy** (`Ctrl+C`) is focus-aware, so the same keystroke copies whatever
+you are working in:
+
+| Focus | What lands on the clipboard |
+|---|---|
+| Attribute Table | the selected rows as tab-separated text, ready to paste into a spreadsheet |
+| Message Logs | the selected log rows as text |
+| anything else | the active map canvas as an image |
+
+The map image is the same on-screen-resolution grab that **Print** uses, so the
+same advice applies — enlarge the canvas first if you want a crisp paste.
+
+As with printing, copying the map with no active project window logs
+*Copy: no active map view.* and does nothing.
 
 \figtodo{05_export_map_dialog.png, The Export Map file dialog with the PNG filter selected}
 
