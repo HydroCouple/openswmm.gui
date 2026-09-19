@@ -27,7 +27,7 @@ hide, inspect and remove it from the **Layers** panel.
 | **Add Delimited Data** | **File → Import** | Home |
 | **Add 2D Mesh…** | **File → Import** | Home |
 
-\figtodo{07_layers_panel.png, The Layers panel with a basemap; a DEM; a SWMM model layer and a results layer}
+\fig{07_layers_panel.png, The Layers panel with a basemap; a DEM; a SWMM model layer and a results layer}
 
 ## Step-by-step
 

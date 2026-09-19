@@ -30,6 +30,7 @@
 #include <QMainWindow>
 #include <QPainter>
 #include <QPixmap>
+#include <QPlainTextEdit>
 #include <QSet>
 #include <QStackedWidget>
 #include <QTabBar>
@@ -687,36 +688,58 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
 
     // Several figures show a filtered view — a command palette narrowed to a
     // few matches, an object browser filtered by name. Drive the first visible
-    // line edit rather than leaving the figure contradicting its caption.
+    // text field rather than leaving the figure contradicting its caption.
     if (!spec.type.isEmpty()) {
-        QLineEdit *edit = nullptr;
+        // Filtered views debounce: the Object Browser waits on a QTimer before
+        // it narrows and expands. A single processEvents() therefore grabs the
+        // UNFILTERED tree under a caption promising a filtered one. Pump the
+        // loop for the settle instead, so the timer gets its chance to fire.
+        const int typeSettle = spec.settleMs > 0 ? spec.settleMs : mDefaultSettleMs;
+        auto settleAfterTyping = [typeSettle]() {
+            QElapsedTimer typed;
+            typed.start();
+            while (typed.elapsed() < typeSettle)
+                QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
+        };
+
+        bool typedInto = false;
         const auto edits = target->findChildren<QLineEdit *>();
         for (QLineEdit *e : edits) {
-            if (e->isVisibleTo(target) && e->isEnabled() && !e->isReadOnly()) {
-                edit = e;
+            if (!e->isVisibleTo(target) || !e->isEnabled() || e->isReadOnly())
+                continue;
+            e->setFocus(Qt::OtherFocusReason);
+            e->setText(spec.type);        // emits textChanged: filters apply
+            settleAfterTyping();
+            typedInto = true;
+            break;
+        }
+
+        // Not every text field is one line. The label expression builder's
+        // template is a QPlainTextEdit, and with no fallback the figure came
+        // back with an empty template over an "(empty — nothing would be
+        // drawn)" preview, under a caption promising both.
+        if (!typedInto) {
+            const auto blocks = target->findChildren<QPlainTextEdit *>();
+            for (QPlainTextEdit *b : blocks) {
+                if (!b->isVisibleTo(target) || !b->isEnabled() || b->isReadOnly())
+                    continue;
+                b->setFocus(Qt::OtherFocusReason);
+                b->setPlainText(spec.type);
+                settleAfterTyping();
+                typedInto = true;
                 break;
             }
         }
-        if (!edit) {
+
+        if (!typedInto) {
             r.status    = QStringLiteral("failed");
-            r.detail    = QStringLiteral("no editable line edit to type '%1' into")
+            r.detail    = QStringLiteral("no editable text field to type '%1' into")
                               .arg(spec.type);
             r.elapsedMs = int(mSpecTimer.elapsed());
             dismissOpenedBy(spec);
             finishSpec(r);
             return;
         }
-        edit->setFocus(Qt::OtherFocusReason);
-        edit->setText(spec.type);          // emits textChanged: filters apply
-        // Filtered views debounce: the Object Browser waits on a QTimer before
-        // it narrows and expands. A single processEvents() therefore grabs the
-        // UNFILTERED tree under a caption promising a filtered one. Pump the
-        // loop for the settle instead, so the timer gets its chance to fire.
-        QElapsedTimer typed;
-        typed.start();
-        const int typeSettle = spec.settleMs > 0 ? spec.settleMs : mDefaultSettleMs;
-        while (typed.elapsed() < typeSettle)
-            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
     }
 
     if (!spec.select.isEmpty() && !selectItem(target, spec.select)) {

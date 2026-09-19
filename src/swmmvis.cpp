@@ -367,7 +367,15 @@ SWMMVis::SWMMVis(QWidget *parent)
     const QString startupInp = qEnvironmentVariable("SWMMVIS_OPEN_ON_STARTUP");
     if (!startupInp.isEmpty() && QFile::exists(startupInp))
         QTimer::singleShot(0, this, [this, startupInp]() {
-            openSingleINP(startupInp);
+            // Dispatch on extension, the same way onOpen() does. A .oswp
+            // handed to this hook used to be parsed AS an .inp, which yields
+            // a model with zero objects and no complaint — and a project is
+            // exactly what a figure of the Layers panel needs, since only the
+            // project carries the basemap and raster layers.
+            if (startupInp.endsWith(QStringLiteral(".oswp"), Qt::CaseInsensitive))
+                openProjectFile(startupInp);
+            else
+                openSingleINP(startupInp);
         });
 
     // Dev/testing hook — SWMMVIS_CAPTURE_MANIFEST=<json> drives a whole list of

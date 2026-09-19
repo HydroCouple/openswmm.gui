@@ -139,7 +139,7 @@ from the launching shell — `OMP_NUM_THREADS`, `OMP_THREAD_LIMIT`,
 `OPENSWMM_2D_THREADS`, `SWMM_DW_THREADS` — because each of them silently caps or
 overrides `[OPTIONS] THREADS`. They are never unset for you.
 
-\figtodo{20_message_logs.png, The Message Logs dock with an engine warning and its context menu}
+\fig{20_message_logs.png, The Message Logs dock with engine warnings prefixed by their numeric code}
 
 ### Pause and Cancel
 

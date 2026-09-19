@@ -92,7 +92,9 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     m_italicBtn->setToolTip(tr("Italic"));
     sizeRow->addWidget(m_italicBtn);
     sizeRow->addStretch();
-    form->addRow(tr("&Size:"), sizeRow);
+    // No ampersand: addRow(QString, QLayout *) cannot make a buddy, so Qt
+    // never processes the mnemonic and the "&" renders literally ("&Size:").
+    form->addRow(tr("Size:"), sizeRow);
 
     m_colorBtn = new ColorButton(this);
     form->addRow(tr("&Colour:"), m_colorBtn);
