@@ -40,7 +40,6 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QPainter>
-#include <QSettings>
 #include <QSortFilterProxyModel>
 #include <QSpinBox>
 #include <QStyle>
@@ -85,14 +84,7 @@ namespace {
 // against, so the LayerTreeModel methods below need no edits.
 using openswmmvis::ui::CategoryId;
 using openswmmvis::ui::CategoryInfo;
-using openswmmvis::ui::CatSwmm;
-using openswmmvis::ui::CatMeshes;
-using openswmmvis::ui::CatSwmm1DOutputs;
-using openswmmvis::ui::CatSwmm2DOutputs;
 using openswmmvis::ui::CatFeatureLayers;
-using openswmmvis::ui::CatRasterLayers;
-using openswmmvis::ui::CatBasemaps;
-using openswmmvis::ui::CatTables;
 using openswmmvis::ui::CatCount;
 
 // Wrapper that keeps the qWarning() on unrecognised types — the extracted
@@ -246,48 +238,11 @@ LayerTreeModel::LayerTreeModel(MapCanvas *canvas, QObject *parent)
     : QAbstractItemModel(parent),
       m_canvas(nullptr)
 {
-    // Default display order: RESULTS groups on top (they overlay the model /
-    // mesh for analysis), then the editable model + mesh, then GIS / basemaps,
-    // then tables. This is the starting default only — the user can permute it
-    // via drag-drop or "Move Category Up/Down", and that permutation persists
-    // to the project file (see ProjectSerializer). Any CategoryId not listed
-    // here is appended by rebuildCategories() in enum order.
-    m_categoryDisplayOrder = {
-        CatSwmm1DOutputs,   // 1D results  (top)
-        CatSwmm2DOutputs,   // 2D results
-        CatSwmm,            // SWMM model (editable)
-        CatMeshes,          // 2D mesh (editable)
-        CatFeatureLayers,   // GIS vectors / annotations
-        CatRasterLayers,    // GIS rasters
-        CatBasemaps,        // WMS / WMTS / XYZ
-        CatTables,          // tabular data (bottom)
-    };
-
-    // Restore a user-customized category order if one was persisted. The layer
-    // tree panel is a single shared dock retargeted per active tab, so the
-    // group order is a global display preference (QSettings), not per-project.
-    // Only accept a saved order that is a valid permutation of [0, CatCount);
-    // otherwise fall back to the results-first default above.
-    {
-        QSettings settings;
-        const QVariantList saved =
-            settings.value(QStringLiteral("layerTree/categoryDisplayOrder")).toList();
-        if (saved.size() == CatCount) {
-            QVector<int> order;
-            QVector<bool> seen(CatCount, false);
-            bool valid = true;
-            for (const QVariant &v : saved) {
-                bool ok = false;
-                const int id = v.toInt(&ok);
-                if (!ok || id < 0 || id >= CatCount || seen[id]) { valid = false; break; }
-                seen[id] = true;
-                order.append(id);
-            }
-            if (valid)
-                m_categoryDisplayOrder = order;
-        }
-    }
-
+    // Slice LTR-2026-09-19: the category order used to be a global
+    // QSettings preference cached here (layerTree/categoryDisplayOrder).
+    // It is now per project and owned by the canvas — see
+    // MapCanvas::layerGroupOrder(); this model only derives its rows from
+    // the canvas stack.
     setCanvas(canvas);
 }
 
@@ -317,6 +272,8 @@ void LayerTreeModel::setCanvas(MapCanvas *canvas)
                 this,     &LayerTreeModel::onLayerRemoved);
         connect(m_canvas, &MapCanvas::layerOrderChanged,
                 this,     &LayerTreeModel::onLayerOrderChanged);
+        connect(m_canvas, &MapCanvas::sublayerOrderChanged,
+                this,     &LayerTreeModel::onSublayerOrderChanged);
         // Backstop for any teardown path that never rebinds us first: drop
         // the rows before their layer pointers dangle.
         connect(m_canvas, &QObject::destroyed,
@@ -339,42 +296,31 @@ void LayerTreeModel::rebuildCategories()
     if (!m_canvas)
         return;
 
-    // Bucket layers by category id, preserving canvas-stack-top-first order.
+    // Bucket layers by category id, preserving canvas-stack-top-first order,
+    // and remember the order in which categories first appear walking the
+    // stack from the top. That first-appearance order IS the tree order:
+    // the canvas keeps the stack grouped (MapCanvas::addLayer /
+    // LayerTreeModel::reorderCategory), so deriving the sequence from the
+    // stack — rather than from a cached preference — guarantees the tree
+    // matches paint order after every reorder, undo and redo.
     QVector<QVector<OpenSWMMVisLayer *>> buckets(CatCount);
+    QVector<int> appearance;
     for (int displayRow = 0; displayRow < m_canvas->layerCount(); ++displayRow)
     {
         const int canvasIdx = m_canvas->layerCount() - 1 - displayRow;
         OpenSWMMVisLayer *layer = m_canvas->layerAt(canvasIdx);
         if (!layer) continue;
         const int catId = categoryFor(layer->layerType());
+        if (buckets[catId].isEmpty())
+            appearance.append(catId);
         buckets[catId].append(layer);
     }
 
-    // Materialise non-empty categories in the USER-CONFIGURED display order.
-    // Any category id present in the canvas but absent from m_categoryDisplayOrder
-    // (shouldn't happen, but guard for forward-compat) falls back to appending.
-    QVector<bool> seen(CatCount, false);
-    for (int catId : m_categoryDisplayOrder)
+    for (int catId : appearance)
     {
-        if (catId < 0 || catId >= CatCount || buckets[catId].isEmpty())
-            continue;
-        seen[catId] = true;
         const CategoryInfo info = categoryInfo(catId);
         Category c;
-        c.name      = QString::fromLatin1(info.name);
-        c.iconAlias = QString::fromLatin1(info.iconAlias);
-        c.layers    = buckets[catId];
-        const int catRow = m_categories.size();
-        for (OpenSWMMVisLayer *layer : c.layers)
-            m_layerToCategory.insert(layer, catRow);
-        m_categories.append(std::move(c));
-    }
-    // Append any buckets not covered by m_categoryDisplayOrder.
-    for (int catId = 0; catId < CatCount; ++catId)
-    {
-        if (seen[catId] || buckets[catId].isEmpty()) continue;
-        const CategoryInfo info = categoryInfo(catId);
-        Category c;
+        c.id        = catId;
         c.name      = QString::fromLatin1(info.name);
         c.iconAlias = QString::fromLatin1(info.iconAlias);
         c.layers    = buckets[catId];
@@ -1090,12 +1036,14 @@ QMimeData *LayerTreeModel::mimeData(const QModelIndexList &indexes) const
     auto *layer = static_cast<OpenSWMMVisLayer *>(p);
 
     if (!layer) {
-        // Category row drag — encode the CategoryId stored in m_categoryDisplayOrder
-        // at this display position.
-        const int displayPos = first.row();
-        if (displayPos < 0 || displayPos >= m_categoryDisplayOrder.size())
+        // Category row drag — encode the CategoryId of this tree row.
+        // (Pre-2026-09-19 this indexed a cached all-categories order with
+        // the row among NON-EMPTY categories, so the wrong group moved
+        // whenever any category was empty.)
+        const int treeRow = first.row();
+        if (treeRow < 0 || treeRow >= m_categories.size())
         { delete mime; return nullptr; }
-        stream << qint32(m_categoryDisplayOrder[displayPos]);
+        stream << qint32(m_categories[treeRow].id);
         mime->setData(QStringLiteral("application/x-layercategory"), encoded);
         return mime;
     }
@@ -1120,67 +1068,94 @@ bool LayerTreeModel::canDropMimeData(const QMimeData *data, Qt::DropAction actio
         return false;                                               // on a layer
     }
 
-    // Layer drop: accept onto any category row (same or different).
+    // Layer drop: only inside the layer's OWN category (between its
+    // sibling rows, or onto the category header = move to bottom). The
+    // layer's type decides its category, so a cross-category drop could
+    // never be honoured — refuse it so the view shows the forbidden cursor.
     if (data->hasFormat(QStringLiteral("application/x-layerrow"))) {
         if (!parent.isValid()) return false;
         if (parent.internalPointer() != nullptr) return false;  // parent is a layer
-        return true;
+        QByteArray buf = data->data(QStringLiteral("application/x-layerrow"));
+        QDataStream ds(&buf, QIODevice::ReadOnly);
+        quintptr layerPtr = 0; ds >> layerPtr;
+        auto *src = reinterpret_cast<OpenSWMMVisLayer *>(layerPtr);
+        return src && m_layerToCategory.value(src, -1) == parent.row();
     }
 
-    // Sublayer drop (Slice GUI-2026-05-30 §2): accept only on a sublayer
-    // row whose host layer matches the drag source.  This prevents
-    // cross-host drops which have no defined semantics.
+    // Sublayer drop: only inside the same host. Two drop shapes arrive
+    // from QTreeView — BETWEEN sub-rows (parent = the host layer row,
+    // row = insertion slot) and ONTO a sub-row (parent = that sub-row).
+    // Both are accepted when the host matches the drag source.
     if (data->hasFormat(QStringLiteral("application/x-sublayerrow"))) {
         if (!parent.isValid()) return false;
-        void *pp = parent.internalPointer();
-        if (!pp || !m_sublayerRowPtrSet.contains(pp)) return false;
-
         QByteArray buf = data->data(QStringLiteral("application/x-sublayerrow"));
         QDataStream ds(&buf, QIODevice::ReadOnly);
         quintptr hostPtr = 0; qint32 ignoredIdx = 0;
         ds >> hostPtr >> ignoredIdx;
-        const SublayerRow *dst = static_cast<const SublayerRow *>(pp);
-        return dst && dst->layer
-               && reinterpret_cast<quintptr>(dst->layer) == hostPtr;
+
+        void *pp = parent.internalPointer();
+        if (!pp) return false;                                      // category row
+        if (m_sublayerRowPtrSet.contains(pp)) {                     // onto a sub-row
+            const SublayerRow *dst = static_cast<const SublayerRow *>(pp);
+            return dst->layer && reinterpret_cast<quintptr>(dst->layer) == hostPtr;
+        }
+        if (m_kindRowPtrSet.contains(pp)) return false;             // kind row
+        // Layer row: must be the host itself (and carry sublayer rows).
+        return reinterpret_cast<quintptr>(pp) == hostPtr
+            && m_sublayerRowStorage.contains(static_cast<OpenSWMMVisLayer *>(pp));
     }
 
     return false;
 }
 
-void LayerTreeModel::reorderCategories(int srcDisplayPos, int dstDisplayPos)
+bool LayerTreeModel::reorderCategory(int categoryId, int dstTreeRow)
 {
-    if (!m_canvas) return;
-    if (srcDisplayPos < 0 || srcDisplayPos >= m_categoryDisplayOrder.size()) return;
-    if (dstDisplayPos < 0 || dstDisplayPos >= m_categoryDisplayOrder.size()) return;
-    if (srcDisplayPos == dstDisplayPos) return;
+    if (!m_canvas) return false;
+    int srcTreeRow = -1;
+    for (int i = 0; i < m_categories.size(); ++i)
+        if (m_categories[i].id == categoryId) { srcTreeRow = i; break; }
+    if (srcTreeRow < 0) return false;
+    if (dstTreeRow < 0 || dstTreeRow >= m_categories.size()) return false;
+    if (srcTreeRow == dstTreeRow) return false;
 
-    QVector<int> newDisplayOrder = m_categoryDisplayOrder;
-    newDisplayOrder.move(srcDisplayPos, dstDisplayPos);
+    // New tree order (top first) among the displayed categories.
+    QVector<int> treeOrder;
+    treeOrder.reserve(m_categories.size());
+    for (const Category &c : m_categories) treeOrder.append(c.id);
+    treeOrder.move(srcTreeRow, dstTreeRow);
 
-    // Canvas order: bottom→top = reverse of display order (display 0 = top = rendered last).
+    // Canvas order: bottom→top = reverse of tree order; within a group keep
+    // the layers' current relative stack order.
     QList<OpenSWMMVisLayer *> desiredCanvasOrder;
-    for (int dp = newDisplayOrder.size() - 1; dp >= 0; --dp) {
-        const int catId = newDisplayOrder[dp];
+    desiredCanvasOrder.reserve(m_canvas->layerCount());
+    for (int t = treeOrder.size() - 1; t >= 0; --t) {
+        const int catId = treeOrder[t];
         for (int ci = 0; ci < m_canvas->layerCount(); ++ci) {
             OpenSWMMVisLayer *l = m_canvas->layerAt(ci);
             if (l && int(categoryFor(l->layerType())) == catId)
                 desiredCanvasOrder.append(l);
         }
     }
-    if (desiredCanvasOrder.count() != m_canvas->layerCount()) return;
+    if (desiredCanvasOrder.count() != m_canvas->layerCount()) return false;
 
-    // Update display order before canvas emits layerOrderChanged so
-    // rebuildCategories() picks up the new sequence.
-    m_categoryDisplayOrder = newDisplayOrder;
+    // Record the preference on the canvas (per project): the moved group
+    // goes immediately before the group that now follows it in the tree,
+    // or immediately after the one preceding it when it became last.
+    // Groups with no layers keep their relative slots.
+    QVector<int> groupOrder = m_canvas->layerGroupOrder();
+    groupOrder.removeAll(categoryId);
+    int insertAt = groupOrder.size();
+    if (dstTreeRow + 1 < treeOrder.size())
+        insertAt = groupOrder.indexOf(treeOrder[dstTreeRow + 1]);
+    else if (dstTreeRow > 0)
+        insertAt = groupOrder.indexOf(treeOrder[dstTreeRow - 1]) + 1;
+    if (insertAt < 0) insertAt = groupOrder.size();
+    groupOrder.insert(insertAt, categoryId);
+    m_canvas->setLayerGroupOrder(groupOrder);
+
+    // Undoable; layerOrderChanged → rebuildCategories() re-derives the rows.
     m_canvas->reorderLayers(desiredCanvasOrder);
-
-    // Persist the new group order globally so it sticks across sessions
-    // (mirrors how the user expects layer ordering to be remembered).
-    QVariantList toSave;
-    toSave.reserve(m_categoryDisplayOrder.size());
-    for (int catId : m_categoryDisplayOrder)
-        toSave.append(catId);
-    QSettings().setValue(QStringLiteral("layerTree/categoryDisplayOrder"), toSave);
+    return true;
 }
 
 bool LayerTreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action,
@@ -1196,54 +1171,77 @@ bool LayerTreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action,
         qint32 srcCatId = -1; ds >> srcCatId;
         if (srcCatId < 0 || srcCatId >= CatCount) return false;
 
-        const int srcDisplayPos = m_categoryDisplayOrder.indexOf(srcCatId);
-        if (srcDisplayPos < 0) return false;
+        int srcTreeRow = -1;
+        for (int i = 0; i < m_categories.size(); ++i)
+            if (m_categories[i].id == srcCatId) { srcTreeRow = i; break; }
+        if (srcTreeRow < 0) return false;
 
-        int dstDisplayPos;
+        // Insertion slot in tree rows: between rows (parent invalid, row =
+        // slot; row < 0 = after the last) or onto a category (= its slot).
+        int slot;
         if (!parent.isValid())
-            dstDisplayPos = (row < 0) ? m_categories.size() : row;
+            slot = (row < 0) ? m_categories.size() : row;
         else
-            dstDisplayPos = parent.row();
+            slot = parent.row();
 
-        if (dstDisplayPos > srcDisplayPos) --dstDisplayPos;
-        if (dstDisplayPos == srcDisplayPos) return false;
-        dstDisplayPos = qBound(0, dstDisplayPos, m_categoryDisplayOrder.size() - 1);
+        int dstTreeRow = slot;
+        if (dstTreeRow > srcTreeRow) --dstTreeRow;
+        dstTreeRow = qBound(0, dstTreeRow, m_categories.size() - 1);
+        if (dstTreeRow == srcTreeRow) return false;
 
-        reorderCategories(srcDisplayPos, dstDisplayPos);
-        return true;
+        return reorderCategory(srcCatId, dstTreeRow);
     }
 
-    // ── Sublayer drop (Slice GUI-2026-05-30 §2) ──────────────────────────
+    // ── Sublayer drop ─────────────────────────────────────────────────────
     if (data->hasFormat(QStringLiteral("application/x-sublayerrow"))) {
         if (!parent.isValid()) return false;
         void *pp = parent.internalPointer();
-        if (!pp || !m_sublayerRowPtrSet.contains(pp)) return false;
-        const SublayerRow *dst = static_cast<const SublayerRow *>(pp);
-        if (!dst || !dst->layer) return false;
+        if (!pp) return false;
 
         QByteArray buf = data->data(QStringLiteral("application/x-sublayerrow"));
         QDataStream ds(&buf, QIODevice::ReadOnly);
         quintptr hostPtr = 0; qint32 srcIdx = -1;
         ds >> hostPtr >> srcIdx;
-        if (reinterpret_cast<quintptr>(dst->layer) != hostPtr || srcIdx < 0)
-            return false;
+        if (srcIdx < 0) return false;
 
-        auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(dst->layer);
-        if (!host) return false;
-        const auto subs = host->sublayers();
-        int dstIdx = subs.indexOf(dst->sublayer);
-        if (dstIdx < 0) return false;
-        if (host->moveSublayer(srcIdx, dstIdx)) {
-            // Full storage rebuild — see notifyHostSubOrderChanged().
-            beginResetModel();
-            rebuildKindRows();
-            rebuildSublayerRows();
-            endResetModel();
+        OpenSWMMVisLayer *hostLayer = nullptr;
+        int dstIdx = -1;                       // paint index (0 = bottom)
+
+        if (m_sublayerRowPtrSet.contains(pp)) {
+            // Onto a sub-row: take that sub-row's paint slot.
+            const SublayerRow *dst = static_cast<const SublayerRow *>(pp);
+            if (!dst->layer || reinterpret_cast<quintptr>(dst->layer) != hostPtr)
+                return false;
+            hostLayer = dst->layer;
+            auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(hostLayer);
+            if (!host) return false;
+            dstIdx = host->sublayers().indexOf(dst->sublayer);
+        } else {
+            // Between sub-rows: parent is the host layer row, `row` is the
+            // display slot (0 = top of paint stack). Convert display → paint:
+            // display r of n is paint n-1-r; the classic "slot after source
+            // shifts by one" adjustment happens in display space first.
+            if (m_kindRowPtrSet.contains(pp)) return false;
+            hostLayer = static_cast<OpenSWMMVisLayer *>(pp);
+            if (reinterpret_cast<quintptr>(hostLayer) != hostPtr) return false;
+            auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(hostLayer);
+            if (!host) return false;
+            const int n = host->sublayers().size();
+            if (srcIdx >= n) return false;
+            const int srcDisplay = n - 1 - srcIdx;
+            int dstDisplay = (row < 0) ? n : row;
+            if (dstDisplay > srcDisplay) --dstDisplay;
+            dstDisplay = qBound(0, dstDisplay, n - 1);
+            dstIdx = n - 1 - dstDisplay;
         }
-        return true;
+        if (dstIdx < 0 || dstIdx == srcIdx) return false;
+
+        // Undoable; sublayerOrderChanged → onSublayerOrderChanged rebuilds
+        // the sub-rows.
+        return m_canvas->moveSublayer(hostLayer, srcIdx, dstIdx);
     }
 
-    // ── Layer drop ────────────────────────────────────────────────────────
+    // ── Layer drop (within its own category only — see canDropMimeData) ──
     if (!data->hasFormat(QStringLiteral("application/x-layerrow"))
         || !parent.isValid() || parent.internalPointer() != nullptr)
         return false;
@@ -1256,46 +1254,18 @@ bool LayerTreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action,
 
     const int srcCatIdx = m_layerToCategory.value(srcLayer, -1);
     const int dstCatIdx = parent.row();
-    if (dstCatIdx < 0 || dstCatIdx >= m_categories.size()) return false;
+    if (srcCatIdx < 0 || srcCatIdx != dstCatIdx) return false;
 
-    const Category &dstCat = m_categories[dstCatIdx];
+    const Category &cat = m_categories[srcCatIdx];
+    const int srcPos = cat.layers.indexOf(srcLayer);
+    if (srcPos < 0) return false;
+    int dstPos = (row < 0) ? cat.layers.size() : row;
+    if (dstPos > srcPos) --dstPos;
+    dstPos = qBound(0, dstPos, cat.layers.size() - 1);
+    if (dstPos == srcPos) return false;
 
-    // Helper: find canvas index of a layer.
-    auto canvasIndexOf = [this](OpenSWMMVisLayer *l) {
-        for (int i = 0; i < m_canvas->layerCount(); ++i)
-            if (m_canvas->layerAt(i) == l) return i;
-        return -1;
-    };
-
-    if (srcCatIdx == dstCatIdx) {
-        // Within-category reorder (original behaviour).
-        const Category &srcCat = m_categories[srcCatIdx];
-        int srcPos = srcCat.layers.indexOf(srcLayer);
-        if (srcPos < 0) return false;
-        int dstPos = (row < 0) ? dstCat.layers.size() : row;
-        if (dstPos > srcPos) --dstPos;
-        if (dstPos == srcPos) return false;
-
-        const int srcCanvas = canvasIndexOf(srcLayer);
-        const int dstCanvas = canvasIndexOf(
-            dstCat.layers[qMin(dstPos, dstCat.layers.size() - 1)]);
-        if (srcCanvas < 0 || dstCanvas < 0) return false;
-        m_canvas->moveLayer(srcCanvas, dstCanvas);
-        return true;
-    }
-
-    // Cross-category: move srcLayer to the position in dstCat.
-    int dstPos = (row < 0) ? qMax(0, dstCat.layers.size() - 1)
-                           : qMin(row, qMax(0, dstCat.layers.size() - 1));
-    const int srcCanvas = canvasIndexOf(srcLayer);
-    int dstCanvas = -1;
-    if (!dstCat.layers.isEmpty()) {
-        dstCanvas = canvasIndexOf(dstCat.layers[dstPos]);
-    } else {
-        // Target category is empty — find a suitable insertion canvas index
-        // from neighbouring categories.  Fall back to index 0.
-        dstCanvas = 0;
-    }
+    const int srcCanvas = m_canvas->layers().indexOf(srcLayer);
+    const int dstCanvas = m_canvas->layers().indexOf(cat.layers[dstPos]);
     if (srcCanvas < 0 || dstCanvas < 0) return false;
     m_canvas->moveLayer(srcCanvas, dstCanvas);
     return true;
@@ -1314,6 +1284,43 @@ OpenSWMMVisLayer *LayerTreeModel::layerForIndex(const QModelIndex &index) const
     if (m_sublayerRowPtrSet.contains(p))
         return static_cast<const SublayerRow *>(p)->layer;
     return static_cast<OpenSWMMVisLayer *>(p);
+}
+
+int LayerTreeModel::categoryIdForIndex(const QModelIndex &index) const
+{
+    if (!index.isValid() || index.internalPointer() != nullptr) return -1;
+    const int row = index.row();
+    return (row >= 0 && row < m_categories.size()) ? m_categories[row].id : -1;
+}
+
+QModelIndex LayerTreeModel::indexForCategory(int categoryId) const
+{
+    for (int i = 0; i < m_categories.size(); ++i)
+        if (m_categories[i].id == categoryId)
+            return createIndex(i, 0, static_cast<void *>(nullptr));
+    return {};
+}
+
+QModelIndex LayerTreeModel::indexForLayer(OpenSWMMVisLayer *layer) const
+{
+    const int catIdx = m_layerToCategory.value(layer, -1);
+    if (catIdx < 0) return {};
+    const int row = m_categories[catIdx].layers.indexOf(layer);
+    if (row < 0) return {};
+    return createIndex(row, 0, layer);
+}
+
+QModelIndex LayerTreeModel::indexForSublayer(OpenSWMMVisLayer *layer,
+                                             OpenSWMM::Render::ISublayer *sublayer) const
+{
+    auto it = m_sublayerRowStorage.constFind(layer);
+    if (it == m_sublayerRowStorage.constEnd()) return {};
+    const auto &vec = it.value();
+    for (size_t i = 0; i < vec.size(); ++i)
+        if (vec[i].sublayer == sublayer)
+            return createIndex(static_cast<int>(i), 0,
+                               const_cast<void *>(static_cast<const void *>(&vec[i])));
+    return {};
 }
 
 bool LayerTreeModel::isCategoryIndex(const QModelIndex &index) const
@@ -1403,6 +1410,13 @@ void LayerTreeModel::onLayerDataChanged(OpenSWMMVisLayer *layer)
     const QModelIndex tl = index(row, 0,                  parentIdx);
     const QModelIndex br = index(row, columnCount() - 1,  parentIdx);
     emit dataChanged(tl, br);
+}
+
+void LayerTreeModel::onSublayerOrderChanged(OpenSWMMVisLayer * /*host*/)
+{
+    // Fired by MapCanvas::moveSublayer on redo AND undo, so Edit ▸ Undo
+    // refreshes the sub-rows without the panel having to know.
+    notifyHostSubOrderChanged();
 }
 
 void LayerTreeModel::notifyHostSubOrderChanged()
@@ -1519,6 +1533,14 @@ void LayerTreePanel::setupUi()
     connect(m_proxy, &QAbstractItemModel::layoutChanged,
             m_treeView, &QTreeView::expandAll);
 
+    // Slice LTR-2026-09-19 — keep the moved row selected across the reset
+    // every reorder (drop, menu, undo, redo) performs. Connected AFTER the
+    // expandAll hooks so the restore runs on an expanded tree.
+    connect(m_model, &QAbstractItemModel::modelAboutToBeReset,
+            this, &LayerTreePanel::rememberCurrentRow);
+    connect(m_proxy, &QAbstractItemModel::modelReset,
+            this, &LayerTreePanel::restoreRememberedRow);
+
     // Selection + interactions
     connect(m_treeView->selectionModel(), &QItemSelectionModel::selectionChanged,
             this, &LayerTreePanel::onSelectionChanged);
@@ -1591,34 +1613,85 @@ void LayerTreePanel::zoomToLayer(OpenSWMMVisLayer *layer)
     }
 }
 
-void LayerTreePanel::onMoveLayerUp()
+void LayerTreePanel::moveSelectedLayerToRow(int targetRow)
 {
     if (!m_canvas) return;
-    OpenSWMMVisLayer *sel = selectedLayer();
+    const QModelIndex idx = toSourceIndex(m_treeView->currentIndex());
+    OpenSWMMVisLayer *sel = m_model->layerForIndex(idx);
     if (!sel) return;       // category row — nothing to move
+    const QModelIndex layerIdx = m_model->indexForLayer(sel);
+    if (!layerIdx.isValid()) return;
+    const QModelIndex catIdx = layerIdx.parent();
+    const int rows = m_model->rowCount(catIdx);
+    targetRow = qBound(0, targetRow, rows - 1);
+    if (targetRow == layerIdx.row()) return;
 
-    int canvasIdx = -1;
-    for (int i = 0; i < m_canvas->layerCount(); ++i)
-        if (m_canvas->layerAt(i) == sel) { canvasIdx = i; break; }
-    if (canvasIdx < 0) return;
-    const int targetIdx = canvasIdx + 1;   // "up" in display = higher canvas index
-    if (targetIdx >= m_canvas->layerCount()) return;
-    m_canvas->moveLayer(canvasIdx, targetIdx);
+    // The sibling's canvas index is the target: QList::move puts the layer
+    // exactly there and shifts the sibling the other way.
+    OpenSWMMVisLayer *sibling =
+        m_model->layerForIndex(m_model->index(targetRow, 0, catIdx));
+    if (!sibling) return;
+    const int srcCanvas = m_canvas->layers().indexOf(sel);
+    const int dstCanvas = m_canvas->layers().indexOf(sibling);
+    if (srcCanvas < 0 || dstCanvas < 0) return;
+    m_canvas->moveLayer(srcCanvas, dstCanvas);
+}
+
+void LayerTreePanel::onMoveLayerUp()
+{
+    const QModelIndex idx = toSourceIndex(m_treeView->currentIndex());
+    if (m_model->layerForIndex(idx) && !m_model->isCategoryIndex(idx))
+        moveSelectedLayerToRow(idx.row() - 1);
 }
 
 void LayerTreePanel::onMoveLayerDown()
 {
-    if (!m_canvas) return;
-    OpenSWMMVisLayer *sel = selectedLayer();
-    if (!sel) return;       // category row — nothing to move
+    const QModelIndex idx = toSourceIndex(m_treeView->currentIndex());
+    if (m_model->layerForIndex(idx) && !m_model->isCategoryIndex(idx))
+        moveSelectedLayerToRow(idx.row() + 1);
+}
 
-    int canvasIdx = -1;
-    for (int i = 0; i < m_canvas->layerCount(); ++i)
-        if (m_canvas->layerAt(i) == sel) { canvasIdx = i; break; }
-    if (canvasIdx < 0) return;
-    const int targetIdx = canvasIdx - 1;   // "down" in display = lower canvas index
-    if (targetIdx < 0) return;
-    m_canvas->moveLayer(canvasIdx, targetIdx);
+void LayerTreePanel::moveSelectedCategoryToRow(int targetRow)
+{
+    if (!m_canvas) return;
+    const QModelIndex idx = toSourceIndex(m_treeView->currentIndex());
+    const int catId = m_model->categoryIdForIndex(idx);
+    if (catId < 0) return;
+    const int catCount = m_model->rowCount({});
+    targetRow = qBound(0, targetRow, catCount - 1);
+    m_model->reorderCategory(catId, targetRow);
+}
+
+void LayerTreePanel::rememberCurrentRow()
+{
+    m_remembered = {};
+    const QModelIndex idx = toSourceIndex(m_treeView->currentIndex());
+    if (!idx.isValid()) return;
+    if (m_model->isCategoryIndex(idx)) {
+        m_remembered.categoryId = m_model->categoryIdForIndex(idx);
+    } else if (m_model->isSublayerIndex(idx)) {
+        m_remembered.layer    = m_model->sublayerParentLayer(idx);
+        m_remembered.sublayer = m_model->sublayerForIndex(idx);
+    } else if (!m_model->isKindIndex(idx)) {
+        m_remembered.layer = m_model->layerForIndex(idx);
+    }
+}
+
+void LayerTreePanel::restoreRememberedRow()
+{
+    QModelIndex src;
+    if (m_remembered.categoryId >= 0)
+        src = m_model->indexForCategory(m_remembered.categoryId);
+    else if (m_remembered.layer && m_remembered.sublayer)
+        src = m_model->indexForSublayer(m_remembered.layer, m_remembered.sublayer);
+    else if (m_remembered.layer)
+        src = m_model->indexForLayer(m_remembered.layer);
+    m_remembered = {};
+    if (!src.isValid()) return;
+    const QModelIndex proxyIdx = m_proxy->mapFromSource(src);
+    if (!proxyIdx.isValid()) return;
+    m_treeView->setCurrentIndex(proxyIdx);
+    m_treeView->scrollTo(proxyIdx);
 }
 
 void LayerTreePanel::onSelectionChanged()
@@ -1648,23 +1721,16 @@ void LayerTreePanel::onLayerDoubleClicked(const QModelIndex &index)
 
 void LayerTreePanel::onMoveCategoryUp()
 {
-    if (!m_canvas) return;
     const QModelIndex idx = toSourceIndex(m_treeView->currentIndex());
-    if (!m_model->isCategoryIndex(idx)) return;
-    const int displayPos = idx.row();
-    if (displayPos <= 0) return;
-    m_model->reorderCategories(displayPos, displayPos - 1);
+    if (m_model->isCategoryIndex(idx))
+        moveSelectedCategoryToRow(idx.row() - 1);
 }
 
 void LayerTreePanel::onMoveCategoryDown()
 {
-    if (!m_canvas) return;
     const QModelIndex idx = toSourceIndex(m_treeView->currentIndex());
-    if (!m_model->isCategoryIndex(idx)) return;
-    const int displayPos = idx.row();
-    const int catCount = m_model->rowCount({});
-    if (displayPos >= catCount - 1) return;
-    m_model->reorderCategories(displayPos, displayPos + 1);
+    if (m_model->isCategoryIndex(idx))
+        moveSelectedCategoryToRow(idx.row() + 1);
 }
 
 void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
@@ -1683,17 +1749,25 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
 
         QMenu menu(this);
         QStyle *s = QApplication::style();
+        QAction *actTop  = menu.addAction(s->standardIcon(QStyle::SP_TitleBarShadeButton),
+                                          tr("Move Category to Top"));
         QAction *actUp   = menu.addAction(s->standardIcon(QStyle::SP_ArrowUp),
                                           tr("Move Category Up"));
         QAction *actDown = menu.addAction(s->standardIcon(QStyle::SP_ArrowDown),
                                           tr("Move Category Down"));
-        actUp  ->setEnabled(displayPos > 0);
-        actDown->setEnabled(displayPos < catCount - 1);
+        QAction *actBottom = menu.addAction(s->standardIcon(QStyle::SP_TitleBarUnshadeButton),
+                                            tr("Move Category to Bottom"));
+        actTop   ->setEnabled(displayPos > 0);
+        actUp    ->setEnabled(displayPos > 0);
+        actDown  ->setEnabled(displayPos < catCount - 1);
+        actBottom->setEnabled(displayPos < catCount - 1);
 
         QAction *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
         if (!picked) return;
-        if      (picked == actUp)   onMoveCategoryUp();
-        else if (picked == actDown) onMoveCategoryDown();
+        if      (picked == actTop)    moveSelectedCategoryToRow(0);
+        else if (picked == actUp)     onMoveCategoryUp();
+        else if (picked == actDown)   onMoveCategoryDown();
+        else if (picked == actBottom) moveSelectedCategoryToRow(catCount - 1);
         return;
     }
 
@@ -1725,18 +1799,24 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         // Slice GUI-2026-05-30 §2 — sublayer reorder.  Up moves toward
         // the top of the paint stack (higher index); Down moves the
         // opposite way.  Disabled at the boundaries.
+        QAction *actTop = subMenu.addAction(
+            ss->standardIcon(QStyle::SP_TitleBarShadeButton), tr("Move to Top"));
         QAction *actUp = subMenu.addAction(
             ss->standardIcon(QStyle::SP_ArrowUp),   tr("Move Up"));
         QAction *actDown = subMenu.addAction(
             ss->standardIcon(QStyle::SP_ArrowDown), tr("Move Down"));
+        QAction *actBottom = subMenu.addAction(
+            ss->standardIcon(QStyle::SP_TitleBarUnshadeButton), tr("Move to Bottom"));
         int curPos = -1, nSubs = 0;
         if (host) {
             const auto subs = host->sublayers();
             nSubs  = subs.size();
             curPos = subs.indexOf(sub);
         }
-        actUp  ->setEnabled(host && curPos >= 0 && curPos < nSubs - 1);
-        actDown->setEnabled(host && curPos >  0);
+        actTop   ->setEnabled(host && curPos >= 0 && curPos < nSubs - 1);
+        actUp    ->setEnabled(host && curPos >= 0 && curPos < nSubs - 1);
+        actDown  ->setEnabled(host && curPos >  0);
+        actBottom->setEnabled(host && curPos >  0);
 
         QAction *picked = subMenu.exec(m_treeView->viewport()->mapToGlobal(pos));
         if (!picked) return;
@@ -1751,13 +1831,17 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
                 dlg->setAttribute(Qt::WA_DeleteOnClose);
                 dlg->show();
             }
-        } else if (host && (picked == actUp || picked == actDown)) {
-            const int target = curPos + (picked == actUp ? +1 : -1);
-            if (host->moveSublayer(curPos, target)) {
-                // Rebuild model storage so subsequent QModelIndexes stay
-                // valid and the view re-renders in the new paint order.
-                m_model->notifyHostSubOrderChanged();
-            }
+        } else if (host && parentLayer && m_canvas
+                   && (picked == actUp || picked == actDown
+                       || picked == actTop || picked == actBottom)) {
+            int target = curPos;
+            if      (picked == actUp)     target = curPos + 1;
+            else if (picked == actDown)   target = curPos - 1;
+            else if (picked == actTop)    target = nSubs - 1;
+            else if (picked == actBottom) target = 0;
+            // Undoable (MoveSublayerCommand); the canvas's
+            // sublayerOrderChanged signal rebuilds the model's sub-rows.
+            m_canvas->moveSublayer(parentLayer, curPos, target);
         }
         return;
     }
@@ -1969,16 +2053,21 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     menu.addSeparator();
 
     // Group 3 — order
+    // Slice LTR-2026-09-19 — all four bounded to the layer's own category:
+    // the row among its siblings decides what is enabled.
+    const int siblingRows = m_model->rowCount(idx.parent());
     QAction *actMoveTop = menu.addAction(s->standardIcon(QStyle::SP_TitleBarShadeButton),
                                           tr("Move to Top"));
-    actMoveTop->setEnabled(false);                  // pending feature
+    actMoveTop->setEnabled(idx.row() > 0);
     QAction *actUp   = menu.addAction(s->standardIcon(QStyle::SP_ArrowUp),
                                       tr("Move Up"));
+    actUp->setEnabled(idx.row() > 0);
     QAction *actDown = menu.addAction(s->standardIcon(QStyle::SP_ArrowDown),
                                       tr("Move Down"));
+    actDown->setEnabled(idx.row() < siblingRows - 1);
     QAction *actMoveBottom = menu.addAction(s->standardIcon(QStyle::SP_TitleBarUnshadeButton),
                                              tr("Move to Bottom"));
-    actMoveBottom->setEnabled(false);               // pending feature
+    actMoveBottom->setEnabled(idx.row() < siblingRows - 1);
     menu.addSeparator();
 
     // Group 4 — lifecycle
@@ -2040,8 +2129,10 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         else if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(layer))
             emit setActive2DResultsLayerRequested(r2d);
     }
+    else if (picked == actMoveTop)     moveSelectedLayerToRow(0);
     else if (picked == actUp)          onMoveLayerUp();
     else if (picked == actDown)        onMoveLayerDown();
+    else if (picked == actMoveBottom)  moveSelectedLayerToRow(siblingRows - 1);
     else if (picked == actToggle)      layer->setVisible(!layer->isVisible());
     else if (picked == actRemove) onRemoveSelectedLayer();
 }
@@ -2060,5 +2151,9 @@ void LayerTreePanel::onSearchTextChanged(const QString &text)
 {
     if (!m_proxy) return;
     m_proxy->setFilterFixedString(text);
+    // No drag-reorder on a filtered tree: hidden siblings make the drop
+    // slot ambiguous. The context-menu moves keep working.
+    m_treeView->setDragEnabled(text.isEmpty());
+    m_treeView->setAcceptDrops(text.isEmpty());
     m_treeView->expandAll();
 }

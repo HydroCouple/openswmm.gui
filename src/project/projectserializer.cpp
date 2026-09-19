@@ -85,6 +85,16 @@ const QString kObjectOrder   = QStringLiteral("objectOrder");
 const QString kHiddenObjects = QStringLiteral("hiddenObjects");
 const QString kCanvas        = QStringLiteral("canvas");
 const QString kExtent        = QStringLiteral("extent");
+// Slice LTR-2026-09-19 — layer-tree ordering, both inside the canvas block
+// and purely additive (older readers ignore them; files without them load
+// with the default group order and the section-by-section stack order).
+//   layerGroupOrder : CategoryId ints, top of tree first
+//                     (MapCanvas::layerGroupOrder).
+//   layerOrder      : MapCanvas::layerOrderKey() per layer, bottom → top
+//                     (applied incrementally by addLayer() as layers
+//                     arrive — see MapCanvas::setPendingLayerOrder).
+const QString kLayerGroupOrder = QStringLiteral("layerGroupOrder");
+const QString kLayerOrder      = QStringLiteral("layerOrder");
 const QString kResultLayers  = QStringLiteral("resultLayers");
 // Slice S6.1 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — companion to kResultLayers.
 // Object keyed by the same relative path as each entry in kResultLayers;
@@ -1083,6 +1093,17 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
             bbox.append(e.xMax()); bbox.append(e.yMax());
             canvasObj[kExtent] = bbox;
         }
+        {
+            QJsonArray groupOrder;
+            for (int id : canvas->layerGroupOrder())
+                groupOrder.append(id);
+            canvasObj[kLayerGroupOrder] = groupOrder;
+
+            QJsonArray layerOrder;
+            for (OpenSWMMVisLayer *l : canvas->layers())
+                layerOrder.append(MapCanvas::layerOrderKey(l));
+            canvasObj[kLayerOrder] = layerOrder;
+        }
         if (!canvasObj.isEmpty())
             root[kCanvas] = canvasObj;
 
@@ -1204,6 +1225,26 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
 
     auto *layer  = pw->modelLayer();
     auto *canvas = pw->canvas();
+
+    // Slice LTR-2026-09-19 — ordering preferences must be on the canvas
+    // BEFORE any layer is added (applySession adds the results layers;
+    // basemaps / GIS / 2D results follow, some asynchronously), because
+    // MapCanvas::addLayer() consults them on every insert.
+    if (canvas) {
+        const QJsonObject canvasObj = root.value(kCanvas).toObject();
+        if (canvasObj.contains(kLayerGroupOrder)) {
+            QVector<int> order;
+            for (const QJsonValue &v : canvasObj.value(kLayerGroupOrder).toArray())
+                order.append(v.toInt(-1));
+            canvas->setLayerGroupOrder(order);      // validates the permutation
+        }
+        if (canvasObj.contains(kLayerOrder)) {
+            QStringList keys;
+            for (const QJsonValue &v : canvasObj.value(kLayerOrder).toArray())
+                keys.append(v.toString());
+            canvas->setPendingLayerOrder(keys);
+        }
+    }
 
     if (layer) {
         applySession(sessionObj, pw, oswpPath, warningsOut);

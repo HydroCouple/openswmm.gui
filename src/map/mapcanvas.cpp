@@ -33,8 +33,11 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "render/qsg2drenderstats.h"
 #include "render/renderperf.h"
+#include "render/isublayerhost.h"          // moveSublayer()
+#include "ui/panels/layertreecategories.h" // grouped insert (headless helper)
 
 #include <QElapsedTimer>
+#include <algorithm>
 #include <QQmlError>
 #include <QQuickItem>
 #include <QQuickWidget>
@@ -533,7 +536,12 @@ const QList<OpenSWMMVisLayer *> &MapCanvas::layers() const { return m_layers; }
 
 void MapCanvas::addLayer(OpenSWMMVisLayer *layer, bool pushUndo)
 {
-    insertLayer(m_layers.count(), layer, pushUndo);
+    // Slice LTR-2026-09-19 — keep the stack grouped by category (and honour
+    // a saved project order) instead of always appending at the top. See
+    // groupedInsertPosition().
+    if (!layer)
+        return;
+    insertLayer(groupedInsertPosition(layer), layer, pushUndo);
 }
 
 void MapCanvas::insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo)
@@ -606,6 +614,24 @@ void MapCanvas::insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo
     // Only vector (non-raster) layers populate the overlay scene.
     if (!layer->isRasterLayer())
         layer->populateScene(m_scene, m_extent, m_canvasSRS);
+
+    // Slice LTR-2026-09-19 — a mid-stack insert of a VECTOR layer shifts
+    // the z-value of every layer above it, but updateLayerZValues() only
+    // updates the scalar; scene items keep the z they were populated with
+    // (same reason moveLayer() repopulates). Rebuild just the vector layers
+    // above the insertion point so the new layer really draws beneath
+    // them. A raster insert needs none of this: rasters composite in their
+    // own channel beneath the scene, and a uniform +1000 shift leaves the
+    // vector layers' relative z untouched — which also keeps project load
+    // (basemaps inserted under an already-populated model) cheap.
+    if (!layer->isRasterLayer()) {
+        for (int i = position + 1; i < m_layers.count(); ++i) {
+            OpenSWMMVisLayer *above = m_layers.at(i);
+            if (!above || above->isRasterLayer()) continue;
+            above->depopulateScene(m_scene);
+            above->populateScene(m_scene, m_extent, m_canvasSRS);
+        }
+    }
 
     // §QSG-1 — seed the new layer's per-kind QSG scope from the
     // current Preferences mask so it lights up the GPU path
@@ -722,7 +748,14 @@ void MapCanvas::reorderLayers(const QList<OpenSWMMVisLayer *> &newOrder, bool pu
 
     if (pushUndo)
     {
-        m_undoStack->push(new ReorderLayersCommand(m_layers, newOrder, this));
+        // ReorderLayersCommand skips its FIRST redo ("already applied by
+        // caller" — the convention it shares with ReorderCategoriesCommand
+        // and ReorderObjectsCommand), so the new order has to be applied
+        // here before the command is pushed. Pushing without applying made
+        // every first reorder a silent no-op.
+        const QList<OpenSWMMVisLayer *> oldOrder = m_layers;
+        reorderLayers(newOrder, /*pushUndo=*/false);
+        m_undoStack->push(new ReorderLayersCommand(oldOrder, newOrder, this));
         return;
     }
 
@@ -742,6 +775,152 @@ void MapCanvas::reorderLayers(const QList<OpenSWMMVisLayer *> &newOrder, bool pu
 }
 
 int MapCanvas::layerCount() const { return m_layers.count(); }
+
+// ---------------------------------------------------------------------------
+// Layer-group order + grouped insert — Slice LTR-2026-09-19
+// ---------------------------------------------------------------------------
+
+QVector<int> MapCanvas::layerGroupOrder() const
+{
+    if (!m_layerGroupOrder.isEmpty())
+        return m_layerGroupOrder;
+    QVector<int> def;
+    def.reserve(openswmmvis::ui::CatCount);
+    for (int id : openswmmvis::ui::kDefaultCategoryDisplayOrder)
+        def.append(id);
+    return def;
+}
+
+void MapCanvas::setLayerGroupOrder(const QVector<int> &order)
+{
+    using openswmmvis::ui::CatCount;
+    if (order.size() != CatCount)
+        return;
+    QVector<bool> seen(CatCount, false);
+    for (int id : order) {
+        if (id < 0 || id >= CatCount || seen[id])
+            return;
+        seen[id] = true;
+    }
+    m_layerGroupOrder = order;
+}
+
+QString MapCanvas::layerOrderKey(const OpenSWMMVisLayer *layer)
+{
+    if (!layer) return {};
+    return QString::number(int(layer->layerType())) + QLatin1Char('|')
+         + layer->sourceDescription() + QLatin1Char('|')
+         + layer->name();
+}
+
+void MapCanvas::setPendingLayerOrder(const QStringList &keysBottomToTop)
+{
+    m_pendingLayerOrder = keysBottomToTop;
+    if (m_pendingLayerOrder.isEmpty() || m_layers.count() < 2)
+        return;
+
+    // Layers already on the stack (the model layer, a mesh auto-loaded from
+    // the .inp) were inserted before the saved order was known. When every
+    // one of them is named by the saved order, re-sort them now so later
+    // arrivals slot in against a correctly ordered base.
+    QList<OpenSWMMVisLayer *> sorted = m_layers;
+    for (OpenSWMMVisLayer *l : std::as_const(sorted))
+        if (m_pendingLayerOrder.indexOf(layerOrderKey(l)) < 0)
+            return;
+    std::stable_sort(sorted.begin(), sorted.end(),
+                     [this](OpenSWMMVisLayer *a, OpenSWMMVisLayer *b) {
+                         return m_pendingLayerOrder.indexOf(layerOrderKey(a))
+                              < m_pendingLayerOrder.indexOf(layerOrderKey(b));
+                     });
+    if (sorted != m_layers)
+        reorderLayers(sorted, /*pushUndo=*/false);
+}
+
+QStringList MapCanvas::pendingLayerOrder() const
+{
+    return m_pendingLayerOrder;
+}
+
+int MapCanvas::groupedInsertPosition(const OpenSWMMVisLayer *layer) const
+{
+    using openswmmvis::ui::categoryForLayerType;
+    if (!layer)
+        return m_layers.count();
+
+    // 1. Saved project order wins: land directly above the highest present
+    //    layer that the saved list ranks below this one. Layers arrive in
+    //    arbitrary (async) sequence during load, and this rule converges on
+    //    the saved order whatever the arrival sequence.
+    if (!m_pendingLayerOrder.isEmpty()) {
+        const int rank = m_pendingLayerOrder.indexOf(layerOrderKey(layer));
+        if (rank >= 0) {
+            int pos = 0;
+            for (int i = 0; i < m_layers.count(); ++i) {
+                const int r = m_pendingLayerOrder.indexOf(layerOrderKey(m_layers.at(i)));
+                if (r >= 0 && r < rank)
+                    pos = i + 1;
+            }
+            return pos;
+        }
+    }
+
+    // 2. Same category already present: top of that group.
+    const int cat = categoryForLayerType(int(layer->layerType()));
+    auto catOf = [](const OpenSWMMVisLayer *l) {
+        return int(categoryForLayerType(int(l->layerType())));
+    };
+    int topOfGroup = -1;
+    for (int i = 0; i < m_layers.count(); ++i)
+        if (m_layers.at(i) && catOf(m_layers.at(i)) == cat)
+            topOfGroup = i;
+    if (topOfGroup >= 0)
+        return topOfGroup + 1;
+
+    // 3. First layer of its category: slot it by the group order — just
+    //    below the nearest non-empty group listed above it, else just above
+    //    the nearest non-empty group listed below it, else top of stack.
+    const QVector<int> order = layerGroupOrder();
+    const int gi = order.indexOf(cat);
+    if (gi < 0)
+        return m_layers.count();
+    for (int j = gi - 1; j >= 0; --j) {
+        for (int i = 0; i < m_layers.count(); ++i)
+            if (m_layers.at(i) && catOf(m_layers.at(i)) == order[j])
+                return i;                       // below that group's bottom
+    }
+    for (int j = gi + 1; j < order.size(); ++j) {
+        int top = -1;
+        for (int i = 0; i < m_layers.count(); ++i)
+            if (m_layers.at(i) && catOf(m_layers.at(i)) == order[j])
+                top = i;
+        if (top >= 0)
+            return top + 1;                     // above that group's top
+    }
+    return m_layers.count();
+}
+
+bool MapCanvas::moveSublayer(OpenSWMMVisLayer *host, int from, int to, bool pushUndo)
+{
+    if (!host || !m_layers.contains(host) || from == to)
+        return false;
+    auto *sh = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(host);
+    if (!sh)
+        return false;
+    const int n = sh->sublayers().size();
+    if (from < 0 || from >= n || to < 0 || to >= n)
+        return false;
+
+    if (pushUndo)
+    {
+        m_undoStack->push(new MoveSublayerCommand(host, from, to, this));
+        return true;
+    }
+
+    if (!sh->moveSublayer(from, to))
+        return false;
+    emit sublayerOrderChanged(host);
+    return true;
+}
 
 OpenSWMMVisLayer *MapCanvas::layerAt(int index) const
 {
