@@ -447,6 +447,45 @@
       "size": "1100x760",
       "_model": "docs/manual/tutorials/models/transport_demo.inp",
       "_note": "Not in the ActionCatalog; reached by the QAction objectName."
+    },
+    {
+      "name": "14_street_editor.png",
+      "action": "data.newStreet",
+      "select": "first",
+      "size": "1300x820",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/street_inlet_junction.inp",
+      "_note": "Has a schematic section preview, which is chart-class content: offscreen draws the chrome but not the section."
+    },
+    {
+      "name": "14_inlet_editor.png",
+      "action": "data.newInlet",
+      "select": "first",
+      "size": "1300x820",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/street_inlet_junction.inp"
+    },
+    {
+      "name": "14_rules_editor.png",
+      "action": "data.newControlRule",
+      "select": "first",
+      "size": "1200x780",
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp"
+    },
+    {
+      "name": "15_temperature_tab.png",
+      "action": "climate.temperature",
+      "tab": "Temperature",
+      "size": "1100x760",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+    },
+    {
+      "name": "t08_control_rules_editor.png",
+      "action": "data.newControlRule",
+      "select": "first",
+      "size": "1200x780",
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Same view as 14_rules_editor; the tutorial wants Bellinge's five pump rules."
     }
   ]
 }

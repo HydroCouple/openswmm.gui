@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 274 figures, 35 videos. Published so far: 52.
+Remaining: 270 figures, 35 videos. Published so far: 56.
 
 ## 01_introduction.md
 
@@ -143,10 +143,7 @@ Remaining: 274 figures, 35 videos. Published so far: 52.
 - [ ] `14_link_properties_conduit.png` (line 318) — Conduit property rows including cross-section and losses
 - [ ] `14_xsection_editor.png` (line 371) — The cross-section editor with the shape gallery and the live section preview
 - [ ] `14_transect_editor.png` (line 396) — The Transect editor with the station table and the section chart
-- [ ] `14_street_editor.png` (line 420) — The Street editor with the schematic section preview
-- [ ] `14_inlet_editor.png` (line 455) — The Inlet editor with the plan-and-section drawing
 - [ ] `14_inlet_usage_page.png` (line 472) — The Inlets page of the link compound editor
-- [ ] `14_rules_editor.png` (line 513) — The control rules editor with syntax highlighting and a valid badge
 - [ ] `14_rules_completion.png` (line 515) — Rule completion offering live node names
 
 ## 15_climate.md
@@ -393,7 +390,6 @@ Remaining: 274 figures, 35 videos. Published so far: 52.
 - [ ] `t08_add_basemap_xyz.png` (line 156) — The Add Basemap dialog on the XYZ Tiles tab with the built-in providers
 - [ ] `t08_layers_panel_large.png` (line 195) — The Layers panel with all eight categories populated
 - [ ] `t08_select_upstream.png` (line 247) — An upstream trace from an outfall highlighting a whole sewershed
-- [ ] `t08_control_rules_editor.png` (line 280) — The Control Rules Editor with one of the five pump rules selected
 - [ ] `t08_simulation_status.png` (line 366) — The Simulation Status panel mid-run with live continuity errors
 - [ ] `t08_2d_animation_frame.png` (line 387) — A 2D inundation frame over the Bellinge street network with a basemap underneath
 - [ ] `t08_profile_pumped_branch.png` (line 405) — A profile plot through a pumped branch with the HGL at an animation time
