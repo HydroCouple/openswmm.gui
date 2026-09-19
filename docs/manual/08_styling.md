@@ -20,7 +20,7 @@ then save a style you like and reuse it.
 | **Legend Properties** | Right-click the on-canvas legend → **Properties…** | — |
 | Annotation style | Place or click a text annotation with the **Add Text** tool | — |
 
-\figtodo{08_layer_style_dialog.png, The Layer Properties dialog with its vertical tab sidebar on the Symbology tab}
+\fig{08_layer_style_dialog.png, The Layer Properties dialog on the Symbology tab with the kind tree beside the renderer editor}
 
 ## Step-by-step
 
@@ -81,7 +81,7 @@ after the name is the renderer class (**S**ingle, **G**raduated, **C**ategorized
 tab. Opening the dialog from a kind row's context menu focuses that kind
 directly.
 
-\figtodo{08_kind_tree_symbology.png, The kind tree on the Symbology tab with renderer badges beside each SWMM object kind}
+\fig{08_kind_tree_symbology.png, The kind tree on the Symbology tab with renderer badges beside each SWMM object kind}
 
 #### Single Symbol
 

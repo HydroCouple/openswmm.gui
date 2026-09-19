@@ -130,7 +130,7 @@ sidebar. Only the tabs the layer type supports are shown.
 back every edit made since the dialog opened. The button bar also carries
 **Import style…** and **Export style…**.
 
-\figtodo{07_layer_properties_source_tab.png, The Layer Properties dialog on the Source tab showing the CRS row}
+\fig{07_layer_properties_source_tab.png, The Layer Properties dialog on the Source tab showing the CRS row}
 
 ### Open SWMM Output
 
@@ -285,7 +285,7 @@ Layers** tree.
 | **Ignore axis orientation** / **Invert axis orientation** (Advanced) | Work around services that disagree about EPSG axis order. |
 | **Smooth pixmap transform** (Advanced) | Smooth scaling of the returned image; on by default. |
 
-\figtodo{07_add_basemap_wms_tab.png, The Add Basemap dialog on the WMS / WMTS tab after Connect}
+\fig{07_add_basemap_wms_tab.png, The Add Basemap dialog on the WMS / WMTS tab with the URL row; layer list and Advanced options}
 
 #### WCS
 
