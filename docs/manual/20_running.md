@@ -185,7 +185,7 @@ is costing you engine throughput; turn it back on to resume at the newest frame.
 When the run ends the layer's source is swapped from the live engine feed to the
 `.h5` file so you can scrub backwards through the whole run.
 
-\figtodo{20_live_toggles.png, The Live 1D and Live 2D check boxes in the Results ribbon Display group}
+\fig{20_live_toggles.png, The Live 1D and Live 2D check boxes in the Results ribbon Display group}
 
 ### What happens when the run finishes
 
