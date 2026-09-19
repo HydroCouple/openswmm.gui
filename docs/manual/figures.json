@@ -525,6 +525,27 @@
       "grab": "QTreeView",
       "_model": "examples/site_drainage/site_drainage_model.inp",
       "_note": "The kind tree only; the dialog around it is 08_layer_style_dialog."
+    },
+    {
+      "name": "08_mesh_style_panel.png",
+      "action": "actionSetStyle",
+      "hostSelect": "Meshes/2d_complete_example.inp",
+      "page": "Symbology",
+      "tab": "Terrain Fill",
+      "size": "1200x650",
+      "_model": "docs/manual/tutorials/models/2d_complete_example.inp",
+      "_note": "The mesh layer and the SWMM layer share a name here; the path form picks the mesh."
+    },
+    {
+      "name": "08_classification_editor.png",
+      "action": "actionSetStyle",
+      "hostSelect": "Meshes/2d_complete_example.inp",
+      "page": "Symbology",
+      "tab": "Elevation Bands",
+      "size": "1200x820",
+      "grab": "ClassificationEditor",
+      "_model": "docs/manual/tutorials/models/2d_complete_example.inp",
+      "_note": "Elevation Bands is classified by nature, so the method/classes/breaks controls are live at rest."
     }
   ]
 }
