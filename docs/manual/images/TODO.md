@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 254 figures, 35 videos. Published so far: 72.
+Remaining: 245 figures, 35 videos. Published so far: 81.
 
 ## 01_introduction.md
 
@@ -54,16 +54,13 @@ Remaining: 254 figures, 35 videos. Published so far: 72.
 
 ## 07_layers.md
 
-- [ ] `07_layers_panel.png` (line 30) — The Layers panel with a basemap; a DEM; a SWMM model layer and a results layer
 - [ ] `07_layer_context_menu.png` (line 135) — The layer-row context menu with the Styles submenu open
 - [ ] `07_sublayer_selection_dialog.png` (line 213) — The sublayer selection dialog listing the layers inside a GeoPackage
 
 ## 08_styling.md
 
 - [ ] `08_color_ramp_editor.png` (line 199) — The custom colour-ramp editor with the gradient preview and the stop table
-- [ ] `08_label_expression_dialog.png` (line 229) — The label expression builder with the field list; the template and the live preview
 - [ ] `08_style_manager.png` (line 255) — The Style Manager with a library entry selected and its preview
-- [ ] `08_2d_results_style_panel.png` (line 309) — The 2D results style panel on the Depth Isolines tab
 - [ ] `08_legend_dock_and_overlay.png` (line 350) — The Legend dock beside the draggable on-canvas legend
 
 ## 09_selection.md
@@ -177,18 +174,13 @@ Remaining: 254 figures, 35 videos. Published so far: 72.
 - [ ] `20_run_preconditions_log.png` (line 53) — Message Logs showing the auto-save line and the resolved output paths
 - [ ] `20_overwrite_prompt.png` (line 97) — The Overwrite output prompt listing the 1D and 2D results files
 - [ ] `20_simulation_status_dock.png` (line 125) — The Simulation Status dock with a running job and its warning children
-- [ ] `20_message_logs.png` (line 142) — The Message Logs dock with an engine warning and its context menu
 - [ ] `20_report_viewer.png` (line 236) — The report viewer with the section list; the continuity banner and the search bar
 
 ## 21_results.md
 
 - [ ] `21_results_map_animated.png` (line 10) — The map canvas showing a 1D network coloured by flow over an animated 2D depth surface
 - [ ] `21_add_results_dialogs.png` (line 45) — The Open SWMM Output and Add 2D Results file pickers
-- [ ] `21_active_results_combos.png` (line 74) — The 1D results and 2D results selectors in the Analysis ribbon
-- [ ] `21_results_symbology_tab.png` (line 110) — The Symbology tab of a results layer with a graduated flow renderer
 - [ ] `21_legend_overlay_and_dock.png` (line 123) — The canvas legend overlay beside the dockable Legend panel
-- [ ] `21_results_ribbon_tab.png` (line 166) — The Results ribbon tab — Playback; Timeline and Display groups
-- [ ] `21_2d_style_panel_tabs.png` (line 191) — The 2D results styling panel showing the Depth Isolines tab
 
 ## 22_time_series_plots.md
 
@@ -221,7 +213,6 @@ Remaining: 254 figures, 35 videos. Published so far: 72.
 
 ## 25_analysis_tools.md
 
-- [ ] `25_analysis_ribbon.png` (line 10) — The Analysis ribbon tab with the Report; Plots and Network Analysis groups
 - [ ] `25_flow_balance_result.png` (line 47) — The Flow Balance summary reporting subnetwork size and boundary inflow-outflow
 - [ ] `25_travel_time_result.png` (line 65) — The Travel Time summary for a downstream subnetwork
 - [ ] `25_rainfall_visualization.png` (line 102) — The Rainfall Visualization window on the Overlay tab with the gage summary table

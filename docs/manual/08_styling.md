@@ -226,7 +226,7 @@ an empty string — which is exactly why the builder exists:
 
 Example: `{name}: {depth} m`.
 
-\figtodo{08_label_expression_dialog.png, The label expression builder with the field list; the template and the live preview}
+\fig{08_label_expression_dialog.png, The label expression builder with the field list; the template and the live preview}
 
 ### Style Manager
 
@@ -306,7 +306,7 @@ A 2D results layer gets the same treatment.
 Every control writes straight into the owning sublayer's style bag, so the map
 repaints immediately and the setting survives a project round-trip.
 
-\figtodo{08_2d_results_style_panel.png, The 2D results style panel on the Depth Isolines tab}
+\fig{08_2d_results_style_panel.png, The 2D results style panel on the Depth Isolines tab}
 
 \videotodo{Styling a model — graduated conduits by diameter; labelling junctions and colouring a 2D flood map}
 

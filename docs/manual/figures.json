@@ -262,7 +262,10 @@
     },
     {
       "name": "20_message_logs.png",
-      "widget": "dockWidgetLogs"
+      "widget": "dockWidgetLogs",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads, which carries the OpenStreetMap basemap, the SRTM DEM, the model and both results layers. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite.",
+      "hostSize": "2000x1000"
     },
     {
       "name": "a05_message_logs.png",
@@ -270,12 +273,18 @@
     },
     {
       "name": "20_simulation_status_dock.png",
-      "widget": "dockWidgetSimulationStatus"
+      "widget": "dockWidgetSimulationStatus",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "BLOCKED: the dock only has rows while a job is IN FLIGHT; a completed run leaves it empty. Needs SWMMVIS_RUN_ON_STARTUP and a mid-run grab."
     },
     {
       "name": "07_layers_panel.png",
-      "widget": "dockWidgetSWMMLayers",
-      "tab": "Layers"
+      "widget": "LayerTreePanel",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads, which carries the OpenStreetMap basemap, the SRTM DEM, the model and both results layers. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. The project restores a dock layout, so the window size must be forced at grab time.",
+      "hostSize": "1600x1000",
+      "size": "420x1180",
+      "maxWidth": 620
     },
     {
       "name": "10_properties_panel.png",
@@ -550,11 +559,13 @@
     {
       "name": "08_label_expression_dialog.png",
       "action": "actionSetStyle",
-      "hostSelect": "site_drainage_model",
-      "page": "Labels",
+      "hostSelect": "BellingeSWMM_v021_nopervious.out",
+      "page": "Symbology",
+      "click": "\u2026",
       "size": "900x620",
-      "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "BLOCKED: the per-kind label expression editor is built only for a SWMMResultsLayer, so this figure needs a completed run."
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. The per-kind label editor exists only on a results layer, which is why this was blocked. The template is a QPlainTextEdit; typing into it fills the live preview.",
+      "type": "{name}: {depth} m"
     },
     {
       "name": "06_crs_selection_dialog.png",
@@ -649,6 +660,69 @@
       "grab": "QToolBar",
       "_model": "examples/site_drainage/site_drainage_model.inp",
       "_note": "DEFERRED: the grab is the chart toolbar \u2014 a row of unlabelled icons. The caption names Insert/Delete/Copy/Paste, which a reader cannot identify without tooltips, and tooltips are human-lane."
+    },
+    {
+      "name": "24_attribute_table_dynamics.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Conduits",
+      "hostSize": "1800x1000",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge in ~/Downloads (.out sits beside the .inp, so openSingleINP auto-attaches it). Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+    },
+    {
+      "name": "08_2d_results_style_panel.png",
+      "action": "actionSetStyle",
+      "hostSelect": "2D Results",
+      "page": "Symbology",
+      "tab": "Depth Isolines",
+      "size": "1200x820",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads, which carries the OpenStreetMap basemap, the SRTM DEM, the model and both results layers. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+    },
+    {
+      "name": "21_2d_style_panel_tabs.png",
+      "action": "actionSetStyle",
+      "hostSelect": "2D Results",
+      "page": "Symbology",
+      "tab": "Depth Isolines",
+      "size": "1200x820",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads, which carries the OpenStreetMap basemap, the SRTM DEM, the model and both results layers. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+    },
+    {
+      "name": "21_active_results_combos.png",
+      "widget": "ribbonGroupResultsLayers",
+      "tab": "Analysis",
+      "hostSize": "2000x1000",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+    },
+    {
+      "name": "21_results_ribbon_tab.png",
+      "widget": "toolBarAnimation",
+      "tab": "Results",
+      "hostSize": "2000x1000",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+    },
+    {
+      "name": "25_analysis_ribbon.png",
+      "widget": "toolBarAnalysis",
+      "tab": "Analysis",
+      "hostSize": "2000x1000",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+    },
+    {
+      "name": "21_results_symbology_tab.png",
+      "action": "actionSetStyle",
+      "hostSelect": "BellingeSWMM_v021_nopervious.out",
+      "page": "Symbology",
+      "size": "1200x820",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. Conduits selected so the renderer is keyed to flow, as the caption says.",
+      "select": "Conduits"
     }
   ]
 }
