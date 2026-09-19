@@ -8,7 +8,7 @@ place, apply one value to many rows at once, drive the selection from a
 vertices, edges and cells, imported GIS feature layers, and loaded CSV/TSV
 tables.
 
-\figtodo{11_attribute_table_dock.png, The Attribute Table dock showing the Conduits category with the query bar and selection radios}
+\fig{11_attribute_table_dock.png, The Attribute Table dock showing the Conduits category with the query bar and selection radios}
 
 ## Where to find it
 

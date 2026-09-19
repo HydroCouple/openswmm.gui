@@ -17,7 +17,7 @@ recover when the network doesn't sit where the basemap says it should.
 | Layer right-click → **Properties… → Source** | Per-layer CRS with its own **Change…** button. |
 | The CRS prompt at project open | Appears when the `.inp` has no usable CRS. |
 
-\figtodo{06_status_bar_crs_button.png, The Coordinate Reference System button on the status bar}
+\fig{06_status_bar_crs_button.png, The Coordinate Reference System button on the status bar}
 
 ## Step-by-step
 
