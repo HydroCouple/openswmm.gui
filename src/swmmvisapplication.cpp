@@ -20,6 +20,12 @@
 #include <QEvent>
 #include <QElapsedTimer>
 #include <QMessageBox>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSettings>
 #include <exception>
 // #ifdef Q_OS_WIN
 // #include <windows.h> // for Sleep
@@ -142,8 +148,28 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     // means every figure shows the shipped defaults, which is what the manual
     // is documenting. Must precede `new SWMMVis()` for the same reason the
     // names above do.
+    // Isolate by redirecting the settings FILE, never by renaming the
+    // application: the name reaches the screen. Suffixing it put
+    // "SWMMVis Stormwater Management Model (figure capture)" in the Style
+    // Manager's library path, in a figure bound for the published manual.
     if (qEnvironmentVariableIsSet("SWMMVIS_CAPTURE_MANIFEST")) {
-        setApplicationName(applicationName() + " (figure capture)");
+        // Beside run.json, so everything one capture run produces — figures,
+        // report, the settings it navigated with — is in one reviewable place.
+        const QString manifest = qEnvironmentVariable("SWMMVIS_CAPTURE_MANIFEST");
+        QString scope;
+        if (QFile f(manifest); f.open(QIODevice::ReadOnly)) {
+            scope = QJsonDocument::fromJson(f.readAll())
+                        .object()
+                        .value(QStringLiteral("defaults"))
+                        .toObject()
+                        .value(QStringLiteral("outDir"))
+                        .toString();
+        }
+        if (scope.isEmpty())
+            scope = QFileInfo(manifest).absolutePath();
+        QDir().mkpath(scope);
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, scope);
 
         // Wipe the scope too: it survives between capture runs, so without
         // this a figure still inherits the ribbon tab or dialog page the

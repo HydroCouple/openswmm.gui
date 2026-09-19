@@ -33,6 +33,7 @@
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
+#include <QTreeView>
 #include <QTreeWidget>
 #include <QWidget>
 
@@ -75,6 +76,41 @@ QSize sizeFromString_(const QString &text)
     const int w = parts.at(0).trimmed().toInt(&okW);
     const int h = parts.at(1).trimmed().toInt(&okH);
     return (okW && okH && w > 0 && h > 0) ? QSize(w, h) : QSize();
+}
+
+/*! A descendant by objectName, else by class name. Class names are the only
+    handle most inner panels have — they set no objectName — and they are the
+    more stable of the two anyway. */
+QWidget *descendant_(QWidget *root, const QString &which)
+{
+    if (QWidget *named = root->findChild<QWidget *>(which))
+        return named;
+    const auto all = root->findChildren<QWidget *>();
+    for (QWidget *w : all) {
+        if (w->isVisibleTo(root)
+            && which == QLatin1String(w->metaObject()->className()))
+            return w;
+    }
+    return nullptr;
+}
+
+/*! Depth-first search for the row whose display text is \a which. */
+QModelIndex findRow_(QAbstractItemModel *model, const QModelIndex &parent,
+                     const QString &which)
+{
+    const int rows = model->rowCount(parent);
+    for (int r = 0; r < rows; ++r) {
+        const QModelIndex idx = model->index(r, 0, parent);
+        if (!idx.isValid())
+            continue;
+        if (idx.data(Qt::DisplayRole).toString().compare(
+                which, Qt::CaseInsensitive) == 0)
+            return idx;
+        const QModelIndex hit = findRow_(model, idx, which);
+        if (hit.isValid())
+            return hit;
+    }
+    return {};
 }
 
 /*! Menu mnemonics ("&Model") must not defeat a plain-text page match. */
@@ -222,6 +258,8 @@ bool FigureCapture::loadManifest(QString *error)
         spec.tab         = o.value(QStringLiteral("tab")).toString();
         spec.type        = o.value(QStringLiteral("type")).toString();
         spec.select      = o.value(QStringLiteral("select")).toString();
+        spec.hostSelect  = o.value(QStringLiteral("hostSelect")).toString();
+        spec.grab        = o.value(QStringLiteral("grab")).toString();
         spec.size     = sizeFromString_(o.value(QStringLiteral("size")).toString());
         spec.hostSize = sizeFromString_(o.value(QStringLiteral("hostSize")).toString());
         spec.lane     = laneFromString_(o.value(QStringLiteral("lane")).toString());
@@ -306,12 +344,13 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
     // --- a named widget already in the window (docks, panels, ribbon) ------
     if (!spec.widget.isEmpty()) {
         QTimer::singleShot(settle, this, [this, spec]() {
-            QWidget *w = mHost->findChild<QWidget *>(spec.widget);
+            QWidget *w = descendant_(mHost, spec.widget);
             if (!w) {
                 FigureResult r;
                 r.name      = spec.name;
                 r.status    = QStringLiteral("failed");
-                r.detail    = QStringLiteral("no widget named '%1'").arg(spec.widget);
+                r.detail    = QStringLiteral("no widget named or classed '%1'")
+                                  .arg(spec.widget);
                 r.elapsedMs = int(mSpecTimer.elapsed());
                 finishSpec(r);
                 return;
@@ -323,6 +362,21 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
 
     // --- trigger an action, then grab the dialog it raises -----------------
     if (!spec.action.isEmpty()) {
+        // Every styling command is scoped to the layer selected in the Layers
+        // panel, and with nothing selected they raise a "select a layer first"
+        // message box instead of the dialog. So the host selection has to be
+        // made BEFORE the trigger — spec.select runs inside the dialog, which
+        // is far too late.
+        if (!spec.hostSelect.isEmpty() && !selectItem(mHost, spec.hostSelect)) {
+            FigureResult r;
+            r.name   = spec.name;
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("no item matching '%1' in the main window")
+                           .arg(spec.hostSelect);
+            finishSpec(r);
+            return;
+        }
+
         if (nativePickerActions_().contains(spec.action)) {
             FigureResult r;
             r.name   = spec.name;
@@ -462,6 +516,23 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         edit->setFocus(Qt::OtherFocusReason);
         edit->setText(spec.type);          // emits textChanged: filters apply
         QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    }
+
+    // Several figures are one panel inside a dialog, not the dialog — the
+    // classification editor, the kind tree. Everything above still drives the
+    // dialog; only the rectangle that gets rendered narrows.
+    if (!spec.grab.isEmpty()) {
+        QWidget *inner = descendant_(target, spec.grab);
+        if (!inner) {
+            r.status    = QStringLiteral("failed");
+            r.detail    = QStringLiteral("no descendant named or classed '%1'")
+                              .arg(spec.grab);
+            r.elapsedMs = int(mSpecTimer.elapsed());
+            dismissOpenedBy(spec);
+            finishSpec(r);
+            return;
+        }
+        target = inner;
     }
 
     // Let the resize / page switch lay out before the pixels are read.
@@ -609,13 +680,15 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which) const
             view->setCurrentIndex(idx);
             return true;
         }
-        for (int r = 0; r < rows; ++r) {
-            const QModelIndex idx = model->index(r, 0, view->rootIndex());
-            if (idx.data(Qt::DisplayRole).toString().compare(
-                    which, Qt::CaseInsensitive) == 0) {
-                view->setCurrentIndex(idx);
-                return true;
-            }
+        // Depth-first: the Layers panel files every layer under a category
+        // node, so the row a figure wants is never at the top level there.
+        const QModelIndex idx = findRow_(model, view->rootIndex(), which);
+        if (idx.isValid()) {
+            if (auto *tree = qobject_cast<QTreeView *>(view))
+                for (QModelIndex p = idx.parent(); p.isValid(); p = p.parent())
+                    tree->expand(p);
+            view->setCurrentIndex(idx);
+            return true;
         }
     }
     return false;
