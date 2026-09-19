@@ -26,7 +26,7 @@ Drawing and snapping the network on the map is covered in
 \ref manual_map_editing; this chapter is the reference for what the objects
 *are*.
 
-\figtodo{14_model_ribbon_nodes_links.png, The Model ribbon tab with the node and link groups}
+\fig{14_model_ribbon_nodes_links.png, The Model ribbon tab with the node and link groups}
 
 ## Step-by-step
 

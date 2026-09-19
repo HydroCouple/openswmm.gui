@@ -2255,6 +2255,8 @@ void SWMMVis::initializeStatusBar()
     // CRS button
     ui->statusBar->addPermanentWidget(new QLabel("Coordinate Reference System:", ui->statusBar));
     mToolButtonCoordinateReferenceSystem = new QToolButton(ui->statusBar);
+    mToolButtonCoordinateReferenceSystem->setObjectName(
+        QStringLiteral("statusBarCrsButton"));
     mToolButtonCoordinateReferenceSystem->setIcon(QIcon(":/swmmvis/Globe"));
     mToolButtonCoordinateReferenceSystem->setText(QStringLiteral("EPSG:4326"));
     mToolButtonCoordinateReferenceSystem->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);

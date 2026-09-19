@@ -588,6 +588,36 @@
       "_model": "tests/parity/inlets/Example7-Inlets.inp",
       "_note": "BLOCKED: tests/parity/inlets/Example7-Inlets.inp is the only deck with [TRANSECTS], and the editor loads its roughness but reports 0 stations \u2014 swmm_transect_get_station_count returns 0, so the chart is empty.",
       "select": "first"
+    },
+    {
+      "name": "06_status_bar_crs_button.png",
+      "widget": "statusBarCrsButton",
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "The prose says the button shows an EPSG code. Only Bellinge has an ASSIGNED CRS (EPSG:25832, f06d8311); a SOURCE_CRS comment header is not enough, and every other deck reads 'Local'. Needs SWMMVIS_CAPTURE_STARTUP_MS=90000."
+    },
+    {
+      "name": "11_attribute_table_dock.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Conduits",
+      "hostSize": "1800x1000",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "12_editing_toolbar.png",
+      "widget": "toolBarModel",
+      "tab": "Model",
+      "hostSize": "2000x1000",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Deliberately the same strip as 02_ribbon_model_tab: three chapters show the Model ribbon under three names. Identical bytes here are intended, not a silent no-op."
+    },
+    {
+      "name": "14_model_ribbon_nodes_links.png",
+      "widget": "toolBarModel",
+      "tab": "Model",
+      "hostSize": "2000x1000",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Deliberately the same strip as 02_ribbon_model_tab: three chapters show the Model ribbon under three names. Identical bytes here are intended, not a silent no-op."
     }
   ]
 }
