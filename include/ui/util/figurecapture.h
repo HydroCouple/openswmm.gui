@@ -59,6 +59,7 @@ struct FigureSpec {
     QString    tab;                 //!< sub-tab to select after \a page (sidebar + tab)
     QString    type;                //!< text to type into the target's first line edit
     QSize      size;                //!< resize the target before grabbing
+    QSize      hostSize;            //!< resize the MAIN WINDOW first (layout-dependent widgets)
     FigureLane lane        = FigureLane::Offscreen;
     int        settleMs    = 0;     //!< extra settle before the grab (0 = default)
 };
@@ -121,6 +122,8 @@ private:
     bool selectPage(QWidget *target, const QString &page) const;
     /*! \brief Close whatever the row opened, without touching the model. */
     void dismissDialogs();
+    /*! \brief dismissDialogs(), but only for a row that opens something. */
+    void dismissOpenedBy(const FigureSpec &spec);
 
     QMainWindow       *mHost = nullptr;
     QString            mManifestPath;

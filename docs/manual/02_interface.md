@@ -76,9 +76,9 @@ buttons, closed by a vertical rule, in the ArcGIS Pro idiom.
 | **Results** | **Playback** (Skip Back; Skip Forward; Play; Pause; Stop) · **Timeline** (scrubber; **Window:** look-back; time cursor; **Speed:**; **Cycle**) · **Display** (Show Legend; Set Style; **Live 2D**; **Live 1D**) |
 | **View** | **Panels** (the eight dock toggles) · **Styling** (Layer Styling; Styles) · **Start** (Welcome) |
 
-\figtodo{02_ribbon_home_tab.png, The Home tab with its Project; History; Navigate; Select; Inspect; Import and Run groups}
+\fig{02_ribbon_home_tab.png, The Home tab with its Project; History; Navigate; Select; Inspect; Import and Run groups}
 
-\figtodo{02_ribbon_model_tab.png, The Model tab showing the Nodes; Links and Data Objects groups}
+\fig{02_ribbon_model_tab.png, The Model tab showing the Nodes; Links and Data Objects groups}
 
 #### Contextual tabs
 
@@ -357,7 +357,7 @@ tab; the Layer Styling dock has its own View-menu entry.
 | **Layer Styling** | `Ctrl+Alt+8` | The always-open variant of the Symbology tab; edits apply live to the canvas and follow the layer selected in **Layers** | \ref manual_styling |
 | **Section View** | `Ctrl+Alt+9` | The cross-section drawing for the selected link or transect | \ref manual_object_browser |
 
-\figtodo{02_docks_default_layout.png, The default dock arrangement with Layers on the left; Object Browser and Properties on the right and Message Logs at the bottom}
+\fig{02_docks_default_layout.png, The default dock arrangement with Layers on the left; Object Browser and Properties on the right and Message Logs at the bottom}
 
 Two further items exist in the code but are **not reachable from the UI in this
 build** and are listed here only so you do not go looking for them: an **Overview
@@ -382,7 +382,7 @@ bar; transient messages (*Opening &lt;file&gt;…*, tool hints) appear on the le
 | **Map Scale:** | Editable combo — pick a preset or type `1:N` |  |
 | **Coordinate Reference System:** | A button showing the canvas CRS authority code; click to open the CRS picker | Project CRS — see \ref manual_crs |
 
-\figtodo{02_status_bar.png, The status bar with the Engine; Flow Units; Offset Mode; Auto-Length; Coordinates; Map Scale and CRS widgets}
+\fig{02_status_bar.png, The status bar with the Engine; Flow Units; Offset Mode; Auto-Length; Coordinates; Map Scale and CRS widgets}
 
 ### Command Palette
 

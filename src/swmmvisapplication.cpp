@@ -134,6 +134,23 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     setApplicationName("SWMMVis Stormwater Management Model");
     setApplicationDisplayName("SWMM");
 
+    // A manual-figure capture run gets its own QSettings scope. The app
+    // persists UI state as you use it — the ribbon remembers its last tab, the
+    // dialogs their last page and geometry — so without this a figure would
+    // depend on whatever the developer last clicked, and the run would write
+    // its own navigation back over their preferences. An empty scope also
+    // means every figure shows the shipped defaults, which is what the manual
+    // is documenting. Must precede `new SWMMVis()` for the same reason the
+    // names above do.
+    if (qEnvironmentVariableIsSet("SWMMVIS_CAPTURE_MANIFEST")) {
+        setApplicationName(applicationName() + " (figure capture)");
+
+        // Wipe the scope too: it survives between capture runs, so without
+        // this a figure still inherits the ribbon tab or dialog page the
+        // PREVIOUS run left behind.
+        QSettings().clear();
+    }
+
     // Seed bundled examples into the per-user data dir before the Welcome
     // screen (built inside the SWMMVis ctor) scans for them.
     openswmmvis::project::examples::preferredExamplesDir(version);
@@ -150,6 +167,17 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
         auto *theme = openswmmvis::ui::ThemeManager::instance();
         theme->setMode(openswmmvis::ui::ThemeManager::modeFromString(
             PreferencesManager::instance()->appearanceMode()));
+
+        // A figure-capture run overrides the restored mode: the manual is
+        // captured on light (docs/manual/README.md), and the restored
+        // preference in a freshly cleared scope is "System", which on a
+        // dark-mode Mac produced dark figures. This has to sit AFTER the
+        // restore above — setting it earlier just gets overwritten here — and
+        // before the window is built, since apply() cannot restyle chrome that
+        // already exists.
+        if (qEnvironmentVariableIsSet("SWMMVIS_CAPTURE_MANIFEST"))
+            theme->setMode(openswmmvis::ui::ThemeManager::Mode::Light);
+
         theme->apply();
     }
 
@@ -223,6 +251,14 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     // Defer license check until after the event loop starts so macOS has
     // activated the app and the dialog reliably appears in the foreground.
     QTimer::singleShot(0, this, [this]() {
+        // A figure-capture run runs in its own, empty settings scope, so this
+        // prompt would fire on every run — and declining it quits the app, so
+        // the capture would take itself down before reaching its second
+        // figure. The licence figures are captured from an explicit manifest
+        // row instead.
+        if (qEnvironmentVariableIsSet("SWMMVIS_CAPTURE_MANIFEST"))
+            return;
+
         if (LicenseAgreementDialog::shouldShowOnStartup())
         {
             LicenseAgreementDialog dlg(mSWMMVisGUI);

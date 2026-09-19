@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 297 figures, 35 videos. Published so far: 29.
+Remaining: 293 figures, 35 videos. Published so far: 33.
 
 ## 01_introduction.md
 
@@ -24,12 +24,8 @@ Remaining: 297 figures, 35 videos. Published so far: 29.
 ## 02_interface.md
 
 - [ ] `02_window_regions.png` (line 24) — The main window with the ribbon; tab strip; MDI workspace; docks and status bar called out
-- [ ] `02_ribbon_home_tab.png` (line 79) — The Home tab with its Project; History; Navigate; Select; Inspect; Import and Run groups
-- [ ] `02_ribbon_model_tab.png` (line 81) — The Model tab showing the Nodes; Links and Data Objects groups
 - [ ] `02_ribbon_compact_modes.png` (line 118) — The same ribbon row at three window widths showing Full; Compact and Collapsed groups
 - [ ] `02_menu_model_expanded.png` (line 320) — The Model menu expanded with the Add Node; Add Link; Climate; Data Objects and Mesh submenus
-- [ ] `02_docks_default_layout.png` (line 360) — The default dock arrangement with Layers on the left; Object Browser and Properties on the right and Message Logs at the bottom
-- [ ] `02_status_bar.png` (line 385) — The status bar with the Engine; Flow Units; Offset Mode; Auto-Length; Coordinates; Map Scale and CRS widgets
 
 ## 03_projects.md
 

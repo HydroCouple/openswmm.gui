@@ -221,6 +221,7 @@ bool FigureCapture::loadManifest(QString *error)
         spec.tab         = o.value(QStringLiteral("tab")).toString();
         spec.type        = o.value(QStringLiteral("type")).toString();
         spec.size     = sizeFromString_(o.value(QStringLiteral("size")).toString());
+        spec.hostSize = sizeFromString_(o.value(QStringLiteral("hostSize")).toString());
         spec.lane     = laneFromString_(o.value(QStringLiteral("lane")).toString());
         spec.settleMs = o.value(QStringLiteral("settleMs")).toInt(0);
         mQueue.append(spec);
@@ -375,14 +376,26 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         return;
     }
 
+    // A ribbon row lays itself out to the window width: too narrow and a group
+    // caption is clipped ("Climate" came out as "limat"). Widen the window
+    // first, then let the target take its natural size from it.
+    if (spec.hostSize.isValid() && mHost) {
+        mHost->resize(spec.hostSize);
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    }
+
     if (spec.size.isValid())
         target->resize(spec.size);
 
-    if (!spec.page.isEmpty() && !selectPage(target, spec.page)) {
+    // Fall back to the host: a tab that drives the target often lives outside
+    // it — the ribbon's tab strip is a separate toolbar from the ribbon pages
+    // it shows, and a dock's tab bar belongs to the main window.
+    if (!spec.page.isEmpty()
+        && !selectPage(target, spec.page) && !selectPage(mHost, spec.page)) {
         r.status    = QStringLiteral("failed");
         r.detail    = QStringLiteral("no page matching '%1'").arg(spec.page);
         r.elapsedMs = int(mSpecTimer.elapsed());
-        dismissDialogs();
+        dismissOpenedBy(spec);
         finishSpec(r);
         return;
     }
@@ -391,11 +404,11 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
     // out first, then pick the tab inside whatever it revealed.
     if (!spec.tab.isEmpty()) {
         QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
-        if (!selectPage(target, spec.tab)) {
+        if (!selectPage(target, spec.tab) && !selectPage(mHost, spec.tab)) {
             r.status    = QStringLiteral("failed");
             r.detail    = QStringLiteral("no tab matching '%1'").arg(spec.tab);
             r.elapsedMs = int(mSpecTimer.elapsed());
-            dismissDialogs();
+            dismissOpenedBy(spec);
             finishSpec(r);
             return;
         }
@@ -418,7 +431,7 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
             r.detail    = QStringLiteral("no editable line edit to type '%1' into")
                               .arg(spec.type);
             r.elapsedMs = int(mSpecTimer.elapsed());
-            dismissDialogs();
+            dismissOpenedBy(spec);
             finishSpec(r);
             return;
         }
@@ -468,7 +481,7 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
 
     // Close whatever this row opened BEFORE advancing, so the next row starts
     // from the same clean window state.
-    dismissDialogs();
+    dismissOpenedBy(spec);
     finishSpec(r);
 }
 
@@ -546,6 +559,16 @@ bool FigureCapture::selectPage(QWidget *target, const QString &page) const
     return false;
 }
 
+void FigureCapture::dismissOpenedBy(const FigureSpec &spec)
+{
+    // Only an action row opens anything. A window or widget row must leave the
+    // UI as it found it: closing a dialog the row did not open once rejected
+    // the startup licence agreement, which the app reads as "declined" and
+    // quits on — the capture took itself down after two figures.
+    if (!spec.action.isEmpty())
+        dismissDialogs();
+}
+
 void FigureCapture::dismissDialogs()
 {
     // reject() rather than accept(): a figure must never write to the model.
@@ -553,6 +576,8 @@ void FigureCapture::dismissDialogs()
         QWidget *w = activeDialog();
         if (!w)
             break;
+        qCInfo(lcFigCap) << "    dismiss" << w->metaObject()->className()
+                         << w->objectName();
         if (auto *dlg = qobject_cast<QDialog *>(w))
             dlg->reject();
         else
