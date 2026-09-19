@@ -286,13 +286,13 @@
       "name": "13_lid_control_editor.png",
       "action": "data.newLidControl",
       "size": "1000x760",
-      "select": "first"
+      "_note": "BLOCKED: no model defines [LID_CONTROLS]; the editor opens with an empty list."
     },
     {
       "name": "13_snowpack_editor.png",
       "action": "data.newSnowpack",
       "size": "1000x760",
-      "select": "first"
+      "_note": "BLOCKED: no model defines [SNOWPACKS]; the editor opens with an empty list."
     },
     {
       "name": "13_aquifer_editor.png",
@@ -307,7 +307,7 @@
       "size": "1100x780",
       "select": "first",
       "lane": "live",
-      "_note": "Contains a chart. QtCharts paints its axes offscreen but not the series, so the plot area comes back empty \u2014 region-blank, which the blankness score cannot see.",
+      "_note": "BLOCKED: no model defines [HYDROGRAPHS], so every RTK cell is blank and the preview plot is flat.",
       "_model": "examples/site_drainage/site_drainage_model.inp"
     },
     {
@@ -580,6 +580,14 @@
       "type": "OUT",
       "_model": "docs/manual/tutorials/models/transport_demo.inp",
       "_note": "site_drainage names its outfall O1, so 'OUT' there matches only the category label."
+    },
+    {
+      "name": "14_transect_editor.png",
+      "action": "data.newTransect",
+      "size": "1200x800",
+      "_model": "tests/parity/inlets/Example7-Inlets.inp",
+      "_note": "BLOCKED: tests/parity/inlets/Example7-Inlets.inp is the only deck with [TRANSECTS], and the editor loads its roughness but reports 0 stations \u2014 swmm_transect_get_station_count returns 0, so the chart is empty.",
+      "select": "first"
     }
   ]
 }
