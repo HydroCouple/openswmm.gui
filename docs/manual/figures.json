@@ -618,6 +618,37 @@
       "hostSize": "2000x1000",
       "_model": "examples/site_drainage/site_drainage_model.inp",
       "_note": "Deliberately the same strip as 02_ribbon_model_tab: three chapters show the Model ribbon under three names. Identical bytes here are intended, not a silent no-op."
+    },
+    {
+      "name": "20_live_toggles.png",
+      "widget": "ribbonGroupDisplay",
+      "tab": "Results",
+      "hostSize": "2000x1000",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "a03_plugins_dialog.png",
+      "action": "tools.plugins",
+      "size": "1000x700",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "a03_plugins_table.png",
+      "action": "model.simulationOptions",
+      "page": "Files / Output / Plugins",
+      "tab": "Plugins",
+      "size": "980x760",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Deliberately the same view as 18_plugins_subtab; the appendix shows it again."
+    },
+    {
+      "name": "a01_timeseries_editor_keys.png",
+      "action": "data.newTimeSeries",
+      "select": "first",
+      "size": "1200x780",
+      "grab": "QToolBar",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "DEFERRED: the grab is the chart toolbar \u2014 a row of unlabelled icons. The caption names Insert/Delete/Copy/Paste, which a reader cannot identify without tooltips, and tooltips are human-lane."
     }
   ]
 }
