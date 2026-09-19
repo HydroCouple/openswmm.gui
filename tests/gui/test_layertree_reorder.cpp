@@ -17,13 +17,18 @@
  * TabularDataLayer ("Tables").
  */
 #include <QtTest>
+#include <QElapsedTimer>
+#include <QFile>
 #include <QMimeData>
 #include <QSignalSpy>
 
 #include <algorithm>
+#include <memory>
+#include <vector>
 
 #include "layers/annotationlayer.h"
 #include "layers/swmm2dresultslayer.h"
+#include "layers/swmmmodellayer.h"
 #include "layers/tabulardatalayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
@@ -340,6 +345,96 @@ private slots:
         // An unknown layer still uses the grouped insert (top of its group).
         canvas.addLayer(&feat2, false);
         QCOMPARE(stack(canvas).last(), L(feat2));
+    }
+
+    // ---- Perf harness (hand-off §4) -------------------------------------
+    //
+    // The grouped insert made a mid-stack VECTOR insert repopulate every
+    // vector layer above it (MapCanvas::insertLayer): scene items keep the
+    // z they were populated with, so without the rebuild the new layer
+    // would not actually draw beneath them. Feature Layers sit BELOW the
+    // SWMM model, so every GIS layer added to a loaded project repopulates
+    // the model scene once — the cost this measures.
+    //
+    // A = grouped insert (this slice): each GIS layer lands under the model.
+    // B = the pre-slice behaviour, append at the top, which repopulates
+    //     nothing. B is the same layers on the same canvas, so the
+    //     difference is the repopulate and nothing else.
+    //
+    //   SWMM_PROFILE_INP=<path.inp> [SWMM_PROFILE_GIS_N=8] \
+    //     ./build/tests/gui/test_layertree_reorder layerAddRepopulateCost
+    //
+    // Skips without the variable, so it stays inert in CI — same idiom as
+    // profileExternalModel() in test_asyncload.
+    void layerAddRepopulateCost()
+    {
+        const QString inp = qEnvironmentVariable("SWMM_PROFILE_INP");
+        if (inp.isEmpty())
+            QSKIP("set SWMM_PROFILE_INP=<path.inp> to run the grouped-insert profile");
+        QVERIFY2(QFile::exists(inp), qPrintable("SWMM_PROFILE_INP not found: " + inp));
+        const int n = qEnvironmentVariable("SWMM_PROFILE_GIS_N",
+                                           QStringLiteral("8")).toInt();
+        QVERIFY(n > 0);
+
+        // Declaration order is load-bearing: every layer must outlive the
+        // canvas that holds a bare pointer to it, so the canvas is declared
+        // LAST and destroyed FIRST (the same ordering every other case in
+        // this file relies on).
+        SWMMModelLayer model(inp, nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY2(model.loadModel(warnings, errors),
+                 qPrintable(errors.join(QStringLiteral("; "))));
+
+        std::vector<std::unique_ptr<OpenSWMMVisAnnotationLayer>> gis;
+        gis.reserve(size_t(n));
+        for (int i = 0; i < n; ++i)
+            gis.push_back(std::make_unique<OpenSWMMVisAnnotationLayer>(
+                QStringLiteral("gis%1").arg(i)));
+
+        MapCanvas canvas;
+        canvas.addLayer(&model, false);
+
+        // A — grouped insert. Each lands below the model, which is
+        //     depopulated and repopulated every time.
+        QElapsedTimer t;
+        t.start();
+        for (int i = 0; i < n; ++i)
+            canvas.addLayer(gis[size_t(i)].get(), false);
+        const double groupedMs = double(t.nsecsElapsed()) / 1e6;
+        QCOMPARE(canvas.layers().last(), L(model));   // model stayed on top
+
+        // Strip the GIS layers back off, leaving the loaded model alone.
+        for (int i = 0; i < n; ++i)
+            canvas.takeLayer(canvas.layers().indexOf(gis[size_t(i)].get()), false);
+        QCOMPARE(canvas.layerCount(), 1);
+
+        // B — pre-slice behaviour: straight onto the top of the stack.
+        t.restart();
+        for (int i = 0; i < n; ++i)
+            canvas.insertLayer(canvas.layerCount(), gis[size_t(i)].get(), false);
+        const double topMs = double(t.nsecsElapsed()) / 1e6;
+
+        // Leave the canvas empty so nothing in it dangles at scope exit.
+        while (canvas.layerCount() > 0)
+            canvas.takeLayer(canvas.layerCount() - 1, false);
+
+        qInfo().noquote()
+            << QStringLiteral("=== PROFILE grouped insert — %1").arg(inp);
+        qInfo().noquote()
+            << QStringLiteral("    model: nodes=%1 links=%2 subcatchments=%3")
+                   .arg(model.cachedNodeCount())
+                   .arg(model.cachedLinkCount())
+                   .arg(model.cachedSubcatchCount());
+        qInfo().noquote()
+            << QStringLiteral("    A  %1 GIS layers BELOW the model (this slice): %2 ms")
+                   .arg(n).arg(groupedMs, 0, 'f', 3);
+        qInfo().noquote()
+            << QStringLiteral("    B  %1 GIS layers on TOP (pre-slice)          : %2 ms")
+                   .arg(n).arg(topMs, 0, 'f', 3);
+        qInfo().noquote()
+            << QStringLiteral("    added cost: %1 ms total, %2 ms per layer added")
+                   .arg(groupedMs - topMs, 0, 'f', 3)
+                   .arg((groupedMs - topMs) / n, 0, 'f', 3);
     }
 
     void groupOrderValidation()
