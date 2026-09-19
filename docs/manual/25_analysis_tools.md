@@ -7,7 +7,7 @@ summaries over an upstream or downstream subnetwork, a dedicated window for
 comparing every rain gage's record, per-cell time series picked straight off the
 2D mesh, and the statistics dashboard with its frequency histogram.
 
-\figtodo{25_analysis_ribbon.png, The Analysis ribbon tab with the Report; Plots and Network Analysis groups}
+\fig{25_analysis_ribbon.png, The Analysis ribbon tab with the Report; Plots and Network Analysis groups}
 
 ## Where to find it
 

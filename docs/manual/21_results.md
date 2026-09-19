@@ -71,7 +71,7 @@ full path. A combo is disabled while the project has nothing of that kind loaded
 Setting the active layer from the Layers dock context menu keeps the combos in
 step, and vice versa.
 
-\figtodo{21_active_results_combos.png, The 1D results and 2D results selectors in the Analysis ribbon}
+\fig{21_active_results_combos.png, The 1D results and 2D results selectors in the Analysis ribbon}
 
 ### Styling 1D results — colour and size by variable
 
@@ -107,7 +107,7 @@ documented once in \ref manual_styling. **Auto-stretch** sets the ramp range fro
 the data minimum and maximum across *all* time steps for the current variable, so
 the colours stay comparable frame to frame.
 
-\figtodo{21_results_symbology_tab.png, The Symbology tab of a results layer with a graduated flow renderer}
+\fig{21_results_symbology_tab.png, The Symbology tab of a results layer with a graduated flow renderer}
 
 ### Legends
 
@@ -163,7 +163,7 @@ cursor, and a hidden 2D layer is skipped entirely so scrubbing does not pay for
 what you cannot see. A 2D-only run (no `.out` loaded) still animates — the 2D
 layer becomes the controller's driver.
 
-\figtodo{21_results_ribbon_tab.png, The Results ribbon tab — Playback; Timeline and Display groups}
+\fig{21_results_ribbon_tab.png, The Results ribbon tab — Playback; Timeline and Display groups}
 
 \videotodo{Loading a run and animating it — choosing the active results layer; colouring by flow and scrubbing the timeline}
 
@@ -188,7 +188,7 @@ Colour for the band and isoline classes comes from either a named **colour ramp*
 (with an **Invert ramp** option) or a **two-colour gradient** between a **Low
 colour** and a **High colour**.
 
-\figtodo{21_2d_style_panel_tabs.png, The 2D results styling panel showing the Depth Isolines tab}
+\fig{21_2d_style_panel_tabs.png, The 2D results styling panel showing the Depth Isolines tab}
 
 ### How the 2D surface is reconstructed
 

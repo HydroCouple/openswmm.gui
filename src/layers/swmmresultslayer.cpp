@@ -2431,14 +2431,18 @@ SWMMResultsLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
     // only forward-declared in this scope, hence the incomplete-type errors.)
     using L = OpenSWMMVis::SwmmCategory;
 
+    // fromUtf8, not fromLatin1: the display and unit literals below carry
+    // "m³", which is two UTF-8 bytes. Decoding those as Latin-1 rendered
+    // every volume and flow unit as "mÂ³" wherever a field list is shown --
+    // the label expression builder, for one.
     auto make = [](const char *name, const char *display,
                    const char *unit) -> AttributeField {
         AttributeField f;
         f.name        = QString::fromLatin1(name);
-        f.displayName = QString::fromLatin1(display);
+        f.displayName = QString::fromUtf8(display);
         f.type        = QMetaType::Double;
         f.isDynamic   = true;
-        f.unit        = QString::fromLatin1(unit);
+        f.unit        = QString::fromUtf8(unit);
         return f;
     };
 
