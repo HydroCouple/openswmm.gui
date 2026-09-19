@@ -72,12 +72,33 @@ panels never clears the tree. It empties only when the last project closes.
   Hidden layers are skipped by both the raster render job and the scene pass, so
   they cost nothing.
 - **Double-click** a layer row's name to zoom to that layer.
-- Drag a row to reorder it inside its category; the change is applied to the
-  canvas-global stack. Cross-category drag is intentionally a no-op — categories
-  are derived from layer type — and dragging between two open projects is not
-  supported.
-- Categories themselves can be reordered: right-click a category header and use
-  **Move Category Up** / **Move Category Down**.
+- The tree is the drawing order: whatever is higher in the tree is drawn on
+  top of what is below it, and the canvas keeps its layer stack grouped by
+  category so the two never disagree. A newly added layer lands at the top of
+  its own category (not on top of everything). The one exception is raster
+  content — rasters and basemaps are composited in their own pass beneath all
+  vector layers, so moving the **Raster Layers** or **Basemaps** group above a
+  vector group changes the tree and the order among rasters, but they still
+  draw underneath.
+- Drag a layer row to reorder it inside its category, or drop it on the
+  category header to send it to the bottom of the group. The cursor shows
+  "not allowed" over another category — categories are derived from layer type,
+  so a layer can't change category by dragging — and dragging between two open
+  projects is not supported.
+- Categories themselves can be dragged above or below each other, or
+  reordered from the header's right-click menu with **Move Category to Top /
+  Up / Down / to Bottom**. The whole group moves in the paint stack.
+- Sublayer rows (the display components of 2D mesh and 2D results layers, and
+  the per-kind rows of a 1D results layer) drag between the other rows of the
+  same layer, or use **Move to Top / Up / Down / to Bottom** on their menu.
+- Every move is undoable (Edit ▸ Undo), and the moved row stays selected so
+  repeated Move Up / Move Down keep acting on it.
+- Dragging is switched off while the filter box has text (hidden rows make the
+  drop position ambiguous); the menu entries keep working.
+- The category order and the layer stack are saved per project in the `.oswp`
+  sidecar and restored on reopen. A layer is matched on reopen by its type,
+  source (file path or service URL) and name, so a project whose source files
+  were moved falls back to the default grouped order for those layers.
 
 ### Layer context menu
 
@@ -93,8 +114,8 @@ keeps its shape.
 | **Show Feature Count** | Not implemented — permanently disabled. |
 | **Plot Time Series…** | 1D results layers only — opens a plot against this layer (see \ref manual_time_series_plots). |
 | **Set as Active Results Layer** | Results layers only. Checkable; makes this the layer every analysis and animation tool targets. |
-| **Move to Top** / **Move to Bottom** | Not implemented — permanently disabled. |
-| **Move Up** / **Move Down** | One position in the canvas stack; disabled at the ends. |
+| **Move to Top** / **Move to Bottom** | To the first / last row of the layer's category; disabled when already there. |
+| **Move Up** / **Move Down** | One row within the layer's category; disabled at the ends. |
 | **Rename Layer** / **Duplicate Layer** | Not implemented — permanently disabled. Rename the layer in **Properties… → Information** instead. |
 | **Remove Layer** | Drops the layer from the canvas. |
 | **Filter…** / **Set Layer Scale Visibility…** | Not implemented — permanently disabled. |
@@ -108,7 +129,8 @@ Conduits, …) gives **Show / Hide &lt;kind&gt;**, **Properties…** (the style
 dialog focused on that kind) and **Plot timeseries ▸** with a list of that
 kind's objects. Right-clicking a **sublayer** row — the display components of a
 2D mesh or 2D results layer — gives **Properties…**, **Show / Hide &lt;name&gt;**
-and **Move Up / Move Down** within that layer's paint order.
+and **Move to Top / Move Up / Move Down / Move to Bottom** within that layer's
+paint order.
 
 \figtodo{07_layer_context_menu.png, The layer-row context menu with the Styles submenu open}
 
@@ -415,9 +437,9 @@ their map location. See \ref manual_map_editing.
   bar tells you when it is done.
 - **Removing a layer is not undoable.**
 - **Several context-menu entries are placeholders.** Show in Overview, Show
-  Feature Count, Move to Top/Bottom, Rename, Duplicate, Filter, Set Layer Scale
-  Visibility and Copy/Paste Style are all present but disabled. Rename via
-  **Properties… → Information**; reorder with Move Up / Move Down or by dragging.
+  Feature Count, Rename, Duplicate, Filter, Set Layer Scale Visibility and
+  Copy/Paste Style are all present but disabled. Rename via
+  **Properties… → Information**.
 - **The layer stack, per-layer CRS, opacity, styles, basemap connections and 2D
   sublayer state are saved in the `.oswp` sidecar**, not in the `.inp` — see
   \ref manual_projects.

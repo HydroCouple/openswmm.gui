@@ -294,6 +294,28 @@ private:
     int m_newIndex;
 };
 
+/*!
+ * \class MoveSublayerCommand
+ * \brief Records reordering one sublayer inside an ISublayerHost layer's
+ *        paint stack (Slice LTR-2026-09-19). Applies through
+ *        MapCanvas::moveSublayer(host, from, to, pushUndo = false) so the
+ *        canvas emits sublayerOrderChanged() on both redo and undo.
+ */
+class MoveSublayerCommand : public MapCommand
+{
+public:
+    MoveSublayerCommand(OpenSWMMVisLayer *host, int fromIndex, int toIndex,
+                        MapCanvas *canvas, QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+private:
+    OpenSWMMVisLayer *m_host;   /*!< Non-owning: the project owns the layer. */
+    int m_fromIndex;
+    int m_toIndex;
+};
+
 // ---------------------------------------------------------------------------
 // Phase 2 — Interactive map editing
 // ---------------------------------------------------------------------------

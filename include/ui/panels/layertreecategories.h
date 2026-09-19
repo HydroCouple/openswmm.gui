@@ -28,8 +28,8 @@ namespace openswmmvis::ui {
  *        Order is the default display order. Categories with no layers
  *        are hidden by rebuildCategories() in layertreepanel.cpp. The
  *        user can permute the order via the right-click "Move Category
- *        Up/Down" menu — that permutation is stored in
- *        LayerTreeModel::m_categoryDisplayOrder, not here.
+ *        Up/Down" menu or by dragging the header — that permutation is
+ *        per project (MapCanvas::layerGroupOrder()), not here.
  */
 enum CategoryId {
     CatSwmm = 0,
@@ -100,6 +100,28 @@ enum class LayerTypeOrdinal : int {
 
 /*! \brief Returns the display label + icon alias for a category. */
 [[nodiscard]] CategoryInfo categoryInfo(CategoryId id);
+
+/*!
+ * \brief Default top-to-bottom order of the category groups in the layer
+ *        tree AND in the canvas paint stack (index 0 = top of tree = drawn
+ *        last). Results groups sit on top because they overlay the model /
+ *        mesh for analysis; tables sit at the bottom.
+ *
+ *        Slice LTR-2026-09-19: the effective order is per project — it is
+ *        held by MapCanvas::layerGroupOrder() and persisted in the .oswp
+ *        canvas block. This array is only the seed for a canvas that has
+ *        no saved order.
+ */
+constexpr int kDefaultCategoryDisplayOrder[CatCount] = {
+    CatSwmm1DOutputs,
+    CatSwmm2DOutputs,
+    CatSwmm,
+    CatMeshes,
+    CatFeatureLayers,
+    CatRasterLayers,
+    CatBasemaps,
+    CatTables,
+};
 
 } // namespace openswmmvis::ui
 
