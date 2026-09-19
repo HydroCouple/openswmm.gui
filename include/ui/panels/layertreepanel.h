@@ -59,8 +59,14 @@ namespace OpenSWMM::Render { class ISublayer; }
  *          The model reacts to layerAdded / layerRemoved / layerOrderChanged
  *          signals from the canvas so it stays in sync automatically.
  *
- *          Drag-drop within a category re-orders that category's layers in the
- *          canvas-global stack. Cross-category drag is currently a no-op.
+ *          Reordering (Slice LTR-2026-09-19): category rows, layer rows and
+ *          sublayer rows are all draggable. A layer can only be dropped
+ *          inside its own category (its type decides the category, so a
+ *          cross-category drop is refused with the forbidden cursor); a
+ *          sublayer only inside its host layer. Every drop changes the
+ *          canvas paint order (or the host's sublayer paint order) and is
+ *          undoable; the canvas keeps the stack grouped by category so the
+ *          tree is always an exact picture of the drawing order.
  */
 class LayerTreeModel : public QAbstractItemModel
 {
@@ -146,17 +152,30 @@ public:
         sublayerForIndex(const QModelIndex &index) const;
 
     /*!
-     * \brief Moves the category at display position \p srcDisplayPos to
-     *        \p dstDisplayPos, then batch-reorders the canvas layer stack so
-     *        the new display order is reflected immediately.
+     * \brief Slice LTR-2026-09-19 — moves the category group \p categoryId
+     *        (an openswmmvis::ui::CategoryId currently shown in the tree) to
+     *        tree row \p dstTreeRow, then batch-reorders the canvas layer
+     *        stack so paint order follows (an undoable ReorderLayersCommand)
+     *        and records the new group order on the canvas
+     *        (MapCanvas::setLayerGroupOrder, persisted per project).
      *
-     *        Display position 0 = top of tree = highest canvas z-order
-     *        (rendered on top). An undo command is pushed onto the canvas
-     *        undo stack so the operation is reversible.
-     *
-     *        No-op if either position is out of range or src == dst.
+     *        Tree row 0 = top of tree = highest canvas z-order. Rows are
+     *        positions among the NON-EMPTY categories the tree displays;
+     *        \p dstTreeRow is the row the group occupies after the move.
+     *        Returns false (no-op) when the id is not shown, the row is out
+     *        of range, or the move is a no-op.
      */
-    void reorderCategories(int srcDisplayPos, int dstDisplayPos);
+    bool reorderCategory(int categoryId, int dstTreeRow);
+
+    /*! CategoryId of a category row; -1 for any other row / invalid index. */
+    [[nodiscard]] int categoryIdForIndex(const QModelIndex &index) const;
+
+    // Index lookup for re-selecting a row after a model reset (every
+    // reorder resets, which drops the view's selection).
+    [[nodiscard]] QModelIndex indexForCategory(int categoryId) const;
+    [[nodiscard]] QModelIndex indexForLayer(OpenSWMMVisLayer *layer) const;
+    [[nodiscard]] QModelIndex indexForSublayer(OpenSWMMVisLayer *layer,
+                                               OpenSWMM::Render::ISublayer *sublayer) const;
 
     /*!
      * \brief Slice GUI-2026-05-30 §2 / §3 — notify the model that the
@@ -172,9 +191,11 @@ private slots:
     void onLayerRemoved(OpenSWMMVisLayer *layer);
     void onLayerOrderChanged();
     void onLayerDataChanged(OpenSWMMVisLayer *layer);
+    void onSublayerOrderChanged(OpenSWMMVisLayer *host);
 
 private:
     struct Category {
+        int        id = -1;                   // openswmmvis::ui::CategoryId
         QString    name;
         QString    iconAlias;                 // Qt resource alias under :/swmmvis/
         QVector<OpenSWMMVisLayer *> layers;   // canvas-stack order, top first
@@ -227,10 +248,11 @@ private:
                                      m_sublayerRowStorage;
     QSet<const void *>               m_sublayerRowPtrSet;
 
-    /*! User-configurable category display order: each element is a CategoryId
-     *  value. Default = compile-time enum order. Persisted implicitly through
-     *  the canvas layer order (reorderLayers keeps the sequence). */
-    QVector<int>                     m_categoryDisplayOrder;
+    // Slice LTR-2026-09-19: no cached category order here. The displayed
+    // category sequence is DERIVED from the canvas stack (first appearance,
+    // top first) so the tree can never disagree with paint order — including
+    // after undo/redo. The per-project preference that places a group whose
+    // layers are all gone lives on the canvas (MapCanvas::layerGroupOrder).
 };
 
 // ---------------------------------------------------------------------------
@@ -375,6 +397,24 @@ private:
     void setupUi();
     void zoomToLayer(OpenSWMMVisLayer *layer);
     QModelIndex toSourceIndex(const QModelIndex &proxyIdx) const;
+
+    // Slice LTR-2026-09-19 — reorder helpers. Layer moves are expressed in
+    // tree rows within the layer's category (the canvas keeps the stack
+    // grouped, so the sibling's canvas index is the exact target).
+    void moveSelectedLayerToRow(int targetRow);
+    void moveSelectedCategoryToRow(int targetRow);
+    // Every reorder resets the model (and expandAll() follows), which drops
+    // the selection. Remember what was current before the reset and put the
+    // selection back on the same category / layer / sublayer afterwards.
+    void rememberCurrentRow();
+    void restoreRememberedRow();
+
+    struct RememberedRow {
+        int                          categoryId = -1;
+        QPointer<OpenSWMMVisLayer>   layer;
+        OpenSWMM::Render::ISublayer *sublayer   = nullptr;   // compared by address only
+    };
+    RememberedRow          m_remembered;
 
     QPointer<MapCanvas>    m_canvas;                 // see LayerTreeModel::m_canvas
     QTreeView             *m_treeView    = nullptr;

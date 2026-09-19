@@ -253,6 +253,32 @@ void MoveLayerCommand::redo()
 }
 
 // ===========================================================================
+// MoveSublayerCommand
+// ===========================================================================
+
+MoveSublayerCommand::MoveSublayerCommand(OpenSWMMVisLayer *host, int fromIndex,
+                                         int toIndex, MapCanvas *canvas,
+                                         QUndoCommand *parent)
+    : MapCommand(QObject::tr("Move Sublayer"), canvas, parent),
+      m_host(host),
+      m_fromIndex(fromIndex),
+      m_toIndex(toIndex)
+{
+}
+
+void MoveSublayerCommand::undo()
+{
+    if (m_canvas && m_host)
+        m_canvas->moveSublayer(m_host, m_toIndex, m_fromIndex, /*pushUndo=*/false);
+}
+
+void MoveSublayerCommand::redo()
+{
+    if (m_canvas && m_host)
+        m_canvas->moveSublayer(m_host, m_fromIndex, m_toIndex, /*pushUndo=*/false);
+}
+
+// ===========================================================================
 // MoveNodeCommand
 // ===========================================================================
 

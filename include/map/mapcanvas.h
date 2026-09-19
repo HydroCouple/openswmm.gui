@@ -17,8 +17,10 @@
 #include <QList>
 #include <QPointer>
 #include <QRectF>
+#include <QStringList>
 #include <QTimer>
 #include <QTransform>
+#include <QVector>
 #include <QWidget>
 #include <optional>
 
@@ -159,6 +161,47 @@ public:
     [[nodiscard]] int layerCount() const;
     [[nodiscard]] OpenSWMMVisLayer *layerAt(int index) const;
     [[nodiscard]] MapExtent fullExtent() const;
+
+    // ----- Layer-group (category) order — Slice LTR-2026-09-19 ------------
+    //
+    // The layer tree shows the stack bucketed into category groups
+    // (openswmmvis::ui::CategoryId). Invariant kept by this class: the
+    // stack is always GROUPED — every category's layers are contiguous,
+    // groups appear in layerGroupOrder() sequence (index 0 = top of tree =
+    // highest canvas index = drawn last). addLayer() therefore inserts a
+    // new layer at the top of its own group, not at the top of the stack,
+    // so tree order and paint order never disagree.
+
+    /*! Per-project top-to-bottom category order (CategoryId ints, every
+     *  id exactly once). Seeded from kDefaultCategoryDisplayOrder until
+     *  the user reorders a group or a saved order is applied. */
+    [[nodiscard]] QVector<int> layerGroupOrder() const;
+    /*! Replaces the group order. Rejects anything that is not a permutation
+     *  of [0, CatCount). Not undoable — it is a display preference; the
+     *  accompanying reorderLayers() call is the undoable part. */
+    void setLayerGroupOrder(const QVector<int> &order);
+
+    /*! Stable identity of a layer for the .oswp layerOrder round-trip:
+     *  "<layerType>|<sourceDescription>|<name>". */
+    [[nodiscard]] static QString layerOrderKey(const OpenSWMMVisLayer *layer);
+    /*! Saved stack order (layerOrderKey() values, bottom → top) applied
+     *  incrementally by addLayer() as layers arrive during project load —
+     *  layers open asynchronously, so there is no single "load finished"
+     *  moment to reorder at. A layer whose key is not listed falls back to
+     *  the grouped insert. */
+    void setPendingLayerOrder(const QStringList &keysBottomToTop);
+    [[nodiscard]] QStringList pendingLayerOrder() const;
+    /*! Stack index addLayer() will insert \p layer at: its saved-order
+     *  slot when pendingLayerOrder() names it, otherwise the top of its
+     *  category group (or the group's slot per layerGroupOrder() when the
+     *  group is still empty). */
+    [[nodiscard]] int groupedInsertPosition(const OpenSWMMVisLayer *layer) const;
+
+    /*! Reorder a sublayer of \p host (an ISublayerHost layer in this
+     *  stack) from paint index \p from to \p to. Pushes a MoveSublayerCommand
+     *  when \p pushUndo; emits sublayerOrderChanged(host) on success so the
+     *  layer tree can rebuild its sub-rows. */
+    bool moveSublayer(OpenSWMMVisLayer *host, int from, int to, bool pushUndo = true);
 
     /*! \brief Reproject \p nativeExtent from \p layer's CRS into canvas CRS by
      *  transforming its four corners.  Returns the unmodified extent when the
@@ -317,6 +360,8 @@ signals:
     void layerAdded(OpenSWMMVisLayer *layer);
     void layerRemoved(OpenSWMMVisLayer *layer);
     void layerOrderChanged();
+    /*! A sublayer of \p host changed paint position (moveSublayer()). */
+    void sublayerOrderChanged(OpenSWMMVisLayer *host);
     void activeToolChanged(OpenSWMMVisMapTool *tool);
     void cursorPositionChanged(double mapX, double mapY);
     void showScaleBarChanged(bool show);
@@ -392,6 +437,8 @@ private:
     bool                    m_ownsSRS        = false;
     MapExtent               m_extent;
     QList<OpenSWMMVisLayer *>   m_layers;
+    QVector<int>            m_layerGroupOrder;     // see layerGroupOrder()
+    QStringList             m_pendingLayerOrder;   // see setPendingLayerOrder()
 
     // ----- Active tool & undo ---------------------------------------------
     OpenSWMMVisMapTool         *m_activeTool     = nullptr;

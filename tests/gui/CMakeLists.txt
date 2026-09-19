@@ -2986,6 +2986,18 @@ add_swmmvis_gui_test(test_layertree_canvas_rebind
 )
 swmmvis_link_full_app_deps(test_layertree_canvas_rebind)
 
+# Layer-tree reordering (Slice LTR-2026-09-19): category / layer / sublayer
+# drag-drop through the model's mime contract, the context-menu move paths,
+# the grouped-stack invariant kept by MapCanvas::addLayer, the saved-order
+# restore, and undo/redo for all of them. Real MapCanvas + real layers,
+# hence the full-app link (same as the rebind test above).
+add_swmmvis_gui_test(test_layertree_reorder
+    test_layertree_reorder.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_layertree_reorder)
+
 # GIS vector layers populate the FULL feature set (the scene culls per
 # frame) — the partially-visible-polygons-vanish regression fence — plus
 # the OpenSWMMVisScene removal branch for VectorPolygonPathItem. Needs
