@@ -2,7 +2,7 @@ name: Documentation
 
 on:
   push:
-    branches: ["main", "master", "dev"]
+    branches: ["main", "master", "dev", "swmm6_gui"]
   pull_request:
     branches:
       - main
@@ -30,6 +30,16 @@ jobs:
       - name: Install Doxygen and Graphviz
         run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
 
+      - name: Audit the manual
+        # All three read only in-repo sources, so this job never needs the
+        # engine checkout. The error-catalogue check, which does, runs in
+        # build_and_test.yml where the engine is already cloned.
+        run: |
+          python3 scripts/manual_docs_audit.py crosswalk --strict
+          python3 scripts/manual_docs_audit.py property-labels
+          python3 scripts/manual_docs_audit.py culvert-codes
+          python3 scripts/manual_figures.py audit
+
       - name: Generate API documentation
         # Doxyfile paths are relative to the config's own dir (OUTPUT_DIRECTORY=.,
         # INPUT=../README.md ../include ..., HTML_OUTPUT=html), so doxygen must run
@@ -49,6 +59,9 @@ jobs:
 
   deploy-docs:
     needs: build-docs
+    # build-docs also runs on pull_request so PRs get a build check; without this
+    # guard a PR would publish to the live Pages site.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

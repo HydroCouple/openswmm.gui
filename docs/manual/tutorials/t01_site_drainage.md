@@ -400,6 +400,41 @@ plot: in the **Comparison Plot** every results layer contributes its own run,
 and **Profile Display Options → Sources** has **Add output file…** to bring a
 second `.out` into the profile.
 
+### Build this model from scratch
+
+The steps above open a finished model. Building the same network from an empty
+project is the quickest way to learn the drawing tools, and it is the one path
+this manual's other tutorials do not cover for a 1D network — \ref tutorial_pure_2d
+and \ref tutorial_2d_inundation build from nothing, but only on a mesh.
+
+Work with the finished model open in a second window as your reference.
+
+1. **File → New**. Give the project a CRS straight away — **Project → Coordinate
+   Reference System…** — so the basemap and any GIS layers line up later. See
+   \ref manual_crs.
+2. **Set the defaults before you draw.** **Project → Defaults…** sets the ID
+   prefixes and the property values every new object starts from: node invert
+   elevation and max depth, conduit length, roughness and geometry, subcatchment
+   area, width, slope and imperviousness. Filling these in first is much faster
+   than correcting twenty objects afterwards. See \ref manual_projects.
+3. **Draw the subcatchments** with the polygon tool, then the **nodes**, then the
+   **conduits** between them, and finally the **outfall**. The drawing tools, the
+   snapping rules and the double-click-to-finish convention are documented in
+   \ref manual_map_editing — including the useful one: dropping a node onto an
+   existing conduit splits it in two.
+4. **Add a rain gage** and point each subcatchment's **Rain Gage** property at
+   it. A gage carries either an inline time series or an external rain file; see
+   \ref manual_hydrology.
+5. **Set the properties** that the defaults could not know — each subcatchment's
+   outlet node, each conduit's cross-section, the outfall's boundary condition.
+   The Attribute Table is faster than the Properties panel here because you can
+   fill a whole column at once; see \ref manual_attribute_tables.
+6. **Save** as `.inp` plus its `.oswp` sidecar, then continue from step 6 of the
+   walkthrough above to set options and run.
+
+If a node or link does not appear where you expect, check the CRS and the map
+extent before suspecting the drawing tools — see \ref manual_troubleshooting.
+
 ### Change the routing method
 
 **Simulation Options → Routing & Hydraulics → Flow routing:** offers
