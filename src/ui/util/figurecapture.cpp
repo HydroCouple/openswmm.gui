@@ -334,12 +334,18 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
             return;
         }
 
+        // Catalog id first; then the QAction's objectName. Not every command
+        // is in the ActionCatalog (Initial Quality, for one), and those are
+        // still perfectly capturable.
         QAction *act = ActionRegistry::instance()->action(spec.action);
+        if (!act)
+            act = mHost->findChild<QAction *>(spec.action);
         if (!act) {
             FigureResult r;
             r.name   = spec.name;
             r.status = QStringLiteral("failed");
-            r.detail = QStringLiteral("unknown action id '%1'").arg(spec.action);
+            r.detail = QStringLiteral("no action with catalog id or objectName '%1'")
+                           .arg(spec.action);
             finishSpec(r);
             return;
         }

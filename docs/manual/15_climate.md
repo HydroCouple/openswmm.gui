@@ -210,9 +210,9 @@ Two things to keep straight:
    than display what is currently set. Their "(keep current series)" entry is the
    no-op position — leave it alone unless you mean to change the binding.
 
-\figtodo{15_heat_solar_tab.png, The Solar tab of the Heat Configuration dialog}
+\fig{15_heat_solar_tab.png, The Solar tab of the Heat Configuration dialog}
 
-\figtodo{15_heat_radiative_tab.png, The Radiative tab with the three shortwave source options}
+\fig{15_heat_radiative_tab.png, The Radiative tab with the three shortwave source options}
 
 ## Tips and gotchas
 

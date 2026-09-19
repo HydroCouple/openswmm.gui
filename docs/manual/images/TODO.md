@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 287 figures, 35 videos. Published so far: 39.
+Remaining: 274 figures, 35 videos. Published so far: 52.
 
 ## 01_introduction.md
 
@@ -156,25 +156,12 @@ Remaining: 287 figures, 35 videos. Published so far: 39.
 - [ ] `15_wind_tab.png` (line 102) — The Wind Speed tab with monthly averages
 - [ ] `15_areal_depletion_tab.png` (line 152) — The Areal Depletion tab with the four preset buttons
 - [ ] `15_adjustments_tab.png` (line 165) — The Adjustments tab with monthly multipliers
-- [ ] `15_heat_solar_tab.png` (line 213) — The Solar tab of the Heat Configuration dialog
-- [ ] `15_heat_radiative_tab.png` (line 215) — The Radiative tab with the three shortwave source options
 
 ## 16_water_quality.md
 
 - [ ] `16_quality_overview.png` (line 14) — The Model menu quality entries — Data Objects with Pollutants and Land Uses; plus Initial Quality; Reaction System and Heat Configuration
-- [ ] `16_pollutant_editor.png` (line 45) — The Pollutants editor — list pane on the left and the field form on the right
-- [ ] `16_landuse_editor.png` (line 76) — The Land Uses editor with the General & Sweeping tab
-- [ ] `16_landuse_buildup.png` (line 92) — The Buildup tab — one row per pollutant with function and coefficients
-- [ ] `16_landuse_washoff.png` (line 110) — The Washoff tab with per-pollutant coefficients and sweeping and BMP efficiencies
 - [ ] `16_treatment_editor.png` (line 140) — The Treatment page of the node compound editor with a validated expression
 - [ ] `16_initial_quality.png` (line 157) — The Initial Quality dialog with node and link rows
-- [ ] `16_reaction_system_species.png` (line 189) — The Reaction System editor on the Species tab
-- [ ] `16_reaction_expressions.png` (line 219) — The Expressions tab with the syntax-highlighted expression editor and the validation banner
-- [ ] `16_reaction_file_tab.png` (line 264) — The File tab showing the serialised .rxn text
-- [ ] `16_water_age_sources.png` (line 287) — The Water Age Sources dialog — global ages above and per-node overrides below
-- [ ] `16_heat_sources.png` (line 322) — The Sources tab of the Heat Configuration dialog
-- [ ] `16_heat_radiative.png` (line 340) — The Radiative tab with the shortwave mode radio buttons and the radiative parameters
-- [ ] `16_heat_solar.png` (line 364) — The Solar tab with the site geometry and Bird atmosphere parameters
 - [ ] `16_species_attributes.png` (line 400) — A results style panel listing pollutant species alongside water age and temperature
 
 ## 17_data_objects.md
