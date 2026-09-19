@@ -26,6 +26,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history: the crosswalk audit below resolves the retired
+          # legacy manuals with `git show <crosswalk-source-ref>:<path>`, and
+          # the default shallow clone (depth 1) has no such commit — the
+          # check then reports the files as missing AT the ref, which reads
+          # like a stale pin rather than a truncated clone.
+          fetch-depth: 0
 
       - name: Install Doxygen and Graphviz
         run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
