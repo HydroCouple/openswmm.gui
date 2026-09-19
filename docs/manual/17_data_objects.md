@@ -43,7 +43,7 @@ toggles between sessions.
 every series in the project on the left, the point grid in the middle, and an
 interactive chart on the right.
 
-\figtodo{17_timeseries_editor.png, The Time Series editor — series list; point grid and chart}
+\fig{17_timeseries_editor.png, The Time Series editor — series list; point grid and chart}
 
 **List pane.** A filter box narrows the list by case-insensitive substring.
 **New**, **Delete** and **Rename** act on the selection; renaming is also
@@ -149,7 +149,7 @@ preserved verbatim on save, so round-tripping a deck does not rewrite it.
 X/Y grid, and a live preview chart. The grid's column headers and the chart's
 axis titles follow the curve type.
 
-\figtodo{17_curve_editor.png, The Curve editor with a storage curve and its preview chart}
+\fig{17_curve_editor.png, The Curve editor with a rating curve — note the Head and Flow headers the type selects}
 
 | Type | X | Y |
 | --- | --- | --- |
@@ -190,7 +190,7 @@ the points.
 **Model → Data Objects → Time Patterns…** opens the pattern editor: list,
 factor table, and a step-line preview.
 
-\figtodo{17_pattern_editor.png, The Time Pattern editor with an hourly pattern and its step-line preview}
+\fig{17_pattern_editor.png, The Time Pattern editor with an hourly pattern and its step-line preview}
 
 | Type | Factors | Row labels |
 | --- | --- | --- |

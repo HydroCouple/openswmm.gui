@@ -197,7 +197,7 @@ void AddBasemapDialog::buildAuthGroup(QWidget *parent, QGroupBox *&box,
     passRow->addWidget(pass);
     passRow->addWidget(eyeBtn);
     gl->addRow(tr("Username:"), user);
-    gl->addRow(tr("Passw&ord:"), passRow);
+    gl->addRow(tr("Password:"), passRow);
     qobject_cast<QVBoxLayout *>(parent->layout())->addWidget(box);
 }
 

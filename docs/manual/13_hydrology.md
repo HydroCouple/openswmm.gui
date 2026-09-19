@@ -253,7 +253,7 @@ All of this writes `[AQUIFERS]`. Assign an aquifer to a subcatchment on the
 subcatchment's **Aquifer** property row; clearing the pick removes the
 subcatchment from `[GROUNDWATER]`.
 
-\figtodo{13_aquifer_editor.png, The Aquifer editor with the two-zone illustration}
+\fig{13_aquifer_editor.png, The Aquifer editor with the two-zone illustration}
 
 ### Groundwater Exchange editor
 
