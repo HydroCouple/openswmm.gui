@@ -87,11 +87,86 @@ QWidget *descendant_(QWidget *root, const QString &which)
         return named;
     const auto all = root->findChildren<QWidget *>();
     for (QWidget *w : all) {
-        if (w->isVisibleTo(root)
-            && which == QLatin1String(w->metaObject()->className()))
+        if (!w->isVisibleTo(root))
+            continue;
+        // className() is namespace-qualified for the app's own widgets
+        // ("openswmmvis::ui::ClassificationEditor"). Match the trailing
+        // segment too so a manifest can name the class the way a reader does.
+        const QString cls = QString::fromLatin1(w->metaObject()->className());
+        if (cls == which || cls.endsWith(QLatin1String("::") + which))
             return w;
     }
     return nullptr;
+}
+
+/*! "Meshes (1)" -> "Meshes". The Layers panel suffixes every category and
+    kind row with its count, which changes with the model; a manifest should
+    name the row, not the arithmetic. */
+QString stripCount_(const QString &text)
+{
+    if (!text.endsWith(QLatin1Char(')')))
+        return text;
+    const int open = text.lastIndexOf(QLatin1Char('('));
+    if (open <= 0)
+        return text;
+    const QStringView inner =
+        QStringView(text).sliced(open + 1, text.size() - open - 2);
+    if (inner.isEmpty())
+        return text;
+    for (const QChar c : inner)
+        if (!c.isDigit())
+            return text;
+    return text.first(open).trimmed();
+}
+
+/*! The app's own widget classes under \a root, for a failure message — Qt's
+    own (QWidget, QLabel, …) are noise when a figure is hunting for a panel. */
+QString offeredClasses_(QWidget *root)
+{
+    QStringList out;
+    const auto all = root->findChildren<QWidget *>();
+    for (QWidget *w : all) {
+        if (!w->isVisibleTo(root))
+            continue;
+        const QString cls = QString::fromLatin1(w->metaObject()->className());
+        if (cls.startsWith(QLatin1Char('Q')) || out.contains(cls))
+            continue;
+        out << cls;
+    }
+    return out.join(QStringLiteral(", "));
+}
+
+/*! Every row text under \a root, "Parent/Child" style, for a failure message.
+    A row name a figure cannot guess costs a whole capture round trip, so the
+    failure says what was actually on offer. */
+QString offeredRows_(QWidget *root, const QModelIndex &parent = {},
+                     QAbstractItemModel *model = nullptr)
+{
+    QStringList out;
+    if (!model) {
+        const auto views = root->findChildren<QAbstractItemView *>();
+        for (QAbstractItemView *view : views) {
+            if (!view->isVisibleTo(root) || !view->model())
+                continue;
+            const QString rows =
+                offeredRows_(root, view->rootIndex(), view->model());
+            if (!rows.isEmpty())
+                out << rows;
+        }
+        return out.join(QStringLiteral("; "));
+    }
+
+    const int rows = model->rowCount(parent);
+    for (int r = 0; r < rows && out.size() < 24; ++r) {
+        const QModelIndex idx = model->index(r, 0, parent);
+        if (!idx.isValid())
+            continue;
+        const QString text = idx.data(Qt::DisplayRole).toString();
+        const QString kids = offeredRows_(root, idx, model);
+        out << (kids.isEmpty() ? text
+                               : QStringLiteral("%1/[%2]").arg(text, kids));
+    }
+    return out.join(QStringLiteral(", "));
 }
 
 /*! Depth-first search for the row whose display text is \a which. */
@@ -103,8 +178,9 @@ QModelIndex findRow_(QAbstractItemModel *model, const QModelIndex &parent,
         const QModelIndex idx = model->index(r, 0, parent);
         if (!idx.isValid())
             continue;
-        if (idx.data(Qt::DisplayRole).toString().compare(
-                which, Qt::CaseInsensitive) == 0)
+        const QString text = idx.data(Qt::DisplayRole).toString();
+        if (text.compare(which, Qt::CaseInsensitive) == 0
+            || stripCount_(text).compare(which, Qt::CaseInsensitive) == 0)
             return idx;
         const QModelIndex hit = findRow_(model, idx, which);
         if (hit.isValid())
@@ -371,8 +447,9 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
             FigureResult r;
             r.name   = spec.name;
             r.status = QStringLiteral("failed");
-            r.detail = QStringLiteral("no item matching '%1' in the main window")
-                           .arg(spec.hostSelect);
+            r.detail = QStringLiteral("no item matching '%1' in the main window"
+                                      " — rows offered: %2")
+                           .arg(spec.hostSelect, offeredRows_(mHost));
             finishSpec(r);
             return;
         }
@@ -525,8 +602,9 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         QWidget *inner = descendant_(target, spec.grab);
         if (!inner) {
             r.status    = QStringLiteral("failed");
-            r.detail    = QStringLiteral("no descendant named or classed '%1'")
-                              .arg(spec.grab);
+            r.detail    = QStringLiteral("no descendant named or classed '%1'"
+                                         " — classes present: %2")
+                              .arg(spec.grab, offeredClasses_(target));
             r.elapsedMs = int(mSpecTimer.elapsed());
             dismissOpenedBy(spec);
             finishSpec(r);
@@ -682,8 +760,15 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which) const
         }
         // Depth-first: the Layers panel files every layer under a category
         // node, so the row a figure wants is never at the top level there.
-        const QModelIndex idx = findRow_(model, view->rootIndex(), which);
-        if (idx.isValid()) {
+        // "Meshes/2d_complete_example" walks the segments in turn, for the
+        // models whose mesh layer and SWMM layer carry the same name.
+        QModelIndex idx = view->rootIndex();
+        for (const QString &segment : which.split(QLatin1Char('/'))) {
+            idx = findRow_(model, idx, segment.trimmed());
+            if (!idx.isValid())
+                break;
+        }
+        if (idx.isValid() && idx != view->rootIndex()) {
             if (auto *tree = qobject_cast<QTreeView *>(view))
                 for (QModelIndex p = idx.parent(); p.isValid(); p = p.parent())
                     tree->expand(p);

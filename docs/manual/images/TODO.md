@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 266 figures, 35 videos. Published so far: 60.
+Remaining: 264 figures, 35 videos. Published so far: 62.
 
 ## 01_introduction.md
 
@@ -62,11 +62,9 @@ Remaining: 266 figures, 35 videos. Published so far: 60.
 
 ## 08_styling.md
 
-- [ ] `08_classification_editor.png` (line 145) — The classification editor showing the method combo; class count and the editable breaks table
 - [ ] `08_color_ramp_editor.png` (line 199) — The custom colour-ramp editor with the gradient preview and the stop table
 - [ ] `08_label_expression_dialog.png` (line 229) — The label expression builder with the field list; the template and the live preview
 - [ ] `08_style_manager.png` (line 255) — The Style Manager with a library entry selected and its preview
-- [ ] `08_mesh_style_panel.png` (line 290) — The 2D mesh style panel on the Terrain Fill tab with the hillshade group
 - [ ] `08_2d_results_style_panel.png` (line 309) — The 2D results style panel on the Depth Isolines tab
 - [ ] `08_legend_dock_and_overlay.png` (line 350) — The Legend dock beside the draggable on-canvas legend
 

@@ -142,7 +142,7 @@ bands, contour and isoline levels — the same editor appears:
 Editing a Lower or Upper cell switches the method to *Manual*, which is what you
 want when you are hand-tuning breaks.
 
-\figtodo{08_classification_editor.png, The classification editor showing the method combo; class count and the editable breaks table}
+\fig{08_classification_editor.png, The classification editor showing the method combo; class count and the editable breaks table}
 
 #### Categorized
 
@@ -287,7 +287,7 @@ sublayer.
 | **Boundary Conditions** | A per-type grid — one row per boundary-condition type with a visibility checkbox, **Colour** and **Width**. Types with no edges in the mesh are labelled *(none in mesh)*. The interior-edge row recolours the wireframe rather than drawing its own lines, so its width column reads *(wireframe width)*. The boundary ring stays visible at every zoom. |
 | **Coupled Nodes** | **Colour** and **Marker size** for the mesh vertices coupled to 1D SWMM nodes. |
 
-\figtodo{08_mesh_style_panel.png, The 2D mesh style panel on the Terrain Fill tab with the hillshade group}
+\fig{08_mesh_style_panel.png, The 2D mesh style panel on the Terrain Fill tab with the hillshade group}
 
 ### The 2D results style panel
 
