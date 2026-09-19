@@ -20,6 +20,7 @@
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QAbstractButton>
 #include <QAbstractItemView>
 #include <QLineEdit>
 #include <QListView>
@@ -335,7 +336,16 @@ bool FigureCapture::loadManifest(QString *error)
         spec.type        = o.value(QStringLiteral("type")).toString();
         spec.select      = o.value(QStringLiteral("select")).toString();
         spec.hostSelect  = o.value(QStringLiteral("hostSelect")).toString();
+        const QJsonValue clickVal = o.value(QStringLiteral("click"));
+        if (clickVal.isArray()) {
+            const QJsonArray arr = clickVal.toArray();
+            for (const QJsonValue &v : arr)
+                spec.clicks << v.toString();
+        } else if (!clickVal.toString().isEmpty()) {
+            spec.clicks << clickVal.toString();
+        }
         spec.grab        = o.value(QStringLiteral("grab")).toString();
+        spec.maxWidth    = o.value(QStringLiteral("maxWidth")).toInt(0);
         spec.size     = sizeFromString_(o.value(QStringLiteral("size")).toString());
         spec.hostSize = sizeFromString_(o.value(QStringLiteral("hostSize")).toString());
         spec.lane     = laneFromString_(o.value(QStringLiteral("lane")).toString());
@@ -560,12 +570,70 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         }
     }
 
-    if (!spec.select.isEmpty() && !selectItem(target, spec.select)) {
-        r.status    = QStringLiteral("failed");
-        r.detail    = QStringLiteral("no item matching '%1' to select").arg(spec.select);
-        r.elapsedMs = int(mSpecTimer.elapsed());
-        dismissOpenedBy(spec);
-        finishSpec(r);
+    // Some figures live one button-press further in: the label expression
+    // builder opens from the Labels tab, the ramp editor from a ramp picker.
+    // Arm the grab BEFORE the click for the same reason the action path does
+    // — a modal dialog blocks inside exec(), and this timer is what gets us
+    // back in. Everything above has already run against the outer dialog, so
+    // the continuation carries only what still applies to the new one.
+    if (!spec.clicks.isEmpty()) {
+        // Every press but the last is a precondition, not the figure: the
+        // expression builder's button is disabled until "Show labels" is on.
+        // Only the last press is expected to raise a dialog.
+        QAbstractButton *btn = nullptr;
+        for (int i = 0; i < spec.clicks.size(); ++i) {
+            const QString wanted = spec.clicks.at(i);
+            QStringList offered;
+            btn = nullptr;
+            const auto buttons = target->findChildren<QAbstractButton *>();
+            for (QAbstractButton *b : buttons) {
+                if (!b->isVisibleTo(target) || !b->isEnabled()
+                    || b->text().isEmpty())
+                    continue;
+                const QString label = stripMnemonic_(b->text());
+                offered << label;
+                if (label.compare(wanted, Qt::CaseInsensitive) == 0) {
+                    btn = b;
+                    break;
+                }
+            }
+            if (!btn) {
+                r.status    = QStringLiteral("failed");
+                r.detail    = QStringLiteral("no button labelled '%1' — buttons: %2")
+                                  .arg(wanted, offered.join(QStringLiteral(", ")));
+                r.elapsedMs = int(mSpecTimer.elapsed());
+                dismissOpenedBy(spec);
+                finishSpec(r);
+                return;
+            }
+            if (i + 1 == spec.clicks.size())
+                break;                      // the last one is armed below
+            btn->click();
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        }
+
+        FigureSpec rest = spec;
+        rest.clicks.clear();
+        rest.page.clear();
+        rest.tab.clear();
+        rest.hostSize = QSize();
+        QWidget *before = activeDialog();
+        QTimer::singleShot(spec.settleMs > 0 ? spec.settleMs : mDefaultSettleMs,
+                           this, [this, rest, before]() {
+            QWidget *dlg = activeDialog();
+            if (!dlg || dlg == before) {
+                FigureResult f;
+                f.name      = rest.name;
+                f.status    = QStringLiteral("failed");
+                f.detail    = QStringLiteral("the click raised no dialog");
+                f.elapsedMs = int(mSpecTimer.elapsed());
+                dismissDialogs();
+                finishSpec(f);
+                return;
+            }
+            grabInto(dlg, rest);
+        });
+        btn->click();
         return;
     }
 
@@ -592,7 +660,26 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         }
         edit->setFocus(Qt::OtherFocusReason);
         edit->setText(spec.type);          // emits textChanged: filters apply
-        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        // Filtered views debounce: the Object Browser waits on a QTimer before
+        // it narrows and expands. A single processEvents() therefore grabs the
+        // UNFILTERED tree under a caption promising a filtered one. Pump the
+        // loop for the settle instead, so the timer gets its chance to fire.
+        QElapsedTimer typed;
+        typed.start();
+        const int typeSettle = spec.settleMs > 0 ? spec.settleMs : mDefaultSettleMs;
+        while (typed.elapsed() < typeSettle)
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
+    }
+
+    if (!spec.select.isEmpty() && !selectItem(target, spec.select)) {
+        r.status    = QStringLiteral("failed");
+        r.detail    = QStringLiteral("no item matching '%1' to select"
+                                    " — rows offered: %2")
+                          .arg(spec.select, offeredRows_(target));
+        r.elapsedMs = int(mSpecTimer.elapsed());
+        dismissOpenedBy(spec);
+        finishSpec(r);
+        return;
     }
 
     // Several figures are one panel inside a dialog, not the dialog — the
@@ -631,8 +718,12 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
     QImage img = pm.toImage();
     img.setDevicePixelRatio(1.0);   // bake the scale in; store real pixels
 
-    if (mMaxWidth > 0 && img.width() > mMaxWidth)
-        img = img.scaledToWidth(mMaxWidth, Qt::SmoothTransformation);
+    // A per-row clamp, because the audit's size cap is per FILE: a dense
+    // figure (the CRS dialog's WKT block) can breach 400 KB at the width every
+    // other figure is comfortable at.
+    const int cap = spec.maxWidth > 0 ? spec.maxWidth : mMaxWidth;
+    if (cap > 0 && img.width() > cap)
+        img = img.scaledToWidth(cap, Qt::SmoothTransformation);
 
     r.blank  = looksBlank_(img);
     r.width  = img.width();
@@ -760,13 +851,20 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which) const
         }
         // Depth-first: the Layers panel files every layer under a category
         // node, so the row a figure wants is never at the top level there.
-        // "Meshes/2d_complete_example" walks the segments in turn, for the
-        // models whose mesh layer and SWMM layer carry the same name.
-        QModelIndex idx = view->rootIndex();
-        for (const QString &segment : which.split(QLatin1Char('/'))) {
-            idx = findRow_(model, idx, segment.trimmed());
-            if (!idx.isValid())
-                break;
+        // The whole string is tried first, THEN read as a path, because a row
+        // name may legitimately contain a slash — every projected CRS is
+        // spelled "NAD83(2011) / UTM zone 17N", and splitting it looked for a
+        // "UTM zone 17N" nested under a "NAD83(2011)".
+        QModelIndex idx = findRow_(model, view->rootIndex(), which);
+        if (!idx.isValid() && which.contains(QLatin1Char('/'))) {
+            // "Meshes/2d_complete_example.inp", for the models whose mesh
+            // layer and SWMM layer carry the same name.
+            idx = view->rootIndex();
+            for (const QString &segment : which.split(QLatin1Char('/'))) {
+                idx = findRow_(model, idx, segment.trimmed());
+                if (!idx.isValid())
+                    break;
+            }
         }
         if (idx.isValid() && idx != view->rootIndex()) {
             if (auto *tree = qobject_cast<QTreeView *>(view))

@@ -47,7 +47,7 @@ It has two sections, separated by a bold italic **Data Objects** divider row
 
 Empty categories are omitted. Counts are live.
 
-\figtodo{10_object_tree.png, The Object Browser tree with network categories above the Data Objects divider}
+\fig{10_object_tree.png, The Object Browser tree with network categories above the Data Objects divider}
 
 #### Visibility checkboxes
 

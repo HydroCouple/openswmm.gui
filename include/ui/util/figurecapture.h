@@ -60,11 +60,13 @@ struct FigureSpec {
     QString    type;                //!< text to type into the target's first line edit
     QString    select;              //!< item to select in the target's list ("first", or its text)
     QString    hostSelect;          //!< item to select in the MAIN WINDOW before \a action fires
+    QStringList clicks;             //!< buttons to press in the target; the LAST one's dialog becomes the target
     QString    grab;                //!< narrow the grab to this descendant (objectName or class)
     QSize      size;                //!< resize the target before grabbing
     QSize      hostSize;            //!< resize the MAIN WINDOW first (layout-dependent widgets)
     FigureLane lane        = FigureLane::Offscreen;
     int        settleMs    = 0;     //!< extra settle before the grab (0 = default)
+    int        maxWidth    = 0;     //!< clamp THIS figure's width (0 = the manifest default)
 };
 
 /*! \brief Result of attempting one row; serialised into run.json. */

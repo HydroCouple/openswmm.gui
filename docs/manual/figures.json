@@ -546,6 +546,40 @@
       "grab": "ClassificationEditor",
       "_model": "docs/manual/tutorials/models/2d_complete_example.inp",
       "_note": "Elevation Bands is classified by nature, so the method/classes/breaks controls are live at rest."
+    },
+    {
+      "name": "08_label_expression_dialog.png",
+      "action": "actionSetStyle",
+      "hostSelect": "site_drainage_model",
+      "page": "Labels",
+      "size": "900x620",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "BLOCKED: the per-kind label expression editor is built only for a SWMMResultsLayer, so this figure needs a completed run."
+    },
+    {
+      "name": "06_crs_selection_dialog.png",
+      "action": "actionSetStyle",
+      "hostSelect": "site_drainage_model",
+      "page": "Source",
+      "click": "Change\u2026",
+      "type": "UTM zone 17",
+      "size": "1000x700",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "select": "NAD83(2011) / UTM zone 17N",
+      "maxWidth": 1100,
+      "_note": "Dense WKT text: at 1400 px this figure is 470 KB, over the 400 KB audit cap."
+    },
+    {
+      "name": "10_object_tree.png",
+      "widget": "ObjectBrowserPanel",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "09_search_filter.png",
+      "widget": "ObjectBrowserPanel",
+      "type": "OUT",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "_note": "site_drainage names its outfall O1, so 'OUT' there matches only the category label."
     }
   ]
 }

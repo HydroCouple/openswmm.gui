@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 264 figures, 35 videos. Published so far: 62.
+Remaining: 261 figures, 35 videos. Published so far: 65.
 
 ## 01_introduction.md
 
@@ -50,7 +50,6 @@ Remaining: 264 figures, 35 videos. Published so far: 62.
 
 - [ ] `06_status_bar_crs_button.png` (line 20) — The Coordinate Reference System button on the status bar
 - [ ] `06_crs_required_prompt.png` (line 59) — The CRS Required prompt with Choose CRS; Use local projected and Abort Open
-- [ ] `06_crs_selection_dialog.png` (line 83) — The CRS selection dialog with a search term; the type filter and the WKT preview
 - [ ] `06_crs_change_dialog.png` (line 104) — The CRS change dialog offering Reproject stored coordinates or Re-render only
 - [ ] `06_2d_results_alignment.png` (line 195) — A 2D results layer correctly aligned over the mesh and the 1D network
 
@@ -72,7 +71,6 @@ Remaining: 264 figures, 35 videos. Published so far: 62.
 
 - [ ] `09_selection_overview.png` (line 10) — A selection made on the map mirrored in the Object Browser; the Properties panel and the Attribute Table
 - [ ] `09_select_by_polygon.png` (line 109) — A lasso being drawn across a sewer network with the enclosed objects highlighted
-- [ ] `09_search_filter.png` (line 146) — The Object Browser filtered to names containing OUT
 - [ ] `09_select_upstream.png` (line 177) — The upstream subnetwork of a selected outfall highlighted on the map
 - [ ] `09_mesh_edge_selection.png` (line 225) — Boundary edges of a 2D mesh selected along an outfall face
 - [ ] `09_confirm_bulk_delete.png` (line 345) — The Confirm Delete prompt for a multi-object selection
@@ -80,7 +78,6 @@ Remaining: 264 figures, 35 videos. Published so far: 62.
 ## 10_object_browser.md
 
 - [ ] `10_three_docks.png` (line 11) — The Object Browser on the left with the Properties panel and Section View on the right
-- [ ] `10_object_tree.png` (line 50) — The Object Browser tree with network categories above the Data Objects divider
 - [ ] `10_browser_context_menu.png` (line 120) — The Object Browser leaf context menu on a junction
 - [ ] `10_properties_panel.png` (line 165) — The Properties panel showing a storage node with its stats source combo
 - [ ] `10_offset_mode_toggle.png` (line 208) — The status-bar offset-mode switch with the property rows relabelled to Elevation
