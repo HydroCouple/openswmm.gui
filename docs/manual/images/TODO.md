@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 257 figures, 35 videos. Published so far: 69.
+Remaining: 254 figures, 35 videos. Published so far: 72.
 
 ## 01_introduction.md
 
@@ -44,7 +44,7 @@ Remaining: 257 figures, 35 videos. Published so far: 69.
 - [ ] `05_hover_tooltip.png` (line 117) — Hover tooltip over a conduit showing its name; type and vertex count
 - [ ] `05_measure_panel.png` (line 143) — The measure tool in Area mode with the floating Mode and Units panel
 - [ ] `05_canvas_context_menu.png` (line 172) — Canvas context menu on a conduit with the Plot Time Series and Convert To submenus
-- [ ] `05_export_map_dialog.png` (line 200) — The Export Map file dialog with the PNG filter selected
+- [ ] `05_export_map_dialog.png` (line 237) — The Export Map file dialog with the PNG filter selected
 
 ## 06_crs.md
 
@@ -178,7 +178,6 @@ Remaining: 257 figures, 35 videos. Published so far: 69.
 - [ ] `20_overwrite_prompt.png` (line 97) — The Overwrite output prompt listing the 1D and 2D results files
 - [ ] `20_simulation_status_dock.png` (line 125) — The Simulation Status dock with a running job and its warning children
 - [ ] `20_message_logs.png` (line 142) — The Message Logs dock with an engine warning and its context menu
-- [ ] `20_live_toggles.png` (line 188) — The Live 1D and Live 2D check boxes in the Results ribbon Display group
 - [ ] `20_report_viewer.png` (line 236) — The report viewer with the section list; the continuity banner and the search bar
 
 ## 21_results.md
@@ -241,8 +240,6 @@ Remaining: 257 figures, 35 videos. Published so far: 69.
 
 ## appendices/a03_plugins.md
 
-- [ ] `a03_plugins_dialog.png` (line 64) — The Tools Plugins dialog with the role groups expanded
-- [ ] `a03_plugins_table.png` (line 158) — The Plugins sub-tab of the Files Output Plugins page in Simulation Options
 - [ ] `a03_backend_combo.png` (line 286) — The Backend combo in the Performance group of 2D Surface Routing - Performance & Output
 
 ## appendices/a04_performance.md
@@ -285,9 +282,9 @@ Remaining: 257 figures, 35 videos. Published so far: 69.
 - [ ] `t01_tss_plot.png` (line 334) — TSS concentration at three conduits showing the first flush
 - [ ] `t01_profile_plot.png` (line 359) — Profile plot from J3 to the outfall with the maximum HGL envelope
 - [ ] `t01_tabular_results.png` (line 374) — The Attribute Table dock showing the conduit dynamics columns after a run
-- [ ] `t01_routing_comparison.png` (line 431) — Flow in C11 under dynamic wave — kinematic wave and finite volume
-- [ ] `t01_lid_editor.png` (line 461) — The LID Controls dialog with a bio-retention cell defined
-- [ ] `t01_lid_usage.png` (line 463) — The LID Usage compound editor on subcatchment S5
+- [ ] `t01_routing_comparison.png` (line 466) — Flow in C11 under dynamic wave — kinematic wave and finite volume
+- [ ] `t01_lid_editor.png` (line 496) — The LID Controls dialog with a bio-retention cell defined
+- [ ] `t01_lid_usage.png` (line 498) — The LID Usage compound editor on subcatchment S5
 
 ## tutorials/t02_street_inlets.md
 

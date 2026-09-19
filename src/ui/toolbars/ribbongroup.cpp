@@ -18,6 +18,7 @@
 #include <utility>
 
 #include "ui/toolbars/ribbonsplitbutton.h"
+#include <QRegularExpression>
 
 namespace openswmmvis::ui {
 
@@ -25,6 +26,16 @@ RibbonGroup::RibbonGroup(const QString &caption, QWidget *parent)
     : QWidget(parent)
     , mCaption(caption)
 {
+    // Name the group after its caption ("Display" -> "ribbonGroupDisplay").
+    // Every group is otherwise anonymous and indistinguishable by class, so
+    // nothing can address one: the user manual's figures need to grab the
+    // Display and Performance groups specifically.
+    QString slug = caption;
+    slug.remove(QLatin1Char('&'));
+    slug.remove(QRegularExpression(QStringLiteral("[^A-Za-z0-9]")));
+    if (!slug.isEmpty())
+        setObjectName(QStringLiteral("ribbonGroup") + slug);
+
     setFixedHeight(kRibbonRowHeight);
     // Fixed horizontal policy: the host QToolBar's layout hands leftover
     // row width equally to every item that can grow, which inflated all

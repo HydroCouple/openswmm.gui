@@ -61,7 +61,7 @@ Path, OK or Apply, and no checkboxes. An enable/disable flag exists in the data
 model and is drawn as greyed-out text, but nothing ever sets it — treat the
 capability as present-but-inert.
 
-\figtodo{a03_plugins_dialog.png, The Tools Plugins dialog with the role groups expanded}
+\fig{a03_plugins_dialog.png, The Tools Plugins dialog with the role groups expanded}
 
 #### What you will see listed
 
@@ -155,7 +155,7 @@ initialisation arguments.
 
 No path rebasing or quoting is applied on write.
 
-\figtodo{a03_plugins_table.png, The Plugins sub-tab of the Files Output Plugins page in Simulation Options}
+\fig{a03_plugins_table.png, The Plugins sub-tab of the Files Output Plugins page in Simulation Options}
 
 ### Where plugins are discovered
 
