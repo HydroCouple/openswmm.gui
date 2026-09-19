@@ -18,8 +18,61 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ## [Unreleased]
 
+### Added
+
+- **Three new manual appendices, each pinned to the source it documents** —
+  *A7 Reference Tables* (units, Green-Ampt soil characteristics, NRCS soil groups, SCS curve
+  numbers, depression storage, Manning's *n* for overland flow / closed conduits / open channels,
+  urban-runoff water quality, all 57 FHWA HDS-5 culvert codes, entrance-loss coefficients, and the
+  23 elliptical and 102 arch standard pipe sizes); *A8 Error and Warning Codes*, generated from the
+  engine's `src/engine/core/ErrorCodes.hpp` and covering all 171 codes — 128 engine errors,
+  21 engine warnings and the 15 + 7 API codes that the status panel prints in brackets and that no
+  legacy appendix ever listed; and *A9 Object Property Index*, a router from each object kind to the
+  chapter that documents its properties and the `.inp` sections it writes.
+- **`scripts/manual_docs_audit.py`** with three checks that can each fail CI: `crosswalk` (every
+  heading of the retired legacy manuals is accounted for, resolved through `git show` so it keeps
+  working after the deletion), `property-labels` (all 141 user-visible property labels from the
+  node, link, subcatchment and rain-gage adapters appear somewhere in the manual) and
+  `culvert-codes` (A7 matches `src/ui/properties/culvertcodes.cpp`), plus `pipe-sizes` against the
+  engine's `xsect_tables.hpp`. `scripts/gen_error_catalogue.py --check` gates A8 against the engine.
+  The docs workflow now also runs `manual_figures.py audit`, which was never wired into CI.
+- **A *Build this model from scratch* variation in the site-drainage tutorial**, the one workflow
+  the retired basic tutorial covered that nothing else did — building a 1D network on an empty map.
+
+### Fixed
+
+- **The documentation workflow never ran on `swmm6_gui`** — its push trigger listed only
+  `main`, `master` and `dev`, so the published site had not been rebuilt from the working branch.
+  Its `deploy-docs` job also had no event guard while `build-docs` runs on `pull_request`, so a
+  pull request would publish to the live Pages site; it is now `push`-only.
+- **All eight Part V tutorials were excluded from the published site** — `EXCLUDE_PATTERNS`
+  carried `*/manual/tutorials/*`, which dropped the pages as well as the models, leaving the eight
+  `\subpage tutorial_*` entries in the manual's table of contents dangling. Narrowed to
+  `*/manual/tutorials/models/*`; `*.inp` is not in `FILE_PATTERNS`, so the models were never at risk.
+- **A malformed cross-reference in chapter 24** — `\ref manual_running:` absorbed the trailing
+  colon into the reference token and rendered as literal text.
+- **Printing and copying are documented from the code rather than from legacy prose** — one
+  printable thing (the active map canvas), the platform dialog as the only page setup and preview,
+  and the gotcha that the printed image is an on-screen-resolution grab enlarged onto the page.
+
+- **Layer-tree reordering follows the tree and works for category headers** — the
+  category rows' Move Up / Down and drag-drop were indexing an all-categories list with the row
+  among the *visible* categories, so with any category empty the wrong (usually empty) group moved
+  and nothing happened. Category headers now drag and have Move to Top / Up / Down / to Bottom;
+  layer Move Up / Down / to Top / to Bottom act within the layer's category; a layer can no longer
+  be dropped on another category (forbidden cursor instead of a silent z-order jump); sublayers
+  drop *between* rows as well as onto them, and their moves are undoable. The moved row stays
+  selected after each move; drag is disabled while the filter box has text.
+
 ### Changed
 
+- **The canvas layer stack is kept grouped by category and the order is saved per project** —
+  `MapCanvas::addLayer` inserts a new layer at the top of its own category group instead of the
+  top of the stack, so the tree is an exact picture of the paint order; the category order moved
+  from a global QSettings preference (`layerTree/categoryDisplayOrder`, no longer read) to the
+  `.oswp` canvas block (`layerGroupOrder`), and the stack order itself is now persisted there too
+  (`layerOrder`, matched on reopen by layer type + source + name and applied as layers arrive).
+  Raster layers still composite beneath all vector layers regardless of group order.
 - **Simulations run on a private thread pool, seed `THREADS 0`, and tell the engine about the GUI's
   own threads** — the engine step loop shared the global `QThreadPool` with the per-tick map-render and
   contour jobs; File ▸ New and the preferences reset wrote `THREADS = <all logical CPUs>`, which
@@ -245,6 +298,15 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   PARABOLIC, IRREGULAR) read as box culverts and the HGL fill was clamped to a soffit that does not
   exist. Streets additionally carry a pavement brush on the gutter line, themeable as
   `streetInvertBrush`.
+
+### Removed
+
+- **The four legacy EPA-derived documentation trees** — `docs/user-guide/`, `docs/reference/`,
+  `docs/basic-tutorial/` and `docs/inlet-tutorial/`: 179 tracked files, ~165 of them Delphi-era
+  screenshots of EPA SWMM 5.x. They had already been excluded from the Doxygen build and were dark
+  on the published site. Every one of their 220 headings is accounted for in
+  `docs/LEGACY_MANUAL_CROSSWALK_2026-09-19.md` as ported, superseded, retired or engine-owned,
+  and `manual_docs_audit.py crosswalk` keeps verifying that after the files are gone.
 
 ## [6.0.0-alpha.4] — 2026-09-08
 

@@ -335,6 +335,13 @@ jobs:
           path: openswmm.engine
           fetch-depth: 0
 
+      # Appendix A8 is generated from the engine's ErrorCodes.hpp. This is the
+      # only job that has the engine source, so the staleness gate lives here
+      # rather than in documentation.yml.
+      - name: Check the error-code appendix against the engine
+        run: python3 scripts/gen_error_catalogue.py --check
+               --engine "${{ github.workspace }}/openswmm.engine"
+
       # EPA SWMM 5.2.4 sources for the bundled openswmm-legacy-worker-5.2.4.
       # Handed to CMake as FETCHCONTENT_SOURCE_DIR_OPENSWMM_ENGINE_524 in the
       # Configure step, which makes cmake/EngineVersions.cmake skip BOTH its
