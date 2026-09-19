@@ -59,6 +59,8 @@ struct FigureSpec {
     QString    tab;                 //!< sub-tab to select after \a page (sidebar + tab)
     QString    type;                //!< text to type into the target's first line edit
     QString    select;              //!< item to select in the target's list ("first", or its text)
+    QString    hostSelect;          //!< item to select in the MAIN WINDOW before \a action fires
+    QString    grab;                //!< narrow the grab to this descendant (objectName or class)
     QSize      size;                //!< resize the target before grabbing
     QSize      hostSize;            //!< resize the MAIN WINDOW first (layout-dependent widgets)
     FigureLane lane        = FigureLane::Offscreen;

@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 270 figures, 35 videos. Published so far: 56.
+Remaining: 266 figures, 35 videos. Published so far: 60.
 
 ## 01_introduction.md
 
@@ -58,14 +58,10 @@ Remaining: 270 figures, 35 videos. Published so far: 56.
 
 - [ ] `07_layers_panel.png` (line 30) — The Layers panel with a basemap; a DEM; a SWMM model layer and a results layer
 - [ ] `07_layer_context_menu.png` (line 113) — The layer-row context menu with the Styles submenu open
-- [ ] `07_layer_properties_source_tab.png` (line 133) — The Layer Properties dialog on the Source tab showing the CRS row
 - [ ] `07_sublayer_selection_dialog.png` (line 191) — The sublayer selection dialog listing the layers inside a GeoPackage
-- [ ] `07_add_basemap_wms_tab.png` (line 288) — The Add Basemap dialog on the WMS / WMTS tab after Connect
 
 ## 08_styling.md
 
-- [ ] `08_layer_style_dialog.png` (line 23) — The Layer Properties dialog with its vertical tab sidebar on the Symbology tab
-- [ ] `08_kind_tree_symbology.png` (line 84) — The kind tree on the Symbology tab with renderer badges beside each SWMM object kind
 - [ ] `08_classification_editor.png` (line 145) — The classification editor showing the method combo; class count and the editable breaks table
 - [ ] `08_color_ramp_editor.png` (line 199) — The custom colour-ramp editor with the gradient preview and the stop table
 - [ ] `08_label_expression_dialog.png` (line 229) — The label expression builder with the field list; the template and the live preview

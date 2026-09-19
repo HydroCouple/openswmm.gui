@@ -486,6 +486,45 @@
       "size": "1200x780",
       "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
       "_note": "Same view as 14_rules_editor; the tutorial wants Bellinge's five pump rules."
+    },
+    {
+      "name": "08_style_manager.png",
+      "action": "view.styleManager",
+      "size": "1100x720",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "07_add_basemap_wms_tab.png",
+      "action": "actionAddWMSData",
+      "size": "1100x720",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Caption says 'after Connect' \u2014 that needs the network; review before publishing."
+    },
+    {
+      "name": "08_layer_style_dialog.png",
+      "action": "actionSetStyle",
+      "hostSelect": "site_drainage_model",
+      "page": "Symbology",
+      "size": "1200x820",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "07_layer_properties_source_tab.png",
+      "action": "actionSetStyle",
+      "hostSelect": "site_drainage_model",
+      "page": "Source",
+      "size": "1000x380",
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "08_kind_tree_symbology.png",
+      "action": "actionSetStyle",
+      "hostSelect": "site_drainage_model",
+      "page": "Symbology",
+      "size": "1200x470",
+      "grab": "QTreeView",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "The kind tree only; the dialog around it is 08_layer_style_dialog."
     }
   ]
 }
