@@ -49,6 +49,14 @@ def fail(msg: str) -> None:
     print(f"FAIL: {msg}", file=sys.stderr)
 
 
+def ref_exists(ref: str) -> bool:
+    """True when `ref` is a commit in THIS clone (a shallow one has almost none)."""
+    return subprocess.run(
+        ["git", "cat-file", "-e", f"{ref}^{{commit}}"],
+        cwd=ROOT, capture_output=True,
+    ).returncode == 0
+
+
 def read_at_ref(ref: str, path: str) -> str | None:
     """Return the file's content at `ref`, or None when it is not there."""
     try:
@@ -105,6 +113,16 @@ def page_ids() -> set[str]:
 def cmd_crosswalk(args: argparse.Namespace) -> int:
     ref, rows = parse_crosswalk()
     problems = 0
+
+    # A clone without the ref at all (CI's default depth-1 checkout) would
+    # otherwise report every legacy file as missing AT the ref, which reads
+    # like a stale pin and invites "fixing" it by re-pinning — silently
+    # gutting the check. Separate the two causes.
+    if not ref_exists(ref):
+        fail(f"crosswalk-source-ref '{ref}' is not a commit in this clone")
+        fail("the crosswalk resolves the legacy manuals with `git show <ref>:<path>`, "
+             "so the checkout needs full history (actions/checkout: fetch-depth: 0)")
+        return 1
 
     # The ref must resolve; a stale one would silently check nothing.
     missing_at_ref = [p for p in LEGACY_FILES if read_at_ref(ref, p) is None]
