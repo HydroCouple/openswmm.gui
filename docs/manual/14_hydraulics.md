@@ -417,7 +417,7 @@ exaggeration) of the crown, curb, depressed gutter and backing.
 Assign a street to a conduit by setting the conduit's cross-section shape to
 `STREET` and picking the street by name.
 
-\figtodo{14_street_editor.png, The Street editor with the schematic section preview}
+\fig{14_street_editor.png, The Street editor with the schematic section preview}
 
 ### Inlet editor
 
@@ -452,7 +452,7 @@ When the editor is opened from an inlet-usage picker it filters the list to the
 designs legal on the host cross-section: gutter types for `STREET`, drop types
 for `RECT_OPEN` and `TRAPEZOIDAL`, `CUSTOM` everywhere.
 
-\figtodo{14_inlet_editor.png, The Inlet editor with the plan-and-section drawing}
+\fig{14_inlet_editor.png, The Inlet editor with the plan-and-section drawing}
 
 ### Inlet usage on a conduit
 
@@ -510,7 +510,7 @@ actions. Note that `PID` is *not* in the highlighter/completer vocabulary above,
 so a PID action will not be coloured or completed; the engine validator is still
 the authority on whether it is accepted.
 
-\figtodo{14_rules_editor.png, The control rules editor with syntax highlighting and a valid badge}
+\fig{14_rules_editor.png, The control rules editor with syntax highlighting and a valid badge}
 
 \figtodo{14_rules_completion.png, Rule completion offering live node names}
 

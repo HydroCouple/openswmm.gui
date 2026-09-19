@@ -277,7 +277,7 @@ the popup is showing it consumes **Enter**, **Return**, **Esc**, **Tab** and
 `[REPORT] CONTROLS YES` is set, so the status report lists every control action
 taken during the run — the fastest way to confirm a rule fired.
 
-\figtodo{t08_control_rules_editor.png, The Control Rules Editor with one of the five pump rules selected}
+\fig{t08_control_rules_editor.png, The Control Rules Editor with one of the five pump rules selected}
 
 ### 8. Run it
 
