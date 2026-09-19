@@ -8,11 +8,10 @@
     "widget (objectName), window (grab the main window), page (sidebar/tab text),",
     "tab (sub-tab after page), size (WxH), lane (offscreen|live|human), settleMs.",
     "",
-    "lane:'live' rows need a real display — scene-graph content reads back blank",
+    "lane:'live' rows need a real display \u2014 scene-graph content reads back blank",
     "under the offscreen platform. lane:'human' rows are native menus/pickers the",
     "engine refuses to drive; they are listed in tests/manual/manual_figures/."
   ],
-
   "defaults": {
     "outDir": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/output/manual_figures",
     "theme": "light",
@@ -22,14 +21,12 @@
     "startupMs": 3000,
     "settleMs": 700
   },
-
   "models": {
     "_comment": "Passed to the launcher as SWMMVIS_OPEN_ON_STARTUP, not read by the engine.",
     "twod": "docs/manual/tutorials/models/2d_complete_example.inp",
     "site": "examples/site_drainage/site_drainage_model.inp",
     "transport": "docs/manual/tutorials/models/transport_demo.inp"
   },
-
   "figures": [
     {
       "name": "18_options_dialog.png",
@@ -111,7 +108,6 @@
       "tab": "Plugins",
       "size": "980x760"
     },
-
     {
       "_note": "Both of these need a model whose routing/quality settings make the page live; captured on a separate launch, not with the 'twod' group.",
       "name": "18_fv_groups.png",
@@ -127,7 +123,6 @@
       "tab": "General",
       "size": "980x760"
     },
-
     {
       "name": "04_preferences_general.png",
       "action": "app.preferences",
@@ -192,7 +187,6 @@
       "page": "Selection",
       "size": "1360x820"
     },
-
     {
       "name": "02_command_palette.png",
       "action": "app.commandPalette",
@@ -219,6 +213,74 @@
       "name": "01_about_dialog.png",
       "action": "app.about",
       "size": "900x640"
+    },
+    {
+      "name": "02_window_regions.png",
+      "window": true,
+      "settleMs": 1400,
+      "lane": "live",
+      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane."
+    },
+    {
+      "name": "02_docks_default_layout.png",
+      "window": true,
+      "settleMs": 1400,
+      "lane": "live",
+      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane."
+    },
+    {
+      "name": "00_overview_annotated_window.png",
+      "window": true,
+      "settleMs": 1400,
+      "lane": "live",
+      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane."
+    },
+    {
+      "name": "01_main_window_annotated.png",
+      "window": true,
+      "settleMs": 1400,
+      "lane": "live",
+      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane."
+    },
+    {
+      "name": "02_status_bar.png",
+      "widget": "statusBar"
+    },
+    {
+      "name": "02_ribbon_home_tab.png",
+      "widget": "toolBarHome",
+      "tab": "Home",
+      "hostSize": "2000x1000",
+      "_note": "hostSize widens the window so the Climate group caption is not clipped to 'limat'; wider still downscales the strip into illegibility."
+    },
+    {
+      "name": "02_ribbon_model_tab.png",
+      "widget": "toolBarModel",
+      "tab": "Model",
+      "hostSize": "2000x1000",
+      "_note": "hostSize widens the window so the Climate group caption is not clipped to 'limat'; wider still downscales the strip into illegibility."
+    },
+    {
+      "name": "20_message_logs.png",
+      "widget": "dockWidgetLogs"
+    },
+    {
+      "name": "a05_message_logs.png",
+      "widget": "dockWidgetLogs"
+    },
+    {
+      "name": "20_simulation_status_dock.png",
+      "widget": "dockWidgetSimulationStatus"
+    },
+    {
+      "name": "07_layers_panel.png",
+      "widget": "dockWidgetSWMMLayers",
+      "tab": "Layers"
+    },
+    {
+      "name": "10_properties_panel.png",
+      "widget": "dockWidgetPropertiesPanel",
+      "tab": "Properties"
     }
   ]
 }
