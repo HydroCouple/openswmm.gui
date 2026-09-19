@@ -143,7 +143,7 @@ For finding *commands* rather than objects, use the **Command Palette**
 (`Ctrl+Shift+P`) — a frameless popup with a filter line over every registered
 action. See \ref manual_interface.
 
-\figtodo{09_search_filter.png, The Object Browser filtered to names containing OUT}
+\fig{09_search_filter.png, The Object Browser filtered to names containing OUT}
 
 ### Select Upstream and Select Downstream
 
