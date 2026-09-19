@@ -30,7 +30,7 @@ own enumerations — do not edit it by hand.
 | | |
 |---|---|
 | Source | `openswmm.engine` `src/engine/core/ErrorCodes.hpp` |
-| Engine revision | `swmm6_rel` @ `3f22b06d` |
+| Engine revision | `swmm6_rel` @ `62644090` |
 | Generated | 2026-09-19 |
 | Codes | 128 Engine errors · 21 Engine warnings · 15 API error codes · 7 API warning codes |
 
