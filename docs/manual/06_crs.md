@@ -80,7 +80,7 @@ active.
 There is no recent-CRS list and no free-form WKT/PROJ entry box in this
 release: pick from the database or use one of the two Local entries.
 
-\figtodo{06_crs_selection_dialog.png, The CRS selection dialog with a search term; the type filter and the WKT preview}
+\fig{06_crs_selection_dialog.png, The CRS selection dialog with a search term; the type filter and the WKT preview}
 
 ### Changing the CRS of a loaded model
 
