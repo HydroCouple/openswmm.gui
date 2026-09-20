@@ -57,10 +57,12 @@ struct FigureSpec {
     bool       wholeWindow = false; //!< grab the main window itself
     QString    page;                //!< tab / list-row text to select in the target
     QString    tab;                 //!< sub-tab to select after \a page (sidebar + tab)
-    QString    type;                //!< text to type into the target's first line edit
+    QString    type;                //!< text to type into the target's first editable field
+    QString    typeInto;            //!< which field: objectName, or part of its placeholder
     QString    select;              //!< item to select in the target's list ("first", or its text)
     QString    hostSelect;          //!< item to select in the MAIN WINDOW before \a action fires
     QStringList clicks;             //!< buttons to press in the target; the LAST one's dialog becomes the target
+    QString    column;              //!< scroll the target's table to this column header
     QString    grab;                //!< narrow the grab to this descendant (objectName or class)
     QSize      size;                //!< resize the target before grabbing
     QSize      hostSize;            //!< resize the MAIN WINDOW first (layout-dependent widgets)

@@ -359,6 +359,7 @@ bool FigureCapture::loadManifest(QString *error)
         spec.page        = o.value(QStringLiteral("page")).toString();
         spec.tab         = o.value(QStringLiteral("tab")).toString();
         spec.type        = o.value(QStringLiteral("type")).toString();
+        spec.typeInto    = o.value(QStringLiteral("typeInto")).toString();
         spec.select      = o.value(QStringLiteral("select")).toString();
         spec.hostSelect  = o.value(QStringLiteral("hostSelect")).toString();
         const QJsonValue clickVal = o.value(QStringLiteral("click"));
@@ -369,6 +370,7 @@ bool FigureCapture::loadManifest(QString *error)
         } else if (!clickVal.toString().isEmpty()) {
             spec.clicks << clickVal.toString();
         }
+        spec.column      = o.value(QStringLiteral("column")).toString();
         spec.grab        = o.value(QStringLiteral("grab")).toString();
         spec.maxWidth    = o.value(QStringLiteral("maxWidth")).toInt(0);
         spec.size     = sizeFromString_(o.value(QStringLiteral("size")).toString());
@@ -702,16 +704,38 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
                 QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
         };
 
+        // "the first editable field" is a guess, and it was the WRONG one in
+        // the report viewer: the Search box comes before the section filter,
+        // so the figure searched the report text while its caption promised a
+        // filtered section list. typeInto names the field by objectName or by
+        // part of its placeholder.
         bool typedInto = false;
+        QStringList fields;
         const auto edits = target->findChildren<QLineEdit *>();
         for (QLineEdit *e : edits) {
             if (!e->isVisibleTo(target) || !e->isEnabled() || e->isReadOnly())
+                continue;
+            fields << (e->placeholderText().isEmpty() ? e->objectName()
+                                                      : e->placeholderText());
+            if (!spec.typeInto.isEmpty()
+                && !e->objectName().contains(spec.typeInto, Qt::CaseInsensitive)
+                && !e->placeholderText().contains(spec.typeInto, Qt::CaseInsensitive))
                 continue;
             e->setFocus(Qt::OtherFocusReason);
             e->setText(spec.type);        // emits textChanged: filters apply
             settleAfterTyping();
             typedInto = true;
             break;
+        }
+
+        if (!typedInto && !spec.typeInto.isEmpty()) {
+            r.status    = QStringLiteral("failed");
+            r.detail    = QStringLiteral("no field matching '%1' — fields: %2")
+                              .arg(spec.typeInto, fields.join(QStringLiteral(", ")));
+            r.elapsedMs = int(mSpecTimer.elapsed());
+            dismissOpenedBy(spec);
+            finishSpec(r);
+            return;
         }
 
         // Not every text field is one line. The label expression builder's
@@ -751,6 +775,48 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         dismissOpenedBy(spec);
         finishSpec(r);
         return;
+    }
+
+    // A results table puts its simulated columns to the RIGHT of the model
+    // attributes, past the viewport, so a figure of "the dynamics block"
+    // otherwise shows only Name / Type / From / To. Scroll to the named
+    // column instead of guessing a pixel offset.
+    if (!spec.column.isEmpty()) {
+        bool scrolled = false;
+        QStringList headers;
+        const auto views = target->findChildren<QAbstractItemView *>();
+        for (QAbstractItemView *view : views) {
+            QAbstractItemModel *model = view->model();
+            if (!view->isVisibleTo(target) || !model || model->rowCount() <= 0)
+                continue;
+            for (int c = 0; c < model->columnCount(); ++c) {
+                const QString head =
+                    model->headerData(c, Qt::Horizontal, Qt::DisplayRole).toString();
+                if (head.isEmpty())
+                    continue;
+                headers << head;
+                if (head.compare(spec.column, Qt::CaseInsensitive) != 0)
+                    continue;
+                const QModelIndex idx = model->index(0, c);
+                if (!idx.isValid())
+                    continue;
+                view->scrollTo(idx, QAbstractItemView::PositionAtCenter);
+                QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+                scrolled = true;
+                break;
+            }
+            if (scrolled)
+                break;
+        }
+        if (!scrolled) {
+            r.status    = QStringLiteral("failed");
+            r.detail    = QStringLiteral("no column headed '%1' — headers: %2")
+                              .arg(spec.column, headers.join(QStringLiteral(", ")));
+            r.elapsedMs = int(mSpecTimer.elapsed());
+            dismissOpenedBy(spec);
+            finishSpec(r);
+            return;
+        }
     }
 
     // Several figures are one panel inside a dialog, not the dialog — the

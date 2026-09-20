@@ -666,9 +666,10 @@
       "action": "view.dock.attributeTable",
       "widget": "AttributeTablePanel",
       "page": "Conduits",
-      "hostSize": "1800x1000",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge in ~/Downloads (.out sits beside the .inp, so openSingleINP auto-attaches it). Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+      "column": "Max/Full Depth",
+      "hostSize": "2000x1000",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. The simulated block is Max Flow (Sim.) / Max Velocity / Max-Full Depth / Total Flow Volume / Time Surcharged."
     },
     {
       "name": "08_2d_results_style_panel.png",
@@ -723,6 +724,42 @@
       "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
       "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. Conduits selected so the renderer is keyed to flow, as the caption says.",
       "select": "Conduits"
+    },
+    {
+      "name": "24_report_viewer_sections.png",
+      "action": "analysis.report",
+      "size": "900x560",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. typeInto targets the section filter; the Search box comes first in child order. Dense monospace text: 941 KB at the default width, so the dialog is captured smaller.",
+      "type": "Continuity",
+      "typeInto": "Filter sections",
+      "maxWidth": 880
+    },
+    {
+      "name": "20_report_viewer.png",
+      "action": "analysis.report",
+      "size": "1200x820",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "BLOCKED: the caption wants the continuity-error banner, which only shows when a Continuity Error (%) in the report exceeds the alert threshold. Bellinge's run is within it, so no banner appears. Needs a deliberately non-converged run."
+    },
+    {
+      "name": "24_tabular_overview.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Conduits",
+      "column": "User Flags",
+      "hostSize": "2000x1000",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. Centred on the LAST model attribute: centring on the first simulated column clamped at the right edge and produced bytes identical to 24_attribute_table_dynamics."
+    },
+    {
+      "name": "25_rainfall_visualization.png",
+      "action": "actionRainfallVisualization",
+      "page": "Overlay",
+      "size": "1200x820",
+      "lane": "live",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. Has charts, so live lane."
     }
   ]
 }
