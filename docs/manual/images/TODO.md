@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 242 figures, 35 videos. Published so far: 84.
+Remaining: 239 figures, 35 videos. Published so far: 87.
 
 ## 01_introduction.md
 
@@ -75,7 +75,6 @@ Remaining: 242 figures, 35 videos. Published so far: 84.
 
 - [ ] `10_three_docks.png` (line 11) — The Object Browser on the left with the Properties panel and Section View on the right
 - [ ] `10_browser_context_menu.png` (line 120) — The Object Browser leaf context menu on a junction
-- [ ] `10_properties_panel.png` (line 165) — The Properties panel showing a storage node with its stats source combo
 - [ ] `10_offset_mode_toggle.png` (line 208) — The status-bar offset-mode switch with the property rows relabelled to Elevation
 - [ ] `10_node_compound_inflows.png` (line 247) — The node compound editor on the Inflows page
 - [ ] `10_link_xsection_editor.png` (line 261) — The cross-section page with a live preview of an arch section
@@ -107,7 +106,6 @@ Remaining: 242 figures, 35 videos. Published so far: 84.
 - [ ] `13_model_data_objects_menu.png` (line 27) — The Model → Data Objects submenu with the hydrology editors
 - [ ] `13_raingage_properties.png` (line 69) — Rain gage properties with a file data source
 - [ ] `13_assign_rain_gages.png` (line 94) — The Assign Rain Gages dialog previewing an interpolated plan
-- [ ] `13_subcatchment_properties.png` (line 122) — Subcatchment property rows including the compound Edit buttons
 - [ ] `13_subcatch_lid_usage_page.png` (line 173) — The LID Usage page of the subcatchment compound editor
 - [ ] `13_lid_control_editor.png` (line 206) — The LID Control editor with the layer-stack diagram
 - [ ] `13_lid_types.png` (line 208) — The LID type list showing all eight control types
@@ -124,7 +122,6 @@ Remaining: 242 figures, 35 videos. Published so far: 84.
 - [ ] `14_storage_shapes.png` (line 193) — Storage shape rows for a conical unit
 - [ ] `14_node_inflows_page.png` (line 244) — The External Inflows page of the node compound editor
 - [ ] `14_treatment_page.png` (line 246) — The Pollutant Treatment page with a validated expression
-- [ ] `14_link_properties_conduit.png` (line 318) — Conduit property rows including cross-section and losses
 - [ ] `14_xsection_editor.png` (line 371) — The cross-section editor with the shape gallery and the live section preview
 - [ ] `14_transect_editor.png` (line 396) — The Transect editor with the station table and the section chart
 - [ ] `14_inlet_usage_page.png` (line 472) — The Inlets page of the link compound editor
