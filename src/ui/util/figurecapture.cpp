@@ -19,6 +19,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
+#include <QItemSelectionModel>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QAbstractButton>
@@ -362,6 +363,7 @@ bool FigureCapture::loadManifest(QString *error)
         spec.typeInto    = o.value(QStringLiteral("typeInto")).toString();
         spec.select      = o.value(QStringLiteral("select")).toString();
         spec.hostSelect  = o.value(QStringLiteral("hostSelect")).toString();
+        spec.hostSelectIn = o.value(QStringLiteral("hostSelectIn")).toString();
         const QJsonValue clickVal = o.value(QStringLiteral("click"));
         if (clickVal.isArray()) {
             const QJsonArray arr = clickVal.toArray();
@@ -442,9 +444,46 @@ void FigureCapture::processNext()
     captureSpec(mCurrent);
 }
 
+
+bool FigureCapture::applyHostSelect(const FigureSpec &spec)
+{
+    if (spec.hostSelect.isEmpty())
+        return true;
+
+    // Scope the search when asked: "J1" matches a row in the hidden Attribute
+    // Table as readily as in the Object Browser, and the first view to answer
+    // wins otherwise.
+    QWidget *scope = mHost;
+    if (!spec.hostSelectIn.isEmpty())
+        scope = descendant_(mHost, spec.hostSelectIn);
+    if (scope && selectItem(scope, spec.hostSelect))
+        return true;
+
+    FigureResult r;
+    r.name   = spec.name;
+    r.status = QStringLiteral("failed");
+    r.detail = scope
+        ? QStringLiteral("no item matching '%1' in %2 — rows offered: %3")
+              .arg(spec.hostSelect,
+                   spec.hostSelectIn.isEmpty() ? QStringLiteral("the main window")
+                                               : spec.hostSelectIn,
+                   offeredRows_(scope))
+        : QStringLiteral("no panel named or classed '%1' to select in")
+              .arg(spec.hostSelectIn);
+    r.elapsedMs = int(mSpecTimer.elapsed());
+    finishSpec(r);
+    return false;
+}
+
 void FigureCapture::captureSpec(const FigureSpec &spec)
 {
     const int settle = spec.settleMs > 0 ? spec.settleMs : mDefaultSettleMs;
+
+    // Before anything else, and for EVERY kind of row: a widget row wants the
+    // selection just as much as an action row does — the Properties panel is
+    // a widget grab whose whole content comes from the selected object.
+    if (!applyHostSelect(spec))
+        return;
 
     // --- whole main window -------------------------------------------------
     if (spec.wholeWindow) {
@@ -502,17 +541,6 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
         // message box instead of the dialog. So the host selection has to be
         // made BEFORE the trigger — spec.select runs inside the dialog, which
         // is far too late.
-        if (!spec.hostSelect.isEmpty() && !selectItem(mHost, spec.hostSelect)) {
-            FigureResult r;
-            r.name   = spec.name;
-            r.status = QStringLiteral("failed");
-            r.detail = QStringLiteral("no item matching '%1' in the main window"
-                                      " — rows offered: %2")
-                           .arg(spec.hostSelect, offeredRows_(mHost));
-            finishSpec(r);
-            return;
-        }
-
         if (nativePickerActions_().contains(spec.action)) {
             FigureResult r;
             r.name   = spec.name;
@@ -998,11 +1026,24 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which) const
         if (rows <= 0)
             continue;
 
+        // setCurrentIndex alone emits currentChanged, NOT selectionChanged,
+        // and the panels that matter listen to the latter: the Object Browser
+        // pushes into the SelectionManager from its view's selectionChanged,
+        // and the Properties panel reads the manager. Selecting the row too
+        // is also simply what a user's click does.
+        auto pick = [view](const QModelIndex &idx) {
+            view->setCurrentIndex(idx);
+            if (QItemSelectionModel *sel = view->selectionModel())
+                sel->select(idx, QItemSelectionModel::ClearAndSelect
+                                     | QItemSelectionModel::Rows);
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        };
+
         if (wantFirst) {
             const QModelIndex idx = model->index(0, 0, view->rootIndex());
             if (!idx.isValid())
                 continue;
-            view->setCurrentIndex(idx);
+            pick(idx);
             return true;
         }
         // Depth-first: the Layers panel files every layer under a category
@@ -1026,7 +1067,7 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which) const
             if (auto *tree = qobject_cast<QTreeView *>(view))
                 for (QModelIndex p = idx.parent(); p.isValid(); p = p.parent())
                     tree->expand(p);
-            view->setCurrentIndex(idx);
+            pick(idx);
             return true;
         }
     }

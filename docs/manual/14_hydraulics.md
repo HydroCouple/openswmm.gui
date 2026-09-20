@@ -315,7 +315,7 @@ control.
 for the functional forms, a **Rating Curve** picker for the tabular forms, and
 **Flap Gate**. The exponent and curve rows show and hide with the chosen type.
 
-\figtodo{14_link_properties_conduit.png, Conduit property rows including cross-section and losses}
+\fig{14_link_properties_conduit.png, Conduit property rows including cross-section and losses}
 
 ### Cross-section editor and the Section View
 

@@ -162,7 +162,7 @@ The panel header carries:
 | **Plot Rainfall…** button | Rain gages only — open the Rainfall Visualization dialog |
 | **Stats source:** combo | Which loaded `.out` drives the post-run statistic rows. Defaults to the project's active results layer; `(editing engine)` when none is loaded |
 
-\figtodo{10_properties_panel.png, The Properties panel showing a storage node with its stats source combo}
+\fig{10_properties_panel.png, The Properties panel showing a storage node with its stats source combo}
 
 #### How each property type is edited
 
