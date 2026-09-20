@@ -288,8 +288,13 @@
     },
     {
       "name": "10_properties_panel.png",
-      "widget": "dockWidgetPropertiesPanel",
-      "tab": "Properties"
+      "hostSelect": "G71F04R",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "widget": "PropertiesPanel",
+      "size": "420x900",
+      "maxWidth": 760,
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. A STORAGE node, per the caption; site_drainage has none."
     },
     {
       "name": "13_lid_control_editor.png",
@@ -760,6 +765,26 @@
       "lane": "live",
       "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
       "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. Has charts, so live lane."
+    },
+    {
+      "name": "14_link_properties_conduit.png",
+      "hostSelect": "C1",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "widget": "PropertiesPanel",
+      "size": "420x900",
+      "maxWidth": 760,
+      "_model": "examples/site_drainage/site_drainage_model.inp"
+    },
+    {
+      "name": "13_subcatchment_properties.png",
+      "hostSelect": "S1",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "widget": "PropertiesPanel",
+      "size": "420x900",
+      "maxWidth": 760,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "select": "Land Uses",
+      "_note": "The manual said 'compound Edit buttons'. CompoundEditDelegate renders an '%1 - Edit...' affordance, but no compound row in the Properties panel shows it \u2014 on nodes, links or subcatchments. Caption aligned to the rows themselves; worth checking whether that affordance regressed."
     }
   ]
 }

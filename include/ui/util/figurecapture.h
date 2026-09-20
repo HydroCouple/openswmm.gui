@@ -61,6 +61,7 @@ struct FigureSpec {
     QString    typeInto;            //!< which field: objectName, or part of its placeholder
     QString    select;              //!< item to select in the target's list ("first", or its text)
     QString    hostSelect;          //!< item to select in the MAIN WINDOW before \a action fires
+    QString    hostSelectIn;        //!< scope \a hostSelect to this panel (objectName or class)
     QStringList clicks;             //!< buttons to press in the target; the LAST one's dialog becomes the target
     QString    column;              //!< scroll the target's table to this column header
     QString    grab;                //!< narrow the grab to this descendant (objectName or class)
@@ -120,6 +121,8 @@ private:
     void finishRun();
 
     /*! \brief Reach the state \a spec describes and grab it. */
+    /*! \brief Apply \a spec's hostSelect; false (and fails the row) if it misses. */
+    bool applyHostSelect(const FigureSpec &spec);
     void captureSpec(const FigureSpec &spec);
     void grabInto(QWidget *target, const FigureSpec &spec);
 

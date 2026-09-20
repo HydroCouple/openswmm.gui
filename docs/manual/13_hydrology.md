@@ -119,7 +119,7 @@ so a failed check aborts with the model untouched.
 | **User Flags** | Per-object user flags | `[USER_FLAGS]` |
 | **Total Precipitation** / **Total Runoff Volume** / **Peak Runoff** | Read-only; populated after a run | — |
 
-\figtodo{13_subcatchment_properties.png, Subcatchment property rows including the compound Edit buttons}
+\fig{13_subcatchment_properties.png, Subcatchment property rows including the compound Land Uses; Groundwater and LID Usage rows}
 
 ### Infiltration models
 
