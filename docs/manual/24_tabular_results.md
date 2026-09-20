@@ -6,7 +6,7 @@ Read results as numbers rather than as pictures: per-object summary statistics i
 the attribute table, sortable statistics tables with a frequency histogram, and
 the engine's own text report. Then get any of it out as CSV or into the clipboard.
 
-\figtodo{24_tabular_overview.png, The Attribute Table dock showing simulated statistics columns beside the model attributes}
+\fig{24_tabular_overview.png, The Attribute Table dock showing simulated statistics columns beside the model attributes}
 
 ## Where to find it
 
@@ -52,7 +52,7 @@ Sorting, the query bar, **Show selected only**, **Zoom to selected**, `Ctrl+C`
 these columns exactly as they do on model attributes, so "every conduit whose
 `"Max/Full Depth"` > 0.9, as a CSV" is one query and one button.
 
-\figtodo{24_attribute_table_dynamics.png, The dynamics block at the right of a conduit attribute table}
+\fig{24_attribute_table_dynamics.png, The dynamics block at the right of a conduit attribute table}
 
 ### Summarize Results — the statistics dashboard
 
@@ -93,7 +93,7 @@ the run actually did — the mass-balance ledgers, the elements that drove the t
 step, the surcharge and flooding summaries, and the ERROR line when a run failed
 before writing any results.
 
-\figtodo{24_report_viewer_sections.png, The report viewer section list filtered to the continuity sections}
+\fig{24_report_viewer_sections.png, The report viewer section list filtered to the continuity sections}
 
 \videotodo{From a finished run to a spreadsheet — filtering the attribute table; summarising the run and exporting CSV}
 

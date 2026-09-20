@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 245 figures, 35 videos. Published so far: 81.
+Remaining: 242 figures, 35 videos. Published so far: 84.
 
 ## 01_introduction.md
 
@@ -206,10 +206,7 @@ Remaining: 245 figures, 35 videos. Published so far: 81.
 
 ## 24_tabular_results.md
 
-- [ ] `24_tabular_overview.png` (line 9) — The Attribute Table dock showing simulated statistics columns beside the model attributes
-- [ ] `24_attribute_table_dynamics.png` (line 55) — The dynamics block at the right of a conduit attribute table
 - [ ] `24_statistics_dashboard.png` (line 80) — The Statistics Dashboard with the Links tab filtered by a query and its histogram
-- [ ] `24_report_viewer_sections.png` (line 96) — The report viewer section list filtered to the continuity sections
 
 ## 25_analysis_tools.md
 
