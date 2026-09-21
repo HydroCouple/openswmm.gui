@@ -44,7 +44,7 @@ message box says so.
 With nothing selected the tool asks you to select a node or a link; with no
 results it asks you to run a simulation or load a `.out`.
 
-\figtodo{25_flow_balance_result.png, The Flow Balance summary reporting subnetwork size and boundary inflow-outflow}
+\fig{25_flow_balance_result.png, The Flow Balance summary reporting subnetwork size and boundary inflow-outflow}
 
 ### Travel Time — upstream and downstream
 
@@ -62,7 +62,7 @@ write a table. To *see* the subnetwork instead, use **Select Upstream** /
 **Select Downstream** (\ref manual_selection), which selects every node, link and
 subcatchment in the trace and reports the counts in the message log.
 
-\figtodo{25_travel_time_result.png, The Travel Time summary for a downstream subnetwork}
+\fig{25_travel_time_result.png, The Travel Time summary for a downstream subnetwork}
 
 ### Rainfall Visualization
 
