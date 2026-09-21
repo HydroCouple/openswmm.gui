@@ -244,7 +244,7 @@ remove-and-re-add through the table selection and the form below.
 A node's **Groundwater Sources** row is navigational only — it opens the owning
 subcatchment's Groundwater Exchange dialog rather than a page here.
 
-\figtodo{10_node_compound_inflows.png, The node compound editor on the Inflows page}
+\fig{10_node_compound_inflows.png, The node compound editor on the Inflows page}
 
 #### Link compound editor
 
@@ -258,7 +258,7 @@ Opened from a link's **Cross-Section** or **Inlets** row.
 The culvert code moved out of this dialog: it is an inline combo on the
 conduit's own property row.
 
-\figtodo{10_link_xsection_editor.png, The cross-section page with a live preview of an arch section}
+\fig{10_link_xsection_editor.png, The cross-section page with a live preview of an arch section}
 
 #### Subcatchment compound editor
 

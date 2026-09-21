@@ -373,6 +373,7 @@ bool FigureCapture::loadManifest(QString *error)
             spec.clicks << clickVal.toString();
         }
         spec.column      = o.value(QStringLiteral("column")).toString();
+        spec.editCell    = o.value(QStringLiteral("editCell")).toString();
         spec.grab        = o.value(QStringLiteral("grab")).toString();
         spec.maxWidth    = o.value(QStringLiteral("maxWidth")).toInt(0);
         spec.size     = sizeFromString_(o.value(QStringLiteral("size")).toString());
@@ -479,10 +480,12 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
 {
     const int settle = spec.settleMs > 0 ? spec.settleMs : mDefaultSettleMs;
 
-    // Before anything else, and for EVERY kind of row: a widget row wants the
-    // selection just as much as an action row does — the Properties panel is
-    // a widget grab whose whole content comes from the selected object.
-    if (!applyHostSelect(spec))
+    // An ACTION row must select before the action fires: the styling commands
+    // are scoped to the layer selected in the Layers panel. A WIDGET row is
+    // the other way round — its "page" switches the Attribute Table's
+    // category, which resets the model, so selecting a row first selects in
+    // the wrong category. That one is applied in grabInto(), after the page.
+    if (spec.widget.isEmpty() && !spec.wholeWindow && !applyHostSelect(spec))
         return;
 
     // --- whole main window -------------------------------------------------
@@ -649,6 +652,73 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         }
     }
 
+    // The other half of the rule above: a widget or whole-window row selects
+    // AFTER its page has switched.
+    if ((!spec.widget.isEmpty() || spec.wholeWindow) && !applyHostSelect(spec))
+        return;
+
+    // A compound property (External Inflows, Cross Section, LID Usage) is
+    // edited through a delegate-built "Edit…" button that only exists while
+    // the cell is in edit mode. Open that editor so a later click can press
+    // it — the alternative entry point is a right-click menu, which is
+    // native on macOS and therefore human-lane.
+    if (!spec.editCell.isEmpty()) {
+        // A category switch RESETS the table model and rebuilds its column
+        // schema, and that lands on a later turn of the event loop. Looking
+        // for the column immediately found a model with no rows at all.
+        {
+            QElapsedTimer rebuilt;
+            rebuilt.start();
+            const int wait = spec.settleMs > 0 ? spec.settleMs : mDefaultSettleMs;
+            while (rebuilt.elapsed() < wait)
+                QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
+        }
+        bool opened = false;
+        QStringList headers;
+        const auto views = target->findChildren<QAbstractItemView *>();
+        for (QAbstractItemView *view : views) {
+            QAbstractItemModel *model = view->model();
+            if (!view->isVisibleTo(target) || !model || model->rowCount() <= 0)
+                continue;
+            for (int col = 0; col < model->columnCount(); ++col) {
+                const QString head =
+                    model->headerData(col, Qt::Horizontal, Qt::DisplayRole).toString();
+                if (head.isEmpty())
+                    continue;
+                headers << head;
+                if (head.compare(spec.editCell, Qt::CaseInsensitive) != 0)
+                    continue;
+                // Honour the selected row: hostSelect picks the object the
+                // figure is about, and opening row 0 regardless produced an
+                // inflows page reading "0 on this node (model total: 4)".
+                const int row = view->currentIndex().isValid()
+                                    ? view->currentIndex().row() : 0;
+                const QModelIndex idx = model->index(row, col);
+                if (!idx.isValid())
+                    continue;
+                view->scrollTo(idx, QAbstractItemView::PositionAtCenter);
+                view->setCurrentIndex(idx);
+                view->edit(idx);
+                QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+                opened = true;
+                break;
+            }
+            if (opened)
+                break;
+        }
+        if (!opened) {
+            r.status    = QStringLiteral("failed");
+            r.detail    = QStringLiteral("no column headed '%1' to edit in %2 — headers: %3")
+                              .arg(spec.editCell,
+                                   QString::fromLatin1(target->metaObject()->className()),
+                                   headers.join(QStringLiteral(", ")));
+            r.elapsedMs = int(mSpecTimer.elapsed());
+            dismissOpenedBy(spec);
+            finishSpec(r);
+            return;
+        }
+    }
+
     // Some figures live one button-press further in: the label expression
     // builder opens from the Labels tab, the ramp editor from a ramp picker.
     // Arm the grab BEFORE the click for the same reason the action path does
@@ -664,6 +734,7 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
             const QString wanted = spec.clicks.at(i);
             QStringList offered;
             btn = nullptr;
+            QAbstractButton *loose = nullptr;
             const auto buttons = target->findChildren<QAbstractButton *>();
             for (QAbstractButton *b : buttons) {
                 if (!b->isVisibleTo(target) || !b->isEnabled()
@@ -675,7 +746,14 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
                     btn = b;
                     break;
                 }
+                // A delegate button embeds the cell's own summary in its
+                // label ("(none) - Edit..."), which a manifest cannot know
+                // per object. Fall back to a contains match.
+                if (!loose && label.contains(wanted, Qt::CaseInsensitive))
+                    loose = b;
             }
+            if (!btn)
+                btn = loose;
             if (!btn) {
                 r.status    = QStringLiteral("failed");
                 r.detail    = QStringLiteral("no button labelled '%1' — buttons: %2")
@@ -695,6 +773,8 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         rest.clicks.clear();
         rest.page.clear();
         rest.tab.clear();
+        rest.editCell.clear();   // already served: it is what raised the dialog
+        rest.column.clear();
         rest.hostSize = QSize();
         QWidget *before = activeDialog();
         QTimer::singleShot(spec.settleMs > 0 ? spec.settleMs : mDefaultSettleMs,
@@ -864,6 +944,12 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         }
         target = inner;
     }
+
+    // Every step above can relayout the target, and a dock's layout claws
+    // back the size set at the top — the Properties panel came out 278 px
+    // wide instead of 420. Re-assert it last, once the content is final.
+    if (spec.size.isValid())
+        target->resize(spec.size);
 
     // Let the resize / page switch lay out before the pixels are read.
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);

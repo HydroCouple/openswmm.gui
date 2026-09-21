@@ -241,7 +241,7 @@ Expression vocabulary, mirroring the engine's treatment grammar: variables
 verdict always comes from the engine, so the highlighter can lag the grammar
 without ever mis-validating.
 
-\figtodo{14_node_inflows_page.png, The External Inflows page of the node compound editor}
+\fig{14_node_inflows_page.png, The External Inflows page of the node compound editor}
 
 \figtodo{14_treatment_page.png, The Pollutant Treatment page with a validated expression}
 
@@ -368,7 +368,7 @@ The **Section View** dock (**View → Panels → Section View**, `Ctrl+Alt+9`) s
 the same drawing for whatever link is currently selected, without opening a
 dialog.
 
-\figtodo{14_xsection_editor.png, The cross-section editor with the shape gallery and the live section preview}
+\fig{14_xsection_editor.png, The cross-section editor with the shape gallery and the live section preview}
 
 ### Transect editor
 
@@ -469,7 +469,7 @@ conduit's own end nodes and every virtual or inlet junction (rule 627). The whol
 row commits as one undoable command, so this edit and the same edit made on an
 inlet junction's property rows are literally the same operation.
 
-\figtodo{14_inlet_usage_page.png, The Inlets page of the link compound editor}
+\fig{14_inlet_usage_page.png, The Inlets page of the link compound editor}
 
 \videotodo{Splitting a street conduit into an inlet junction and wiring its capture node}
 
