@@ -441,7 +441,10 @@ void FigureCapture::processNext()
         return;
     }
 
-    mWatchdog->start(mWatchdogMs);
+    // A row that asks for a long settle needs a longer leash: the comparison
+    // plot loads its series from the .out and wants ~12 s, which tripped the
+    // flat 20 s watchdog once the click chain was added.
+    mWatchdog->start(qMax(mWatchdogMs, mCurrent.settleMs * 2 + mWatchdogMs / 2));
     captureSpec(mCurrent);
 }
 
