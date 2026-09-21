@@ -3372,6 +3372,17 @@ add_swmmvis_gui_test(test_mdi_tab_maximize
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 
+# Tab tooltips carry the model's full path, because the tab label is only the
+# base name. Pins the two QMdiArea facts that makes rest on: no tab tooltip of
+# its own, and tab index == subWindowList() position.
+add_swmmvis_gui_test(test_mdi_tab_tooltips
+    test_mdi_tab_tooltips.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/mdiworkspacechrome.h
+    ${CMAKE_SOURCE_DIR}/src/ui/mdiworkspacechrome.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+
 # UI redesign P3 — IconFactory / ThemedIconEngine: catalog aliases render,
 # light/dark/disabled renders differ, pixmap cache stable, unknown alias
 # null. Links the real qrc + theme sources; QSvgRenderer needs Qt6::Svg.

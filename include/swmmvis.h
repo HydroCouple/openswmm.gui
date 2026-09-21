@@ -671,6 +671,15 @@ private slots:
 
     void onActiveSubWindowChanged(QMdiSubWindow *window);
 
+    /*! Give each MDI tab a tooltip with its model's full path — the tab label
+     *  is only the base name, so same-named models from different folders are
+     *  otherwise indistinguishable. */
+    void refreshProjectTabToolTips();
+
+    /*! Main-window title for \a pw: "SWMMVis — <name> — <folder>", or the bare
+     *  app name when there is no project. */
+    void syncMainWindowTitle(SWMMVisProjectWindow *pw);
+
     /*!
      * \brief Rebuild the macOS-style Window menu: Minimize / Zoom / separator /
      *        dynamic list of open project sub-windows / separator / open
