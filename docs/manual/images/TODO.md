@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 239 figures, 35 videos. Published so far: 87.
+Remaining: 234 figures, 35 videos. Published so far: 92.
 
 ## 01_introduction.md
 
@@ -76,8 +76,6 @@ Remaining: 239 figures, 35 videos. Published so far: 87.
 - [ ] `10_three_docks.png` (line 11) — The Object Browser on the left with the Properties panel and Section View on the right
 - [ ] `10_browser_context_menu.png` (line 120) — The Object Browser leaf context menu on a junction
 - [ ] `10_offset_mode_toggle.png` (line 208) — The status-bar offset-mode switch with the property rows relabelled to Elevation
-- [ ] `10_node_compound_inflows.png` (line 247) — The node compound editor on the Inflows page
-- [ ] `10_link_xsection_editor.png` (line 261) — The cross-section page with a live preview of an arch section
 - [ ] `10_subcatch_lid_usage.png` (line 277) — The subcatchment compound editor on the LID Usage page
 - [ ] `10_convert_to_menu.png` (line 316) — The Convert To submenu with Virtual Junction greyed out and its rule tooltip
 - [ ] `10_section_view_link.png` (line 348) — The Section View showing a conduit cross-section at the 1:1 default
@@ -120,11 +118,8 @@ Remaining: 239 figures, 35 videos. Published so far: 87.
 - [ ] `14_inlet_junction_setup.png` (line 138) — The Inlet Junction Setup dialog
 - [ ] `14_inlet_junction_properties.png` (line 140) — Inlet junction property rows with the dashed capture-node connector on the map
 - [ ] `14_storage_shapes.png` (line 193) — Storage shape rows for a conical unit
-- [ ] `14_node_inflows_page.png` (line 244) — The External Inflows page of the node compound editor
 - [ ] `14_treatment_page.png` (line 246) — The Pollutant Treatment page with a validated expression
-- [ ] `14_xsection_editor.png` (line 371) — The cross-section editor with the shape gallery and the live section preview
 - [ ] `14_transect_editor.png` (line 396) — The Transect editor with the station table and the section chart
-- [ ] `14_inlet_usage_page.png` (line 472) — The Inlets page of the link compound editor
 - [ ] `14_rules_completion.png` (line 515) — Rule completion offering live node names
 
 ## 15_climate.md

@@ -64,6 +64,7 @@ struct FigureSpec {
     QString    hostSelectIn;        //!< scope \a hostSelect to this panel (objectName or class)
     QStringList clicks;             //!< buttons to press in the target; the LAST one's dialog becomes the target
     QString    column;              //!< scroll the target's table to this column header
+    QString    editCell;            //!< open the row-0 cell editor in this column (compound "Edit…")
     QString    grab;                //!< narrow the grab to this descendant (objectName or class)
     QSize      size;                //!< resize the target before grabbing
     QSize      hostSize;            //!< resize the MAIN WINDOW first (layout-dependent widgets)
