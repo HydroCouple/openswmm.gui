@@ -10,7 +10,7 @@ goodness-of-fit metrics against a baseline; and export the numbers or the pictur
 All of this happens in one window — the **Comparison Plot** dialog. Every
 time-series entry point in SWMMVis feeds it.
 
-\figtodo{22_comparison_plot_overview.png, The Comparison Plot dialog — series tree; stacked chart rows; range slider and statistics panel}
+\fig{22_comparison_plot_overview.png, The Comparison Plot dialog — series tree; stacked chart rows; range slider and statistics panel}
 
 ## Where to find it
 
@@ -40,7 +40,7 @@ Attributes the loaded run cannot serve are greyed out. Tick as many as you like
 and press **OK**; ticking more than 500 leaves raises a confirmation first,
 because that many series takes a while to build and clutters the charts.
 
-\figtodo{22_plot_variables_picker.png, The Plot Variables dialog with one group per selected object and the system group}
+\fig{22_plot_variables_picker.png, The Plot Variables dialog with one group per selected object and the system group}
 
 ### What can be plotted
 

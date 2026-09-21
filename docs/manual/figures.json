@@ -855,6 +855,62 @@
       "_model": "examples/site_drainage/site_drainage_model.inp",
       "lane": "live",
       "_note": "Same editor as 14_xsection_editor; chapter 10 shows it again."
+    },
+    {
+      "name": "22_plot_variables_picker.png",
+      "hostSelect": "G71F04R",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "action": "analysis.plotTimeSeries",
+      "size": "900x700",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+    },
+    {
+      "name": "22_comparison_plot_overview.png",
+      "hostSelect": "G71F04R",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "action": "analysis.plotTimeSeries",
+      "click": [
+        "Select All",
+        "OK"
+      ],
+      "size": "1300x850",
+      "lane": "live",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. Charts, so live lane. Select All checks the variables; OK is disabled until something is. The chart rows load asynchronously from the .out; at the default settle they came back empty.",
+      "settleMs": 12000
+    },
+    {
+      "name": "22_chart_modes_toolbar.png",
+      "hostSelect": "G71F04R",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "action": "analysis.plotTimeSeries",
+      "click": [
+        "Select All",
+        "OK"
+      ],
+      "size": "1300x850",
+      "lane": "live",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "DEFERRED: grab matched an empty toolbar, and the real one is a row of unlabelled icons \u2014 the caption names interaction modes and view toggles, which a reader cannot identify without tooltips. Same call as a01_timeseries_editor_keys.",
+      "settleMs": 12000,
+      "grab": "QToolBar"
+    },
+    {
+      "name": "22_statistics_panel.png",
+      "hostSelect": "G71F04R",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "action": "analysis.plotTimeSeries",
+      "click": [
+        "Select All",
+        "OK"
+      ],
+      "size": "1300x850",
+      "lane": "live",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "DEFERRED: the caption wants fit metrics, which only appear once an observed series is loaded \u2014 and that arrives through a file picker (human lane). The summary columns alone also leave the panel ~90% empty.",
+      "settleMs": 12000,
+      "grab": "StatsSummaryPanel"
     }
   ]
 }

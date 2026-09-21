@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 234 figures, 35 videos. Published so far: 92.
+Remaining: 232 figures, 35 videos. Published so far: 94.
 
 ## 01_introduction.md
 
@@ -176,8 +176,6 @@ Remaining: 234 figures, 35 videos. Published so far: 92.
 
 ## 22_time_series_plots.md
 
-- [ ] `22_comparison_plot_overview.png` (line 13) — The Comparison Plot dialog — series tree; stacked chart rows; range slider and statistics panel
-- [ ] `22_plot_variables_picker.png` (line 43) — The Plot Variables dialog with one group per selected object and the system group
 - [ ] `22_series_tree_context_menu.png` (line 113) — The series tree with a run group; a baseline marker and the series context menu
 - [ ] `22_load_observed.png` (line 133) — The observed-attribute prompt after choosing a CSV
 - [ ] `22_chart_modes_toolbar.png` (line 168) — The Comparison Plot toolbar with the interaction modes and view toggles
