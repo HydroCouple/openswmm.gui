@@ -1295,6 +1295,16 @@ void SWMMVisProjectWindow::updateWindowTitle()
     setWindowTitle(mHasChanges ? (base + QStringLiteral(" *")) : base);
 }
 
+QString SWMMVisProjectWindow::modelFilePath() const
+{
+    // Untitled windows are backed by a temp .inp; surfacing that path would be
+    // as confusing as surfacing its name, which updateWindowTitle() already
+    // refuses to do.
+    if (mUntitled || !mModelLayer)
+        return {};
+    return mModelLayer->modelFilePath();
+}
+
 void SWMMVisProjectWindow::markUntitled()
 {
     mUntitled = true;

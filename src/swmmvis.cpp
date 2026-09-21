@@ -5388,6 +5388,16 @@ void SWMMVis::onOpenProject(const QString &path)
 SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
 {
     auto *window = new SWMMVisProjectWindow(mProject, filePath, ui->mdiAreaCentral);
+
+    // Keep the tab tooltips (full paths) in step. windowTitleChanged is the
+    // right hook: the title is recomputed from the model path, so it fires on
+    // open and again after a Save As moves the model somewhere else. Queued,
+    // so QMdiArea's own event filter has already rebuilt the tab text by the
+    // time we annotate it.
+    connect(window, &QWidget::windowTitleChanged, this, [this]() {
+        refreshProjectTabToolTips();
+    }, Qt::QueuedConnection);
+
     connect(window, &SWMMVisProjectWindow::modelLoaded,
             this, &SWMMVis::onModelLoaded);
     connect(window, &SWMMVisProjectWindow::modelLoadError,
@@ -5475,9 +5485,9 @@ SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
     // Main-window title tracks the active project — re-sync when that
     // project renames itself (Save As) or flips its dirty `*` marker.
     connect(window, &QWidget::windowTitleChanged, this,
-            [this, window](const QString &t) {
+            [this, window](const QString &) {
                 if (window == mActiveProjectWindow)
-                    setWindowTitle(QStringLiteral("SWMMVis — %1").arg(t));
+                    syncMainWindowTitle(window);
             });
 
     ui->mdiAreaCentral->addSubWindow(window);
@@ -5721,7 +5731,7 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
             progress->finishStage(OpenStage::Results);
         attachMesh2DLayersAsync(window, filePath, progress);
 
-        setWindowTitle(QStringLiteral("SWMMVis — %1").arg(QFileInfo(filePath).baseName()));
+        syncMainWindowTitle(window);
         // See openUntitledProject(): this explicit maximize is needed only
         // when a hidden Welcome window prevented Qt's normal hand-off.
         // Keeping it at the open boundary leaves existing-tab activation to
@@ -6531,6 +6541,46 @@ void SWMMVis::onOpenRecentFile(QAction *action)
     onOpenProject(path);
 }
 
+/*!
+ * \brief Tab tooltips carry the model's full path, because the tab label is
+ *        only its base name — two models of the same name from different
+ *        folders look identical otherwise.
+ */
+/*!
+ * \brief Main-window title for \a pw: "SWMMVis — <name> — <folder>".
+ *
+ * The sub-window title is only the base name (plus the dirty `*`), so the
+ * folder is what tells two same-named models apart. Appended rather than
+ * substituted, so the name still comes first where it is scanned. Three call
+ * sites used to build this string independently — the open boundary, the
+ * rename/dirty hook and tab activation — which is how they would drift.
+ */
+void SWMMVis::syncMainWindowTitle(SWMMVisProjectWindow *pw)
+{
+    if (!pw) {
+        setWindowTitle(QStringLiteral("SWMMVis"));
+        return;
+    }
+    const QString path = pw->modelFilePath();
+    if (path.isEmpty()) {
+        setWindowTitle(QStringLiteral("SWMMVis — %1").arg(pw->windowTitle()));
+        return;
+    }
+    setWindowTitle(QStringLiteral("SWMMVis — %1 — %2")
+                       .arg(pw->windowTitle(),
+                            QDir::toNativeSeparators(
+                                QFileInfo(path).absolutePath())));
+}
+
+void SWMMVis::refreshProjectTabToolTips()
+{
+    openswmmvis::ui::refreshSubWindowTabToolTips(
+        ui->mdiAreaCentral, [](QMdiSubWindow *sub) -> QString {
+            auto *pw = qobject_cast<SWMMVisProjectWindow *>(sub);
+            return pw ? pw->modelFilePath() : QString();
+        });
+}
+
 void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
 {
     // Perf-plan Phase 0: this rebind pass runs 3x per file open and touches
@@ -6544,6 +6594,11 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                                       : "null");
     });
 
+    // Closing a tab shifts every later tab's index, so tooltips set against
+    // the old positions would name the wrong model. This fires on add, remove
+    // and activate alike, which is exactly when the mapping can move.
+    refreshProjectTabToolTips();
+
     auto *pw = qobject_cast<SWMMVisProjectWindow *>(window);
 
     // Main-window title follows the active MDI tab so macOS / Linux
@@ -6554,7 +6609,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     // from Slice A, so the user can see unsaved-changes state at a
     // glance).
     if (pw) {
-        setWindowTitle(QStringLiteral("SWMMVis — %1").arg(pw->windowTitle()));
+        syncMainWindowTitle(pw);
     } else if (window) {
         // Welcome or other non-project sub-window active.
         setWindowTitle(QStringLiteral("SWMMVis"));

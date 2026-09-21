@@ -10,7 +10,12 @@
  * bare QMdiArea instead of restating the logic.
  */
 
+#include <QString>
+
+#include <functional>
+
 class QMdiArea;
+class QMdiSubWindow;
 class QWidget;
 
 namespace openswmmvis::ui {
@@ -43,6 +48,33 @@ namespace openswmmvis::ui {
  * Safe to call once per area; a null \a area or \a welcome is a no-op.
  */
 void installMdiWorkspaceChrome(QMdiArea *area, QWidget *welcome = nullptr);
+
+/*!
+ * \brief Give every tab in \a area a tooltip naming its document in full.
+ *
+ * A tab is labelled with the model's BASE NAME, so two models of the same
+ * name opened from different folders are indistinguishable on the tab bar.
+ * \a pathFor supplies the full path for a sub-window; an empty return (an
+ * untitled project, the welcome tab) falls back to the tab's own title, so
+ * the tooltip is never present-but-blank.
+ *
+ * Two QMdiArea facts this relies on, both pinned by
+ * tests/gui/test_mdi_tab_tooltips.cpp:
+ *
+ *   * QMdiArea never sets a tab tooltip itself. Its event filter handles
+ *     WindowTitleChange and ModifiedChange by calling setTabText, and
+ *     WindowIconChange by calling setTabIcon (qmdiarea.cpp:2646-2654) —
+ *     nothing touches the tooltip, so what we set here is not overwritten
+ *     when a title changes or a document goes dirty.
+ *   * Tab index == position in subWindowList(), the same rule
+ *     setSubWindowTabVisible() depends on. Closing a tab shifts every later
+ *     index, so callers must re-run this after a sub-window is removed.
+ *
+ * A null \a area, or an area with no tab bar, is a no-op.
+ */
+void refreshSubWindowTabToolTips(
+    QMdiArea *area,
+    const std::function<QString(QMdiSubWindow *)> &pathFor);
 
 }   // namespace openswmmvis::ui
 

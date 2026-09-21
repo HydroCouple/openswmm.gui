@@ -357,6 +357,12 @@ public:
     bool isAutoLengthEnabled() const { return mAutoLengthEnabled; }
     void setAutoLengthEnabled(bool enabled);
 
+    /** Absolute path of the model this window holds, or empty when untitled.
+     *  The window title is only the base name, so two models of the same name
+     *  from different folders are indistinguishable by it — this is what the
+     *  tab's tooltip shows to tell them apart. */
+    [[nodiscard]] QString modelFilePath() const;
+
     /** Engine version selector (e.g., "5.3.0", "6.0.0", "6.0.0-alpha.1"). Per-project, persisted to project file. */
     QString engineVersion() const { return mEngineVersion; }
     void setEngineVersion(const QString &version);

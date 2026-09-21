@@ -3,6 +3,9 @@
 #include "ui/theme/themetokens.h"
 
 #include <QMdiArea>
+#include <QTabBar>
+#include <QMdiSubWindow>
+#include <QDir>
 #include <QObject>
 #include <QWidget>
 
@@ -46,6 +49,27 @@ void installMdiWorkspaceChrome(QMdiArea *area, QWidget *welcome)
     syncBackdrop();
     QObject::connect(ThemeManager::instance(), &ThemeManager::themeChanged,
                      area, syncBackdrop);
+}
+
+void refreshSubWindowTabToolTips(
+    QMdiArea *area,
+    const std::function<QString(QMdiSubWindow *)> &pathFor)
+{
+    if (!area)
+        return;
+    auto *tabBar = area->findChild<QTabBar *>();
+    if (!tabBar)
+        return;
+
+    const QList<QMdiSubWindow *> subs = area->subWindowList();
+    for (int i = 0; i < subs.size() && i < tabBar->count(); ++i)
+    {
+        QMdiSubWindow *sub = subs.at(i);
+        QString tip = pathFor ? QDir::toNativeSeparators(pathFor(sub)) : QString();
+        if (tip.isEmpty())
+            tip = sub->windowTitle();
+        tabBar->setTabToolTip(i, tip);
+    }
 }
 
 }   // namespace openswmmvis::ui
