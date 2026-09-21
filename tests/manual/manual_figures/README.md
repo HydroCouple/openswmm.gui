@@ -1,8 +1,8 @@
-# The 26 manual figures — by hand
+# The 48 manual figures — by hand
 
 Companion to the automated figure capture (`docs/manual/figures.json`,
 `scripts/capture_manual_figures.sh`). Every other figure in the user manual is
-captured by driving the app from a manifest; these 26 cannot be, and this page
+captured by driving the app from a manifest; these 48 cannot be, and this page
 is the click-through for them.
 
 **Why these are by hand.** The capture engine reaches widgets — dialogs, docks,
@@ -15,6 +15,10 @@ panels, tables, ribbons. It cannot reach:
 - **Native file pickers.** Open / Save As / Export use the system panel.
 - **Tooltips and hover states.** They need a real pointer resting on a target.
 - **Things outside the app** — the disk image, a terminal, a text editor.
+- **The pointer on the map canvas** — a rubber band, a lasso, a dragged
+  vertex, the two clicks that route a profile. Driving those would mean
+  synthesising mouse events at canvas pixels computed from model coordinates,
+  which is the map internals the engine is deliberately kept out of.
 
 Save everything into `tests/output/manual_figures/` (git-ignored). That is
 where `scripts/manual_figures.py flip` looks by default, so a finished shot
@@ -122,14 +126,66 @@ six in one session.
 |---|---|
 | `t03_add_2d_results.png` | The **Add 2D Results** file dialog. Cancel. |
 
-### 2.7 Outside the app (2 shots)
+### 2.7 Map interaction — pointer on the canvas (22 shots)
+
+The capture engine drives widgets through their public API. These figures are
+of the *pointer doing something on the map* — dragging a rubber band, lassoing,
+hauling a vertex, clicking two nodes to route a profile. Driving those would
+mean synthesising mouse events at canvas pixels computed from model
+coordinates, which is exactly the map internals the engine is kept out of.
+A person with a mouse does them in a couple of sittings.
+
+**Profiles (chapter 23 and the tutorials) all start the same way:** Analysis →
+**Plot Profile** (`Ctrl+Shift+T`) arms the profile tool; click the upstream
+node, then the downstream one; the path picker lists the candidate routes.
+Shoot `23_profile_path_picker` at that moment, pick a route, and the rest of
+the chapter's figures come from the profile window that opens.
+
+| File | Model | What must be visible |
+|---|---|---|
+| `05_zoom_rubber_band.png` | site_drainage | Zoom In tool mid-drag, rubber band over part of the network. |
+| `09_selection_overview.png` | site_drainage | One map selection mirrored in the Object Browser, the Properties panel and the Attribute Table — all four in frame. |
+| `09_select_by_polygon.png` | site_drainage | A lasso mid-draw across the network with the enclosed objects highlighted. |
+| `09_select_upstream.png` | site_drainage | The upstream subnetwork of a selected outfall highlighted on the map. |
+| `09_mesh_edge_selection.png` | 2d_complete_example | Boundary edges selected along an outfall face. |
+| `09_confirm_bulk_delete.png` | site_drainage | The Confirm Delete prompt for a multi-object selection. **Cancel it** — never delete from a tracked example. |
+| `12_inline_vertex_edit.png` | site_drainage | A conduit in edit mode, interior vertex handles showing, two of them selected. |
+| `12_add_node_terrain.png` | 2d_complete_example | Placing a junction with a DTM active on the Terrain toolbar. |
+| `12_add_conduit_snap.png` | site_drainage | Drawing a conduit with the snap indicator ringing the target node. |
+| `23_profile_overview.png` | Bellinge (run) | A 1D profile with the HGL animation and two attribute tracks below it. |
+| `23_profile_path_picker.png` | Bellinge (run) | The path picker listing candidate routes with length, conduit counts and invert drop. |
+| `23_profile_anatomy.png` | Bellinge (run) | Ground, inverts, crowns, HGL, max HGL and node glyphs. **Annotated** — shoot the base, then draw the callouts (see §5). |
+| `23_profile_toolbar_layers.png` | Bellinge (run) | The profile toolbar and the Layers panel with the HGL and label toggles. |
+| `23_profile_sources_tab.png` | Bellinge (run) | The Sources tab of the profile Display Options dialog. |
+| `23_profile_attribute_tracks.png` | Bellinge (run) | Two attribute tracks below a profile with the envelope overlay visible. |
+| `23_2d_mesh_profile.png` | 2d_complete_example | A 2D mesh profile: bed, animated water surface, maximum-depth envelope. |
+| `23_terrain_profile.png` | Bellinge (run) | A terrain profile traced over the DEM with the position marker on the map. |
+| `t01_profile_plot.png` | site_drainage | Profile from J3 to the outfall with the maximum HGL envelope. |
+| `t03_2d_profile.png` | 2d_complete_example | A 2D mesh profile across the bowl with the ground line and water surface. |
+| `t04_profile_2d_overlay.png` | 2d_complete_example | Profile from J1 to OUT1 with the 2D water surface overlaid. |
+| `t05_profile_across_embankment.png` | demo_road_culvert | A 2D profile across the road embankment with the ponded upstream surface. |
+| `t08_profile_pumped_branch.png` | Bellinge (run) | A profile through a pumped branch with the HGL at an animation time. |
+
+"Bellinge (run)" means `~/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp`,
+which carries a completed run. It takes a couple of minutes to open — do all of
+its shots in one session.
+
+### 2.8 Outside the app (2 shots)
 
 | File | What must be visible |
 |---|---|
 | `a02_oswp_structure.png` | An `.oswp` open in a text editor, scrolled so both the `sessions` and `meshLayers` blocks are visible. Use `examples/site_drainage/site_drainage_model.oswp`; a plain light editor theme matches the manual best. |
 | `a01_timeseries_editor_keys.png` | The time-series editor toolbar with **Insert**, **Delete**, **Copy** and **Paste** identifiable. The buttons are icon-only, so hover one and frame the strip with its tooltip — the automated grab was rejected precisely because unlabelled icons do not serve this caption. |
 
-## 3. Publish them
+## 3. One of these is an annotated figure
+
+`23_profile_anatomy` needs callouts drawn on top — ground, inverts, crowns,
+HGL, max HGL and the node glyphs each labelled. Shoot the clean profile first
+and keep it; the annotation is a separate pass, and it shares that pass with
+the four other annotated figures still outstanding (`00_overview_annotated_window`,
+`01_main_window_annotated`, `02_window_regions`, `t05_bc_types_reference`).
+
+## 4. Publish them
 
 Stage everything, then flip in one go:
 
@@ -145,7 +201,7 @@ over-wide image or one over 400 KB refuses the lot, and nothing is half-applied.
 It copies the PNGs into `docs/manual/images/`, turns each `\figtodo` into
 `\fig`, runs `oxipng`, and re-runs the audit.
 
-## 4. Check each one against its caption before flipping
+## 5. Check each one against its caption before flipping
 
 This is the discipline the automated lane learned the hard way: a capture can
 succeed and still be the wrong picture. The caption is the contract — if it

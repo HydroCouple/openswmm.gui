@@ -1029,6 +1029,134 @@
       "name": "t03_add_2d_results.png",
       "lane": "human",
       "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+    },
+    {
+      "name": "25_flow_balance_result.png",
+      "hostSelect": "G71F04R",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "action": "analysis.flowBalanceDown",
+      "size": "900x600",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+    },
+    {
+      "name": "25_travel_time_result.png",
+      "hostSelect": "G71F04R",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "action": "analysis.travelTimeDown",
+      "size": "900x600",
+      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
+      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+    },
+    {
+      "name": "05_zoom_rubber_band.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "09_selection_overview.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "09_select_by_polygon.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "09_select_upstream.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "09_mesh_edge_selection.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "09_confirm_bulk_delete.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "12_inline_vertex_edit.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "12_add_node_terrain.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "12_add_conduit_snap.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "23_profile_overview.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "23_profile_path_picker.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "23_profile_anatomy.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "23_profile_toolbar_layers.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "23_profile_sources_tab.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "23_profile_attribute_tracks.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "23_2d_mesh_profile.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "23_terrain_profile.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "t01_profile_plot.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "t03_2d_profile.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "t04_profile_2d_overlay.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "t05_profile_across_embankment.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+    },
+    {
+      "name": "t08_profile_pumped_branch.png",
+      "lane": "human",
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     }
   ]
 }
