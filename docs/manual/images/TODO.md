@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 232 figures, 35 videos. Published so far: 94.
+Remaining: 230 figures, 35 videos. Published so far: 96.
 
 ## 01_introduction.md
 
@@ -200,8 +200,6 @@ Remaining: 232 figures, 35 videos. Published so far: 94.
 
 ## 25_analysis_tools.md
 
-- [ ] `25_flow_balance_result.png` (line 47) — The Flow Balance summary reporting subnetwork size and boundary inflow-outflow
-- [ ] `25_travel_time_result.png` (line 65) — The Travel Time summary for a downstream subnetwork
 - [ ] `25_rainfall_visualization.png` (line 102) — The Rainfall Visualization window on the Overlay tab with the gage summary table
 - [ ] `25_pick_2d_cells_menu.png` (line 150) — A lasso selection of mesh cells with the attribute context menu open
 - [ ] `25_statistics_dashboard_histogram.png` (line 175) — The statistics dashboard histogram for a selected column
