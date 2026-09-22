@@ -133,7 +133,7 @@ SectionGeometry sectionForLink(SWMM_Engine eng, int linkIdx, bool si,
     else if (!props.open)
     {
         if (reason)
-            *reason = QStringLiteral("closed section — a culvert is a structure, not terrain");
+            *reason = QStringLiteral("closed section (a culvert is a structure, not terrain)");
         return empty;
     }
     if (!(props.yFull > 0.0))

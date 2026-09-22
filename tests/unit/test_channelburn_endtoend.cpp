@@ -315,3 +315,4 @@ TEST_F(BurnEndToEnd, TheFingerprintTracksTheInputsThatChangeTheResult)
     // a no-op and keeps MeshStageCache's terrain key honest.
     EXPECT_EQ(base, burnFingerprint(id, opt, buildProfiles()));
 }
+
