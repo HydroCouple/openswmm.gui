@@ -1627,6 +1627,103 @@ void InsertNodeSplitCommand::undo()
 }
 
 // ===========================================================================
+// ConvertNodeTypeCommand
+// ===========================================================================
+
+ConvertNodeTypeCommand::ConvertNodeTypeCommand(
+        SWMMModelLayer *layer, QString nodeName, int newNodeType,
+        GeneratedOutfallSpec spec, MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(QObject::tr("Convert Node \"%1\"").arg(nodeName), canvas, parent),
+      m_layer(layer),
+      m_nodeName(std::move(nodeName)),
+      m_newType(newNodeType),
+      m_spec(std::move(spec))
+{
+    // Snapshot in the constructor, before anything runs: undo has to put back
+    // the type the node had and the common properties the spec overwrites.
+    if (!m_layer) return;
+    SWMM_Engine eng = m_layer->engine();
+    if (!eng) return;
+    const int idx = swmm_node_index(eng, m_nodeName.toUtf8().constData());
+    if (idx < 0) return;
+
+    swmm_node_get_type(eng, idx, &m_oldType);
+    swmm_node_get_invert_elev(eng, idx, &m_oldInvert);
+    swmm_node_get_max_depth(eng, idx, &m_oldMaxDepth);
+
+    char buf[256] = {0};
+    if (swmm_node_get_tag(eng, idx, buf, int(sizeof(buf))) == SWMM_OK)
+        m_oldTag = QString::fromUtf8(buf);
+
+    m_haveSnapshot = true;
+}
+
+void ConvertNodeTypeCommand::applySpec()
+{
+    if (!m_spec.applyOutfall || !m_layer) return;
+    SWMM_Engine eng = m_layer->engine();
+    if (!eng) return;
+    const int idx = swmm_node_index(eng, m_nodeName.toUtf8().constData());
+    if (idx < 0) return;
+
+    if (m_spec.hasInvert)   swmm_node_set_invert_elev(eng, idx, m_spec.invert);
+    if (m_spec.hasMaxDepth) swmm_node_set_max_depth(eng, idx, m_spec.maxDepth);
+    swmm_node_set_outfall_type(eng, idx, m_spec.outfallType);
+    swmm_node_set_outfall_flap_gate(eng, idx, m_spec.flapGate ? 1 : 0);
+    if (!m_spec.tag.isEmpty())
+        swmm_node_set_tag(eng, idx, m_spec.tag.toUtf8().constData());
+}
+
+void ConvertNodeTypeCommand::redo()
+{
+    if (!m_layer || !m_haveSnapshot || m_converted) return;
+    m_warnings.clear();
+
+    if (m_newType == m_oldType)
+    {
+        // Nothing to convert, but the spec may still be the point of the call.
+        m_converted = true;
+        applySpec();
+        return;
+    }
+
+    QStringList cleared, warnings;
+    QString error;
+    if (!m_layer->applyNodeConvert(m_nodeName, m_newType, &cleared, &warnings, &error))
+    {
+        m_warnings << (error.isEmpty()
+                           ? QObject::tr("Could not convert \"%1\".").arg(m_nodeName)
+                           : error);
+        return;
+    }
+    m_converted = true;
+    m_warnings  = warnings;
+    if (isLossy() && !cleared.isEmpty())
+        m_warnings << QObject::tr("Converting \"%1\" cleared %2, which undo cannot restore.")
+                          .arg(m_nodeName, cleared.join(QStringLiteral(", ")));
+
+    applySpec();
+}
+
+void ConvertNodeTypeCommand::undo()
+{
+    if (!m_layer || !m_converted) return;
+
+    if (m_newType != m_oldType && !m_layer->applyNodeConvert(m_nodeName, m_oldType))
+        return;   // stay "converted" so a later redo() does not convert twice
+
+    SWMM_Engine eng = m_layer->engine();
+    const int idx = eng ? swmm_node_index(eng, m_nodeName.toUtf8().constData()) : -1;
+    if (idx >= 0)
+    {
+        swmm_node_set_invert_elev(eng, idx, m_oldInvert);
+        swmm_node_set_max_depth(eng, idx, m_oldMaxDepth);
+        swmm_node_set_tag(eng, idx, m_oldTag.toUtf8().constData());
+    }
+    m_converted = false;
+}
+
+// ===========================================================================
 // FuseVirtualJunctionCommand
 // ===========================================================================
 

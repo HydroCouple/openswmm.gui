@@ -639,6 +639,20 @@ if(TARGET openswmm_engine)
         SWMMVIS_INLET_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/inlets")
 endif()
 
+# The engine contract behind ConvertNodeTypeCommand — the channel burn's
+# junction-to-coupled-outfall conversion (CHANNEL_BURN_IN_PLAN §6). Engine-only
+# for the same reason as the two tests below: SWMMModelLayer does not link
+# headlessly, so the test drives the calls the command makes.
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_channelburn_convert
+        test_channelburn_convert.cpp
+    )
+    target_link_libraries(test_channelburn_convert PRIVATE openswmm_engine)
+    target_compile_definitions(test_channelburn_convert PRIVATE
+        SWMMVIS_BURNCONV_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/data/inlets"
+        SWMMVIS_BURNCONV_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/channel_burn")
+endif()
+
 # The engine contract behind the plain-junction split tool: make_virtual = 0
 # really yields an ordinary junction, the halves conserve length, and the GUI's
 # undo (flag virtual, then fuse) is an exact inverse. Engine-only for the same

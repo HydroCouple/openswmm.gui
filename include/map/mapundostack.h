@@ -1129,6 +1129,90 @@ private:
 };
 
 /*!
+ * \struct GeneratedOutfallSpec
+ * \brief How a node the channel burn converts is configured as an outfall
+ *        (CHANNEL_BURN_IN_PLAN_2026-09-21.md §6).
+ *
+ * \details Every field is optional so the command stays usable as a plain
+ *          retype. The defaults are the burn's: a NORMAL, UNGATED outfall —
+ *          a `Gated YES` flap gate BLOCKS the 2D tailwater override
+ *          (`2D_INPUT_FORMAT_SPEC §4.4`), which would silently disable the
+ *          very coupling the conversion exists to create.
+ */
+struct GeneratedOutfallSpec
+{
+    static constexpr int kOutfallNormal = 1;   ///< 0=FREE 1=NORMAL 2=FIXED 3=TIDAL 4=TIMESERIES.
+
+    bool    applyOutfall = false; ///< Master switch; false = retype only.
+    int     outfallType  = kOutfallNormal;
+    bool    flapGate     = false; ///< Must stay false for a coupled outfall.
+    bool    hasInvert    = false;
+    double  invert       = 0.0;   ///< The channel bottom at the coupling point.
+    bool    hasMaxDepth  = false;
+    double  maxDepth     = 0.0;   ///< Mesh bed elevation at the coupling point − invert.
+    QString tag;                  ///< e.g. "burn:outfall", so the run is reversible by hand.
+};
+
+/*!
+ * \class ConvertNodeTypeCommand
+ * \brief Undoable node retype, with the burn's outfall configuration
+ *        (CHANNEL_BURN_IN_PLAN_2026-09-21.md §6).
+ *
+ * \details Retyping a node previously bypassed undo entirely except inside
+ *          \ref InsertNodeSplitCommand. This is the general command, modelled
+ *          on it: redo() converts through `SWMMModelLayer::applyNodeConvert`
+ *          (so the cache and the four refresh signals behave) and then applies
+ *          \ref GeneratedOutfallSpec; undo() converts back to the type the
+ *          constructor snapshotted and restores invert, max depth and tag.
+ *
+ * \warning **A conversion is lossy when the node carried type-specific data.**
+ *          The engine preserves the common properties and CLEARS the rest, and
+ *          no API hands a storage curve or a divider's parameters back
+ *          afterwards. So undo restores the TYPE and the common properties,
+ *          not a storage node's curve. \ref isLossy reports it, and the burn
+ *          names such nodes in its report rather than converting them quietly.
+ *          For the burn's own case — a junction becoming an outfall — there is
+ *          nothing to lose and the round trip is exact.
+ */
+class ConvertNodeTypeCommand : public MapCommand
+{
+public:
+    ConvertNodeTypeCommand(SWMMModelLayer *layer, QString nodeName, int newNodeType,
+                           GeneratedOutfallSpec spec,
+                           MapCanvas *canvas, QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 50; }
+
+    /*! Engine warnings from the last redo(), plus the lossy-conversion note. */
+    [[nodiscard]] QStringList warnings() const { return m_warnings; }
+    /*! True once the node is at \c newNodeType. */
+    [[nodiscard]] bool converted() const { return m_converted; }
+    /*! True when the ORIGINAL type carried type-specific data undo cannot
+     *  restore (anything but a junction). */
+    [[nodiscard]] bool isLossy() const { return m_oldType > 0; }
+
+private:
+    void applySpec();
+
+    SWMMModelLayer *m_layer = nullptr;
+    QString m_nodeName;
+    int     m_newType = 0;
+    int     m_oldType = 0;
+    GeneratedOutfallSpec m_spec;
+
+    // Snapshot of the common properties, which the engine preserves across the
+    // conversion but the spec may overwrite.
+    double  m_oldInvert   = 0.0;
+    double  m_oldMaxDepth = 0.0;
+    QString m_oldTag;
+    bool    m_haveSnapshot = false;
+    bool    m_converted    = false;
+    QStringList m_warnings;
+};
+
+/*!
  * \class FuseVirtualJunctionCommand
  * \brief Records the re-fusion (deletion) of a virtual junction.
  * \details The constructor snapshots what a re-split needs: the upstream/
