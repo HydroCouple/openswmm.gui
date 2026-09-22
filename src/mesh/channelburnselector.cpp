@@ -114,12 +114,26 @@ SectionGeometry sectionForLink(SWMM_Engine eng, int linkIdx, bool si,
     }
     const auto props = s.fullProps();
     const bool isStreet = (shape == SWMM_XSECT_STREET);
-    if (!props.open && !(isStreet && opt.burnStreets))
+
+    // A street is gated on burnStreets EXPLICITLY, never on the engine's
+    // open/closed answer. That answer is not stable: the engine's isOpen()
+    // whitelist has classified STREET both ways, and tests/gui/
+    // test_xsectsampler.cpp pins it precisely because it can change. Leaning on
+    // it would make D-F ("streets opt-in, default off") flip silently with the
+    // engine — burning every kerb line in the model by default.
+    if (isStreet)
+    {
+        if (!opt.burnStreets)
+        {
+            if (reason)
+                *reason = QStringLiteral("street section (enable \"burn streets\" to include)");
+            return empty;
+        }
+    }
+    else if (!props.open)
     {
         if (reason)
-            *reason = isStreet
-                          ? QStringLiteral("street section (enable \"burn streets\" to include)")
-                          : QStringLiteral("closed section — a culvert is a structure, not terrain");
+            *reason = QStringLiteral("closed section — a culvert is a structure, not terrain");
         return empty;
     }
     if (!(props.yFull > 0.0))
