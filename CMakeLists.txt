@@ -615,6 +615,7 @@ set(
         include/mesh/channelburnlattice.h
         include/mesh/channelburnnetwork.h
         include/mesh/channelburnprofile.h
+        include/mesh/channelburnselector.h
         include/mesh/inpmeshwriter.h
         include/mesh/meshautocouple.h
         include/mesh/meshbctype.h
@@ -1338,6 +1339,7 @@ set(
         src/mesh/channelburnlattice.cpp
         src/mesh/channelburnnetwork.cpp
         src/mesh/channelburnprofile.cpp
+        src/mesh/channelburnselector.cpp
         src/mesh/dtmsampler.cpp
         src/mesh/dtmthinner.cpp
         src/mesh/inpmeshreader.cpp
