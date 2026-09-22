@@ -248,6 +248,20 @@ target_link_libraries(test_burnedrasterwriter PRIVATE GDAL::GDAL)
 target_compile_definitions(test_burnedrasterwriter
     PRIVATE CHANNELBURN_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data/channelburn_artifacts")
 
+# Channel burn-in, phases P2/P3: the corridor lattice and its mesh products.
+# Gates V5 (conformal lattice, exact z), V6 (all-quad corridor) and V7 (the
+# densification guard). Needs Qt6::Gui for QPolygonF, and meshpatch/
+# meshquadregion for validate() / ringIsSimple().
+add_swmmvis_unit_test(test_channelburnlattice
+    test_channelburnlattice.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/channelburnlattice.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnlattice.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+)
+target_link_libraries(test_channelburnlattice PRIVATE Qt6::Gui)
+
 # Coincident-node matching behind the mesh toolbar's Auto-couple action.
 # Pure functions over MeshResult — no layer / widget / engine deps.
 add_swmmvis_unit_test(test_meshautocouple
