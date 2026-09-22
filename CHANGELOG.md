@@ -20,6 +20,28 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Added
 
+- **Channel burn-in — open-channel bathymetry enforced in the DEM before meshing**
+  (`Model → Generate Mesh → Channel Burn-in`). A DTM rarely resolves a channel: an aerial
+  survey sees the water surface rather than the bed, and a 1 m raster cannot hold a 3 m ditch
+  at all, so a mesh built straight from the terrain routes the flood plain and misses the
+  channel that carries the flow. The model already knows that channel's shape — it is the
+  conduit's cross-section — so the burn reconstructs each selected conduit's bed from it and
+  writes it into a **copy** of the DTM. The source raster is never modified. Within a
+  user-set forced half-width the section REPLACES the terrain, even where that raises it;
+  beyond it the section may only ever LOWER the terrain, which is what stops a cross-section
+  extended upward or into the flood plain (a common 1D stability device, not terrain) from
+  inventing a levee. IRREGULAR sections are rebuilt from the raw `[TRANSECTS]` pairs so a
+  natural channel keeps its asymmetry, and elevations are taken as a shape re-anchored on the
+  interpolated invert rather than as an absolute survey datum, which keeps the burn consistent
+  with the 1D hydraulics by construction. Burning BEFORE the mesh run is what makes the rest
+  work: terrain-adaptive thinning keeps points where the surface bends, so a burned channel
+  densifies its own banks, and the corridor can be meshed as streamwise quads carrying the
+  transect's left-overbank / channel / right-overbank Manning's *n* per cell. Burned conduits
+  optionally leave the 1D network — their conveyance now lives in the mesh, so keeping them
+  would route it twice — and their boundary nodes become ungated coupled outfalls at the
+  channel bottom, all in a single undo step. Each run writes `terrain/<dem>_burned_<hash>.tif`
+  plus a per-conduit report CSV naming both vertical units, so the result can be differenced
+  against the original and every skipped conduit says why.
 - **Three new manual appendices, each pinned to the source it documents** —
   *A7 Reference Tables* (units, Green-Ampt soil characteristics, NRCS soil groups, SCS curve
   numbers, depression storage, Manning's *n* for overland flow / closed conduits / open channels,
