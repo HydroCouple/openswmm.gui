@@ -215,6 +215,39 @@ add_swmmvis_unit_test(test_meshinpbcroundtrip
     ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
 )
 
+# Channel burn-in, phase P0: section reconstruction, thalweg anchoring,
+# longitudinal bed interpolation and inter-section blending. Pure geometry —
+# no GDAL, no engine, no widgets (CHANNEL_BURN_IN_PLAN_2026-09-21.md §8 V1).
+add_swmmvis_unit_test(test_channelburnprofile
+    test_channelburnprofile.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/channelburnprofile.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+)
+
+# Channel burn-in, phase P1: corridor projection and the per-pixel rule.
+# Gates V2 (invariants) and V3 (units / frames) on a synthetic grid — the
+# invariants are properties of the rule, not of GDAL.
+add_swmmvis_unit_test(test_channelburn_rule
+    test_channelburn_rule.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/channelburn.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburn.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+)
+
+# Channel burn-in, phase P1: the burned-DEM round trip on a real GeoTIFF.
+# Artifacts (synthetic DEM, burned copy, report CSV) land in the repo so a
+# failure leaves something openable in a GIS (CLAUDE.md §4.1).
+add_swmmvis_unit_test(test_burnedrasterwriter
+    test_burnedrasterwriter.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/burnedrasterwriter.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/burnedrasterwriter.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburn.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+)
+target_link_libraries(test_burnedrasterwriter PRIVATE GDAL::GDAL)
+target_compile_definitions(test_burnedrasterwriter
+    PRIVATE CHANNELBURN_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data/channelburn_artifacts")
+
 # Coincident-node matching behind the mesh toolbar's Auto-couple action.
 # Pure functions over MeshResult — no layer / widget / engine deps.
 add_swmmvis_unit_test(test_meshautocouple
