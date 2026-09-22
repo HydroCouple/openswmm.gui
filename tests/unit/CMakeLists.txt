@@ -262,6 +262,29 @@ add_swmmvis_unit_test(test_channelburnlattice
 )
 target_link_libraries(test_channelburnlattice PRIVATE Qt6::Gui)
 
+# Channel burn-in end to end: a real engine-parsed deck plus a real raster,
+# through resolve → profile → burn → lattice → patch. The deck is US-units and
+# the DEM is metres, so the zConversionFactor path is exercised in anger.
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_channelburn_endtoend
+        test_channelburn_endtoend.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/burnedrasterwriter.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburn.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburnlattice.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburnselector.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshpatch.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+        ${PROJECT_SOURCE_DIR}/src/core/queryparser.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
+    )
+    target_link_libraries(test_channelburn_endtoend
+        PRIVATE Qt6::Gui GDAL::GDAL openswmm_engine)
+    target_compile_definitions(test_channelburn_endtoend PRIVATE
+        SWMMVIS_BURNE2E_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data"
+        SWMMVIS_BURNE2E_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/channel_burn")
+endif()
+
 # Channel burn-in D-H: the .oswp round trip for the tab's settings. Header-only
 # converters, so this links neither the serializer .cpp nor the layer stack.
 add_swmmvis_unit_test(test_channelburn_persist
