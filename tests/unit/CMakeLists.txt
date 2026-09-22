@@ -262,6 +262,19 @@ add_swmmvis_unit_test(test_channelburnlattice
 )
 target_link_libraries(test_channelburnlattice PRIVATE Qt6::Gui)
 
+# Channel burn-in, phases P4/P5: what happens to the 1D network, and where a
+# channel meets the domain edge. Both are the PURE half — applying the plan
+# needs SWMMModelLayer + MapUndoStack and lives in the GUI suite.
+add_swmmvis_unit_test(test_channelburnnetwork
+    test_channelburnnetwork.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/channelburnnetwork.h
+    ${PROJECT_SOURCE_DIR}/include/mesh/channelburnboundary.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnnetwork.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnboundary.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+)
+target_link_libraries(test_channelburnnetwork PRIVATE Qt6::Gui)
+
 # Coincident-node matching behind the mesh toolbar's Auto-couple action.
 # Pure functions over MeshResult — no layer / widget / engine deps.
 add_swmmvis_unit_test(test_meshautocouple
