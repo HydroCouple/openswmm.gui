@@ -262,6 +262,13 @@ add_swmmvis_unit_test(test_channelburnlattice
 )
 target_link_libraries(test_channelburnlattice PRIVATE Qt6::Gui)
 
+# Channel burn-in D-H: the .oswp round trip for the tab's settings. Header-only
+# converters, so this links neither the serializer .cpp nor the layer stack.
+add_swmmvis_unit_test(test_channelburn_persist
+    test_channelburn_persist.cpp
+    ${PROJECT_SOURCE_DIR}/include/project/projectserializer.h
+)
+
 # Channel burn-in, phases P4/P5: what happens to the 1D network, and where a
 # channel meets the domain edge. Both are the PURE half — applying the plan
 # needs SWMMModelLayer + MapUndoStack and lives in the GUI suite.

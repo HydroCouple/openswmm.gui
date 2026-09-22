@@ -4697,6 +4697,10 @@ void MeshGenerationDialog::seedDefaults()
         m_burnConvertNodesBox->setChecked(d.convertInterfaceNodes);
         m_burnTruncateBox->setChecked(d.truncateAtBoundary);
         m_burnSummaryLabel->clear();
+
+        // …then let the project override them. The dialog is rebuilt every
+        // time it opens, so the .oswp is where these live between runs (D-H).
+        if (m_pw) applyBurnSettings(m_pw->channelBurnSettings());
         updateBurnEnabled();
     }
     // Scale distance defaults (stored SI-canonical) to the project's
@@ -5757,6 +5761,60 @@ void MeshGenerationDialog::updateBurnEnabled()
     }
 }
 
+void MeshGenerationDialog::applyBurnSettings(const mesh::ChannelBurnSettings &st)
+{
+    if (!m_burnEnabledBox) return;
+
+    m_burnEnabledBox->setChecked(st.enabled);
+    switch (st.selector.mode)
+    {
+    case mesh::BurnSelector::Mode::ByQuery:      m_burnQueryRadio->setChecked(true); break;
+    case mesh::BurnSelector::Mode::ExplicitList: m_burnListRadio->setChecked(true);  break;
+    default:                                     m_burnAllOpenRadio->setChecked(true); break;
+    }
+    m_burnQueryEdit->setText(st.selector.query);
+    m_burnListEdit->setText(st.selector.conduitIds.join(QStringLiteral(", ")));
+
+    const mesh::BurnOptions &b = st.options;
+    m_burnStreetsBox->setChecked(b.burnStreets);
+    m_burnForceHalfWidth->setValue(b.forceHalfWidth);
+    m_burnMaxHalfWidth->setValue(b.maxHalfWidth);
+    m_burnClipToBanksBox->setChecked(b.clipToBanks);
+    m_burnBankPad->setValue(b.bankPad);
+    m_burnChainageStep->setValue(b.chainageStep);
+    m_burnLateralStep->setValue(b.lateralStep);
+    m_burnStringCount->setValue(b.stringCount);
+    m_burnAnchorCombo->setCurrentIndex(int(b.anchor));
+    m_burnSectionBlend->setValue(b.sectionBlend);
+    m_burnMonotoneBox->setChecked(b.enforceMonotone);
+    m_burnMaxIncision->setValue(b.maxIncision);
+    m_burnQuadCorridorBox->setChecked(b.quadCorridor);
+    m_burnChannelCellSize->setValue(b.channelCellSize);
+    m_burnRoughnessBox->setChecked(b.roughnessFromTransect);
+    m_burnConvertNodesBox->setChecked(b.convertInterfaceNodes);
+    m_burnTruncateBox->setChecked(b.truncateAtBoundary);
+    updateBurnEnabled();
+}
+
+mesh::ChannelBurnSettings MeshGenerationDialog::burnSettingsFromUi() const
+{
+    mesh::ChannelBurnSettings st;
+    if (!m_burnEnabledBox) return st;
+
+    st.enabled = m_burnEnabledBox->isChecked();
+    st.options = burnOptionsFromUi();
+
+    if (m_burnQueryRadio->isChecked())
+        st.selector.mode = mesh::BurnSelector::Mode::ByQuery;
+    else if (m_burnListRadio->isChecked())
+        st.selector.mode = mesh::BurnSelector::Mode::ExplicitList;
+    st.selector.query = m_burnQueryEdit->text();
+    const QStringList raw = m_burnListEdit->text().split(
+        QRegularExpression(QStringLiteral("[,;\\s]+")), Qt::SkipEmptyParts);
+    for (const QString &id : raw) st.selector.conduitIds << id.trimmed();
+    return st;
+}
+
 mesh::BurnOptions MeshGenerationDialog::burnOptionsFromUi() const
 {
     mesh::BurnOptions o;
@@ -5854,6 +5912,10 @@ QSet<int> nodesWithExternalInflow(SWMM_Engine eng)
 
 bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
 {
+    // Remember what this run was configured with, whether or not it runs: the
+    // dialog is thrown away on close, so the project is where it lives (D-H).
+    if (m_pw) m_pw->setChannelBurnSettings(burnSettingsFromUi());
+
     out->burnEnabled = m_burnEnabledBox && m_burnEnabledBox->isChecked();
     if (!out->burnEnabled) return true;
 

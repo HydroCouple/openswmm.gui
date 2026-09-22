@@ -26,7 +26,10 @@
 #ifndef PROJECTSERIALIZER_H
 #define PROJECTSERIALIZER_H
 
+#include "mesh/channelburnprofile.h"
+
 #include <QDir>
+#include <QJsonArray>
 #include <QFileInfo>
 #include <QJsonObject>
 #include <QString>
@@ -108,6 +111,94 @@ public:
      *  returns empty.  Inlined alongside toRelativePath. */
     [[nodiscard]] static inline QString resolveStoredPath(const QString &stored,
                                                             const QString &oswpFile);
+
+    /*! Channel burn-in settings ↔ JSON (CHANNEL_BURN_IN_PLAN_2026-09-21.md D-H).
+     *
+     *  Written only when the tab has been switched on, so a project that never
+     *  used the burn keeps the same .oswp it had before the feature existed.
+     *  Every read falls back to the struct's own default, so an older file — or a
+     *  newer one missing a key — loads as the defaults rather than as zeros. */
+    [[nodiscard]] static inline QJsonObject channelBurnToJson(const mesh::ChannelBurnSettings &s)
+    {
+        QJsonObject o;
+        o[QStringLiteral("enabled")] = s.enabled;
+    
+        QJsonObject sel;
+        sel[QStringLiteral("mode")] = int(s.selector.mode);
+        if (!s.selector.query.isEmpty())
+            sel[QStringLiteral("query")] = s.selector.query;
+        if (!s.selector.conduitIds.isEmpty())
+            sel[QStringLiteral("conduits")] =
+                QJsonArray::fromStringList(s.selector.conduitIds);
+        o[QStringLiteral("selector")] = sel;
+    
+        const mesh::BurnOptions &b = s.options;
+        QJsonObject op;
+        op[QStringLiteral("forceHalfWidth")]  = b.forceHalfWidth;
+        op[QStringLiteral("maxHalfWidth")]    = b.maxHalfWidth;
+        op[QStringLiteral("clipToBanks")]     = b.clipToBanks;
+        op[QStringLiteral("bankPad")]         = b.bankPad;
+        op[QStringLiteral("chainageStep")]    = b.chainageStep;
+        op[QStringLiteral("lateralStep")]     = b.lateralStep;
+        op[QStringLiteral("stringCount")]     = b.stringCount;
+        op[QStringLiteral("anchor")]          = int(b.anchor);
+        op[QStringLiteral("sectionBlend")]    = b.sectionBlend;
+        op[QStringLiteral("enforceMonotone")] = b.enforceMonotone;
+        op[QStringLiteral("maxIncision")]     = b.maxIncision;
+        op[QStringLiteral("burnStreets")]     = b.burnStreets;
+        op[QStringLiteral("quadCorridor")]    = b.quadCorridor;
+        op[QStringLiteral("channelCellSize")] = b.channelCellSize;
+        op[QStringLiteral("roughnessFromTransect")] = b.roughnessFromTransect;
+        op[QStringLiteral("removeBurnedFrom1D")]    = b.removeBurnedFrom1D;
+        op[QStringLiteral("convertInterfaceNodes")] = b.convertInterfaceNodes;
+        op[QStringLiteral("truncateAtBoundary")]    = b.truncateAtBoundary;
+        o[QStringLiteral("options")] = op;
+        return o;
+    }
+
+    [[nodiscard]] static inline mesh::ChannelBurnSettings channelBurnFromJson(const QJsonObject &o)
+    {
+        mesh::ChannelBurnSettings s;
+        s.enabled = o.value(QStringLiteral("enabled")).toBool(s.enabled);
+    
+        const QJsonObject sel = o.value(QStringLiteral("selector")).toObject();
+        const int mode = sel.value(QStringLiteral("mode")).toInt(int(s.selector.mode));
+        if (mode >= int(mesh::BurnSelector::Mode::AllOpen)
+            && mode <= int(mesh::BurnSelector::Mode::ExplicitList))
+            s.selector.mode = mesh::BurnSelector::Mode(mode);
+        s.selector.query = sel.value(QStringLiteral("query")).toString();
+        for (const QJsonValue &v : sel.value(QStringLiteral("conduits")).toArray())
+            s.selector.conduitIds << v.toString();
+    
+        const QJsonObject op = o.value(QStringLiteral("options")).toObject();
+        mesh::BurnOptions &b = s.options;
+        b.forceHalfWidth  = op.value(QStringLiteral("forceHalfWidth")).toDouble(b.forceHalfWidth);
+        b.maxHalfWidth    = op.value(QStringLiteral("maxHalfWidth")).toDouble(b.maxHalfWidth);
+        b.clipToBanks     = op.value(QStringLiteral("clipToBanks")).toBool(b.clipToBanks);
+        b.bankPad         = op.value(QStringLiteral("bankPad")).toDouble(b.bankPad);
+        b.chainageStep    = op.value(QStringLiteral("chainageStep")).toDouble(b.chainageStep);
+        b.lateralStep     = op.value(QStringLiteral("lateralStep")).toDouble(b.lateralStep);
+        b.stringCount     = op.value(QStringLiteral("stringCount")).toInt(b.stringCount);
+        const int anchor  = op.value(QStringLiteral("anchor")).toInt(int(b.anchor));
+        if (anchor >= int(mesh::SectionAnchor::Thalweg)
+            && anchor <= int(mesh::SectionAnchor::StationZero))
+            b.anchor = mesh::SectionAnchor(anchor);
+        b.sectionBlend    = op.value(QStringLiteral("sectionBlend")).toDouble(b.sectionBlend);
+        b.enforceMonotone = op.value(QStringLiteral("enforceMonotone")).toBool(b.enforceMonotone);
+        b.maxIncision     = op.value(QStringLiteral("maxIncision")).toDouble(b.maxIncision);
+        b.burnStreets     = op.value(QStringLiteral("burnStreets")).toBool(b.burnStreets);
+        b.quadCorridor    = op.value(QStringLiteral("quadCorridor")).toBool(b.quadCorridor);
+        b.channelCellSize = op.value(QStringLiteral("channelCellSize")).toDouble(b.channelCellSize);
+        b.roughnessFromTransect =
+            op.value(QStringLiteral("roughnessFromTransect")).toBool(b.roughnessFromTransect);
+        b.removeBurnedFrom1D =
+            op.value(QStringLiteral("removeBurnedFrom1D")).toBool(b.removeBurnedFrom1D);
+        b.convertInterfaceNodes =
+            op.value(QStringLiteral("convertInterfaceNodes")).toBool(b.convertInterfaceNodes);
+        b.truncateAtBoundary =
+            op.value(QStringLiteral("truncateAtBoundary")).toBool(b.truncateAtBoundary);
+        return s;
+    }
 
 private:
     static QJsonObject serializeSession(SWMMVisProjectWindow *pw,
