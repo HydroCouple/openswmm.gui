@@ -4447,6 +4447,17 @@ void MeshGenerationDialog::buildUi()
             burnVBox->addWidget(g);
         }
 
+        auto *previewRow = new QHBoxLayout;
+        m_burnPreviewBtn = new QPushButton(tr("Preview burn set"), burnPage);
+        m_burnPreviewBtn->setToolTip(
+            tr("Resolve the selection against the model and report what would be "
+               "burned — which conduits, which were refused and why, how wide the "
+               "corridor ends up and how fine its cells would be. Nothing is "
+               "written and no mesh is generated."));
+        previewRow->addWidget(m_burnPreviewBtn);
+        previewRow->addStretch(1);
+        burnVBox->addLayout(previewRow);
+
         m_burnSummaryLabel = new QLabel(burnPage);
         m_burnSummaryLabel->setWordWrap(true);
         m_burnSummaryLabel->setEnabled(false);
@@ -4455,6 +4466,8 @@ void MeshGenerationDialog::buildUi()
 
         connect(m_burnEnabledBox, &QCheckBox::toggled,
                 this, &MeshGenerationDialog::updateBurnEnabled);
+        connect(m_burnPreviewBtn, &QPushButton::clicked,
+                this, &MeshGenerationDialog::previewBurn);
         connect(m_burnClipToBanksBox, &QCheckBox::toggled,
                 m_burnBankPad, &QWidget::setEnabled);
         connect(m_burnQueryRadio, &QRadioButton::toggled,
@@ -5745,7 +5758,8 @@ void MeshGenerationDialog::updateBurnEnabled()
         m_burnClipToBanksBox, m_burnBankPad, m_burnChainageStep, m_burnLateralStep,
         m_burnStringCount, m_burnAnchorCombo, m_burnSectionBlend, m_burnMonotoneBox,
         m_burnMaxIncision, m_burnQuadCorridorBox, m_burnChannelCellSize,
-        m_burnRoughnessBox, m_burnConvertNodesBox, m_burnTruncateBox };
+        m_burnRoughnessBox, m_burnConvertNodesBox, m_burnTruncateBox,
+        m_burnPreviewBtn };
     for (QWidget *w : ws) if (w) w->setEnabled(on);
 
     // The two dependent editors stay off unless their own radio is picked, and
@@ -5758,6 +5772,121 @@ void MeshGenerationDialog::updateBurnEnabled()
             m_burnListEdit->setEnabled(m_burnListRadio->isChecked());
         if (m_burnBankPad && m_burnClipToBanksBox)
             m_burnBankPad->setEnabled(m_burnClipToBanksBox->isChecked());
+    }
+}
+
+void MeshGenerationDialog::previewBurn()
+{
+    if (!m_burnSummaryLabel) return;
+
+    SWMMModelLayer *layer = m_pw ? m_pw->modelLayer() : nullptr;
+    SWMM_Engine eng = layer ? layer->engine() : nullptr;
+    if (!eng)
+    {
+        m_burnSummaryLabel->setText(tr("No model is loaded."));
+        return;
+    }
+
+    const mesh::ChannelBurnSettings st = burnSettingsFromUi();
+    if (m_pw) m_pw->setChannelBurnSettings(st);
+
+    QHash<QString, QVector<QPointF>> polylines;
+    QHash<QString, QVariantMap>      rows;
+    for (int row = 0; row < layer->categoryCount(SWMMModelLayer::CatConduits); ++row)
+    {
+        const QString name = layer->objectNameAt(SWMMModelLayer::CatConduits, row);
+        if (name.isEmpty()) continue;
+        const int idx = layer->linkIndex(name);
+        if (idx < 0) continue;
+        polylines.insert(name, layer->cachedLinkPolyline(idx));
+
+        const int eIdx = swmm_link_index(eng, name.toUtf8().constData());
+        if (eIdx < 0) continue;
+        QVariantMap r;
+        r.insert(QStringLiteral("Name"), name);
+        char tag[256] = {0};
+        if (swmm_link_get_tag(eng, eIdx, tag, int(sizeof(tag))) == SWMM_OK)
+            r.insert(QStringLiteral("link_tag"), QString::fromUtf8(tag));
+        double len = 0.0, rough = 0.0;
+        if (swmm_link_get_length(eng, eIdx, &len) == SWMM_OK)
+            r.insert(QStringLiteral("link_length"), len);
+        if (swmm_link_get_roughness(eng, eIdx, &rough) == SWMM_OK)
+            r.insert(QStringLiteral("link_roughness"), rough);
+        rows.insert(name, r);
+    }
+
+    const bool si = m_pw && m_pw->unitSystem() && m_pw->unitSystem()->isSI();
+    QStringList warnings;
+    const QVector<mesh::BurnCandidate> cands =
+        mesh::resolveBurnSet(eng, st.selector, st.options, polylines, si, rows, &warnings);
+
+    // Build the profiles and their lattices so the preview can report the
+    // things that actually go wrong: a corridor far wider or narrower than
+    // expected, and cells finer than the mesh floor.
+    const double minCell = m_minCellSizeSpin ? m_minCellSizeSpin->value() : 0.0;
+    int accepted = 0;
+    double widest = 0.0, narrowest = std::numeric_limits<double>::infinity();
+    double finest = std::numeric_limits<double>::infinity();
+    QStringList refused;
+
+    for (const mesh::BurnCandidate &c : cands)
+    {
+        if (!c.accepted)
+        {
+            refused << tr("%1 — %2").arg(c.conduitId, c.reason);
+            continue;
+        }
+        QString err;
+        const mesh::BurnProfile p = mesh::buildBurnProfile(c.input, st.options, nullptr, &err);
+        if (!p.isValid()) { refused << tr("%1 — %2").arg(c.conduitId, err); continue; }
+
+        ++accepted;
+        const double w = p.section.sMax - p.section.sMin;
+        widest    = std::max(widest, w);
+        narrowest = std::min(narrowest, w);
+
+        double along = st.options.channelCellSize;
+        if (!(along > 0.0)) along = st.options.chainageStep;
+        const mesh::BurnLattice lat = mesh::buildCorridorLattice(p, along, 0.0);
+        if (lat.isValid())
+            finest = std::min(finest,
+                              std::min(lat.minAlongSpacing, lat.minAcrossSpacing));
+    }
+
+    QStringList lines;
+    if (accepted == 0)
+    {
+        lines << tr("Nothing would be burned.");
+    }
+    else
+    {
+        lines << tr("%n conduit(s) would be burned.", nullptr, accepted);
+        if (std::isfinite(narrowest))
+            lines << tr("Corridor width %1 to %2.")
+                         .arg(narrowest, 0, 'f', 2).arg(widest, 0, 'f', 2);
+        if (std::isfinite(finest))
+        {
+            lines << tr("Finest corridor spacing %1.").arg(finest, 0, 'f', 2);
+            if (minCell > 0.0 && finest < minCell)
+                lines << tr("That is below the minimum cell size (%1), so the "
+                            "cleanup pass would collapse cells inside the channel.")
+                             .arg(minCell, 0, 'f', 2);
+        }
+    }
+    if (!refused.isEmpty())
+        lines << tr("%n conduit(s) skipped.", nullptr, int(refused.size()));
+    m_burnSummaryLabel->setText(lines.join(QStringLiteral(" ")));
+
+    // The reasons go in a details pane rather than the label: on a real model
+    // the skipped list is every closed conduit in the network.
+    if (!refused.isEmpty() || !warnings.isEmpty())
+    {
+        QMessageBox box(QMessageBox::Information, tr("Channel burn-in preview"),
+                        lines.join(QStringLiteral("\n")), QMessageBox::Ok, this);
+        QStringList detail = refused;
+        if (!warnings.isEmpty()) detail << QString() << warnings;
+        box.setDetailedText(detail.join(QStringLiteral("\n")));
+        box.exec();
     }
 }
 
