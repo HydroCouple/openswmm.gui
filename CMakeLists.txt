@@ -609,6 +609,9 @@ set(
         include/mesh/dtmsampler.h
         include/mesh/dtmthinner.h
         include/mesh/inpmeshreader.h
+        include/mesh/burnedrasterwriter.h
+        include/mesh/channelburn.h
+        include/mesh/channelburnprofile.h
         include/mesh/inpmeshwriter.h
         include/mesh/meshautocouple.h
         include/mesh/meshbctype.h
@@ -1326,6 +1329,9 @@ set(
         src/timeseries/timeseriesregistry.cpp
         src/timeseries/timeseriesseriescommands.cpp
         src/timeseries/timeseriesundocommands.cpp
+        src/mesh/burnedrasterwriter.cpp
+        src/mesh/channelburn.cpp
+        src/mesh/channelburnprofile.cpp
         src/mesh/dtmsampler.cpp
         src/mesh/dtmthinner.cpp
         src/mesh/inpmeshreader.cpp
