@@ -1816,6 +1816,17 @@ add_swmmvis_gui_test(test_subcatchpropertyadapter
 # surfaced shape build, does the sampled outline match swmm_xsect_full_properties)
 # so this is the test that fails first if an engine update changes the xsect
 # API or renumbers SWMM_XSectShape.
+# Channel burn-in, phase P0 — gate V1 engine half: the reconstructed bed must
+# agree with the engine's own xsect tables (CHANNEL_BURN_IN_PLAN_2026-09-21.md
+# §8). Needs openswmm_engine, which tests/unit does not link.
+add_swmmvis_gui_test(test_channelburn
+    test_channelburn.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/channelburnprofile.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/xsectsampler.h
+)
+
 add_swmmvis_gui_test(test_xsectsampler
     test_xsectsampler.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
