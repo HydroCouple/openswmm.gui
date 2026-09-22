@@ -1,0 +1,109 @@
+;;============================================================================
+;; OpenSWMM — channel burn-in selector fixture
+;;
+;; A two-reach creek plus the two things the selector must REJECT, so one deck
+;; covers accept and reject in the same run
+;; (workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md §4.8, §16.4):
+;;
+;;   CREEK1  TRAPEZOIDAL   open, analytic       -> accepted
+;;   CREEK2  IRREGULAR     open, transect TR1   -> accepted, keeps its asymmetry
+;;   CULV1   CIRCULAR      closed               -> rejected (a culvert is a
+;;                                                 structure, not terrain)
+;;   PUMP-free: only conduits are considered at all.
+;;
+;; TR1 is deliberately ASYMMETRIC — the thalweg sits at station 22 of 0..60,
+;; left of the bank midpoint — because XsectSampler::outline() mirrors
+;; half-widths and would destroy exactly that. (The Xfactor/Yfactor modifier
+;; path is pinned separately in test_channelburnprofile, so this deck keeps
+;; them at unity and the station arithmetic stays readable.)
+;;
+;; Inverts fall 1.0 over CREEK1 and 0.8 over CREEK2, so the bed slope is
+;; non-zero and non-adverse and the longitudinal interpolation has something
+;; to interpolate.
+;;============================================================================
+
+[TITLE]
+Channel burn-in selector fixture
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         DYNWAVE
+LINK_OFFSETS         DEPTH
+MIN_SLOPE            0
+ALLOW_PONDING        NO
+SKIP_STEADY_STATE    NO
+START_DATE           01/01/2024
+START_TIME           00:00:00
+REPORT_START_DATE    01/01/2024
+REPORT_START_TIME    00:00:00
+END_DATE             01/01/2024
+END_TIME             06:00:00
+SWEEP_START          01/01
+SWEEP_END            12/31
+DRY_DAYS             0
+REPORT_STEP          00:05:00
+WET_STEP             00:05:00
+DRY_STEP             00:15:00
+ROUTING_STEP         00:00:30
+
+[EVAPORATION]
+CONSTANT             0.0
+DRY_ONLY             NO
+
+[JUNCTIONS]
+;;Name  Elev   MaxDepth  InitDepth  SurDepth  Aponded
+UP        100.0  6.0       0.0        0.0       0.0
+MID        99.0  6.0       0.0        0.0       0.0
+DN         98.2  6.0       0.0        0.0       0.0
+CIN        98.0  4.0       0.0        0.0       0.0
+
+[OUTFALLS]
+;;Name  Elev   Type    Gated
+OUT       97.5  FREE    NO
+
+[CONDUITS]
+;;Name   From   To    Length  Roughness  InOffset  OutOffset  InitFlow  MaxFlow
+CREEK1    UP     MID   120.0   0.035      0.0       0.0        0.0       0.0
+CREEK2    MID    DN     90.0   0.040      0.0       0.0        0.0       0.0
+CULV1     CIN    OUT    30.0   0.013      0.0       0.0        0.0       0.0
+
+[XSECTIONS]
+;;Link    Shape        Geom1  Geom2  Geom3  Geom4  Barrels
+CREEK1    TRAPEZOIDAL  4.0    6.0    2.0    2.0    1
+CREEK2    IRREGULAR    TR1
+CULV1     CIRCULAR     2.5    0      0      0      1
+
+[TRANSECTS]
+;;Asymmetric natural section: thalweg at station 22, banks at 18 and 30, so
+;;the thalweg sits LEFT of the bank midpoint (24) and sMin != sMax.
+;;GR pairs are Elev Station, as SWMM writes them.
+NC 0.060 0.070 0.035
+X1 TR1 12 18.0 30.0 0.0 0.0 0.0 1.0 1.0 0.0
+GR 112.0 0.0   108.0 5.0   104.0 10.0  101.0 14.0
+GR 99.8  18.0  99.0  22.0  99.6  26.0  100.6 30.0
+GR 103.0 36.0  106.0 44.0  109.0 52.0  112.5 60.0
+
+[COORDINATES]
+;;Node   X        Y
+UP        0.0      0.0
+MID       120.0    0.0
+DN        210.0    0.0
+CIN       0.0      -50.0
+OUT       30.0     -50.0
+
+[VERTICES]
+;;Link   X        Y
+CREEK1    60.0     10.0
+
+[TAGS]
+Link  CREEK1  creek
+Link  CREEK2  creek
+Link  CULV1   culvert
+
+[REPORT]
+INPUT      NO
+CONTROLS   NO
+SUBCATCHMENTS ALL
+NODES ALL
+LINKS ALL
