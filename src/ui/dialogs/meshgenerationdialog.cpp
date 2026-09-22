@@ -5853,6 +5853,16 @@ void MeshGenerationDialog::previewBurn()
                               std::min(lat.minAlongSpacing, lat.minAcrossSpacing));
     }
 
+    // Tally the reasons rather than listing 1015 identical lines: on an
+    // all-pipes model every conduit is refused for the same cause, and the
+    // useful answer is that cause, not the roll call.
+    QMap<QString, int> byReason;
+    for (const QString &r : std::as_const(refused))
+    {
+        const int dash = r.indexOf(QStringLiteral(" — "));
+        byReason[dash > 0 ? r.mid(dash + 3) : r] += 1;
+    }
+
     QStringList lines;
     if (accepted == 0)
     {
@@ -5874,7 +5884,15 @@ void MeshGenerationDialog::previewBurn()
         }
     }
     if (!refused.isEmpty())
-        lines << tr("%n conduit(s) skipped.", nullptr, int(refused.size()));
+    {
+        // One cause is the common case and the one worth naming outright.
+        if (byReason.size() == 1)
+            lines << tr("%n conduit(s) skipped — %1.", nullptr, int(refused.size()))
+                         .arg(byReason.constBegin().key());
+        else
+            lines << tr("%n conduit(s) skipped, for %1 different reasons.",
+                        nullptr, int(refused.size())).arg(byReason.size());
+    }
     m_burnSummaryLabel->setText(lines.join(QStringLiteral(" ")));
 
     // The reasons go in a details pane rather than the label: on a real model
@@ -5883,7 +5901,19 @@ void MeshGenerationDialog::previewBurn()
     {
         QMessageBox box(QMessageBox::Information, tr("Channel burn-in preview"),
                         lines.join(QStringLiteral("\n")), QMessageBox::Ok, this);
-        QStringList detail = refused;
+        QStringList detail;
+        for (auto it = byReason.constBegin(); it != byReason.constEnd(); ++it)
+            detail << tr("%1 x  %2").arg(it.value(), 5).arg(it.key());
+        if (!refused.isEmpty())
+        {
+            detail << QString();
+            // The roll call is useful on a small model and noise on a large
+            // one, so it is capped rather than dropped.
+            constexpr int kMaxListed = 40;
+            detail += refused.mid(0, kMaxListed);
+            if (refused.size() > kMaxListed)
+                detail << tr("… and %n more.", nullptr, int(refused.size()) - kMaxListed);
+        }
         if (!warnings.isEmpty()) detail << QString() << warnings;
         box.setDetailedText(detail.join(QStringLiteral("\n")));
         box.exec();
