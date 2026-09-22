@@ -419,6 +419,9 @@ private:
     void applyBurnSurgery(const PipelineResult &res);
     /*! \brief Enable/disable the burn widgets from the master checkbox. */
     void updateBurnEnabled();
+    /*! \brief Resolve the burn set and report what WOULD burn, without
+     *         writing a raster or meshing anything. */
+    void previewBurn();
 
     /*! Collect all inputs from widgets + SWMMModelLayer on the main thread.
      *  Returns false and sets *errOut on any early-out condition (no project,
@@ -502,6 +505,7 @@ private:
     QCheckBox      *m_burnRoughnessBox    = nullptr;
     QCheckBox      *m_burnConvertNodesBox = nullptr;
     QCheckBox      *m_burnTruncateBox     = nullptr;
+    QPushButton    *m_burnPreviewBtn      = nullptr;
     QLabel         *m_burnSummaryLabel    = nullptr;
     // 2026-07-19 — optional boundary densification (edge split after RDP).
     QCheckBox      *m_maxBoundaryEdgeBox  = nullptr;
