@@ -10,6 +10,8 @@
 #ifndef SWMMVISPROJECTWINDOW_H
 #define SWMMVISPROJECTWINDOW_H
 
+#include "mesh/channelburnprofile.h"
+
 #include <QHash>
 #include <QJsonArray>
 #include <QMdiSubWindow>
@@ -373,6 +375,16 @@ public:
     QString notesHtml() const { return mNotesHtml; }
     void setNotesHtml(const QString &html) { mNotesHtml = html; }
 
+    /** Channel burn-in settings for this project
+     *  (workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md D-H). The Generate 2D
+     *  Mesh dialog is created fresh each time it opens, so the settings have
+     *  to live somewhere that outlives it; the .oswp round-trips them from
+     *  here. This is the first mesh-dialog state to persist at all — the quad
+     *  and patch groups remain unpersisted. */
+    [[nodiscard]] const mesh::ChannelBurnSettings &channelBurnSettings() const
+    { return mChannelBurn; }
+    void setChannelBurnSettings(const mesh::ChannelBurnSettings &s) { mChannelBurn = s; }
+
     // ── Terrain editing ──────────────────────────────────────────────────────
 
     /*! Returns the file path of the active terrain raster (empty if none). */
@@ -552,6 +564,7 @@ private:
     QStringList          mLastSaveWarnings;   // delta across the last successful engine write
     QString              mEngineVersion       = "6.0.0";  // Default to newest version
     QString              mNotesHtml;                      // [TITLE] notes (rich HTML)
+    mesh::ChannelBurnSettings mChannelBurn;               // Channel burn-in tab state
     QJsonArray           mPending2DResultsRestore;        // .oswp 2D results entries
 
     OpenSWMMVisMapToolPan         *mPanTool           = nullptr;
