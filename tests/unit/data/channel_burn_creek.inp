@@ -9,6 +9,7 @@
 ;;   CREEK2  IRREGULAR     open, transect TR1   -> accepted, keeps its asymmetry
 ;;   CULV1   CIRCULAR      closed               -> rejected (a culvert is a
 ;;                                                 structure, not terrain)
+;;   ROAD1   STREET        street ST1           -> rejected unless burnStreets
 ;;   PUMP-free: only conduits are considered at all.
 ;;
 ;; TR1 is deliberately ASYMMETRIC — the thalweg sits at station 22 of 0..60,
@@ -57,6 +58,8 @@ UP        100.0  6.0       0.0        0.0       0.0
 MID        99.0  6.0       0.0        0.0       0.0
 DN         98.2  6.0       0.0        0.0       0.0
 CIN        98.0  4.0       0.0        0.0       0.0
+RD1        97.0  2.0       0.0        0.0       0.0
+RD2        96.5  2.0       0.0        0.0       0.0
 
 [OUTFALLS]
 ;;Name  Elev   Type    Gated
@@ -67,12 +70,14 @@ OUT       97.5  FREE    NO
 CREEK1    UP     MID   120.0   0.035      0.0       0.0        0.0       0.0
 CREEK2    MID    DN     90.0   0.040      0.0       0.0        0.0       0.0
 CULV1     CIN    OUT    30.0   0.013      0.0       0.0        0.0       0.0
+ROAD1     RD1    RD2    60.0   0.016      0.0       0.0        0.0       0.0
 
 [XSECTIONS]
 ;;Link    Shape        Geom1  Geom2  Geom3  Geom4  Barrels
 CREEK1    TRAPEZOIDAL  4.0    6.0    2.0    2.0    1
 CREEK2    IRREGULAR    TR1
 CULV1     CIRCULAR     2.5    0      0      0      1
+ROAD1     STREET       ST1
 
 [TRANSECTS]
 ;;Asymmetric natural section: thalweg at station 22, banks at 18 and 30, so
@@ -84,6 +89,10 @@ GR 112.0 0.0   108.0 5.0   104.0 10.0  101.0 14.0
 GR 99.8  18.0  99.0  22.0  99.6  26.0  100.6 30.0
 GR 103.0 36.0  106.0 44.0  109.0 52.0  112.5 60.0
 
+[STREETS]
+;;Name  Tcrown  Hcurb  Sx    nRoad  a    W    Sides  Tback  Sback  nBack
+ST1      20.0    0.5    4.0   0.016  2.0  2.0  2      0.0    0.0    0.016
+
 [COORDINATES]
 ;;Node   X        Y
 UP        0.0      0.0
@@ -91,6 +100,8 @@ MID       120.0    0.0
 DN        210.0    0.0
 CIN       0.0      -50.0
 OUT       30.0     -50.0
+RD1       0.0      40.0
+RD2       60.0     40.0
 
 [VERTICES]
 ;;Link   X        Y
@@ -100,6 +111,7 @@ CREEK1    60.0     10.0
 Link  CREEK1  creek
 Link  CREEK2  creek
 Link  CULV1   culvert
+Link  ROAD1   street
 
 [REPORT]
 INPUT      NO
