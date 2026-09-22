@@ -611,7 +611,9 @@ set(
         include/mesh/inpmeshreader.h
         include/mesh/burnedrasterwriter.h
         include/mesh/channelburn.h
+        include/mesh/channelburnboundary.h
         include/mesh/channelburnlattice.h
+        include/mesh/channelburnnetwork.h
         include/mesh/channelburnprofile.h
         include/mesh/inpmeshwriter.h
         include/mesh/meshautocouple.h
@@ -1332,7 +1334,9 @@ set(
         src/timeseries/timeseriesundocommands.cpp
         src/mesh/burnedrasterwriter.cpp
         src/mesh/channelburn.cpp
+        src/mesh/channelburnboundary.cpp
         src/mesh/channelburnlattice.cpp
+        src/mesh/channelburnnetwork.cpp
         src/mesh/channelburnprofile.cpp
         src/mesh/dtmsampler.cpp
         src/mesh/dtmthinner.cpp
