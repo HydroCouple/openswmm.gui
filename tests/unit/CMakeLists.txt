@@ -639,6 +639,24 @@ if(TARGET openswmm_engine)
         SWMMVIS_INLET_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/inlets")
 endif()
 
+# Channel burn-in: which conduits get burned and with what geometry. Needs the
+# engine (xsect + transect tables) and Qt6::Gui (xsectsampler's transitive
+# includes); the fixture deck covers accept and reject in one pass.
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_channelburnselector
+        test_channelburnselector.cpp
+        ${PROJECT_SOURCE_DIR}/include/mesh/channelburnselector.h
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburnselector.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+        ${PROJECT_SOURCE_DIR}/src/core/queryparser.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
+    )
+    target_link_libraries(test_channelburnselector PRIVATE Qt6::Gui openswmm_engine)
+    target_compile_definitions(test_channelburnselector PRIVATE
+        SWMMVIS_BURNSEL_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data"
+        SWMMVIS_BURNSEL_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/channel_burn")
+endif()
+
 # The engine contract behind ConvertNodeTypeCommand — the channel burn's
 # junction-to-coupled-outfall conversion (CHANNEL_BURN_IN_PLAN §6). Engine-only
 # for the same reason as the two tests below: SWMMModelLayer does not link
