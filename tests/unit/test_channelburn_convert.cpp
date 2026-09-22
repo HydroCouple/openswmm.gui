@@ -29,6 +29,7 @@
 
 #include <openswmm/engine/openswmm_edit.h>
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
 
@@ -194,6 +195,54 @@ TEST_F(BurnConvertTest, ConversionPreservesTheCoordinatesTheCouplingNeeds)
     ASSERT_EQ(swmm_spatial_get_node_coord(eng, idx, &x1, &y1), SWMM_OK);
     EXPECT_DOUBLE_EQ(x1, x0);
     EXPECT_DOUBLE_EQ(y1, y0);
+}
+
+TEST_F(BurnConvertTest, AGeneratedOutfallSurvivesAnInpRoundTrip)
+{
+    // Gate V8's engine half: the burn's outfall is only useful if it is still
+    // an ungated NORMAL outfall at the right invert after the deck has been
+    // written and re-read. The tag is what makes a burn run reversible by hand,
+    // so it has to survive too.
+    const NodeSnapshot before = snapshot(eng, idx);
+    const QString nodeName = QString::fromUtf8(swmm_node_id(eng, idx));
+    ASSERT_FALSE(nodeName.isEmpty());
+
+    SWMM_ConversionResult res{};
+    ASSERT_EQ(swmm_node_convert(eng, idx, kOutfall, &res), SWMM_OK);
+    swmm_conversion_result_free(&res);
+
+    const double burnedInvert = before.invert - 2.0;
+    ASSERT_EQ(swmm_node_set_invert_elev(eng, idx, burnedInvert), SWMM_OK);
+    ASSERT_EQ(swmm_node_set_max_depth(eng, idx, 4.0), SWMM_OK);
+    ASSERT_EQ(swmm_node_set_outfall_type(eng, idx, kOutfallNormal), SWMM_OK);
+    ASSERT_EQ(swmm_node_set_outfall_flap_gate(eng, idx, 0), SWMM_OK);
+    ASSERT_EQ(swmm_node_set_tag(eng, idx, "burn:outfall"), SWMM_OK);
+
+    const QString roundTripped = outputPath("channelburn_convert_roundtrip.inp");
+    ASSERT_EQ(swmm_model_write(eng, roundTripped.toUtf8().constData()), SWMM_OK);
+
+    SWMM_Engine re = swmm_engine_create();
+    ASSERT_NE(re, nullptr);
+    ASSERT_EQ(swmm_engine_open(re, roundTripped.toUtf8().constData(),
+                               outputPath("channelburn_convert_rt.rpt").toUtf8().constData(),
+                               outputPath("channelburn_convert_rt.out").toUtf8().constData(),
+                               nullptr),
+              SWMM_OK);
+
+    const int ridx = swmm_node_index(re, nodeName.toUtf8().constData());
+    ASSERT_GE(ridx, 0);
+    const NodeSnapshot after = snapshot(re, ridx);
+    EXPECT_EQ(after.type, kOutfall);
+    EXPECT_NEAR(after.invert, burnedInvert, 1e-6);
+    EXPECT_EQ(after.tag, QStringLiteral("burn:outfall"));
+
+    int type = -1, gated = -1;
+    EXPECT_EQ(swmm_node_get_outfall_type(re, ridx, &type), SWMM_OK);
+    EXPECT_EQ(swmm_node_get_outfall_flap_gate(re, ridx, &gated), SWMM_OK);
+    EXPECT_EQ(type, kOutfallNormal);
+    EXPECT_EQ(gated, 0) << "a gated outfall blocks the 2D tailwater override";
+
+    swmm_engine_destroy(re);
 }
 
 TEST_F(BurnConvertTest, ConvertingToTheSameTypeIsRefusedSoTheCommandMustSkipIt)
