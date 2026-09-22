@@ -119,6 +119,44 @@ struct BurnOptions
 };
 
 /*!
+ * \brief Which conduits participate (plan §3, §4.8).
+ *
+ * No new "burn me" flag is proposed: `[TAGS]` already round-trips, is editable
+ * in every attribute table and is filterable, so a parallel boolean would be a
+ * second source of truth for the same thing.
+ */
+struct BurnSelector
+{
+    enum class Mode
+    {
+        AllOpen,      ///< Every conduit with an open section.
+        ByQuery,      ///< A core/queryparser expression, e.g. Tag LIKE '%creek%'.
+        ExplicitList  ///< The map selection, or a saved list.
+    };
+
+    Mode        mode = Mode::AllOpen;
+    QString     query;
+    QStringList conduitIds;
+    /*! The `fullProps().open` gate. On by default and meant to stay on: a
+     *  culvert is a structure, not terrain, and burning it cuts a trench where
+     *  there is a road (D-E). */
+    bool        requireOpenSection = true;
+};
+
+/*!
+ * \brief Everything the Channel Burn-in tab holds, as one persisted unit.
+ *
+ * Kept here rather than beside \ref resolveBurnSet so the project serializer
+ * can round-trip it without pulling in the engine headers.
+ */
+struct ChannelBurnSettings
+{
+    bool         enabled = false;
+    BurnSelector selector;
+    BurnOptions  options;
+};
+
+/*!
  * \brief A section after normalisation: elevations relative to the thalweg,
  *        stations shifted so `s = 0` is the anchor, extent clipped.
  *

@@ -407,6 +407,10 @@ private:
     /*! \brief Channel burn-in options as the tab currently reads
      *         (CHANNEL_BURN_IN_PLAN_2026-09-21.md §3). */
     [[nodiscard]] mesh::BurnOptions burnOptionsFromUi() const;
+    /*! \brief The whole tab as one persisted unit (D-H). */
+    [[nodiscard]] mesh::ChannelBurnSettings burnSettingsFromUi() const;
+    /*! \brief Push persisted settings back into the tab's widgets. */
+    void applyBurnSettings(const mesh::ChannelBurnSettings &st);
     /*! \brief Resolve the burn set against the model and build one profile per
      *         accepted conduit. GUI thread only — it reads the engine. */
     bool collectBurnInputs(PipelineInputs *out) const;

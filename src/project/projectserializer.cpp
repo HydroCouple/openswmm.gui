@@ -134,6 +134,7 @@ const QString kTerrainVertUnit    = QStringLiteral("verticalUnit");
 // referenced in the .inp; this block carries only display state and is
 // matched back to the live layer by resolved sourcePath.
 const QString kMeshLayers           = QStringLiteral("meshLayers");
+const QString kChannelBurn          = QStringLiteral("channelBurn");
 const QString kMeshSourcePath       = QStringLiteral("sourcePath");
 const QString kMeshActive           = QStringLiteral("active");
 const QString kMeshShowNodes        = QStringLiteral("showMeshNodes");
@@ -327,6 +328,11 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
     const QString notesHtml = pw->notesHtml();
     if (!notesHtml.isEmpty())
         obj[kNotesHtml] = notesHtml;
+
+    // Channel burn-in (D-H). Only once it has been switched on, so an untouched
+    // project's .oswp is byte-for-byte what it was before the feature landed.
+    if (pw->channelBurnSettings().enabled)
+        obj[kChannelBurn] = ProjectSerializer::channelBurnToJson(pw->channelBurnSettings());
 
     QJsonObject layerObj;
 
@@ -929,6 +935,12 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         const QString vertUnit = t.value(kTerrainVertUnit).toString();
         pw->restoreTerrainState(absLayer, nodeOff, linkOff, vertUnit);
     }
+
+    // Channel burn-in settings (D-H). Absent for any project that never used
+    // the burn, which then keeps the struct's defaults.
+    if (sessionObj.contains(kChannelBurn))
+        pw->setChannelBurnSettings(
+            ProjectSerializer::channelBurnFromJson(sessionObj.value(kChannelBurn).toObject()));
 
     // 2D mesh-layer display state — Slice AZ.3.7.
     // openSingleINP has already auto-loaded the mesh layer from the .inp's
