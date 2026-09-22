@@ -57,6 +57,8 @@ QHash<QString, QVector<QPointF>> creekPolylines()
              {QPointF(120, 0), QPointF(210, 0)});
     p.insert(QStringLiteral("CULV1"),
              {QPointF(0, -50), QPointF(30, -50)});
+    p.insert(QStringLiteral("ROAD1"),
+             {QPointF(0, 40), QPointF(60, 40)});
     return p;
 }
 
@@ -98,7 +100,7 @@ TEST_F(BurnSelectorTest, AllOpenTakesTheChannelsAndRefusesTheCulvert)
     sel.mode = BurnSelector::Mode::AllOpen;
 
     const auto cands = resolveBurnSet(eng, sel, opt, creekPolylines(), /*si*/ false);
-    ASSERT_EQ(cands.size(), 3);          // every conduit is reported, accepted or not
+    ASSERT_EQ(cands.size(), 4);          // every conduit is reported, accepted or not
 
     const BurnCandidate *c1 = find(cands, QStringLiteral("CREEK1"));
     const BurnCandidate *c2 = find(cands, QStringLiteral("CREEK2"));
@@ -229,6 +231,43 @@ TEST_F(BurnSelectorTest, ByQueryFiltersOnTheAttributeRowTheUserAlreadyKnows)
     // Matches the filter, but a culvert is still refused by the section gate.
     EXPECT_FALSE(find(none, QStringLiteral("CULV1"))->accepted);
     EXPECT_TRUE(find(none, QStringLiteral("CULV1"))->reason.contains(QStringLiteral("closed")));
+}
+
+TEST_F(BurnSelectorTest, StreetsAreGatedOnTheirOwnOptionNotOnTheEnginesAnswer)
+{
+    // D-F: streets are opt-in, default off — because a street is usually
+    // already in the DEM and burning it cuts the crown twice.
+    //
+    // The gate must NOT be derived from the engine's open/closed answer. That
+    // whitelist has carried STREET both ways (tests/gui/test_xsectsampler.cpp
+    // pins it precisely because it moves), and deriving the default from it
+    // would silently start burning every kerb line in the model the day it
+    // flips. So this asserts the BEHAVIOUR, which holds either way.
+    BurnSelector sel;
+
+    BurnOptions off = opt;
+    off.burnStreets = false;
+    // Bind the result: find() hands back a pointer INTO the vector, so calling
+    // it on the temporary directly would dangle.
+    const QVector<BurnCandidate> offCands =
+        resolveBurnSet(eng, sel, off, creekPolylines(), false);
+    const BurnCandidate *road = find(offCands, QStringLiteral("ROAD1"));
+    ASSERT_NE(road, nullptr);
+    EXPECT_FALSE(road->accepted);
+    EXPECT_TRUE(road->reason.contains(QStringLiteral("street")))
+        << road->reason.toStdString();
+
+    BurnOptions on = opt;
+    on.burnStreets = true;
+    on.clipToBanks = false;
+    const auto cands = resolveBurnSet(eng, sel, on, creekPolylines(), false);
+    const BurnCandidate *roadOn = find(cands, QStringLiteral("ROAD1"));
+    ASSERT_NE(roadOn, nullptr);
+    EXPECT_TRUE(roadOn->accepted) << roadOn->reason.toStdString();
+    EXPECT_GE(roadOn->input.section.station.size(), 2);
+
+    // Turning streets on must not let a culvert through with them.
+    EXPECT_FALSE(find(cands, QStringLiteral("CULV1"))->accepted);
 }
 
 TEST_F(BurnSelectorTest, AConduitWithNoCachedCentrelineIsRefusedNotGuessedAt)
