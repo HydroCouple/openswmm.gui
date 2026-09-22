@@ -22,6 +22,10 @@
 #ifndef MESHGENERATIONDIALOG_H
 #define MESHGENERATIONDIALOG_H
 
+#include "mesh/burnedrasterwriter.h"
+#include "mesh/channelburnboundary.h"
+#include "mesh/channelburnlattice.h"
+#include "mesh/channelburnnetwork.h"
 #include "mesh/meshgenerator.h"
 #include "mesh/meshquadquality.h"
 #include "mesh/meshquadregion.h"
@@ -310,6 +314,33 @@ public:
         // every triangle takes manningsN/initDepth exactly as it does today.
         struct RegionHydraulics { double manningsN = 0.0; double initDepth = 0.0; };
         QHash<QString, RegionHydraulics> regionHydraulics;
+
+        // ── Channel burn-in (CHANNEL_BURN_IN_PLAN_2026-09-21.md) ─────────
+        // collectInputs resolves the selector against the MODEL — the worker
+        // may not touch the engine — and hands over finished profiles in the
+        // mesh CRS and model vertical units, plus the 1D topology as plain
+        // data so the worker can classify nodes without a layer.
+        //
+        // The worker converts the profiles into the raster's frame, writes the
+        // burned DEM and redirects dtmPath to it BEFORE the DTM is opened, so
+        // MeshStageCache's terrain key is computed on the burned file and a
+        // re-burn invalidates the cached terrain for free.
+        bool                       burnEnabled = false;
+        mesh::BurnOptions          burnOptions;
+        QVector<mesh::BurnProfile> burnProfiles;
+        mesh::BurnNetwork          burnNetwork;
+        QString                    burnOutputDir;    ///< <project dir>/terrain
+        /*! The source DEM's CRS and pixel size, read once on the GUI thread.
+         *  The worker builds its mesh→DEM transform from these rather than
+         *  re-opening the raster, and the auto chainage step is resolved from
+         *  the pixel size before the profiles are built. */
+        QString                    burnDemCRSWkt;
+        double                     burnDemPixel = 0.0;
+        QString                    burnFingerprint;  ///< 8 hex over DEM + options + geometry
+        QStringList                burnWarnings;     ///< selector + profile-build notes
+        /*! Mesh minimum cell size at the time of collection, for the lattice's
+         *  densification guard. Mirrors minSizePolicy.minCellSize. */
+        double                     burnMinCellSize = 0.0;
     };
 
     /*! \brief Result produced by the pipeline worker and consumed on the
@@ -322,6 +353,26 @@ public:
         mesh::CouplingMap coupling;
         QString           meshPath;
         mesh::MeshOutputMode outputMode = mesh::MeshOutputMode::External;
+
+        // ── Channel burn-in outcome ──────────────────────────────────────
+        /*! Everything the GUI thread needs to perform the 1D surgery, computed
+         *  in the worker because the outfall invert must come from the MESHED
+         *  bed at the coupling point, not the pre-mesh nominal. Applying it
+         *  needs MapUndoStack and therefore the GUI thread (plan §16.3). */
+        struct BurnSurgery
+        {
+            QStringList                  burnedConduits;  ///< Leave the 1D network (D-A).
+            QVector<mesh::BurnNodePlan>  nodePlans;
+            QHash<QString, double>       outfallInvert;   ///< node id → channel bottom.
+            QHash<QString, double>       outfallMaxDepth; ///< node id → mesh bed − invert.
+        };
+
+        QString               burnedDemPath;
+        QString               burnReportPath;
+        mesh::BurnRasterStats burnStats;
+        QStringList           burnWarnings;
+        BurnSurgery           burnSurgery;
+        bool                  burnRan = false;
     };
 
     explicit MeshGenerationDialog(SWMMVisProjectWindow *pw,
@@ -352,6 +403,18 @@ private:
     [[nodiscard]] QStringList regionTags() const;
     /*! Pushes regionTags() into the region-defaults table. */
     void refreshRegionRows();
+
+    /*! \brief Channel burn-in options as the tab currently reads
+     *         (CHANNEL_BURN_IN_PLAN_2026-09-21.md §3). */
+    [[nodiscard]] mesh::BurnOptions burnOptionsFromUi() const;
+    /*! \brief Resolve the burn set against the model and build one profile per
+     *         accepted conduit. GUI thread only — it reads the engine. */
+    bool collectBurnInputs(PipelineInputs *out) const;
+    /*! \brief Apply the 1D surgery the worker planned, as one undo macro.
+     *         GUI thread only — it drives MapUndoStack (plan §16.3). */
+    void applyBurnSurgery(const PipelineResult &res);
+    /*! \brief Enable/disable the burn widgets from the master checkbox. */
+    void updateBurnEnabled();
 
     /*! Collect all inputs from widgets + SWMMModelLayer on the main thread.
      *  Returns false and sets *errOut on any early-out condition (no project,
@@ -410,6 +473,32 @@ private:
     QDoubleSpinBox *m_simplifyEpsSpin  = nullptr; ///< RDP tolerance (map units; 0 = off)
     QDoubleSpinBox *m_snapEpsSpin      = nullptr; ///< Steiner snap radius (map units; 0 = off)
     QCheckBox      *m_allowSteiner   = nullptr;
+
+    // ── Channel burn-in tab ──────────────────────────────────────────────
+    QCheckBox      *m_burnEnabledBox      = nullptr;
+    QRadioButton   *m_burnAllOpenRadio    = nullptr;
+    QRadioButton   *m_burnQueryRadio      = nullptr;
+    QRadioButton   *m_burnListRadio       = nullptr;
+    QLineEdit      *m_burnQueryEdit       = nullptr;
+    QLineEdit      *m_burnListEdit        = nullptr;
+    QCheckBox      *m_burnStreetsBox      = nullptr;
+    QDoubleSpinBox *m_burnForceHalfWidth  = nullptr;
+    QDoubleSpinBox *m_burnMaxHalfWidth    = nullptr;
+    QCheckBox      *m_burnClipToBanksBox  = nullptr;
+    QDoubleSpinBox *m_burnBankPad         = nullptr;
+    QDoubleSpinBox *m_burnChainageStep    = nullptr;
+    QDoubleSpinBox *m_burnLateralStep     = nullptr;
+    QSpinBox       *m_burnStringCount     = nullptr;
+    QComboBox      *m_burnAnchorCombo     = nullptr;
+    QDoubleSpinBox *m_burnSectionBlend    = nullptr;
+    QCheckBox      *m_burnMonotoneBox     = nullptr;
+    QDoubleSpinBox *m_burnMaxIncision     = nullptr;
+    QCheckBox      *m_burnQuadCorridorBox = nullptr;
+    QDoubleSpinBox *m_burnChannelCellSize = nullptr;
+    QCheckBox      *m_burnRoughnessBox    = nullptr;
+    QCheckBox      *m_burnConvertNodesBox = nullptr;
+    QCheckBox      *m_burnTruncateBox     = nullptr;
+    QLabel         *m_burnSummaryLabel    = nullptr;
     // 2026-07-19 — optional boundary densification (edge split after RDP).
     QCheckBox      *m_maxBoundaryEdgeBox  = nullptr;
     QDoubleSpinBox *m_maxBoundaryEdgeSpin = nullptr; ///< split length (map units; (off) at 0)
