@@ -23,6 +23,25 @@
 
 using namespace mesh;
 
+namespace {
+// Keep fixtures and failure outputs under a reviewable repository/build path.
+// Unique case directories permit repeat runs without consuming prior evidence.
+class ReviewableTestDir : public QTemporaryDir
+{
+public:
+    ReviewableTestDir() : QTemporaryDir(outputTemplate()) { setAutoRemove(false); }
+private:
+    static QString outputTemplate()
+    {
+        const QString root = qEnvironmentVariable("SWMMVIS_MESH_WRITER_TEST_OUTPUT",
+                                                   QStringLiteral("test_inpmeshwriter_output"));
+        QDir().mkpath(root);
+        return QDir(root).filePath(QString::fromLatin1(QTest::currentTestFunction())
+                                   + QStringLiteral("-XXXXXX"));
+    }
+};
+}
+
 class TestInpMeshWriter : public QObject
 {
     Q_OBJECT
@@ -196,7 +215,7 @@ private slots:
     /*! External mode: writes .2dm next to .inp + injects [2D_MESH_FILE]. */
     void writeExternal_basic()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath = dir.filePath("project.inp");
         QFile inp(inpPath);
@@ -237,7 +256,7 @@ private slots:
      *  are siblings (portable when copied as a unit). */
     void writeExternal_relativePath()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath  = dir.filePath("project.inp");
         QFile inp(inpPath);
@@ -263,7 +282,7 @@ private slots:
      *  + a stale [2D_MESH_FILE] block (idempotent). */
     void writeExternal_replacesPriorBlocks()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath = dir.filePath("project.inp");
         QFile inp(inpPath);
@@ -294,7 +313,7 @@ private slots:
     /*! Inline mode: sections in-place, no [2D_MESH_FILE]. */
     void writeInline_basic()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath = dir.filePath("project.inp");
         QFile inp(inpPath);
@@ -323,7 +342,7 @@ private slots:
      *  preserving inline [2D_*] mesh data — the "switch to inline" path. */
     void clearMeshFileRef_dropsRefKeepsInline()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath = dir.filePath("project.inp");
         QFile inp(inpPath);
@@ -353,7 +372,7 @@ private slots:
     /*! clearMeshFileRef is a no-op-safe when no [2D_MESH_FILE] is present. */
     void clearMeshFileRef_noRef_isHarmless()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath = dir.filePath("project.inp");
         QFile inp(inpPath);
@@ -374,7 +393,7 @@ private slots:
     /*! Empty mesh → fail gracefully with errorOut set, .inp untouched. */
     void emptyMesh_fails()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath = dir.filePath("project.inp");
         QFile inp(inpPath);
@@ -403,7 +422,7 @@ private slots:
      *  token from the file. */
     void patchAttributeSections_reemitsEditedState()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath  = dir.filePath("project.inp");
         const QString meshPath = dir.filePath("project.2dm");
@@ -481,7 +500,7 @@ private slots:
      *  different mesh — the patch must fail and leave the file untouched. */
     void patchAttributeSections_countMismatchFailsUntouched()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath  = dir.filePath("project.inp");
         const QString meshPath = dir.filePath("project.2dm");
@@ -515,7 +534,7 @@ private slots:
      *  columns — before the fix the depth (and tag) vanished silently. */
     void patchAttributeSections_depthSurvivesMissingMannings()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString meshPath = dir.filePath("bare.2dm");
 
@@ -561,7 +580,7 @@ private slots:
      *  own value is unset. */
     void patchAttributeSections_depthEditKeepsFileMannings()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath  = dir.filePath("project.inp");
         const QString meshPath = dir.filePath("project.2dm");
@@ -621,7 +640,7 @@ private slots:
      *  survives reader -> writer byte-for-byte. */
     void quadRow_roundTripsByteIdentical()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath = dir.filePath("mixed.inp");
         {
@@ -671,7 +690,7 @@ private slots:
      *  = (cell, 3) and read back into the same stride-4 slot. */
     void bcRow_onQuadEdge3()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath = dir.filePath("bc.inp");
         {
@@ -708,7 +727,7 @@ private slots:
      *  ONE vertex-pair row and both slots are repopulated on read. */
     void conveyanceRow_onQuadQuadEdge()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath = dir.filePath("conv.inp");
         {
@@ -744,7 +763,7 @@ private slots:
      *  token survives a NaN layer value, and the count guard sees quads. */
     void patchAttributeSections_mixedMesh()
     {
-        QTemporaryDir dir;
+        ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inpPath  = dir.filePath("project.inp");
         const QString meshPath = dir.filePath("project.2dm");
