@@ -1430,9 +1430,13 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             }
             QStringList syncWarnings;
             bool trianglesSynced = false;
+            bool writeRejected = false;
             mesh::pushMeshEditsToEngine(mModelLayer->engine(), meshLayer->mesh(),
                                         meshLayer->edgeBCs(), &syncWarnings,
-                                        &trianglesSynced);
+                                        &trianglesSynced, &writeRejected);
+            if (writeRejected)
+                return failSave(tr("synchronize mesh edits"), meshLayer->sourcePath(),
+                                syncWarnings.join(QLatin1String("; ")));
             for (const QString &w : syncWarnings)
                 qWarning().noquote() << w;
             // GG0a — per-cell infiltration has no engine push path yet (the
