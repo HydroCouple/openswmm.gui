@@ -49,6 +49,8 @@
 #include <QSignalSpy>
 #include <QString>
 #include <QTest>
+#include <QMap>
+#include <filesystem>
 
 namespace {
 
@@ -109,6 +111,187 @@ class TestSaveWarnings : public QObject
 {
     Q_OBJECT
 private slots:
+    void savePathCollision_preservesFiles_data()
+    {
+        QTest::addColumn<int>("collision");
+        const char *names[] = {"model-is-mesh", "settings-is-mesh", "model-symlink-mesh",
+            "model-hardlink-mesh", "settings-symlink-mesh", "settings-hardlink-mesh",
+            "settings-symlink-model", "settings-hardlink-model", "model-is-inactive-mesh",
+            "model-symlink-inactive-mesh", "model-hardlink-inactive-mesh", "settings-is-inactive-mesh",
+            "mesh-hardlink-source-model", "settings-symlink-source-model", "model-symlink-source-settings",
+            "mesh-hardlink-source-settings", "model-through-directory-symlink", "model-is-own-settings"};
+        for (int i = 0; i < int(std::size(names)); ++i) QTest::newRow(names[i]) << i;
+    }
+
+    void savePathCollision_preservesFiles()
+    {
+        QFETCH(int, collision);
+        const QString dir = outDir() + QStringLiteral("/collision_%1").arg(QTest::currentDataTag());
+        QVERIFY(QDir().mkpath(dir));
+        const QString source = dir + "/source.inp";
+        QString target = dir + "/saved.inp";
+        QString meshPath = dir + "/active.2dm";
+        QString inactivePath;
+        const QString sourceSettings = ProjectSerializer::sidecarPathFor(source);
+        QString targetSettings = ProjectSerializer::sidecarPathFor(target);
+        // Re-running keeps evidence directories but recreates this test's
+        // owned links before writing fixtures, never following stale aliases.
+        for (const auto &name : {"source.inp", "source.oswp", "saved.inp", "saved.oswp",
+                                "active.2dm", "inactive.2dm", "alias"})
+            QFile::remove(dir + "/" + name);
+        QVERIFY(writeDeck(source, false));
+        mesh::MeshResult mesh;
+        mesh.ok = true;
+        mesh.vertices = {{QPointF(0, 0), 10}, {QPointF(20, 0), 10}, {QPointF(0, 20), 10}};
+        mesh.triangles = {{0, 1, 2}};
+        QString err;
+        QVERIFY(mesh::InpMeshWriter::writeInline(source, mesh, {}, 0.035, &err));
+        const auto write = [](const QString &path, const QByteArray &bytes) {
+            QFile file(path); return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+        };
+        const auto read = [](const QString &path) {
+            QFile file(path); if (!file.open(QIODevice::ReadOnly)) return QByteArray();
+            return file.readAll();
+        };
+        const auto fsPath = [](const QString &p) {
+            return std::filesystem::u8path(p.toUtf8().constData());
+        };
+        const auto link = [&](const QString &from, const QString &to, bool hard = false) {
+            QFile::remove(to);
+            std::error_code ec;
+            if (hard) std::filesystem::create_hard_link(fsPath(from), fsPath(to), ec);
+            else std::filesystem::create_symlink(fsPath(from), fsPath(to), ec);
+            return !ec;
+        };
+        const QByteArray meshBytes = mesh::InpMeshWriter::buildSectionText(mesh, {}).toUtf8();
+        QVERIFY(write(meshPath, meshBytes));
+        QVERIFY(write(sourceSettings, "{\"notesHtml\":\"original settings\"}\n"));
+        QVERIFY(write(target, ";; original target\n"));
+        QVERIFY(write(targetSettings, "{\"notesHtml\":\"previous target settings\"}\n"));
+        if (collision == 0) { meshPath = target; QVERIFY(write(meshPath, meshBytes)); }
+        if (collision == 1) { meshPath = targetSettings; QVERIFY(write(meshPath, meshBytes)); }
+        if (collision == 2 || collision == 3) QVERIFY(link(meshPath, target, collision == 3));
+        if (collision == 4 || collision == 5) QVERIFY(link(meshPath, targetSettings, collision == 5));
+        if (collision == 6 || collision == 7) QVERIFY(link(target, targetSettings, collision == 7));
+        if (collision >= 8 && collision <= 11) {
+            inactivePath = dir + "/inactive.2dm";
+            QVERIFY(write(inactivePath, meshBytes));
+            if (collision == 8) { inactivePath = target; QVERIFY(write(inactivePath, meshBytes)); }
+            if (collision == 9) QVERIFY(link(inactivePath, target));
+            if (collision == 10) QVERIFY(link(inactivePath, target, true));
+            if (collision == 11) { inactivePath = targetSettings; QVERIFY(write(inactivePath, meshBytes)); }
+        }
+        if (collision == 12) QVERIFY(link(source, meshPath, true));
+        if (collision == 13) QVERIFY(link(source, targetSettings));
+        if (collision == 14) QVERIFY(link(sourceSettings, target));
+        if (collision == 15) QVERIFY(link(sourceSettings, meshPath, true));
+        if (collision == 16) {
+            std::error_code ec;
+            std::filesystem::create_directory_symlink(fsPath(dir), fsPath(dir + "/alias"), ec);
+            QVERIFY2(!ec, ec.message().c_str());
+            QVERIFY(QFile::remove(meshPath));
+            meshPath = target; QVERIFY(write(meshPath, meshBytes));
+            target = dir + "/alias/saved.inp";
+            targetSettings = ProjectSerializer::sidecarPathFor(target);
+        }
+        if (collision == 17) { target = targetSettings; }
+        auto *w = openWindow(source, &err);
+        QVERIFY2(w, qPrintable(err));
+        auto *layer = new SWMM2DMeshLayer(mesh, meshPath);
+        layer->setExternalMesh(true); layer->setActiveMesh(true);
+        w->canvas()->addLayer(layer, false); w->attachMeshLayer(layer);
+        QVERIFY(layer->applyMeshVertexZ(0, 25.0));
+        if (!inactivePath.isEmpty()) {
+            auto *inactive = new SWMM2DMeshLayer(mesh, inactivePath);
+            inactive->setExternalMesh(true);
+            w->canvas()->addLayer(inactive, false); w->attachMeshLayer(inactive, true);
+        }
+        w->setHasChanges(true);
+        QMap<QString, QByteArray> before;
+        for (const auto &path : {source, target, meshPath, sourceSettings, targetSettings, inactivePath})
+            if (!path.isEmpty()) before.insert(path, read(path));
+        double x, y, zBefore;
+        QCOMPARE(swmm_2d_vertex_get_xyz(w->modelLayer()->engine(), 0, &x, &y, &zBefore), 0);
+        QSignalSpy completed(w, &SWMMVisProjectWindow::saveCompletedWithEngineWarnings);
+        QVERIFY2(!w->saveAs(target, &err), "Conflicting file ownership must fail Save");
+        QVERIFY2(err.contains("same file"), qPrintable(err));
+        for (auto it = before.cbegin(); it != before.cend(); ++it)
+            QCOMPARE(read(it.key()), it.value());
+        double zAfter;
+        QCOMPARE(swmm_2d_vertex_get_xyz(w->modelLayer()->engine(), 0, &x, &y, &zAfter), 0);
+        QCOMPARE(zAfter, zBefore);
+        QVERIFY(w->hasChanges()); QVERIFY(layer->hasUnsavedMeshEdits());
+        QCOMPARE(w->modelLayer()->modelFilePath(), source);
+        QCOMPARE(completed.count(), 0);
+        // Keep working edits; repair ownership with an independent mesh and
+        // Save As name. No corrupt result from the failed attempt is needed.
+        const QString repairedMesh = dir + "/repaired.2dm";
+        QVERIFY(write(repairedMesh, meshBytes));
+        layer->setSourcePath(repairedMesh);
+        const QString repairedTarget = dir + "/repaired.inp";
+        QVERIFY2(w->saveAs(repairedTarget, &err), qPrintable(err));
+        QVERIFY(!w->hasChanges()); QVERIFY(!layer->hasUnsavedMeshEdits());
+        QCOMPARE(mesh::InpMeshReader::read(repairedMesh).mesh.vertices[0].z, 25.0);
+        w->deleteLater();
+    }
+
+    void savePathOwnership_allowsIndependentAndOwnFiles_data()
+    {
+        QTest::addColumn<int>("alias");
+        QTest::newRow("same-basename-different-directory") << 0;
+        QTest::newRow("symlink-to-own-model") << 1;
+        QTest::newRow("hardlink-to-own-model") << 2;
+        QTest::newRow("directory-symlink-to-own-model") << 3;
+    }
+
+    void savePathOwnership_allowsIndependentAndOwnFiles()
+    {
+        QFETCH(int, alias);
+        const QString dir = outDir() + QStringLiteral("/valid_paths_%1").arg(QTest::currentDataTag());
+        QVERIFY(QDir().mkpath(dir + "/comparison"));
+        QVERIFY(QDir().mkpath(dir + "/destination"));
+        const QString source = dir + "/saved.inp";
+        QString target = dir + "/destination/saved.inp";
+        const QString comparison = dir + "/comparison/saved.inp";
+        QFile::remove(target); QFile::remove(dir + "/alias");
+        QVERIFY(writeDeck(source, false));
+        mesh::MeshResult mesh;
+        mesh.ok = true;
+        mesh.vertices = {{QPointF(0, 0), 10}, {QPointF(20, 0), 10}, {QPointF(0, 20), 10}};
+        mesh.triangles = {{0, 1, 2}};
+        QString err;
+        QVERIFY(mesh::InpMeshWriter::writeInline(source, mesh, {}, 0.035, &err));
+        const QByteArray comparisonBytes = mesh::InpMeshWriter::buildSectionText(mesh, {}).toUtf8();
+        QFile comparisonFile(comparison); QVERIFY(comparisonFile.open(QIODevice::WriteOnly));
+        QCOMPARE(comparisonFile.write(comparisonBytes), comparisonBytes.size()); comparisonFile.close();
+        std::error_code ec;
+        const auto fsPath = [](const QString &p) { return std::filesystem::u8path(p.toUtf8().constData()); };
+        if (alias == 1) std::filesystem::create_symlink(fsPath(source), fsPath(target), ec);
+        if (alias == 2) std::filesystem::create_hard_link(fsPath(source), fsPath(target), ec);
+        if (alias == 3) {
+            std::filesystem::create_directory_symlink(fsPath(dir), fsPath(dir + "/alias"), ec);
+            target = dir + "/alias/saved.inp";
+        }
+        QVERIFY2(!ec, ec.message().c_str());
+        auto *w = openWindow(source, &err); QVERIFY2(w, qPrintable(err));
+        auto *active = new SWMM2DMeshLayer(mesh, source);
+        active->setActiveMesh(true);
+        w->canvas()->addLayer(active, false); w->attachMeshLayer(active);
+        QVERIFY(active->applyMeshVertexZ(0, 25));
+        auto *inactive = new SWMM2DMeshLayer(mesh, comparison);
+        inactive->setExternalMesh(true);
+        w->canvas()->addLayer(inactive, false); w->attachMeshLayer(inactive, true);
+        w->setHasChanges(true);
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+            QVERIFY(!w->hasChanges()); QVERIFY(!active->hasUnsavedMeshEdits());
+            QCOMPARE(mesh::InpMeshReader::read(target).mesh.vertices[0].z, 25.0);
+            QVERIFY(comparisonFile.open(QIODevice::ReadOnly));
+            QCOMPARE(comparisonFile.readAll(), comparisonBytes); comparisonFile.close();
+        }
+        w->deleteLater();
+    }
+
     void invalidMesh_failsBeforeMutation_data()
     {
         QTest::addColumn<int>("failure");
