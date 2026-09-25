@@ -6105,7 +6105,7 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
         // how 2D RESULTS coordinates relate to the model's units.
         meshLayer->setMeshUnitsSI(mesh::unitsHeaderIsSI(meshRead.unitsHeader));
         meshLayer->setExternalMesh(meshRead.isExternal);
-        meshLayer->setActiveMesh(meshRead.isExternal);
+        meshLayer->setActiveMesh(true);
         // Slice §V.VD.1 — preload any parsed [2D_BOUNDARY_CONDITIONS] into
         // the layer's BC SoA. With the deferred build the BC slots don't
         // exist yet, so size against the triangle count directly.

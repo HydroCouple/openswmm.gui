@@ -23,6 +23,7 @@
 #include "map/mapcanvas.h"
 #include "mesh/inpmeshreader.h"
 #include "mesh/inpmeshwriter.h"
+#include <openswmm/engine/openswmm_model.h>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -105,6 +106,186 @@ class TestSaveWarnings : public QObject
 {
     Q_OBJECT
 private slots:
+    void meshOwnership_data()
+    {
+        QTest::addColumn<int>("scenario");
+        QTest::newRow("dirty-inactive-inline") << 0;
+        QTest::newRow("dirty-inactive-external") << 1;
+        QTest::newRow("no-active-among-multiple") << 2;
+        QTest::newRow("multiple-active") << 3;
+        QTest::newRow("clean-inactive-different-counts") << 4;
+        QTest::newRow("switch-to-clean-mesh") << 5;
+        QTest::newRow("inline-does-not-overwrite-old-external") << 6;
+        QTest::newRow("save-as-does-not-overwrite-unrelated-sidecar") << 7;
+    }
+
+    void meshOwnership()
+    {
+        QFETCH(int, scenario);
+        const QString dir = outDir() + QStringLiteral("/ownership_%1").arg(scenario);
+        const QString destDir = dir + QStringLiteral("/destination");
+        QVERIFY(QDir().mkpath(destDir));
+        const QString deck = dir + QStringLiteral("/source.inp");
+        const QString external = dir + QStringLiteral("/mesh.2dm");
+        const QString target = destDir + QStringLiteral("/saved.inp");
+        const QString decoy = destDir + QStringLiteral("/mesh.2dm");
+        QFile fixture(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                          .filePath(QStringLiteral("mesh_async_fixture.inp")));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        QFile source(deck); QVERIFY(source.open(QIODevice::WriteOnly));
+        const QByteArray inlineBytes = fixture.readAll();
+        QCOMPARE(source.write(inlineBytes), inlineBytes.size()); source.close();
+        const auto original = mesh::InpMeshReader::read(deck);
+        QVERIFY(original.hasMesh);
+        QString err;
+        if (scenario >= 6) {
+            QVERIFY(mesh::InpMeshWriter::writeExternal(deck, external, original.mesh,
+                                                       {}, 0.035, &err));
+        } else {
+            QFile other(external); QVERIFY(other.open(QIODevice::WriteOnly));
+            other.write(mesh::InpMeshWriter::buildSectionText(original.mesh, {}).toUtf8());
+        }
+        auto bytesAt = [](const QString &path) {
+            QFile file(path);
+            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+        };
+        const QByteArray sourceBefore = bytesAt(deck);
+        const QByteArray externalBefore = bytesAt(external);
+        const QByteArray sentinel = ";; unrelated existing destination\n";
+        for (const auto &path : {target, decoy, ProjectSerializer::sidecarPathFor(target)}) {
+            QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+            QCOMPARE(file.write(sentinel), sentinel.size());
+        }
+        auto *w = openWindow(deck, &err);
+        QVERIFY2(w, qPrintable(err));
+        auto activeMesh = original.mesh;
+        if (scenario == 5) activeMesh.vertices[0].z = 111.0;
+        auto *active = new SWMM2DMeshLayer(activeMesh, scenario == 7 ? external : deck);
+        active->setExternalMesh(scenario == 7);
+        w->canvas()->addLayer(active, false);
+        w->attachMeshLayer(active, true);
+        active->setActiveMesh(scenario != 2);
+        if (scenario != 5) QVERIFY(active->applyMeshVertexZ(0, 111.0));
+
+        auto otherMesh = original.mesh;
+        otherMesh.vertices[0].z = 222.0;
+        if (scenario == 4) otherMesh.triangles.removeLast();
+        auto *other = new SWMM2DMeshLayer(otherMesh, external);
+        other->setExternalMesh(scenario == 1 || scenario >= 6);
+        w->canvas()->addLayer(other, false);
+        w->attachMeshLayer(other, scenario >= 2);
+        other->setActiveMesh(scenario == 3);
+        if (scenario == 5) {
+            w->setHasChanges(false);
+            active->setActiveMesh(false);
+            QVERIFY(w->hasChanges());
+            w->setHasChanges(false);
+            active->setActiveMesh(true);
+            QVERIFY(w->hasChanges());
+            QVERIFY(!active->hasUnsavedMeshEdits());
+        }
+        w->setHasChanges(true);
+        QSignalSpy pathChanged(w->modelLayer(), &SWMMModelLayer::modelFilePathChanged);
+        QSignalSpy completed(w, &SWMMVisProjectWindow::saveCompletedWithEngineWarnings);
+        if (scenario < 4) {
+            QVERIFY2(!w->saveAs(target, &err), "Ambiguous ownership or inactive edits must fail before writing");
+            QVERIFY2(err.contains(scenario < 2 ? QStringLiteral("inactive mesh")
+                                              : QStringLiteral("active mesh")), qPrintable(err));
+            QCOMPARE(bytesAt(deck), sourceBefore);
+            QCOMPARE(bytesAt(external), externalBefore);
+            QCOMPARE(bytesAt(target), sentinel);
+            QCOMPARE(bytesAt(ProjectSerializer::sidecarPathFor(target)), sentinel);
+            QCOMPARE(bytesAt(decoy), sentinel);
+            QCOMPARE(w->modelLayer()->modelFilePath(), deck);
+            QCOMPARE(pathChanged.count(), 0);
+            QCOMPARE(completed.count(), 0);
+            QVERIFY(w->hasChanges());
+            QVERIFY(active->hasUnsavedMeshEdits());
+            QCOMPARE(other->hasUnsavedMeshEdits(), scenario < 2);
+            QCOMPARE(active->mesh().vertices[0].z, 111.0);
+            QCOMPARE(other->mesh().vertices[0].z, 222.0);
+            // Resolve ambiguous selection without changing the working edits.
+            if (scenario >= 2) {
+                other->setActiveMesh(false);
+                active->setActiveMesh(true);
+                QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+                QVERIFY(!w->hasChanges());
+                const auto back = mesh::InpMeshReader::read(target);
+                QVERIFY(back.hasMesh);
+                QCOMPARE(back.mesh.vertices[0].z, 111.0);
+            }
+        } else {
+            QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+            QVERIFY(!w->hasChanges());
+            QVERIFY(!active->hasUnsavedMeshEdits());
+            QVERIFY(!other->hasUnsavedMeshEdits());
+            const auto back = mesh::InpMeshReader::read(target);
+            QVERIFY(back.hasMesh);
+            QCOMPARE(back.isExternal, scenario == 7);
+            QCOMPARE(back.mesh.vertices[0].z, 111.0);
+            QCOMPARE(back.mesh.triangles.size(), original.mesh.triangles.size());
+            QCOMPARE(other->mesh().vertices[0].z, 222.0);
+            if (scenario != 7) QCOMPARE(bytesAt(external), externalBefore);
+            QCOMPARE(bytesAt(decoy), sentinel);
+            char reference[4096] = {};
+            QCOMPARE(swmm_options_get_ext(w->modelLayer()->engine(), "MESH_FILE",
+                                           reference, sizeof reference), 0);
+            QCOMPARE(QString::fromUtf8(reference), scenario == 7
+                ? QFileInfo(external).absoluteFilePath() : QString());
+            // Repeat Save after Save As to catch stale engine references.
+            QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+            QCOMPARE(bytesAt(decoy), sentinel);
+        }
+        w->deleteLater();
+    }
+
+    void meshWriterFailure_restoresEngineReference()
+    {
+        const QString dir = outDir() + QStringLiteral("/writer_reference_failure");
+        QVERIFY(QDir().mkpath(dir));
+        const QString deck = dir + QStringLiteral("/source.inp");
+        const QString external = dir + QStringLiteral("/active.2dm");
+        const QString blocked = dir + QStringLiteral("/blocked.inp");
+        QVERIFY(QDir().mkpath(blocked));
+        QVERIFY(writeDeck(deck, false));
+        const auto original = mesh::InpMeshReader::read(
+            QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                .filePath(QStringLiteral("mesh_async_fixture.inp")));
+        QVERIFY(original.hasMesh);
+        QString err;
+        QVERIFY(mesh::InpMeshWriter::writeExternal(deck, external, original.mesh,
+                                                   {}, 0.035, &err));
+        QFile file(external); QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray previous = file.readAll(); file.close();
+        auto *w = openWindow(deck, &err);
+        QVERIFY2(w, qPrintable(err));
+        auto *layer = new SWMM2DMeshLayer(original.mesh, external);
+        layer->setExternalMesh(true);
+        layer->setActiveMesh(true);
+        w->canvas()->addLayer(layer, false);
+        w->attachMeshLayer(layer, true);
+        QVERIFY(layer->applyMeshVertexZ(0, 1234.5));
+        char before[4096] = {}, after[4096] = {};
+        QCOMPARE(swmm_options_get_ext(w->modelLayer()->engine(), "MESH_FILE",
+                                       before, sizeof before), 0);
+        QVERIFY(!w->saveAs(blocked, &err));
+        QVERIFY2(err.contains(QStringLiteral("write the model")), qPrintable(err));
+        QCOMPARE(swmm_options_get_ext(w->modelLayer()->engine(), "MESH_FILE",
+                                       after, sizeof after), 0);
+        QCOMPARE(QByteArray(after), QByteArray(before));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), previous); file.close();
+        QVERIFY(layer->hasUnsavedMeshEdits());
+        QVERIFY(w->hasChanges());
+        QCOMPARE(w->modelLayer()->modelFilePath(), deck);
+        const QString target = dir + QStringLiteral("/saved.inp");
+        QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+        const auto back = mesh::InpMeshReader::read(target);
+        QVERIFY(back.hasMesh);
+        QCOMPARE(back.mesh.vertices[0].z, 1234.5);
+        w->deleteLater();
+    }
+
     void engineRejection_keepsPendingState_data()
     {
         QTest::addColumn<int>("failure");
@@ -220,6 +401,7 @@ private slots:
         auto *inactive = new SWMM2DMeshLayer(original.mesh, external);
         inactive->setExternalMesh(true);
         w->canvas()->addLayer(inactive, false);
+        w->attachMeshLayer(inactive, true);
         auto *active = new SWMM2DMeshLayer(original.mesh, deck);
         active->setActiveMesh(true);
         w->canvas()->addLayer(active, false);
@@ -356,6 +538,7 @@ private slots:
             auto *otherLayer = new SWMM2DMeshLayer(original.mesh, fallback);
             otherLayer->setExternalMesh(true);
             w->canvas()->addLayer(otherLayer, false);
+            w->attachMeshLayer(otherLayer, true);
         }
         if (failure <= 1) {
             QVERIFY(QFile::remove(external));
