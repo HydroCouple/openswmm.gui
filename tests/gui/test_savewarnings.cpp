@@ -105,6 +105,99 @@ class TestSaveWarnings : public QObject
 {
     Q_OBJECT
 private slots:
+    void engineRejection_keepsPendingState_data()
+    {
+        QTest::addColumn<int>("failure");
+        QTest::addColumn<QString>("detail");
+        QTest::newRow("vertex-cd") << 0 << QStringLiteral("coupling coefficient");
+        QTest::newRow("vertex-area") << 1 << QStringLiteral("coupling area");
+        QTest::newRow("cell-area") << 2 << QStringLiteral("cell coupling");
+        QTest::newRow("cell-index") << 3 << QStringLiteral("cell coupling");
+        QTest::newRow("cell-node") << 4 << QStringLiteral("cell coupling");
+        QTest::newRow("edge-conveyance") << 5 << QStringLiteral("conveyance");
+    }
+
+    void engineRejection_keepsPendingState()
+    {
+        QFETCH(int, failure);
+        QFETCH(QString, detail);
+        const QString dir = outDir() + QStringLiteral("/engine_rejection_%1").arg(failure);
+        QVERIFY(QDir().mkpath(dir));
+        const QString deck = dir + QStringLiteral("/source.inp");
+        const QString target = dir + QStringLiteral("/saved.inp");
+        QFile fixture(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                          .filePath(QStringLiteral("mesh_async_fixture.inp")));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        const QByteArray sourceBytes = fixture.readAll();
+        QFile source(deck); QVERIFY(source.open(QIODevice::WriteOnly));
+        QCOMPARE(source.write(sourceBytes), sourceBytes.size()); source.close();
+        const auto original = mesh::InpMeshReader::read(deck);
+        QVERIFY(original.hasMesh);
+        QString err;
+        auto *w = openWindow(deck, &err);
+        QVERIFY2(w, qPrintable(err));
+        // Model state can arrive from an import or another editor. Exercise
+        // rejected engine values even if an individual widget validates them.
+        auto edited = original.mesh;
+        if (failure <= 1) {
+            edited.vertices[0].coupledNode = QStringLiteral("J0");
+            if (failure == 0) edited.vertices[0].couplingCd = -1.0;
+            else edited.vertices[0].couplingArea = -1.0;
+        } else if (failure <= 4) {
+            mesh::CellCoupling row;
+            row.tri = failure == 3 ? edited.triangles.size() : 0;
+            row.nodeId = failure == 4 ? QString() : QStringLiteral("J0");
+            row.cd = 0.65;
+            row.area = failure == 2 ? -1.0 : 1.0;
+            edited.cellCouplings.append(row);
+        }
+        auto *layer = new SWMM2DMeshLayer(edited, deck);
+        layer->setActiveMesh(true);
+        w->canvas()->addLayer(layer, false);
+        w->attachMeshLayer(layer, true);
+        QVERIFY(layer->applyMeshVertexZ(0, 1234.5));
+        if (failure == 5) layer->edgeBCsMutable()[0].conveyance = 1.5;
+        w->setHasChanges(true);
+        const QByteArray sentinel = ";; previous target\n";
+        QFile output(target); QVERIFY(output.open(QIODevice::WriteOnly));
+        QCOMPARE(output.write(sentinel), sentinel.size()); output.close();
+        const QString sidecar = ProjectSerializer::sidecarPathFor(target);
+        QFile settings(sidecar); QVERIFY(settings.open(QIODevice::WriteOnly));
+        QCOMPARE(settings.write(sentinel), sentinel.size()); settings.close();
+        QSignalSpy pathChanged(w->modelLayer(), &SWMMModelLayer::modelFilePathChanged);
+        QSignalSpy completed(w, &SWMMVisProjectWindow::saveCompletedWithEngineWarnings);
+        QVERIFY2(!w->saveAs(target, &err), "Engine rejection must fail Save before file writes");
+        QVERIFY2(err.contains(detail), qPrintable(err));
+        QVERIFY(err.contains(deck));
+        QVERIFY(err.contains(QStringLiteral("engine error")));
+        QVERIFY(w->hasChanges());
+        QVERIFY(layer->hasUnsavedMeshEdits());
+        QCOMPARE(layer->mesh().vertices[0].z, 1234.5);
+        QCOMPARE(w->modelLayer()->modelFilePath(), deck);
+        QCOMPARE(pathChanged.count(), 0);
+        QCOMPARE(completed.count(), 0);
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        QCOMPARE(source.readAll(), sourceBytes); source.close();
+        QVERIFY(output.open(QIODevice::ReadOnly));
+        QCOMPARE(output.readAll(), sentinel); output.close();
+        QVERIFY(settings.open(QIODevice::ReadOnly));
+        QCOMPARE(settings.readAll(), sentinel); settings.close();
+
+        if (failure <= 1) QVERIFY(layer->applyMeshVertexCoupledNode(0, QString()));
+        else if (failure <= 4) layer->applyCellCouplings({});
+        else layer->edgeBCsMutable()[0].conveyance = 0.5;
+        QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+        QVERIFY(err.isEmpty());
+        QVERIFY(!w->hasChanges());
+        QVERIFY(!layer->hasUnsavedMeshEdits());
+        QCOMPARE(w->modelLayer()->modelFilePath(), target);
+        const auto saved = mesh::InpMeshReader::read(target);
+        QVERIFY(saved.hasMesh);
+        QCOMPARE(saved.mesh.vertices[0].z, 1234.5);
+        if (failure == 5) QCOMPARE(saved.edgeBCs[0].conveyance, 0.5);
+        w->deleteLater();
+    }
+
     void activeInlineMesh_isNotRetargetedToInactiveExternal()
     {
         const QString deck = outDir() + QStringLiteral("/active_inline.inp");

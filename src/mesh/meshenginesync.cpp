@@ -25,7 +25,7 @@ namespace mesh {
 namespace {
 
 // Per-element push counters for one pushMeshEditsToEngine call. Logged from the
-// destructor so every one of the function's six exit points reports, including
+// destructor so every exit point reports, including
 // the early bail-outs that skip most of the work.
 struct SyncPerf
 {
@@ -106,17 +106,26 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
                            const MeshResult &mesh,
                            const QVector<MeshEdgeBC> &bcs,
                            QStringList *warnings,
-                           bool *outTrianglesSynced)
+                           bool *outTrianglesSynced,
+                           bool *outWriteRejected)
 {
     auto warn = [&](const QString &m) { if (warnings) warnings->append(m); };
     if (outTrianglesSynced) *outTrianglesSynced = false;
 
+    if (outWriteRejected) *outWriteRejected = false;
     SyncPerf perf;
-
-    // The GUI keeps the engine OPENED (not initialized), so make the parsed
-    // mesh editable: this lets the edit setters run and drains the authored
-    // BC / conveyance rows so per-edge edits are written on save.
-    swmm_2d_prepare_for_edit(engine);
+    const auto accepted = [&](int rc, const char *field, int item = -1, int edge = -1) {
+        if (rc == 0) return true;
+        QString where = QString::fromLatin1(field);
+        if (item >= 0) where += QStringLiteral(" (item %1)").arg(item + 1);
+        if (edge >= 0) where += QStringLiteral(" (edge %1)").arg(edge + 1);
+        warn(QStringLiteral("2D mesh sync failed: %1, engine error %2. "
+                            "Correct the mesh value and retry Save.").arg(where).arg(rc));
+        if (outWriteRejected) *outWriteRejected = true;
+        if (outTrianglesSynced) *outTrianglesSynced = false;
+        perf.outcome = "engine-rejected";
+        return false;
+    };
 
     int nv = 0;
     if (swmm_2d_vertex_count(engine, &nv) != 0 || nv <= 0) {
@@ -133,6 +142,11 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
         return false;
     }
 
+    // The GUI keeps the engine OPENED (not initialized), so make the parsed
+    // mesh editable: this lets the edit setters run and drains the authored
+    // BC / conveyance rows so per-edge edits are written on save.
+    if (!accepted(swmm_2d_prepare_for_edit(engine), "prepare mesh for editing")) return false;
+
     const double factor = deriveLengthFactor(engine, mesh);
     // The engine holds BC constants in DISPLAY units until swmm_engine_initialize
     // scales them into SI alongside the mesh (SurfaceRouter2D::initialize). The
@@ -146,12 +160,14 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     double flowFactor = 1.0;
     {
         int state = SWMM_STATE_NONE;
-        swmm_engine_get_state(engine, &state);
+        if (!accepted(swmm_engine_get_state(engine, &state), "engine state")) return false;
         const bool initialized = state >= SWMM_STATE_INITIALIZED
                               && state != SWMM_STATE_BUILDING;
         int fu = 3;  // default CMS
-        if (initialized && swmm_get_flow_units(engine, &fu) == 0)
+        if (initialized) {
+            if (!accepted(swmm_get_flow_units(engine, &fu), "flow units")) return false;
             flowFactor = flowUnitToCms(fu);
+        }
     }
 
     // ---- Vertex elevation --------------------------------------------------
@@ -164,11 +180,9 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
         std::vector<double> zs(static_cast<std::size_t>(nv));
         for (int i = 0; i < nv; ++i)
             zs[static_cast<std::size_t>(i)] = mesh.vertices[i].z * factor;
-        if (swmm_2d_set_vertex_z_bulk(engine, zs.data(), nv) == 0)
-            perf.zPushed = nv;
-        else
-            warn(QStringLiteral("2D vertex elevations were NOT saved: the "
-                                "engine rejected the bulk elevation write."));
+        if (!accepted(swmm_2d_set_vertex_z_bulk(engine, zs.data(), nv),
+                      "vertex elevations")) return false;
+        perf.zPushed = nv;
     }
 
     // ---- Vertex coupling and descriptive tag -------------------------------
@@ -177,20 +191,21 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     // independent fields; an empty value clears the corresponding slot.
     for (int i = 0; i < nv; ++i) {
         ++perf.vAttrPushed;
-        swmm_2d_set_vertex_coupled_node(
-            engine, i, mesh.vertices[i].coupledNode.toUtf8().constData());
+        if (!accepted(swmm_2d_set_vertex_coupled_node(
+            engine, i, mesh.vertices[i].coupledNode.toUtf8().constData()), "vertex coupled node", i)) return false;
         // Coupling Cd/Area ride along for coupled vertices only (the engine
         // keeps them SI/as-authored — no length factor applies).
         if (!mesh.vertices[i].coupledNode.isEmpty()) {
-            swmm_2d_set_vertex_coupling_cd(engine, i, mesh.vertices[i].couplingCd);
-            swmm_2d_set_vertex_coupling_area(engine, i, mesh.vertices[i].couplingArea);
+            if (!accepted(swmm_2d_set_vertex_coupling_cd(engine, i, mesh.vertices[i].couplingCd), "vertex coupling coefficient", i)) return false;
+            if (!accepted(swmm_2d_set_vertex_coupling_area(engine, i, mesh.vertices[i].couplingArea), "vertex coupling area", i)) return false;
         }
-        swmm_2d_set_vertex_tag(
-            engine, i, mesh.vertices[i].tag.toUtf8().constData());
+        if (!accepted(swmm_2d_set_vertex_tag(
+            engine, i, mesh.vertices[i].tag.toUtf8().constData()), "vertex tag", i)) return false;
     }
 
     int nt = 0;
-    if (swmm_2d_triangle_count(engine, &nt) != 0 || nt <= 0) {
+    if (!accepted(swmm_2d_triangle_count(engine, &nt), "cell count")) return false;
+    if (nt <= 0) {
         perf.outcome = "no-triangles";
         return true;  // no triangles to touch
     }
@@ -200,15 +215,19 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     if (nt == mesh.triangles.size()) {
         for (int t = 0; t < nt; ++t) {
             const double n = mesh.triangles[t].mannings;
-            if (std::isfinite(n) && n > 0.0)   // NaN = unset; keep engine value
-                swmm_2d_set_triangle_mannings(engine, t, n);
+            if (std::isfinite(n) && n > 0.0) { // NaN = unset; keep engine value
+                if (!accepted(swmm_2d_set_triangle_mannings(engine, t, n),
+                              "cell roughness", t)) return false;
+            }
             const double d = mesh.triangles[t].initDepth;
             // INIT_DEPTH is a depth above the bed, so it carries the mesh's
             // vertical units and converts with the same factor as vertex Z.
-            if (std::isfinite(d) && d >= 0.0)  // NaN = unset; keep engine value
-                swmm_2d_set_triangle_init_depth(engine, t, d * factor);
-            swmm_2d_set_triangle_tag(
-                engine, t, mesh.triangles[t].tag.toUtf8().constData());
+            if (std::isfinite(d) && d >= 0.0) { // NaN = unset; keep engine value
+                if (!accepted(swmm_2d_set_triangle_init_depth(engine, t, d * factor),
+                              "cell initial depth", t)) return false;
+            }
+            if (!accepted(swmm_2d_set_triangle_tag(
+                engine, t, mesh.triangles[t].tag.toUtf8().constData()), "cell tag", t)) return false;
             ++perf.triPushed;
         }
         if (outTrianglesSynced) *outTrianglesSynced = true;
@@ -227,14 +246,13 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     // no length factor applies (same rule as vertex coupling Cd/Area).
     if (nt == mesh.triangles.size()) {
         int engineRows = 0;
-        swmm_2d_triangle_coupling_rows(engine, &engineRows);
+        if (!accepted(swmm_2d_triangle_coupling_rows(engine, &engineRows), "cell coupling count")) return false;
         if (!mesh.cellCouplings.isEmpty() || engineRows > 0) {
-            swmm_2d_clear_triangle_couplings(engine);
+            if (!accepted(swmm_2d_clear_triangle_couplings(engine), "clear cell couplings")) return false;
             for (const auto &cc : mesh.cellCouplings) {
-                if (cc.tri < 0 || cc.tri >= nt || cc.nodeId.isEmpty()) continue;
-                swmm_2d_add_triangle_coupling(
+                if (!accepted(swmm_2d_add_triangle_coupling(
                     engine, cc.tri, cc.nodeId.toUtf8().constData(),
-                    cc.cd, cc.area);
+                    cc.cd, cc.area), "cell coupling", cc.tri)) return false;
             }
         }
     }
@@ -266,46 +284,46 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
             // Conveyance is dimensionless; push every edge so resets back to
             // the 1.0 default propagate too (interior edges are mirrored by
             // the engine).
-            swmm_2d_set_edge_conveyance(engine, t, e, b.conveyance);
+            if (!accepted(swmm_2d_set_edge_conveyance(engine, t, e, b.conveyance), "edge conveyance", t, e)) return false;
             ++perf.edgePushed;
 
             // Clear all name slots first so a stale timeseries/curve name from
             // the loaded model can't mask a freshly-edited constant value
             // (the engine's writer prefers a name over a scalar).
-            swmm_2d_set_edge_bc_tseries_name(engine, t, e, "");
-            swmm_2d_set_edge_bc_flow_tseries_name(engine, t, e, "");
-            swmm_2d_set_edge_bc_rating_curve_name(engine, t, e, "");
+            if (!accepted(swmm_2d_set_edge_bc_tseries_name(engine, t, e, ""), "edge stage time series", t, e)) return false;
+            if (!accepted(swmm_2d_set_edge_bc_flow_tseries_name(engine, t, e, ""), "edge flow time series", t, e)) return false;
+            if (!accepted(swmm_2d_set_edge_bc_rating_curve_name(engine, t, e, ""), "edge rating curve", t, e)) return false;
 
             switch (b.type) {
             case T::Wall:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngWall);
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngWall), "edge boundary type", t, e)) return false;
                 break;
             case T::NormalFlow:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngNormalFlow);
-                swmm_2d_set_edge_bc_slope(engine, t, e, b.slope);
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngNormalFlow), "edge boundary type", t, e)) return false;
+                if (!accepted(swmm_2d_set_edge_bc_slope(engine, t, e, b.slope), "edge boundary slope", t, e)) return false;
                 break;
             case T::SpecifiedStageConst:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedStage);
-                swmm_2d_set_edge_bc_head(engine, t, e, b.head * factor);
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedStage), "edge boundary type", t, e)) return false;
+                if (!accepted(swmm_2d_set_edge_bc_head(engine, t, e, b.head * factor), "edge boundary head", t, e)) return false;
                 break;
             case T::SpecifiedStageTS:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedStage);
-                swmm_2d_set_edge_bc_tseries_name(
-                    engine, t, e, b.tseries.toUtf8().constData());
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedStage), "edge boundary type", t, e)) return false;
+                if (!accepted(swmm_2d_set_edge_bc_tseries_name(
+                    engine, t, e, b.tseries.toUtf8().constData()), "edge stage time series", t, e)) return false;
                 break;
             case T::SpecifiedFlowConst:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedFlow);
-                swmm_2d_set_edge_bc_flow(engine, t, e, b.flow * flowFactor);
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedFlow), "edge boundary type", t, e)) return false;
+                if (!accepted(swmm_2d_set_edge_bc_flow(engine, t, e, b.flow * flowFactor), "edge boundary flow", t, e)) return false;
                 break;
             case T::SpecifiedFlowTS:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedFlow);
-                swmm_2d_set_edge_bc_flow_tseries_name(
-                    engine, t, e, b.tseries.toUtf8().constData());
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedFlow), "edge boundary type", t, e)) return false;
+                if (!accepted(swmm_2d_set_edge_bc_flow_tseries_name(
+                    engine, t, e, b.tseries.toUtf8().constData()), "edge flow time series", t, e)) return false;
                 break;
             case T::RatingCurve:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngRatingCurve);
-                swmm_2d_set_edge_bc_rating_curve_name(
-                    engine, t, e, b.curve.toUtf8().constData());
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngRatingCurve), "edge boundary type", t, e)) return false;
+                if (!accepted(swmm_2d_set_edge_bc_rating_curve_name(
+                    engine, t, e, b.curve.toUtf8().constData()), "edge rating curve", t, e)) return false;
                 break;
             }
         }

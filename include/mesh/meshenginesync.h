@@ -63,7 +63,7 @@ namespace mesh {
  *                   edge)`, stride `mesh::kEdgeStride`, sized
  *                   `mesh::edgeSlotCount(n_cells)`); only a cell's real edges
  *                   (3 or 4) are pushed. May be empty (then only Z is synced).
- *  \param warnings  Optional sink for non-fatal diagnostics.
+ *  \param warnings  Optional sink for skip and failure diagnostics.
  *  \param outTrianglesSynced  Optional: set to true when the per-triangle
  *                   attributes (Manning's n, initial depth, tag) reached the
  *                   engine, false when the triangle counts disagreed and they
@@ -72,15 +72,22 @@ namespace mesh {
  *                   engine's mesh is stale whenever a mesh was generated or
  *                   replaced in-session, and without a fallback every cell
  *                   attribute edit is silently dropped on save.
- *  \returns true when the mesh was synced; false (with a warning) when the
- *           engine has no 2D mesh or its vertex counts do not match the
- *           layer, in which case nothing is written.
+ *  \param outWriteRejected Optional: true on an engine API rejection. The
+ *                   save caller must stop before serialization, retaining dirty
+ *                   state; earlier in-memory setters may already have run.
+ *                   False for no mesh / count mismatch, allowing the existing
+ *                   generated-mesh file fallback.
+ *  \returns false for no engine mesh, vertex-count mismatch, or API rejection.
+ *           No mesh/count mismatch is detected before preparing or mutating
+ *           the engine. A true return can still include skipped cell/edge
+ *           state when counts differ; inspect warnings/outTrianglesSynced.
  */
 bool pushMeshEditsToEngine(SWMM_Engine engine,
                            const MeshResult &mesh,
                            const QVector<MeshEdgeBC> &bcs,
                            QStringList *warnings = nullptr,
-                           bool *outTrianglesSynced = nullptr);
+                           bool *outTrianglesSynced = nullptr,
+                           bool *outWriteRejected = nullptr);
 
 } // namespace mesh
 
