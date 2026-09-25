@@ -164,6 +164,32 @@ QPolygonF normalizeRingCCW(const QPolygonF &ring)
     return out;
 }
 
+bool polylineIntersectsRect(const QVector<QPointF> &path, const QRectF &rect)
+{
+    const QRectF box = rect.normalized();
+    if (path.size() < 2 || box.isEmpty()) return false;
+    for (int i = 1; i < path.size(); ++i)
+    {
+        const QPointF a = path[i - 1], d = path[i] - a;
+        double enter = 0.0, leave = 1.0;
+        // Clip the segment's parameter interval against each closed slab.
+        // QRectF::intersects requires positive-area rectangles, so using the
+        // segment's bounding rectangle would discard horizontal/vertical lines.
+        auto clip = [&](double origin, double direction, double low, double high) {
+            if (direction == 0.0) return origin >= low && origin <= high;
+            double t0 = (low - origin) / direction, t1 = (high - origin) / direction;
+            if (t0 > t1) std::swap(t0, t1);
+            enter = std::max(enter, t0);
+            leave = std::min(leave, t1);
+            return enter <= leave;
+        };
+        if (clip(a.x(), d.x(), box.left(), box.right())
+            && clip(a.y(), d.y(), box.top(), box.bottom()))
+            return true;
+    }
+    return false;
+}
+
 bool pointInRegion(const QPolygonF &ring, const QVector<QPolygonF> &holes, const QPointF &p)
 {
     if (!pointInRing(ring, p)) return false;
