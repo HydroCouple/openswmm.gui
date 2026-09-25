@@ -82,6 +82,7 @@
 #include <QSettings>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <filesystem>
 
 #include "core/measurementunitmanager.h"
 
@@ -1437,6 +1438,76 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                                "edits on inactive meshes. Keep this project open to "
                                "retain those edits").arg(ml->name()));
     }
+
+    // Distinct writer roles must never share a destination. Compare file
+    // identity as well as paths: aliases through symlinks/hard links can
+    // otherwise let the model writer truncate a mesh or project sidecar.
+    // Do this before synchronization too, so rejection preserves engine state.
+    if (pluginId.isEmpty()) {
+        const auto nativePath = [](const QString &path) {
+#ifdef Q_OS_WIN
+            return std::filesystem::path(path.toStdWString());
+#else
+            return std::filesystem::path(path.toUtf8().constData());
+#endif
+        };
+        const auto sameFile = [&](const QString &a, const QString &b) {
+            if (a.isEmpty() || b.isEmpty()) return false;
+            std::error_code ec;
+            if (std::filesystem::equivalent(nativePath(a), nativePath(b), ec)) return true;
+            // weakly_canonical also resolves existing ancestor symlinks when
+            // the final file does not exist yet. The lexical fallback covers
+            // identical destinations even if the filesystem cannot resolve one.
+            const auto ca = std::filesystem::weakly_canonical(nativePath(a), ec);
+            if (!ec) {
+                const auto cb = std::filesystem::weakly_canonical(nativePath(b), ec);
+                if (!ec && ca == cb) return true;
+            }
+            return QDir::cleanPath(QFileInfo(a).absoluteFilePath())
+                == QDir::cleanPath(QFileInfo(b).absoluteFilePath());
+        };
+        struct SaveFileRole { QString label; QString path; };
+        QVector<SaveFileRole> outputs = {
+            {tr("model output"), newPath},
+            {tr("project settings output"), ProjectSerializer::sidecarPathFor(newPath)}
+        };
+        if (chosenMesh && chosenMesh->isExternalMesh()
+            && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) == 0)
+            outputs.append({tr("active mesh output"), chosenMesh->sourcePath()});
+        const auto conflict = [&](const SaveFileRole &a, const SaveFileRole &b) {
+            return failSave(tr("save files with conflicting paths"), newPath,
+                            tr("%1 (%2) and %3 (%4) refer to the same file; "
+                               "choose separate file locations")
+                                .arg(a.label, a.path, b.label, b.path));
+        };
+        for (int i = 0; i < outputs.size(); ++i)
+            for (int j = 0; j < i; ++j)
+                if (sameFile(outputs[i].path, outputs[j].path))
+                    return conflict(outputs[i], outputs[j]);
+        const SaveFileRole sourceModel{tr("current model"), mModelLayer->modelFilePath()};
+        const SaveFileRole sourceSettings{tr("current project settings"),
+                                          ProjectSerializer::sidecarPathFor(sourceModel.path)};
+        for (int i = 0; i < outputs.size(); ++i) {
+            // A normal Save may replace its own model/settings, never the
+            // other role's source. Save As must preserve those source files.
+            if (i != 0 && sameFile(outputs[i].path, sourceModel.path))
+                return conflict(outputs[i], sourceModel);
+            if (i != 1 && sameFile(outputs[i].path, sourceSettings.path))
+                return conflict(outputs[i], sourceSettings);
+            // Clean layers may be different views of the selected mesh file.
+            // The active layer owns that mesh write (Phase 10). Protect other
+            // mesh references from model/settings writers, not from their
+            // explicitly selected active view of the same resource.
+            if (i >= 2) continue;
+            for (auto *ml : meshLayers) {
+                if (ml == chosenMesh || !ml->isExternalMesh()) continue;
+                const SaveFileRole inactive{tr("inactive mesh %1").arg(ml->name()), ml->sourcePath()};
+                if (sameFile(outputs[i].path, inactive.path))
+                    return conflict(outputs[i], inactive);
+            }
+        }
+    }
+
     if (chosenMesh && chosenMesh->mesh().vertices.isEmpty())
         return failSave(tr("save the active mesh"), chosenMesh->sourcePath(),
                         tr("the selected mesh has no vertices"));
