@@ -586,6 +586,10 @@ ReadResult readInp(const QString &inpPath)
         return r;
     }
     r.text = QString::fromUtf8(in.readAll());
+    if (in.error() != QFileDevice::NoError) {
+        r.err = QStringLiteral("Cannot read %1: %2").arg(inpPath, in.errorString());
+        return r;
+    }
     r.ok   = true;
     return r;
 }
@@ -616,12 +620,22 @@ QString meshRefToken(const QString &inpPath, const QString &meshPath)
 bool atomicWrite(const QString &path, const QString &text, QString *errorOut)
 {
     QSaveFile out(path);
+    out.setDirectWriteFallback(false);
     if (!out.open(QIODevice::WriteOnly | QIODevice::Text))
     {
         if (errorOut) *errorOut = QStringLiteral("Cannot open %1 for writing.").arg(path);
         return false;
     }
-    out.write(text.toUtf8());
+    const QByteArray bytes = text.toUtf8();
+    const qint64 written = out.write(bytes);
+    if (written != bytes.size())
+    {
+        if (errorOut) *errorOut = QStringLiteral("Cannot write all of %1: only %2 of %3 bytes written (%4)")
+                                       .arg(path).arg(qMax(qint64(0), written))
+                                       .arg(bytes.size()).arg(out.errorString());
+        out.cancelWriting();
+        return false;
+    }
     if (!out.commit())
     {
         if (errorOut) *errorOut = QStringLiteral("Atomic save failed for %1: %2")
