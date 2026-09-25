@@ -17,10 +17,29 @@
  * Output lands in ./test_savewarnings_output/ (CLAUDE.md §4.1).
  */
 #include "project/openswmmvisworkspace.h"
+#include "project/projectserializer.h"
+#include "layers/swmmmodellayer.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "map/mapcanvas.h"
+#include "mesh/inpmeshreader.h"
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QProcess>
+#include <QProcessEnvironment>
+#ifdef Q_OS_UNIX
+#include <sys/resource.h>
+#include <csignal>
+#endif
 #include "swmmvisprojectwindow.h"
+#include "swmmvis.h"
+#include <QMdiArea>
+#include <QMessageBox>
+#include <QTimer>
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QObject>
 #include <QSignalSpy>
 #include <QString>
@@ -30,8 +49,10 @@ namespace {
 
 QString outDir()
 {
-    QDir().mkpath(QStringLiteral("test_savewarnings_output"));
-    return QStringLiteral("test_savewarnings_output");
+    const QString path = qEnvironmentVariable("SWMMVIS_SAVE_TEST_OUTPUT",
+                                               QStringLiteral("test_savewarnings_output"));
+    QDir().mkpath(path);
+    return path;
 }
 
 /*! Minimal valid deck with an EMBEDDED reaction system (no external .rxn):
@@ -83,6 +104,175 @@ class TestSaveWarnings : public QObject
 {
     Q_OBJECT
 private slots:
+    void sidecarFailure_keepsPendingState_data()
+    {
+        QTest::addColumn<int>("kind");
+        QTest::newRow("save") << 0;
+        QTest::newRow("save-as") << 1;
+        QTest::newRow("untitled-save-as") << 2;
+    }
+
+    void sidecarFailure_keepsPendingState()
+    {
+        QFETCH(int, kind);
+        const QString dir = outDir() + QStringLiteral("/failure_%1").arg(kind);
+        QVERIFY(QDir().mkpath(dir));
+        const QString deck = dir + QStringLiteral("/source.inp");
+        QFile fixture(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                          .filePath(QStringLiteral("mesh_async_fixture.inp")));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        QFile copy(deck); QVERIFY(copy.open(QIODevice::WriteOnly));
+        const QByteArray bytes = fixture.readAll();
+        QCOMPARE(copy.write(bytes), bytes.size()); copy.close();
+        QString why;
+        auto *w = openWindow(deck, &why);
+        QVERIFY2(w, qPrintable(why));
+        const auto read = mesh::InpMeshReader::read(deck);
+        QVERIFY(read.hasMesh);
+        auto *layer = new SWMM2DMeshLayer(read.mesh, read.sourcePath);
+        if (!read.edgeBCs.isEmpty()) layer->edgeBCsMutable() = read.edgeBCs;
+        w->canvas()->addLayer(layer, false);
+        w->attachMeshLayer(layer, true);
+        QVERIFY(layer->applyMeshVertexZ(0, 1234.5));
+        w->setNotesHtml(QStringLiteral("<p>Unsaved styling and project notes</p>"));
+        w->setHasChanges(true);
+        if (kind == 2) w->markUntitled();
+        const QString originalPath = w->modelLayer()->modelFilePath();
+        const QString originalName = w->modelLayer()->name();
+        const QString target = kind == 0 ? deck : dir + QStringLiteral("/saved.inp");
+        const QString sidecar = ProjectSerializer::sidecarPathFor(target);
+        if (QFileInfo(sidecar).isFile()) QVERIFY(QFile::remove(sidecar));
+        QVERIFY(QDir().mkpath(sidecar)); // deterministic write failure on all platforms
+        QSignalSpy dirty(w, &SWMMVisProjectWindow::hasChangesChanged);
+        QSignalSpy pathChanged(w->modelLayer(), &SWMMModelLayer::modelFilePathChanged);
+        QString err;
+        QVERIFY(!w->saveAs(target, &err));
+        QVERIFY(err.contains(sidecar));
+        QVERIFY(w->hasChanges());
+        QVERIFY(layer->hasUnsavedMeshEdits());
+        QCOMPARE(w->modelLayer()->modelFilePath(), originalPath);
+        QCOMPARE(w->modelLayer()->name(), originalName);
+        QCOMPARE(w->isUntitled(), kind == 2);
+        QCOMPARE(pathChanged.count(), 0);
+        for (const auto &change : dirty) QVERIFY(change[0].toBool());
+
+        // Removing the obstruction allows a retry; only this successful save
+        // adopts the target path and clears both project and mesh dirty flags.
+        QVERIFY(QDir().rmdir(sidecar));
+        err.clear();
+        QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+        QVERIFY(!w->hasChanges());
+        QVERIFY(!layer->hasUnsavedMeshEdits());
+        QVERIFY(!w->isUntitled());
+        QCOMPARE(w->modelLayer()->modelFilePath(), target);
+        QCOMPARE(pathChanged.count(), kind == 0 ? 0 : 1);
+        QFile saved(sidecar); QVERIFY(saved.open(QIODevice::ReadOnly));
+        const auto root = QJsonDocument::fromJson(saved.readAll()).object();
+        const auto session = root[QStringLiteral("sessions")].toArray().first().toObject();
+        QCOMPARE(QDir(QFileInfo(sidecar).absolutePath()).absoluteFilePath(session[QStringLiteral("inpPath")].toString()),
+                 QFileInfo(target).absoluteFilePath());
+        QCOMPARE(session[QStringLiteral("notesHtml")].toString(), w->notesHtml());
+        const auto meshBack = mesh::InpMeshReader::read(target);
+        QVERIFY(meshBack.hasMesh);
+        QCOMPARE(meshBack.mesh.vertices[0].z, 1234.5);
+        w->deleteLater();
+    }
+
+    void saveCommand_showsFailure()
+    {
+        const QString deck = outDir() + QStringLiteral("/save_command.inp");
+        QVERIFY(writeDeck(deck, false));
+        QString why;
+        auto *w = openWindow(deck, &why);
+        QVERIFY2(w, qPrintable(why));
+        const QString sidecar = ProjectSerializer::sidecarPathFor(deck);
+        if (QFileInfo(sidecar).isFile()) QVERIFY(QFile::remove(sidecar));
+        QVERIFY(QDir().mkpath(sidecar));
+        SWMMVis host;
+        auto *mdi = host.findChild<QMdiArea *>();
+        QVERIFY(mdi);
+        mdi->addSubWindow(w);
+        host.show();
+        w->show();
+        mdi->setActiveSubWindow(w);
+        w->setHasChanges(true);
+        QString message;
+        bool sawCriticalMessage = false;
+        // Inspect and dismiss the real modal opened by the production Save
+        // command; an unexpected Save As dialog is dismissed but fails below.
+        QTimer dismissDialog;
+        connect(&dismissDialog, &QTimer::timeout, &host, [&] {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            if (auto *box = qobject_cast<QMessageBox *>(dialog)) {
+                message = box->text();
+                sawCriticalMessage = box->icon() == QMessageBox::Critical;
+            }
+            dialog->reject();
+        });
+        dismissDialog.start(10);
+        QVERIFY(QMetaObject::invokeMethod(&host, "onSaveProject", Qt::DirectConnection));
+        dismissDialog.stop();
+        // macOS ignores QMessageBox window titles; assert the actual error
+        // content and severity rather than a platform-specific decoration.
+        QVERIFY(sawCriticalMessage);
+        QVERIFY(message.contains(sidecar));
+        QVERIFY(w->hasChanges());
+        QVERIFY(QDir().rmdir(sidecar));
+        w->setHasChanges(false);
+    }
+
+    void atomicSidecar_shortWritePreservesOriginal()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("Short-write injection uses POSIX per-process file-size limits");
+#else
+        if (!qEnvironmentVariableIsSet("SWMMVIS_SHORT_WRITE_CHILD"))
+        {
+            QProcess child;
+            auto env = QProcessEnvironment::systemEnvironment();
+            env.insert(QStringLiteral("SWMMVIS_SHORT_WRITE_CHILD"), QStringLiteral("1"));
+            child.setProcessEnvironment(env);
+            child.setProcessChannelMode(QProcess::MergedChannels);
+            child.start(QCoreApplication::applicationFilePath(),
+                        {QStringLiteral("atomicSidecar_shortWritePreservesOriginal")});
+            QVERIFY(child.waitForFinished(20000));
+            const QByteArray report = child.readAll();
+            QFile log(outDir() + QStringLiteral("/short_write_child.log"));
+            QVERIFY(log.open(QIODevice::WriteOnly)); log.write(report);
+            QVERIFY2(child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0,
+                     report.constData());
+            return;
+        }
+        const QString deck = outDir() + QStringLiteral("/short_write.inp");
+        QVERIFY(writeDeck(deck, false));
+        QString why;
+        auto *w = openWindow(deck, &why);
+        QVERIFY2(w, qPrintable(why));
+        w->setNotesHtml(QString(8192, QLatin1Char('x')));
+        const QString sidecar = ProjectSerializer::sidecarPathFor(deck);
+        const QByteArray original = "{\"previous\":\"project must survive\"}\n";
+        QFile before(sidecar); QVERIFY(before.open(QIODevice::WriteOnly));
+        QCOMPARE(before.write(original), original.size()); before.close();
+        struct rlimit oldLimit;
+        QVERIFY(getrlimit(RLIMIT_FSIZE, &oldLimit) == 0);
+        auto limited = oldLimit; limited.rlim_cur = 512;
+        const auto oldHandler = std::signal(SIGXFSZ, SIG_IGN);
+        QVERIFY(setrlimit(RLIMIT_FSIZE, &limited) == 0);
+        QString err;
+        const bool saved = ProjectSerializer::saveToFile(sidecar, w, &err);
+        const int restored = setrlimit(RLIMIT_FSIZE, &oldLimit);
+        std::signal(SIGXFSZ, oldHandler);
+        QVERIFY(restored == 0);
+        QFile after(sidecar); QVERIFY(after.open(QIODevice::ReadOnly));
+        const auto actual = after.readAll();
+        QVERIFY2(!saved, "A short write must not report success");
+        QVERIFY(!err.isEmpty());
+        QCOMPARE(actual, original);
+        w->deleteLater();
+#endif
+    }
+
 
     /*! The reported defect end-to-end: a save that drops the embedded
      *  reaction system must leave the loss visible on the window — in
