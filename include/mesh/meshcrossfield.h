@@ -23,6 +23,9 @@
 #ifndef OPENSWMMVIS_MESH_MESHCROSSFIELD_H
 #define OPENSWMMVIS_MESH_MESHCROSSFIELD_H
 
+#include <functional>
+#include <limits>
+
 #include <QPointF>
 #include <QRectF>
 #include <QVector>
@@ -32,6 +35,9 @@ namespace mesh {
 class CrossField
 {
 public:
+    enum class Status { NotBuilt, Constant, Converged, IterationLimit,
+                        GridLimit, NoConstraints, InvalidInput, Cancelled };
+
     struct Options
     {
         double pitch     = 0.0;    ///< Grid spacing (map units). Required > 0 (use the region's h).
@@ -39,6 +45,7 @@ public:
         double tol       = 1e-5;   ///< Stop when the max |Δu| over a sweep drops below this.
         double omega     = 1.7;    ///< SOR relaxation.
         double margin    = 2.0;    ///< Cells of padding around bbox on every side.
+        std::function<bool()> isCancelled; ///< Cheap, thread-safe cancellation predicate.
     };
 
     CrossField() = default;
@@ -47,7 +54,8 @@ public:
      *  \p alignedPolylines (>= 2 points each; a closed ring passes its closing
      *  edge explicitly or via last==first). Returns false when pitch <= 0, bbox
      *  is empty, no polyline pins any cell, or the grid would exceed
-     *  4e6 cells. */
+     *  4e6 cells. Also returns false on cancellation or non-convergence;
+     *  status(), sweepsUsed() and finalDelta() describe the last attempt. */
     bool build(const QRectF &bbox, const QVector<QVector<QPointF>> &alignedPolylines,
                const Options &opts);
 
@@ -58,6 +66,8 @@ public:
     int  cols()  const noexcept { return m_cols; }
     int  rows()  const noexcept { return m_rows; }
     int  sweepsUsed() const noexcept { return m_sweeps; }
+    Status status() const noexcept { return m_status; }
+    double finalDelta() const noexcept { return m_finalDelta; } ///< Last complete sweep; infinity if none.
 
     /*! \brief Field angle in radians, folded to [0, π/2). Clamps outside the grid. */
     double thetaAt(double x, double y) const;
@@ -70,6 +80,8 @@ public:
     bool    cellPinned(int col, int row) const;
 
 private:
+    Status  m_status = Status::NotBuilt;
+    double  m_finalDelta = std::numeric_limits<double>::infinity();
     bool    m_valid = false;
     bool    m_constant = false;
     double  m_constTheta = 0.0;

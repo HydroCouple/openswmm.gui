@@ -2377,9 +2377,16 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // qWarning "[Mesh] Skipped" channel) so a silently-triangulated region
     // is never mistaken for a quad one.
     int nQuadRegionQuads = 0;
+    QStringList alignmentWarnings;
     for (const mesh::QuadRegionReport &rep : g.quadRegionReports())
     {
         nQuadRegionQuads += rep.quads;
+        if (!rep.alignmentWarning.isEmpty())
+        {
+            const QString note = QObject::tr("Quad region %1: %2").arg(rep.index + 1).arg(rep.alignmentWarning);
+            alignmentWarnings.append(note);
+            qWarning().noquote() << "[Mesh][alignment]" << note;
+        }
         qCInfo(lcMeshPerf).nospace()
             << "[Mesh][quad] region " << rep.index << ": "
             << quadRegionModeName(rep.requested) << " -> "
@@ -2393,6 +2400,10 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             << " (" << rep.templateQuads << " template, " << rep.gapQuads << " gap)"
             << " | points " << rep.generatedPoints << " generated, "
             << rep.droppedSteiners << " terrain dropped"
+            << (rep.fieldSweeps > 0
+                    ? QStringLiteral(" | alignment sweeps %1, last update %2")
+                          .arg(rep.fieldSweeps).arg(rep.fieldFinalDelta, 0, 'g', 4)
+                    : QString())
             << " | min SJ " << rep.minScaledJacobian
             << " | median rect " << rep.medianRectangularity
             << (rep.message.isEmpty() ? QString() : QStringLiteral(" | ") + rep.message);
@@ -3074,6 +3085,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     out.meshPath   = (in.outputMode == mesh::MeshOutputMode::External)
                          ? in.meshOutputPath : QString();
     out.outputMode = in.outputMode;
+    out.alignmentWarnings = std::move(alignmentWarnings);
     out.burnedDemPath  = burnedDemPath;
     out.burnReportPath = burnReportPath;
     out.burnStats      = std::move(burnStats);
@@ -6549,6 +6561,17 @@ void MeshGenerationDialog::onMeshFinished()
     }
 
     m_pw->setHasChanges(true);
+    if (!result.alignmentWarnings.isEmpty())
+    {
+        QMessageBox box(QMessageBox::Warning, tr("Mesh alignment needs review"),
+                        tr("The mesh was generated, but %n quad region(s) used a simpler alignment. "
+                           "Road or river alignment may be reduced. Inspect these regions before running the model.",
+                           nullptr, result.alignmentWarnings.size()),
+                        QMessageBox::Ok, this);
+        box.setInformativeText(result.alignmentWarnings.first());
+        box.setDetailedText(result.alignmentWarnings.join(QStringLiteral("\n\n")));
+        box.exec();
+    }
     accept();
 }
 

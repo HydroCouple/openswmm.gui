@@ -36,20 +36,35 @@ bool CrossField::build(const QRectF &bbox, const QVector<QVector<QPointF>> &alig
 {
     m_valid = false;
     m_constant = false;
+    m_status = Status::InvalidInput;
+    m_finalDelta = std::numeric_limits<double>::infinity();
     m_sweeps = 0;
     m_cols = m_rows = 0;
     m_ux.clear(); m_uy.clear(); m_pinned.clear();
 
+    auto cancelled = [&] {
+        if (!opts.isCancelled || !opts.isCancelled()) return false;
+        m_status = Status::Cancelled;
+        return true;
+    };
+    if (cancelled()) return false;
+    if (!std::isfinite(opts.margin) || !std::isfinite(opts.tol) || !(opts.tol > 0.0)) return false;
+    if (!std::isfinite(bbox.left()) || !std::isfinite(bbox.top())) return false;
     if (!(opts.pitch > 0.0) || !std::isfinite(opts.pitch)) return false;
     if (bbox.isEmpty() || !std::isfinite(bbox.width()) || !std::isfinite(bbox.height())) return false;
 
-    const int margin = std::max(0, int(std::ceil(std::max(0.0, opts.margin))));
+    const double margin = std::ceil(std::max(0.0, opts.margin));
     m_pitch = opts.pitch;
     m_x0 = bbox.left() - margin * m_pitch;
     m_y0 = bbox.top()  - margin * m_pitch;
     const double colsD = std::ceil(bbox.width()  / m_pitch) + 1.0 + 2.0 * margin;
     const double rowsD = std::ceil(bbox.height() / m_pitch) + 1.0 + 2.0 * margin;
-    if (colsD * rowsD > 4e6) return false;
+    if (colsD * rowsD > 4e6)
+    {
+        m_status = Status::GridLimit;
+        return false;
+    }
+    if (!std::isfinite(m_x0) || !std::isfinite(m_y0)) return false;
     m_cols = int(colsD);
     m_rows = int(rowsD);
     const int nCells = m_cols * m_rows;
@@ -71,6 +86,7 @@ bool CrossField::build(const QRectF &bbox, const QVector<QVector<QPointF>> &alig
     {
         for (int i = 1; i < pl.size(); ++i)
         {
+            if (cancelled()) return false;
             const QPointF a = pl[i - 1], b = pl[i];
             const QPointF d = b - a;
             const double len = std::hypot(d.x(), d.y());
@@ -80,6 +96,7 @@ bool CrossField::build(const QRectF &bbox, const QVector<QVector<QPointF>> &alig
             const int steps = std::max(1, int(std::ceil(len / (0.5 * m_pitch))));
             for (int s = 0; s <= steps; ++s)
             {
+                if ((s % 4096) == 0 && cancelled()) return false;
                 const QPointF p = a + d * (double(s) / steps);
                 int c, r;
                 cellOf(p, c, r);
@@ -91,7 +108,11 @@ bool CrossField::build(const QRectF &bbox, const QVector<QVector<QPointF>> &alig
             }
         }
     }
-    if (nPinned == 0) return false;
+    if (nPinned == 0)
+    {
+        m_status = Status::NoConstraints;
+        return false;
+    }
 
     double meanX = 0.0, meanY = 0.0;
     for (int i = 0; i < nCells; ++i)
@@ -117,6 +138,7 @@ bool CrossField::build(const QRectF &bbox, const QVector<QVector<QPointF>> &alig
         double maxDelta = 0.0;
         for (int r = 0; r < m_rows; ++r)
         {
+            if ((r % 32) == 0 && cancelled()) return false;
             const int rm = r > 0 ? r - 1 : (m_rows > 1 ? r + 1 : r);
             const int rp = r < m_rows - 1 ? r + 1 : (m_rows > 1 ? r - 1 : r);
             for (int c = 0; c < m_cols; ++c)
@@ -137,15 +159,25 @@ bool CrossField::build(const QRectF &bbox, const QVector<QVector<QPointF>> &alig
             }
         }
         m_sweeps = sweep + 1;
-        if (maxDelta < opts.tol) break;
+        m_finalDelta = maxDelta;
+        if (maxDelta < opts.tol)
+        {
+            m_status = Status::Converged;
+            m_valid = true;
+            return true;
+        }
     }
 
-    m_valid = true;
-    return true;
+    m_status = Status::IterationLimit;
+    return false;
 }
 
 void CrossField::setConstant(double thetaDeg)
 {
+    m_cols = m_rows = m_sweeps = 0;
+    m_ux.clear(); m_uy.clear(); m_pinned.clear();
+    m_status = Status::Constant;
+    m_finalDelta = 0.0;
     m_constant = true;
     m_valid = true;
     m_constTheta = foldQuarter(thetaDeg * M_PI / 180.0);

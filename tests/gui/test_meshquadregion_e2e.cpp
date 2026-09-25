@@ -138,6 +138,8 @@ void appendReport(std::ofstream &out, const QString &title, const MeshGenerator 
             << " doublets=" << rep.doubletsRemoved << " swaps=" << rep.diagonalSwaps
             << " moved=" << rep.verticesMoved << " minSJ=" << rep.minScaledJacobian
             << " medianRect=" << rep.medianRectangularity
+            << " alignmentStatus=" << int(rep.fieldStatus)
+            << " alignmentSweeps=" << rep.fieldSweeps << " alignmentDelta=" << rep.fieldFinalDelta
             << (rep.message.isEmpty() ? std::string() : "  msg=\"" + narrow(rep.message) + "\"") << "\n";
     }
     const QuadStats qs = computeQuadStats(r);
@@ -172,6 +174,75 @@ class TestMeshQuadRegionE2E : public QObject
     std::ofstream m_report;
 
 private slots:
+    void alignmentOutcome_data()
+    {
+        QTest::addColumn<int>("scenario");
+        QTest::newRow("converged") << 0;
+        QTest::newRow("explicit-angle") << 1;
+        QTest::newRow("iteration-fallback") << 2;
+        QTest::newRow("grid-fallback") << 3;
+        QTest::newRow("cancelled") << 4;
+        QTest::newRow("cancelled-in-field") << 5;
+    }
+
+    void alignmentOutcome()
+    {
+        QFETCH(int, scenario);
+        MeshGenerator g;
+        g.setDomain(domain300x150());
+        auto o = baseOptions();
+        if (scenario == 2) { o.quadFieldOptions.maxSweeps = 1; o.quadFieldOptions.tol = 1e-12; }
+        if (scenario == 3) o.quadFieldOptions.margin = 1000;
+        g.setOptions(o);
+        QuadRegion q;
+        q.ring = rect(100, 50, 100, 50);
+        q.spacing = 5;
+        q.mode = QuadRegionMode::Free;
+        q.hasAlignAngle = scenario == 1;
+        q.alignAngleDeg = 17;
+        q.alignGuide = {{120, 60}, {180, 85}};
+        g.addQuadRegion(q);
+        int cancellationPolls = 0;
+        if (scenario >= 4)
+        {
+            RefineHook hook;
+            hook.isCancelled = [&] { return ++cancellationPolls >= (scenario == 4 ? 1 : 2); };
+            g.setRefineHook(hook);
+        }
+        const auto r = g.generate();
+        QCOMPARE(g.quadRegionReports().size(), 1);
+        const auto rep = g.quadRegionReports().first();
+        if (scenario >= 4)
+        {
+            QVERIFY(cancellationPolls >= (scenario == 4 ? 1 : 2));
+            QVERIFY(!r.ok);
+            QVERIFY(r.triangles.isEmpty());
+            QVERIFY(r.errorMsg.contains(QStringLiteral("cancelled")));
+            QCOMPARE(rep.fieldStatus, CrossField::Status::Cancelled);
+            QVERIFY(rep.alignmentWarning.isEmpty());
+            return;
+        }
+        QVERIFY2(r.ok, qPrintable(r.errorMsg));
+        CHECK_CELL_INVARIANTS(r);
+        if (scenario < 2)
+        {
+            QCOMPARE(rep.fieldStatus, scenario == 0 ? CrossField::Status::Converged : CrossField::Status::Constant);
+            QVERIFY(rep.alignmentWarning.isEmpty());
+            if (scenario == 0) QVERIFY(rep.fieldFinalDelta < o.quadFieldOptions.tol);
+        }
+        else
+        {
+            QCOMPARE(rep.fieldStatus, scenario == 2 ? CrossField::Status::IterationLimit : CrossField::Status::GridLimit);
+            QCOMPARE(rep.fieldSweeps, scenario == 2 ? 1 : 0);
+            QVERIFY(rep.alignmentWarning.contains(scenario == 2 ? QStringLiteral("did not converge")
+                                                               : QStringLiteral("4,000,000")));
+            QVERIFY(rep.alignmentWarning.contains(QStringLiteral("constant direction")));
+            QVERIFY(rep.alignmentWarning.contains(QStringLiteral("Road/river")));
+            QVERIFY(rep.message.contains(rep.alignmentWarning));
+        }
+        appendReport(m_report, QString::fromLatin1(QTest::currentDataTag()), g, r);
+    }
+
     void deferredMergeLocks_excludeHolesAndSkippedRegions()
     {
         MeshGenerator g;

@@ -882,8 +882,18 @@ MeshResult MeshGenerator::generate() const
         // harmonic from the ring, every constraint path near the ring and the
         // optional guide polyline.
         CrossField field;
+        if (m_refineHook.isCancelled && m_refineHook.isCancelled())
+        {
+            rep.fieldStatus = CrossField::Status::Cancelled;
+            result.errorMsg = QStringLiteral("Mesh generation cancelled during quad alignment.");
+            return result;
+        }
         if (r.hasAlignAngle)
+        {
             field.setConstant(r.alignAngleDeg);
+            rep.fieldStatus = field.status();
+            rep.fieldFinalDelta = field.finalDelta();
+        }
         else
         {
             QVector<QVector<QPointF>> aligned;
@@ -894,13 +904,44 @@ MeshResult MeshGenerator::generate() const
                 if (polylineIntersectsRect(cs.path, q.bbox))
                     aligned.append(cs.path);
             if (r.alignGuide.size() >= 2) aligned.append(r.alignGuide);
-            CrossField::Options fo;
+            CrossField::Options fo = m_opts.quadFieldOptions;
             fo.pitch = q.h;
-            if (!field.build(q.bbox, aligned, fo))
+            fo.isCancelled = m_refineHook.isCancelled;
+            const bool solved = field.build(q.bbox, aligned, fo);
+            rep.fieldStatus = field.status();
+            rep.fieldSweeps = field.sweepsUsed();
+            rep.fieldFinalDelta = field.finalDelta();
+            if (!solved)
             {
-                field.setConstant(longestEdgeAngleDeg(q.ringR));
+                if (field.status() == CrossField::Status::Cancelled)
+                {
+                    result.errorMsg = QStringLiteral("Mesh generation cancelled during quad alignment.");
+                    return result;
+                }
+                QString reason;
+                switch (field.status())
+                {
+                case CrossField::Status::IterationLimit:
+                    reason = QStringLiteral("alignment did not converge after %1 sweeps (last update %2, tolerance %3)")
+                                 .arg(rep.fieldSweeps).arg(rep.fieldFinalDelta, 0, 'g', 4).arg(fo.tol, 0, 'g', 4);
+                    break;
+                case CrossField::Status::GridLimit:
+                    reason = QStringLiteral("alignment grid exceeds the 4,000,000-cell limit");
+                    break;
+                case CrossField::Status::NoConstraints:
+                    reason = QStringLiteral("alignment has no usable direction constraints");
+                    break;
+                default:
+                    reason = QStringLiteral("alignment solve received invalid input");
+                    break;
+                }
+                const double angle = longestEdgeAngleDeg(q.ringR);
+                field.setConstant(angle);
+                rep.alignmentWarning = reason
+                    + QStringLiteral("; used a constant direction of %1 degrees along the longest ring edge. "
+                                     "Road/river alignment may be reduced; inspect this region.").arg(angle, 0, 'g', 6);
                 rep.message += (rep.message.isEmpty() ? QString() : QStringLiteral("; "))
-                             + QStringLiteral("cross field solve failed: constant field along the longest ring edge");
+                             + rep.alignmentWarning;
             }
         }
 
