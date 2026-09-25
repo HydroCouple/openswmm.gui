@@ -32,6 +32,13 @@ Q_DECLARE_LOGGING_CATEGORY(lcSavePerf)
 
 namespace mesh {
 
+/*! Read-only Save preflight for geometry, hydraulic attributes, couplings and
+ *  boundary values. Returns the first error with one-based item/edge numbers,
+ *  or an empty string. NaN roughness/depth means unset; triangle edge padding
+ *  is ignored. Does not certify manifold topology, model reference resolution,
+ *  infiltration/groundwater/transport parameters, or engine mesh identity. */
+QString validateMeshSaveData(const MeshResult &mesh, const QVector<MeshEdgeBC> &bcs);
+
 /*! \brief Copy the layer's editable mesh state into the engine's 2D mesh.
  *
  *  Pushes vertex elevations, per-edge conveyance factors, and per-edge

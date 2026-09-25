@@ -529,3 +529,101 @@ TEST(MeshEngineSync, RejectedEdgeResetsSuccessOutputsAndCanRetry)
     EXPECT_TRUE(warnings.isEmpty());
     swmm_engine_destroy(e);
 }
+
+namespace {
+mesh::MeshResult validationRectangle()
+{
+    mesh::MeshResult result;
+    result.vertices = {{QPointF(1000000, 2000000), -10}, {QPointF(1100000, 2000000), -10},
+                       {QPointF(1100000, 2000001), -10}, {QPointF(1000000, 2000001), -10}};
+    result.triangles = {{0, 1, 2, 3}};
+    return result;
+}
+}
+
+TEST(MeshSaveValidation, AcceptsElongatedRectanglesInEitherWindingAndUnsetAttributes)
+{
+    auto m = validationRectangle();
+    QVector<mesh::MeshEdgeBC> bcs(4);
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).isEmpty());
+    m.triangles[0] = {3, 2, 1, 0};
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).isEmpty());
+    m.triangles[0] = {0, 1, 2};
+    // A triangle's unused fourth slot and inactive BC fields are not data.
+    bcs[3].conveyance = std::numeric_limits<double>::quiet_NaN();
+    bcs[0].head = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).isEmpty());
+}
+
+TEST(MeshSaveValidation, RejectsMalformedQuadsAndCellOrdering)
+{
+    auto m = validationRectangle();
+    const QVector<mesh::MeshEdgeBC> bcs(4);
+    m.triangles[0] = {0, 2, 1, 3};
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).contains("geometry"));
+    m.triangles[0] = {0, 1, 2, 3};
+    m.vertices[2].xy = QPointF(1000001, 2000000.25);
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).contains("geometry"));
+    m = validationRectangle();
+    m.triangles.append({0, 1, 2});
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, QVector<mesh::MeshEdgeBC>(8)).contains("precede"));
+    std::swap(m.triangles[0], m.triangles[1]);
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, QVector<mesh::MeshEdgeBC>(8)).isEmpty());
+}
+
+TEST(MeshSaveValidation, BoundaryRangesRetainSignedHeadsAndFlows)
+{
+    auto m = validationRectangle();
+    QVector<mesh::MeshEdgeBC> bcs(4);
+    using T = mesh::MeshBCTypes::Type;
+    bcs[0].type = T::SpecifiedStageConst; bcs[0].head = -5;
+    bcs[1].type = T::SpecifiedFlowConst; bcs[1].flow = -0.3;
+    bcs[2].type = T::NormalFlow; bcs[2].slope = 0;
+    bcs[0].conveyance = 0; bcs[1].conveyance = 1;
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).isEmpty());
+    bcs[2].slope = -0.1;
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).contains("Cell 1: edge 3"));
+    bcs[2].slope = 0.01;
+    bcs[3].conveyance = 1.01;
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).contains("edge 4"));
+    bcs[3].conveyance = -0.1;
+    EXPECT_FALSE(mesh::validateMeshSaveData(m, bcs).isEmpty());
+}
+
+TEST(MeshSaveValidation, ChecksBothTimeSeriesTypesAndRatingCurve)
+{
+    auto m = validationRectangle();
+    QVector<mesh::MeshEdgeBC> bcs(4);
+    using T = mesh::MeshBCTypes::Type;
+    for (const auto type : {T::SpecifiedStageTS, T::SpecifiedFlowTS, T::RatingCurve}) {
+        bcs[0] = {}; bcs[0].type = type;
+        EXPECT_FALSE(mesh::validateMeshSaveData(m, bcs).isEmpty());
+        bcs[0].tseries = "boundary_series"; bcs[0].curve = "boundary_curve";
+        EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).isEmpty());
+    }
+}
+
+TEST(MeshSaveValidation, RejectsNonfiniteCouplingAndInvalidMeshStructure)
+{
+    auto m = validationRectangle();
+    QVector<mesh::MeshEdgeBC> bcs(4);
+    const double inf = std::numeric_limits<double>::infinity();
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    for (double invalid : {nan, inf, 0.0, -1.0}) {
+        m.cellCouplings = {{0, "J1", invalid, 1}};
+        EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).contains("cell coupling row 1"));
+        m.cellCouplings = {{0, "J1", 0.65, invalid}};
+        EXPECT_FALSE(mesh::validateMeshSaveData(m, bcs).isEmpty());
+    }
+    m.cellCouplings = {{0, "J1", 0.65, 1}};
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).isEmpty());
+    m.cellCouplings[0].tri = 1;
+    EXPECT_FALSE(mesh::validateMeshSaveData(m, bcs).isEmpty());
+    m.cellCouplings.clear();
+    m.triangles[0].v3 = -2;
+    EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).contains("fourth vertex"));
+    m = validationRectangle();
+    EXPECT_FALSE(mesh::validateMeshSaveData(m, {}).isEmpty());
+    m.triangles.clear();
+    EXPECT_FALSE(mesh::validateMeshSaveData(m, {}).isEmpty());
+}
