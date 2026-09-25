@@ -349,6 +349,7 @@ public:
     {
         bool              ok        = false;
         QString           errorMsg;
+        QStringList       alignmentWarnings; ///< Visible completion notes for degraded quad alignment.
         mesh::MeshResult  meshResult;
         mesh::CouplingMap coupling;
         QString           meshPath;

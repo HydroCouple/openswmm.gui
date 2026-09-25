@@ -18,6 +18,7 @@
 #define OPENSWMMVIS_MESH_MESHGENERATOR_H
 
 #include "meshresult.h"
+#include "meshcrossfield.h"
 #include "meshpatch.h"
 #include "meshquadmerge.h"
 #include "meshquadcleanup.h"
@@ -99,6 +100,9 @@ struct GenerationOptions
     /*! Cleanup / smoothing knobs applied to Free regions after pairing.
      *  Its bounds are replaced by the resolved quadRegionBounds for that region. */
     QuadCleanupOptions quadCleanup;
+    /*! Alignment solve controls. generate() supplies region pitch and the
+     *  RefineHook cancellation callback; other controls are used as given. */
+    CrossField::Options quadFieldOptions;
     /*! Free-region spacing when QuadRegion::spacing == 0 and no size function
      *  is installed: side of the equilateral triangle of maxArea
      *  (sqrt(4·maxArea/sqrt 3)); when that is 0 too the region is skipped
@@ -120,6 +124,10 @@ struct QuadRegionReport
     int     generatedPoints = 0, droppedSteiners = 0;    ///< Free: lattice points; marker-0 Steiners removed inside.
     int     doubletsRemoved = 0, diagonalSwaps = 0, verticesMoved = 0;
     double  minScaledJacobian = 1.0, medianRectangularity = 0.0;
+    CrossField::Status fieldStatus = CrossField::Status::NotBuilt;
+    int     fieldSweeps = 0;
+    double  fieldFinalDelta = std::numeric_limits<double>::infinity();
+    QString alignmentWarning;                           ///< Nonempty when a constant fallback replaced the solve.
     QString message;                                     ///< Fallback reason / validation error; empty when clean.
 };
 
