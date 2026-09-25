@@ -254,10 +254,22 @@ bool segmentsCrossRing(const QVector<ConstraintSegment> &segs, const PreparedQua
     const int n = q.ring.size();
     for (const ConstraintSegment &cs : segs)
     {
-        if (cs.path.size() < 2) continue;
-        if (!QPolygonF(cs.path).boundingRect().intersects(q.bbox)) continue;
+        if (!polylineIntersectsRect(cs.path, q.bbox)) continue;
         for (const QPointF &p : cs.path)
-            if (inQuadRing(q, p)) return true;
+        {
+            if (!inQuadRing(q, p)) continue;
+            // The closed-box filter includes boundary contact. A path that
+            // merely ends on the ring must not turn a mapped patch into Free.
+            bool onBoundary = false;
+            for (int j = 0; j < n && !onBoundary; ++j)
+            {
+                const QPointF &a = q.ring[j], &b = q.ring[(j + 1) % n];
+                onBoundary = orientSign(a, b, p) == 0
+                    && p.x() >= std::min(a.x(), b.x()) && p.x() <= std::max(a.x(), b.x())
+                    && p.y() >= std::min(a.y(), b.y()) && p.y() <= std::max(a.y(), b.y());
+            }
+            if (!onBoundary) return true;
+        }
         for (int i = 0; i + 1 < cs.path.size(); ++i)
         {
             const QPointF &p1 = cs.path[i], &p2 = cs.path[i + 1];
@@ -843,7 +855,7 @@ MeshResult MeshGenerator::generate() const
             closed.append(q.ringR.first());
             aligned.append(closed);
             for (const ConstraintSegment &cs : m_segments)
-                if (cs.path.size() >= 2 && QPolygonF(cs.path).boundingRect().intersects(q.bbox))
+                if (polylineIntersectsRect(cs.path, q.bbox))
                     aligned.append(cs.path);
             if (r.alignGuide.size() >= 2) aligned.append(r.alignGuide);
             CrossField::Options fo;
@@ -1298,8 +1310,16 @@ MeshResult MeshGenerator::generate() const
         {
             const PreparedQuadRegion &q = qregs[s];
             if (q.mode != QuadRegionMode::Free || q.movable.isEmpty()) continue;
+            // Triangle can split a constraint at a generated lattice point.
+            // That point is no longer free to move or disappear in cleanup.
+            QSet<int> movable = q.movable;
+            for (const MeshEdge &e : std::as_const(result.boundaryEdges))
+            {
+                movable.remove(e.v0);
+                movable.remove(e.v1);
+            }
             QVector<int> vOldToNew;
-            const QuadCleanupStats cs = cleanupAndSmoothQuads(result, q.movable,
+            const QuadCleanupStats cs = cleanupAndSmoothQuads(result, movable,
                                                               m_opts.quadCleanup, &vOldToNew);
             QuadRegionReport &rep = m_quadReports[q.index];
             rep.doubletsRemoved = cs.doubletsRemoved;
