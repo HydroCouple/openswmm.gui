@@ -111,6 +111,103 @@ class TestSaveWarnings : public QObject
 {
     Q_OBJECT
 private slots:
+    void meshSave_preservesNumericPrecision_data()
+    {
+        QTest::addColumn<bool>("external");
+        QTest::addColumn<bool>("usProject");
+        QTest::addColumn<bool>("siMesh");
+        for (bool external : {false, true}) {
+            const QString prefix = external ? "external-" : "inline-";
+            QTest::newRow(qPrintable(prefix + "metric")) << external << false << true;
+            QTest::newRow(qPrintable(prefix + "feet")) << external << true << false;
+            QTest::newRow(qPrintable(prefix + "si-mesh-us-project")) << external << true << true;
+        }
+    }
+
+    void meshSave_preservesNumericPrecision()
+    {
+        QFETCH(bool, external);
+        QFETCH(bool, usProject);
+        QFETCH(bool, siMesh);
+        const QString dir = outDir() + QStringLiteral("/precision_%1").arg(QTest::currentDataTag());
+        QVERIFY(QDir().mkpath(dir));
+        const QString source = dir + "/source.inp";
+        const QString target = dir + "/saved.inp";
+        const QString meshPath = external ? dir + "/mesh.2dm" : source;
+        QVERIFY(writeDeck(source, false));
+        if (!usProject) {
+            QFile file(source); QVERIFY(file.open(QIODevice::ReadOnly));
+            auto bytes = file.readAll(); file.close();
+            bytes.replace("FLOW_UNITS           CFS", "FLOW_UNITS           CMS");
+            QVERIFY(file.open(QIODevice::WriteOnly)); file.write(bytes);
+        }
+        mesh::MeshResult initial;
+        initial.ok = true;
+        initial.vertices = {{QPointF(0, 0), 10}, {QPointF(10, 0), 10}, {QPointF(20, 0), 10},
+                            {QPointF(0, 10), 10}, {QPointF(10, 10), 10}, {QPointF(20, 10), 10}};
+        initial.triangles = {{0, 1, 4}, {0, 4, 3}, {1, 2, 5, 4}};
+        mesh::InpMeshWriter::UnitInfo units;
+        units.linearUnitName = siMesh ? "SI (m)" : "feet";
+        QString err;
+        if (external) QVERIFY(mesh::InpMeshWriter::writeExternal(source, meshPath, initial, {}, 0.035, &err, units));
+        else QVERIFY(mesh::InpMeshWriter::writeInline(source, initial, {}, 0.035, &err, units));
+        auto *w = openWindow(source, &err); QVERIFY2(w, qPrintable(err));
+        auto edited = initial;
+        for (auto &v : edited.vertices) v.xy += QPointF(1000000.123456789, 4500000.123456789);
+        const double rightX = edited.vertices[1].xy.x() + 0.0000001;
+        edited.vertices[2].xy.setX(rightX); edited.vertices[5].xy.setX(rightX);
+        edited.vertices[0].z = 10.123456789012345;
+        edited.triangles[2].mannings = 0.000012345678901234567;
+        edited.triangles[2].initDepth = 0.000012345678901234567;
+        edited.vertices[0].coupledNode = "J0";
+        edited.vertices[0].couplingCd = 0.6543210987654321;
+        edited.vertices[0].couplingArea = 2.123456789012345;
+        edited.cellCouplings.append({2, "J0", 0.6123456789012345, 1.123456789012345});
+        auto *layer = new SWMM2DMeshLayer(edited, meshPath);
+        layer->setExternalMesh(external); layer->setMeshUnitsSI(siMesh); layer->setActiveMesh(true);
+        w->canvas()->addLayer(layer, false); w->attachMeshLayer(layer);
+        auto &bc = layer->edgeBCsMutable()[mesh::edgeSlot(2, 3)];
+        bc.type = mesh::MeshBCTypes::Type::SpecifiedFlowConst;
+        bc.flow = -0.12345678901234567; bc.conveyance = std::nextafter(1.0, 0.0);
+        w->setHasChanges(true);
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+            QVERIFY(!w->hasChanges()); QVERIFY(!layer->hasUnsavedMeshEdits());
+            const auto back = mesh::InpMeshReader::read(external ? meshPath : target);
+            QVERIFY2(back.hasMesh, qPrintable(back.errorMsg));
+            for (int i = 0; i < edited.vertices.size(); ++i) {
+                QVERIFY(back.mesh.vertices[i].xy.x() == edited.vertices[i].xy.x());
+                QVERIFY(back.mesh.vertices[i].xy.y() == edited.vertices[i].xy.y());
+                QVERIFY(back.mesh.vertices[i].z == edited.vertices[i].z);
+            }
+            QVERIFY(back.mesh.vertices[2].xy.x() > back.mesh.vertices[1].xy.x());
+            QVERIFY(back.mesh.triangles[2].mannings == edited.triangles[2].mannings);
+            QVERIFY(back.mesh.triangles[2].initDepth == edited.triangles[2].initDepth);
+            QVERIFY(back.mesh.vertices[0].couplingCd == edited.vertices[0].couplingCd);
+            QVERIFY(back.mesh.vertices[0].couplingArea == edited.vertices[0].couplingArea);
+            QCOMPARE(back.mesh.cellCouplings.size(), 1);
+            QVERIFY(back.mesh.cellCouplings[0].cd == edited.cellCouplings[0].cd);
+            QVERIFY(back.mesh.cellCouplings[0].area == edited.cellCouplings[0].area);
+            QVERIFY(back.edgeBCs[mesh::edgeSlot(2, 3)].flow == bc.flow);
+            QVERIFY(back.edgeBCs[mesh::edgeSlot(2, 3)].conveyance == bc.conveyance);
+            QCOMPARE(mesh::unitsHeaderIsSI(back.unitsHeader), siMesh);
+        }
+        // Verify the real engine reads distinct vertices from the saved model.
+        // This checks parse/unit initialization, not a hydraulic run on this
+        // deliberately extreme narrow-cell serialization fixture.
+        SWMM_Engine check = swmm_engine_create(); QVERIFY(check);
+        QCOMPARE(swmm_engine_open(check, target.toUtf8().constData(),
+            (dir + "/reopen.rpt").toUtf8().constData(), (dir + "/reopen.out").toUtf8().constData(), nullptr), 0);
+        QCOMPARE(swmm_engine_initialize(check), 0);
+        double x1, x2, y, z;
+        QCOMPARE(swmm_2d_vertex_get_xyz(check, 1, &x1, &y, &z), 0);
+        QCOMPARE(swmm_2d_vertex_get_xyz(check, 2, &x2, &y, &z), 0);
+        QVERIFY(x2 > x1);
+        QCOMPARE(x2, rightX * ((usProject && !siMesh) ? 0.3048 : 1.0));
+        swmm_engine_destroy(check);
+        w->deleteLater();
+    }
+
     void savePathCollision_preservesFiles_data()
     {
         QTest::addColumn<int>("collision");
