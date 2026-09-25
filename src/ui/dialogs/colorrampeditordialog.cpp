@@ -253,6 +253,7 @@ void ColorRampEditorDialog::rebuildStopTable()
         m_stopTable->setCellWidget(i, kColPos, posSpin);
 
         auto *colBtn = new ColorButton(s.second, m_stopTable);
+        colBtn->setAccessibleName(tr("Stop %1 colour").arg(i + 1));
         connect(colBtn, &ColorButton::colorChanged,
                 this, &ColorRampEditorDialog::onStopEdited);
         m_stopTable->setCellWidget(i, kColColor, colBtn);

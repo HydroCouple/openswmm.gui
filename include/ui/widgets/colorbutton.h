@@ -42,6 +42,7 @@ private slots:
     void onClicked();
 
 private:
+    void updateAccessibleDescription();
     QColor m_color = Qt::black;
     bool   m_showAlpha = true;
 };

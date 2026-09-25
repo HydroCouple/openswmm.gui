@@ -21,6 +21,7 @@ ColorButton::ColorButton(QWidget *parent)
     setMinimumSize(60, 22);
     setText(QString());
     setCursor(Qt::PointingHandCursor);
+    updateAccessibleDescription();
     connect(this, &QPushButton::clicked, this, &ColorButton::onClicked);
 }
 
@@ -28,14 +29,28 @@ ColorButton::ColorButton(const QColor &initial, QWidget *parent)
     : ColorButton(parent)
 {
     m_color = initial;
+    updateAccessibleDescription();
 }
 
 void ColorButton::setColor(const QColor &c)
 {
     if (m_color == c) return;
     m_color = c;
+    updateAccessibleDescription();
     update();
     emit colorChanged(c);
+}
+
+void ColorButton::updateAccessibleDescription()
+{
+    // Keep the contextual name supplied by the form's label buddy. Qt emits
+    // DescriptionChanged when this property changes, including alpha-only edits.
+    setAccessibleDescription(m_color.isValid()
+        ? tr("Colour: %1; alpha: %2 of 255 (%3% opacity)")
+              .arg(m_color.name(QColor::HexRgb))
+              .arg(m_color.alpha())
+              .arg(qRound(m_color.alphaF() * 100.0))
+        : tr("No colour selected"));
 }
 
 void ColorButton::onClicked()
