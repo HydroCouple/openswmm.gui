@@ -43,7 +43,6 @@
 #include "core/preferencesmanager.h"
 #include "layers/swmmmodellayer.h"
 #include "swmmvisprojectwindow.h"
-#include "ui/dialogs/initialqualitydialog.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 
 namespace openswmmvis::ui
@@ -423,15 +422,15 @@ void TwoDPage::buildUi()
     m_infil2DDestCombo->addItem(tr("Lost (leaves the model)"), QStringLiteral("LOST"));
     m_infil2DDestCombo->addItem(tr("Subcatchment aquifer (containing subcatchment)"),
                                 QStringLiteral("SUBCATCH_AQUIFER"));
-    m_infil2DDestCombo->addItem(tr("2D aquifer (authoring only until the groundwater kernel)"),
+    m_infil2DDestCombo->addItem(tr("2D aquifer (requires groundwater support)"),
                                 QStringLiteral("AQUIFER_2D"));
     m_infil2DDestCombo->setToolTip(
         tr("[2D_OPTIONS] INFIL_DESTINATION — where infiltrated water goes "
            "for every row that does not spell its own DEST column. "
            "Subcatchment aquifer recharges the legacy aquifer of the "
-           "subcatchment containing each cell; 2D aquifer is accepted in "
-           "the file but a run refuses it until the integrated groundwater "
-           "kernel lands."));
+           "subcatchment containing each cell. The 2D aquifer requires a "
+           "compatible groundwater component and valid aquifer configuration. "
+           "Check the run report for the selected engine's support."));
     rainfallForm->addRow(tr("Destination:"), m_infil2DDestCombo);
 
     m_editInfilCellsBtn = new QPushButton(tr("Edit per-cell infiltration…"), rainfallGroup);
@@ -551,19 +550,13 @@ void TwoDPage::buildUi()
     m_gw2DStatusLabel->setWordWrap(true);
     gwForm->addRow(tr("Transport:"), m_gw2DStatusLabel);
 
-    m_gw2DEditBtn = new QPushButton(tr("Subsurface initial quality..."), m_gw2DGroup);
+    m_gw2DEditBtn = new QPushButton(tr("Subsurface initial quality (editor unavailable)"), m_gw2DGroup);
     m_gw2DEditBtn->setObjectName(QStringLiteral("gw2DEditBtn"));
+    m_gw2DEditBtn->setEnabled(false);
     m_gw2DEditBtn->setToolTip(
-        tr("Open the Initial Quality editor: per-element initial "
-           "concentrations, temperatures and ages. Subsurface rows "
-           "([GW_INITIAL_QUALITY]) are authored there and saved with the "
-           "model."));
-    connect(m_gw2DEditBtn, &QPushButton::clicked, this, [this]() {
-        OpenSWMMVis::InitialQualityDialog dlg(ctx_.engine(), this);
-        if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
-            emit engineEditedDirectly();
-        refreshGates();
-    });
+        tr("Configure subsurface initial quality in the model input file's "
+           "[GW_INITIAL_QUALITY] section. The current Initial Quality editor "
+           "edits node/link rows and cannot edit subsurface rows."));
     gwForm->addRow(QString(), m_gw2DEditBtn);
 
     connect(m_gw2DEnableCombo, &QComboBox::currentIndexChanged, this,
@@ -663,8 +656,8 @@ void TwoDPage::buildUi()
     m_report2DVarsList->setToolTip(
         tr("Dataset groups written to the 2D results file ([2D_OPTIONS] "
            "REPORT_2D_VARIABLES). Unticked groups are absent from the file; "
-           "plots and symbology that need them are greyed out when the run "
-           "is loaded. Depth is always written."));
+           "available GUI views depend on the groups present. Some groups "
+           "require external post-processing. Depth is always written."));
     struct VarDoc { const char *token; const char *label; const char *tip; };
     static const VarDoc kVarDocs[] = {
         {"DEPTH",        "Depth & head (per cell)",
@@ -682,9 +675,10 @@ void TwoDPage::buildUi()
          "depth rendering and flood-extent isolines; without them the GUI "
          "falls back to a coarser cell-average reconstruction."},
         {"SPECIES",      "Water quality (per cell × species)",
-         "Mesh2_face_species_conc — concentration rendering and plots for "
-         "pollutants, MSX species, water age and temperature. Use the species "
-         "list below to keep only some rows."},
+         "Mesh2_face_species_conc — per-cell concentrations for enabled "
+         "species, written for external post-processing. Rendering and plotting "
+         "this dataset are not yet available in the GUI. Use the species list "
+         "below to select which species are written."},
         {"RAINFALL",     "Rainfall (per cell)",
          "Mesh2_face_rainfall / Mesh2_face_rain_cum — cell rainfall intensity "
          "and cumulative rain-volume plots."},
@@ -896,15 +890,18 @@ void TwoDPage::refreshGates()
             m_infil2DDestCombo->setCurrentIndex(aq);
         m_infil2DDestCombo->setEnabled(!on);
         m_infil2DDestCombo->setToolTip(
-            on ? tr("Locked to the 2D aquifer while Groundwater is enabled: "
-                    "infiltrated water enters the subsurface column under the "
-                    "cell. Turn Groundwater off to route it elsewhere.")
+            on ? tr("Locked to the 2D aquifer while Groundwater is enabled. "
+                    "This destination requires a compatible groundwater "
+                    "component and valid aquifer configuration; check the run "
+                    "report for support. Turn Groundwater off to choose "
+                    "another destination.")
                : tr("[2D_OPTIONS] INFIL_DESTINATION: where infiltrated water "
                     "goes for every row that does not spell its own DEST "
                     "column. Subcatchment aquifer recharges the legacy aquifer "
-                    "of the subcatchment containing each cell; 2D aquifer is "
-                    "accepted in the file but a run refuses it until the "
-                    "integrated groundwater kernel lands."));
+                    "of the subcatchment containing each cell. The 2D aquifer "
+                    "requires a compatible groundwater component and valid "
+                    "aquifer configuration. Check the run report for the "
+                    "selected engine's support."));
         if (m_infil2DMethodCombo)
             m_infil2DMethodCombo->setEnabled(!on);
     }
@@ -918,16 +915,17 @@ void TwoDPage::refreshGates()
                std::max(0, swmm_gw_boundary_quality_count(e)) +
                std::max(0, swmm_gw_source_count(e));
     }
-    m_gw2DStatusLabel->setText(
-        rows > 0
-            ? tr("%1 subsurface transport row(s) authored "
-                 "([GW_TRANSPORT_PARAMS], [GW_SORPTION], [GW_INITIAL_QUALITY], "
-                 "[GW_BOUNDARY_QUALITY], [GW_SOURCES]). They are saved with "
-                 "the model; a run reports them as authored-but-inert until "
-                 "the integrated groundwater component ships.").arg(rows)
-            : tr("No subsurface transport rows authored yet. They are saved "
-                 "with the model and run when the integrated groundwater "
-                 "component ships."));
+    const QString rowSummary = rows > 0
+        ? tr("%1 subsurface transport row(s) configured "
+             "([GW_TRANSPORT_PARAMS], [GW_SORPTION], [GW_INITIAL_QUALITY], "
+             "[GW_BOUNDARY_QUALITY], [GW_SOURCES]). These rows are saved "
+             "with the model.").arg(rows)
+        : tr("No subsurface transport rows configured.");
+    m_gw2DStatusLabel->setText(rowSummary + tr(
+        " Edit subsurface quality and sources in the model input file; this "
+        "dialog does not author those rows. Their use during a run depends on "
+        "the selected engine and enabled groundwater component. Check the run "
+        "report for active or inactive transport."));
 }
 
 unsigned TwoDPage::reportVarsMask() const

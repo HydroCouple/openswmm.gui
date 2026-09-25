@@ -24,6 +24,7 @@
 #include <QComboBox>
 #include <QDir>
 #include <QLabel>
+#include <QPushButton>
 #include <QTest>
 
 #include <memory>
@@ -65,6 +66,29 @@ class TestGwPageKeys : public QObject
     Q_OBJECT
 
 private slots:
+    void subsurfaceEditorDoesNotOpenNodeLinkEditor_data()
+    {
+        QTest::addColumn<QString>("mode");
+        QTest::newRow("automatic") << QStringLiteral("AUTO");
+        QTest::newRow("enabled") << QStringLiteral("YES");
+        QTest::newRow("disabled") << QStringLiteral("NO");
+    }
+
+    void subsurfaceEditorDoesNotOpenNodeLinkEditor()
+    {
+        QFETCH(QString, mode);
+        auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+        QVERIFY(layer);
+        SimulationOptionsDialog dlg(layer->engine(), layer.get(),
+                                    QStringLiteral("6.0.0"), nullptr, nullptr);
+        auto *gw = child<QComboBox>(&dlg, "gw2DEnableCombo");
+        auto *edit = child<QPushButton>(&dlg, "gw2DEditBtn");
+        QVERIFY(gw && edit);
+        gw->setCurrentIndex(gw->findData(mode));
+        QVERIFY2(!edit->isEnabled(),
+                 "The node/link initial-quality editor cannot author groundwater rows");
+    }
+
     void defaultsAndRoundTrip()
     {
         auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -135,8 +159,8 @@ private slots:
             QVERIFY(status);
             QVERIFY2(status->text().startsWith(QStringLiteral("2 subsurface")),
                      qPrintable(status->text()));
-            // The rows are the GW editor's, not this dialog's: Apply is the
-            // identity for them.
+            // Imported/API-authored GW rows are not edited by this dialog:
+            // Apply must preserve them.
             QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
             QCOMPARE(swmm_gw_init_quality_count(e), 1);
             QCOMPARE(swmm_gw_sorption_count(e), 1);
