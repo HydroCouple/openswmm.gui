@@ -121,21 +121,23 @@ private slots:
     void numericPrecision_data()
     {
         QTest::addColumn<int>("field");
-        QTest::addColumn<bool>("patch");
+        QTest::addColumn<int>("mode");
         const char *fields[] = {"close-vertices", "elevation", "roughness", "initial-depth",
             "vertex-coefficient", "vertex-area", "cell-coefficient", "cell-area",
             "infiltration-rate", "infiltration-step", "boundary-stage", "boundary-slope",
             "boundary-flow", "conveyance"};
         for (int i = 0; i < int(std::size(fields)); ++i) {
-            QTest::newRow(qPrintable(QString::fromLatin1(fields[i]) + "-write")) << i << false;
-            QTest::newRow(qPrintable(QString::fromLatin1(fields[i]) + "-patch")) << i << true;
+            QTest::newRow(qPrintable(QString::fromLatin1(fields[i]) + "-write")) << i << 0;
+            QTest::newRow(qPrintable(QString::fromLatin1(fields[i]) + "-patch")) << i << 1;
+            QTest::newRow(qPrintable(QString::fromLatin1(fields[i]) + "-combined")) << i << 2;
         }
     }
 
     void numericPrecision()
     {
         QFETCH(int, field);
-        QFETCH(bool, patch);
+        QFETCH(int, mode);
+        const bool patch = mode != 0;
         ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inp = dir.filePath("project.inp");
@@ -179,8 +181,12 @@ private slots:
             // Start from the serialized file, then patch the original working
             // values twice. Tests must not accept the first save's rounding.
             for (int repeat = 0; repeat < 2; ++repeat) {
-                QVERIFY2(InpMeshWriter::patchAttributeSections(file, m, &err), qPrintable(err));
-                QVERIFY2(InpMeshWriter::patchBCSections(file, m, bcs, &err), qPrintable(err));
+                if (mode == 2) {
+                    QVERIFY2(InpMeshWriter::patchMeshSections(file, m, bcs, &err), qPrintable(err));
+                } else {
+                    QVERIFY2(InpMeshWriter::patchAttributeSections(file, m, &err), qPrintable(err));
+                    QVERIFY2(InpMeshWriter::patchBCSections(file, m, bcs, &err), qPrintable(err));
+                }
             }
         }
         const auto back = InpMeshReader::read(patch ? file : inp);
@@ -933,6 +939,97 @@ private slots:
         QVERIFY(after.open(QIODevice::ReadOnly));
         QCOMPARE(after.readAll(), snapshot);
     }
+    void combinedPatch_preservesPayload_data()
+    {
+        QTest::addColumn<int>("shape");
+        QTest::newRow("triangles") << 0;
+        QTest::newRow("mixed") << 1;
+        QTest::newRow("quads") << 2;
+    }
+
+    void combinedPatch_preservesPayload()
+    {
+        QFETCH(int, shape);
+        ReviewableTestDir dir;
+        auto m = shape == 0 ? sampleMesh() : shape == 1 ? mixedMesh() : quadPairMesh();
+        const QString combined = dir.filePath("combined.inp");
+        const QString sequential = dir.filePath("sequential.inp");
+        QFile f(combined); QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("[TITLE]\nAuthored title\n[UNOWNED_SECTION]\nkeep this payload\n"); f.close();
+        QVERIFY(InpMeshWriter::writeInline(combined, m, {}));
+        QVERIFY(QFile::copy(combined, sequential));
+        InpMeshWriter::UnitInfo units;
+        units.linearUnitName = "SI (m)"; units.sourceCrsTag = "EPSG:3857";
+        m.vertices[0].z = 123.12345678901234;
+        m.vertices[0].coupledNode = "J1";
+        m.cellCouplings.append({0, "J2", 0.65, 2.0});
+        m.triangles[0].initDepth = 0.25;
+        InfilRow row; row.method = InfilMethod::Constant; row.p[0] = 0.12345678901234567;
+        m.infilOverrides.insert(0, row); m.infilDefaults.append({"*", row});
+        QVector<MeshEdgeBC> bcs(edgeSlotCount(m.triangles.size()));
+        bcs[edgeSlot(0, 2)].type = MeshBCTypes::Type::SpecifiedFlowConst;
+        bcs[edgeSlot(0, 2)].flow = -0.125;
+        bcs[edgeSlot(0, 2)].group = "corridor_outlet";
+        bcs[edgeSlot(0, 2)].conveyance = 0.42;
+        QString err;
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            QVERIFY2(InpMeshWriter::patchMeshSections(combined, m, bcs, &err, .035, &units), qPrintable(err));
+            QVERIFY(InpMeshWriter::patchAttributeSections(sequential, m, &err, .035, &units));
+            QVERIFY(InpMeshWriter::patchBCSections(sequential, m, bcs, &err));
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            const auto bytes = f.readAll(); f.close();
+            QFile expected(sequential); QVERIFY(expected.open(QIODevice::ReadOnly));
+            QCOMPARE(bytes, expected.readAll());
+            QVERIFY(bytes.contains("[UNOWNED_SECTION]\nkeep this payload"));
+            QVERIFY(bytes.contains(";; UNITS: SI (m)"));
+            QVERIFY(bytes.contains(";; SOURCE_CRS: EPSG:3857"));
+            const auto back = InpMeshReader::read(combined);
+            QVERIFY2(back.hasMesh, qPrintable(back.errorMsg));
+            QCOMPARE(back.mesh.vertices[0].z, m.vertices[0].z);
+            QCOMPARE(back.mesh.vertices[0].coupledNode, QStringLiteral("J1"));
+            QCOMPARE(back.mesh.cellCouplings.size(), 1);
+            QCOMPARE(back.mesh.infilOverrides.value(0).p[0], row.p[0]);
+            QCOMPARE(back.edgeBCs[edgeSlot(0, 2)].group, QStringLiteral("corridor_outlet"));
+            QCOMPARE(back.edgeBCs[edgeSlot(0, 2)].conveyance, 0.42);
+        }
+        // Reset removes the previously persisted boundary/conveyance sections.
+        bcs.fill(MeshEdgeBC{});
+        QVERIFY(InpMeshWriter::patchMeshSections(combined, m, bcs, &err));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const auto reset = f.readAll();
+        QVERIFY(!reset.contains("[2D_BOUNDARY_CONDITIONS]"));
+        QVERIFY(!reset.contains("[2D_EDGE_CONVEYANCE]"));
+    }
+
+    void combinedPatch_rejectsMismatch_data()
+    {
+        QTest::addColumn<int>("failure");
+        QTest::newRow("vertices") << 0;
+        QTest::newRow("cell-kind") << 1;
+        QTest::newRow("boundary-slots") << 2;
+    }
+
+    void combinedPatch_rejectsMismatch()
+    {
+        QFETCH(int, failure);
+        ReviewableTestDir dir;
+        const QString path = dir.filePath("mesh.inp");
+        QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly)); f.close();
+        auto m = mixedMesh();
+        QVERIFY(InpMeshWriter::writeInline(path, m, {}));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const auto before = f.readAll(); f.close();
+        QVector<MeshEdgeBC> bcs(edgeSlotCount(m.triangles.size()));
+        if (failure == 0) m.vertices.removeLast();
+        if (failure == 1) m.triangles[2].v3 = -1;
+        if (failure == 2) bcs.removeLast();
+        QString err;
+        QVERIFY(!InpMeshWriter::patchMeshSections(path, m, bcs, &err));
+        QVERIFY(!err.isEmpty());
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QCOMPARE(f.readAll(), before);
+    }
+
 };
 
 QTEST_MAIN(TestInpMeshWriter)

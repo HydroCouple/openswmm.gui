@@ -66,7 +66,6 @@
 #include <QLoggingCategory>
 #include <QEvent>
 #include <QFile>
-#include <QSaveFile>
 #include <QFileInfo>
 #include <QFrame>
 #include <QFutureWatcher>
@@ -1377,8 +1376,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     QElapsedTimer total, stage;
     total.start();
     stage.start();
-    qint64 meshSyncMs = 0, snapshotMs = 0, engineWriteMs = 0, restoreMs = 0;
-    qint64 attrPatchMs = 0, bcPatchMs = 0, meshRefMs = 0, inlinePatchMs = 0,
+    qint64 meshSyncMs = 0, meshReadMs = 0, engineWriteMs = 0;
+    qint64 meshPatchMs = 0, meshRefMs = 0, inlinePatchMs = 0,
            oswpMs = 0;
     int dmReads = 0, dmWrites = 0;
 
@@ -1611,11 +1610,10 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         }
     }
 
-    // Retain the chosen external file's authored sections for the checked
-    // GUI patch chain below. The engine writes inline during this Save so it
+    // Preflight the chosen external file before writing the model.
+    // The engine writes inline during this Save so it
     // cannot overwrite another mesh through a stale or rebased reference.
     QString          extMeshPath;
-    QByteArray       extMeshSnapshot;
     SWMM2DMeshLayer *extMeshLayer = nullptr;
     if (canvas() && pluginId.isEmpty()
         && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"),
@@ -1630,17 +1628,17 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             QFile mf(extMeshPath);
             if (!mf.open(QIODevice::ReadOnly))
                 return failSave(tr("read the external mesh"), extMeshPath, mf.errorString());
-            extMeshSnapshot = mf.readAll();
+            const QByteArray contents = mf.readAll();
             ++dmReads;
             if (mf.error() != QFileDevice::NoError)
                 return failSave(tr("read the external mesh"), extMeshPath, mf.errorString());
-            if (extMeshSnapshot.isEmpty())
+            if (contents.isEmpty())
                 return failSave(tr("read the external mesh"), extMeshPath,
                                 tr("the mesh file is empty"));
             extMeshLayer = chosenMesh;
         }
     }
-    snapshotMs = stage.restart();
+    meshReadMs = stage.restart();
 
     QByteArray utf8 = newPath.toUtf8();
     QByteArray idUtf8 = pluginId.toUtf8();
@@ -1697,55 +1695,18 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                         pluginId.isEmpty()
                             ? tr("the built-in writer failed (code %1)").arg(rc)
                             : tr("writer %1 failed (code %2)").arg(pluginId).arg(rc));
-    // Preserve the selected file's authored text, then apply GUI-owned
-    // attributes and boundaries and publish the final model reference. This
-    // remains a checked multi-step write, not a multi-file transaction.
+    // Publish attributes and boundaries as one complete mesh payload.
+    // The engine's inline output is not the external mesh source: it can
+    // still hold stale topology. This is not a multi-file transaction.
     if (!extMeshPath.isEmpty())
     {
-        QSaveFile mf(extMeshPath);
-        mf.setDirectWriteFallback(false);
-        if (!mf.open(QIODevice::WriteOnly))
-            return failSave(tr("restore the external mesh"), extMeshPath, mf.errorString());
-        const qint64 written = mf.write(extMeshSnapshot);
-        if (written != extMeshSnapshot.size())
-        {
-            const QString reason = tr("only %1 of %2 bytes could be written (%3)")
-                                       .arg(qMax(qint64(0), written))
-                                       .arg(extMeshSnapshot.size()).arg(mf.errorString());
-            mf.cancelWriting();
-            return failSave(tr("restore the external mesh"), extMeshPath, reason);
-        }
-        if (!mf.commit())
-            return failSave(tr("restore the external mesh"), extMeshPath, mf.errorString());
+        QString patchErr;
+        if (!mesh::InpMeshWriter::patchMeshSections(
+                extMeshPath, extMeshLayer->mesh(), extMeshLayer->edgeBCs(), &patchErr))
+            return failSave(tr("save the external mesh"), extMeshPath, patchErr);
+        ++dmReads;
         ++dmWrites;
-        restoreMs = stage.restart();
-        // Patch every GUI-owned attribute into the preserved authored file.
-        // The engine's inline output is deliberately not used as the mesh
-        // source: it may still contain topology from an earlier selection.
-        if (extMeshLayer)
-        {
-            QString attrErr;
-            if (!mesh::InpMeshWriter::patchAttributeSections(
-                    extMeshPath, extMeshLayer->mesh(), &attrErr))
-                return failSave(tr("save mesh attributes"), extMeshPath, attrErr);
-            ++dmReads;
-            ++dmWrites;
-        }
-        attrPatchMs = stage.restart();
-        // Re-emit current boundary/conveyance edits into the chosen file.
-        if (extMeshLayer
-            && extMeshLayer->edgeBCs().size()
-                   == mesh::edgeSlotCount(extMeshLayer->mesh().triangles.size()))
-        {
-            QString bcErr;
-            if (!mesh::InpMeshWriter::patchBCSections(
-                    extMeshPath, extMeshLayer->mesh(),
-                    extMeshLayer->edgeBCs(), &bcErr))
-                return failSave(tr("save mesh boundary conditions"), extMeshPath, bcErr);
-            ++dmReads;
-            ++dmWrites;
-        }
-        bcPatchMs = stage.restart();
+        meshPatchMs = stage.restart();
         QString meshErr;
         if (!mesh::InpMeshWriter::writeMeshFileRef(newPath, extMeshPath, &meshErr))
             return failSave(tr("save the mesh reference"), newPath, meshErr);
@@ -1761,13 +1722,10 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         mesh::InpMeshWriter::UnitInfo units;
         units.linearUnitName = ml->meshUnitsSI() ? QStringLiteral("SI (m)")
                                                : QStringLiteral("project units");
-        QString attrErr;
-        if (!mesh::InpMeshWriter::patchAttributeSections(newPath, ml->mesh(),
-                                                         &attrErr, 0.035, &units))
-            return failSave(tr("save inline mesh attributes"), newPath, attrErr);
-        QString bcErr;
-        if (!mesh::InpMeshWriter::patchBCSections(newPath, ml->mesh(), ml->edgeBCs(), &bcErr))
-            return failSave(tr("save inline mesh boundary conditions"), newPath, bcErr);
+        QString patchErr;
+        if (!mesh::InpMeshWriter::patchMeshSections(newPath, ml->mesh(), ml->edgeBCs(),
+                                                    &patchErr, 0.035, &units))
+            return failSave(tr("save the inline mesh"), newPath, patchErr);
     }
     inlinePatchMs = stage.restart();
 
@@ -1850,11 +1808,9 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         << "[save][stages] meshPushed=" << meshLayersPushed.size()
         << " meshSkipped=" << meshLayersSkipped
         << " meshSync=" << meshSyncMs
-        << " snapshot=" << snapshotMs
+        << " meshRead=" << meshReadMs
         << " engineWrite=" << engineWriteMs
-        << " restore=" << restoreMs
-        << " attrPatch=" << attrPatchMs
-        << " bcPatch=" << bcPatchMs
+        << " meshPatch=" << meshPatchMs
         << " meshRef=" << meshRefMs
         << " inlinePatch=" << inlinePatchMs
         << " oswp=" << oswpMs

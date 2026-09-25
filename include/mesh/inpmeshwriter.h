@@ -237,11 +237,8 @@ public:
      *         external `.2dm`) with sections built from \p bcs, leaving
      *         every other section untouched.
      *
-     *  Used by the post-save external-mesh restore: the pre-write `.2dm`
-     *  snapshot predates the engine's write of the current BC/conveyance
-     *  edits, so restoring it would silently discard them — this re-emits
-     *  the layer's per-edge state into the restored file. All-default \p bcs
-     *  strips the sections without appending (reset-to-Wall round-trips).
+     *  All-default \p bcs strips the sections without appending
+     *  (reset-to-Wall round-trips).
      *  Atomic via `QSaveFile`.
      *
      *  \param filePath  File whose BC/conveyance sections are replaced.
@@ -263,19 +260,8 @@ public:
      *         rebuilt from the layer's editable mesh state, leaving every
      *         other section untouched.
      *
-     *  **Every GUI-owned mesh-attribute section must be listed here.** A
-     *  section this function does not re-emit is discarded on every project
-     *  save, because the save path restores a pre-engine-write snapshot of
-     *  the mesh file first — see the comment at
-     *  `src/swmmvisprojectwindow.cpp:1414-1419`.
-     *
-     *  The BC-patch's sibling for mesh *attributes*: the post-save
-     *  external-mesh restore rolls the sidecar back to its pre-write
-     *  snapshot, which predates the engine's write of the current vertex
-     *  elevation / tag / coupling and triangle Manning / tag edits — without
-     *  this re-emit those edits silently vanish from the saved model (and
-     *  the next run reads the old elevations). The layer is authoritative
-     *  for exactly the fields pushMeshEditsToEngine() pushes; a triangle
+     *  Re-emits the layer's geometry, attributes, coupling and infiltration.
+     *  The layer is authoritative for these editable fields; a triangle
      *  whose Manning is unset (NaN) keeps the file's existing token so a
      *  generation-time default survives the rewrite.
      *
@@ -301,6 +287,21 @@ public:
                                                      QString *errorOut = nullptr,
                                                      double defaultMannings = 0.035,
                                                      const UnitInfo *units = nullptr);
+
+    /*! \brief Replace mesh attributes and BC/conveyance sections together.
+     *
+     *  Uses the same payload and metadata rules as patchAttributeSections
+     *  and patchBCSections, with one checked read and one atomic QSaveFile
+     *  commit. Row counts and the complete edge-slot vector must match.
+     *  Validation or write failure leaves this file unchanged; other files
+     *  involved in a project Save are outside this single-file guarantee.
+     */
+    [[nodiscard]] static bool patchMeshSections(const QString &filePath,
+                                                const MeshResult &mesh,
+                                                const QVector<MeshEdgeBC> &bcs,
+                                                QString *errorOut = nullptr,
+                                                double defaultMannings = 0.035,
+                                                const UnitInfo *units = nullptr);
 
     /*! \brief Strip any `[2D_MESH_FILE]` reference from the `.inp` so the
      *         engine falls back to the inline `[2D_*]` mesh sections.

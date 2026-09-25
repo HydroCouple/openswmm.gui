@@ -949,7 +949,7 @@ private slots:
         w->deleteLater();
     }
 
-    void externalRestore_shortWriteFailsSave()
+    void externalMesh_shortWriteFailsSave()
     {
 #ifndef Q_OS_UNIX
         QSKIP("Short-write injection uses POSIX per-process file-size limits");
@@ -961,7 +961,7 @@ private slots:
             child.setProcessEnvironment(env);
             child.setProcessChannelMode(QProcess::MergedChannels);
             child.start(QCoreApplication::applicationFilePath(),
-                        {QStringLiteral("externalRestore_shortWriteFailsSave")});
+                        {QStringLiteral("externalMesh_shortWriteFailsSave")});
             QVERIFY(child.waitForFinished(20000));
             const QByteArray report = child.readAll();
             QFile log(outDir() + QStringLiteral("/mesh_short_write_child.log"));
@@ -990,12 +990,15 @@ private slots:
         w->attachMeshLayer(layer, true);
         QVERIFY(layer->applyMeshVertexZ(0, 1234.5));
         w->setHasChanges(true);
-        // The engine's small serialization fits; restoring the original
-        // sidecar plus its long comment cannot fit. This targets restoration,
+        // The engine's small serialization fits; the combined mesh payload
+        // plus an unowned section's long comment cannot fit. Keeping the
+        // padding outside rebuilt mesh sections targets the mesh commit,
         // not engine write failure, without a production fault-injection hook.
         QFile padded(external); QVERIFY(padded.open(QIODevice::Append));
-        const QByteArray padding = "\n;; " + QByteArray(131072, 'x') + "\n";
+        const QByteArray padding = "\n[UNOWNED_SECTION]\n;; " + QByteArray(131072, 'x') + "\n";
         QCOMPARE(padded.write(padding), padding.size()); padded.close();
+        QVERIFY(padded.open(QIODevice::ReadOnly));
+        const QByteArray originalBytes = padded.readAll(); padded.close();
         struct rlimit oldLimit;
         QVERIFY(getrlimit(RLIMIT_FSIZE, &oldLimit) == 0);
         auto limited = oldLimit; limited.rlim_cur = 32768;
@@ -1006,14 +1009,95 @@ private slots:
         std::signal(SIGXFSZ, oldHandler);
         QVERIFY(restored == 0);
         QVERIFY(!saved);
-        QVERIFY2(err.contains(QStringLiteral("restore the external mesh")), qPrintable(err));
+        QVERIFY2(err.contains(QStringLiteral("save the external mesh")), qPrintable(err));
         QVERIFY(err.contains(external));
         QVERIFY(w->hasChanges());
         QVERIFY(layer->hasUnsavedMeshEdits());
         QCOMPARE(w->modelLayer()->modelFilePath(), deck);
         QCOMPARE(layer->mesh().vertices[0].z, 1234.5);
-        // The engine may already have overwritten the mesh. This test does
-        // not certify multi-file rollback; it certifies truthful failure.
+        QVERIFY(padded.open(QIODevice::ReadOnly));
+        QCOMPARE(padded.readAll(), originalBytes);
+        w->deleteLater();
+#endif
+    }
+
+    void externalMesh_lateBoundaryFailurePreservesFile()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("Short-write injection uses POSIX per-process file-size limits");
+#else
+        if (!qEnvironmentVariableIsSet("SWMMVIS_MESH_BOUNDARY_FAILURE_CHILD")) {
+            QProcess child;
+            auto env = QProcessEnvironment::systemEnvironment();
+            env.insert(QStringLiteral("SWMMVIS_MESH_BOUNDARY_FAILURE_CHILD"), QStringLiteral("1"));
+            child.setProcessEnvironment(env);
+            child.setProcessChannelMode(QProcess::MergedChannels);
+            child.start(QCoreApplication::applicationFilePath(),
+                        {QStringLiteral("externalMesh_lateBoundaryFailurePreservesFile")});
+            QVERIFY(child.waitForFinished(20000));
+            const QByteArray report = child.readAll();
+            QFile log(outDir() + QStringLiteral("/mesh_boundary_failure_child.log"));
+            QVERIFY(log.open(QIODevice::WriteOnly)); log.write(report);
+            QVERIFY2(child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0,
+                     report.constData());
+            return;
+        }
+        const auto original = mesh::InpMeshReader::read(
+            QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                .filePath(QStringLiteral("mesh_async_fixture.inp")));
+        QVERIFY(original.hasMesh);
+        const QString deck = outDir() + QStringLiteral("/mesh_boundary_failure.inp");
+        const QString external = outDir() + QStringLiteral("/mesh_boundary_failure.2dm");
+        const QString target = outDir() + QStringLiteral("/mesh_boundary_failure_saved.inp");
+        QVERIFY(writeDeck(deck, false));
+        QString err;
+        QVERIFY(mesh::InpMeshWriter::writeExternal(deck, external, original.mesh,
+                                                   {}, 0.035, &err));
+        auto *w = openWindow(deck, &err);
+        QVERIFY2(w, qPrintable(err));
+        auto *layer = new SWMM2DMeshLayer(original.mesh, external);
+        layer->setExternalMesh(true);
+        layer->setActiveMesh(true);
+        w->canvas()->addLayer(layer, false);
+        w->attachMeshLayer(layer, true);
+        QVERIFY(layer->applyMeshVertexZ(0, 1234.5));
+        w->setHasChanges(true);
+        // The attribute patch fits but the GUI-only group makes the later
+        // boundary patch exceed the limit. Neither the engine nor the first
+        // patch emits this group. A failed Save must retain the original mesh.
+        auto &bc = layer->edgeBCsMutable()[mesh::edgeSlot(0, 2)];
+        bc.type = mesh::MeshBCTypes::Type::SpecifiedFlowConst;
+        bc.flow = 0.125;
+        bc.group = QString(131072, QChar('x'));
+        QFile originalFile(external); QVERIFY(originalFile.open(QIODevice::ReadOnly));
+        const QByteArray originalBytes = originalFile.readAll(); originalFile.close();
+        QVERIFY(originalBytes.size() < 32768);
+        struct rlimit oldLimit;
+        QVERIFY(getrlimit(RLIMIT_FSIZE, &oldLimit) == 0);
+        auto limited = oldLimit; limited.rlim_cur = 32768;
+        const auto oldHandler = std::signal(SIGXFSZ, SIG_IGN);
+        QVERIFY(setrlimit(RLIMIT_FSIZE, &limited) == 0);
+        const bool saved = w->saveAs(target, &err);
+        const int restored = setrlimit(RLIMIT_FSIZE, &oldLimit);
+        std::signal(SIGXFSZ, oldHandler);
+        QVERIFY(restored == 0);
+        QVERIFY(!saved);
+        QVERIFY2(err.contains(QStringLiteral("mesh")), qPrintable(err));
+        QVERIFY(err.contains(external));
+        QVERIFY(w->hasChanges());
+        QVERIFY(layer->hasUnsavedMeshEdits());
+        QCOMPARE(w->modelLayer()->modelFilePath(), deck);
+        QCOMPARE(layer->mesh().vertices[0].z, 1234.5);
+        QVERIFY(originalFile.open(QIODevice::ReadOnly));
+        QCOMPARE(originalFile.readAll(), originalBytes); originalFile.close();
+        bc.group = QStringLiteral("corridor_outlet");
+        QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+        QVERIFY(!w->hasChanges());
+        QVERIFY(!layer->hasUnsavedMeshEdits());
+        const auto back = mesh::InpMeshReader::read(target);
+        QVERIFY(back.hasMesh);
+        QCOMPARE(back.mesh.vertices[0].z, 1234.5);
+        QCOMPARE(back.edgeBCs[mesh::edgeSlot(0, 2)].group, QStringLiteral("corridor_outlet"));
         w->deleteLater();
 #endif
     }

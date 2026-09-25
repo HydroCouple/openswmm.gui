@@ -1018,45 +1018,30 @@ bool InpMeshWriter::writeInline(const QString &inpPath,
     return atomicWrite(inpPath, patched, errorOut);
 }
 
-bool InpMeshWriter::patchBCSections(const QString &filePath,
-                                    const MeshResult &mesh,
-                                    const QVector<MeshEdgeBC> &bcs,
-                                    QString *errorOut)
+namespace {
+QString patchBoundaryText(const QString &text, const MeshResult &mesh,
+                          const QVector<MeshEdgeBC> &bcs)
 {
-    const ReadResult r = readInp(filePath);
-    if (!r.ok) {
-        if (errorOut) *errorOut = r.err;
-        return false;
-    }
-
     QString patched = stripSections(
-        r.text, {QStringLiteral("[2D_BOUNDARY_CONDITIONS]"),
-                 QStringLiteral("[2D_EDGE_CONVEYANCE]")});
+        text, {QStringLiteral("[2D_BOUNDARY_CONDITIONS]"),
+               QStringLiteral("[2D_EDGE_CONVEYANCE]")});
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));
-    patched.append(buildBCSectionText(bcs));
-    patched.append(buildConveyanceSectionText(mesh, bcs));
-    return atomicWrite(filePath, patched, errorOut);
+    patched.append(InpMeshWriter::buildBCSectionText(bcs));
+    patched.append(InpMeshWriter::buildConveyanceSectionText(mesh, bcs));
+    return patched;
 }
 
-bool InpMeshWriter::patchAttributeSections(const QString &filePath,
-                                           const MeshResult &mesh,
-                                           QString *errorOut,
-                                           double defaultMannings,
-                                           const UnitInfo *units)
+bool patchAttributeText(const QString &text, const MeshResult &mesh,
+                        QString *patchedOut, QString *errorOut,
+                        double defaultMannings, const InpMeshWriter::UnitInfo *units)
 {
-    const ReadResult r = readInp(filePath);
-    if (!r.ok) {
-        if (errorOut) *errorOut = r.err;
-        return false;
-    }
-
     // Rows map to mesh entries by position — a count mismatch means the file
     // holds a different mesh (e.g. regenerated with other parameters), and
     // patching would scramble it. Leave the file untouched.
-    const QStringList vRows = sectionDataRows(r.text, kSecVertices);
-    const QStringList tRows = sectionDataRows(r.text, kSecTriangles);
-    const QStringList qRows = sectionDataRows(r.text, kSecQuads);
+    const QStringList vRows = sectionDataRows(text, kSecVertices);
+    const QStringList tRows = sectionDataRows(text, kSecTriangles);
+    const QStringList qRows = sectionDataRows(text, kSecQuads);
     const int nQuad = mesh.quadCount();
     const int nTri  = mesh.triangles.size() - nQuad;
     if (vRows.size() != mesh.vertices.size()
@@ -1074,10 +1059,10 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
     // before stripping that section. When the caller supplies raw layer
     // coordinates, replace any engine-derived units with the layer's units;
     // otherwise an initialized US mesh could acquire a second conversion.
-    UnitInfo metadata;
+    InpMeshWriter::UnitInfo metadata;
     QString withoutHeaders;
-    withoutHeaders.reserve(r.text.size());
-    for (const QString &line : r.text.split(QChar('\n'), Qt::KeepEmptyParts)) {
+    withoutHeaders.reserve(text.size());
+    for (const QString &line : text.split(QChar('\n'), Qt::KeepEmptyParts)) {
         const QString trimmed = line.trimmed();
         if (trimmed.startsWith(QStringLiteral(";;"))) {
             const QString comment = trimmed.mid(2).trimmed();
@@ -1112,12 +1097,7 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
                  QLatin1String(kSecQuads),
                  QLatin1String(kSecVertexNodeMap),
                  QLatin1String(kSecTriangleNodeMap),
-                 // GG0a — a section missing from THIS list (and from the
-                 // re-emit below) is discarded on every save: the save path
-                 // restores a pre-engine-write snapshot of the mesh file and
-                 // re-emits the GUI's state through this function. The
-                 // vertex-Z comment at swmmvisprojectwindow.cpp:1414-1419
-                 // documents the same failure mode.
+                 // Infiltration follows the GUI-owned mesh attributes.
                  QLatin1String(kSecInfilOptions),
                  QLatin1String(kSecInfilDefaults),
                  QLatin1String(kSecInfil)});
@@ -1136,7 +1116,63 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
     patched.append(formatVertexNodeMap(mesh, cm));
     patched.append(formatTriangleNodeMap(mesh, cm));
     patched.append(formatInfilSections(mesh));
+    *patchedOut = patched;
+    return true;
+}
+
+} // namespace
+
+bool InpMeshWriter::patchBCSections(const QString &filePath,
+                                    const MeshResult &mesh,
+                                    const QVector<MeshEdgeBC> &bcs,
+                                    QString *errorOut)
+{
+    const ReadResult r = readInp(filePath);
+    if (!r.ok) {
+        if (errorOut) *errorOut = r.err;
+        return false;
+    }
+    return atomicWrite(filePath, patchBoundaryText(r.text, mesh, bcs), errorOut);
+}
+
+bool InpMeshWriter::patchAttributeSections(const QString &filePath,
+                                           const MeshResult &mesh,
+                                           QString *errorOut,
+                                           double defaultMannings,
+                                           const UnitInfo *units)
+{
+    const ReadResult r = readInp(filePath);
+    if (!r.ok) {
+        if (errorOut) *errorOut = r.err;
+        return false;
+    }
+    QString patched;
+    if (!patchAttributeText(r.text, mesh, &patched, errorOut, defaultMannings, units))
+        return false;
     return atomicWrite(filePath, patched, errorOut);
+}
+
+bool InpMeshWriter::patchMeshSections(const QString &filePath,
+                                      const MeshResult &mesh,
+                                      const QVector<MeshEdgeBC> &bcs,
+                                      QString *errorOut,
+                                      double defaultMannings,
+                                      const UnitInfo *units)
+{
+    if (bcs.size() != edgeSlotCount(mesh.triangles.size())) {
+        if (errorOut) *errorOut = QStringLiteral("boundary state does not match mesh edge slots");
+        return false;
+    }
+    const ReadResult r = readInp(filePath);
+    if (!r.ok) {
+        if (errorOut) *errorOut = r.err;
+        return false;
+    }
+    QString patched;
+    if (!patchAttributeText(r.text, mesh, &patched, errorOut, defaultMannings, units))
+        return false;
+    // Build the complete payload before publishing any part of the mesh.
+    return atomicWrite(filePath, patchBoundaryText(patched, mesh, bcs), errorOut);
 }
 
 } // namespace mesh
