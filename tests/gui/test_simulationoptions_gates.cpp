@@ -465,7 +465,10 @@ void TestSimulationOptionsGates::structure()
         QVERIFY2(tabs, qPrintable(QStringLiteral("no QTabWidget named %1")
                                       .arg(QLatin1String(set.tabs))));
         QStringList got;
-        for (int i = 0; i < tabs->count(); ++i) got << tabs->tabText(i);
+        // QTabWidget returns the source label: && paints one literal &.
+        // Compare the visible captions used by the expected list below.
+        for (int i = 0; i < tabs->count(); ++i)
+            got << tabs->tabText(i).replace(QStringLiteral("&&"), QStringLiteral("&"));
         QVERIFY2(got == set.titles,
                  qPrintable(QStringLiteral("%1: %2 != %3")
                                 .arg(QLatin1String(set.tabs),

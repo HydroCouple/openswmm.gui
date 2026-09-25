@@ -67,8 +67,8 @@ bool SizeField::build(const QRectF &bbox,
     m_floor = std::max(opt.areaFloor, 0.0);
 
     // Pitch: fine enough to resolve the near-feature scale, coarse enough to
-    // fit the budget.  A coarser-than-ideal pitch only blurs the distance
-    // field (softer grading), it cannot break the contract.
+    // fit the budget. A coarser pitch changes distance approximation and
+    // interpolation error; feature-resolution bounds need separate verification.
     const double area = bbox.width() * bbox.height();
     m_pitch = std::max(m_near / 2.0,
                        std::sqrt(area / static_cast<double>(opt.maxGridCells)));
@@ -100,7 +100,7 @@ bool SizeField::build(const QRectF &bbox,
     for (const SteinerPoint &sp : pts)
         if (sp.marker != 0) stampSeedPoint(sp.xy);
 
-    // ── Two-pass chamfer (3-4 mask scaled to the pitch) ─────────────────
+    // ── Two-pass chamfer (axial pitch, diagonal sqrt(2) * pitch) ─────────────────
     const float w1 = static_cast<float>(m_pitch);
     const float w2 = static_cast<float>(m_pitch * 1.41421356237309515);
 
