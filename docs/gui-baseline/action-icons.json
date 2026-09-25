@@ -1,0 +1,1952 @@
+[
+  {
+    "id": "file.new",
+    "objectName": "actionNew",
+    "category": "File",
+    "shortcut": "std:New",
+    "icon": "New",
+    "tab": "home",
+    "menu": "File",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/new.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "file.open",
+    "objectName": "actionOpen",
+    "category": "File",
+    "shortcut": "std:Open",
+    "icon": "Open",
+    "tab": "home",
+    "menu": "File",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/open.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "file.save",
+    "objectName": "actionSave",
+    "category": "File",
+    "shortcut": "std:Save",
+    "icon": "Save",
+    "tab": "home",
+    "menu": "File",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/save.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "file.saveAs",
+    "objectName": "actionSaveAs",
+    "category": "File",
+    "shortcut": "std:SaveAs",
+    "icon": "SaveAs",
+    "tab": "",
+    "menu": "File",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/save_as.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "file.exportMap",
+    "objectName": "actionExportMap",
+    "category": "File",
+    "shortcut": "",
+    "icon": "ExportMap",
+    "tab": "",
+    "menu": "File",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/export_map.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "file.print",
+    "objectName": "actionPrint",
+    "category": "File",
+    "shortcut": "std:Print",
+    "icon": "Print",
+    "tab": "",
+    "menu": "File",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/print.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "file.clearRecent",
+    "objectName": "actionClearRecentFiles",
+    "category": "File",
+    "shortcut": "",
+    "icon": "ClearRecent",
+    "tab": "",
+    "menu": "File/Open Recent",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/clear_recent.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "app.preferences",
+    "objectName": "actionSettings",
+    "category": "Application",
+    "shortcut": "Ctrl+,",
+    "icon": "Settings",
+    "tab": "",
+    "menu": "Tools",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/settings.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "app.quit",
+    "objectName": "actionExit",
+    "category": "Application",
+    "shortcut": "Ctrl+Q",
+    "icon": "Exit",
+    "tab": "",
+    "menu": "File",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/exit.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "edit.undo",
+    "objectName": "actionUndo",
+    "category": "Edit",
+    "shortcut": "std:Undo",
+    "icon": "Undo",
+    "tab": "home",
+    "menu": "Edit",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/undo.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "edit.redo",
+    "objectName": "actionRedo",
+    "category": "Edit",
+    "shortcut": "std:Redo",
+    "icon": "Redo",
+    "tab": "home",
+    "menu": "Edit",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/redo.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "edit.copy",
+    "objectName": "actionCopy",
+    "category": "Edit",
+    "shortcut": "std:Copy",
+    "icon": "Copy",
+    "tab": "home",
+    "menu": "Edit",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/copy.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "find.search",
+    "objectName": "actionSearch",
+    "category": "Edit",
+    "shortcut": "std:Find",
+    "icon": "Search",
+    "tab": "home",
+    "menu": "Edit",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/search.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "edit.editExisting",
+    "objectName": "actionEditExisting",
+    "category": "Edit",
+    "shortcut": "Ctrl+E",
+    "icon": "SelectEdit",
+    "tab": "model",
+    "menu": "Edit",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/select_edit.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "select.invert",
+    "objectName": "actionInvertSelection",
+    "category": "Edit",
+    "shortcut": "",
+    "icon": "InvertSelection",
+    "tab": "home",
+    "menu": "Edit",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/invert_selection.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "select.upstream",
+    "objectName": "actionSelectUpstream",
+    "category": "Edit",
+    "shortcut": "",
+    "icon": "SelectUpstream",
+    "tab": "home",
+    "menu": "Edit",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/select_upstream.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "select.downstream",
+    "objectName": "actionSelectDownstream",
+    "category": "Edit",
+    "shortcut": "",
+    "icon": "SelectDownstream",
+    "tab": "home",
+    "menu": "Edit",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/select_downstream.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "map.pan",
+    "objectName": "actionPan",
+    "category": "Map",
+    "shortcut": "",
+    "icon": "Move",
+    "tab": "home",
+    "menu": "View",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/move.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "map.zoomIn",
+    "objectName": "actionZoomIn",
+    "category": "Map",
+    "shortcut": "std:ZoomIn",
+    "icon": "ZoomIn",
+    "tab": "home",
+    "menu": "View",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/zoomin.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "map.zoomOut",
+    "objectName": "actionZoomOut",
+    "category": "Map",
+    "shortcut": "std:ZoomOut",
+    "icon": "ZoomOut",
+    "tab": "home",
+    "menu": "View",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/zoomout.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "map.zoomExtent",
+    "objectName": "actionZoomExtent",
+    "category": "Map",
+    "shortcut": "Ctrl+Shift+F",
+    "icon": "Extent",
+    "tab": "home",
+    "menu": "View",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/extent.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "map.zoomToSelection",
+    "objectName": "actionZoomToSelection",
+    "category": "Map",
+    "shortcut": "Ctrl+Shift+J",
+    "icon": "ZoomToSelection",
+    "tab": "home",
+    "menu": "View",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/zoom_to_selection.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "map.select",
+    "objectName": "actionSelect",
+    "category": "Map",
+    "shortcut": "",
+    "icon": "Select",
+    "tab": "home",
+    "menu": "Edit",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/select.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "map.selectByPolygon",
+    "objectName": "actionSelectByPolygon",
+    "category": "Map",
+    "shortcut": "",
+    "icon": "SelectByPolygon",
+    "tab": "home",
+    "menu": "Edit",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/select_by_polygon.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "map.measure",
+    "objectName": "actionMeasure",
+    "category": "Map",
+    "shortcut": "Ctrl+Shift+M",
+    "icon": "Ruler",
+    "tab": "home",
+    "menu": "View",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/ruler.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addJunction",
+    "objectName": "actionAddJunction",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Junction",
+    "tab": "model",
+    "menu": "Model/Add Node",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/junction.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addVirtualJunction",
+    "objectName": "actionAddVirtualJunction",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "VirtualJunction",
+    "tab": "model",
+    "menu": "Model/Add Node",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/virtual_junction.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addJunctionSplit",
+    "objectName": "actionAddJunctionSplit",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "JunctionSplit",
+    "tab": "model",
+    "menu": "Model/Add Node",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/junction_split.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addInletJunction",
+    "objectName": "actionAddInletJunction",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "InletJunction",
+    "tab": "model",
+    "menu": "Model/Add Node",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/inlet_junction.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addOutfall",
+    "objectName": "actionAddOutfall",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Outfall",
+    "tab": "model",
+    "menu": "Model/Add Node",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/outfall.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addFlowDivider",
+    "objectName": "actionAddFlowDivider",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Divider",
+    "tab": "model",
+    "menu": "Model/Add Node",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/divider.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addStorage",
+    "objectName": "actionAddStorage",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Storage",
+    "tab": "model",
+    "menu": "Model/Add Node",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/storage.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addPipe",
+    "objectName": "actionAddPipe",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Polyline",
+    "tab": "model",
+    "menu": "Model/Add Link",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/polyline.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addPump",
+    "objectName": "actionAddPump",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Pump",
+    "tab": "model",
+    "menu": "Model/Add Link",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/pump.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addOrifice",
+    "objectName": "actionAddOrifice",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Orifice",
+    "tab": "model",
+    "menu": "Model/Add Link",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/orifice.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addWeir",
+    "objectName": "actionAddWeir",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Weir",
+    "tab": "model",
+    "menu": "Model/Add Link",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/weir.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addOutlet",
+    "objectName": "actionAddOutlet",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Outlet",
+    "tab": "model",
+    "menu": "Model/Add Link",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/outlet.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addSubcatchment",
+    "objectName": "actionAddSubcatchment",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Subcatchment",
+    "tab": "model",
+    "menu": "Model",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/subcatchment.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addRainGage",
+    "objectName": "actionRainGauge",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Rainfall",
+    "tab": "model",
+    "menu": "Model",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/rainfall.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.addText",
+    "objectName": "actionAddText",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Text",
+    "tab": "model",
+    "menu": "Model",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/text.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.importFeatureLayer",
+    "objectName": "actionImportFeatureLayer",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "ImportGIS",
+    "tab": "model",
+    "menu": "Model",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/import_gis.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.assignRainGages",
+    "objectName": "actionAssignRainGages",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "AssignRainGages",
+    "tab": "model",
+    "menu": "Model",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/assign_raingages.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.simulationOptions",
+    "objectName": "actionOptions",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Options",
+    "tab": "model",
+    "menu": "Model",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/options.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.userFlags",
+    "objectName": "actionUserFlags",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "UserFlags",
+    "tab": "model",
+    "menu": "Model",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/user_flags.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.editReactionSystem",
+    "objectName": "actionEditReactionSystem",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "ReactionSystem",
+    "tab": "model",
+    "menu": "Model",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/reaction_system.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.editHeatConfig",
+    "objectName": "actionEditHeatConfig",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "HeatConfig",
+    "tab": "model",
+    "menu": "Model",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/heat_config.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "model.generateMesh",
+    "objectName": "actionGenerateMesh",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "CreateMesh",
+    "tab": "mesh2d",
+    "menu": "Model",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/create_mesh.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "features.newLayer",
+    "objectName": "actionNewFeatureLayer",
+    "category": "Features",
+    "shortcut": "",
+    "icon": "AddVector",
+    "tab": "features",
+    "menu": "Model/Feature Layers",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/add_vector.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "features.editMode",
+    "objectName": "actionFeatureEditMode",
+    "category": "Features",
+    "shortcut": "",
+    "icon": "Edit",
+    "tab": "features",
+    "menu": "Model/Feature Layers",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/select_edit.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "features.delete",
+    "objectName": "actionFeatureDelete",
+    "category": "Features",
+    "shortcut": "Del",
+    "icon": "Delete",
+    "tab": "features",
+    "menu": "Model/Feature Layers",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/delete.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "features.drawPoint",
+    "objectName": "actionFeatureDrawPoint",
+    "category": "Features",
+    "shortcut": "",
+    "icon": "Node",
+    "tab": "features",
+    "menu": "Model/Feature Layers",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/node.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "features.drawLine",
+    "objectName": "actionFeatureDrawLine",
+    "category": "Features",
+    "shortcut": "",
+    "icon": "Polyline",
+    "tab": "features",
+    "menu": "Model/Feature Layers",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/polyline.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "features.drawPolygon",
+    "objectName": "actionFeatureDrawPolygon",
+    "category": "Features",
+    "shortcut": "",
+    "icon": "Polygon",
+    "tab": "features",
+    "menu": "Model/Feature Layers",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/polygon.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "features.addPart",
+    "objectName": "actionFeatureAddPart",
+    "category": "Features",
+    "shortcut": "",
+    "icon": "Add",
+    "tab": "features",
+    "menu": "Model/Feature Layers",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/add.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "features.addHole",
+    "objectName": "actionFeatureAddHole",
+    "category": "Features",
+    "shortcut": "",
+    "icon": "Clear",
+    "tab": "features",
+    "menu": "Model/Feature Layers",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/clear.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "features.editVertex",
+    "objectName": "actionFeatureEditVertex",
+    "category": "Features",
+    "shortcut": "",
+    "icon": "InsertVertex",
+    "tab": "features",
+    "menu": "Model/Feature Layers",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/insert_vertex.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "features.moveFeature",
+    "objectName": "actionFeatureMove",
+    "category": "Features",
+    "shortcut": "",
+    "icon": "Move",
+    "tab": "features",
+    "menu": "Model/Feature Layers",
+    "tags": " RequiresProject",
+    "asset": {
+      "source": "resources/images/move.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "climate.temperature",
+    "objectName": "actionTemperature",
+    "category": "Climate",
+    "shortcut": "",
+    "icon": "Thermometer",
+    "tab": "model",
+    "menu": "Model/Climate",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/thermomether.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "climate.evaporation",
+    "objectName": "actionEvaporation",
+    "category": "Climate",
+    "shortcut": "",
+    "icon": "Evaporation",
+    "tab": "model",
+    "menu": "Model/Climate",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/evaporation.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "climate.wind",
+    "objectName": "actionWind",
+    "category": "Climate",
+    "shortcut": "",
+    "icon": "Wind",
+    "tab": "model",
+    "menu": "Model/Climate",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/wind.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "climate.snow",
+    "objectName": "actionSnow",
+    "category": "Climate",
+    "shortcut": "",
+    "icon": "Snow",
+    "tab": "model",
+    "menu": "Model/Climate",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/cloud-snow.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "climate.solarRadiation",
+    "objectName": "actionSolarRadiation",
+    "category": "Climate",
+    "shortcut": "",
+    "icon": "Sun",
+    "tab": "model",
+    "menu": "Model/Climate",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/sun.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newTimeSeries",
+    "objectName": "actionNewTimeSeries",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "AddTimeSeries",
+    "tab": "model",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add_timeseries.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newCurve",
+    "objectName": "actionNewCurve",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "AddCurve",
+    "tab": "model",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add_curve.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newPattern",
+    "objectName": "actionNewPattern",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "AddPattern",
+    "tab": "model",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add_pattern.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newLidControl",
+    "objectName": "actionNewLidControl",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "LidControl",
+    "tab": "model",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/lid_control.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newPollutant",
+    "objectName": "actionNewPollutant",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "Pollutant",
+    "tab": "model",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/pollutant.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newLandUse",
+    "objectName": "actionNewLandUse",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "LandUse",
+    "tab": "",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/land_use.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newAquifer",
+    "objectName": "actionNewAquifer",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "Aquifer",
+    "tab": "model",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/aquifer.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newSnowpack",
+    "objectName": "actionNewSnowpack",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "Snowpack",
+    "tab": "",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/snowpack.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newControlRule",
+    "objectName": "actionNewControlRule",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "AddControlRule",
+    "tab": "model",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add_control_rules.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newTransect",
+    "objectName": "actionNewTransect",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "AddTransect",
+    "tab": "model",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add_transect.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newUnitHydrograph",
+    "objectName": "actionNewUnitHydrograph",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "UnitHydrograph",
+    "tab": "",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/unit_hydrograph.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newStreet",
+    "objectName": "actionNewStreet",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "Street",
+    "tab": "model",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/street.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "data.newInlet",
+    "objectName": "actionNewInlet",
+    "category": "Data",
+    "shortcut": "",
+    "icon": "Inlet",
+    "tab": "model",
+    "menu": "Model/Data Objects",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/inlet.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "import.swmmOutput",
+    "objectName": "actionAddSWMMOutput",
+    "category": "Import",
+    "shortcut": "",
+    "icon": "AddSWMMOutput",
+    "tab": "home",
+    "menu": "File/Import",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add_swmm_output.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "import.vector",
+    "objectName": "actionAddVectorData",
+    "category": "Import",
+    "shortcut": "",
+    "icon": "AddVector",
+    "tab": "home",
+    "menu": "File/Import",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add_vector.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "import.raster",
+    "objectName": "actionAddRasterData",
+    "category": "Import",
+    "shortcut": "",
+    "icon": "AddRaster",
+    "tab": "home",
+    "menu": "File/Import",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add_raster.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "import.wms",
+    "objectName": "actionAddWMSData",
+    "category": "Import",
+    "shortcut": "",
+    "icon": "AddWMS",
+    "tab": "home",
+    "menu": "File/Import",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add_wms.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "import.delimited",
+    "objectName": "actionAddDelimeteredData",
+    "category": "Import",
+    "shortcut": "",
+    "icon": "AddDelimetered",
+    "tab": "home",
+    "menu": "File/Import",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add csv.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "import.basemap",
+    "objectName": "actionAddBasemap",
+    "category": "Import",
+    "shortcut": "",
+    "icon": "AddBasemap",
+    "tab": "",
+    "menu": "File/Import",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add_basemap.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "import.mesh2d",
+    "objectName": "actionAddMesh2D",
+    "category": "Import",
+    "shortcut": "",
+    "icon": "AddMesh",
+    "tab": "home",
+    "menu": "File/Import",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/add_mesh.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "sim.run",
+    "objectName": "actionExecute",
+    "category": "Simulation",
+    "shortcut": "Ctrl+R",
+    "icon": "Execute",
+    "tab": "home",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/bolt-2.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "sim.pause",
+    "objectName": "actionPauseExecution",
+    "category": "Simulation",
+    "shortcut": "",
+    "icon": "Pause",
+    "tab": "home",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/pause.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "sim.stop",
+    "objectName": "actionCancelExecution",
+    "category": "Simulation",
+    "shortcut": "Ctrl+.",
+    "icon": "CancelExecution",
+    "tab": "home",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/cancel_bolt.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "results.play",
+    "objectName": "actionPlay",
+    "category": "Playback",
+    "shortcut": "",
+    "icon": "Play",
+    "tab": "results",
+    "menu": "Results",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/play.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "results.pause",
+    "objectName": "actionPause",
+    "category": "Playback",
+    "shortcut": "",
+    "icon": "Pause",
+    "tab": "results",
+    "menu": "Results",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/pause.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "results.stop",
+    "objectName": "actionStop",
+    "category": "Playback",
+    "shortcut": "",
+    "icon": "Stop",
+    "tab": "results",
+    "menu": "Results",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/stop.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "results.skipBack",
+    "objectName": "actionSkipBack",
+    "category": "Playback",
+    "shortcut": "",
+    "icon": "SkipBack",
+    "tab": "results",
+    "menu": "Results",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/skip_back.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "results.skipForward",
+    "objectName": "actionSkipForward",
+    "category": "Playback",
+    "shortcut": "",
+    "icon": "SkipForward",
+    "tab": "results",
+    "menu": "Results",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/skip_forward.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "results.setStyle",
+    "objectName": "actionSetStyle",
+    "category": "Playback",
+    "shortcut": "",
+    "icon": "Style",
+    "tab": "results",
+    "menu": "Results",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/style.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.showLegend",
+    "objectName": "actionShowLegend",
+    "category": "View",
+    "shortcut": "",
+    "icon": "Legend",
+    "tab": "results",
+    "menu": "View",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/legend.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.summarize",
+    "objectName": "actionSummarizeResults",
+    "category": "Analysis",
+    "shortcut": "",
+    "icon": "Summarize",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/summarize.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.report",
+    "objectName": "actionReport",
+    "category": "Analysis",
+    "shortcut": "",
+    "icon": "Report",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/report.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.tabularView",
+    "objectName": "actionTabularView",
+    "category": "Analysis",
+    "shortcut": "Ctrl+Shift+A",
+    "icon": "TableView",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/table.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.plotTimeSeries",
+    "objectName": "actionPlotTimeSeries",
+    "category": "Analysis",
+    "shortcut": "Ctrl+T",
+    "icon": "Chart",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/chart.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.plotProfile",
+    "objectName": "actionPlotProfile",
+    "category": "Analysis",
+    "shortcut": "Ctrl+Shift+T",
+    "icon": "Profile",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/profile.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.plotProfile2D",
+    "objectName": "actionPlotProfile2D",
+    "category": "Analysis",
+    "shortcut": "",
+    "icon": "Profile2D",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/profile_2d.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.flowBalanceDown",
+    "objectName": "actionFlowBalanceDownstream",
+    "category": "Analysis",
+    "shortcut": "",
+    "icon": "FlowBalanceDownstream",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/trace_mass_downstream.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.flowBalanceUp",
+    "objectName": "actionFlowBalanceUpstream",
+    "category": "Analysis",
+    "shortcut": "",
+    "icon": "FlowBalanceUpstream",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/trace_mass_upstream.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.travelTimeDown",
+    "objectName": "actionTravelTimeDownstream",
+    "category": "Analysis",
+    "shortcut": "",
+    "icon": "TravelTimeDownstream",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/tavel_time_downstream.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.travelTimeUp",
+    "objectName": "actionTravelTimeUpstream",
+    "category": "Analysis",
+    "shortcut": "",
+    "icon": "TravelTimeUpstream",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/tavel_time_upstream.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.massBalance",
+    "objectName": "actionShowMassBalance",
+    "category": "Analysis",
+    "shortcut": "",
+    "icon": "Chartpie",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/chartpie.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "analysis.export2DResults",
+    "objectName": "actionExport2DResults",
+    "category": "Analysis",
+    "shortcut": "",
+    "icon": "Export2DResults",
+    "tab": "analysis",
+    "menu": "Analysis",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/export_2d_results.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "mesh.selectVertices",
+    "objectName": "actionMeshSelectVertex",
+    "category": "Mesh 2D",
+    "shortcut": "",
+    "icon": "SelectTriNode",
+    "tab": "mesh2d",
+    "menu": "Model/Mesh",
+    "tags": " Contextual2D",
+    "asset": {
+      "source": "resources/images/select_tri_node.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "mesh.selectEdges",
+    "objectName": "actionMeshSelectEdge",
+    "category": "Mesh 2D",
+    "shortcut": "",
+    "icon": "SelectTriEdge",
+    "tab": "mesh2d",
+    "menu": "Model/Mesh",
+    "tags": " Contextual2D",
+    "asset": {
+      "source": "resources/images/select_tri_edge.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "mesh.assignFromRaster",
+    "objectName": "actionMeshAssignFromRaster",
+    "category": "Mesh 2D",
+    "shortcut": "",
+    "icon": "MeshAssignRaster",
+    "tab": "mesh2d",
+    "menu": "Model/Mesh",
+    "tags": " Contextual2D",
+    "asset": {
+      "source": "resources/images/mesh_assign_raster.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "mesh.assignFromVector",
+    "objectName": "actionMeshAssignFromVector",
+    "category": "Mesh 2D",
+    "shortcut": "",
+    "icon": "MeshAssignVector",
+    "tab": "mesh2d",
+    "menu": "Model/Mesh",
+    "tags": " Contextual2D",
+    "asset": {
+      "source": "resources/images/mesh_assign_vector.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "mesh.gw2dParams",
+    "objectName": "actionMesh2DGWParams",
+    "category": "Mesh 2D",
+    "shortcut": "",
+    "icon": "GW2DParams",
+    "tab": "mesh2d",
+    "menu": "Model/Mesh",
+    "tags": " Contextual2D",
+    "asset": {
+      "source": "resources/images/gw2d_params.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "mesh.gw2dInitCond",
+    "objectName": "actionMesh2DGWInitCond",
+    "category": "Mesh 2D",
+    "shortcut": "",
+    "icon": "GW2DInit",
+    "tab": "mesh2d",
+    "menu": "Model/Mesh",
+    "tags": " Contextual2D",
+    "asset": {
+      "source": "resources/images/gw2d_init.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "terrain.profile",
+    "objectName": "actionTerrainProfile",
+    "category": "Model",
+    "shortcut": "",
+    "icon": "Profile",
+    "tab": "model",
+    "menu": "Model",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/profile.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.styleManager",
+    "objectName": "actionStyleManager",
+    "category": "View",
+    "shortcut": "",
+    "icon": "StyleManager",
+    "tab": "view",
+    "menu": "Tools",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/style_manager.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.layerStylingDock",
+    "objectName": "actionLayerStylingDock",
+    "category": "Panels",
+    "shortcut": "Ctrl+Alt+8",
+    "icon": "LayerStyling",
+    "tab": "view",
+    "menu": "View",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/layer_styling.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.dock.layers",
+    "objectName": "actionToggleDockLayers",
+    "category": "Panels",
+    "shortcut": "Ctrl+Alt+1",
+    "icon": "DockLayers",
+    "tab": "view",
+    "menu": "View/Panels",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/dock_layers.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.dock.objectBrowser",
+    "objectName": "actionToggleDockObjectBrowser",
+    "category": "Panels",
+    "shortcut": "Ctrl+Alt+2",
+    "icon": "DockObjectBrowser",
+    "tab": "view",
+    "menu": "View/Panels",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/dock_object_browser.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.dock.properties",
+    "objectName": "actionToggleDockProperties",
+    "category": "Panels",
+    "shortcut": "Ctrl+Alt+3",
+    "icon": "DockProperties",
+    "tab": "view",
+    "menu": "View/Panels",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/dock_properties.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.dock.sectionView",
+    "objectName": "actionToggleDockSectionView",
+    "category": "Panels",
+    "shortcut": "Ctrl+Alt+9",
+    "icon": "DockSectionView",
+    "tab": "view",
+    "menu": "View/Panels",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/dock_section_view.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.dock.attributeTable",
+    "objectName": "actionToggleDockAttributeTable",
+    "category": "Panels",
+    "shortcut": "Ctrl+Alt+4",
+    "icon": "DockAttributeTable",
+    "tab": "view",
+    "menu": "View/Panels",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/dock_attribute_table.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.dock.legend",
+    "objectName": "actionToggleDockLegend",
+    "category": "Panels",
+    "shortcut": "Ctrl+Alt+5",
+    "icon": "DockLegend",
+    "tab": "view",
+    "menu": "View/Panels",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/dock_legend.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.dock.simulationStatus",
+    "objectName": "actionToggleDockSimulationStatus",
+    "category": "Panels",
+    "shortcut": "Ctrl+Alt+6",
+    "icon": "DockSimulationStatus",
+    "tab": "view",
+    "menu": "View/Panels",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/dock_simulation_status.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.dock.messageLogs",
+    "objectName": "actionToggleDockMessageLogs",
+    "category": "Panels",
+    "shortcut": "Ctrl+Alt+7",
+    "icon": "DockMessageLogs",
+    "tab": "view",
+    "menu": "View/Panels",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/dock_message_logs.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.dock.features",
+    "objectName": "actionToggleDockFeatures",
+    "category": "Panels",
+    "shortcut": "Ctrl+Alt+0",
+    "icon": "Layers",
+    "tab": "view",
+    "menu": "View/Panels",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/layers.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "view.showWelcome",
+    "objectName": "actionShowWelcome",
+    "category": "View",
+    "shortcut": "",
+    "icon": "Help",
+    "tab": "view",
+    "menu": "Help",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/help.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "tools.plugins",
+    "objectName": "actionPlugins",
+    "category": "Tools",
+    "shortcut": "",
+    "icon": "Plugins",
+    "tab": "",
+    "menu": "Tools",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/plugins.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "window.minimize",
+    "objectName": "actionWindowMinimize",
+    "category": "Window",
+    "shortcut": "Ctrl+M",
+    "icon": "WindowMinimize",
+    "tab": "",
+    "menu": "Window",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/window_minimize.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "window.zoom",
+    "objectName": "actionWindowZoom",
+    "category": "Window",
+    "shortcut": "",
+    "icon": "WindowZoom",
+    "tab": "",
+    "menu": "Window",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/window_zoom.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "app.commandPalette",
+    "objectName": "actionCommandPalette",
+    "category": "Application",
+    "shortcut": "Ctrl+Shift+P",
+    "icon": "CommandPalette",
+    "tab": "",
+    "menu": "View",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/command_palette.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "help.keyboardShortcuts",
+    "objectName": "actionKeyboardShortcuts",
+    "category": "Help",
+    "shortcut": "",
+    "icon": "KeyboardShortcuts",
+    "tab": "",
+    "menu": "Help",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/keyboard_shortcuts.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "app.help",
+    "objectName": "actionHelp",
+    "category": "Help",
+    "shortcut": "std:HelpContents",
+    "icon": "Help",
+    "tab": "",
+    "menu": "Help",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/help.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  },
+  {
+    "id": "app.about",
+    "objectName": "actionAbout",
+    "category": "Help",
+    "shortcut": "",
+    "icon": "About",
+    "tab": "",
+    "menu": "Help",
+    "tags": " NoTags",
+    "asset": {
+      "source": "resources/images/about.svg",
+      "exists": true
+    },
+    "review": "pending illustrative/native-size/theme review"
+  }
+]

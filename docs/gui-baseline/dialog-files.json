@@ -1,0 +1,830 @@
+[
+  {
+    "path": "src/ui/dialogs/aboutdialog.cpp",
+    "manifestClasses": [
+      "AboutDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/addbasemapdialog.cpp",
+    "manifestClasses": [
+      "AddBasemapDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/annotationstyledialog.cpp",
+    "manifestClasses": [
+      "AnnotationStyleDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/aquifereditordialog.cpp",
+    "manifestClasses": [
+      "AquiferEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/assignraingagesdialog.cpp",
+    "manifestClasses": [
+      "AssignRainGagesDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/calibrationdatadialog.cpp",
+    "manifestClasses": [
+      "CalibrationDataDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/chartpropertiesdialog.cpp",
+    "manifestClasses": [
+      "ChartPropertiesDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/climatologydialog.cpp",
+    "manifestClasses": [
+      "ClimatologyDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/colorrampeditordialog.cpp",
+    "manifestClasses": [
+      "ColorRampEditorDialog",
+      "GradientPreviewWidget"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/comparisonpairsdialog.cpp",
+    "manifestClasses": [
+      "ComparisonPairsDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/comparisonplotdialog.cpp",
+    "manifestClasses": [
+      "ComparisonPlotDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/crschangedialog.cpp",
+    "manifestClasses": [
+      "CRSChangeDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/crsselectiondialog.cpp",
+    "manifestClasses": [
+      "CRSSelectionDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/curveeditordialog.cpp",
+    "manifestClasses": [
+      "CurveEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/customreportdialog.cpp",
+    "manifestClasses": [
+      "CustomReportDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/dialoglayoutpersistence.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/dialoglayoutwatcher.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/dialogregistry.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/editors/categorizedrendererpanel.cpp",
+    "manifestClasses": [
+      "CategorizedPanel",
+      "SymbolDetailsDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/editors/classificationbindings.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/editors/featurestyleeditor.cpp",
+    "manifestClasses": [
+      "FeatureStyleEditorBase",
+      "LineFeatureStyleEditor",
+      "PointFeatureStyleEditor",
+      "PolygonFeatureStyleEditor"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/editors/gisvectorsymboleditor.cpp",
+    "manifestClasses": [
+      "GisVectorSymbolEditor"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/editors/graduatedrendererpanel.cpp",
+    "manifestClasses": [
+      "GraduatedPanel"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/editors/kindrendererpanel.cpp",
+    "manifestClasses": [
+      "KindRendererPanel"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/editors/markershapeeditor.cpp",
+    "manifestClasses": [
+      "MarkerShapeEditor"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/editors/rulebasedrendererpanel.cpp",
+    "manifestClasses": [
+      "RuleBasedPanel"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/editors/singlesymbolrendererpanel.cpp",
+    "manifestClasses": [
+      "SingleSymbolPanel"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/editors/swmmelementsymboleditor.cpp",
+    "manifestClasses": [
+      "SwmmElementSymbolEditor"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/editors/symbolstyleeditors.cpp",
+    "manifestClasses": [
+      "LineSymbolStyleEditor",
+      "PointSymbolStyleEditor",
+      "PolygonSymbolStyleEditor"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/editors/symbolstyleeditors2d.cpp",
+    "manifestClasses": [
+      "ContourBandSymbolStyleEditor",
+      "HillshadeSymbolStyleEditor",
+      "IsolineSymbolStyleEditor",
+      "MeshEdgeSymbolStyleEditor",
+      "MeshNodeSymbolStyleEditor",
+      "RasterColorRampSymbolStyleEditor",
+      "VelocityVectorSymbolStyleEditor"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/groundwaterexchangedialog.cpp",
+    "manifestClasses": [
+      "GroundwaterExchangeDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/heatconfigdialog.cpp",
+    "manifestClasses": [
+      "HeatConfigDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/hotstartsavesmodel.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/hydrographgroupeditor.cpp",
+    "manifestClasses": [
+      "HydrographGroupEditor"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/ilayerstylesubject.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/import/featurelayerimporter.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/import/importfeaturelayerdialog.cpp",
+    "manifestClasses": [
+      "ImportFeatureLayerDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/import/importmapping.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/import/importmappingmodel.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/import/importplanning.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/import/importpreviewmodel.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/import/importtargetregistry.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/infilassigntoselectiondialog.cpp",
+    "manifestClasses": [
+      "InfilAssignToSelectionDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/initialqualitydialog.cpp",
+    "manifestClasses": [
+      "InitialQualityDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/inleteditordialog.cpp",
+    "manifestClasses": [
+      "InletEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/inletjunctionsetupdialog.cpp",
+    "manifestClasses": [
+      "InletJunctionSetupDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/inletpropertybag.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/irendererpanel.cpp",
+    "manifestClasses": [
+      "IRendererPanel"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/istyleeditorwidget.cpp",
+    "manifestClasses": [
+      "IStyleEditorWidget"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/kindtreesymbologypanel.cpp",
+    "manifestClasses": [
+      "KindTreeSymbologyPanel"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/labelexpressiondialog.cpp",
+    "manifestClasses": [
+      "LabelExpressionDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/labelstab.cpp",
+    "manifestClasses": [
+      "LabelsTab"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/landuseeditordialog.cpp",
+    "manifestClasses": [
+      "LandUseEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/layerstyledialog.cpp",
+    "manifestClasses": [
+      "LayerStyleDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/legendpropertiesdialog.cpp",
+    "manifestClasses": [
+      "LegendPropertiesDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/licenseagreementdialog.cpp",
+    "manifestClasses": [
+      "LicenseAgreementDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/lidcontroleditordialog.cpp",
+    "manifestClasses": [
+      "LidControlEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/linkcompoundeditdialog.cpp",
+    "manifestClasses": [
+      "LinkCompoundEditDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/mesh2daquifermodel.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/mesh2dgroundwaterdialog.cpp",
+    "manifestClasses": [
+      "Mesh2DGroundwaterDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/mesh2dresultsexportdialog.cpp",
+    "manifestClasses": [
+      "Mesh2DResultsExportDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/meshattributeassigndialog.cpp",
+    "manifestClasses": [
+      "MeshAttributeAssignDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/meshgenerationdialog.cpp",
+    "manifestClasses": [
+      "MeshGenerationDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/meshprofileplotdialog.cpp",
+    "manifestClasses": [
+      "MeshProfilePlotDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/newfeaturelayerdialog.cpp",
+    "manifestClasses": [
+      "NewFeatureLayerDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/newprojectdialog.cpp",
+    "manifestClasses": [
+      "NewProjectDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/nodecompoundeditdialog.cpp",
+    "manifestClasses": [
+      "NodeCompoundEditDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/objectdefaultspage.cpp",
+    "manifestClasses": [
+      "ObjectDefaultsPage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/pathbrowsedelegate.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/patterneditordialog.cpp",
+    "manifestClasses": [
+      "PatternEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/plotvariablepickerdialog.cpp",
+    "manifestClasses": [
+      "PlotVariablePickerDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/pluginsdialog.cpp",
+    "manifestClasses": [
+      "PluginsDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/pluginstablemodel.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/pollutanteditordialog.cpp",
+    "manifestClasses": [
+      "PollutantEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/preferencesdialog.cpp",
+    "manifestClasses": [
+      "PreferencesDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/processcomponentsmodel.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/profileoptionsdialog.cpp",
+    "manifestClasses": [
+      "ProfileOptionsDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/profilepathpickerdialog.cpp",
+    "manifestClasses": [
+      "ProfilePathPickerDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/profileplotdialog.cpp",
+    "manifestClasses": [
+      "ProfilePlotDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/profilesourcestyleadapter.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/rainfallvisualizationdialog.cpp",
+    "manifestClasses": [
+      "RainfallVisualizationDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/rasterprofileplotdialog.cpp",
+    "manifestClasses": [
+      "RasterProfilePlotDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/rastersymbologypanel.cpp",
+    "manifestClasses": [
+      "RasterSymbologyPanel"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/reactionsystemeditordialog.cpp",
+    "manifestClasses": [
+      "ReactionSystemEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/ruleseditordialog.cpp",
+    "manifestClasses": [
+      "RulesEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/rulestylesubject.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/rulesymbologytab.cpp",
+    "manifestClasses": [
+      "RuleSymbologyTab"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/scatterplotdialog.cpp",
+    "manifestClasses": [
+      "ScatterPlotDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/datespage.cpp",
+    "manifestClasses": [
+      "DatesPage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/enginecapabilities.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/filespage.cpp",
+    "manifestClasses": [
+      "FilesPage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/hydraulicspage.cpp",
+    "manifestClasses": [
+      "HydraulicsPage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/meshpage.cpp",
+    "manifestClasses": [
+      "MeshPage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/modelspage.cpp",
+    "manifestClasses": [
+      "ModelsPage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/performancepage.cpp",
+    "manifestClasses": [
+      "PerformancePage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/qualitypage.cpp",
+    "manifestClasses": [
+      "QualityPage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/simoptionscontext.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/simoptionspage.cpp",
+    "manifestClasses": [
+      "SimOptionsPage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/spatialpage.cpp",
+    "manifestClasses": [
+      "SpatialPage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/titlenotespage.cpp",
+    "manifestClasses": [
+      "TitleNotesPage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simoptions/twodpage.cpp",
+    "manifestClasses": [
+      "TwoDPage"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simulationoptionsdialog.cpp",
+    "manifestClasses": [
+      "SimulationOptionsDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/simulationoptionshelpers.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/snowpackeditordialog.cpp",
+    "manifestClasses": [
+      "SnowpackEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/statisticsdashboarddialog.cpp",
+    "manifestClasses": [
+      "StatisticsDashboardDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/statusreportdialog.cpp",
+    "manifestClasses": [
+      "StatusReportDialog",
+      "Gutter"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/streeteditordialog.cpp",
+    "manifestClasses": [
+      "StreetEditorDialog",
+      "StreetSectionPreview"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/stylemanagerdialog.cpp",
+    "manifestClasses": [
+      "StyleManagerDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/subcatchcompoundeditdialog.cpp",
+    "manifestClasses": [
+      "SubcatchCompoundEditDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/sublayerselectiondialog.cpp",
+    "manifestClasses": [
+      "SublayerSelectionDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/swmm2dmeshstylepanel.cpp",
+    "manifestClasses": [
+      "Swmm2DMeshStylePanel"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/swmm2dresultsstylepanel.cpp",
+    "manifestClasses": [
+      "Swmm2DResultsStylePanel"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/symbologytab.cpp",
+    "manifestClasses": [
+      "SymbologyTab"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/tabularresultsdialog.cpp",
+    "manifestClasses": [
+      "TabularResultsDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/timeserieseditordialog.cpp",
+    "manifestClasses": [
+      "TimeseriesEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/transecteditordialog.cpp",
+    "manifestClasses": [
+      "TransectEditorDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/transectpropertybag.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/typeconversionflow.cpp",
+    "manifestClasses": [],
+    "status": "helper or dynamic surface: inspect in W3"
+  },
+  {
+    "path": "src/ui/dialogs/userflagsdialog.cpp",
+    "manifestClasses": [
+      "UserFlagsDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/userflagvaluesdialog.cpp",
+    "manifestClasses": [
+      "UserFlagValuesDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/wateragesourcesdialog.cpp",
+    "manifestClasses": [
+      "WaterAgeSourcesDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/wmsconnectiondialog.cpp",
+    "manifestClasses": [
+      "WMSConnectionDialog"
+    ],
+    "status": "mapped"
+  },
+  {
+    "path": "src/ui/dialogs/wmtsconnectiondialog.cpp",
+    "manifestClasses": [
+      "WMTSConnectionDialog"
+    ],
+    "status": "mapped"
+  }
+]

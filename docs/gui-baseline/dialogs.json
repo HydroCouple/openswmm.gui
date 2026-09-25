@@ -1,0 +1,3032 @@
+[
+  {
+    "id": "include/ui/dialogs/aboutdialog.h::AboutDialog",
+    "class": "AboutDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/aboutdialog.h:32",
+    "implementation": [
+      "src/ui/dialogs/aboutdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:7821"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_aboutdialog.cpp:35",
+      "tests/gui/test_aboutdialog.cpp:45",
+      "tests/gui/test_aboutdialog.cpp:53",
+      "tests/gui/test_aboutdialog.cpp:64",
+      "tests/gui/test_aboutdialog.cpp:82",
+      "tests/gui/test_dialog_a11y_standalone.cpp:48"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/addbasemapdialog.h::AddBasemapDialog",
+    "class": "AddBasemapDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/addbasemapdialog.h:70",
+    "implementation": [
+      "src/ui/dialogs/addbasemapdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:9758",
+      "src/swmmvis.cpp:9759",
+      "src/swmmvis.cpp:9773",
+      "src/swmmvis.cpp:9774",
+      "src/swmmvis.cpp:9787",
+      "src/swmmvis.cpp:9788"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_wfsservice.cpp:179",
+      "tests/gui/test_wfsservice.cpp:181",
+      "tests/gui/test_wfsservice.cpp:213",
+      "tests/gui/test_wfsservice.cpp:215",
+      "tests/gui/test_wfsservice.cpp:277",
+      "tests/gui/test_wfsservice.cpp:279",
+      "tests/gui/test_wfsservice.cpp:315",
+      "tests/gui/test_wfsservice.cpp:317",
+      "tests/gui/test_wfsservice.cpp:336",
+      "tests/gui/test_wfsservice.cpp:337"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/annotationstyledialog.h::AnnotationStyleDialog",
+    "class": "AnnotationStyleDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/annotationstyledialog.h:26",
+    "implementation": [
+      "src/ui/dialogs/annotationstyledialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/map/tools/maptooladdtext.cpp:57",
+      "src/map/tools/maptooladdtext.cpp:75"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/aquifereditordialog.h::AquiferEditorDialog",
+    "class": "AquiferEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/aquifereditordialog.h:47",
+    "implementation": [
+      "src/ui/dialogs/aquifereditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/editors/comprehensiveeditorregistry.cpp:51",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:276",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:293",
+      "src/ui/properties/dataobjectpickereditor.cpp:391",
+      "src/ui/properties/dataobjectpickereditor.cpp:396"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_aquifer_editor_dialog.cpp:35",
+      "tests/gui/test_aquifer_editor_dialog.cpp:162",
+      "tests/gui/test_aquifer_editor_dialog.cpp:203",
+      "tests/gui/test_aquifer_editor_dialog.cpp:259",
+      "tests/gui/test_aquifer_editor_dialog.cpp:270",
+      "tests/gui/test_aquifer_editor_dialog.cpp:311",
+      "tests/gui/test_aquifer_editor_dialog.cpp:346",
+      "tests/gui/test_aquifer_editor_dialog.cpp:391",
+      "tests/gui/test_aquifer_editor_dialog.cpp:426"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/assignraingagesdialog.h::AssignRainGagesDialog",
+    "class": "AssignRainGagesDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/assignraingagesdialog.h:53",
+    "implementation": [
+      "src/ui/dialogs/assignraingagesdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:4704"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/calibrationdatadialog.h::CalibrationDataDialog",
+    "class": "CalibrationDataDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/calibrationdatadialog.h:36",
+    "implementation": [
+      "src/ui/dialogs/calibrationdatadialog.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/chartpropertiesdialog.h::ChartPropertiesDialog",
+    "class": "ChartPropertiesDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/chartpropertiesdialog.h:27",
+    "implementation": [
+      "src/ui/dialogs/chartpropertiesdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/comparisonplotdialog.cpp:1571",
+      "src/ui/widgets/chartaxisformatcontroller.cpp:84"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_comparisonplot_chartproperties.cpp:152"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/climatologydialog.h::ClimatologyDialog",
+    "class": "ClimatologyDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/climatologydialog.h:40",
+    "implementation": [
+      "src/ui/dialogs/climatologydialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:4571",
+      "src/swmmvis.cpp:4575",
+      "src/swmmvis.cpp:4579",
+      "src/swmmvis.cpp:4583",
+      "src/swmmvis.cpp:7856"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox",
+      "RelativePathPicker"
+    ],
+    "testReferences": [
+      "tests/gui/test_climatologydialog.cpp:55",
+      "tests/gui/test_climatologydialog.cpp:62",
+      "tests/gui/test_climatologydialog.cpp:79",
+      "tests/gui/test_climatologydialog.cpp:100",
+      "tests/gui/test_climatologydialog.cpp:113",
+      "tests/gui/test_climatologydialog.cpp:114",
+      "tests/gui/test_climatologydialog.cpp:116",
+      "tests/gui/test_climatologydialog.cpp:127",
+      "tests/gui/test_climatologydialog.cpp:138",
+      "tests/gui/test_climatologydialog.cpp:167"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/colorrampeditordialog.h::ColorRampEditorDialog",
+    "class": "ColorRampEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/colorrampeditordialog.h:41",
+    "implementation": [
+      "src/ui/dialogs/colorrampeditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/widgets/colorrampcombobox.cpp:350"
+    ],
+    "sharedComponents": [
+      "ColorButton",
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_stylecontrols.cpp:136"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/comparisonpairsdialog.h::ComparisonPairsDialog",
+    "class": "ComparisonPairsDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/comparisonpairsdialog.h:28",
+    "implementation": [
+      "src/ui/dialogs/comparisonpairsdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/comparisonplotdialog.cpp:686"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/comparisonplotdialog.h::ComparisonPlotDialog",
+    "class": "ComparisonPlotDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/comparisonplotdialog.h:64",
+    "implementation": [
+      "src/ui/dialogs/comparisonplotdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:2869",
+      "src/swmmvis.cpp:2878",
+      "src/swmmvis.cpp:2881",
+      "src/swmmvis.cpp:2883",
+      "src/swmmvis.cpp:3110",
+      "src/swmmvis.cpp:3454",
+      "src/swmmvis.cpp:3457",
+      "src/swmmvis.cpp:3473",
+      "src/ui/widgets/statssummarypanel.cpp:76",
+      "src/ui/widgets/statssummarypanel.cpp:91",
+      "src/ui/widgets/statssummarypanel.cpp:113",
+      "src/ui/widgets/statssummarypanel.cpp:126"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox",
+      "SeriesStyleEditor"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/crschangedialog.h::CRSChangeDialog",
+    "class": "CRSChangeDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/crschangedialog.h:28",
+    "implementation": [
+      "src/ui/dialogs/crschangedialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:9700",
+      "src/swmmvis.cpp:9707",
+      "src/swmmvis.cpp:9712",
+      "src/swmmvis.cpp:9750"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_crschangedialog.cpp:52",
+      "tests/gui/test_crschangedialog.cpp:54",
+      "tests/gui/test_crschangedialog.cpp:59",
+      "tests/gui/test_crschangedialog.cpp:65",
+      "tests/gui/test_crschangedialog.cpp:71",
+      "tests/gui/test_crschangedialog.cpp:78",
+      "tests/gui/test_crschangedialog.cpp:83",
+      "tests/gui/test_crschangedialog.cpp:86",
+      "tests/gui/test_crschangedialog.cpp:92",
+      "tests/gui/test_crschangedialog.cpp:101",
+      "tests/gui/test_crschangedialog.cpp:108",
+      "tests/gui/test_crschangedialog.cpp:125"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/crsselectiondialog.h::CRSSelectionDialog",
+    "class": "CRSSelectionDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/crsselectiondialog.h:37",
+    "implementation": [
+      "src/ui/dialogs/crsselectiondialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:9663",
+      "src/swmmvisprojectwindow.cpp:831",
+      "src/ui/dialogs/addbasemapdialog.cpp:1265",
+      "src/ui/dialogs/layerstyledialog.cpp:1207",
+      "src/ui/dialogs/newprojectdialog.cpp:131",
+      "src/ui/dialogs/simoptions/spatialpage.cpp:147"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/curveeditordialog.h::CurveEditorDialog",
+    "class": "CurveEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/curveeditordialog.h:70",
+    "implementation": [
+      "src/ui/dialogs/curveeditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:1136",
+      "src/ui/dialogs/inleteditordialog.cpp:709",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:52",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:149",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:160",
+      "src/ui/panels/attributetablepanel.cpp:2196",
+      "src/ui/panels/attributetablepanel.cpp:2200",
+      "src/ui/panels/attributetablepanel.cpp:2201",
+      "src/ui/panels/attributetablepanel.cpp:2204",
+      "src/ui/panels/objectbrowserpanel.cpp:651",
+      "src/ui/panels/objectbrowserpanel.cpp:654",
+      "src/ui/panels/objectbrowserpanel.cpp:656",
+      "src/ui/panels/propertiespanel.cpp:1392",
+      "src/ui/panels/propertiespanel.cpp:1395",
+      "src/ui/panels/propertiespanel.cpp:1396",
+      "src/ui/panels/propertiespanel.cpp:1399",
+      "src/ui/properties/dataobjectpickereditor.cpp:381",
+      "src/ui/properties/dataobjectpickereditor.cpp:384"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_curve_editor_dialog.cpp:47",
+      "tests/gui/test_curve_editor_dialog.cpp:52",
+      "tests/gui/test_curve_editor_dialog.cpp:62",
+      "tests/gui/test_curve_editor_dialog.cpp:221",
+      "tests/gui/test_curve_editor_dialog.cpp:235",
+      "tests/gui/test_curve_editor_dialog.cpp:254",
+      "tests/gui/test_curve_editor_dialog.cpp:256",
+      "tests/gui/test_curve_editor_dialog.cpp:267",
+      "tests/gui/test_curve_editor_dialog.cpp:279",
+      "tests/gui/test_curve_editor_dialog.cpp:302"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/customreportdialog.h::CustomReportDialog",
+    "class": "CustomReportDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/customreportdialog.h:31",
+    "implementation": [
+      "src/ui/dialogs/customreportdialog.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/featurestyleeditor.h::FeatureStyleEditorBase",
+    "class": "FeatureStyleEditorBase",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/featurestyleeditor.h:47",
+    "implementation": [
+      "src/ui/dialogs/editors/featurestyleeditor.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton",
+      "LabelConfigEditor"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/featurestyleeditor.h::LineFeatureStyleEditor",
+    "class": "LineFeatureStyleEditor",
+    "base": "FeatureStyleEditorBase",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/featurestyleeditor.h:109",
+    "implementation": [
+      "src/ui/dialogs/editors/featurestyleeditor.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton",
+      "LabelConfigEditor"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/featurestyleeditor.h::PointFeatureStyleEditor",
+    "class": "PointFeatureStyleEditor",
+    "base": "FeatureStyleEditorBase",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/featurestyleeditor.h:87",
+    "implementation": [
+      "src/ui/dialogs/editors/featurestyleeditor.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton",
+      "LabelConfigEditor"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/featurestyleeditor.h::PolygonFeatureStyleEditor",
+    "class": "PolygonFeatureStyleEditor",
+    "base": "FeatureStyleEditorBase",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/featurestyleeditor.h:136",
+    "implementation": [
+      "src/ui/dialogs/editors/featurestyleeditor.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton",
+      "LabelConfigEditor"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/gisvectorsymboleditor.h::GisVectorSymbolEditor",
+    "class": "GisVectorSymbolEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/gisvectorsymboleditor.h:33",
+    "implementation": [
+      "src/ui/dialogs/editors/gisvectorsymboleditor.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/kindrendererpanel.h::KindRendererPanel",
+    "class": "KindRendererPanel",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/kindrendererpanel.h:55",
+    "implementation": [
+      "src/ui/dialogs/editors/kindrendererpanel.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/editors/featurestyleeditor.cpp:157",
+      "src/ui/dialogs/editors/graduatedrendererpanel.cpp:41",
+      "src/ui/dialogs/editors/graduatedrendererpanel.cpp:45",
+      "src/ui/dialogs/editors/graduatedrendererpanel.cpp:48"
+    ],
+    "sharedComponents": [
+      "ClassificationEditor",
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/markershapeeditor.h::MarkerShapeEditor",
+    "class": "MarkerShapeEditor",
+    "base": "QBasePropertyItemEditor",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/markershapeeditor.h:24",
+    "implementation": [
+      "src/ui/dialogs/editors/markershapeeditor.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/swmmelementsymboleditor.h::SwmmElementSymbolEditor",
+    "class": "SwmmElementSymbolEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/swmmelementsymboleditor.h:29",
+    "implementation": [
+      "src/ui/dialogs/editors/swmmelementsymboleditor.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/symbolstyleeditors.h::LineSymbolStyleEditor",
+    "class": "LineSymbolStyleEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/symbolstyleeditors.h:59",
+    "implementation": [
+      "src/ui/dialogs/editors/symbolstyleeditors.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/symbolstyleeditors.h::PointSymbolStyleEditor",
+    "class": "PointSymbolStyleEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/symbolstyleeditors.h:38",
+    "implementation": [
+      "src/ui/dialogs/editors/symbolstyleeditors.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/symbolstyleeditors.h::PolygonSymbolStyleEditor",
+    "class": "PolygonSymbolStyleEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/symbolstyleeditors.h:78",
+    "implementation": [
+      "src/ui/dialogs/editors/symbolstyleeditors.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/symbolstyleeditors2d.h::ContourBandSymbolStyleEditor",
+    "class": "ContourBandSymbolStyleEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/symbolstyleeditors2d.h:65",
+    "implementation": [
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/symbolstyleeditors2d.h::HillshadeSymbolStyleEditor",
+    "class": "HillshadeSymbolStyleEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/symbolstyleeditors2d.h:52",
+    "implementation": [
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/symbolstyleeditors2d.h::IsolineSymbolStyleEditor",
+    "class": "IsolineSymbolStyleEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/symbolstyleeditors2d.h:79",
+    "implementation": [
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/symbolstyleeditors2d.h::MeshEdgeSymbolStyleEditor",
+    "class": "MeshEdgeSymbolStyleEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/symbolstyleeditors2d.h:93",
+    "implementation": [
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/symbolstyleeditors2d.h::MeshNodeSymbolStyleEditor",
+    "class": "MeshNodeSymbolStyleEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/symbolstyleeditors2d.h:107",
+    "implementation": [
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/symbolstyleeditors2d.h::RasterColorRampSymbolStyleEditor",
+    "class": "RasterColorRampSymbolStyleEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/symbolstyleeditors2d.h:38",
+    "implementation": [
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/editors/symbolstyleeditors2d.h::VelocityVectorSymbolStyleEditor",
+    "class": "VelocityVectorSymbolStyleEditor",
+    "base": "IStyleEditorWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/editors/symbolstyleeditors2d.h:121",
+    "implementation": [
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/groundwaterexchangedialog.h::GroundwaterExchangeDialog",
+    "class": "GroundwaterExchangeDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/groundwaterexchangedialog.h:37",
+    "implementation": [
+      "src/ui/dialogs/groundwaterexchangedialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/properties/nodecompoundeditbutton.cpp:82",
+      "src/ui/properties/subcatchcompoundeditbutton.cpp:51",
+      "src/ui/properties/subcatchcompoundeditbutton.cpp:53"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_groundwaterexchangedialog.cpp:80",
+      "tests/gui/test_groundwaterexchangedialog.cpp:110",
+      "tests/gui/test_groundwaterexchangedialog.cpp:111",
+      "tests/gui/test_groundwaterexchangedialog.cpp:149",
+      "tests/gui/test_groundwaterexchangedialog.cpp:160",
+      "tests/gui/test_groundwaterexchangedialog.cpp:181"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/heatconfigdialog.h::HeatConfigDialog",
+    "class": "HeatConfigDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/heatconfigdialog.h:60",
+    "implementation": [
+      "src/ui/dialogs/heatconfigdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:4587",
+      "src/swmmvis.cpp:7913"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_heatconfigdialog.cpp:42",
+      "tests/gui/test_heatconfigdialog.cpp:55",
+      "tests/gui/test_heatconfigdialog.cpp:61",
+      "tests/gui/test_heatconfigdialog.cpp:67",
+      "tests/gui/test_heatconfigdialog.cpp:92",
+      "tests/gui/test_heatconfigdialog.cpp:105",
+      "tests/gui/test_heatconfigdialog.cpp:125",
+      "tests/gui/test_heatconfigdialog.cpp:155",
+      "tests/gui/test_heatconfigdialog.cpp:176",
+      "tests/gui/test_heatconfigdialog.cpp:196",
+      "tests/gui/test_heatconfigdialog.cpp:220",
+      "tests/gui/test_heatconfigdialog.cpp:240",
+      "tests/gui/test_heatconfigdialog.cpp:266",
+      "tests/gui/test_heatconfigdialog.cpp:282"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/hydrographgroupeditor.h::HydrographGroupEditor",
+    "class": "HydrographGroupEditor",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/hydrographgroupeditor.h:71",
+    "implementation": [
+      "src/ui/dialogs/hydrographgroupeditor.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/nodecompoundeditdialog.cpp:204",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:104",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:110",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:118",
+      "src/ui/panels/attributetablepanel.cpp:2170",
+      "src/ui/panels/objectbrowserpanel.cpp:641",
+      "src/ui/panels/objectbrowserpanel.cpp:642",
+      "src/ui/panels/propertiespanel.cpp:1365",
+      "src/ui/properties/dataobjectpickereditor.cpp:351"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/import/importfeaturelayerdialog.h::ImportFeatureLayerDialog",
+    "class": "ImportFeatureLayerDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/import/importfeaturelayerdialog.h:42",
+    "implementation": [
+      "src/ui/dialogs/import/importfeaturelayerdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:4689"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/infilassigntoselectiondialog.h::InfilAssignToSelectionDialog",
+    "class": "InfilAssignToSelectionDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/infilassigntoselectiondialog.h:62",
+    "implementation": [
+      "src/ui/dialogs/infilassigntoselectiondialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:1337"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/initialqualitydialog.h::InitialQualityDialog",
+    "class": "InitialQualityDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/initialqualitydialog.h:43",
+    "implementation": [
+      "src/ui/dialogs/initialqualitydialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:7890",
+      "src/ui/dialogs/simoptions/qualitypage.cpp:223",
+      "src/ui/properties/initialqualityeditbutton.cpp:49"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_initialqualitydialog.cpp:44",
+      "tests/gui/test_initialqualitydialog.cpp:62",
+      "tests/gui/test_initialqualitydialog.cpp:67",
+      "tests/gui/test_initialqualitydialog.cpp:93",
+      "tests/gui/test_initialqualitydialog.cpp:103",
+      "tests/gui/test_initialqualitydialog.cpp:133",
+      "tests/gui/test_initialqualitydialog.cpp:160",
+      "tests/gui/test_initialqualitydialog.cpp:181",
+      "tests/gui/test_initialqualitydialog.cpp:208",
+      "tests/gui/test_initialqualitydialog.cpp:223",
+      "tests/gui/test_initialqualitydialog.cpp:258",
+      "tests/gui/test_initialqualitydialog.cpp:279",
+      "tests/gui/test_initialqualitydialog.cpp:313",
+      "tests/gui/test_initialqualitydialog.cpp:335"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/inleteditordialog.h::InletEditorDialog",
+    "class": "InletEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/inleteditordialog.h:66",
+    "implementation": [
+      "src/ui/dialogs/inleteditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/inletjunctionsetupdialog.cpp:160",
+      "src/ui/dialogs/linkcompoundeditdialog.cpp:977",
+      "src/ui/dialogs/linkcompoundeditdialog.cpp:992",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:53",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:379",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:395",
+      "src/ui/panels/objectbrowserpanel.cpp:701",
+      "src/ui/panels/objectbrowserpanel.cpp:704",
+      "src/ui/panels/objectbrowserpanel.cpp:706",
+      "src/ui/properties/dataobjectpickereditor.cpp:295",
+      "src/ui/properties/dataobjectpickereditor.cpp:298"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/inletjunctionsetupdialog.h::InletJunctionSetupDialog",
+    "class": "InletJunctionSetupDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/inletjunctionsetupdialog.h:45",
+    "implementation": [
+      "src/ui/dialogs/inletjunctionsetupdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/map/tools/maptooladdinletnode.cpp:34",
+      "src/map/tools/maptooladdinletnode.cpp:117",
+      "src/map/tools/maptoolselect.cpp:1660"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_capture_node_pick.cpp:173",
+      "tests/gui/test_capture_node_pick.cpp:212",
+      "tests/gui/test_capture_node_pick.cpp:262"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/irendererpanel.h::IRendererPanel",
+    "class": "IRendererPanel",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/irendererpanel.h:122",
+    "implementation": [
+      "src/ui/dialogs/irendererpanel.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/editors/categorizedrendererpanel.cpp:282",
+      "src/ui/dialogs/editors/categorizedrendererpanel.cpp:286",
+      "src/ui/dialogs/editors/categorizedrendererpanel.cpp:703",
+      "src/ui/dialogs/editors/graduatedrendererpanel.cpp:28",
+      "src/ui/dialogs/editors/graduatedrendererpanel.cpp:32",
+      "src/ui/dialogs/editors/graduatedrendererpanel.cpp:69",
+      "src/ui/dialogs/editors/rulebasedrendererpanel.cpp:121",
+      "src/ui/dialogs/editors/rulebasedrendererpanel.cpp:125",
+      "src/ui/dialogs/editors/rulebasedrendererpanel.cpp:231",
+      "src/ui/dialogs/editors/rulebasedrendererpanel.cpp:428",
+      "src/ui/dialogs/editors/singlesymbolrendererpanel.cpp:45",
+      "src/ui/dialogs/editors/singlesymbolrendererpanel.cpp:49",
+      "src/ui/dialogs/editors/singlesymbolrendererpanel.cpp:149"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/istyleeditorwidget.h::IStyleEditorWidget",
+    "class": "IStyleEditorWidget",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/istyleeditorwidget.h:43",
+    "implementation": [
+      "src/ui/dialogs/istyleeditorwidget.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/editors/featurestyleeditor.cpp:44",
+      "src/ui/dialogs/editors/featurestyleeditor.cpp:415",
+      "src/ui/dialogs/editors/featurestyleeditor.cpp:423",
+      "src/ui/dialogs/editors/featurestyleeditor.cpp:431",
+      "src/ui/dialogs/editors/gisvectorsymboleditor.cpp:29",
+      "src/ui/dialogs/editors/gisvectorsymboleditor.cpp:270",
+      "src/ui/dialogs/editors/swmmelementsymboleditor.cpp:26",
+      "src/ui/dialogs/editors/swmmelementsymboleditor.cpp:190",
+      "src/ui/dialogs/editors/symbolstyleeditors.cpp:47",
+      "src/ui/dialogs/editors/symbolstyleeditors.cpp:125",
+      "src/ui/dialogs/editors/symbolstyleeditors.cpp:184",
+      "src/ui/dialogs/editors/symbolstyleeditors.cpp:245",
+      "src/ui/dialogs/editors/symbolstyleeditors.cpp:253",
+      "src/ui/dialogs/editors/symbolstyleeditors.cpp:261",
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp:71",
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp:124",
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp:158",
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp:208",
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp:254",
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp:305",
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp:360",
+      "src/ui/dialogs/editors/symbolstyleeditors2d.cpp:408"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/kindtreesymbologypanel.h::KindTreeSymbologyPanel",
+    "class": "KindTreeSymbologyPanel",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/kindtreesymbologypanel.h:47",
+    "implementation": [
+      "src/ui/dialogs/kindtreesymbologypanel.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/layerstyledialog.cpp:606"
+    ],
+    "sharedComponents": [
+      "LabelConfigEditor"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/labelexpressiondialog.h::LabelExpressionDialog",
+    "class": "LabelExpressionDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/labelexpressiondialog.h:38",
+    "implementation": [
+      "src/ui/dialogs/labelexpressiondialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/widgets/labelconfigeditor.cpp:293"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/labelstab.h::LabelsTab",
+    "class": "LabelsTab",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/labelstab.h:39",
+    "implementation": [
+      "src/ui/dialogs/labelstab.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/layerstyledialog.cpp:677"
+    ],
+    "sharedComponents": [
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/landuseeditordialog.h::LandUseEditorDialog",
+    "class": "LandUseEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/landuseeditordialog.h:50",
+    "implementation": [
+      "src/ui/dialogs/landuseeditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/editors/comprehensiveeditorregistry.cpp:54",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:309",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:329"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_landuse_unified_editor.cpp:29",
+      "tests/gui/test_landuse_unified_editor.cpp:136",
+      "tests/gui/test_landuse_unified_editor.cpp:155",
+      "tests/gui/test_landuse_unified_editor.cpp:203",
+      "tests/gui/test_landuse_unified_editor.cpp:217"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/layerstyledialog.h::LayerStyleDialog",
+    "class": "LayerStyleDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/layerstyledialog.h:87",
+    "implementation": [
+      "src/ui/dialogs/layerstyledialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:2376",
+      "src/swmmvis.cpp:2400",
+      "src/swmmvis.cpp:2725",
+      "src/swmmvis.cpp:4200",
+      "src/swmmvis.cpp:5919",
+      "src/ui/panels/layertreepanel.cpp:1829",
+      "src/ui/panels/layertreepanel.cpp:1971",
+      "src/ui/panels/legenddock.cpp:90"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_rasterstyle_roundtrip.cpp:66",
+      "tests/gui/test_rasterstyle_roundtrip.cpp:427",
+      "tests/gui/test_rasterstyle_roundtrip.cpp:490"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/legendpropertiesdialog.h::LegendPropertiesDialog",
+    "class": "LegendPropertiesDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/legendpropertiesdialog.h:35",
+    "implementation": [
+      "src/ui/dialogs/legendpropertiesdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/widgets/legendoverlay.cpp:697"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/licenseagreementdialog.h::LicenseAgreementDialog",
+    "class": "LicenseAgreementDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/licenseagreementdialog.h:28",
+    "implementation": [
+      "src/ui/dialogs/licenseagreementdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvisapplication.cpp:288",
+      "src/swmmvisapplication.cpp:290",
+      "src/ui/dialogs/preferencesdialog.cpp:1573",
+      "src/ui/dialogs/preferencesdialog.cpp:1840"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_dialog_a11y_standalone.cpp:60"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/lidcontroleditordialog.h::LidControlEditorDialog",
+    "class": "LidControlEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/lidcontroleditordialog.h:44",
+    "implementation": [
+      "src/ui/dialogs/lidcontroleditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/editors/comprehensiveeditorregistry.cpp:55",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:410",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:426"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/linkcompoundeditdialog.h::LinkCompoundEditDialog",
+    "class": "LinkCompoundEditDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/linkcompoundeditdialog.h:43",
+    "implementation": [
+      "src/ui/dialogs/linkcompoundeditdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/panels/attributetablepanel.cpp:2124",
+      "src/ui/panels/propertiespanel.cpp:1450",
+      "src/ui/properties/linkcompoundeditbutton.cpp:45"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_linkpropertyadapter.cpp:426"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/mesh2dgroundwaterdialog.h::Mesh2DGroundwaterDialog",
+    "class": "Mesh2DGroundwaterDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/mesh2dgroundwaterdialog.h:56",
+    "implementation": [
+      "src/ui/dialogs/mesh2dgroundwaterdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:1350",
+      "src/swmmvis.cpp:1354",
+      "src/swmmvis.cpp:1365",
+      "src/swmmvis.cpp:1374"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_mesh2dgroundwaterdialog.cpp:30",
+      "tests/gui/test_mesh2dgroundwaterdialog.cpp:40",
+      "tests/gui/test_mesh2dgroundwaterdialog.cpp:62",
+      "tests/gui/test_mesh2dgroundwaterdialog.cpp:63",
+      "tests/gui/test_mesh2dgroundwaterdialog.cpp:69",
+      "tests/gui/test_mesh2dgroundwaterdialog.cpp:70",
+      "tests/gui/test_mesh2dgroundwaterdialog.cpp:83",
+      "tests/gui/test_mesh2dgroundwaterdialog.cpp:89"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/mesh2dresultsexportdialog.h::Mesh2DResultsExportDialog",
+    "class": "Mesh2DResultsExportDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/mesh2dresultsexportdialog.h:59",
+    "implementation": [
+      "src/ui/dialogs/mesh2dresultsexportdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:8088"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_mesh2dresultsexportdialog.cpp:30",
+      "tests/gui/test_mesh2dresultsexportdialog.cpp:85",
+      "tests/gui/test_mesh2dresultsexportdialog.cpp:93",
+      "tests/gui/test_mesh2dresultsexportdialog.cpp:122",
+      "tests/gui/test_mesh2dresultsexportdialog.cpp:139",
+      "tests/gui/test_mesh2dresultsexportdialog.cpp:151",
+      "tests/gui/test_mesh2dresultsexportdialog.cpp:159",
+      "tests/gui/test_mesh2dresultsexportdialog.cpp:204",
+      "tests/gui/test_mesh2dresultsexportdialog.cpp:224"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/meshattributeassigndialog.h::MeshAttributeAssignDialog",
+    "class": "MeshAttributeAssignDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/meshattributeassigndialog.h:82",
+    "implementation": [
+      "src/ui/dialogs/meshattributeassigndialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:1269",
+      "src/swmmvis.cpp:1288",
+      "src/swmmvis.cpp:1302",
+      "src/swmmvis.cpp:1311"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/meshgenerationdialog.h::MeshGenerationDialog",
+    "class": "MeshGenerationDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/meshgenerationdialog.h:60",
+    "implementation": [
+      "src/ui/dialogs/meshgenerationdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:4656"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_meshdialog_seeds.cpp:87",
+      "tests/gui/test_meshdialog_seeds.cpp:122",
+      "tests/gui/test_meshdialog_seeds.cpp:128",
+      "tests/gui/test_meshdialog_seeds.cpp:144",
+      "tests/gui/test_meshmincelldialog.cpp:114",
+      "tests/gui/test_meshmincelldialog.cpp:328"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/meshprofileplotdialog.h::MeshProfilePlotDialog",
+    "class": "MeshProfilePlotDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/meshprofileplotdialog.h:38",
+    "implementation": [
+      "src/ui/dialogs/meshprofileplotdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:3334"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/newfeaturelayerdialog.h::NewFeatureLayerDialog",
+    "class": "NewFeatureLayerDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/newfeaturelayerdialog.h:42",
+    "implementation": [
+      "src/ui/dialogs/newfeaturelayerdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:3606"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/newprojectdialog.h::NewProjectDialog",
+    "class": "NewProjectDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/newprojectdialog.h:26",
+    "implementation": [
+      "src/ui/dialogs/newprojectdialog.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/nodecompoundeditdialog.h::NodeCompoundEditDialog",
+    "class": "NodeCompoundEditDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/nodecompoundeditdialog.h:36",
+    "implementation": [
+      "src/ui/dialogs/nodecompoundeditdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/panels/attributetablepanel.cpp:2108",
+      "src/ui/panels/propertiespanel.cpp:1431",
+      "src/ui/properties/nodecompoundeditbutton.cpp:88"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/objectdefaultspage.h::ObjectDefaultsPage",
+    "class": "ObjectDefaultsPage",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/objectdefaultspage.h:27",
+    "implementation": [
+      "src/ui/dialogs/objectdefaultspage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/preferencesdialog.cpp:1771"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/patterneditordialog.h::PatternEditorDialog",
+    "class": "PatternEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/patterneditordialog.h:82",
+    "implementation": [
+      "src/ui/dialogs/patterneditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/aquifereditordialog.cpp:453",
+      "src/ui/dialogs/nodecompoundeditdialog.cpp:195",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:56",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:128",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:139",
+      "src/ui/panels/attributetablepanel.cpp:2175",
+      "src/ui/panels/attributetablepanel.cpp:2179",
+      "src/ui/panels/objectbrowserpanel.cpp:667",
+      "src/ui/panels/objectbrowserpanel.cpp:672",
+      "src/ui/panels/objectbrowserpanel.cpp:674",
+      "src/ui/panels/propertiespanel.cpp:1370",
+      "src/ui/panels/propertiespanel.cpp:1373",
+      "src/ui/properties/dataobjectpickereditor.cpp:357",
+      "src/ui/properties/dataobjectpickereditor.cpp:360"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_aquifer_editor_dialog_stubs.cpp:22",
+      "tests/gui/test_pattern_editor_dialog.cpp:60",
+      "tests/gui/test_pattern_editor_dialog.cpp:65",
+      "tests/gui/test_pattern_editor_dialog.cpp:75",
+      "tests/gui/test_pattern_editor_dialog.cpp:86",
+      "tests/gui/test_pattern_editor_dialog.cpp:264",
+      "tests/gui/test_pattern_editor_dialog.cpp:283",
+      "tests/gui/test_pattern_editor_dialog.cpp:308",
+      "tests/gui/test_pattern_editor_dialog.cpp:328",
+      "tests/gui/test_pattern_editor_dialog.cpp:331",
+      "tests/gui/test_pattern_editor_dialog.cpp:342",
+      "tests/gui/test_pattern_editor_dialog.cpp:354",
+      "tests/gui/test_pattern_editor_dialog.cpp:374",
+      "tests/gui/test_pattern_editor_dialog.cpp:393",
+      "tests/gui/test_pattern_editor_dialog.cpp:407",
+      "tests/gui/test_pattern_editor_dialog.cpp:432",
+      "tests/gui/test_pattern_editor_dialog.cpp:433",
+      "tests/gui/test_pattern_editor_dialog.cpp:436",
+      "tests/gui/test_pattern_editor_dialog.cpp:443",
+      "tests/gui/test_pattern_editor_dialog.cpp:487",
+      "tests/gui/test_pattern_editor_dialog.cpp:504",
+      "tests/gui/test_pattern_editor_dialog.cpp:528",
+      "tests/gui/test_pattern_editor_dialog.cpp:549",
+      "tests/gui/test_pattern_editor_dialog.cpp:565",
+      "tests/gui/test_pattern_editor_dialog.cpp:582",
+      "tests/gui/test_pattern_editor_dialog.cpp:603",
+      "tests/gui/test_pattern_editor_dialog.cpp:636",
+      "tests/gui/test_pattern_editor_dialog.cpp:652",
+      "tests/gui/test_pattern_editor_dialog.cpp:670"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/plotvariablepickerdialog.h::PlotVariablePickerDialog",
+    "class": "PlotVariablePickerDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/plotvariablepickerdialog.h:36",
+    "implementation": [
+      "src/ui/dialogs/plotvariablepickerdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:9464"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_plotvariablepickerdialog.cpp:27",
+      "tests/gui/test_plotvariablepickerdialog.cpp:64",
+      "tests/gui/test_plotvariablepickerdialog.cpp:71",
+      "tests/gui/test_plotvariablepickerdialog.cpp:78",
+      "tests/gui/test_plotvariablepickerdialog.cpp:150",
+      "tests/gui/test_plotvariablepickerdialog.cpp:165",
+      "tests/gui/test_plotvariablepickerdialog.cpp:180",
+      "tests/gui/test_plotvariablepickerdialog.cpp:209",
+      "tests/gui/test_plotvariablepickerdialog.cpp:236",
+      "tests/gui/test_plotvariablepickerdialog.cpp:258",
+      "tests/gui/test_plotvariablepickerdialog.cpp:274",
+      "tests/gui/test_plotvariablepickerdialog.cpp:298",
+      "tests/gui/test_plotvariablepickerdialog.cpp:314",
+      "tests/gui/test_plotvariablepickerdialog.cpp:342"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/pluginsdialog.h::PluginsDialog",
+    "class": "PluginsDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/pluginsdialog.h:20",
+    "implementation": [
+      "src/ui/dialogs/pluginsdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:4349"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_dialog_a11y_standalone.cpp:54"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/pollutanteditordialog.h::PollutantEditorDialog",
+    "class": "PollutantEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/pollutanteditordialog.h:52",
+    "implementation": [
+      "src/ui/dialogs/pollutanteditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/editors/comprehensiveeditorregistry.cpp:57",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:243",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:260"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/preferencesdialog.h::PreferencesDialog",
+    "class": "PreferencesDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/preferencesdialog.h:41",
+    "implementation": [
+      "src/ui/dialogs/preferencesdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:4339",
+      "src/swmmvisactions.cpp:89"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_preferencesdialog_roundtrip.cpp:130",
+      "tests/gui/test_preferencesdialog_roundtrip.cpp:140",
+      "tests/gui/test_preferencesdialog_roundtrip.cpp:155",
+      "tests/gui/test_preferencesdialog_roundtrip.cpp:214"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/profileoptionsdialog.h::ProfileOptionsDialog",
+    "class": "ProfileOptionsDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/profileoptionsdialog.h:29",
+    "implementation": [
+      "src/ui/dialogs/profileoptionsdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/profileplotdialog.cpp:509",
+      "src/ui/dialogs/profileplotdialog.cpp:517",
+      "src/ui/dialogs/profileplotdialog.cpp:522"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/profilepathpickerdialog.h::ProfilePathPickerDialog",
+    "class": "ProfilePathPickerDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/profilepathpickerdialog.h:28",
+    "implementation": [
+      "src/ui/dialogs/profilepathpickerdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/map/tools/maptoolselectprofile.cpp:583",
+      "src/map/tools/maptoolselectprofile.cpp:594",
+      "src/map/tools/maptoolselectprofile.cpp:601"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/profileplotdialog.h::ProfilePlotDialog",
+    "class": "ProfilePlotDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/profileplotdialog.h:61",
+    "implementation": [
+      "src/ui/dialogs/profileplotdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:3296",
+      "src/swmmvis.cpp:3303",
+      "src/swmmvis.cpp:3433"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/rainfallvisualizationdialog.h::RainfallVisualizationDialog",
+    "class": "RainfallVisualizationDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/rainfallvisualizationdialog.h:56",
+    "implementation": [
+      "src/ui/dialogs/rainfallvisualizationdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:2897",
+      "src/swmmvis.cpp:2902",
+      "src/swmmvis.cpp:2907",
+      "src/swmmvis.cpp:2934",
+      "src/swmmvis.cpp:3867"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_rainfallvisualizationdialog.cpp:34",
+      "tests/gui/test_rainfallvisualizationdialog.cpp:62",
+      "tests/gui/test_rainfallvisualizationdialog.cpp:84",
+      "tests/gui/test_rainfallvisualizationdialog.cpp:128",
+      "tests/gui/test_rainfallvisualizationdialog.cpp:165",
+      "tests/gui/test_rainfallvisualizationdialog.cpp:193",
+      "tests/gui/test_rainfallvisualizationdialog.cpp:217",
+      "tests/gui/test_rainfallvisualizationdialog.cpp:271"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/rasterprofileplotdialog.h::RasterProfilePlotDialog",
+    "class": "RasterProfilePlotDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/rasterprofileplotdialog.h:41",
+    "implementation": [
+      "src/ui/dialogs/rasterprofileplotdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:1066"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/rastersymbologypanel.h::RasterSymbologyPanel",
+    "class": "RasterSymbologyPanel",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/rastersymbologypanel.h:61",
+    "implementation": [
+      "src/ui/dialogs/rastersymbologypanel.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/layerstyledialog.cpp:652"
+    ],
+    "sharedComponents": [
+      "ClassificationEditor"
+    ],
+    "testReferences": [
+      "tests/gui/test_rasterstyle_roundtrip.cpp:67",
+      "tests/gui/test_rasterstyle_roundtrip.cpp:428",
+      "tests/gui/test_rasterstyle_roundtrip.cpp:429",
+      "tests/gui/test_rasterstyle_roundtrip.cpp:430",
+      "tests/gui/test_rasterstyle_roundtrip.cpp:434",
+      "tests/gui/test_rasterstyle_roundtrip.cpp:436",
+      "tests/gui/test_rasterstyle_roundtrip.cpp:439",
+      "tests/gui/test_rasterstyle_roundtrip.cpp:447"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/reactionsystemeditordialog.h::ReactionSystemEditorDialog",
+    "class": "ReactionSystemEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/reactionsystemeditordialog.h:51",
+    "implementation": [
+      "src/ui/dialogs/reactionsystemeditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:7930"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_reactionsystemeditor.cpp:39",
+      "tests/gui/test_reactionsystemeditor.cpp:55",
+      "tests/gui/test_reactionsystemeditor.cpp:77",
+      "tests/gui/test_reactionsystemeditor.cpp:84",
+      "tests/gui/test_reactionsystemeditor.cpp:134",
+      "tests/gui/test_reactionsystemeditor.cpp:153",
+      "tests/gui/test_reactionsystemeditor.cpp:182",
+      "tests/gui/test_reactionsystemeditor.cpp:210",
+      "tests/gui/test_reactionsystemeditor.cpp:236"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/ruleseditordialog.h::RulesEditorDialog",
+    "class": "RulesEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/ruleseditordialog.h:55",
+    "implementation": [
+      "src/ui/dialogs/ruleseditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/editors/comprehensiveeditorregistry.cpp:58",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:441",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:447",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:463",
+      "src/ui/panels/objectbrowserpanel.cpp:715",
+      "src/ui/panels/objectbrowserpanel.cpp:716",
+      "src/ui/panels/objectbrowserpanel.cpp:718",
+      "src/ui/panels/propertiespanel.cpp:1279",
+      "src/ui/panels/propertiespanel.cpp:1280"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_rules_editor_dialog.cpp:38",
+      "tests/gui/test_rules_editor_dialog.cpp:140",
+      "tests/gui/test_rules_editor_dialog.cpp:151",
+      "tests/gui/test_rules_editor_dialog.cpp:152",
+      "tests/gui/test_rules_editor_dialog.cpp:160"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/rulesymbologytab.h::RuleSymbologyTab",
+    "class": "RuleSymbologyTab",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/rulesymbologytab.h:56",
+    "implementation": [
+      "src/ui/dialogs/rulesymbologytab.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/panels/layerstylingdock.cpp:132"
+    ],
+    "sharedComponents": [],
+    "testReferences": [
+      "tests/gui/test_rulesymbologytab.cpp:36",
+      "tests/gui/test_rulesymbologytab.cpp:92",
+      "tests/gui/test_rulesymbologytab.cpp:108",
+      "tests/gui/test_rulesymbologytab.cpp:121",
+      "tests/gui/test_rulesymbologytab.cpp:133",
+      "tests/gui/test_rulesymbologytab.cpp:147",
+      "tests/gui/test_rulesymbologytab.cpp:161",
+      "tests/gui/test_rulesymbologytab.cpp:173",
+      "tests/gui/test_rulesymbologytab.cpp:185",
+      "tests/gui/test_rulesymbologytab.cpp:201",
+      "tests/gui/test_rulesymbologytab.cpp:216",
+      "tests/gui/test_rulesymbologytab.cpp:230",
+      "tests/gui/test_rulesymbologytab.cpp:244",
+      "tests/gui/test_rulesymbologytab.cpp:260",
+      "tests/gui/test_rulesymbologytab.cpp:278",
+      "tests/gui/test_rulesymbologytab.cpp:297",
+      "tests/gui/test_rulesymbologytab.cpp:315",
+      "tests/gui/test_rulesymbologytab.cpp:329",
+      "tests/gui/test_rulesymbologytab.cpp:351",
+      "tests/gui/test_rulesymbologytab.cpp:365",
+      "tests/gui/test_rulesymbologytab.cpp:387",
+      "tests/gui/test_rulesymbologytab.cpp:400",
+      "tests/gui/test_rulesymbologytab.cpp:411",
+      "tests/gui/test_rulesymbologytab.cpp:423",
+      "tests/gui/test_rulesymbologytab.cpp:436",
+      "tests/gui/test_rulesymbologytab.cpp:452"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/scatterplotdialog.h::ScatterPlotDialog",
+    "class": "ScatterPlotDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/scatterplotdialog.h:27",
+    "implementation": [
+      "src/ui/dialogs/scatterplotdialog.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simoptions/datespage.h::DatesPage",
+    "class": "DatesPage",
+    "base": "SimOptionsPage",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/simoptions/datespage.h:42",
+    "implementation": [
+      "src/ui/dialogs/simoptions/datespage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/simulationoptionsdialog.cpp:132",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:188"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simoptions/filespage.h::FilesPage",
+    "class": "FilesPage",
+    "base": "SimOptionsPage",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/simoptions/filespage.h:41",
+    "implementation": [
+      "src/ui/dialogs/simoptions/filespage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/simulationoptionsdialog.cpp:207"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox",
+      "RelativePathPicker"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simoptions/hydraulicspage.h::HydraulicsPage",
+    "class": "HydraulicsPage",
+    "base": "SimOptionsPage",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/simoptions/hydraulicspage.h:36",
+    "implementation": [
+      "src/ui/dialogs/simoptions/hydraulicspage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/simulationoptionsdialog.cpp:134",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:338"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simoptions/meshpage.h::MeshPage",
+    "class": "MeshPage",
+    "base": "SimOptionsPage",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/simoptions/meshpage.h:28",
+    "implementation": [
+      "src/ui/dialogs/simoptions/meshpage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/simulationoptionsdialog.cpp:170"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simoptions/modelspage.h::ModelsPage",
+    "class": "ModelsPage",
+    "base": "SimOptionsPage",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/simoptions/modelspage.h:37",
+    "implementation": [
+      "src/ui/dialogs/simoptions/modelspage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/simulationoptionsdialog.cpp:130",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:140",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:196"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simoptions/performancepage.h::PerformancePage",
+    "class": "PerformancePage",
+    "base": "SimOptionsPage",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/simoptions/performancepage.h:27",
+    "implementation": [
+      "src/ui/dialogs/simoptions/performancepage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/simulationoptionsdialog.cpp:149"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simoptions/qualitypage.h::QualityPage",
+    "class": "QualityPage",
+    "base": "SimOptionsPage",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/simoptions/qualitypage.h:37",
+    "implementation": [
+      "src/ui/dialogs/simoptions/qualitypage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/simulationoptionsdialog.cpp:145",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:362"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simoptions/simoptionspage.h::SimOptionsPage",
+    "class": "SimOptionsPage",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/simoptions/simoptionspage.h:24",
+    "implementation": [
+      "src/ui/dialogs/simoptions/simoptionspage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/simoptions/datespage.cpp:86",
+      "src/ui/dialogs/simoptions/filespage.cpp:86",
+      "src/ui/dialogs/simoptions/hydraulicspage.cpp:27",
+      "src/ui/dialogs/simoptions/meshpage.cpp:42",
+      "src/ui/dialogs/simoptions/modelspage.cpp:69",
+      "src/ui/dialogs/simoptions/performancepage.cpp:24",
+      "src/ui/dialogs/simoptions/qualitypage.cpp:28",
+      "src/ui/dialogs/simoptions/spatialpage.cpp:25",
+      "src/ui/dialogs/simoptions/titlenotespage.cpp:27",
+      "src/ui/dialogs/simoptions/twodpage.cpp:52",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:87",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:225",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:226",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:273",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:389",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:429",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:444",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:463"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simoptions/spatialpage.h::SpatialPage",
+    "class": "SpatialPage",
+    "base": "SimOptionsPage",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/simoptions/spatialpage.h:25",
+    "implementation": [
+      "src/ui/dialogs/simoptions/spatialpage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/simulationoptionsdialog.cpp:157",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:160"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simoptions/titlenotespage.h::TitleNotesPage",
+    "class": "TitleNotesPage",
+    "base": "SimOptionsPage",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/simoptions/titlenotespage.h:25",
+    "implementation": [
+      "src/ui/dialogs/simoptions/titlenotespage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/simulationoptionsdialog.cpp:129"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simoptions/twodpage.h::TwoDPage",
+    "class": "TwoDPage",
+    "base": "SimOptionsPage",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/simoptions/twodpage.h:50",
+    "implementation": [
+      "src/ui/dialogs/simoptions/twodpage.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/simulationoptionsdialog.cpp:179",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:189",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:195",
+      "src/ui/dialogs/simulationoptionsdialog.cpp:199"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/simulationoptionsdialog.h::SimulationOptionsDialog",
+    "class": "SimulationOptionsDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/simulationoptionsdialog.h:95",
+    "implementation": [
+      "src/ui/dialogs/simulationoptionsdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/layers/swmmmodellayer.cpp:6625",
+      "src/layers/swmmmodellayer.cpp:6644",
+      "src/swmmvis.cpp:5768",
+      "src/swmmvis.cpp:7372",
+      "src/swmmvis.cpp:7374",
+      "src/swmmvis.cpp:7835",
+      "src/ui/dialogs/hotstartsavesmodel.cpp:173",
+      "src/ui/dialogs/hotstartsavesmodel.cpp:195",
+      "src/ui/dialogs/hotstartsavesmodel.cpp:207",
+      "src/ui/dialogs/preferencesdialog.cpp:981",
+      "src/ui/dialogs/simoptions/datespage.cpp:272",
+      "src/ui/dialogs/simoptions/datespage.cpp:331",
+      "src/ui/dialogs/simoptions/datespage.cpp:410",
+      "src/ui/dialogs/simoptions/datespage.cpp:484",
+      "src/ui/dialogs/simoptions/datespage.cpp:507",
+      "src/ui/dialogs/simoptions/datespage.cpp:508",
+      "src/ui/dialogs/simoptions/datespage.cpp:603",
+      "src/ui/dialogs/simoptions/datespage.cpp:604",
+      "src/ui/dialogs/simoptions/filespage.cpp:379",
+      "src/ui/dialogs/simoptions/filespage.cpp:442",
+      "src/ui/dialogs/simoptions/filespage.cpp:442",
+      "src/ui/dialogs/simoptions/hydraulicspage.cpp:544",
+      "src/ui/dialogs/simoptions/hydraulicspage.cpp:551",
+      "src/ui/dialogs/simoptions/hydraulicspage.cpp:599",
+      "src/ui/dialogs/simoptions/hydraulicspage.cpp:606",
+      "src/ui/dialogs/simoptions/hydraulicspage.cpp:610",
+      "src/ui/dialogs/simoptions/hydraulicspage.cpp:639",
+      "src/ui/dialogs/simoptions/hydraulicspage.cpp:689",
+      "src/ui/dialogs/simoptions/hydraulicspage.cpp:696",
+      "src/ui/dialogs/simoptions/hydraulicspage.cpp:702",
+      "src/ui/dialogs/simoptions/modelspage.cpp:372",
+      "src/ui/dialogs/simoptions/modelspage.cpp:457",
+      "src/ui/dialogs/simoptions/performancepage.cpp:64",
+      "src/ui/dialogs/simoptions/performancepage.cpp:88",
+      "src/ui/dialogs/simoptions/performancepage.cpp:92",
+      "src/ui/dialogs/simoptions/qualitypage.cpp:329",
+      "src/ui/dialogs/simoptions/qualitypage.cpp:332",
+      "src/ui/dialogs/simoptions/qualitypage.cpp:359",
+      "src/ui/dialogs/simoptions/qualitypage.cpp:362",
+      "src/ui/dialogs/simoptions/simoptionscontext.cpp:38",
+      "src/ui/dialogs/simoptions/twodpage.cpp:1097",
+      "src/ui/dialogs/simoptions/twodpage.cpp:1259",
+      "src/ui/dialogs/simoptions/twodpage.cpp:1262",
+      "src/ui/dialogs/simulationoptionshelpers.cpp:28",
+      "src/ui/dialogs/simulationoptionshelpers.cpp:38",
+      "src/ui/dialogs/simulationoptionshelpers.cpp:52",
+      "src/ui/dialogs/simulationoptionshelpers.cpp:62",
+      "src/ui/dialogs/simulationoptionshelpers.cpp:67",
+      "src/ui/dialogs/simulationoptionshelpers.cpp:75",
+      "src/ui/dialogs/simulationoptionshelpers.cpp:107",
+      "src/ui/dialogs/simulationoptionshelpers.cpp:113",
+      "src/ui/dialogs/simulationoptionshelpers.cpp:120",
+      "src/ui/dialogs/simulationoptionshelpers.cpp:151",
+      "src/ui/dialogs/simulationoptionshelpers.cpp:168"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_2d_output_options_page.cpp:88",
+      "tests/gui/test_2d_output_options_page.cpp:125",
+      "tests/gui/test_2d_output_options_page.cpp:156",
+      "tests/gui/test_2d_output_options_page.cpp:179",
+      "tests/gui/test_gw_page_keys.cpp:82",
+      "tests/gui/test_gw_page_keys.cpp:97",
+      "tests/gui/test_gw_page_keys.cpp:127",
+      "tests/gui/test_gw_page_keys.cpp:142",
+      "tests/gui/test_gw_page_keys.cpp:156",
+      "tests/gui/test_processes_hub.cpp:81",
+      "tests/gui/test_processes_hub.cpp:120",
+      "tests/gui/test_processes_hub.cpp:133",
+      "tests/gui/test_processes_hub.cpp:161",
+      "tests/gui/test_processes_hub.cpp:183",
+      "tests/gui/test_processes_hub.cpp:206",
+      "tests/gui/test_simulationoptions_gates.cpp:129",
+      "tests/gui/test_simulationoptions_gates.cpp:148",
+      "tests/gui/test_simulationoptions_gates.cpp:178",
+      "tests/gui/test_simulationoptions_gates.cpp:217",
+      "tests/gui/test_simulationoptions_gates.cpp:241",
+      "tests/gui/test_simulationoptions_gates.cpp:265",
+      "tests/gui/test_simulationoptions_gates.cpp:310",
+      "tests/gui/test_simulationoptions_gates.cpp:347",
+      "tests/gui/test_simulationoptions_gates.cpp:370",
+      "tests/gui/test_simulationoptions_gates.cpp:419",
+      "tests/gui/test_simulationoptions_roundtrip.cpp:131",
+      "tests/gui/test_simulationoptions_roundtrip.cpp:215",
+      "tests/gui/test_simulationoptionsdialog.cpp:58",
+      "tests/gui/test_simulationoptionsdialog.cpp:59",
+      "tests/gui/test_simulationoptionsdialog.cpp:60",
+      "tests/gui/test_simulationoptionsdialog.cpp:61",
+      "tests/gui/test_simulationoptionsdialog.cpp:63",
+      "tests/gui/test_simulationoptionsdialog.cpp:64",
+      "tests/gui/test_simulationoptionsdialog.cpp:65",
+      "tests/gui/test_simulationoptionsdialog.cpp:66",
+      "tests/gui/test_simulationoptionsdialog.cpp:73",
+      "tests/gui/test_simulationoptionsdialog.cpp:74",
+      "tests/gui/test_simulationoptionsdialog.cpp:75",
+      "tests/gui/test_simulationoptionsdialog.cpp:81",
+      "tests/gui/test_simulationoptionsdialog.cpp:82",
+      "tests/gui/test_simulationoptionsdialog.cpp:85",
+      "tests/gui/test_simulationoptionsdialog.cpp:86",
+      "tests/gui/test_simulationoptionsdialog.cpp:87",
+      "tests/gui/test_simulationoptionsdialog.cpp:88",
+      "tests/gui/test_simulationoptionsdialog.cpp:100",
+      "tests/gui/test_simulationoptionsdialog.cpp:116",
+      "tests/gui/test_simulationoptionsdialog.cpp:125",
+      "tests/gui/test_simulationoptionsdialog.cpp:126",
+      "tests/gui/test_simulationoptionsdialog.cpp:130",
+      "tests/gui/test_simulationoptionsdialog.cpp:131",
+      "tests/gui/test_simulationoptionsdialog.cpp:138",
+      "tests/gui/test_simulationoptionsdialog.cpp:140",
+      "tests/gui/test_simulationoptionsdialog.cpp:142",
+      "tests/gui/test_simulationoptionsdialog.cpp:143",
+      "tests/gui/test_simulationoptionsdialog.cpp:154",
+      "tests/gui/test_simulationoptionsdialog.cpp:155",
+      "tests/gui/test_simulationoptionsdialog.cpp:164",
+      "tests/gui/test_simulationoptionsdialog.cpp:167",
+      "tests/gui/test_simulationoptionsdialog.cpp:171",
+      "tests/gui/test_simulationoptionsdialog.cpp:172",
+      "tests/gui/test_simulationoptionsdialog.cpp:186",
+      "tests/gui/test_simulationoptionsdialog.cpp:187",
+      "tests/gui/test_simulationoptionsdialog.cpp:198",
+      "tests/gui/test_simulationoptionsdialog.cpp:208",
+      "tests/gui/test_simulationoptionsdialog.cpp:237",
+      "tests/gui/test_simulationoptionsdialog.cpp:253",
+      "tests/gui/test_simulationoptionsdialog.cpp:270",
+      "tests/gui/test_simulationoptionsdialog.cpp:294",
+      "tests/gui/test_simulationoptionsdialog.cpp:299",
+      "tests/gui/test_simulationoptionsdialog.cpp:309",
+      "tests/gui/test_simulationoptionsdialog.cpp:313",
+      "tests/gui/test_simulationoptionsdialog.cpp:330"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/snowpackeditordialog.h::SnowpackEditorDialog",
+    "class": "SnowpackEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/snowpackeditordialog.h:37",
+    "implementation": [
+      "src/ui/dialogs/snowpackeditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/editors/comprehensiveeditorregistry.cpp:59",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:348",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:364"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/statisticsdashboarddialog.h::StatisticsDashboardDialog",
+    "class": "StatisticsDashboardDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/statisticsdashboarddialog.h:44",
+    "implementation": [
+      "src/ui/dialogs/statisticsdashboarddialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:8013"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/statusreportdialog.h::StatusReportDialog",
+    "class": "StatusReportDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/statusreportdialog.h:46",
+    "implementation": [
+      "src/ui/dialogs/statusreportdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:9553"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/streeteditordialog.h::StreetEditorDialog",
+    "class": "StreetEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/streeteditordialog.h:73",
+    "implementation": [
+      "src/ui/dialogs/streeteditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/linkcompoundeditdialog.cpp:586",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:60",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:207",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:227"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/streeteditordialog.h::StreetSectionPreview",
+    "class": "StreetSectionPreview",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/streeteditordialog.h:60",
+    "implementation": [
+      "src/ui/dialogs/streeteditordialog.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/stylemanagerdialog.h::StyleManagerDialog",
+    "class": "StyleManagerDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/stylemanagerdialog.h:41",
+    "implementation": [
+      "src/ui/dialogs/stylemanagerdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:4363"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/subcatchcompoundeditdialog.h::SubcatchCompoundEditDialog",
+    "class": "SubcatchCompoundEditDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/subcatchcompoundeditdialog.h:30",
+    "implementation": [
+      "src/ui/dialogs/subcatchcompoundeditdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/properties/subcatchcompoundeditbutton.cpp:62"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_subcatch_coverage_loadings.cpp:68",
+      "tests/gui/test_subcatch_coverage_loadings.cpp:90",
+      "tests/gui/test_subcatch_coverage_loadings.cpp:119",
+      "tests/gui/test_subcatch_coverage_loadings.cpp:135"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/sublayerselectiondialog.h::SublayerSelectionDialog",
+    "class": "SublayerSelectionDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/sublayerselectiondialog.h:28",
+    "implementation": [
+      "src/ui/dialogs/sublayerselectiondialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:9882"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/swmm2dmeshstylepanel.h::Swmm2DMeshStylePanel",
+    "class": "Swmm2DMeshStylePanel",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/swmm2dmeshstylepanel.h:30",
+    "implementation": [
+      "src/ui/dialogs/swmm2dmeshstylepanel.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/layerstyledialog.cpp:623"
+    ],
+    "sharedComponents": [
+      "ClassificationEditor",
+      "ColorButton"
+    ],
+    "testReferences": [
+      "tests/gui/test_stylecontrols.cpp:173"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/swmm2dresultsstylepanel.h::Swmm2DResultsStylePanel",
+    "class": "Swmm2DResultsStylePanel",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/swmm2dresultsstylepanel.h:30",
+    "implementation": [
+      "src/ui/dialogs/swmm2dresultsstylepanel.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/layerstyledialog.cpp:614"
+    ],
+    "sharedComponents": [
+      "ClassificationEditor",
+      "ColorButton"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/symbologytab.h::SymbologyTab",
+    "class": "SymbologyTab",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "include/ui/dialogs/symbologytab.h:33",
+    "implementation": [
+      "src/ui/dialogs/symbologytab.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/kindtreesymbologypanel.cpp:404",
+      "src/ui/dialogs/layerstyledialog.cpp:643",
+      "src/ui/dialogs/layerstyledialog.cpp:657"
+    ],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/tabularresultsdialog.h::TabularResultsDialog",
+    "class": "TabularResultsDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/tabularresultsdialog.h:30",
+    "implementation": [
+      "src/ui/dialogs/tabularresultsdialog.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/timeserieseditordialog.h::TimeseriesEditorDialog",
+    "class": "TimeseriesEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/timeserieseditordialog.h:72",
+    "implementation": [
+      "src/ui/dialogs/timeserieseditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:1124",
+      "src/ui/dialogs/nodecompoundeditdialog.cpp:188",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:61",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:69",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:91",
+      "src/ui/panels/attributetablepanel.cpp:2185",
+      "src/ui/panels/attributetablepanel.cpp:2189",
+      "src/ui/panels/objectbrowserpanel.cpp:729",
+      "src/ui/panels/objectbrowserpanel.cpp:742",
+      "src/ui/panels/propertiespanel.cpp:1379",
+      "src/ui/panels/propertiespanel.cpp:1382",
+      "src/ui/properties/dataobjectpickereditor.cpp:367",
+      "src/ui/properties/dataobjectpickereditor.cpp:370"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:49",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:53",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:63",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:71",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:93",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:95",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:106",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:119",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:134",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:151",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:161",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:174",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:193",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:212",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:248",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:269",
+      "tests/gui/test_objectbrowser_add_new_dispatch.cpp:270",
+      "tests/gui/test_timeseries_editor_dialog.cpp:54",
+      "tests/gui/test_timeseries_editor_dialog.cpp:90",
+      "tests/gui/test_timeseries_editor_dialog.cpp:107",
+      "tests/gui/test_timeseries_editor_dialog.cpp:132",
+      "tests/gui/test_timeseries_editor_dialog.cpp:148",
+      "tests/gui/test_timeseries_editor_dialog.cpp:185",
+      "tests/gui/test_timeseries_editor_dialog.cpp:215",
+      "tests/gui/test_timeseries_editor_dialog.cpp:229",
+      "tests/gui/test_timeseries_editor_dialog.cpp:247",
+      "tests/gui/test_timeseries_editor_dialog.cpp:261",
+      "tests/gui/test_timeseries_editor_dialog.cpp:289",
+      "tests/gui/test_timeseries_editor_dialog.cpp:311",
+      "tests/gui/test_timeseries_editor_dialog.cpp:330",
+      "tests/gui/test_timeseries_editor_dialog.cpp:357",
+      "tests/gui/test_timeseries_editor_dialog.cpp:379",
+      "tests/gui/test_timeseries_editor_dialog.cpp:409",
+      "tests/gui/test_timeseries_editor_dialog.cpp:431",
+      "tests/gui/test_timeseries_editor_dialog.cpp:448",
+      "tests/gui/test_timeseries_editor_dialog.cpp:471",
+      "tests/gui/test_timeseries_editor_dialog.cpp:498",
+      "tests/gui/test_timeseries_editor_dialog.cpp:538",
+      "tests/gui/test_timeseries_editor_dialog.cpp:592",
+      "tests/gui/test_timeseries_editor_dialog.cpp:629",
+      "tests/gui/test_timeseries_editor_dialog.cpp:668",
+      "tests/gui/test_timeseries_editor_dialog.cpp:707",
+      "tests/gui/test_timeseries_editor_dialog.cpp:728",
+      "tests/gui/test_timeseries_editor_dialog.cpp:760",
+      "tests/gui/test_timeseries_editor_dialog.cpp:824",
+      "tests/gui/test_timeseries_editor_dialog.cpp:848",
+      "tests/gui/test_timeseries_editor_dialog.cpp:908",
+      "tests/gui/test_timeseries_editor_dialog.cpp:944",
+      "tests/gui/test_timeseries_editor_dialog.cpp:989",
+      "tests/gui/test_timeseries_editor_dialog.cpp:1024",
+      "tests/gui/test_timeseries_editor_dialog.cpp:1025",
+      "tests/gui/test_timeseries_editor_dialog.cpp:1074",
+      "tests/gui/test_timeseries_editor_dialog.cpp:1092",
+      "tests/gui/test_timeseries_editor_dialog.cpp:1124",
+      "tests/gui/test_timeseries_editor_dialog.cpp:1147",
+      "tests/gui/test_timeseries_editor_dialog.cpp:1165",
+      "tests/gui/test_timeseries_editor_dialog.cpp:1194"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/transecteditordialog.h::TransectEditorDialog",
+    "class": "TransectEditorDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/transecteditordialog.h:70",
+    "implementation": [
+      "src/ui/dialogs/transecteditordialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/linkcompoundeditdialog.cpp:542",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:62",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:170",
+      "src/ui/editors/comprehensiveeditorregistry.cpp:191",
+      "src/ui/panels/objectbrowserpanel.cpp:686",
+      "src/ui/panels/objectbrowserpanel.cpp:689",
+      "src/ui/panels/objectbrowserpanel.cpp:691",
+      "src/ui/panels/propertiespanel.cpp:1303",
+      "src/ui/panels/propertiespanel.cpp:1306"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_transect_editor_dialog.cpp:78",
+      "tests/gui/test_transect_editor_dialog.cpp:444",
+      "tests/gui/test_transect_editor_dialog.cpp:469",
+      "tests/gui/test_transect_editor_dialog.cpp:687",
+      "tests/gui/test_transect_editor_dialog.cpp:708"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/userflagsdialog.h::UserFlagsDialog",
+    "class": "UserFlagsDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/userflagsdialog.h:35",
+    "implementation": [
+      "src/ui/dialogs/userflagsdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:8430"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_userflagsdialog.cpp:60",
+      "tests/gui/test_userflagsdialog.cpp:87",
+      "tests/gui/test_userflagsdialog.cpp:123",
+      "tests/gui/test_userflagsdialog.cpp:138",
+      "tests/gui/test_userflagsdialog.cpp:157"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/userflagvaluesdialog.h::UserFlagValuesDialog",
+    "class": "UserFlagValuesDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/userflagvaluesdialog.h:28",
+    "implementation": [
+      "src/ui/dialogs/userflagvaluesdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/properties/userflagseditbutton.cpp:48"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_userflagvaluesdialog.cpp:92",
+      "tests/gui/test_userflagvaluesdialog.cpp:133",
+      "tests/gui/test_userflagvaluesdialog.cpp:160"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/wateragesourcesdialog.h::WaterAgeSourcesDialog",
+    "class": "WaterAgeSourcesDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/wateragesourcesdialog.h:49",
+    "implementation": [
+      "src/ui/dialogs/wateragesourcesdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvis.cpp:7875",
+      "src/ui/dialogs/simoptions/qualitypage.cpp:209"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [
+      "tests/gui/test_wateragesourcesdialog.cpp:41",
+      "tests/gui/test_wateragesourcesdialog.cpp:55",
+      "tests/gui/test_wateragesourcesdialog.cpp:61",
+      "tests/gui/test_wateragesourcesdialog.cpp:85",
+      "tests/gui/test_wateragesourcesdialog.cpp:99",
+      "tests/gui/test_wateragesourcesdialog.cpp:113",
+      "tests/gui/test_wateragesourcesdialog.cpp:135",
+      "tests/gui/test_wateragesourcesdialog.cpp:157",
+      "tests/gui/test_wateragesourcesdialog.cpp:181",
+      "tests/gui/test_wateragesourcesdialog.cpp:203"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/wmsconnectiondialog.h::WMSConnectionDialog",
+    "class": "WMSConnectionDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/wmsconnectiondialog.h:53",
+    "implementation": [
+      "src/ui/dialogs/wmsconnectiondialog.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/dialogs/wmtsconnectiondialog.h::WMTSConnectionDialog",
+    "class": "WMTSConnectionDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/dialogs/wmtsconnectiondialog.h:49",
+    "implementation": [
+      "src/ui/dialogs/wmtsconnectiondialog.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "include/ui/widgets/commandpalette.h::CommandPalette",
+    "class": "CommandPalette",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "include/ui/widgets/commandpalette.h:25",
+    "implementation": [
+      "src/ui/widgets/commandpalette.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/swmmvisactions.cpp:73",
+      "src/swmmvisactions.cpp:76"
+    ],
+    "sharedComponents": [],
+    "testReferences": [
+      "tests/gui/test_command_palette.cpp:18",
+      "tests/gui/test_command_palette.cpp:90",
+      "tests/gui/test_command_palette.cpp:103",
+      "tests/gui/test_command_palette.cpp:112"
+    ],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "src/ui/dialogs/colorrampeditordialog.cpp::GradientPreviewWidget",
+    "class": "GradientPreviewWidget",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "src/ui/dialogs/colorrampeditordialog.cpp:37",
+    "implementation": [
+      "src/ui/dialogs/colorrampeditordialog.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "ColorButton",
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "src/ui/dialogs/editors/categorizedrendererpanel.cpp::CategorizedPanel",
+    "class": "CategorizedPanel",
+    "base": "IRendererPanel",
+    "kind": "embedded surface",
+    "declaration": "src/ui/dialogs/editors/categorizedrendererpanel.cpp:282",
+    "implementation": [
+      "src/ui/dialogs/editors/categorizedrendererpanel.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "src/ui/dialogs/editors/categorizedrendererpanel.cpp::SymbolDetailsDialog",
+    "class": "SymbolDetailsDialog",
+    "base": "QDialog",
+    "kind": "dialog",
+    "declaration": "src/ui/dialogs/editors/categorizedrendererpanel.cpp:214",
+    "implementation": [
+      "src/ui/dialogs/editors/categorizedrendererpanel.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "src/ui/dialogs/editors/graduatedrendererpanel.cpp::GraduatedPanel",
+    "class": "GraduatedPanel",
+    "base": "IRendererPanel",
+    "kind": "embedded surface",
+    "declaration": "src/ui/dialogs/editors/graduatedrendererpanel.cpp:28",
+    "implementation": [
+      "src/ui/dialogs/editors/graduatedrendererpanel.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "src/ui/dialogs/editors/rulebasedrendererpanel.cpp::RuleBasedPanel",
+    "class": "RuleBasedPanel",
+    "base": "IRendererPanel",
+    "kind": "embedded surface",
+    "declaration": "src/ui/dialogs/editors/rulebasedrendererpanel.cpp:121",
+    "implementation": [
+      "src/ui/dialogs/editors/rulebasedrendererpanel.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "src/ui/dialogs/editors/singlesymbolrendererpanel.cpp::SingleSymbolPanel",
+    "class": "SingleSymbolPanel",
+    "base": "IRendererPanel",
+    "kind": "embedded surface",
+    "declaration": "src/ui/dialogs/editors/singlesymbolrendererpanel.cpp:45",
+    "implementation": [
+      "src/ui/dialogs/editors/singlesymbolrendererpanel.cpp"
+    ],
+    "entryPointCandidates": [],
+    "sharedComponents": [],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  },
+  {
+    "id": "src/ui/dialogs/statusreportdialog.cpp::Gutter",
+    "class": "Gutter",
+    "base": "QWidget",
+    "kind": "embedded surface",
+    "declaration": "src/ui/dialogs/statusreportdialog.cpp:197",
+    "implementation": [
+      "src/ui/dialogs/statusreportdialog.cpp"
+    ],
+    "entryPointCandidates": [
+      "src/ui/dialogs/streeteditordialog.cpp:251",
+      "src/ui/properties/swmmstreetpropertyadapter.cpp:16",
+      "src/ui/properties/swmmstreetpropertyadapter.cpp:17"
+    ],
+    "sharedComponents": [
+      "QDialogButtonBox"
+    ],
+    "testReferences": [],
+    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
+    "ownerAndPersistence": "resolve from constructor and launch path in W3",
+    "requiredChanges": "apply family contract after workflow audit; see README",
+    "verification": "source discovery only; a test reference is not a passing test"
+  }
+]
