@@ -6477,8 +6477,8 @@ void MeshGenerationDialog::onMeshFinished()
         // already references the same output path — regenerating a mesh at an
         // existing path must REPLACE it, not stack a second (stale) layer on
         // the canvas. A lingering duplicate is not just visually wrong: on save
-        // the write path (SWMMVisProjectWindow) pushes *every* mesh layer into
-        // the engine, so the old mesh can win and reappear on reopen.
+        // duplicate working copies of the same file carry conflicting edits
+        // and cannot be independently persisted by the project save path.
         const QString newMeshCanonical =
             result.meshPath.isEmpty()
                 ? QString()
@@ -6524,7 +6524,7 @@ void MeshGenerationDialog::onMeshFinished()
                                                /*parent=*/nullptr,
                                                /*deferHeavyGeometry=*/true);
         meshLayer->setExternalMesh(isExt);
-        meshLayer->setActiveMesh(isExt);
+        meshLayer->setActiveMesh(true);
         meshLayer->setName(result.meshPath.isEmpty()
                                ? QStringLiteral("Mesh (inline)")
                                : QFileInfo(result.meshPath).fileName());
