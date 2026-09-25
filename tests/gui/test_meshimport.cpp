@@ -103,7 +103,7 @@ bool buildStandaloneMesh(const QString &inpPath, const QString &meshPath)
     const QStringList lines =
         QString::fromUtf8(in.readAll()).split(QChar('\n'), Qt::KeepEmptyParts);
 
-    QString out = QStringLiteral(";; UNITS: SI\n"
+    QString out = QStringLiteral(";; UNITS: SI (m)\n"
                                  ";; Standalone mesh for test_meshimport\n\n");
     bool keep = false;
     for (const QString &raw : lines) {
@@ -252,6 +252,7 @@ void TestMeshImport::importsMeshFromOutsideTheProjectFolder()
     QVERIFY(layer->isExternalMesh());
     QCOMPARE(layer->vertexCount(), m_meshVerts);
     QCOMPARE(layer->triangleCount(), m_meshTris);
+    QVERIFY(layer->meshUnitsSI());
     QCOMPARE(QFileInfo(layer->sourcePath()).absoluteFilePath(),
              QFileInfo(expected).absoluteFilePath());
 

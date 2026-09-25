@@ -32,6 +32,7 @@
 #include "mesh/channelburnselector.h"
 #include "mesh/dtmthinner.h"
 #include "mesh/inpmeshwriter.h"
+#include "mesh/inpmeshreader.h"
 #include "mesh/naturalnbinterpolator.h"
 #include "mesh/meshreorder.h"
 #include "mesh/meshstagecache.h"
@@ -3085,6 +3086,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     out.meshPath   = (in.outputMode == mesh::MeshOutputMode::External)
                          ? in.meshOutputPath : QString();
     out.outputMode = in.outputMode;
+    out.meshUnitsSI = mesh::unitsHeaderIsSI(in.meshLinearUnitName);
     out.alignmentWarnings = std::move(alignmentWarnings);
     out.burnedDemPath  = burnedDemPath;
     out.burnReportPath = burnReportPath;
@@ -6524,6 +6526,7 @@ void MeshGenerationDialog::onMeshFinished()
                                                /*parent=*/nullptr,
                                                /*deferHeavyGeometry=*/true);
         meshLayer->setExternalMesh(isExt);
+        meshLayer->setMeshUnitsSI(result.meshUnitsSI);
         meshLayer->setActiveMesh(true);
         meshLayer->setName(result.meshPath.isEmpty()
                                ? QStringLiteral("Mesh (inline)")

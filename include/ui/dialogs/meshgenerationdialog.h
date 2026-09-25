@@ -353,6 +353,7 @@ public:
         mesh::MeshResult  meshResult;
         mesh::CouplingMap coupling;
         QString           meshPath;
+        bool              meshUnitsSI = false; ///< Same units as the written mesh header.
         mesh::MeshOutputMode outputMode = mesh::MeshOutputMode::External;
 
         // ── Channel burn-in outcome ──────────────────────────────────────
