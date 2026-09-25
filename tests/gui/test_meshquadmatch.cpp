@@ -27,6 +27,7 @@
 #include "mesh/meshquadmatch.h"
 #include "mesh/meshquadmerge.h"
 #include "mesh/meshquadquality.h"
+#include "mesh/meshquadregion.h"
 #include "mesh/meshresult.h"
 
 using namespace mesh;
@@ -110,6 +111,38 @@ class TestMeshQuadMatch : public QObject
     Q_OBJECT
 
 private slots:
+    void elongatedTemplate_regionOverride_data()
+    {
+        QTest::addColumn<double>("regionCap");
+        QTest::addColumn<double>("globalCap");
+        QTest::addColumn<int>("quads");
+        QTest::newRow("explicit-four") << 4.0 << 2.0 << 1;
+        QTest::newRow("explicit-two") << 2.0 << 4.0 << 0;
+        QTest::newRow("inherit-two") << -1.0 << 2.0 << 0;
+        QTest::newRow("inherit-four") << -1.0 << 4.0 << 1;
+        QTest::newRow("explicit-unlimited") << 0.0 << 2.0 << 1;
+        QTest::newRow("inherit-unlimited") << -1.0 << 0.0 << 1;
+    }
+
+    void elongatedTemplate_regionOverride()
+    {
+        QFETCH(double, regionCap);
+        QFETCH(double, globalCap);
+        QFETCH(int, quads);
+        QVector<QuadTemplate> templates;
+        QVector<int> ids;
+        auto m = latticeMesh(1, &templates, &ids);
+        for (auto &v : m.vertices) v.xy.setX(3 * v.xy.x());
+        QuadRegion region;
+        region.aspectMax = regionCap;
+        QuadPairingOptions o;
+        o.bounds.maxAspect = globalCap;
+        o.bounds = quadRegionQualityBounds(region, o.bounds);
+        QCOMPARE(pairTrianglesIntoQuads(m, ids, templates, {}, o, nullptr).templateQuads, quads);
+        QCOMPARE(m.quadCount(), quads);
+        QCOMPARE(m.triangles.size(), quads ? 1 : 2);
+    }
+
 
     /*! (a) 11×11 lattice, 200 triangles, 100 templates → 100 quads, 0
      *  leftovers, SJ ≥ 0.95, quads only (triangles-first order trivially

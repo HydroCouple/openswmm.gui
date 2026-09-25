@@ -278,7 +278,7 @@ void smooth(Topology &T, const QVector<int> &movable, int iterations,
     for (int c = 0; c < nCells; ++c)
         if (T.cellAlive[c]) sign[c] = areaSign(V, T.cells[c]);
 
-    struct Move { int v; QPointF from, to; double before; QVector<int> inc; QVector<double> cellBefore; };
+    struct Move { int v; QPointF from, to; double before; QVector<int> inc; QVector<double> cellBefore, aspectBefore; };
 
     auto evaluate = [&](const Move &m, double &minSJ, bool checkFloors) {
         minSJ = 2.0;
@@ -293,6 +293,13 @@ void smooth(Topology &T, const QVector<int> &movable, int iterations,
             {
                 const double floor = std::min(m.cellBefore[k], cell.isQuad() ? quadFloor : kTriFloor);
                 if (sj < floor - 1e-12) return false;
+                if (cell.isQuad() && bounds.maxAspect > 0.0)
+                {
+                    // Do not introduce an aspect violation or worsen an
+                    // existing one. Check again after simultaneous moves.
+                    const double cap = std::max(bounds.maxAspect, m.aspectBefore[k]);
+                    if (quadQuality(V, cell).aspect > cap + 1e-12 * cap) return false;
+                }
             }
             minSJ = std::min(minSJ, sj);
         }
@@ -339,7 +346,11 @@ void smooth(Topology &T, const QVector<int> &movable, int iterations,
 
             evaluate(m, m.before, false);
             m.cellBefore.reserve(m.inc.size());
-            for (int c : m.inc) m.cellBefore.append(cellSJ(V, T.cells[c]));
+            for (int c : m.inc)
+            {
+                m.cellBefore.append(cellSJ(V, T.cells[c]));
+                m.aspectBefore.append(T.cells[c].isQuad() ? quadQuality(V, T.cells[c]).aspect : 1.0);
+            }
             V[v].xy = m.to;
             double after;
             const bool ok = evaluate(m, after, true) && after >= m.before - 1e-12;
