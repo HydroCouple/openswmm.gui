@@ -32,7 +32,7 @@ void SunPositionThumb::paintEvent(QPaintEvent *)
     const QPointF c = QPointF(width(), height()) * 0.5;
     const double r = std::min(width(), height()) * 0.42;
     p.setPen(QPen(palette().color(QPalette::Mid), 1.0));
-    p.setBrush(QColor(245, 245, 245));
+    p.setBrush(palette().color(QPalette::Base));
     p.drawEllipse(c, r, r);
 
     // Cardinal direction labels.

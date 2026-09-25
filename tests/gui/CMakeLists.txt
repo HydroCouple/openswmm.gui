@@ -3552,3 +3552,12 @@ add_swmmvis_gui_test(test_mesh2dresultsexportdialog
 )
 target_include_directories(test_mesh2dresultsexportdialog PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_mesh2dresultsexportdialog PRIVATE GDAL::GDAL)
+
+# Shared painted style controls: real accessibility interfaces, keyboard colour
+# picking, dialog/panel names and live theme rendering (phase 05).
+add_swmmvis_gui_test(test_stylecontrols
+    test_stylecontrols.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_stylecontrols)

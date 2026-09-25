@@ -104,6 +104,7 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     m_haloChk = new QCheckBox(tr("Halo"), this);
     haloRow->addWidget(m_haloChk);
     m_haloColorBtn = new ColorButton(this);
+    m_haloColorBtn->setAccessibleName(tr("Halo colour"));
     haloRow->addWidget(m_haloColorBtn);
     m_haloRadSpin = new QDoubleSpinBox(this);
     m_haloRadSpin->setRange(0.1, 10.0);
@@ -148,6 +149,7 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     m_bgChk = new QCheckBox(tr("Background"), this);
     bgRow->addWidget(m_bgChk);
     m_bgColorBtn = new ColorButton(this);
+    m_bgColorBtn->setAccessibleName(tr("Background colour"));
     bgRow->addWidget(m_bgColorBtn);
     m_bgPadSpin = new QDoubleSpinBox(this);
     m_bgPadSpin->setRange(0.0, 20.0);
