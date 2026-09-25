@@ -290,11 +290,17 @@ public:
      *                   carry an INIT_DEPTH or TAG but has no Manning's value
      *                   on either side (columns are positional, so the later
      *                   ones cannot be written without it).
+     *  \param units Optional metadata for the supplied coordinates. Null
+     *               preserves existing UNITS/SOURCE_CRS headers, including
+     *               headers embedded in sections being replaced. Explicit
+     *               units replace the previous length-unit declaration;
+     *               a non-empty sourceCrsTag also replaces that declaration.
      *  \returns true on success. */
     [[nodiscard]] static bool patchAttributeSections(const QString &filePath,
                                                      const MeshResult &mesh,
                                                      QString *errorOut = nullptr,
-                                                     double defaultMannings = 0.035);
+                                                     double defaultMannings = 0.035,
+                                                     const UnitInfo *units = nullptr);
 
     /*! \brief Strip any `[2D_MESH_FILE]` reference from the `.inp` so the
      *         engine falls back to the inline `[2D_*]` mesh sections.

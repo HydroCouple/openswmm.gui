@@ -1031,7 +1031,8 @@ bool InpMeshWriter::patchBCSections(const QString &filePath,
 bool InpMeshWriter::patchAttributeSections(const QString &filePath,
                                            const MeshResult &mesh,
                                            QString *errorOut,
-                                           double defaultMannings)
+                                           double defaultMannings,
+                                           const UnitInfo *units)
 {
     const ReadResult r = readInp(filePath);
     if (!r.ok) {
@@ -1058,6 +1059,33 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
         return false;
     }
 
+    // The engine emits its unit header INSIDE [2D_VERTICES]. Preserve it
+    // before stripping that section. When the caller supplies raw layer
+    // coordinates, replace any engine-derived units with the layer's units;
+    // otherwise an initialized US mesh could acquire a second conversion.
+    UnitInfo metadata;
+    QString withoutHeaders;
+    withoutHeaders.reserve(r.text.size());
+    for (const QString &line : r.text.split(QChar('\n'), Qt::KeepEmptyParts)) {
+        const QString trimmed = line.trimmed();
+        if (trimmed.startsWith(QStringLiteral(";;"))) {
+            const QString comment = trimmed.mid(2).trimmed();
+            if (comment.startsWith(QStringLiteral("UNITS:"), Qt::CaseInsensitive)) {
+                metadata.linearUnitName = comment.mid(6).trimmed();
+                continue;
+            }
+            if (comment.startsWith(QStringLiteral("SOURCE_CRS:"), Qt::CaseInsensitive)) {
+                metadata.sourceCrsTag = comment.mid(11).trimmed();
+                continue;
+            }
+        }
+        withoutHeaders += line + QChar('\n');
+    }
+    if (units) {
+        metadata.linearUnitName = units->linearUnitName;
+        if (!units->sourceCrsTag.isEmpty()) metadata.sourceCrsTag = units->sourceCrsTag;
+    }
+
     // The layer's per-vertex coupledNode fields are the authoritative
     // 1D↔2D vertex coupling (pushMeshEditsToEngine pushes exactly these);
     // rebuild the writer's map form from them. Triangle couplings ride on
@@ -1068,7 +1096,7 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
             cm.vertexToNode.insert(i, mesh.vertices[i].coupledNode);
 
     QString patched = stripSections(
-        r.text, {QLatin1String(kSecVertices),
+        withoutHeaders, {QLatin1String(kSecVertices),
                  QLatin1String(kSecTriangles),
                  QLatin1String(kSecQuads),
                  QLatin1String(kSecVertexNodeMap),
@@ -1084,6 +1112,14 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
                  QLatin1String(kSecInfil)});
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));
+    QString header;
+    if (!metadata.linearUnitName.isEmpty())
+        header += QStringLiteral(";; UNITS: %1\n").arg(metadata.linearUnitName);
+    if (!metadata.sourceCrsTag.isEmpty())
+        header += QStringLiteral(";; SOURCE_CRS: %1\n").arg(metadata.sourceCrsTag);
+    // Keep metadata outside every section so a later BC patch cannot
+    // accidentally remove it with the preceding boundary section.
+    patched.prepend(header);
     patched.append(formatVertices(mesh));
     patched.append(formatTrianglesPreserving(mesh, tRows, qRows, defaultMannings));
     patched.append(formatVertexNodeMap(mesh, cm));

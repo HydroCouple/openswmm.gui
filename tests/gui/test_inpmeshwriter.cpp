@@ -420,6 +420,42 @@ private slots:
      *  triangle Manning / tag / cell couplings must all survive; a triangle
      *  whose layer Manning is unset (NaN) must keep the generation-time
      *  token from the file. */
+    void patchAttributeSections_preservesMetadata_data()
+    {
+        QTest::addColumn<bool>("insideSection");
+        QTest::newRow("file-header") << false;
+        QTest::newRow("engine-vertex-header") << true;
+    }
+
+    void patchAttributeSections_preservesMetadata()
+    {
+        QFETCH(bool, insideSection);
+        ReviewableTestDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath("mesh.2dm");
+        auto mesh = sampleMesh();
+        QString text = InpMeshWriter::buildSectionText(mesh, {});
+        const QString header = ";; UNITS: SI (m)\n;; SOURCE_CRS: EPSG:32616\n";
+        if (insideSection) text.replace("[2D_VERTICES]\n", "[2D_VERTICES]\n" + header);
+        else text.prepend(header);
+        QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(text.toUtf8()); file.close();
+        mesh.vertices[0].z = 23.25;
+        QString err;
+        for (int i = 0; i < 2; ++i) {
+            QVERIFY2(InpMeshWriter::patchAttributeSections(path, mesh, &err), qPrintable(err));
+            const auto back = InpMeshReader::read(path);
+            QVERIFY(back.hasMesh);
+            QCOMPARE(back.unitsHeader, QStringLiteral("SI (m)"));
+            QCOMPARE(back.sourceCrsTag, QStringLiteral("EPSG:32616"));
+            QCOMPARE(back.mesh.vertices[0].z, 23.25);
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            const QByteArray bytes = file.readAll(); file.close();
+            QCOMPARE(bytes.count(";; UNITS:"), 1);
+            QCOMPARE(bytes.count(";; SOURCE_CRS:"), 1);
+        }
+    }
+
     void patchAttributeSections_reemitsEditedState()
     {
         ReviewableTestDir dir;

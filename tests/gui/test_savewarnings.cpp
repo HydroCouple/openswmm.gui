@@ -23,7 +23,10 @@
 #include "map/mapcanvas.h"
 #include "mesh/inpmeshreader.h"
 #include "mesh/inpmeshwriter.h"
+#include "mesh/meshcellgeom.h"
 #include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_2d.h>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -106,6 +109,144 @@ class TestSaveWarnings : public QObject
 {
     Q_OBJECT
 private slots:
+    void inlineMeshPayload_data()
+    {
+        QTest::addColumn<bool>("usProject");
+        QTest::addColumn<bool>("siMesh");
+        QTest::addColumn<bool>("changeGeometry");
+        QTest::newRow("metric-geometry") << false << true << true;
+        QTest::newRow("us-feet-geometry") << true << false << true;
+        QTest::newRow("us-si-mesh-geometry") << true << true << true;
+        QTest::newRow("boundary-group-only") << false << true << false;
+    }
+
+    void inlineMeshPayload()
+    {
+        QFETCH(bool, usProject);
+        QFETCH(bool, siMesh);
+        QFETCH(bool, changeGeometry);
+        const QString dir = outDir() + QStringLiteral("/inline_payload_%1").arg(QTest::currentDataTag());
+        QVERIFY(QDir().mkpath(dir));
+        const QString source = dir + QStringLiteral("/source.inp");
+        const QString target = dir + QStringLiteral("/saved.inp");
+        QVERIFY(writeDeck(source, false));
+        if (!usProject) {
+            QFile file(source); QVERIFY(file.open(QIODevice::ReadOnly));
+            QByteArray bytes = file.readAll(); file.close();
+            bytes.replace("FLOW_UNITS           CFS", "FLOW_UNITS           CMS");
+            QVERIFY(file.open(QIODevice::WriteOnly)); file.write(bytes);
+        }
+        mesh::MeshResult initial;
+        initial.ok = true;
+        initial.vertices = {{QPointF(0, 0), 10}, {QPointF(20, 0), 10},
+                            {QPointF(20, 20), 10}, {QPointF(0, 20), 10}};
+        initial.triangles = {{0, 1, 2}, {0, 2, 3}};
+        mesh::InpMeshWriter::UnitInfo units;
+        units.linearUnitName = siMesh ? QStringLiteral("SI (m)") : QStringLiteral("feet");
+        QString err;
+        QVERIFY(mesh::InpMeshWriter::writeInline(source, initial, {}, 0.035, &err, units));
+        auto *w = openWindow(source, &err);
+        QVERIFY2(w, qPrintable(err));
+        auto edited = mesh::InpMeshReader::read(source).mesh;
+        if (changeGeometry) {
+            for (auto &vertex : edited.vertices) vertex.xy += QPointF(100, 200);
+            edited.triangles[0] = {0, 1, 3};
+            edited.triangles[1] = {1, 2, 3};
+        }
+        edited.vertices[0].z = 23.25;
+        edited.triangles[0].mannings = 0.081;
+        edited.triangles[0].initDepth = 0.33;
+        auto *layer = new SWMM2DMeshLayer(edited, source);
+        layer->setMeshUnitsSI(siMesh);
+        layer->setActiveMesh(true);
+        w->canvas()->addLayer(layer, false);
+        w->attachMeshLayer(layer);
+        auto &bc = layer->edgeBCsMutable()[mesh::edgeSlot(0, 2)];
+        bc.type = mesh::MeshBCTypes::Type::SpecifiedFlowConst;
+        bc.flow = 0.125;
+        bc.group = QStringLiteral("corridor_outlet");
+        bc.conveyance = 0.42;
+        w->setHasChanges(true);
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+            QVERIFY(!w->hasChanges());
+            QVERIFY(!layer->hasUnsavedMeshEdits());
+            const auto back = mesh::InpMeshReader::read(target);
+            QVERIFY(back.hasMesh);
+            QCOMPARE(back.mesh.vertices.size(), edited.vertices.size());
+            QCOMPARE(back.mesh.triangles.size(), edited.triangles.size());
+            for (int v = 0; v < edited.vertices.size(); ++v) {
+                QCOMPARE(back.mesh.vertices[v].xy, edited.vertices[v].xy);
+                QCOMPARE(back.mesh.vertices[v].z, edited.vertices[v].z);
+            }
+            for (int c = 0; c < edited.triangles.size(); ++c)
+                for (int v = 0; v < 3; ++v)
+                    QCOMPARE(back.mesh.triangles[c].vertex(v), edited.triangles[c].vertex(v));
+            QCOMPARE(back.mesh.triangles[0].mannings, 0.081);
+            QCOMPARE(back.mesh.triangles[0].initDepth, 0.33);
+            QCOMPARE(back.edgeBCs[mesh::edgeSlot(0, 2)].group, QStringLiteral("corridor_outlet"));
+            QCOMPARE(back.edgeBCs[mesh::edgeSlot(0, 2)].flow, 0.125);
+            QCOMPARE(back.edgeBCs[mesh::edgeSlot(0, 2)].conveyance, 0.42);
+            QCOMPARE(mesh::unitsHeaderIsSI(back.unitsHeader), siMesh);
+        }
+        // Reopen in the real engine and initialize: metadata must preserve
+        // physical coordinates, not merely make the text reader agree.
+        SWMM_Engine check = swmm_engine_create();
+        QVERIFY(check);
+        QCOMPARE(swmm_engine_open(check, target.toUtf8().constData(),
+            (dir + "/reopen.rpt").toUtf8().constData(),
+            (dir + "/reopen.out").toUtf8().constData(), nullptr), 0);
+        QCOMPARE(swmm_engine_initialize(check), 0);
+        double x = 0, y = 0, z = 0;
+        QCOMPARE(swmm_2d_vertex_get_xyz(check, 0, &x, &y, &z), 0);
+        const double factor = usProject && !siMesh ? 0.3048 : 1.0;
+        QVERIFY(qAbs(x - edited.vertices[0].xy.x() * factor) < 1e-8);
+        QVERIFY(qAbs(y - edited.vertices[0].xy.y() * factor) < 1e-8);
+        QVERIFY(qAbs(z - 23.25 * factor) < 1e-8);
+        swmm_engine_destroy(check);
+        w->deleteLater();
+    }
+
+    void incompleteBoundaryState_failsBeforeWriting()
+    {
+        const QString dir = outDir() + QStringLiteral("/incomplete_boundary");
+        QVERIFY(QDir().mkpath(dir));
+        const QString source = dir + QStringLiteral("/source.inp");
+        const QString target = dir + QStringLiteral("/saved.inp");
+        QFile fixture(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                          .filePath(QStringLiteral("mesh_async_fixture.inp")));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        QFile file(source); QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(fixture.readAll()); file.close();
+        const auto original = mesh::InpMeshReader::read(source);
+        QVERIFY(original.hasMesh);
+        QString err;
+        auto *w = openWindow(source, &err);
+        QVERIFY2(w, qPrintable(err));
+        auto *layer = new SWMM2DMeshLayer(original.mesh, source);
+        layer->setActiveMesh(true);
+        w->canvas()->addLayer(layer, false);
+        w->attachMeshLayer(layer);
+        const auto complete = layer->edgeBCs();
+        layer->edgeBCsMutable().removeLast();
+        w->setHasChanges(true);
+        QFile output(target); QVERIFY(output.open(QIODevice::WriteOnly));
+        const QByteArray sentinel = ";; preserve previous target\n";
+        output.write(sentinel); output.close();
+        QVERIFY(!w->saveAs(target, &err));
+        QVERIFY2(err.contains(QStringLiteral("boundary-condition data")), qPrintable(err));
+        QVERIFY(output.open(QIODevice::ReadOnly));
+        QCOMPARE(output.readAll(), sentinel); output.close();
+        QVERIFY(w->hasChanges());
+        QVERIFY(layer->hasUnsavedMeshEdits());
+        QCOMPARE(w->modelLayer()->modelFilePath(), source);
+        layer->edgeBCsMutable() = complete;
+        QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+        QVERIFY(!w->hasChanges());
+        QVERIFY(!layer->hasUnsavedMeshEdits());
+        w->deleteLater();
+    }
+
     void meshOwnership_data()
     {
         QTest::addColumn<int>("scenario");

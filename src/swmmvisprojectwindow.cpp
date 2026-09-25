@@ -1263,6 +1263,7 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
                                           /*parent=*/nullptr,
                                           /*deferHeavyGeometry=*/true);
         layer->setExternalMesh(true);
+        layer->setMeshUnitsSI(mesh::unitsHeaderIsSI(read.unitsHeader));
         layer->setActiveMesh(true);
         layer->setName(QFileInfo(meshPath).fileName());
         // Deferred build ⇒ the BC slots don't exist yet; size against the
@@ -1440,6 +1441,12 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         return failSave(tr("save the active mesh"), chosenMesh->sourcePath(),
                         tr("the selected mesh has no vertices"));
 
+    if (chosenMesh && chosenMesh->edgeBCs().size()
+            != mesh::edgeSlotCount(chosenMesh->mesh().triangles.size()))
+        return failSave(tr("save mesh boundary conditions"), chosenMesh->sourcePath(),
+                        tr("the boundary-condition data does not match the mesh; "
+                           "wait for mesh loading to finish before retrying"));
+
     // Mesh edits live on the SWMM2DMeshLayer (its own MeshResult / BC SoA),
     // not in the engine that the writer below serialises. Push them into the
     // engine's in-memory 2D mesh first so vertex-Z / conveyance / BC edits are
@@ -1456,6 +1463,13 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // something edited it, or when it was generated/imported this session —
     // both of which leave hasUnsavedMeshEdits() true.
     QVector<SWMM2DMeshLayer *> inlineNeedsAttrPatch;
+    // Counts alone do not certify that geometry or boundary group labels
+    // reached the engine. Serialize the selected inline layer on EVERY Save,
+    // including clean repeats, because the engine still owns its old XY and
+    // connectivity. Only the engine push retains the clean-layer fast path.
+    if (chosenMesh && !chosenMesh->isExternalMesh() && pluginId.isEmpty()
+        && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) == 0)
+        inlineNeedsAttrPatch.append(chosenMesh);
     QVector<SWMM2DMeshLayer *> meshLayersPushed;
     int meshLayersSkipped = 0;
     if (canvas()) {
@@ -1489,7 +1503,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             const bool carriesInfil = !lm.infilDefaults.isEmpty()
                                    || !lm.infilOverrides.isEmpty()
                                    || lm.infilOptions.infilStep > 0.0;
-            if ((!trianglesSynced || carriesInfil) && !meshLayer->isExternalMesh())
+            if ((!trianglesSynced || carriesInfil) && !meshLayer->isExternalMesh()
+                && !inlineNeedsAttrPatch.contains(meshLayer))
                 inlineNeedsAttrPatch.append(meshLayer);
             meshLayersPushed.append(meshLayer);
         }
@@ -1660,19 +1675,22 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         meshRefMs = stage.restart();
     }
 
-    // Inline meshes whose per-cell attributes never reached the engine: patch
-    // them into the just-written .inp directly. Without this a Manning's n /
-    // initial depth / tag edit is silently lost whenever the engine's mesh has
-    // drifted from the layer's (mesh generated or replaced in-session), and a
-    // per-cell infiltration edit is lost unconditionally (no engine push path
-    // until GG0f).
+    // Write the inline layer's complete GUI-owned payload, even when the
+    // engine accepted its indexed attributes. Geometry and BC group labels
+    // have no corresponding synchronization setters. Counts must still match:
+    // replacement/remapping of other mesh-indexed model data is separate work.
     for (SWMM2DMeshLayer *ml : inlineNeedsAttrPatch)
     {
+        mesh::InpMeshWriter::UnitInfo units;
+        units.linearUnitName = ml->meshUnitsSI() ? QStringLiteral("SI (m)")
+                                               : QStringLiteral("project units");
         QString attrErr;
-        if (mesh::InpMeshWriter::patchAttributeSections(newPath, ml->mesh(),
-                                                        &attrErr))
-            continue;
-        return failSave(tr("save inline mesh attributes"), newPath, attrErr);
+        if (!mesh::InpMeshWriter::patchAttributeSections(newPath, ml->mesh(),
+                                                         &attrErr, 0.035, &units))
+            return failSave(tr("save inline mesh attributes"), newPath, attrErr);
+        QString bcErr;
+        if (!mesh::InpMeshWriter::patchBCSections(newPath, ml->mesh(), ml->edgeBCs(), &bcErr))
+            return failSave(tr("save inline mesh boundary conditions"), newPath, bcErr);
     }
     inlinePatchMs = stage.restart();
 
