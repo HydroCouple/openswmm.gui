@@ -6,6 +6,8 @@ This document specifies the target; current generation and multi-file Save are n
 
 Phase 12 adds read-only selected-mesh validation before any engine synchronization or file writes. Geometry, finite hydraulic values, coupling ranges/references and active boundary fields are checked even for clean layers; errors identify a one-based item and retain edits for correction/retry. Unset roughness/depth, signed boundary heads/flows and elongated rectangles retain their existing meaning. It does not certify manifold topology, referenced node/series existence, infiltration/groundwater/transport parameters, serialization precision, or engine mesh identity. See the [Phase 12 evidence](../../workplans/artifacts/phase_12_mesh_save_validation/README.md).
 
+Phase 13 checks known built-in Save file identities before synchronization. Model/settings/selected external mesh outputs cannot alias each other, mesh/settings writes cannot replace the source model, model/mesh writes cannot replace source settings, and model/settings outputs cannot replace inactive external meshes. Existing hard links, file/directory symlinks and canonical destinations are checked. Clean views of the selected mesh still follow active ownership; ordinary same-role Save and identical basenames in different directories remain allowed. This is not a full output/resource manifest or protection against concurrent filesystem changes; transaction publication must recheck identities. See the [Phase 13 evidence](../../workplans/artifacts/phase_13_save_path_ownership/README.md).
+
 ## Current write inventory
 
 | Operation / source | Files or state affected today | Required ownership / failure contract |
