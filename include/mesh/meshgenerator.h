@@ -93,9 +93,11 @@ struct GenerationOptions
 
     // ── Quad regions (QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §3–§4) ──
     /*! Acceptance bounds for quads produced inside quad regions (template
-     *  and gap pairing, cleanup, smoothing). Independent of quadMerge. */
+     *  and gap pairing, cleanup, smoothing). Independent of quadMerge.
+     *  QuadRegion::aspectMax can override the aspect cap for each Free region. */
     QuadQualityBounds quadRegionBounds;
-    /*! Cleanup / smoothing knobs applied to Free regions after pairing. */
+    /*! Cleanup / smoothing knobs applied to Free regions after pairing.
+     *  Its bounds are replaced by the resolved quadRegionBounds for that region. */
     QuadCleanupOptions quadCleanup;
     /*! Free-region spacing when QuadRegion::spacing == 0 and no size function
      *  is installed: side of the equilateral triangle of maxArea
@@ -110,7 +112,9 @@ struct QuadRegionReport
     int            index = -1;
     QuadRegionMode requested = QuadRegionMode::Auto;
     QuadRegionMode resolved  = QuadRegionMode::Free;   ///< After Auto classification / fallbacks.
+    bool    accepted = false;                         ///< Region was included in generation, not skipped.
     double  spacing = 0.0;
+    double  maxAspect = 0.0;                           ///< Resolved Free-region cap; 0 = unbounded, unused for structured modes.
     int     quads = 0, triangles = 0;                    ///< Cells inside the region on exit.
     int     templateQuads = 0, gapQuads = 0;
     int     generatedPoints = 0, droppedSteiners = 0;    ///< Free: lattice points; marker-0 Steiners removed inside.
@@ -178,6 +182,10 @@ public:
     void addQuadRegion(const QuadRegion &region);
     /*! \brief One report per addQuadRegion() call, filled by generate(). */
     [[nodiscard]] const QVector<QuadRegionReport> &quadRegionReports() const { return m_quadReports; }
+    /*! \brief Edges protecting accepted quad regions from a later global
+     *  triangle-pair merge. Call after generate(), on its result (cell/vertex
+     *  reindexing is allowed). Holes and skipped regions are not protected. */
+    [[nodiscard]] QSet<QPair<int, int>> quadRegionMergeLocks(const MeshResult &mesh) const;
     void setOptions(const GenerationOptions &opts);
 
     /*! \brief Install cancellation / progress / graded-sizing callbacks.

@@ -83,6 +83,23 @@ class TestMeshMinCellDialog : public QObject
     Q_OBJECT
 
 private slots:
+    void quadAspectDefault_inheritsGlobal()
+    {
+        QDoubleSpinBox *aspect = nullptr;
+        for (QLabel *label : m_dlg->findChildren<QLabel *>())
+            if (label->text() == QLatin1String("Default max aspect:"))
+                aspect = qobject_cast<QDoubleSpinBox *>(label->buddy());
+        QVERIFY(aspect);
+        QCOMPARE(aspect->value(), -1.0);
+        QCOMPARE(aspect->specialValueText(), QStringLiteral("(use global limit)"));
+        QVERIFY(aspect->toolTip().contains(QStringLiteral("quad_aspect")));
+        aspect->setValue(0.0);
+        QCOMPARE(aspect->value(), 0.0);
+        aspect->setValue(4.0);
+        QCOMPARE(aspect->value(), 4.0);
+        aspect->setValue(-1.0);
+    }
+
 
     void initTestCase()
     {
