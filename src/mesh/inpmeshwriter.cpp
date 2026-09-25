@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace mesh {
 
@@ -32,6 +33,11 @@ namespace mesh {
 InpMeshWriter::UnitInfo::UnitInfo() = default;
 
 namespace {
+
+// Mesh files are persistence, not a display table. max_digits10 guarantees
+// recovery of the original finite double through the decimal parser; fixed
+// decimal formatting can merge close vertices or turn positive values to zero.
+constexpr int kPersistencePrecision = std::numeric_limits<double>::max_digits10;
 
 constexpr const char *kSecVertices       = "[2D_VERTICES]";
 constexpr const char *kSecTriangles      = "[2D_TRIANGLES]";
@@ -50,8 +56,8 @@ QString formatVertices(const MeshResult &mesh)
 {
     QString out;
     QTextStream s(&out);
-    s.setRealNumberNotation(QTextStream::FixedNotation);
-    s.setRealNumberPrecision(6);
+    s.setRealNumberNotation(QTextStream::SmartNotation);
+    s.setRealNumberPrecision(kPersistencePrecision);
 
     s << kSecVertices << "\n";
     s << ";; X            Y            Z            TAG\n";
@@ -82,8 +88,8 @@ QString formatCellSection(const MeshResult &mesh,
 {
     QString out;
     QTextStream s(&out);
-    s.setRealNumberNotation(QTextStream::FixedNotation);
-    s.setRealNumberPrecision(4);
+    s.setRealNumberNotation(QTextStream::SmartNotation);
+    s.setRealNumberPrecision(kPersistencePrecision);
 
     s << (quads ? kSecQuads : kSecTriangles) << "\n";
     // INIT_DEPTH (m, engine default 0 = dry) sits between MANNINGS_N and
@@ -140,6 +146,8 @@ QString formatVertexNodeMap(const MeshResult &mesh,
 
     QString out;
     QTextStream s(&out);
+    s.setRealNumberNotation(QTextStream::SmartNotation);
+    s.setRealNumberPrecision(kPersistencePrecision);
     s << kSecVertexNodeMap << "\n";
     s << ";; VERTEX_INDEX_OR_TAG    SWMM_NODE_NAME    CD    AREA\n";
     // Walk in vertex-index order so output is deterministic + matches
@@ -172,6 +180,8 @@ QString formatTriangleNodeMap(const MeshResult &mesh,
 
     QString out;
     QTextStream s(&out);
+    s.setRealNumberNotation(QTextStream::SmartNotation);
+    s.setRealNumberPrecision(kPersistencePrecision);
     s << kSecTriangleNodeMap << "\n";
     s << ";; TRIANGLE_INDEX_OR_TAG  SWMM_NODE_NAME    CD    AREA\n";
     for (auto it = coupling.triangleToNode.cbegin();
@@ -240,7 +250,7 @@ QString formatInfilRowTail(const InfilRow &row)
         if (!infilUsesParam(row.method, k) || std::isnan(row.p[k]))
             out += QStringLiteral("-");
         else
-            out += QString::number(row.p[k], 'g', 12);
+            out += QString::number(row.p[k], 'g', kPersistencePrecision);
     }
     out += QChar(' ');
     out += infilDestToken(row.dest);
@@ -258,14 +268,15 @@ QString formatInfilOptions(const MeshResult &mesh)
     // parse_time_seconds() accepts: h:mm:ss for a whole number of seconds,
     // plain seconds otherwise.
     QString value;
-    const long r = std::lround(s);
-    if (std::fabs(s - double(r)) < 0.001) {
+    if (std::isfinite(s) && s == std::floor(s)
+        && s < double(std::numeric_limits<long>::max())) {
+        const long r = static_cast<long>(s);
         value = QStringLiteral("%1:%2:%3")
                     .arg(r / 3600)
                     .arg((r / 60) % 60, 2, 10, QChar('0'))
                     .arg(r % 60,        2, 10, QChar('0'));
     } else {
-        value = QString::number(s, 'g', 12);
+        value = QString::number(s, 'g', kPersistencePrecision);
     }
 
     QString out;
@@ -473,8 +484,8 @@ QString formatTrianglesPreserving(const MeshResult &mesh,
     auto formatSection = [&](bool quads) -> QString {
         QString out;
         QTextStream s(&out);
-        s.setRealNumberNotation(QTextStream::FixedNotation);
-        s.setRealNumberPrecision(4);
+        s.setRealNumberNotation(QTextStream::SmartNotation);
+        s.setRealNumberPrecision(kPersistencePrecision);
 
         s << (quads ? kSecQuads : kSecTriangles) << "\n";
         if (quads)
@@ -493,7 +504,7 @@ QString formatTrianglesPreserving(const MeshResult &mesh,
             QString manningsTok;
             if (std::isfinite(t.mannings) && t.mannings > 0.0)
             {
-                manningsTok = QString::number(t.mannings, 'f', 4);
+                manningsTok = QString::number(t.mannings, 'g', kPersistencePrecision);
             }
             else
             {
@@ -508,7 +519,7 @@ QString formatTrianglesPreserving(const MeshResult &mesh,
             // silently dropping the edit.
             const bool needsLaterCols = writeDepthCol || !t.tag.isEmpty();
             if (manningsTok.isEmpty() && needsLaterCols)
-                manningsTok = QString::number(defaultMannings, 'f', 4);
+                manningsTok = QString::number(defaultMannings, 'g', kPersistencePrecision);
 
             if (!manningsTok.isEmpty())
                 s << "  " << manningsTok;
@@ -865,17 +876,17 @@ QString InpMeshWriter::buildBCSectionText(const QVector<MeshEdgeBC> &bcs)
         case MeshBCTypes::Type::Wall:
             break;
         case MeshBCTypes::Type::NormalFlow:
-            param1 = QString::number(bc.slope, 'g', 6);
+            param1 = QString::number(bc.slope, 'g', kPersistencePrecision);
             break;
         case MeshBCTypes::Type::SpecifiedStageConst:
-            param1 = QString::number(bc.head, 'g', 6);
+            param1 = QString::number(bc.head, 'g', kPersistencePrecision);
             break;
         case MeshBCTypes::Type::SpecifiedStageTS:
         case MeshBCTypes::Type::SpecifiedFlowTS:
             param1 = bc.tseries.isEmpty() ? QStringLiteral("*") : bc.tseries;
             break;
         case MeshBCTypes::Type::SpecifiedFlowConst:
-            param1 = QString::number(bc.flow, 'g', 6);
+            param1 = QString::number(bc.flow, 'g', kPersistencePrecision);
             break;
         case MeshBCTypes::Type::RatingCurve:
             param1 = bc.curve.isEmpty() ? QStringLiteral("*") : bc.curve;
@@ -935,7 +946,7 @@ QString InpMeshWriter::buildConveyanceSectionText(const MeshResult &mesh,
             out.append(QStringLiteral("%1 %2 %3\n")
                            .arg(va, 6)
                            .arg(vb, 6)
-                           .arg(QString::number(bcs[flat].conveyance, 'g', 6)));
+                           .arg(QString::number(bcs[flat].conveyance, 'g', kPersistencePrecision)));
         }
     }
     return out;

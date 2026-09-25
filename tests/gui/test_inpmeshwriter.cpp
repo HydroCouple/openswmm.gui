@@ -118,6 +118,101 @@ private:
     }
 
 private slots:
+    void numericPrecision_data()
+    {
+        QTest::addColumn<int>("field");
+        QTest::addColumn<bool>("patch");
+        const char *fields[] = {"close-vertices", "elevation", "roughness", "initial-depth",
+            "vertex-coefficient", "vertex-area", "cell-coefficient", "cell-area",
+            "infiltration-rate", "infiltration-step", "boundary-stage", "boundary-slope",
+            "boundary-flow", "conveyance"};
+        for (int i = 0; i < int(std::size(fields)); ++i) {
+            QTest::newRow(qPrintable(QString::fromLatin1(fields[i]) + "-write")) << i << false;
+            QTest::newRow(qPrintable(QString::fromLatin1(fields[i]) + "-patch")) << i << true;
+        }
+    }
+
+    void numericPrecision()
+    {
+        QFETCH(int, field);
+        QFETCH(bool, patch);
+        ReviewableTestDir dir;
+        QVERIFY(dir.isValid());
+        const QString inp = dir.filePath("project.inp");
+        const QString file = dir.filePath("mesh.2dm");
+        QFile deck(inp); QVERIFY(deck.open(QIODevice::WriteOnly));
+        deck.write("[OPTIONS]\nFLOW_UNITS CMS\n"); deck.close();
+        auto m = mixedMesh();
+        for (auto &v : m.vertices) v.xy += QPointF(1000000, 4500000);
+        CouplingMap coupling;
+        QVector<MeshEdgeBC> bcs(edgeSlotCount(m.triangles.size()));
+        auto &bc = bcs[edgeSlot(2, 3)];
+        double expected = 0.12345678901234567;
+        switch (field) {
+        case 0:
+            expected = m.vertices[1].xy.x() + 0.0000001;
+            m.vertices[2].xy.setX(expected); m.vertices[5].xy.setX(expected); break;
+        case 1: expected = -123.12345678901234; m.vertices[0].z = expected; break;
+        case 2: expected = 0.000012345678901234567; m.triangles[2].mannings = expected;
+            coupling.triangleMannings.insert(2, expected); break;
+        case 3: expected = 0.000012345678901234567; m.triangles[2].initDepth = expected; break;
+        case 4: case 5:
+            m.vertices[0].coupledNode = "J1"; coupling.vertexToNode.insert(0, "J1");
+            if (field == 4) m.vertices[0].couplingCd = expected;
+            else m.vertices[0].couplingArea = expected;
+            break;
+        case 6: case 7:
+            m.cellCouplings.append({2, "J1", field == 6 ? expected : 0.65, field == 7 ? expected : 2.0}); break;
+        case 8: {
+            InfilRow row; row.method = InfilMethod::Constant; row.p[0] = expected;
+            m.infilOverrides.insert(2, row); m.infilDefaults.append({"*", row}); break;
+        }
+        case 9: expected = 60.00000012345679; m.infilOptions.infilStep = expected; break;
+        case 10: expected = 123.12345678901234; bc.type = MeshBCTypes::Type::SpecifiedStageConst; bc.head = expected; break;
+        case 11: bc.type = MeshBCTypes::Type::NormalFlow; bc.slope = expected; break;
+        case 12: expected = -0.12345678901234567; bc.type = MeshBCTypes::Type::SpecifiedFlowConst; bc.flow = expected; break;
+        case 13: expected = std::nextafter(1.0, 0.0); bc.conveyance = expected; break;
+        }
+        QString err;
+        QVERIFY2(InpMeshWriter::writeExternal(inp, file, m, coupling, bcs, 0.035, &err), qPrintable(err));
+        if (patch) {
+            // Start from the serialized file, then patch the original working
+            // values twice. Tests must not accept the first save's rounding.
+            for (int repeat = 0; repeat < 2; ++repeat) {
+                QVERIFY2(InpMeshWriter::patchAttributeSections(file, m, &err), qPrintable(err));
+                QVERIFY2(InpMeshWriter::patchBCSections(file, m, bcs, &err), qPrintable(err));
+            }
+        }
+        const auto back = InpMeshReader::read(patch ? file : inp);
+        QVERIFY2(back.hasMesh, qPrintable(back.errorMsg));
+        double actual = 0;
+        switch (field) {
+        case 0: actual = back.mesh.vertices[2].xy.x();
+            QVERIFY(actual > back.mesh.vertices[1].xy.x()); break;
+        case 1: actual = back.mesh.vertices[0].z; break;
+        case 2: actual = back.mesh.triangles[2].mannings; break;
+        case 3: actual = back.mesh.triangles[2].initDepth; break;
+        case 4: actual = back.mesh.vertices[0].couplingCd; break;
+        case 5: actual = back.mesh.vertices[0].couplingArea; break;
+        case 6: case 7:
+            QCOMPARE(back.mesh.cellCouplings.size(), 1);
+            actual = field == 6 ? back.mesh.cellCouplings[0].cd : back.mesh.cellCouplings[0].area; break;
+        case 8:
+            QCOMPARE(back.mesh.infilDefaults.size(), 1);
+            QVERIFY(back.mesh.infilDefaults[0].row.p[0] == expected);
+            actual = back.mesh.infilOverrides.value(2).p[0]; break;
+        case 9: actual = back.mesh.infilOptions.infilStep; break;
+        case 10: actual = back.edgeBCs[edgeSlot(2, 3)].head; break;
+        case 11: actual = back.edgeBCs[edgeSlot(2, 3)].slope; break;
+        case 12: actual = back.edgeBCs[edgeSlot(2, 3)].flow; break;
+        case 13: actual = back.edgeBCs[edgeSlot(2, 3)].conveyance; break;
+        }
+        // QCOMPARE(double,double) allows a fuzzy tolerance; persistence must
+        // recover the original finite double, not a nearby rounded value.
+        QVERIFY2(actual == expected, qPrintable(QString("%1 != %2")
+            .arg(actual, 0, 'g', 17).arg(expected, 0, 'g', 17)));
+    }
+
 
     void buildSectionText_includesAllFour()
     {
@@ -647,9 +742,9 @@ private slots:
 
     // ── TRI_QUAD_MESHING_PLAN phase G1 — [2D_QUADS] ─────────────────────────
 
-    /*! All-triangle output is pinned byte-for-byte: no [2D_QUADS] section,
-     *  the historical column layout. Any change here breaks the R3 gate
-     *  (all-triangle projects round-trip .inp byte-identically). */
+    /*! Pin the canonical full-precision text and historical column layout.
+     *  Phase 14 deliberately replaces the lossy fixed-decimal representation;
+     *  repeated writes in the new format remain byte-stable. */
     void buildSectionText_allTrianglePinnedText()
     {
         CouplingMap none;
@@ -657,15 +752,15 @@ private slots:
         const QString expected = QStringLiteral(
             "[2D_VERTICES]\n"
             ";; X            Y            Z            TAG\n"
-            "0.000000  0.000000  1.000000  J1\n"
-            "100.000000  0.000000  1.500000\n"
-            "100.000000  100.000000  2.000000\n"
-            "0.000000  100.000000  1.200000\n"
+            "0  0  1  J1\n"
+            "100  0  1.5\n"
+            "100  100  2\n"
+            "0  100  1.2\n"
             "\n"
             "[2D_TRIANGLES]\n"
             ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n"
-            "0  1  2  0.0350  0.0000  subcatch_S1\n"
-            "0  2  3  0.0350  0.0000\n"
+            "0  1  2  0.035000000000000003  0  subcatch_S1\n"
+            "0  2  3  0.035000000000000003  0\n"
             "\n");
         QCOMPARE(text, expected);
         QVERIFY(!text.contains("[2D_QUADS]"));
@@ -694,11 +789,11 @@ private slots:
         const int qSec = first.indexOf("[2D_QUADS]");
         QVERIFY(tSec >= 0 && qSec > tSec);
         const QString triBlock  = first.mid(tSec, qSec - tSec);
-        QVERIFY(triBlock.contains("0  1  4  0.0250  0.0000  left\n"));
-        QVERIFY(triBlock.contains("0  4  3  0.0350  0.0000\n"));
+        QVERIFY(triBlock.contains("0  1  4  0.025000000000000001  0  left\n"));
+        QVERIFY(triBlock.contains("0  4  3  0.035000000000000003  0\n"));
         QVERIFY(!triBlock.contains("1  2  5  4"));
         QVERIFY(first.contains(";; V1   V2   V3   V4   MANNINGS_N   INIT_DEPTH   TAG\n"
-                               "1  2  5  4  0.0180  0.2500  street\n"));
+                               "1  2  5  4  0.017999999999999999  0.25  street\n"));
 
         QString err;
         QVERIFY2(InpMeshWriter::writeInline(inpPath, mixedMesh(), c, 0.035, &err),
