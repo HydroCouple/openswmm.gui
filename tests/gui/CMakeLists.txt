@@ -2734,6 +2734,15 @@ add_swmmvis_gui_test(test_typedselection
 )
 swmmvis_link_full_app_deps(test_typedselection)
 
+# W0: actual rectangular/polygonal cell-tool gestures on a mesh-only canvas.
+add_swmmvis_gui_test(test_meshselectionjourney
+    test_meshselectionjourney.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+swmmvis_link_full_app_deps(test_meshselectionjourney)
+
 # Object Browser refresh on data-object mutations — dataObjectsChanged →
 # coalesced tree reload, registry-preferred counts (staged adds visible
 # before saveToEngine; deletes disappear despite the engine-side row).
