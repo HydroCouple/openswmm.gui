@@ -74,6 +74,104 @@ class TestMeshCrossField : public QObject
     Q_OBJECT
 
 private slots:
+    void buildStatus_resetAndLimits()
+    {
+        CrossField f;
+        QCOMPARE(f.status(), CrossField::Status::NotBuilt);
+        CrossField::Options o; o.pitch = 5;
+        const auto large = rect(0, 0, 15000, 15000);
+        QVERIFY(!f.build(large.boundingRect(), {closed(large)}, o));
+        QCOMPARE(f.status(), CrossField::Status::GridLimit);
+        QVERIFY(!f.valid());
+        QCOMPARE(f.sweepsUsed(), 0);
+        QVERIFY(std::isinf(f.finalDelta()));
+        const auto ring = rect(0, 0, 10, 10);
+        QVERIFY(!f.build(ring.boundingRect(), {}, o));
+        QCOMPARE(f.status(), CrossField::Status::NoConstraints);
+        QVERIFY(f.build(ring.boundingRect(), {closed(ring)}, o));
+        QCOMPARE(f.status(), CrossField::Status::Converged);
+        QVERIFY(f.finalDelta() < o.tol);
+        f.setConstant(30);
+        QCOMPARE(f.status(), CrossField::Status::Constant);
+        QCOMPARE(f.sweepsUsed(), 0);
+        QCOMPARE(f.cols(), 0);
+        QCOMPARE(f.finalDelta(), 0.0);
+        o.pitch = 0;
+        QVERIFY(!f.build(ring.boundingRect(), {closed(ring)}, o));
+        QCOMPARE(f.status(), CrossField::Status::InvalidInput);
+        QVERIFY(!f.valid());
+        QCOMPARE(f.sweepsUsed(), 0);
+        QVERIFY(std::isinf(f.finalDelta()));
+    }
+
+    void largeUniformGrid_converges()
+    {
+        CrossField f;
+        CrossField::Options o; o.pitch = 1;
+        const auto ring = rect(0, 0, 1000, 1000);
+        QVERIFY(f.build(ring.boundingRect(), {closed(ring)}, o));
+        QCOMPARE(f.cols(), 1005);
+        QCOMPARE(f.rows(), 1005);
+        QCOMPARE(f.status(), CrossField::Status::Converged);
+        QCOMPARE(f.sweepsUsed(), 1);
+        QVERIFY(f.finalDelta() < o.tol);
+    }
+
+    void cancellation_data()
+    {
+        QTest::addColumn<int>("stage");
+        QTest::newRow("before-allocation") << 0;
+        QTest::newRow("pinning") << 1;
+        QTest::newRow("solving") << 2;
+    }
+
+    void cancellation()
+    {
+        QFETCH(int, stage);
+        const auto ring = rect(0, 0, 30, 20);
+        CrossField f;
+        CrossField::Options o; o.pitch = 1; o.tol = 1e-12;
+        o.isCancelled = [&] {
+            return stage == 0 || (stage == 1 ? f.cols() > 0 : f.sweepsUsed() >= 1);
+        };
+        QVERIFY(!f.build(ring.boundingRect(),
+                         {closed(ring), {QPointF(5, 5), QPointF(25, 12)}}, o));
+        QCOMPARE(f.status(), CrossField::Status::Cancelled);
+        QVERIFY(!f.valid());
+        QCOMPARE(f.sweepsUsed(), stage == 2 ? 1 : 0);
+        o.isCancelled = {};
+        QVERIFY(f.build(ring.boundingRect(), {closed(ring)}, o));
+        QCOMPARE(f.status(), CrossField::Status::Converged);
+    }
+
+    void zeroSweeps_reportsExhaustion()
+    {
+        const auto ring = rect(0, 0, 10, 10);
+        CrossField f;
+        CrossField::Options o; o.pitch = 1; o.maxSweeps = 0;
+        QVERIFY(!f.build(ring.boundingRect(), {closed(ring)}, o));
+        QCOMPARE(f.status(), CrossField::Status::IterationLimit);
+        QCOMPARE(f.sweepsUsed(), 0);
+        QVERIFY(std::isinf(f.finalDelta()));
+    }
+
+    void exhaustedSolve_isNotValid()
+    {
+        const auto ring = rect(0, 0, 30, 20);
+        CrossField f;
+        CrossField::Options o;
+        o.pitch = 1;
+        o.maxSweeps = 1;
+        o.tol = 1e-12;
+        QVERIFY(!f.build(ring.boundingRect(),
+                         {closed(ring), {QPointF(5, 5), QPointF(25, 12)}}, o));
+        QVERIFY(!f.valid());
+        QCOMPARE(f.sweepsUsed(), 1);
+        QCOMPARE(f.status(), CrossField::Status::IterationLimit);
+        QVERIFY(std::isfinite(f.finalDelta()));
+        QVERIFY(f.finalDelta() >= o.tol);
+    }
+
 
     /*! Axis-aligned square ring: every query inside is 0 mod 90° within
      *  1e-3 rad, the field is valid and every ring cell is pinned. */
