@@ -5086,6 +5086,13 @@ void SWMMVis::onSaveProject()
         return;
     }
 
+    if (pw->isUntitled() || !pw->modelLayer()
+        || pw->modelLayer()->modelFilePath().isEmpty())
+    {
+        onSaveAs();
+        return;
+    }
+
     // Same portability preview Save As gives. Without this a plain Save of a
     // model holding an unportable reference reported nothing at all.
     if (pw->modelLayer())
@@ -5095,10 +5102,8 @@ void SWMMVis::onSaveProject()
     QString err;
     if (!pw->save(&err))
     {
-        // No path yet → fall through to Save As
-        onSaveAs();
-        if (!err.isEmpty())
-            onLogMessage(err, OpenSWMMVisLogMessage::LogMessageType::Information);
+        QMessageBox::critical(this, tr("Save failed"), err);
+        onLogMessage(err, OpenSWMMVisLogMessage::LogMessageType::Warning);
         return;
     }
 
