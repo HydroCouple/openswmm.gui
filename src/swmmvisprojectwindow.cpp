@@ -1447,6 +1447,12 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                         tr("the boundary-condition data does not match the mesh; "
                            "wait for mesh loading to finish before retrying"));
 
+    if (chosenMesh) {
+        const QString invalid = mesh::validateMeshSaveData(chosenMesh->mesh(), chosenMesh->edgeBCs());
+        if (!invalid.isEmpty())
+            return failSave(tr("validate mesh data"), chosenMesh->sourcePath(), invalid);
+    }
+
     // Mesh edits live on the SWMM2DMeshLayer (its own MeshResult / BC SoA),
     // not in the engine that the writer below serialises. Push them into the
     // engine's in-memory 2D mesh first so vertex-Z / conveyance / BC edits are

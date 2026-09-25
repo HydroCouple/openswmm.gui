@@ -13,6 +13,7 @@
 #include <openswmm/engine/openswmm_2d.h>
 
 #include <QElapsedTimer>
+#include <QCoreApplication>
 
 #include <cmath>
 #include <cstddef>
@@ -101,6 +102,109 @@ double deriveLengthFactor(SWMM_Engine engine, const MeshResult &mesh)
 }
 
 } // namespace
+
+QString validateMeshSaveData(const MeshResult &mesh, const QVector<MeshEdgeBC> &bcs)
+{
+    const auto tr = [](const char *s) { return QCoreApplication::translate("MeshSaveValidation", s); };
+    const auto vertexError = [&](int i, const QString &reason) {
+        return tr("Vertex %1: %2").arg(i + 1).arg(reason);
+    };
+    const auto cellError = [&](int i, const QString &reason) {
+        return tr("Cell %1: %2").arg(i + 1).arg(reason);
+    };
+    const auto positive = [](double v) { return std::isfinite(v) && v > 0.0; };
+    if (mesh.vertices.isEmpty() || mesh.triangles.isEmpty())
+        return tr("the mesh needs vertices and cells");
+    if (bcs.size() != edgeSlotCount(mesh.triangles.size()))
+        return tr("the boundary-condition data does not match the mesh");
+    for (int i = 0; i < mesh.vertices.size(); ++i) {
+        const auto &v = mesh.vertices[i];
+        if (!std::isfinite(v.xy.x()) || !std::isfinite(v.xy.y()))
+            return vertexError(i, tr("coordinates must be finite"));
+        if (!std::isfinite(v.z))
+            return vertexError(i, tr("elevation must be finite"));
+        if (!v.coupledNode.isEmpty()) {
+            if (!positive(v.couplingCd))
+                return vertexError(i, tr("coupling coefficient must be finite and greater than zero"));
+            if (!positive(v.couplingArea))
+                return vertexError(i, tr("coupling area must be finite and greater than zero"));
+        }
+    }
+    bool seenQuad = false;
+    for (int i = 0; i < mesh.triangles.size(); ++i) {
+        const auto &c = mesh.triangles[i];
+        if (c.v3 < -1)
+            return cellError(i, tr("invalid fourth vertex index"));
+        if (!c.isQuad() && seenQuad)
+            return cellError(i, tr("triangle cells must precede quadrilateral cells to preserve cell references"));
+        seenQuad |= c.isQuad();
+        const int count = c.vertexCount();
+        for (int k = 0; k < count; ++k) {
+            if (c.vertex(k) < 0 || c.vertex(k) >= mesh.vertices.size())
+                return cellError(i, tr("vertex %1 is outside the mesh").arg(k + 1));
+            for (int j = 0; j < k; ++j)
+                if (c.vertex(k) == c.vertex(j))
+                    return cellError(i, tr("duplicate vertex index"));
+        }
+        // Consecutive turns must be nonzero with a consistent sign. This
+        // accepts either winding and long rectangles without an aspect-ratio
+        // cutoff, and rejects collapsed, concave and self-crossing cells.
+        double firstTurn = 0.0;
+        for (int k = 0; k < count; ++k) {
+            const QPointF a = mesh.vertices[c.vertex(k)].xy;
+            const QPointF b = mesh.vertices[c.vertex((k + 1) % count)].xy;
+            const QPointF d = mesh.vertices[c.vertex((k + 2) % count)].xy;
+            const double turn = (b.x() - a.x()) * (d.y() - b.y())
+                              - (b.y() - a.y()) * (d.x() - b.x());
+            if (!std::isfinite(turn) || turn == 0.0 || (k && (turn > 0) != (firstTurn > 0)))
+                return cellError(i, tr("geometry must have finite nonzero area and be convex"));
+            if (!k) firstTurn = turn;
+        }
+        // NaN is the documented unset sentinel for these two fields only.
+        if (!std::isnan(c.mannings) && !positive(c.mannings))
+            return cellError(i, tr("roughness must be finite and greater than zero, or unset"));
+        if (!std::isnan(c.initDepth) && (!std::isfinite(c.initDepth) || c.initDepth < 0.0))
+            return cellError(i, tr("initial depth must be finite and nonnegative, or unset"));
+        for (int e = 0; e < count; ++e) {
+            const auto &b = bcs[edgeSlot(i, e)];
+            QString reason;
+            if (!std::isfinite(b.conveyance) || b.conveyance < 0 || b.conveyance > 1)
+                reason = tr("conveyance must be finite and between zero and one");
+            else {
+                using T = MeshBCTypes::Type;
+                switch (b.type) {
+                case T::Wall: break;
+                case T::NormalFlow:
+                    if (!std::isfinite(b.slope) || b.slope < 0)
+                        reason = tr("boundary slope must be finite and nonnegative");
+                    break;
+                case T::SpecifiedStageConst:
+                    if (!std::isfinite(b.head)) reason = tr("boundary head must be finite");
+                    break;
+                case T::SpecifiedFlowConst:
+                    if (!std::isfinite(b.flow)) reason = tr("boundary flow must be finite");
+                    break;
+                case T::SpecifiedStageTS:
+                case T::SpecifiedFlowTS:
+                    if (b.tseries.trimmed().isEmpty()) reason = tr("a boundary time series is required");
+                    break;
+                case T::RatingCurve:
+                    if (b.curve.trimmed().isEmpty()) reason = tr("a rating curve is required");
+                    break;
+                default: reason = tr("unknown boundary type"); break;
+                }
+            }
+            if (!reason.isEmpty()) return cellError(i, tr("edge %1: %2").arg(e + 1).arg(reason));
+        }
+    }
+    for (int i = 0; i < mesh.cellCouplings.size(); ++i) {
+        const auto &c = mesh.cellCouplings[i];
+        if (c.tri < 0 || c.tri >= mesh.triangles.size() || c.nodeId.trimmed().isEmpty()
+            || !positive(c.cd) || !positive(c.area))
+            return tr("cell coupling row %1 requires a valid cell, a node name, and finite positive coefficient and area").arg(i + 1);
+    }
+    return {};
+}
 
 bool pushMeshEditsToEngine(SWMM_Engine engine,
                            const MeshResult &mesh,

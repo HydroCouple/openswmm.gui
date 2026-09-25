@@ -109,6 +109,118 @@ class TestSaveWarnings : public QObject
 {
     Q_OBJECT
 private slots:
+    void invalidMesh_failsBeforeMutation_data()
+    {
+        QTest::addColumn<int>("failure");
+        QTest::addColumn<QString>("detail");
+        QTest::addColumn<bool>("external");
+        const QStringList fields = {"elevation", "coordinates", "roughness", "roughness",
+            "initial depth", "initial depth", "geometry", "vertex", "vertex",
+            "boundary head", "boundary flow", "boundary slope", "boundary type",
+            "time series", "rating curve", "coupling coefficient", "conveyance"};
+        const char *names[] = {"nan-z", "infinite-x", "negative-n", "infinite-n",
+            "negative-depth", "infinite-depth", "collapsed-cell", "duplicate-vertex", "invalid-index",
+            "nan-head", "infinite-flow", "nan-slope", "unknown-bc", "empty-series",
+            "empty-curve", "nan-coupling", "nan-conveyance"};
+        for (int i = 0; i < fields.size(); ++i) {
+            QTest::newRow(names[i]) << i << fields[i] << false;
+            QTest::newRow(qPrintable(QString::fromLatin1(names[i]) + "-external")) << i << fields[i] << true;
+        }
+    }
+
+    void invalidMesh_failsBeforeMutation()
+    {
+        QFETCH(int, failure);
+        QFETCH(QString, detail);
+        QFETCH(bool, external);
+        const QString dir = outDir() + QStringLiteral("/validation_%1").arg(QTest::currentDataTag());
+        QVERIFY(QDir().mkpath(dir));
+        const QString source = dir + "/source.inp";
+        const QString target = dir + "/saved.inp";
+        QVERIFY(writeDeck(source, false));
+        mesh::MeshResult initial;
+        initial.ok = true;
+        initial.vertices = {{QPointF(0, 0), 10}, {QPointF(20, 0), 10},
+                            {QPointF(20, 20), 10}, {QPointF(0, 20), 10}};
+        initial.triangles = {{0, 1, 2}, {0, 2, 3}};
+        QString err;
+        const QString meshPath = external ? dir + "/active.2dm" : source;
+        if (external) QVERIFY(mesh::InpMeshWriter::writeExternal(source, meshPath, initial, {}, 0.035, &err));
+        else QVERIFY(mesh::InpMeshWriter::writeInline(source, initial, {}, 0.035, &err));
+        auto *w = openWindow(source, &err);
+        QVERIFY2(w, qPrintable(err));
+        auto *layer = new SWMM2DMeshLayer(initial, meshPath);
+        layer->setExternalMesh(external);
+        layer->setActiveMesh(true);
+        w->canvas()->addLayer(layer, false);
+        w->attachMeshLayer(layer);
+        QVERIFY(layer->applyMeshVertexZ(0, 25.0));
+        // Deliberately bypass editors: imports/worker payloads must receive
+        // the same Save preflight. Construct valid caches before corruption.
+        auto &state = const_cast<mesh::MeshResult &>(layer->mesh());
+        const auto repaired = state;
+        const auto repairedBCs = layer->edgeBCs();
+        auto &bc = layer->edgeBCsMutable()[mesh::edgeSlot(0, 2)];
+        using T = mesh::MeshBCTypes::Type;
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const double inf = std::numeric_limits<double>::infinity();
+        switch (failure) {
+        case 0: state.vertices[1].z = nan; break;
+        case 1: state.vertices[1].xy.setX(inf); break;
+        case 2: state.triangles[0].mannings = -1; break;
+        case 3: state.triangles[0].mannings = inf; break;
+        case 4: state.triangles[0].initDepth = -1; break;
+        case 5: state.triangles[0].initDepth = inf; break;
+        case 6: state.vertices[2].xy = QPointF(10, 0); break;
+        case 7: state.triangles[0].v2 = 1; break;
+        case 8: state.triangles[0].v2 = 100; break;
+        case 9: bc.type = T::SpecifiedStageConst; bc.head = nan; break;
+        case 10: bc.type = T::SpecifiedFlowConst; bc.flow = inf; break;
+        case 11: bc.type = T::NormalFlow; bc.slope = nan; break;
+        case 12: bc.type = static_cast<T>(100); break;
+        case 13: bc.type = T::SpecifiedFlowTS; bc.tseries = "  "; break;
+        case 14: bc.type = T::RatingCurve; bc.curve = ""; break;
+        case 15: state.vertices[1].coupledNode = "J0"; state.vertices[1].couplingCd = nan; break;
+        case 16: bc.conveyance = nan; break;
+        }
+        w->setHasChanges(true);
+        const auto read = [](const QString &path) {
+            QFile file(path); if (!file.open(QIODevice::ReadOnly)) return QByteArray();
+            return file.readAll();
+        };
+        const QByteArray sourceBytes = read(source);
+        const QByteArray meshBytes = read(meshPath);
+        const QByteArray sentinel = ";; previous saved data\n";
+        const QString sidecar = ProjectSerializer::sidecarPathFor(target);
+        for (const auto &path : {target, sidecar}) {
+            QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+            QCOMPARE(file.write(sentinel), sentinel.size());
+        }
+        double x, y, zBefore;
+        QCOMPARE(swmm_2d_vertex_get_xyz(w->modelLayer()->engine(), 0, &x, &y, &zBefore), 0);
+        QSignalSpy completed(w, &SWMMVisProjectWindow::saveCompletedWithEngineWarnings);
+        QVERIFY2(!w->saveAs(target, &err), "Invalid mesh must fail before changing engine or files");
+        QVERIFY2(err.contains(detail), qPrintable(err));
+        QCOMPARE(read(source), sourceBytes);
+        QCOMPARE(read(meshPath), meshBytes);
+        QCOMPARE(read(target), sentinel);
+        QCOMPARE(read(sidecar), sentinel);
+        double zAfter;
+        QCOMPARE(swmm_2d_vertex_get_xyz(w->modelLayer()->engine(), 0, &x, &y, &zAfter), 0);
+        QCOMPARE(zAfter, zBefore);
+        QCOMPARE(completed.count(), 0);
+        QVERIFY(w->hasChanges());
+        QVERIFY(layer->hasUnsavedMeshEdits());
+        QCOMPARE(w->modelLayer()->modelFilePath(), source);
+        state = repaired;
+        layer->edgeBCsMutable() = repairedBCs;
+        QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+        QVERIFY(!w->hasChanges());
+        QVERIFY(!layer->hasUnsavedMeshEdits());
+        QCOMPARE(mesh::InpMeshReader::read(external ? meshPath : target).mesh.vertices[0].z, 25.0);
+        w->deleteLater();
+    }
+
     void inlineMeshPayload_data()
     {
         QTest::addColumn<bool>("usProject");
@@ -427,7 +539,7 @@ private slots:
         w->deleteLater();
     }
 
-    void engineRejection_keepsPendingState_data()
+    void meshRejection_keepsPendingState_data()
     {
         QTest::addColumn<int>("failure");
         QTest::addColumn<QString>("detail");
@@ -439,7 +551,7 @@ private slots:
         QTest::newRow("edge-conveyance") << 5 << QStringLiteral("conveyance");
     }
 
-    void engineRejection_keepsPendingState()
+    void meshRejection_keepsPendingState()
     {
         QFETCH(int, failure);
         QFETCH(QString, detail);
@@ -491,7 +603,7 @@ private slots:
         QVERIFY2(!w->saveAs(target, &err), "Engine rejection must fail Save before file writes");
         QVERIFY2(err.contains(detail), qPrintable(err));
         QVERIFY(err.contains(deck));
-        QVERIFY(err.contains(QStringLiteral("engine error")));
+        QVERIFY(err.contains(QStringLiteral("validate mesh data")));
         QVERIFY(w->hasChanges());
         QVERIFY(layer->hasUnsavedMeshEdits());
         QCOMPARE(layer->mesh().vertices[0].z, 1234.5);
