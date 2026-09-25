@@ -44,7 +44,7 @@ struct QuadQuality
     double scaledJacobian = 0.0;   ///< min_i sin(theta_i), signed (negative = folded).
     double rectangularity = 0.0;   ///< 1 - max_i |theta_i - 90| / 90.
     double aspect         = 1.0;   ///< mean(s0,s2) vs mean(s1,s3), >= 1.
-    double skew           = 0.0;   ///< |cos(angle between diagonals)|, 0 for a rectangle.
+    double skew           = 0.0;   ///< |cos(angle between diagonals)|; zero for perpendicular diagonals (e.g. squares/rhombi), not general rectangles.
     double area           = 0.0;   ///< shoelace, absolute.
     bool   convex         = false; ///< all four cross products share the sign of the total area.
 };
@@ -116,7 +116,9 @@ inline bool quadAcceptable(const QuadQuality &q, const QuadQualityBounds &b)
 }
 
 /*! \brief Combined score in [0,1] (plan §5): SJ · min(1, aspectMax/aspect) · sqrt(1 - skew).
- *  0 for a non-convex quad. Used as the pairing benefit and the smoothing objective. */
+ *  0 for a non-convex quad. Used as the pairing benefit and the smoothing objective.
+ *  This isotropic ranking penalizes elongated rectangles through diagonal skew,
+ *  even with an unbounded aspect limit; it is not a rectangularity measure. */
 inline double quadScore(const QuadQuality &q, const QuadQualityBounds &b)
 {
     if (!q.convex || q.scaledJacobian <= 0.0) return 0.0;

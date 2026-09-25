@@ -10,20 +10,18 @@
  * WHY THIS EXISTS.  With a uniform `-a<maxArea>` cap the WHOLE domain is
  * refined to the cap, however far a cell sits from anything that needs
  * resolution — on a large domain most of the output vertices buy nothing.
- * This field keeps the near-feature size exactly where the uniform cap put
- * it and lets the permitted area grow with distance from the constrained
- * features, under a Lipschitz bound that is itself the smooth-transition
- * guarantee:
+ * This field grades the target size with distance from constrained
+ * features. The ideal continuous model uses exact Euclidean distance:
  *
  *     h(x) = nearSize + gradation · d(x)
  *     A(x) = (√3/4) · h(x)²          (area of the equilateral triangle)
  *
  * where d(x) is the distance to the nearest constrained feature (constraint
- * segments, hole-ring edges, tagged Steiner points).  Near a feature
- * (d → 0) the permitted area equals the uniform cap, so feature resolution
- * is IDENTICAL to today's mesh; away from features cells coarsen at a
- * bounded rate.  The result is strictly FEWER cells than the uniform cap,
- * never more.
+ * segments, hole-ring edges, tagged Steiner points). In that ideal model,
+ * h approaches nearSize at features and has Lipschitz slope gradation.
+ * The sampled approximation below is not a proof of that bound for the
+ * produced mesh. Near-feature resolution and final cell counts require
+ * verification; grading is intended to allow coarser cells away from features.
  *
  * The outer domain ring is deliberately NOT a seed: it is usually a
  * watershed clip, not a hydraulic feature, and seeding it would pin fine
@@ -33,10 +31,14 @@
  * Mechanics: a uniform background grid over the domain bbox holds the
  * distance to the nearest seed at each cell centre — exact distances are
  * stamped in a small neighbourhood around every seed, then a two-pass
- * chamfer transform (3-4 weights scaled to the pitch) propagates them.
- * Chamfer overestimates by at most ~8%, which errs on the fine (safe)
- * side of the gradation.  Everything is serial and order-independent, so
- * the field — and therefore the mesh — is deterministic.
+ * chamfer transform propagates them using axial weight pitch and diagonal
+ * weight sqrt(2) * pitch. The ideal point-seeded octile metric can overestimate
+ * Euclidean distance by about 8.24%; this is not a bound for segment stamping,
+ * bilinear interpolation, or the complete sizing pipeline. Overestimating d
+ * increases h and its permitted area, producing a COARSER target, not a
+ * conservative refinement guarantee. Terrain-density limits and the area
+ * floor further affect the final target. Computation is serial and
+ * deterministic for fixed input.
  */
 #ifndef OPENSWMMVIS_MESH_SIZEFIELD_H
 #define OPENSWMMVIS_MESH_SIZEFIELD_H
