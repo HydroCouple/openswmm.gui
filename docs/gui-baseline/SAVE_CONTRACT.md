@@ -8,6 +8,8 @@ Phase 12 adds read-only selected-mesh validation before any engine synchronizati
 
 Phase 13 checks known built-in Save file identities before synchronization. Model/settings/selected external mesh outputs cannot alias each other, mesh/settings writes cannot replace the source model, model/mesh writes cannot replace source settings, and model/settings outputs cannot replace inactive external meshes. Existing hard links, file/directory symlinks and canonical destinations are checked. Clean views of the selected mesh still follow active ownership; ordinary same-role Save and identical basenames in different directories remain allowed. This is not a full output/resource manifest or protection against concurrent filesystem changes; transaction publication must recheck identities. See the [Phase 13 evidence](../../workplans/artifacts/phase_13_save_path_ownership/README.md).
 
+Phase 14 preserves finite mesh doubles through initial serialization and attribute/BC patches using 17 significant digits. Coordinates/elevations, cell hydraulic values, vertex/cell coupling, infiltration parameters/intervals and numeric boundary/conveyance values no longer suffer the writer's fixed-decimal rounding. Fractional infiltration intervals are retained. Canonical file text intentionally changes; repeated new-format writes remain stable. This does not change UI display precision, recover values already rounded in old files, or repair the engine's other model serializers. See the [Phase 14 evidence](../../workplans/artifacts/phase_14_mesh_numeric_precision/README.md).
+
 ## Current write inventory
 
 | Operation / source | Files or state affected today | Required ownership / failure contract |
