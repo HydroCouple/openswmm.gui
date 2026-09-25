@@ -545,6 +545,7 @@ QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
             gl->addWidget(vis, row, 0);
 
             auto *color = new ColorButton(grid);
+            color->setAccessibleName(tr("%1 boundary colour").arg(label));
             color->setShowAlpha(true);
             color->setColor(st->bcColorForType(t));
             gl->addWidget(color, row, 1);
