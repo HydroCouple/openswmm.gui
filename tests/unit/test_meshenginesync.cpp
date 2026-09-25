@@ -470,3 +470,62 @@ TEST(MeshEngineSync, UsProjectFlowBcRoundTripsInDisplayUnits)
     EXPECT_NEAR(engHead, kStageFt * 0.3048, 1e-6);
     swmm_engine_destroy(e2);
 }
+
+TEST(MeshEngineSync, MissingOrDifferentMeshIsNotAWriteRejection)
+{
+    const auto rr = mesh::InpMeshReader::read(QStringLiteral("mesh_sync_fixture.inp"));
+    ASSERT_TRUE(rr.hasMesh);
+    bool trianglesSynced = true;
+    bool rejected = true;
+    QStringList warnings;
+    EXPECT_FALSE(mesh::pushMeshEditsToEngine(nullptr, rr.mesh, rr.edgeBCs,
+                                            &warnings, &trianglesSynced, &rejected));
+    EXPECT_FALSE(trianglesSynced);
+    EXPECT_FALSE(rejected);
+
+    SWMM_Engine e = swmm_engine_create();
+    ASSERT_NE(e, nullptr);
+    ASSERT_EQ(swmm_engine_open(e, "mesh_sync_fixture.inp", "skip.rpt", "skip.out", nullptr), 0);
+    auto different = rr.mesh;
+    different.vertices.removeLast();
+    double x = 0.0, y = 0.0, before = 0.0, after = 0.0;
+    ASSERT_EQ(swmm_2d_vertex_get_xyz(e, 0, &x, &y, &before), 0);
+    different.vertices[0].z = 999.0;
+    trianglesSynced = rejected = true;
+    EXPECT_FALSE(mesh::pushMeshEditsToEngine(e, different, rr.edgeBCs,
+                                            &warnings, &trianglesSynced, &rejected));
+    EXPECT_FALSE(trianglesSynced);
+    EXPECT_FALSE(rejected);
+    EXPECT_FALSE(warnings.isEmpty());
+    EXPECT_EQ(swmm_2d_vertex_get_xyz(e, 0, &x, &y, &after), 0);
+    EXPECT_DOUBLE_EQ(after, before);
+    swmm_engine_destroy(e);
+}
+
+TEST(MeshEngineSync, RejectedEdgeResetsSuccessOutputsAndCanRetry)
+{
+    const auto rr = mesh::InpMeshReader::read(QStringLiteral("mesh_sync_fixture.inp"));
+    ASSERT_TRUE(rr.hasMesh);
+    ASSERT_FALSE(rr.edgeBCs.isEmpty());
+    SWMM_Engine e = swmm_engine_create();
+    ASSERT_NE(e, nullptr);
+    ASSERT_EQ(swmm_engine_open(e, "mesh_sync_fixture.inp", "rejection.rpt", "rejection.out", nullptr), 0);
+    auto bcs = rr.edgeBCs;
+    bcs[0].conveyance = 1.5;
+    bool trianglesSynced = true;
+    bool rejected = false;
+    QStringList warnings;
+    EXPECT_FALSE(mesh::pushMeshEditsToEngine(e, rr.mesh, bcs,
+                                            &warnings, &trianglesSynced, &rejected));
+    EXPECT_FALSE(trianglesSynced);
+    EXPECT_TRUE(rejected);
+    EXPECT_TRUE(warnings.join(';').contains(QStringLiteral("edge conveyance (item 1) (edge 1)")));
+    bcs[0].conveyance = 0.5;
+    warnings.clear();
+    EXPECT_TRUE(mesh::pushMeshEditsToEngine(e, rr.mesh, bcs,
+                                           &warnings, &trianglesSynced, &rejected));
+    EXPECT_TRUE(trianglesSynced);
+    EXPECT_FALSE(rejected);
+    EXPECT_TRUE(warnings.isEmpty());
+    swmm_engine_destroy(e);
+}
