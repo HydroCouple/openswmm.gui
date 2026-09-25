@@ -119,6 +119,38 @@ class TestMeshQuadCleanup : public QObject
     Q_OBJECT
 
 private slots:
+    void smoothing_respectsAspectLimit_data()
+    {
+        QTest::addColumn<double>("cap");
+        QTest::addColumn<bool>("moves");
+        QTest::newRow("within-cap") << 4.0 << true;
+        QTest::newRow("would-cross-cap") << 2.8 << false;
+        QTest::newRow("already-above-cap") << 2.0 << false;
+        QTest::newRow("unbounded") << 0.0 << true;
+    }
+
+    void smoothing_respectsAspectLimit()
+    {
+        QFETCH(double, cap);
+        QFETCH(bool, moves);
+        MeshResult m;
+        addVertex(m, 0, 0); addVertex(m, 3, 0);
+        addVertex(m, 2.5, 1); addVertex(m, 0, 1);
+        MeshTriangle q; q.v0 = 0; q.v1 = 1; q.v2 = 2; q.v3 = 3;
+        m.triangles.append(q);
+        m.ok = true;
+        QuadCleanupOptions o;
+        o.removeDoublets = false;
+        o.diagonalSwaps = false;
+        o.bounds.maxAspect = cap;
+        const double before = quadQuality(m.vertices, q).aspect;
+        const auto st = cleanupAndSmoothQuads(m, {2}, o, nullptr);
+        QCOMPARE(st.verticesMoved > 0, moves);
+        QCOMPARE(m.vertices[2].xy, moves ? QPointF(3, 1) : QPointF(2.5, 1));
+        if (cap > 0)
+            QVERIFY(quadQuality(m.vertices, m.triangles.first()).aspect <= std::max(cap, before) + 1e-12);
+    }
+
 
     /*! Doublet: vertex v (movable, valence 2) shared by exactly two quads →
      *  one quad, v removed and compacted, remap has exactly one −1, the

@@ -172,6 +172,120 @@ class TestMeshQuadRegionE2E : public QObject
     std::ofstream m_report;
 
 private slots:
+    void deferredMergeLocks_excludeHolesAndSkippedRegions()
+    {
+        MeshGenerator g;
+        g.setDomain(domain300x150());
+        g.setOptions(baseOptions());
+        QuadRegion bg;
+        bg.ring = domain300x150();
+        bg.isBackground = true;
+        bg.mode = QuadRegionMode::TrianglesOnly;
+        bg.spacing = 5;
+        bg.holes.append(rect(100, 50, 100, 50));
+        g.addQuadRegion(bg);
+        QuadRegion invalid;
+        invalid.ring = rect(110, 60, 40, 20);
+        invalid.spacing = 5;
+        invalid.aspectMax = 0.5;
+        g.addQuadRegion(invalid);
+        QVERIFY(g.generate().ok);
+        QVERIFY(g.quadRegionReports()[0].accepted);
+        QVERIFY(!g.quadRegionReports()[1].accepted);
+        // Probe current geometry independently of generated cell indices:
+        // accepted interior, background hole / skipped region, outside.
+        MeshResult probe;
+        for (const QPointF p : {QPointF(20, 20), QPointF(120, 70), QPointF(400, 200)})
+        {
+            const int v = probe.vertices.size();
+            for (const QPointF d : {QPointF(0, 0), QPointF(1, 0), QPointF(0, 1)})
+            {
+                MeshVertex vertex; vertex.xy = p + d;
+                probe.vertices.append(vertex);
+            }
+            MeshTriangle t; t.v0 = v; t.v1 = v + 1; t.v2 = v + 2;
+            probe.triangles.append(t);
+        }
+        const auto locks = g.quadRegionMergeLocks(probe);
+        QCOMPARE(locks.size(), 3);
+        QVERIFY(locks.contains(edgeKey(0, 1)));
+        QVERIFY(locks.contains(edgeKey(1, 2)));
+        QVERIFY(locks.contains(edgeKey(2, 0)));
+    }
+
+    void regionAspectLimits_data()
+    {
+        QTest::addColumn<int>("mergePath");
+        QTest::newRow("region-pairing") << 0;
+        QTest::newRow("generator-final-merge") << 1;
+        QTest::newRow("deferred-gui-merge") << 2;
+    }
+
+    void regionAspectLimits()
+    {
+        QFETCH(int, mergePath);
+        MeshGenerator g;
+        g.setDomain(domain300x150());
+        auto o = baseOptions();
+        o.mergeTrianglePairs = mergePath == 1;
+        o.quadRegionBounds.maxAspect = 1.01;
+        g.setOptions(o);
+        QVector<QuadRegion> regions;
+        // Distinct neighboring regions exercise strict inheritance, explicit
+        // caps and unlimited pairing in the same run.
+        const double caps[] = {-1.0, 2.0, 4.0, 0.0};
+        for (int i = 0; i < 4; ++i)
+        {
+            QuadRegion q;
+            q.ring = rect(10 + 70 * i, 30, 60, 90);
+            q.mode = QuadRegionMode::Free;
+            q.spacing = 7;
+            q.hasAlignAngle = true;
+            q.alignAngleDeg = 17;
+            q.aspectMax = caps[i];
+            regions.append(q);
+            g.addQuadRegion(q);
+        }
+        QuadRegion triangles;
+        triangles.ring = rect(100, 5, 60, 20);
+        triangles.mode = QuadRegionMode::TrianglesOnly;
+        triangles.spacing = 5;
+        g.addQuadRegion(triangles);
+        auto r = g.generate();
+        QVERIFY2(r.ok, qPrintable(r.errorMsg));
+        if (mergePath == 2)
+        {
+            auto locked = g.quadRegionMergeLocks(r);
+            for (const auto &edge : r.boundaryEdges) locked.insert(edgeKey(edge.v0, edge.v1));
+            mergeTrianglePairs(r, o.quadMerge, locked, nullptr);
+        }
+        CHECK_CELL_INVARIANTS(r);
+        int counts[4] = {}, aboveGlobal[4] = {}, outsideQuads = 0;
+        for (const auto &c : r.triangles)
+        {
+            const QPointF center = cellGeom(r.vertices, c).centroid;
+            if (pointInRing(triangles.ring, center)) QVERIFY(!c.isQuad());
+            if (!c.isQuad()) continue;
+            bool inRegion = false;
+            for (int i = 0; i < regions.size(); ++i)
+                if (pointInRing(regions[i].ring, center))
+                {
+                    inRegion = true;
+                    ++counts[i];
+                    const double aspect = quadQuality(r.vertices, c).aspect;
+                    const double cap = caps[i] < 0 ? o.quadRegionBounds.maxAspect : caps[i];
+                    QVERIFY2(cap == 0 || aspect <= cap + 1e-10,
+                             qPrintable(QString("region %1: aspect %2 exceeds %3").arg(i).arg(aspect).arg(cap)));
+                    if (aspect > o.quadRegionBounds.maxAspect + 1e-10) ++aboveGlobal[i];
+                }
+            if (!inRegion) ++outsideQuads;
+        }
+        for (int i = 0; i < 4; ++i) QVERIFY(counts[i] > 0);
+        for (int i = 1; i < 4; ++i) QVERIFY(aboveGlobal[i] > 0);
+        if (mergePath) QVERIFY(outsideQuads > 0);
+        appendReport(m_report, QStringLiteral("aspect limits, merge=%1").arg(mergePath), g, r);
+    }
+
 
     void constraintCrossing_forcesFree_data()
     {

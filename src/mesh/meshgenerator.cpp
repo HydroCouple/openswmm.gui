@@ -151,6 +151,7 @@ constexpr int kQuadRingMarker = 0x7FFF0001;
 struct PreparedQuadRegion
 {
     int            index = -1;                   ///< Position in m_quadRegions / m_quadReports.
+    QuadQualityBounds bounds;                   ///< Resolved per-region acceptance limits.
     QuadRegionMode mode  = QuadRegionMode::Free; ///< Resolved mode.
     double         h     = 0.0;
     QPolygonF      ring;                         ///< normalizeRingCCW(r.ring).
@@ -304,6 +305,38 @@ double longestEdgeAngleDeg(const QPolygonF &ring)
 // ---------------------------------------------------------------------------
 // generate
 // ---------------------------------------------------------------------------
+
+QSet<QPair<int, int>> MeshGenerator::quadRegionMergeLocks(const MeshResult &mesh) const
+{
+    // Use geometry rather than cell ids: the GUI samples elevations and may
+    // compact cells before its final merge. Respect background-region holes.
+    QVector<int> active;
+    QVector<QRectF> boxes;
+    for (const QuadRegionReport &rep : m_quadReports)
+        if (rep.accepted && rep.index >= 0 && rep.index < m_quadRegions.size())
+        {
+            active.append(rep.index);
+            boxes.append(m_quadRegions[rep.index].ring.boundingRect());
+        }
+    QSet<QPair<int, int>> locked;
+    if (active.isEmpty()) return locked;
+    for (const MeshTriangle &c : mesh.triangles)
+    {
+        if (c.isQuad()) continue;
+        const QPointF center = cellGeom(mesh.vertices, c).centroid;
+        for (int i = 0; i < active.size(); ++i)
+        {
+            const QuadRegion &q = m_quadRegions[active[i]];
+            if (boxes[i].contains(center) && pointInRegion(q.ring, q.holes, center))
+            {
+                for (int k = 0; k < 3; ++k)
+                    locked.insert(edgeKey(c.vertex(k), c.vertex((k + 1) % 3)));
+                break;
+            }
+        }
+    }
+    return locked;
+}
 
 MeshResult MeshGenerator::generate() const
 {
@@ -517,6 +550,8 @@ MeshResult MeshGenerator::generate() const
 
             PreparedQuadRegion q;
             q.index        = i;
+            q.bounds       = quadRegionQualityBounds(r, m_opts.quadRegionBounds);
+            rep.maxAspect  = q.bounds.maxAspect;
             q.ring         = normalizeRingCCW(r.ring);
             q.bbox         = q.ring.boundingRect();
             q.isBackground = r.isBackground;
@@ -684,6 +719,7 @@ MeshResult MeshGenerator::generate() const
             q.mode = mode;
             rep.resolved = mode;
             rep.message  = notes.join(QStringLiteral("; "));
+            rep.accepted = true;
             qregs.append(q);
         }
     }
@@ -1295,7 +1331,7 @@ MeshResult MeshGenerator::generate() const
             const PreparedQuadRegion &q = qregs[s];
             if (q.mode != QuadRegionMode::Free || cellIds[s].isEmpty()) continue;
             QuadPairingOptions po;
-            po.bounds = m_opts.quadRegionBounds;
+            po.bounds = q.bounds;
             QVector<int> oldToNew;
             const QuadPairingStats ps = pairTrianglesIntoQuads(result, cellIds[s], q.templates,
                                                                locked, po, &oldToNew);
@@ -1319,8 +1355,10 @@ MeshResult MeshGenerator::generate() const
                 movable.remove(e.v1);
             }
             QVector<int> vOldToNew;
+            QuadCleanupOptions cleanup = m_opts.quadCleanup;
+            cleanup.bounds = q.bounds;
             const QuadCleanupStats cs = cleanupAndSmoothQuads(result, movable,
-                                                              m_opts.quadCleanup, &vOldToNew);
+                                                              cleanup, &vOldToNew);
             QuadRegionReport &rep = m_quadReports[q.index];
             rep.doubletsRemoved = cs.doubletsRemoved;
             rep.diagonalSwaps   = cs.diagonalSwaps;
@@ -1398,6 +1436,7 @@ MeshResult MeshGenerator::generate() const
         locked.reserve(result.boundaryEdges.size());
         for (const MeshEdge &e : std::as_const(result.boundaryEdges))
             locked.insert(edgeKey(e.v0, e.v1));
+        locked.unite(quadRegionMergeLocks(result));
         mergeTrianglePairs(result, m_opts.quadMerge, locked, nullptr);
     }
 

@@ -249,6 +249,8 @@ QString validateQuadRegion(const QuadRegion &r,
                            const QVector<QPolygonF> &domains,
                            const QVector<QPolygonF> &holes)
 {
+    if (!std::isfinite(r.aspectMax) || (r.aspectMax > 0.0 && r.aspectMax < 1.0))
+        return QStringLiteral("quad aspect must be negative (inherit), zero (unbounded), or at least 1");
     const QPolygonF ring = normalizeRingCCW(r.ring);
     if (ring.size() < 3)
         return QStringLiteral("quad region needs at least 3 distinct vertices (got %1)")

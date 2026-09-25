@@ -19,6 +19,8 @@
 #ifndef OPENSWMMVIS_MESH_MESHQUADREGION_H
 #define OPENSWMMVIS_MESH_MESHQUADREGION_H
 
+#include "mesh/meshquadquality.h"
+
 #include <QPointF>
 #include <QPolygonF>
 #include <QRectF>
@@ -53,13 +55,22 @@ struct QuadRegion
     bool           isBackground = false;
     QuadRegionMode mode = QuadRegionMode::Auto;
     double spacing   = 0.0;              ///< Target quad edge length h; 0 = derive from the size field / max area.
-    double aspectMax = 2.0;              ///< Longest/shortest side accepted (Free); <= 0 = unbounded.
+    double aspectMax = -1.0;             ///< Free: opposite-side mean ratio cap; < 0 inherits global, 0 unbounded, >= 1 explicit.
     bool   hasAlignAngle = false;        ///< Free: constant cross field at alignAngleDeg (from +x, CCW).
     double alignAngleDeg = 0.0;
     QVector<QPointF> alignGuide;         ///< Free: optional polyline the field aligns to (streets, channels).
     QVector<int>     corners;            ///< Mapped: 4 ring vertex indices in ring order; empty = auto-pick.
     QString tag;                         ///< MeshTriangle::tag for every cell inside; empty = inherit region marker's.
 };
+
+/*! \brief Resolve Free-region bounds. Only the aspect cap may override the
+ *  global bounds; negative values inherit and zero explicitly disables it. */
+inline QuadQualityBounds quadRegionQualityBounds(const QuadRegion &region,
+                                                  QuadQualityBounds global)
+{
+    if (region.aspectMax >= 0.0) global.maxAspect = region.aspectMax;
+    return global;
+}
 
 /*! \brief Drop a closing duplicate, drop consecutive duplicates, make CCW. */
 QPolygonF normalizeRingCCW(const QPolygonF &ring);

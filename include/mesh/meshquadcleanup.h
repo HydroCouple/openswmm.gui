@@ -23,7 +23,8 @@
  *    vertex v moves to the mean over incident quads of (prev + next − opposite)
  *    and over incident triangles of the neighbour centroid; the move is
  *    accepted only when the minimum scaled Jacobian over every incident cell
- *    does not decrease and every incident quad stays convex. Iterated
+ *    does not decrease, every incident quad stays convex, and no aspect-cap
+ *    violation is introduced or worsened. Iterated
  *    smoothingIterations times (Jacobi ordering — positions from the previous
  *    sweep — for determinism).
  *

@@ -12,6 +12,7 @@
  * point-in-ring.
  */
 #include <QtTest>
+#include <limits>
 #include <QPolygonF>
 #include <QVector>
 
@@ -71,6 +72,30 @@ class TestMeshQuadRegion : public QObject
     Q_OBJECT
 
 private slots:
+    void aspectValidation_data()
+    {
+        QTest::addColumn<double>("cap");
+        QTest::addColumn<bool>("valid");
+        QTest::newRow("inherit") << -1.0 << true;
+        QTest::newRow("unlimited") << 0.0 << true;
+        QTest::newRow("square") << 1.0 << true;
+        QTest::newRow("elongated") << 4.0 << true;
+        QTest::newRow("impossible") << 0.5 << false;
+        QTest::newRow("nan") << std::numeric_limits<double>::quiet_NaN() << false;
+        QTest::newRow("infinity") << std::numeric_limits<double>::infinity() << false;
+    }
+
+    void aspectValidation()
+    {
+        QFETCH(double, cap);
+        QFETCH(bool, valid);
+        QuadRegion q;
+        q.ring = rect(10, 10, 20, 10);
+        q.spacing = 1;
+        q.aspectMax = cap;
+        QCOMPARE(validateQuadRegion(q, {rect(0, 0, 100, 100)}, {}).isEmpty(), valid);
+    }
+
 
     void polylineRectIntersection_data()
     {

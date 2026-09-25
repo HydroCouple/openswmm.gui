@@ -1198,7 +1198,16 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                                    << "— using the dialog default";
                 }
                 if (const int i = fieldIdx("quad_spacing"); i >= 0) r.spacing   = f->GetFieldAsDouble(i);
-                if (const int i = fieldIdx("quad_aspect");  i >= 0) r.aspectMax = f->GetFieldAsDouble(i);
+                if (const int i = fieldIdx("quad_aspect"); i >= 0)
+                {
+                    bool ok = false;
+                    const double aspect = QString::fromUtf8(f->GetFieldAsString(i)).toDouble(&ok);
+                    if (ok && std::isfinite(aspect) && !(aspect > 0.0 && aspect < 1.0))
+                        r.aspectMax = aspect;
+                    else
+                        qWarning() << "[Mesh][quad] invalid quad_aspect on feature"
+                                   << qint64(f->GetFID()) << "— using the dialog default";
+                }
                 if (const int i = fieldIdx("quad_angle");   i >= 0)
                 {
                     r.hasAlignAngle = true;
@@ -1301,7 +1310,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             << (quadRegions.size() - nExplicitQuadRegions) << " background; default mode "
             << quadRegionModeName(in.quadRegionDefaults.mode)
             << ", spacing " << in.quadRegionDefaults.spacing
-            << ", aspect <= " << in.quadRegionDefaults.aspectMax << ")";
+            << ", Free aspect cap (0 = off) "
+            << mesh::quadRegionQualityBounds(in.quadRegionDefaults, in.quadBounds).maxAspect << ")";
 
     // Per-region area bounds are clamped to the refinement floor.
     //
@@ -2375,6 +2385,10 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             << quadRegionModeName(rep.requested) << " -> "
             << quadRegionModeName(rep.resolved)
             << " | h " << rep.spacing
+            << (rep.resolved == mesh::QuadRegionMode::Free
+                    ? (rep.maxAspect > 0.0 ? QStringLiteral(" | aspect <= %1").arg(rep.maxAspect)
+                                           : QStringLiteral(" | aspect unlimited"))
+                    : QString())
             << " | " << rep.quads << " quads + " << rep.triangles << " tris"
             << " (" << rep.templateQuads << " template, " << rep.gapQuads << " gap)"
             << " | points " << rep.generatedPoints << " generated, "
@@ -2949,6 +2963,9 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         locked.reserve(result.boundaryEdges.size());
         for (const mesh::MeshEdge &e : std::as_const(result.boundaryEdges))
             locked.insert(mesh::edgeKey(e.v0, e.v1));
+        // The generator has already applied region-specific acceptance
+        // limits. Preserve its leftover triangles and TrianglesOnly regions.
+        locked.unite(g.quadRegionMergeLocks(result));
         QVector<int> oldToNew;
         nMergedQuads = mesh::mergeTrianglePairs(result, in.genOpts.quadMerge,
                                                 locked, &oldToNew);
@@ -3898,7 +3915,7 @@ void MeshGenerationDialog::buildUi()
             "Optional per-feature attributes override the defaults below:\n"
             "  quad_mode     auto | mapped | submapped | free | triangles\n"
             "  quad_spacing  target quad edge length (map units)\n"
-            "  quad_aspect   maximum side ratio\n"
+            "  quad_aspect   Free-region ratio cap (<0 global, 0 unlimited)\n"
             "  quad_angle    alignment angle in degrees from +x\n"
             "  tag / name    cell tag"));
         f->addRow(tr("Region &layer:"), m_quadRegionLayerCombo);
@@ -3941,12 +3958,16 @@ void MeshGenerationDialog::buildUi()
         f->addRow(tr("Default spacing:"), m_quadRegionSpacingSpin);
 
         m_quadRegionAspectSpin = new QDoubleSpinBox(g);
-        m_quadRegionAspectSpin->setRange(1.0, 10.0);
+        m_quadRegionAspectSpin->setRange(-1.0, 100.0);
+        m_quadRegionAspectSpin->setSpecialValueText(tr("(use global limit)"));
         m_quadRegionAspectSpin->setDecimals(2);
         m_quadRegionAspectSpin->setSingleStep(0.25);
         m_quadRegionAspectSpin->setToolTip(tr(
-            "Longest / shortest quad side accepted inside a Free region "
-            "after smoothing."));
+            "Free regions: maximum ratio of opposite-side mean lengths, "
+            "enforced during pairing, cleanup and smoothing.\n"
+            "Negative = use global Max aspect ratio; 0 = no limit; "
+            "1 or greater = region limit. A region layer's quad_aspect attribute "
+            "overrides this default. Does not apply to Mapped or Submapped patches."));
         f->addRow(tr("Default max aspect:"), m_quadRegionAspectSpin);
 
         m_quadRegionAngleSpin = new QDoubleSpinBox(g);
@@ -4029,8 +4050,9 @@ void MeshGenerationDialog::buildUi()
         m_quadMaxAspectSpin->setValue(2.0);
         m_quadMaxAspectSpin->setToolTip(tr(
             "Reject a quad longer than this ratio (longest / shortest side, "
-            "opposite-side means).  0 = no limit.  Applies to quad regions "
-            "and to the triangle-pair merge."));
+            "opposite-side means).  0 = no limit. Applies to Free quad regions "
+            "unless Default max aspect or the feature's quad_aspect overrides it, "
+            "and to triangle-pair merging outside quad regions."));
         f->addRow(tr("Max aspect ratio:"), m_quadMaxAspectSpin);
 
         m_quadPlanaritySpin = new QDoubleSpinBox(g);
@@ -5490,6 +5512,12 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
             mesh::QuadRegionMode(m_quadRegionModeCombo->currentData().toInt());
         out->quadRegionDefaults.spacing   = m_quadRegionSpacingSpin->value();
         out->quadRegionDefaults.aspectMax = m_quadRegionAspectSpin->value();
+        if (out->quadRegionDefaults.aspectMax > 0.0 && out->quadRegionDefaults.aspectMax < 1.0)
+        {
+            if (errOut) *errOut = tr("Default max aspect must be negative to use the global limit, "
+                                     "0 for no limit, or at least 1. Check Quality → Quads.");
+            return false;
+        }
         // The special value at the minimum means "no fixed angle".
         out->quadRegionDefaults.hasAlignAngle =
             m_quadRegionAngleSpin->value() > m_quadRegionAngleSpin->minimum();
