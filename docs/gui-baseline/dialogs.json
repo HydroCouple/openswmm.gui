@@ -348,7 +348,7 @@
     ],
     "entryPointCandidates": [
       "src/swmmvis.cpp:9663",
-      "src/swmmvisprojectwindow.cpp:831",
+      "src/swmmvisprojectwindow.cpp:832",
       "src/ui/dialogs/addbasemapdialog.cpp:1265",
       "src/ui/dialogs/layerstyledialog.cpp:1207",
       "src/ui/dialogs/newprojectdialog.cpp:131",

@@ -66,6 +66,7 @@
 #include <QLoggingCategory>
 #include <QEvent>
 #include <QFile>
+#include <QSaveFile>
 #include <QFileInfo>
 #include <QFrame>
 #include <QFutureWatcher>
@@ -1349,6 +1350,22 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         return false;
     }
 
+    if (errorOut) errorOut->clear();
+    mLastSaveWarnings.clear();
+    bool modelWriteStarted = false;
+    const auto failSave = [&](const QString &operation, const QString &path,
+                              const QString &reason) {
+        QString message = tr("Could not %1 at %2: %3.").arg(operation, path, reason);
+        if (modelWriteStarted)
+            message += tr(" Model files may already have been updated.");
+        message += tr(" The project remains unsaved. Keep it open, correct the problem, "
+                      "and retry Save.");
+        if (errorOut) *errorOut = message;
+        qWarning().noquote() << message;
+        setHasChanges(true);
+        return false;
+    };
+
     // Save-path perf breakdown — QT_LOGGING_RULES="openswmm.save.perf=true".
     // `stage` is restarted at every boundary; `total` runs for the whole call.
     // dmReads/dmWrites count full-file passes over the external .2dm sidecar,
@@ -1471,44 +1488,37 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"),
                                                Qt::CaseInsensitive) == 0)
     {
-        // Which mesh gets written into [2D_MESH_FILE] is the user's explicit
-        // choice — the ACTIVE mesh (Simulation Options -> Set Active Mesh, and
-        // the flag the editing tools and renderers already treat as the single
-        // source of truth). Taking whichever external layer happened to sit
-        // first in canvas order silently retargeted the .inp at a different
-        // mesh whenever a project carried more than one, so the model reopened
-        // on the wrong mesh — or on none, if that layer's file had gone.
-        // Fall back to the first usable external layer when nothing is marked
-        // active, which is the single-mesh case this used to handle.
-        auto usableExternal = [](SWMM2DMeshLayer *ml) {
-            if (!ml || !ml->isExternalMesh()) return false;
-            // Inline meshes have no external file to protect — their
-            // sourcePath() is the .inp itself, so snapshotting and re-pointing
-            // it would overwrite the model the engine just wrote and strip the
-            // inline [2D_*] sections. The engine already serialises them.
-            const QString p = ml->sourcePath();
-            return !p.isEmpty() && QFileInfo::exists(p);
-        };
-        SWMM2DMeshLayer *chosen  = nullptr;
+        // Resolve identity before testing file availability. A missing active
+        // external mesh is a failed Save, never permission to choose another
+        // layer. An explicitly active inline mesh must not be retargeted to an
+        // unrelated external layer either.
+        SWMM2DMeshLayer *chosen = nullptr;
         SWMM2DMeshLayer *fallback = nullptr;
         for (OpenSWMMVisLayer *l : canvas()->layers())
         {
             auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
-            if (!usableExternal(ml)) continue;
-            if (!fallback) fallback = ml;
+            if (!ml) continue;
             if (ml->isActiveMesh()) { chosen = ml; break; }
+            if (!fallback && ml->isExternalMesh()) fallback = ml;
         }
         if (!chosen) chosen = fallback;
-        if (chosen)
+        if (chosen && chosen->isExternalMesh())
         {
-            QFile mf(chosen->sourcePath());
-            if (mf.open(QIODevice::ReadOnly))
-            {
-                extMeshSnapshot = mf.readAll();
-                ++dmReads;
-                extMeshPath     = chosen->sourcePath();
-                extMeshLayer    = chosen;
-            }
+            extMeshPath = chosen->sourcePath();
+            if (extMeshPath.isEmpty() || !QFileInfo(extMeshPath).isFile())
+                return failSave(tr("read the external mesh"), extMeshPath,
+                                tr("the mesh file is missing or is not a regular file"));
+            QFile mf(extMeshPath);
+            if (!mf.open(QIODevice::ReadOnly))
+                return failSave(tr("read the external mesh"), extMeshPath, mf.errorString());
+            extMeshSnapshot = mf.readAll();
+            ++dmReads;
+            if (mf.error() != QFileDevice::NoError)
+                return failSave(tr("read the external mesh"), extMeshPath, mf.errorString());
+            if (extMeshSnapshot.isEmpty())
+                return failSave(tr("read the external mesh"), extMeshPath,
+                                tr("the mesh file is empty"));
+            extMeshLayer = chosen;
         }
     }
     snapshotMs = stage.restart();
@@ -1522,12 +1532,12 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // silent all the way to the user; reading the delta here is the GUI half.
     const int engineWarnsBefore =
         swmm_get_warning_count(mModelLayer->engine());
+    modelWriteStarted = true;
     int rc = swmm_model_write_with_plugin(
         mModelLayer->engine(),
         utf8.constData(),
         pluginId.isEmpty() ? nullptr : idUtf8.constData());
     engineWriteMs = stage.restart();
-    mLastSaveWarnings.clear();
     if (rc == 0)
     {
         const int engineWarnsAfter =
@@ -1539,29 +1549,32 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // The engine emits the external sidecar itself when [2D_MESH_FILE] resolves.
     if (!extMeshPath.isEmpty()) ++dmWrites;
     if (rc != 0)
-    {
-        if (errorOut) *errorOut =
-            pluginId.isEmpty()
-              ? tr("swmm_model_write_with_plugin (built-in) failed (code %1)").arg(rc)
-              : tr("swmm_model_write_with_plugin (\"%1\") failed (code %2)")
-                    .arg(pluginId).arg(rc);
-        return false;
-    }
+        return failSave(tr("write the model"), newPath,
+                        pluginId.isEmpty()
+                            ? tr("the built-in writer failed (code %1)").arg(rc)
+                            : tr("writer %1 failed (code %2)").arg(pluginId).arg(rc));
     // Restore the external .2dm from the pre-write snapshot (undo any engine
     // clobber with the OLD mesh), then re-point the just-written .inp at it,
     // stripping any stale inline [2D_*] the engine emitted. This is what keeps
     // a freshly generated external mesh alive across save -> reopen.
     if (!extMeshPath.isEmpty())
     {
-        if (!extMeshSnapshot.isEmpty())
+        QSaveFile mf(extMeshPath);
+        mf.setDirectWriteFallback(false);
+        if (!mf.open(QIODevice::WriteOnly))
+            return failSave(tr("restore the external mesh"), extMeshPath, mf.errorString());
+        const qint64 written = mf.write(extMeshSnapshot);
+        if (written != extMeshSnapshot.size())
         {
-            QFile mf(extMeshPath);
-            if (mf.open(QIODevice::WriteOnly | QIODevice::Truncate))
-            {
-                mf.write(extMeshSnapshot);
-                ++dmWrites;
-            }
+            const QString reason = tr("only %1 of %2 bytes could be written (%3)")
+                                       .arg(qMax(qint64(0), written))
+                                       .arg(extMeshSnapshot.size()).arg(mf.errorString());
+            mf.cancelWriting();
+            return failSave(tr("restore the external mesh"), extMeshPath, reason);
         }
+        if (!mf.commit())
+            return failSave(tr("restore the external mesh"), extMeshPath, mf.errorString());
+        ++dmWrites;
         restoreMs = stage.restart();
         // Same for the mesh *attribute* edits: the snapshot predates the
         // engine's write of the current vertex elevation / tag / coupling,
@@ -1577,8 +1590,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             QString attrErr;
             if (!mesh::InpMeshWriter::patchAttributeSections(
                     extMeshPath, extMeshLayer->mesh(), &attrErr))
-                qWarning().noquote()
-                    << "Post-save 2D mesh attribute re-emit failed:" << attrErr;
+                return failSave(tr("save mesh attributes"), extMeshPath, attrErr);
             ++dmReads;
             ++dmWrites;
         }
@@ -1595,16 +1607,14 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             if (!mesh::InpMeshWriter::patchBCSections(
                     extMeshPath, extMeshLayer->mesh(),
                     extMeshLayer->edgeBCs(), &bcErr))
-                qWarning().noquote()
-                    << "Post-save 2D BC re-emit failed:" << bcErr;
+                return failSave(tr("save mesh boundary conditions"), extMeshPath, bcErr);
             ++dmReads;
             ++dmWrites;
         }
         bcPatchMs = stage.restart();
         QString meshErr;
         if (!mesh::InpMeshWriter::writeMeshFileRef(newPath, extMeshPath, &meshErr))
-            qWarning().noquote()
-                << "Post-save 2D mesh retarget failed:" << meshErr;
+            return failSave(tr("save the mesh reference"), newPath, meshErr);
         meshRefMs = stage.restart();
     }
 
@@ -1620,21 +1630,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         if (mesh::InpMeshWriter::patchAttributeSections(newPath, ml->mesh(),
                                                         &attrErr))
             continue;
-        // The file holds a different mesh than the layer, so positional
-        // patching would corrupt it. Tell the user rather than losing the
-        // edits quietly.
-        const QString msg =
-            tr("2D mesh cell attributes (Manning's n / initial depth / tag / "
-               "infiltration) could not be saved to %1: %2. Re-open the model, "
-               "or regenerate the mesh, before editing cell attributes.")
-                .arg(QFileInfo(newPath).fileName(), attrErr);
-        qWarning().noquote() << msg;
-        if (auto *mw = window())
-            QMetaObject::invokeMethod(
-                mw, "onLogMessage", Qt::QueuedConnection,
-                Q_ARG(QString, msg),
-                Q_ARG(OpenSWMMVisLogMessage::LogMessageType,
-                      OpenSWMMVisLogMessage::LogMessageType::Warning));
+        return failSave(tr("save inline mesh attributes"), newPath, attrErr);
     }
     inlinePatchMs = stage.restart();
 

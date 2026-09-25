@@ -2,14 +2,14 @@
 
 Decision for W1/R3: adopt the approved plan's **stage generation, commit on Save** direction. This is an implementation decision within the user's phased authorization. Mesh generation must update the owning project's working state and preview without changing the last saved model. Close → Don't Save must preserve the last saved model and referenced mesh. An additional “Write mesh” command is not needed for the first implementation.
 
-This document specifies the target; current generation and multi-file Save are not yet safe under this contract.
+This document specifies the target; current generation and multi-file Save are not yet safe under this contract. Phase 08 now rejects missing/unreadable/empty external snapshots, propagates mesh restore/attribute/BC/reference failures and preserves dirty state and Save As identity. Individual mesh writes are checked; the engine may still have changed files before a later failure. Transactional rollback and generation staging remain unimplemented.
 
 ## Current write inventory
 
 | Operation / source | Files or state affected today | Required ownership / failure contract |
 |---|---|---|
 | Generate, `src/ui/dialogs/meshgenerationdialog.cpp`, worker `InpMeshWriter::write` | `.2dm`, saved `.inp` reference or inline sections, before result attachment | W1: job-owned staging only; snapshot project/mesh revision and intended final paths. Validate before attaching. Cancellation/stale results remove only owned staging. |
-| Built-in Save/Save As, `src/swmmvisprojectwindow.cpp::saveAs` | Engine state sync, `.inp`, external mesh, attribute/BC patches, `.oswp` | One checked project operation. Any failure leaves project/mesh dirty and preserves old identity. Clear dirty only after final publication. Phase 04 covers `.oswp` failure only. |
+| Built-in Save/Save As, `src/swmmvisprojectwindow.cpp::saveAs` | Engine state sync, `.inp`, external mesh, attribute/BC patches, `.oswp` | One checked project operation. Any failure leaves project/mesh dirty and preserves old identity. Clear dirty only after final publication. Phase 04 covers `.oswp` failure; Phase 08 adds mesh-stage failure propagation. Neither provides multi-file rollback. |
 | Engine writer, sibling `src/engine/core/InpWriter.cpp` | Opens final INP and referenced mesh for write; unchecked output/close paths | ENG-1: checked serialization, error propagation, explicitly redirected outputs. A temporary INP alone does not isolate the mesh. |
 | External-mesh snapshot/restore in `saveAs` | Engine may replace sidecar from stale topology; GUI restores and patches it | ENG-5: remove competing writers. GUI serializes its authoritative mesh once; engine serializes model sections and the final mesh reference without rewriting that sidecar. |
 | Mesh import, `src/swmmvisprojectwindow.cpp::importMeshFileAsync` / import helpers | Copy/replace destination and reference update | Bring model-attached import under staging/Save. Keep original source immutable; preserve attributes, BCs, coupling, infiltration and active-mesh identity. |
