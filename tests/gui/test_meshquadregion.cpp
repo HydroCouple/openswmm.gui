@@ -72,6 +72,41 @@ class TestMeshQuadRegion : public QObject
 
 private slots:
 
+    void polylineRectIntersection_data()
+    {
+        QTest::addColumn<QPolygonF>("path");
+        QTest::addColumn<bool>("intersects");
+        QTest::newRow("horizontal") << QPolygonF{{-5, 5}, {15, 5}} << true;
+        QTest::newRow("vertical") << QPolygonF{{5, -5}, {5, 15}} << true;
+        QTest::newRow("diagonal") << QPolygonF{{-5, -5}, {15, 15}} << true;
+        QTest::newRow("inside") << QPolygonF{{2, 5}, {8, 5}} << true;
+        QTest::newRow("boundary-overlap") << QPolygonF{{-5, 0}, {15, 0}} << true;
+        QTest::newRow("corner-touch") << QPolygonF{{-5, 5}, {5, -5}} << true;
+        QTest::newRow("endpoint-touch") << QPolygonF{{-5, -5}, {0, 0}} << true;
+        QTest::newRow("parallel-outside") << QPolygonF{{-5, -1}, {15, -1}} << false;
+        QTest::newRow("bbox-overlap-only") << QPolygonF{{-5, 1}, {1, -5}} << false;
+        QTest::newRow("later-segment") << QPolygonF{{-5, -5}, {-5, 5}, {5, 5}} << true;
+        QTest::newRow("duplicate-inside") << QPolygonF{{5, 5}, {5, 5}} << true;
+        QTest::newRow("duplicate-outside") << QPolygonF{{-5, -5}, {-5, -5}} << false;
+        QTest::newRow("empty") << QPolygonF{} << false;
+        QTest::newRow("single-point") << QPolygonF{{5, 5}} << false;
+    }
+
+    void polylineRectIntersection()
+    {
+        QFETCH(QPolygonF, path);
+        QFETCH(bool, intersects);
+        const QRectF box(0, 0, 10, 10);
+        QCOMPARE(polylineIntersectsRect(path, box), intersects);
+        std::reverse(path.begin(), path.end());
+        QCOMPARE(polylineIntersectsRect(path, box), intersects);
+        QCOMPARE(polylineIntersectsRect(path, QRectF(10, 10, -10, -10)), intersects);
+        const QPointF offset(500000, 4500000);
+        for (QPointF &p : path) p += offset;
+        QCOMPARE(polylineIntersectsRect(path, box.translated(offset)), intersects);
+        QVERIFY(!polylineIntersectsRect(path, QRectF()));
+    }
+
     /*! CW input becomes CCW; a closing duplicate and consecutive duplicates
      *  are dropped; a CCW ring is returned as-is. */
     void normalizeRingCCW_orientationAndDuplicates()

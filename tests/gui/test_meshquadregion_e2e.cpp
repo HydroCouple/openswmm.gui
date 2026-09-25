@@ -23,6 +23,7 @@
 #include <QPolygonF>
 #include <QSet>
 #include <QString>
+#include <QTransform>
 #include <QVector>
 
 #include <cmath>
@@ -171,6 +172,147 @@ class TestMeshQuadRegionE2E : public QObject
     std::ofstream m_report;
 
 private slots:
+
+    void constraintCrossing_forcesFree_data()
+    {
+        QTest::addColumn<QPointF>("a");
+        QTest::addColumn<QPointF>("b");
+        QTest::newRow("horizontal") << QPointF(70, 73) << QPointF(230, 73);
+        QTest::newRow("vertical") << QPointF(147, 20) << QPointF(147, 130);
+        QTest::newRow("thirty-degrees") << QPointF(80, 35) << QPointF(220, 115.8290376865);
+        QTest::newRow("horizontal-interior") << QPointF(120, 73) << QPointF(180, 73);
+        QTest::newRow("vertical-interior") << QPointF(147, 60) << QPointF(147, 90);
+    }
+
+    /*! W0b/M10: both outside endpoints and wholly interior paths must
+     *  prevent a mapped patch from swallowing a road/river constraint. */
+    void constraintCrossing_forcesFree()
+    {
+        QFETCH(QPointF, a);
+        QFETCH(QPointF, b);
+        MeshGenerator g;
+        g.setDomain(domain300x150());
+        g.setOptions(baseOptions());
+        g.addConstraintSegment({{a, b}, 731, QStringLiteral("corridor")});
+        QuadRegion qr;
+        qr.ring = rect(100, 50, 100, 50);
+        qr.spacing = 5.0;
+        g.addQuadRegion(qr);
+        const MeshResult r = g.generate();
+        QVERIFY2(r.ok, qPrintable(r.errorMsg));
+        appendReport(m_report, QString::fromLatin1(QTest::currentDataTag()), g, r);
+        QCOMPARE(g.quadRegionReports().size(), 1);
+        QCOMPARE(g.quadRegionReports().first().resolved, QuadRegionMode::Free);
+        QVERIFY(g.quadRegionReports().first().message.contains(QStringLiteral("constraint segment crosses")));
+        CHECK_CELL_INVARIANTS(r);
+
+        // The full constrained path survives as marked mesh edges, including
+        // any splits at the region boundary and at generated vertices.
+        QSet<QPair<int, int>> cellEdges;
+        for (const MeshTriangle &cell : r.triangles)
+            for (int k = 0; k < cell.vertexCount(); ++k)
+            {
+                const int v0 = cell.vertex(k), v1 = cell.vertex((k + 1) % cell.vertexCount());
+                cellEdges.insert(qMakePair(std::min(v0, v1), std::max(v0, v1)));
+            }
+        double length = 0.0;
+        const QPointF direction = b - a;
+        const double expectedLength = std::hypot(direction.x(), direction.y());
+        for (const MeshEdge &e : r.boundaryEdges)
+        {
+            if (e.marker != 731) continue;
+            QVERIFY(cellEdges.contains(qMakePair(std::min(e.v0, e.v1), std::max(e.v0, e.v1))));
+            const QPointF p = r.vertices[e.v0].xy, q = r.vertices[e.v1].xy;
+            for (const QPointF &v : {p, q})
+            {
+                const QPointF d = v - a;
+                const double distance = std::abs(direction.x() * d.y() - direction.y() * d.x()) / expectedLength;
+                QVERIFY2(distance < 1e-6, "cleanup moved a constrained vertex away from the corridor");
+            }
+            length += std::hypot(q.x() - p.x(), q.y() - p.y());
+        }
+        QVERIFY2(std::abs(length - expectedLength) < 1e-6,
+                 qPrintable(QStringLiteral("marked length %1, expected %2")
+                                .arg(length, 0, 'g', 16).arg(expectedLength, 0, 'g', 16)));
+    }
+
+    void constraintAlignment_matchesExplicitGuide_data()
+    {
+        QTest::addColumn<QPointF>("a");
+        QTest::addColumn<QPointF>("b");
+        QTest::newRow("horizontal") << QPointF(130, 75) << QPointF(170, 75);
+        QTest::newRow("vertical") << QPointF(150, 60) << QPointF(150, 90);
+    }
+
+    void exteriorConstraint_keepsMapped_data()
+    {
+        QTest::addColumn<QPointF>("a");
+        QTest::addColumn<QPointF>("b");
+        QTest::newRow("horizontal-disjoint") << QPointF(70, 40) << QPointF(230, 40);
+        QTest::newRow("vertical-disjoint") << QPointF(90, 20) << QPointF(90, 130);
+        QTest::newRow("endpoint-touch") << QPointF(70, 50) << QPointF(100, 50);
+        QTest::newRow("bbox-overlap-only") << QPointF(70, 60) << QPointF(110, 20);
+    }
+
+    void exteriorConstraint_keepsMapped()
+    {
+        QFETCH(QPointF, a);
+        QFETCH(QPointF, b);
+        MeshGenerator g;
+        g.setDomain(domain300x150());
+        g.setOptions(baseOptions());
+        g.addConstraintSegment({{a, b}, 731, QStringLiteral("exterior")});
+        QuadRegion qr;
+        qr.ring = rect(100, 50, 100, 50);
+        qr.spacing = 5.0;
+        g.addQuadRegion(qr);
+        const MeshResult r = g.generate();
+        QVERIFY2(r.ok, qPrintable(r.errorMsg));
+        QCOMPARE(g.quadRegionReports().size(), 1);
+        QCOMPARE(g.quadRegionReports().first().resolved, QuadRegionMode::Mapped);
+        QCOMPARE(g.quadRegionReports().first().quads, 200);
+        CHECK_CELL_INVARIANTS(r);
+    }
+
+    /*! W0b/M10: an interior axis-aligned constraint supplies the same
+     *  orientation as an explicit guide. The ring is rotated so its own
+     *  directions cannot hide a missing horizontal/vertical guide. */
+    void constraintAlignment_matchesExplicitGuide()
+    {
+        QFETCH(QPointF, a);
+        QFETCH(QPointF, b);
+        auto generate = [&](bool explicitGuide) {
+            MeshGenerator g;
+            g.setDomain(domain300x150());
+            g.setOptions(baseOptions());
+            g.addConstraintSegment({{a, b}, 731, QStringLiteral("corridor")});
+            QuadRegion qr;
+            QTransform t;
+            t.translate(150, 75);
+            t.rotate(20);
+            qr.ring = t.map(rect(-60, -40, 120, 80));
+            qr.mode = QuadRegionMode::Free;
+            qr.spacing = 5.0;
+            if (explicitGuide) qr.alignGuide = {a, b};
+            g.addQuadRegion(qr);
+            return g.generate();
+        };
+        const MeshResult automatic = generate(false), explicitGuide = generate(true);
+        QVERIFY2(automatic.ok, qPrintable(automatic.errorMsg));
+        QVERIFY2(explicitGuide.ok, qPrintable(explicitGuide.errorMsg));
+        CHECK_CELL_INVARIANTS(automatic);
+        CHECK_CELL_INVARIANTS(explicitGuide);
+        QCOMPARE(automatic.vertices.size(), explicitGuide.vertices.size());
+        QCOMPARE(automatic.triangles.size(), explicitGuide.triangles.size());
+        for (int i = 0; i < automatic.vertices.size(); ++i)
+        {
+            const QPointF d = automatic.vertices[i].xy - explicitGuide.vertices[i].xy;
+            QVERIFY(std::hypot(d.x(), d.y()) < 1e-7);
+        }
+        for (int i = 0; i < automatic.triangles.size(); ++i)
+            for (int k = 0; k < 4; ++k)
+                QCOMPARE(automatic.triangles[i].vertex(k), explicitGuide.triangles[i].vertex(k));
+    }
 
     void initTestCase()
     {

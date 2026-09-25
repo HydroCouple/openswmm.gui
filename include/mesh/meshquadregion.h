@@ -21,6 +21,7 @@
 
 #include <QPointF>
 #include <QPolygonF>
+#include <QRectF>
 #include <QString>
 #include <QVector>
 
@@ -62,6 +63,11 @@ struct QuadRegion
 
 /*! \brief Drop a closing duplicate, drop consecutive duplicates, make CCW. */
 QPolygonF normalizeRingCCW(const QPolygonF &ring);
+
+/*! \brief True when any segment of a finite-coordinate polyline intersects
+ *  the closed rectangle, including boundary contact and axis-aligned paths.
+ *  Fewer than two points or an empty rectangle returns false. */
+bool polylineIntersectsRect(const QVector<QPointF> &path, const QRectF &rect);
 
 /*! \brief Signed shoelace area (CCW positive). */
 double ringSignedArea(const QPolygonF &ring);
