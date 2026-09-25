@@ -61,6 +61,7 @@
 #include <QColor>
 #include <QDir>
 #include <QFile>
+#include <QSaveFile>
 #include <QFileInfo>
 #include <QHash>
 #include <QJsonArray>
@@ -1143,12 +1144,22 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
             root[kGisLayers] = gisArr;
     }
 
-    QFile f(oswpPath);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QSaveFile f(oswpPath);
+    f.setDirectWriteFallback(false);
+    if (!f.open(QIODevice::WriteOnly)) {
         setErr(QObject::tr("Cannot write %1: %2").arg(oswpPath, f.errorString()));
         return false;
     }
-    f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    const QByteArray data = QJsonDocument(root).toJson(QJsonDocument::Indented);
+    if (f.write(data) != data.size()) {
+        setErr(QObject::tr("Cannot write %1: %2").arg(oswpPath, f.errorString()));
+        f.cancelWriting();
+        return false;
+    }
+    if (!f.commit()) {
+        setErr(QObject::tr("Cannot replace %1: %2").arg(oswpPath, f.errorString()));
+        return false;
+    }
     return true;
 }
 

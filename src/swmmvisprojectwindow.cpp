@@ -1333,8 +1333,8 @@ bool SWMMVisProjectWindow::save(QString *errorOut)
     if (!mModelLayer || mModelLayer->modelFilePath().isEmpty() || mUntitled)
     {
         // Untitled projects don't have a real path yet — fall through to
-        // Save As. The error string is informational; the caller (SWMMVis::
-        // onSaveProject) reads it and routes to the dialog.
+        // Save As. The main window routes pathless/untitled projects to
+        // that dialog before calling save().
         if (errorOut) *errorOut = tr("No file path set; use Save As.");
         return false;
     }
@@ -1638,6 +1638,52 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     }
     inlinePatchMs = stage.restart();
 
+    // Slice RB.1+2 — sidecar auto-create. Every successful built-in .inp
+    // write also produces a sibling .oswp project file. Plugin-driven
+    // writes (non-empty pluginId, e.g. GeoPackage export) are deliberately
+    // skipped — those are standalone exports per Slice AA-3.5 contract.
+    // RB.2: log a one-line "Creating sibling project file:" sentinel the
+    // first time the sidecar appears on disk so the user sees the
+    // auto-create. Subsequent saves of an existing .oswp are silent.
+    if (pluginId.isEmpty())
+    {
+        const QString oswpPath = ProjectSerializer::sidecarPathFor(newPath);
+        if (!oswpPath.isEmpty())
+        {
+            const bool sidecarPreExisted = QFile::exists(oswpPath);
+            QString sidecarErr;
+            bool sidecarSaved = false;
+            {
+                // Serialize paths relative to the proposed Save As location,
+                // but publish the new identity only after the sidecar commits.
+                const QSignalBlocker blocker(mModelLayer);
+                const QString originalPath = mModelLayer->modelFilePath();
+                const auto restorePath = qScopeGuard([&] {
+                    mModelLayer->setModelFilePath(originalPath);
+                });
+                mModelLayer->setModelFilePath(newPath);
+                sidecarSaved = ProjectSerializer::saveToFile(oswpPath, this, &sidecarErr);
+            }
+            if (!sidecarSaved)
+            {
+                const QString msg = tr("Project settings could not be saved to %1: %2. "
+                                       "The model file may already have been updated. "
+                                       "The project remains unsaved; correct the problem and retry Save.")
+                                        .arg(oswpPath, sidecarErr);
+                if (errorOut) *errorOut = msg;
+                qWarning().noquote() << msg;
+                setHasChanges(true);
+                return false;
+            }
+            else if (!sidecarPreExisted)
+            {
+                qInfo().noquote()
+                    << QStringLiteral("Creating sibling project file: %1").arg(oswpPath);
+            }
+        }
+    }
+    oswpMs = stage.restart();
+
     // If saved to a new path, point the layer at it so subsequent Save targets the new file.
     if (newPath != mModelLayer->modelFilePath())
         mModelLayer->setModelFilePath(newPath);
@@ -1656,34 +1702,6 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // leave the layers dirty so the next attempt re-pushes them.
     for (SWMM2DMeshLayer *ml : meshLayersPushed)
         ml->setMeshEditsSaved();
-
-    // Slice RB.1+2 — sidecar auto-create. Every successful built-in .inp
-    // write also produces a sibling .oswp project file. Plugin-driven
-    // writes (non-empty pluginId, e.g. GeoPackage export) are deliberately
-    // skipped — those are standalone exports per Slice AA-3.5 contract.
-    // RB.2: log a one-line "Creating sibling project file:" sentinel the
-    // first time the sidecar appears on disk so the user sees the
-    // auto-create. Subsequent saves of an existing .oswp are silent.
-    if (pluginId.isEmpty())
-    {
-        const QString oswpPath = ProjectSerializer::sidecarPathFor(newPath);
-        if (!oswpPath.isEmpty())
-        {
-            const bool sidecarPreExisted = QFile::exists(oswpPath);
-            QString sidecarErr;
-            if (!ProjectSerializer::saveToFile(oswpPath, this, &sidecarErr))
-            {
-                qWarning() << "ProjectSerializer::saveToFile failed:" << sidecarErr;
-                // Non-fatal — the .inp already saved, project is recoverable.
-            }
-            else if (!sidecarPreExisted)
-            {
-                qInfo().noquote()
-                    << QStringLiteral("Creating sibling project file: %1").arg(oswpPath);
-            }
-        }
-    }
-    oswpMs = stage.restart();
 
     qCInfo(lcSavePerf).nospace()
         << "[save][stages] meshPushed=" << meshLayersPushed.size()
