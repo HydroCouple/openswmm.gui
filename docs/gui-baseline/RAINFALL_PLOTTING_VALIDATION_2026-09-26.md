@@ -95,3 +95,49 @@ Logs, fixture data, benchmark JSON, screenshots and the runtime probe are retain
 4. **Measure larger rendering workloads.** Cached creation of 150 × 1,000-point series took about 0.39 s, substantially less than extraction but still noticeable. If longer histories make rendering dominant, use peak-preserving display reduction while keeping full values for statistics/export.
 
 Background loading/cancellation, persistent dataset handles and display reduction are **not implemented by this follow-up**. The new work supplies the dependency/package fixes, repeatable measurements, and the evidence to prioritize that implementation.
+
+## Update: background extraction (item 2), 2026-09-26
+
+Implemented; uncommitted at the time of writing.
+
+- **Coordinated HDF5 access.** `Mesh2DH5Reader` is the only HDF5 user in the GUI process. GDAL is built without HDF5, and the engine links its own private static copy. Every reader entry point that calls the library now holds one process-wide recursive lock for that call (one frame). Cached getters take it only on a miss. This gives the non-thread-safe build the serialization a thread-safe build would provide, without changing the HDF5 port.
+- **Worker-owned reader.** `Mesh2DExtractionJob` opens its own `HDF5Mesh2DSource` and carries copies of the bed-elevation and cell-size geometry. No handle, layer or adapter state is shared with the GUI thread. The frame loop is the same code as the direct batch path (`extractCellFrames_`), and a test asserts identical values.
+- **Dialog.** A comparison plot over a saved-results mesh run queues uncached cell series (`setDeferFileReads`); they show "Loading…" until the job's results are accepted. A strip under the toolbar shows progress and a Cancel button; after a cancel the series show "Loading cancelled" and the button becomes Retry. A job whose source was replaced meanwhile is rejected and re-queued against the new source. Closing the dialog cancels and joins, waiting at most one frame read. Export Data reads directly, since it needs every value. Live runs, tails and vertex/edge series are unchanged.
+- **Tests** (`test_plot_batch_counts`, real `.h5` fixture in `test_artifacts/`): worker results equal the direct read; a cancel is honoured before the first frame and waits for Retry; a stale job is rejected; the dialog adds without reading on the GUI thread and loads on the worker; Cancel → Retry → close-while-loading. 30 repeated runs passed, as did 17 related plot, 2D-results and reader suites.
+
+Same 10,000 × 1,000 file (regenerated with `tests/tools/generate_plot_benchmark.py`), Release, load average about 6. The GUI stall columns are the longest gap between 10 ms timer ticks. The benchmark waits without resolving series while the worker runs, like the application.
+
+| Cells × variables | Dialog add, before (GUI blocked) | Dialog add, now (GUI blocked) | Loaded (worker) | Worst stall while loading | Worst stall overall |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 × 1 | 488 ms | 3.7 ms | 522 ms | 17 ms | 17 ms |
+| 1 × 3 | 2,826 ms | 1.7 ms | 2,354 ms | 31 ms | 31 ms |
+| 10 × 1 | 483 ms | 1.4 ms | 414 ms | 17 ms | 19 ms |
+| 10 × 3 | 2,885 ms | 3.5 ms | 2,352 ms | 22 ms | 39 ms |
+| 50 × 1 | 587 ms | 4.6 ms | 515 ms | 12 ms | 38 ms |
+| 50 × 3 | 3,930 ms | 12.2 ms | 2,406 ms | 16 ms | 117 ms |
+
+The one stall over 100 ms is the GUI-thread chart and statistics rebuild of 150 × 1,000-point series after the results arrive (item 4 below), not extraction. An earlier variant of the benchmark resolved series while the worker ran; each resolve's HDF5 `timeCount()` then waited behind the worker, producing 68–187 ms stalls. A map animation reading frames during a load can wait in the same way, for at most one worker HDF5 call. The longest such call is the one-time edge-geometry read for velocity. Logs: `build/rainfall-validation/benchmark-10000-async*.log`.
+
+Remaining, in order: inspect the affected run (item 1, needs the model); retain dataset handles inside a reader (item 3); reduce the post-load rebuild for large selections (item 4).
+
+## Update: rainfall on dry cells, 2026-09-26
+
+Reproduced on Bellinge (`BellingeSWMM_v021_nopervious_test.inp`, saved `.2d.h5`, 185,779 cells, 15-minute records, two 1-minute VOLUME gages). Uncommitted.
+
+**Dry cells receive rain.** Every cell has positive cumulative rain at the end of the run. The engine lands rain on inactive cells through the lazy source tier and books the per-cell cumulative volume for every cell. A four-cell engine test that never activates confirms this: stored water, booked volume and the held gage depth agree to 1e-9, and the booked volumes sum to the mass-balance rainfall inflow.
+
+**Zeros in plots are sampling.** "Rainfall (2D cell)" is the instantaneous rate at each report time. In 3 of the 112 Bellinge intervals, 557,267 cell-intervals, 55,637 of them on dry cells, show 0 although rain fell. Summing the snapshots gives a median of 195 mm; 298.6 mm was delivered. Two derived plot variables now show this rain:
+
+- **Rainfall, interval mean (mm/hr)**: the change in cumulative volume divided by cell area and interval. No value at the first record. An unreadable record widens the interval rather than reading zero.
+- **Cumulative rainfall (mm)**: cumulative volume divided by cell area.
+
+Cell area uses the engine's formula and matches `Mesh2_face_area` exactly on Bellinge. The summed interval means reproduce each cell's cumulative depth to 2e-13 mm (`build/rainfall-validation/dry_cell_rain_check.py`).
+
+**Engine fix: the 2D rain field lagged the gages.** It was refreshed only after at least 30 s, so 1-minute gage records were shifted and partly lost for all cells, wet or dry (−12.3 % on a 1-minute on/off test storm at a 7 s step). It now also refreshes whenever a gage value changes. Bellinge re-run to 06/29 11:00, compared with the 1D subcatchment totals on the same gages:
+
+| Gage site | 1D | 2D before | 2D after |
+| --- | ---: | ---: | ---: |
+| rg5425 | 194.00 mm | 193.82 mm | 194.96 mm |
+| rg5427 | 236.01 mm | 227.84 mm | 235.97 mm |
+
+Tests: engine rainfall suite 18/18 (new dry-cell test fails without the fix), output suite 15/15 (new between-reports pulse test), 2D subset 34/34; GUI `test_plot_batch_counts` 12/12 and 28 related suites. `test_2d_output_options_page` fails in the simulation-options dialog, which none of these changes touch. The app's bundled engine predates the fix and must be reinstalled.

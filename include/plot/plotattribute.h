@@ -95,6 +95,10 @@ enum class PlotAttribute {
     // ----- 2D mesh-cell rainfall (engine Mesh2_face_rainfall / _rain_cum) --
     Mesh2DRainfall    = 38, ///< mm/hr / in/hr — rainfall intensity applied to the cell
     Mesh2DRainVolume  = 39, ///< m³ / ft³ — cumulative rainfall volume applied to the cell
+    // Derived from Mesh2_face_rain_cum ÷ cell area, so rain that fell between
+    // report instants (invisible to the instantaneous Mesh2DRainfall) shows.
+    Mesh2DRainfallAvg = 40, ///< mm/hr / in/hr — mean intensity over the preceding report interval
+    Mesh2DRainDepth   = 41, ///< mm / in — cumulative rainfall depth applied to the cell
 };
 
 /*! \brief Short human label, e.g. "Depth", "Flow", "Velocity |V|". */
@@ -130,7 +134,7 @@ const QVector<PlotAttribute> &subcatchPlotAttributes();
  *  long-standing system picker menu: Rainfall first, Temperature last). */
 const QVector<PlotAttribute> &systemPlotAttributes();
 
-/*! \brief The 7 per-2D-cell attributes, presentation order. */
+/*! \brief The 9 per-2D-cell attributes, presentation order. */
 const QVector<PlotAttribute> &mesh2DCellPlotAttributes();
 
 /*! \brief The 2 per-2D-edge attributes (flow, unit-width flux). */
@@ -148,7 +152,9 @@ inline bool isMesh2DAttribute(PlotAttribute a) noexcept
            a == PlotAttribute::Mesh2DVelocityX  ||
            a == PlotAttribute::Mesh2DVelocityY  ||
            a == PlotAttribute::Mesh2DRainfall   ||
-           a == PlotAttribute::Mesh2DRainVolume;
+           a == PlotAttribute::Mesh2DRainVolume ||
+           a == PlotAttribute::Mesh2DRainfallAvg||
+           a == PlotAttribute::Mesh2DRainDepth;
 }
 
 /*! \brief True iff the attribute is a system-wide quantity (Slice AT.2).
