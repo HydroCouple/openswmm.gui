@@ -25,6 +25,10 @@
 #include "ui/dialogs/comparisonplotdialog.h"
 
 #include <QDateTime>
+#include <QElapsedTimer>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QObject>
 #include <QTest>
 #include <QTimeZone>
@@ -118,6 +122,7 @@ void compareSeries(const SeriesData& a, const SeriesData& b)
     QCOMPARE(a.ok, b.ok);
     QCOMPARE(a.periodCount, b.periodCount);
     QCOMPARE(a.timesJulian.size(), b.timesJulian.size());
+    QCOMPARE(a.values.size(), b.values.size());
     for (std::size_t i = 0; i < a.values.size(); ++i) {
         QCOMPARE(a.timesJulian[i], b.timesJulian[i]);
         QCOMPARE(a.values[i], b.values[i]);
@@ -134,6 +139,7 @@ private slots:
     void dialogLiveTailResolvesEachSeriesOnce();
     void meshBatchReadsEachFrameOnce();
     void meshBatchMatchesPerSeriesPath();
+    void savedResultsBenchmark();
 };
 
 void TestPlotBatchCounts::dialogBatchAddResolvesEachSeriesOnce()
@@ -248,6 +254,92 @@ void TestPlotBatchCounts::meshBatchMatchesPerSeriesPath()
         QVERIFY(batch[velocity].errorMessage.contains(QStringLiteral("Edge geometry")));
         // A tail request returns only frames >= firstPeriod.
         QCOMPARE(int(batch[0].values.size()), CountingMeshSource::kFrames - firstPeriod);
+    }
+}
+
+// Opt-in wall-time benchmark of the real saved-results adapter and dialog.
+// Example: SWMMVIS_PLOT_BENCHMARK_FILE=/absolute/results.2d.h5
+//          QT_QPA_PLATFORM=offscreen test_plot_batch_counts savedResultsBenchmark
+// "Uncached" means a fresh adapter, not a flushed operating-system disk cache.
+// No timing assertions: hardware and file compression determine the baseline.
+void TestPlotBatchCounts::savedResultsBenchmark()
+{
+    const QString path = qEnvironmentVariable("SWMMVIS_PLOT_BENCHMARK_FILE");
+    if (path.isEmpty()) QSKIP("Set SWMMVIS_PLOT_BENCHMARK_FILE to benchmark saved results");
+    SWMM2DResultsLayer layer;
+    auto source = std::make_unique<HDF5Mesh2DSource>();
+    QVERIFY2(source->open(path), qPrintable(path));
+    const int faces = source->triangleCount();
+    const int periods = source->timeCount();
+    QVERIFY(faces > 0 && periods > 0);
+    layer.setSource(std::move(source));
+
+    const bool compareScalar = qEnvironmentVariableIntValue("SWMMVIS_PLOT_BENCHMARK_SCALAR") != 0;
+    for (int count : {1, 10, 50}) {
+        if (count > faces) continue;
+        for (int variables : {1, 3}) {
+            QVector<PlotAttribute> attrs{PlotAttribute::Mesh2DDepth};
+            if (variables == 3)
+                attrs << PlotAttribute::Mesh2DRainfall << PlotAttribute::Mesh2DVelocityMag;
+            QVector<int> cells;
+            QVector<SeriesRequest> requests;
+            for (int c = 0; c < count; ++c) {
+                const int cell = c * (faces / count);
+                cells.append(cell);
+                for (const auto attr : attrs)
+                    requests.append({ObjectRef::forMesh2DCell(cell), ResultDescriptor::forAttribute(attr), 0});
+            }
+            auto run = std::make_shared<Mesh2DRunLayer>(&layer);
+            QVector<SeriesData> batch, cached;
+            QElapsedTimer timer;
+            timer.start();
+            run->getSeriesBatch(requests, batch);
+            const double uncachedMs = timer.nsecsElapsed() / 1e6;
+            QCOMPARE(batch.size(), requests.size());
+            for (const auto& result : batch) {
+                QVERIFY2(result.ok, qPrintable(result.errorMessage));
+                QCOMPARE(int(result.values.size()), periods);
+            }
+            timer.restart();
+            run->getSeriesBatch(requests, cached);
+            const double cachedMs = timer.nsecsElapsed() / 1e6;
+            QCOMPARE(cached.size(), batch.size());
+            for (int i = 0; i < batch.size(); ++i) compareSeries(batch[i], cached[i]);
+
+            QJsonObject record{{"file", QFileInfo(path).fileName()}, {"faces", faces},
+                {"periods", periods}, {"selected_cells", count}, {"variables", variables},
+                {"uncached_batch_ms", uncachedMs}, {"cached_batch_ms", cachedMs}};
+            if (compareScalar) {
+                // Current single-series path with an initially empty cache.
+                // This measures repeated extraction, not the historical
+                // repeated-dialog-rebuild path (which was more expensive).
+                Mesh2DRunLayer singleRun(&layer);
+                QVector<SeriesData> scalar(requests.size());
+                timer.restart();
+                for (int i = 0; i < requests.size(); ++i)
+                    singleRun.getSeriesAt(requests[i].ref, requests[i].descriptor.attr, scalar[i]);
+                record.insert("separate_series_ms", timer.nsecsElapsed() / 1e6);
+                for (int i = 0; i < batch.size(); ++i) compareSeries(batch[i], scalar[i]);
+            }
+
+            ComparisonPlotDialog dialog;
+            RunSource rs;
+            rs.layer = std::make_shared<Mesh2DRunLayer>(&layer);
+            rs.label = QStringLiteral("Benchmark");
+            const int runIndex = dialog.model()->addRunSource(std::move(rs));
+            timer.restart();
+            QCOMPARE(dialog.addCellSeries(runIndex, cells, attrs), requests.size());
+            record.insert("dialog_add_ms", timer.nsecsElapsed() / 1e6);
+            ComparisonPlotDialog cachedDialog;
+            RunSource cachedSource;
+            cachedSource.layer = run; // reuse the already-verified cache
+            cachedSource.label = QStringLiteral("Benchmark cached");
+            const int cachedRun = cachedDialog.model()->addRunSource(std::move(cachedSource));
+            timer.restart();
+            QCOMPARE(cachedDialog.addCellSeries(cachedRun, cells, attrs), requests.size());
+            record.insert("cached_dialog_add_ms", timer.nsecsElapsed() / 1e6);
+            qInfo().noquote() << "PLOT_BENCHMARK" << QJsonDocument(record).toJson(QJsonDocument::Compact);
+        }
     }
 }
 

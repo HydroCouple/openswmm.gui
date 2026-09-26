@@ -2580,14 +2580,14 @@ endif()
 # clean build directory died immediately with STATUS_DLL_NOT_FOUND
 # (0xC0000135) until the DLL was copied in by hand.
 #
-# Placed after the platform chain rather than inside it: the library was
-# neither copied nor installed on ANY platform. Windows surfaced it first
-# because its loader has no rpath to fall back on.
+# macdeployqt already deploys this linked library on macOS, before signing.
+# Copying it again here modifies nested code AFTER codesign and invalidates
+# both the build bundle and (for the install rule) the installed bundle.
 #
 # Guarded on the target being a SHARED library — QPropertyModel can be built
 # static, and then there is no runtime artifact to place and $<TARGET_FILE:…>
 # would name an import/archive file instead.
-if(TARGET QPropertyModel)
+if(TARGET QPropertyModel AND NOT APPLE)
     get_target_property(_qpm_type QPropertyModel TYPE)
     if(_qpm_type STREQUAL "SHARED_LIBRARY")
         add_custom_command(TARGET SWMMVis POST_BUILD
@@ -2597,17 +2597,9 @@ if(TARGET QPropertyModel)
             COMMENT "Copy QPropertyModel alongside SWMMVis"
             VERBATIM
         )
-        if(APPLE)
-            # Into the bundle's Frameworks dir, where the app's @rpath points —
-            # matching how the other non-Qt runtime libraries are placed.
-            install(FILES "$<TARGET_FILE:QPropertyModel>"
-                DESTINATION "$<TARGET_BUNDLE_CONTENT_DIR:SWMMVis>/Frameworks"
-                COMPONENT Runtime)
-        else()
-            install(FILES "$<TARGET_FILE:QPropertyModel>"
-                DESTINATION ${CMAKE_INSTALL_BINDIR}
-                COMPONENT Runtime)
-        endif()
+        install(FILES "$<TARGET_FILE:QPropertyModel>"
+            DESTINATION ${CMAKE_INSTALL_BINDIR}
+            COMPONENT Runtime)
     endif()
 endif()
 
