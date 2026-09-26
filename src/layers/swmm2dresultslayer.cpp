@@ -1369,6 +1369,8 @@ HDF5Mesh2DSource::~HDF5Mesh2DSource() = default;
 
 bool HDF5Mesh2DSource::open(const QString& path)
 {
+    ++open_generation_;
+    cached_times_.clear();
     path_ = path;
     return reader_->open(path);
 }
@@ -1469,12 +1471,15 @@ QDateTime HDF5Mesh2DSource::simTimeAt(int timeIdx) const
     // frame 0. Convert as an absolute SWMM DateTime via the canonical
     // engine-native converter so the 2D axis shares the 1D results clock's
     // basis (SWMMResultsLayer uses the same openswmmvis::core converter).
-    // Re-read each call so live-tail growth is reflected; O(1) once HDF5 has
-    // parsed the file metadata.
-    std::vector<double> times;
-    if (!reader_->readTimes(times)) return {};
-    if (timeIdx < 0 || timeIdx >= static_cast<int>(times.size())) return {};
-    return openswmmvis::core::swmmDateTimeToQDateTime(times[timeIdx]);
+    // Reading all T timestamps for each of T plot samples was O(T²).
+    // Refill only when the file grows (or open() invalidates the cache).
+    const int count = reader_->timeCount();
+    if (timeIdx < 0 || timeIdx >= count) return {};
+    if (static_cast<int>(cached_times_.size()) != count) {
+        if (!reader_->readTimes(cached_times_)) { cached_times_.clear(); return {}; }
+    }
+    if (timeIdx >= static_cast<int>(cached_times_.size())) return {};
+    return openswmmvis::core::swmmDateTimeToQDateTime(cached_times_[timeIdx]);
 }
 
 // ===========================================================================
@@ -1662,6 +1667,7 @@ bool SWMM2DResultsLayer::hasEdgeFluxData() const
 
 void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
 {
+    ++source_revision_;
     source_ = std::move(source);
     current_time_idx_ = -1;
     last_range_hi_    = -1;

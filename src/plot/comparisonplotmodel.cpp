@@ -116,6 +116,46 @@ int ComparisonPlotModel::addSeries(SeriesSpec spec)
     return idx;
 }
 
+int ComparisonPlotModel::addSeriesBatch(QVector<SeriesSpec> specs)
+{
+    if (specs.isEmpty()) return 0;
+    for (auto& spec : specs) {
+        if (spec.style.color == SeriesStyle{}.color && spec.runIndex >= 0 &&
+            spec.runIndex < m_runs.size())
+            spec.style = defaultStyleForCycle(m_runs[spec.runIndex].cycleSeed++);
+        m_specs.push_back(std::move(spec));
+    }
+    deriveRows_();
+    emit seriesBatchAdded();
+    emit rowsChanged();
+    return specs.size();
+}
+
+QVector<SeriesData> ComparisonPlotModel::resolveAllSeries(const QVector<int>& firstPeriods) const
+{
+    QVector<SeriesData> out(m_specs.size());
+    QVector<QVector<SeriesRequest>> requests(m_runs.size());
+    QVector<QVector<int>> indices(m_runs.size());
+    for (int i = 0; i < m_specs.size(); ++i) {
+        const auto& s = m_specs[i];
+        if (!s.isValid() || s.runIndex >= m_runs.size() || !m_runs[s.runIndex].layer) {
+            out[i].firstPeriod = firstPeriods.value(i, 0);
+            resolveSeries(i, out[i]);
+            continue;
+        }
+        requests[s.runIndex].append({s.objectRef, s.descriptor(), firstPeriods.value(i, 0)});
+        indices[s.runIndex].append(i);
+    }
+    for (int r = 0; r < m_runs.size(); ++r) {
+        if (requests[r].isEmpty()) continue;
+        QVector<SeriesData> data;
+        m_runs[r].layer->getSeriesBatch(requests[r], data);
+        for (int k = 0; k < indices[r].size(); ++k)
+            if (k < data.size()) out[indices[r][k]] = std::move(data[k]);
+    }
+    return out;
+}
+
 void ComparisonPlotModel::removeSeries(int seriesIndex)
 {
     if (seriesIndex < 0 || seriesIndex >= m_specs.size())

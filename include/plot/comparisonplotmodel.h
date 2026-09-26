@@ -147,6 +147,9 @@ public:
     /*! \brief Append a series spec. Auto-assigns a default style cycle if
      *  `spec.style` is the default-constructed style. Returns the series index. */
     int addSeries(SeriesSpec spec);
+    /*! Append a selection with one row derivation and one view notification. */
+    int addSeriesBatch(QVector<SeriesSpec> specs);
+    QVector<SeriesData> resolveAllSeries(const QVector<int>& firstPeriods = {}) const;
 
     /*! \brief Remove a series. */
     void removeSeries(int seriesIndex);
@@ -212,6 +215,7 @@ signals:
     void runSourceRemoved(int runIndex);
     void baselineChanged(int runIndex);
     void seriesAdded(int seriesIndex);
+    void seriesBatchAdded();
     void seriesRemoved(int seriesIndex);
     void styleChanged(int seriesIndex);
     void rowsChanged();

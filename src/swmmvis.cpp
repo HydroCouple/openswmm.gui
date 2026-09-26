@@ -3066,8 +3066,10 @@ void SWMMVis::openComparisonPlotForDescriptorOnLayer(
         // can plot for the kind: the fixed set plus its species (Y2b-2).
         const openswmmvis::plot::SwmmOutRunLayer probe(resultsLayer);
         const auto all = probe.resultDescriptorsForKind(kind);
+        QVector<QPair<openswmmvis::plot::ObjectRef, openswmmvis::plot::ResultDescriptor>> items;
         for (const auto &d : all)
-            dlg->addSeries(runIdx, objRef, d);
+            items.append({objRef, d});
+        dlg->addSeriesBatch(runIdx, items);
     } else {
         dlg->addSeries(runIdx, objRef, descriptor);
     }
@@ -3263,9 +3265,12 @@ void SWMMVis::openMeshVertexSeriesFor(SWMM2DMeshLayer *mesh,
     }
 
     using openswmmvis::plot::ObjectRef;
+    using openswmmvis::plot::ResultDescriptor;
+    QVector<QPair<ObjectRef, ResultDescriptor>> items;
     for (int v : vertexIdxList)
         for (const auto attr : attrs)
-            dlg->addSeries(runIdx, ObjectRef::forMesh2DVertex(v), attr);
+            items.append({ObjectRef::forMesh2DVertex(v), ResultDescriptor::forAttribute(attr)});
+    dlg->addSeriesBatch(runIdx, items);
     dlg->show();
     dlg->raise();
     dlg->activateWindow();
@@ -3496,8 +3501,10 @@ void SWMMVis::openComparisonPlotOverlayForProfile(
         // can plot for the kind: the fixed set plus its species (Y2b-2).
         const openswmmvis::plot::SwmmOutRunLayer probe(resultsLayer);
         const auto all = probe.resultDescriptorsForKind(kind);
+        QVector<QPair<openswmmvis::plot::ObjectRef, openswmmvis::plot::ResultDescriptor>> items;
         for (const auto &d : all)
-            dlg->addSeries(runIdx, objRef, d);
+            items.append({objRef, d});
+        dlg->addSeriesBatch(runIdx, items);
     } else {
         dlg->addSeries(runIdx, objRef, descriptor);
     }
@@ -9480,8 +9487,10 @@ void SWMMVis::onPlotTimeSeries()
 
     auto *cmp = ensureComparisonPlotDialog();
     const int runIdx = cmp->ensureRunSourceForLayer(resultsLayer);
+    QVector<QPair<openswmmvis::plot::ObjectRef, openswmmvis::plot::ResultDescriptor>> items;
     for (const auto &e : entries)
-        cmp->addSeries(runIdx, e.ref, e.descriptor());
+        items.append({e.ref, e.descriptor()});
+    cmp->addSeriesBatch(runIdx, items);
 
     cmp->show();
     cmp->raise();
