@@ -1127,6 +1127,7 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
     m_twoDRainfallModeCombo = new QComboBox(rainGroup);
     m_twoDRainfallModeCombo->addItem(tr("Natural neighbour"),
                                      QStringLiteral("NATURAL_NEIGHBOUR"));
+    m_twoDRainfallModeCombo->addItem(tr("Nearest neighbour"), QStringLiteral("NEAREST_NEIGHBOUR"));
     m_twoDRainfallModeCombo->addItem(tr("System mean"), QStringLiteral("SYSTEM"));
     m_twoDRainfallModeCombo->addItem(tr("None"), QStringLiteral("NONE"));
     rainForm->addRow(tr("Direct 2D rainfall (RAINFALL_MODE)"), m_twoDRainfallModeCombo);

@@ -118,6 +118,21 @@ void deliverTick(SWMM2DResultsLayer &layer, EngineMesh2DSource &src, const Grid 
 
 } // namespace
 
+class CountingMeshSource : public EngineMesh2DSource
+{
+public:
+    using EngineMesh2DSource::EngineMesh2DSource;
+    int depthReads = 0, rainReads = 0, volumeReads = 0;
+    bool readDepthsAt(int t, std::vector<float>& out) override
+    { ++depthReads; return EngineMesh2DSource::readDepthsAt(t, out); }
+    bool readFaceFieldAt(const char* name, int t, std::vector<float>& out) override
+    {
+        if (QString::fromLatin1(name) == QStringLiteral("Mesh2_face_rainfall")) ++rainReads;
+        if (QString::fromLatin1(name) == QStringLiteral("Mesh2_face_rain_cum")) ++volumeReads;
+        return EngineMesh2DSource::readFaceFieldAt(name, t, out);
+    }
+};
+
 class TestLive2DCoalesce : public QObject
 {
     Q_OBJECT
@@ -281,6 +296,68 @@ private slots:
         float one = -1.0f;
         QVERIFY(src->readDepthAt(n - 1, 0, one));
         QCOMPARE(one, frameDepths(g, 199)[0]);
+    }
+
+    void batchReadsEachFieldOnceAndPreservesUnitsAndTails()
+    {
+        const Grid g = makeGrid(20, 10);
+        SWMM2DResultsLayer layer;
+        auto owned = std::make_unique<CountingMeshSource>(g.vx, g.vy, g.vz, g.cells);
+        auto* src = owned.get();
+        layer.setSource(std::move(owned));
+        for (int t = 0; t < 100; ++t) {
+            src->pushDepths(frameDepths(g, t), tickTime(t), t);
+            src->pushRainfall(std::vector<float>(g.nCells, 1e-6f),
+                              std::vector<float>(g.nCells, float(t)), tickTime(t), t);
+        }
+        Mesh2DRunLayer run(&layer);
+        QVector<SeriesRequest> requests;
+        for (int c = 0; c < 50; ++c)
+            for (auto a : {PlotAttribute::Mesh2DDepth, PlotAttribute::Mesh2DRainfall,
+                           PlotAttribute::Mesh2DRainVolume})
+                requests.append({ObjectRef::forMesh2DCell(c), ResultDescriptor::forAttribute(a), 0});
+        src->depthReads = src->rainReads = src->volumeReads = 0;
+        QVector<SeriesData> batch;
+        run.getSeriesBatch(requests, batch);
+        QCOMPARE(batch.size(), 150);
+        QCOMPARE(src->depthReads, 100);
+        QCOMPARE(src->rainReads, 100);
+        QCOMPARE(src->volumeReads, 100);
+        for (int c = 0; c < 50; ++c) {
+            QVERIFY(batch[c*3].ok);
+            QCOMPARE(batch[c*3].values.size(), size_t(100));
+            QCOMPARE(batch[c*3].values[37], double(frameDepths(g,37)[c]));
+            QVERIFY(std::abs(batch[c*3+1].values[37] - 3.6) < 1e-6); // m/s -> mm/hr
+            QCOMPARE(batch[c*3+2].values[37], 37.0);                // m³ stays m³
+        }
+        for (auto& r : requests) r.firstPeriod = 90;
+        src->depthReads = src->rainReads = src->volumeReads = 0;
+        run.getSeriesBatch(requests, batch);
+        QCOMPARE(src->depthReads, 10);
+        QCOMPARE(src->rainReads, 10);
+        QCOMPARE(src->volumeReads, 10);
+        QCOMPARE(batch[0].values.size(), size_t(10));
+        QCOMPARE(batch[0].periodCount, 100);
+        QCOMPARE(batch[0].values[0], double(frameDepths(g,90)[0]));
+    }
+
+    void runLayerRefreshesBedWhenSourceIsReplaced()
+    {
+        Grid g = makeGrid(1,1);
+        SWMM2DResultsLayer layer;
+        auto a = makeSource(g);
+        a->pushDepths({1,1},tickTime(0),0);
+        layer.setSource(std::move(a));
+        Mesh2DRunLayer run(&layer);
+        SeriesData before, after;
+        run.getSeriesAt(ObjectRef::forMesh2DCell(0),PlotAttribute::Mesh2DHGL,before);
+        for (double& z : g.vz) z += 20;
+        auto b = makeSource(g);
+        b->pushDepths({1,1},tickTime(0),0);
+        layer.setSource(std::move(b));
+        run.getSeriesAt(ObjectRef::forMesh2DCell(0),PlotAttribute::Mesh2DHGL,after);
+        QVERIFY(before.ok && after.ok);
+        QVERIFY(std::abs(after.values[0] - before.values[0] - 20) < 1e-5);
     }
 
     void runLayerResolvesOnlyTheRequestedTail()

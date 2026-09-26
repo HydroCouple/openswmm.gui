@@ -11,6 +11,7 @@
 #include "mesh/meshcellgeom.h"
 
 #include <QDateTime>
+#include <QFileInfo>
 
 #include <algorithm>
 #include <array>
@@ -216,7 +217,191 @@ bool Mesh2DRunLayer::reconstructVelocityAtCell_(int triIdx, int nv,
     return true;
 }
 
-void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
+void Mesh2DRunLayer::validateSourceCache_() const
+{
+    const quint64 revision = m_layer ? m_layer->sourceRevision() : ~quint64(0);
+    QString fileRevision;
+    if (m_layer) {
+        if (auto* h5 = dynamic_cast<HDF5Mesh2DSource*>(m_layer->source())) {
+            const QFileInfo fi(h5->path());
+            fileRevision = fi.absoluteFilePath() + QStringLiteral("|%1|%2|%3")
+                .arg(fi.size()).arg(fi.lastModified().toMSecsSinceEpoch()).arg(h5->timeCount())
+                + QStringLiteral("|%1|%2").arg(h5->historyGeneration())
+                    .arg(m_layer->dryDepth(), 0, 'g', 17);
+        }
+    }
+    if (revision != m_sourceRevision || fileRevision != m_fileRevision) {
+        m_seriesCache.clear();
+        m_cacheBytes = 0;
+        m_zBedReady = m_vertexAdjReady = false;
+        m_sourceRevision = revision;
+        m_fileRevision = fileRevision;
+    }
+}
+
+void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref, PlotAttribute attr, SeriesData& out) const
+{
+    validateSourceCache_();
+    // Preserve the live source's O(1) scalar-depth path for tail consumers.
+    if (m_fileRevision.isEmpty()) {
+        getSeriesAtUncached(ref, attr, out);
+        return;
+    }
+    QVector<SeriesData> result;
+    getSeriesBatch({{ref, ResultDescriptor::forAttribute(attr), out.firstPeriod}}, result);
+    out = std::move(result[0]);
+}
+
+void Mesh2DRunLayer::getSeriesBatch(const QVector<SeriesRequest>& requests,
+                                   QVector<SeriesData>& out) const
+{
+    validateSourceCache_();
+    out.clear();
+    out.resize(requests.size());
+    auto* src = m_layer ? m_layer->source() : nullptr;
+    const int nT = src ? src->timeCount() : 0;
+    QVector<int> pending;
+    QVector<int> from(requests.size(), 0);
+    bool needDepth = false, needFlux = false, needRain = false, needRainVolume = false;
+    bool needBed = false;
+    int first = nT;
+    for (int k = 0; k < requests.size(); ++k) {
+        const auto& r = requests[k];
+        auto& data = out[k];
+        data.firstPeriod = r.firstPeriod;
+        const auto attr = r.descriptor.attr;
+        const bool velocity = attr == PlotAttribute::Mesh2DVelocityX ||
+                              attr == PlotAttribute::Mesh2DVelocityY ||
+                              attr == PlotAttribute::Mesh2DVelocityMag;
+        if (r.descriptor.isSpecies()) {
+            data.errorMessage = QStringLiteral("2D mesh source carries no species results");
+            continue;
+        }
+        // Keep the established vertex/edge interpolation and error handling.
+        if (!src || nT <= 0 || r.ref.kind != ObjectRef::Kind::Mesh2DCell ||
+            r.ref.triIdx < 0 || r.ref.triIdx >= src->triangleCount() ||
+            !(attr == PlotAttribute::Mesh2DDepth || attr == PlotAttribute::Mesh2DHGL ||
+              attr == PlotAttribute::Mesh2DRainfall || attr == PlotAttribute::Mesh2DRainVolume || velocity)) {
+            getSeriesAtUncached(r.ref, attr, data);
+            continue;
+        }
+        const auto key = std::make_pair(r.ref.triIdx, int(attr));
+        auto cached = m_seriesCache.find(key);
+        if (r.firstPeriod == 0 && cached != m_seriesCache.end()) {
+            data = cached->second;
+            continue;
+        }
+        data.periodCount = nT;
+        from[k] = std::clamp(r.firstPeriod, 0, nT);
+        if (from[k] == nT) { data.ok = true; continue; }
+        first = std::min(first, from[k]);
+        pending.append(k);
+        needDepth |= velocity || attr == PlotAttribute::Mesh2DDepth || attr == PlotAttribute::Mesh2DHGL;
+        needBed |= attr == PlotAttribute::Mesh2DHGL;
+        needFlux |= velocity;
+        needRain |= attr == PlotAttribute::Mesh2DRainfall;
+        needRainVolume |= attr == PlotAttribute::Mesh2DRainVolume;
+        data.timesJulian.reserve(nT - from[k]);
+        data.values.reserve(nT - from[k]);
+    }
+    if (pending.isEmpty()) return;
+    if (needBed) ensureZBedCache_();
+    std::vector<float> lengths, nx, ny;
+    const bool haveGeometry = !needFlux || src->readEdgeGeometry(lengths, nx, ny);
+    if (needFlux) ensureVertexAdjCache_();
+    if (!haveGeometry) {
+        // Same refusal as the per-series path: velocity needs edge geometry.
+        QVector<int> kept;
+        for (int k : pending) {
+            const auto attr = requests[k].descriptor.attr;
+            if (attr == PlotAttribute::Mesh2DVelocityX || attr == PlotAttribute::Mesh2DVelocityY ||
+                attr == PlotAttribute::Mesh2DVelocityMag)
+                out[k].errorMessage = QStringLiteral("Edge geometry not available for velocity");
+            else
+                kept.append(k);
+        }
+        pending.swap(kept);
+        if (pending.isEmpty()) return;
+    }
+    const double dry = m_layer->dryDepth();
+    std::vector<float> depths, flux, rain, rainVolume;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    for (int t = first; t < nT; ++t) {
+        const QDateTime time = src->simTimeAt(t);
+        if (!time.isValid()) continue;
+        const double julian = core::qDateTimeToSwmmDateTime(time);
+        // Existing result files use whole-frame chunks. Read each one once,
+        // then gather all selected cells without repeatedly decompressing it.
+        const bool depthOk = needDepth && src->readDepthsAt(t, depths);
+        const bool fluxOk = needFlux && haveGeometry && src->readEdgeFluxAt(t, flux);
+        const bool rainOk = needRain && src->readFaceFieldAt("Mesh2_face_rainfall", t, rain);
+        const bool volumeOk = needRainVolume && src->readFaceFieldAt("Mesh2_face_rain_cum", t, rainVolume);
+        std::map<int, std::pair<double, double>> velocities;
+        for (int k : pending) {
+            if (t < from[k]) continue;
+            const auto& r = requests[k];
+            const int c = r.ref.triIdx;
+            const auto attr = r.descriptor.attr;
+            // As in the per-series path, a frame that cannot be read is
+            // skipped (no sample), so a missing dataset still reports "No
+            // valid samples"; a readable dry-cell velocity is a NaN gap.
+            double value = nan;
+            if (attr == PlotAttribute::Mesh2DRainfall) {
+                if (!rainOk || c >= int(rain.size())) continue;
+                value = double(rain[c]) * 3600000.0;   // m/s → mm/hr
+            } else if (attr == PlotAttribute::Mesh2DRainVolume) {
+                if (!volumeOk || c >= int(rainVolume.size())) continue;
+                value = rainVolume[c];
+            } else {
+                if (!depthOk || c >= int(depths.size())) continue;
+                if (attr == PlotAttribute::Mesh2DDepth) value = depths[c];
+                else if (attr == PlotAttribute::Mesh2DHGL) {
+                    const double z = (m_zBedReady && c < int(m_zBed.size())) ? double(m_zBed[c]) : 0.0;
+                    value = double(depths[c]) + z;
+                } else {
+                    if (!fluxOk) continue;
+                    auto v = velocities.find(c);
+                    if (v == velocities.end()) {
+                        double vx = nan, vy = nan;
+                        const int nv = c < int(m_cellNv.size()) ? m_cellNv[c] : 3;
+                        reconstructVelocityAtCell_(c, nv, flux, lengths, nx, ny, depths[c], dry, vx, vy);
+                        v = velocities.emplace(c, std::make_pair(vx, vy)).first;
+                    }
+                    value = attr == PlotAttribute::Mesh2DVelocityX ? v->second.first
+                          : attr == PlotAttribute::Mesh2DVelocityY ? v->second.second
+                          : std::sqrt(v->second.first * v->second.first +
+                                      v->second.second * v->second.second);
+                }
+            }
+            out[k].timesJulian.push_back(julian);
+            out[k].values.push_back(value); // failed/missing samples stay missing, never zero
+        }
+    }
+    for (int k : pending) {
+        auto& data = out[k];
+        data.ok = !data.timesJulian.empty();
+        if (!data.ok) data.errorMessage = QStringLiteral("No valid samples for cell %1").arg(requests[k].ref.triIdx);
+    }
+    // Only immutable file sources are cached. Live frames can be updated in
+    // place or thinned, so their per-request tail cursors remain authoritative.
+    if (m_fileRevision.isEmpty()) return;
+    constexpr std::size_t budget = 64 * 1024 * 1024;
+    std::size_t addedBytes = 0;
+    for (int k : pending)
+        if (requests[k].firstPeriod == 0 && out[k].ok)
+            addedBytes += (out[k].timesJulian.size() + out[k].values.size()) * sizeof(double);
+    if (addedBytes > budget) return;
+    if (m_cacheBytes + addedBytes > budget) { m_seriesCache.clear(); m_cacheBytes = 0; }
+    for (int k : pending) {
+        if (requests[k].firstPeriod != 0 || !out[k].ok) continue;
+        const auto key = std::make_pair(requests[k].ref.triIdx, int(requests[k].descriptor.attr));
+        if (m_seriesCache.find(key) != m_seriesCache.end()) continue;
+        m_seriesCache.emplace(key, out[k]);
+        m_cacheBytes += (out[k].timesJulian.size() + out[k].values.size()) * sizeof(double);
+    }
+}
+
+void Mesh2DRunLayer::getSeriesAtUncached(const ObjectRef& ref,
                                   PlotAttribute attr,
                                   SeriesData& out) const
 {

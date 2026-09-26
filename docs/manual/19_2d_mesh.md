@@ -578,6 +578,7 @@ Rain reaches the 2D surface according to `[2D_OPTIONS] RAINFALL_MODE`, set on
 | Mode | What it does |
 | --- | --- |
 | **Natural neighbour (all gages)** | Spatially interpolates every located rain gage onto each cell, falling back to inverse-distance outside the gage hull |
+| **Nearest neighbour (closest gage)** | Uses the closest located gage, including outside the gage hull; equal-distance ties use the first gage in model order |
 | **System (uniform gage mean)** | Applies one uniform value — the mean of all gages |
 | **None (no direct rainfall)** | No direct rainfall on the mesh; the surface only receives water through coupling and boundaries |
 
@@ -590,6 +591,18 @@ and velocity, and plots the chosen series for the selected cells. Right-click
 also works on selected edges and vertices with their own attribute lists.
 Rainfall series require a run whose 2D output carries the per-cell rainfall
 datasets — attributes the open results do not carry are greyed in the menu.
+
+Rainfall plots use **mm/hr**, even for US models (1 in/hr = 25.4 mm/hr).
+Rain Volume is **m³ per cell**, not rainfall depth. Divide by cell area in m²
+to obtain depth in metres. A cell can have positive rain and zero water depth
+because of infiltration or drainage.
+
+The run warnings report gages without locations, invalid coordinates and
+colocated duplicates (the first gage is retained), plus inverse-distance
+fallback cells. If no gage has a usable location, spatial modes use the
+uniform system mean. Valid zero-rain readings remain zero; nearest neighbour
+does not switch to a more distant wet gage. The engine currently treats a
+coordinate of exactly (0,0) as unlocated.
 
 ### 2D groundwater (preview)
 

@@ -507,6 +507,7 @@ public:
     int  vertexCount()   const override;
     int  triangleCount() const override;
     int  timeCount()     const override;
+    int historyGeneration() const override { return open_generation_; }
     bool readMeshGeometry(std::vector<double>& vx,
                           std::vector<double>& vy,
                           std::vector<double>& vz,
@@ -534,6 +535,8 @@ public:
     void setSimulationStart(QDateTime t) { sim_start_ = t; }
 
 private:
+    int open_generation_ = 0;
+    mutable std::vector<double> cached_times_;
     QString                                            path_;
     std::unique_ptr<openswmmvis::io::Mesh2DH5Reader>   reader_;
     QDateTime                                          sim_start_;
@@ -572,6 +575,7 @@ public:
      */
     void setSource(std::unique_ptr<IMesh2DSource> source);
 
+    quint64 sourceRevision() const noexcept { return source_revision_; }
     IMesh2DSource* source() noexcept { return source_.get(); }
     const IMesh2DSource* source() const noexcept { return source_.get(); }
 
@@ -1115,6 +1119,7 @@ private:
     bool                           live_sync_pending_ = false;
     bool                           live_range_dirty_  = false;
     bool                           live_frame_dirty_  = false;
+    quint64                        source_revision_ = 0;
     int                            last_range_hi_     = -1;   ///< last timeRangeChanged hi emitted
     void scheduleLiveSync_();
     void liveSync_();

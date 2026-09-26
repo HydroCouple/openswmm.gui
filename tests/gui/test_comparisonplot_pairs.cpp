@@ -44,6 +44,7 @@ class TestComparisonPlotPairs : public QObject
 {
     Q_OBJECT
 private slots:
+    void batchAdditionEmitsOnce();
     void addPairValidates();
     void addPairEmitsAndStores();
     void removePairRemoves();
@@ -75,6 +76,32 @@ TestComparisonPlotPairs::makeModel(const QVector<QPair<int, PlotAttribute>>& ser
         model->addSeries(std::move(spec));
     }
     return model;
+}
+
+void TestComparisonPlotPairs::batchAdditionEmitsOnce()
+{
+    auto model = makeModel({});
+    QSignalSpy single(model.get(), &ComparisonPlotModel::seriesAdded);
+    QSignalSpy batch(model.get(), &ComparisonPlotModel::seriesBatchAdded);
+    QSignalSpy rows(model.get(), &ComparisonPlotModel::rowsChanged);
+    QVector<SeriesSpec> specs;
+    for (int i = 0; i < 50; ++i) {
+        SeriesSpec s;
+        s.runIndex = 0;
+        s.objectRef = ObjectRef::forMesh2DCell(i);
+        s.attribute = PlotAttribute::Mesh2DDepth;
+        specs.append(s);
+    }
+    QCOMPARE(model->addSeriesBatch(specs), 50);
+    QCOMPARE(model->seriesCount(), 50);
+    QCOMPARE(single.count(), 0);
+    QCOMPARE(batch.count(), 1);
+    QCOMPARE(rows.count(), 1);
+    QCOMPARE(model->rows().size(), 1);
+    QCOMPARE(model->rows()[0].seriesIndices.size(), 50);
+    QCOMPARE(model->spec(49).objectRef.triIdx, 49);
+    QCOMPARE(model->addSeriesBatch({}), 0);
+    QCOMPARE(batch.count(), 1);
 }
 
 void TestComparisonPlotPairs::addPairValidates()
