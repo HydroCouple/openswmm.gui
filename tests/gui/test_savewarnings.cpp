@@ -949,6 +949,68 @@ private slots:
         w->deleteLater();
     }
 
+    void engineShortWrite_preservesModelAndPendingState()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("Short-write injection uses POSIX per-process file-size limits");
+#else
+        if (!qEnvironmentVariableIsSet("SWMMVIS_ENGINE_SHORT_WRITE_CHILD")) {
+            QProcess child;
+            auto env = QProcessEnvironment::systemEnvironment();
+            env.insert(QStringLiteral("SWMMVIS_ENGINE_SHORT_WRITE_CHILD"), QStringLiteral("1"));
+            child.setProcessEnvironment(env);
+            child.setProcessChannelMode(QProcess::MergedChannels);
+            child.start(QCoreApplication::applicationFilePath(),
+                        {QStringLiteral("engineShortWrite_preservesModelAndPendingState")});
+            QVERIFY(child.waitForFinished(20000));
+            const QByteArray report = child.readAll();
+            QFile log(outDir() + QStringLiteral("/engine_short_write_child.log"));
+            QVERIFY(log.open(QIODevice::WriteOnly)); log.write(report);
+            QVERIFY2(child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0,
+                     report.constData());
+            return;
+        }
+        for (bool saveAs : {false, true}) {
+            const QString dir = outDir() + QStringLiteral("/engine_short_write_%1").arg(saveAs);
+            QVERIFY(QDir().mkpath(dir));
+            const QString source = dir + QStringLiteral("/source.inp");
+            const QString target = saveAs ? dir + QStringLiteral("/target.inp") : source;
+            QVERIFY(writeDeck(source, false));
+            QFile input(source); QVERIFY(input.open(QIODevice::Append));
+            input.write("\n[TITLE]\n");
+            for (int i = 0; i < 800; ++i) input.write(QByteArray(120, 'x') + "\n");
+            input.close();
+            if (saveAs) { QFile::remove(target); QVERIFY(QFile::copy(source, target)); }
+            QFile output(target); QVERIFY(output.open(QIODevice::ReadOnly));
+            const auto original = output.readAll(); output.close();
+            QString err;
+            auto *w = openWindow(source, &err); QVERIFY2(w, qPrintable(err));
+            w->setHasChanges(true);
+            struct rlimit oldLimit;
+            QVERIFY(getrlimit(RLIMIT_FSIZE, &oldLimit) == 0);
+            auto limited = oldLimit; limited.rlim_cur = 32768;
+            const auto oldHandler = std::signal(SIGXFSZ, SIG_IGN);
+            QVERIFY(setrlimit(RLIMIT_FSIZE, &limited) == 0);
+            const bool saved = w->saveAs(target, &err);
+            const int restored = setrlimit(RLIMIT_FSIZE, &oldLimit);
+            std::signal(SIGXFSZ, oldHandler);
+            QVERIFY(restored == 0);
+            QVERIFY2(!saved, "Engine short write must not report Save success");
+            QVERIFY2(err.contains(QStringLiteral("write the model")), qPrintable(err));
+            QVERIFY2(err.contains(QStringLiteral("Cannot ")), qPrintable(err));  // engine reason
+            QVERIFY(w->hasChanges());
+            QCOMPARE(w->modelLayer()->modelFilePath(), source);
+            QVERIFY(output.open(QIODevice::ReadOnly));
+            QCOMPARE(output.readAll(), original); output.close();
+            QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+            QVERIFY(!w->hasChanges());
+            QCOMPARE(w->modelLayer()->modelFilePath(), target);
+            auto *reopened = openWindow(target, &err); QVERIFY2(reopened, qPrintable(err));
+            reopened->deleteLater(); w->deleteLater();
+        }
+#endif
+    }
+
     void externalMesh_shortWriteFailsSave()
     {
 #ifndef Q_OS_UNIX

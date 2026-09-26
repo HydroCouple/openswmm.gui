@@ -1690,11 +1690,21 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             mLastSaveWarnings.append(QString::fromUtf8(
                 swmm_get_warning_at(mModelLayer->engine(), i)).trimmed());
     }
-    if (rc != 0)
-        return failSave(tr("write the model"), newPath,
-                        pluginId.isEmpty()
-                            ? tr("the built-in writer failed (code %1)").arg(rc)
-                            : tr("writer %1 failed (code %2)").arg(pluginId).arg(rc));
+    if (rc != 0) {
+        // The engine forwards its writer diagnostics (the failing file and
+        // OS reason) to the warning list on failure too; surface them.
+        QStringList engineReasons;
+        const int engineWarnsAfter = swmm_get_warning_count(mModelLayer->engine());
+        for (int i = engineWarnsBefore; i < engineWarnsAfter; ++i)
+            engineReasons.append(QString::fromUtf8(
+                swmm_get_warning_at(mModelLayer->engine(), i)).trimmed());
+        QString reason = pluginId.isEmpty()
+            ? tr("the built-in writer failed (code %1)").arg(rc)
+            : tr("writer %1 failed (code %2)").arg(pluginId).arg(rc);
+        if (!engineReasons.isEmpty())
+            reason += QStringLiteral(": ") + engineReasons.join(QStringLiteral("; "));
+        return failSave(tr("write the model"), newPath, reason);
+    }
     // Publish attributes and boundaries as one complete mesh payload.
     // The engine's inline output is not the external mesh source: it can
     // still hold stale topology. This is not a multi-file transaction.
