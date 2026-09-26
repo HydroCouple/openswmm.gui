@@ -50,11 +50,13 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPixmap>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QScatterSeries>
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSplitter>
+#include <QTimer>
 #include <QToolBar>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -62,6 +64,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -106,7 +109,25 @@ ComparisonPlotDialog::ComparisonPlotDialog(QWidget *parent)
             this, [this]() { rebuildCharts(); });
 }
 
-ComparisonPlotDialog::~ComparisonPlotDialog() = default;
+// State shared with the worker thread. The worker writes `results` and `ok`
+// and then publishes `done`; the GUI thread reads them only after `done`.
+struct ComparisonPlotDialog::ResultLoad {
+    std::weak_ptr<IRunLayer> layer;   ///< expired when the run source is removed
+    Mesh2DExtractionJob      job;
+    QVector<SeriesData>      results;
+    bool                     ok = false;
+    std::atomic<bool>        cancel{false};
+    std::atomic<bool>        done{false};
+    std::atomic<int>         frames{0};
+};
+
+ComparisonPlotDialog::~ComparisonPlotDialog()
+{
+    // The job checks `cancel` before each frame, so this waits for at most
+    // one frame read. Nothing in the job refers to this dialog.
+    if (m_load) m_load->cancel.store(true);
+    if (m_loadThread.joinable()) m_loadThread.join();
+}
 
 void ComparisonPlotDialog::buildUi()
 {
@@ -116,6 +137,27 @@ void ComparisonPlotDialog::buildUi()
     // ----- Top toolbar (Slice AT.2) ----------------------------------------
     buildToolBar();
     root->addWidget(m_toolBar);
+
+    // ----- Saved 2D results loading strip (hidden unless a worker runs) ---
+    m_loadStrip = new QWidget(this);
+    m_loadStrip->setObjectName(QStringLiteral("loadStrip"));
+    auto *loadRow = new QHBoxLayout(m_loadStrip);
+    loadRow->setContentsMargins(8, 2, 8, 2);
+    m_loadLabel = new QLabel(m_loadStrip);
+    m_loadProgress = new QProgressBar(m_loadStrip);
+    m_loadProgress->setTextVisible(false);
+    m_loadProgress->setMaximumHeight(12);
+    m_loadButton = new QPushButton(m_loadStrip);
+    m_loadButton->setObjectName(QStringLiteral("loadButton"));
+    loadRow->addWidget(m_loadLabel);
+    loadRow->addWidget(m_loadProgress, 1);
+    loadRow->addWidget(m_loadButton);
+    m_loadStrip->hide();
+    root->addWidget(m_loadStrip);
+    connect(m_loadButton, &QPushButton::clicked, this, &ComparisonPlotDialog::onLoadButtonClicked_);
+    m_loadTimer = new QTimer(this);
+    m_loadTimer->setInterval(100);
+    connect(m_loadTimer, &QTimer::timeout, this, &ComparisonPlotDialog::pollResultLoading_);
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
     m_splitter->setObjectName(QStringLiteral("main"));
@@ -537,6 +579,8 @@ void ComparisonPlotDialog::exportSeriesData(const QVector<int>& seriesIndices)
 {
     // Resolve each requested series up front so an empty plot fails fast
     // instead of after the file dialog.
+    // An export needs every value now, so it reads saved files directly.
+    setMeshFileDeferral_(false);
     QVector<plot::ExportSeries> exportable;
     for (int sIdx : seriesIndices) {
         if (sIdx < 0 || sIdx >= m_model->seriesCount()) continue;
@@ -547,6 +591,7 @@ void ComparisonPlotDialog::exportSeriesData(const QVector<int>& seriesIndices)
                                std::move(data.timesJulian),
                                std::move(data.values) });
     }
+    setMeshFileDeferral_(true);
     if (exportable.isEmpty()) {
         QMessageBox::information(this, tr("Export Data"),
                                  tr("There is no series data to export."));
@@ -877,7 +922,13 @@ int ComparisonPlotDialog::addSeriesBatch(int runIndex,
 // Model signal handlers
 // ---------------------------------------------------------------------------
 
-void ComparisonPlotDialog::onRunSourceAdded(int /*runIndex*/) { rebuildSeriesTree(); }
+void ComparisonPlotDialog::onRunSourceAdded(int runIndex)
+{
+    // A saved-results mesh run reads its files on a worker thread.
+    if (auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(runIndex).layer))
+        mesh->setDeferFileReads(true);
+    rebuildSeriesTree();
+}
 void ComparisonPlotDialog::onRunSourceRemoved(int /*runIndex*/) { rebuildSeriesTree(); rebuildCharts(); }
 void ComparisonPlotDialog::onSeriesAdded(int /*seriesIndex*/)   { rebuildSeriesTree(); rebuildCharts(); }
 void ComparisonPlotDialog::onSeriesRemoved(int /*seriesIndex*/) { rebuildSeriesTree(); rebuildCharts(); }
@@ -1893,6 +1944,117 @@ void ComparisonPlotDialog::rebuildCharts()
     }
 
     applyAnimationCursorToCharts();
+    // Series a saved-results adapter queued during this rebuild load next.
+    scheduleResultLoading_();
+}
+
+void ComparisonPlotDialog::setMeshFileDeferral_(bool on)
+{
+    for (int r = 0; r < m_model->runSourceCount(); ++r)
+        if (auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(r).layer))
+            mesh->setDeferFileReads(on);
+}
+
+void ComparisonPlotDialog::scheduleResultLoading_()
+{
+    // Coalesce: the charts and the statistics panel both queue series during
+    // one addition; start once after both have run.
+    if (m_loadScheduled) return;
+    m_loadScheduled = true;
+    QTimer::singleShot(0, this, [this]() {
+        m_loadScheduled = false;
+        startResultLoading_();
+    });
+}
+
+void ComparisonPlotDialog::startResultLoading_()
+{
+    if (m_load) return;   // one job at a time; its completion starts the next
+    for (int r = 0; r < m_model->runSourceCount(); ++r) {
+        auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(r).layer);
+        if (!mesh) continue;
+        Mesh2DExtractionJob job = mesh->takeExtractionJob();
+        if (job.isEmpty()) continue;
+        auto state = std::make_shared<ResultLoad>();
+        state->layer = mesh;
+        state->job = std::move(job);
+        m_load = state;
+        // The lambda holds only the shared state: never the dialog or adapter.
+        m_loadThread = std::thread([state]() {
+            state->ok = state->job.run(state->results, state->cancel, state->frames);
+            state->done.store(true, std::memory_order_release);
+        });
+        m_loadTimer->start();
+        updateLoadStrip_();
+        return;
+    }
+    updateLoadStrip_();
+}
+
+void ComparisonPlotDialog::pollResultLoading_()
+{
+    if (!m_load) { m_loadTimer->stop(); return; }
+    m_loadProgress->setValue(m_load->frames.load(std::memory_order_relaxed));
+    if (!m_load->done.load(std::memory_order_acquire)) return;
+
+    m_loadThread.join();
+    m_loadTimer->stop();
+    const std::shared_ptr<ResultLoad> state = std::move(m_load);
+    m_load.reset();
+    auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(state->layer.lock());
+    if (mesh) {
+        // A stale job (source replaced meanwhile) is rejected; the rebuild
+        // below queues those series again against the new source. A cancel
+        // or an unreadable file leaves them "Loading cancelled" until Retry.
+        // A pressed Cancel wins even if the last frame finished meanwhile.
+        if (state->ok && !state->cancel.load()) mesh->acceptExtraction(state->job, state->results);
+        else                                    mesh->cancelExtraction(state->job);
+    }
+    rebuildCharts();
+    if (m_statsPanel) m_statsPanel->refresh();
+    updateLoadStrip_();
+}
+
+void ComparisonPlotDialog::onLoadButtonClicked_()
+{
+    if (m_load) {
+        m_load->cancel.store(true);
+        m_loadButton->setEnabled(false);   // honoured within one frame read
+        return;
+    }
+    for (int r = 0; r < m_model->runSourceCount(); ++r)
+        if (auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(r).layer))
+            mesh->retryCancelled();
+    rebuildCharts();
+    if (m_statsPanel) m_statsPanel->refresh();
+}
+
+void ComparisonPlotDialog::updateLoadStrip_()
+{
+    if (m_load) {
+        m_loadLabel->setText(tr("Loading %n saved 2D series…", nullptr,
+                                int(m_load->job.requests.size())));
+        m_loadProgress->setRange(0, std::max(1, m_load->job.frames));
+        m_loadProgress->setValue(m_load->frames.load(std::memory_order_relaxed));
+        m_loadProgress->show();
+        m_loadButton->setText(tr("Cancel"));
+        m_loadButton->setEnabled(true);
+        m_loadStrip->show();
+        return;
+    }
+    bool cancelled = false;
+    for (int r = 0; r < m_model->runSourceCount() && !cancelled; ++r)
+        if (auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(r).layer))
+            cancelled = mesh->hasCancelled();
+    if (cancelled) {
+        m_loadLabel->setText(tr("Loading saved 2D results was cancelled."));
+        m_loadProgress->hide();
+        m_loadButton->setText(tr("Retry"));
+        m_loadButton->setEnabled(true);
+        m_loadStrip->show();
+    } else {
+        m_loadStrip->hide();
+    }
 }
 
 void ComparisonPlotDialog::updateChartForRow(int rowIndex)

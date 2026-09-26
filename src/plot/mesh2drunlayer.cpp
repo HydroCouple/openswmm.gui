@@ -17,6 +17,8 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <map>
+#include <utility>
 #include <vector>
 
 namespace openswmmvis::plot {
@@ -83,12 +85,14 @@ bool Mesh2DRunLayer::supportsAttribute(PlotAttribute attr) const
     if (attr == PlotAttribute::Mesh2DEdgeFlux || attr == PlotAttribute::Mesh2DEdgeFlow)
         return m_layer && m_layer->source() && m_layer->hasEdgeFluxData();
     if (!isMesh2DAttribute(attr)) return false;
-    // Rainfall series come straight from the per-face HDF5 datasets; the live
-    // in-process source doesn't stream them, and older files lack rain_cum.
+    // Rainfall series come from the per-face rainfall datasets (saved files,
+    // or the live run's streamed copies); older files lack rain_cum, which the
+    // depth and interval-mean series are derived from.
     if (attr == PlotAttribute::Mesh2DRainfall)
         return m_layer && m_layer->source()
             && m_layer->source()->hasFaceField("Mesh2_face_rainfall");
-    if (attr == PlotAttribute::Mesh2DRainVolume)
+    if (attr == PlotAttribute::Mesh2DRainVolume || attr == PlotAttribute::Mesh2DRainDepth ||
+        attr == PlotAttribute::Mesh2DRainfallAvg)
         return m_layer && m_layer->source()
             && m_layer->source()->hasFaceField("Mesh2_face_rain_cum");
     // Depth/HGL are also valid for a vertex ref (interpolated); the kind is
@@ -123,13 +127,27 @@ void Mesh2DRunLayer::ensureZBedCache_() const
     if (!src->readCells(vx, vy, vz, cells)) return;
 
     m_zBed.assign(cells.size(), 0.0f);
+    m_cellArea.assign(cells.size(), 0.0);
     for (std::size_t i = 0; i < cells.size(); ++i) {
         const auto &c = cells[i];
         const int nv = (c[3] >= 0) ? 4 : 3;
         double sum = 0.0;
-        for (int k = 0; k < nv; ++k)
+        bool valid = true;
+        for (int k = 0; k < nv; ++k) {
             sum += (c[k] >= 0 && c[k] < static_cast<int>(vz.size())) ? vz[c[k]] : 0.0;
+            valid = valid && c[k] >= 0 && c[k] < static_cast<int>(vx.size());
+        }
         m_zBed[i] = static_cast<float>(sum / nv);
+        // Planimetric m² exactly as the engine's MeshBuilder: |sub-triangle|
+        // areas of the fan from v0, relative to v0 (no cancellation at large
+        // projected coordinates). Sources deliver SI metres.
+        double area = 0.0;
+        for (int k = 1; valid && k + 1 < nv; ++k) {
+            const double dx1 = vx[c[k]] - vx[c[0]], dy1 = vy[c[k]] - vy[c[0]];
+            const double dx2 = vx[c[k + 1]] - vx[c[0]], dy2 = vy[c[k + 1]] - vy[c[0]];
+            area += std::abs(0.5 * (dx1 * dy2 - dx2 * dy1));
+        }
+        m_cellArea[i] = area;
     }
     m_zBedReady = true;
 }
@@ -170,7 +188,7 @@ bool Mesh2DRunLayer::reconstructVelocityAtCell_(int triIdx, int nv,
                                                 double depth,
                                                 double dryDepth,
                                                 double& vx_out,
-                                                double& vy_out) const
+                                                double& vy_out)
 {
     vx_out = std::nan("");
     vy_out = std::nan("");
@@ -233,6 +251,9 @@ void Mesh2DRunLayer::validateSourceCache_() const
     if (revision != m_sourceRevision || fileRevision != m_fileRevision) {
         m_seriesCache.clear();
         m_cacheBytes = 0;
+        m_deferred.clear();
+        m_inFlight.clear();    // a job prepared for the old source is now stale
+        m_cancelled.clear();
         m_zBedReady = m_vertexAdjReady = false;
         m_sourceRevision = revision;
         m_fileRevision = fileRevision;
@@ -261,10 +282,7 @@ void Mesh2DRunLayer::getSeriesBatch(const QVector<SeriesRequest>& requests,
     auto* src = m_layer ? m_layer->source() : nullptr;
     const int nT = src ? src->timeCount() : 0;
     QVector<int> pending;
-    QVector<int> from(requests.size(), 0);
-    bool needDepth = false, needFlux = false, needRain = false, needRainVolume = false;
-    bool needBed = false;
-    int first = nT;
+    bool needBed = false, needFlux = false;
     for (int k = 0; k < requests.size(); ++k) {
         const auto& r = requests[k];
         auto& data = out[k];
@@ -281,107 +299,44 @@ void Mesh2DRunLayer::getSeriesBatch(const QVector<SeriesRequest>& requests,
         if (!src || nT <= 0 || r.ref.kind != ObjectRef::Kind::Mesh2DCell ||
             r.ref.triIdx < 0 || r.ref.triIdx >= src->triangleCount() ||
             !(attr == PlotAttribute::Mesh2DDepth || attr == PlotAttribute::Mesh2DHGL ||
-              attr == PlotAttribute::Mesh2DRainfall || attr == PlotAttribute::Mesh2DRainVolume || velocity)) {
+              attr == PlotAttribute::Mesh2DRainfall || attr == PlotAttribute::Mesh2DRainVolume ||
+              attr == PlotAttribute::Mesh2DRainDepth || attr == PlotAttribute::Mesh2DRainfallAvg ||
+              velocity)) {
             getSeriesAtUncached(r.ref, attr, data);
             continue;
         }
-        const auto key = std::make_pair(r.ref.triIdx, int(attr));
+        const SeriesKey key{r.ref.triIdx, int(attr)};
         auto cached = m_seriesCache.find(key);
         if (r.firstPeriod == 0 && cached != m_seriesCache.end()) {
             data = cached->second;
             continue;
         }
+        // Interactive consumers must not read a saved file on the GUI thread:
+        // queue the series for a worker (takeExtractionJob) instead.
+        if (m_deferFileReads && r.firstPeriod == 0 && !m_fileRevision.isEmpty()) {
+            if (m_cancelled.count(key)) {
+                data.errorMessage = QStringLiteral("Loading cancelled");
+            } else {
+                if (!m_inFlight.count(key)) m_deferred.insert(key);
+                data.errorMessage = QStringLiteral("Loading…");
+            }
+            continue;
+        }
         data.periodCount = nT;
-        from[k] = std::clamp(r.firstPeriod, 0, nT);
-        if (from[k] == nT) { data.ok = true; continue; }
-        first = std::min(first, from[k]);
+        if (std::clamp(r.firstPeriod, 0, nT) == nT) { data.ok = true; continue; }
         pending.append(k);
-        needDepth |= velocity || attr == PlotAttribute::Mesh2DDepth || attr == PlotAttribute::Mesh2DHGL;
-        needBed |= attr == PlotAttribute::Mesh2DHGL;
+        needBed  |= attr == PlotAttribute::Mesh2DHGL || attr == PlotAttribute::Mesh2DRainDepth ||
+                    attr == PlotAttribute::Mesh2DRainfallAvg;
         needFlux |= velocity;
-        needRain |= attr == PlotAttribute::Mesh2DRainfall;
-        needRainVolume |= attr == PlotAttribute::Mesh2DRainVolume;
-        data.timesJulian.reserve(nT - from[k]);
-        data.values.reserve(nT - from[k]);
     }
     if (pending.isEmpty()) return;
     if (needBed) ensureZBedCache_();
-    std::vector<float> lengths, nx, ny;
-    const bool haveGeometry = !needFlux || src->readEdgeGeometry(lengths, nx, ny);
     if (needFlux) ensureVertexAdjCache_();
-    if (!haveGeometry) {
-        // Same refusal as the per-series path: velocity needs edge geometry.
-        QVector<int> kept;
-        for (int k : pending) {
-            const auto attr = requests[k].descriptor.attr;
-            if (attr == PlotAttribute::Mesh2DVelocityX || attr == PlotAttribute::Mesh2DVelocityY ||
-                attr == PlotAttribute::Mesh2DVelocityMag)
-                out[k].errorMessage = QStringLiteral("Edge geometry not available for velocity");
-            else
-                kept.append(k);
-        }
-        pending.swap(kept);
-        if (pending.isEmpty()) return;
-    }
-    const double dry = m_layer->dryDepth();
-    std::vector<float> depths, flux, rain, rainVolume;
-    const double nan = std::numeric_limits<double>::quiet_NaN();
-    for (int t = first; t < nT; ++t) {
-        const QDateTime time = src->simTimeAt(t);
-        if (!time.isValid()) continue;
-        const double julian = core::qDateTimeToSwmmDateTime(time);
-        // Existing result files use whole-frame chunks. Read each one once,
-        // then gather all selected cells without repeatedly decompressing it.
-        const bool depthOk = needDepth && src->readDepthsAt(t, depths);
-        const bool fluxOk = needFlux && haveGeometry && src->readEdgeFluxAt(t, flux);
-        const bool rainOk = needRain && src->readFaceFieldAt("Mesh2_face_rainfall", t, rain);
-        const bool volumeOk = needRainVolume && src->readFaceFieldAt("Mesh2_face_rain_cum", t, rainVolume);
-        std::map<int, std::pair<double, double>> velocities;
-        for (int k : pending) {
-            if (t < from[k]) continue;
-            const auto& r = requests[k];
-            const int c = r.ref.triIdx;
-            const auto attr = r.descriptor.attr;
-            // As in the per-series path, a frame that cannot be read is
-            // skipped (no sample), so a missing dataset still reports "No
-            // valid samples"; a readable dry-cell velocity is a NaN gap.
-            double value = nan;
-            if (attr == PlotAttribute::Mesh2DRainfall) {
-                if (!rainOk || c >= int(rain.size())) continue;
-                value = double(rain[c]) * 3600000.0;   // m/s → mm/hr
-            } else if (attr == PlotAttribute::Mesh2DRainVolume) {
-                if (!volumeOk || c >= int(rainVolume.size())) continue;
-                value = rainVolume[c];
-            } else {
-                if (!depthOk || c >= int(depths.size())) continue;
-                if (attr == PlotAttribute::Mesh2DDepth) value = depths[c];
-                else if (attr == PlotAttribute::Mesh2DHGL) {
-                    const double z = (m_zBedReady && c < int(m_zBed.size())) ? double(m_zBed[c]) : 0.0;
-                    value = double(depths[c]) + z;
-                } else {
-                    if (!fluxOk) continue;
-                    auto v = velocities.find(c);
-                    if (v == velocities.end()) {
-                        double vx = nan, vy = nan;
-                        const int nv = c < int(m_cellNv.size()) ? m_cellNv[c] : 3;
-                        reconstructVelocityAtCell_(c, nv, flux, lengths, nx, ny, depths[c], dry, vx, vy);
-                        v = velocities.emplace(c, std::make_pair(vx, vy)).first;
-                    }
-                    value = attr == PlotAttribute::Mesh2DVelocityX ? v->second.first
-                          : attr == PlotAttribute::Mesh2DVelocityY ? v->second.second
-                          : std::sqrt(v->second.first * v->second.first +
-                                      v->second.second * v->second.second);
-                }
-            }
-            out[k].timesJulian.push_back(julian);
-            out[k].values.push_back(value); // failed/missing samples stay missing, never zero
-        }
-    }
-    for (int k : pending) {
-        auto& data = out[k];
-        data.ok = !data.timesJulian.empty();
-        if (!data.ok) data.errorMessage = QStringLiteral("No valid samples for cell %1").arg(requests[k].ref.triIdx);
-    }
+    static const std::vector<float> kNoBed;
+    static const std::vector<double> kNoArea;
+    extractCellFrames_(*src, requests, pending, m_zBedReady ? m_zBed : kNoBed,
+                       m_zBedReady ? m_cellArea : kNoArea, m_cellNv,
+                       m_layer->dryDepth(), out, nullptr, nullptr);
     // Only immutable file sources are cached. Live frames can be updated in
     // place or thinned, so their per-request tail cursors remain authoritative.
     if (m_fileRevision.isEmpty()) return;
@@ -394,11 +349,232 @@ void Mesh2DRunLayer::getSeriesBatch(const QVector<SeriesRequest>& requests,
     if (m_cacheBytes + addedBytes > budget) { m_seriesCache.clear(); m_cacheBytes = 0; }
     for (int k : pending) {
         if (requests[k].firstPeriod != 0 || !out[k].ok) continue;
-        const auto key = std::make_pair(requests[k].ref.triIdx, int(requests[k].descriptor.attr));
+        const SeriesKey key{requests[k].ref.triIdx, int(requests[k].descriptor.attr)};
         if (m_seriesCache.find(key) != m_seriesCache.end()) continue;
         m_seriesCache.emplace(key, out[k]);
         m_cacheBytes += (out[k].timesJulian.size() + out[k].values.size()) * sizeof(double);
     }
+}
+
+bool Mesh2DRunLayer::extractCellFrames_(IMesh2DSource& src,
+                                        const QVector<SeriesRequest>& requests,
+                                        QVector<int> pending,
+                                        const std::vector<float>& zBed,
+                                        const std::vector<double>& cellArea,
+                                        const std::vector<unsigned char>& cellNv,
+                                        double dry,
+                                        QVector<SeriesData>& out,
+                                        const std::atomic<bool>* cancel,
+                                        std::atomic<int>* framesDone)
+{
+    const int nT = src.timeCount();
+    QVector<int> from(requests.size(), 0);
+    bool needDepth = false, needFlux = false, needRain = false, needRainVolume = false;
+    int first = nT;
+    for (int k : pending) {
+        const auto attr = requests[k].descriptor.attr;
+        const bool velocity = attr == PlotAttribute::Mesh2DVelocityX ||
+                              attr == PlotAttribute::Mesh2DVelocityY ||
+                              attr == PlotAttribute::Mesh2DVelocityMag;
+        auto& data = out[k];
+        data.firstPeriod = requests[k].firstPeriod;
+        data.periodCount = nT;
+        from[k] = std::clamp(requests[k].firstPeriod, 0, nT);
+        // An interval mean at from[k] needs the cumulative frame before it.
+        first = std::min(first, attr == PlotAttribute::Mesh2DRainfallAvg
+                                    ? std::max(from[k] - 1, 0) : from[k]);
+        needDepth |= velocity || attr == PlotAttribute::Mesh2DDepth || attr == PlotAttribute::Mesh2DHGL;
+        needFlux |= velocity;
+        needRain |= attr == PlotAttribute::Mesh2DRainfall;
+        needRainVolume |= attr == PlotAttribute::Mesh2DRainVolume ||
+                          attr == PlotAttribute::Mesh2DRainDepth ||
+                          attr == PlotAttribute::Mesh2DRainfallAvg;
+        data.timesJulian.reserve(nT - from[k]);
+        data.values.reserve(nT - from[k]);
+    }
+    std::vector<float> lengths, nx, ny;
+    const bool haveGeometry = !needFlux || src.readEdgeGeometry(lengths, nx, ny);
+    if (!haveGeometry) {
+        // Same refusal as the per-series path: velocity needs edge geometry.
+        QVector<int> kept;
+        for (int k : pending) {
+            const auto attr = requests[k].descriptor.attr;
+            if (attr == PlotAttribute::Mesh2DVelocityX || attr == PlotAttribute::Mesh2DVelocityY ||
+                attr == PlotAttribute::Mesh2DVelocityMag)
+                out[k].errorMessage = QStringLiteral("Edge geometry not available for velocity");
+            else
+                kept.append(k);
+        }
+        pending.swap(kept);
+        if (pending.isEmpty()) return true;
+    }
+    std::vector<float> depths, flux, rain, rainVolume;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    // Interval mean: each request's last readable cumulative sample. A frame
+    // that cannot be read widens the interval instead of reporting zero.
+    QVector<std::pair<QDateTime, double>> prevCum(requests.size());
+    for (int t = first; t < nT; ++t) {
+        // One frame is the unit of cancellation: the HDF5 lock is held for
+        // one read at a time, so a cancel is honoured within one frame.
+        if (cancel && cancel->load(std::memory_order_relaxed)) return false;
+        const QDateTime time = src.simTimeAt(t);
+        if (!time.isValid()) continue;
+        const double julian = core::qDateTimeToSwmmDateTime(time);
+        // Existing result files use whole-frame chunks. Read each one once,
+        // then gather all selected cells without repeatedly decompressing it.
+        const bool depthOk = needDepth && src.readDepthsAt(t, depths);
+        const bool fluxOk = needFlux && haveGeometry && src.readEdgeFluxAt(t, flux);
+        const bool rainOk = needRain && src.readFaceFieldAt("Mesh2_face_rainfall", t, rain);
+        const bool volumeOk = needRainVolume && src.readFaceFieldAt("Mesh2_face_rain_cum", t, rainVolume);
+        std::map<int, std::pair<double, double>> velocities;
+        for (int k : pending) {
+            const auto& r = requests[k];
+            const int c = r.ref.triIdx;
+            const auto attr = r.descriptor.attr;
+            // As in the per-series path, a frame that cannot be read is
+            // skipped (no sample), so a missing dataset still reports "No
+            // valid samples"; a readable dry-cell velocity is a NaN gap.
+            double value = nan;
+            if (attr == PlotAttribute::Mesh2DRainfallAvg) {
+                const double area = c < int(cellArea.size()) ? cellArea[c] : 0.0;
+                if (!volumeOk || c >= int(rainVolume.size()) || !(area > 0.0)) continue;
+                const auto prev = std::exchange(prevCum[k], {time, double(rainVolume[c])});
+                const double seconds = prev.first.isValid() ? prev.first.msecsTo(time) / 1000.0 : 0.0;
+                if (t < from[k] || !(seconds > 0.0)) continue;
+                value = (rainVolume[c] - prev.second) / (area * seconds) * 3600000.0;   // m/s → mm/hr
+            } else if (t < from[k]) {
+                continue;
+            } else if (attr == PlotAttribute::Mesh2DRainDepth) {
+                const double area = c < int(cellArea.size()) ? cellArea[c] : 0.0;
+                if (!volumeOk || c >= int(rainVolume.size()) || !(area > 0.0)) continue;
+                value = rainVolume[c] / area * 1000.0;   // m → mm
+            } else if (attr == PlotAttribute::Mesh2DRainfall) {
+                if (!rainOk || c >= int(rain.size())) continue;
+                value = double(rain[c]) * 3600000.0;   // m/s → mm/hr
+            } else if (attr == PlotAttribute::Mesh2DRainVolume) {
+                if (!volumeOk || c >= int(rainVolume.size())) continue;
+                value = rainVolume[c];
+            } else {
+                if (!depthOk || c >= int(depths.size())) continue;
+                if (attr == PlotAttribute::Mesh2DDepth) value = depths[c];
+                else if (attr == PlotAttribute::Mesh2DHGL) {
+                    const double z = c < int(zBed.size()) ? double(zBed[c]) : 0.0;
+                    value = double(depths[c]) + z;
+                } else {
+                    if (!fluxOk) continue;
+                    auto v = velocities.find(c);
+                    if (v == velocities.end()) {
+                        double vx = nan, vy = nan;
+                        const int nv = c < int(cellNv.size()) ? cellNv[c] : 3;
+                        reconstructVelocityAtCell_(c, nv, flux, lengths, nx, ny, depths[c], dry, vx, vy);
+                        v = velocities.emplace(c, std::make_pair(vx, vy)).first;
+                    }
+                    value = attr == PlotAttribute::Mesh2DVelocityX ? v->second.first
+                          : attr == PlotAttribute::Mesh2DVelocityY ? v->second.second
+                          : std::sqrt(v->second.first * v->second.first +
+                                      v->second.second * v->second.second);
+                }
+            }
+            out[k].timesJulian.push_back(julian);
+            out[k].values.push_back(value); // failed/missing samples stay missing, never zero
+        }
+        if (framesDone) framesDone->fetch_add(1, std::memory_order_relaxed);
+    }
+    for (int k : pending) {
+        auto& data = out[k];
+        data.ok = !data.timesJulian.empty();
+        if (!data.ok) data.errorMessage = QStringLiteral("No valid samples for cell %1").arg(requests[k].ref.triIdx);
+    }
+    return true;
+}
+
+bool Mesh2DExtractionJob::run(QVector<SeriesData>& out, const std::atomic<bool>& cancel,
+                              std::atomic<int>& framesDone) const
+{
+    out.clear();
+    out.resize(requests.size());
+    if (cancel.load(std::memory_order_relaxed)) return false;
+    // This thread's own reader: no handle is shared with the GUI's source.
+    HDF5Mesh2DSource src;
+    if (!src.open(path) || src.timeCount() <= 0) return false;
+    QVector<int> pending;
+    for (int k = 0; k < requests.size(); ++k) {
+        const int c = requests[k].ref.triIdx;
+        if (c < 0 || c >= src.triangleCount()) {
+            out[k].errorMessage = QStringLiteral("Mesh cell index out of range");
+            continue;
+        }
+        pending.append(k);
+    }
+    return Mesh2DRunLayer::extractCellFrames_(src, requests, pending, zBed, cellArea, cellNv, dryDepth,
+                                              out, &cancel, &framesDone);
+}
+
+Mesh2DExtractionJob Mesh2DRunLayer::takeExtractionJob()
+{
+    validateSourceCache_();
+    Mesh2DExtractionJob job;
+    auto* h5 = m_layer ? dynamic_cast<HDF5Mesh2DSource*>(m_layer->source()) : nullptr;
+    if (!h5 || m_deferred.empty()) {
+        m_deferred.clear();
+        return job;
+    }
+    bool needBed = false, needArea = false, needNv = false;
+    for (const auto& [cell, attr] : m_deferred) {
+        const auto a = static_cast<PlotAttribute>(attr);
+        job.requests.append({ObjectRef::forMesh2DCell(cell), ResultDescriptor::forAttribute(a), 0});
+        needBed |= a == PlotAttribute::Mesh2DHGL;
+        needArea |= a == PlotAttribute::Mesh2DRainDepth || a == PlotAttribute::Mesh2DRainfallAvg;
+        needNv  |= a == PlotAttribute::Mesh2DVelocityX || a == PlotAttribute::Mesh2DVelocityY ||
+                   a == PlotAttribute::Mesh2DVelocityMag;
+    }
+    // Geometry snapshots are copied: the worker never touches this adapter.
+    if (needBed) { ensureZBedCache_(); if (m_zBedReady) job.zBed = m_zBed; }
+    if (needArea) { ensureZBedCache_(); if (m_zBedReady) job.cellArea = m_cellArea; }
+    if (needNv)  { ensureVertexAdjCache_(); job.cellNv = m_cellNv; }
+    job.path           = h5->path();
+    job.fileRevision   = m_fileRevision;
+    job.sourceRevision = m_sourceRevision;
+    job.dryDepth       = m_layer->dryDepth();
+    job.frames         = h5->timeCount();
+    m_inFlight.insert(m_deferred.begin(), m_deferred.end());
+    m_deferred.clear();
+    return job;
+}
+
+bool Mesh2DRunLayer::acceptExtraction(const Mesh2DExtractionJob& job,
+                                      const QVector<SeriesData>& results)
+{
+    validateSourceCache_();
+    if (job.isEmpty() || job.fileRevision != m_fileRevision ||
+        job.sourceRevision != m_sourceRevision || results.size() != job.requests.size())
+        return false;
+    // Every result is kept, refusals included: the file is immutable, so a
+    // missing dataset stays missing and must not queue another job. Nothing
+    // is evicted here — evicting a displayed series would only queue it again.
+    for (int k = 0; k < job.requests.size(); ++k) {
+        const SeriesKey key{job.requests[k].ref.triIdx, int(job.requests[k].descriptor.attr)};
+        m_inFlight.erase(key);
+        if (m_seriesCache.count(key)) continue;
+        m_seriesCache.emplace(key, results[k]);
+        m_cacheBytes += (results[k].timesJulian.size() + results[k].values.size()) * sizeof(double);
+    }
+    return true;
+}
+
+void Mesh2DRunLayer::cancelExtraction(const Mesh2DExtractionJob& job)
+{
+    validateSourceCache_();
+    if (job.fileRevision != m_fileRevision || job.sourceRevision != m_sourceRevision) return;
+    for (const auto& r : job.requests) {
+        const SeriesKey key{r.ref.triIdx, int(r.descriptor.attr)};
+        if (m_inFlight.erase(key)) m_cancelled.insert(key);
+    }
+}
+
+void Mesh2DRunLayer::retryCancelled()
+{
+    m_cancelled.clear();
 }
 
 void Mesh2DRunLayer::getSeriesAtUncached(const ObjectRef& ref,
@@ -552,6 +728,36 @@ void Mesh2DRunLayer::getSeriesAtUncached(const ObjectRef& ref,
     out.periodCount = nT;
     const int fromT = std::max(0, std::min(out.firstPeriod, nT));
     if (fromT >= nT) { out.ok = true; return; }
+
+    // Cumulative depth and interval mean, derived from rain_cum ÷ cell area —
+    // the same arithmetic and skip rules as extractCellFrames_.
+    if (attr == PlotAttribute::Mesh2DRainDepth || attr == PlotAttribute::Mesh2DRainfallAvg) {
+        ensureZBedCache_();
+        const double area = (m_zBedReady && triIdx < static_cast<int>(m_cellArea.size()))
+                                ? m_cellArea[triIdx] : 0.0;
+        const bool mean = attr == PlotAttribute::Mesh2DRainfallAvg;
+        std::vector<float> cum;
+        std::pair<QDateTime, double> prev;
+        for (int t = mean ? std::max(fromT - 1, 0) : fromT; t < nT && area > 0.0; ++t) {
+            const QDateTime dt = src->simTimeAt(t);
+            if (!dt.isValid()) continue;
+            if (!src->readFaceFieldAt("Mesh2_face_rain_cum", t, cum)) continue;
+            if (triIdx >= static_cast<int>(cum.size())) continue;
+            double value = cum[triIdx] / area * 1000.0;   // m → mm
+            if (mean) {
+                const auto last = std::exchange(prev, {dt, double(cum[triIdx])});
+                const double seconds = last.first.isValid() ? last.first.msecsTo(dt) / 1000.0 : 0.0;
+                if (t < fromT || !(seconds > 0.0)) continue;
+                value = (cum[triIdx] - last.second) / (area * seconds) * 3600000.0;   // m/s → mm/hr
+            }
+            out.timesJulian.push_back(core::qDateTimeToSwmmDateTime(dt));
+            out.values.push_back(value);
+        }
+        out.ok = !out.timesJulian.empty();
+        if (!out.ok)
+            out.errorMessage = QStringLiteral("No valid samples for cell %1").arg(triIdx);
+        return;
+    }
 
     // Pre-fetch cached pieces depending on attribute.
     const bool needZBed = (attr == PlotAttribute::Mesh2DHGL);

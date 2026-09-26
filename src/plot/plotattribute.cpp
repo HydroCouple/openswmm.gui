@@ -75,6 +75,8 @@ const QVector<PlotAttribute> &mesh2DCellPlotAttributes()
         PlotAttribute::Mesh2DVelocityX,
         PlotAttribute::Mesh2DVelocityY,
         PlotAttribute::Mesh2DRainfall,
+        PlotAttribute::Mesh2DRainfallAvg,
+        PlotAttribute::Mesh2DRainDepth,
         PlotAttribute::Mesh2DRainVolume,
     };
     return kList;
@@ -126,6 +128,8 @@ QString labelFor(PlotAttribute a)
     case PlotAttribute::Mesh2DEdgeFlow:    return QStringLiteral("Edge flow (2D)");
     case PlotAttribute::Mesh2DRainfall:    return QStringLiteral("Rainfall (2D cell)");
     case PlotAttribute::Mesh2DRainVolume:  return QStringLiteral("Rainfall volume (2D cell)");
+    case PlotAttribute::Mesh2DRainfallAvg: return QStringLiteral("Rainfall, interval mean (2D cell)");
+    case PlotAttribute::Mesh2DRainDepth:   return QStringLiteral("Cumulative rainfall (2D cell)");
     case PlotAttribute::SystemTemperature: return QStringLiteral("Air temperature");
     case PlotAttribute::SystemRainfall:    return QStringLiteral("Average rainfall");
     case PlotAttribute::SystemSnowDepth:   return QStringLiteral("Average snow depth");
@@ -195,10 +199,12 @@ QString unitsFor(PlotAttribute a, UnitSystem u)
     case PlotAttribute::SystemRainfall:
     case PlotAttribute::SystemInfil:
     case PlotAttribute::Mesh2DRainfall:
+    case PlotAttribute::Mesh2DRainfallAvg:
         return us ? QStringLiteral("in/hr") : QStringLiteral("mm/hr");
 
     case PlotAttribute::SubcatchSnowDepth:
     case PlotAttribute::SystemSnowDepth:
+    case PlotAttribute::Mesh2DRainDepth:
         return us ? QStringLiteral("in") : QStringLiteral("mm");
 
     case PlotAttribute::SubcatchEvap:
