@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <mutex>
 
 namespace openswmmvis::io {
 
@@ -23,6 +24,19 @@ static_assert(Mesh2DH5Reader::kEdgeStride == mesh::kEdgeStride,
               "Mesh2DH5Reader edge layout must match mesh::edgeSlot");
 
 namespace {
+
+// The bundled HDF5 is not thread-safe (H5_HAVE_THREADSAFE is undefined) and
+// this reader is its only user in the GUI process, so every entry point below
+// holds one process-wide lock. A worker-owned reader can then extract plot
+// series while the map reads frames through another reader; each call (one
+// frame) holds the lock, so neither side waits longer than one read.
+// Recursive: entry points call each other (readDepthsAt → readFaceFieldAt).
+using Hdf5Lock = std::lock_guard<std::recursive_mutex>;
+std::recursive_mutex& hdf5Mutex()
+{
+    static std::recursive_mutex m;
+    return m;
+}
 
 // Convenience RAII guards so failures inside readers don't leak handles.
 struct DataSpaceGuard {
@@ -149,6 +163,7 @@ Mesh2DH5Reader::~Mesh2DH5Reader() { close(); }
 
 bool Mesh2DH5Reader::open(const QString& path)
 {
+    const Hdf5Lock lock(hdf5Mutex());
     close();
     path_ = path;
     cached_n_vert_ = -1;
@@ -174,6 +189,7 @@ bool Mesh2DH5Reader::open(const QString& path)
 
 void Mesh2DH5Reader::close()
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (file_id_ >= 0) {
         H5Fclose(static_cast<hid_t>(file_id_));
         file_id_ = -1;
@@ -219,15 +235,21 @@ bool Mesh2DH5Reader::readDim_(const char* dataset, int axis, int& out) const
 
 int Mesh2DH5Reader::vertexCount() const
 {
-    if (cached_n_vert_ < 0)
+    // Cached lookups take no lock: a reader is used by one thread, so only
+    // a miss (an HDF5 call) needs to wait for another thread's read.
+    if (cached_n_vert_ < 0) {
+        const Hdf5Lock lock(hdf5Mutex());
         readDim_("Mesh2_node_x", 0, cached_n_vert_);
+    }
     return cached_n_vert_ < 0 ? 0 : cached_n_vert_;
 }
 
 int Mesh2DH5Reader::triangleCount() const
 {
-    if (cached_n_face_ < 0)
+    if (cached_n_face_ < 0) {
+        const Hdf5Lock lock(hdf5Mutex());
         readDim_("Mesh2_face_nodes", 0, cached_n_face_);
+    }
     return cached_n_face_ < 0 ? 0 : cached_n_face_;
 }
 
@@ -235,6 +257,7 @@ bool Mesh2DH5Reader::readMeshGeometry(std::vector<double>& vx,
                                        std::vector<double>& vy,
                                        std::vector<double>& vz) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (file_id_ < 0)
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
 
@@ -264,6 +287,7 @@ bool Mesh2DH5Reader::readMeshGeometry(std::vector<double>& vx,
 
 bool Mesh2DH5Reader::readCoordinateReference(CoordinateReference& out) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     out = CoordinateReference{};
     if (file_id_ < 0) {
         setError_(QStringLiteral("Mesh2DH5Reader: not open"));
@@ -307,6 +331,7 @@ bool Mesh2DH5Reader::readCoordinateReference(CoordinateReference& out) const
 int Mesh2DH5Reader::edgeStride() const
 {
     if (cached_face_width_ < 0) {
+        const Hdf5Lock lock(hdf5Mutex());
         int w = 0;
         if (readDim_("Mesh2_face_nodes", 1, w) && (w == 3 || w == 4))
             cached_face_width_ = w;
@@ -316,6 +341,7 @@ int Mesh2DH5Reader::edgeStride() const
 
 int Mesh2DH5Reader::displayTriangleCount() const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (!loadCells_()) return 0;
     return static_cast<int>(cached_display_tris_.size());
 }
@@ -479,6 +505,7 @@ bool Mesh2DH5Reader::loadCells_() const
 
 bool Mesh2DH5Reader::readCells(std::vector<std::array<int, 4>>& cells) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (!loadCells_()) return false;
     cells = cached_cells_;
     return true;
@@ -486,6 +513,7 @@ bool Mesh2DH5Reader::readCells(std::vector<std::array<int, 4>>& cells) const
 
 bool Mesh2DH5Reader::readTriangles(std::vector<std::array<int, 3>>& tris) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (!loadCells_()) return false;
     tris = cached_display_tris_;
     return true;
@@ -497,6 +525,7 @@ bool Mesh2DH5Reader::readTriangles(std::vector<std::array<int, 3>>& tris) const
 
 int Mesh2DH5Reader::timeCount() const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     // Re-read every call so live-tail works as engine appends.
     int n = 0;
     readDim_("time", 0, n);
@@ -505,6 +534,7 @@ int Mesh2DH5Reader::timeCount() const
 
 bool Mesh2DH5Reader::readTimes(std::vector<double>& times) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (file_id_ < 0)
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
 
@@ -524,6 +554,7 @@ bool Mesh2DH5Reader::readTimes(std::vector<double>& times) const
 
 bool Mesh2DH5Reader::readDepthsAt(int timeIdx, std::vector<float>& depths) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     return readFaceFieldAt("Mesh2_face_depth", timeIdx, depths);
 }
 
@@ -532,6 +563,7 @@ bool Mesh2DH5Reader::hasFaceField(const char* dataset) const
     if (file_id_ < 0 || !dataset) return false;
     auto it = cached_has_face_field_.find(dataset);
     if (it == cached_has_face_field_.end()) {
+        const Hdf5Lock lock(hdf5Mutex());
         const htri_t ex = H5Lexists(static_cast<hid_t>(file_id_), dataset, H5P_DEFAULT);
         it = cached_has_face_field_.emplace(dataset, ex > 0).first;
     }
@@ -541,6 +573,7 @@ bool Mesh2DH5Reader::hasFaceField(const char* dataset) const
 bool Mesh2DH5Reader::readFaceFieldAt(const char* dataset, int timeIdx,
                                      std::vector<float>& values) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (file_id_ < 0)
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
     if (timeIdx < 0)
@@ -591,6 +624,7 @@ bool Mesh2DH5Reader::readFaceFieldAt(const char* dataset, int timeIdx,
 bool Mesh2DH5Reader::readFaceEnvelope(const char* dataset,
                                       std::vector<float>& values) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (file_id_ < 0)
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
     if (!hasFaceField(dataset))
@@ -635,6 +669,7 @@ bool Mesh2DH5Reader::readFaceEnvelope(const char* dataset,
 bool Mesh2DH5Reader::readVertexHeadsAt(int timeIdx,
                                         std::vector<double>& heads) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (file_id_ < 0)
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
     if (timeIdx < 0)
@@ -694,6 +729,7 @@ bool Mesh2DH5Reader::readVertexHeadsAt(int timeIdx,
 bool Mesh2DH5Reader::readVertexSignedDepthsAt(int timeIdx,
                                                std::vector<float>& depths) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (file_id_ < 0)
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
     if (timeIdx < 0)
@@ -752,6 +788,7 @@ bool Mesh2DH5Reader::readVertexSignedDepthsAt(int timeIdx,
 
 bool Mesh2DH5Reader::readEdgeFluxAt(int timeIdx, std::vector<float>& flux) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (file_id_ < 0)
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
     if (timeIdx < 0)
@@ -838,6 +875,7 @@ bool Mesh2DH5Reader::readEdgeGeometry(std::vector<float>& length,
                                        std::vector<float>& nx,
                                        std::vector<float>& ny) const
 {
+    const Hdf5Lock lock(hdf5Mutex());
     if (file_id_ < 0)
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
 

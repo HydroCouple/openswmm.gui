@@ -29,8 +29,11 @@
 #include <QString>
 
 #include <memory>
+#include <thread>
 
 class QAction;
+class QProgressBar;
+class QTimer;
 class QActionGroup;
 class QChartView;
 class QLabel;
@@ -112,6 +115,9 @@ public:
      *  action's checked state. Used by SWMMVis when the user cancels the
      *  pick tool via Escape (so the toolbar button un-toggles). */
     void setAddFromMapChecked(bool checked);
+
+    /*! \brief True while saved 2D results are read on a worker thread. */
+    bool isLoadingResults() const { return static_cast<bool>(m_load); }
 
 signals:
     /*! \brief Slice AT.2 — emitted when the user toggles the
@@ -272,6 +278,27 @@ private:
     // windowed data when a selection is active.
     QDateTime m_xSelLo;
     QDateTime m_xSelHi;
+
+    // Saved 2D results load on a worker thread, one job at a time. The
+    // adapter queues uncached series (Mesh2DRunLayer::setDeferFileReads);
+    // the job owns its reader; completion is polled on the GUI thread and
+    // rejected if the source changed. Charts stay on the GUI thread.
+    struct ResultLoad;
+    void scheduleResultLoading_();
+    void startResultLoading_();
+    void pollResultLoading_();
+    void onLoadButtonClicked_();
+    void updateLoadStrip_();
+    /*! \brief Read saved files synchronously while off (explicit exports). */
+    void setMeshFileDeferral_(bool on);
+    std::shared_ptr<ResultLoad> m_load;
+    std::thread   m_loadThread;
+    bool          m_loadScheduled = false;
+    QWidget      *m_loadStrip    = nullptr;
+    QLabel       *m_loadLabel    = nullptr;
+    QProgressBar *m_loadProgress = nullptr;
+    QPushButton  *m_loadButton   = nullptr;   ///< Cancel while loading; Retry after a cancel
+    QTimer       *m_loadTimer    = nullptr;
 };
 
 } // namespace openswmmvis::ui
