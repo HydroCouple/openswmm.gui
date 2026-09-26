@@ -167,6 +167,13 @@ struct SeriesData {
     int                 periodCount = 0;
 };
 
+/*! A batch preserves request order and each live-series tail cursor. */
+struct SeriesRequest {
+    ObjectRef ref;
+    ResultDescriptor descriptor;
+    int firstPeriod = 0;
+};
+
 /*! \brief Abstract source backing one comparison-plot run. */
 class IRunLayer {
 public:
@@ -195,6 +202,18 @@ public:
     virtual void getSeriesAt(const ObjectRef& ref,
                              PlotAttribute attr,
                              SeriesData& out) const = 0;
+
+    /*! Resolve related series together. Mesh sources share each frame read. */
+    virtual void getSeriesBatch(const QVector<SeriesRequest>& requests,
+                                QVector<SeriesData>& out) const
+    {
+        out.resize(requests.size());
+        for (int i = 0; i < requests.size(); ++i) {
+            out[i] = SeriesData{};
+            out[i].firstPeriod = requests[i].firstPeriod;
+            getSeriesAt(requests[i].ref, requests[i].descriptor, out[i]);
+        }
+    }
 
     /*! \brief Convenience: does this source carry the given attribute at all?
      *  Default impl returns true; subclasses can refine (e.g. hide velocity

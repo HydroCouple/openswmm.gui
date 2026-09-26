@@ -31,6 +31,7 @@
 #include "plot/irunlayer.h"
 
 #include <QPointer>
+#include <map>
 
 class SWMM2DResultsLayer;
 
@@ -57,8 +58,16 @@ public:
                      SeriesData& out) const override;
 
     bool supportsAttribute(PlotAttribute attr) const override;
+    void getSeriesBatch(const QVector<SeriesRequest>& requests,
+                        QVector<SeriesData>& out) const override;
 
 private:
+    void getSeriesAtUncached(const ObjectRef& ref, PlotAttribute attr, SeriesData& out) const;
+    void validateSourceCache_() const;
+    mutable quint64 m_sourceRevision = ~quint64(0);
+    mutable QString m_fileRevision;
+    mutable std::map<std::pair<int, int>, SeriesData> m_seriesCache;
+    mutable std::size_t m_cacheBytes = 0;
     /*! \brief Cached bed elevation per triangle = mean of vertex z's. */
     void ensureZBedCache_() const;
 

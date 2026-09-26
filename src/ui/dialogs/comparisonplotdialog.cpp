@@ -91,6 +91,8 @@ ComparisonPlotDialog::ComparisonPlotDialog(QWidget *parent)
             this, &ComparisonPlotDialog::onRunSourceRemoved);
     connect(m_model.get(), &ComparisonPlotModel::seriesAdded,
             this, &ComparisonPlotDialog::onSeriesAdded);
+    connect(m_model.get(), &ComparisonPlotModel::seriesBatchAdded,
+            this, [this]() { rebuildSeriesTree(); rebuildCharts(); });
     connect(m_model.get(), &ComparisonPlotModel::seriesRemoved,
             this, &ComparisonPlotDialog::onSeriesRemoved);
     connect(m_model.get(), &ComparisonPlotModel::styleChanged,
@@ -844,15 +846,31 @@ int ComparisonPlotDialog::addCellSeries(int runIndex,
     if (triIdxList.isEmpty() || attributes.isEmpty())
         return 0;
 
-    int added = 0;
-    for (int triIdx : triIdxList) {
-        const ObjectRef ref = ObjectRef::forMesh2DCell(triIdx);
-        for (PlotAttribute a : attributes) {
-            if (a == PlotAttribute::Unknown) continue;
-            if (addSeries(runIndex, ref, a) >= 0) ++added;
-        }
+    QVector<QPair<ObjectRef, ResultDescriptor>> items;
+    for (int triIdx : triIdxList)
+        for (PlotAttribute a : attributes)
+            items.append({ObjectRef::forMesh2DCell(triIdx), ResultDescriptor::forAttribute(a)});
+    return addSeriesBatch(runIndex, items);
+}
+
+int ComparisonPlotDialog::addSeriesBatch(int runIndex,
+                                         const QVector<QPair<ObjectRef, ResultDescriptor>>& items)
+{
+    if (runIndex < 0 || runIndex >= m_model->runSourceCount())
+        return 0;
+
+    QVector<SeriesSpec> specs;
+    specs.reserve(items.size());
+    for (const auto& [ref, descriptor] : items) {
+        if (!descriptor.isValid() || !ref.isValid()) continue;
+        SeriesSpec spec;
+        spec.runIndex  = runIndex;
+        spec.objectRef = ref;
+        spec.attribute = descriptor.attr;
+        spec.species   = descriptor.species;
+        specs.append(std::move(spec));
     }
-    return added;
+    return m_model->addSeriesBatch(std::move(specs));
 }
 
 // ---------------------------------------------------------------------------
@@ -1188,15 +1206,17 @@ void ComparisonPlotDialog::onLoadObservedClicked()
         layer.release());
     const int runIdx = m_model->addRunSource(std::move(rs));
 
-    int added = 0;
+    QVector<SeriesSpec> specs;
     for (const QString& colLabel : labels) {
         ObjectRef ref = ObjectRef::forObserved(colLabel);
         SeriesSpec spec;
         spec.runIndex  = runIdx;
         spec.objectRef = ref;
         spec.attribute = chosenAttr;
-        if (m_model->addSeries(std::move(spec)) >= 0) ++added;
+        specs.append(std::move(spec));
     }
+
+    const int added = m_model->addSeriesBatch(std::move(specs));
 
     if (added == 0) {
         QMessageBox::warning(this,
@@ -1322,6 +1342,17 @@ void ComparisonPlotDialog::appendChartTails()
     const QVector<AttributeRow> &rows = m_model->rows();
     if (rows.size() != m_rowWidgets.size()) { rebuildCharts(); return; }
 
+    // Resolve every tail in one batch so a mesh source reads each new frame
+    // once for all selected cells, not once per series.
+    QVector<int> firstPeriods(m_model->seriesCount(), 0);
+    for (int r = 0; r < rows.size(); ++r) {
+        const RowWidgets &rw = m_rowWidgets[r];
+        if (rw.consumed.size() != rows[r].seriesIndices.size()) continue;   // rebuilt below
+        for (int k = 0; k < rows[r].seriesIndices.size(); ++k)
+            firstPeriods[rows[r].seriesIndices[k]] = rw.consumed[k];
+    }
+    const QVector<SeriesData> tails = m_model->resolveAllSeries(firstPeriods);
+
     for (int r = 0; r < rows.size(); ++r) {
         const AttributeRow &row = rows.at(r);
         RowWidgets &rw = m_rowWidgets[r];
@@ -1354,9 +1385,7 @@ void ComparisonPlotDialog::appendChartTails()
             // per tick per series, and for 2D velocity / rainfall a full-mesh
             // copy per frame — which is what turned a slowdown into an
             // ever-growing event-queue backlog on long runs.
-            SeriesData data;
-            data.firstPeriod = rw.consumed[k];
-            m_model->resolveSeries(sIdx, data);
+            SeriesData data = tails.value(sIdx);
             if (data.ok && data.periodCount > 0 && data.periodCount < rw.consumed[k]) {
                 // The live 2D source thinned its history (frame indices
                 // shifted down): re-read from the start once; the time filter
@@ -1405,6 +1434,7 @@ void ComparisonPlotDialog::appendChartTails()
 
 void ComparisonPlotDialog::rebuildCharts()
 {
+    const auto resolved = m_model->resolveAllSeries();
     // Tear down existing row frames (splitter children — deleting frame
     // also deletes its child views, charts, and series via Qt parenting).
     for (RowWidgets &rw : m_rowWidgets) {
@@ -1456,8 +1486,7 @@ void ComparisonPlotDialog::rebuildCharts()
             line->setName(legendNameFor(spec));
             openswmmvis::plot::applySeriesStyle(spec.style, line);
 
-            SeriesData data;
-            m_model->resolveSeries(sIdx, data);
+            const SeriesData& data = resolved[sIdx];
             // Y2b-3 (D-G1 warn-on-miss): a series that cannot resolve —
             // e.g. a saved species the reopened run does not carry —
             // stays in the legend WITH its reason instead of silently
@@ -1467,17 +1496,20 @@ void ComparisonPlotDialog::rebuildCharts()
                                   .arg(legendNameFor(spec),
                                        data.errorMessage));
             if (data.ok) {
+                QList<QPointF> points;
+                points.reserve(data.values.size());
                 for (std::size_t i = 0; i < data.timesJulian.size(); ++i) {
                     const QDateTime dt = openswmmvis::core::swmmDateTimeToQDateTime(data.timesJulian[i]);
                     const double v = data.values[i];
                     if (!dt.isValid() || !std::isfinite(v)) continue;
                     const qint64 ms = dt.toMSecsSinceEpoch();
-                    line->append(ms, v);
+                    points.append(QPointF(ms, v));
                     if (v < yMin) yMin = v;
                     if (v > yMax) yMax = v;
                     if (ms < xMinMs) xMinMs = ms;
                     if (ms > xMaxMs) xMaxMs = ms;
                 }
+                line->replace(points);
             }
 
             rw.chart->addSeries(line);
@@ -1610,9 +1642,8 @@ void ComparisonPlotDialog::rebuildCharts()
                     if (m_model->spec(cp.xSeriesIndex).attribute != row.attribute)
                         continue;   // belongs to another row
 
-                    SeriesData xData, yData;
-                    m_model->resolveSeries(cp.xSeriesIndex, xData);
-                    m_model->resolveSeries(cp.ySeriesIndex, yData);
+                    const SeriesData& xData = resolved[cp.xSeriesIndex];
+                    const SeriesData& yData = resolved[cp.ySeriesIndex];
                     if (!xData.ok || !yData.ok) continue;
 
                     PairedSamples ps = pairSamplesNearest(
@@ -1640,8 +1671,7 @@ void ComparisonPlotDialog::rebuildCharts()
                 for (int sIdx : row.seriesIndices) {
                     const SeriesSpec &spec = m_model->spec(sIdx);
                     if (spec.runIndex != baselineIdx) continue;
-                    SeriesData data;
-                    m_model->resolveSeries(sIdx, data);
+                    const SeriesData& data = resolved[sIdx];
                     if (!data.ok) continue;
                     BaselineCol bc;
                     bc.t.assign(data.timesJulian.begin(), data.timesJulian.end());
@@ -1659,8 +1689,7 @@ void ComparisonPlotDialog::rebuildCharts()
                     auto baseIt = baseByObj.find(refKey(spec.objectRef));
                     if (baseIt == baseByObj.end()) continue;   // no baseline for this object on this row
 
-                    SeriesData data;
-                    m_model->resolveSeries(sIdx, data);
+                    const SeriesData& data = resolved[sIdx];
                     if (!data.ok) continue;
 
                     PairedSamples ps = pairSamplesNearest(

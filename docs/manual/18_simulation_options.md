@@ -529,7 +529,7 @@ The 2D process switches — what the surface does with water besides move it.
 
 | Control | Options | Writes |
 | --- | --- | --- |
-| **Rainfall mode** | Natural neighbour (all gages) / System (uniform gage mean) / None (no direct rainfall) | `RAINFALL_MODE` |
+| **Rainfall mode** | Natural neighbour (all gages) / Nearest neighbour (closest gage) / System (uniform gage mean) / None (no direct rainfall) | `RAINFALL_MODE` |
 | **Infiltration** | Automatic (on when per-cell rows exist) / On / Off | `INFILTRATION` |
 | **Infiltration step** | *Same as wet-weather step*, or an explicit cadence | `INFIL_STEP` |
 | **Default method** | None / Horton / Modified Horton / Green-Ampt / Modified Green-Ampt / Curve Number / Constant rate | `INFIL_DEFAULT_METHOD` |

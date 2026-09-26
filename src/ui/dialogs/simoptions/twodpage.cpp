@@ -353,6 +353,8 @@ void TwoDPage::buildUi()
     m_rainfall2DModeCombo = new QComboBox(rainfallGroup);
     m_rainfall2DModeCombo->addItem(tr("Natural neighbour (all gages)"),
                                    QStringLiteral("NATURAL_NEIGHBOUR"));
+    m_rainfall2DModeCombo->addItem(tr("Nearest neighbour (closest gage)"),
+                                   QStringLiteral("NEAREST_NEIGHBOUR"));
     m_rainfall2DModeCombo->addItem(tr("System (uniform gage mean)"),
                                    QStringLiteral("SYSTEM"));
     m_rainfall2DModeCombo->addItem(tr("None (no direct rainfall)"),
@@ -360,7 +362,8 @@ void TwoDPage::buildUi()
     m_rainfall2DModeCombo->setToolTip(
         tr("How raingage rainfall drives the 2D mesh. Natural neighbour spatially "
            "interpolates all located gages onto each cell (inverse-distance "
-           "outside the gage hull); System applies one uniform value — the mean "
+           "outside the gage hull); Nearest neighbour uses the closest located gage; "
+           "System applies one uniform value — the mean "
            "of all gages; None applies no direct rainfall to the mesh."));
     rainfallForm->addRow(tr("Rainfall mode:"), m_rainfall2DModeCombo);
 

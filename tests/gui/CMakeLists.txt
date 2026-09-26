@@ -2848,6 +2848,17 @@ add_swmmvis_gui_test(test_live2d_coalesce
 )
 swmmvis_link_full_app_deps(test_live2d_coalesce)
 
+# Multi-series plots resolve each series once per rebuild / live tick, and the
+# 2D adapter reads each frame once for all selected cells, matching the
+# per-series path (workplans/RAINFALL_2D_AND_PLOTTING_PLAN_2026-09-25.md §3–4).
+# Drives the real ComparisonPlotDialog + SWMM2DResultsLayer + Mesh2DRunLayer.
+add_swmmvis_gui_test(test_plot_batch_counts
+    test_plot_batch_counts.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_plot_batch_counts)
+
 # Minimum Cell Size group on the mesh-generation dialog's Quality tab. Needs
 # the full app: the dialog takes a live SWMMVisProjectWindow. The default-OFF
 # state is the point — an untouched project must still mesh exactly as before.

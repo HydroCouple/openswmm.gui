@@ -95,6 +95,13 @@ public:
                   const openswmmvis::plot::ObjectRef& ref,
                   const openswmmvis::plot::ResultDescriptor& descriptor);
 
+    /*! \brief Add several (object, descriptor) series to one run with a
+     *  single tree/chart rebuild. Invalid pairs are skipped. Returns the
+     *  count of series added. */
+    int addSeriesBatch(int runIndex,
+                       const QVector<QPair<openswmmvis::plot::ObjectRef,
+                                           openswmmvis::plot::ResultDescriptor>>& items);
+
     /*! \brief CF.3 — add per-cell series for the supplied attribute list.
      *  Returns the count of series successfully added. */
     int addCellSeries(int runIndex,
