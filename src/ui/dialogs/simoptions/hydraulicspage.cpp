@@ -150,9 +150,13 @@ void HydraulicsPage::buildUi()
     solForm->addRow(tr("Ma&x trials:"), m_maxTrialsSpin);
 
     m_headTolSpin = new QDoubleSpinBox(solGroup);
-    m_headTolSpin->setRange(0.000001, 1.0);
+    // 0 is the engine's "unset" sentinel (dynwave default 0.005 ft); a floor
+    // above it rewrote every unset deck to 1e-6 on an unedited Apply.
+    m_headTolSpin->setRange(0.0, 1.0);
     m_headTolSpin->setDecimals(6);
-    m_headTolSpin->setToolTip(tr("Head convergence tolerance (HEAD_TOLERANCE)."));
+    m_headTolSpin->setSpecialValueText(tr("Default (0.005 ft)"));
+    m_headTolSpin->setToolTip(tr("Head convergence tolerance (HEAD_TOLERANCE). "
+                                 "0 uses the engine default of 0.005 ft."));
     solForm->addRow(tr("Head tolerance:"), m_headTolSpin);
 
     m_lengtheningSpin = new QDoubleSpinBox(solGroup);
