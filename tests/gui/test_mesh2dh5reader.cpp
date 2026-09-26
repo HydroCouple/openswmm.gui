@@ -15,6 +15,7 @@
  */
 #include <QtTest/QtTest>
 #include <QTemporaryFile>
+#include <QTemporaryDir>
 
 #include <hdf5.h>
 
@@ -355,6 +356,54 @@ class TestMesh2DH5Reader : public QObject
     Q_OBJECT
 
 private slots:
+    void readsGzipCompressedRainfall()
+    {
+        // Checking metadata alone is insufficient: older builds wrote a
+        // deflate declaration but skipped the filter on every data chunk.
+        // A genuinely compressed external result then failed on every read.
+        QVERIFY2(H5Zfilter_avail(H5Z_FILTER_DEFLATE) > 0,
+                 "HDF5 must include zlib support for compressed result files");
+        QTemporaryDir folder;
+        QVERIFY(folder.isValid());
+        const QString path = folder.filePath(QStringLiteral("compressed.h5"));
+        QVERIFY(QFile::copy(fixturePath_, path));
+        const hid_t fid = H5Fopen(path.toUtf8().constData(), H5F_ACC_RDWR, H5P_DEFAULT);
+        QVERIFY(fid >= 0);
+        const hsize_t dims[] = {3, 2};
+        const hsize_t chunk[] = {1, 2};
+        const hid_t space = H5Screate_simple(2, dims, nullptr);
+        const hid_t props = H5Pcreate(H5P_DATASET_CREATE);
+        QVERIFY(H5Pset_chunk(props, 2, chunk) >= 0);
+        const unsigned level = 4;
+        // Mandatory deflate: a missing encoder must not silently skip it.
+        QVERIFY(H5Pset_filter(props, H5Z_FILTER_DEFLATE, 0, 1, &level) >= 0);
+        const hid_t data = H5Dcreate2(fid, "Mesh2_face_rainfall", H5T_NATIVE_DOUBLE,
+                                    space, H5P_DEFAULT, props, H5P_DEFAULT);
+        QVERIFY(data >= 0);
+        const double values[] = {0, 0, 1e-6, 2e-6, 3e-6, 4e-6};
+        QVERIFY(H5Dwrite(data, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL,
+                        H5P_DEFAULT, values) >= 0);
+        QVERIFY(H5Fflush(fid, H5F_SCOPE_LOCAL) >= 0);
+        const hsize_t offset[] = {1, 0};
+        unsigned filterMask = ~0u;
+        haddr_t address;
+        hsize_t size;
+        QVERIFY(H5Dget_chunk_info_by_coord(data, offset, &filterMask, &address, &size) >= 0);
+        QCOMPARE(filterMask, 0u); // this chunk really passed through deflate
+        H5Dclose(data);
+        H5Pclose(props);
+        H5Sclose(space);
+        H5Fclose(fid);
+
+        Mesh2DH5Reader reader;
+        QVERIFY(reader.open(path));
+        std::vector<float> rainfall;
+        QVERIFY(reader.readFaceFieldAt("Mesh2_face_rainfall", 1, rainfall));
+        QCOMPARE(rainfall.size(), std::size_t(2));
+        QCOMPARE(rainfall[0], float(1e-6));
+        QCOMPARE(rainfall[1], float(2e-6));
+    }
+
     void initTestCase()
     {
         fixturePath_ = writeFixture();
