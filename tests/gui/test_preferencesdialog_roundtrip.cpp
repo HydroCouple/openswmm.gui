@@ -159,9 +159,9 @@ void TestPreferencesDialogRoundtrip::structure()
     const QStringList expected{
         QStringLiteral("General"),
         QStringLiteral("Selection"),
-        // Renders with both ampersands: addCategory feeds a QListWidgetItem,
-        // which takes no mnemonic. Pre-existing; PLAN §3 leaves this row alone.
-        QStringLiteral("Canvas && CRS"),
+        // A single "&": addCategory feeds a QListWidgetItem, which takes no
+        // mnemonic, so "&&" would render both ampersands (fixed in 30e1c839).
+        QStringLiteral("Canvas & CRS"),
         QStringLiteral("Rendering"),
         QStringLiteral("Simulation"),
         QStringLiteral("Simulation Defaults"),
@@ -177,21 +177,23 @@ void TestPreferencesDialogRoundtrip::structure()
     for (int i = 0; i < cats->count(); ++i) actual << cats->item(i)->text();
     QCOMPARE(actual, expected);
 
+    // tabText() is the source text: a literal ampersand in a tab label is
+    // "&&", since QTabBar reads a single "&" as a mnemonic (30e1c839).
     const struct { const char *tabs; QStringList titles; } kTabSets[] = {
         { "renderingTabs", { QStringLiteral("Labels"),
-                             QStringLiteral("Links & Nodes"),
+                             QStringLiteral("Links && Nodes"),
                              QStringLiteral("GPU"),
                              QStringLiteral("2D Mesh Edges") } },
         { "simulationDefaultsTabs",
-                           { QStringLiteral("Processes & Modules"),
-                             QStringLiteral("Hydraulics & Schedule"),
-                             QStringLiteral("Time Steps & Tolerances"),
+                           { QStringLiteral("Processes && Modules"),
+                             QStringLiteral("Hydraulics && Schedule"),
+                             QStringLiteral("Time Steps && Tolerances"),
                              QStringLiteral("Dynamic Wave"),
                              // Seven, not PLAN §3's five: the five 2D
                              // groups need 1318 px against a 746 px viewport
                              // (measured), so they split three ways.
                              QStringLiteral("2D Solver"),
-                             QStringLiteral("2D Coupling & Rainfall"),
+                             QStringLiteral("2D Coupling && Rainfall"),
                              QStringLiteral("2D Mesh") } },
     };
     for (const auto &set : kTabSets) {
