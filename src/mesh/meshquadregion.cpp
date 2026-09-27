@@ -95,10 +95,11 @@ QPointF ringCentroid(const QPolygonF &ring) noexcept
 {
     const int n = openCount(ring);
     if (n == 0) return QPointF();
+    const QPointF origin = ring.first();
     double a2 = 0.0, cx = 0.0, cy = 0.0;
     for (int i = 0; i < n; ++i)
     {
-        const QPointF &p = ring[i], &q = ring[(i + 1) % n];
+        const QPointF p = ring[i] - origin, q = ring[(i + 1) % n] - origin;
         const double c = cross(p, q);
         a2 += c;
         cx += (p.x() + q.x()) * c;
@@ -107,10 +108,10 @@ QPointF ringCentroid(const QPolygonF &ring) noexcept
     if (std::abs(a2) < 1e-300)
     {
         QPointF m;
-        for (int i = 0; i < n; ++i) m += ring[i];
-        return m / double(n);
+        for (int i = 0; i < n; ++i) m += ring[i] - origin;
+        return origin + m / double(n);
     }
-    return QPointF(cx / (3.0 * a2), cy / (3.0 * a2));
+    return origin + QPointF(cx / (3.0 * a2), cy / (3.0 * a2));
 }
 
 /*! Index of the domain containing \p p (boundary counts as inside); -1 when
@@ -138,9 +139,11 @@ int domainOf(const QVector<QPolygonF> &domains, const QPointF &p)
 double ringSignedArea(const QPolygonF &ring)
 {
     const int n = ring.size();
+    if (n < 3) return 0.0;
+    const QPointF origin = ring.first();
     double s = 0.0;
     for (int i = 0; i < n; ++i)
-        s += cross(ring[i], ring[(i + 1) % n]);
+        s += cross(ring[i] - origin, ring[(i + 1) % n] - origin);
     return 0.5 * s;
 }
 
@@ -249,6 +252,16 @@ QString validateQuadRegion(const QuadRegion &r,
                            const QVector<QPolygonF> &domains,
                            const QVector<QPolygonF> &holes)
 {
+    if (r.directionalSpacing) {
+        if (!std::isfinite(r.hAlong) || !(r.hAlong > 0)
+            || !std::isfinite(r.hAcross) || !(r.hAcross > 0)
+            || !std::isfinite(r.mappedAlongAngleDeg))
+            return QStringLiteral("directional Mapped spacing must be finite and positive with a finite along-axis angle");
+        if (r.mode != QuadRegionMode::Auto && r.mode != QuadRegionMode::Mapped)
+            return QStringLiteral("directional spacing requires Mapped mode or Auto resolving to Mapped");
+        if (r.isBackground || !r.holes.isEmpty())
+            return QStringLiteral("directional Mapped regions cannot be background regions or contain holes");
+    }
     if (!std::isfinite(r.aspectMax) || (r.aspectMax > 0.0 && r.aspectMax < 1.0))
         return QStringLiteral("quad aspect must be negative (inherit), zero (unbounded), or at least 1");
     const QPolygonF ring = normalizeRingCCW(r.ring);
@@ -264,7 +277,20 @@ QString validateQuadRegion(const QuadRegion &r,
     const double area = ringSignedArea(ring);
     if (!(area > 0.0))
         return QStringLiteral("quad region has zero area");
-    if (r.spacing > 0.0 && area < 4.0 * r.spacing * r.spacing)
+    if (r.directionalSpacing) {
+        double perimeter = 0;
+        for (int i = 0; i < ring.size(); ++i) {
+            const QPointF edge = ring[(i + 1) % ring.size()] - ring[i];
+            perimeter += std::hypot(edge.x(), edge.y());
+        }
+        // Account for rounding of stored, translated coordinates; do not make
+        // the minimum depend on cancellation in an absolute-coordinate area sum.
+        const double tolerance = 8 * std::numeric_limits<double>::epsilon() * ringScale(ring) * perimeter;
+        if (area + tolerance < 4.0 * r.hAlong * r.hAcross)
+            return QStringLiteral("quad region area %1 is below four directional target cells (%2 × %3)")
+                .arg(area).arg(r.hAlong).arg(r.hAcross);
+    }
+    if (!r.directionalSpacing && r.spacing > 0.0 && area < 4.0 * r.spacing * r.spacing)
         return QStringLiteral("quad region area %1 is below 4·h² = %2 (h = %3)")
             .arg(area).arg(4.0 * r.spacing * r.spacing).arg(r.spacing);
 

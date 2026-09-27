@@ -33,6 +33,7 @@
 class QTableWidget;
 class QLabel;
 class QLineEdit;
+class QPushButton;
 
 namespace OpenSWMMVis
 {
@@ -57,12 +58,16 @@ public:
      *         Property Browser's per-element "Initial Quality" cell. */
     void setElementScope(int isLink, const QString &elementName);
 
-    /*! \brief True once OK has written at least one change to the engine. */
+    /*! \brief True once any OK attempt has written a change, including a partial failure. */
     [[nodiscard]] bool wroteAnyChanges() const { return m_wroteAnyChanges; }
 
     /*! \brief Number of engine writes the last OK performed (0 when the
      *         dialog was accepted with no edits). Test-facing. */
     [[nodiscard]] int lastWriteCount() const { return m_lastWriteCount; }
+
+signals:
+    /*! At least one engine mutation succeeded, even if a later write failed. */
+    void changesApplied();
 
 private slots:
     void onAddRow();
@@ -74,8 +79,10 @@ private slots:
 private:
     void buildUi();
     void readFromEngine();
-    int  writeToEngine();          ///< returns the number of writes made
+    QString writeToEngine(QWidget *&failedWidget);
+    void setReadOnly();
     void populateElementCombo(int row);
+    void updateRowPresentation(int firstRow = 0);
 
     SWMM_Engine   m_engine          = nullptr;
     QTableWidget *m_table           = nullptr;
@@ -83,7 +90,9 @@ private:
     /// U2: `[INITIAL_QUALITY] FILE <csv>` reference and the table rows that
     /// came from it (shown greyed; neither re-written nor removed on OK).
     QLineEdit    *m_fileEdit        = nullptr;
+    QPushButton  *m_removeButton    = nullptr;
     QSet<int>     m_fileRows;
+    bool          m_editable = false;
     bool          m_wroteAnyChanges = false;
     int           m_lastWriteCount  = 0;
     int           m_scopeIsLink     = -1;   ///< -1 = whole-model mode

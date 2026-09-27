@@ -70,19 +70,24 @@ struct BurnRasterStats
 struct BurnRasterRequest
 {
     QString sourcePath;
-    QString outputPath;
+    QString outputPath;         ///< Job-owned physical stage; absent or an empty regular file.
+    QString logicalOutputPath;  ///< Final DEM path for report metadata; empty uses outputPath.
     int     band = 1;
     QVector<BurnProfile> profiles;
     BurnRule             rule;
-    /*! Called between raster blocks with a 0-100 percentage. Return false to
-     *  cancel; the partly written output is then deleted. */
+    /*! Called before copying, during copy and between raster blocks with a
+     *  monotone 0-100 percentage. Return false to cancel. Only the job-owned
+     *  partial output is deleted; existing nonempty outputs are refused. */
     std::function<bool(int, const QString &)> progress;
 };
 
 /*!
  * \brief Copy the source raster and rewrite the corridor window.
  *
- * \returns false and sets \p err on failure or cancellation.
+ * \returns false and sets \p err on failure or cancellation. Nonempty output
+ *          files, symlinks and source aliases are refused before writing.
+ *          Success confirms checked raster flush and close. The caller owns
+ *          staging/publication and any GDAL auxiliary files in the job folder.
  */
 bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QString *err);
 

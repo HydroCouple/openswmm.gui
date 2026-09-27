@@ -289,7 +289,9 @@ public slots:
     void setTreatmentRef(const NodeCompoundEditRef &) { emit changed(); }
     void setGroundwaterSourcesRef(const NodeCompoundEditRef &) { emit changed(); }
     void setUserFlagsRef(const UserFlagsEditRef &)    { emit changed(); }
-    void setInitialQualityRef(const InitialQualityEditRef &) { emit changed(); }
+    void setInitialQualityRef(const InitialQualityEditRef &ref) {
+        if (ref.wroteChanges) emit changed();
+    }
 
     // Slice DA.4.3 — outfall stage-data setters. Each calls the matching
     // swmm_node_set_outfall_* engine setter, which also flips the outfall

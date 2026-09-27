@@ -1030,6 +1030,168 @@ private slots:
         QCOMPARE(f.readAll(), before);
     }
 
+    void replacement_changesTopologyAndRebuildsFullPayload()
+    {
+        ReviewableTestDir dir;
+        const QString path = dir.filePath("replacement.inp");
+        QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("[TITLE]\nReplacement fixture\n[2D_OPTIONS]\nSOLVER EXPLICIT\n"); f.close();
+        QVERIFY(InpMeshWriter::writeInline(path, sampleMesh(), sampleCoupling()));
+        QVERIFY(f.open(QIODevice::Append));
+        f.write("\n[2D_MESH_FILE]\nFILE old.2dm\n"); f.close();
+        auto mesh = mixedMesh();
+        mesh.vertices[0].coupledNode = "NewNode";
+        mesh.vertices[0].couplingCd = 0.61;
+        mesh.vertices[0].couplingArea = 2.125;
+        mesh.cellCouplings.append({2, "CellNode", 0.72, 1.375});
+        mesh.triangles[0].mannings = 0.067;
+        mesh.triangles[0].initDepth = 0.125;
+        InfilRow row; row.method = InfilMethod::Constant; row.p[0] = 0.12345678901234567;
+        mesh.infilDefaults.append({"*", row}); mesh.infilOverrides.insert(2, row);
+        QVector<MeshEdgeBC> bcs(edgeSlotCount(mesh.triangles.size()));
+        bcs[edgeSlot(2, 3)].type = MeshBCTypes::Type::SpecifiedFlowConst;
+        bcs[edgeSlot(2, 3)].flow = -0.625;
+        bcs[edgeSlot(2, 3)].group = "NewOutlet";
+        bcs[edgeSlot(2, 3)].conveyance = 0.375;
+        InpMeshWriter::UnitInfo units; units.linearUnitName = "SI (m)";
+        units.sourceCrsTag = "EPSG:3857";
+        QString error;
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            QVERIFY2(InpMeshWriter::replaceMeshSections(path, mesh, bcs, &error, 0.035, &units), qPrintable(error));
+            const auto loaded = InpMeshReader::read(path);
+            QVERIFY2(loaded.hasMesh, qPrintable(loaded.errorMsg));
+            QCOMPARE(loaded.mesh.vertices.size(), mesh.vertices.size());
+            QCOMPARE(loaded.mesh.quadCount(), 1);
+            QCOMPARE(loaded.mesh.vertices[0].coupledNode, QStringLiteral("NewNode"));
+            QCOMPARE(loaded.mesh.vertices[0].couplingCd, 0.61);
+            QCOMPARE(loaded.mesh.vertices[0].couplingArea, 2.125);
+            QCOMPARE(loaded.mesh.cellCouplings.size(), 1);
+            QCOMPARE(loaded.mesh.cellCouplings[0].tri, 2);
+            QCOMPARE(loaded.mesh.cellCouplings[0].cd, 0.72);
+            QCOMPARE(loaded.mesh.cellCouplings[0].area, 1.375);
+            QCOMPARE(loaded.mesh.triangles[0].mannings, 0.067);
+            QCOMPARE(loaded.mesh.triangles[0].initDepth, 0.125);
+            QCOMPARE(loaded.mesh.infilOverrides.value(2).p[0], row.p[0]);
+            QCOMPARE(loaded.edgeBCs[edgeSlot(2, 3)].flow, -0.625);
+            QCOMPARE(loaded.edgeBCs[edgeSlot(2, 3)].conveyance, 0.375);
+            QVERIFY(f.open(QIODevice::ReadOnly)); const auto bytes = f.readAll(); f.close();
+            QVERIFY(bytes.contains("[2D_OPTIONS]\nSOLVER EXPLICIT"));
+            QVERIFY(bytes.contains(";; UNITS: SI (m)"));
+            QVERIFY(!bytes.contains("[2D_MESH_FILE]"));
+            QVERIFY(!bytes.contains("old.2dm"));
+        }
+    }
+
+    void topologyGuard_refusesUnsupportedAssignments_data()
+    {
+        QTest::addColumn<QString>("section");
+        QTest::addColumn<QString>("row");
+        for (const QString &section : {"2D_INITIAL_QUALITY", "2D_COVERAGES", "2D_LOADINGS",
+             "2D_CURB_LENGTH", "2D_AQUIFER", "GW_TRANSPORT_PARAMS", "GW_SORPTION", "GW_INITIAL_QUALITY"}) {
+            QTest::newRow(qPrintable(section + "-cell")) << section << QString("CELL 1 authored payload");
+            QTest::newRow(qPrintable(section + "-tag")) << section << QString("TAG bank authored payload");
+        }
+        QTest::newRow("velocity") << QString("2D_INITIAL_VELOCITY") << QString("0 1 2");
+        QTest::newRow("boundary-quality") << QString("2D_BOUNDARY_QUALITY") << QString("0 1 Lead 0.5");
+        QTest::newRow("gw-boundary") << QString("GW_BOUNDARY_QUALITY") << QString("1 0 Lead CONC 0.5");
+        QTest::newRow("aquifer-node") << QString("2D_AQUIFER_NODE") << QString("J1 1 KC 0.01 DC 0.5");
+        QTest::newRow("gw-source-cell") << QString("GW_SOURCES") << QString("Well CELL 1 FLOW 1");
+        QTest::newRow("gw-source-tag") << QString("GW_SOURCES") << QString("Well TAG bank FLOW 1");
+        QTest::newRow("gw-file") << QString("GW_INITIAL_QUALITY") << QString("FILE external.csv");
+        QTest::newRow("lowercase-header-with-comment") << QString("2d_initial_velocity") << QString("0 1 2");
+    }
+
+    void topologyGuard_refusesUnsupportedAssignments()
+    {
+        QFETCH(QString, section); QFETCH(QString, row);
+        ReviewableTestDir dir;
+        const QString path = dir.filePath("unsupported.inp");
+        QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly));
+        const QString headerComment = section == "2d_initial_velocity" ? " ; header comment" : "";
+        const QByteArray before = (sampleInpText() + "\n[" + section + "]" + headerComment
+                                   + "\n" + row + " ; comment\n").toUtf8();
+        QCOMPARE(f.write(before), before.size()); f.close();
+        QString error;
+        QVERIFY(!InpMeshWriter::validateTopologyReplacement(path, &error));
+        QVERIFY2(error.contains("remap", Qt::CaseInsensitive), qPrintable(error));
+        const auto mesh = sampleMesh();
+        QVERIFY(!InpMeshWriter::replaceMeshSections(path, mesh,
+            QVector<MeshEdgeBC>(edgeSlotCount(mesh.triangles.size())), &error));
+        QVERIFY(f.open(QIODevice::ReadOnly)); QCOMPARE(f.readAll(), before);
+    }
+
+    void topologyGuard_preservesUniformAndLocationConfiguration()
+    {
+        ReviewableTestDir dir;
+        const QString path = dir.filePath("uniform.inp");
+        const QByteArray config =
+            "[2D_OPTIONS]\nGROUNDWATER AUTO\n"
+            "[2D_AQUIFER_OPTIONS]\nMODE MESH\n"
+            "[2D_AQUIFER]\n* 0.5 5 0.45 0.1 2\n"
+            "[2D_AQUIFER_NODE]\n\"Node one\" AUTO KC 0.01 DC 0.5\n"
+            "[2D_AQUIFER_LINKS]\nC1 KC 0.01 DC 0.5 EXCHANGE YES\n"
+            "[GW_TRANSPORT_OPTIONS]\nTRANSPORT_POLLUTANTS YES\n"
+            "[GW_TRANSPORT_PARAMS]\n* 2600 800 2 0 0 0 0 0 0\n"
+            "[GW_SORPTION]\n* Lead 1 -\n"
+            "[GW_INITIAL_QUALITY]\n* SAT Lead 1\n"
+            "[GW_SOURCES]\n\"Well one\" XY 5 5 FLOW 1\n"
+            "[2D_INITIAL_QUALITY]\n* Lead 1\n"
+            "[2D_COVERAGES]\n* Residential 100\n"
+            "[2D_LOADINGS]\n* Lead 1\n"
+            "[2D_CURB_LENGTH]\n* 0\n"
+            "[2D_INITIAL_VELOCITY]\n; no authored rows\n";
+        QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly)); f.write(config); f.close();
+        QString error;
+        QVERIFY2(InpMeshWriter::validateTopologyReplacement(path, &error), qPrintable(error));
+        auto mesh = sampleMesh();
+        QVERIFY2(InpMeshWriter::replaceMeshSections(path, mesh,
+            QVector<MeshEdgeBC>(edgeSlotCount(mesh.triangles.size())), &error), qPrintable(error));
+        QVERIFY(f.open(QIODevice::ReadOnly)); QVERIFY(f.readAll().contains(config));
+    }
+
+    void preparedReference_usesLogicalPath()
+    {
+        ReviewableTestDir dir;
+        const QString model = dir.filePath(".stage-model");
+        const QString physical = dir.filePath(".stage-mesh");
+        const QString logical = dir.filePath("new-final.2dm");
+        QFile f(model); QVERIFY(f.open(QIODevice::WriteOnly)); f.write(sampleInpText().toUtf8()); f.close();
+        QFile mesh(physical); QVERIFY(mesh.open(QIODevice::WriteOnly)); mesh.write("prepared mesh\n"); mesh.close();
+        QVERIFY(!QFile::exists(logical));
+        QString error;
+        QVERIFY2(InpMeshWriter::writePreparedMeshFileRef(model, logical, physical, &error), qPrintable(error));
+        QVERIFY(f.open(QIODevice::ReadOnly)); const auto bytes = f.readAll();
+        QVERIFY(bytes.contains("FILE  new-final.2dm"));
+        QVERIFY(!bytes.contains(".stage-mesh"));
+        QVERIFY(!QFile::exists(logical));
+    }
+
+    void preparedReference_invalidStage_data()
+    {
+        QTest::addColumn<int>("kind");
+        QTest::newRow("missing") << 0;
+        QTest::newRow("empty") << 1;
+        QTest::newRow("directory") << 2;
+    }
+
+    void preparedReference_invalidStage()
+    {
+        QFETCH(int, kind);
+        ReviewableTestDir dir;
+        const QString model = dir.filePath("model.inp");
+        const QString physical = dir.filePath("stage");
+        const QString logical = dir.filePath("existing.2dm");
+        QFile f(model); QVERIFY(f.open(QIODevice::WriteOnly)); const auto before = sampleInpText().toUtf8();
+        f.write(before); f.close();
+        QFile target(logical); QVERIFY(target.open(QIODevice::WriteOnly)); target.write("existing mesh\n"); target.close();
+        if (kind == 1) { QFile stage(physical); QVERIFY(stage.open(QIODevice::WriteOnly)); }
+        if (kind == 2) QVERIFY(QDir().mkpath(physical));
+        QString error;
+        QVERIFY(!InpMeshWriter::writePreparedMeshFileRef(model, logical, physical, &error));
+        QVERIFY(!error.isEmpty());
+        QVERIFY(f.open(QIODevice::ReadOnly)); QCOMPARE(f.readAll(), before);
+    }
+
 };
 
 QTEST_MAIN(TestInpMeshWriter)

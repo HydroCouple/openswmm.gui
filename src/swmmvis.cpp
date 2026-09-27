@@ -1353,6 +1353,10 @@ void SWMMVis::initializeMeshEditingToolBar()
                                      ? pw->modelLayer()->engine() : nullptr;
             openswmmvis::ui::Mesh2DGroundwaterDialog dlg(
                 engine, this, page, pw ? pw->unitSystem() : nullptr);
+            if (pw) {
+                connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied,
+                        pw, [pw] { pw->setHasChanges(true); });
+            }
             dlg.exec();
         };
 
@@ -7895,9 +7899,11 @@ void SWMMVis::onEditInitialQuality()
     }
 
     OpenSWMMVis::InitialQualityDialog dlg(pw->modelLayer()->engine(), this);
-    if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
+    connect(&dlg, &OpenSWMMVis::InitialQualityDialog::changesApplied,
+            pw, [pw] { pw->setHasChanges(true); });
+    dlg.exec();
+    if (dlg.wroteAnyChanges())
     {
-        pw->setHasChanges(true);
         // The Attribute Table surfaces the same [INITIAL_QUALITY] rows as
         // per-constituent columns — reload it so a whole-model edit shows
         // up without switching categories (CLAUDE.md §5.1 sync).

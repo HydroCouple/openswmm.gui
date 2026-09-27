@@ -156,7 +156,9 @@ public:
      * \param progress Optional progress/cancel callback (see DTMProgressFn).
      * \param limits   Resource ceilings — defaults are production values;
      *                 exposed for tests.
-     * \return         (x, y) coordinates of retained terrain-feature vertices.
+     * \return         Double-precision global lattice coordinates of retained
+     *                 terrain-feature vertices. Normal scoring uses band-local
+     *                 horizontal float offsets to avoid projected-origin loss.
      */
     [[nodiscard]] QVector<QPointF> generatePoints(const MapExtent        &domain,
                                                    const DTMThinnerOptions &opts = {},
@@ -231,8 +233,9 @@ private:
     /*! \brief Fill band-local grid arrays for global grid rows
      *  [\p rBegG, \p rEndG).  Streams the raster in strips under the
      *  read-buffer budget; band-local index = int(r - rBegG)*cols + c, but
-     *  lattice coordinates always come from the GLOBAL row so banding never
-     *  shifts the grid.  Returns false on RasterIO failure (errorMsg set) or
+     *  sampling coordinates always come from the GLOBAL row so banding never
+     *  shifts the grid. gx/gy hold local horizontal offsets for normal scoring,
+     *  not output coordinates. Returns false on RasterIO failure (errorMsg set) or
      *  cancellation via \p tick (errorMsg left empty — caller labels it). */
     bool fillBandGrid(double x0, double y0, double step, int cols, qint64 rows64,
                       qint64 rBegG, qint64 rEndG,

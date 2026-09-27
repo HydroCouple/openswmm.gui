@@ -55,5 +55,8 @@ void InitialQualityEditButton::onClicked()
     m_ref.summary = initialQualitySummaryFor(m_ref.engine, m_ref.isLink,
                                              m_ref.elementName);
     refreshLabel();
-    emit valueChanged();
+    if (dlg.wroteAnyChanges()) {
+        m_ref.wroteChanges = true;
+        emit valueChanged();
+    }
 }

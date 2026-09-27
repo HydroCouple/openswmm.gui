@@ -9,8 +9,6 @@
  */
 #include "mesh/channelburnlattice.h"
 
-#include "mesh/meshcellgeom.h"
-
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -176,10 +174,6 @@ PatchMesh corridorPatchGeometry(const BurnLattice &lat, QString *err)
     // Cells. The lattice is conformal, so each (i, k) cell is simply its four
     // lattice corners; winding is fixed per cell rather than assumed, because a
     // reversed centreline would otherwise emit the whole patch clockwise.
-    QVector<MeshVertex> verts;
-    verts.reserve(pm.xy.size());
-    for (const QPointF &p : pm.xy) { MeshVertex v; v.xy = p; verts.append(v); }
-
     pm.quads.reserve(qsizetype(lat.nAlong - 1) * (lat.nAcross - 1));
     for (int i = 0; i + 1 < lat.nAlong; ++i)
     {
@@ -190,18 +184,18 @@ PatchMesh corridorPatchGeometry(const BurnLattice &lat, QString *err)
             q.v1 = lat.at(i,     k + 1);
             q.v2 = lat.at(i + 1, k + 1);
             q.v3 = lat.at(i + 1, k);
-            if (cellSignedArea(verts, q) < 0.0) std::swap(q.v1, q.v3);
+            // Subtract a local origin before multiplying: small cells in a
+            // projected CRS otherwise lose their winding to cancellation.
+            const QPointF origin = pm.xy[q.v0];
+            double twiceArea = 0.0;
+            for (int edge = 0; edge < 4; ++edge) {
+                const QPointF a = pm.xy[q.vertex(edge)] - origin;
+                const QPointF b = pm.xy[q.vertex((edge + 1) % 4)] - origin;
+                twiceArea += a.x() * b.y() - b.x() * a.y();
+            }
+            if (twiceArea < 0.0) std::swap(q.v1, q.v3);
             pm.quads.append(q);
         }
-    }
-
-    const QString bad = validate(pm);
-    if (!bad.isEmpty())
-    {
-        if (err) *err = QStringLiteral("conduit '%1': %2 (the corridor folds — smooth the "
-                                       "centreline or reduce the corridor width)")
-                            .arg(lat.conduitId, bad);
-        return PatchMesh();
     }
 
     // Boundary loop: down the left edge, across the tail, up the right edge,
@@ -213,6 +207,15 @@ PatchMesh corridorPatchGeometry(const BurnLattice &lat, QString *err)
     for (int i = lat.nAlong - 1; i > 0; --i)
         pushSeg(lat.at(i, lat.nAcross - 1), lat.at(i - 1, lat.nAcross - 1));
     for (int k = lat.nAcross - 1; k > 0; --k) pushSeg(lat.at(0, k), lat.at(0, k - 1));
+
+    const QString bad = validate(pm);
+    if (!bad.isEmpty())
+    {
+        if (err) *err = QStringLiteral("conduit '%1': %2 (the corridor folds — smooth the "
+                                       "centreline or reduce the corridor width)")
+                            .arg(lat.conduitId, bad);
+        return PatchMesh();
+    }
 
     return pm;
 }

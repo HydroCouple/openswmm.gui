@@ -18,6 +18,7 @@
 #include <QVBoxLayout>
 
 #include "ui/dialogs/initialqualitydialog.h"
+#include "swmmvisprojectwindow.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/wateragesourcesdialog.h"
 
@@ -221,7 +222,11 @@ void QualityPage::buildUi()
            "(INITIAL_QUALITY), overriding the global Cinit."));
     connect(initQualBtn, &QPushButton::clicked, this, [this]() {
         OpenSWMMVis::InitialQualityDialog dlg(ctx_.engine(), this);
-        dlg.exec();   // writes straight to the engine; OK/Cancel is its own
+        if (auto *project = ctx_.projectWindow()) {
+            connect(&dlg, &OpenSWMMVis::InitialQualityDialog::changesApplied,
+                    project, [project] { project->setHasChanges(true); });
+        }
+        dlg.exec();   // successful and partial writes survive outer Cancel
     });
     resLay->addWidget(initQualBtn);
     resTabLay->addWidget(resGroup);

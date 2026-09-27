@@ -635,6 +635,7 @@ set(
         include/mesh/meshhoverprobe.h
         include/mesh/meshobjectref.h
         include/mesh/meshpatch.h
+        include/mesh/corridorsource.h
         include/mesh/meshquadmerge.h
         include/mesh/meshquadquality.h
         include/mesh/meshquadregion.h
@@ -815,6 +816,7 @@ set(
         # Phase GG0d — mesh generation region-defaults table (INTEGRATED2D_GW
         # GUI plan §3.3), extracted so buildUi() does not grow further (§7).
         include/ui/widgets/meshregiondefaultswidget.h
+        include/ui/widgets/corridorsourceswidget.h
 
         # ── Dialogs ──────────────────────────────────────────────────────────
         # Shared confirm → convert → summary flow for node/link type changes.
@@ -1354,6 +1356,7 @@ set(
         src/mesh/meshinfil.cpp
         src/mesh/meshminsizecleanup.cpp
         src/mesh/meshpatch.cpp
+        src/mesh/corridorsource.cpp
         src/mesh/meshquadmerge.cpp
         src/mesh/meshquadregion.cpp
         src/mesh/meshcrossfield.cpp
@@ -1645,6 +1648,7 @@ set(
         src/ui/widgets/stylepropertydelegate.cpp
         # Phase GG0d — mesh generation region-defaults table impl.
         src/ui/widgets/meshregiondefaultswidget.cpp
+        src/ui/widgets/corridorsourceswidget.cpp
 
         # ── Forms ────────────────────────────────────────────────────────────
         forms/swmmvis.ui

@@ -18,6 +18,33 @@ namespace {
 
 constexpr float kInf = std::numeric_limits<float>::max();
 
+// Shared layout keeps the worker's bounded accumulator and final field aligned.
+bool gridLayout(const QRectF &bbox, const SizeFieldOptions &opt,
+                int &cols, int &rows, double &pitch, double &x0, double &y0)
+{
+    cols = rows = 0;
+    if (!std::isfinite(opt.nearSize) || opt.nearSize <= 0.0
+        || !std::isfinite(opt.gradation) || opt.gradation <= 0.0
+        || opt.maxGridCells < 9 || !bbox.isValid()
+        || !std::isfinite(bbox.left()) || !std::isfinite(bbox.top())
+        || !std::isfinite(bbox.width()) || !std::isfinite(bbox.height()))
+        return false;
+    pitch = std::max(opt.nearSize / 2.0,
+        std::sqrt(bbox.width() * bbox.height() / double(opt.maxGridCells)));
+    if (!std::isfinite(pitch) || pitch <= 0.0) return false;
+    const double nc = std::ceil(bbox.width() / pitch) + 3.0;
+    const double nr = std::ceil(bbox.height() / pitch) + 3.0;
+    const double total = nc * nr;
+    if (total <= 0.0 || total > double(opt.maxGridCells) * 2.0
+        || total > double(std::numeric_limits<int>::max()))
+        return false;
+    cols = int(nc);
+    rows = int(nr);
+    x0 = bbox.left() - pitch;
+    y0 = bbox.top() - pitch;
+    return true;
+}
+
 /*! Squared distance from p to segment [a, b]. */
 double distSqToSeg(const QPointF &p, const QPointF &a, const QPointF &b)
 {
@@ -36,19 +63,50 @@ double distSqToSeg(const QPointF &p, const QPointF &a, const QPointF &b)
 
 } // namespace
 
+bool TerrainSizeInput::prepare(const QRectF &bbox, const SizeFieldOptions &opt)
+{
+    m_count.clear();
+    m_samples = 0;
+    m_cols = m_rows = 0;
+    if (!opt.terrainDensity
+        || !gridLayout(bbox, opt, m_cols, m_rows, m_pitch, m_x0, m_y0))
+        return false;
+    m_count.fill(0, m_cols * m_rows);
+    return true;
+}
+
+void TerrainSizeInput::addAcceptedPoint(const QPointF &point)
+{
+    if (m_count.isEmpty()) return;
+    const double c = std::floor((point.x() - m_x0) / m_pitch + 0.5);
+    const double r = std::floor((point.y() - m_y0) / m_pitch + 0.5);
+    // Compare before narrowing: reject NaN/Inf and far-outside points safely.
+    if (!(c >= 0.0 && c < m_cols && r >= 0.0 && r < m_rows)) return;
+    quint32 &count = m_count[int(r) * m_cols + int(c)];
+    if (count < std::numeric_limits<quint32>::max()) {
+        ++count;
+        ++m_samples;
+    }
+}
+
 bool SizeField::build(const QRectF &bbox,
                       const QVector<ConstraintSegment>  &segs,
                       const QVector<QVector<QPointF>>   &rings,
                       const QVector<SteinerPoint>       &pts,
-                      const SizeFieldOptions &opt)
+                      const SizeFieldOptions &opt,
+                      const TerrainSizeInput *terrain)
 {
     m_cols = m_rows = 0;
     m_dist.clear();
     m_hTerrain.clear();
 
-    if (opt.nearSize <= 0.0 || opt.gradation <= 0.0 || opt.maxGridCells < 9)
+    int cols = 0, rows = 0;
+    if (!gridLayout(bbox, opt, cols, rows, m_pitch, m_x0, m_y0))
         return false;
-    if (!bbox.isValid() || bbox.width() <= 0.0 || bbox.height() <= 0.0)
+    if (opt.terrainDensity && terrain
+        && (terrain->m_cols != cols || terrain->m_rows != rows
+            || terrain->m_pitch != m_pitch || terrain->m_x0 != m_x0
+            || terrain->m_y0 != m_y0))
         return false;
 
     bool haveSeed = false;
@@ -60,33 +118,16 @@ bool SizeField::build(const QRectF &bbox,
     if (!haveSeed)
         for (const SteinerPoint &sp : pts)
             if (sp.marker != 0) { haveSeed = true; break; }
-    if (!haveSeed) return false;
+    if (!haveSeed && !(opt.terrainDensity && terrain && terrain->m_samples > 0))
+        return false;
 
     m_near  = opt.nearSize;
     m_g     = opt.gradation;
     m_floor = std::max(opt.areaFloor, 0.0);
 
-    // Pitch: fine enough to resolve the near-feature scale, coarse enough to
-    // fit the budget. A coarser pitch changes distance approximation and
-    // interpolation error; feature-resolution bounds need separate verification.
-    const double area = bbox.width() * bbox.height();
-    m_pitch = std::max(m_near / 2.0,
-                       std::sqrt(area / static_cast<double>(opt.maxGridCells)));
-
-    // One cell of margin so bilinear sampling near the hull never clamps hard.
-    m_cols = static_cast<int>(std::ceil(bbox.width()  / m_pitch)) + 3;
-    m_rows = static_cast<int>(std::ceil(bbox.height() / m_pitch)) + 3;
-    m_x0   = bbox.left() - m_pitch;   // centre of cell (0, 0)
-    m_y0   = bbox.top()  - m_pitch;
-
-    const qint64 total = static_cast<qint64>(m_cols) * m_rows;
-    if (total <= 0 || total > opt.maxGridCells * 2)
-    {
-        // Defensive: ceil + margin can overshoot the budget slightly; a real
-        // 2x overshoot means the arithmetic above is being abused.
-        m_cols = m_rows = 0;
-        return false;
-    }
+    m_cols = cols;
+    m_rows = rows;
+    const int total = m_cols * m_rows;
 
     m_dist.fill(kInf, static_cast<int>(total));
 
@@ -132,30 +173,24 @@ bool SizeField::build(const QRectF &bbox,
         }
 
     // ── Terrain-density size bound (plan §3.4) ──────────────────────────
-    // The thinner already chose the local resolution by where it put points,
-    // so the local point spacing IS the target size. Seed it per cell, then
-    // spread it under the SAME Lipschitz slope as the feature grading, so a
-    // fine patch of terrain refines its neighbourhood at a bounded rate
-    // instead of stepping.
+    // This areal-density estimate is a refinement hint, not a guarantee of
+    // line-feature spacing or final terrain error. The worker supplies accepted
+    // terrain independently of auxiliary points, without copying its cloud.
     if (opt.terrainDensity)
     {
-        QVector<int> count(static_cast<int>(total), 0);
-        int seeded = 0;
-        for (const SteinerPoint &sp : pts)
-        {
-            if (sp.marker != 0) continue;              // tagged points already seed m_dist
-            const int c = static_cast<int>(std::floor((sp.xy.x() - m_x0) / m_pitch + 0.5));
-            const int r = static_cast<int>(std::floor((sp.xy.y() - m_y0) / m_pitch + 0.5));
-            if (c < 0 || c >= m_cols || r < 0 || r >= m_rows) continue;
-            ++count[r * m_cols + c];
-            ++seeded;
+        TerrainSizeInput legacy;
+        if (!terrain) {
+            legacy.prepare(bbox, opt);
+            for (const SteinerPoint &sp : pts)
+                if (sp.marker == 0) legacy.addAcceptedPoint(sp.xy);
+            terrain = &legacy;
         }
-        if (seeded > 0)
+        if (terrain->m_samples > 0)
         {
             m_hTerrain.fill(kInf, static_cast<int>(total));
             for (int i = 0; i < static_cast<int>(total); ++i)
-                if (count[i] > 0)
-                    m_hTerrain[i] = static_cast<float>(m_pitch / std::sqrt(double(count[i])));
+                if (terrain->m_count[i] > 0)
+                    m_hTerrain[i] = static_cast<float>(m_pitch / std::sqrt(double(terrain->m_count[i])));
 
             const float g1 = static_cast<float>(m_g * m_pitch);
             const float g2 = static_cast<float>(m_g * m_pitch * 1.41421356237309515);

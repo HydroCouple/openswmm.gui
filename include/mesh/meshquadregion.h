@@ -55,6 +55,9 @@ struct QuadRegion
     bool           isBackground = false;
     QuadRegionMode mode = QuadRegionMode::Auto;
     double spacing   = 0.0;              ///< Target quad edge length h; 0 = derive from the size field / max area.
+    bool directionalSpacing = false;    ///< Explicit Mapped spacing; failure must not fall back to isotropic cells.
+    double hAlong = 0.0, hAcross = 0.0;  ///< Positive spacings in mesh CRS units, used only when directionalSpacing.
+    double mappedAlongAngleDeg = 0.0;   ///< Physical undirected along-axis, degrees from +x CCW; independent of ring start.
     double aspectMax = -1.0;             ///< Free: opposite-side mean ratio cap; < 0 inherits global, 0 unbounded, >= 1 explicit.
     bool   hasAlignAngle = false;        ///< Free: constant cross field at alignAngleDeg (from +x, CCW).
     double alignAngleDeg = 0.0;

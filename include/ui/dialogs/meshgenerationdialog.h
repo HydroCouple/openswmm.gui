@@ -26,6 +26,7 @@
 #include "mesh/channelburnboundary.h"
 #include "mesh/channelburnlattice.h"
 #include "mesh/channelburnnetwork.h"
+#include "mesh/corridorsource.h"
 #include "mesh/meshgenerator.h"
 #include "mesh/meshquadquality.h"
 #include "mesh/meshquadregion.h"
@@ -36,13 +37,19 @@
 
 #include <QDialog>
 #include <QFutureWatcher>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <memory>
 
+class GeneratedMeshArtifacts;
 class SWMMVisProjectWindow;
+class SWMMModelLayer;
+class QCloseEvent;
 class GISVectorLayer;
 class MeshRegionDefaultsWidget;
+class CorridorSourcesWidget;
 
 class QCheckBox;
 class QComboBox;
@@ -175,6 +182,7 @@ public:
         // elevation fill and attribute seeding (so the bed-planarity test
         // sees real z) rather than inside generate().
         QVector<mesh::PatchMesh> patches;
+        QVector<mesh::CorridorSource> corridorSources;
 
         // ── PSLG quad regions (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3.1) ──
         // Regions the GUI thread could resolve itself (named subcatchments —
@@ -353,8 +361,10 @@ public:
         mesh::MeshResult  meshResult;
         mesh::CouplingMap coupling;
         QString           meshPath;
-        bool              meshUnitsSI = false; ///< Same units as the written mesh header.
+        bool              meshUnitsSI = false; ///< Units of the pending generated mesh.
         mesh::MeshOutputMode outputMode = mesh::MeshOutputMode::External;
+        QVector<mesh::CorridorSource> corridorSources;
+        QVector<mesh::CorridorSourceStamp> corridorSourceStamps;
 
         // ── Channel burn-in outcome ──────────────────────────────────────
         /*! Everything the GUI thread needs to perform the 1D surgery, computed
@@ -369,6 +379,7 @@ public:
             QHash<QString, double>       outfallMaxDepth; ///< node id → mesh bed − invert.
         };
 
+        std::shared_ptr<GeneratedMeshArtifacts> generatedArtifacts;
         QString               burnedDemPath;
         QString               burnReportPath;
         mesh::BurnRasterStats burnStats;
@@ -381,6 +392,12 @@ public:
                                   QWidget *parent = nullptr);
     ~MeshGenerationDialog() override;
 
+public slots:
+    void reject() override;
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
+
 private slots:
     void onBrowseMeshPath();
     void onAccept();
@@ -390,6 +407,9 @@ private slots:
     void onCancelOrReject();
 
 private:
+    friend class TestMeshTerrainPipeline;
+    friend class TestMeshPatchDialog;
+    static void runMeshPipeline(QPromise<PipelineResult> &promise, PipelineInputs in);
     void buildUi();
     void seedDefaults();
     void populateLayerCombos();
@@ -430,7 +450,17 @@ private:
      *  no extent, etc.).  Does NOT start the worker. */
     bool collectInputs(PipelineInputs *out, QString *errOut) const;
 
-    SWMMVisProjectWindow *m_pw = nullptr;
+    void beginGenerationGuard();
+    void clearGenerationGuard();
+    bool generationOwnerIsCurrent() const;
+
+    QPointer<SWMMVisProjectWindow> m_pw;
+    QPointer<SWMMModelLayer> m_generationModel;
+    void *m_generationEngine = nullptr;
+    QString m_generationModelPath;
+    quint64 m_generationRevision = 0;
+    bool m_generationInvalidated = false;
+    QVector<QMetaObject::Connection> m_generationConnections;
 
     // ── Sources ─────────────────────────────────────────────────────
     QComboBox      *m_dtmCombo          = nullptr;
@@ -539,12 +569,17 @@ private:
     QLineEdit      *m_quadRegionSubcatchEdit = nullptr; ///< comma-separated subcatchment IDs
     QComboBox      *m_quadRegionModeCombo    = nullptr; ///< default mesh::QuadRegionMode
     QDoubleSpinBox *m_quadRegionSpacingSpin  = nullptr; ///< default h (map units; (from max area) at 0)
+    QCheckBox      *m_quadRegionDirectionalCheck = nullptr; ///< explicit Mapped directional spacing
+    QDoubleSpinBox *m_quadRegionAlongSpin    = nullptr; ///< Along spacing in mesh CRS units
+    QDoubleSpinBox *m_quadRegionAcrossSpin   = nullptr; ///< Across spacing in mesh CRS units
+    QDoubleSpinBox *m_quadRegionAxisSpin     = nullptr; ///< physical Along axis from +x, counter-clockwise
     QDoubleSpinBox *m_quadRegionAspectSpin   = nullptr; ///< default aspectMax
     QDoubleSpinBox *m_quadRegionAngleSpin    = nullptr; ///< default align angle ((from boundary) at min)
     /*! One row per structured patch: Type | Points | N/Across | M/Along |
      *  Width | Tag. Points are "x y; x y; …" in mesh CRS units — 4 corners
      *  for a four-sided patch, the centreline for a swept patch. */
     QTableWidget   *m_patchTable           = nullptr;
+    CorridorSourcesWidget *m_corridorSources = nullptr;
 
     // ── Thinning (terrain-adaptive Steiner points from DTM) ─────────
     QCheckBox      *m_thinningBox            = nullptr;
