@@ -28,6 +28,7 @@ private:
     GISVectorLayer *matchingLayer(const mesh::CorridorSource &source) const;
     void refreshLayers();
     void refreshFields();
+    void syncSourceMode();
     void updateSelectionMessage();
     void updateSourceLabels();
     void appendSource(const mesh::CorridorSource &source);
@@ -39,6 +40,7 @@ private:
     QVector<QPointer<GISVectorLayer>> m_layers;
     QVector<QMetaObject::Connection> m_layerConnections;
     QVector<mesh::CorridorSource> m_sources;
+    QComboBox *m_sourceMode = nullptr;
     QComboBox *m_layer = nullptr;
     QComboBox *m_widthMode = nullptr;
     QComboBox *m_widthField = nullptr;

@@ -132,7 +132,85 @@ class TestMeshTerrainPipeline : public QObject
         return true;
     }
 
+    static bool prepareBankFixture(const QDir &dir, Inputs &inputs, bool variable = false)
+    {
+        if (!prepareCorridorFixture(dir, inputs)) return false;
+        auto &source = inputs.corridorSources[0];
+        source.bankPair = true;
+        source.featureIds = {7, 8};
+        // Width is now controlled by the actual bank geometry, not this old value.
+        source.width = 1;
+        const QByteArray upper = variable ? "[[28,20],[16,21],[4,18]]" : "[[28,18],[4,18]]";
+        return writeBytes(source.path, QByteArray(R"({"type":"FeatureCollection","name":"corridors","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"features":[{"type":"Feature","id":7,"properties":{},"geometry":{"type":"LineString","coordinates":[[4,14],[28,14]]}},{"type":"Feature","id":8,"properties":{},"geometry":{"type":"LineString","coordinates":)")
+            + upper + "}}]}");
+    }
+
 private slots:
+    void bankPairReachesWorker_data()
+    {
+        QTest::addColumn<bool>("backgroundQuads");
+        QTest::addColumn<bool>("variable");
+        QTest::newRow("straight-triangles") << false << false;
+        QTest::newRow("straight-quads") << true << false;
+        QTest::newRow("varying-triangles") << false << true;
+        QTest::newRow("varying-quads") << true << true;
+    }
+
+    void bankPairReachesWorker()
+    {
+        QFETCH(bool, backgroundQuads);
+        QFETCH(bool, variable);
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT") + "/bank_pair/" + QTest::currentDataTag());
+        Inputs inputs;
+        QVERIFY(prepareBankFixture(dir, inputs, variable));
+        inputs.quadEverywhere = backgroundQuads;
+        inputs.quadEverywhereSpacing = 8;
+        inputs.outputMode = mesh::MeshOutputMode::External;
+        inputs.meshOutputPath = dir.filePath("pending.2dm");
+        QFile saved(inputs.inpPath); QVERIFY(saved.open(QIODevice::ReadOnly));
+        const QByteArray before = saved.readAll(); saved.close();
+        const auto generated = run(inputs);
+        QVERIFY2(generated.ok, qPrintable(generated.errorMsg));
+        QVERIFY(!generated.burnRan);
+        QCOMPARE(generated.corridorSources.size(), 1);
+        QVERIFY(generated.corridorSources.first().bankPair);
+        QVERIFY(!generated.corridorSources.first().geometryDigest.isEmpty());
+        double domainArea = 0, corridorArea = 0;
+        int cells = 0;
+        QSet<int> corridorVertices;
+        for (const auto &cell : generated.meshResult.triangles) {
+            const double area = mesh::cellGeom(generated.meshResult.vertices, cell).area;
+            domainArea += area;
+            if (cell.tag != "river") continue;
+            QVERIFY(cell.isQuad());
+            ++cells; corridorArea += area;
+            for (int id : {cell.v0, cell.v1, cell.v2, cell.v3}) corridorVertices.insert(id);
+            if (!variable) {
+                const auto &v = generated.meshResult.vertices;
+                const double a = QLineF(v[cell.v0].xy, v[cell.v1].xy).length();
+                const double b = QLineF(v[cell.v1].xy, v[cell.v2].xy).length();
+                QVERIFY(std::abs(std::max(a,b) - 6) < 1e-8);
+                QVERIFY(std::abs(std::min(a,b) - 2) < 1e-8);
+            }
+        }
+        if (!variable) QCOMPARE(cells, 8);
+        QVERIFY(std::abs(corridorArea - (variable ? 144.0 : 96.0)) < 1e-7);
+        QVERIFY(std::abs(domainArea - 1024) < 1e-7);
+        if (variable) {
+            bool bankVertexRetained = false;
+            for (int id : corridorVertices)
+                bankVertexRetained |= QLineF(generated.meshResult.vertices[id].xy, QPointF(16,21)).length() < 1e-9;
+            QVERIFY(bankVertexRetained);
+        }
+        QVERIFY(!QFileInfo::exists(inputs.meshOutputPath));
+        QVERIFY(saved.open(QIODevice::ReadOnly)); QCOMPARE(saved.readAll(), before);
+        inputs.corridorSources = generated.corridorSources;
+        inputs.corridorSources[0].featureIds = {7,999};
+        const auto refused = run(inputs);
+        QVERIFY(!refused.ok); QVERIFY(refused.corridorSources.isEmpty());
+        QVERIFY(!QFileInfo::exists(inputs.meshOutputPath));
+    }
+
     void directionalMappedLayer_data()
     {
         QTest::addColumn<QString>("attributes");
@@ -276,19 +354,19 @@ private slots:
     void corridorRecipeAdoptedOnlyOnSuccess_data()
     {
         QTest::addColumn<QString>("outcome");
-        QTest::newRow("success") << QString("success");
-        QTest::newRow("stale-project") << QString("stale");
-        QTest::newRow("source-changed-after-worker") << QString("source");
-        QTest::newRow("failed-worker") << QString("failure");
-        QTest::newRow("cancel-dialog") << QString("cancel");
+        QTest::addColumn<bool>("bankPair");
+        for (bool banks : {false, true})
+            for (const char *outcome : {"success", "stale", "source", "failure", "cancel"})
+                QTest::newRow(qPrintable(QString(banks ? "banks-" : "centerline-") + outcome)) << QString(outcome) << banks;
     }
 
     void corridorRecipeAdoptedOnlyOnSuccess()
     {
         QFETCH(QString, outcome);
+        QFETCH(bool, bankPair);
         Inputs inputs;
-        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT") + "/gis_adoption/" + outcome);
-        QVERIFY(prepareCorridorFixture(dir, inputs));
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT") + "/gis_adoption/" + QTest::currentDataTag());
+        QVERIFY(bankPair ? prepareBankFixture(dir, inputs) : prepareCorridorFixture(dir, inputs));
         auto result = run(inputs);
         QVERIFY2(result.ok, qPrintable(result.errorMsg));
         auto workspace = std::unique_ptr<OpenSWMMVisWorkspace>(OpenSWMMVisWorkspace::newInstance(QString(), nullptr));
@@ -297,6 +375,8 @@ private slots:
         QList<QString> warnings, errors;
         QVERIFY2(window->loadModel(warnings, errors), qPrintable(errors.join('\n')));
         auto old = inputs.corridorSources.first();
+        old.bankPair = false;
+        old.featureIds = {7};
         old.tag = "previous";
         window->setCorridorSources({old});
         window->setCorridorRecipeLoadError("unsupported test recipe");
@@ -330,6 +410,7 @@ private slots:
             });
         dialog.onMeshFinished();
         QCOMPARE(window->corridorSources().first().tag, outcome == "success" ? QString("river") : QString("previous"));
+        QCOMPARE(window->corridorSources().first().bankPair, outcome == "success" && bankPair);
         if (outcome == "success") QVERIFY(!window->corridorSources().first().geometryDigest.isEmpty());
         QCOMPARE(window->corridorRecipeLoadError().isEmpty(), outcome == "success");
     }

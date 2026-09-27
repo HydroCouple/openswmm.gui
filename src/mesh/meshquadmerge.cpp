@@ -10,11 +10,10 @@
  * has been taken. The perfect-matching refinement is out of scope.
  *
  * QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §4.6 / P1: the quality gate and
- * ranking are mesh::quadAcceptable / mesh::quadScore (scaled Jacobian, aspect,
- * skew) with 60°/120° defaults. The previous score minAng/maxAng ×
- * minSide/maxSide rated the 60°/120° rhombus two equilateral Delaunay
- * triangles form (0.5 × 1.0) the same as a perfect 2:1 rectangle (1.0 × 0.5),
- * so it could not tell the diamond from the good quad.
+ * ranking are mesh::quadAcceptable / mesh::quadScore (scaled Jacobian,
+ * rectangularity and the aspect term) with 60°/120° defaults. Ranking
+ * rewards right angles without penalizing an accepted rectangle because
+ * its diagonals are not perpendicular. Hard aspect bounds still apply.
  */
 #include "mesh/meshquadmerge.h"
 

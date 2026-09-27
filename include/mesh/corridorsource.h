@@ -12,6 +12,7 @@ namespace mesh {
 struct CorridorSource {
     QString path, layerName, sourceCRSWkt, meshCRSWkt;
     QVector<qint64> featureIds; // Explicit selection; empty never means all features.
+    bool bankPair = false; // Exactly two LineStrings in this layer; width comes from their geometry.
     QString widthField;
     double width = 10.0, along = 0.0;
     int across = 2;

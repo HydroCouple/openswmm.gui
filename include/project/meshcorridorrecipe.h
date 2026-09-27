@@ -25,8 +25,9 @@ public:
         const QJsonObject object = value.toObject();
         if (!onlyKeys(object, {"version", "sources"}))
             return fail(QStringLiteral("unsupported recipe fields."));
-        if (!object.value("version").isDouble() || object.value("version").toDouble() != 1)
-            return fail(QStringLiteral("unsupported or missing version (expected 1)."));
+        const double version = object.value("version").toDouble(-1);
+        if (!object.value("version").isDouble() || (version != 1 && version != 2))
+            return fail(QStringLiteral("unsupported or missing version (expected 1 or 2)."));
         if (!object.value("sources").isArray()) return fail(QStringLiteral("sources must be an array."));
         QVector<mesh::CorridorSource> parsed;
         const auto rows = object.value("sources").toArray();
@@ -39,8 +40,10 @@ public:
             if (!onlyKeys(row, {"role", "selection", "path", "layerName", "sourceCRSWkt", "meshCRSWkt",
                                "featureIds", "widthField", "width", "along", "across", "tag", "geometryDigest", "sourceFiles"}))
                 return bad(QStringLiteral("unsupported source fields."));
-            if (row.value("role").toString() != QStringLiteral("centerline"))
-                return bad(QStringLiteral("only the centerline role is supported."));
+            const QString role = row.value("role").toString();
+            if (role != QStringLiteral("centerline")
+                && !(version == 2 && role == QStringLiteral("bankPair")))
+                return bad(QStringLiteral("unsupported source role; bankPair requires recipe version 2."));
             if (row.value("selection").toString() != QStringLiteral("features"))
                 return bad(QStringLiteral("an explicit feature selection is required."));
             for (const auto &key : {"path", "layerName", "sourceCRSWkt", "meshCRSWkt", "widthField", "tag", "geometryDigest"})
@@ -51,11 +54,14 @@ public:
             if (path.trimmed().isEmpty() || path.contains(QChar(0)) || layerName.trimmed().isEmpty() || layerName.contains(QChar(0)))
                 return bad(QStringLiteral("a nonempty datasource path and sublayer name are required."));
             mesh::CorridorSource source;
+            source.bankPair = role == QStringLiteral("bankPair");
             source.path = ProjectSerializer::resolveStoredPath(path, sidecar);
             source.layerName = layerName;
             source.sourceCRSWkt = row.value("sourceCRSWkt").toString();
             source.meshCRSWkt = row.value("meshCRSWkt").toString();
             source.widthField = row.value("widthField").toString();
+            if (source.bankPair && !source.widthField.isEmpty())
+                return bad(QStringLiteral("bank pairs derive width from geometry and cannot specify widthField."));
             source.tag = row.value("tag").toString();
             source.geometryDigest = row.value("geometryDigest").toString();
             if (!source.geometryDigest.isEmpty()) {
@@ -77,6 +83,8 @@ public:
                 source.featureIds.append(id);
                 seen.insert(id);
             }
+            if (source.bankPair && source.featureIds.size() != 2)
+                return bad(QStringLiteral("bank pairs require exactly two distinct selected feature IDs."));
             for (const auto &key : {"width", "along", "across"})
                 if (!row.value(QLatin1String(key)).isDouble() || !std::isfinite(row.value(QLatin1String(key)).toDouble()))
                     return bad(QStringLiteral("%1 must be a finite number.").arg(QLatin1String(key)));
@@ -102,18 +110,20 @@ public:
     static bool encode(const QVector<mesh::CorridorSource> &sources, const QString &sidecar,
                        QJsonObject *object, QString *error) {
         QJsonArray rows;
+        bool hasBanks = false;
         for (const auto &source : sources) {
+            hasBanks |= source.bankPair;
             QJsonArray ids, files;
             for (qint64 id : source.featureIds) ids.append(QString::number(id));
             for (const auto &file : source.sourceFiles) files.append(ProjectSerializer::toRelativePath(file, sidecar));
             rows.append(QJsonObject{
-                {"role", "centerline"}, {"selection", "features"},
+                {"role", source.bankPair ? "bankPair" : "centerline"}, {"selection", "features"},
                 {"path", ProjectSerializer::toRelativePath(source.path, sidecar)}, {"layerName", source.layerName},
                 {"sourceCRSWkt", source.sourceCRSWkt}, {"meshCRSWkt", source.meshCRSWkt}, {"featureIds", ids},
                 {"widthField", source.widthField}, {"width", source.width}, {"along", source.along},
                 {"across", source.across}, {"tag", source.tag}, {"geometryDigest", source.geometryDigest}, {"sourceFiles", files}});
         }
-        const QJsonObject result{{"version", 1}, {"sources", rows}};
+        const QJsonObject result{{"version", hasBanks ? 2 : 1}, {"sources", rows}};
         QVector<mesh::CorridorSource> checked;
         if (!decode(result, sidecar, &checked, error)) return false;
         if (object) *object = result;

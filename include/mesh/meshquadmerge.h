@@ -33,8 +33,8 @@ struct QuadMergeOptions
     // QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §5 / P1: hard bounds tightened
     // from 45°/135° (which accepted the 60°/120° rhombus two equilateral
     // triangles form) to 60°/120°, and the ranking metric is mesh::quadScore
-    // (scaled Jacobian × aspect × skew) instead of minAngle/maxAngle ×
-    // minSide/maxSide, which rated a rhombus and a 2:1 rectangle equal.
+    // (scaled Jacobian × rectangularity × aspect term). Rectangles within
+    // the configured aspect cap retain their full score at any elongation.
     double minAngleDeg = 60.0;        ///< Reject quads with any interior angle below this.
     double maxAngleDeg = 120.0;       ///< Reject quads with any interior angle above this.
     double minScaledJacobian = 0.866; ///< Reject quads whose min corner sine is below this.
