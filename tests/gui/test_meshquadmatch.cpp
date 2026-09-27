@@ -20,6 +20,7 @@
 #include <QVector>
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <random>
 
@@ -104,6 +105,31 @@ int checkedMatchingSize(int n, const QVector<QPair<int, int>> &edges, const QVec
     return matched / 2;
 }
 
+
+// Triangle 0 can join triangle 1 into a 4:1 rectangle, or triangle 2 into
+// an angle-distorted quad. Both pass an explicit aspect cap of five. The
+// old diagonal-skew score prefers the distorted alternative.
+MeshResult competingRectangleMesh(double angle, double offset)
+{
+    MeshResult mesh;
+    const double radians = angle * M_PI / 180.0;
+    const QPointF along(std::cos(radians), std::sin(radians));
+    const QPointF across(-along.y(), along.x());
+    for (const QPointF &point : {QPointF(0, 0), QPointF(4, 0), QPointF(4, 1), QPointF(0, 1), QPointF(1.25, -1.5)}) {
+        MeshVertex vertex;
+        vertex.xy = QPointF(offset, offset) + along * point.x() + across * point.y();
+        mesh.vertices.append(vertex);
+    }
+    for (const auto &ids : {QVector<int>{0, 1, 2}, QVector<int>{0, 2, 3}, QVector<int>{0, 4, 1}}) {
+        MeshTriangle triangle;
+        triangle.v0 = ids[0]; triangle.v1 = ids[1]; triangle.v2 = ids[2];
+        triangle.tag = QStringLiteral("river"); triangle.mannings = 0.035; triangle.initDepth = 0.2;
+        mesh.triangles.append(triangle);
+    }
+    mesh.ok = true;
+    return mesh;
+}
+
 } // namespace
 
 class TestMeshQuadMatch : public QObject
@@ -111,6 +137,55 @@ class TestMeshQuadMatch : public QObject
     Q_OBJECT
 
 private slots:
+
+    void competingRectangleTemplates_data()
+    {
+        QTest::addColumn<double>("angle"); QTest::addColumn<double>("offset");
+        QTest::addColumn<QString>("guard"); QTest::addColumn<int>("partner");
+        QTest::newRow("distorted-template-first") << 0.0 << 0.0 << QString() << 1;
+        QTest::newRow("rectangle-template-first") << 0.0 << 0.0 << QString("reverse-templates") << 1;
+        QTest::newRow("rotated") << 25.0 << 0.0 << QString() << 1;
+        QTest::newRow("projected-1e6") << 25.0 << 1e6 << QString() << 1;
+        QTest::newRow("projected-1e9") << 25.0 << 1e9 << QString() << 1;
+        QTest::newRow("rectangle-edge-locked") << 0.0 << 0.0 << QString("locked") << 2;
+        QTest::newRow("both-edges-locked") << 0.0 << 0.0 << QString("both-locked") << -1;
+        QTest::newRow("default-aspect-cap") << 0.0 << 0.0 << QString("default") << -1;
+        QTest::newRow("foreign-cell-retained") << 0.0 << 0.0 << QString("foreign") << 1;
+    }
+
+    void competingRectangleTemplates()
+    {
+        QFETCH(double, angle); QFETCH(double, offset); QFETCH(QString, guard); QFETCH(int, partner);
+        auto mesh = competingRectangleMesh(angle, offset);
+        QuadTemplate distorted, rectangle;
+        distorted.v[0] = 0; distorted.v[1] = 4; distorted.v[2] = 1; distorted.v[3] = 2;
+        rectangle.v[0] = 0; rectangle.v[1] = 1; rectangle.v[2] = 2; rectangle.v[3] = 3;
+        QVector<QuadTemplate> templates{distorted, rectangle};
+        if (guard == "reverse-templates") std::reverse(templates.begin(), templates.end());
+        QVector<int> ids{0, 1, 2};
+        if (guard == "foreign") { ids.removeLast(); mesh.triangles[2].tag = "outside-region"; }
+        QuadPairingOptions options; options.gapPairing = false;
+        if (guard != "default") options.bounds.maxAspect = 5;
+        QSet<QPair<int, int>> locked;
+        if (guard == "locked" || guard == "both-locked") locked.insert(edgeKey(0, 2));
+        if (guard == "both-locked") locked.insert(edgeKey(0, 1));
+        QVector<int> map;
+        const auto stats = pairTrianglesIntoQuads(mesh, ids, templates, locked, options, &map);
+        QCOMPARE(stats.templateQuads, partner < 0 ? 0 : 1); QCOMPARE(stats.gapQuads, 0);
+        QCOMPARE(mesh.triangles.size(), partner < 0 ? 3 : 2);
+        if (partner < 0) { QCOMPARE(map, QVector<int>({0, 1, 2})); return; }
+        QCOMPARE(map[0], map[partner]); QVERIFY(map[0] != map[3 - partner]);
+        const auto &quad = mesh.triangles[map[0]];
+        QVERIFY(quad.isQuad()); QVERIFY(cellIsConvex(mesh.vertices, quad));
+        QVERIFY(cellSignedArea(mesh.vertices, quad) > 0);
+        QCOMPARE(quad.tag, QString("river")); QCOMPARE(quad.mannings, 0.035); QCOMPARE(quad.initDepth, 0.2);
+        if (partner == 1) {
+            QVERIFY(quad.hasVertex(3)); QVERIFY(!quad.hasVertex(4));
+            QVERIFY(std::abs(cellGeom(mesh.vertices, quad).area - 4) < 1e-6);
+        } else { QVERIFY(quad.hasVertex(4)); QVERIFY(!quad.hasVertex(3)); }
+        if (guard == "foreign") QCOMPARE(mesh.triangles[map[2]].tag, QString("outside-region"));
+    }
+
     void elongatedTemplate_regionOverride_data()
     {
         QTest::addColumn<double>("regionCap");

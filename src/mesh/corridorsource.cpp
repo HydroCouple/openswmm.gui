@@ -89,11 +89,19 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
         const QString context = QStringLiteral("Corridor source '%1' (%2): ").arg(source.path, source.layerName);
         if (source.featureIds.isEmpty())
             return fail(context + QStringLiteral("select at least one line feature; an empty selection does not mean all features."));
+        if (source.bankPair && (source.featureIds.size() != 2 || source.featureIds[0] == source.featureIds[1]))
+            return fail(context + QStringLiteral("a bank pair requires exactly two distinct selected feature IDs."));
+        if (source.bankPair && !source.widthField.isEmpty())
+            return fail(context + QStringLiteral("a bank pair derives width from its two lines; remove the width field."));
         if (source.layerName.trimmed().isEmpty())
             return fail(context + QStringLiteral("an explicit source layer name is required."));
+        // Width is unused by bank geometry but remains persisted metadata;
+        // keep it valid so a successful read always yields a serializable recipe.
         if (!std::isfinite(source.width) || source.width <= 0 || !std::isfinite(source.along)
             || source.along < 0 || source.across < 1)
-            return fail(context + QStringLiteral("width must be finite and positive, spacing finite and nonnegative, and across subdivisions positive."));
+            return fail(context + (source.bankPair
+                ? QStringLiteral("retained width metadata must be finite and positive, bank spacing finite and nonnegative, and across subdivisions positive.")
+                : QStringLiteral("width must be finite and positive, spacing finite and nonnegative, and across subdivisions positive.")));
         OGRSpatialReference sourceSrs, boundMeshSrs;
         if (!readCRS(source.sourceCRSWkt, sourceSrs))
             return fail(context + QStringLiteral("source CRS is missing or invalid; assign a CRS explicitly before adding this source."));
@@ -140,6 +148,9 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
             if (!transform) return fail(context + QStringLiteral("could not create the source-to-mesh CRS transformation."));
         }
         QCryptographicHash digest(QCryptographicHash::Sha256);
+        // Preserve persisted centreline digests exactly. The new role has its
+        // own prefix so the same selected geometry cannot change roles silently.
+        if (source.bankPair) digestString(digest, QByteArrayLiteral("bank-pair-v1"));
         char *canonicalSrs = nullptr;
         if (sourceSrs.exportToWkt(&canonicalSrs) != OGRERR_NONE)
             return fail(context + QStringLiteral("could not serialize source CRS."));
@@ -151,7 +162,10 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
             if (cancelled()) return fail(QStringLiteral("Corridor extraction cancelled."));
             const QString featureContext = context + QStringLiteral("feature %1: ").arg(fid);
             if (fid < 0) return fail(featureContext + QStringLiteral("a persistent nonnegative feature ID is required."));
+            CPLErrorReset();
             Feature feature(layer->GetFeature(static_cast<GIntBig>(fid)), OGRFeature::DestroyFeature);
+            if (CPLGetLastErrorType() >= CE_Failure)
+                return fail(featureContext + QStringLiteral("could not read selected feature: %1").arg(QString::fromUtf8(CPLGetLastErrorMsg())));
             if (!feature) return fail(featureContext + QStringLiteral("selected feature no longer exists."));
             double width = source.width;
             if (widthIndex >= 0) {
@@ -164,6 +178,8 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
             auto *geometry = feature->GetGeometryRef();
             if (!geometry || geometry->IsEmpty()) return fail(featureContext + QStringLiteral("geometry is empty."));
             const auto type = wkbFlatten(geometry->getGeometryType());
+            if (source.bankPair && type != wkbLineString)
+                return fail(featureContext + QStringLiteral("each bank must be a single open LineString; multipart geometry is ambiguous."));
             if (type != wkbLineString && type != wkbMultiLineString)
                 return fail(featureContext + QStringLiteral("expected a LineString or MultiLineString geometry."));
             const auto bytes = geometry->WkbSize();
@@ -182,6 +198,9 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
                 const QString partContext = featureContext + QStringLiteral("part %1: ").arg(part + 1);
                 if (!line || line->getNumPoints() < 2)
                     return fail(partContext + QStringLiteral("line requires at least two vertices."));
+                if (source.bankPair && line->getX(0) == line->getX(line->getNumPoints() - 1)
+                    && line->getY(0) == line->getY(line->getNumPoints() - 1))
+                    return fail(partContext + QStringLiteral("each bank must be open; a closed line cannot define a bank pair."));
                 SweptPatch patch;
                 patch.width = width; patch.along = source.along; patch.across = source.across;
                 patch.tag = source.tag.isEmpty() ? QStringLiteral("%1:%2:%3").arg(source.layerName).arg(fid).arg(part + 1) : source.tag;
@@ -203,11 +222,28 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
             return fail(context + QStringLiteral("selected geometry or width values changed. Re-select and re-add the source to approve the updated features."));
         source.geometryDigest = actualDigest;
         if (!corridorSourceFilesUnchanged(stamps, &error)) return fail(error);
-        for (const auto &patch : pending) {
+        if (source.bankPair) {
             if (cancelled()) return fail(QStringLiteral("Corridor extraction cancelled."));
-            auto mesh = makeSweptPatch(patch, &error);
-            if (!error.isEmpty()) return fail(context + patch.tag + QStringLiteral(": ") + error);
+            BankPairPatch banks;
+            banks.bankA = pending[0].centreline;
+            banks.bankB = pending[1].centreline;
+            banks.across = source.across;
+            banks.along = source.along;
+            banks.tag = source.tag.isEmpty()
+                ? QStringLiteral("%1:%2+%3").arg(source.layerName).arg(source.featureIds[0]).arg(source.featureIds[1])
+                : source.tag;
+            auto mesh = makeBankPairPatch(banks, &error);
+            if (!error.isEmpty() || mesh.quads.isEmpty())
+                return fail(context + banks.tag + QStringLiteral(": ")
+                    + (error.isEmpty() ? QStringLiteral("bank pair produced no cells.") : error));
             result.patches.append(std::move(mesh));
+        } else {
+            for (const auto &patch : pending) {
+                if (cancelled()) return fail(QStringLiteral("Corridor extraction cancelled."));
+                auto mesh = makeSweptPatch(patch, &error);
+                if (!error.isEmpty()) return fail(context + patch.tag + QStringLiteral(": ") + error);
+                result.patches.append(std::move(mesh));
+            }
         }
         for (const auto &stamp : stamps) {
             if (!recordedPaths.contains(stamp.path)) {

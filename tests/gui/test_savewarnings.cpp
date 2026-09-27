@@ -121,13 +121,16 @@ private slots:
     void corridorRecipeProtectsSources_data()
     {
         QTest::addColumn<QString>("scenario");
-        for (const char *name : {"datasource", "dependency", "settings", "symlink"})
-            QTest::newRow(name) << QString::fromLatin1(name);
+        QTest::addColumn<bool>("bankPair");
+        for (bool banks : {false, true})
+            for (const char *name : {"datasource", "dependency", "settings", "symlink"})
+                QTest::newRow(qPrintable(QString(banks ? "banks-" : "centerline-") + name)) << QString::fromLatin1(name) << banks;
     }
     void corridorRecipeProtectsSources()
     {
         QFETCH(QString, scenario);
-        const QString dir = QDir(outDir()).absoluteFilePath("corridor-protection-" + scenario);
+        QFETCH(bool, bankPair);
+        const QString dir = QDir(outDir()).absoluteFilePath(QString("corridor-protection-") + QTest::currentDataTag());
         QVERIFY(QDir().mkpath(dir));
         const QString model = dir + "/source.inp", target = dir + "/saved.inp";
         const QString dependency = scenario == "settings" ? dir + "/saved.oswp" : dir + "/roads.gpkg";
@@ -144,6 +147,8 @@ private slots:
         recipe.path = scenario == "datasource" ? target : dependency;
         recipe.layerName = "centerlines";
         recipe.featureIds = {7};
+        recipe.bankPair = bankPair;
+        if (bankPair) recipe.featureIds.append(8);
         if (scenario == "dependency") recipe.sourceFiles = {target};
         QString error;
         std::unique_ptr<SWMMVisProjectWindow> window(openWindow(model, &error));
@@ -158,9 +163,17 @@ private slots:
         QVERIFY(window->hasChanges());
     }
 
+    void corridorRecipeSaveRoundTripAndMalformedLoad_data()
+    {
+        QTest::addColumn<bool>("bankPair");
+        QTest::newRow("centerline") << false;
+        QTest::newRow("bank-pair") << true;
+    }
+
     void corridorRecipeSaveRoundTripAndMalformedLoad()
     {
-        const QString dir = QDir(outDir()).absoluteFilePath("corridor-roundtrip");
+        QFETCH(bool, bankPair);
+        const QString dir = QDir(outDir()).absoluteFilePath(QString("corridor-roundtrip-") + QTest::currentDataTag());
         QVERIFY(QDir().mkpath(dir + "/moved"));
         const QString model = dir + "/source.inp", target = dir + "/saved.inp";
         const QString settings = ProjectSerializer::sidecarPathFor(target);
@@ -172,6 +185,8 @@ private slots:
         source.path = dir + "/roads.gpkg"; // unavailable sources remain part of the saved recipe
         source.layerName = "centerlines";
         source.featureIds = {9007199254740993LL};
+        source.bankPair = bankPair;
+        if (bankPair) source.featureIds.append(9007199254740995LL);
         source.sourceFiles = {dir + "/roads.prj"};
         source.meshCRSWkt = "mesh CRS";
         window->setCorridorSources({source});
@@ -181,6 +196,7 @@ private slots:
         QVERIFY2(ProjectSerializer::applyFromFile(settings, restored.get(), &error), qPrintable(error));
         QCOMPARE(restored->corridorSources().size(), 1);
         QCOMPARE(restored->corridorSources().first().featureIds, source.featureIds);
+        QCOMPARE(restored->corridorSources().first().bankPair, bankPair);
         QCOMPARE(restored->corridorSources().first().path, source.path);
         QCOMPARE(restored->corridorSources().first().sourceFiles, source.sourceFiles);
         const QString moved = dir + "/moved/saved.inp";
@@ -192,7 +208,7 @@ private slots:
         restored->setNotesHtml("keep working notes");
         QJsonObject invalid;
         QVERIFY(MeshCorridorRecipe::encode({source}, settings, &invalid, &error));
-        invalid["version"] = 2;
+        invalid["version"] = 3;
         const QJsonObject root{{"schemaVersion", 5}, {"sessions", QJsonArray{QJsonObject{
             {"meshCorridors", invalid}, {"notesHtml", "must not apply"}}}}};
         QFile file(dir + "/invalid.oswp");

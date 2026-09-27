@@ -171,9 +171,13 @@ inline CellGeom cellGeom(const QVector<MeshVertex> &vertices, const MeshTriangle
 inline double cellSignedArea(const QVector<MeshVertex> &vertices, const MeshTriangle &t) noexcept
 {
     const int nv = t.vertexCount();
+    const QPointF origin = vertices[t.v0].xy;
     double s = 0.0;
     for (int k = 0; k < nv; ++k) {
-        const QPointF &a = vertices[t.vertex(k)].xy, &b = vertices[t.vertex((k + 1) % nv)].xy;
+        // Translate before multiplication: projected map coordinates can
+        // otherwise cancel the small area and even reverse its sign.
+        const QPointF a = vertices[t.vertex(k)].xy - origin;
+        const QPointF b = vertices[t.vertex((k + 1) % nv)].xy - origin;
         s += a.x() * b.y() - b.x() * a.y();
     }
     return 0.5 * s;

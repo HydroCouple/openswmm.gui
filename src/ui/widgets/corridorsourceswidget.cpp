@@ -44,8 +44,10 @@ CorridorSourcesWidget::CorridorSourcesWidget(QWidget *parent) : QWidget(parent)
 {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    auto *hint = new QLabel(tr("Select road, river or other centreline features on the map, then add them below. "
-        "Total width and Along spacing use the mesh CRS units. Along = 0 retains the original centreline vertices."), this);
+    auto *hint = new QLabel(tr("Select road or river centrelines, or two bank lines from one map layer. "
+        "A bank pair gets its width from the two lines. Endpoints are paired automatically by proximity; "
+        "positions at the same fraction of each bank's length are joined, keeping vertices from both banks. "
+        "Along = 0 retains these stations. Width and Along spacing use mesh CRS units."), this);
     hint->setWordWrap(true);
     openswmmvis::ui::theme::applyHintRole(hint);
     layout->addWidget(hint);
@@ -60,9 +62,15 @@ CorridorSourcesWidget::CorridorSourcesWidget(QWidget *parent) : QWidget(parent)
         buddy->setBuddy(field);
         form->addRow(buddy, field);
     };
+    m_sourceMode = new QComboBox(this);
+    m_sourceMode->addItem(tr("Centerline with width"), QStringLiteral("centerline"));
+    m_sourceMode->addItem(tr("Bank pair"), QStringLiteral("bankPair"));
+    addField(tr("Corridor &input:"), m_sourceMode, "corridorSourceMode", tr(
+        "Use selected centreline features with a width, or exactly two distinct bank LineStrings from the same layer. "
+        "Bank endpoints are paired by proximity and stations match fractions of each bank's length, retaining both banks' vertices."));
     m_layer = new QComboBox(this);
     m_layer->setMinimumWidth(OpenSWMM::Ui::kComboMinWidthPx);
-    addField(tr("&Source layer:"), m_layer, "corridorLayer", tr("The map layer containing the selected corridor centreline features."));
+    addField(tr("&Source layer:"), m_layer, "corridorLayer", tr("The map layer containing the selected corridor centreline or bank features."));
     m_selection = new QLabel(this);
     m_selection->setAccessibleName(tr("Selected corridor features"));
     form->addRow(QString(), m_selection);
@@ -87,7 +95,9 @@ CorridorSourcesWidget::CorridorSourcesWidget(QWidget *parent) : QWidget(parent)
     m_table = new QTableWidget(0, 7, this);
     m_table->setObjectName(QStringLiteral("corridorSourcesTable"));
     m_table->setAccessibleName(tr("Configured corridor sources"));
-    m_table->setAccessibleDescription(tr("Each row captures selected feature IDs from one source. Edit width field, total width, Across cells, Along spacing or region tag. Empty width field uses the uniform total width. Missing map layers remain available for validation when generating."));
+    m_table->setAccessibleDescription(tr("Each row captures selected feature IDs as centrelines or a bank pair. "
+        "Edit Across cells, Along spacing or region tag. Centreline rows also allow width field and uniform width edits; "
+        "bank-pair width comes from the bank geometry. Missing map layers remain available for validation when generating."));
     m_table->setHorizontalHeaderLabels({tr("Source"), tr("Feature IDs"), tr("Width field"),
         tr("Uniform total width (CRS units)"), tr("Across cells"), tr("Along spacing (CRS units)"), tr("Tag")});
     const QStringList descriptions{tr("Stored dataset and layer. Assigned source CRS is retained with this recipe."),
@@ -118,10 +128,10 @@ CorridorSourcesWidget::CorridorSourcesWidget(QWidget *parent) : QWidget(parent)
     m_message->setWordWrap(true);
     layout->addWidget(m_message);
     connect(m_layer, &QComboBox::currentIndexChanged, this, [this] { refreshFields(); updateSelectionMessage(); });
-    connect(m_widthMode, &QComboBox::currentIndexChanged, this, [this] {
-        const bool field = m_widthMode->currentData().toInt() == 1;
-        m_width->setEnabled(!field);
-        m_widthField->setEnabled(field && m_widthField->count() > 0);
+    connect(m_widthMode, &QComboBox::currentIndexChanged, this, &CorridorSourcesWidget::syncSourceMode);
+    connect(m_sourceMode, &QComboBox::currentIndexChanged, this, [this] {
+        syncSourceMode();
+        updateSelectionMessage();
     });
     connect(m_add, &QPushButton::clicked, this, &CorridorSourcesWidget::addSelection);
     connect(m_remove, &QPushButton::clicked, this, &CorridorSourcesWidget::removeSelection);
@@ -205,9 +215,21 @@ void CorridorSourcesWidget::refreshFields()
     for (const auto &field : numericFields(currentLayer())) m_widthField->addItem(field, field);
     const int match = m_widthField->findData(previous);
     if (match >= 0) m_widthField->setCurrentIndex(match);
+    syncSourceMode();
+}
+
+void CorridorSourcesWidget::syncSourceMode()
+{
+    const bool bank = m_sourceMode->currentData().toString() == QStringLiteral("bankPair");
     const bool field = m_widthMode->currentData().toInt() == 1;
-    m_width->setEnabled(!field);
-    m_widthField->setEnabled(field && m_widthField->count() > 0);
+    m_widthMode->setEnabled(!bank);
+    m_width->setEnabled(!bank && !field);
+    m_widthField->setEnabled(!bank && field && m_widthField->count() > 0);
+    const QString alongHelp = bank
+        ? tr("Finite spacing at least 0 in mesh CRS units. Enter 0 to retain stations from the vertices of both banks; positive spacing adds stations.")
+        : tr("Finite spacing at least 0 in mesh CRS units. Enter 0 to keep original centreline vertices.");
+    m_along->setToolTip(alongHelp);
+    m_along->setAccessibleDescription(alongHelp);
 }
 
 void CorridorSourcesWidget::updateSelectionMessage()
@@ -216,7 +238,9 @@ void CorridorSourcesWidget::updateSelectionMessage()
     const qsizetype count = layer ? layer->selectedFeatureIds().size() : 0;
     m_selection->setText(count == 1 ? tr("1 selected feature") : tr("%1 selected features").arg(count));
     m_add->setEnabled(layer != nullptr);
+    const bool bank = m_sourceMode->currentData().toString() == QStringLiteral("bankPair");
     m_message->setText(!layer ? tr("Add a line layer to the map, then select its corridor features.")
+        : bank && count != 2 ? tr("Select exactly two distinct bank lines from the same source layer, then choose Add selected features.")
         : count == 0 ? tr("Select line features on the map, then choose Add selected features.") : QString());
 }
 
@@ -251,21 +275,26 @@ void CorridorSourcesWidget::addSelection()
     auto *layer = currentLayer();
     if (!layer) { fail(tr("Add a line layer to the map, then select its corridor features."), m_layer, nullptr); return; }
     const auto ids = layer->selectedFeatureIds();
+    const bool bank = m_sourceMode->currentData().toString() == QStringLiteral("bankPair");
+    if (bank && ids.size() != 2) {
+        fail(tr("Select exactly two distinct bank lines from the same source layer, then choose Add selected features."), m_layer, nullptr); return;
+    }
     if (ids.isEmpty()) { fail(tr("Select line features on the map, then choose Add selected features."), m_layer, nullptr); return; }
     if (!layer->srs() || layer->srs()->toWkt().isEmpty()) {
         fail(tr("Assign a coordinate reference system to the source layer before adding its features."), m_layer, nullptr); return;
     }
     mesh::CorridorSource source;
+    source.bankPair = bank;
     source.path = layer->filePath();
     source.layerName = layer->ogrLayerName();
     source.sourceCRSWkt = layer->srs()->toWkt();
     for (qint64 id : ids) source.featureIds.append(id);
     std::sort(source.featureIds.begin(), source.featureIds.end());
     const bool fromField = m_widthMode->currentData().toInt() == 1;
-    if (fromField) {
+    if (!bank && fromField) {
         source.widthField = m_widthField->currentData().toString();
         if (source.widthField.isEmpty()) { fail(tr("Choose a numeric width field, or use a uniform total width."), m_widthMode, nullptr); return; }
-    } else {
+    } else if (!bank) {
         bool ok = false;
         source.width = m_width->text().trimmed().toDouble(&ok);
         if (!ok || !std::isfinite(source.width) || source.width <= 0) {
@@ -277,7 +306,8 @@ void CorridorSourcesWidget::addSelection()
     if (!ok || source.across < 1) { fail(tr("Across cells must be a positive integer within the supported integer range."), m_across, nullptr); return; }
     source.along = m_along->text().trimmed().toDouble(&ok);
     if (!ok || !std::isfinite(source.along) || source.along < 0) {
-        fail(tr("Along spacing must be a finite number at least 0. Enter 0 to keep original centreline vertices."), m_along, nullptr); return;
+        fail(bank ? tr("Along spacing must be a finite number at least 0. Enter 0 to retain vertices from both banks.")
+                  : tr("Along spacing must be a finite number at least 0. Enter 0 to keep original centreline vertices."), m_along, nullptr); return;
     }
     source.tag = m_tag->text().trimmed();
     appendSource(source);
@@ -293,12 +323,19 @@ void CorridorSourcesWidget::appendSource(const mesh::CorridorSource &source)
     m_table->insertRow(row);
     QStringList ids;
     for (qint64 id : source.featureIds) ids.append(QString::number(id));
-    const QStringList values{QString(), ids.join(QStringLiteral(", ")), source.widthField,
-        number(source.width), QString::number(source.across), number(source.along), source.tag};
+    const QStringList values{QString(), ids.join(QStringLiteral(", ")),
+        source.bankPair && source.widthField.isEmpty() ? tr("Not used") : source.widthField,
+        source.bankPair ? tr("From banks") : number(source.width),
+        QString::number(source.across), number(source.along), source.tag};
     for (int column = 0; column < values.size(); ++column) {
         auto *item = new QTableWidgetItem(values[column]);
-        if (column < 2) item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+        if (column < 2 || (source.bankPair && (column == 2 || column == 3)))
+            item->setFlags(item->flags() & ~Qt::ItemIsEditable);
         item->setToolTip(m_table->horizontalHeaderItem(column)->toolTip());
+        if (source.bankPair && (column == 2 || column == 3))
+            item->setToolTip(tr("Not used for bank pairs. Corridor width comes from the two bank geometries."));
+        if (source.bankPair && column == 5)
+            item->setToolTip(tr("Along spacing in mesh CRS units; 0 retains stations from the vertices of both banks. Positive spacing adds stations."));
         item->setData(Qt::AccessibleDescriptionRole, item->toolTip());
         m_table->setItem(row, column, item);
     }
@@ -310,7 +347,8 @@ void CorridorSourcesWidget::updateSourceLabels()
     const QSignalBlocker block(m_table);
     for (int row = 0; row < m_sources.size(); ++row) {
         const auto &source = m_sources[row];
-        QString title = QFileInfo(source.path).fileName() + QStringLiteral(" — ") + source.layerName;
+        QString title = (source.bankPair ? tr("Bank pair") : tr("Centerline"))
+            + QStringLiteral(" — ") + QFileInfo(source.path).fileName() + QStringLiteral(" — ") + source.layerName;
         if (!matchingLayer(source)) title += tr(" (not on map)");
         m_table->item(row, 0)->setText(title);
         const QString help = tr("Dataset: %1\nLayer: %2\nCaptured source CRS: %3")
@@ -338,20 +376,30 @@ bool CorridorSourcesWidget::sources(QVector<mesh::CorridorSource> *out, QString 
         mesh::CorridorSource source = m_sources[row];
         if (source.featureIds.isEmpty())
             return failRow(row, 1, tr("No selected features were captured. Remove this row and add selected map features."), error);
-        source.widthField = m_table->item(row, 2)->text();
+        if (source.bankPair && (source.featureIds.size() != 2
+            || source.featureIds[0] == source.featureIds[1]
+            || source.featureIds[0] < 0 || source.featureIds[1] < 0))
+            return failRow(row, 1, tr("Bank pairs require exactly two distinct selected bank features. Remove this row and add the two banks again."), error);
+        if (source.bankPair && !source.widthField.isEmpty())
+            return failRow(row, 2, tr("Bank pairs cannot use a width field. Remove this row and add the bank pair again."), error);
+        if (!source.bankPair) source.widthField = m_table->item(row, 2)->text();
         if (auto *layer = matchingLayer(source); layer && !source.widthField.isEmpty()
             && !numericFields(layer).contains(source.widthField))
             return failRow(row, 2, tr("Width field must name a numeric field in the source layer."), error);
-        bool ok = false;
-        source.width = m_table->item(row, 3)->text().trimmed().toDouble(&ok);
+        bool ok = true;
+        if (!source.bankPair) source.width = m_table->item(row, 3)->text().trimmed().toDouble(&ok);
         if (!ok || !std::isfinite(source.width) || source.width <= 0)
-            return failRow(row, 3, tr("Total width must be a finite number greater than 0 in mesh CRS units."), error);
+            return failRow(row, 3, source.bankPair
+                ? tr("The stored width metadata is invalid. Remove this row and add the bank pair again; its width comes from bank geometry.")
+                : tr("Total width must be a finite number greater than 0 in mesh CRS units."), error);
         source.across = m_table->item(row, 4)->text().trimmed().toInt(&ok);
         if (!ok || source.across < 1)
             return failRow(row, 4, tr("Across cells must be a positive integer within the supported integer range."), error);
         source.along = m_table->item(row, 5)->text().trimmed().toDouble(&ok);
         if (!ok || !std::isfinite(source.along) || source.along < 0)
-            return failRow(row, 5, tr("Along spacing must be a finite number at least 0; enter 0 to retain centreline vertices."), error);
+            return failRow(row, 5, source.bankPair
+                ? tr("Along spacing must be a finite number at least 0; enter 0 to retain vertices from both banks.")
+                : tr("Along spacing must be a finite number at least 0; enter 0 to retain centreline vertices."), error);
         source.tag = m_table->item(row, 6)->text().trimmed();
         if (source.widthField != m_sources[row].widthField) source.geometryDigest.clear();
         result.append(std::move(source));

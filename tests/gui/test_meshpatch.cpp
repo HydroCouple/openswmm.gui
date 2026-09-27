@@ -29,6 +29,7 @@
 #include "mesh/meshresult.h"
 
 Q_DECLARE_METATYPE(mesh::SweptPatch)
+Q_DECLARE_METATYPE(mesh::BankPairPatch)
 
 using namespace mesh;
 
@@ -559,6 +560,135 @@ private slots:
             QVERIFY(makeMappedPatch(ring,{0,1,2,3},along,"",&error).quads.isEmpty());
             QVERIFY2(error.contains("capacity",Qt::CaseInsensitive),qPrintable(error));
         }
+    }
+
+    void bankPair_rectangles_data()
+    {
+        QTest::addColumn<double>("angle"); QTest::addColumn<double>("origin");
+        QTest::addColumn<int>("directions"); QTest::addColumn<bool>("swapBanks");
+        for (double angle : {0.0,31.0})
+            for (double origin : {0.0,1e6,1e9})
+                for(int directions=0;directions<4;++directions)
+                    for(bool swapBanks:{false,true}) {
+                        const QByteArray label=QString("angle%1-origin%2-directions%3-swap%4")
+                            .arg(angle).arg(origin).arg(directions).arg(swapBanks).toLatin1();
+                        QTest::newRow(label.constData())<<angle<<origin<<directions<<swapBanks;
+                    }
+    }
+
+    void bankPair_rectangles()
+    {
+        QFETCH(double,angle);QFETCH(double,origin);QFETCH(int,directions);QFETCH(bool,swapBanks);
+        const double radians=angle*std::acos(-1.0)/180;
+        const QPointF along(std::cos(radians),std::sin(radians)), across(-along.y(),along.x()), offset(origin,origin);
+        BankPairPatch p;
+        p.bankA={offset,offset+80*along};p.bankB={offset+8*across,offset+80*along+8*across};
+        p.across=4;p.along=8;p.tag="banks";
+        if(directions&1)std::reverse(p.bankA.begin(),p.bankA.end());
+        if(directions&2)std::reverse(p.bankB.begin(),p.bankB.end());
+        if(swapBanks)std::swap(p.bankA,p.bankB);
+        QString error="stale";const auto patch=makeBankPairPatch(p,&error);
+        QVERIFY2(error.isEmpty(),qPrintable(error));QCOMPARE(patch.quads.size(),40);QCOMPARE(patch.xy.size(),55);
+        QVERIFY2(validate(patch).isEmpty(),qPrintable(validate(patch)));
+        QCOMPARE(patch.tag,p.tag);
+        for(const auto &q:patch.quads) {
+            QCOMPARE(q.tag,p.tag);const int ids[]{q.v0,q.v1,q.v2,q.v3};
+            int longitudinal=0,transverse=0;
+            for(int k=0;k<4;++k) {
+                const auto d=patch.xy[ids[(k+1)%4]]-patch.xy[ids[k]];
+                const double a=std::abs(QPointF::dotProduct(d,along)),b=std::abs(QPointF::dotProduct(d,across));
+                if(a>b){QVERIFY(std::abs(a-8)<2e-6);QVERIFY(b<2e-6);++longitudinal;}
+                else{QVERIFY(std::abs(b-2)<2e-6);QVERIFY(a<2e-6);++transverse;}
+            }
+            QCOMPARE(longitudinal,2);QCOMPARE(transverse,2);
+        }
+    }
+
+    void bankPair_preservesUnequalBankVertices()
+    {
+        BankPairPatch p;
+        p.bankA={{0,0},{25,0},{100,0}};
+        p.bankB={{0,10},{50,10},{75,10},{100,10}};p.across=2;
+        QString error;const auto patch=makeBankPairPatch(p,&error);
+        QVERIFY2(error.isEmpty(),qPrintable(error));QCOMPARE(patch.quads.size(),8);QCOMPARE(patch.xy.size(),15);
+        QSet<int> boundary;for(const auto &edge:patch.boundarySegments){boundary.insert(edge.first);boundary.insert(edge.second);}
+        for(const auto &bank:{p.bankA,p.bankB})for(const auto &point:bank){
+            bool exact=false;for(int index:boundary)exact|=patch.xy[index].x()==point.x()&&patch.xy[index].y()==point.y();
+            QVERIFY2(exact,"Every original bank vertex must occur exactly on the patch boundary.");
+        }
+        p.along=20;const auto refined=makeBankPairPatch(p,&error);QVERIFY2(error.isEmpty(),qPrintable(error));
+        QCOMPARE(refined.quads.size(),16);
+    }
+
+    void bankPair_asymmetricGentleCurves()
+    {
+        BankPairPatch p;
+        p.bankA={{0,0},{20,1},{45,4},{80,8}};
+        p.bankB={{0,7},{12,8},{40,14},{60,17},{80,20}};
+        p.across=3;p.along=9;p.tag="asymmetric";
+        for(double origin:{0.0,1e6,1e9}){
+            auto translated=p;for(auto *bank:{&translated.bankA,&translated.bankB})for(auto &point:*bank)point+=QPointF(origin,origin);
+            QString error;const auto patch=makeBankPairPatch(translated,&error);
+            QVERIFY2(error.isEmpty(),qPrintable(error));QVERIFY(!patch.quads.isEmpty());
+            QVERIFY2(validate(patch).isEmpty(),qPrintable(validate(patch)));
+            QSet<int> boundary;for(const auto &edge:patch.boundarySegments){boundary.insert(edge.first);boundary.insert(edge.second);}
+            for(const auto &bank:{translated.bankA,translated.bankB})for(const auto &point:bank){
+                bool exact=false;for(int index:boundary)exact|=patch.xy[index].x()==point.x()&&patch.xy[index].y()==point.y();
+                QVERIFY2(exact,"A bank bend was omitted or rounded away.");
+            }
+        }
+    }
+
+    void bankPair_nearCoincidentStationsAndCanonicalOrientation()
+    {
+        BankPairPatch p;p.across=2;
+        p.bankA={{1e9,1e9},{1e9+50,1e9},{1e9+100,1e9}};
+        p.bankB={{1e9,1e9+10},{1e9+50.000001,1e9+10},{1e9+100,1e9+10}};
+        QString error;const auto expected=makeBankPairPatch(p,&error);
+        QVERIFY2(error.isEmpty(),qPrintable(error));QCOMPARE(expected.quads.size(),6);
+        for(const auto &bank:{p.bankA,p.bankB})for(const auto &point:bank){
+            bool exact=false;for(const auto &generated:expected.xy)exact|=generated.x()==point.x()&&generated.y()==point.y();
+            QVERIFY2(exact,"Near-coincident normalized stations must preserve both original bank vertices.");
+        }
+        for(int reversals=0;reversals<4;++reversals)for(bool swapBanks:{false,true}){
+            auto changed=p;
+            if(reversals&1)std::reverse(changed.bankA.begin(),changed.bankA.end());
+            if(reversals&2)std::reverse(changed.bankB.begin(),changed.bankB.end());
+            if(swapBanks)std::swap(changed.bankA,changed.bankB);
+            const auto actual=makeBankPairPatch(changed,&error);QVERIFY2(error.isEmpty(),qPrintable(error));
+            QCOMPARE(actual.xy.size(),expected.xy.size());
+            for(int i=0;i<actual.xy.size();++i){QCOMPARE(actual.xy[i].x(),expected.xy[i].x());QCOMPARE(actual.xy[i].y(),expected.xy[i].y());}
+            QCOMPARE(actual.boundarySegments,expected.boundarySegments);
+        }
+    }
+
+    void bankPair_invalid_data()
+    {
+        QTest::addColumn<BankPairPatch>("patch");QTest::addColumn<QString>("diagnostic");
+        BankPairPatch base;base.bankA={{0,0},{20,0}};base.bankB={{0,4},{20,4}};base.across=2;
+        auto add=[&](const char *name,const BankPairPatch &p,const char *diagnostic){QTest::newRow(name)<<p<<QString::fromLatin1(diagnostic);};
+        auto p=base;p.bankB={{10,-10},{10,10}};add("ambiguous",p,"ambiguous");
+        p=base;p.bankB={{0,4},{10,-4},{20,4}};add("crossing",p,"bank");
+        p=base;p.bankB={{0,4},{10,0},{20,4}};add("touching",p,"bank");
+        p=base;p.bankB=p.bankA;add("overlapping",p,"bank");
+        p=base;p.bankA={{0,0},{10,0},{10,0},{20,0}};add("duplicate",p,"duplicate");
+        p=base;p.bankA={{0,0},{10,0},{0,0}};add("closed",p,"closed");
+        p=base;p.bankA={{0,0},{12,3},{2,3},{14,0},{20,0}};add("self-crossing",p,"bank");
+        p=base;p.bankA[1].setX(std::numeric_limits<double>::quiet_NaN());add("nonfinite",p,"finite");
+        p=base;p.bankA.resize(1);add("one-vertex",p,"two");
+        p=base;p.along=-1;add("negative-spacing",p,"spacing");
+        p=base;p.along=std::numeric_limits<double>::infinity();add("nonfinite-spacing",p,"spacing");
+        p=base;p.along=std::numeric_limits<double>::denorm_min();add("tiny-spacing",p,"capacity");
+        p=base;p.across=std::numeric_limits<int>::max();add("huge-across",p,"capacity");
+        p=base;p.across=0;add("zero-across",p,"across");
+    }
+
+    void bankPair_invalid()
+    {
+        QFETCH(BankPairPatch,patch);QFETCH(QString,diagnostic);QString error;
+        const auto result=makeBankPairPatch(patch,&error);
+        QVERIFY(result.xy.isEmpty());QVERIFY(result.quads.isEmpty());
+        QVERIFY2(error.contains(diagnostic,Qt::CaseInsensitive),qPrintable(error));
     }
 
     /*! End-to-end: a 100×100 domain with a 20×20 transfinite patch hole.
