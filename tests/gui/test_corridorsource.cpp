@@ -20,6 +20,21 @@ class TestCorridorSource : public QObject {
         s.featureIds = {7}; s.width = 2; s.across = 2; s.along = 2;
         return s;
     }
+    CorridorSource banks() const {
+        auto s = source(); s.bankPair = true; s.featureIds = {10, 7}; s.tag = "river-banks";
+        return s;
+    }
+    bool replaceLine(qint64 fid, const char *wkt) {
+        auto *ds = static_cast<GDALDataset *>(GDALOpenEx(m_path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_UPDATE, nullptr, nullptr, nullptr));
+        if (!ds) return false;
+        auto *layer = ds->GetLayerByName("roads");
+        auto *feature = layer->GetFeature(fid);
+        OGRGeometry *geometry = nullptr;
+        bool ok = feature && OGRGeometryFactory::createFromWkt(wkt, nullptr, &geometry) == OGRERR_NONE;
+        if (ok) { feature->SetGeometryDirectly(geometry); ok = layer->SetFeature(feature) == OGRERR_NONE; }
+        if (feature) OGRFeature::DestroyFeature(feature);
+        GDALClose(ds); return ok;
+    }
     bool add(OGRLayer *layer, qint64 fid, const char *text, double width) {
         auto *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
         f->SetFID(fid); f->SetField("width", width); f->SetField("label", "road");
@@ -36,7 +51,7 @@ private slots:
         GDALAllRegister();
         m_dir = qEnvironmentVariable("SWMMVIS_CORRIDOR_TEST_OUTPUT");
         if (m_dir.isEmpty())
-            m_dir = QDir::current().absoluteFilePath("workplans/artifacts/phase_26_corridor_sources/helper");
+            m_dir = QDir::current().absoluteFilePath("workplans/artifacts/phase_28_bank_pairs/helper");
         QVERIFY(QDir().mkpath(m_dir));
         m_path = QDir(m_dir).filePath("selected_roads.gpkg");
         OGRSpatialReference srs;
@@ -61,7 +76,98 @@ private slots:
         QVERIFY(add(layer, 9, "LINESTRING (500000 4500080,500010 4500080)", -1));
         auto *f = layer->GetFeature(9); f->SetFieldNull(f->GetFieldIndex("width"));
         QCOMPARE(layer->SetFeature(f), OGRERR_NONE); OGRFeature::DestroyFeature(f);
+        QVERIFY(add(layer, 10, "LINESTRING (500000 4500004,500010 4500004)", 4));
         GDALClose(ds);
+    }
+    void bankPairDimensionsAndDigest() {
+        auto s = banks(); s.width = 1000; // Bank geometry, not this scalar, sets width.
+        const auto r = readCorridorSources({s}, m_wkt);
+        QVERIFY2(r.ok(), qPrintable(r.error)); QCOMPARE(r.patches.size(), 1);
+        const auto &patch = r.patches.first();
+        QCOMPARE(patch.tag, QString("river-banks")); QCOMPARE(patch.quads.size(), 10);
+        QVERIFY2(validate(patch).isEmpty(), qPrintable(validate(patch)));
+        QCOMPARE(QPolygonF(patch.xy).boundingRect(), QRectF(500000, 4500000, 10, 4));
+        QCOMPARE(r.resolvedSources.first().featureIds, QVector<qint64>({7, 10}));
+        QVERIFY(r.resolvedSources.first().bankPair);
+        QVERIFY(corridorSourceFilesUnchanged(r.sourceStamps));
+        QVERIFY(r.resolvedSources.first().sourceFiles.contains(QFileInfo(m_path).canonicalFilePath()));
+        const auto again = readCorridorSources(r.resolvedSources, m_wkt);
+        QVERIFY2(again.ok(), qPrintable(again.error));
+        QCOMPARE(again.resolvedSources.first().geometryDigest, r.resolvedSources.first().geometryDigest);
+        s.featureIds = {7, 10}; s.width = 2;
+        const auto ordered = readCorridorSources({s}, m_wkt);
+        QVERIFY2(ordered.ok(), qPrintable(ordered.error));
+        QCOMPARE(ordered.patches.first().xy, patch.xy);
+        QCOMPARE(ordered.resolvedSources.first().geometryDigest, r.resolvedSources.first().geometryDigest);
+        s.bankPair = false;
+        const auto swept = readCorridorSources({s}, m_wkt);
+        QVERIFY2(swept.ok(), qPrintable(swept.error));
+        QVERIFY(swept.resolvedSources.first().geometryDigest != r.resolvedSources.first().geometryDigest);
+    }
+    void bankPairAsymmetricAndReversed_data() {
+        QTest::addColumn<bool>("reverseA"); QTest::addColumn<bool>("reverseB");
+        QTest::newRow("forward") << false << false;
+        QTest::newRow("reverse-first") << true << false;
+        QTest::newRow("reverse-second") << false << true;
+        QTest::newRow("reverse-both") << true << true;
+    }
+    void bankPairAsymmetricAndReversed() {
+        QFETCH(bool, reverseA); QFETCH(bool, reverseB);
+        QVERIFY(replaceLine(7, reverseA ? "LINESTRING (500010 4500000,500000 4500000)" : "LINESTRING (500000 4500000,500010 4500000)"));
+        QVERIFY(replaceLine(10, reverseB ? "LINESTRING (500010 4500006,500003 4500005,500000 4500004)" : "LINESTRING (500000 4500004,500003 4500005,500010 4500006)"));
+        const auto r = readCorridorSources({banks()}, m_wkt);
+        QVERIFY2(r.ok(), qPrintable(r.error)); QCOMPARE(r.patches.size(), 1);
+        const auto &patch = r.patches.first();
+        QVERIFY2(validate(patch).isEmpty(), qPrintable(validate(patch)));
+        QVERIFY(patch.xy.contains(QPointF(500003, 4500005)));
+        QCOMPARE(QPolygonF(patch.xy).boundingRect(), QRectF(500000, 4500000, 10, 6));
+    }
+    void invalidBankPair_data() {
+        QTest::addColumn<QString>("scenario");
+        for (const char *s : {"one", "three", "duplicate", "duplicate-three", "missing", "point", "multipart", "closed", "width-field", "negative-width-metadata", "nan-width-metadata", "negative-along", "zero-across"})
+            QTest::newRow(s) << QString::fromLatin1(s);
+    }
+    void invalidBankPair() {
+        QFETCH(QString, scenario); auto s = banks();
+        if (scenario == "one") s.featureIds = {7};
+        if (scenario == "three") s.featureIds = {7, 9, 10};
+        if (scenario == "duplicate") s.featureIds = {7, 7};
+        if (scenario == "duplicate-three") s.featureIds = {7, 10, 10};
+        if (scenario == "missing") s.featureIds = {7, 12345};
+        if (scenario == "point") s.featureIds = {7, 8};
+        if (scenario == "multipart") s.featureIds = {7, largeFid};
+        if (scenario == "closed") QVERIFY(replaceLine(10, "LINESTRING (500000 4500004,500010 4500004,500005 4500006,500000 4500004)"));
+        if (scenario == "width-field") s.widthField = "width";
+        if (scenario == "negative-width-metadata") s.width = -1;
+        if (scenario == "nan-width-metadata") s.width = std::numeric_limits<double>::quiet_NaN();
+        if (scenario == "negative-along") s.along = -1;
+        if (scenario == "zero-across") s.across = 0;
+        // A previously successful source must not escape on later failure.
+        const auto r = readCorridorSources({source(), s}, m_wkt);
+        QVERIFY2(!r.ok(), qPrintable(scenario)); QVERIFY(!r.error.isEmpty());
+        QVERIFY(r.patches.isEmpty()); QVERIFY(r.resolvedSources.isEmpty()); QVERIFY(r.sourceStamps.isEmpty());
+    }
+    void changedBankGeometry_data() {
+        QTest::addColumn<qint64>("fid");
+        QTest::newRow("first-bank") << qint64(7); QTest::newRow("second-bank") << qint64(10);
+    }
+    void changedBankGeometry() {
+        QFETCH(qint64, fid);
+        const auto first = readCorridorSources({banks()}, m_wkt); QVERIFY2(first.ok(), qPrintable(first.error));
+        QVERIFY(replaceLine(fid, fid == 7 ? "LINESTRING (500000 4499999,500010 4500000)" : "LINESTRING (500000 4500004,500010 4500005)"));
+        const auto r = readCorridorSources(first.resolvedSources, m_wkt);
+        QVERIFY(!r.ok()); QVERIFY(r.error.contains("changed", Qt::CaseInsensitive));
+        QVERIFY(r.patches.isEmpty()); QVERIFY(r.resolvedSources.isEmpty());
+    }
+    void bankPairCancellationAndStamps() {
+        int checks = 0;
+        const auto cancelled = readCorridorSources({source(), banks()}, m_wkt, [&checks] { return ++checks >= 9; });
+        QVERIFY(!cancelled.ok()); QVERIFY(cancelled.error.contains("cancel", Qt::CaseInsensitive));
+        QVERIFY(cancelled.patches.isEmpty()); QVERIFY(cancelled.resolvedSources.isEmpty()); QVERIFY(cancelled.sourceStamps.isEmpty());
+        const auto r = readCorridorSources({banks()}, m_wkt); QVERIFY2(r.ok(), qPrintable(r.error));
+        QFile file(m_path); QVERIFY(file.open(QIODevice::ReadWrite));
+        QVERIFY(file.setFileTime(file.fileTime(QFileDevice::FileModificationTime).addSecs(10), QFileDevice::FileModificationTime)); file.close();
+        QString error; QVERIFY(!corridorSourceFilesUnchanged(r.sourceStamps, &error)); QVERIFY(error.contains("changed"));
     }
     void selectedLineAndMultipart() {
         auto s = source(); s.featureIds = {largeFid,7}; s.widthField = "width";

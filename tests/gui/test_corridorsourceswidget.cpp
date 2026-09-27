@@ -60,6 +60,111 @@ private slots:
         QCOMPARE(fixture.write(json), json.size());
     }
 
+    void bankPairSelection_data()
+    {
+        QTest::addColumn<int>("count");
+        QTest::newRow("one-bank-refused") << 1;
+        QTest::newRow("two-banks") << 2;
+        QTest::newRow("three-banks-refused") << 3;
+    }
+    void bankPairSelection()
+    {
+        QFETCH(int, count);
+        GISVectorLayer layer(m_path);
+        QSet<long long> ids{7};
+        if (count >= 2) ids.insert(19);
+        if (count >= 3) ids.insert(42);
+        layer.setSelectedFeatureIds(ids);
+        CorridorSourcesWidget widget;
+        widget.setLayers({&layer});
+        auto *mode = control<QComboBox>(widget, "corridorSourceMode");
+        QVERIFY(mode);
+        QVERIFY(!mode->accessibleName().isEmpty());
+        const int bank = mode->findData(QStringLiteral("bankPair"));
+        QVERIFY(bank >= 0);
+        mode->setCurrentIndex(bank);
+        QVERIFY(!control<QComboBox>(widget, "corridorWidthMode")->isEnabled());
+        QVERIFY(!control<QComboBox>(widget, "corridorWidthField")->isEnabled());
+        QVERIFY(!control<QLineEdit>(widget, "corridorWidth")->isEnabled());
+        control<QLineEdit>(widget, "corridorAcross")->setText(QStringLiteral("5"));
+        control<QLineEdit>(widget, "corridorAlong")->setText(QStringLiteral("0"));
+        control<QPushButton>(widget, "corridorAdd")->click();
+        auto *table = control<QTableWidget>(widget, "corridorSourcesTable");
+        if (count != 2) {
+            QCOMPARE(table->rowCount(), 0);
+            QVERIFY(control<QLabel>(widget, "corridorMessage")->text().contains(QStringLiteral("two")));
+            return;
+        }
+        QCOMPARE(table->rowCount(), 1);
+        QVERIFY(table->item(0, 0)->text().contains(QStringLiteral("Bank pair")));
+        QVERIFY(!(table->item(0, 2)->flags() & Qt::ItemIsEditable));
+        QVERIFY(!(table->item(0, 3)->flags() & Qt::ItemIsEditable));
+        QVERIFY(table->item(0, 4)->flags() & Qt::ItemIsEditable);
+        QVERIFY(table->item(0, 5)->flags() & Qt::ItemIsEditable);
+        QVector<mesh::CorridorSource> rows;
+        QString error;
+        QVERIFY2(widget.sources(&rows, &error), qPrintable(error));
+        QCOMPARE(rows.size(), 1);
+        QVERIFY(rows[0].bankPair);
+        QVERIFY(rows[0].widthField.isEmpty());
+        QCOMPARE(rows[0].featureIds, (QVector<qint64>{7, 19}));
+        QCOMPARE(rows[0].across, 5);
+        QCOMPARE(rows[0].along, 0.0);
+        mode->setCurrentIndex(mode->findData(QStringLiteral("centerline")));
+        QVERIFY(control<QComboBox>(widget, "corridorWidthMode")->isEnabled());
+        QVERIFY(control<QLineEdit>(widget, "corridorWidth")->isEnabled());
+    }
+
+    void restoredBankPairRetainsRoleAndEditableSpacing()
+    {
+        CorridorSourcesWidget widget;
+        auto bank = saved();
+        bank.bankPair = true;
+        widget.setSources({bank});
+        widget.setLayers({});
+        auto *table = control<QTableWidget>(widget, "corridorSourcesTable");
+        QVERIFY(table->item(0, 0)->text().contains(QStringLiteral("Bank pair")));
+        QVERIFY(table->item(0, 0)->text().contains(QStringLiteral("not on map")));
+        QVERIFY(!(table->item(0, 2)->flags() & Qt::ItemIsEditable));
+        QVERIFY(!(table->item(0, 3)->flags() & Qt::ItemIsEditable));
+        table->item(0, 4)->setText(QStringLiteral("4"));
+        table->item(0, 5)->setText(QStringLiteral("8.5"));
+        QVector<mesh::CorridorSource> rows;
+        QString error;
+        QVERIFY2(widget.sources(&rows, &error), qPrintable(error));
+        QVERIFY(rows[0].bankPair);
+        QCOMPARE(rows[0].featureIds, bank.featureIds);
+        QCOMPARE(rows[0].across, 4);
+        QCOMPARE(rows[0].along, 8.5);
+        QCOMPARE(rows[0].width, bank.width);
+        QCOMPARE(rows[0].geometryDigest, bank.geometryDigest);
+    }
+
+    void inconsistentRestoredBankPairIsNotSilentlyRepaired_data()
+    {
+        QTest::addColumn<QString>("invalid");
+        QTest::newRow("one-id") << QStringLiteral("one-id");
+        QTest::newRow("duplicate-ids") << QStringLiteral("duplicate-ids");
+        QTest::newRow("width-field") << QStringLiteral("width-field");
+    }
+    void inconsistentRestoredBankPairIsNotSilentlyRepaired()
+    {
+        QFETCH(QString, invalid);
+        CorridorSourcesWidget widget;
+        auto bank = saved();
+        bank.bankPair = true;
+        if (invalid == "one-id") bank.featureIds = {7};
+        if (invalid == "duplicate-ids") bank.featureIds = {7, 7};
+        if (invalid == "width-field") bank.widthField = QStringLiteral("width_m");
+        widget.setSources({bank});
+        QVector<mesh::CorridorSource> rows{saved()};
+        QString error;
+        QVERIFY(!widget.sources(&rows, &error));
+        QVERIFY(!error.isEmpty());
+        QVERIFY(!rows[0].bankPair);
+        QCOMPARE(control<QTableWidget>(widget, "corridorSourcesTable")->rowCount(), 1);
+    }
+
     void capturesOnlySelectedIdsAndAssignedCrsWithoutReadingFeatures()
     {
         GISVectorLayer layer(m_path);

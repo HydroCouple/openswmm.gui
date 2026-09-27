@@ -786,4 +786,229 @@ PatchMesh makeSweptPatch(const SweptPatch &p, QString *err)
     return pm;
 }
 
+PatchMesh makeBankPairPatch(const BankPairPatch &p, QString *err)
+{
+    if (err) err->clear();
+    const auto fail = [&](const QString &message) { if (err) *err = message; return PatchMesh(); };
+    if (p.across < 1) return fail(QStringLiteral("Bank-pair across count must be positive."));
+    if (!std::isfinite(p.along) || p.along < 0)
+        return fail(QStringLiteral("Bank-pair along spacing must be finite and nonnegative."));
+    const qint64 maxStations = std::numeric_limits<int>::max() / (qint64(p.across) + 1);
+    if (maxStations < 2 || p.bankA.size() > maxStations || p.bankB.size() > maxStations)
+        return fail(QStringLiteral("Bank-pair station/across counts exceed the vertex index capacity."));
+    const auto same = [](const QPointF &a, const QPointF &b) { return a.x() == b.x() && a.y() == b.y(); };
+    const auto less = [](const QPointF &a, const QPointF &b) {
+        return a.x() < b.x() || (a.x() == b.x() && a.y() < b.y());
+    };
+    double coordinateScale = 1;
+    int bankNumber = 0;
+    for (const auto *bank : {&p.bankA, &p.bankB}) {
+        ++bankNumber;
+        if (bank->size() < 2) return fail(QStringLiteral("Bank %1 needs at least two vertices.").arg(bankNumber));
+        for (int i = 0; i < bank->size(); ++i) {
+            const auto &point = bank->at(i);
+            if (!finitePt(point)) return fail(QStringLiteral("Bank %1 has a non-finite vertex at %2.").arg(bankNumber).arg(i));
+            coordinateScale = std::max({coordinateScale, std::abs(point.x()), std::abs(point.y())});
+            if (i > 0 && same(point, bank->at(i - 1)))
+                return fail(QStringLiteral("Bank %1 has duplicate consecutive vertices at %2.").arg(bankNumber).arg(i));
+        }
+        if (same(bank->first(), bank->last()))
+            return fail(QStringLiteral("Bank %1 is closed; two open bank lines are required.").arg(bankNumber));
+    }
+
+    QVector<QPointF> bankA = p.bankA, bankB = p.bankB;
+    const auto distance = [](const QPointF &a, const QPointF &b) {
+        return std::hypot(a.x() - b.x(), a.y() - b.y());
+    };
+    // Half-sums avoid overflow when adding individually representable lengths.
+    const double direct = 0.5 * distance(bankA.first(), bankB.first())
+                        + 0.5 * distance(bankA.last(), bankB.last());
+    const double reverse = 0.5 * distance(bankA.first(), bankB.last())
+                         + 0.5 * distance(bankA.last(), bankB.first());
+    if (!std::isfinite(direct) || !std::isfinite(reverse))
+        return fail(QStringLiteral("Bank endpoint connection lengths are non-finite."));
+    const double pairingTolerance = 64 * std::numeric_limits<double>::epsilon() * std::max(direct, reverse);
+    if (std::abs(direct - reverse) <= pairingTolerance)
+        return fail(QStringLiteral("Bank endpoint pairing is ambiguous; use bank lines with clearly corresponding ends."));
+    if (reverse < direct) std::reverse(bankB.begin(), bankB.end());
+
+    // Canonical endpoint pairs make reversed/swapped input use the same arc
+    // accumulation order. This is an ordering rule, not a world-space tolerance.
+    const auto orderedPair = [&](QPointF a, QPointF b) {
+        if (less(b, a)) std::swap(a, b);
+        return qMakePair(a, b);
+    };
+    const auto start = orderedPair(bankA.first(), bankB.first());
+    const auto end = orderedPair(bankA.last(), bankB.last());
+    if (less(end.first, start.first) || (same(end.first, start.first) && less(end.second, start.second))) {
+        std::reverse(bankA.begin(), bankA.end());
+        std::reverse(bankB.begin(), bankB.end());
+    }
+    if (less(bankB.first(), bankA.first())) std::swap(bankA, bankB);
+
+    // The bank edges and the two endpoint connectors must form one simple
+    // boundary before subdivision. Reuse the indexed inclusive-contact check;
+    // no all-segment or all-cell quadratic scan is introduced.
+    QPolygonF outline;
+    outline.reserve(bankA.size() + bankB.size());
+    for (const auto &point : bankA) outline.append(point);
+    for (auto it = bankB.crbegin(); it != bankB.crend(); ++it) outline.append(*it);
+    for (int i = 0; i < outline.size(); ++i)
+        if (same(outline[i], outline[(i + 1) % outline.size()]))
+            return fail(QStringLiteral("Bank boundaries touch at an endpoint."));
+    const BoundaryIndex index(outline);
+    for (int edge = 0; edge < outline.size(); ++edge) {
+        const int other = index.conflict(edge);
+        if (other >= 0)
+            return fail(QStringLiteral("Bank boundaries or endpoint connectors touch, overlap or intersect at segments %1 and %2.").arg(edge).arg(other));
+    }
+    const double boundaryArea = ringSignedArea(outline);
+    if (boundaryArea == 0 || !std::isfinite(boundaryArea))
+        return fail(QStringLiteral("Bank boundary has zero or non-finite area."));
+    const bool ccw = boundaryArea > 0;
+
+    struct BankArc {
+        const QVector<QPointF> *points;
+        QVector<double> fractions;
+        double length = 0;
+        explicit BankArc(const QVector<QPointF> &bank) : points(&bank) {}
+        QString prepare(int number) {
+            fractions.reserve(points->size());
+            fractions.append(0);
+            for (int i = 1; i < points->size(); ++i) {
+                const auto delta = points->at(i) - points->at(i - 1);
+                const double segment = std::hypot(delta.x(), delta.y());
+                const double next = length + segment;
+                if (!(segment > 0) || !std::isfinite(next) || !(next > length))
+                    return QStringLiteral("Bank %1 has an unrepresentable arc interval at vertex %2.").arg(number).arg(i);
+                length = next;
+                fractions.append(length);
+            }
+            for (int i = 1; i < fractions.size(); ++i) {
+                fractions[i] /= length;
+                if (!(fractions[i] > fractions[i - 1]))
+                    return QStringLiteral("Bank %1 normalized stations collapse at vertex %2.").arg(number).arg(i);
+            }
+            fractions.last() = 1;
+            return {};
+        }
+        QPointF at(double fraction) const {
+            const auto it = std::lower_bound(fractions.cbegin(), fractions.cend(), fraction);
+            if (it == fractions.cend()) return points->last();
+            const int right = int(it - fractions.cbegin());
+            if (*it == fraction || right == 0) return points->at(right);
+            const double t = (fraction - fractions[right - 1]) / (fractions[right] - fractions[right - 1]);
+            return points->at(right - 1) + (points->at(right) - points->at(right - 1)) * t;
+        }
+    };
+    BankArc arcA(bankA), arcB(bankB);
+    QString error = arcA.prepare(1);
+    if (error.isEmpty()) error = arcB.prepare(2);
+    if (!error.isEmpty()) return fail(error);
+
+    // Exact fraction equality alone coalesces stations. Near fractions must
+    // remain distinct to preserve both bends; unrepresentable resulting cells
+    // are rejected instead of silently dropping a bank vertex.
+    QVector<double> breaks;
+    int a = 0, b = 0;
+    while (a < arcA.fractions.size() || b < arcB.fractions.size()) {
+        const double fa = a < arcA.fractions.size() ? arcA.fractions[a] : 2;
+        const double fb = b < arcB.fractions.size() ? arcB.fractions[b] : 2;
+        const double fraction = std::min(fa, fb);
+        if (fa == fraction) ++a;
+        if (fb == fraction) ++b;
+        if (breaks.size() >= maxStations)
+            return fail(QStringLiteral("Bank-pair station union exceeds the vertex index capacity."));
+        breaks.append(fraction);
+    }
+    QVector<int> parts;
+    parts.reserve(breaks.size() - 1);
+    qint64 stationCount = 1;
+    for (int interval = 0; interval + 1 < breaks.size(); ++interval) {
+        double subdivisions = 1;
+        if (p.along > 0) {
+            const double advance = (breaks[interval + 1] - breaks[interval]) * std::max(arcA.length, arcB.length);
+            const double ratio = advance / p.along;
+            if (!std::isfinite(ratio) || ratio > maxStations)
+                return fail(QStringLiteral("Bank-pair along spacing exceeds station index capacity at interval %1.").arg(interval));
+            const double tolerance = std::min(1e-6, std::max(1e-9,
+                8 * std::numeric_limits<double>::epsilon() * coordinateScale / p.along));
+            const double rounded = std::round(ratio);
+            subdivisions = std::max(1.0, std::ceil(std::abs(ratio - rounded) <= tolerance ? rounded : ratio));
+        }
+        if (subdivisions > maxStations - stationCount)
+            return fail(QStringLiteral("Bank-pair station count exceeds index capacity at interval %1.").arg(interval));
+        stationCount += qint64(subdivisions);
+        parts.append(int(subdivisions));
+    }
+    error = gridDimensions(int(stationCount - 1), p.across);
+    if (!error.isEmpty()) return fail(error);
+
+    PatchMesh pm;
+    pm.tag = p.tag;
+    const int ns = int(stationCount), na = p.across;
+    pm.xy.reserve(ns * (na + 1));
+    double previousFraction = -1;
+    const auto appendStation = [&](double fraction, int station) -> QString {
+        if (!(fraction > previousFraction))
+            return QStringLiteral("Bank-pair normalized station %1 collapses at the requested spacing.").arg(station);
+        const QPointF aPoint = arcA.at(fraction), bPoint = arcB.at(fraction);
+        for (int across = 0; across <= na; ++across) {
+            // Keep both physical banks exact, including every original bend.
+            const QPointF point = across == 0 ? aPoint : across == na ? bPoint
+                : aPoint + (bPoint - aPoint) * (double(across) / na);
+            if (!finitePt(point)) return QStringLiteral("Bank-pair interpolation is non-finite at station %1.").arg(station);
+            pm.xy.append(point);
+        }
+        previousFraction = fraction;
+        return {};
+    };
+    error = appendStation(0, 0);
+    if (!error.isEmpty()) return fail(error);
+    int station = 0;
+    for (int interval = 0; interval < parts.size(); ++interval) {
+        const double first = breaks[interval], last = breaks[interval + 1];
+        for (int part = 1; part <= parts[interval]; ++part) {
+            // Preserve each original union station bit-for-bit; only interior
+            // interval stations are computed by interpolation.
+            const double fraction = part == parts[interval] ? last
+                : first + (last - first) * (double(part) / parts[interval]);
+            error = appendStation(fraction, ++station);
+            if (!error.isEmpty()) return fail(error);
+        }
+    }
+    const auto vertex = [na](int i, int j) { return i * (na + 1) + j; };
+    pm.quads.reserve((ns - 1) * na);
+    for (int i = 0; i + 1 < ns; ++i)
+        for (int j = 0; j < na; ++j) {
+            MeshTriangle quad;
+            quad.tag = p.tag;
+            quad.v0 = vertex(i, j);
+            quad.v1 = ccw ? vertex(i + 1, j) : vertex(i, j + 1);
+            quad.v2 = vertex(i + 1, j + 1);
+            quad.v3 = ccw ? vertex(i, j + 1) : vertex(i + 1, j);
+            pm.quads.append(quad);
+        }
+    pm.boundarySegments.reserve(2 * (ns - 1) + 2 * na);
+    for (int i = 0; i + 1 < ns; ++i) {
+        pm.boundarySegments.append(qMakePair(vertex(i, 0), vertex(i + 1, 0)));
+        pm.boundarySegments.append(qMakePair(vertex(i, na), vertex(i + 1, na)));
+    }
+    for (int j = 0; j < na; ++j) {
+        pm.boundarySegments.append(qMakePair(vertex(0, j), vertex(0, j + 1)));
+        pm.boundarySegments.append(qMakePair(vertex(ns - 1, j), vertex(ns - 1, j + 1)));
+    }
+    int badVertex = -1, otherVertex = -1;
+    error = validatePatchMesh(pm, nullptr, &badVertex, &otherVertex);
+    if (!error.isEmpty()) {
+        if (otherVertex >= 0)
+            return fail(QStringLiteral("Bank-pair cells conflict near stations %1 and %2: %3")
+                .arg(badVertex / (na + 1)).arg(otherVertex / (na + 1)).arg(error));
+        if (badVertex >= 0)
+            return fail(QStringLiteral("Bank-pair cell is invalid near station %1: %2").arg(badVertex / (na + 1)).arg(error));
+        return fail(QStringLiteral("Bank-pair patch is invalid: %1").arg(error));
+    }
+    return pm;
+}
+
 } // namespace mesh

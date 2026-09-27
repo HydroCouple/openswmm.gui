@@ -119,6 +119,65 @@ class TestMeshQuadCleanup : public QObject
     Q_OBJECT
 
 private slots:
+    void translatedCellOrientation_data()
+    {
+        QTest::addColumn<double>("origin");
+        QTest::addColumn<bool>("clockwise");
+        QTest::addColumn<bool>("quad");
+        for (double origin : {0.0, 500000.0, 1e9})
+            for (bool clockwise : {false, true})
+                for (bool quad : {false, true})
+                    QTest::newRow(qPrintable(QString("origin%1-cw%2-quad%3").arg(origin).arg(clockwise).arg(quad)))
+                        << origin << clockwise << quad;
+    }
+
+    void translatedCellOrientation()
+    {
+        QFETCH(double, origin); QFETCH(bool, clockwise); QFETCH(bool, quad);
+        MeshResult mesh;
+        addVertex(mesh, origin, origin); addVertex(mesh, origin + 0.25, origin);
+        addVertex(mesh, origin + 0.25, origin + 0.125); addVertex(mesh, origin, origin + 0.125);
+        MeshTriangle cell; cell.v0=0; cell.v1=1; cell.v2=2; cell.v3=quad ? 3 : -1;
+        if (clockwise) { if (quad) std::swap(cell.v1,cell.v3); else std::swap(cell.v1,cell.v2); }
+        const double area = (quad ? 0.03125 : 0.015625) * (clockwise ? -1 : 1);
+        QCOMPARE(cellSignedArea(mesh.vertices, cell), area);
+    }
+
+    void smoothing_translatedLattice_data()
+    {
+        QTest::addColumn<double>("origin");
+        QTest::newRow("utm") << 500000.0;
+        QTest::newRow("large-origin") << 1e9;
+    }
+
+    void smoothing_translatedLattice()
+    {
+        QFETCH(double, origin);
+        QSet<int> movable;
+        auto mesh = jitteredLattice(5, 0.2, 7u, &movable);
+        for (auto &vertex : mesh.vertices) vertex.xy += QPointF(origin, origin);
+        const auto before = mesh.vertices;
+        const double initialSJ = minCellSJ(mesh);
+        QuadCleanupOptions options;
+        options.removeDoublets = false;
+        options.diagonalSwaps = false;
+        const auto stats = cleanupAndSmoothQuads(mesh, movable, options, nullptr);
+        QVERIFY(stats.verticesMoved > 0);
+        QVERIFY(minCellSJ(mesh) >= initialSJ - 1e-7);
+        QVERIFY(minCellSJ(mesh) > 0.95);
+        QCOMPARE(mesh.vertices.size(), before.size());
+        QCOMPARE(mesh.triangles.size(), 25);
+        for (int i=0; i<mesh.vertices.size(); ++i)
+            if (!movable.contains(i)) {
+                QCOMPARE(mesh.vertices[i].xy.x(), before[i].xy.x());
+                QCOMPARE(mesh.vertices[i].xy.y(), before[i].xy.y());
+            }
+        for (const auto &cell : mesh.triangles) {
+            QVERIFY(cellSignedArea(mesh.vertices, cell) > 0);
+            QVERIFY(quadQuality(mesh.vertices, cell).convex);
+        }
+    }
+
     void smoothing_respectsAspectLimit_data()
     {
         QTest::addColumn<double>("cap");

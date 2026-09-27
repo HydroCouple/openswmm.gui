@@ -53,6 +53,19 @@ struct SweptPatch
     QString tag;
 };
 
+/*! \brief Two open bank polylines with independently supplied directions.
+ *  Endpoints are paired by minimum total connection length. Stations use the
+ *  union of normalized arc-length vertices, retaining every bank bend exactly.
+ *  Positive along subdivides that union to the target spacing; zero retains
+ *  only the union. This is normalized arc correspondence, not surveyed stations. */
+struct BankPairPatch
+{
+    QVector<QPointF> bankA, bankB;
+    int across = 0;
+    double along = 0.0;
+    QString tag;
+};
+
 /*! \brief A generated patch in local indices. Quads are emitted CCW. */
 struct PatchMesh
 {
@@ -87,6 +100,11 @@ PatchMesh makeTransfinitePatch(const StructuredPatch &p, QString *err = nullptr)
  *  allocation. Invalid or globally overlapping/touching offsets return an
  *  empty PatchMesh and a diagnostic identifying the affected stations. */
 PatchMesh makeSweptPatch(const SweptPatch &p, QString *err = nullptr);
+
+/*! \brief Build a conforming strip between two simple, disjoint banks.
+ *  Rejects ambiguous endpoint pairing, touching/crossing banks, folded cells,
+ *  unrepresentable station geometry and unsafe subdivision counts. */
+PatchMesh makeBankPairPatch(const BankPairPatch &p, QString *err = nullptr);
 
 // ── Quad-region redesign (QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §4.2) ───
 
