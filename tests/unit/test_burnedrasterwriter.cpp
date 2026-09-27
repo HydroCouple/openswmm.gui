@@ -20,6 +20,12 @@
 
 #include <cmath>
 #include <limits>
+#include <filesystem>
+#ifdef Q_OS_UNIX
+#include <csignal>
+#include <sys/resource.h>
+#include <unistd.h>
+#endif
 
 #ifndef CHANNELBURN_OUT_DIR
 #define CHANNELBURN_OUT_DIR "channelburn_artifacts"
@@ -33,12 +39,20 @@ constexpr double kNoData = -9999.0;
 
 QString outDir()
 {
-    QDir d(QString::fromUtf8(CHANNELBURN_OUT_DIR));
+    QDir d(qEnvironmentVariable("SWMMVIS_BURN_WRITER_TEST_OUTPUT",
+                                QString::fromUtf8(CHANNELBURN_OUT_DIR)));
     if (!d.exists()) QDir().mkpath(d.absolutePath());
     return d.absolutePath();
 }
 
 QString outPath(const QString &name) { return outDir() + QLatin1Char('/') + name; }
+
+QByteArray fileBytes(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    return file.readAll();
+}
 
 /*! A 1 m north-up Float32 DEM, flat at \p z, with a NoData rectangle. */
 bool makeFlatDem(const QString &path, double z, int w = 80, int h = 60)
@@ -319,4 +333,180 @@ TEST(BurnedRasterWriter, IntegerDemWarnsAboutRounding)
     ASSERT_TRUE(writeBurnedRaster(request(src, dst), &st, &err)) << err.toStdString();
     ASSERT_FALSE(st.warnings.isEmpty());
     EXPECT_TRUE(st.warnings.first().contains(QStringLiteral("integer")));
+}
+
+TEST(BurnedRasterWriter, ReportUsesLogicalDestinationNotJobStage)
+{
+    const QString physical = outPath(".job-stage-dem.tif");
+    const QString logical = outPath("published-channel.tif");
+    const QString csv = outPath("logical_report.csv");
+    auto req = request(outPath("source.tif"), physical);
+    req.logicalOutputPath = logical;
+    BurnRasterStats stats;
+    QString error;
+    ASSERT_TRUE(writeBurnReport(csv, req, stats, "model m; raster m", &error))
+        << error.toStdString();
+    const auto bytes = fileBytes(csv);
+    EXPECT_TRUE(bytes.contains(logical.toUtf8()));
+    EXPECT_FALSE(bytes.contains(physical.toUtf8()));
+}
+
+TEST(BurnedRasterWriter, RefusesExistingDestinationWithoutChangingIt)
+{
+    const QString src = outPath("existing_source.tif");
+    const QString dst = outPath("existing_destination.tif");
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    ASSERT_TRUE(makeFlatDem(dst, 42.0));
+    const auto before = fileBytes(dst);
+    ASSERT_FALSE(before.isEmpty());
+    QString error;
+    BurnRasterStats stats;
+    EXPECT_FALSE(writeBurnedRaster(request(src, dst), &stats, &error));
+    EXPECT_FALSE(error.isEmpty());
+    EXPECT_EQ(fileBytes(dst), before);
+}
+
+TEST(BurnedRasterWriter, CancellationPreservesExistingDestination)
+{
+    const QString src = outPath("cancel_existing_source.tif");
+    const QString dst = outPath("cancel_existing_destination.tif");
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    ASSERT_TRUE(makeFlatDem(dst, 42.0));
+    const auto before = fileBytes(dst);
+    auto req = request(src, dst);
+    req.progress = [](int, const QString &) { return false; };
+    BurnRasterStats stats;
+    QString error;
+    EXPECT_FALSE(writeBurnedRaster(req, &stats, &error));
+    EXPECT_EQ(fileBytes(dst), before);
+}
+
+TEST(BurnedRasterWriter, EmptyOwnedStageCanBeWrittenAndLateCancellationCleansIt)
+{
+    const QString src = outPath("owned_source.tif");
+    const QString dst = outPath("owned_stage.tif");
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    { QFile stage(dst); ASSERT_TRUE(stage.open(QIODevice::WriteOnly)); }
+    auto req = request(src, dst);
+    int lastProgress = -1;
+    req.progress = [&](int value, const QString &) {
+        EXPECT_GE(value, lastProgress);
+        lastProgress = value;
+        return value < 100;
+    };
+    BurnRasterStats stats;
+    stats.pixelsVisited = 123;
+    QString error;
+    EXPECT_FALSE(writeBurnedRaster(req, &stats, &error));
+    EXPECT_EQ(error, QStringLiteral("Cancelled."));
+    EXPECT_FALSE(QFileInfo::exists(dst));
+    EXPECT_EQ(stats.pixelsVisited, 123);
+    { QFile stage(dst); ASSERT_TRUE(stage.open(QIODevice::WriteOnly)); }
+    req.progress = {};
+    ASSERT_TRUE(writeBurnedRaster(req, &stats, &error)) << error.toStdString();
+    EXPECT_GT(stats.pixelsVisited, 0);
+    EXPECT_NEAR(sampleAt(dst, 25.5, 0.5), 7.49, 1e-4);
+}
+
+TEST(BurnedRasterWriter, SourceAliasesAreRefused)
+{
+    const QString src = outPath("alias_source.tif");
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    const auto before = fileBytes(src);
+    const QString hardLink = outPath("alias_hardlink.tif");
+    QFile::remove(hardLink);
+    std::error_code ec;
+    std::filesystem::create_hard_link(std::filesystem::u8path(src.toUtf8().constData()),
+                                     std::filesystem::u8path(hardLink.toUtf8().constData()), ec);
+    ASSERT_FALSE(ec) << ec.message();
+    QString error;
+    BurnRasterStats stats;
+    EXPECT_FALSE(writeBurnedRaster(request(src, hardLink), &stats, &error));
+    EXPECT_EQ(fileBytes(src), before);
+    EXPECT_FALSE(writeBurnedRaster(request(src, src), &stats, &error));
+    EXPECT_EQ(fileBytes(src), before);
+}
+
+TEST(BurnedRasterWriter, ReportShortWriteFailsWithoutReplacingPriorReport)
+{
+#ifdef Q_OS_UNIX
+    const QString csv = outPath("limited_report.csv");
+    const QByteArray before("Prior complete report\n");
+    { QFile file(csv); ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+      ASSERT_EQ(file.write(before), before.size()); }
+    auto req = request(outPath("source.tif"), outPath("physical.tif"));
+    req.logicalOutputPath = outPath("logical.tif");
+    ASSERT_EXIT({
+        std::signal(SIGXFSZ, SIG_IGN);
+        struct rlimit limit;
+        if (getrlimit(RLIMIT_FSIZE, &limit) != 0) _exit(2);
+        limit.rlim_cur = 64;
+        if (setrlimit(RLIMIT_FSIZE, &limit) != 0) _exit(3);
+        BurnRasterStats stats;
+        QString error;
+        const bool saved = writeBurnReport(csv, req, stats, "model m; raster m", &error);
+        _exit(!saved && !error.isEmpty() ? 0 : 1);
+    }, ::testing::ExitedWithCode(0), "");
+    EXPECT_EQ(fileBytes(csv), before);
+#else
+    GTEST_SKIP() << "OS file-size failure injection requires POSIX rlimits";
+#endif
+}
+
+TEST(BurnedRasterWriter, RefusesRasterThatNeedsAnAuxiliaryFile)
+{
+    const QString src = outPath("aux_source.tif");
+    const QString dst = outPath("aux_stage.tif");
+    const QString auxiliary = dst + ".aux.xml";
+    QFile::remove(dst);
+    QFile::remove(auxiliary);
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    auto req = request(src, dst);
+    req.progress = [&](int progress, const QString &) {
+        if (progress == 100) {
+            QFile sidecar(auxiliary);
+            if (!sidecar.open(QIODevice::WriteOnly)) return false;
+            sidecar.write("<PAMDataset><Metadata><MDI key=\"job-note\">auxiliary</MDI>"
+                          "</Metadata></PAMDataset>\n");
+        }
+        return true;
+    };
+    BurnRasterStats stats;
+    QString error;
+    EXPECT_FALSE(writeBurnedRaster(req, &stats, &error));
+    EXPECT_TRUE(error.contains("auxiliary", Qt::CaseInsensitive)) << error.toStdString();
+    EXPECT_FALSE(QFileInfo::exists(dst));
+    // The job owner owns companion cleanup; keep this fixture reviewable.
+    EXPECT_TRUE(QFileInfo::exists(auxiliary));
+}
+
+TEST(BurnedRasterWriter, FinalRasterFlushFailureDoesNotReportSuccess)
+{
+#ifdef Q_OS_UNIX
+    const QString src = outPath("flush_source.tif");
+    const QString dst = outPath("flush_stage.tif");
+    QFile::remove(dst);
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    const auto before = fileBytes(src);
+    auto req = request(src, dst);
+    ASSERT_EXIT({
+        std::signal(SIGXFSZ, SIG_IGN);
+        req.progress = [](int progress, const QString &) {
+            if (progress < 100) return true;
+            struct rlimit limit;
+            if (getrlimit(RLIMIT_FSIZE, &limit) != 0) _exit(2);
+            limit.rlim_cur = 1; // after RasterIO, before final flush/close
+            if (setrlimit(RLIMIT_FSIZE, &limit) != 0) _exit(3);
+            return true;
+        };
+        BurnRasterStats stats;
+        QString error;
+        const bool saved = writeBurnedRaster(req, &stats, &error);
+        _exit(!saved && !error.isEmpty() ? 0 : 1);
+    }, ::testing::ExitedWithCode(0), "");
+    EXPECT_FALSE(QFileInfo::exists(dst));
+    EXPECT_EQ(fileBytes(src), before);
+#else
+    GTEST_SKIP() << "OS file-size failure injection requires POSIX rlimits";
+#endif
 }

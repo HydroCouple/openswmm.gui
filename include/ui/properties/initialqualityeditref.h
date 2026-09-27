@@ -29,12 +29,13 @@ struct InitialQualityEditRef
     int         isLink = 0;        ///< 0 = node scope, 1 = link scope
     QString     elementName;       ///< Owning element id (case-preserved)
     QString     summary;           ///< Short text shown in the cell
+    bool        wroteChanges = false; ///< Editor has applied changes, even if it was cancelled
 
     bool operator==(const InitialQualityEditRef &other) const noexcept
     {
         return engine == other.engine && isLink == other.isLink
                && elementName == other.elementName
-               && summary == other.summary;
+               && summary == other.summary && wroteChanges == other.wroteChanges;
     }
 };
 

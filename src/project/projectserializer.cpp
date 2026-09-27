@@ -5,6 +5,7 @@
  */
 
 #include "project/projectserializer.h"
+#include "project/meshcorridorrecipe.h"
 
 #include "connections/basemapconnection.h"
 #include "layers/annotationlayer.h"
@@ -136,6 +137,7 @@ const QString kTerrainVertUnit    = QStringLiteral("verticalUnit");
 // matched back to the live layer by resolved sourcePath.
 const QString kMeshLayers           = QStringLiteral("meshLayers");
 const QString kChannelBurn          = QStringLiteral("channelBurn");
+const QString kMeshCorridors        = QStringLiteral("meshCorridors");
 const QString kMeshSourcePath       = QStringLiteral("sourcePath");
 const QString kMeshActive           = QStringLiteral("active");
 const QString kMeshShowNodes        = QStringLiteral("showMeshNodes");
@@ -334,6 +336,12 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
     // project's .oswp is byte-for-byte what it was before the feature landed.
     if (pw->channelBurnSettings().enabled)
         obj[kChannelBurn] = ProjectSerializer::channelBurnToJson(pw->channelBurnSettings());
+    if (!pw->corridorSources().isEmpty()) {
+        QJsonObject recipe;
+        // writeRootJson validates all recipes before serializing any session.
+        MeshCorridorRecipe::encode(pw->corridorSources(), oswpFile, &recipe, nullptr);
+        obj[kMeshCorridors] = recipe;
+    }
 
     QJsonObject layerObj;
 
@@ -1070,6 +1078,18 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
     { setErr(QObject::tr("Empty .oswp path")); return false; }
     if (windows.isEmpty())
     { setErr(QObject::tr("No project windows to serialize")); return false; }
+    for (auto *pw : windows) {
+        if (!pw) continue;
+        if (!pw->corridorRecipeLoadError().isEmpty()) {
+            setErr(pw->corridorRecipeLoadError());
+            return false;
+        }
+        QString recipeError;
+        if (!MeshCorridorRecipe::encode(pw->corridorSources(), oswpPath, nullptr, &recipeError)) {
+            setErr(recipeError);
+            return false;
+        }
+    }
 
     QJsonObject root;
     root[kSchemaVersion] = ProjectSerializer::kCurrentSchemaVersion;
@@ -1246,6 +1266,19 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
             sessionObj[kLayer]         = root.value(kLayer);
     }
 
+    // Validate the recipe before changing any project/canvas state. Unknown
+    // versions, roles or selections must never silently become fewer corridors.
+    QVector<mesh::CorridorSource> corridorSources;
+    if (sessionObj.contains(kMeshCorridors)) {
+        QString recipeError;
+        if (!MeshCorridorRecipe::decode(sessionObj.value(kMeshCorridors), oswpPath,
+                                       &corridorSources, &recipeError)) {
+            pw->setCorridorRecipeLoadError(recipeError);
+            setErr(recipeError);
+            return false;
+        }
+    }
+
     auto *layer  = pw->modelLayer();
     auto *canvas = pw->canvas();
 
@@ -1275,6 +1308,8 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
         // No layer yet but engineVersion still useful.
         pw->setEngineVersion(sessionObj.value(kEngineVersion).toString("6.0.0"));
     }
+    pw->setCorridorSources(corridorSources);
+    pw->setCorridorRecipeLoadError({});
 
     // --- Canvas block (project-scope, same shape v1→v4) -------------------
     if (canvas) {

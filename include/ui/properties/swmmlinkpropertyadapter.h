@@ -257,7 +257,9 @@ public slots:
      *  and the registered `LinkCompoundEditButton` creator never fires. */
     void setXsectionRef(const LinkCompoundEditRef &)    { emit changed(); }
     void setUserFlagsRef(const UserFlagsEditRef &)      { emit changed(); }
-    void setInitialQualityRef(const InitialQualityEditRef &) { emit changed(); }
+    void setInitialQualityRef(const InitialQualityEditRef &ref) {
+        if (ref.wroteChanges) emit changed();
+    }
     void setCulvertCodeRef(const CulvertCodeRef &)      { emit changed(); }
     void setInletUsageRef(const LinkCompoundEditRef &)  { emit changed(); }
 

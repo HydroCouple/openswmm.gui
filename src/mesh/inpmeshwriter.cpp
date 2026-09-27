@@ -17,6 +17,7 @@
 #include <QFileInfo>
 #include <QList>
 #include <QPair>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
 #include <QTextStream>
@@ -353,9 +354,9 @@ QString stripSections(const QString &originalText, const QStringList &ours)
     bool inStripped = false;
     for (const QString &raw : lines)
     {
-        const QString trimmed = raw.trimmed();
-        // SWMM section header detection: "[NAME]" with optional trailing
-        // whitespace. Comments and data lines never start with '['.
+        const QString trimmed = raw.section(QChar(';'), 0, 0).trimmed();
+        // Section headers can carry a trailing comment too. Keep raw text
+        // for surviving sections; parse only the header's uncommented part.
         if (trimmed.startsWith(QChar('[')) && trimmed.endsWith(QChar(']')))
         {
             inStripped = ours.contains(trimmed, Qt::CaseInsensitive);
@@ -605,6 +606,61 @@ ReadResult readInp(const QString &inpPath)
     return r;
 }
 
+QString topologyReplacementError(const QString &text, const QString &path)
+{
+    // Mirrors scoped authoring in SectionHandlers2D, SubsurfaceSections,
+    // GwTransportSections and SurfaceQuality2D. Global settings remain valid;
+    // CELL/EDGE indices and TAG membership require a remapping contract.
+    static const QSet<QString> scopedSections = {
+        QStringLiteral("[2D_INITIAL_QUALITY]"), QStringLiteral("[2D_COVERAGES]"),
+        QStringLiteral("[2D_LOADINGS]"), QStringLiteral("[2D_CURB_LENGTH]"),
+        QStringLiteral("[2D_AQUIFER]"), QStringLiteral("[GW_TRANSPORT_PARAMS]"),
+        QStringLiteral("[GW_SORPTION]"), QStringLiteral("[GW_INITIAL_QUALITY]")};
+    static const QSet<QString> indexedSections = {
+        QStringLiteral("[2D_INITIAL_VELOCITY]"), QStringLiteral("[2D_BOUNDARY_QUALITY]"),
+        QStringLiteral("[GW_BOUNDARY_QUALITY]")};
+    static const QRegularExpression tokenPattern(
+        QStringLiteral(R"re("([^"]*)"|'([^']*)'|([^\s]+))re"));
+    QString section;
+    int lineNumber = 0;
+    for (const QString &raw : text.split(QChar('\n'))) {
+        ++lineNumber;
+        const QString line = raw.section(QChar(';'), 0, 0).trimmed();
+        if (line.isEmpty()) continue;
+        if (line.startsWith(QChar('[')) && line.endsWith(QChar(']'))) {
+            section = line.toUpper();
+            continue;
+        }
+        const bool scopeRelevant = scopedSections.contains(section);
+        const bool indexed = indexedSections.contains(section);
+        const bool node = section == QStringLiteral("[2D_AQUIFER_NODE]");
+        const bool source = section == QStringLiteral("[GW_SOURCES]");
+        if (!scopeRelevant && !indexed && !node && !source) continue;
+        QStringList tokens;
+        auto matches = tokenPattern.globalMatch(line);
+        while (matches.hasNext()) {
+            const auto match = matches.next();
+            tokens.append(!match.captured(1).isNull() ? match.captured(1)
+                          : !match.captured(2).isNull() ? match.captured(2) : match.captured(3));
+        }
+        const QString first = tokens.value(0).toUpper();
+        const QString second = tokens.value(1).toUpper();
+        const bool externalQuality = section == QStringLiteral("[GW_INITIAL_QUALITY]")
+            && first == QStringLiteral("FILE");
+        if (indexed || externalQuality
+            || (scopeRelevant && (first == QStringLiteral("CELL") || first == QStringLiteral("TAG")))
+            || (node && second != QStringLiteral("AUTO"))
+            || (source && (second == QStringLiteral("CELL") || second == QStringLiteral("TAG")))) {
+            return QStringLiteral(
+                "Cannot replace mesh topology in %1: %2 at line %3 requires cell, edge, "
+                "tag or external-quality remapping. Remove or remap these assignments "
+                "before saving the generated mesh; the existing file has not been changed.")
+                .arg(path, section).arg(lineNumber);
+        }
+    }
+    return {};
+}
+
 /*! The `[2D_MESH_FILE]` FILE token for \a meshPath as seen from \a inpPath.
  *
  *  Uses the same idiom as every other relative-path site in the project
@@ -814,6 +870,107 @@ bool InpMeshWriter::clearMeshFileRef(const QString &inpPath, QString *errorOut)
         patched.chop(1);
 
     return atomicWrite(inpPath, patched, errorOut);
+}
+
+bool InpMeshWriter::writePreparedMeshFileRef(const QString &inpPath,
+                                             const QString &logicalFinalMeshPath,
+                                             const QString &physicalStagedMeshPath,
+                                             QString *errorOut)
+{
+    auto fail = [&](const QString &message) {
+        if (errorOut) *errorOut = message;
+        return false;
+    };
+    if (logicalFinalMeshPath.isEmpty())
+        return fail(QStringLiteral("No final mesh file specified."));
+    const QFileInfo physical(physicalStagedMeshPath);
+    if (physicalStagedMeshPath.isEmpty() || !physical.exists()
+        || !physical.isFile() || physical.size() <= 0)
+        return fail(QStringLiteral("Prepared mesh file must be a nonempty regular file: %1")
+                        .arg(physicalStagedMeshPath));
+    const ReadResult read = readInp(inpPath);
+    if (!read.ok) return fail(read.err);
+    QString patched = stripExistingMeshSections(read.text, /*alsoMeshFileRef=*/true);
+    if (!patched.endsWith(QChar('\n'))) patched += QChar('\n');
+    patched += QStringLiteral("\n[2D_MESH_FILE]\n;; FILE  <path relative to this .inp, or absolute>\nFILE  %1\n\n")
+                   .arg(meshRefToken(inpPath, logicalFinalMeshPath));
+    return atomicWrite(inpPath, patched, errorOut);
+}
+
+bool InpMeshWriter::validateTopologyReplacement(const QString &filePath,
+                                                QString *errorOut)
+{
+    const ReadResult read = readInp(filePath);
+    const QString error = read.ok ? topologyReplacementError(read.text, filePath) : read.err;
+    if (!error.isEmpty() && errorOut) *errorOut = error;
+    return error.isEmpty();
+}
+
+bool InpMeshWriter::replaceMeshSections(const QString &filePath,
+                                       const MeshResult &mesh,
+                                       const QVector<MeshEdgeBC> &bcs,
+                                       QString *errorOut, double defaultMannings,
+                                       const UnitInfo *units)
+{
+    auto fail = [&](const QString &message) {
+        if (errorOut) *errorOut = message;
+        return false;
+    };
+    if (!mesh.ok || mesh.vertices.isEmpty() || mesh.triangles.isEmpty())
+        return fail(QStringLiteral("Mesh is empty or invalid; nothing to replace."));
+    if (bcs.size() != edgeSlotCount(mesh.triangles.size()))
+        return fail(QStringLiteral("boundary state does not match mesh edge slots"));
+    const ReadResult read = readInp(filePath);
+    if (!read.ok) return fail(read.err);
+    const QString unsupported = topologyReplacementError(read.text, filePath);
+    if (!unsupported.isEmpty()) return fail(unsupported);
+
+    // Preserve source metadata unless the supplied mesh declares replacements.
+    // Strip all old declarations, including ones inside replaced sections, so
+    // the new geometry cannot inherit an old SI/project-unit conversion flag.
+    UnitInfo metadata;
+    QString withoutHeaders;
+    withoutHeaders.reserve(read.text.size());
+    for (const QString &line : read.text.split(QChar('\n'), Qt::KeepEmptyParts)) {
+        const QString trimmed = line.trimmed();
+        if (trimmed.startsWith(QStringLiteral(";;"))) {
+            const QString comment = trimmed.mid(2).trimmed();
+            if (comment.startsWith(QStringLiteral("UNITS:"), Qt::CaseInsensitive)) {
+                metadata.linearUnitName = comment.mid(6).trimmed();
+                continue;
+            }
+            if (comment.startsWith(QStringLiteral("SOURCE_CRS:"), Qt::CaseInsensitive)) {
+                metadata.sourceCrsTag = comment.mid(11).trimmed();
+                continue;
+            }
+        }
+        withoutHeaders += line + QChar('\n');
+    }
+    if (units) {
+        metadata.linearUnitName = units->linearUnitName;
+        if (!units->sourceCrsTag.isEmpty()) metadata.sourceCrsTag = units->sourceCrsTag;
+    }
+
+    CouplingMap coupling;
+    for (int i = 0; i < mesh.vertices.size(); ++i)
+        if (!mesh.vertices[i].coupledNode.isEmpty())
+            coupling.vertexToNode.insert(i, mesh.vertices[i].coupledNode);
+    for (int i = 0; i < mesh.triangles.size(); ++i)
+        if (std::isfinite(mesh.triangles[i].mannings))
+            coupling.triangleMannings.insert(i, mesh.triangles[i].mannings);
+
+    QString patched = stripExistingMeshSections(withoutHeaders, /*alsoMeshFileRef=*/true);
+    QString header;
+    if (!metadata.linearUnitName.isEmpty())
+        header += QStringLiteral(";; UNITS: %1\n").arg(metadata.linearUnitName);
+    if (!metadata.sourceCrsTag.isEmpty())
+        header += QStringLiteral(";; SOURCE_CRS: %1\n").arg(metadata.sourceCrsTag);
+    patched.prepend(header);
+    if (!patched.endsWith(QChar('\n'))) patched += QChar('\n');
+    patched += buildSectionText(mesh, coupling, defaultMannings);
+    patched += buildBCSectionText(bcs);
+    patched += buildConveyanceSectionText(mesh, bcs);
+    return atomicWrite(filePath, patched, errorOut);
 }
 
 bool InpMeshWriter::write(MeshOutputMode mode,

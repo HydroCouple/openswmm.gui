@@ -950,10 +950,10 @@
       "tests/gui/test_initialqualitydialog.cpp:313",
       "tests/gui/test_initialqualitydialog.cpp:335"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 21 partial: row identity, CSV protection and accessible fields verified; native acceptance pending",
+    "ownerAndPersistence": "engine owns committed values; widgets buffer until OK; FILE rows remain CSV-owned; Cancel discards draft; named dialog uses shared geometry persistence",
+    "requiredChanges": "checked multi-call write/accept/dirty handling with launchers; native keyboard/VoiceOver, themes and enlarged-font acceptance",
+    "verification": "Phase 21: test_initialqualitydialog passes 16 QtTest checks including fixtures; four baseline failures reproduced; see PHASE21_DIALOG_CONSISTENCY.md"
   },
   {
     "id": "include/ui/dialogs/inleteditordialog.h::InletEditorDialog",
@@ -1331,10 +1331,10 @@
       "tests/gui/test_mesh2dgroundwaterdialog.cpp:83",
       "tests/gui/test_mesh2dgroundwaterdialog.cpp:89"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 20: Apply/OK/read-only, draft retention and effective accessible-name checks pass; native keyboard/theme/AT/lifetime acceptance pending",
+    "ownerAndPersistence": "Engine owns committed groundwater options/rows; widget and table models buffer draft edits; launcher marks project dirty before potentially partial writes",
+    "requiredChanges": "Follow up with atomic multi-row authoring and undo, native keyboard/VoiceOver, both themes and enlarged-font checks",
+    "verification": "12 QtTest passes including fixtures; docs/gui-baseline/PHASE20_DIALOG_ACCESSIBILITY.md and workplans/artifacts/phase_20_parallel/dialogs/final_tests.log"
   },
   {
     "id": "include/ui/dialogs/mesh2dresultsexportdialog.h::Mesh2DResultsExportDialog",

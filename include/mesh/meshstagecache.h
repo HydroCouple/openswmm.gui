@@ -118,7 +118,9 @@ private:
     // (kBytesPerGridPoint, kMaxGridBytesDefault, kMaxThinningHalo in
     // dtmthinner.{h,cpp}): they determine multi-band tiling and therefore
     // the terrain-point OUTPUT for banded configurations.
-    static constexpr quint16 kFormatVersion = 1;
+    // Version 2: local horizontal normal scoring and double lattice emission
+    // replace absolute-float coordinates; prior terrain points are stale.
+    static constexpr quint16 kFormatVersion = 2;
 
     [[nodiscard]] QString entryPath(char stage, const QByteArray &key) const;
 

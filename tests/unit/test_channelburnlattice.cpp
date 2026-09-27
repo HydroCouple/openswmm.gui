@@ -237,6 +237,31 @@ TEST(ChannelBurnLattice, CurvedCorridorStaysValidAndStreamwise)
     EXPECT_LE(worstDeg, 15.0);
 }
 
+TEST(ChannelBurnLattice, SmallTranslatedCorridorKeepsItsWinding)
+{
+    for (const bool reverse : {false, true}) {
+        BurnLattice lat;
+        lat.conduitId = QStringLiteral("SMALL-UTM");
+        lat.nAlong = 5;
+        lat.nAcross = 3;
+        for (int i = 0; i < lat.nAlong; ++i)
+            for (int k = 0; k < lat.nAcross; ++k) {
+                const double x = (reverse ? -1 : 1) * i * 0.01;
+                const double y = (reverse ? 1 : -1) * k * 0.01;
+                lat.xy.append(QPointF(500000 + x, 4500000 + y));
+                lat.z.append(10.0);
+            }
+        ASSERT_TRUE(lat.isValid());
+        QString error;
+        BurnOptions opt;
+        opt.roughnessFromTransect = false;
+        const PatchMesh patch = corridorPatch(lat, BurnProfile{}, opt, &error);
+        ASSERT_FALSE(patch.quads.isEmpty()) << error.toStdString();
+        EXPECT_TRUE(validate(patch).isEmpty()) << validate(patch).toStdString();
+        EXPECT_EQ(patch.quads.size(), 8);
+    }
+}
+
 TEST(ChannelBurnLattice, AHairpinIsReportedRatherThanEmittedFolded)
 {
     // Radius well inside the corridor half-width: the inner offset row must

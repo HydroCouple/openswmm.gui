@@ -18,6 +18,10 @@
  */
 #include "project/openswmmvisworkspace.h"
 #include "project/projectserializer.h"
+#include "project/projectsaveoutputs.h"
+#include "project/generatedmeshartifacts.h"
+#include "project/meshcorridorrecipe.h"
+#include "projectsaveoutputstestaccess.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "map/mapcanvas.h"
@@ -25,6 +29,7 @@
 #include "mesh/inpmeshwriter.h"
 #include "mesh/meshcellgeom.h"
 #include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_process_components.h>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_2d.h>
 #include <QJsonArray>
@@ -43,6 +48,7 @@
 #include <QTimer>
 
 #include <QDir>
+#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QObject>
@@ -111,6 +117,341 @@ class TestSaveWarnings : public QObject
 {
     Q_OBJECT
 private slots:
+
+    void corridorRecipeProtectsSources_data()
+    {
+        QTest::addColumn<QString>("scenario");
+        for (const char *name : {"datasource", "dependency", "settings", "symlink"})
+            QTest::newRow(name) << QString::fromLatin1(name);
+    }
+    void corridorRecipeProtectsSources()
+    {
+        QFETCH(QString, scenario);
+        const QString dir = QDir(outDir()).absoluteFilePath("corridor-protection-" + scenario);
+        QVERIFY(QDir().mkpath(dir));
+        const QString model = dir + "/source.inp", target = dir + "/saved.inp";
+        const QString dependency = scenario == "settings" ? dir + "/saved.oswp" : dir + "/roads.gpkg";
+        auto write = [](const QString &path, const QByteArray &bytes) {
+            QFile file(path); return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+        };
+        auto bytes = [](const QString &path) { QFile file(path); return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray(); };
+        QFile::remove(target);
+        QVERIFY(writeDeck(model, false));
+        QVERIFY(write(dependency, "corridor source sentinel"));
+        if (scenario == "symlink") QVERIFY(QFile::link(dependency, target));
+        else QVERIFY(write(target, "destination sentinel"));
+        mesh::CorridorSource recipe;
+        recipe.path = scenario == "datasource" ? target : dependency;
+        recipe.layerName = "centerlines";
+        recipe.featureIds = {7};
+        if (scenario == "dependency") recipe.sourceFiles = {target};
+        QString error;
+        std::unique_ptr<SWMMVisProjectWindow> window(openWindow(model, &error));
+        QVERIFY2(window, qPrintable(error));
+        window->setCorridorSources({recipe});
+        const QByteArray modelBefore = bytes(model), targetBefore = bytes(target), sourceBefore = bytes(dependency);
+        QVERIFY2(!window->saveAs(target, &error), "Save must never replace a corridor datasource or dependency");
+        QVERIFY(!error.isEmpty());
+        QCOMPARE(bytes(model), modelBefore);
+        QCOMPARE(bytes(target), targetBefore);
+        QCOMPARE(bytes(dependency), sourceBefore);
+        QVERIFY(window->hasChanges());
+    }
+
+    void corridorRecipeSaveRoundTripAndMalformedLoad()
+    {
+        const QString dir = QDir(outDir()).absoluteFilePath("corridor-roundtrip");
+        QVERIFY(QDir().mkpath(dir + "/moved"));
+        const QString model = dir + "/source.inp", target = dir + "/saved.inp";
+        const QString settings = ProjectSerializer::sidecarPathFor(target);
+        QVERIFY(writeDeck(model, false));
+        QString error;
+        std::unique_ptr<SWMMVisProjectWindow> window(openWindow(model, &error));
+        QVERIFY2(window, qPrintable(error));
+        mesh::CorridorSource source;
+        source.path = dir + "/roads.gpkg"; // unavailable sources remain part of the saved recipe
+        source.layerName = "centerlines";
+        source.featureIds = {9007199254740993LL};
+        source.sourceFiles = {dir + "/roads.prj"};
+        source.meshCRSWkt = "mesh CRS";
+        window->setCorridorSources({source});
+        QVERIFY2(window->saveAs(target, &error), qPrintable(error));
+        std::unique_ptr<SWMMVisProjectWindow> restored(openWindow(target, &error));
+        QVERIFY2(restored, qPrintable(error));
+        QVERIFY2(ProjectSerializer::applyFromFile(settings, restored.get(), &error), qPrintable(error));
+        QCOMPARE(restored->corridorSources().size(), 1);
+        QCOMPARE(restored->corridorSources().first().featureIds, source.featureIds);
+        QCOMPARE(restored->corridorSources().first().path, source.path);
+        QCOMPARE(restored->corridorSources().first().sourceFiles, source.sourceFiles);
+        const QString moved = dir + "/moved/saved.inp";
+        QVERIFY2(restored->saveAs(moved, &error), qPrintable(error));
+        QVERIFY2(ProjectSerializer::applyFromFile(ProjectSerializer::sidecarPathFor(moved), restored.get(), &error), qPrintable(error));
+        QCOMPARE(restored->corridorSources().first().path, source.path);
+        QCOMPARE(restored->corridorSources().first().sourceFiles, source.sourceFiles);
+
+        restored->setNotesHtml("keep working notes");
+        QJsonObject invalid;
+        QVERIFY(MeshCorridorRecipe::encode({source}, settings, &invalid, &error));
+        invalid["version"] = 2;
+        const QJsonObject root{{"schemaVersion", 5}, {"sessions", QJsonArray{QJsonObject{
+            {"meshCorridors", invalid}, {"notesHtml", "must not apply"}}}}};
+        QFile file(dir + "/invalid.oswp");
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const QByteArray payload = QJsonDocument(root).toJson();
+        QCOMPARE(file.write(payload), qint64(payload.size()));
+        file.close();
+        QVERIFY(!ProjectSerializer::applyFromFile(file.fileName(), restored.get(), &error));
+        QVERIFY(error.contains("corridor"));
+        QCOMPARE(restored->notesHtml(), QString("keep working notes"));
+        QCOMPARE(restored->corridorSources().first().featureIds, source.featureIds);
+        QVERIFY(!restored->corridorRecipeLoadError().isEmpty());
+        restored->setCorridorSources({source});
+        QVERIFY(!restored->corridorRecipeLoadError().isEmpty()); // a draft assignment cannot erase the load failure
+        QVERIFY(!restored->saveAs(moved, &error));
+        QVERIFY(error.contains("corridor"));
+        QVERIFY(!ProjectSerializer::saveToFile(ProjectSerializer::sidecarPathFor(moved), restored.get(), &error));
+        QVERIFY2(ProjectSerializer::applyFromFile(ProjectSerializer::sidecarPathFor(moved), restored.get(), &error), qPrintable(error));
+        QVERIFY(restored->corridorRecipeLoadError().isEmpty());
+        QVERIFY2(restored->saveAs(moved, &error), qPrintable(error));
+
+        auto bad = source;
+        bad.featureIds.clear();
+        restored->setCorridorSources({bad});
+        QFile before(moved); QVERIFY(before.open(QIODevice::ReadOnly));
+        const auto modelBefore = before.readAll(); before.close();
+        QVERIFY(!restored->saveAs(moved, &error));
+        QVERIFY(error.contains("corridor"));
+        QVERIFY(before.open(QIODevice::ReadOnly));
+        QCOMPARE(before.readAll(), modelBefore);
+    }
+
+    void generatedArtifactsSave_data()
+    {
+        QTest::addColumn<int>("scenario");
+        QTest::newRow("new-destinations") << 0;
+        QTest::newRow("existing-destinations") << 1;
+        QTest::newRow("outside-edit") << 2;
+        QTest::newRow("payload-edit") << 3;
+        QTest::newRow("source-alias") << 4;
+        QTest::newRow("discard") << 5;
+        QTest::newRow("save-inside-owned-directory") << 6;
+        QTest::newRow("companion-appeared") << 7;
+    }
+
+    void generatedArtifactsSave()
+    {
+        QFETCH(int, scenario);
+        const QString dir = QDir(outDir()).absoluteFilePath(QString("generated-artifacts-%1").arg(QTest::currentDataTag()));
+        QVERIFY(QDir().mkpath(dir));
+        const QString source = dir + "/source.inp";
+        QString target = dir + "/saved.inp";
+        const QString dem = dir + "/terrain/burned.tif";
+        const QString report = dir + "/terrain/burned.csv";
+        const QString sourceDem = dir + "/original.tif";
+        auto write = [](const QString &path, const QByteArray &data) {
+            QDir().mkpath(QFileInfo(path).absolutePath());
+            QFile f(path); return f.open(QIODevice::WriteOnly) && f.write(data) == data.size();
+        };
+        auto bytes = [](const QString &path) { QFile f(path); return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray(); };
+        QFile::remove(dem); QFile::remove(report); QFile::remove(target);
+        QVERIFY(writeDeck(source, false)); QVERIFY(write(sourceDem, "original source raster"));
+        if (scenario == 1 || scenario == 2) {
+            QVERIFY(write(dem, "previous burned raster")); QVERIFY(write(report, "previous report"));
+        }
+        const auto sourceBefore = bytes(source), demBefore = bytes(dem), reportBefore = bytes(report);
+        QString err;
+        auto pending = GeneratedMeshArtifacts::create(source, &err); QVERIFY2(pending, qPrintable(err));
+        pending->protectInput(sourceDem);
+        QFile::remove(dem + ".aux.xml");
+        QVERIFY(pending->requireAbsent(dem + ".aux.xml", &err));
+        const QString stagedDem = pending->reserve(scenario == 4 ? sourceDem : dem, "burned.tif", &err);
+        const QString stagedReport = pending->reserve(report, "report.csv", &err);
+        QVERIFY2(!stagedDem.isEmpty() && !stagedReport.isEmpty(), qPrintable(err));
+        QVERIFY(write(stagedDem, "new burned raster")); QVERIFY(write(stagedReport, "new report"));
+        QVERIFY2(pending->seal(&err), qPrintable(err));
+        const QString jobDir = pending->directoryPath();
+        if (scenario == 6) target = jobDir + "/saved.inp";
+        auto *w = openWindow(source, &err); QVERIFY2(w, qPrintable(err));
+        mesh::MeshResult mesh;
+        mesh.ok = true;
+        mesh.vertices = {{QPointF(0,0),10}, {QPointF(10,0),10}, {QPointF(0,10),10}};
+        mesh.triangles = {{0,1,2}};
+        auto *layer = new SWMM2DMeshLayer(mesh, source);
+        layer->setExternalMesh(false); layer->setActiveMesh(true); layer->setOwnsGeneratedTopology(true);
+        layer->setGeneratedArtifacts(pending);
+        w->canvas()->addLayer(layer, false); w->attachMeshLayer(layer); w->setHasChanges(true);
+        pending.reset();
+        QVERIFY(QFileInfo::exists(jobDir));
+        if (scenario == 5) {
+            delete w;
+            QVERIFY(!QFileInfo::exists(jobDir));
+            QCOMPARE(bytes(source), sourceBefore); QCOMPARE(bytes(dem), demBefore); QCOMPARE(bytes(report), reportBefore);
+            return;
+        }
+        if (scenario == 2) QVERIFY(write(dem, "outside edit"));
+        if (scenario == 3) QVERIFY(write(stagedDem, "changed pending raster"));
+        if (scenario == 7) QVERIFY(write(dem + ".aux.xml", "outside metadata"));
+        if (scenario >= 2) {
+            QVERIFY2(!w->saveAs(target, &err), "Changed or aliased generated artifacts must stop Save");
+            QVERIFY2(err.contains(scenario == 2 ? "since generation" : scenario == 3 ? "Pending generated" : scenario == 7 ? "companion appeared" : "protected"), qPrintable(err));
+            QVERIFY(w->hasChanges()); QVERIFY(layer->hasUnsavedMeshEdits()); QVERIFY(layer->generatedArtifacts());
+            QVERIFY(QFileInfo::exists(jobDir)); QVERIFY(!QFileInfo::exists(target));
+            QCOMPARE(bytes(source), sourceBefore); QCOMPARE(bytes(sourceDem), QByteArray("original source raster"));
+            QCOMPARE(bytes(dem), scenario == 2 ? QByteArray("outside edit") : demBefore);
+            QCOMPARE(bytes(report), reportBefore);
+            delete w; QVERIFY(!QFileInfo::exists(jobDir));
+            return;
+        }
+        // Fail after pending artifacts exist, retain them, then retry Save.
+        const QString blocked = dir + "/blocked.inp"; QVERIFY(QDir().mkpath(blocked));
+        QVERIFY(!w->saveAs(blocked, &err));
+        QVERIFY(layer->generatedArtifacts()); QVERIFY(QFileInfo::exists(jobDir));
+        QCOMPARE(bytes(dem), demBefore); QCOMPARE(bytes(report), reportBefore);
+        QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+        QCOMPARE(bytes(dem), QByteArray("new burned raster")); QCOMPARE(bytes(report), QByteArray("new report"));
+        QVERIFY(!layer->generatedArtifacts()); QVERIFY(!QFileInfo::exists(jobDir));
+        QVERIFY(!w->hasChanges()); QVERIFY(!layer->hasUnsavedMeshEdits());
+        QCOMPARE(bytes(source), sourceBefore); QCOMPARE(bytes(sourceDem), QByteArray("original source raster"));
+        QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+        QCOMPARE(bytes(dem), QByteArray("new burned raster"));
+        auto *reopened = openWindow(target, &err); QVERIFY2(reopened, qPrintable(err));
+        delete reopened; delete w;
+    }
+
+    void generatedTopologySave_data()
+    {
+        QTest::addColumn<bool>("external");
+        QTest::addColumn<int>("scenario");
+        for (bool external : {false, true})
+            for (int scenario : {0, 1, 2})
+                QTest::newRow(qPrintable(QString("%1-%2").arg(external ? "external" : "inline").arg(scenario)))
+                    << external << scenario;
+    }
+
+    void generatedTopologySave()
+    {
+        QFETCH(bool, external);
+        QFETCH(int, scenario);
+        const QString dir = QDir(outDir()).absoluteFilePath(QString("generated-%1").arg(QTest::currentDataTag()));
+        QVERIFY(QDir().mkpath(dir));
+        const QString source = dir + "/source.inp";
+        const QString target = dir + "/saved.inp";
+        const QString meshPath = dir + "/generated.2dm";
+        QFile::remove(meshPath);
+        QFile::remove(target);
+        QFile::remove(ProjectSerializer::sidecarPathFor(target));
+        QVERIFY(writeDeck(source, false));
+        mesh::MeshResult oldMesh;
+        oldMesh.ok = true;
+        oldMesh.vertices = {{QPointF(0,0), 10}, {QPointF(10,0), 10}, {QPointF(0,10), 10}};
+        oldMesh.triangles = {{0,1,2}};
+        QString err;
+        if (scenario != 0) {
+            if (external) QVERIFY(mesh::InpMeshWriter::writeExternal(source, meshPath, oldMesh, {}, .035, &err));
+            else QVERIFY(mesh::InpMeshWriter::writeInline(source, oldMesh, {}, .035, &err));
+        }
+        auto bytes = [](const QString &path) { QFile f(path); return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray(); };
+        const auto originalSource = bytes(source);
+        const auto originalMesh = bytes(meshPath);
+        auto *w = openWindow(source, &err); QVERIFY2(w, qPrintable(err));
+        double engineZBefore = 0;
+        if (scenario != 0) {
+            double x, y;
+            QCOMPARE(swmm_2d_vertex_get_xyz(w->modelLayer()->engine(), 0, &x, &y, &engineZBefore), 0);
+        }
+        auto generated = oldMesh;
+        for (auto &v : generated.vertices) { v.xy += QPointF(100, 200); v.z = 25; }
+        if (scenario != 1) {
+            generated.vertices.append({QPointF(110,210), 25});
+            generated.triangles = {{0,1,3}, {0,3,2}};
+        }
+        generated.vertices[0].coupledNode = "J0";
+        generated.cellCouplings.append({0, "J0", .7, 3.0});
+        generated.triangles[0].mannings = .067;
+        auto *layer = new SWMM2DMeshLayer(generated, external ? meshPath : source);
+        layer->setExternalMesh(external); layer->setMeshUnitsSI(true); layer->setActiveMesh(true);
+        layer->setOwnsGeneratedTopology(true);
+        w->canvas()->addLayer(layer, false); w->attachMeshLayer(layer);
+        w->setHasChanges(true);
+        QCOMPARE(bytes(source), originalSource); QCOMPARE(bytes(meshPath), originalMesh);
+        // Force a preparation failure. The pending geometry remains available
+        // for an ordinary retry and no current saved resource is published.
+        const QString blocked = dir + "/blocked.inp";
+        QVERIFY(QDir().mkpath(blocked));
+        QVERIFY(!w->saveAs(blocked, &err));
+        QVERIFY(w->hasChanges()); QVERIFY(layer->hasUnsavedMeshEdits());
+        QVERIFY(layer->ownsGeneratedTopology());
+        QCOMPARE(bytes(source), originalSource); QCOMPARE(bytes(meshPath), originalMesh);
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+            QVERIFY(!w->hasChanges()); QVERIFY(!layer->hasUnsavedMeshEdits());
+            QVERIFY(layer->ownsGeneratedTopology()); // live engine has not been reloaded
+            if (!external) QCOMPARE(layer->sourcePath(), target);
+            const auto back = mesh::InpMeshReader::read(external ? meshPath : target);
+            QVERIFY2(back.hasMesh, qPrintable(back.errorMsg));
+            QCOMPARE(back.mesh.vertices.size(), generated.vertices.size());
+            QCOMPARE(back.mesh.triangles.size(), generated.triangles.size());
+            QCOMPARE(back.mesh.vertices[0].xy, generated.vertices[0].xy);
+            QCOMPARE(back.mesh.vertices[0].z, 25.0);
+            QCOMPARE(back.mesh.triangles[0].mannings, .067);
+            QCOMPARE(back.mesh.vertices[0].coupledNode, QString("J0"));
+            QCOMPARE(back.mesh.cellCouplings.size(), 1);
+            QCOMPARE(back.mesh.cellCouplings[0].cd, .7);
+            auto *reopened = openWindow(target, &err); QVERIFY2(reopened, qPrintable(err));
+            reopened->deleteLater();
+        }
+        QCOMPARE(bytes(source), originalSource);
+        if (scenario != 0) {
+            double x, y, z;
+            QCOMPARE(swmm_2d_vertex_get_xyz(w->modelLayer()->engine(), 0, &x, &y, &z), 0);
+            // Old live engine values must not be overwritten by unrelated
+            // generated vertex indices, including the equal-count case.
+            QCOMPARE(z, engineZBefore);
+        }
+        w->deleteLater();
+    }
+    void generatedTopologyRejectsIndexedQuality_data()
+    {
+        QTest::addColumn<bool>("external");
+        QTest::newRow("inline") << false;
+        QTest::newRow("external") << true;
+    }
+
+    void generatedTopologyRejectsIndexedQuality()
+    {
+        QFETCH(bool, external);
+        const QString dir = QDir(outDir()).absoluteFilePath(QString("generated-quality-%1").arg(QTest::currentDataTag()));
+        QVERIFY(QDir().mkpath(dir));
+        const QString source = dir + "/source.inp";
+        const QString meshPath = dir + "/mesh.2dm";
+        QVERIFY(writeDeck(source, false));
+        mesh::MeshResult mesh;
+        mesh.ok = true;
+        mesh.vertices = {{QPointF(0,0), 10}, {QPointF(10,0), 10}, {QPointF(0,10), 10}};
+        mesh.triangles = {{0,1,2}};
+        QString err;
+        if (external) QVERIFY(mesh::InpMeshWriter::writeExternal(source, meshPath, mesh, {}, .035, &err));
+        else QVERIFY(mesh::InpMeshWriter::writeInline(source, mesh, {}, .035, &err));
+        QFile f(source); QVERIFY(f.open(QIODevice::Append));
+        f.write("\n[2D_INITIAL_QUALITY]\nCELL 1 TSS 2.0\n"); f.close();
+        auto bytes = [](const QString &path) { QFile f(path); return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray(); };
+        const auto sourceBefore = bytes(source), meshBefore = bytes(meshPath);
+        auto *w = openWindow(source, &err); QVERIFY2(w, qPrintable(err));
+        for (auto &v : mesh.vertices) v.xy += QPointF(200,200);
+        auto *layer = new SWMM2DMeshLayer(mesh, external ? meshPath : source);
+        layer->setExternalMesh(external); layer->setActiveMesh(true);
+        layer->setOwnsGeneratedTopology(true);
+        w->canvas()->addLayer(layer, false); w->attachMeshLayer(layer);
+        w->setHasChanges(true);
+        QVERIFY2(!w->saveAs(source, &err), "Old cell quality must not transfer to unrelated generated cells");
+        QVERIFY2(err.contains("2D_INITIAL_QUALITY"), qPrintable(err));
+        QCOMPARE(bytes(source), sourceBefore); QCOMPARE(bytes(meshPath), meshBefore);
+        QVERIFY(w->hasChanges()); QVERIFY(layer->hasUnsavedMeshEdits());
+        // Discard the working preview without an explicit save.
+        delete w;
+        QCOMPARE(bytes(source), sourceBefore); QCOMPARE(bytes(meshPath), meshBefore);
+    }
+
     void meshSave_preservesNumericPrecision_data()
     {
         QTest::addColumn<bool>("external");
@@ -772,7 +1113,7 @@ private slots:
         w->deleteLater();
     }
 
-    void meshWriterFailure_restoresEngineReference()
+    void meshDestinationFailure_preservesEngineReference()
     {
         const QString dir = outDir() + QStringLiteral("/writer_reference_failure");
         QVERIFY(QDir().mkpath(dir));
@@ -802,7 +1143,7 @@ private slots:
         QCOMPARE(swmm_options_get_ext(w->modelLayer()->engine(), "MESH_FILE",
                                        before, sizeof before), 0);
         QVERIFY(!w->saveAs(blocked, &err));
-        QVERIFY2(err.contains(QStringLiteral("write the model")), qPrintable(err));
+        QVERIFY2(err.contains(QStringLiteral("stage the model")), qPrintable(err));
         QCOMPARE(swmm_options_get_ext(w->modelLayer()->engine(), "MESH_FILE",
                                        after, sizeof after), 0);
         QCOMPARE(QByteArray(after), QByteArray(before));
@@ -949,6 +1290,263 @@ private slots:
         w->deleteLater();
     }
 
+    void stagedReferenceFailure_preservesFilesAndPendingState()
+    {
+        const QString dir = outDir() + QStringLiteral("/staged_reference_validation");
+        QVERIFY(QDir().mkpath(dir));
+        const QString source = dir + "/source.inp";
+        const QString target = dir + "/target.inp";
+        const QString missing = dir + "/missing-config.rxn";
+        QFile::remove(ProjectSerializer::sidecarPathFor(target));
+        QVERIFY(writeDeck(source, false));
+        QVERIFY(writeDeck(target, false));
+        QFile old(target); QVERIFY(old.open(QIODevice::ReadOnly));
+        const QByteArray previous = old.readAll(); old.close();
+        QString error;
+        auto *window = openWindow(source, &error);
+        QVERIFY2(window, qPrintable(error));
+        // The engine permits authored component registrations whose config
+        // has not been created yet. Its writer can retain that unresolved
+        // reference without creating a component output.
+        QCOMPARE(swmm_process_component_register(window->modelLayer()->engine(),
+            "org.example.save-validation-test", missing.toUtf8().constData()), 0);
+        window->setHasChanges(true);
+        QVERIFY(!window->saveAs(target, &error));
+        QVERIFY2(error.contains("validate") && error.contains("missing-config.rxn"), qPrintable(error));
+        QVERIFY(window->hasChanges());
+        QCOMPARE(window->modelLayer()->modelFilePath(), source);
+        QVERIFY(old.open(QIODevice::ReadOnly)); QCOMPARE(old.readAll(), previous); old.close();
+        QVERIFY(!QFileInfo::exists(ProjectSerializer::sidecarPathFor(target)));
+        QCOMPARE(swmm_process_component_remove(window->modelLayer()->engine(), 0), 0);
+        QVERIFY2(window->saveAs(target, &error), qPrintable(error));
+        QVERIFY(!window->hasChanges());
+        QCOMPARE(window->modelLayer()->modelFilePath(), target);
+        window->deleteLater();
+    }
+
+    void interruptedSave_recoversBeforeOpen_data()
+    {
+        QTest::addColumn<bool>("async");
+        QTest::newRow("synchronous") << false;
+        QTest::newRow("asynchronous") << true;
+    }
+    void interruptedSave_recoversBeforeOpen()
+    {
+        QFETCH(bool, async);
+        const QString dir = outDir() + QStringLiteral("/recovery_%1").arg(QTest::currentDataTag());
+        QVERIFY(QDir().mkpath(dir));
+        const QString model = dir + "/model.inp";
+        QVERIFY(writeDeck(model, false));
+        QFile original(model); QVERIFY(original.open(QIODevice::ReadOnly));
+        const QByteArray oldBytes = original.readAll(); original.close();
+        {
+            ProjectSaveOutputs outputs;
+            const QString staged = outputs.stage(model, ProjectSaveOutputs::Model);
+            QVERIFY(!staged.isEmpty());
+            QFile file(staged); QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write("invalid interrupted model"); file.close();
+            ProjectSaveOutputsTestAccess::checkpoint(outputs, [](int n) {
+                if (n == 1) throw 86; // leave the journal exactly as an interrupted process does
+                return true;
+            });
+            bool interrupted = false;
+            try { outputs.publish(); } catch (int) { interrupted = true; }
+            QVERIFY(interrupted);
+        }
+        auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+        QVERIFY(workspace);
+        auto *window = new SWMMVisProjectWindow(workspace, model, nullptr);
+        QList<QString> warnings, errors;
+        if (async) {
+            QSignalSpy finished(window, &SWMMVisProjectWindow::modelLoadFinished);
+            window->loadModelAsync(nullptr);
+            QVERIFY(finished.wait(10000));
+            const auto args = finished.takeFirst();
+            errors = qvariant_cast<QList<QString>>(args[2]);
+            QVERIFY2(args[0].toBool(), qPrintable(errors.join("; ")));
+            warnings = qvariant_cast<QList<QString>>(args[1]);
+        } else {
+            QVERIFY2(window->loadModel(warnings, errors), qPrintable(errors.join("; ")));
+        }
+        QVERIFY(warnings.join("; ").contains("Recovered an interrupted save"));
+        QVERIFY(original.open(QIODevice::ReadOnly)); QCOMPARE(original.readAll(), oldBytes);
+        QVERIFY(!window->hasChanges());
+        QString error;
+        QVERIFY2(window->save(&error), qPrintable(error));
+        window->deleteLater();
+    }
+
+    void outputManifest_stagesPublishesAndCleansUp()
+    {
+        const QString dir = outDir() + QStringLiteral("/manifest_publish");
+        QVERIFY(QDir().mkpath(dir));
+        auto put = [](const QString &path, const QByteArray &data) {
+            QFile file(path);
+            return file.open(QIODevice::WriteOnly) && file.write(data) == data.size();
+        };
+        auto read = [](const QString &path) {
+            QFile file(path); if (!file.open(QIODevice::ReadOnly)) return QByteArray();
+            return file.readAll();
+        };
+        const QString model = dir + QStringLiteral("/model.inp");
+        const QString settings = dir + QStringLiteral("/model.oswp");
+        // A unique nested directory lets repeat runs assert no creation during staging.
+        const QString component = dir + QStringLiteral("/new_%1/nested/config.rxn")
+            .arg(QDateTime::currentMSecsSinceEpoch());
+        QVERIFY(put(model, "old model")); QVERIFY(put(settings, "old settings"));
+        QStringList staged;
+        {
+            ProjectSaveOutputs outputs;
+            for (auto pair : {qMakePair(model, ProjectSaveOutputs::Model),
+                              qMakePair(settings, ProjectSaveOutputs::Settings),
+                              qMakePair(component, ProjectSaveOutputs::Component)}) {
+                const QString path = outputs.stage(pair.first, pair.second);
+                QVERIFY2(!path.isEmpty(), qPrintable(outputs.error()));
+                staged.append(path);
+                QVERIFY(put(path, pair.first.toUtf8()));
+            }
+            QCOMPARE(outputs.stage(model, ProjectSaveOutputs::Model, true), staged[0]);
+            QCOMPARE(read(model), QByteArray("old model"));
+            QCOMPARE(read(settings), QByteArray("old settings"));
+            QVERIFY(!QFileInfo::exists(QFileInfo(component).absolutePath()));
+            QVERIFY2(outputs.publish(), qPrintable(outputs.error()));
+            QCOMPARE(read(model), model.toUtf8());
+            QCOMPARE(read(settings), settings.toUtf8());
+            QCOMPARE(read(component), component.toUtf8());
+        }
+        for (const auto &path : staged) QVERIFY(!QFileInfo::exists(path));
+    }
+
+    void outputManifest_refusesAliases_data()
+    {
+        QTest::addColumn<int>("kind");
+        QTest::newRow("same-path") << 0;
+        QTest::newRow("hard-link") << 1;
+        QTest::newRow("symbolic-link") << 2;
+        QTest::newRow("protected-source") << 3;
+        QTest::newRow("duplicate-component") << 4;
+    }
+    void outputManifest_refusesAliases()
+    {
+        QFETCH(int, kind);
+        const QString dir = outDir() + QStringLiteral("/manifest_alias_%1").arg(kind);
+        QVERIFY(QDir().mkpath(dir));
+        const QString model = dir + QStringLiteral("/model.inp");
+        QString alias = dir + QStringLiteral("/alias.inp");
+        QFile file(model); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("old model"); file.close();
+        if (kind == 1 || kind == 2) {
+            QFile::remove(alias);
+            std::error_code ec;
+            if (kind == 1) std::filesystem::create_hard_link(model.toStdString(), alias.toStdString(), ec);
+            else std::filesystem::create_symlink(model.toStdString(), alias.toStdString(), ec);
+            if (ec) QSKIP("Filesystem does not support this link test");
+        } else alias = model;
+        QString staged;
+        {
+            ProjectSaveOutputs outputs;
+            if (kind == 3) outputs.protect(model, ProjectSaveOutputs::Model);
+            else {
+                staged = outputs.stage(model, kind == 4 ? ProjectSaveOutputs::Component : ProjectSaveOutputs::Model);
+                QVERIFY(!staged.isEmpty());
+            }
+            QVERIFY(outputs.stage(alias, ProjectSaveOutputs::Component).isEmpty());
+            QVERIFY(!outputs.error().isEmpty());
+            QVERIFY(!outputs.publicationStarted());
+        }
+        if (!staged.isEmpty()) QVERIFY(!QFileInfo::exists(staged));
+        QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(), QByteArray("old model"));
+    }
+
+    void outputManifest_rechecksBeforePublication()
+    {
+        const QString dir = outDir() + QStringLiteral("/manifest_recheck");
+        QVERIFY(QDir().mkpath(dir));
+        const QString model = dir + QStringLiteral("/model.inp");
+        const QString component = dir + QStringLiteral("/config.rxn");
+        QFile file(model); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("old model"); file.close();
+        QFile::remove(component);
+        ProjectSaveOutputs outputs;
+        QVERIFY(!outputs.stage(model, ProjectSaveOutputs::Model).isEmpty());
+        QVERIFY(!outputs.stage(component, ProjectSaveOutputs::Component).isEmpty());
+        std::error_code ec;
+        std::filesystem::create_hard_link(model.toStdString(), component.toStdString(), ec);
+        if (ec) QSKIP("Filesystem does not support hard links");
+        QVERIFY(!outputs.publish());
+        QVERIFY(!outputs.publicationStarted());
+        QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(), QByteArray("old model"));
+    }
+
+    void componentFailure_keepsPendingStateAndAllowsRetry()
+    {
+        const QString dir = outDir() + QStringLiteral("/component_failure");
+        QVERIFY(QDir().mkpath(dir + QStringLiteral("/source")));
+        QVERIFY(QDir().mkpath(dir + QStringLiteral("/saved")));
+        const QString source = dir + QStringLiteral("/source/model.inp");
+        const QString target = dir + QStringLiteral("/saved/model.inp");
+        const QString config = dir + QStringLiteral("/saved/model.rxn");
+        const QString sourceConfig = dir + QStringLiteral("/source/model.rxn");
+        QVERIFY(writeDeck(source, false));
+        QFile input(source); QVERIFY(input.open(QIODevice::Append));
+        input.write("\n[PROCESS_COMPONENTS]\norg.hydrocouple.openswmm.reactions config=\"model.rxn\"\n");
+        input.close();
+        QFile reaction(sourceConfig); QVERIFY(reaction.open(QIODevice::WriteOnly));
+        reaction.write("[REACTION_OPTIONS]\nSOLVER RK5\n\n[REACTION_SPECIES]\nBULK A MG\n");
+        reaction.close();
+        const auto meshData = mesh::InpMeshReader::read(
+            QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                .filePath(QStringLiteral("mesh_async_fixture.inp")));
+        QVERIFY(meshData.hasMesh);
+        const QString external = dir + QStringLiteral("/source/mesh.2dm");
+        QString meshError;
+        QVERIFY2(mesh::InpMeshWriter::writeExternal(source, external, meshData.mesh,
+                    {}, 0.035, &meshError), qPrintable(meshError));
+        QFile meshFile(external); QVERIFY(meshFile.open(QIODevice::ReadOnly));
+        const QByteArray meshBefore = meshFile.readAll(); meshFile.close();
+        QFile output(target); QVERIFY(output.open(QIODevice::WriteOnly));
+        output.write("old destination model\n"); output.close();
+        const QString settings = ProjectSerializer::sidecarPathFor(target);
+        QFile sidecar(settings); QVERIFY(sidecar.open(QIODevice::WriteOnly));
+        sidecar.write("old destination settings\n"); sidecar.close();
+        if (QFileInfo(config).isFile()) QVERIFY(QFile::remove(config));
+        QVERIFY(QDir().mkpath(config));
+        QString err;
+        auto *w = openWindow(source, &err); QVERIFY2(w, qPrintable(err));
+        auto *layer = new SWMM2DMeshLayer(meshData.mesh, external);
+        layer->setExternalMesh(true); layer->setActiveMesh(true);
+        w->canvas()->addLayer(layer, false); w->attachMeshLayer(layer, true);
+        QVERIFY(layer->applyMeshVertexZ(0, 1234.5));
+        char referenceBefore[4096] = {}, referenceAfter[4096] = {};
+        QCOMPARE(swmm_options_get_ext(w->modelLayer()->engine(), "MESH_FILE",
+                                      referenceBefore, sizeof referenceBefore), 0);
+        w->setHasChanges(true);
+        QVERIFY2(!w->saveAs(target, &err), "Component failure must not report Save success");
+        QVERIFY2(err.contains(QStringLiteral("model.rxn")), qPrintable(err));
+        QVERIFY(w->hasChanges());
+        QVERIFY(layer->hasUnsavedMeshEdits());
+        // The config is discovered after the engine reference was detached.
+        // Failure must restore that reference as well as retaining final bytes.
+        QCOMPARE(swmm_options_get_ext(w->modelLayer()->engine(), "MESH_FILE",
+                                      referenceAfter, sizeof referenceAfter), 0);
+        QCOMPARE(QByteArray(referenceAfter), QByteArray(referenceBefore));
+        QVERIFY(meshFile.open(QIODevice::ReadOnly));
+        QCOMPARE(meshFile.readAll(), meshBefore); meshFile.close();
+        QCOMPARE(w->modelLayer()->modelFilePath(), source);
+        QVERIFY(output.open(QIODevice::ReadOnly));
+        QCOMPARE(output.readAll(), QByteArray("old destination model\n")); output.close();
+        QVERIFY(sidecar.open(QIODevice::ReadOnly));
+        QCOMPARE(sidecar.readAll(), QByteArray("old destination settings\n")); sidecar.close();
+        QVERIFY(QDir().rmdir(config));
+        QVERIFY2(w->saveAs(target, &err), qPrintable(err));
+        QVERIFY(!w->hasChanges());
+        QCOMPARE(w->modelLayer()->modelFilePath(), target);
+        QVERIFY(QFileInfo(config).isFile());
+        const auto savedMesh = mesh::InpMeshReader::read(target);
+        QVERIFY(savedMesh.hasMesh);
+        QCOMPARE(savedMesh.mesh.vertices[0].z, 1234.5);
+        auto *reopened = openWindow(target, &err); QVERIFY2(reopened, qPrintable(err));
+        reopened->deleteLater(); w->deleteLater();
+    }
+
     void engineShortWrite_preservesModelAndPendingState()
     {
 #ifndef Q_OS_UNIX
@@ -1052,10 +1650,8 @@ private slots:
         w->attachMeshLayer(layer, true);
         QVERIFY(layer->applyMeshVertexZ(0, 1234.5));
         w->setHasChanges(true);
-        // The engine's small serialization fits; the combined mesh payload
-        // plus an unowned section's long comment cannot fit. Keeping the
-        // padding outside rebuilt mesh sections targets the mesh commit,
-        // not engine write failure, without a production fault-injection hook.
+        // The external snapshot exceeds the per-process limit. Staging it
+        // must fail before the engine or final project files are published.
         QFile padded(external); QVERIFY(padded.open(QIODevice::Append));
         const QByteArray padding = "\n[UNOWNED_SECTION]\n;; " + QByteArray(131072, 'x') + "\n";
         QCOMPARE(padded.write(padding), padding.size()); padded.close();
@@ -1071,7 +1667,7 @@ private slots:
         std::signal(SIGXFSZ, oldHandler);
         QVERIFY(restored == 0);
         QVERIFY(!saved);
-        QVERIFY2(err.contains(QStringLiteral("save the external mesh")), qPrintable(err));
+        QVERIFY2(err.contains(QStringLiteral("stage the external mesh")), qPrintable(err));
         QVERIFY(err.contains(external));
         QVERIFY(w->hasChanges());
         QVERIFY(layer->hasUnsavedMeshEdits());
@@ -1241,6 +1837,12 @@ private slots:
         QCOMPARE(pathChanged.count(), 0);
         QCOMPARE(completed.count(), 0);
         for (const auto &change : dirty) QVERIFY(change[0].toBool());
+        // Every preparation failure, including a late mesh-patch mismatch,
+        // must leave the last saved model unchanged.
+        {
+            QFile untouched(target); QVERIFY(untouched.open(QIODevice::ReadOnly));
+            QCOMPARE(untouched.readAll(), targetSentinel);
+        }
         if (failure <= 2) {
             QFile after(target); QVERIFY(after.open(QIODevice::ReadOnly));
             QCOMPARE(after.readAll(), targetSentinel); after.close();
@@ -1304,6 +1906,9 @@ private slots:
         QString err;
         QVERIFY(!w->saveAs(target, &err));
         QVERIFY(err.contains(sidecar));
+        QFile unchanged(deck); QVERIFY(unchanged.open(QIODevice::ReadOnly));
+        QCOMPARE(unchanged.readAll(), bytes);
+        if (kind != 0) QVERIFY(!QFileInfo::exists(target));
         QVERIFY(w->hasChanges());
         QVERIFY(layer->hasUnsavedMeshEdits());
         QCOMPARE(w->modelLayer()->modelFilePath(), originalPath);

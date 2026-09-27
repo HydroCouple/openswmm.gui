@@ -39,6 +39,7 @@
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QDialogButtonBox;
 class QLabel;
 class QPlainTextEdit;
 class QPushButton;
@@ -71,6 +72,12 @@ public:
     /*! \brief Unsaturated-zone closures, AUTO first. */
     [[nodiscard]] static QStringList closureTokens();
 
+signals:
+    /*! Authoring writes are about to start; a later refusal may be partial. */
+    void changesMayHaveBeenApplied();
+    /*! Emitted after all groundwater edits have been applied successfully. */
+    void applied();
+
 private slots:
     void onApply();
     void onAddAquiferRow();
@@ -88,10 +95,14 @@ private:
 
     void loadFromEngine();
     QString applyOptions();
+    bool    applyChanges();
     void    setEditable(bool on, const QString &whyNot);
 
     SWMM_Engine                    m_engine = nullptr;
     const UnitSystem              *m_units  = nullptr;
+
+    QDialogButtonBox *m_buttons      = nullptr;
+    bool            m_editable      = false;
 
     QTabWidget     *m_tabs           = nullptr;
     QLabel         *m_banner         = nullptr;

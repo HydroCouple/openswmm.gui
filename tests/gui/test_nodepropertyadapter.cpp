@@ -88,6 +88,24 @@ private:
     }
 
 private slots:
+    void initialQualityFocusOutOnlyNotifiesRealWrites()
+    {
+        SWMM_Engine e = buildFixture();
+        QVERIFY(e);
+        SWMMJunctionPropertyAdapter adapter(e, QStringLiteral("J1"));
+        const auto property = adapter.metaObject()->property(
+            adapter.metaObject()->indexOfProperty("initialQuality"));
+        QVERIFY(property.isValid());
+        QSignalSpy changed(&adapter, &SWMMNodePropertyAdapter::changed);
+        auto ref = adapter.initialQualityRef();
+        QVERIFY(property.write(&adapter, QVariant::fromValue(ref)));
+        QCOMPARE(changed.count(), 0); // an unchanged focus-out assignment
+        ref.wroteChanges = true;
+        QVERIFY(property.write(&adapter, QVariant::fromValue(ref)));
+        QCOMPARE(changed.count(), 1); // includes Cancel after partial writes
+        swmm_engine_destroy(e);
+    }
+
 
     // ====================================================================
     // Scalar regression (Slice Z.5.3 contract — unchanged in DB)
