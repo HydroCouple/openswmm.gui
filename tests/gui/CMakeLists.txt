@@ -1629,6 +1629,10 @@ add_swmmvis_gui_test(test_initialqualitydialog
     test_initialqualitydialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/initialqualitydialog.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/initialqualitydialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditbutton.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditbutton.h
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditref.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditref.h
 )
 
 # G-B2/G-C1 — the Reaction System editor (structured tabs + raw text tab),
@@ -2221,6 +2225,12 @@ add_swmmvis_gui_test(test_meshsizefield
     ${CMAKE_SOURCE_DIR}/include/mesh/sizefield.h
 )
 
+add_swmmvis_gui_test(test_terrainsizehandoff
+    test_terrainsizehandoff.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/sizefield.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/sizefield.h
+)
+
 # Hilbert renumbering: permutation validity, locality gain, idempotence.
 add_swmmvis_gui_test(test_meshreorder
     test_meshreorder.cpp
@@ -2261,6 +2271,16 @@ add_swmmvis_gui_test(test_dtmthinner_banded
 )
 target_include_directories(test_dtmthinner_banded PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_dtmthinner_banded PRIVATE GDAL::GDAL)
+
+# W2/M6: translation-invariant terrain thinning at projected origins.
+add_swmmvis_gui_test(test_dtmthinner_precision
+    test_dtmthinner_precision.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/dtmthinner.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/dtmthinner.h
+    ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
+)
+target_include_directories(test_dtmthinner_precision PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_dtmthinner_precision PRIVATE GDAL::GDAL)
 
 # DEM-raster longitudinal profile sampler — the terrain peer of
 # MeshProfileSampler. Pure logic over DTMSampler (bilinear) +
@@ -3075,6 +3095,21 @@ add_swmmvis_gui_test(test_gisselectionsync
 )
 swmmvis_link_full_app_deps(test_gisselectionsync)
 
+# Project publication/restart tests are QtCore-only and run real child processes.
+add_executable(test_projectsaveoutputs test_projectsaveoutputs.cpp)
+set_target_properties(test_projectsaveoutputs PROPERTIES AUTOMOC ON)
+target_include_directories(test_projectsaveoutputs PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_projectsaveoutputs PRIVATE Qt6::Core Qt6::Test)
+target_compile_definitions(test_projectsaveoutputs PRIVATE
+    SAVE_RECOVERY_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/save_recovery_out")
+add_test(NAME test_projectsaveoutputs COMMAND test_projectsaveoutputs)
+set_tests_properties(test_projectsaveoutputs PROPERTIES LABELS "gui")
+
+# W1: disposable read-only parse of the complete prepared built-in save.
+add_swmmvis_gui_test(test_projectsavevalidation
+    test_projectsavevalidation.cpp
+)
+
 # Save-time engine warnings reach the GUI (engine 7d43a1ff's other half).
 # The writer's "embedded [REACTION_*] sections are lost from this save"
 # notice now lands in ctx.warnings; these gates pin that saveAs() captures
@@ -3087,6 +3122,14 @@ add_swmmvis_gui_test(test_savewarnings
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_savewarnings)
+
+# Actual terrain worker: fresh/cached DEM samples must reach quad sizing.
+add_swmmvis_gui_test(test_meshterrainpipeline
+    test_meshterrainpipeline.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshterrainpipeline)
 
 # [OPTIONS] CRS is the coordinate system of record: the .inp's CRS beats the
 # .oswp sidecar's on open, and the layer's assigned CRS is written on save
@@ -3581,3 +3624,56 @@ add_swmmvis_gui_test(test_stylecontrols
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_stylecontrols)
+
+# Pending mesh-import snapshots: disk ownership and transactional publication,
+# independent of widgets, mesh generation and the engine runtime.
+add_executable(test_meshimportartifacts test_meshimportartifacts.cpp)
+set_target_properties(test_meshimportartifacts PROPERTIES AUTOMOC ON)
+target_include_directories(test_meshimportartifacts PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_meshimportartifacts PRIVATE Qt6::Core Qt6::Test)
+target_compile_definitions(test_meshimportartifacts PRIVATE
+    MESH_IMPORT_ARTIFACT_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/mesh_import_artifacts_out")
+add_test(NAME test_meshimportartifacts COMMAND test_meshimportartifacts)
+set_tests_properties(test_meshimportartifacts PROPERTIES LABELS "gui")
+
+
+# Phase25: corridor placement and structured patch authoring.
+add_swmmvis_gui_test(test_meshpatchplacement
+    test_meshpatchplacement.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshpatch.h
+)
+target_link_libraries(test_meshpatchplacement PRIVATE triangle_lib)
+add_swmmvis_gui_test(test_meshpatchdialog
+    test_meshpatchdialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshpatchdialog)
+
+# Selected GIS centrelines to independent rectangular corridor patches.
+add_swmmvis_gui_test(test_corridorsource
+    test_corridorsource.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/corridorsource.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+)
+target_link_libraries(test_corridorsource PRIVATE GDAL::GDAL)
+
+add_swmmvis_gui_test(test_meshcorridorrecipe test_meshcorridorrecipe.cpp)
+add_swmmvis_gui_test(test_corridorsourceswidget
+    test_corridorsourceswidget.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_corridorsourceswidget)

@@ -22,7 +22,9 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPushButton>
+#include <QPersistentModelIndex>
 #include <QTableWidget>
 #include <QFile>
 #include <QRegularExpression>
@@ -34,6 +36,13 @@ namespace OpenSWMMVis
 {
 
 namespace {
+
+bool canEdit(SWMM_Engine engine)
+{
+    int state = SWMM_STATE_NONE;
+    return engine && swmm_engine_get_state(engine, &state) == SWMM_OK &&
+        (state == SWMM_STATE_BUILDING || state == SWMM_STATE_OPENED);
+}
 
 constexpr int kColScope       = 0;
 constexpr int kColElement     = 1;
@@ -73,8 +82,10 @@ InitialQualityDialog::InitialQualityDialog(SWMM_Engine engine,
     setWindowTitle(tr("Initial Quality"));
     setObjectName(QStringLiteral("initialQualityDialog"));
     setAttribute(Qt::WA_DeleteOnClose, false);
+    m_editable = canEdit(m_engine);
     buildUi();
     readFromEngine();
+    if (!m_editable) setReadOnly();
 }
 
 void InitialQualityDialog::buildUi()
@@ -94,6 +105,7 @@ void InitialQualityDialog::buildUi()
 
     m_table = new QTableWidget(0, 4, this);
     m_table->setObjectName(QStringLiteral("iq_table"));
+    m_table->setAccessibleName(tr("Initial quality for nodes and links"));
     m_table->setHorizontalHeaderLabels(
         { tr("Scope"), tr("Element"), tr("Constituent"), tr("Value") });
     m_table->verticalHeader()->setVisible(false);
@@ -105,9 +117,11 @@ void InitialQualityDialog::buildUi()
     // is editable and the Import button copies a CSV's rows in as ordinary
     // inline rows instead, for a one-off bulk edit.
     auto *fileRow = new QHBoxLayout;
-    fileRow->addWidget(new QLabel(tr("CSV file:"), this));
+    auto *fileLabel = new QLabel(tr("&CSV file:"), this);
+    fileRow->addWidget(fileLabel);
     m_fileEdit = new QLineEdit(this);
     m_fileEdit->setObjectName(QStringLiteral("iq_fileEdit"));
+    fileLabel->setBuddy(m_fileEdit);
     m_fileEdit->setPlaceholderText(tr("none — rows are stored in the model file"));
     m_fileEdit->setToolTip(
         tr("[INITIAL_QUALITY] FILE — a CSV of scope,element,constituent,value "
@@ -115,9 +129,11 @@ void InitialQualityDialog::buildUi()
            "shown greyed below and are edited in the file itself."));
     fileRow->addWidget(m_fileEdit, 1);
     auto *browseBtn = new QPushButton(tr("&Browse…"), this);
+    browseBtn->setAutoDefault(false);
     browseBtn->setObjectName(QStringLiteral("iq_fileBrowseBtn"));
     fileRow->addWidget(browseBtn);
     auto *importBtn = new QPushButton(tr("&Import rows…"), this);
+    importBtn->setAutoDefault(false);
     importBtn->setObjectName(QStringLiteral("iq_importBtn"));
     importBtn->setToolTip(
         tr("Read a CSV's rows into the table as ordinary rows stored in the "
@@ -135,9 +151,17 @@ void InitialQualityDialog::buildUi()
 
     auto *btnRow = new QHBoxLayout;
     auto *addBtn = new QPushButton(tr("&Add"), this);
+    addBtn->setAutoDefault(false);
     addBtn->setObjectName(QStringLiteral("iq_addBtn"));
     auto *remBtn = new QPushButton(tr("&Remove"), this);
+    remBtn->setAutoDefault(false);
     remBtn->setObjectName(QStringLiteral("iq_removeBtn"));
+    m_removeButton = remBtn;
+    remBtn->setEnabled(false);
+    connect(m_table, &QTableWidget::currentCellChanged, this,
+            [this](int row, int, int, int) {
+                m_removeButton->setEnabled(m_editable && row >= 0 && !m_fileRows.contains(row));
+            });
     btnRow->addWidget(addBtn);
     btnRow->addWidget(remBtn);
     btnRow->addStretch();
@@ -179,6 +203,7 @@ void InitialQualityDialog::setElementScope(int isLink, const QString &elementNam
     m_table->setColumnHidden(kColElement, true);
 
     readFromEngine();
+    if (!m_editable) setReadOnly();
 }
 
 void InitialQualityDialog::populateElementCombo(int row)
@@ -260,8 +285,12 @@ void InitialQualityDialog::onAddRow()
     // Scope drives the element list; constituent drives the value floor
     // (pollutant concentrations cannot be negative; the reserved species
     // are signed).
+    // Persistent indexes follow surviving rows when an earlier row is removed.
+    const QPersistentModelIndex scopeIndex(m_table->model()->index(r, kColScope));
     connect(scopeCombo, &QComboBox::currentIndexChanged, this,
-            [this, r]() { populateElementCombo(r); });
+            [this, scopeIndex]() {
+                if (scopeIndex.isValid()) populateElementCombo(scopeIndex.row());
+            });
     auto applyFloor = [consCombo, spin]() {
         const QString name = consCombo->currentData().toString();
         const bool reserved = name == QLatin1String(kWaterAgeName) ||
@@ -284,12 +313,35 @@ void InitialQualityDialog::onAddRow()
         scopeCombo->setEnabled(false);
         elemCombo->setEnabled(false);
     }
+    updateRowPresentation(r);
+}
+
+void InitialQualityDialog::updateRowPresentation(int firstRow)
+{
+    for (int row = firstRow; row < m_table->rowCount(); ++row) {
+        for (int column = 0; column < m_table->columnCount(); ++column) {
+            if (auto *widget = m_table->cellWidget(row, column)) {
+                widget->setAccessibleName(tr("Row %1, %2")
+                    .arg(row + 1).arg(m_table->horizontalHeaderItem(column)->text()));
+                widget->setAccessibleDescription(m_fileRows.contains(row)
+                    ? tr("From the CSV file; edit the value in that file.") : QString());
+            }
+        }
+    }
+    const int current = m_table->currentRow();
+    m_removeButton->setEnabled(m_editable && current >= 0 && !m_fileRows.contains(current));
 }
 
 void InitialQualityDialog::onRemoveRow()
 {
     const int r = m_table->currentRow();
-    if (r >= 0) m_table->removeRow(r);
+    if (r < 0 || m_fileRows.contains(r)) return;
+    QSet<int> shiftedFileRows;
+    for (int fileRow : m_fileRows)
+        shiftedFileRows.insert(fileRow > r ? fileRow - 1 : fileRow);
+    m_fileRows.swap(shiftedFileRows);
+    m_table->removeRow(r);
+    updateRowPresentation(r);
 }
 
 void InitialQualityDialog::readFromEngine()
@@ -353,6 +405,7 @@ void InitialQualityDialog::readFromEngine()
             m_fileRows.insert(r);
         }
     }
+    updateRowPresentation();
 }
 
 void InitialQualityDialog::onImportCsv()
@@ -414,106 +467,163 @@ void InitialQualityDialog::onImportCsv()
                   .arg(added).arg(QFileInfo(path).fileName()));
 }
 
-int InitialQualityDialog::writeToEngine()
+void InitialQualityDialog::setReadOnly()
 {
-    if (!m_engine) return 0;
-    int writes = 0;
+    m_hintLabel->setText(m_engine
+        ? tr("Initial quality cannot be edited in the current model state. "
+             "Reset the simulation to edit these values.")
+        : tr("No model is open."));
+    for (auto *widget : m_table->findChildren<QComboBox *>()) widget->setEnabled(false);
+    for (auto *widget : m_table->findChildren<QDoubleSpinBox *>()) widget->setEnabled(false);
+    m_fileEdit->setEnabled(false);
+    for (const auto *name : {"iq_addBtn", "iq_removeBtn", "iq_fileBrowseBtn", "iq_importBtn"})
+        findChild<QPushButton *>(QLatin1String(name))->setEnabled(false);
+    findChild<QDialogButtonBox *>()->setStandardButtons(QDialogButtonBox::Close);
+}
 
+QString InitialQualityDialog::writeToEngine(QWidget *&failedWidget)
+{
+    if (!canEdit(m_engine))
+        return tr("The model is no longer editable. Reset the simulation before "
+                  "applying these changes. Your draft remains in this dialog.");
+
+    // Pollutant IDs match without case; reaction-species names do not.
+    auto constituentKey = [this](const QString &name) {
+        if (name == QLatin1String(kWaterAgeName) || name == QLatin1String(kTemperatureName))
+            return name;
+        const int pollutant = swmm_pollutant_index(m_engine, name.toUtf8().constData());
+        const char *id = pollutant >= 0 ? swmm_pollutant_id(m_engine, pollutant) : nullptr;
+        return id ? QString::fromUtf8(id) : name;
+    };
     struct Key {
         int is_link; int elem; QString cons;
         bool operator==(const Key &o) const {
             return is_link == o.is_link && elem == o.elem && cons == o.cons;
         }
     };
-
-    // Snapshot the engine rows (key + value + entry index). In element-
-    // scoped mode only the scoped element's rows enter the diff, so rows
-    // belonging to other elements can never be removed by this dialog.
-    struct EngineRow { Key key; double value; int entry; };
-    QVector<EngineRow> engineRows;
+    struct Row { Key key; double value; int entry; QString label; };
+    QVector<Row> engineRows;
     const int count = swmm_init_quality_count(m_engine);
+    if (count < 0) return tr("Could not read the saved initial-quality rows (error %1).").arg(count);
     for (int i = 0; i < count; ++i) {
         int is_link = 0, elem = -1;
         char cons[128] = {0};
         double value = 0.0;
-        if (swmm_init_quality_get(m_engine, i, &is_link, &elem,
-                                  cons, sizeof(cons), &value) != SWMM_OK)
-            continue;
+        const int rc = swmm_init_quality_get(m_engine, i, &is_link, &elem,
+                                             cons, sizeof(cons), &value);
+        if (rc != SWMM_OK)
+            return tr("Could not read saved row %1 (error %2).").arg(i + 1).arg(rc);
         if (m_scopeIsLink >= 0 &&
-            (is_link != m_scopeIsLink || elem != m_scopeElemIdx))
-            continue;
-        if (swmm_init_quality_is_file(m_engine, i)) continue;   // U2: the file's row
-        engineRows.append(
-            { { is_link, elem, QString::fromUtf8(cons) }, value, i });
+            (is_link != m_scopeIsLink || elem != m_scopeElemIdx)) continue;
+        if (swmm_init_quality_is_file(m_engine, i)) continue;
+        const char *id = is_link ? swmm_link_id(m_engine, elem) : swmm_node_id(m_engine, elem);
+        engineRows.append({{is_link, elem, constituentKey(QString::fromUtf8(cons))}, value, i,
+            tr("%1 %2, %3").arg(is_link ? tr("Link") : tr("Node"),
+                                QString::fromUtf8(id ? id : "?"), QString::fromUtf8(cons))});
     }
 
-    // U2: the FILE reference itself.
-    {
-        char buf[1024] = {0};
-        swmm_init_quality_file_get(m_engine, buf, sizeof(buf));
-        const QString cur = QString::fromUtf8(buf);
-        const QString nv  = m_fileEdit->text().trimmed();
-        if (cur != nv &&
-            swmm_init_quality_file_set(m_engine, nv.toUtf8().constData()) == SWMM_OK)
-            ++writes;
-    }
-
-    // Collect the table rows. Rows loaded from the FILE sidecar are the
-    // file's, not the dialog's: they are neither re-written nor removed.
-    QVector<EngineRow> tableRows;
+    // Validate that every editable row has a complete selection before any
+    // mutation. FILE-backed rows remain owned by their source, not this editor.
+    QVector<Row> tableRows;
     for (int r = 0; r < m_table->rowCount(); ++r) {
         if (m_fileRows.contains(r)) continue;
-        auto *sc = qobject_cast<QComboBox *>(
-            m_table->cellWidget(r, kColScope));
-        auto *ec = qobject_cast<QComboBox *>(
-            m_table->cellWidget(r, kColElement));
-        auto *cc = qobject_cast<QComboBox *>(
-            m_table->cellWidget(r, kColConstituent));
-        auto *vs = qobject_cast<QDoubleSpinBox *>(
-            m_table->cellWidget(r, kColValue));
-        if (!sc || !ec || !cc || !vs || ec->currentIndex() < 0) continue;
-        tableRows.append({ { sc->currentData().toInt(),
-                             ec->currentData().toInt(),
-                             cc->currentData().toString() },
-                           vs->value() });
+        auto *sc = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColScope));
+        auto *ec = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColElement));
+        auto *cc = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColConstituent));
+        auto *vs = qobject_cast<QDoubleSpinBox *>(m_table->cellWidget(r, kColValue));
+        if (!sc || !ec || !cc || !vs || ec->currentIndex() < 0 ||
+            cc->currentIndex() < 0 || cc->currentData().toString().isEmpty()) {
+            failedWidget = ec && ec->currentIndex() < 0 ? static_cast<QWidget *>(ec) : cc;
+            m_table->setCurrentCell(r, ec && ec->currentIndex() < 0 ? kColElement : kColConstituent);
+            return tr("Row %1 needs an element and a constituent before it can be saved.").arg(r + 1);
+        }
+        const Key key{sc->currentData().toInt(), ec->currentData().toInt(),
+                      constituentKey(cc->currentData().toString())};
+        for (const auto &earlier : tableRows) {
+            if (earlier.key == key) {
+                failedWidget = cc;
+                m_table->setCurrentCell(r, kColConstituent);
+                return tr("Row %1 duplicates row %2 (%3 %4, %5). Keep one value "
+                          "for each element and constituent before saving.")
+                    .arg(r + 1).arg(earlier.entry + 1)
+                    .arg(sc->currentText(), ec->currentText(), cc->currentData().toString());
+            }
+        }
+        tableRows.append({key, vs->value(), r,
+            tr("%1 %2, %3").arg(sc->currentText(), ec->currentText(), cc->currentData().toString())});
     }
 
-    // Remove engine rows the table no longer carries — by DESCENDING entry
-    // index, since remove shifts subsequent entries down.
+    char file[1024] = {0};
+    int rc = swmm_init_quality_file_get(m_engine, file, sizeof(file));
+    if (rc != SWMM_OK) {
+        failedWidget = m_fileEdit;
+        return tr("Could not read the CSV file reference (error %1).").arg(rc);
+    }
+    const QString newFile = m_fileEdit->text().trimmed();
+    if (QString::fromUtf8(file) != newFile) {
+        rc = swmm_init_quality_file_set(m_engine, newFile.toUtf8().constData());
+        if (rc != SWMM_OK) {
+            failedWidget = m_fileEdit;
+            return tr("Could not save the CSV file reference '%1' (error %2).").arg(newFile).arg(rc);
+        }
+        ++m_lastWriteCount;
+    }
+
+    // Delete backwards because engine entry indexes shift after each removal.
     for (int i = engineRows.size() - 1; i >= 0; --i) {
         bool kept = false;
         for (const auto &t : tableRows)
             if (t.key == engineRows[i].key) { kept = true; break; }
-        if (!kept &&
-            swmm_init_quality_remove(m_engine, engineRows[i].entry) == SWMM_OK)
-            ++writes;
+        if (kept) continue;
+        rc = swmm_init_quality_remove(m_engine, engineRows[i].entry);
+        if (rc != SWMM_OK) {
+            failedWidget = m_table;
+            return tr("Could not remove saved row %1 (%2; error %3).")
+                .arg(engineRows[i].entry + 1).arg(engineRows[i].label).arg(rc);
+        }
+        ++m_lastWriteCount;
     }
 
-    // Upsert every table row whose value differs (or is new) — set is
-    // keyed, so one call per row suffices; untouched rows write nothing
-    // (the writeIfChanged discipline).
     for (const auto &t : tableRows) {
         bool same = false;
         for (const auto &e : engineRows)
-            if (e.key == t.key &&
-                qFuzzyCompare(1.0 + e.value, 1.0 + t.value)) {
+            if (e.key == t.key && qFuzzyCompare(1.0 + e.value, 1.0 + t.value)) {
                 same = true;
                 break;
             }
         if (same) continue;
-        if (swmm_init_quality_set(m_engine, t.key.is_link, t.key.elem,
-                                  t.key.cons.toUtf8().constData(),
-                                  t.value) == SWMM_OK)
-            ++writes;
+        rc = swmm_init_quality_set(m_engine, t.key.is_link, t.key.elem,
+                                   t.key.cons.toUtf8().constData(), t.value);
+        if (rc != SWMM_OK) {
+            const int column = rc == SWMM_ERR_BADINDEX ? kColElement : kColConstituent;
+            m_table->setCurrentCell(t.entry, column);
+            failedWidget = m_table->cellWidget(t.entry, column);
+            return tr("Could not save row %1 (%2): the engine refused its element, constituent "
+                      "or value %3 (error %4).")
+                .arg(t.entry + 1).arg(t.label).arg(t.value).arg(rc);
+        }
+        ++m_lastWriteCount;
     }
-
-    return writes;
+    return {};
 }
 
 void InitialQualityDialog::onAccept()
 {
-    m_lastWriteCount  = writeToEngine();
-    m_wroteAnyChanges = m_lastWriteCount > 0;
+    if (!m_editable) return;
+    m_lastWriteCount = 0;
+    QWidget *failedWidget = nullptr;
+    QString error = writeToEngine(failedWidget);
+    if (m_lastWriteCount > 0) {
+        m_wroteAnyChanges = true;
+        emit changesApplied();
+    }
+    if (!error.isEmpty()) {
+        if (m_wroteAnyChanges)
+            error += tr("\n\nEarlier changes have been applied. Cancel will not undo them.");
+        QMessageBox::warning(this, tr("Initial Quality"), error);
+        if (failedWidget) failedWidget->setFocus(Qt::OtherFocusReason);
+        return;
+    }
     accept();
 }
 

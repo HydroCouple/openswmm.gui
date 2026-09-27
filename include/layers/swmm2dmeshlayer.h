@@ -45,6 +45,7 @@
 class QGraphicsScene;
 class QGraphicsItem;
 class SWMM2DMeshGraphicsItem;
+class GeneratedMeshArtifacts;
 
 namespace OpenSWMM::Render
 {
@@ -292,6 +293,22 @@ public:
     /*! \brief Clear the divergence flag — only after a confirmed successful
      *  write, so a failed save still re-pushes next time. */
     void setMeshEditsSaved() { m_editsDirty = false; }
+
+    // Generated topology is owned by this layer until a model reload. Save
+    // clears dirty state, but the engine can still contain the old topology.
+    [[nodiscard]] bool ownsGeneratedTopology() const { return m_ownsGeneratedTopology; }
+    void setOwnsGeneratedTopology(bool owns) { m_ownsGeneratedTopology = owns; }
+
+    // Imported source sections belong to its topology and must survive patching.
+    [[nodiscard]] bool preservesImportedSections() const { return m_preservesImportedSections; }
+    void setPreservesImportedSections(bool preserve) { m_preservesImportedSections = preserve; }
+    [[nodiscard]] bool importNeedsSaveAsRebase() const { return m_importNeedsSaveAsRebase; }
+    void setImportNeedsSaveAsRebase(bool rebase) { m_importNeedsSaveAsRebase = rebase; }
+
+    const std::shared_ptr<GeneratedMeshArtifacts> &generatedArtifacts() const { return m_generatedArtifacts; }
+    void setGeneratedArtifacts(std::shared_ptr<GeneratedMeshArtifacts> artifacts) {
+        m_generatedArtifacts = std::move(artifacts);
+    }
 
     // ---------------------------------------------------------------------
     // Slice §V.VA — mesh-editing foundation: BC storage, picker / hover
@@ -897,6 +914,10 @@ private:
     // See hasUnsavedMeshEdits(): conservative default, cleared only by an
     // explicit pristine attach or a confirmed successful save.
     bool                         m_editsDirty    = true;
+    bool                         m_ownsGeneratedTopology = false;
+    bool                         m_preservesImportedSections = false;
+    bool                         m_importNeedsSaveAsRebase = false;
+    std::shared_ptr<GeneratedMeshArtifacts> m_generatedArtifacts;
     OGRCoordinateTransformation *m_transform     = nullptr;
     SWMM2DMeshGraphicsItem      *m_graphicsItem  = nullptr;
 

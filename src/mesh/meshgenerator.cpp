@@ -29,6 +29,7 @@
 
 #include <QDebug>
 #include <QHash>
+#include <QPainterPath>
 #include <QRectF>
 #include <QSet>
 #include <QStringList>
@@ -39,6 +40,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <limits>
 
 extern "C" {
 #define TRILIBRARY   // needed to expose triangulate_safe() in triangle.h
@@ -300,6 +302,207 @@ double longestEdgeAngleDeg(const QPolygonF &ring)
     return ang;
 }
 
+// Structured patches are topology, not optional hints. All tests below use
+// coordinates relative to the domain so projected CRS offsets cannot erase
+// small overlaps through cancellation in polygon clipping/area arithmetic.
+QPainterPath patchRingPath(const QPolygonF &ring)
+{
+    QPainterPath path;
+    path.setFillRule(Qt::WindingFill);
+    if (!ring.isEmpty()) { path.addPolygon(ring); path.closeSubpath(); }
+    return path;
+}
+
+double patchPathArea(const QPainterPath &path)
+{
+    double area = 0;
+    for (const QPolygonF &polygon : path.toFillPolygons()) {
+        if (polygon.size() < 3) continue;
+        const QPointF origin = polygon.first();
+        double twice = 0;
+        for (int i = 0; i < polygon.size(); ++i) {
+            const QPointF a = polygon[i] - origin;
+            const QPointF b = polygon[(i + 1) % polygon.size()] - origin;
+            twice += a.x() * b.y() - a.y() * b.x();
+        }
+        area += std::abs(twice) / 2;
+    }
+    return area;
+}
+
+QPolygonF patchRelativeRing(const QPolygonF &ring, const QPointF &origin)
+{
+    QPolygonF relative;
+    relative.reserve(ring.size());
+    for (const QPointF &point : ring) relative.append(point - origin);
+    return relative;
+}
+
+double patchCross(const QPointF &a, const QPointF &b)
+{
+    return a.x() * b.y() - a.y() * b.x();
+}
+
+bool patchPointOnSegment(const QPointF &point, const QPointF &a, const QPointF &b,
+                         double tolerance)
+{
+    const QPointF delta = b - a;
+    const double length = std::hypot(delta.x(), delta.y());
+    if (!(length > 0)) return std::hypot(point.x() - a.x(), point.y() - a.y()) <= tolerance;
+    const double projection = QPointF::dotProduct(point - a, delta) / length;
+    return projection >= -tolerance && projection <= length + tolerance
+        && std::abs(patchCross(delta, point - a)) <= tolerance * length;
+}
+
+bool patchPointOnRing(const QPointF &point, const QPolygonF &ring, double tolerance)
+{
+    for (int i = 0; i < ring.size(); ++i)
+        if (patchPointOnSegment(point, ring[i], ring[(i + 1) % ring.size()], tolerance)) return true;
+    return false;
+}
+
+// Endpoints alone miss a segment traversing a concave patch or crossing from
+// boundary to boundary. Split at all intersections and inspect each interval.
+bool patchSegmentEntersInterior(const QPointF &a, const QPointF &b,
+                                const QPolygonF &ring, const QPainterPath &path,
+                                double tolerance)
+{
+    const QPointF delta = b - a;
+    const double length2 = QPointF::dotProduct(delta, delta);
+    if (!(length2 > 0))
+        return path.contains(a) && !patchPointOnRing(a, ring, tolerance);
+    QVector<double> cuts{0, 1};
+    for (int i = 0; i < ring.size(); ++i) {
+        const QPointF c = ring[i], d = ring[(i + 1) % ring.size()];
+        const QPointF edge = d - c;
+        const double denominator = patchCross(delta, edge);
+        if (denominator != 0) {
+            const double t = patchCross(c - a, edge) / denominator;
+            const double u = patchCross(c - a, delta) / denominator;
+            if (t >= 0 && t <= 1 && u >= 0 && u <= 1) cuts.append(t);
+        } else if (patchPointOnSegment(c, a, b, tolerance)
+                   || patchPointOnSegment(d, a, b, tolerance)) {
+            cuts.append(std::clamp(QPointF::dotProduct(c - a, delta) / length2, 0.0, 1.0));
+            cuts.append(std::clamp(QPointF::dotProduct(d - a, delta) / length2, 0.0, 1.0));
+        }
+    }
+    std::sort(cuts.begin(), cuts.end());
+    for (int i = 1; i < cuts.size(); ++i) {
+        if (!(cuts[i] > cuts[i - 1])) continue;
+        const QPointF point = a + delta * ((cuts[i] + cuts[i - 1]) / 2);
+        if (path.contains(point) && !patchPointOnRing(point, ring, tolerance)) return true;
+    }
+    return false;
+}
+
+QString validatePatchPlacement(const QVector<PatchMesh> &patches,
+                               const QVector<QPolygonF> &domains,
+                               const QVector<QPointF> &holes,
+                               const QVector<ConstraintSegment> &segments,
+                               const QPointF &origin,
+                               QVector<QPolygonF> *exclusionBoundaries)
+{
+    QPainterPath domain;
+    for (const QPolygonF &ring : domains) domain = domain.united(patchRingPath(patchRelativeRing(ring, origin)));
+    const double span = std::max(domain.boundingRect().width(), domain.boundingRect().height());
+    const double tolerance = std::max(1e-9, span * 16 * std::numeric_limits<double>::epsilon());
+    // Hole seeds identify a face, not a particular constraint ring. With
+    // nested closed rings only the innermost enclosing ring bounds that
+    // face; an enclosing protection ring must remain part of the domain.
+    QVector<QPolygonF> closedRings;
+    QVector<QPainterPath> closedPaths;
+    QVector<double> closedAreas;
+    for (const ConstraintSegment &segment : segments) {
+        if (segment.path.size() < 4
+            || segment.path.first().x() != segment.path.last().x()
+            || segment.path.first().y() != segment.path.last().y()) continue;
+        closedRings.append(patchRelativeRing(QPolygonF(segment.path), origin));
+        closedPaths.append(patchRingPath(closedRings.last()));
+        closedAreas.append(patchPathArea(closedPaths.last()));
+    }
+    QSet<int> holeRings;
+    for (const QPointF &hole : holes) {
+        QVector<int> enclosing;
+        int innermost = -1;
+        for (int i = 0; i < closedPaths.size(); ++i) {
+            if (!closedPaths[i].contains(hole - origin)) continue;
+            enclosing.append(i);
+            if (innermost < 0 || closedAreas[i] < closedAreas[innermost]) innermost = i;
+        }
+        if (innermost < 0) continue;
+        const double areaTolerance = std::max(1e-24,
+            closedAreas[innermost] * 64 * std::numeric_limits<double>::epsilon());
+        for (int other : enclosing)
+            if (patchPathArea(closedPaths[innermost].subtracted(closedPaths[other])) > areaTolerance)
+                return QStringLiteral("MeshGenerator: an excluded-hole seed lies in intersecting constraint rings; "
+                                      "use one unambiguous closed hole boundary before adding structured patches.");
+        holeRings.insert(innermost);
+    }
+    for (int index : holeRings) {
+        exclusionBoundaries->append(closedRings[index]);
+        domain = domain.subtracted(closedPaths[index]);
+    }
+    QVector<QPainterPath> priorPaths;
+    for (int i = 0; i < patches.size(); ++i) {
+        const auto fail = [&](const QString &reason) {
+            return QStringLiteral("MeshGenerator: structured patch %1%2 %3")
+                .arg(i + 1).arg(patches[i].tag.isEmpty() ? QString()
+                    : QStringLiteral(" ('%1')").arg(patches[i].tag)).arg(reason);
+        };
+        QString error;
+        const QPolygonF ordered = orderedPatchBoundary(patches[i], &error);
+        if (!error.isEmpty() || ordered.size() < 3)
+            return fail(error.isEmpty() ? QStringLiteral("has no valid boundary.") : error);
+        const QPolygonF ring = patchRelativeRing(ordered, origin);
+        const QPainterPath path = patchRingPath(ring);
+        const double areaTolerance = std::max(1e-24,
+            patchPathArea(path) * 64 * std::numeric_limits<double>::epsilon());
+        if (patchPathArea(path.subtracted(domain)) > areaTolerance)
+            return fail(QStringLiteral("extends outside the meshing domain; clip or resize it before generating."));
+        for (int j = 0; j < priorPaths.size(); ++j)
+            if (patchPathArea(path.intersected(priorPaths[j])) > areaTolerance)
+                return fail(QStringLiteral("overlaps structured patch %1; separate the corridors or define a conforming junction.").arg(j + 1));
+        for (const QPointF &hole : holes)
+            if (path.contains(hole - origin) && !patchPointOnRing(hole - origin, ring, tolerance))
+                return fail(QStringLiteral("contains an excluded-hole seed; move the patch outside the hole."));
+        for (const ConstraintSegment &segment : segments) {
+            if (!polylineIntersectsRect(segment.path, ordered.boundingRect())) continue;
+            for (int k = 1; k < segment.path.size(); ++k)
+                if (patchSegmentEntersInterior(segment.path[k - 1] - origin,
+                        segment.path[k] - origin, ring, path, tolerance))
+                    return fail(QStringLiteral("crosses or contains a required constraint; align the boundary or split the patch."));
+        }
+        priorPaths.append(path);
+    }
+    return {};
+}
+
+bool patchEdgeOnOutline(const QPointF &a, const QPointF &b,
+                        const QVector<QPolygonF> &outlines, double tolerance)
+{
+    for (const QPolygonF &ring : outlines) {
+        // A patch edge can span several collinear outline segments. Check
+        // every subinterval, not just its endpoints, to avoid bridging gaps.
+        QVector<double> cuts{0, 1};
+        const QPointF delta = b - a;
+        const double length2 = QPointF::dotProduct(delta, delta);
+        if (!(length2 > 0)) return false;
+        for (const QPointF &point : ring)
+            if (patchPointOnSegment(point, a, b, tolerance))
+                cuts.append(std::clamp(QPointF::dotProduct(point - a, delta) / length2, 0.0, 1.0));
+        std::sort(cuts.begin(), cuts.end());
+        bool covered = true;
+        for (int i = 1; i < cuts.size(); ++i) {
+            if (!(cuts[i] > cuts[i - 1])) continue;
+            if (!patchPointOnRing(a + delta * ((cuts[i] + cuts[i - 1]) / 2), ring, tolerance)) {
+                covered = false; break;
+            }
+        }
+        if (covered) return true;
+    }
+    return false;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -547,6 +750,15 @@ MeshResult MeshGenerator::generate() const
             rep.requested = r.mode;
             rep.resolved  = r.mode;
             QStringList notes;
+            const auto rejectDirectional = [&](const QString &why) {
+                rep.message = QStringLiteral("directional Mapped request refused: %1").arg(why);
+                result.errorMsg = QStringLiteral("Quad region %1 (%2): %3")
+                    .arg(i + 1).arg(r.tag, rep.message);
+            };
+            if (r.directionalSpacing) {
+                const QString error = validateQuadRegion(r, m_domains, {});
+                if (!error.isEmpty()) { rejectDirectional(error); return result; }
+            }
 
             PreparedQuadRegion q;
             q.index        = i;
@@ -564,7 +776,7 @@ MeshResult MeshGenerator::generate() const
             // Spacing h: explicit, else the size function at the centroid
             // (sqrt(2·area) matches the neighbouring triangle edge length),
             // else the option default.
-            double h = r.spacing;
+            double h = r.directionalSpacing ? std::min(r.hAlong, r.hAcross) : r.spacing;
             if (!(h > 0.0) && m_refineHook.targetAreaAt && !q.ring.isEmpty())
             {
                 const QPointF c = q.holesR.isEmpty() ? ringInteriorPoint(q.ring)
@@ -590,13 +802,48 @@ MeshResult MeshGenerator::generate() const
             const QString bad = validateQuadRegion(rv, m_domains, QVector<QPolygonF>());
             if (!bad.isEmpty())
             {
+                if (r.directionalSpacing) { rejectDirectional(bad); return result; }
                 rep.message = QStringLiteral("skipped: %1").arg(bad);
                 continue;
+            }
+            // The legacy vertex/crossing test misses coincident boundaries
+            // and collinear positive-area overlaps. Explicit directional
+            // regions must not compete with another region for those cells.
+            for (const QuadRegion &prior : std::as_const(acceptedSoFar)) {
+                if (!r.directionalSpacing && !prior.directionalSpacing) continue;
+                const auto currentPath = patchRingPath(patchRelativeRing(rv.ring, quantOrigin));
+                const auto priorPath = patchRingPath(patchRelativeRing(prior.ring, quantOrigin));
+                auto common = currentPath.intersected(priorPath);
+                for (const auto &hole : rv.holes)
+                    common = common.subtracted(patchRingPath(patchRelativeRing(hole, quantOrigin)));
+                for (const auto &hole : prior.holes)
+                    common = common.subtracted(patchRingPath(patchRelativeRing(hole, quantOrigin)));
+                const double areaTolerance = std::max(1e-24,
+                    std::min(patchPathArea(currentPath), patchPathArea(priorPath))
+                        * 64 * std::numeric_limits<double>::epsilon());
+                // Boolean operations may leave cancelling OddEven contours.
+                // Simplify before signed-area accumulation to measure filled area.
+                if (patchPathArea(common.simplified()) > areaTolerance) {
+                    rejectDirectional(QStringLiteral("overlaps another quad region"));
+                    return result;
+                }
             }
             acceptedSoFar.append(rv);
             if (!validateQuadRegionsDisjoint(acceptedSoFar).isEmpty())
             {
                 acceptedSoFar.removeLast();
+                if (r.directionalSpacing) {
+                    rejectDirectional(QStringLiteral("overlaps an earlier quad region"));
+                    return result;
+                }
+                if (std::any_of(acceptedSoFar.cbegin(), acceptedSoFar.cend(),
+                                [&rv](const QuadRegion &region) {
+                                    return region.directionalSpacing
+                                        && !validateQuadRegionsDisjoint({region, rv}).isEmpty();
+                                })) {
+                    result.errorMsg = QStringLiteral("Quad region %1 overlaps an earlier region while directional Mapped regions are requested.").arg(i + 1);
+                    return result;
+                }
                 rep.message = QStringLiteral("skipped: overlaps an earlier quad region");
                 continue;
             }
@@ -625,18 +872,37 @@ MeshResult MeshGenerator::generate() const
             if (q.isBackground && mode != QuadRegionMode::TrianglesOnly)
                 mode = QuadRegionMode::Free;
             QVector<int> corners;
-            if (mode == QuadRegionMode::Mapped && r.corners.size() == 4)
+            if ((mode == QuadRegionMode::Mapped && r.corners.size() == 4)
+                || (r.directionalSpacing && !r.corners.isEmpty()))
             {
+                if (r.directionalSpacing && r.corners.size() != 4) {
+                    rejectDirectional(QStringLiteral("exactly four explicit corners are required"));
+                    return result;
+                }
                 for (int c : r.corners)
                 {
                     if (c < 0 || c >= r.ring.size()) break;
-                    const int at = q.ring.indexOf(r.ring[c]);
+                    int at = -1;
+                    if (r.directionalSpacing) {
+                        for (int index = 0; index < q.ring.size(); ++index)
+                            if (q.ring[index].x() == r.ring[c].x() && q.ring[index].y() == r.ring[c].y()) {
+                                at = index;
+                                break;
+                            }
+                    } else at = q.ring.indexOf(r.ring[c]);
                     if (at < 0) break;
                     corners.append(at);
                 }
                 std::sort(corners.begin(), corners.end());
                 if (corners.size() != 4 || std::adjacent_find(corners.begin(), corners.end()) != corners.end())
                     corners.clear();
+                if (r.directionalSpacing) {
+                    if (corners.size() != 4) {
+                        rejectDirectional(QStringLiteral("supplied corners must identify four distinct valid ring vertices"));
+                        return result;
+                    }
+                    mode = QuadRegionMode::Mapped;
+                }
             }
             if (mode == QuadRegionMode::Auto)
                 mode = classifyQuadRegion(q.ring, &corners);
@@ -652,8 +918,16 @@ MeshResult MeshGenerator::generate() const
             if ((mode == QuadRegionMode::Mapped || mode == QuadRegionMode::Submapped)
                 && segmentsCrossRing(m_segments, q))
             {
+                if (r.directionalSpacing) {
+                    rejectDirectional(QStringLiteral("a protected constraint crosses the region"));
+                    return result;
+                }
                 mode = QuadRegionMode::Free;
                 notes << QStringLiteral("a constraint segment crosses the region: fell back to Free");
+            }
+            if (r.directionalSpacing && mode != QuadRegionMode::Mapped) {
+                rejectDirectional(QStringLiteral("the polygon does not resolve to four logical Mapped sides"));
+                return result;
             }
             if (mode == QuadRegionMode::Submapped)
             {
@@ -669,13 +943,21 @@ MeshResult MeshGenerator::generate() const
             if (mode == QuadRegionMode::Mapped)
             {
                 QString e;
-                const PatchMesh pm = makeMappedPatch(q.ring, corners, h, q.tag, &e);
+                const PatchMesh pm = r.directionalSpacing
+                    ? makeMappedPatch(q.ring, corners, r.hAlong, r.hAcross, r.mappedAlongAngleDeg, q.tag, &e)
+                    : makeMappedPatch(q.ring, corners, h, q.tag, &e);
                 if (pm.quads.isEmpty())
                 {
+                    if (r.directionalSpacing) { rejectDirectional(e); return result; }
                     mode = QuadRegionMode::Free;
                     notes << QStringLiteral("mapped patch failed (%1): fell back to Free").arg(e);
                 }
-                else patches.append(pm);
+                else {
+                    patches.append(pm);
+                    if (r.directionalSpacing)
+                        notes << QStringLiteral("directional spacing: Along %1, Across %2, physical axis %3 degrees from +x")
+                            .arg(r.hAlong).arg(r.hAcross).arg(r.mappedAlongAngleDeg);
+                }
             }
             if (mode == QuadRegionMode::Free || mode == QuadRegionMode::TrianglesOnly)
             {
@@ -811,16 +1093,18 @@ MeshResult MeshGenerator::generate() const
     //    seeded at the first quad's centroid (inside, since quads are
     //    convex). The quads themselves are stitched in after Triangle runs.
     //    `patches` = m_patches + the Mapped / Submapped quad regions.
+    QVector<QPolygonF> patchExclusionBoundaries;
+    if (!patches.isEmpty()) {
+        const QString error = validatePatchPlacement(patches, m_domains, m_holes,
+            m_segments, quantOrigin, &patchExclusionBoundaries);
+        if (!error.isEmpty()) {
+            result.errorMsg = error;
+            return result;
+        }
+    }
     QVector<QPointF> holes = m_holes;
     for (const PatchMesh &pm : patches)
     {
-        if (pm.quads.isEmpty()) continue;
-        const QString bad = validate(pm);
-        if (!bad.isEmpty())
-        {
-            result.errorMsg = QStringLiteral("MeshGenerator: %1").arg(bad);
-            return result;
-        }
         for (const QPair<int, int> &seg : pm.boundarySegments)
         {
             const int a = pushPoint(pm.xy[seg.first], 0);
@@ -1429,35 +1713,116 @@ MeshResult MeshGenerator::generate() const
                                           : (p.y() - quantOrigin.y()) * 1e7;
             return PointKey(qRound64(sx), qRound64(sy));
         };
-        QHash<PointKey, int> outIndex;
-        outIndex.reserve(result.vertices.size());
-        for (int i = 0; i < result.vertices.size(); ++i)
-            outIndex.insert(keyOf(result.vertices[i].xy), i);
+        // A tiny or non-finite snap tolerance must never reach qRound64
+        // with infinity or a value outside its integer range.
+        const auto validSnapKey = [&](const QPointF &point) {
+            const double x = eps > 0 ? (point.x() - quantOrigin.x()) / eps
+                                     : (point.x() - quantOrigin.x()) * 1e7;
+            const double y = eps > 0 ? (point.y() - quantOrigin.y()) / eps
+                                     : (point.y() - quantOrigin.y()) * 1e7;
+            const double limit = std::ldexp(1.0, 63);
+            return std::isfinite(x) && std::isfinite(y) && std::abs(x) < limit && std::abs(y) < limit;
+        };
+        outputOk = std::isfinite(eps) && eps >= 0;
+        for (const MeshVertex &vertex : std::as_const(result.vertices))
+            if (outputOk && !validSnapKey(vertex.xy)) outputOk = false;
+        for (const PatchMesh &patch : patches)
+            for (const QPointF &point : patch.xy)
+                if (outputOk && !validSnapKey(point)) outputOk = false;
+        if (!outputOk)
+            result.errorMsg = QStringLiteral("MeshGenerator: patch snap tolerance is invalid or too small for the coordinate span.");
+        if (outputOk) {
+            QHash<PointKey, int> outIndex;
+            outIndex.reserve(result.vertices.size());
+            for (int i = 0; i < result.vertices.size(); ++i)
+                outIndex.insert(keyOf(result.vertices[i].xy), i);
 
-        for (const PatchMesh &pm : patches)
-        {
-            if (pm.quads.isEmpty()) continue;
-            QVector<int> localToGlobal(pm.xy.size(), -1);
-            for (int k = 0; k < pm.xy.size(); ++k)
+            QHash<QPair<int, int>, int> patchEdgeIncidence;
+            for (const PatchMesh &pm : patches)
             {
-                const PointKey key = keyOf(pm.xy[k]);
-                const auto it = outIndex.constFind(key);
-                if (it != outIndex.constEnd()) { localToGlobal[k] = it.value(); continue; }
-                MeshVertex v;
-                v.xy = pm.xy[k];
-                localToGlobal[k] = result.vertices.size();
-                result.vertices.append(v);
-                outIndex.insert(key, localToGlobal[k]);
+                if (pm.quads.isEmpty()) continue;
+                QVector<int> localToGlobal(pm.xy.size(), -1);
+                for (int k = 0; k < pm.xy.size(); ++k)
+                {
+                    const PointKey key = keyOf(pm.xy[k]);
+                    const auto it = outIndex.constFind(key);
+                    if (it != outIndex.constEnd()) { localToGlobal[k] = it.value(); continue; }
+                    MeshVertex v;
+                    v.xy = pm.xy[k];
+                    localToGlobal[k] = result.vertices.size();
+                    result.vertices.append(v);
+                    outIndex.insert(key, localToGlobal[k]);
+                }
+                // Welding changes coordinates and can collapse vertices when
+                // an explicit snap tolerance is too coarse. Validate the actual
+                // geometry before adding any of this patch's cells.
+                PatchMesh welded = pm;
+                for (int k = 0; k < welded.xy.size(); ++k)
+                    welded.xy[k] = result.vertices[localToGlobal[k]].xy;
+                // The carved cavity uses mandatory PSLG boundary points.
+                // A custom tolerance may match interiors, but must not move
+                // those points away from their actual quantised input positions.
+                for (const auto &edge : pm.boundarySegments) {
+                    for (int k : {edge.first, edge.second}) {
+                        const QPointF original = pm.xy[k] - quantOrigin;
+                        const QPointF expected(quantOrigin.x() + qRound64(original.x() * 1e7) / 1e7,
+                                               quantOrigin.y() + qRound64(original.y() * 1e7) / 1e7);
+                        if (welded.xy[k].x() == expected.x() && welded.xy[k].y() == expected.y()) continue;
+                        outputOk = false;
+                        result.errorMsg = QStringLiteral("MeshGenerator: patch snap tolerance moves a structured patch boundary away from its carved cavity. "
+                                                          "Reduce the patch snap tolerance.");
+                        break;
+                    }
+                    if (!outputOk) break;
+                }
+                if (!outputOk) break;
+                const QString error = validate(welded);
+                if (!error.isEmpty()) {
+                    outputOk = false;
+                    result.errorMsg = QStringLiteral("MeshGenerator: structured patch '%1' is invalid after vertex welding: %2 "
+                                                      "Reduce the patch snap tolerance or revise its spacing.").arg(pm.tag, error);
+                    break;
+                }
+                for (const auto &edge : pm.boundarySegments)
+                    patchEdgeIncidence.insert(edgeKey(localToGlobal[edge.first], localToGlobal[edge.second]), 0);
+                for (const MeshTriangle &q : pm.quads)
+                {
+                    MeshTriangle c = q;
+                    c.v0 = localToGlobal[q.v0];
+                    c.v1 = localToGlobal[q.v1];
+                    c.v2 = localToGlobal[q.v2];
+                    c.v3 = localToGlobal[q.v3];
+                    if (c.tag.isEmpty()) c.tag = pm.tag;
+                    result.triangles.append(c);
+                }
             }
-            for (const MeshTriangle &q : pm.quads)
-            {
-                MeshTriangle c = q;
-                c.v0 = localToGlobal[q.v0];
-                c.v1 = localToGlobal[q.v1];
-                c.v2 = localToGlobal[q.v2];
-                c.v3 = localToGlobal[q.v3];
-                if (c.tag.isEmpty()) c.tag = pm.tag;
-                result.triangles.append(c);
+            if (outputOk) {
+                // An internal patch interface must have two incident cells.
+                // Checking exact edge identities rejects unmatched subdivisions
+                // and T-junctions rather than accepting coincident-looking seams.
+                for (const MeshTriangle &cell : std::as_const(result.triangles)) {
+                    const int count = cell.isQuad() ? 4 : 3;
+                    for (int k = 0; k < count; ++k) {
+                        auto found = patchEdgeIncidence.find(edgeKey(cell.vertex(k), cell.vertex((k + 1) % count)));
+                        if (found != patchEdgeIncidence.end()) ++found.value();
+                    }
+                }
+                QVector<QPolygonF> outlines = patchExclusionBoundaries;
+                for (const QPolygonF &domain : m_domains)
+                    outlines.append(patchRelativeRing(domain, quantOrigin));
+                // pushPoint quantises the supplied boundary coordinates to 1e-7.
+                // This tolerance accounts only for that rounding, never for an
+                // arbitrarily large user-selected patchSnapEps.
+                for (auto it = patchEdgeIncidence.cbegin(); it != patchEdgeIncidence.cend(); ++it) {
+                    if (it.value() == 2) continue;
+                    const QPointF a = result.vertices[it.key().first].xy - quantOrigin;
+                    const QPointF b = result.vertices[it.key().second].xy - quantOrigin;
+                    if (it.value() == 1 && patchEdgeOnOutline(a, b, outlines, 2e-7)) continue;
+                    outputOk = false;
+                    result.errorMsg = QStringLiteral("MeshGenerator: structured patch boundary has %1 incident cells instead of a conforming interface. "
+                                                      "Match subdivisions on touching patches and domain boundaries, or separate the patches.").arg(it.value());
+                    break;
+                }
             }
         }
     }

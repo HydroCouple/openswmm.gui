@@ -13,8 +13,11 @@
 
 #include "mesh/meshcellgeom.h"
 
+#include <QSet>
+
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace mesh {
 
@@ -35,8 +38,10 @@ double ringSignedArea(const QVector<QPointF> &ring) noexcept
 {
     double s = 0.0;
     const int n = ring.size();
+    if (n == 0) return s;
+    const QPointF origin = ring.first();
     for (int i = 0; i < n; ++i)
-        s += cross(ring[i], ring[(i + 1) % n]);
+        s += cross(ring[i] - origin, ring[(i + 1) % n] - origin);
     return 0.5 * s;
 }
 
@@ -85,6 +90,148 @@ struct ArcPolyline
     }
 };
 
+
+/*! A broad phase over boundary edges; cells are never compared pairwise.
+ *  Positive cells with cancelling interior edges and a simple boundary have
+ *  winding number one inside that boundary, so they cannot overlap. */
+struct BoundaryIndex
+{
+    struct Box {
+        double x0, y0, x1, y1;
+        bool intersects(const Box &b) const {
+            return x0 <= b.x1 && b.x0 <= x1 && y0 <= b.y1 && b.y0 <= y1;
+        }
+    };
+    struct Node { Box box; int begin, end, left = -1, right = -1; };
+    const QPolygonF &ring;
+    QVector<Box> boxes;
+    QVector<int> order;
+    QVector<Node> nodes;
+
+    explicit BoundaryIndex(const QPolygonF &points) : ring(points) {
+        boxes.reserve(ring.size()); order.reserve(ring.size());
+        for (int i = 0; i < ring.size(); ++i) {
+            const auto &a = ring[i], &b = ring[(i + 1) % ring.size()];
+            boxes.append({std::min(a.x(), b.x()), std::min(a.y(), b.y()),
+                          std::max(a.x(), b.x()), std::max(a.y(), b.y())});
+            order.append(i);
+        }
+        build(0, order.size());
+    }
+    int build(int begin, int end) {
+        Box box = boxes[order[begin]];
+        for (int k = begin + 1; k < end; ++k) {
+            const auto &b = boxes[order[k]];
+            box.x0 = std::min(box.x0, b.x0); box.y0 = std::min(box.y0, b.y0);
+            box.x1 = std::max(box.x1, b.x1); box.y1 = std::max(box.y1, b.y1);
+        }
+        const int node = nodes.size();
+        nodes.append({box, begin, end});
+        if (end - begin > 8) {
+            const bool xAxis = box.x1 - box.x0 >= box.y1 - box.y0;
+            const int mid = begin + (end - begin) / 2;
+            std::nth_element(order.begin() + begin, order.begin() + mid, order.begin() + end,
+                [&](int a, int b) {
+                    const auto &u = boxes[a], &v = boxes[b];
+                    const double uc = xAxis ? 0.5*u.x0 + 0.5*u.x1 : 0.5*u.y0 + 0.5*u.y1;
+                    const double vc = xAxis ? 0.5*v.x0 + 0.5*v.x1 : 0.5*v.y0 + 0.5*v.y1;
+                    return uc == vc ? a < b : uc < vc;
+                });
+            const int left = build(begin, mid), right = build(mid, end);
+            nodes[node].left = left; nodes[node].right = right;
+        }
+        return node;
+    }
+    static long double orient(const QPointF &a, const QPointF &b, const QPointF &c) {
+        return (static_cast<long double>(b.x()) - a.x()) * (static_cast<long double>(c.y()) - a.y())
+             - (static_cast<long double>(b.y()) - a.y()) * (static_cast<long double>(c.x()) - a.x());
+    }
+    static bool onSegment(const QPointF &a, const QPointF &b, const QPointF &p) {
+        return orient(a, b, p) == 0 && p.x() >= std::min(a.x(), b.x()) && p.x() <= std::max(a.x(), b.x())
+            && p.y() >= std::min(a.y(), b.y()) && p.y() <= std::max(a.y(), b.y());
+    }
+    bool intersects(int i, int j) const {
+        const int n = ring.size();
+        const QPointF &a = ring[i], &b = ring[(i + 1) % n],
+                      &c = ring[j], &d = ring[(j + 1) % n];
+        // Consecutive edges may share their prescribed endpoint, but may
+        // not double back along each other.
+        if ((i + 1) % n == j) return onSegment(a, b, d) || onSegment(c, d, a);
+        if ((j + 1) % n == i) return onSegment(a, b, c) || onSegment(c, d, b);
+        const long double abC = orient(a,b,c), abD = orient(a,b,d),
+                          cdA = orient(c,d,a), cdB = orient(c,d,b);
+        if (((abC > 0 && abD < 0) || (abC < 0 && abD > 0))
+            && ((cdA > 0 && cdB < 0) || (cdA < 0 && cdB > 0))) return true;
+        return (abC == 0 && onSegment(a,b,c)) || (abD == 0 && onSegment(a,b,d))
+            || (cdA == 0 && onSegment(c,d,a)) || (cdB == 0 && onSegment(c,d,b));
+    }
+    int conflict(int edge, int node = 0) const {
+        const auto &n = nodes[node];
+        if (!boxes[edge].intersects(n.box)) return -1;
+        if (n.left >= 0) {
+            const int left = conflict(edge, n.left);
+            return left >= 0 ? left : conflict(edge, n.right);
+        }
+        for (int k = n.begin; k < n.end; ++k) {
+            const int other = order[k];
+            if (other > edge && boxes[edge].intersects(boxes[other]) && intersects(edge, other))
+                return other;
+        }
+        return -1;
+    }
+};
+
+QString sweptStationCounts(const SweptPatch &p, QVector<int> *segmentParts = nullptr,
+                           int *stationCount = nullptr)
+{
+    const qint64 indexLimit = std::numeric_limits<int>::max();
+    const qint64 maxStations = indexLimit / (qint64(p.across) + 1);
+    if (maxStations < 2 || p.centreline.size() > maxStations)
+        return QStringLiteral("Swept patch station/across counts exceed the vertex index capacity.");
+    qint64 stations = 1;
+    for (int i = 1; i < p.centreline.size(); ++i) {
+        const auto &a = p.centreline[i - 1], &b = p.centreline[i];
+        const double length = std::hypot(b.x() - a.x(), b.y() - a.y());
+        if (!(length > 0) || !std::isfinite(length))
+            return QStringLiteral("Swept patch segment ending at station %1 has a non-finite or zero length.").arg(i);
+        double parts = 1;
+        if (p.along > 0) {
+            const double ratio = length / p.along;
+            if (!std::isfinite(ratio) || ratio > maxStations)
+                return QStringLiteral("Swept patch along-spacing requests too many stations at segment %1.").arg(i - 1);
+            // UTM coordinate subtraction can perturb an exact station count.
+            // Snap only within a small representational tolerance; never
+            // coarsen a meaningful fraction of a requested interval.
+            const double coordinateScale = std::max({1.0, std::abs(a.x()), std::abs(a.y()),
+                                                      std::abs(b.x()), std::abs(b.y())});
+            const double tolerance = std::min(1e-6, std::max(1e-9,
+                8 * std::numeric_limits<double>::epsilon() * coordinateScale / p.along));
+            const double rounded = std::round(ratio);
+            parts = std::max(1.0, std::ceil(std::abs(ratio - rounded) <= tolerance ? rounded : ratio));
+        }
+        if (parts > maxStations - stations)
+            return QStringLiteral("Swept patch station count exceeds the vertex index capacity at segment %1.").arg(i - 1);
+        stations += qint64(parts);
+        if (segmentParts) segmentParts->append(int(parts));
+    }
+    if ((stations - 1) * p.across > indexLimit || 2 * (stations - 1) + 2 * qint64(p.across) > indexLimit)
+        return QStringLiteral("Swept patch cell or boundary count exceeds the index capacity.");
+    if (stationCount) *stationCount = int(stations);
+    return {};
+}
+
+QString gridDimensions(int n, int m)
+{
+    if (n < 1 || m < 1)
+        return QStringLiteral("Patch subdivisions must be >= 1 (n=%1, m=%2).").arg(n).arg(m);
+    const qint64 limit = std::numeric_limits<int>::max();
+    if ((qint64(n) + 1) * (qint64(m) + 1) > limit
+        || qint64(n) * m > limit || 2 * (qint64(n) + m) > limit)
+        return QStringLiteral("Patch subdivisions exceed the vertex, cell or boundary index capacity (n=%1, m=%2).")
+            .arg(n).arg(m);
+    return {};
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -99,9 +246,8 @@ QString validate(const StructuredPatch &p)
     for (const QPointF &c : p.corners)
         if (!finitePt(c))
             return QStringLiteral("Structured patch has a non-finite corner coordinate.");
-    if (p.n < 1 || p.m < 1)
-        return QStringLiteral("Structured patch subdivisions must be >= 1 (n=%1, m=%2).")
-            .arg(p.n).arg(p.m);
+    const QString dimensions = gridDimensions(p.n, p.m);
+    if (!dimensions.isEmpty()) return dimensions;
     if (!ringIsStrictlyConvex(p.corners))
         return QStringLiteral("Structured patch corners must form a convex quadrilateral "
                               "(a concave or self-intersecting outline folds the "
@@ -113,9 +259,9 @@ QString validate(const SweptPatch &p)
 {
     if (p.centreline.size() < 2)
         return QStringLiteral("Swept patch centreline needs at least 2 points.");
-    for (const QPointF &c : p.centreline)
-        if (!finitePt(c))
-            return QStringLiteral("Swept patch centreline has a non-finite coordinate.");
+    for (int i = 0; i < p.centreline.size(); ++i)
+        if (!finitePt(p.centreline[i]))
+            return QStringLiteral("Swept patch centreline has a non-finite coordinate at station %1.").arg(i);
     if (!(p.width > 0.0) || !std::isfinite(p.width))
         return QStringLiteral("Swept patch width must be > 0.");
     if (p.across < 1)
@@ -123,34 +269,123 @@ QString validate(const SweptPatch &p)
     if (p.along < 0.0 || !std::isfinite(p.along))
         return QStringLiteral("Swept patch along-spacing must be >= 0.");
     for (int i = 1; i < p.centreline.size(); ++i)
-        if (p.centreline[i] == p.centreline[i - 1])
-            return QStringLiteral("Swept patch centreline has a repeated vertex at %1.").arg(i);
-    return QString();
+        if (p.centreline[i].x() == p.centreline[i - 1].x()
+            && p.centreline[i].y() == p.centreline[i - 1].y())
+            return QStringLiteral("Swept patch centreline has a repeated vertex at station %1.").arg(i);
+    return sweptStationCounts(p);
+}
+
+static QString validatePatchMesh(const PatchMesh &pm, QPolygonF *boundary = nullptr,
+                                 int *badVertex = nullptr, int *otherVertex = nullptr)
+{
+    const auto fail = [&](const QString &message, int vertex = -1, int other = -1) {
+        if (badVertex) *badVertex = vertex;
+        if (otherVertex) *otherVertex = other;
+        return message;
+    };
+    if (pm.xy.isEmpty() || pm.quads.isEmpty())
+        return fail(QStringLiteral("Patch must contain vertices and quadrilateral cells."));
+    if (pm.xy.size() > std::numeric_limits<int>::max() || pm.quads.size() > std::numeric_limits<int>::max()
+        || pm.boundarySegments.size() > std::numeric_limits<int>::max())
+        return fail(QStringLiteral("Patch exceeds the vertex or cell index capacity."));
+    QVector<MeshVertex> verts;
+    verts.reserve(pm.xy.size());
+    for (int i = 0; i < pm.xy.size(); ++i) {
+        if (!finitePt(pm.xy[i]))
+            return fail(QStringLiteral("Patch vertex %1 has a non-finite coordinate.").arg(i), i);
+        MeshVertex v; v.xy = pm.xy[i]; verts.append(v);
+    }
+    struct EdgeUse { int count = 0, direction = 0; };
+    QHash<QPair<int,int>, EdgeUse> edges;
+    const auto key = [](int a, int b) { return a < b ? qMakePair(a,b) : qMakePair(b,a); };
+    for (int k = 0; k < pm.quads.size(); ++k) {
+        const auto &q = pm.quads[k];
+        if (!q.isQuad())
+            return fail(QStringLiteral("Patch cell %1 is not a quadrilateral.").arg(k));
+        for (int i = 0; i < 4; ++i)
+            if (q.vertex(i) < 0 || q.vertex(i) >= pm.xy.size())
+                return fail(QStringLiteral("Patch cell %1 references a vertex outside the patch.").arg(k));
+        if (!cellIsConvex(verts, q))
+            return fail(QStringLiteral("Patch%1 quad %2 is folded or concave.")
+                .arg(pm.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(pm.tag)).arg(k), q.v0);
+        const auto &a = pm.xy[q.v0], &b = pm.xy[q.v1], &c = pm.xy[q.v2], &d = pm.xy[q.v3];
+        const double twiceArea = cross(b - a, c - a) + cross(c - a, d - a);
+        if (!(twiceArea > 0) || !std::isfinite(twiceArea))
+            return fail(QStringLiteral("Patch%1 quad %2 is clockwise, degenerate or has non-finite area.")
+                .arg(pm.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(pm.tag)).arg(k), q.v0);
+        for (int i = 0; i < 4; ++i) {
+            const int from = q.vertex(i), to = q.vertex((i + 1) % 4);
+            auto &edge = edges[key(from,to)];
+            ++edge.count;
+            edge.direction += from < to ? 1 : -1;
+            if (edge.count > 2 || (edge.count == 2 && edge.direction != 0))
+                return fail(QStringLiteral("Patch has duplicated or inconsistently shared cell edges at vertex %1.").arg(from), from);
+        }
+    }
+
+    QSet<QPair<int,int>> expectedBoundary;
+    for (auto it = edges.cbegin(); it != edges.cend(); ++it)
+        if (it.value().count == 1) expectedBoundary.insert(it.key());
+    if (expectedBoundary.isEmpty() || pm.boundarySegments.isEmpty())
+        return fail(QStringLiteral("Patch has no closed boundary."));
+    QHash<int,QVector<int>> adjacency;
+    for (const auto &edge : pm.boundarySegments) {
+        const int a = edge.first, b = edge.second;
+        if (a < 0 || b < 0 || a >= pm.xy.size() || b >= pm.xy.size() || a == b)
+            return fail(QStringLiteral("Patch boundary references an invalid vertex."));
+        if (!expectedBoundary.remove(key(a,b)))
+            return fail(QStringLiteral("Patch boundary contains an extra or repeated edge at vertex %1.").arg(a), a);
+        adjacency[a].append(b); adjacency[b].append(a);
+    }
+    if (!expectedBoundary.isEmpty())
+        return fail(QStringLiteral("Patch boundary is missing cell edges."));
+    for (auto it = adjacency.cbegin(); it != adjacency.cend(); ++it)
+        if (it.value().size() != 2)
+            return fail(QStringLiteral("Patch boundary branches or is open at vertex %1.").arg(it.key()), it.key());
+
+    QPolygonF ring;
+    QVector<int> vertices;
+    QSet<int> visited;
+    const int start = pm.boundarySegments.first().first;
+    int previous = -1, current = start;
+    for (int i = 0; i < pm.boundarySegments.size(); ++i) {
+        if (visited.contains(current))
+            return fail(QStringLiteral("Patch boundary must form one loop without holes or disconnected pieces."), current);
+        visited.insert(current); vertices.append(current); ring.append(pm.xy[current]);
+        const auto &neighbours = adjacency[current];
+        const int next = neighbours[0] == previous ? neighbours[1] : neighbours[0];
+        previous = current; current = next;
+    }
+    if (current != start || visited.size() != adjacency.size())
+        return fail(QStringLiteral("Patch boundary does not close into one loop."));
+    const BoundaryIndex index(ring);
+    for (int i = 0; i < ring.size(); ++i) {
+        const int other = index.conflict(i);
+        if (other >= 0)
+            return fail(QStringLiteral("Patch boundary intersects or touches itself near vertices %1 and %2.")
+                .arg(vertices[i]).arg(vertices[other]), vertices[i], vertices[other]);
+    }
+    const double area = ringSignedArea(ring);
+    if (!std::isfinite(area) || area == 0)
+        return fail(QStringLiteral("Patch boundary has degenerate or non-finite area."));
+    if (boundary) {
+        if (area < 0) std::reverse(ring.begin(), ring.end());
+        *boundary = std::move(ring);
+    }
+    return {};
 }
 
 QString validate(const PatchMesh &pm)
 {
-    QVector<MeshVertex> verts;
-    verts.reserve(pm.xy.size());
-    for (const QPointF &p : pm.xy) { MeshVertex v; v.xy = p; verts.append(v); }
-    for (int k = 0; k < pm.quads.size(); ++k)
-    {
-        const MeshTriangle &q = pm.quads[k];
-        if (!q.isQuad())
-            return QStringLiteral("Patch cell %1 is not a quadrilateral.").arg(k);
-        for (int i = 0; i < 4; ++i)
-            if (q.vertex(i) < 0 || q.vertex(i) >= verts.size())
-                return QStringLiteral("Patch cell %1 references a vertex outside the patch.").arg(k);
-        if (!cellIsConvex(verts, q))
-            return QStringLiteral("Patch%1 quad %2 is folded or concave.")
-                .arg(pm.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(pm.tag))
-                .arg(k);
-        if (cellSignedArea(verts, q) <= 0.0)
-            return QStringLiteral("Patch%1 quad %2 is clockwise or degenerate.")
-                .arg(pm.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(pm.tag))
-                .arg(k);
-    }
-    return QString();
+    return validatePatchMesh(pm);
+}
+
+QPolygonF orderedPatchBoundary(const PatchMesh &pm, QString *err)
+{
+    QPolygonF ring;
+    const QString error = validatePatchMesh(pm, &ring);
+    if (err) *err = error;
+    return ring;
 }
 
 // ---------------------------------------------------------------------------
@@ -223,8 +458,8 @@ PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, in
 
     if (sides.size() != 4)
         return fail(QStringLiteral("Transfinite patch needs exactly 4 sides (got %1).").arg(sides.size()));
-    if (n < 1 || m < 1)
-        return fail(QStringLiteral("Transfinite patch subdivisions must be >= 1 (n=%1, m=%2).").arg(n).arg(m));
+    const QString dimensions = gridDimensions(n, m);
+    if (!dimensions.isEmpty()) return fail(dimensions);
     double scale = 1.0;
     for (int k = 0; k < 4; ++k)
     {
@@ -315,21 +550,29 @@ PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, in
     return pm;
 }
 
-PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners, double h,
-                          const QString &tag, QString *err)
+namespace {
+PatchMesh makeMappedPatchImpl(const QPolygonF &ring, const QVector<int> &corners,
+                              double hAlong, double hAcross, const double *alongAngleDeg,
+                              const QString &tag, QString *err)
 {
+    if (err) err->clear();
     auto fail = [&](const QString &msg) { if (err) *err = msg; return PatchMesh(); };
-    if (!(h > 0.0) || !std::isfinite(h))
-        return fail(QStringLiteral("Mapped patch spacing must be > 0."));
+    if (!(hAlong > 0.0) || !std::isfinite(hAlong)
+        || !(hAcross > 0.0) || !std::isfinite(hAcross))
+        return fail(QStringLiteral("Mapped patch spacing must be finite and > 0."));
+    if (alongAngleDeg && !std::isfinite(*alongAngleDeg))
+        return fail(QStringLiteral("Mapped patch along-axis angle must be finite."));
     if (corners.size() != 4)
         return fail(QStringLiteral("Mapped patch needs exactly 4 corners (got %1).").arg(corners.size()));
 
-    // The ring is expected CCW-normalised by the caller (indices refer to it);
-    // only a closing duplicate is tolerated here.
+    // Corner indices refer to the caller's ring. Both windings work; only an
+    // exact closing duplicate is removed (QPointF equality is coordinate-relative).
     int nr = ring.size();
-    if (nr >= 2 && ring.first() == ring.last()) --nr;
+    if (nr >= 2 && ring.first().x() == ring.last().x() && ring.first().y() == ring.last().y()) --nr;
     if (nr < 4)
         return fail(QStringLiteral("Mapped patch ring needs at least 4 vertices (got %1).").arg(nr));
+    for (const auto &point : ring)
+        if (!finitePt(point)) return fail(QStringLiteral("Mapped patch ring has a non-finite coordinate."));
     for (int k = 0; k < 4; ++k)
     {
         if (corners[k] < 0 || corners[k] >= nr)
@@ -351,13 +594,69 @@ PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners, do
         {
             const int nx = (i + 1) % nr;
             len[k] += std::hypot(ring[nx].x() - ring[i].x(), ring[nx].y() - ring[i].y());
+            if (!std::isfinite(len[k]))
+                return fail(QStringLiteral("Mapped patch side %1 has a non-finite length.").arg(k));
             sides[k].append(ring[nx]);
             i = nx;
         } while (i != end);
+        if (!(len[k] > 0.0)) return fail(QStringLiteral("Mapped patch side %1 has zero length.").arg(k));
     }
-    const int n = std::max(1, qRound(0.5 * (len[0] + len[2]) / h));
-    const int m = std::max(1, qRound(0.5 * (len[1] + len[3]) / h));
+
+    double h0 = hAlong, h1 = hAcross;
+    if (alongAngleDeg)
+    {
+        // Chords identify logical sides independently of intermediate vertices.
+        // Squared projections are undirected and give equal weight to each side,
+        // so changing the first corner, winding or side lengths cannot swap the
+        // physical axes. Arc lengths below still determine subdivision counts.
+        const double radians = std::remainder(*alongAngleDeg, 180.0) * (std::acos(-1.0) / 180.0);
+        const QPointF axis(std::cos(radians), std::sin(radians));
+        double score[2] = {0.0, 0.0};
+        for (int k = 0; k < 4; ++k)
+        {
+            const QPointF delta = sides[k].last() - sides[k].first();
+            const double chord = std::hypot(delta.x(), delta.y());
+            if (!(chord > 0.0) || !std::isfinite(chord))
+                return fail(QStringLiteral("Mapped patch side %1 has no finite distinct endpoint direction.").arg(k));
+            const double projection = (delta.x() / chord) * axis.x() + (delta.y() / chord) * axis.y();
+            score[k % 2] += 0.5 * projection * projection;
+        }
+        if (std::abs(score[0] - score[1]) <= 1e-10)
+            return fail(QStringLiteral("Mapped patch along-axis association is ambiguous between the two opposite side pairs. Choose an axis more clearly aligned with one pair."));
+        if (score[1] > score[0]) std::swap(h0, h1);
+    }
+
+    // Preserve the scalar API's nearest-integer counts, but validate before any
+    // integer conversion. Half-sums avoid overflowing two individually finite
+    // lengths; gridDimensions also checks vertex/cell/perimeter products.
+    auto count = [](double a, double b, double spacing, int &out) {
+        const double ratio = (0.5 * a + 0.5 * b) / spacing;
+        if (!std::isfinite(ratio)) return false;
+        const double rounded = std::max(1.0, std::floor(ratio + 0.5));
+        if (rounded > double(std::numeric_limits<int>::max() - 1)) return false;
+        out = int(rounded);
+        return true;
+    };
+    int n = 0, m = 0;
+    if (!count(len[0], len[2], h0, n) || !count(len[1], len[3], h1, m))
+        return fail(QStringLiteral("Mapped patch spacing exceeds the subdivision index capacity."));
+    const QString dimensions = gridDimensions(n, m);
+    if (!dimensions.isEmpty()) return fail(dimensions);
     return makeTransfinitePatch(sides, n, m, tag, err);
+}
+} // namespace
+
+PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners, double h,
+                          const QString &tag, QString *err)
+{
+    return makeMappedPatchImpl(ring, corners, h, h, nullptr, tag, err);
+}
+
+PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners,
+                          double hAlong, double hAcross, double alongAngleDeg,
+                          const QString &tag, QString *err)
+{
+    return makeMappedPatchImpl(ring, corners, hAlong, hAcross, &alongAngleDeg, tag, err);
 }
 
 // ---------------------------------------------------------------------------
@@ -367,23 +666,33 @@ PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners, do
 PatchMesh makeSweptPatch(const SweptPatch &p, QString *err)
 {
     PatchMesh pm;
+    if (err) err->clear();
     const QString msg = validate(p);
     if (!msg.isEmpty()) { if (err) *err = msg; return pm; }
     pm.tag = p.tag;
 
     // Stations: the centreline vertices, each segment resampled to the
     // target along-spacing (original vertices always kept).
+    QVector<int> segmentParts;
+    int ns = 0;
+    const QString countError = sweptStationCounts(p, &segmentParts, &ns);
+    if (!countError.isEmpty()) { if (err) *err = countError; return pm; }
     QVector<QPointF> st;
+    st.reserve(ns);
     st.append(p.centreline.first());
     for (int i = 1; i < p.centreline.size(); ++i)
     {
         const QPointF &a = p.centreline[i - 1], &b = p.centreline[i];
-        const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
-        const int parts = (p.along > 0.0) ? std::max(1, int(std::ceil(len / p.along - 1e-9))) : 1;
-        for (int k = 1; k <= parts; ++k)
-            st.append(a + (b - a) * (double(k) / parts));
+        const int parts = segmentParts[i - 1];
+        for (int k = 1; k <= parts; ++k) {
+            const QPointF point = k == parts ? b : a + (b - a) * (double(k) / parts);
+            if (point.x() == st.last().x() && point.y() == st.last().y()) {
+                if (err) *err = QStringLiteral("Swept patch stations collapse at station %1; increase the along-spacing.").arg(st.size());
+                return PatchMesh();
+            }
+            st.append(point);
+        }
     }
-    const int ns = st.size();
 
     // Left-hand unit normal of each segment, mitred at interior stations.
     QVector<QPointF> segN(ns - 1);
@@ -391,6 +700,10 @@ PatchMesh makeSweptPatch(const SweptPatch &p, QString *err)
     {
         const QPointF d = st[i + 1] - st[i];
         const double len = std::hypot(d.x(), d.y());
+        if (!(len > 0) || !std::isfinite(len)) {
+            if (err) *err = QStringLiteral("Swept patch has an invalid interval at station %1.").arg(i);
+            return PatchMesh();
+        }
         segN[i] = QPointF(-d.y() / len, d.x() / len);
     }
     QVector<QPointF> offs(ns);   // per-station offset vector for unit distance
@@ -422,8 +735,13 @@ PatchMesh makeSweptPatch(const SweptPatch &p, QString *err)
     for (int i = 0; i < ns; ++i)
         for (int j = 0; j <= na; ++j)
         {
-            const double s = -0.5 * p.width + p.width * double(j) / na;
-            pm.xy.append(st[i] + offs[i] * s);
+            const double s = p.width * (double(j) / na - 0.5);
+            const QPointF point = st[i] + offs[i] * s;
+            if (!finitePt(point)) {
+                if (err) *err = QStringLiteral("Swept patch offset is non-finite at station %1.").arg(i);
+                return PatchMesh();
+            }
+            pm.xy.append(point);
         }
 
     // Along the tangent then across to the left: CCW.
@@ -449,10 +767,22 @@ PatchMesh makeSweptPatch(const SweptPatch &p, QString *err)
         pm.boundarySegments.append(qMakePair(idx(ns - 1, j), idx(ns - 1, j + 1)));
     }
 
-    // A tight bend whose inner offset crosses itself shows up as a folded
-    // (non-convex or clockwise) quad.
-    const QString bad = validate(pm);
-    if (!bad.isEmpty()) { if (err) *err = bad; return PatchMesh(); }
+    // Check the whole offset boundary as well as individual cells. Distant
+    // stations can cross even when every local quad remains convex.
+    int badVertex = -1, otherVertex = -1;
+    const QString bad = validatePatchMesh(pm, nullptr, &badVertex, &otherVertex);
+    if (!bad.isEmpty()) {
+        if (err) {
+            if (otherVertex >= 0)
+                *err = QStringLiteral("Swept patch offsets conflict near stations %1 and %2: %3")
+                    .arg(badVertex / (na + 1)).arg(otherVertex / (na + 1)).arg(bad);
+            else if (badVertex >= 0)
+                *err = QStringLiteral("Swept patch offset is invalid near station %1: %2")
+                    .arg(badVertex / (na + 1)).arg(bad);
+            else *err = bad;
+        }
+        return PatchMesh();
+    }
     return pm;
 }
 

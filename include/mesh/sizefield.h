@@ -74,22 +74,43 @@ struct SizeFieldOptions
      *  which only softens the grading, never breaks it. */
     qint64 maxGridCells = 4'000'000;
 
-    /*! Also bound the size by the local density of the UNTAGGED (marker 0)
-     *  points passed to build() — the DTM thinner's output
+    /*! Also bound the size by the accepted terrain samples passed to build()
      *  (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.4).
      *
      *  WHY.  Terrain complexity normally reaches the mesh by the thinner's
      *  points simply BEING vertices: it puts them densely where the ground is
      *  complex.  A quad region replaces them with its lattice (redesign D5), so
      *  under a whole-domain quad mesh that density would be lost unless it is
-     *  re-expressed as a size.  The thinner already chose the local resolution
-     *  by where it put points, so the local point spacing IS the target element
-     *  size: h_terrain = pitch / sqrt(points in the cell), propagated outward
-     *  under the same Lipschitz slope, and combined as
+     *  re-expressed as a size. The existing areal-density estimate is
+     *  h_terrain = pitch / sqrt(points in the cell), propagated outward under
+     *  the same slope and combined as
      *  h = min(nearSize + gradation·d, h_terrain).
+     *  This estimate depends on grid pitch and does not guarantee along-line
+     *  spacing, corridor width or terrain reconstruction error. Those require
+     *  separate feature/error constraints (GUI robustness plan M1).
      *
      *  Off by default: it only matters when something drops those points. */
     bool   terrainDensity = false;
+};
+
+/*! Bounded terrain-size handoff from the generation worker. Count only the
+ *  terrain samples that survive reprojection and candidate filtering, in mesh
+ *  coordinates. Storage scales with the size-field grid, not the point cloud.
+ *  Auxiliary/tagged inputs remain separate. */
+class TerrainSizeInput
+{
+public:
+    bool prepare(const QRectF &bbox, const SizeFieldOptions &opt);
+    void addAcceptedPoint(const QPointF &point);
+    [[nodiscard]] qint64 sampleCount() const { return m_samples; }
+    [[nodiscard]] qsizetype cellCount() const { return m_count.size(); }
+
+private:
+    friend class SizeField;
+    QVector<quint32> m_count;
+    int m_cols = 0, m_rows = 0;
+    double m_pitch = 0.0, m_x0 = 0.0, m_y0 = 0.0;
+    qint64 m_samples = 0;
 };
 
 /*!
@@ -110,12 +131,17 @@ public:
      * \p segs   constraint segments (conduits, aux lines) — every edge seeds.
      * \p rings  additional ring paths to seed (valid hole rings).
      * \p pts    Steiner points; only tagged ones (marker != 0) seed.
+     * \p terrain Optional distinct accepted-terrain accumulator, prepared
+     *              with this bbox/options. When supplied, marker-zero points
+     *              in pts never contribute terrain density. Without it the
+     *              legacy marker-zero density input remains supported.
      */
     bool build(const QRectF &bbox,
                const QVector<ConstraintSegment>  &segs,
                const QVector<QVector<QPointF>>   &rings,
                const QVector<SteinerPoint>       &pts,
-               const SizeFieldOptions &opt);
+               const SizeFieldOptions &opt,
+               const TerrainSizeInput *terrain = nullptr);
 
     /*! Maximum permitted triangle area at (x, y) — the RefineHook contract.
      *  Never returns <= 0 on a valid field (the near-size area is the lower

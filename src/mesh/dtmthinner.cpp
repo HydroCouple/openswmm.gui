@@ -890,7 +890,11 @@ QVector<QPointF> DTMThinner::generatePoints(const MapExtent        &domain,
                 for (int c = 0; c < cols; ++c) {
                     const int idx = base + c;
                     if (!active[idx]) continue;
-                    result.append(QPointF(double(gx[idx]), double(gy[idx])));
+                    // Scoring uses local float offsets; publish the original
+                    // double lattice so projected sub-metre coordinates never
+                    // round through the score buffers.
+                    result.append(QPointF(x0 + double(c) * step,
+                                          y0 + double(haloBegG + r) * step));
                     if (outZ) outZ->append(double(gz[idx]));
                 }
             }
@@ -1097,8 +1101,13 @@ bool DTMThinner::fillBandGrid(double x0, double y0, double step, int cols, qint6
                     const double wy  = y0 + double(r) * step;
                     const double z   = sampleBuf(wx, wy);
                     if (!std::isfinite(z)) continue;
-                    gx[idx] = float(wx);
-                    gy[idx] = float(wy);
+                    // Remove the horizontal origin in double precision before
+                    // storing floats.  Compute the equivalent lattice offsets
+                    // directly to avoid subtracting large world coordinates.
+                    // The Y origin is the band's first halo row; no extra
+                    // arrays or increase to the band memory budget is needed.
+                    gx[idx] = float(double(c) * step);
+                    gy[idx] = float(double(r - rBegG) * step);
                     gz[idx] = float(z);
                     active[idx] = 1;
                     ++(*nActiveOut);

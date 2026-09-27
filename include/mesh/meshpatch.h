@@ -65,9 +65,17 @@ struct PatchMesh
 /*! \brief Input checks. Empty string = valid. */
 QString validate(const StructuredPatch &p);
 QString validate(const SweptPatch &p);
-/*! \brief Rejects a patch with a folded / concave / degenerate quad
- *  (mesh::cellIsConvex). Empty string = valid. */
+/*! \brief Requires finite convex CCW quads, consistently shared cell edges,
+ *  and one simple boundary matching exactly the outer cell edges. Boundary
+ *  crossings, remote touches, holes and disconnected pieces are rejected;
+ *  an indexed boundary check avoids comparing every cell pair.
+ *  Empty string = valid. */
 QString validate(const PatchMesh &pm);
+
+/*! \brief Validate the complete patch and return its CCW boundary, without
+ *  a repeated closing vertex. Segment input orientation/order is immaterial.
+ *  On failure returns an empty ring and sets \p err. */
+QPolygonF orderedPatchBoundary(const PatchMesh &pm, QString *err = nullptr);
 
 /*! \brief Transfinite interpolation on the four straight sides. The result
  *  has (n+1)×(m+1) vertices and n×m quads. On invalid input returns an
@@ -75,8 +83,9 @@ QString validate(const PatchMesh &pm);
 PatchMesh makeTransfinitePatch(const StructuredPatch &p, QString *err = nullptr);
 
 /*! \brief Sweep the centreline: (stations)×(across+1) vertices,
- *  (stations-1)×across quads. On invalid input (or a folded offset) returns
- *  an empty PatchMesh and sets *err. */
+ *  (stations-1)×across quads. Station and index counts are checked before
+ *  allocation. Invalid or globally overlapping/touching offsets return an
+ *  empty PatchMesh and a diagnostic identifying the affected stations. */
 PatchMesh makeSweptPatch(const SweptPatch &p, QString *err = nullptr);
 
 // ── Quad-region redesign (QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §4.2) ───
@@ -96,6 +105,15 @@ PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, in
  *  order) into polyline sides, choose n = max(1, round(mean(len0, len2)/h)),
  *  m likewise from sides 1/3, and call the polyline overload. */
 PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners, double h,
+                          const QString &tag, QString *err = nullptr);
+
+/*! \brief Mapped patch with independent physical-axis spacing. The axis is
+ *  undirected, measured counterclockwise from +x in degrees. The opposite
+ *  logical side pair most aligned with it receives hAlong; the other receives
+ *  hAcross. Equal association scores are rejected. Ring rotation/reversal must
+ *  not exchange the physical spacings. Widths use the ring's coordinate units. */
+PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners,
+                          double hAlong, double hAcross, double alongAngleDeg,
                           const QString &tag, QString *err = nullptr);
 
 } // namespace mesh

@@ -7,6 +7,7 @@
 #include "ui/dialogs/meshgenerationdialog.h"
 #include "ui/theme/themehelpers.h"
 #include "ui/widgets/meshregiondefaultswidget.h"
+#include "ui/widgets/corridorsourceswidget.h"
 
 #include "ui/uiscrollhelpers.h"
 
@@ -23,6 +24,7 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/gisvectorlayer.h"
+#include "layers/featurelayer.h"
 
 #include "mesh/meshgenerator.h"
 #include "mesh/meshnodemapper.h"
@@ -36,6 +38,7 @@
 #include "mesh/naturalnbinterpolator.h"
 #include "mesh/meshreorder.h"
 #include "mesh/meshstagecache.h"
+#include "project/generatedmeshartifacts.h"
 #include "mesh/pslgprep.h"
 #include "mesh/pslgminsize.h"
 #include "mesh/sizefield.h"
@@ -61,6 +64,7 @@
 #include <QDataStream>
 #include <QDebug>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QProgressBar>
@@ -94,6 +98,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 
 // lcMeshPerf ("openswmm.mesh.perf") is defined in mesh/meshstagecache.cpp
 // and declared by its header, included above.
@@ -221,6 +226,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     auto progress = [&](int pct, const QString &msg) {
         promise.setProgressValueAndText(pct, msg);
     };
+
+    progress(0, QObject::tr("Reading selected corridor features…"));
+    auto corridors = mesh::readCorridorSources(in.corridorSources, in.meshCRSWkt,
+                                              [&promise] { return promise.isCanceled(); });
+    if (!corridors.ok()) { fail(corridors.error); return; }
+    QVector<QPolygonF> featureCorridorRings;
+    for (const auto &patch : std::as_const(corridors.patches)) {
+        QString error;
+        const auto boundary = mesh::orderedPatchBoundary(patch, &error);
+        if (!error.isEmpty()) { fail(error); return; }
+        featureCorridorRings.append(boundary);
+        in.patches.append(patch);
+    }
 
     // 2026-07-19c — sub-stage timing. The 36 %→38 % band (reprojection,
     // Poisson filter, boundary filter) reported no intermediate progress,
@@ -909,6 +927,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     QVector<QPolygonF> burnCorridorRings;
     QStringList        burnWarnings = in.burnWarnings;
     QString            burnedDemPath, burnReportPath;
+    std::shared_ptr<GeneratedMeshArtifacts> generatedArtifacts;
     mesh::BurnRasterStats burnStats;
     bool               burnRan = false;
 
@@ -993,15 +1012,32 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         else
         {
             const QFileInfo demInfo(in.dtmPath);
-            QDir outDir(in.burnOutputDir.isEmpty() ? demInfo.absolutePath()
-                                                   : in.burnOutputDir);
-            outDir.mkpath(QStringLiteral("."));
-            req.outputPath = outDir.filePath(QStringLiteral("%1_burned_%2.tif")
-                                                 .arg(demInfo.completeBaseName(),
-                                                      in.burnFingerprint));
-            burnReportPath = outDir.filePath(QStringLiteral("%1_burned_%2_burn_report.csv")
-                                                 .arg(demInfo.completeBaseName(),
-                                                      in.burnFingerprint));
+            const QDir outDir(in.burnOutputDir.isEmpty() ? demInfo.absolutePath() : in.burnOutputDir);
+            burnedDemPath = outDir.absoluteFilePath(QStringLiteral("%1_burned_%2.tif")
+                .arg(demInfo.completeBaseName(), in.burnFingerprint));
+            burnReportPath = outDir.absoluteFilePath(QStringLiteral("%1_burned_%2_burn_report.csv")
+                .arg(demInfo.completeBaseName(), in.burnFingerprint));
+            QString artifactError;
+            generatedArtifacts = GeneratedMeshArtifacts::create(in.inpPath, &artifactError);
+            if (!generatedArtifacts) { fail(artifactError); return; }
+            generatedArtifacts->protectInput(req.sourcePath);
+            // Protect every local file GDAL identifies as a source dependency
+            // (for example a source raster's metadata or mask sidecar).
+            if (auto *source = static_cast<GDALDataset *>(GDALOpen(req.sourcePath.toUtf8().constData(), GA_ReadOnly))) {
+                char **files = source->GetFileList();
+                for (int i = 0; files && files[i]; ++i)
+                    generatedArtifacts->protectInput(QString::fromUtf8(files[i]));
+                CSLDestroy(files);
+                GDALClose(source);
+            }
+            for (const auto &suffix : {QStringLiteral(".aux.xml"), QStringLiteral(".ovr"), QStringLiteral(".msk")})
+                if (!generatedArtifacts->requireAbsent(burnedDemPath + suffix, &artifactError)) {
+                    fail(artifactError); return;
+                }
+            req.outputPath = generatedArtifacts->reserve(burnedDemPath, QStringLiteral("burned.tif"), &artifactError);
+            const QString reportStage = generatedArtifacts->reserve(burnReportPath, QStringLiteral("burn_report.csv"), &artifactError);
+            if (req.outputPath.isEmpty() || reportStage.isEmpty()) { fail(artifactError); return; }
+            req.logicalOutputPath = burnedDemPath;
             req.progress = [&](int pct, const QString &msg) {
                 progress(15 + (pct * 3) / 100, msg);
                 return !promise.isCanceled();
@@ -1018,14 +1054,15 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
             const QString units =
                 QObject::tr("model z x %1 = raster z; horizontal x %2")
-                    .arg(in.zConversionFactor).arg(hScale);
+                    .arg(vScale).arg(hScale);
             QString repErr;
-            if (!mesh::writeBurnReport(burnReportPath, req, burnStats, units, &repErr))
-                burnWarnings << repErr;
+            if (!mesh::writeBurnReport(reportStage, req, burnStats, units, &repErr)) {
+                fail(QObject::tr("Channel burn report failed: %1").arg(repErr));
+                return;
+            }
 
             // D1: the burn ERASES the DEM as far as the rest of the run is
             // concerned. Everything downstream is untouched, which is the point.
-            burnedDemPath = req.outputPath;
             in.dtmPath    = req.outputPath;
             burnRan       = true;
 
@@ -1057,6 +1094,13 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             burnWarnings += w;
             if (!lat.isValid())
             {
+                if (in.burnOptions.quadCorridor || in.burnOptions.emitStrings)
+                {
+                    fail(QObject::tr("Conduit \"%1\": cannot build the requested corridor (%2). "
+                                     "Correct its profile or spacing and generate again.")
+                             .arg(p.conduitId, err));
+                    return;
+                }
                 burnWarnings << QObject::tr("Conduit \"%1\": no corridor (%2).")
                                     .arg(p.conduitId, err);
                 continue;
@@ -1077,11 +1121,10 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 mesh::PatchMesh pm = mesh::corridorPatch(lat, p, in.burnOptions, &perr);
                 if (pm.quads.isEmpty())
                 {
-                    // A folded corridor is reported and falls back to
-                    // breaklines rather than being handed to Triangle broken.
-                    burnWarnings << QObject::tr("Conduit \"%1\": %2 Meshing it as "
-                                                "triangles instead.")
-                                        .arg(p.conduitId, perr);
+                    fail(QObject::tr("Conduit \"%1\": cannot build the requested quad corridor (%2). "
+                                     "Correct its geometry or spacing and generate again.")
+                             .arg(p.conduitId, perr));
+                    return;
                 }
                 else
                 {
@@ -1129,6 +1172,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         for (const auto &spec : std::as_const(in.quadRegionLayers))
         {
             OGRCoordinateTransformation *regionCT = nullptr;  // region layer → mesh CRS
+            bool directionalCRSValid = false;
             if (!spec.crsWkt.isEmpty() && !in.meshCRSWkt.isEmpty())
             {
                 OGRSpatialReference rSRS, mSRS;
@@ -1137,8 +1181,13 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 {
                     rSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                     mSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                    directionalCRSValid = (mSRS.IsProjected() || mSRS.IsLocal())
+                        && std::isfinite(mSRS.GetLinearUnits()) && mSRS.GetLinearUnits() > 0;
                     if (!mSRS.IsSame(&rSRS))
+                    {
                         regionCT = OGRCreateCoordinateTransformation(&rSRS, &mSRS);
+                        directionalCRSValid = directionalCRSValid && regionCT;
+                    }
                 }
             }
 
@@ -1147,30 +1196,74 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 GDAL_OF_VECTOR | GDAL_OF_READONLY);
             if (!ds)
             {
-                qWarning() << "[Mesh][quad] region layer open failed:" << spec.path
-                           << "— no quad regions from this layer.";
                 if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
-                continue;
+                fail(QObject::tr("Could not open requested quad region source: %1").arg(spec.path));
+                return;
             }
             OGRLayer *ol = spec.layerName.isEmpty()
                                ? ds->GetLayer(0)
                                : ds->GetLayerByName(spec.layerName.toUtf8().constData());
             if (!ol)
             {
-                qWarning() << "[Mesh][quad] region layer not found:" << spec.layerName;
                 GDALClose(ds);
                 if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
-                continue;
+                fail(QObject::tr("Requested quad region layer '%1' was not found in %2.").arg(spec.layerName, spec.path));
+                return;
             }
 
             // Exterior ring only → mesh CRS → RDP with the same simplifier the
             // domain rings use → QuadRegion carrying the dialog defaults, then
             // the optional per-feature attribute overrides (case-insensitive
             // field names; OGR's GetFieldIndex already ignores case).
+            QString regionReadError;
+            const auto hasDirectionalFields = [](const OGRFeature *f) {
+                for (const char *name : {"quad_h_along", "quad_h_across", "quad_axis"}) {
+                    const int index = f->GetFieldIndex(name);
+                    if (index >= 0 && f->IsFieldSetAndNotNull(index)) return true;
+                }
+                return false;
+            };
             auto pushRegion = [&](const OGRPolygon *poly, const OGRFeature *f) {
+                if (!regionReadError.isEmpty()) return;
+                mesh::QuadRegion r = in.quadRegionDefaults;
+                auto fieldIdx = [f](const char *name) -> int {
+                    const int i = f->GetFieldIndex(name);
+                    return (i >= 0 && f->IsFieldSetAndNotNull(i)) ? i : -1;
+                };
+                const auto badDirectional = [&](const QString &why) {
+                    regionReadError = QObject::tr("Quad region source '%1', feature %2: %3")
+                        .arg(spec.layerName).arg(qint64(f->GetFID())).arg(why);
+                };
+                if (hasDirectionalFields(f)) {
+                    r.directionalSpacing = true;
+                    const char *names[] = {"quad_h_along", "quad_h_across", "quad_axis"};
+                    double *values[] = {&r.hAlong, &r.hAcross, &r.mappedAlongAngleDeg};
+                    for (int k = 0; k < 3; ++k) {
+                        const int index = fieldIdx(names[k]);
+                        if (index < 0) {
+                            badDirectional(QObject::tr("set all three directional fields: quad_h_along, quad_h_across and quad_axis; null or missing values are not allowed in a partial override."));
+                            return;
+                        }
+                        const auto type = f->GetDefnRef()->GetFieldDefn(index)->GetType();
+                        const double value = f->GetFieldAsDouble(index);
+                        if ((type != OFTReal && type != OFTInteger && type != OFTInteger64)
+                            || !std::isfinite(value) || (k < 2 && !(value > 0))) {
+                            badDirectional(QObject::tr("%1 must be numeric and finite; directional spacings must be greater than zero.").arg(QString::fromLatin1(names[k])));
+                            return;
+                        }
+                        *values[k] = value;
+                    }
+                }
+                if (r.directionalSpacing && (!directionalCRSValid || !poly || poly->getNumInteriorRings() > 0)) {
+                    badDirectional(QObject::tr("directional Mapped regions require known source and planar mesh CRSs, a valid transformation and a polygon without holes."));
+                    return;
+                }
                 if (!poly) return;
                 const OGRLinearRing *ext = poly->getExteriorRing();
-                if (!ext || ext->getNumPoints() < 3) return;
+                if (!ext || ext->getNumPoints() < 3) {
+                    if (r.directionalSpacing) badDirectional(QObject::tr("the requested polygon has no usable exterior ring."));
+                    return;
+                }
                 const int n = ext->getNumPoints();
                 QVector<double> xs(n), ys(n);
                 for (int i = 0; i < n; ++i) { xs[i] = ext->getX(i); ys[i] = ext->getY(i); }
@@ -1181,22 +1274,25 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 for (int i = 0; i < n; ++i)
                     if (std::isfinite(xs[i]) && std::isfinite(ys[i]))
                         pts.append(QPointF(xs[i], ys[i]));
+                if (r.directionalSpacing && pts.size() != n) {
+                    badDirectional(QObject::tr("all polygon vertices must be finite and transform to the mesh CRS."));
+                    return;
+                }
                 if (pts.size() < 3) return;
-
-                mesh::QuadRegion r = in.quadRegionDefaults;
-                r.ring = QPolygonF(simplifyRing(pts, in.pslgSimplifyEps));
-
-                auto fieldIdx = [f](const char *name) -> int {
-                    const int i = f->GetFieldIndex(name);
-                    return (i >= 0 && f->IsFieldSetAndNotNull(i)) ? i : -1;
-                };
+                r.ring = QPolygonF(r.directionalSpacing ? pts : simplifyRing(pts, in.pslgSimplifyEps));
                 if (const int i = fieldIdx("quad_mode"); i >= 0)
                 {
                     const QString s = QString::fromUtf8(f->GetFieldAsString(i));
                     if (!parseQuadRegionMode(s, &r.mode))
+                    {
+                        if (r.directionalSpacing) {
+                            badDirectional(QObject::tr("unknown quad_mode '%1' for a directional request.").arg(s));
+                            return;
+                        }
                         qWarning() << "[Mesh][quad] unknown quad_mode" << s
                                    << "on feature" << qint64(f->GetFID())
                                    << "— using the dialog default";
+                    }
                 }
                 if (const int i = fieldIdx("quad_spacing"); i >= 0) r.spacing   = f->GetFieldAsDouble(i);
                 if (const int i = fieldIdx("quad_aspect"); i >= 0)
@@ -1222,12 +1318,24 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             ol->ResetReading();
             OGRFeature *f = nullptr;
             bool cancelled = false;
-            while ((f = ol->GetNextFeature()) != nullptr)
+            const qsizetype regionsBeforeLayer = quadRegions.size();
+            while (true)
             {
+                CPLErrorReset();
+                f = ol->GetNextFeature();
+                if (CPLGetLastErrorType() >= CE_Failure) {
+                    regionReadError = QObject::tr("Could not completely read quad region source '%1': %2")
+                        .arg(spec.path, QString::fromUtf8(CPLGetLastErrorMsg()));
+                    if (f) OGRFeature::DestroyFeature(f);
+                    break;
+                }
+                if (!f) break;
                 if (const OGRGeometry *geom = f->GetGeometryRef())
                 {
                     const auto gt = wkbFlatten(geom->getGeometryType());
-                    if (gt == wkbPolygon)
+                    if (geom->IsEmpty() && (in.quadRegionDefaults.directionalSpacing || hasDirectionalFields(f)))
+                        regionReadError = QObject::tr("Directional quad region feature %1 has empty geometry.").arg(qint64(f->GetFID()));
+                    else if (gt == wkbPolygon)
                         pushRegion(geom->toPolygon(), f);
                     else if (gt == wkbMultiPolygon)
                     {
@@ -1235,13 +1343,23 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                         for (int i = 0; i < mp->getNumGeometries(); ++i)
                             pushRegion(mp->getGeometryRef(i)->toPolygon(), f);
                     }
+                    else if (in.quadRegionDefaults.directionalSpacing || hasDirectionalFields(f))
+                        regionReadError = QObject::tr("Directional quad region feature %1 must be a Polygon or MultiPolygon.").arg(qint64(f->GetFID()));
                 }
+                else if (in.quadRegionDefaults.directionalSpacing || hasDirectionalFields(f))
+                    regionReadError = QObject::tr("Directional quad region feature %1 has no geometry.").arg(qint64(f->GetFID()));
                 OGRFeature::DestroyFeature(f);
+                if (!regionReadError.isEmpty()) break;
                 if (promise.isCanceled()) { cancelled = true; break; }
             }
             GDALClose(ds);
             if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
+            if (!regionReadError.isEmpty()) { fail(regionReadError); return; }
             if (cancelled) { fail(QObject::tr("Cancelled.")); return; }
+            if (in.quadRegionDefaults.directionalSpacing && quadRegions.size() == regionsBeforeLayer) {
+                fail(QObject::tr("Requested directional quad region layer '%1' contains no usable regions.").arg(spec.layerName));
+                return;
+            }
         }
         if (nRegionXformFailed > 0)
         {
@@ -1260,7 +1378,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     for (const mesh::QuadRegion &src : std::as_const(in.quadRegions))
     {
         mesh::QuadRegion r = src;
-        r.ring = QPolygonF(simplifyRing(src.ring, in.pslgSimplifyEps));
+        r.ring = r.directionalSpacing ? src.ring : QPolygonF(simplifyRing(src.ring, in.pslgSimplifyEps));
         quadRegions.append(std::move(r));
     }
     // ── Quads everywhere (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.1) ──────
@@ -1298,6 +1416,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // already a PSLG hole. Without subtracting it here the background
             // lattice would still place points inside that hole.
             for (const QPolygonF &cr : std::as_const(burnCorridorRings))
+                if (cr.size() >= 3 && mesh::pointInRing(dom, cr.first())) bg.holes.append(cr);
+            for (const QPolygonF &cr : std::as_const(featureCorridorRings))
                 if (cr.size() >= 3 && mesh::pointInRing(dom, cr.first())) bg.holes.append(cr);
             quadRegions.append(std::move(bg));
         }
@@ -1584,6 +1704,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             if (p.y() < by0) by0 = p.y(); if (p.y() > by1) by1 = p.y();
         }
 
+    // Keep accepted DEM density separate from the auxiliary/node input vector.
+    // Accumulate on a bounded size-field grid, not a second terrain cloud.
+    mesh::SizeFieldOptions sizeOptions;
+    sizeOptions.nearSize = in.genOpts.maxArea > 0.0
+        ? std::sqrt(4.0 * in.genOpts.maxArea / std::sqrt(3.0)) : 0.0;
+    sizeOptions.gradation = in.sizeGradation;
+    sizeOptions.areaFloor = areaFloor;
+    sizeOptions.terrainDensity = in.quadEverywhere;
+    mesh::TerrainSizeInput terrainSizeInput;
+    if (sizeOptions.terrainDensity)
+        terrainSizeInput.prepare(QRectF(QPointF(bx0, by0), QPointF(bx1, by1)),
+                                 sizeOptions);
+
     qCDebug(lcMeshPerf) << "[Mesh] domain bbox (mesh CRS):"
              << bx0 << by0 << "--" << bx1 << by1;
     if (useDTM)
@@ -1685,7 +1818,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         // both paths (cheap), so their parameters are not in the key.
         QByteArray terrainCacheKey;
         bool terrainHit = false;
-        if (cache.isUsable())
+        if (cache.isUsable() && !burnRan)
         {
             const QFileInfo dfi(in.dtmPath);
             mesh::MeshStageCache::FileIdentity demId;
@@ -2202,6 +2335,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             sp.z    = z;
             sp.hasZ = true;
             g.addSteinerPoint(sp);
+            terrainSizeInput.addAcceptedPoint(sp.xy);
             ++nAdded;
 
             const auto k = keyOf(cx, cy);
@@ -2277,25 +2411,22 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
         }
 
-        mesh::SizeFieldOptions sfo;
-        // Side of the equilateral triangle of maxArea — the near-feature size.
-        sfo.nearSize  = std::sqrt(4.0 * in.genOpts.maxArea / std::sqrt(3.0));
-        sfo.gradation = in.sizeGradation;
-        sfo.areaFloor = areaFloor;
-        // With quads everywhere the DTM thinner's points are replaced by the
-        // lattice, so their density has to survive as a SIZE or terrain detail
-        // is lost (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.4). Only switched on
-        // for that case: it is exactly when the points stop being vertices.
-        sfo.terrainDensity = in.quadEverywhere;
+        // Retain the existing global-quad/positive-gradation policy. The
+        // accepted DEM cloud supplies a density hint when lattice generation
+        // replaces terrain vertices; linear-feature/error constraints remain
+        // separate work (GUI robustness plan M1/M2).
+        const mesh::SizeFieldOptions &sfo = sizeOptions;
         useGrading = sizeField.build(bbox, in.constraintSegs, ringSeeds,
-                                     in.steinerPoints, sfo);
+                                     in.steinerPoints, sfo,
+                                     sfo.terrainDensity ? &terrainSizeInput : nullptr);
         if (useGrading)
         {
             qCInfo(lcMeshPerf) << "[Mesh][grading] size field"
                                << sizeField.cols() << "x" << sizeField.rows()
                                << "at pitch" << sizeField.pitch()
                                << "| near size" << sfo.nearSize
-                               << "| gradation" << sfo.gradation;
+                               << "| gradation" << sfo.gradation
+                               << "| terrain samples" << terrainSizeInput.sampleCount();
             // Installing a size function switches Triangle to the bare `a`
             // switch, which ACTIVATES per-region area bounds that a numeric
             // `a<maxArea>` leaves inert (trirefinehook.h).  The clamp above
@@ -2312,6 +2443,9 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                           "(no seed features?) — falling back to the uniform "
                           "area cap.";
     }
+    // The propagated field now owns the bound; drop the count grid before
+    // Triangle/quad generation reaches its own peak allocation.
+    terrainSizeInput = {};
 
     // Triangle's refinement pass is otherwise uninterruptible — the Stop button
     // is dead for its entire duration, which on a large PSLG can be minutes.
@@ -3061,33 +3195,61 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         }
     }
 
-    // ── Write ────────────────────────────────────────────────────────
-    progress(85, QObject::tr("Writing mesh file…"));
+    // Keep generation in memory. Project Save owns all final INP/2DM writes;
+    // closing or discarding the project must leave its saved files unchanged.
+    progress(85, QObject::tr("Preparing generated mesh for review…"));
     if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
-    mesh::InpMeshWriter::UnitInfo units;
-    units.linearUnitName = in.meshLinearUnitName;  // ;; UNITS:
-    units.sourceCrsTag   = in.meshCRSTag;          // ;; SOURCE_CRS:
-
-    QString writeErr;
-    if (!mesh::InpMeshWriter::write(in.outputMode, in.inpPath, in.meshOutputPath,
-                                     result, coupling, in.manningsN, &writeErr,
-                                     units))
-    {
-        fail(QObject::tr("Write failed: %1").arg(writeErr)); return;
+    // Transient writer coupling maps must live on the pending layer too.
+    // The mapper may already have produced the same cell/node row.
+    QSet<QPair<int, QString>> cellNodes;
+    for (const auto &row : std::as_const(result.cellCouplings))
+        cellNodes.insert({row.tri, row.nodeId});
+    for (auto it = coupling.triangleToNode.cbegin(); it != coupling.triangleToNode.cend(); ++it) {
+        if (it.key() < 0 || it.key() >= result.triangles.size() || it.value().isEmpty()) continue;
+        const auto key = qMakePair(it.key(), it.value());
+        if (cellNodes.contains(key)) continue;
+        result.cellCouplings.append({it.key(), it.value()});
+        cellNodes.insert(key);
+    }
+    coupling.triangleToNode.clear();
+    for (int i = 0; i < result.triangles.size(); ++i) {
+        auto &cell = result.triangles[i];
+        if (!std::isfinite(cell.mannings)) cell.mannings = coupling.triangleMannings.value(i, in.manningsN);
+        if (!std::isfinite(cell.initDepth)) cell.initDepth = in.initDepth;
     }
 
+    QString intendedMeshPath;
+    if (in.outputMode == mesh::MeshOutputMode::External) {
+        const QFileInfo model(in.inpPath);
+        intendedMeshPath = in.meshOutputPath.isEmpty()
+            ? model.absoluteDir().filePath(model.completeBaseName() + QStringLiteral(".2dm"))
+            : QFileInfo(in.meshOutputPath).absoluteFilePath();
+    }
+
+    if (generatedArtifacts) {
+        QString error;
+        if (!generatedArtifacts->seal(&error)) { fail(error); return; }
+    }
+    if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+    QString corridorError;
+    if (!mesh::corridorSourceFilesUnchanged(corridors.sourceStamps, &corridorError)) {
+        fail(corridorError);
+        return;
+    }
     progress(95, QObject::tr("Done — adding layer…"));
 
     PResult out;
     out.ok         = true;
     out.meshResult = std::move(result);
     out.coupling   = std::move(coupling);
-    out.meshPath   = (in.outputMode == mesh::MeshOutputMode::External)
-                         ? in.meshOutputPath : QString();
+    out.meshPath   = intendedMeshPath;
     out.outputMode = in.outputMode;
+    out.corridorSources = std::move(corridors.resolvedSources);
+    out.corridorSourceStamps = std::move(corridors.sourceStamps);
     out.meshUnitsSI = mesh::unitsHeaderIsSI(in.meshLinearUnitName);
     out.alignmentWarnings = std::move(alignmentWarnings);
+    out.generatedArtifacts = std::move(generatedArtifacts);
     out.burnedDemPath  = burnedDemPath;
     out.burnReportPath = burnReportPath;
     out.burnStats      = std::move(burnStats);
@@ -3104,8 +3266,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 // was killing the app "without warning" mid-thinning. Convert every exception
 // into an ordinary failed PipelineResult; the dialog's progress label still
 // names the stage that was running.
-static void
-runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
+void
+MeshGenerationDialog::runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 MeshGenerationDialog::PipelineInputs            in)
 {
     using PResult = MeshGenerationDialog::PipelineResult;
@@ -3159,6 +3321,85 @@ MeshGenerationDialog::~MeshGenerationDialog()
 {
     if (m_watcher && m_watcher->isRunning())
         m_watcher->cancel();
+    clearGenerationGuard();
+}
+
+void MeshGenerationDialog::clearGenerationGuard()
+{
+    for (const auto &connection : std::as_const(m_generationConnections))
+        disconnect(connection);
+    m_generationConnections.clear();
+    m_generationModel.clear();
+    m_generationEngine = nullptr;
+    m_generationModelPath.clear();
+}
+
+void MeshGenerationDialog::beginGenerationGuard()
+{
+    clearGenerationGuard();
+    m_generationInvalidated = false;
+    if (!m_pw || !m_pw->modelLayer()) return;
+    m_generationModel = m_pw->modelLayer();
+    m_generationEngine = m_generationModel->engine();
+    m_generationModelPath = m_generationModel->modelFilePath();
+    m_generationRevision = m_generationModel->editRevision();
+    const auto invalidate = [this]() { m_generationInvalidated = true; };
+    m_generationConnections << connect(m_pw.data(), &SWMMVisProjectWindow::aboutToClose,
+        this, [this]() {
+            m_generationInvalidated = true;
+            if (m_watcher) m_watcher->cancel();
+        });
+    auto *model = m_generationModel.data();
+    m_generationConnections << connect(model, &SWMMModelLayer::modelEdited, this, invalidate)
+        << connect(model, &SWMMModelLayer::attributeChanged, this, invalidate)
+        << connect(model, &SWMMModelLayer::geometryChanged, this, invalidate)
+        << connect(model, &SWMMModelLayer::optionsChanged, this, invalidate)
+        << connect(model, &SWMMModelLayer::dataObjectsChanged, this, invalidate)
+        << connect(model, &SWMMModelLayer::hydrographChanged, this, invalidate)
+        << connect(model, &SWMMModelLayer::controlRulesChanged, this, invalidate)
+        << connect(model, &SWMMModelLayer::transectChanged, this, invalidate)
+        << connect(model, &SWMMModelLayer::modelFilePathChanged, this, invalidate);
+    if (auto *canvas = m_pw->canvas()) {
+        m_generationConnections << connect(canvas, &MapCanvas::layerAdded, this, invalidate)
+                                << connect(canvas, &MapCanvas::layerRemoved, this, invalidate);
+        for (auto *layer : canvas->layers()) {
+            m_generationConnections << connect(layer, &OpenSWMMVisLayer::srsChanged, this, invalidate)
+                                    << connect(layer, &OpenSWMMVisLayer::extentChanged, this, invalidate);
+            if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer))
+                m_generationConnections << connect(mesh, &SWMM2DMeshLayer::attributeChanged, this, invalidate)
+                                        << connect(mesh, &SWMM2DMeshLayer::meshEditsChanged, this, invalidate)
+                                        << connect(mesh, &SWMM2DMeshLayer::activeMeshChanged, this, invalidate);
+            if (auto *features = qobject_cast<FeatureLayer *>(layer))
+                m_generationConnections << connect(features, &FeatureLayer::featuresChanged, this, invalidate)
+                                        << connect(features, &FeatureLayer::schemaChanged, this, invalidate);
+            if (auto *vector = qobject_cast<GISVectorLayer *>(layer))
+                m_generationConnections << connect(vector, &GISVectorLayer::filePathChanged, this, invalidate)
+                                        << connect(vector, &GISVectorLayer::layerNameChanged, this, invalidate);
+        }
+    }
+}
+
+bool MeshGenerationDialog::generationOwnerIsCurrent() const
+{
+    return !m_generationInvalidated && m_pw && !m_pw->isClosing() && m_generationModel
+        && m_pw->modelLayer() == m_generationModel
+        && m_generationModel->engine() == m_generationEngine
+        && m_generationEngine && m_generationModel->modelFilePath() == m_generationModelPath
+        && m_generationModel->editRevision() == m_generationRevision;
+}
+
+void MeshGenerationDialog::reject()
+{
+    m_generationInvalidated = true;
+    if (m_watcher) m_watcher->cancel();
+    QDialog::reject();
+}
+
+void MeshGenerationDialog::closeEvent(QCloseEvent *event)
+{
+    m_generationInvalidated = true;
+    if (m_watcher) m_watcher->cancel();
+    QDialog::closeEvent(event);
 }
 
 // ---------------------------------------------------------------------------
@@ -3929,6 +4170,7 @@ void MeshGenerationDialog::buildUi()
             "Optional per-feature attributes override the defaults below:\n"
             "  quad_mode     auto | mapped | submapped | free | triangles\n"
             "  quad_spacing  target quad edge length (map units)\n"
+            "  quad_h_along / quad_h_across / quad_axis  Mapped spacing and physical axis (all three together)\n"
             "  quad_aspect   Free-region ratio cap (<0 global, 0 unlimited)\n"
             "  quad_angle    alignment angle in degrees from +x\n"
             "  tag / name    cell tag"));
@@ -3951,8 +4193,9 @@ void MeshGenerationDialog::buildUi()
         m_quadRegionModeCombo->setToolTip(tr(
             "Auto: four-cornered outlines → Mapped, rectilinear outlines → "
             "Submapped, anything else → Free.\n"
-            "Mapped / Submapped: structured, perfectly rectangular quads "
-            "(fall back to Free when the outline does not allow it).\n"
+            "Mapped / Submapped: structured quadrilateral cells. With scalar "
+            "spacing, an unsupported outline falls back to Free. Directional "
+            "Mapped spacing stops generation instead of falling back.\n"
             "Free: cross-field aligned lattice, quad-dominant with a few "
             "leftover triangles.\n"
             "Triangles only: the ring is still a constraint loop, the "
@@ -3970,6 +4213,62 @@ void MeshGenerationDialog::buildUi()
             "0 = derive it from the size field at the region centroid, or "
             "from Max triangle area when no size field is in use."));
         f->addRow(tr("Default spacing:"), m_quadRegionSpacingSpin);
+
+        m_quadRegionDirectionalCheck = new QCheckBox(tr("&Directional spacing for Mapped regions"), g);
+        m_quadRegionDirectionalCheck->setObjectName(QStringLiteral("mappedDirectionalSpacing"));
+        m_quadRegionDirectionalCheck->setAccessibleName(tr("Directional spacing for Mapped regions"));
+        m_quadRegionDirectionalCheck->setToolTip(tr(
+            "Set independent Along and Across spacing for Mapped regions. Auto must resolve "
+            "to Mapped; other modes cannot use these settings. Distances use mesh CRS units. "
+            "To override a feature, set quad_h_along, quad_h_across and quad_axis together."));
+        m_quadRegionDirectionalCheck->setAccessibleDescription(m_quadRegionDirectionalCheck->toolTip());
+        f->addRow(m_quadRegionDirectionalCheck);
+
+        auto directionalSpacing = [g, f](const QString &label, const QString &name,
+                                               const QString &description) {
+            auto *spin = new QDoubleSpinBox(g);
+            spin->setObjectName(name);
+            spin->setRange(0.0, 1e9);
+            spin->setDecimals(6);
+            spin->setSingleStep(1.0);
+            spin->setAccessibleName(QString(label).remove(QLatin1Char('&')).remove(QLatin1Char(':')));
+            spin->setToolTip(description);
+            spin->setAccessibleDescription(description);
+            f->addRow(label, spin);
+            return spin;
+        };
+        m_quadRegionAlongSpin = directionalSpacing(tr("Mapped &Along spacing (CRS units):"),
+            QStringLiteral("mappedAlongSpacing"), tr(
+                "Target cell spacing along the selected physical Along axis, in mesh CRS units. "
+                "Enter a finite value greater than 0. This is independent of the display-unit preference."));
+        m_quadRegionAcrossSpin = directionalSpacing(tr("Mapped A&cross spacing (CRS units):"),
+            QStringLiteral("mappedAcrossSpacing"), tr(
+                "Target cell spacing across the selected physical Along axis, in mesh CRS units. "
+                "Enter a finite value greater than 0. Different Along and Across values allow elongated cells."));
+        m_quadRegionAxisSpin = new QDoubleSpinBox(g);
+        m_quadRegionAxisSpin->setObjectName(QStringLiteral("mappedAlongAxis"));
+        m_quadRegionAxisSpin->setRange(-360.0, 360.0);
+        m_quadRegionAxisSpin->setDecimals(3);
+        m_quadRegionAxisSpin->setSingleStep(5.0);
+        m_quadRegionAxisSpin->setSuffix(QStringLiteral(" °"));
+        m_quadRegionAxisSpin->setAccessibleName(tr("Mapped Along axis angle"));
+        m_quadRegionAxisSpin->setToolTip(tr(
+            "Physical Along-axis angle, in degrees counter-clockwise from the mesh CRS +x axis "
+            "(0 is horizontal; 90 is vertical). The closest opposite boundary-side pair becomes "
+            "Along, independent of polygon point order. If two directions are equally close, "
+            "choose a clearer axis. Angles 180 degrees apart describe the same axis."));
+        m_quadRegionAxisSpin->setAccessibleDescription(m_quadRegionAxisSpin->toolTip());
+        f->addRow(tr("Mapped Along a&xis:"), m_quadRegionAxisSpin);
+        m_quadRegionModeCombo->setAccessibleName(tr("Default quad-region mode"));
+        auto syncDirectionalSpacing = [this] {
+            const bool on = m_quadRegionDirectionalCheck->isChecked();
+            m_quadRegionAlongSpin->setEnabled(on);
+            m_quadRegionAcrossSpin->setEnabled(on);
+            m_quadRegionAxisSpin->setEnabled(on);
+            m_quadRegionSpacingSpin->setEnabled(!on);
+        };
+        connect(m_quadRegionDirectionalCheck, &QCheckBox::toggled, this, syncDirectionalSpacing);
+        syncDirectionalSpacing();
 
         m_quadRegionAspectSpin = new QDoubleSpinBox(g);
         m_quadRegionAspectSpin->setRange(-1.0, 100.0);
@@ -4110,61 +4409,118 @@ void MeshGenerationDialog::buildUi()
         quadsVBox->addWidget(g);   // Quad quality
     }
 
+    if (m_pw && !m_pw->corridorRecipeLoadError().isEmpty()) {
+        auto *warning = new QLabel(tr("The saved corridor recipe could not be loaded: %1\n"
+                                     "Review the source settings. Generating a new mesh can replace this recipe; cancelling preserves it.")
+                                      .arg(m_pw->corridorRecipeLoadError()), quadsPage);
+        warning->setWordWrap(true);
+        warning->setAccessibleName(tr("Saved corridor recipe needs review"));
+        quadsVBox->addWidget(warning);
+    }
+    auto *corridorGroup = new QGroupBox(tr("GIS corridor sources"), quadsPage);
+    auto *corridorLayout = new QVBoxLayout(corridorGroup);
+    m_corridorSources = new CorridorSourcesWidget(corridorGroup);
+    corridorLayout->addWidget(m_corridorSources);
+    quadsVBox->addWidget(corridorGroup);
+
     // Structured patches — G3 (TRI_QUAD_MESHING_PLAN §3.2). Coordinates are
-    // typed per row; there is no map-selection plumbing in this dialog.
+    // typed per row as an advanced alternative to selected GIS centrelines.
     {
         auto *g   = new QGroupBox(tr("Structured quad patches"), qualityPage);
         auto *lay = new QVBoxLayout(g);
 
         auto *hint = new QLabel(tr(
-            "Four-corner patch: 4 corners as \"x y; x y; x y; x y\" (mesh CRS), "
-            "N × M quads (transfinite). Swept channel: centreline as "
-            "\"x y; x y; …\", quads Across the width, target spacing Along "
-            "the centreline (0 = one station per vertex), Width. The patch "
-            "interior is excluded from triangulation and its quads are "
-            "stitched to the surrounding triangles."), g);
+            "&Patch definitions: four-corner patches use 4 corners as "
+            "\"x y; x y; x y; x y\" and N × M cells. Swept corridors use a "
+            "centreline as \"x y; x y; …\", Across cells, Along spacing "
+            "(0 keeps the original centreline vertices), and total Width. "
+            "Coordinates, spacing and width use the mesh CRS units. "
+            "Corridor cells follow the supplied centreline direction."), g);
         hint->setWordWrap(true);
         lay->addWidget(hint);
 
         m_patchTable = new QTableWidget(0, 6, g);
+        m_patchTable->setAccessibleName(tr("Structured quad patches"));
+        m_patchTable->setAccessibleDescription(tr(
+            "One patch per row. Four-corner patches use integer N and M cell counts. "
+            "Swept corridors use an integer Across cell count, Along spacing, and total width. "
+            "Distances use mesh CRS units, independently of display units. "
+            "Select rows with Shift or Control/Command to remove multiple patches."));
         m_patchTable->setHorizontalHeaderLabels(
-            {tr("Type"), tr("Points"), tr("N / Across"), tr("M / Along"),
-             tr("Width"), tr("Tag")});
+            {tr("Type"), tr("Points (mesh CRS)"), tr("N / Across cells"),
+             tr("M cells / Along spacing"), tr("Total width (CRS units)"), tr("Tag")});
+        const QStringList descriptions{
+            tr("Patch type. Four-corner and swept corridor patches use different dimensions."),
+            tr("Coordinates in mesh CRS units: x y; x y; … . Four-corner patches need 4 cyclic corners; swept corridors need at least 2 centreline vertices."),
+            tr("Positive integer cell count. N follows corners 1 to 2 for four-corner patches; Across divides the total corridor width."),
+            tr("Four-corner: positive integer M cell count along corners 1 to 4. Swept corridor: finite Along spacing in mesh CRS units, at least 0. Enter 0 to retain the original centreline vertices."),
+            tr("Swept corridor total width in mesh CRS units, greater than 0. The centreline is offset by half this width on each side. Unused for four-corner patches."),
+            tr("Optional region tag assigned to every cell in this patch.")};
+        for (int c = 0; c < descriptions.size(); ++c) {
+            auto *header = m_patchTable->horizontalHeaderItem(c);
+            header->setToolTip(descriptions[c]);
+            header->setData(Qt::AccessibleDescriptionRole, descriptions[c]);
+        }
+        hint->setBuddy(m_patchTable);
         m_patchTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
         m_patchTable->verticalHeader()->setVisible(false);
         m_patchTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+        m_patchTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
         m_patchTable->setMinimumHeight(120);
         lay->addWidget(m_patchTable);
 
-        auto addRow = [this](const QString &type, const QString &n,
-                             const QString &m, const QString &w) {
+        auto addRow = [this, descriptions](bool swept) {
             const int r = m_patchTable->rowCount();
             m_patchTable->insertRow(r);
-            auto *typeItem = new QTableWidgetItem(type);
+            auto *typeItem = new QTableWidgetItem(swept ? tr("Swept corridor") : tr("Four-corner"));
+            // Visible translations are not the parser's type discriminator.
+            typeItem->setData(Qt::UserRole, swept ? QStringLiteral("swept") : QStringLiteral("four-corner"));
             typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable);
             m_patchTable->setItem(r, 0, typeItem);
             m_patchTable->setItem(r, 1, new QTableWidgetItem(QString()));
-            m_patchTable->setItem(r, 2, new QTableWidgetItem(n));
-            m_patchTable->setItem(r, 3, new QTableWidgetItem(m));
-            m_patchTable->setItem(r, 4, new QTableWidgetItem(w));
+            m_patchTable->setItem(r, 2, new QTableWidgetItem(swept ? QStringLiteral("2") : QStringLiteral("4")));
+            m_patchTable->setItem(r, 3, new QTableWidgetItem(swept ? QStringLiteral("0") : QStringLiteral("4")));
+            m_patchTable->setItem(r, 4, new QTableWidgetItem(swept ? QStringLiteral("10") : QString()));
             m_patchTable->setItem(r, 5, new QTableWidgetItem(QString()));
+            for (int c = 0; c < descriptions.size(); ++c) {
+                QString description = descriptions[c];
+                if (c == 2) description = swept ? tr("Across cells: positive integer number of cells across the total width.")
+                                                : tr("N cells: positive integer number of cells along corners 1 to 2.");
+                if (c == 3) description = swept ? tr("Along spacing in mesh CRS units. Enter a finite number at least 0; 0 keeps the original centreline vertices.")
+                                                : tr("M cells: positive integer number of cells along corners 1 to 4.");
+                auto *item = m_patchTable->item(r, c);
+                item->setToolTip(description);
+                item->setData(Qt::AccessibleDescriptionRole, description);
+            }
+            if (!swept)
+                m_patchTable->item(r, 4)->setFlags(m_patchTable->item(r, 4)->flags() & ~Qt::ItemIsEditable);
+            m_patchTable->setCurrentCell(r, 1);
             m_patchTable->editItem(m_patchTable->item(r, 1));
         };
         auto *btns = new QHBoxLayout;
-        auto *addQuad  = new QPushButton(tr("Add four-corner patch"), g);
-        auto *addSwept = new QPushButton(tr("Add swept channel patch"), g);
-        auto *remove   = new QPushButton(tr("Remove"), g);
-        connect(addQuad,  &QPushButton::clicked, this, [addRow] {
-            addRow(QStringLiteral("Four-corner"), QStringLiteral("4"),
-                   QStringLiteral("4"), QString());
-        });
-        connect(addSwept, &QPushButton::clicked, this, [addRow] {
-            addRow(QStringLiteral("Swept"), QStringLiteral("2"),
-                   QStringLiteral("0"), QStringLiteral("10"));
+        auto *addQuad  = new QPushButton(tr("Add &four-corner patch"), g);
+        auto *addSwept = new QPushButton(tr("Add &swept corridor patch"), g);
+        auto *remove   = new QPushButton(tr("&Remove selected patches"), g);
+        for (auto *button : {addQuad, addSwept, remove}) {
+            button->setAccessibleName(QString(button->text()).remove(QLatin1Char('&')));
+            button->setAutoDefault(false);
+            button->setDefault(false);
+        }
+        addQuad->setToolTip(tr("Add a patch defined by four corners and N × M cells."));
+        addSwept->setToolTip(tr("Add a road, river or other corridor defined by a centreline and total width."));
+        remove->setToolTip(tr("Remove all selected patch rows."));
+        remove->setEnabled(false);
+        connect(addQuad, &QPushButton::clicked, this, [addRow] { addRow(false); });
+        connect(addSwept, &QPushButton::clicked, this, [addRow] { addRow(true); });
+        connect(m_patchTable, &QTableWidget::itemSelectionChanged, remove, [this, remove] {
+            remove->setEnabled(!m_patchTable->selectionModel()->selectedRows().isEmpty());
         });
         connect(remove, &QPushButton::clicked, this, [this] {
-            const int r = m_patchTable->currentRow();
-            if (r >= 0) m_patchTable->removeRow(r);
+            const auto selected = m_patchTable->selectionModel()->selectedRows();
+            QVector<int> rows;
+            for (const auto &index : selected) rows.append(index.row());
+            std::sort(rows.begin(), rows.end(), [](int a, int b) { return a > b; });
+            for (int row : rows) m_patchTable->removeRow(row);
         });
         btns->addWidget(addQuad);
         btns->addWidget(addSwept);
@@ -4787,6 +5143,7 @@ void MeshGenerationDialog::seedDefaults()
     if (m_dropSubScaleHolesBox) m_dropSubScaleHolesBox->setChecked(true);
     if (m_cleanupBox)           m_cleanupBox->setChecked(true);
     updateMinCellDerivedLabel();
+    if (m_corridorSources && m_pw) m_corridorSources->setSources(m_pw->corridorSources());
     // Quad regions + quad quality (QUAD_MESHING_REDESIGN_PLAN §5 defaults).
     // No source selected → no regions; merge stays off.  Like the patch /
     // merge controls before them, these are not persisted anywhere (no
@@ -4796,6 +5153,10 @@ void MeshGenerationDialog::seedDefaults()
     if (m_quadRegionSubcatchEdit) m_quadRegionSubcatchEdit->clear();
     if (m_quadRegionModeCombo)    m_quadRegionModeCombo->setCurrentIndex(0);   // Auto
     if (m_quadRegionSpacingSpin)  m_quadRegionSpacingSpin->setValue(0.0);      // (from max area)
+    if (m_quadRegionDirectionalCheck) m_quadRegionDirectionalCheck->setChecked(false);
+    if (m_quadRegionAlongSpin)   m_quadRegionAlongSpin->setValue(10.0);
+    if (m_quadRegionAcrossSpin)  m_quadRegionAcrossSpin->setValue(2.0);
+    if (m_quadRegionAxisSpin)    m_quadRegionAxisSpin->setValue(0.0);
     if (m_quadRegionAspectSpin)   m_quadRegionAspectSpin->setValue(mesh::QuadRegion{}.aspectMax);
     if (m_quadRegionAngleSpin)    m_quadRegionAngleSpin->setValue(m_quadRegionAngleSpin->minimum());
     if (m_quadMergeBox)           m_quadMergeBox->setChecked(false);
@@ -4871,6 +5232,11 @@ void MeshGenerationDialog::populateLayerCombos()
 {
     if (!m_pw || !m_pw->canvas()) return;
     const auto &layers = m_pw->canvas()->layers();
+
+    QList<GISVectorLayer *> corridorLayers;
+    for (auto *layer : layers)
+        if (auto *vector = qobject_cast<GISVectorLayer *>(layer)) corridorLayers.append(vector);
+    if (m_corridorSources) m_corridorSources->setLayers(corridorLayers);
 
     m_dtmCombo->clear();
     // Allow generation without a DTM — elevations fall back to IDW from
@@ -5525,6 +5891,41 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         out->quadRegionDefaults.mode =
             mesh::QuadRegionMode(m_quadRegionModeCombo->currentData().toInt());
         out->quadRegionDefaults.spacing   = m_quadRegionSpacingSpin->value();
+        out->quadRegionDefaults.directionalSpacing = m_quadRegionDirectionalCheck->isChecked();
+        out->quadRegionDefaults.hAlong = 0.0;
+        out->quadRegionDefaults.hAcross = 0.0;
+        out->quadRegionDefaults.mappedAlongAngleDeg = 0.0;
+        if (out->quadRegionDefaults.directionalSpacing) {
+            auto directionalFail = [this, &fail](QWidget *field, const QString &message) {
+                for (QWidget *ancestor = field->parentWidget(); ancestor; ancestor = ancestor->parentWidget())
+                    if (auto *tabs = qobject_cast<QTabWidget *>(ancestor))
+                        for (int i = 0; i < tabs->count(); ++i)
+                            if (tabs->widget(i)->isAncestorOf(field)) tabs->setCurrentIndex(i);
+                for (QWidget *ancestor = field->parentWidget(); ancestor; ancestor = ancestor->parentWidget())
+                    if (auto *scroll = qobject_cast<QScrollArea *>(ancestor)) scroll->ensureWidgetVisible(field);
+                field->setFocus(Qt::OtherFocusReason);
+                return fail(message);
+            };
+            const auto mode = out->quadRegionDefaults.mode;
+            if (mode != mesh::QuadRegionMode::Mapped && mode != mesh::QuadRegionMode::Auto)
+                return directionalFail(m_quadRegionModeCombo, tr(
+                    "Directional spacing requires Mapped mode, or Auto that resolves to Mapped. "
+                    "Choose Mapped or Auto, or turn off directional spacing in Quality → Quads."));
+            const double along = m_quadRegionAlongSpin->value();
+            const double across = m_quadRegionAcrossSpin->value();
+            const double axis = m_quadRegionAxisSpin->value();
+            if (!std::isfinite(along) || along <= 0.0)
+                return directionalFail(m_quadRegionAlongSpin, tr(
+                    "Mapped Along spacing must be a finite value greater than 0 in mesh CRS units."));
+            if (!std::isfinite(across) || across <= 0.0)
+                return directionalFail(m_quadRegionAcrossSpin, tr(
+                    "Mapped Across spacing must be a finite value greater than 0 in mesh CRS units."));
+            if (!std::isfinite(axis))
+                return directionalFail(m_quadRegionAxisSpin, tr("Mapped Along axis must be a finite angle."));
+            out->quadRegionDefaults.hAlong = along;
+            out->quadRegionDefaults.hAcross = across;
+            out->quadRegionDefaults.mappedAlongAngleDeg = axis;
+        }
         out->quadRegionDefaults.aspectMax = m_quadRegionAspectSpin->value();
         if (out->quadRegionDefaults.aspectMax > 0.0 && out->quadRegionDefaults.aspectMax < 1.0)
         {
@@ -5598,7 +5999,25 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
             const QTableWidgetItem *it = m_patchTable->item(r, c);
             return it ? it->text().trimmed() : QString();
         };
-        // "x y; x y; …" → points
+        auto patchFail = [this, r, &fail](int column, const QString &message) {
+            // Reveal the authoring tab as well as selecting the invalid cell.
+            // The draft text stays intact for correction after the warning.
+            for (auto *tabs : findChildren<QTabWidget *>())
+                for (int i = 0; i < tabs->count(); ++i)
+                    if (tabs->widget(i)->isAncestorOf(m_patchTable)) tabs->setCurrentIndex(i);
+            m_patchTable->setCurrentCell(r, column);
+            m_patchTable->scrollToItem(m_patchTable->item(r, column));
+            for (QWidget *parent = m_patchTable->parentWidget(); parent; parent = parent->parentWidget())
+                if (auto *scroll = qobject_cast<QScrollArea *>(parent)) scroll->ensureWidgetVisible(m_patchTable);
+            m_patchTable->setFocus(Qt::OtherFocusReason);
+            return fail(tr("Structured patch row %1: %2").arg(r + 1).arg(message));
+        };
+        const auto *typeItem = m_patchTable->item(r, 0);
+        const QString type = typeItem ? typeItem->data(Qt::UserRole).toString() : QString();
+        if (type != QStringLiteral("swept") && type != QStringLiteral("four-corner"))
+            return patchFail(0, tr("Patch type is missing. Remove this row and add the patch again."));
+        const bool swept = type == QStringLiteral("swept");
+        // "x y; x y; …" → finite points in mesh CRS units.
         QVector<QPointF> pts;
         bool ptsOk = true;
         const QStringList pairs = cell(1).split(QLatin1Char(';'), Qt::SkipEmptyParts);
@@ -5606,37 +6025,62 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         {
             const QStringList xy = pr.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
             bool okx = false, oky = false;
-            if (xy.size() == 2)
-                pts.append(QPointF(xy[0].toDouble(&okx), xy[1].toDouble(&oky)));
-            if (!(okx && oky)) { ptsOk = false; break; }
+            if (xy.size() == 2) {
+                const double x = xy[0].toDouble(&okx), y = xy[1].toDouble(&oky);
+                if (okx && oky && std::isfinite(x) && std::isfinite(y)) pts.append(QPointF(x, y));
+                else ptsOk = false;
+            } else ptsOk = false;
+            if (!ptsOk) break;
         }
-        if (!ptsOk)
-            return fail(tr("Structured patch row %1: points must be \"x y; x y; …\".").arg(r + 1));
-        const bool swept = cell(0).startsWith(QStringLiteral("Swept"), Qt::CaseInsensitive);
+        if (!ptsOk || pts.isEmpty())
+            return patchFail(1, tr("Points must be finite coordinates as \"x y; x y; …\" in mesh CRS units."));
+        bool countOk = false;
+        const int n = cell(2).toInt(&countOk);
+        if (!countOk || n < 1)
+            return patchFail(2, swept ? tr("Across cells must be a positive integer within the supported integer range.")
+                                      : tr("N cells must be a positive integer within the supported integer range."));
         QString perr;
         mesh::PatchMesh pm;
         if (swept)
         {
+            bool alongOk = false, widthOk = false;
+            const double along = cell(3).toDouble(&alongOk);
+            if (!alongOk || !std::isfinite(along) || along < 0.0)
+                return patchFail(3, tr("Along spacing must be a finite number at least 0 in mesh CRS units. Enter 0 to keep the original centreline vertices."));
+            const double width = cell(4).toDouble(&widthOk);
+            if (!widthOk || !std::isfinite(width) || width <= 0.0)
+                return patchFail(4, tr("Total width must be a finite number greater than 0 in mesh CRS units."));
             mesh::SweptPatch sp;
             sp.centreline = pts;
-            sp.across     = cell(2).toInt();
-            sp.along      = cell(3).toDouble();
-            sp.width      = cell(4).toDouble();
+            sp.across     = n;
+            sp.along      = along;
+            sp.width      = width;
             sp.tag        = cell(5);
             pm = mesh::makeSweptPatch(sp, &perr);
         }
         else
         {
+            bool mOk = false;
+            const int m = cell(3).toInt(&mOk);
+            if (!mOk || m < 1)
+                return patchFail(3, tr("M cells must be a positive integer within the supported integer range."));
             mesh::StructuredPatch st;
             st.corners = pts;
-            st.n       = cell(2).toInt();
-            st.m       = cell(3).toInt();
+            st.n       = n;
+            st.m       = m;
             st.tag     = cell(5);
             pm = mesh::makeTransfinitePatch(st, &perr);
         }
         if (!perr.isEmpty())
-            return fail(tr("Structured patch row %1: %2").arg(r + 1).arg(perr));
+            return patchFail(1, perr);
         out->patches.append(std::move(pm));
+    }
+
+    if (m_corridorSources) {
+        QString error;
+        if (!m_corridorSources->sources(&out->corridorSources, &error)) return fail(error);
+        for (auto &source : out->corridorSources)
+            if (source.meshCRSWkt.isEmpty()) source.meshCRSWkt = out->meshCRSWkt;
     }
 
     // ── Minimum cell size ────────────────────────────────────────────
@@ -5742,6 +6186,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
 
 void MeshGenerationDialog::onAccept()
 {
+    if (m_watcher) return;
     PipelineInputs inputs;
     QString err;
     if (!collectInputs(&inputs, &err))
@@ -5749,21 +6194,40 @@ void MeshGenerationDialog::onAccept()
         QMessageBox::critical(this, tr("Cannot generate mesh"), err);
         return;
     }
+    beginGenerationGuard();
 
-    // Warn before overwriting an existing mesh at the same output path so a
-    // regeneration replaces the old mesh rather than silently clobbering it.
+    if (!m_pw->corridorRecipeLoadError().isEmpty()) {
+        const auto choice = QMessageBox::warning(this, tr("Replace unreadable corridor recipe?"),
+            tr("The saved corridor recipe could not be loaded:\n\n%1\n\n"
+               "Successful generation will replace it with the corridor settings in this dialog. "
+               "The saved project changes only on Save. Continue?").arg(m_pw->corridorRecipeLoadError()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (choice != QMessageBox::Yes) { clearGenerationGuard(); return; }
+    }
+
+    // Confirm replacement of the working copy at an existing mesh path.
+    // Publication of its saved file remains deferred until project Save.
     if (inputs.outputMode == mesh::MeshOutputMode::External
         && !inputs.meshOutputPath.isEmpty()
         && QFileInfo::exists(inputs.meshOutputPath))
     {
         const auto ovBtn = QMessageBox::warning(
-            this, tr("Overwrite existing mesh?"),
+            this, tr("Replace mesh in this project?"),
             tr("A mesh file already exists at:\n\n%1\n\nGenerating will "
-               "overwrite it and replace the existing mesh. Continue?")
+               "replace the working mesh in this project. The saved file "
+               "will change only when you save the project. Continue?")
                 .arg(QDir::toNativeSeparators(inputs.meshOutputPath)),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (ovBtn != QMessageBox::Yes)
+        if (ovBtn != QMessageBox::Yes) {
+            clearGenerationGuard();
             return;
+        }
+    }
+    if (!generationOwnerIsCurrent()) {
+        clearGenerationGuard();
+        QMessageBox::warning(this, tr("Project changed"),
+            tr("The project changed while generation was being prepared. Review the inputs and generate again."));
+        return;
     }
 
     // Show embedded progress bar and switch Generate→disabled, Cancel→"Stop".
@@ -6304,7 +6768,6 @@ bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
     // MeshStageCache terrain key, so an option change re-reads terrain for free.
     const QFileInfo inpInfo(out->inpPath.isEmpty() ? out->dtmPath : out->inpPath);
     QDir terrainDir(inpInfo.absolutePath());
-    terrainDir.mkpath(QStringLiteral("terrain"));
     out->burnOutputDir = terrainDir.absoluteFilePath(QStringLiteral("terrain"));
 
     const QFileInfo demInfo(out->dtmPath);
@@ -6404,6 +6867,7 @@ void MeshGenerationDialog::onMeshFinished()
     {
         m_watcher->deleteLater();
         m_watcher = nullptr;
+        clearGenerationGuard();
         return;
     }
 
@@ -6427,11 +6891,123 @@ void MeshGenerationDialog::onMeshFinished()
 
     if (!result.ok)
     {
+        clearGenerationGuard();
         QMessageBox::critical(this, tr("Mesh generation failed"),
             result.errorMsg.isEmpty() ? tr("Unknown error.") : result.errorMsg);
         return;
     }
 
+    // Compare ownership before any layer removal or engine/burn mutation.
+    if (!generationOwnerIsCurrent() || !m_pw->canvas()) {
+        clearGenerationGuard();
+        QMessageBox::warning(this, tr("Generated mesh was not applied"),
+            tr("The project or its inputs changed while generation was running. "
+               "The saved model and mesh were not changed. Review the inputs and generate again."));
+        return;
+    }
+    const QString generatedModelPath = m_generationModelPath;
+    clearGenerationGuard();
+    QString corridorError;
+    if (!mesh::corridorSourceFilesUnchanged(result.corridorSourceStamps, &corridorError)) {
+        QMessageBox::warning(this, tr("Generated mesh was not applied"), corridorError);
+        return;
+    }
+
+    // Add the generated mesh layer to the canvas (main thread — safe).
+    if (auto *canvas = m_pw->canvas())
+    {
+        // Carry the generated 1D<->2D coupling onto the mesh vertices'
+        // coupledNode field so the layer (and any later engine-sync save)
+        // reflects it without a reload. The descriptive tag stays separate.
+        for (auto it = result.coupling.vertexToNode.cbegin();
+             it != result.coupling.vertexToNode.cend(); ++it) {
+            const int vi = it.key();
+            if (vi >= 0 && vi < result.meshResult.vertices.size())
+                result.meshResult.vertices[vi].coupledNode = it.value();
+        }
+
+        const bool isExt = (result.outputMode == mesh::MeshOutputMode::External);
+        // deferHeavyGeometry: build only the light scene geometry here on the
+        // GUI thread; wireframe edges / spatial grids / vertex adjacency / BC
+        // slots arrive via finishSceneGeometryAsync() below — same
+        // progressive-load path as the file-open flow (swmmvis.cpp). The
+        // synchronous build both froze the UI on a large generated mesh and
+        // could throw bad_alloc inside a slot (std::terminate).
+        std::unique_ptr<SWMM2DMeshLayer> pendingLayer;
+        try {
+            pendingLayer = std::make_unique<SWMM2DMeshLayer>(std::move(result.meshResult),
+                                                   isExt ? result.meshPath : generatedModelPath,
+                                                   /*parent=*/nullptr,
+                                                   /*deferHeavyGeometry=*/true);
+            auto *meshLayer = pendingLayer.get();
+            meshLayer->setExternalMesh(isExt);
+            meshLayer->setOwnsGeneratedTopology(true);
+            meshLayer->setGeneratedArtifacts(result.generatedArtifacts);
+            meshLayer->setMeshUnitsSI(result.meshUnitsSI);
+            meshLayer->setActiveMesh(true);
+            meshLayer->setName(result.meshPath.isEmpty()
+                                   ? QStringLiteral("Mesh (inline)")
+                                   : QFileInfo(result.meshPath).fileName());
+
+            // Propagate the SWMM model's CRS to the mesh layer so
+            // rebuildSceneGeometry() can reproject from model CRS → canvas CRS.
+            // Without this the mesh renders at raw local coordinates and never
+            // appears on the map.
+            if (m_pw->modelLayer() && m_pw->modelLayer()->srs())
+                meshLayer->setSRS(
+                    new SpatialReferenceSystem(*m_pw->modelLayer()->srs(), meshLayer),
+                    /*ownsSRS=*/true);
+
+        } catch (const std::exception &e) {
+            QMessageBox::critical(this, tr("Generated mesh was not applied"),
+                tr("Could not prepare the generated layer: %1. The previous mesh remains available.")
+                    .arg(QString::fromUtf8(e.what())));
+            return;
+        } catch (...) {
+            QMessageBox::critical(this, tr("Generated mesh was not applied"),
+                tr("Could not prepare the generated layer. The previous mesh remains available."));
+            return;
+        }
+        auto *meshLayer = pendingLayer.get();
+
+        // Deactivate any existing meshes, and REMOVE any mesh layer that
+        // already references the same output path — regenerating a mesh at an
+        // existing path must REPLACE it, not stack a second (stale) layer on
+        // the canvas. A lingering duplicate is not just visually wrong: on save
+        // duplicate working copies of the same file carry conflicting edits
+        // and cannot be independently persisted by the project save path.
+        const QString newMeshCanonical = QFileInfo(meshLayer->sourcePath()).absoluteFilePath();
+        QList<SWMM2DMeshLayer *> staleMeshes;
+        for (auto *L : canvas->layers()) {
+            auto *m = qobject_cast<SWMM2DMeshLayer *>(L);
+            if (!m) continue;
+            m->setActiveMesh(false);
+            if ((!isExt && !m->isExternalMesh())
+                || (!newMeshCanonical.isEmpty()
+                && !m->sourcePath().isEmpty()
+                && QFileInfo(m->sourcePath()).absoluteFilePath() == newMeshCanonical))
+                staleMeshes.append(m);
+        }
+        for (SWMM2DMeshLayer *stale : staleMeshes) {
+            const int idx = canvas->layers().indexOf(stale);
+            if (idx >= 0) {
+                if (OpenSWMMVisLayer *taken =
+                        canvas->takeLayer(idx, /*pushUndo=*/false))
+                    taken->deleteLater();
+            }
+        }
+
+        canvas->addLayer(meshLayer, /*pushUndo=*/true);
+        pendingLayer.release();
+        m_pw->attachMeshLayer(meshLayer);
+        // Kick the deferred heavy build now that the layer is adopted —
+        // mirrors the file-open path (swmmvis.cpp attachMesh2DLayersAsync).
+        meshLayer->finishSceneGeometryAsync();
+    }
+
+    m_pw->setCorridorSources(result.corridorSources);
+    m_pw->setCorridorRecipeLoadError({});
+    m_pw->setHasChanges(true);
     // ── Channel burn-in: report, then the 1D surgery ─────────────────
     // The surgery runs HERE, on the GUI thread, because it drives MapUndoStack
     // and the engine — neither of which the worker may touch (plan §16.3).
@@ -6447,10 +7023,10 @@ void MeshGenerationDialog::onMeshFinished()
                      .arg(result.burnStats.pixelsLowered)
                      .arg(result.burnStats.maxIncision, 0, 'f', 3);
         if (!result.burnedDemPath.isEmpty())
-            lines << tr("Burned DEM: %1")
+            lines << tr("Burned DEM (written on Save): %1")
                          .arg(QDir::toNativeSeparators(result.burnedDemPath));
         if (!result.burnReportPath.isEmpty())
-            lines << tr("Report: %1")
+            lines << tr("Report (written on Save): %1")
                          .arg(QDir::toNativeSeparators(result.burnReportPath));
         if (m_burnSummaryLabel)
             m_burnSummaryLabel->setText(lines.join(QStringLiteral("\n"))
@@ -6472,98 +7048,7 @@ void MeshGenerationDialog::onMeshFinished()
         box.exec();
     }
 
-    // Add the generated mesh layer to the canvas (main thread — safe).
-    if (auto *canvas = m_pw->canvas())
-    {
-        // Deactivate any existing meshes, and REMOVE any mesh layer that
-        // already references the same output path — regenerating a mesh at an
-        // existing path must REPLACE it, not stack a second (stale) layer on
-        // the canvas. A lingering duplicate is not just visually wrong: on save
-        // duplicate working copies of the same file carry conflicting edits
-        // and cannot be independently persisted by the project save path.
-        const QString newMeshCanonical =
-            result.meshPath.isEmpty()
-                ? QString()
-                : QFileInfo(result.meshPath).absoluteFilePath();
-        QList<SWMM2DMeshLayer *> staleMeshes;
-        for (auto *L : canvas->layers()) {
-            auto *m = qobject_cast<SWMM2DMeshLayer *>(L);
-            if (!m) continue;
-            m->setActiveMesh(false);
-            if (!newMeshCanonical.isEmpty()
-                && !m->sourcePath().isEmpty()
-                && QFileInfo(m->sourcePath()).absoluteFilePath() == newMeshCanonical)
-                staleMeshes.append(m);
-        }
-        for (SWMM2DMeshLayer *stale : staleMeshes) {
-            const int idx = canvas->layers().indexOf(stale);
-            if (idx >= 0) {
-                if (OpenSWMMVisLayer *taken =
-                        canvas->takeLayer(idx, /*pushUndo=*/false))
-                    taken->deleteLater();
-            }
-        }
 
-        // Carry the generated 1D<->2D coupling onto the mesh vertices'
-        // coupledNode field so the layer (and any later engine-sync save)
-        // reflects it without a reload. The descriptive tag stays separate.
-        for (auto it = result.coupling.vertexToNode.cbegin();
-             it != result.coupling.vertexToNode.cend(); ++it) {
-            const int vi = it.key();
-            if (vi >= 0 && vi < result.meshResult.vertices.size())
-                result.meshResult.vertices[vi].coupledNode = it.value();
-        }
-
-        const bool isExt = (result.outputMode == mesh::MeshOutputMode::External);
-        // deferHeavyGeometry: build only the light scene geometry here on the
-        // GUI thread; wireframe edges / spatial grids / vertex adjacency / BC
-        // slots arrive via finishSceneGeometryAsync() below — same
-        // progressive-load path as the file-open flow (swmmvis.cpp). The
-        // synchronous build both froze the UI on a large generated mesh and
-        // could throw bad_alloc inside a slot (std::terminate).
-        auto *meshLayer  = new SWMM2DMeshLayer(std::move(result.meshResult),
-                                               result.meshPath,
-                                               /*parent=*/nullptr,
-                                               /*deferHeavyGeometry=*/true);
-        meshLayer->setExternalMesh(isExt);
-        meshLayer->setMeshUnitsSI(result.meshUnitsSI);
-        meshLayer->setActiveMesh(true);
-        meshLayer->setName(result.meshPath.isEmpty()
-                               ? QStringLiteral("Mesh (inline)")
-                               : QFileInfo(result.meshPath).fileName());
-
-        // Propagate the SWMM model's CRS to the mesh layer so
-        // rebuildSceneGeometry() can reproject from model CRS → canvas CRS.
-        // Without this the mesh renders at raw local coordinates and never
-        // appears on the map.
-        if (m_pw->modelLayer() && m_pw->modelLayer()->srs())
-            meshLayer->setSRS(
-                new SpatialReferenceSystem(*m_pw->modelLayer()->srs(), meshLayer),
-                /*ownsSRS=*/true);
-
-        canvas->addLayer(meshLayer, /*pushUndo=*/true);
-        m_pw->attachMeshLayer(meshLayer);
-        // Kick the deferred heavy build now that the layer is adopted —
-        // mirrors the file-open path (swmmvis.cpp attachMesh2DLayersAsync).
-        meshLayer->finishSceneGeometryAsync();
-    }
-
-    // Mirror the mesh linkage into the engine's in-memory model so the next
-    // save emits (or drops) [2D_MESH_FILE] correctly. External mode points the
-    // reference at the freshly-written .2dm; inline mode clears it. Without
-    // this the engine re-serialises the .inp on save with mesh_file empty and
-    // the just-written linkage is lost — the model silently runs 1D-only.
-    if (m_pw->modelLayer() && m_pw->modelLayer()->engine())
-    {
-        SWMM_Engine eng = m_pw->modelLayer()->engine();
-        if (result.outputMode == mesh::MeshOutputMode::External)
-            swmm_options_set_ext(eng, "MESH_FILE",
-                                 result.meshPath.toUtf8().constData());
-        else
-            swmm_options_set_ext(eng, "MESH_FILE", "");
-    }
-
-    m_pw->setHasChanges(true);
     if (!result.alignmentWarnings.isEmpty())
     {
         QMessageBox box(QMessageBox::Warning, tr("Mesh alignment needs review"),

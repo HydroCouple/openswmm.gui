@@ -232,6 +232,34 @@ public:
                                                const QString &meshFilePath,
                                                QString *errorOut = nullptr);
 
+    /*! Reference a prepared mesh using its final logical name. The physical
+     *  staged file must exist, be regular and nonempty; the logical final file
+     *  need not exist yet. inpPath must retain the final model's directory
+     *  anchor for relative references. Publishes only inpPath, atomically. */
+    [[nodiscard]] static bool writePreparedMeshFileRef(
+        const QString &inpPath, const QString &logicalFinalMeshPath,
+        const QString &physicalStagedMeshPath, QString *errorOut = nullptr);
+
+    /*! Refuse unsupported mesh-indexed velocity, quality and groundwater
+     *  assignments before topology replacement, including tag assignments
+     *  whose meaning needs remapping. Global/XY/AUTO configuration is retained.
+     *  This is an ownership guard, not a complete
+     *  engine syntax validator. Does not modify the file. */
+    [[nodiscard]] static bool validateTopologyReplacement(
+        const QString &filePath, QString *errorOut = nullptr);
+
+    /*! Replace the complete GUI-owned mesh in a prepared INP/mesh file, without
+     *  requiring its old topology or row counts to match. Rebuilds coupling
+     *  from coupledNode/cellCouplings and replaces geometry, attributes,
+     *  infiltration, boundary conditions and conveyance in one atomic write.
+     *  Unsupported topology-indexed rows fail without changing the file.
+     *  Removes any old external mesh reference. Null units preserve metadata;
+     *  explicit units follow patchMeshSections' metadata rules. */
+    [[nodiscard]] static bool replaceMeshSections(
+        const QString &filePath, const MeshResult &mesh,
+        const QVector<MeshEdgeBC> &bcs, QString *errorOut = nullptr,
+        double defaultMannings = 0.035, const UnitInfo *units = nullptr);
+
     /*! \brief Replace the `[2D_BOUNDARY_CONDITIONS]` and
      *         `[2D_EDGE_CONVEYANCE]` sections of \p filePath (a `.inp` or
      *         external `.2dm`) with sections built from \p bcs, leaving

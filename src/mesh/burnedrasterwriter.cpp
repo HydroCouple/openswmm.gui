@@ -11,6 +11,8 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
+#include <QScopeGuard>
 #include <QTextStream>
 
 #include <gdal_priv.h>
@@ -19,6 +21,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <filesystem>
 
 namespace mesh {
 
@@ -51,6 +54,20 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
 
     if (req.sourcePath.isEmpty() || req.outputPath.isEmpty())
         return fail(QStringLiteral("burn: source and output paths are required"));
+    const QFileInfo outputInfo(req.outputPath);
+    const QFileInfo sourceInfo(req.sourcePath);
+    std::error_code aliasError;
+    if (outputInfo.absoluteFilePath() == sourceInfo.absoluteFilePath()
+        || std::filesystem::equivalent(
+            std::filesystem::u8path(req.sourcePath.toUtf8().constData()),
+            std::filesystem::u8path(req.outputPath.toUtf8().constData()), aliasError))
+        return fail(QStringLiteral("burn: the output must not alias the source DEM"));
+    if (outputInfo.isSymLink()
+        || (outputInfo.exists() && (!outputInfo.isFile() || outputInfo.size() != 0)))
+        return fail(QStringLiteral("burn: use a new job-owned output stage; refusing existing output %1")
+                        .arg(req.outputPath));
+    if (req.band < 1)
+        return fail(QStringLiteral("burn: band index must be positive"));
     if (req.profiles.isEmpty())
         return fail(QStringLiteral("burn: no conduits selected"));
 
@@ -59,23 +76,31 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
     if (index.isEmpty())
         return fail(QStringLiteral("burn: the selected conduits produced no corridor"));
 
+    if (req.progress && !req.progress(0, QStringLiteral("Preparing the burned DEM…")))
+        return fail(QStringLiteral("Cancelled."));
+    bool outputClaimed = false;
+    bool complete = false;
+    const auto removePartial = qScopeGuard([&] {
+        if (outputClaimed && !complete) QFile::remove(req.outputPath);
+    });
+
     GDALAllRegister();
 
     // ── Copy first; the source is never opened for writing ────────────────
     GDALDataset *src = static_cast<GDALDataset *>(
         GDALOpen(req.sourcePath.toUtf8().constData(), GA_ReadOnly));
     if (!src) return fail(QStringLiteral("burn: cannot open %1").arg(req.sourcePath));
+    const auto closeSource = qScopeGuard([&] { if (src) GDALClose(src); });
 
     double gt[6] = {0, 1, 0, 0, 0, 1};
     if (src->GetGeoTransform(gt) != CE_None)
-    { GDALClose(src); return fail(QStringLiteral("burn: source raster has no geotransform")); }
+    { return fail(QStringLiteral("burn: source raster has no geotransform")); }
     double inv[6] = {0};
     if (!invertGT(gt, inv))
-    { GDALClose(src); return fail(QStringLiteral("burn: source geotransform is degenerate")); }
+    { return fail(QStringLiteral("burn: source geotransform is degenerate")); }
     if (src->GetRasterCount() < req.band)
     {
         const int n = src->GetRasterCount();
-        GDALClose(src);
         return fail(QStringLiteral("burn: band %1 requested but the raster has %2")
                         .arg(req.band).arg(n));
     }
@@ -85,22 +110,39 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
     const GDALDataType srcType = src->GetRasterBand(req.band)->GetRasterDataType();
 
     GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("GTiff");
-    if (!drv) { GDALClose(src); return fail(QStringLiteral("burn: the GTiff driver is unavailable")); }
+    if (!drv) return fail(QStringLiteral("burn: the GTiff driver is unavailable"));
 
     char **opts = nullptr;
     opts = CSLSetNameValue(opts, "TILED", "YES");
     opts = CSLSetNameValue(opts, "COMPRESS", "DEFLATE");
     opts = CSLSetNameValue(opts, "BIGTIFF", "IF_SAFER");
+    struct CopyProgress { const BurnRasterRequest *request; bool cancelled = false; } copyProgress{&req};
+    const auto copyTick = [](double fraction, const char *, void *data) -> int {
+        auto &state = *static_cast<CopyProgress *>(data);
+        if (state.request->progress
+            && !state.request->progress(int(fraction * 20), QStringLiteral("Copying the source DEM…"))) {
+            state.cancelled = true;
+            return FALSE;
+        }
+        return TRUE;
+    };
+    outputClaimed = true;
     GDALDataset *copy = drv->CreateCopy(req.outputPath.toUtf8().constData(), src,
-                                        /*strict*/ FALSE, opts, nullptr, nullptr);
+                                        /*strict*/ FALSE, opts, copyTick, &copyProgress);
     CSLDestroy(opts);
-    GDALClose(src);
+    const CPLErr sourceClose = GDALClose(src);
+    src = nullptr;
+    const CPLErr copyFlush = copy ? copy->FlushCache(false) : CE_Failure;
+    const CPLErr copyClose = copy ? GDALClose(copy) : CE_Failure;
+    if (copyProgress.cancelled) return fail(QStringLiteral("Cancelled."));
     if (!copy) return fail(QStringLiteral("burn: cannot write %1").arg(req.outputPath));
-    GDALClose(copy);
+    if (sourceClose != CE_None || copyFlush != CE_None || copyClose != CE_None)
+        return fail(QStringLiteral("burn: cannot flush or close the DEM copy %1").arg(req.outputPath));
 
     GDALDataset *dst = static_cast<GDALDataset *>(
         GDALOpen(req.outputPath.toUtf8().constData(), GA_Update));
     if (!dst) return fail(QStringLiteral("burn: cannot reopen %1 for update").arg(req.outputPath));
+    const auto closeDestination = qScopeGuard([&] { if (dst) GDALClose(dst); });
 
     GDALRasterBand *band = dst->GetRasterBand(req.band);
     int hasNd = 0;
@@ -136,22 +178,17 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
     const int wW = c1 - c0, wH = r1 - r0;
     if (wW <= 0 || wH <= 0)
     {
-        GDALClose(dst);
         st.warnings << QStringLiteral("the corridor does not overlap the DEM");
-        if (stats) *stats = st;
-        return true;                       // nothing to burn is not an error
     }
-
-    QVector<double> buf(size_t(wW) * size_t(kStripRows));
+    QVector<double> buf(qsizetype(std::max(0, wW)) * kStripRows);
     QVector<BurnProjection> hits;
 
-    for (int rs = r0; rs < r1; rs += kStripRows)
+    for (int rs = r0; wW > 0 && rs < r1; rs += kStripRows)
     {
         const int rows = std::min(kStripRows, r1 - rs);
         if (band->RasterIO(GF_Read, c0, rs, wW, rows, buf.data(), wW, rows,
                            GDT_Float64, 0, 0) != CE_None)
         {
-            GDALClose(dst);
             return fail(QStringLiteral("burn: raster read failed at row %1").arg(rs));
         }
 
@@ -205,24 +242,53 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
         if (dirty && band->RasterIO(GF_Write, c0, rs, wW, rows, buf.data(), wW, rows,
                                     GDT_Float64, 0, 0) != CE_None)
         {
-            GDALClose(dst);
             return fail(QStringLiteral("burn: raster write failed at row %1").arg(rs));
         }
 
         if (req.progress)
         {
-            const int pct = int(100.0 * double(rs + rows - r0) / double(wH));
+            const int pct = 20 + int(80.0 * double(rs + rows - r0) / double(wH));
             if (!req.progress(pct, QStringLiteral("Burning channels into the DEM…")))
             {
-                GDALClose(dst);
-                QFile::remove(req.outputPath);
                 return fail(QStringLiteral("Cancelled."));
             }
         }
     }
 
-    band->FlushCache(false);
-    GDALClose(dst);
+    if ((wW <= 0 || wH <= 0) && req.progress
+        && !req.progress(100, QStringLiteral("Finishing the burned DEM…")))
+        return fail(QStringLiteral("Cancelled."));
+    const CPLErr bandFlush = band->FlushCache(false);
+    const CPLErr datasetFlush = dst->FlushCache(false);
+    const CPLErr datasetClose = GDALClose(dst);
+    dst = nullptr;
+    if (bandFlush != CE_None || datasetFlush != CE_None || datasetClose != CE_None)
+        return fail(QStringLiteral("burn: cannot flush or close the burned DEM %1").arg(req.outputPath));
+
+    // The job publishes one self-contained GeoTIFF. A PAM/overview/mask sidecar
+    // cannot be silently omitted from that payload; the owner cleans the job
+    // directory (including such companions) when this check refuses it.
+    GDALDataset *verified = static_cast<GDALDataset *>(
+        GDALOpen(req.outputPath.toUtf8().constData(), GA_ReadOnly));
+    if (!verified) return fail(QStringLiteral("burn: cannot reopen the completed DEM %1").arg(req.outputPath));
+    char **files = verified->GetFileList();
+    QString auxiliary;
+    for (int i = 0; files && files[i]; ++i) {
+        const QString path = QString::fromUtf8(files[i]);
+        if (QFileInfo(path).absoluteFilePath() != outputInfo.absoluteFilePath()) {
+            auxiliary = path;
+            break;
+        }
+    }
+    const bool listed = files && files[0];
+    CSLDestroy(files);
+    const CPLErr verifiedClose = GDALClose(verified);
+    if (!auxiliary.isEmpty())
+        return fail(QStringLiteral("burn: generated DEM requires an unsupported auxiliary file: %1")
+                        .arg(auxiliary));
+    if (!listed || verifiedClose != CE_None)
+        return fail(QStringLiteral("burn: cannot verify the completed DEM files for %1").arg(req.outputPath));
+    complete = true;
     if (stats) *stats = st;
     return true;
 }
@@ -231,7 +297,8 @@ bool writeBurnReport(const QString &path, const BurnRasterRequest &req,
                      const BurnRasterStats &stats, const QString &unitsLine,
                      QString *err)
 {
-    QFile f(path);
+    QSaveFile f(path);
+    f.setDirectWriteFallback(false);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
     {
         if (err) *err = QStringLiteral("burn report: cannot write %1").arg(path);
@@ -241,7 +308,7 @@ bool writeBurnReport(const QString &path, const BurnRasterRequest &req,
 
     ts << "# OpenSWMM channel burn-in report\n";
     ts << "# source DEM," << req.sourcePath << "\n";
-    ts << "# burned DEM," << req.outputPath << "\n";
+    ts << "# burned DEM," << (req.logicalOutputPath.isEmpty() ? req.outputPath : req.logicalOutputPath) << "\n";
     ts << "# units," << unitsLine << "\n";
     ts << "# forceHalfWidth (raster units)," << req.rule.forceHalfWidth << "\n";
     ts << "# maxIncision (raster units)," << req.rule.maxIncision << "\n";
@@ -272,7 +339,16 @@ bool writeBurnReport(const QString &path, const BurnRasterRequest &req,
            << c.replaced << ',' << c.lowered << ',' << c.unchanged << ','
            << c.noDataKept << ',' << c.maxIncision << '\n';
     }
-    f.close();
+    ts.flush();
+    if (ts.status() != QTextStream::Ok || f.error() != QFileDevice::NoError || !f.flush()) {
+        if (err) *err = QStringLiteral("burn report: cannot write or flush %1: %2").arg(path, f.errorString());
+        f.cancelWriting();
+        return false;
+    }
+    if (!f.commit()) {
+        if (err) *err = QStringLiteral("burn report: cannot commit %1: %2").arg(path, f.errorString());
+        return false;
+    }
     return true;
 }
 

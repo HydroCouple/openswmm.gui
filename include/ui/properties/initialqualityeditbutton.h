@@ -37,8 +37,8 @@ public:
     void setValue(const InitialQualityEditRef &ref);
 
 signals:
-    /*! Emitted after the dialog closes with a (possibly) updated
-     *  summary; the delegate commits the new value to the model. */
+    /*! Emitted after a dialog that actually wrote changes closes, including
+     *  Cancel after a partial write; no-op inspection does not emit. */
     void valueChanged();
 
 private slots:

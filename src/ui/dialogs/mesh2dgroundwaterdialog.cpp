@@ -85,6 +85,13 @@ bool setOption(SWMM_Engine e, const char *key, const QString &value)
     return swmm_gw2d_option_set(e, key, value.toUtf8().constData()) == SWMM_OK;
 }
 
+bool canEdit(SWMM_Engine engine)
+{
+    int state = SWMM_STATE_CREATED;
+    return swmm_engine_get_state(engine, &state) == SWMM_OK &&
+        (state == SWMM_STATE_BUILDING || state == SWMM_STATE_OPENED);
+}
+
 } // namespace
 
 QStringList Mesh2DGroundwaterDialog::soilModelTokens()
@@ -103,6 +110,7 @@ Mesh2DGroundwaterDialog::Mesh2DGroundwaterDialog(SWMM_Engine engine,
                                                  const UnitSystem *units)
     : QDialog(parent), m_engine(engine), m_units(units)
 {
+    setObjectName(QStringLiteral("Mesh2DGroundwaterDialog"));
     setWindowTitle(tr("2D Groundwater"));
     buildUi(initialPage);
     loadFromEngine();
@@ -132,18 +140,17 @@ void Mesh2DGroundwaterDialog::buildUi(Page initialPage)
     }
     outer->addWidget(m_tabs, 1);
 
-    auto *buttons = new QDialogButtonBox(
+    m_buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel |
             QDialogButtonBox::Apply,
         this);
-    connect(buttons, &QDialogButtonBox::accepted, this, [this] {
-        onApply();
-        accept();
+    connect(m_buttons, &QDialogButtonBox::accepted, this, [this] {
+        if (applyChanges()) accept();
     });
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(buttons->button(QDialogButtonBox::Apply), &QPushButton::clicked,
+    connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(m_buttons->button(QDialogButtonBox::Apply), &QPushButton::clicked,
             this, &Mesh2DGroundwaterDialog::onApply);
-    outer->addWidget(buttons);
+    outer->addWidget(m_buttons);
 
     resize(880, 520);
 }
@@ -165,7 +172,7 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
            "reproduce the right equilibrium and sign, but their relaxation "
            "rate is this engine's modelling choice. Prefer the σ column "
            "closure where the answer matters."));
-    form->addRow(tr("Soil law:"), m_soilCombo);
+    form->addRow(tr("&Soil law:"), m_soilCombo);
 
     m_closureCombo = new QComboBox(page);
     m_closureCombo->addItems(closureTokens());
@@ -174,14 +181,14 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
            "below 1 the column tracks the table closely enough to be dropped "
            "(ENSLAVED), above 5 the quasi-steady assumption fails and the "
            "cell gets a real σ column."));
-    form->addRow(tr("Closure:"), m_closureCombo);
+    form->addRow(tr("&Closure:"), m_closureCombo);
 
     m_layersSpin = new QSpinBox(page);
     m_layersSpin->setRange(2, 128);
     m_layersSpin->setToolTip(
         tr("Layers in each σ column. Fixed for the run: the layers stretch "
            "and compress with the water table instead of being regridded."));
-    form->addRow(tr("σ layers:"), m_layersSpin);
+    form->addRow(tr("σ &layers:"), m_layersSpin);
 
     m_capillaryCheck = new QCheckBox(tr("Include the capillary diffusion term"),
                                      page);
@@ -196,7 +203,7 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
     m_cgwSpin->setSingleStep(0.05);
     m_cgwSpin->setToolTip(tr("Safety factor on the saturated zone's explicit "
                              "stability step."));
-    form->addRow(tr("Saturated safety factor:"), m_cgwSpin);
+    form->addRow(tr("Saturated safety &factor:"), m_cgwSpin);
 
     m_ccolSpin = new QDoubleSpinBox(page);
     m_ccolSpin->setRange(0.01, 1.0);
@@ -204,7 +211,7 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
     m_ccolSpin->setSingleStep(0.05);
     m_ccolSpin->setToolTip(tr("Safety factor on the unsaturated column's "
                               "explicit stability step."));
-    form->addRow(tr("Column safety factor:"), m_ccolSpin);
+    form->addRow(tr("Column safet&y factor:"), m_ccolSpin);
 
     m_forceCfCheck = new QCheckBox(
         tr("Keep the closed form even when AUTO would switch to σ"), page);
@@ -231,7 +238,7 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
            "them. PER_SUBCATCH runs one degenerate cell per subcatchment with "
            "no lateral flux — the same kernel, as a drop-in for the legacy "
            "subcatchment aquifer."));
-    form->addRow(tr("Mode:"), m_modeCombo);
+    form->addRow(tr("&Mode:"), m_modeCombo);
 
     m_gwEtCombo = new QComboBox(page);
     m_gwEtCombo->addItems({QStringLiteral("NONE"),
@@ -243,7 +250,7 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
            "than its equilibrium. BOUNDARY_ET takes evaporation from the top "
            "of the column with a smooth Feddes stress rather than an on/off "
            "gate."));
-    form->addRow(tr("Groundwater ET:"), m_gwEtCombo);
+    form->addRow(tr("Groundwater &ET:"), m_gwEtCombo);
 
     return page;
 }
@@ -269,6 +276,9 @@ QWidget *Mesh2DGroundwaterDialog::buildAquiferPage()
     m_aquifer = new Mesh2DAquiferModel(this);
     m_aquiferView = new QTableView(page);
     m_aquiferView->setModel(m_aquifer);
+    m_aquiferView->setAccessibleName(tr("Aquifer properties and initial conditions"));
+    m_aquiferView->setAccessibleDescription(
+        tr("Select a row with the arrow keys. Press F2 to edit the current cell."));
     m_aquiferView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_aquiferView->horizontalHeader()->setStretchLastSection(true);
     m_aquiferView->setItemDelegateForColumn(
@@ -284,7 +294,9 @@ QWidget *Mesh2DGroundwaterDialog::buildAquiferPage()
 
     auto *row = new QHBoxLayout;
     m_addRowBtn = new QPushButton(tr("Add row"), page);
+    m_addRowBtn->setAutoDefault(false);
     m_delRowBtn = new QPushButton(tr("Remove row"), page);
+    m_delRowBtn->setAutoDefault(false);
     connect(m_addRowBtn, &QPushButton::clicked,
             this, &Mesh2DGroundwaterDialog::onAddAquiferRow);
     connect(m_delRowBtn, &QPushButton::clicked,
@@ -317,13 +329,18 @@ QWidget *Mesh2DGroundwaterDialog::buildNodeBedPage()
     m_nodes = new Mesh2DAquiferNodeModel(this);
     m_nodeView = new QTableView(page);
     m_nodeView->setModel(m_nodes);
+    m_nodeView->setAccessibleName(tr("Groundwater node beds"));
+    m_nodeView->setAccessibleDescription(
+        tr("Select a row with the arrow keys. Press F2 to edit the current cell."));
     m_nodeView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_nodeView->horizontalHeader()->setStretchLastSection(true);
     v->addWidget(m_nodeView, 1);
 
     auto *row = new QHBoxLayout;
     m_addBedBtn = new QPushButton(tr("Add bed"), page);
+    m_addBedBtn->setAutoDefault(false);
     m_delBedBtn = new QPushButton(tr("Remove bed"), page);
+    m_delBedBtn->setAutoDefault(false);
     connect(m_addBedBtn, &QPushButton::clicked,
             this, &Mesh2DGroundwaterDialog::onAddNodeBed);
     connect(m_delBedBtn, &QPushButton::clicked,
@@ -355,6 +372,7 @@ QWidget *Mesh2DGroundwaterDialog::buildStatePage()
 
     m_stateText = new QPlainTextEdit(page);
     m_stateText->setReadOnly(true);
+    m_stateText->setAccessibleName(tr("Groundwater state and water balance"));
     m_stateText->setLineWrapMode(QPlainTextEdit::NoWrap);
     QFont mono = m_stateText->font();
     mono.setStyleHint(QFont::Monospace);
@@ -364,6 +382,7 @@ QWidget *Mesh2DGroundwaterDialog::buildStatePage()
 
     auto *row = new QHBoxLayout;
     m_refreshBtn = new QPushButton(tr("Refresh"), page);
+    m_refreshBtn->setAutoDefault(false);
     connect(m_refreshBtn, &QPushButton::clicked,
             this, &Mesh2DGroundwaterDialog::refreshState);
     row->addStretch(1);
@@ -381,6 +400,7 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
 {
     if (!m_engine) {
         setEditable(false, tr("No model is open."));
+        refreshState();
         return;
     }
 
@@ -415,12 +435,9 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
     m_nodes->load(m_engine);
     refreshState();
 
-    // The C API refuses authoring outside BUILDING/OPENED. Probe it once with
-    // a harmless idempotent write rather than guessing from the GUI's own
-    // idea of the run state — the engine is the authority, and a disabled
-    // editor with a reason beats an Apply that half-succeeds.
-    const QString mode = optionText(m_engine, "MODE");
-    const bool editable = !mode.isEmpty() && setOption(m_engine, "MODE", mode);
+    // The setter also marks options authored; querying lifecycle avoids a
+    // hidden model change when this dialog is only inspected or cancelled.
+    const bool editable = canEdit(m_engine);
     setEditable(editable,
                 editable ? QString()
                          : tr("A simulation is running. The aquifer rows seed "
@@ -431,6 +448,9 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
 
 void Mesh2DGroundwaterDialog::setEditable(bool on, const QString &whyNot)
 {
+    m_editable = on;
+    if (!on) m_buttons->setStandardButtons(QDialogButtonBox::Close);
+    m_refreshBtn->setEnabled(m_engine != nullptr);
     for (QWidget *w : std::initializer_list<QWidget *>{
              m_soilCombo, m_closureCombo, m_layersSpin, m_capillaryCheck,
              m_cgwSpin, m_ccolSpin, m_forceCfCheck, m_dunneCheck,
@@ -476,15 +496,31 @@ QString Mesh2DGroundwaterDialog::applyOptions()
 
 void Mesh2DGroundwaterDialog::onApply()
 {
-    if (!m_engine) return;
+    applyChanges();
+}
+
+bool Mesh2DGroundwaterDialog::applyChanges()
+{
+    if (!m_engine || !m_editable) return false;
+    if (!canEdit(m_engine)) {
+        QMessageBox::warning(this, tr("2D Groundwater"),
+            tr("The model is no longer editable. Reset the simulation before "
+               "applying these changes. Your edits remain in this dialog."));
+        return false;
+    }
+    // Row commits currently use several engine calls. A later refusal can
+    // leave earlier writes applied, so dirty tracking begins before writing.
+    emit changesMayHaveBeenApplied();
     QString err = applyOptions();
     if (err.isEmpty()) err = m_aquifer->commit(m_engine);
     if (err.isEmpty()) err = m_nodes->commit(m_engine);
     if (!err.isEmpty()) {
         QMessageBox::warning(this, tr("2D Groundwater"), err);
-        return;
+        return false;
     }
     refreshState();
+    emit applied();
+    return true;
 }
 
 void Mesh2DGroundwaterDialog::onAddAquiferRow()

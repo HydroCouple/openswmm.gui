@@ -30,6 +30,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 
 #include "mesh/meshcellgeom.h"
@@ -174,6 +175,260 @@ class TestMeshQuadRegionE2E : public QObject
     std::ofstream m_report;
 
 private slots:
+    void directionalMappedRectangles_data()
+    {
+        QTest::addColumn<int>("start");
+        QTest::addColumn<bool>("reverse");
+        QTest::addColumn<double>("angle");
+        QTest::addColumn<double>("offset");
+        QTest::addColumn<bool>("explicitMode");
+        QTest::newRow("auto-horizontal") << 0 << false << 0.0 << 0.0 << false;
+        QTest::newRow("mapped-horizontal") << 0 << false << 0.0 << 0.0 << true;
+        QTest::newRow("next-ring-start") << 1 << false << 0.0 << 0.0 << false;
+        QTest::newRow("opposite-ring-start") << 2 << false << 0.0 << 0.0 << false;
+        QTest::newRow("clockwise-ring") << 0 << true << 0.0 << 0.0 << false;
+        QTest::newRow("clockwise-next-start") << 3 << true << 0.0 << 0.0 << true;
+        QTest::newRow("rotated-region-and-axis") << 0 << false << 31.0 << 0.0 << false;
+        QTest::newRow("rotated-clockwise-next-start") << 1 << true << 31.0 << 0.0 << true;
+        QTest::newRow("vertical-region-and-axis") << 2 << false << 90.0 << 0.0 << false;
+        QTest::newRow("opposite-undirected-axis") << 1 << true << 180.0 << 0.0 << true;
+        QTest::newRow("translated-rotated") << 3 << true << 31.0 << 1000000.0 << false;
+    }
+
+    void directionalMappedRectangles()
+    {
+        QFETCH(int, start);
+        QFETCH(bool, reverse);
+        QFETCH(double, angle);
+        QFETCH(double, offset);
+        QFETCH(bool, explicitMode);
+        const double radians = angle * M_PI / 180.0;
+        const QPointF along(std::cos(radians), std::sin(radians));
+        const QPointF across(-along.y(), along.x());
+        const QPointF center(150 + offset, 75 + offset);
+        QPolygonF ring;
+        for (const QPointF &local : rect(-32, -8, 64, 16))
+            ring.append(center + along * local.x() + across * local.y());
+        if (reverse) std::reverse(ring.begin(), ring.end());
+        std::rotate(ring.begin(), ring.begin() + start, ring.end());
+        MeshGenerator generator;
+        generator.setDomain(domain300x150().translated(offset, offset));
+        auto options = baseOptions();
+        options.minAngle = 0; // this gate exercises structured placement, not Triangle refinement
+        generator.setOptions(options);
+        QuadRegion region;
+        region.ring = ring;
+        region.mode = explicitMode ? QuadRegionMode::Mapped : QuadRegionMode::Auto;
+        region.spacing = 8; // the legacy single-h path would make only 16 square cells
+        region.directionalSpacing = true;
+        region.hAlong = 8;
+        region.hAcross = 2;
+        region.mappedAlongAngleDeg = angle;
+        region.tag = "directional";
+        generator.addQuadRegion(region);
+        const auto result = generator.generate();
+        QVERIFY2(result.ok, qPrintable(result.errorMsg));
+        QCOMPARE(generator.quadRegionReports().size(), 1);
+        const auto report = generator.quadRegionReports().first();
+        QVERIFY(report.accepted);
+        QCOMPARE(report.resolved, QuadRegionMode::Mapped);
+        QCOMPARE(result.quadCount(), 64);
+        QCOMPARE(report.quads, 64);
+        CHECK_CELL_INVARIANTS(result);
+        for (const auto &cell : result.triangles) {
+            if (!cell.isQuad()) continue;
+            QCOMPARE(cell.tag, QString("directional"));
+            int alongEdges = 0, acrossEdges = 0;
+            for (int i = 0; i < 4; ++i) {
+                const QPointF edge = result.vertices[cell.vertex((i + 1) % 4)].xy
+                                  - result.vertices[cell.vertex(i)].xy;
+                const double a = std::abs(QPointF::dotProduct(edge, along));
+                const double b = std::abs(QPointF::dotProduct(edge, across));
+                if (std::abs(a - 8) < 1e-6 && b < 1e-6) ++alongEdges;
+                if (a < 1e-6 && std::abs(b - 2) < 1e-6) ++acrossEdges;
+            }
+            QCOMPARE(alongEdges, 2);
+            QCOMPARE(acrossEdges, 2);
+        }
+        appendReport(m_report, QStringLiteral("directional %1").arg(QString::fromLatin1(QTest::currentDataTag())), generator, result);
+    }
+
+    void directionalRequestMustNotFallBack_data()
+    {
+        QTest::addColumn<QString>("scenario");
+        for (const char *name : {"crossing-constraint", "interior-constraint", "free-mode", "triangles-mode",
+                                "submapped-mode", "auto-submapped-ring", "holes", "background", "outside", "overlap", "reverse-overlap",
+                                "identical-free-ring", "reverse-identical-free-ring",
+                                "invalid-corners", "auto-invalid-corners", "too-small-area", "ambiguous-axis", "nan-axis", "infinite-axis", "zero-along",
+                                "negative-along", "nan-along", "zero-across", "infinite-across"})
+            QTest::newRow(name) << QString::fromLatin1(name);
+    }
+
+    void directionalRequestMustNotFallBack()
+    {
+        QFETCH(QString, scenario);
+        MeshGenerator generator;
+        generator.setDomain(domain300x150());
+        auto options = baseOptions();
+        options.minAngle = 0;
+        generator.setOptions(options);
+        QuadRegion region;
+        region.ring = rect(100, 50, 64, 16);
+        region.spacing = 8;
+        region.directionalSpacing = true;
+        region.hAlong = 8;
+        region.hAcross = 2;
+        region.mappedAlongAngleDeg = 0;
+        region.tag = "required-directional-corridor";
+        if (scenario == "crossing-constraint")
+            generator.addConstraintSegment({{{80,58}, {180,58}}, 812, "required-road"});
+        if (scenario == "interior-constraint")
+            generator.addConstraintSegment({{{110,58}, {150,58}}, 812, "required-road"});
+        if (scenario == "free-mode") region.mode = QuadRegionMode::Free;
+        if (scenario == "triangles-mode") region.mode = QuadRegionMode::TrianglesOnly;
+        if (scenario == "submapped-mode") region.mode = QuadRegionMode::Submapped;
+        if (scenario == "auto-submapped-ring")
+            region.ring = QPolygonF{{100,50}, {164,50}, {164,58}, {132,58}, {132,66}, {100,66}};
+        if (scenario == "holes") region.holes.append(rect(120, 54, 8, 4));
+        if (scenario == "background") { region.ring = domain300x150(); region.isBackground = true; }
+        if (scenario == "outside") region.ring = rect(400, 50, 64, 16);
+        if (scenario == "overlap") {
+            QuadRegion earlier;
+            earlier.ring = rect(95, 45, 40, 30);
+            earlier.spacing = 5;
+            generator.addQuadRegion(earlier);
+        }
+        if (scenario == "identical-free-ring") {
+            QuadRegion earlier;
+            earlier.ring = region.ring;
+            earlier.mode = QuadRegionMode::Free;
+            earlier.spacing = 8;
+            generator.addQuadRegion(earlier);
+        }
+        if (scenario == "invalid-corners") { region.mode = QuadRegionMode::Mapped; region.corners = {0,1,2,9}; }
+        if (scenario == "auto-invalid-corners") region.corners = {0,1,2,9};
+        if (scenario == "too-small-area") region.ring = rect(100, 50, 16, 2);
+        if (scenario == "ambiguous-axis") region.mappedAlongAngleDeg = 45;
+        if (scenario == "nan-axis") region.mappedAlongAngleDeg = std::numeric_limits<double>::quiet_NaN();
+        if (scenario == "infinite-axis") region.mappedAlongAngleDeg = std::numeric_limits<double>::infinity();
+        if (scenario == "zero-along") region.hAlong = 0;
+        if (scenario == "negative-along") region.hAlong = -1;
+        if (scenario == "nan-along") region.hAlong = std::numeric_limits<double>::quiet_NaN();
+        if (scenario == "zero-across") region.hAcross = 0;
+        if (scenario == "infinite-across") region.hAcross = std::numeric_limits<double>::infinity();
+        generator.addQuadRegion(region);
+        if (scenario == "reverse-overlap") {
+            QuadRegion later;
+            later.ring = rect(95, 45, 40, 30);
+            later.spacing = 5;
+            generator.addQuadRegion(later);
+        }
+        if (scenario == "reverse-identical-free-ring") {
+            QuadRegion later;
+            later.ring = region.ring;
+            later.mode = QuadRegionMode::Free;
+            later.spacing = 8;
+            generator.addQuadRegion(later);
+        }
+        const auto result = generator.generate();
+        QVERIFY2(!result.ok, qPrintable(QString("Explicit directional request was silently changed or skipped: %1").arg(scenario)));
+        QVERIFY2(!result.errorMsg.isEmpty(), "Rejected directional spacing needs an actionable diagnostic");
+        QVERIFY(result.triangles.isEmpty());
+        appendReport(m_report, QStringLiteral("rejected directional %1").arg(scenario), generator, result);
+    }
+
+    void directionalSpacingNeedsNoScalarFallback_data()
+    {
+        QTest::addColumn<double>("angle");
+        QTest::addColumn<double>("offset");
+        QTest::addColumn<bool>("reverse");
+        QTest::addColumn<bool>("undersized");
+        QTest::newRow("four-target-cells") << 0.0 << 0.0 << false << false;
+        QTest::newRow("rotated-four-target-cells") << 25.0 << 0.0 << false << false;
+        QTest::newRow("translated-1e6") << 25.0 << 1e6 << false << false;
+        QTest::newRow("translated-1e6-clockwise") << 25.0 << 1e6 << true << false;
+        QTest::newRow("translated-1e9") << 25.0 << 1e9 << false << false;
+        QTest::newRow("translated-1e9-clockwise") << 25.0 << 1e9 << true << false;
+        QTest::newRow("below-minimum-1e6") << 25.0 << 1e6 << false << true;
+        QTest::newRow("below-minimum-1e9-clockwise") << 25.0 << 1e9 << true << true;
+    }
+
+    void directionalSpacingNeedsNoScalarFallback()
+    {
+        QFETCH(double, angle);
+        QFETCH(double, offset);
+        QFETCH(bool, reverse);
+        QFETCH(bool, undersized);
+        MeshGenerator generator;
+        generator.setDomain(domain300x150().translated(offset, offset));
+        GenerationOptions options;
+        options.minAngle = 0;
+        options.maxArea = 0;
+        options.quadRegionDefaultSpacing = 0;
+        generator.setOptions(options);
+        const double radians = angle * M_PI / 180.0;
+        const QPointF along(std::cos(radians), std::sin(radians));
+        const QPointF across(-along.y(), along.x());
+        const QPointF center(150 + offset, 75 + offset);
+        QuadRegion region;
+        for (const auto &point : rect(-8, -2, 16, undersized ? 3.9999 : 4.0))
+            region.ring.append(center + along * point.x() + across * point.y());
+        if (reverse) std::reverse(region.ring.begin(), region.ring.end());
+        region.directionalSpacing = true;
+        region.hAlong = 8;
+        region.hAcross = 2;
+        region.mappedAlongAngleDeg = angle;
+        // Area=64 is exactly four target cells. Coordinate roundoff must
+        // not reject it, but a deficit of 0.0016 must remain an error.
+        generator.addQuadRegion(region);
+        const auto result = generator.generate();
+        if (undersized) {
+            QVERIFY(!result.ok);
+            QVERIFY(!result.errorMsg.isEmpty());
+            QVERIFY(result.triangles.isEmpty());
+            return;
+        }
+        QVERIFY2(result.ok, qPrintable(result.errorMsg));
+        QCOMPARE(result.quadCount(), 4);
+        QCOMPARE(generator.quadRegionReports().first().resolved, QuadRegionMode::Mapped);
+        // cellGeom uses coordinate differences; a global-coordinate
+        // shoelace test would introduce the same cancellation under review.
+        for (const auto &cell : result.triangles) {
+            QVERIFY(cellIsConvex(result.vertices, cell));
+            const auto geometry = cellGeom(result.vertices, cell);
+            QVERIFY(geometry.area > 0);
+            if (cell.isQuad()) QVERIFY(std::abs(geometry.area - 16) < 1e-4);
+        }
+    }
+
+    void disjointDirectionalRegionKeepsLegacyOverlapSkip()
+    {
+        MeshGenerator generator;
+        generator.setDomain(domain300x150());
+        generator.setOptions(baseOptions());
+        QuadRegion directional;
+        directional.ring = rect(200, 50, 64, 16);
+        directional.directionalSpacing = true;
+        directional.hAlong = 8;
+        directional.hAcross = 2;
+        generator.addQuadRegion(directional);
+        QuadRegion legacy;
+        legacy.ring = rect(20, 30, 64, 32);
+        legacy.spacing = 8;
+        generator.addQuadRegion(legacy);
+        legacy.ring = rect(40, 40, 64, 32);
+        generator.addQuadRegion(legacy);
+        const auto result = generator.generate();
+        QVERIFY2(result.ok, qPrintable(result.errorMsg));
+        QCOMPARE(generator.quadRegionReports().size(), 3);
+        QVERIFY(generator.quadRegionReports()[0].accepted);
+        QVERIFY(generator.quadRegionReports()[1].accepted);
+        QVERIFY(!generator.quadRegionReports()[2].accepted);
+        QVERIFY(generator.quadRegionReports()[2].message.contains("overlap"));
+        QCOMPARE(result.quadCount(), 96);
+        CHECK_CELL_INVARIANTS(result);
+    }
+
     void alignmentOutcome_data()
     {
         QTest::addColumn<int>("scenario");

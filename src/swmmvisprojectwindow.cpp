@@ -25,6 +25,9 @@
 #include "output/outputstatsregistry.h"     // Slice QA.2 — owns the registry
 #include "project/openswmmvisworkspace.h"
 #include "project/projectserializer.h"      // Slice RB.1 — sidecar auto-create
+#include "project/projectsaveoutputs.h"
+#include "project/generatedmeshartifacts.h"
+#include "project/projectsavevalidation.h"
 #include "map/tools/maptoolpan.h"
 #include "map/tools/maptoolzoom.h"
 #include "map/tools/maptoolselect.h"
@@ -78,10 +81,14 @@
 #include <QMetaObject>
 #include <QPushButton>
 #include <QScopeGuard>
+#include <QSaveFile>
+#include <QTextStream>
 #include <QSettings>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <filesystem>
+#include <atomic>
+#include <memory>
 
 #include "core/measurementunitmanager.h"
 
@@ -610,6 +617,12 @@ bool engineMeshMatches(SWMM_Engine engine, const mesh::MeshResult &m)
 
 bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &errors)
 {
+    QString recoveryError, recoveryNotice;
+    if (!ProjectSaveOutputs::recover(mModelLayer->modelFilePath(), &recoveryError, &recoveryNotice)) {
+        errors.append(recoveryError);
+        return false;
+    }
+    if (!recoveryNotice.isEmpty()) warnings.append(recoveryNotice);
     if (!mModelLayer->loadModel(warnings, errors))
         return false;
     return finishModelLoad(warnings, errors);
@@ -625,6 +638,7 @@ void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
     struct AsyncOpenOutcome {
         SWMM_Engine engine = nullptr;
         QString     errorDetail;
+        QString     recoveryNotice;
         qint64      openMs = 0;
         qint64      soaMs  = 0;
         qint64      geomMs = 0;
@@ -681,6 +695,7 @@ void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
         }
 
         QList<QString> warnings, errors;
+        if (!outcome.recoveryNotice.isEmpty()) warnings.append(outcome.recoveryNotice);
         bool ok = false;
         if (!outcome.engine) {
             errors.append(outcome.errorDetail);
@@ -705,6 +720,10 @@ void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
 
         AsyncOpenOutcome outcome;
         promise.setProgressValue(packLoadProgress(OpenStage::EngineParse, 0));
+        if (!ProjectSaveOutputs::recover(path, &outcome.errorDetail, &outcome.recoveryNotice)) {
+            promise.addResult(outcome);
+            return;
+        }
         outcome.engine = SWMMModelLayer::openEngineForPath(
             path, &outcome.errorDetail, &outcome.openMs);
 
@@ -1006,6 +1025,12 @@ void SWMMVisProjectWindow::attachMeshLayer(SWMM2DMeshLayer *meshLayer, bool pris
 {
     if (!meshLayer)
         return;
+    // MapCanvas does not own its layers; undo/deferred geometry can outlive
+    // the window. Abandon this project's pending disk artifacts on teardown
+    // even if an orphaned layer remains alive.
+    connect(this, &QObject::destroyed, meshLayer, [meshLayer] {
+        meshLayer->setGeneratedArtifacts({});
+    });
     // A layer parsed from the very file the engine opened already agrees with
     // the engine's in-memory mesh, so the save path can skip re-pushing it.
     // Every other origin (mesh generated or imported in-session) leaves the
@@ -1033,248 +1058,314 @@ void SWMMVisProjectWindow::attachMeshLayer(SWMM2DMeshLayer *meshLayer, bool pris
 
 void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
 {
+    const quint64 serial = ++mMeshImportSerial;
     auto fail = [this](const QString &msg) {
         emit meshImportFinished(false, msg, QString());
     };
-
-    if (!canvas() || !mModelLayer) {
+    if (mClosing || !canvas() || !mModelLayer || !mModelLayer->engine()) {
         fail(tr("Open a project first — a 2D mesh attaches to a model."));
         return;
     }
-
     const QFileInfo srcFi(srcPath);
     if (!srcFi.exists() || !srcFi.isFile()) {
         fail(tr("Mesh file not found: %1").arg(srcPath));
         return;
     }
 
-    // ── Stage the file into the project folder ───────────────────────────
-    // A sibling of the .inp is referenced relatively by
-    // InpMeshWriter::writeMeshFileRef, which keeps the project portable and
-    // makes the mesh visible in Simulation Options → Mesh. An unsaved project
-    // has no folder yet, so the mesh is read where it lies; the first save
-    // writes an absolute reference.
-    QString meshPath = srcFi.absoluteFilePath();
-    bool    copied   = false;
+    const QString sourcePath = srcFi.absoluteFilePath();
+    const QPointer<SWMMModelLayer> ownerModel(mModelLayer);
+    const QPointer<MapCanvas> ownerCanvas(canvas());
+    const auto ownerEngine = mModelLayer->engine();
     const QString modelPath = mModelLayer->modelFilePath();
-    if (!modelPath.isEmpty())
-    {
-        const QDir dir = QFileInfo(modelPath).absoluteDir();
-        if (srcFi.absolutePath() != dir.absolutePath())
-        {
-            QString destPath = dir.absoluteFilePath(srcFi.fileName());
-            if (QFileInfo::exists(destPath))
-            {
-                // Never silently clobber a mesh already in the project — the
-                // existing file may be the one the model currently runs on.
-                QMessageBox box(QMessageBox::Question, tr("Import 2D Mesh"),
-                    tr("The project folder already contains a file named %1.")
-                        .arg(srcFi.fileName()), QMessageBox::NoButton, this);
-                box.setInformativeText(
-                    tr("Overwrite it with the imported mesh, or keep both?"));
-                QPushButton *overwrite =
-                    box.addButton(tr("Overwrite"), QMessageBox::DestructiveRole);
-                QPushButton *keepBoth =
-                    box.addButton(tr("Keep Both"), QMessageBox::AcceptRole);
-                box.addButton(QMessageBox::Cancel);
-                box.setDefaultButton(keepBoth);
-                box.exec();
+    const quint64 revision = mModelLayer->editRevision();
+    const bool needsSaveAsRebase = mUntitled || modelPath.isEmpty();
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    auto *operation = new QObject(this);
+    const QPointer<QObject> operationGuard(operation);
+    bool launched = false;
+    const auto cleanup = qScopeGuard([&] {
+        if (!launched && operationGuard) delete operationGuard.data();
+    });
+    connect(operation, &QObject::destroyed, [cancelled] { cancelled->store(true); });
+    const auto invalidate = [cancelled] { cancelled->store(true); };
+    QList<QMetaObject::Connection> guards;
+    guards << connect(this, &SWMMVisProjectWindow::aboutToClose, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::modelLoaded, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::modelEdited, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::attributeChanged, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::geometryChanged, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::optionsChanged, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::dataObjectsChanged, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::hydrographChanged, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::controlRulesChanged, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::transectChanged, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::modelFilePathChanged, operation, invalidate)
+           << connect(ownerCanvas.data(), &MapCanvas::layerAdded, operation, invalidate)
+           << connect(ownerCanvas.data(), &MapCanvas::layerRemoved, operation, invalidate);
+    for (auto *layer : ownerCanvas->layers()) {
+        guards << connect(layer, &OpenSWMMVisLayer::srsChanged, operation, invalidate)
+               << connect(layer, &OpenSWMMVisLayer::extentChanged, operation, invalidate);
+        if (auto *meshLayer = qobject_cast<SWMM2DMeshLayer *>(layer))
+            guards << connect(meshLayer, &SWMM2DMeshLayer::attributeChanged, operation, invalidate)
+                   << connect(meshLayer, &SWMM2DMeshLayer::meshEditsChanged, operation, invalidate)
+                   << connect(meshLayer, &SWMM2DMeshLayer::activeMeshChanged, operation, invalidate);
+    }
 
-                if (box.clickedButton() == overwrite) {
-                    if (!QFile::remove(destPath)) {
-                        fail(tr("Could not replace %1 — it may be open in "
-                                "another program.").arg(destPath));
-                        return;
-                    }
-                } else if (box.clickedButton() == keepBoth) {
-                    const QString base = srcFi.completeBaseName();
-                    const QString ext  = srcFi.suffix();
-                    int n = 1;
-                    do {
-                        destPath = dir.absoluteFilePath(
-                            QStringLiteral("%1_%2.%3").arg(base).arg(n++).arg(ext));
-                    } while (QFileInfo::exists(destPath));
-                } else {
-                    fail(tr("2D mesh import cancelled."));
-                    return;
-                }
-            }
-            if (!QFile::copy(srcFi.absoluteFilePath(), destPath)) {
-                fail(tr("Could not copy %1 into the project folder %2.")
-                         .arg(srcFi.fileName(), dir.absolutePath()));
-                return;
-            }
-            meshPath = destPath;
-            copied   = true;
+    // Choose a logical destination only. Overwrite consent applies at Save;
+    // neither a bad parse nor discarding the project may change that file.
+    const QDir projectDir = QFileInfo(modelPath.isEmpty() ? sourcePath : modelPath).absoluteDir();
+    QString meshPath = projectDir.absoluteFilePath(srcFi.fileName());
+    bool requireAbsentDestination = meshPath != sourcePath;
+    bool overwriteApproved = false;
+    ProjectSaveOutputs::DestinationState promptDestination;
+    const bool smsSource = mesh::Sms2dmReader::looksLikeSms2dm(sourcePath);
+    if (smsSource && meshPath == sourcePath) {
+        requireAbsentDestination = true;
+        const QString base = srcFi.completeBaseName() + QStringLiteral("_imported");
+        meshPath = projectDir.filePath(base + QStringLiteral(".2dm"));
+        for (int n = 1; QFileInfo::exists(meshPath) || QFileInfo(meshPath).isSymLink(); ++n)
+            meshPath = projectDir.filePath(QStringLiteral("%1_%2.2dm").arg(base).arg(n));
+    } else if (meshPath != sourcePath
+               && (QFileInfo::exists(meshPath) || QFileInfo(meshPath).isSymLink())) {
+        QString captureError;
+        if (!ProjectSaveOutputs::captureDestination(meshPath, &promptDestination, &captureError)) {
+            fail(captureError);
+            return;
+        }
+        const QPointer<SWMMVisProjectWindow> self(this);
+        auto *box = new QMessageBox(QMessageBox::Question, tr("Import 2D Mesh"),
+            tr("The project folder already contains a file named %1.").arg(srcFi.fileName()),
+            QMessageBox::NoButton, this);
+        const QPointer<QMessageBox> boxGuard(box);
+        box->setInformativeText(tr("Replace it when the project is saved, or keep both?"));
+        QPushButton *overwrite = box->addButton(tr("Overwrite"), QMessageBox::DestructiveRole);
+        QPushButton *keepBoth = box->addButton(tr("Keep Both"), QMessageBox::AcceptRole);
+        box->addButton(QMessageBox::Cancel);
+        box->setDefaultButton(keepBoth);
+        box->exec();
+        if (!self || !boxGuard) return;
+        QAbstractButton *clicked = box->clickedButton();
+        box->deleteLater();
+        if (clicked == keepBoth) {
+            const QString base = srcFi.completeBaseName();
+            const QString ext = srcFi.suffix();
+            int n = 1;
+            do {
+                meshPath = projectDir.filePath(QStringLiteral("%1_%2.%3").arg(base).arg(n++).arg(ext));
+            } while (QFileInfo::exists(meshPath) || QFileInfo(meshPath).isSymLink());
+        } else if (clicked != overwrite) {
+            fail(tr("2D mesh import cancelled."));
+            return;
+        } else {
+            requireAbsentDestination = false;
+            overwriteApproved = true;
         }
     }
 
-    // ── Parse + build on a worker ────────────────────────────────────────
-    // Same split as the file-open path (SWMMVis::attachMesh2DLayersAsync):
-    // parsing and the light scene-geometry build are the expensive halves and
-    // must not freeze the GUI on a multi-million-triangle mesh.
-    struct ImportOutcome {
-        SWMM2DMeshLayer *layer = nullptr;
-        QString errorMsg;
-        QString warning;
-        int     nVerts = 0;
-        int     nTris  = 0;
-    };
+    ProjectSaveOutputs::DestinationState approvedDestination;
+    QString destinationError;
+    if (!ProjectSaveOutputs::captureDestination(meshPath, &approvedDestination, &destinationError)) {
+        fail(destinationError);
+        return;
+    }
+    if (requireAbsentDestination && approvedDestination.fingerprint != QStringLiteral("absent")) {
+        fail(tr("The import destination appeared while choosing a name: %1. Import again.").arg(meshPath));
+        return;
+    }
+    if (overwriteApproved && (approvedDestination.resolvedPath != promptDestination.resolvedPath
+                             || approvedDestination.fingerprint != promptDestination.fingerprint)) {
+        fail(tr("The import destination changed while confirming replacement: %1. Import again.").arg(meshPath));
+        return;
+    }
 
-    // Receiver is `this` and the watcher is our child, so the handler cannot
-    // outlive the window; only the canvas/model teardown order is guarded below.
-    auto *watcher = new QFutureWatcher<ImportOutcome>(this);
-    connect(watcher, &QFutureWatcherBase::finished, this,
-            [this, watcher, meshPath, copied]() {
+    struct ImportOutcome {
+        mesh::InpMeshReadResult read;
+        std::shared_ptr<GeneratedMeshArtifacts> artifacts;
+        QString errorMsg;
+    };
+    auto *watcher = new QFutureWatcher<ImportOutcome>(operation);
+    connect(watcher, &QFutureWatcherBase::finished, operation,
+            [this, watcher, operation, guards, cancelled, serial, ownerModel, ownerCanvas,
+             ownerEngine, modelPath, revision, meshPath, needsSaveAsRebase]() {
         ImportOutcome out;
         try {
-            out = watcher->result();
+            auto future = watcher->future();
+            out = future.takeResult();
         } catch (const std::exception &e) {
-            out.errorMsg = tr("Reading the 2D mesh failed: %1")
-                               .arg(QString::fromUtf8(e.what()));
+            out.errorMsg = tr("Reading the 2D mesh failed: %1").arg(QString::fromUtf8(e.what()));
+        } catch (...) {
+            out.errorMsg = tr("Reading the 2D mesh failed.");
         }
-        watcher->deleteLater();
-
-        if (!out.layer) {
-            // A copy we made is worthless without a parseable mesh behind it.
-            if (copied) QFile::remove(meshPath);
+        for (const auto &connection : guards) disconnect(connection);
+        operation->deleteLater();
+        const bool current = !cancelled->load() && !mClosing && serial == mMeshImportSerial
+            && ownerModel && ownerCanvas && mModelLayer == ownerModel && canvas() == ownerCanvas
+            && ownerModel->engine() == ownerEngine && ownerModel->modelFilePath() == modelPath
+            && ownerModel->editRevision() == revision;
+        if (!current) {
+            emit meshImportFinished(false,
+                tr("2D mesh import discarded because the project changed, closed, or a newer import started."),
+                QString());
+            return;
+        }
+        if (!out.read.hasMesh || !out.artifacts) {
             emit meshImportFinished(false, out.errorMsg, QString());
             return;
         }
-        if (!canvas() || !mModelLayer) {   // project torn down mid-parse
-            delete out.layer;
+
+        // No QObject crosses the worker boundary. The future owns only data
+        // and private files, so an abandoned result releases its whole job.
+        std::unique_ptr<SWMM2DMeshLayer> prepared;
+        try {
+            prepared = std::make_unique<SWMM2DMeshLayer>(std::move(out.read.mesh), meshPath,
+                                                        nullptr, /*deferHeavyGeometry=*/true);
+            prepared->setExternalMesh(true);
+            prepared->setMeshUnitsSI(mesh::unitsHeaderIsSI(out.read.unitsHeader));
+            prepared->setOwnsGeneratedTopology(true);
+            prepared->setPreservesImportedSections(true);
+            prepared->setImportNeedsSaveAsRebase(needsSaveAsRebase);
+            prepared->setGeneratedArtifacts(std::move(out.artifacts));
+            prepared->setActiveMesh(true);
+            prepared->setName(QFileInfo(meshPath).fileName());
+            if (out.read.edgeBCs.size() == mesh::edgeSlotCount(prepared->triangleCount()))
+                prepared->edgeBCsMutable() = std::move(out.read.edgeBCs);
+            if (ownerModel->srs())
+                prepared->setSRS(new SpatialReferenceSystem(*ownerModel->srs(), prepared.get()), true);
+        } catch (const std::exception &e) {
+            emit meshImportFinished(false, tr("Preparing the imported mesh failed: %1")
+                .arg(QString::fromUtf8(e.what())), QString());
+            return;
+        } catch (...) {
+            emit meshImportFinished(false, tr("Preparing the imported mesh failed."), QString());
             return;
         }
+        auto *meshLayer = prepared.get();
 
-        SWMM2DMeshLayer *meshLayer = out.layer;
-
-        // The imported mesh becomes the active one — that is what the save
-        // path retargets [2D_MESH_FILE] at. A layer already reading this exact
-        // file is replaced, not stacked, to avoid two working copies of the
-        // same mesh resource with competing edits.
-        const QString canonical = QFileInfo(meshPath).absoluteFilePath();
         QList<SWMM2DMeshLayer *> stale;
-        for (OpenSWMMVisLayer *l : canvas()->layers()) {
-            auto *m = qobject_cast<SWMM2DMeshLayer *>(l);
-            if (!m) continue;
-            m->setActiveMesh(false);
-            if (!m->sourcePath().isEmpty()
-                && QFileInfo(m->sourcePath()).absoluteFilePath() == canonical)
-                stale.append(m);
+        for (OpenSWMMVisLayer *layer : canvas()->layers()) {
+            auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer);
+            if (!mesh) continue;
+            mesh->setActiveMesh(false);
+            if (!mesh->sourcePath().isEmpty()
+                && QFileInfo(mesh->sourcePath()).absoluteFilePath() == meshPath)
+                stale.append(mesh);
         }
-        for (SWMM2DMeshLayer *m : stale) {
-            const int idx = canvas()->layers().indexOf(m);
-            if (idx >= 0)
-                if (OpenSWMMVisLayer *taken =
-                        canvas()->takeLayer(idx, /*pushUndo=*/false))
-                    taken->deleteLater();
+        for (auto *mesh : stale) {
+            const int index = canvas()->layers().indexOf(mesh);
+            if (index >= 0)
+                if (auto *taken = canvas()->takeLayer(index, false)) taken->deleteLater();
         }
-
-        // Mesh coordinates are in the model CRS; the layer reprojects to
-        // canvas CRS. SRS assignment stays on the GUI thread — a QObject
-        // child cannot be created cross-thread.
-        if (mModelLayer->srs())
-            meshLayer->setSRS(
-                new SpatialReferenceSystem(*mModelLayer->srs(), meshLayer),
-                /*ownsSRS=*/true);
-        canvas()->addLayer(meshLayer, /*pushUndo=*/true);
+        canvas()->addLayer(meshLayer, true);
+        prepared.release();
         attachMeshLayer(meshLayer);
         meshLayer->finishSceneGeometryAsync();
-
-        // Mirror the linkage into the engine's in-memory model, or the next
-        // save re-serialises the .inp with mesh_file empty and the model
-        // silently reverts to 1D (same trap the generation dialog documents).
-        if (mModelLayer->engine()) {
-            const QString modelPath = mModelLayer->modelFilePath();
-            const QString ref =
-                (!modelPath.isEmpty()
-                 && QFileInfo(meshPath).absolutePath()
-                        == QFileInfo(modelPath).absolutePath())
-                    ? QFileInfo(meshPath).fileName()
-                    : canonical;
-            swmm_options_set_ext(mModelLayer->engine(), "MESH_FILE",
-                                 ref.toUtf8().constData());
-        }
-
         setHasChanges(true);
 
-        QString msg = tr("Imported 2D mesh %1: %2 vertices, %3 triangles.")
-                          .arg(QFileInfo(meshPath).fileName())
-                          .arg(out.nVerts).arg(out.nTris);
-        if (copied)
-            msg += tr(" Copied into the project folder.");
-        if (!out.warning.isEmpty())
-            msg += QStringLiteral(" ") + out.warning;
-        emit meshImportFinished(true, msg, meshPath);
+        QString message = tr("Imported 2D mesh %1: %2 vertices, %3 cells. Files will be published when the project is saved.")
+            .arg(QFileInfo(meshPath).fileName()).arg(meshLayer->vertexCount()).arg(meshLayer->triangleCount());
+        if (!out.read.warning.isEmpty()) message += QStringLiteral(" ") + out.read.warning;
+        emit meshImportFinished(true, message, meshPath);
     });
 
-    watcher->setFuture(QtConcurrent::run([meshPath]() -> ImportOutcome {
+    launched = true;
+    watcher->setFuture(QtConcurrent::run([sourcePath, meshPath, modelPath, cancelled, approvedDestination]() -> ImportOutcome {
         ImportOutcome out;
-        // A SWMMVis .2dm is section-formatted exactly like the inline mesh
-        // block of an .inp, so the same reader parses it directly. An SMS /
-        // Aquaveo 2DM (ND / E3T / E4Q cards, phase G5 of the tri-quad plan)
-        // is recognised by its cards, parsed by Sms2dmReader (E4Q kept as
-        // quad cells) and CONVERTED in place: the staged copy is rewritten in
-        // the section format, because the engine's [2D_MESH_FILE] reference
-        // must point at a file the engine can read.
-        mesh::InpMeshReadResult read;
-        if (mesh::Sms2dmReader::looksLikeSms2dm(meshPath)) {
-            mesh::MeshResult sms = mesh::Sms2dmReader::read(meshPath, /*splitQuads=*/false);
-            if (!sms.ok) {
-                out.errorMsg = sms.errorMsg;
-                return out;
-            }
-            const QString text = mesh::InpMeshWriter::buildSectionText(
-                sms, mesh::CouplingMap{}, /*defaultMannings=*/0.035);
-            QFile f(meshPath);
-            if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                out.errorMsg = QCoreApplication::translate("SWMMVisProjectWindow",
-                    "Could not rewrite %1 in SWMMVis mesh format.")
-                    .arg(QFileInfo(meshPath).fileName());
-                return out;
-            }
-            f.write(QStringLiteral(";; Converted from SMS 2DM by SWMMVis (E3T -> "
-                                   "[2D_TRIANGLES], E4Q -> [2D_QUADS]).\n").toUtf8());
-            f.write(text.toUtf8());
-            f.close();
-            read.hasMesh = true;
-            read.mesh    = std::move(sms);
-            read.edgeBCs.resize(mesh::edgeSlotCount(read.mesh.triangles.size()));
-            read.warning = QCoreApplication::translate("SWMMVisProjectWindow",
-                "SMS 2DM mesh converted to SWMMVis format (%1 triangles, %2 quads).")
-                .arg(read.mesh.triangles.size() - read.mesh.quadCount())
-                .arg(read.mesh.quadCount());
-        } else {
-            read = mesh::InpMeshReader::read(meshPath);
-        }
-        if (!read.hasMesh) {
-            out.errorMsg = read.errorMsg.isEmpty()
-                ? QCoreApplication::translate("SWMMVisProjectWindow",
-                      "%1 does not contain a SWMMVis 2D mesh — no "
-                      "[2D_VERTICES] / [2D_TRIANGLES] sections were found.")
-                      .arg(QFileInfo(meshPath).fileName())
-                : read.errorMsg;
+        const auto isCancelled = [cancelled] { return cancelled->load(); };
+        const auto error = [](const char *message) {
+            return QCoreApplication::translate("SWMMVisProjectWindow", message);
+        };
+        if (isCancelled()) {
+            out.errorMsg = error("2D mesh import cancelled.");
             return out;
         }
-        out.warning = read.warning;
-
-        const QVector<mesh::MeshEdgeBC> edgeBCs = read.edgeBCs;
-        auto *layer = new SWMM2DMeshLayer(std::move(read.mesh), meshPath,
-                                          /*parent=*/nullptr,
-                                          /*deferHeavyGeometry=*/true);
-        layer->setExternalMesh(true);
-        layer->setMeshUnitsSI(mesh::unitsHeaderIsSI(read.unitsHeader));
-        layer->setActiveMesh(true);
-        layer->setName(QFileInfo(meshPath).fileName());
-        // Deferred build ⇒ the BC slots don't exist yet; size against the
-        // triangle count directly, as the file-open path does.
-        if (edgeBCs.size() == mesh::edgeSlotCount(layer->triangleCount()))
-            layer->edgeBCsMutable() = edgeBCs;
-        out.nVerts = layer->vertexCount();
-        out.nTris  = layer->triangleCount();
-        // Only the owning (worker) thread may push the object across.
-        layer->moveToThread(qApp->thread());
-        out.layer = layer;
+        // A pathless project has no writable project directory yet. Never
+        // require write access beside the user's source dataset just to import.
+        const QString stagingOwner = modelPath.isEmpty()
+            ? QDir(QDir::tempPath()).filePath(QStringLiteral("openswmm-untitled.inp")) : modelPath;
+        auto artifacts = GeneratedMeshArtifacts::create(stagingOwner, &out.errorMsg);
+        if (!artifacts) return out;
+        const QString snapshot = artifacts->reserve(meshPath, QStringLiteral("import.2dm"),
+                                                     &out.errorMsg, ProjectSaveOutputs::Mesh);
+        if (snapshot.isEmpty()) return out;
+        const auto &reservedDestination = artifacts->entries().last().destination;
+        if (reservedDestination.resolvedPath != approvedDestination.resolvedPath
+            || reservedDestination.fingerprint != approvedDestination.fingerprint) {
+            out.errorMsg = error("The import destination changed before preparation: %1. Import again.").arg(meshPath);
+            return out;
+        }
+        if (!artifacts->copySource(sourcePath, snapshot, &out.errorMsg, isCancelled)) return out;
+        const bool sms = mesh::Sms2dmReader::looksLikeSms2dm(snapshot);
+        if (sms) {
+            if (sourcePath == meshPath) {
+                out.errorMsg = error("The source format changed during import. Import the SMS mesh again.");
+                return out;
+            }
+            auto mesh = mesh::Sms2dmReader::read(snapshot, false);
+            if (!mesh.ok) {
+                out.errorMsg = mesh.errorMsg;
+                return out;
+            }
+            out.read.warning = error("SMS 2DM mesh converted to SWMMVis format (%1 triangles, %2 quads).")
+                .arg(mesh.triangles.size() - mesh.quadCount()).arg(mesh.quadCount());
+            QSaveFile converted(snapshot);
+            converted.setDirectWriteFallback(false);
+            const QByteArray text = mesh::InpMeshWriter::buildSectionText(mesh, mesh::CouplingMap{}, 0.035).toUtf8();
+            if (!converted.open(QIODevice::WriteOnly) || converted.write(text) != text.size()
+                || !converted.flush() || !converted.commit()) {
+                out.errorMsg = error("Could not prepare the converted mesh snapshot: %1").arg(converted.errorString());
+                return out;
+            }
+            out.read.mesh = std::move(mesh);
+            out.read.hasMesh = true;
+            out.read.edgeBCs.resize(mesh::edgeSlotCount(out.read.mesh.triangles.size()));
+        } else {
+            // These known file directives cannot travel with a standalone
+            // snapshot: relative paths would gain a different base directory.
+            QFile input(snapshot);
+            if (!input.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                out.errorMsg = error("Could not read the mesh snapshot: %1").arg(input.errorString());
+                return out;
+            }
+            QString section;
+            QTextStream inputText(&input);
+            while (!inputText.atEnd()) {
+                const QString line = inputText.readLine().section(';', 0, 0).trimmed();
+                if (line.startsWith(QLatin1Char('[')) && line.endsWith(QLatin1Char(']')))
+                    section = QLatin1Char('[') + line.mid(1, line.size() - 2).trimmed().toUpper() + QLatin1Char(']');
+                const QString keyword = line.simplified().section(QLatin1Char(' '), 0, 0)
+                    .remove(QLatin1Char('"')).remove(QLatin1Char('\'')).toUpper();
+                const bool qualityFile = keyword == QStringLiteral("FILE")
+                    && (section == QStringLiteral("[GW_INITIAL_QUALITY]")
+                        || section == QStringLiteral("[INITIAL_QUALITY]")
+                        || section == QStringLiteral("[2D_INITIAL_QUALITY]"));
+                const bool outputFile = section == QStringLiteral("[2D_OPTIONS]")
+                    && keyword == QStringLiteral("OUTPUT_FILE");
+                if (section == QStringLiteral("[2D_MESH_FILE]") || qualityFile || outputFile) {
+                    out.errorMsg = error("Cannot import %1 with a nested file reference. Import a standalone mesh with inline data and configure file dependencies in the project.")
+                        .arg(section + (line.startsWith(QLatin1Char('[')) ? QString() : QStringLiteral(" ") + keyword));
+                    return out;
+                }
+            }
+            if (inputText.status() != QTextStream::Ok || input.error() != QFileDevice::NoError) {
+                out.errorMsg = error("Could not read the mesh snapshot: %1").arg(input.errorString());
+                return out;
+            }
+            input.close();
+            out.read = mesh::InpMeshReader::read(snapshot);
+        }
+        if (!out.read.hasMesh) {
+            out.errorMsg = out.read.errorMsg.isEmpty()
+                ? error("%1 does not contain a SWMMVis 2D mesh.").arg(QFileInfo(sourcePath).fileName())
+                : out.read.errorMsg;
+            return out;
+        }
+        if (isCancelled()) {
+            out.errorMsg = error("2D mesh import cancelled.");
+            return out;
+        }
+        artifacts->protectInput(sourcePath, !sms && sourcePath == meshPath ? ProjectSaveOutputs::Mesh : -1);
+        if (!artifacts->seal(&out.errorMsg)) return out;
+        out.artifacts = std::move(artifacts);
         return out;
     }));
 }
@@ -1354,12 +1445,26 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     }
 
     if (errorOut) errorOut->clear();
+    if (!corridorRecipeLoadError().isEmpty()) {
+        if (errorOut) *errorOut = tr("The mesh corridor recipe could not be loaded: %1 "
+                                    "Restore a supported recipe or explicitly regenerate its replacement before saving.")
+                                    .arg(corridorRecipeLoadError());
+        setHasChanges(true);
+        return false;
+    }
     mLastSaveWarnings.clear();
+    ProjectSaveOutputs saveOutputs;
+    // The GIS recipe remains after generated artifacts are released and after
+    // reopening a project. Every Save must protect its original dependencies.
+    for (const auto &source : corridorSources()) {
+        saveOutputs.protect(source.path, -1);
+        for (const auto &file : source.sourceFiles) saveOutputs.protect(file, -1);
+    }
     bool modelWriteStarted = false;
     const auto failSave = [&](const QString &operation, const QString &path,
                               const QString &reason) {
         QString message = tr("Could not %1 at %2: %3.").arg(operation, path, reason);
-        if (modelWriteStarted)
+        if (modelWriteStarted || saveOutputs.recoveryRequired())
             message += tr(" Model files may already have been updated.");
         message += tr(" The project remains unsaved. Keep it open, correct the problem, "
                       "and retry Save.");
@@ -1378,7 +1483,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     stage.start();
     qint64 meshSyncMs = 0, meshReadMs = 0, engineWriteMs = 0;
     qint64 meshPatchMs = 0, meshRefMs = 0, inlinePatchMs = 0,
-           oswpMs = 0;
+           oswpMs = 0, validationMs = 0;
     int dmReads = 0, dmWrites = 0;
 
     // AA-3.3 — pick the writer plugin by matching the path's extension
@@ -1436,6 +1541,43 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                                "supports one edited mesh at a time; it cannot preserve "
                                "edits on inactive meshes. Keep this project open to "
                                "retain those edits").arg(ml->name()));
+    }
+
+    // An imported mesh owns an immutable source snapshot until its first Save.
+    // An untitled project has no final directory yet; bind that destination
+    // here, without changing its draft identity if any part of Save fails.
+    const GeneratedMeshArtifacts::Entry *pendingImportedMesh = nullptr;
+    if (chosenMesh && chosenMesh->preservesImportedSections() && chosenMesh->generatedArtifacts()) {
+        for (const auto &entry : chosenMesh->generatedArtifacts()->entries())
+            if (entry.role == ProjectSaveOutputs::Mesh) pendingImportedMesh = &entry;
+    }
+    GeneratedMeshArtifacts::Entry rebasedImport;
+    const GeneratedMeshArtifacts::Entry *importDestinationOverride = nullptr;
+    const QString originalMeshPath = chosenMesh ? chosenMesh->sourcePath() : QString();
+    bool saveSucceeded = false;
+    const auto restoreImportPath = qScopeGuard([&] {
+        if (!saveSucceeded && importDestinationOverride && chosenMesh)
+            chosenMesh->setSourcePath(originalMeshPath);
+    });
+    if (pendingImportedMesh && chosenMesh->importNeedsSaveAsRebase()) {
+        const QFileInfo original(originalMeshPath);
+        const QDir destinationDirectory = QFileInfo(newPath).absoluteDir();
+        const QString suffix = original.suffix().isEmpty() ? QStringLiteral("2dm") : original.suffix();
+        QString candidate = destinationDirectory.filePath(original.completeBaseName() + QLatin1Char('.') + suffix);
+        int index = 1;
+        while (QFileInfo::exists(candidate) || QFileInfo(candidate).isSymLink())
+            candidate = destinationDirectory.filePath(QStringLiteral("%1_%2.%3")
+                .arg(original.completeBaseName()).arg(index++).arg(suffix));
+        rebasedImport = *pendingImportedMesh;
+        rebasedImport.finalPath = candidate;
+        if (!ProjectSaveOutputs::captureDestination(candidate, &rebasedImport.destination, errorOut))
+            return failSave(tr("prepare the imported mesh destination"), candidate,
+                            errorOut ? *errorOut : tr("the destination cannot be inspected"));
+        if (rebasedImport.destination.fingerprint != QStringLiteral("absent"))
+            return failSave(tr("prepare the imported mesh destination"), candidate,
+                            tr("a file appeared at the new destination; retry Save As"));
+        importDestinationOverride = &rebasedImport;
+        chosenMesh->setSourcePath(candidate);
     }
 
     // Distinct writer roles must never share a destination. Compare file
@@ -1507,6 +1649,12 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         }
     }
 
+    if (chosenMesh && (chosenMesh->ownsGeneratedTopology() || chosenMesh->generatedArtifacts())
+        && (!pluginId.isEmpty()
+            || QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) != 0))
+        return failSave(tr("save generated mesh topology"), newPath,
+                        tr("save this generated mesh as a built-in INP project first"));
+
     if (chosenMesh && chosenMesh->mesh().vertices.isEmpty())
         return failSave(tr("save the active mesh"), chosenMesh->sourcePath(),
                         tr("the selected mesh has no vertices"));
@@ -1551,6 +1699,13 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     if (canvas()) {
         for (SWMM2DMeshLayer *meshLayer : {chosenMesh}) {
             if (!meshLayer) continue;
+            if (meshLayer->ownsGeneratedTopology()) {
+                // Indices can refer to entirely different vertices/cells,
+                // even when counts match. The layer owns full serialization
+                // until the engine is reloaded, including clean repeat Saves.
+                meshLayersPushed.append(meshLayer);
+                continue;
+            }
             // Switching to a clean layer still changes which attributes own
             // the single engine mesh. Do not skip that push on count equality.
             if (meshLayers.size() == 1 && !meshLayer->hasUnsavedMeshEdits()
@@ -1614,6 +1769,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // The engine writes inline during this Save so it
     // cannot overwrite another mesh through a stale or rebased reference.
     QString          extMeshPath;
+    QByteArray externalSnapshot;
     SWMM2DMeshLayer *extMeshLayer = nullptr;
     if (canvas() && pluginId.isEmpty()
         && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"),
@@ -1622,23 +1778,83 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         if (chosenMesh && chosenMesh->isExternalMesh())
         {
             extMeshPath = chosenMesh->sourcePath();
-            if (extMeshPath.isEmpty() || !QFileInfo(extMeshPath).isFile())
+            if (extMeshPath.isEmpty())
                 return failSave(tr("read the external mesh"), extMeshPath,
-                                tr("the mesh file is missing or is not a regular file"));
-            QFile mf(extMeshPath);
-            if (!mf.open(QIODevice::ReadOnly))
-                return failSave(tr("read the external mesh"), extMeshPath, mf.errorString());
-            const QByteArray contents = mf.readAll();
-            ++dmReads;
-            if (mf.error() != QFileDevice::NoError)
-                return failSave(tr("read the external mesh"), extMeshPath, mf.errorString());
-            if (contents.isEmpty())
-                return failSave(tr("read the external mesh"), extMeshPath,
-                                tr("the mesh file is empty"));
+                                tr("the mesh destination is empty"));
+            extMeshPath = QFileInfo(extMeshPath).absoluteFilePath();
+            const bool newGeneratedDestination = chosenMesh->ownsGeneratedTopology()
+                && !QFileInfo::exists(extMeshPath);
+            if (!pendingImportedMesh && !newGeneratedDestination) {
+                if (!QFileInfo(extMeshPath).isFile())
+                    return failSave(tr("read the external mesh"), extMeshPath,
+                                    tr("the mesh file is missing or is not a regular file"));
+                QFile mf(extMeshPath);
+                if (!mf.open(QIODevice::ReadOnly))
+                    return failSave(tr("read the external mesh"), extMeshPath, mf.errorString());
+                externalSnapshot = mf.readAll();
+                ++dmReads;
+                if (mf.error() != QFileDevice::NoError)
+                    return failSave(tr("read the external mesh"), extMeshPath, mf.errorString());
+                if (externalSnapshot.isEmpty() && !chosenMesh->ownsGeneratedTopology())
+                    return failSave(tr("read the external mesh"), extMeshPath,
+                                    tr("the mesh file is empty"));
+            }
             extMeshLayer = chosenMesh;
         }
     }
     meshReadMs = stage.restart();
+
+    QString stagedModelPath = newPath;
+    QString stagedMeshPath = extMeshPath;
+    const QString finalSettingsPath = ProjectSerializer::sidecarPathFor(newPath);
+    QString stagedSettingsPath = finalSettingsPath;
+    if (pluginId.isEmpty()) {
+        if (chosenMesh && chosenMesh->generatedArtifacts())
+            chosenMesh->generatedArtifacts()->protectInputs(saveOutputs);
+        saveOutputs.protect(mModelLayer->modelFilePath(), ProjectSaveOutputs::Model);
+        saveOutputs.protect(ProjectSerializer::sidecarPathFor(mModelLayer->modelFilePath()),
+                            ProjectSaveOutputs::Settings);
+        for (auto *ml : meshLayers) {
+            if (ml->isExternalMesh())
+                saveOutputs.protect(ml->sourcePath(), ProjectSaveOutputs::Mesh);
+        }
+        stagedModelPath = saveOutputs.stage(newPath, ProjectSaveOutputs::Model);
+        if (stagedModelPath.isEmpty())
+            return failSave(tr("stage the model"), newPath, saveOutputs.error());
+        if (!finalSettingsPath.isEmpty()) {
+            stagedSettingsPath = saveOutputs.stage(finalSettingsPath, ProjectSaveOutputs::Settings);
+            if (stagedSettingsPath.isEmpty())
+                return failSave(tr("stage project settings"), finalSettingsPath, saveOutputs.error());
+        }
+        if (!extMeshPath.isEmpty() && !pendingImportedMesh) {
+            stagedMeshPath = saveOutputs.stage(extMeshPath, ProjectSaveOutputs::Mesh);
+            if (stagedMeshPath.isEmpty())
+                return failSave(tr("stage the external mesh"), extMeshPath, saveOutputs.error());
+            QFile stagedMesh(stagedMeshPath);
+            if (!stagedMesh.open(QIODevice::WriteOnly)
+                || stagedMesh.write(externalSnapshot) != externalSnapshot.size()
+                || !stagedMesh.flush())
+                return failSave(tr("stage the external mesh"), extMeshPath, stagedMesh.errorString());
+            stagedMesh.close();
+            ++dmWrites;
+        }
+    }
+    externalSnapshot.clear();
+    if (chosenMesh && chosenMesh->generatedArtifacts()) {
+        QString artifactError;
+        if (!chosenMesh->generatedArtifacts()->prepareSave(saveOutputs, &artifactError, importDestinationOverride))
+            return failSave(tr("prepare pending mesh and terrain outputs"), newPath, artifactError);
+        if (pendingImportedMesh) {
+            stagedMeshPath.clear();
+            for (const auto &output : saveOutputs.preparedOutputs())
+                if (output.role == ProjectSaveOutputs::Mesh && output.finalPath == extMeshPath)
+                    stagedMeshPath = output.stagedPath;
+            if (stagedMeshPath.isEmpty())
+                return failSave(tr("prepare the imported mesh"), extMeshPath,
+                                tr("the import snapshot was not staged for this destination"));
+            ++dmWrites;
+        }
+    }
 
     QByteArray utf8 = newPath.toUtf8();
     QByteArray idUtf8 = pluginId.toUtf8();
@@ -1669,11 +1885,21 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             return failSave(tr("isolate mesh output"), newPath,
                             tr("the engine rejected inline serialization (code %1)").arg(detachRc));
     }
-    modelWriteStarted = true;
-    int rc = swmm_model_write_with_plugin(
-        mModelLayer->engine(),
-        utf8.constData(),
-        pluginId.isEmpty() ? nullptr : idUtf8.constData());
+    // The engine enumerates every physical output, including component
+    // configs and engine-owned meshes, through this synchronous mapper.
+    struct MapperContext { ProjectSaveOutputs *outputs; QByteArray path; } mapper{&saveOutputs, {}};
+    const auto mapOutput = [](void *data, const char *finalPath, int kind) -> const char * {
+        auto &context = *static_cast<MapperContext *>(data);
+        if (kind < ProjectSaveOutputs::Model || kind > ProjectSaveOutputs::Component)
+            return nullptr;
+        context.path = context.outputs->stage(QString::fromUtf8(finalPath),
+            static_cast<ProjectSaveOutputs::Role>(kind), kind == ProjectSaveOutputs::Model).toUtf8();
+        return context.path.isEmpty() ? nullptr : context.path.constData();
+    };
+    modelWriteStarted = !pluginId.isEmpty();
+    const int rc = pluginId.isEmpty()
+        ? swmm_model_write_staged(mModelLayer->engine(), utf8.constData(), mapOutput, &mapper)
+        : swmm_model_write_with_plugin(mModelLayer->engine(), utf8.constData(), idUtf8.constData());
     if (guiOwnsMeshOutput) {
         const int restoreRc = swmm_options_set_ext(mModelLayer->engine(), "MESH_FILE",
                                                    previousMeshReference.constData());
@@ -1701,24 +1927,34 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         QString reason = pluginId.isEmpty()
             ? tr("the built-in writer failed (code %1)").arg(rc)
             : tr("writer %1 failed (code %2)").arg(pluginId).arg(rc);
+        if (!saveOutputs.error().isEmpty()) engineReasons.append(saveOutputs.error());
         if (!engineReasons.isEmpty())
             reason += QStringLiteral(": ") + engineReasons.join(QStringLiteral("; "));
         return failSave(tr("write the model"), newPath, reason);
     }
-    // Publish attributes and boundaries as one complete mesh payload.
-    // The engine's inline output is not the external mesh source: it can
-    // still hold stale topology. This is not a multi-file transaction.
+    // Prepare GUI-owned attributes and boundaries on the staged mesh. The
+    // engine's inline output may contain stale topology and is not its source.
     if (!extMeshPath.isEmpty())
     {
         QString patchErr;
-        if (!mesh::InpMeshWriter::patchMeshSections(
-                extMeshPath, extMeshLayer->mesh(), extMeshLayer->edgeBCs(), &patchErr))
+        mesh::InpMeshWriter::UnitInfo units;
+        units.linearUnitName = extMeshLayer->meshUnitsSI() ? QStringLiteral("SI (m)")
+                                                          : QStringLiteral("project units");
+        const bool replacement = extMeshLayer->ownsGeneratedTopology();
+        if (replacement && !mesh::InpMeshWriter::validateTopologyReplacement(stagedModelPath, &patchErr))
+            return failSave(tr("replace mesh topology"), newPath, patchErr);
+        const bool meshWritten = replacement && !extMeshLayer->preservesImportedSections()
+            ? mesh::InpMeshWriter::replaceMeshSections(stagedMeshPath, extMeshLayer->mesh(),
+                                                       extMeshLayer->edgeBCs(), &patchErr, 0.035, &units)
+            : mesh::InpMeshWriter::patchMeshSections(stagedMeshPath, extMeshLayer->mesh(),
+                                                     extMeshLayer->edgeBCs(), &patchErr);
+        if (!meshWritten)
             return failSave(tr("save the external mesh"), extMeshPath, patchErr);
         ++dmReads;
         ++dmWrites;
         meshPatchMs = stage.restart();
         QString meshErr;
-        if (!mesh::InpMeshWriter::writeMeshFileRef(newPath, extMeshPath, &meshErr))
+        if (!mesh::InpMeshWriter::writePreparedMeshFileRef(stagedModelPath, extMeshPath, stagedMeshPath, &meshErr))
             return failSave(tr("save the mesh reference"), newPath, meshErr);
         meshRefMs = stage.restart();
     }
@@ -1733,8 +1969,12 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         units.linearUnitName = ml->meshUnitsSI() ? QStringLiteral("SI (m)")
                                                : QStringLiteral("project units");
         QString patchErr;
-        if (!mesh::InpMeshWriter::patchMeshSections(newPath, ml->mesh(), ml->edgeBCs(),
-                                                    &patchErr, 0.035, &units))
+        const bool meshWritten = ml->ownsGeneratedTopology()
+            ? mesh::InpMeshWriter::replaceMeshSections(stagedModelPath, ml->mesh(), ml->edgeBCs(),
+                                                       &patchErr, 0.035, &units)
+            : mesh::InpMeshWriter::patchMeshSections(stagedModelPath, ml->mesh(), ml->edgeBCs(),
+                                                     &patchErr, 0.035, &units);
+        if (!meshWritten)
             return failSave(tr("save the inline mesh"), newPath, patchErr);
     }
     inlinePatchMs = stage.restart();
@@ -1748,10 +1988,9 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // auto-create. Subsequent saves of an existing .oswp are silent.
     if (pluginId.isEmpty())
     {
-        const QString oswpPath = ProjectSerializer::sidecarPathFor(newPath);
+        const QString oswpPath = finalSettingsPath;
         if (!oswpPath.isEmpty())
         {
-            const bool sidecarPreExisted = QFile::exists(oswpPath);
             QString sidecarErr;
             bool sidecarSaved = false;
             {
@@ -1759,31 +1998,42 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                 // but publish the new identity only after the sidecar commits.
                 const QSignalBlocker blocker(mModelLayer);
                 const QString originalPath = mModelLayer->modelFilePath();
+                const QString originalMeshPath = chosenMesh ? chosenMesh->sourcePath() : QString();
                 const auto restorePath = qScopeGuard([&] {
                     mModelLayer->setModelFilePath(originalPath);
+                    if (chosenMesh) chosenMesh->setSourcePath(originalMeshPath);
                 });
                 mModelLayer->setModelFilePath(newPath);
-                sidecarSaved = ProjectSerializer::saveToFile(oswpPath, this, &sidecarErr);
+                if (chosenMesh && !chosenMesh->isExternalMesh()) chosenMesh->setSourcePath(newPath);
+                sidecarSaved = ProjectSerializer::saveToFile(stagedSettingsPath, this, &sidecarErr);
             }
             if (!sidecarSaved)
             {
-                const QString msg = tr("Project settings could not be saved to %1: %2. "
-                                       "The model file may already have been updated. "
-                                       "The project remains unsaved; correct the problem and retry Save.")
-                                        .arg(oswpPath, sidecarErr);
-                if (errorOut) *errorOut = msg;
-                qWarning().noquote() << msg;
-                setHasChanges(true);
-                return false;
-            }
-            else if (!sidecarPreExisted)
-            {
-                qInfo().noquote()
-                    << QStringLiteral("Creating sibling project file: %1").arg(oswpPath);
+                return failSave(tr("stage project settings"), oswpPath, sidecarErr);
             }
         }
     }
     oswpMs = stage.restart();
+
+    if (pluginId.isEmpty()) {
+        QString validationError;
+        QStringList validationWarnings;
+        const auto *expectedMesh = chosenMesh ? &chosenMesh->mesh() : nullptr;
+        if (!ProjectSaveValidation::validate(saveOutputs, mModelLayer->engine(),
+                &validationError, &validationWarnings,
+                expectedMesh ? expectedMesh->vertices.size() : -1,
+                expectedMesh ? expectedMesh->triangles.size() : -1,
+                expectedMesh ? expectedMesh->quadCount() : -1))
+            return failSave(tr("validate the prepared project"), newPath, validationError);
+        mLastSaveWarnings.append(validationWarnings);
+        validationMs = stage.restart();
+        const bool settingsExisted = QFile::exists(finalSettingsPath);
+        if (!saveOutputs.publish())
+            return failSave(tr("publish the prepared project"), newPath, saveOutputs.error());
+        if (!extMeshPath.isEmpty()) { ++dmReads; ++dmWrites; }
+        if (!finalSettingsPath.isEmpty() && !settingsExisted)
+            qInfo().noquote() << QStringLiteral("Creating sibling project file: %1").arg(finalSettingsPath);
+    }
 
     if (guiOwnsMeshOutput) {
         const QByteArray finalReference = chosenMesh->isExternalMesh()
@@ -1794,6 +2044,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             return failSave(tr("adopt the saved mesh reference"), newPath,
                             tr("the engine rejected the reference (code %1)").arg(refRc));
     }
+
+    if (chosenMesh && !chosenMesh->isExternalMesh()) chosenMesh->setSourcePath(newPath);
 
     // If saved to a new path, point the layer at it so subsequent Save targets the new file.
     if (newPath != mModelLayer->modelFilePath())
@@ -1808,11 +2060,15 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         mModelLayer->setName(QFileInfo(newPath).baseName());
         updateWindowTitle();
     }
+    saveSucceeded = true;
+    if (chosenMesh) chosenMesh->setImportNeedsSaveAsRebase(false);
     setHasChanges(false);
     // Only now that the write is known to have succeeded: a failed save must
     // leave the layers dirty so the next attempt re-pushes them.
-    for (SWMM2DMeshLayer *ml : meshLayersPushed)
+    for (SWMM2DMeshLayer *ml : meshLayersPushed) {
         ml->setMeshEditsSaved();
+        ml->setGeneratedArtifacts({});
+    }
 
     qCInfo(lcSavePerf).nospace()
         << "[save][stages] meshPushed=" << meshLayersPushed.size()
@@ -1824,6 +2080,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         << " meshRef=" << meshRefMs
         << " inlinePatch=" << inlinePatchMs
         << " oswp=" << oswpMs
+        << " validation=" << validationMs
         << " dmReads=" << dmReads
         << " dmWrites=" << dmWrites
         << " total=" << total.elapsed() << " ms";

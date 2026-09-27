@@ -11,6 +11,7 @@
 #define SWMMVISPROJECTWINDOW_H
 
 #include "mesh/channelburnprofile.h"
+#include "mesh/corridorsource.h"
 
 #include <QHash>
 #include <QJsonArray>
@@ -114,14 +115,11 @@ public:
      * \brief Browse-and-load an existing SWMMVis 2D mesh (.2dm) into this
      *        project.
      *
-     * Until now a .2dm could only reach a model by already sitting next to its
-     * .inp (Simulation Options → Mesh only lists siblings of the model file).
-     * This stages a mesh from anywhere on disk: the file is copied next to the
-     * .inp when it lives elsewhere — so the saved `[2D_MESH_FILE]` reference
-     * stays relative and the project remains portable — then parsed and built
-     * on a worker thread and added to the canvas as the ACTIVE external mesh.
-     * That is the layer the save path retargets `[2D_MESH_FILE]` at, so the
-     * import survives save → reopen.
+     * The source is snapshotted and parsed on a worker. SMS conversion writes
+     * only that private snapshot. The source, chosen destination and engine
+     * reference remain unchanged until project Save publishes the import.
+     * A current successful result becomes the ACTIVE external mesh; changed,
+     * closed or superseded projects discard the result and its snapshot.
      *
      * Existing mesh layers are kept (merely deactivated); a layer already
      * reading the destination file is replaced rather than stacked, matching
@@ -385,6 +383,15 @@ public:
     { return mChannelBurn; }
     void setChannelBurnSettings(const mesh::ChannelBurnSettings &s) { mChannelBurn = s; }
 
+    /** Last successfully adopted GIS corridor recipe. Dialog drafts remain
+     *  local until generation succeeds; project Save publishes this state. */
+    [[nodiscard]] const QVector<mesh::CorridorSource> &corridorSources() const
+    { return mCorridorSources; }
+    void setCorridorSources(const QVector<mesh::CorridorSource> &sources)
+    { mCorridorSources = sources; }
+    [[nodiscard]] QString corridorRecipeLoadError() const { return mCorridorRecipeLoadError; }
+    void setCorridorRecipeLoadError(const QString &error) { mCorridorRecipeLoadError = error; }
+
     // ── Terrain editing ──────────────────────────────────────────────────────
 
     /*! Returns the file path of the active terrain raster (empty if none). */
@@ -459,10 +466,10 @@ signals:
      *  log panel and escalates the data-loss family to a modal. */
     void saveCompletedWithEngineWarnings(const QStringList &warnings);
     /*! Completion signal for importMeshFileAsync(): fired exactly once per
-     *  call, on the GUI thread. \p meshPath is the file the new layer reads
-     *  (the copy inside the project folder, when one was made) and is empty
-     *  on failure. \p message is user-facing (an error, or a summary plus any
-     *  reader warning). */
+     *  call while the window survives, on the GUI thread. \p meshPath is the
+     *  intended destination (published only by Save), and is empty on failure.
+     *  An untitled project's first Save As may relocate that destination.
+     *  \p message is an error or summary plus any reader warning. */
     void meshImportFinished(bool ok, const QString &message,
                             const QString &meshPath);
 
@@ -535,6 +542,7 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    friend class TestMeshImport;
     void updateWindowTitle();
     void repositionMeasurePanel();
     void updateMeasureUnitCombo();
@@ -561,10 +569,13 @@ private:
     bool                 mUntitled            = false;  // Slice Y — never saved
     bool                 mClosePromptActive   = false;  // re-entrancy guard for closeEvent's prompt
     bool                 mClosing             = false;  // see isClosing()
+    quint64              mMeshImportSerial     = 0;      // only the latest import may be adopted
     QStringList          mLastSaveWarnings;   // delta across the last successful engine write
     QString              mEngineVersion       = "6.0.0";  // Default to newest version
     QString              mNotesHtml;                      // [TITLE] notes (rich HTML)
     mesh::ChannelBurnSettings mChannelBurn;               // Channel burn-in tab state
+    QVector<mesh::CorridorSource> mCorridorSources;        // adopted GIS corridor recipe
+    QString mCorridorRecipeLoadError;                    // prevents overwriting an unsupported recipe
     QJsonArray           mPending2DResultsRestore;        // .oswp 2D results entries
 
     OpenSWMMVisMapToolPan         *mPanTool           = nullptr;
