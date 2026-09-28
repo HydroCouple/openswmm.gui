@@ -4,6 +4,10 @@
 #include <QProcess>
 #include <QTest>
 #include <cstdlib>
+#ifdef Q_OS_UNIX
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 #include "projectsaveoutputstestaccess.h"
 
@@ -186,6 +190,34 @@ private slots:
         QVERIFY(!error.isEmpty());
         QVERIFY(state.resolvedPath.isEmpty());
         QVERIFY(!ProjectSaveOutputs::captureDestination({}, &state, &error));
+    }
+    // The engine writer publishes by renaming its own temporary over the staged
+    // path. A staging handle left open (QTemporaryFile::close() keeps it) made
+    // that rename fail on Windows with "Access is denied".
+    void stagedPathIsReplaceableByRename() {
+        const QString dir = fixture("staged-rename");
+        ProjectSaveOutputs outputs;
+        QVERIFY(put(dir + "/model.inp", "old"));
+        const QString staged = outputs.stage(dir + "/model.inp", ProjectSaveOutputs::Model);
+        QVERIFY2(!staged.isEmpty(), qPrintable(outputs.error()));
+#ifdef Q_OS_UNIX
+        struct stat target {};
+        QVERIFY(::stat(QFile::encodeName(staged).constData(), &target) == 0);
+        for (int fd = 0; fd < ::getdtablesize(); ++fd) {
+            struct stat open {};
+            if (::fstat(fd, &open) == 0)
+                QVERIFY2(!(open.st_dev == target.st_dev && open.st_ino == target.st_ino),
+                         "a descriptor still holds the staged file");
+        }
+#endif
+        const QString writer = dir + "/.writer-temp";
+        QVERIFY(put(writer, "new"));
+        std::error_code ec;
+        std::filesystem::rename(writer.toStdWString(), staged.toStdWString(), ec);
+        QVERIFY2(!ec, ec.message().c_str());
+        QVERIFY2(outputs.publish(), qPrintable(outputs.error()));
+        QCOMPARE(read(dir + "/model.inp"), QByteArray("new"));
+        QVERIFY(!QFileInfo::exists(staged));
     }
     void auxiliaryPublication() {
         const QString dir = fixture("auxiliary-publish");
