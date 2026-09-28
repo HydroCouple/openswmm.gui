@@ -8,6 +8,7 @@
  */
 #include "ui/dialogs/dialogregistry.h"
 
+#include <QApplication>
 #include <QByteArray>
 #include <QDialog>
 #include <QEvent>
@@ -140,6 +141,9 @@ QList<QPointer<QDialog>> DialogRegistry::openDialogs() const
 
 void DialogRegistry::raiseAllInOrder()
 {
+    // A queued restack must not cover a modal prompt opened in the meantime.
+    if (QApplication::activeModalWidget())
+        return;
     // Least-recently-used first so the most recent finishes on top.
     const QList<QPointer<QDialog>> dialogs = openDialogs();
     for (const QPointer<QDialog> &d : dialogs) {
@@ -150,7 +154,7 @@ void DialogRegistry::raiseAllInOrder()
 
 void DialogRegistry::scheduleRestack()
 {
-    if (mMode != StackingMode::QtRaiseOnActivate || mRestackQueued)
+    if (mRestackQueued)
         return;
     mRestackQueued = true;
     // Deferred: raising inside an activation event can generate further
@@ -170,13 +174,19 @@ bool DialogRegistry::eventFilter(QObject *watched, QEvent *event)
     case QEvent::Show:
         // Showing counts as using: a new dialog lands on top, and a re-shown
         // one returns to the front rather than under its older siblings.
-        if (QDialog *dlg = trackableDialog(watched))
+        if (QDialog *dlg = trackableDialog(watched)) {
             trackOrPromote(dlg);
+            scheduleRestack();
+        }
         break;
 
     case QEvent::WindowActivate:
         if (QDialog *dlg = trackableDialog(watched)) {
             trackOrPromote(dlg);   // MRU: clicking a dialog moves it to the end
+            // Keep the other open plots above the main window too. Raising
+            // only the active dialog can bury its siblings, including with
+            // macOS native child-window stacking.
+            scheduleRestack();
         } else if (auto *w = qobject_cast<QWidget *>(watched)) {
             // A non-dialog ordinary window took focus — in practice the main
             // window. Re-assert dialog stacking so a click on the map cannot
@@ -185,7 +195,8 @@ bool DialogRegistry::eventFilter(QObject *watched, QEvent *event)
             // Qt::Window specifically: menus, popups and tooltips are also
             // top-level widgets and activate constantly, and restacking on
             // every menu open would be both pointless and visibly jumpy.
-            if (w->isWindow() && w->windowType() == Qt::Window)
+            if (mMode == StackingMode::QtRaiseOnActivate
+                && w->isWindow() && w->windowType() == Qt::Window)
                 scheduleRestack();
         }
         break;
@@ -195,7 +206,8 @@ bool DialogRegistry::eventFilter(QObject *watched, QEvent *event)
         // ApplicationActivate event type is gone). Re-assert dialog stacking
         // after an app switch, which is where the native attachment used to
         // do the work.
-        if (QGuiApplication::applicationState() == Qt::ApplicationActive)
+        if (mMode == StackingMode::QtRaiseOnActivate
+            && QGuiApplication::applicationState() == Qt::ApplicationActive)
             scheduleRestack();
         break;
 
