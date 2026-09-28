@@ -19,6 +19,7 @@
 #include "plot/chartproperties.h"
 #include "ui/dialogs/chartpropertiesdialog.h"
 #include "ui/dialogs/comparisonpairsdialog.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
 #include "ui/widgets/interactivechartview.h"
 #include "ui/widgets/rangeslider.h"
 #include "ui/widgets/seriesstyleeditor.h"
@@ -78,7 +79,7 @@ using namespace openswmmvis::plot;
 // ---------------------------------------------------------------------------
 
 ComparisonPlotDialog::ComparisonPlotDialog(QWidget *parent)
-    : QDialog(parent),
+    : QDialog(parent, floatingPanelFlags()),
       m_model(std::make_unique<ComparisonPlotModel>())
 {
     setWindowTitle(tr("Comparison Plot"));
