@@ -149,13 +149,20 @@ public:
             if (ancestor == parent.absolutePath()) { error_ = QStringLiteral("No staging directory for %1").arg(finalPath); return {}; }
             parent = QDir(ancestor);
         }
-        auto file = std::make_unique<QTemporaryFile>(parent.filePath(QStringLiteral(".openswmm-stage-XXXXXX")));
-        if (!file->open()) {
-            error_ = QStringLiteral("Cannot stage %1: %2").arg(finalPath, file->errorString());
-            return {};
+        std::unique_ptr<StagedFile> file;
+        {
+            // QTemporaryFile::close() keeps its handle open, and on Windows that
+            // handle blocks writers from renaming their output over the staged
+            // path. Let it go out of scope to release it; StagedFile owns removal.
+            QTemporaryFile temporary(parent.filePath(QStringLiteral(".openswmm-stage-XXXXXX")));
+            if (!temporary.open()) {
+                error_ = QStringLiteral("Cannot stage %1: %2").arg(finalPath, temporary.errorString());
+                return {};
+            }
+            temporary.setAutoRemove(false);
+            file = std::make_unique<StagedFile>(temporary.fileName());
         }
         const QString stagedPath = file->fileName();
-        file->close();
         DestinationState current;
         if (!captureDestination(finalPath, &current, &error_)) return {};
         if (expected && (current.resolvedPath != expected->resolvedPath || current.fingerprint != expected->fingerprint)) {
@@ -329,8 +336,18 @@ private:
     }
     struct Protected { QString path; int allowedRole; };
     struct ProtectedDirectory { QString path, resolvedPath; };
+    // A uniquely named staging file with no open handle, removed on destruction.
+    struct StagedFile {
+        explicit StagedFile(QString path) : path_(std::move(path)) {}
+        ~StagedFile() { QFile::remove(path_); }
+        StagedFile(const StagedFile &) = delete;
+        StagedFile &operator=(const StagedFile &) = delete;
+        const QString &fileName() const { return path_; }
+    private:
+        QString path_;
+    };
     struct Entry {
-        QString finalPath; Role role; std::unique_ptr<QTemporaryFile> file;
+        QString finalPath; Role role; std::unique_ptr<StagedFile> file;
         QString physicalPath, oldHash;
     };
     struct Record { QString path, oldHash, newHash; int permissions = 0; };
