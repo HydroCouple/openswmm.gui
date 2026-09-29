@@ -122,9 +122,17 @@ Qsg2DLodDecision Qsg2DLodPolicy::decide(const Qsg2DLodInputs &in)
                                  && d.avgCellAreaPx >= in.edgeMinCellAreaPx;
         d.drawVertexMarkers    = in.wantVertexMarkers
                                  && d.avgCellAreaPx >= in.markerMinCellAreaPx;
-        d.drawContours         = false;
+        // Contour bands/isolines derive from the layer's STATIC
+        // classification range and are pan/zoom-invariant (cached or
+        // async-built once per frame/geometry); band boundaries are macro
+        // features that stay legible when individual cells are subpixel.
+        // Vetoing them here made contour rendering zoom-dependent — bands
+        // and isolines only appeared once the view crossed into Mid — so
+        // they now draw at Far too. Labels stay Mid/Near: screen-space
+        // label placement is pure clutter at Far densities.
+        d.drawContours         = in.wantContours;
         d.drawContourLabels    = false;
-        d.exactContourBands    = false;
+        d.exactContourBands    = true;
         // Screen-space SAMPLED glyphs stay bounded at any zoom, so the
         // velocity overlay survives Far; only the one-glyph-per-cell dense
         // mode is banned (million-scale noise).
