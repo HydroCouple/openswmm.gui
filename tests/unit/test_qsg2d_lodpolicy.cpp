@@ -71,7 +71,10 @@ TEST(Qsg2DLodPolicyTest, MillionCellsAtFullExtentIsFarWithDensePassesOff)
     // so it survives Far — only the dense per-cell mode is banned.
     EXPECT_TRUE(d.drawVelocityVectors);
     EXPECT_FALSE(d.denseVelocityAllowed);
-    EXPECT_FALSE(d.exactContourBands);
+    // Contour bands/isolines follow the static classification range and
+    // must render identically at every zoom — Far no longer vetoes them.
+    EXPECT_TRUE(d.drawContours);
+    EXPECT_TRUE(d.exactContourBands);
     EXPECT_EQ(d.maxContourLabels, 0);
 }
 

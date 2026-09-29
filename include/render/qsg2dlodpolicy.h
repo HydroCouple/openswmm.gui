@@ -10,8 +10,10 @@
  * decide() maps (viewport, extent, mesh density, sublayer intents) to a
  * bucket plus per-pass visibility decisions:
  *
- *   Far  — aggregate/overview-style fill only; no dense wireframe, vertex
+ *   Far  — aggregate/overview-style fill; no dense wireframe, vertex
  *          markers, contour labels, or dense per-cell velocity glyphs.
+ *          Contour bands/isolines still draw — they follow the layer's
+ *          static classification range and must not depend on zoom.
  *   Mid  — exact fill; contours/vectors allowed with caps; edges only when
  *          cells are big enough for a wireframe to read.
  *   Near — exact everything the user asked for.
@@ -108,9 +110,12 @@ struct Qsg2DLodDecision
      *  the layer has one) instead of exact per-cell geometry. */
     bool useAggregateFill = false;
 
-    /*! Exact marching-triangles contour BANDS allowed (Mid/Near). At Far
-     *  the renderers fall back to flat per-cell classification, which is
-     *  visually identical once cells are subpixel. */
+    /*! Exact marching-triangles contour BANDS allowed. True at every
+     *  bucket: band geometry follows the layer's static classification
+     *  range and is pan/zoom-invariant, so gating it on zoom made the
+     *  rendered bands change as the user zoomed (bands appeared only at
+     *  Mid/Near). Kept as a decision output so a future density veto has
+     *  one place to live. */
     bool exactContourBands = false;
 
     /*! Dense one-glyph-per-cell velocity mode allowed (Near + under cap).

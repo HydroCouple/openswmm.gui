@@ -1113,10 +1113,11 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                     }
                 };
 
-                // Exact marching-triangles bands only at Mid/Near (Phase 3):
-                // at Far the cells are subpixel and the flat per-cell
-                // classification is visually identical at a fraction of the
-                // cost.
+                // Exact marching-triangles bands at every bucket: the band
+                // set follows the layer's static classification range, so
+                // it must not change as the user zooms (exactContourBands
+                // is now true Far..Near; the flag remains the single hook
+                // for any future density veto).
                 const bool smooth =
                     (!bs || bs->smoothBands()) && lod.exactContourBands;
                 if (smooth) {

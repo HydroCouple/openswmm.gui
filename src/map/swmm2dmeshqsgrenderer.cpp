@@ -1061,9 +1061,10 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         }
 
         // ---- Pass 4: filled iso-bands (ContourBandSublayer) --------------
-        // Phase 3 LOD: suppressed at Far — a 1M-triangle marching pass has
-        // no visible payoff when cells are subpixel; the overview fill
-        // carries the terrain look there.
+        // Drawn at every LOD bucket: the bands follow the static elevation
+        // classification and are cached pan/zoom-invariant below, so they
+        // must not appear/disappear with zoom (exactContourBands is now
+        // true Far..Near; the flag remains the hook for a future veto).
         const bool bandsVisible = bandSub && bandSub->isVisible()
                                   && lod.exactContourBands;
         if (hasElev && bandsVisible) {
