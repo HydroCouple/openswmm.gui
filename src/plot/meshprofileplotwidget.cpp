@@ -8,6 +8,7 @@
 #include "ui/theme/themetokens.h"
 
 #include "plot/meshprofileinterp.h"
+#include "layers/cellwatergeometry.h"
 #include "plot/meshprofileplotoptions.h"
 
 #include <QFontMetricsF>
@@ -111,12 +112,15 @@ void MeshProfilePlotWidget::setProfile(const MeshProfileSampler::MeshProfile &pr
 }
 
 void MeshProfilePlotWidget::setCurrentDepths(const QVector<double> &depthNow,
-                                             const QVector<bool> &cellHasSurface)
+                                             const QVector<bool> &cellHasSurface,
+                                             const QVector<double> &signedDepths)
 {
     if (depthNow.size() != m_profile.samples.size()) return;
     const bool withFlags = cellHasSurface.size() == depthNow.size();
     for (int i = 0; i < depthNow.size(); ++i) {
         m_profile.samples[i].depthNow = depthNow[i];
+        if (signedDepths.size() == depthNow.size())
+            m_profile.samples[i].signedDepthNow = signedDepths[i];
         if (withFlags)
             m_profile.samples[i].cellHasSurface = cellHasSurface[i];
     }
@@ -368,6 +372,19 @@ bool MeshProfilePlotWidget::sampleAtChainage(double chain, double &ground, doubl
 {
     const auto &s = m_profile.samples;
     if (s.isEmpty()) return false;
+    if (m_profile.exactWaterGeometry) {
+        for (int i = 1; i < s.size(); ++i) {
+            const auto& a = s[i-1]; const auto& b = s[i];
+            if (b.breakBefore || chain < a.chainage || chain > b.chainage
+                || !finiteGround(a) || !finiteGround(b)) continue;
+            const double t = (chain-a.chainage)/(b.chainage-a.chainage);
+            ground = a.ground + t*(b.ground-a.ground);
+            const double q = a.signedDepthNow + t*(b.signedDepthNow-a.signedDepthNow);
+            wse = ground + std::max(0.0,q);
+            return true;
+        }
+        return false;
+    }
     // Find the bracketing samples and linearly interpolate ground + depth.
     for (int i = 1; i < s.size(); ++i) {
         if (chain > s[i].chainage) continue;
@@ -700,14 +717,16 @@ void MeshProfilePlotWidget::paintSoilFill(QPainter &p) const
     p.setPen(Qt::NoPen);
     p.setBrush(brush);
     // Build per-run polygons (split at off-mesh NaN gaps) from the ground
-    // line down to the plot floor.
+    // line down to the plot floor. Rasterize the compound fill once so
+    // adjoining cell edges do not blend against the background separately.
+    QPainterPath path;
+    path.setFillRule(Qt::WindingFill);
     int i = 0;
     while (i < s.size()) {
         if (!finiteGround(s[i])) { ++i; continue; }
         int j = i;
-        QPainterPath path;
         path.moveTo(dataToPixel(s[i].chainage, s[i].ground));
-        while (j < s.size() && finiteGround(s[j])) {
+        while (j < s.size() && finiteGround(s[j]) && (j == i || !s[j].breakBefore)) {
             path.lineTo(dataToPixel(s[j].chainage, s[j].ground));
             ++j;
         }
@@ -715,18 +734,58 @@ void MeshProfilePlotWidget::paintSoilFill(QPainter &p) const
         path.lineTo(QPointF(dataToPixel(s[last].chainage, 0).x(), r.bottom()));
         path.lineTo(QPointF(dataToPixel(s[i].chainage, 0).x(),    r.bottom()));
         path.closeSubpath();
-        p.drawPath(path);
         i = j;
     }
+    p.drawPath(path);
     p.restore();
 }
 
 namespace {
-// Generic wet-band painter: fills the band ground→top and (optionally) strokes
-// the top polyline, over each contiguous run of the bridged "paint top" series.
-// MeshProfileInterp::bridgedTops renders shallow films and bridges dry gaps
-// between wet runs with a no-upstream-flow-constrained surface (see header), so
-// partially-wet saddle cells no longer chop the water surface into fragments.
+// Clip each cell interval independently, then rasterize one compound fill.
+// Shared edges cancel without alpha seams; dry intervals remain gaps.
+void paintExactWetBand(QPainter& p, const QVector<MeshProfileSampler::Sample>& s,
+                       bool maximum, const QBrush& fill, bool doFill,
+                       const QPen& line, bool doLine,
+                       const std::function<QPointF(double,double)>& toPx)
+{
+    p.save();
+    QPainterPath waterLine;
+    QPainterPath waterFill;
+    waterFill.setFillRule(Qt::WindingFill);
+    for (int i = 1; i < s.size(); ++i) {
+        const auto& a = s[i-1]; const auto& b = s[i];
+        if (b.breakBefore || !(b.chainage > a.chainage)
+            || !finiteGround(a) || !finiteGround(b)) continue;
+        const double qa = maximum ? a.signedMaxDepth : a.signedDepthNow;
+        const double qb = maximum ? b.signedMaxDepth : b.signedDepthNow;
+        double lo,hi;
+        if (!CellWaterGeometry::wetInterval(qa,qb,0,lo,hi)) continue;
+        auto ground = [&](double t) { return a.ground+t*(b.ground-a.ground); };
+        auto chain = [&](double t) { return a.chainage+t*(b.chainage-a.chainage); };
+        auto top = [&](double t) { return ground(t)+std::max(0.0,qa+t*(qb-qa)); };
+        const QPointF left = toPx(chain(lo),top(lo)), right = toPx(chain(hi),top(hi));
+        if (doFill) {
+            waterFill.moveTo(left);
+            waterFill.lineTo(right);
+            waterFill.lineTo(toPx(chain(hi),ground(hi)));
+            waterFill.lineTo(toPx(chain(lo),ground(lo)));
+            waterFill.closeSubpath();
+        }
+        if (doLine) {
+            if (waterLine.isEmpty() || QLineF(waterLine.currentPosition(),left).length()>1e-7)
+                waterLine.moveTo(left);
+            waterLine.lineTo(right);
+        }
+    }
+    if (doFill) {
+        p.setPen(Qt::NoPen); p.setBrush(fill); p.drawPath(waterFill);
+    }
+    if (doLine) {
+        p.setPen(line); p.setBrush(Qt::NoBrush); p.drawPath(waterLine);
+    }
+    p.restore();
+}
+
 template <typename TopFn>
 void paintWetBand(QPainter &p,
                   const QVector<MeshProfileSampler::Sample> &s,
@@ -793,6 +852,10 @@ void MeshProfilePlotWidget::paintMaxEnvelope(QPainter &p) const
     const QPen pen = m_options ? m_options->maxEnvelopePen()
                                : QPen(QColor(0x1F, 0x6F, 0xB7), 1.4, Qt::DashLine);
     auto toPx = [this](double c, double e) { return dataToPixel(c, e); };
+    if (m_profile.exactWaterGeometry) {
+        paintExactWetBand(p,m_profile.samples,true,brush,doFill,pen,doLine,toPx);
+        return;
+    }
     paintWetBand(p, m_profile.samples,
                  [](const MeshProfileSampler::Sample &s) { return s.ground + std::max(0.0, s.maxDepth); },
                  brush, doFill, pen, doLine, toPx);
@@ -804,6 +867,10 @@ void MeshProfilePlotWidget::paintDepthFill(QPainter &p) const
     const QBrush brush = m_options ? m_options->depthFillBrush()
                                    : QBrush(QColor(0x55, 0xA8, 0xE6, 120));
     auto toPx = [this](double c, double e) { return dataToPixel(c, e); };
+    if (m_profile.exactWaterGeometry) {
+        paintExactWetBand(p,m_profile.samples,false,brush,true,QPen(Qt::NoPen),false,toPx);
+        return;
+    }
     paintWetBand(p, m_profile.samples,
                  [](const MeshProfileSampler::Sample &s) { return s.ground + std::max(0.0, s.depthNow); },
                  brush, /*doFill=*/true, QPen(Qt::NoPen), /*doLine=*/false, toPx);
@@ -815,6 +882,10 @@ void MeshProfilePlotWidget::paintWseLine(QPainter &p) const
     const QPen pen = m_options ? m_options->wseLinePen()
                                : QPen(QColor(0x1F, 0x6F, 0xB7), 2.0, Qt::SolidLine);
     auto toPx = [this](double c, double e) { return dataToPixel(c, e); };
+    if (m_profile.exactWaterGeometry) {
+        paintExactWetBand(p,m_profile.samples,false,QBrush(Qt::NoBrush),false,pen,true,toPx);
+        return;
+    }
     paintWetBand(p, m_profile.samples,
                  [](const MeshProfileSampler::Sample &s) { return s.ground + std::max(0.0, s.depthNow); },
                  QBrush(Qt::NoBrush), /*doFill=*/false, pen, /*doLine=*/true, toPx);
@@ -833,7 +904,7 @@ void MeshProfilePlotWidget::paintGroundLine(QPainter &p) const
         if (!finiteGround(s[i])) { ++i; continue; }
         QPolygonF run;
         int j = i;
-        while (j < s.size() && finiteGround(s[j])) {
+        while (j < s.size() && finiteGround(s[j]) && (j == i || !s[j].breakBefore)) {
             run << dataToPixel(s[j].chainage, s[j].ground);
             ++j;
         }

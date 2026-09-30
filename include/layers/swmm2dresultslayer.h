@@ -24,7 +24,7 @@
 #include "io/mesh2dh5reader.h"       // openswmmvis::io::CoordinateReference
 #include "layers/openswmmvislayer.h"
 #include "layers/meshspatialgrid.h"
-#include "layers/vertexdepthreconstruct.h"   // VertexDepthReconstruct::CellSplit
+#include "layers/cellwatergeometry.h"
 #include "map/mapextent.h"
 
 #include <ogr_spatialref.h>          // OGRCoordinateTransformation (issue #155)
@@ -41,6 +41,7 @@
 
 #include <array>
 #include <memory>
+#include <limits>
 #include <vector>
 
 class QGraphicsScene;
@@ -824,44 +825,23 @@ public:
      *  canvas-right-click hit test. */
     [[nodiscard]] int pickCellAt(const QPointF& scenePt) const;
 
-    /*! \brief Current-frame water depth (m) at \p scenePt: locates the
-     *  containing cell via \ref pickCellAt and returns its cell-centre depth
-     *  from the live SceneTri buffer. Returns 0 off-mesh / no-frame. Used by
-     *  the mesh-profile cross-section to sample the animated depth column. */
+    // Stored cell-mean depth (SI metres), for consumers that need V/A.
     [[nodiscard]] float depthAtSceneNow(const QPointF& scenePt) const;
-
-    /*! \brief Factor that takes a 2D result DEPTH (engine SI metres — every
-     *  depth accessor on this layer returns metres) into the mesh layer's
-     *  vertical units, so `bed + depth * depthToMeshUnits()` is a valid water
-     *  surface elevation against `SWMM2DMeshLayer::sampleZAt` and the 1D
-     *  profile (project units). 1.0 for a metric project or an SI-tagged mesh;
-     *  1/0.3048 for a US project whose mesh is in feet. Same factor the XY
-     *  coordinates use (the mesh's linear unit is shared by all three axes) —
-     *  see resolveCoordinateScale_ / setFallbackCoordinateScale. */
+    // Convert SI result elevations/depths to the mesh's project units.
     [[nodiscard]] double depthToMeshUnits() const { return resolveCoordinateScale_(); }
 
-    /*! \brief Current-frame water depth (m) at \p scenePt, **barycentrically
-     *  interpolated** from the containing cell's per-vertex depths
-     *  (`dv0/dv1/dv2`) — the same continuous field the marching-triangles
-     *  contour passes render. Mirrors `SWMM2DMeshLayer::sampleZAt`'s
-     *  interpolation so the mesh-profile water-surface line varies smoothly
-     *  across cell boundaries instead of stepping at each cell centre.
-     *  Returns 0 off-mesh / no-frame. */
+    // Smooth VFR display depths, continuous across connected wet edges.
     [[nodiscard]] float depthAtSceneInterp(const QPointF& scenePt) const;
-
-    /*! \brief Barycentrically interpolated current-frame depth (m) at \p scenePt
-     *  when its containing cell index is already known (e.g. the cached
-     *  `Sample::triIdx`), skipping the cell search. Bounds-checks \p triIdx and
-     *  returns 0 when out of range. \ref depthAtSceneInterp is this plus a
-     *  \ref pickCellAt. */
-    [[nodiscard]] float depthAtCellInterp(int triIdx, const QPointF& scenePt) const;
-
-    /*! \brief True when any corner of cell \p triIdx carries a valid free
-     *  surface η this frame (signed per-vertex depth ≠ 0 — the exact-0 value
-     *  is the no-wet-incident-cell NO-DATA sentinel). False out of range.
-     *  Feeds Sample::cellHasSurface so the profile painter bridges only true
-     *  no-data gaps, not genuinely dry ground (see meshprofileinterp.h). */
-    [[nodiscard]] bool cellHasSurface(int triIdx) const;
+    [[nodiscard]] float depthAtCellInterp(int cell, const QPointF& scenePt) const;
+    [[nodiscard]] bool cellHasSurface(int cell) const;
+    [[nodiscard]] double groundAtDisplayTriangle(int tri, const QPointF& p) const;
+    [[nodiscard]] double signedDepthAtDisplayTriangle(int tri, const QPointF& p) const;
+    [[nodiscard]] double signedDepthAtDisplayTriangle(int tri, const QPointF& p,
+        const std::vector<CellWaterGeometry::CornerDepths>& field) const;
+    [[nodiscard]] std::vector<CellWaterGeometry::CornerDepths> maxSurfaceDepths() const;
+    [[nodiscard]] CellWaterGeometry::Surface surfaceForDepth(int cell, double meanDepth) const;
+    [[nodiscard]] QVector<float> maxDepthPerCell() const;
+    [[nodiscard]] quint64 frameRevision() const noexcept { return frame_revision_; }
 
     /*! \brief Barycentrically-interpolated scene-space velocity (m/s) at
      *  \p scenePt, from the per-vertex velocity field reconstructed in
@@ -873,19 +853,10 @@ public:
     [[nodiscard]] bool velocityAtScene(const QPointF& scenePt,
                                        float& outVx, float& outVy) const;
 
-    /*! \brief Per-**vertex** maximum water depth (m), the temporal max of the
-     *  per-frame signed vertex reconstruction over each vertex's incident cells.
-     *  Sized to `vertexCount()`, or empty when no source / no frames. Feeds
-     *  the smooth (barycentric) max-depth envelope on the mesh profile — the
-     *  peer of `dv0/dv1/dv2` for the historical maximum. Build once and pass
-     *  to \ref maxDepthAtSceneInterp. */
+    // Compatibility vertex summary of the smooth temporal envelope.
+    // Separate values are retained internally for disconnected vertex fans.
     [[nodiscard]] QVector<float> maxDepthPerVertex() const;
-
-    /*! \brief Barycentrically interpolated max water depth (m) at \p scenePt
-     *  from a precomputed per-vertex max array \p vertMax (see
-     *  \ref maxDepthPerVertex). Mirrors \ref depthAtSceneInterp so the
-     *  envelope and the water-surface line share one interpolation basis.
-     *  Returns 0 off-mesh. */
+    // Compatibility query; vertMax is ignored in favor of the fan-aware envelope.
     [[nodiscard]] float maxDepthAtSceneInterp(const QPointF& scenePt,
                                               const QVector<float>& vertMax) const;
 
@@ -920,24 +891,11 @@ public:
         QPointF a, b, c;
         QPointF centroid;       ///< Scene-space centroid; cached at rebuildSceneGeometry_.
         float   depth = 0.0f;   ///< Cell-centre depth (m) — drives the heatmap fill.
-        // Per-corner SIGNED depths η−z (m), used by the marching-triangles
-        // contour passes. Recomputed each tick in applyCurrentDepths_() from
-        // the wet-masked vertex free-surface field, so the contour passes see
-        // a continuous scalar across cell boundaries. Without this the
-        // algorithm degenerates (v0==v1==v2 → vMax > vMin is false) and the
-        // contour passes silently skip every triangle.
-        //
-        // Exactly 0 is the NO-DATA sentinel (no wet incident cell) — EXCEPT in
-        // a cell that has at least one wet corner, where the dry corners carry
-        // the extrapolated pooling surface maxEta − z_k (negative where the bed
-        // stands above the pool). That keeps the field LINEAR on the triangle,
-        // which is what the marching passes assume, so they cut the shoreline
-        // on the true sub-cell bed intercept. Per-corner, so these are NOT
-        // interchangeable across the cells sharing a vertex.
-        // (workplans/2D_MAP_POOLING_EXTRAPOLATION_PLAN_2026-08-04.md)
-        float   dv0   = 0.0f;
-        float   dv1   = 0.0f;
-        float   dv2   = 0.0f;
+        // Signed smooth VFR depths, shared on connected wet edges. Negative
+        // values retain dry-side geometry; NaN means no water/invalid data.
+        float   dv0   = std::numeric_limits<float>::quiet_NaN();
+        float   dv1   = std::numeric_limits<float>::quiet_NaN();
+        float   dv2   = std::numeric_limits<float>::quiet_NaN();
         float   vx    = 0.0f;   ///< Scene-space velocity x (m/s; sign flipped to match scene Y).
         float   vy    = 0.0f;   ///< Scene-space velocity y (m/s).
         float   vmag  = 0.0f;   ///< |v| in m/s, computed in model coords.
@@ -1077,18 +1035,14 @@ private:
     std::vector<QPointF>           cellCentroidScene_;          ///< per CELL area centroid, scene space
     std::vector<float>             current_depths_;             ///< per CELL
 
-    // Sub-cell free-surface reconstruction for partial wet/dry rendering. The
-    // engine reports a per-cell mean depth h = V/A under a flat-cell closure;
-    // its free surface is η = z_centroid + h (horizontal at equilibrium). We
-    // reconstruct that η at vertices and carry a SIGNED per-vertex depth so the
-    // wet/dry shoreline cuts through cells instead of snapping to cell edges.
-    // cellZc_ is each cell's centroid bed elevation (static; built once in
-    // rebuildSceneGeometry_); the eta_* vectors are per-frame scratch reused by
-    // applyCurrentDepths_ to avoid per-frame allocation.
-    std::vector<float>             cellZc_;       ///< per-CELL mean bed elev (cellGeom zMean), parallel to cells_
-    std::vector<float>             eta_vsum_;     ///< scratch — per-vertex Σ(weight·η)
-    std::vector<float>             eta_wsum_;     ///< scratch — per-vertex Σ(weight) (depth weight)
-    std::vector<float>             vdepth_;       ///< scratch — per-vertex SIGNED depth (η_v − z_v), current frame
+    std::vector<CellWaterGeometry::Surface> cellSurfaces_;
+    CellWaterGeometry::SmoothTopology surfaceTopology_;
+    std::vector<CellWaterGeometry::CornerDepths> surfaceDepths_;
+    mutable std::vector<CellWaterGeometry::CornerDepths> surfaceMaxCache_;
+    mutable int surfaceMaxFramesDone_ = 0;
+    mutable const IMesh2DSource* surfaceMaxSource_ = nullptr;
+    mutable int surfaceMaxGeneration_ = -1;
+    quint64 frame_revision_ = 0;
 
     // V1 (Issue 5) — per-vertex velocity field, reconstructed each frame in
     // applyCurrentFlux_ as the depth-weighted average of incident cell vectors.
@@ -1124,14 +1078,13 @@ private:
     void scheduleLiveSync_();
     void liveSync_();
 
-    // Incremental per-vertex max-depth envelope (maxDepthPerVertex): frames
-    // already folded in are not re-read on the next call. Keyed on the source
-    // and its history generation; the newest frame is always re-folded.
-    mutable std::vector<float>     vertMaxCache_;
-    mutable std::vector<uint8_t>   vertWetCache_;
-    mutable int                    vertMaxFramesDone_ = 0;
-    mutable const IMesh2DSource*   vertMaxSource_     = nullptr;
-    mutable int                    vertMaxGeneration_ = -1;
+    // Incremental cell-storage maxima, keyed on source/history generation.
+    // Only completed frames are frozen; the replaceable newest frame is
+    // folded into a copy so a same-time update may lower the envelope.
+    mutable std::vector<float>     cellMaxCache_;
+    mutable int                    cellMaxFramesDone_ = 0;
+    mutable const IMesh2DSource*   cellMaxSource_     = nullptr;
+    mutable int                    cellMaxGeneration_ = -1;
     double                         dry_depth_        = 1e-4;  // 0.1 mm — auto-tuned per project
     double                         max_depth_        = 0.01;  // 10 mm — auto-grows from data each tick
     bool                           max_depth_user_set_ = false;

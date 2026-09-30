@@ -61,12 +61,18 @@ ProfileSection::Section makeProfile(double step)
 }
 
 //! Paint one profile and report the rightmost column carrying water fill.
-int waterEdgeColumn(double step, MeshProfilePlotOptions *opts, const QSize &size)
+int waterEdgeColumn(double step, MeshProfilePlotOptions *opts, const QSize &size, bool exact = false)
 {
     MeshProfilePlotWidget w;
     w.setOptions(opts);
     w.resize(size);
-    w.setProfile(makeProfile(step));
+    auto profile = makeProfile(step);
+    profile.exactWaterGeometry = exact;
+    for (auto& sample : profile.samples) {
+        sample.signedDepthNow = kWse - sample.ground;
+        sample.signedMaxDepth = sample.signedDepthNow;
+    }
+    w.setProfile(profile);
 
     QImage img(size, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::white);
@@ -90,6 +96,10 @@ class TestMeshProfileShorelineRender : public QObject
     Q_OBJECT
 private slots:
     void coarseSamplingPaintsTheSameShorelineAsDense();
+    void exactIntervalPaintsAnalyticShoreline();
+    void exactProfileDoesNotBridgeDryGap();
+    void exactFillHasNoCellSeams_data();
+    void exactFillHasNoCellSeams();
 };
 
 void TestMeshProfileShorelineRender::coarseSamplingPaintsTheSameShorelineAsDense()
@@ -124,6 +134,149 @@ void TestMeshProfileShorelineRender::coarseSamplingPaintsTheSameShorelineAsDense
                                        "%2 — the coarse band is still stopping "
                                        "short of the WSE/ground crossing")
                             .arg(coarse).arg(dense)));
+}
+
+void TestMeshProfileShorelineRender::exactIntervalPaintsAnalyticShoreline()
+{
+    MeshProfilePlotOptions opts;
+    opts.setDepthFillBrush(QBrush(QColor(255,0,0)));
+    opts.setShowMaxEnvelopeFill(false);
+    opts.setShowMaxEnvelopeLine(false);
+    opts.setShowWseLine(false);
+    opts.setLegendVisible(false);
+    opts.setShowTimeLabel(false);
+    const QSize size(700,360);
+    const int analytic = waterEdgeColumn(0.05,&opts,size,true);
+    const int interval = waterEdgeColumn(12.0,&opts,size,true);
+    QVERIFY(analytic > 0);
+    QVERIFY(std::abs(analytic-interval) <= 2);
+}
+
+void TestMeshProfileShorelineRender::exactProfileDoesNotBridgeDryGap()
+{
+    MeshProfilePlotOptions opts;
+    opts.setDepthFillBrush(QBrush(QColor(255,0,0)));
+    opts.setShowMaxEnvelopeFill(false);
+    opts.setShowMaxEnvelopeLine(false);
+    opts.setShowWseLine(false);
+    opts.setLegendVisible(false);
+    opts.setShowTimeLabel(false);
+    auto profile = makeProfile(3.0);
+    profile.exactWaterGeometry = true;
+    // Three cell-owned intervals. The middle cell has no water, even though
+    // the two adjacent cells carry the same stage above its bed.
+    profile.samples.clear();
+    for (int cell=0; cell<3; ++cell) {
+        const double endpoints[4] = {0,3,9,12};
+        for (int end=0; end<2; ++end) {
+            ProfileSection::Sample sample;
+            sample.chainage=endpoints[cell+end];
+            sample.ground=kBedSlope*sample.chainage;
+            sample.breakBefore=end==0;
+            sample.signedDepthNow=cell==1 ? std::numeric_limits<double>::quiet_NaN()
+                                          : kWse-sample.ground;
+            sample.depthNow=std::max(0.0,sample.signedDepthNow);
+            sample.maxDepth=sample.depthNow;
+            sample.signedMaxDepth=sample.signedDepthNow;
+            profile.samples.push_back(sample);
+        }
+    }
+    MeshProfilePlotWidget w;
+    w.setOptions(&opts);
+    w.resize(700,360);
+    w.setProfile(profile);
+    QImage image(w.size(),QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::white);
+    w.render(&image);
+    auto waterAt=[&](int x) {
+        for (int y=0;y<image.height();++y) {
+            const auto c=image.pixelColor(x,y);
+            if (c.red()>200 && c.green()<60 && c.blue()<60) return true;
+        }
+        return false;
+    };
+    int first=-1,last=-1,dryColumns=0;
+    for (int x=0;x<image.width();++x)
+        if (waterAt(x)) { if (first<0) first=x; last=x; }
+    QVERIFY(first>=0 && last>first);
+    for (int x=first;x<=last;++x) if (!waterAt(x)) ++dryColumns;
+    QVERIFY2(dryColumns>200,"Water was painted across the dry middle cell");
+    const QString artifactDir=qEnvironmentVariable("VFR_TEST_ARTIFACTS");
+    if (!artifactDir.isEmpty()) QVERIFY(image.save(artifactDir+"/profile-dry-gap.png"));
+
+    QVector<double> zero(profile.samples.size(),0);
+    QVector<double> dry(profile.samples.size(),std::numeric_limits<double>::quiet_NaN());
+    w.setCurrentDepths(zero,{},dry);
+    image.fill(Qt::white);
+    w.render(&image);
+    for (int x=0;x<image.width();++x) QVERIFY(!waterAt(x));
+}
+
+void TestMeshProfileShorelineRender::exactFillHasNoCellSeams_data()
+{
+    QTest::addColumn<int>("pass");
+    QTest::addColumn<int>("alpha");
+    QTest::addColumn<double>("dpr");
+    for (int pass=0;pass<3;++pass)
+        for (int alpha : {120,255})
+            for (double dpr : {1.0,1.5,2.0})
+                QTest::newRow(qPrintable(QString("pass%1-alpha%2-dpr%3").arg(pass).arg(alpha).arg(dpr)))
+                    << pass << alpha << dpr;
+}
+
+void TestMeshProfileShorelineRender::exactFillHasNoCellSeams()
+{
+    QFETCH(int,pass);
+    QFETCH(int,alpha);
+    QFETCH(double,dpr);
+    MeshProfilePlotOptions opts;
+    const QBrush brush(QColor(85,168,230,alpha));
+    opts.setDepthFillBrush(brush); opts.setMaxEnvelopeBrush(brush); opts.setSoilFill(brush);
+    opts.setShowDepthFill(pass==0); opts.setShowMaxEnvelopeFill(pass==1);
+    opts.setShowWseLine(false); opts.setShowMaxEnvelopeLine(false);
+    opts.setGroundLinePen(QPen(Qt::NoPen)); opts.setShowCellBoundaries(false);
+    opts.setLegendVisible(false); opts.setShowTimeLabel(false);
+    auto render=[&](int cells) {
+        ProfileSection::Section profile;
+        profile.hasResults=true; profile.exactWaterGeometry=true;
+        for (int cell=0;cell<cells;++cell)
+            for (int end=0;end<2;++end) {
+                ProfileSection::Sample s;
+                s.chainage=12.0*(cell+end)/cells;
+                s.ground=0.4+0.01*s.chainage;
+                s.signedDepthNow=1.2-0.02*s.chainage-s.ground;
+                s.signedMaxDepth=s.signedDepthNow;
+                s.depthNow=s.maxDepth=s.signedDepthNow;
+                s.breakBefore=end==0;
+                profile.samples.push_back(s);
+            }
+        MeshProfilePlotWidget w;
+        w.setOptions(&opts); w.resize(703,360); w.setProfile(profile);
+        w.setAxisEdgeValue(MeshProfilePlotWidget::AxisEdge::XMinimum,0);
+        w.setAxisEdgeValue(MeshProfilePlotWidget::AxisEdge::XMaximum,12);
+        w.setAxisEdgeValue(MeshProfilePlotWidget::AxisEdge::YMinimum,-0.5);
+        w.setAxisEdgeValue(MeshProfilePlotWidget::AxisEdge::YMaximum,2);
+        QImage image(QSize(qRound(w.width()*dpr),qRound(w.height()*dpr)),QImage::Format_ARGB32_Premultiplied);
+        image.setDevicePixelRatio(dpr); image.fill(Qt::white); w.render(&image);
+        return image;
+    };
+    const QImage reference=render(1), partitioned=render(13);
+    const QString dir=qEnvironmentVariable("VFR_TEST_ARTIFACTS");
+    if (!dir.isEmpty() && pass==0 && alpha==120 && dpr==1.0) {
+        QVERIFY(reference.save(dir+"/profile-seam-reference.png"));
+        QVERIFY(partitioned.save(dir+"/profile-cell-seams.png"));
+    }
+    // Compare fill interiors, away from the physical shoreline/ground edge.
+    // Partitioning identical geometry must not change opacity at cell edges.
+    int maxDifference=0;
+    const int center=pass==2 ? 260 : 170;
+    for (int y=qRound((center-12)*dpr);y<qRound((center+12)*dpr);++y)
+        for (int x=qRound(90*dpr);x<qRound(675*dpr);++x) {
+            const auto a=reference.pixelColor(x,y), b=partitioned.pixelColor(x,y);
+            maxDifference=std::max({maxDifference,std::abs(a.red()-b.red()),
+                std::abs(a.green()-b.green()),std::abs(a.blue()-b.blue())});
+        }
+    QVERIFY2(maxDifference<=1,qPrintable(QString("Cell boundaries changed fill color by %1/255").arg(maxDifference)));
 }
 
 QTEST_MAIN(TestMeshProfileShorelineRender)

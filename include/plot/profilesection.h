@@ -21,6 +21,7 @@
 
 #include <QPointF>
 #include <QVector>
+#include <limits>
 
 namespace ProfileSection
 {
@@ -37,14 +38,15 @@ struct Sample
 {
     double chainage = 0.0;   /*!< cumulative scene-unit distance from start (== map units). */
     double ground   = 0.0;   /*!< terrain Z; NaN when the sample falls off the surface. */
-    double depthNow = 0.0;   /*!< current-frame water depth (m); 0 dry / off-surface / raster. */
-    double maxDepth = 0.0;   /*!< max water depth over the loaded run (m); 0 dry / raster. */
-    int    triIdx   = -1;    /*!< containing results-layer triangle; -1 off-mesh / raster. */
-    bool   cellHasSurface = false; /*!< a corner of triIdx carries a valid free-surface η
-                                        this frame (signed depth ≠ 0). false = NO DATA
-                                        (never-wet cell / off-mesh / raster) — the only
-                                        dry gaps MeshProfileInterp may bridge across. */
+    double depthNow = 0.0;   /*!< current-frame water depth (profile vertical units); 0 dry / off-surface / raster. */
+    double maxDepth = 0.0;   /*!< max water depth over the loaded run (profile vertical units); 0 dry / raster. */
+    int    triIdx   = -1;    /*!< containing results-layer cell; -1 off-mesh / raster. */
+    bool   cellHasSurface = false; /*!< containing cell has a reconstructed water surface. */
     QPointF scenePt;         /*!< scene-space sample location (for per-frame re-sampling). */
+    int displayTriIdx = -1;  // storage triangle, stable for exact profile intervals
+    bool breakBefore = false; // never interpolate from the preceding interval
+    double signedDepthNow = std::numeric_limits<double>::quiet_NaN();
+    double signedMaxDepth = std::numeric_limits<double>::quiet_NaN();
 };
 
 /*!
@@ -70,6 +72,8 @@ struct Section
 {
     QVector<Sample> samples;
     QVector<CellCrossing> crossings;  /*!< cell-edge crossings along the path. */
+    bool exactWaterGeometry = false;
+    quint64 geometryRevision = 0;
     bool hasResults = false;   /*!< true when a results layer with ≥1 frame backed the sampling. */
 };
 
