@@ -51,7 +51,8 @@ public:
      *  \p cellHasSurface (optional, same size) refreshes the frame-dependent
      *  Sample::cellHasSurface flag that gates dry-gap bridging. */
     void setCurrentDepths(const QVector<double> &depthNow,
-                          const QVector<bool> &cellHasSurface = {});
+                          const QVector<bool> &cellHasSurface = {},
+                          const QVector<double> &signedDepths = {});
 
     /*! \brief Binds the styling object (connects changed() → repaint). */
     void setOptions(MeshProfilePlotOptions *options);

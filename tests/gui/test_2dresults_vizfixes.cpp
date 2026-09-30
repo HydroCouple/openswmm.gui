@@ -26,10 +26,20 @@
  * link closure is most of the app. Pure assertions — writes no temp files.
  */
 #include "layers/swmm2dresultslayer.h"
+#include "plot/meshprofilesampler.h"
+#include "plot/meshprofileplotwidget.h"
+#include "plot/meshprofileplotoptions.h"
+#include "map/swmm2dresultsqsgrenderer.h"
+#include "render/sublayers/contourbandsublayer.h"
+#include "render/sublayers/scalarfillsublayer.h"
+#include <QSGGeometryNode>
+#include <QGraphicsScene>
+#include <QPainter>
 
 #include <QDateTime>
 #include <QObject>
 #include <QTest>
+#include <QSignalSpy>
 
 #include <array>
 #include <memory>
@@ -162,12 +172,42 @@ private:
     float m_quadDepth, m_triDepth;
 };
 
+class VfrSource : public IMesh2DSource {
+public:
+    std::vector<double> x{0,1,0,1}, y{0,0,1,1}, z{0,0,4,4};
+    std::vector<std::vector<float>> frames{{0.4921875f,0.0f}};
+    int vertexCount() const override { return int(x.size()); }
+    int triangleCount() const override { return 2; }
+    int timeCount() const override { return int(frames.size()); }
+    bool readMeshGeometry(std::vector<double>& ox,std::vector<double>& oy,
+        std::vector<double>& oz,std::vector<std::array<int,3>>& tris) override {
+        ox=x;oy=y;oz=z;tris={{0,1,2},{1,3,2}};return true;
+    }
+    bool readDepthsAt(int t,std::vector<float>& d) override {
+        if (t<0 || t>=timeCount()) return false;
+        d=frames[size_t(t)];return true;
+    }
+    bool readVertexDepthsAt(int,std::vector<float>& d) override {
+        d.assign(x.size(),100.0f);return true; // deliberately incompatible legacy smoothing
+    }
+    QDateTime simTimeAt(int t) const override {
+        return QDateTime(QDate(2026,1,1),QTime(0,0)).addSecs(t);
+    }
+};
+
 } // namespace
 
 class Test2DResultsVizFixes : public QObject
 {
     Q_OBJECT
 private slots:
+    void cellVfrKeepsDryNeighborsDry();
+    void smoothProfilesAndContoursShareOneSurface();
+    void smoothMaximumContainsEveryFrame();
+    void mapFillsStopAtExactShoreline();
+    void cpuContoursStopAtExactShoreline();
+    void exactProfileIgnoresStationSpacing();
+    void latestFrameReplacementCanReduceEnvelope();
     void edgesAreDeduplicated();
     void liveScrubHoldsFrame();
     void liveSeekToLastReArmsFollow();
@@ -179,6 +219,238 @@ private slots:
     void undeclaredSourceDefaultsToNoScaling();
     void mixedMeshQuadRendersAsFanOfItsCell();
 };
+
+void Test2DResultsVizFixes::smoothProfilesAndContoursShareOneSurface()
+{
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::make_unique<FakeMixedSource>(0.4f,0.2f));
+    const auto profile=MeshProfileSampler::buildMeshProfile(nullptr,&layer,{{0,-0.5},{2,-0.5}},100);
+    QVERIFY(profile.samples.size()>=4);
+    bool slopes=false,sharedEdge=false;
+    for (int i=0;i<profile.samples.size();++i) {
+        const auto& s=profile.samples[i];
+        QVERIFY(std::abs(s.signedDepthNow-layer.signedDepthAtDisplayTriangle(s.displayTriIdx,s.scenePt))<1e-12);
+        QVERIFY(std::abs(s.signedMaxDepth-s.signedDepthNow)<1e-12);
+        if (i==0) continue;
+        const auto& before=profile.samples[i-1];
+        if (s.breakBefore && std::abs(before.chainage-s.chainage)<1e-12) {
+            QVERIFY(std::abs(before.signedDepthNow-s.signedDepthNow)<1e-12);
+            sharedEdge=true;
+        } else if (!s.breakBefore && std::abs(s.signedDepthNow-before.signedDepthNow)>0.01) slopes=true;
+    }
+    QVERIFY2(sharedEdge,"The test must cross a cell boundary");
+    QVERIFY2(slopes,"The water surface is still a series of flat cell plateaus");
+    const double left=layer.depthAtCellInterp(0,{1-1e-7,-0.5});
+    const double right=layer.depthAtCellInterp(1,{1+1e-7,-0.5});
+    QVERIFY2(std::abs(left-right)<1e-6,"Water surface jumps at the shared wet edge");
+    MeshProfilePlotOptions options;
+    options.setShowMaxEnvelopeFill(false);options.setShowMaxEnvelopeLine(false);
+    options.setShowTimeLabel(false);options.setLegendVisible(false);
+    MeshProfilePlotWidget widget;
+    widget.setOptions(&options);widget.resize(800,400);widget.setProfile(profile);
+    const QString dir=qEnvironmentVariable("VFR_TEST_ARTIFACTS");
+    if (!dir.isEmpty()) {
+        QImage image(widget.size(),QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::white);widget.render(&image);
+        QVERIFY(image.save(dir+"/profile-continuous-surface.png"));
+    }
+}
+
+void Test2DResultsVizFixes::smoothMaximumContainsEveryFrame()
+{
+    SWMM2DResultsLayer layer;
+    auto source=std::make_unique<VfrSource>();auto* raw=source.get();
+    source->z.assign(4,0);
+    source->frames={{1.0f,0.0f},{0.0f,0.2f}};
+    layer.setSource(std::move(source));
+    const auto maximum=layer.maxSurfaceDepths();
+    for (int frame=0;frame<2;++frame) {
+        layer.setCurrentTimeIndex(frame);
+        for (int tri=0;tri<2;++tri) {
+            const QPointF p=layer.m_sceneTris[tri].centroid;
+            const double now=layer.signedDepthAtDisplayTriangle(tri,p);
+            const double peak=layer.signedDepthAtDisplayTriangle(tri,p,maximum);
+            if (std::isfinite(now)) QVERIFY(peak>=now-1e-12);
+        }
+    }
+    raw->frames[1][1]=0.05f;
+    const auto reduced=layer.maxSurfaceDepths();
+    QVERIFY(std::abs(reduced[1][0]-0.05)<1e-7);
+    QVERIFY(std::abs(reduced[0][0]-1.0)<1e-12);
+}
+
+void Test2DResultsVizFixes::mapFillsStopAtExactShoreline()
+{
+    class Renderer : public SWMM2DResultsQSGRenderer {
+    public:
+        QSGNode* sync(QSGNode* old=nullptr) { return updatePaintNode(old,nullptr); }
+    };
+    SWMM2DResultsLayer layer;
+    auto source=std::make_unique<VfrSource>(); auto* raw=source.get();
+    layer.setSource(std::move(source));
+    layer.setVisible(true);
+    for (int pass=0;pass<4;++pass) {
+        raw->frames[0][0]=0.4921875f;
+        layer.refreshCurrentFrame();
+        for (auto* sub : layer.sublayers()) sub->setVisible(false);
+        if (pass<2) {
+            layer.contourBandSublayer()->setVisible(true);
+            layer.contourBandSublayer()->bandStyle()->setSmoothBands(pass==0);
+        } else if (pass==2) layer.cellDepthFillSublayer()->setVisible(true);
+        else layer.smoothDepthFillSublayer()->setVisible(true);
+        Renderer renderer;
+        renderer.setWidth(400); renderer.setHeight(400);
+        renderer.setMapExtent(MapExtent(0,0,1,1)); renderer.setLayer(&layer);
+        QSignalSpy ready(&renderer,&SWMM2DResultsQSGRenderer::contentReady);
+        std::unique_ptr<QSGNode> root(renderer.sync());
+        QVERIFY(root);
+        auto measure=[&]() {
+            double area=0,minY=1;
+            for (QSGNode* child=root->firstChild();child;child=child->nextSibling()) {
+                if (child->type()!=QSGNode::GeometryNodeType) continue;
+                const auto* g=static_cast<QSGGeometryNode*>(child)->geometry();
+                if (!g || g->vertexCount()==0 || g->attributeCount()!=2) continue;
+                const auto* v=g->vertexDataAsColoredPoint2D();
+                for (int i=0;i<g->vertexCount();i+=3) {
+                    for (int k=0;k<3;++k) minY=std::min(minY,double(v[i+k].y));
+                    area+=0.5*std::abs(double(v[i+1].x-v[i].x)*(v[i+2].y-v[i].y)
+                        - double(v[i+1].y-v[i].y)*(v[i+2].x-v[i].x));
+                }
+            }
+            return std::make_pair(area,minY);
+        };
+        const double shore=(1.5-layer.dryDepth())/4.0;
+        auto [area,minY]=measure();
+        QVERIFY2(std::abs(minY-(0.5-shore))<1e-6,"Map pass extended uphill past its wet boundary");
+        QVERIFY2(std::abs(area-(shore-0.5*shore*shore))<1e-6,"Map pass filled dry terrain or drew overlapping base water");
+        if (pass==0 && qEnvironmentVariableIntValue("OPENSWMM_QSG_ASYNC_CONTOURS")==1) {
+            QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,5000);
+            root.reset(renderer.sync(root.release()));
+            const auto published=measure();
+            QVERIFY(std::abs(published.first-area)<1e-6);
+            QVERIFY(std::abs(published.second-minY)<1e-6);
+        }
+        // Same timestamp, lower stored volume: the renderer must discard
+        // cached contours even though its time index and ramp are unchanged.
+        raw->frames[0][0]=0.1f;
+        layer.refreshCurrentFrame();
+        root.reset(renderer.sync(root.release()));
+        const auto smaller=measure();
+        QVERIFY(smaller.first<area);
+        QVERIFY(smaller.second>minY);
+        if (pass==0 && qEnvironmentVariableIntValue("OPENSWMM_QSG_ASYNC_CONTOURS")==1) {
+            QTRY_VERIFY_WITH_TIMEOUT(ready.count()>1,5000);
+            root.reset(renderer.sync(root.release()));
+            const auto published=measure();
+            QVERIFY(std::abs(published.first-smaller.first)<1e-6);
+            QVERIFY(std::abs(published.second-smaller.second)<1e-6);
+        }
+    }
+}
+
+void Test2DResultsVizFixes::cpuContoursStopAtExactShoreline()
+{
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::make_unique<VfrSource>());
+    layer.setVisible(true);
+    for (auto* sub : layer.sublayers()) sub->setVisible(false);
+    layer.contourBandSublayer()->setVisible(true);
+    QGraphicsScene scene;
+    layer.populateScene(&scene,MapExtent(0,0,1,1),nullptr);
+    for (bool smooth : {false,true}) {
+        layer.contourBandSublayer()->bandStyle()->setSmoothBands(smooth);
+        QImage image(400,400,QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::transparent);
+        QPainter painter(&image);
+        scene.render(&painter,QRectF(0,0,400,400),QRectF(0,-1,1,1));
+        painter.end();
+        QVERIFY(image.pixelColor(100,320).alpha()>0); // y=.2, wet
+        QCOMPARE(image.pixelColor(100,240).alpha(),0); // y=.4, uphill/dry
+        QCOMPARE(image.pixelColor(360,320).alpha(),0); // dry adjacent cell
+        const QString dir=qEnvironmentVariable("VFR_TEST_ARTIFACTS");
+        if (!dir.isEmpty()) QVERIFY(image.save(dir+(smooth ? "/map-smooth-bands.png" : "/map-flat-bands.png")));
+    }
+    layer.depopulateScene(&scene);
+}
+
+void Test2DResultsVizFixes::cellVfrKeepsDryNeighborsDry()
+{
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::make_unique<VfrSource>());
+    layer.setCurrentTimeIndex(0);
+    const auto& t=layer.m_sceneTris[0];
+    QVERIFY(std::abs(t.dv0-1.5) < 1e-6);
+    QVERIFY(std::abs(t.dv1-1.5) < 1e-6);
+    QVERIFY(std::abs(t.dv2+2.5) < 1e-6);
+    QCOMPARE(layer.depthAtCellInterp(0,{0.3,-0.4}),0.0f);
+    QVERIFY(std::abs(layer.depthAtCellInterp(0,{0.35,-0.3})-0.3) < 1e-6);
+    QVERIFY(!layer.cellHasSurface(1));
+    QVERIFY(std::isnan(layer.m_sceneTris[1].dv0));
+    QCOMPARE(layer.depthAtCellInterp(1,{0.9,-0.2}),0.0f);
+    // The source's incompatible node field (100 m) is deliberately ignored.
+    QVERIFY(layer.maxDepth() < 2.0);
+}
+
+void Test2DResultsVizFixes::exactProfileIgnoresStationSpacing()
+{
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::make_unique<VfrSource>());
+    layer.setCurrentTimeIndex(0);
+    const QVector<QPointF> path{{0.25,0},{0.25,-1}};
+    const auto coarse=MeshProfileSampler::buildMeshProfile(nullptr,&layer,path,100);
+    const auto fine=MeshProfileSampler::buildMeshProfile(nullptr,&layer,path,0.0001);
+    QVERIFY(coarse.exactWaterGeometry);
+    QCOMPARE(coarse.samples.size(),fine.samples.size());
+    QVERIFY(coarse.samples.size() >= 4);
+    bool crossed=false;
+    for (int i=1;i<coarse.samples.size();++i) {
+        const auto& a=coarse.samples[i-1];const auto& b=coarse.samples[i];
+        QCOMPARE(a.chainage,fine.samples[i-1].chainage);
+        if (b.breakBefore) continue;
+        double lo,hi;
+        if (CellWaterGeometry::wetInterval(a.signedDepthNow,b.signedDepthNow,0,lo,hi)) {
+            const double shoreline=a.chainage+hi*(b.chainage-a.chainage);
+            QVERIFY(std::abs(shoreline-0.375) < 1e-6);
+            crossed=true;
+        }
+    }
+    QVERIFY(crossed);
+    const auto offMesh=MeshProfileSampler::buildMeshProfile(nullptr,&layer,{{0.25,0.25},{0.25,-1.25}},100);
+    QCOMPARE(offMesh.samples.first().chainage,0.0);
+    QCOMPARE(offMesh.samples.last().chainage,1.5);
+    QVERIFY(std::isnan(offMesh.samples.first().ground));
+    QVERIFY(std::isnan(offMesh.samples.last().ground));
+    const auto edge=MeshProfileSampler::buildMeshProfile(nullptr,&layer,{{0,-1},{1,0}},100);
+    const auto edgeReverse=MeshProfileSampler::buildMeshProfile(nullptr,&layer,{{1,0},{0,-1}},100);
+    QCOMPARE(edge.samples.size(),2);
+    QCOMPARE(edgeReverse.samples.size(),2);
+    for (int i=0;i<2;++i) {
+        QCOMPARE(edge.samples[i].triIdx,0);
+        QCOMPARE(edgeReverse.samples[i].triIdx,0);
+        QVERIFY(std::abs(edge.samples[i].signedDepthNow-edgeReverse.samples[1-i].signedDepthNow)<1e-12);
+    }
+    const auto reverse=MeshProfileSampler::buildMeshProfile(nullptr,&layer,{{0.25,-1},{0.25,0}},100);
+    QCOMPARE(reverse.samples.size(),coarse.samples.size());
+    for (int i=0;i<coarse.samples.size();++i)
+        QVERIFY(std::abs(coarse.samples[i].ground-reverse.samples[reverse.samples.size()-1-i].ground) < 1e-10);
+}
+
+void Test2DResultsVizFixes::latestFrameReplacementCanReduceEnvelope()
+{
+    SWMM2DResultsLayer layer;
+    auto source=std::make_unique<VfrSource>();auto* raw=source.get();
+    raw->frames={{0.1f,0.0f},{0.8f,0.0f}};
+    layer.setSource(std::move(source));
+    QCOMPARE(layer.maxDepthPerCell()[0],0.8f);
+    raw->frames[1][0]=0.2f;
+    QCOMPARE(layer.maxDepthPerCell()[0],0.2f);
+    const auto before=layer.frameRevision();
+    layer.refreshCurrentFrame();
+    QVERIFY(layer.frameRevision()>before);
+    raw->frames.push_back({0.05f,0.1f});
+    QCOMPARE(layer.maxDepthPerCell()[0],0.2f);
+    QCOMPARE(layer.maxDepthPerCell()[1],0.1f);
+}
 
 // Tri-quad G1/G4 — a quad is displayed as its two VFR sub-triangles, both
 // carrying the QUAD's value and both hit-testing back to the quad's cell
@@ -215,10 +487,8 @@ void Test2DResultsVizFixes::mixedMeshQuadRendersAsFanOfItsCell()
     // Wireframe: 4 quad edges + 3 triangle edges − 1 shared = 6, no diagonal.
     QCOMPARE(layer.m_sceneEdges.size(), 6);
 
-    // Vertex reconstruction on the flat bed: η = h per cell, so at a shared
-    // vertex (v1) the depth-weighted blend with weights h·(3/nv) is
-    //   (0.75·0.4·0.4 + 1·0.2·0.2) / (0.75·0.4 + 0.2) = 0.16 / 0.5 = 0.32;
-    // at a quad-only vertex (v0) it is the quad's 0.4.
+    // The wet shared edge has one smooth stage from the two cell supports.
+    // Stored cell means above remain unchanged.
     const float atShared   = layer.depthAtSceneInterp(QPointF(1.0, 0.0));
     const float atQuadOnly = layer.depthAtSceneInterp(QPointF(0.0, 0.0));
     QVERIFY(std::abs(atShared   - 0.32f) < 1e-5f);

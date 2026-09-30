@@ -332,6 +332,11 @@ add_swmmvis_gui_test(test_vertexdepthreconstruct
     ${CMAKE_SOURCE_DIR}/include/layers/vertexdepthreconstruct.h
 )
 
+add_swmmvis_gui_test(test_cellwatergeometry
+    test_cellwatergeometry.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/cellwatergeometry.h
+)
+
 # 2D map pooling extrapolation — dry corners of a partially-wet cell carry the
 # driving head's signed depth so the marching bands cut the shoreline on the bed
 # intercept. Header-only, same pattern as the two above.
