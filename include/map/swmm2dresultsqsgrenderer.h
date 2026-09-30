@@ -40,11 +40,9 @@
  *   - Content is built for a coverage rect larger than the viewport; pans
  *     inside the coverage are pure transforms, leaving it triggers one
  *     LOD-domain rebuild.
- *   - The smooth depth fill uses persistent indexed geometry
- *     (MeshStaticGeometryBuffers): shared vertex positions upload once per
- *     geometry revision; time ticks rewrite colors + wet-cell indices in
- *     place. Set OPENSWMM_QSG_INDEXED_FILL=0 to fall back to the expanded
- *     per-corner path.
+ *   - Depth fills use cell-owned signed VFR depths and polygons clipped at
+ *     the wet boundary. Adjacent cells may carry different stages; neither
+ *     shared vertex colors nor transparency can represent that boundary.
  *   - OPENSWMM_RENDER_PERF=1 logs per-sync dirty reasons and per-pass
  *     built-vertex / uploaded-byte counters (Qsg2DRenderStats).
  *
@@ -59,7 +57,6 @@
 #include "map/mapextent.h"
 #include "render/contourjob.h"
 #include "render/meshrenderchunkindex.h"
-#include "render/meshstaticgeometrybuffers.h"
 #include "render/qsg2dasyncresult.h"
 #include "render/qsg2ddirtystate.h"
 #include "render/qsg2dlodpolicy.h"
@@ -153,23 +150,11 @@ private:
      *  snapshot (also guards against a consumed currentTimeChanged signal
      *  racing the canvas framebuffer grab). */
     int  m_lastRenderedTime = -1;
+    quint64 m_lastRenderedFrame = ~quint64(0);
 
     /*! Render chunk index over tri/edge bboxes, keyed by geomRevision. */
     OpenSWMM::Render::MeshRenderChunkIndex m_chunks;
     quint64 m_chunksRev = ~quint64(0);
-
-    /*! Persistent shared-vertex positions + tri indices for the indexed
-     *  smooth-fill path, keyed by geomRevision. */
-    OpenSWMM::Render::MeshStaticGeometryBuffers m_static;
-
-    /*! Phase 8 — smooth-fill GPU mode actually applied to the node, so a
-     *  mode flip (env toggle / fallback) swaps geometry+material once. */
-    enum class SmoothFillMode { VertexColor, Shader };
-    SmoothFillMode m_smoothFillMode = SmoothFillMode::VertexColor;
-
-    /*! Phase 8 — last baked ramp LUT; a new texture is created only when
-     *  the baked pixels actually change (style/ramp/opacity edit). */
-    QImage m_smoothLutImage;
 
     // ── Phase 7: async contour recomputation ───────────────────────────
     /*! Everything that identifies one marching product. Two jobs (bands,
@@ -183,13 +168,14 @@ private:
         quint64 paramsRev = 0;      ///< scheme revision / iso params hash
         size_t  tris      = 0;
         quint64 geomRev   = ~quint64(0);
+        quint64 frameRev = 0;
         bool    valid     = false;
         bool operator==(const ContourJobKey &o) const
         {
             return valid == o.valid && time == o.time && lo == o.lo
                 && hi == o.hi && bandCount == o.bandCount
                 && paramsRev == o.paramsRev && tris == o.tris
-                && geomRev == o.geomRev;
+                && geomRev == o.geomRev && frameRev == o.frameRev;
         }
         bool operator!=(const ContourJobKey &o) const { return !(*this == o); }
     };
@@ -214,6 +200,7 @@ private:
     /*! Per-frame scalar snapshot (shared by both jobs of that frame). */
     std::shared_ptr<const std::vector<std::array<float, 3>>> m_contourScalars;
     int     m_contourScalarsTime    = -1;
+    quint64 m_contourScalarsFrame = ~quint64(0);
     quint64 m_contourScalarsGeomRev = ~quint64(0);
 
     void setupAsyncContourJob(AsyncContourJob &job);
@@ -230,6 +217,7 @@ private:
     // but is invariant under pan/zoom, so ticks rebuild and interactions
     // reuse. Key: (time index, range, level params, triangle count).
     int     m_bandCacheTime  = -1;
+    quint64 m_bandCacheFrame = ~quint64(0);
     double  m_bandCacheLo    = 0.0;
     double  m_bandCacheHi    = 0.0;
     int     m_bandCacheCount = -1;
@@ -238,6 +226,7 @@ private:
     std::vector<OpenSWMM::Contour::IsoBandPolygon> m_cachedBands;
 
     int     m_isoCacheTime   = -1;
+    quint64 m_isoCacheFrame = ~quint64(0);
     double  m_isoCacheLo     = 0.0;
     double  m_isoCacheHi     = 0.0;
     quint64 m_isoCacheParams = 0;   ///< hash of (mode, count, interval, base)

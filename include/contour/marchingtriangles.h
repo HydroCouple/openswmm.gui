@@ -35,6 +35,7 @@
 #include <QPointF>
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace OpenSWMM::Contour {
@@ -117,6 +118,7 @@ marchingTriangles(const TriRange         &tris,
 
     for (const auto &t : tris) {
         extract(t, p0, p1, p2, v0, v1, v2);
+        if (!std::isfinite(v0) || !std::isfinite(v1) || !std::isfinite(v2)) continue;
 
         // Triangle-level early-out: clamp range so far-out levels skip
         // immediately. Computed once per triangle.
@@ -321,6 +323,7 @@ marchingTrianglesIsobands(const TriRange         &tris,
 
     for (const auto &t : tris) {
         extract(t, p0, p1, p2, v0, v1, v2);
+        if (!std::isfinite(v0) || !std::isfinite(v1) || !std::isfinite(v2)) continue;
 
         const double vMin = std::min({v0, v1, v2});
         const double vMax = std::max({v0, v1, v2});

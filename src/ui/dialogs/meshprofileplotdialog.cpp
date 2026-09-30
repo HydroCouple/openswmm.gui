@@ -69,8 +69,6 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
     // the global AnimationController advances the layer (for visible layers),
     // which emits currentTimeChanged / currentDateTimeChanged.
     if (m_results) {
-        connect(m_results, &SWMM2DResultsLayer::currentTimeChanged,
-                this, [this](int) { refreshCurrentDepths(); });
         connect(m_results, &SWMM2DResultsLayer::currentDateTimeChanged,
                 this, [this](const QDateTime &dt) { m_plot->setCurrentDateTime(dt); });
         // Recompute the max-depth envelope when more frames stream in (live) —
@@ -87,11 +85,19 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
             rebuildProfile();
             m_liveRebuild.start();
         });
-        connect(m_results, &SWMM2DResultsLayer::timeRangeChanged,
-                this, [this](int, int) {
+        const auto refreshEnvelope = [this]() {
             if (m_liveRebuild.isActive()) { m_liveRebuildPending = true; return; }
             rebuildProfile();
             m_liveRebuild.start();
+        };
+        connect(m_results, &SWMM2DResultsLayer::timeRangeChanged,
+                this, refreshEnvelope);
+        connect(m_results, &SWMM2DResultsLayer::currentTimeChanged,
+                this, [this, refreshEnvelope](int) {
+            refreshCurrentDepths();
+            // A replacement live frame may reduce the maximum without
+            // extending the time range. Refresh that envelope as well.
+            if (m_results->source() && m_results->source()->isLive()) refreshEnvelope();
         });
 
         // Drive our own layer from the global animation clock so the profile
@@ -217,26 +223,24 @@ void MeshProfilePlotDialog::rebuildProfile()
 void MeshProfilePlotDialog::refreshCurrentDepths()
 {
     if (!m_results || m_profile.samples.isEmpty()) return;
-    // Re-sample only the depth column at the layer's now-current frame using
-    // the cached sample scene points — avoids recomputing the (expensive)
-    // max-depth envelope on every animation tick.
-    QVector<double> depths;
-    QVector<bool>   hasSurface;
-    depths.reserve(m_profile.samples.size());
-    hasSurface.reserve(m_profile.samples.size());
-    // Reuse each sample's cached containing cell (triIdx, captured by
-    // buildMeshProfile) so per-frame animation skips the cell search entirely.
-    // cellHasSurface is frame-dependent (it reads the per-vertex signed-depth
-    // field), so it must travel with the depth column — it gates which dry
-    // gaps the painter may bridge.
-    // SI metres → mesh units, same factor buildMeshProfile applied to the
-    // initial depth column (see MeshProfileSampler).
-    const double dToMesh = m_results->depthToMeshUnits();
-    for (const auto &s : m_profile.samples) {
-        depths.push_back(m_results->depthAtCellInterp(s.triIdx, s.scenePt) * dToMesh);
-        hasSurface.push_back(m_results->cellHasSurface(s.triIdx));
+    if (m_profile.exactWaterGeometry && m_profile.geometryRevision != m_results->geomRevision()) {
+        rebuildProfile();
+        return;
     }
-    m_plot->setCurrentDepths(depths, hasSurface);
+    QVector<double> depths, signedDepths;
+    QVector<bool> hasSurface;
+    const double scale = m_results->depthToMeshUnits();
+    for (auto& s : m_profile.samples) {
+        s.signedDepthNow = m_profile.exactWaterGeometry
+            ? m_results->signedDepthAtDisplayTriangle(s.displayTriIdx,s.scenePt)*scale
+            : m_results->depthAtCellInterp(s.triIdx,s.scenePt)*scale;
+        s.depthNow = std::max(0.0,s.signedDepthNow);
+        s.cellHasSurface = m_results->cellHasSurface(s.triIdx);
+        depths.push_back(s.depthNow);
+        signedDepths.push_back(s.signedDepthNow);
+        hasSurface.push_back(s.cellHasSurface);
+    }
+    m_plot->setCurrentDepths(depths,hasSurface,signedDepths);
 }
 
 void MeshProfilePlotDialog::setupMapOverlay()

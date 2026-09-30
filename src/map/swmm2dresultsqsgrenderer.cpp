@@ -19,10 +19,8 @@
 #include "contour/contourchain.h"
 #include "contour/marchingtriangles.h"
 #include "layers/swmm2dresultslayer.h"
-#include "map/scalarfillmaterial.h"
 #include "render/qsg2drenderstats.h"
 #include "render/qsgpremultiply.h"
-#include "render/scalarramplut.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/meshedgesublayer.h"
@@ -63,7 +61,6 @@ using OpenSWMM::Render::Qsg2DLodDecision;
 using OpenSWMM::Render::Qsg2DLodInputs;
 using OpenSWMM::Render::Qsg2DLodPolicy;
 using OpenSWMM::Render::Qsg2DRenderStats;
-using OpenSWMM::Render::ScalarRampLut;
 using OpenSWMM::Render::computeContourJob;
 using OpenSWMM::Render::premul;
 
@@ -194,20 +191,6 @@ void uploadFlatVerts(QSGGeometryNode *node,
     uploadVertsChunked(node, verts, [c]() { return makeFlatNode(c); });
 }
 
-/*! Drop any overflow children left by a previous uploadVertsChunked() call.
- *  The indexed smooth-fill paths drive the node's geometry directly and keep
- *  everything in one node, so children from an earlier expanded-path frame
- *  would otherwise linger and keep drawing stale triangles. The two paths do
- *  alternate at runtime: the indexed build bails to the expanded one whenever
- *  the static buffers drop cells. */
-void pruneOverflowChildren(QSGGeometryNode *node)
-{
-    while (QSGNode *ch = node->firstChild()) {
-        node->removeChildNode(ch);
-        delete ch;
-    }
-}
-
 void setFlatColor(QSGGeometryNode *node, QColor c)
 {
     auto *mat = static_cast<QSGFlatColorMaterial*>(node->material());
@@ -311,17 +294,6 @@ QImage rasteriseLabel(const QString &text, const QColor &color,
     return img;
 }
 
-/*! Indexed smooth-fill opt-out: OPENSWMM_QSG_INDEXED_FILL=0 falls back to
- *  the historical expanded per-corner path (kept for visual-parity
- *  verification per QSG_2D_1M plan Phase 5/6). */
-bool indexedFillEnabled()
-{
-    static const bool kEnabled =
-        !(qEnvironmentVariableIsSet("OPENSWMM_QSG_INDEXED_FILL")
-          && qEnvironmentVariableIntValue("OPENSWMM_QSG_INDEXED_FILL") == 0);
-    return kEnabled;
-}
-
 /*! Phase 7 — async contour recomputation gate. Defaults to meshes big
  *  enough for the per-tick marching to be felt (≥ kAsyncContourThreshold
  *  cells); OPENSWMM_QSG_ASYNC_CONTOURS=1 forces it on at any size (useful
@@ -336,16 +308,6 @@ bool asyncContoursEnabled(int nTri)
     if (kMode == 0) return false;
     if (kMode >= 1) return true;
     return nTri >= kAsyncContourThreshold;
-}
-
-/*! Phase 8 — GPU scalar-fill opt-IN. The shader path needs visual parity
- *  verification before becoming a default, so it is off unless
- *  OPENSWMM_QSG_SHADER_FILL=1. */
-bool shaderFillEnabled()
-{
-    static const bool kEnabled =
-        qEnvironmentVariableIntValue("OPENSWMM_QSG_SHADER_FILL") == 1;
-    return kEnabled;
 }
 
 } // namespace
@@ -435,7 +397,6 @@ void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
     // Per-layer derived state is invalid for the new layer.
     m_chunksRev = ~quint64(0);
     m_chunks.clear();
-    m_static.clear();
     m_lastGeomRev = ~quint64(0);
     m_lastHighlight.clear();
     // Async contour products belong to the previous layer's geometry.
@@ -788,7 +749,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
     // Snapshot diffs — ground truth for classifying ambiguous invalidations.
     const bool geomChanged = m_layer->geomRevision() != m_lastGeomRev;
     const bool selChanged  = m_layer->highlightedCells() != m_lastHighlight;
-    const bool timeChanged = m_layer->currentTimeIndex() != m_lastRenderedTime;
+    const bool timeChanged = m_layer->currentTimeIndex() != m_lastRenderedTime
+                          || m_layer->frameRevision() != m_lastRenderedFrame;
 
     const bool lodKeyChanged = lod.contentKey() != m_builtLodKey;
     const bool insideCoverage =
@@ -878,7 +840,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 m_contourPositionsRev = rev;
             }
             const int time = m_layer->currentTimeIndex();
-            if (m_contourScalarsTime != time
+            if (m_contourScalarsFrame != m_layer->frameRevision() || m_contourScalarsTime != time
                 || m_contourScalarsGeomRev != rev || !m_contourScalars) {
                 auto s = std::make_shared<std::vector<std::array<float, 3>>>();
                 s->resize(size_t(nTri));
@@ -888,14 +850,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 }
                 m_contourScalars        = std::move(s);
                 m_contourScalarsTime    = time;
+                m_contourScalarsFrame = m_layer->frameRevision();
                 m_contourScalarsGeomRev = rev;
             }
         };
 
         // Launch (or keep riding) an async marching job for `key`; returns
-        // the newest published output, which may be one frame stale while a
-        // worker is in flight (double buffering) or null before the first
-        // result lands.
+        // output only when it matches the current frame. While a worker is
+        // in flight, the fill uses the current clipped cell geometry.
         auto runAsyncContourJob =
             [&](AsyncContourJob &job, const ContourJobKey &key,
                 std::vector<double> bandLevels, std::vector<double> isoLevels,
@@ -923,7 +885,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                         [input = std::move(in)]() { return computeContourJob(input); }));
                 }
             }
-            return job.buf.hasValue() ? &job.buf.value() : nullptr;
+            return job.buf.hasValue() && job.publishedKey == key ? &job.buf.value() : nullptr;
         };
 
         // Coverage rect: content is culled to the viewport plus half a
@@ -941,23 +903,6 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
 
         const double dryDepth = m_layer->dryDepth();
         const double maxDepth = std::max(m_layer->maxDepth(), dryDepth + 1e-9);
-
-        // Fill gate. The cell-mean test alone truncated the inundation at the
-        // cell edge: a cell the solver calls dry still holds the pooling wedge
-        // where a neighbour's free surface stands above part of its bed, and
-        // applyCurrentDepths_ now writes that surface into its dv corners.
-        // Strictly additive over the old test, so no cell that painted before
-        // stops painting. Gouraud fills interpolate vertex colours and cannot
-        // clip a triangle at the waterline — the exact sub-cell shoreline is
-        // the marching band/isoline path's job; here the corner values below
-        // dryDepth simply render at the ramp's transparent low end.
-        // (workplans/2D_MAP_POOLING_EXTRAPOLATION_PLAN_2026-08-04.md)
-        auto cellPaints = [dryDepth](const SWMM2DResultsLayer::SceneTri &t) {
-            return double(t.depth) >= dryDepth
-                   || double(t.dv0) >= dryDepth
-                   || double(t.dv1) >= dryDepth
-                   || double(t.dv2) >= dryDepth;
-        };
 
         const OpenSWMM::Render::ContourBandStyle *bs =
             bandSub ? bandSub->bandStyle() : nullptr;
@@ -1074,6 +1019,11 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 levels = evenlySpacedLevelsInclusive(dryDepth, maxDepth, 9);
             }
 
+            if (!levels.empty() && levels.front() < dryDepth) {
+                const auto first = std::upper_bound(levels.begin(),levels.end(),dryDepth);
+                levels.erase(levels.begin(),first);
+                levels.insert(levels.begin(),dryDepth);
+            }
             std::vector<QSGGeometry::ColoredPoint2D> bandVerts;
             if (levels.size() >= 2) {
                 const int bandCount = int(levels.size()) - 1;
@@ -1088,12 +1038,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 };
 
                 // Flat per-cell classification (bucket each cell against the
-                // scheme edges) — shared by the smooth path (as the backstop
-                // under the marching bands) and the flat path. Chunk-culled.
+                // scheme edges), clipped to the wet footprint. Also used
+                // while an asynchronous smooth-band result is pending.
                 auto emitFlatCells = [&]() {
                     for (int i : visibleCells) {
                         const auto &t = tris[i];
-                        if (t.depth < bandLo) continue;
+                        const auto wet = CellWaterGeometry::clipTriangle(
+                            t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,bandLo);
+                        if (wet.size < 3) continue;
                         int idx = int(std::upper_bound(
                                           levels.begin() + 1, levels.end() - 1,
                                           double(t.depth))
@@ -1104,12 +1056,13 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                         const quint8 r = premul(quint8(col.red()), a);
                         const quint8 g = premul(quint8(col.green()), a);
                         const quint8 b = premul(quint8(col.blue()), a);
-                        for (const QPointF *pt : {&t.a, &t.b, &t.c}) {
-                            QSGGeometry::ColoredPoint2D v;
-                            v.set(float(pt->x() - ox), float(pt->y() - oy),
-                                  r, g, b, a);
-                            bandVerts.push_back(v);
-                        }
+                        for (int k = 1; k+1 < wet.size; ++k)
+                            for (int j : {0,k,k+1}) {
+                                const auto& pt = wet.vertices[j].point;
+                                QSGGeometry::ColoredPoint2D v;
+                                v.set(float(pt.x()-ox),float(pt.y()-oy),r,g,b,a);
+                                bandVerts.push_back(v);
+                            }
                     }
                 };
 
@@ -1122,9 +1075,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                     (!bs || bs->smoothBands()) && lod.exactContourBands;
                 if (smooth) {
                     // Marching source: Phase 7 moves the per-tick marching
-                    // onto a pool thread for big meshes (double-buffered —
-                    // the previous frame's bands render while the new job
-                    // runs); small meshes keep the synchronous cache.
+                    // onto a pool thread for big meshes; pending work uses
+                    // current clipped cells. Small meshes use the sync cache.
                     const std::vector<IsoBandPolygon> *bandPolys = nullptr;
                     if (asyncContoursEnabled(nTri)) {
                         ContourJobKey key;
@@ -1136,13 +1088,15 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                         key.paramsRev = schemeRev;
                         key.tris      = size_t(nTri);
                         key.geomRev   = m_layer->geomRevision();
+                    key.frameRev = m_layer->frameRevision();
                         const ContourJobOutput *out = runAsyncContourJob(
                             m_bandJob, key, levels, {},
                             /*clampUniformOutsideRange=*/false);
                         bandPolys = out ? &out->bands : nullptr;
                     } else {
                         const bool cacheHit =
-                            m_bandCacheTime  == m_layer->currentTimeIndex()
+                            m_bandCacheFrame == m_layer->frameRevision()
+                            && m_bandCacheTime  == m_layer->currentTimeIndex()
                             && m_bandCacheLo    == bandLo
                             && m_bandCacheHi    == bandHi
                             && m_bandCacheCount == bandCount
@@ -1165,6 +1119,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                                 tris, levels, extract,
                                 /*clampUniformOutsideRange=*/false);
                             m_bandCacheTime  = m_layer->currentTimeIndex();
+                            m_bandCacheFrame = m_layer->frameRevision();
                             m_bandCacheLo    = bandLo;
                             m_bandCacheHi    = bandHi;
                             m_bandCacheCount = bandCount;
@@ -1176,15 +1131,10 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                     static const std::vector<IsoBandPolygon> kNoBands;
                     const std::vector<IsoBandPolygon> &bandsRef =
                         bandPolys ? *bandPolys : kNoBands;
-                    // Per-cell base fill UNDER the smooth bands: guarantees
-                    // every wet cell is filled even where the smooth
-                    // (per-vertex) pass clips a partially-wet cell short at
-                    // the shoreline. Same bucketing/palette, so the backstop
-                    // colour matches the band exactly. Pushed first, so it
-                    // lands beneath the smooth polygons.
-                    bandVerts.reserve(visibleCells.size() * 3
-                                      + bandsRef.size() * 9);
-                    emitFlatCells();
+                    bandVerts.reserve(visibleCells.size()*3 + bandsRef.size()*9);
+                    // Pending jobs get a current, clipped wet mask, never a
+                    // stale shoreline or an entire triangle under the bands.
+                    if (!bandPolys) emitFlatCells();
                     // Smooth band polygons, culled per-poly to the coverage
                     // rect (poly verts are anchor-relative → cullLocal).
                     for (const auto &bp : bandsRef) {
@@ -1287,19 +1237,6 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 c.setAlphaF(c.alphaF() * op);
                 return c;
             };
-            // A corner below the wet/dry threshold carries no water — the
-            // extrapolated pooling surface runs BELOW its bed there. It must
-            // vanish, not clamp: ClassificationScheme::colorAtF clamps its ramp
-            // position to [0,1], so a negative value would otherwise paint the
-            // shallowest colour at FULL opacity and smear water across dry
-            // ground. Fading to transparent lets the Gouraud interpolation
-            // approximate the shoreline; the exact cut is the marching band
-            // pass's job. Inert for the flat per-cell mode, which only ever
-            // passes gated cell depths.
-            auto colorOrClear = [&](float value) -> QColor {
-                return double(value) < dryDepth ? QColor(0, 0, 0, 0)
-                                                : colorAt(value);
-            };
             out.reserve(visibleCells.size() * 3);
             auto pushV = [&](const QPointF &p, const QColor &c) {
                 QSGGeometry::ColoredPoint2D v;
@@ -1312,333 +1249,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             };
             for (int i : visibleCells) {
                 const auto &t = tris[i];
-                // Per-vertex fills read the extrapolated corner surface, so a
-                // solver-dry cell carrying the pooling wedge still paints; the
-                // flat per-cell fill has only the cell mean to colour with and
-                // keeps the strict gate.
-                if (!(perVertex ? cellPaints(t) : double(t.depth) >= dryDepth))
-                    continue;                      // dry → terrain shows through
-                if (perVertex) {
-                    pushV(t.a, colorOrClear(t.dv0));
-                    pushV(t.b, colorOrClear(t.dv1));
-                    pushV(t.c, colorOrClear(t.dv2));
-                } else {
-                    const QColor c = colorAt(t.depth);
-                    pushV(t.a, c); pushV(t.b, c); pushV(t.c, c);
-                }
-            }
-        };
-
-        // Indexed smooth-fill variant (Phase 5): shared vertex positions +
-        // static triangle indices persist across ticks; a Data/Style rebuild
-        // rewrites per-vertex colors in place and re-emits only the wet
-        // visible cells' indices (unused tail padded degenerate). Falls back
-        // to the expanded path when disabled or when the layer's shared-
-        // vertex caches are unavailable.
-        auto buildSmoothFillIndexed =
-            [&](const OpenSWMM::Render::ScalarFillStyle *style,
-                qreal subOpacity) -> bool {
-            if (!indexedFillEnabled()) return false;
-            const auto &sceneVerts = m_layer->m_sceneVerts;
-            const auto &triIdx     = m_layer->triVertexIndices();
-            if (sceneVerts.isEmpty() || qint64(triIdx.size()) != qint64(nTri))
-                return false;
-
-            const bool staticRebuilt = m_static.ensureBuilt(
-                m_layer->geomRevision(), ox, oy, sceneVerts, nTri,
-                [&triIdx](qint64 i, int &a, int &b, int &c) {
-                    const auto &t = triIdx[size_t(i)];
-                    a = t[0]; b = t[1]; c = t[2];
-                });
-            if (m_static.triangleCount() != nTri) return false;  // dropped cells
-
-            const int V = int(m_static.vertexCount());
-            const int I = int(m_static.triIndices().size());
-            if (V <= 0 || I <= 0) return false;
-
-            pruneOverflowChildren(smoothFillNode);
-
-            auto *geo = smoothFillNode->geometry();
-            const bool needAlloc =
-                geo->indexType() != QSGGeometry::UnsignedIntType
-                || geo->vertexCount() != V || geo->indexCount() != I;
-            if (needAlloc) {
-                auto *g = new QSGGeometry(
-                    QSGGeometry::defaultAttributes_ColoredPoint2D(),
-                    V, I, QSGGeometry::UnsignedIntType);
-                g->setDrawingMode(QSGGeometry::DrawTriangles);
-                smoothFillNode->setGeometry(g);   // OwnsGeometry deletes old
-                geo = g;
-            }
-            auto *vd = geo->vertexDataAsColoredPoint2D();
-            if (needAlloc || staticRebuilt) {
-                const auto &pos = m_static.positions();
-                for (int i = 0; i < V; ++i)
-                    vd[i].set(pos[size_t(i)].x, pos[size_t(i)].y, 0, 0, 0, 0);
-            }
-
-            // Same color math as the expanded path.
-            double vMin = dryDepth, vMax = maxDepth;
-            if (style->useCustomRange() && style->rangeMax() > style->rangeMin()) {
-                vMin = style->rangeMin();
-                vMax = style->rangeMax();
-            }
-            const bool classified = style->classified();
-            std::vector<double> levels;
-            int bandCount = 1;
-            if (classified) {
-                QVector<double> samples;
-                const auto mth = style->scheme().method();
-                if (mth == OpenSWMM::Render::BinMethod::Quantile
-                    || mth == OpenSWMM::Render::BinMethod::NaturalBreaks
-                    || mth == OpenSWMM::Render::BinMethod::StdDev) {
-                    // One sample per CELL: a quad's two display triangles
-                    // are consecutive in the fan and carry the same depth.
-                    samples.reserve(nTri);
-                    for (int i = 0; i < nTri; ++i) {
-                        if (i > 0 && cellOfTri(i) == cellOfTri(i - 1)) continue;
-                        if (tris[i].depth >= dryDepth)
-                            samples.push_back(double(tris[i].depth));
+                const auto wet = CellWaterGeometry::clipTriangle(
+                    t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
+                for (int k = 1; k+1 < wet.size; ++k)
+                    for (int j : {0,k,k+1}) {
+                        const auto& v = wet.vertices[j];
+                        pushV(v.point,colorAt(perVertex ? float(v.depth) : t.depth));
                     }
-                }
-                const QVector<double> edges =
-                    style->scheme().levelEdges(vMin, vMax, samples);
-                levels.assign(edges.cbegin(), edges.cend());
-                bandCount = std::max(1, int(levels.size()) - 1);
             }
-            const qreal op = std::clamp<qreal>(subOpacity, 0.0, 1.0);
-            auto colorAt = [&](float value) -> QColor {
-                QColor c;
-                if (classified && levels.size() >= 2) {
-                    int idx = int(std::upper_bound(levels.begin() + 1,
-                                                   levels.end() - 1,
-                                                   double(value))
-                                  - (levels.begin() + 1));
-                    idx = std::clamp(idx, 0, bandCount - 1);
-                    c = style->colorForClass(idx, bandCount);
-                } else {
-                    c = style->colorForValue(double(value), vMin, vMax);
-                }
-                c.setAlphaF(c.alphaF() * op);
-                return c;
-            };
-
-            const auto &sIdx = m_static.triIndices();
-            quint32 *id = geo->indexDataAsUInt();
-            int k = 0;
-            auto setColor = [&](quint32 vid, float scalar) {
-                const QColor c = colorAt(scalar);
-                auto &v = vd[vid];
-                // ColoredPoint2D keeps x/y — rewrite only the color bytes.
-                const uchar a = uchar(c.alpha());
-                v.r = premul(uchar(c.red()), a);
-                v.g = premul(uchar(c.green()), a);
-                v.b = premul(uchar(c.blue()), a);
-                v.a = a;
-            };
-            for (int i : visibleCells) {
-                const auto &t = tris[i];
-                // Strict cell-mean gate here, unlike the expanded path: this
-                // buffer is indexed by SHARED vertex, so a no-data corner
-                // extrapolated by several partially-wet cells would collide
-                // (a deep pool's driving head could stamp itself on a ridge
-                // vertex a thin film on the far side also owns). Per-corner
-                // surfaces cannot be represented on shared vertices, so the
-                // pooling wedge is delivered by the marching band/isoline
-                // passes, which carry per-triangle values.
-                if (t.depth < dryDepth) continue;
-                const quint32 *src = &sIdx[size_t(i) * 3];
-                setColor(src[0], t.dv0);
-                setColor(src[1], t.dv1);
-                setColor(src[2], t.dv2);
-                id[k++] = src[0];
-                id[k++] = src[1];
-                id[k++] = src[2];
-            }
-            const int emitted = k;
-            std::fill(id + k, id + I, 0u);   // degenerate padding draws nothing
-            smoothFillNode->markDirty(QSGNode::DirtyGeometry);
-            if (statsOn)
-                stats.addPass(QStringLiteral("smoothFill(indexed)"),
-                              qint64(emitted),
-                              qint64(V) * qint64(sizeof(QSGGeometry::ColoredPoint2D))
-                                  + qint64(I) * 4);
-            return true;
-        };
-
-        // Phase 8 fallback plumbing — restore the vertex-colored geometry +
-        // material when the shader path was active but is no longer usable
-        // (env toggle, missing window, dropped cells). The vertex stride is
-        // identical (12 B) so counts can't tell the modes apart; the mode
-        // member is the authority.
-        auto ensureSmoothVertexColorMode = [&]() {
-            if (m_smoothFillMode == SmoothFillMode::VertexColor) return;
-            auto *g = new QSGGeometry(
-                QSGGeometry::defaultAttributes_ColoredPoint2D(), 0);
-            g->setDrawingMode(QSGGeometry::DrawTriangles);
-            smoothFillNode->setGeometry(g);           // OwnsGeometry deletes old
-            smoothFillNode->setMaterial(new QSGVertexColorMaterial());
-            smoothFillNode->markDirty(QSGNode::DirtyMaterial);
-            m_smoothFillMode = SmoothFillMode::VertexColor;
-            m_smoothLutImage = QImage();
-        };
-
-        // Phase 8 — GPU scalar→color smooth fill (OPENSWMM_QSG_SHADER_FILL=1).
-        // Same static positions/indices as the indexed path, but vertices
-        // carry the raw scalar and the ScalarFillMaterial's ramp LUT maps it
-        // per fragment: a Data tick uploads one float per vertex, a
-        // style/ramp edit re-bakes 256 LUT texels + two uniforms.
-        auto buildSmoothFillShader =
-            [&](const OpenSWMM::Render::ScalarFillStyle *style,
-                qreal subOpacity) -> bool {
-            if (!shaderFillEnabled() || !window()) return false;
-            const auto &sceneVerts = m_layer->m_sceneVerts;
-            const auto &triIdx     = m_layer->triVertexIndices();
-            if (sceneVerts.isEmpty() || qint64(triIdx.size()) != qint64(nTri))
-                return false;
-
-            const bool staticRebuilt = m_static.ensureBuilt(
-                m_layer->geomRevision(), ox, oy, sceneVerts, nTri,
-                [&triIdx](qint64 i, int &a, int &b, int &c) {
-                    const auto &t = triIdx[size_t(i)];
-                    a = t[0]; b = t[1]; c = t[2];
-                });
-            if (m_static.triangleCount() != nTri) return false;
-
-            const int V = int(m_static.vertexCount());
-            const int I = int(m_static.triIndices().size());
-            if (V <= 0 || I <= 0) return false;
-
-            // Same range/classification math as the CPU-colored paths.
-            double vMin = dryDepth, vMax = maxDepth;
-            if (style->useCustomRange() && style->rangeMax() > style->rangeMin()) {
-                vMin = style->rangeMin();
-                vMax = style->rangeMax();
-            }
-            const bool classified = style->classified();
-            std::vector<double> levels;
-            int bandCount = 1;
-            if (classified) {
-                QVector<double> samples;
-                const auto mth = style->scheme().method();
-                if (mth == OpenSWMM::Render::BinMethod::Quantile
-                    || mth == OpenSWMM::Render::BinMethod::NaturalBreaks
-                    || mth == OpenSWMM::Render::BinMethod::StdDev) {
-                    // One sample per CELL: a quad's two display triangles
-                    // are consecutive in the fan and carry the same depth.
-                    samples.reserve(nTri);
-                    for (int i = 0; i < nTri; ++i) {
-                        if (i > 0 && cellOfTri(i) == cellOfTri(i - 1)) continue;
-                        if (tris[i].depth >= dryDepth)
-                            samples.push_back(double(tris[i].depth));
-                    }
-                }
-                const QVector<double> edges =
-                    style->scheme().levelEdges(vMin, vMax, samples);
-                levels.assign(edges.cbegin(), edges.cend());
-                bandCount = std::max(1, int(levels.size()) - 1);
-            }
-            const qreal op = std::clamp<qreal>(subOpacity, 0.0, 1.0);
-            auto colorAt = [&](float value) -> QColor {
-                QColor c;
-                if (classified && levels.size() >= 2) {
-                    int idx = int(std::upper_bound(levels.begin() + 1,
-                                                   levels.end() - 1,
-                                                   double(value))
-                                  - (levels.begin() + 1));
-                    idx = std::clamp(idx, 0, bandCount - 1);
-                    c = style->colorForClass(idx, bandCount);
-                } else {
-                    c = style->colorForValue(double(value), vMin, vMax);
-                }
-                c.setAlphaF(c.alphaF() * op);
-                return c;
-            };
-
-            // Node mode + geometry.
-            const bool modeChanged =
-                (m_smoothFillMode != SmoothFillMode::Shader);
-            ScalarFillMaterial *mat = nullptr;
-            if (modeChanged) {
-                mat = new ScalarFillMaterial();
-                smoothFillNode->setMaterial(mat);    // OwnsMaterial deletes old
-                smoothFillNode->markDirty(QSGNode::DirtyMaterial);
-                m_smoothFillMode = SmoothFillMode::Shader;
-                m_smoothLutImage = QImage();
-            } else {
-                mat = static_cast<ScalarFillMaterial *>(smoothFillNode->material());
-            }
-            pruneOverflowChildren(smoothFillNode);
-
-            auto *geo = smoothFillNode->geometry();
-            const bool needAlloc = modeChanged
-                || geo->indexType() != QSGGeometry::UnsignedIntType
-                || geo->vertexCount() != V || geo->indexCount() != I;
-            if (needAlloc) {
-                auto *g = new QSGGeometry(scalarFillAttributes(), V, I,
-                                          QSGGeometry::UnsignedIntType);
-                g->setDrawingMode(QSGGeometry::DrawTriangles);
-                smoothFillNode->setGeometry(g);
-                geo = g;
-            }
-            auto *vd = static_cast<ScalarFillVertex *>(geo->vertexData());
-            if (needAlloc || staticRebuilt) {
-                const auto &pos = m_static.positions();
-                for (int i = 0; i < V; ++i) {
-                    vd[i].x     = pos[size_t(i)].x;
-                    vd[i].y     = pos[size_t(i)].y;
-                    vd[i].value = 0.0f;
-                }
-            }
-
-            // Ramp LUT — re-baked cheaply every rebuild, but a new GPU
-            // texture is created only when the baked pixels change.
-            QImage lut(ScalarRampLut::kSize, 1,
-                       QImage::Format_ARGB32_Premultiplied);
-            for (int i = 0; i < ScalarRampLut::kSize; ++i) {
-                const double t   = ScalarRampLut::positionForTexel(i);
-                const double val = vMin + t * (vMax - vMin);
-                lut.setPixelColor(i, 0, colorAt(float(val)));
-            }
-            if (lut != m_smoothLutImage || !mat->rampTexture()) {
-                QSGTexture *tex = window()->createTextureFromImage(
-                    lut, QQuickWindow::TextureHasAlphaChannel);
-                if (!tex) return false;
-                tex->setFiltering(QSGTexture::Linear);
-                tex->setHorizontalWrapMode(QSGTexture::ClampToEdge);
-                tex->setVerticalWrapMode(QSGTexture::ClampToEdge);
-                mat->setRampTexture(tex);
-                m_smoothLutImage = lut;
-                smoothFillNode->markDirty(QSGNode::DirtyMaterial);
-            }
-            mat->setRange(float(vMin), float(vMax));
-
-            // Per-tick data: raw scalars + wet visible cells' indices.
-            const auto &sIdx = m_static.triIndices();
-            quint32 *id = geo->indexDataAsUInt();
-            int k = 0;
-            for (int i : visibleCells) {
-                const auto &t = tris[i];
-                if (t.depth < dryDepth) continue;   // shared-vertex buffer —
-                                                    // see buildSmoothFillIndexed
-                const quint32 *src = &sIdx[size_t(i) * 3];
-                vd[src[0]].value = t.dv0;
-                vd[src[1]].value = t.dv1;
-                vd[src[2]].value = t.dv2;
-                id[k++] = src[0];
-                id[k++] = src[1];
-                id[k++] = src[2];
-            }
-            const int emitted = k;
-            std::fill(id + k, id + I, 0u);   // degenerate padding
-            smoothFillNode->markDirty(QSGNode::DirtyGeometry);
-            if (statsOn)
-                stats.addPass(QStringLiteral("smoothFill(shader)"),
-                              qint64(emitted),
-                              qint64(V) * qint64(sizeof(ScalarFillVertex))
-                                  + qint64(I) * 4
-                                  + qint64(ScalarRampLut::kSize) * 4);
-            return true;
         };
 
         if (rebuildFills) {
@@ -1657,36 +1275,15 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             const bool smoothWanted = smoothSub && smoothSub->isVisible()
                                    && smoothSub->fillStyle()
                                    && maxDepth > dryDepth;
-            // Mode ladder: shader (Phase 8 opt-in) → persistent indexed
-            // (Phase 5, default) → expanded per-corner (historical
-            // fallback). Every rung leaves the node consistent.
-            bool smoothDone = false;
+            // Cell-owned corners and moving wet boundaries require clipped,
+            // per-cell geometry; global vertex slots cannot represent them.
+            std::vector<QSGGeometry::ColoredPoint2D> smoothVerts;
             if (smoothWanted)
-                smoothDone = buildSmoothFillShader(smoothSub->fillStyle(),
-                                                   smoothSub->opacity());
-            if (smoothWanted && !smoothDone) {
-                ensureSmoothVertexColorMode();
-                smoothDone = buildSmoothFillIndexed(smoothSub->fillStyle(),
-                                                    smoothSub->opacity());
-            }
-            if (!smoothDone) {
-                ensureSmoothVertexColorMode();
-                std::vector<QSGGeometry::ColoredPoint2D> smoothVerts;
-                if (smoothWanted)
-                    buildFillPass(smoothSub->fillStyle(), smoothSub->opacity(),
-                                  /*perVertex=*/true, smoothVerts);
-                uploadColoredVerts(smoothFillNode, smoothVerts);
-                if (statsOn && !smoothVerts.empty())
-                    stats.addPass(QStringLiteral("smoothFill"),
-                                  qint64(smoothVerts.size()),
-                                  qint64(smoothVerts.size()
-                                         * sizeof(QSGGeometry::ColoredPoint2D)));
-            }
-            if (kUpnDebug)
-                qDebug("[2D-qsg]   rebuilt t=%d fills (maxDepth=%g dryDepth=%g "
-                       "visCells=%zu)",
-                       m_layer->currentTimeIndex(), maxDepth, dryDepth,
-                       visibleCells.size());
+                buildFillPass(smoothSub->fillStyle(),smoothSub->opacity(),true,smoothVerts);
+            uploadColoredVerts(smoothFillNode,smoothVerts);
+            if (statsOn && !smoothVerts.empty())
+                stats.addPass(QStringLiteral("smoothFill"),qint64(smoothVerts.size()),
+                    qint64(smoothVerts.size()*sizeof(QSGGeometry::ColoredPoint2D)));
         }
 
         // ---- Pass 3 + 3b: isolines, index contours, labels ---------------
@@ -1709,10 +1306,12 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                     }
                 }
             }
-            const std::vector<double> levels = is
+            std::vector<double> levels = is
                 ? is->levelsForRange(dryDepth, maxDepth, isoSamples)
                 : evenlySpacedLevels(dryDepth, maxDepth, 8);
 
+            levels.erase(std::remove_if(levels.begin(),levels.end(),
+                [dryDepth](double level) { return !std::isfinite(level) || level < dryDepth; }),levels.end());
             if (!levels.empty()) {
                 // Params hash for the segment cache.
                 quint64 params = 0;
@@ -1735,13 +1334,15 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                     key.paramsRev = params;
                     key.tris      = size_t(nTri);
                     key.geomRev   = m_layer->geomRevision();
+                    key.frameRev = m_layer->frameRevision();
                     const ContourJobOutput *out = runAsyncContourJob(
                         m_isoJob, key, {}, levels,
                         /*clampUniformOutsideRange=*/true);
                     segsPtr = out ? &out->segs : nullptr;
                 } else {
                     const bool cacheHit =
-                        m_isoCacheTime == m_layer->currentTimeIndex()
+                        m_isoCacheFrame == m_layer->frameRevision()
+                        && m_isoCacheTime == m_layer->currentTimeIndex()
                         && m_isoCacheLo     == dryDepth
                         && m_isoCacheHi     == maxDepth
                         && m_isoCacheParams == params
@@ -1761,6 +1362,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                         };
                         m_cachedSegs = marchingTriangles(tris, levels, extract);
                         m_isoCacheTime   = m_layer->currentTimeIndex();
+                        m_isoCacheFrame = m_layer->frameRevision();
                         m_isoCacheLo     = dryDepth;
                         m_isoCacheHi     = maxDepth;
                         m_isoCacheParams = params;
@@ -2266,8 +1868,10 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         }
 
         // ---- Snapshot / key bookkeeping ----------------------------------
-        if (rebuildFills)
+        if (rebuildFills) {
             m_lastRenderedTime = m_layer->currentTimeIndex();
+            m_lastRenderedFrame = m_layer->frameRevision();
+        }
         if (bits & D::Geometry)
             m_lastGeomRev = m_layer->geomRevision();
         m_builtLodKey   = lod.contentKey();

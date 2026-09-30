@@ -16,7 +16,6 @@
 #include "core/crsreproject.h"
 #include "core/swmmdatetime.h"
 #include "io/mesh2dh5reader.h"
-#include "layers/cellsurfaceinterp.h"
 #include "layers/vertexdepthreconstruct.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
@@ -337,7 +336,7 @@ public:
 
             double bandLo = dryDepth, bandHi = maxDepth;
             if (bs && bs->useCustomRange() && bs->rangeMax() > bs->rangeMin()) {
-                bandLo = bs->rangeMin();
+                bandLo = std::max(dryDepth,bs->rangeMin());
                 bandHi = bs->rangeMax();
             }
 
@@ -383,7 +382,9 @@ public:
                     // "stepped" look raster GIS users expect).
                     const double span = bandHi - bandLo;
                     for (const auto &t : tris) {
-                        if (t.depth < bandLo || span <= 0.0) continue;
+                        const auto wet = CellWaterGeometry::clipTriangle(
+                            t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,bandLo);
+                        if (wet.size < 3 || span <= 0.0) continue;
                         const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
                         const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
                         const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
@@ -391,11 +392,12 @@ public:
                         if (!exposed.isNull() &&
                             (maxX < exposed.left()  || minX > exposed.right() ||
                              maxY < exposed.top()   || minY > exposed.bottom())) continue;
-                        const int idx = std::min(nBands - 1,
-                            int((t.depth - bandLo) / span * double(nBands)));
+                        const int idx = std::clamp(
+                            int((t.depth - bandLo) / span * double(nBands)),0,nBands-1);
                         p->setBrush(bandColor(idx));
-                        const QPointF pts[3] = { t.a, t.b, t.c };
-                        p->drawConvexPolygon(pts, 3);
+                        QPointF pts[4];
+                        for (int k = 0; k < wet.size; ++k) pts[k] = wet.vertices[k].point;
+                        p->drawConvexPolygon(pts,wet.size);
                     }
                 }
             }
@@ -410,10 +412,12 @@ public:
             const auto *isoStyle =
                 (isolineSub && isolineSub->isolineStyle())
                 ? isolineSub->isolineStyle() : nullptr;
-            const std::vector<double> levels = isoStyle
+            std::vector<double> levels = isoStyle
                 ? isoStyle->levelsForRange(dryDepth, maxDepth)
                 : evenlySpacedLevels(dryDepth, maxDepth,
                                      layer_->isolinesLevels());
+            levels.erase(std::remove_if(levels.begin(),levels.end(),
+                [dryDepth](double level) { return !std::isfinite(level) || level < dryDepth; }),levels.end());
             if (!levels.empty()) {
                 auto extract = [](const SWMM2DResultsLayer::SceneTri &t,
                                   QPointF &p0, QPointF &p1, QPointF &p2,
@@ -1672,7 +1676,7 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
     current_time_idx_ = -1;
     last_range_hi_    = -1;
     live_range_dirty_ = live_frame_dirty_ = false;
-    vertMaxSource_    = nullptr;     // envelope cache belongs to the old source
+    cellMaxSource_    = nullptr;     // envelope cache belongs to the old source
     current_depths_.clear();
     current_flux_.clear();
     have_velocity_ = false;
@@ -2021,9 +2025,8 @@ void SWMM2DResultsLayer::closeSource()
     current_time_idx_ = -1;
     last_range_hi_    = -1;
     live_range_dirty_ = live_frame_dirty_ = false;
-    vertMaxSource_    = nullptr;
-    vertMaxCache_.clear();
-    vertWetCache_.clear();
+    cellMaxSource_    = nullptr;
+    cellMaxCache_.clear();
     current_depths_.clear();
     current_flux_.clear();
     // Per-tri animated state is cleared on next setSource via
@@ -2491,47 +2494,62 @@ float SWMM2DResultsLayer::depthAtCellInterp(int cell, const QPointF& scenePt) co
     return depthAtDisplayTriInterp_(idx, scenePt);
 }
 
-float SWMM2DResultsLayer::depthAtDisplayTriInterp_(int idx, const QPointF& scenePt) const
+double SWMM2DResultsLayer::groundAtDisplayTriangle(int idx, const QPointF& p) const
 {
-    if (idx < 0 || idx >= m_sceneTris.size() ||
-        idx >= static_cast<int>(tris_.size()))
-        return 0.0f;
+    if (idx < 0 || idx >= m_sceneTris.size() || size_t(idx) >= tris_.size())
+        return std::numeric_limits<double>::quiet_NaN();
     const auto& t = m_sceneTris[idx];
-    // dv0/dv1/dv2 are the SIGNED VFR depth (η_vertex − z_vertex) from
-    // applyCurrentDepths_, with exactly 0 as the NO-DATA sentinel (no wet
-    // incident cell). CellSurfaceInterp::depthAt blends them in η space,
-    // extending the surface into no-data corners with zero gradient toward the
-    // dry side, so the bed never stands in for η (the "water climbs walls"
-    // artifact) and the waterline lands at the sub-cell bed intercept.
-    // Dryness is vertex-scoped there (no valid η at any corner → 0) — this
-    // replaced the old cell-mean dry gate, so a solver-dry cell whose corners
-    // carry a valid η paints its shoreline sliver instead of truncating at the
-    // cell edge.
-    const auto& tri = tris_[idx];
-    const int nVert = static_cast<int>(vz_.size());
-    auto z = [&](int k) -> double {
-        const int vi = tri[k];
-        return (vi >= 0 && vi < nVert) ? vz_[vi] : 0.0;
-    };
-    bool degenerate = false;
-    const double d = CellSurfaceInterp::depthAt(
-        scenePt, t.a, t.b, t.c, z(0), z(1), z(2),
-        double(t.dv0), double(t.dv1), double(t.dv2), &degenerate);
-    if (degenerate) return t.depth;              // degenerate — cell value
-    return float(d);
+    const auto& ids = tris_[size_t(idx)];
+    for (int id : ids)
+        if (id < 0 || size_t(id) >= vz_.size()) return std::numeric_limits<double>::quiet_NaN();
+    std::array<double,3> w;
+    if (!CellWaterGeometry::barycentric(p,t.a,t.b,t.c,w))
+        return std::numeric_limits<double>::quiet_NaN();
+    const double z0 = vz_[ids[0]];
+    return z0 + w[1]*(vz_[ids[1]]-z0) + w[2]*(vz_[ids[2]]-z0);
+}
+
+double SWMM2DResultsLayer::signedDepthAtDisplayTriangle(int idx, const QPointF& p) const
+{
+    return signedDepthAtDisplayTriangle(idx,p,surfaceDepths_);
+}
+
+double SWMM2DResultsLayer::signedDepthAtDisplayTriangle(int idx, const QPointF& p,
+    const std::vector<CellWaterGeometry::CornerDepths>& field) const
+{
+    const double nan=std::numeric_limits<double>::quiet_NaN();
+    if (idx<0 || size_t(idx)>=triCell_.size() || idx>=m_sceneTris.size()) return nan;
+    const int cell=triCell_[size_t(idx)];
+    if (cell<0 || size_t(cell)>=field.size()) return nan;
+    const auto& tri=m_sceneTris[idx];
+    std::array<double,3> w;
+    if (!CellWaterGeometry::barycentric(p,tri.a,tri.b,tri.c,w)) return nan;
+    double depth=0;
+    for (int k=0;k<3;++k) {
+        const int v=tris_[size_t(idx)][k];
+        const auto& ids=cells_[size_t(cell)];
+        const auto it=std::find(ids.begin(),ids.end(),v);
+        if (v<0 || it==ids.end()) return nan;
+        depth+=w[k]*field[size_t(cell)][size_t(it-ids.begin())];
+    }
+    return depth;
+}
+
+CellWaterGeometry::Surface SWMM2DResultsLayer::surfaceForDepth(int cell, double depth) const
+{
+    if (cell < 0 || size_t(cell) >= cellSplit_.size()) return {};
+    return CellWaterGeometry::reconstruct(cellSplit_[size_t(cell)],depth,vz_);
+}
+
+float SWMM2DResultsLayer::depthAtDisplayTriInterp_(int idx, const QPointF& p) const
+{
+    return float(std::max(0.0, signedDepthAtDisplayTriangle(idx,p)));
 }
 
 bool SWMM2DResultsLayer::cellHasSurface(int cell) const
 {
-    // Any corner of any sub-triangle of the CELL (a quad's two share its four
-    // vertices, so this is "any of the cell's corners").
-    if (cell < 0 || cell + 1 >= static_cast<int>(cellTri0_.size())) return false;
-    const int t0 = cellTri0_[size_t(cell)], t1 = cellTri0_[size_t(cell) + 1];
-    for (int t = t0; t < t1 && t < m_sceneTris.size(); ++t) {
-        const auto& st = m_sceneTris[t];
-        if (st.dv0 != 0.0f || st.dv1 != 0.0f || st.dv2 != 0.0f) return true;
-    }
-    return false;
+    return cell >= 0 && size_t(cell) < cellSurfaces_.size()
+        && cellSurfaces_[size_t(cell)].state == CellWaterGeometry::State::Wet;
 }
 
 bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
@@ -2580,101 +2598,91 @@ bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
     return true;
 }
 
-// Issue 4 — the depth-weighted free-surface reconstruction lives in
-// vertexdepthreconstruct.h (header-only, shared with the leaf unit test —
-// same extraction pattern as cellsurfaceinterp.h). Shared by the per-frame
-// animated fill (applyCurrentDepths_) and the historical max-depth envelope
-// (maxDepthPerVertex) so the two cannot drift (CLAUDE.md §4.01): the envelope
-// is then provably the per-vertex temporal max of the EXACT field the
-// animation displays. Since the wetted-contact gate, values are positive or
-// the 0 no-data sentinel (see the header doc).
-using VertexDepthReconstruct::reconstructVertexSignedDepths;
-
-QVector<float> SWMM2DResultsLayer::maxDepthPerVertex() const
+QVector<float> SWMM2DResultsLayer::maxDepthPerCell() const
 {
-    QVector<float> out;
-    if (!source_) return out;
-    const int nVert = source_->vertexCount();
-    const int nCell = static_cast<int>(cells_.size());
-    const int nT    = source_->timeCount();
-    if (nVert <= 0 || nCell <= 0 || nT <= 0) return out;
-    if (static_cast<int>(cellZc_.size()) != nCell ||
-        static_cast<int>(cellSplit_.size()) != nCell) return out;
-
-    const float dryF = float(dry_depth_);
-
-    // Max inundation = the per-vertex temporal max of the EXACT per-frame field
-    // the animation displays. reconstructVertexSignedDepths is the same helper
-    // applyCurrentDepths_ uses, so the static envelope equals the animated
-    // surface at each vertex's peak frame (CLAUDE.md §4.01 — one arithmetic, no
-    // drift). NB: at interior sample points the interpolated envelope can sit
-    // slightly above the interpolated animation (interp-of-max ≥ max-of-interp);
-    // the two coincide exactly at mesh vertices, which is where consistency is
-    // observable.
-    //
-    // Incremental: on a live source this is called on every time-range change
-    // (each tick), and re-reading all T frames made the profile dialog O(T²)
-    // over a run. Frames already folded into the cache are skipped; the newest
-    // frame is always re-folded because its depths can still be arriving
-    // (flux-first ticks). Thinning (historyGeneration) or a new source resets.
+    if (!source_ || cells_.empty() || source_->timeCount() <= 0) return {};
+    const int nT = source_->timeCount();
     const int gen = source_->historyGeneration();
-    if (vertMaxSource_ != source_.get() || vertMaxGeneration_ != gen ||
-        static_cast<int>(vertMaxCache_.size()) != nVert) {
-        vertMaxCache_.assign(size_t(nVert), 0.0f);
-        vertWetCache_.assign(size_t(nVert), 0);
-        vertMaxFramesDone_ = 0;
-        vertMaxSource_     = source_.get();
-        vertMaxGeneration_ = gen;
+    if (cellMaxSource_ != source_.get() || cellMaxGeneration_ != gen
+        || cellMaxCache_.size() != cells_.size() || cellMaxFramesDone_ > nT-1) {
+        cellMaxCache_.assign(cells_.size(),0.0f);
+        cellMaxFramesDone_ = 0;
+        cellMaxSource_ = source_.get();
+        cellMaxGeneration_ = gen;
     }
-    std::vector<float> vsum, wsum, frameDepth;   // scratch reused across frames
-    std::vector<float> buf;
-    for (int t = std::min(vertMaxFramesDone_, nT); t < nT; ++t) {
-        if (!source_->readDepthsAt(t, buf)) continue;
-        reconstructVertexSignedDepths(cellSplit_, buf, cellZc_, vz_, dryF,
-                                      vsum, wsum, frameDepth);
-        for (int v = 0; v < nVert; ++v) {
-            if (wsum[v] <= 0.0f) continue;             // dry this frame
-            if (!vertWetCache_[v] || frameDepth[v] > vertMaxCache_[v]) {
-                vertMaxCache_[v] = frameDepth[v];      // already signed (η_v − z_v)
-                vertWetCache_[v] = 1;
-            }
-        }
+    auto fold = [](auto& maxima, const std::vector<float>& depths) {
+        for (size_t c = 0; c < depths.size(); ++c)
+            if (std::isfinite(depths[c])) maxima[c] = std::max(maxima[c],depths[c]);
+    };
+    // Freeze completed frames only. The newest live frame can be replaced
+    // with LOWER depths, so it must never contaminate the persistent maximum.
+    std::vector<float> values;
+    while (cellMaxFramesDone_ < nT-1) {
+        if (!source_->readDepthsAt(cellMaxFramesDone_,values) || values.size() != cells_.size()) break;
+        fold(cellMaxCache_,values);
+        ++cellMaxFramesDone_;
     }
-    vertMaxFramesDone_ = std::max(0, nT - 1);         // newest frame re-folds next call
-    out = QVector<float>(nVert, 0.0f);
-    for (int v = 0; v < nVert; ++v)
-        if (vertWetCache_[v]) out[v] = vertMaxCache_[v];
+    QVector<float> out(cellMaxCache_.begin(),cellMaxCache_.end());
+    if (source_->readDepthsAt(nT-1,values) && values.size() == cells_.size()) fold(out,values);
     return out;
 }
 
-float SWMM2DResultsLayer::maxDepthAtSceneInterp(const QPointF& scenePt,
-                                                const QVector<float>& vertMax) const
+std::vector<CellWaterGeometry::CornerDepths> SWMM2DResultsLayer::maxSurfaceDepths() const
 {
-    const int idx = pickDisplayTriAt_(scenePt);
-    if (idx < 0 || idx >= m_sceneTris.size() || idx >= static_cast<int>(tris_.size()))
-        return 0.0f;
-    const auto& t   = m_sceneTris[idx];
-    const auto& tri = tris_[idx];
-    auto vm = [&](int k) {
-        const int vi = tri[k];
-        return (vi >= 0 && vi < vertMax.size()) ? double(vertMax[vi]) : 0.0;
+    if (!source_ || cells_.empty() || source_->timeCount()<=0) return {};
+    const int count=source_->timeCount(), generation=source_->historyGeneration();
+    if (surfaceMaxSource_!=source_.get() || surfaceMaxGeneration_!=generation
+        || surfaceMaxCache_.size()!=cells_.size() || surfaceMaxFramesDone_>count-1) {
+        const double nan=std::numeric_limits<double>::quiet_NaN();
+        surfaceMaxCache_.assign(cells_.size(),CellWaterGeometry::CornerDepths{nan,nan,nan,nan});
+        surfaceMaxFramesDone_=0;
+        surfaceMaxSource_=source_.get(); surfaceMaxGeneration_=generation;
+    }
+    std::vector<float> depths;
+    std::vector<CellWaterGeometry::Surface> surfaces(cells_.size());
+    std::vector<CellWaterGeometry::CornerDepths> field;
+    auto fold=[&](int frame,auto& maximum) {
+        if (!source_->readDepthsAt(frame,depths) || depths.size()!=cells_.size()) return false;
+        for (size_t c=0;c<cells_.size();++c) surfaces[c]=surfaceForDepth(int(c),depths[c]);
+        CellWaterGeometry::smoothCornerDepths(cellSplit_,surfaces,vz_,surfaceTopology_,field);
+        for (size_t c=0;c<field.size();++c)
+            for (int k=0;k<4;++k)
+                if (std::isfinite(field[c][k])
+                    && (!std::isfinite(maximum[c][k]) || field[c][k]>maximum[c][k]))
+                    maximum[c][k]=field[c][k];
+        return true;
     };
-    const int nVert = static_cast<int>(vz_.size());
-    auto z = [&](int k) -> double {
-        const int vi = tri[k];
-        return (vi >= 0 && vi < nVert) ? vz_[vi] : 0.0;
-    };
-    // vertMax is the SIGNED per-vertex max depth (η_max − z), with 0 as the
-    // never-wet NO-DATA sentinel — the exact peer of dv0/dv1/dv2 for the
-    // historical maximum, so the envelope goes through the same η-space
-    // extrapolation + driving-head cap as the animated surface
-    // (CellSurfaceInterp::depthAt) and tapers to its own shoreline intercept.
-    bool degenerate = false;
-    const double d = CellSurfaceInterp::depthAt(
-        scenePt, t.a, t.b, t.c, z(0), z(1), z(2),
-        vm(0), vm(1), vm(2), &degenerate);
-    if (degenerate) return vertMax.isEmpty() ? 0.0f : std::max(0.0f, float(vm(0)));
-    return float(d);
+    // Reconstruct each actual frame BEFORE taking its temporal maximum.
+    // Smoothing independently peaked cell volumes can put the envelope below
+    // water that really occurred. Never freeze the replaceable newest frame.
+    while (surfaceMaxFramesDone_<count-1) {
+        if (!fold(surfaceMaxFramesDone_,surfaceMaxCache_)) break;
+        ++surfaceMaxFramesDone_;
+    }
+    auto out=surfaceMaxCache_;
+    fold(count-1,out);
+    return out;
+}
+
+QVector<float> SWMM2DResultsLayer::maxDepthPerVertex() const
+{
+    const auto maximum=maxSurfaceDepths();
+    if (maximum.empty()) return {};
+    QVector<float> out(vz_.size(),0.0f);
+    for (size_t c=0;c<cells_.size();++c)
+        for (int k=0;k<cellSplit_[c].vertexCount();++k) {
+            const int v=cells_[c][k];
+            if (v>=0 && size_t(v)<vz_.size() && std::isfinite(maximum[c][k]))
+                out[v]=std::max(out[v],float(std::max(0.0,maximum[c][k])));
+        }
+    return out;
+}
+
+float SWMM2DResultsLayer::maxDepthAtSceneInterp(const QPointF& p, const QVector<float>&) const
+{
+    const int tri=pickDisplayTriAt_(p);
+    if (tri<0) return 0;
+    return float(std::max(0.0,signedDepthAtDisplayTriangle(tri,p,maxSurfaceDepths())));
 }
 
 void SWMM2DResultsLayer::highlightCells(const QSet<int>& triIdxSet)
@@ -2709,15 +2717,16 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     m_sceneTris.clear();
     m_triGrid.clear();   // drop the stale index; every early-return path below
                          // leaves an empty grid so pickCellAt falls back safely.
-    cellZc_.clear();
     tris_.clear();
     triCell_.clear();
     cellTri0_.clear();
     cellSplit_.clear();
+    cellSurfaces_.clear();
+    surfaceTopology_.edges.clear();
+    surfaceDepths_.clear();
+    surfaceMaxSource_=nullptr;
+    cellMaxSource_ = nullptr;
     cellCentroidScene_.clear();
-    eta_vsum_.clear();
-    eta_wsum_.clear();
-    vdepth_.clear();
     vvx_.clear();
     vvy_.clear();
     m_sceneEdges.clear();
@@ -2868,6 +2877,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     // the vertex reconstruction consumes. Mixed meshes render, hit-test and
     // contour on this fan; every per-face value is looked up through triCell_.
     buildDisplayFan(vx_, vy_, vz_, cells_, tris_, triCell_, cellTri0_, &cellSplit_);
+    surfaceTopology_=CellWaterGeometry::smoothTopology(cellSplit_);
 
     m_sceneTris.resize(static_cast<int>(tris_.size()));
     int badTris = 0;
@@ -2972,28 +2982,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     }
     m_triGrid.rebuild(triBBoxes);
 
-    // Per-cell mean bed elevation = mean of the cell's vertex z (the engine's
-    // tri_cz for a triangle; cellGeom's zMean). The engine's flat-closure free
-    // surface is η = z_mean + h — the fallback the per-frame reconstruction
-    // uses when a cell's vertex elevations are unusable. Stored as float
-    // parallel to cells_; the per-frame eta_* scratch is sized here too so
-    // applyCurrentDepths_ never allocates.
-    cellZc_.resize(cells_.size());
-    for (size_t i = 0; i < cells_.size(); ++i) {
-        const auto& cell = cells_[i];
-        if (!cellIndicesInRange(cell, nVerts)) {
-            cellZc_[i] = 0.0f;
-            continue;
-        }
-        const int nv = cellVertexCount(cell);
-        double zc = 0.0;
-        for (int k = 0; k < nv; ++k) zc += vz_[size_t(cell[k])];
-        zc /= double(nv);
-        cellZc_[i] = std::isfinite(zc) ? float(zc) : 0.0f;
-    }
-    eta_vsum_.assign(nVerts, 0.0f);
-    eta_wsum_.assign(nVerts, 0.0f);
-    vdepth_.assign(nVerts, 0.0f);
+    cellSurfaces_.resize(cells_.size());
 
     // Pull time-invariant edge geometry once per source swap. When the source
     // can't provide it (older engine without the bulk API, .h5 file without
@@ -3015,83 +3004,27 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
 
 void SWMM2DResultsLayer::applyCurrentDepths_()
 {
-    if (current_depths_.size() != cells_.size()) return;
-    const int nTri  = static_cast<int>(tris_.size());
-    const int nCell = static_cast<int>(cells_.size());
-    if (static_cast<int>(triCell_.size()) != nTri || m_sceneTris.size() != nTri) return;
-    for (int i = 0; i < nTri; ++i) {
-        // Each display sub-triangle carries its CELL's mean depth.
-        m_sceneTris[i].depth = current_depths_[size_t(triCell_[size_t(i)])];
-    }
-
-    const int nVert = static_cast<int>(vx_.size());
-    if (static_cast<int>(cellZc_.size()) != nCell ||
-        static_cast<int>(cellSplit_.size()) != nCell) return;   // geometry not built yet
-
-    // Prefer the engine/HDF5 reconstructed vertex field when available.
-    // Live packets arrive after the cell-depth packet for the same elapsed
-    // time, so refreshCurrentFrame() re-enters here and upgrades smooth fills,
-    // marching-triangle contours, and profile samples without advancing time.
-    bool haveSourceVertexDepths = false;
-    if (source_ && current_time_idx_ >= 0) {
-        std::vector<float> srcVertexDepths;
-        if (source_->readVertexDepthsAt(current_time_idx_, srcVertexDepths)
-            && static_cast<int>(srcVertexDepths.size()) == nVert)
-        {
-            vdepth_ = std::move(srcVertexDepths);
-            // The source field is SIGNED (η_v − z_v). Current engines emit
-            // positive-or-0-sentinel (wetted-contact gate); files from older
-            // engines also carry negatives (dry side of partially wet cells)
-            // and those MUST survive — the profile sampler treats sd ≤ 0 as
-            // non-supplying either way. Only non-finite values are sanitised
-            // (nodata z / poisoned frames must not spread).
-            for (float &d : vdepth_)
-                if (!std::isfinite(d)) d = 0.0f;
-            haveSourceVertexDepths = true;
-        }
-    }
-
-    if (!haveSourceVertexDepths) {
-        // Sub-cell free-surface reconstruction. The engine reports a per-cell
-        // mean depth h = V/A under a flat-cell closure whose free surface is
-        // η = z_centroid + h (horizontal at equilibrium).
-        // reconstructVertexSignedDepths turns those per-cell depths into
-        // SIGNED per-vertex depths (η_v − z_v) so the marching-triangles
-        // bands/isolines and the Gouraud fill cut the wet/dry shoreline through
-        // partially-wet cells instead of snapping to cell edges. It is the SAME
-        // helper maxDepthPerVertex() reduces over time, so the animated surface
-        // and the max-depth envelope share fallback arithmetic. The eta_vsum_/
-        // eta_wsum_ members are reused as scratch so this hot path never
-        // allocates.
-        reconstructVertexSignedDepths(cellSplit_, current_depths_, cellZc_, vz_,
-                                      float(dry_depth_), eta_vsum_, eta_wsum_,
-                                      vdepth_);
-    }
-    // Per display sub-triangle from here on: a quad's two sub-triangles each
-    // take their corners from the shared vertex field and run the pooling
-    // extrapolation on their own planar bed (the VFR storage model).
-    const int nVz = static_cast<int>(vz_.size());
-    for (int i = 0; i < nTri; ++i) {
-        const auto& tri = tris_[i];
-        SceneTri& st = m_sceneTris[i];
-        st.dv0 = (tri[0] >= 0 && tri[0] < nVert) ? vdepth_[tri[0]] : 0.0f;
-        st.dv1 = (tri[1] >= 0 && tri[1] < nVert) ? vdepth_[tri[1]] : 0.0f;
-        st.dv2 = (tri[2] >= 0 && tri[2] < nVert) ? vdepth_[tri[2]] : 0.0f;
-        // Pooling extrapolation: fill this cell's NO-DATA corners with the
-        // driving head's signed depth so the marching bands/isolines — which
-        // interpolate dv LINEARLY — cut the shoreline on the true sub-cell bed
-        // intercept instead of dragging it out to the dry vertex. Per-cell, so
-        // the surface reaches exactly one cell past the wet front; fully-wet
-        // and fully-dry cells are untouched.
-        // (workplans/2D_MAP_POOLING_EXTRAPOLATION_PLAN_2026-08-04.md)
-        if (tri[0] >= 0 && tri[0] < nVz &&
-            tri[1] >= 0 && tri[1] < nVz &&
-            tri[2] >= 0 && tri[2] < nVz)
-        {
-            VertexDepthReconstruct::extrapolateDryCorners(
-                vz_[tri[0]], vz_[tri[1]], vz_[tri[2]],
-                st.dv0, st.dv1, st.dv2);
-        }
+    ++frame_revision_;
+    if (current_depths_.size() != cells_.size() || cellSplit_.size() != cells_.size()) return;
+    cellSurfaces_.resize(cells_.size());
+    for (size_t c = 0; c < cells_.size(); ++c)
+        cellSurfaces_[c] = surfaceForDepth(int(c),current_depths_[c]);
+    CellWaterGeometry::smoothCornerDepths(cellSplit_,cellSurfaces_,vz_,surfaceTopology_,surfaceDepths_);
+    for (int i = 0; i < m_sceneTris.size(); ++i) {
+        const auto& ids = tris_[size_t(i)];
+        const int cell = triCell_[size_t(i)];
+        auto depth = [&](int v) {
+            const auto& ids=cells_[size_t(cell)];
+            const auto it=std::find(ids.begin(),ids.end(),v);
+            return v>=0 && it!=ids.end() ? float(surfaceDepths_[size_t(cell)][size_t(it-ids.begin())])
+                : std::numeric_limits<float>::quiet_NaN();
+        };
+        auto& t = m_sceneTris[i];
+        t.depth = current_depths_[size_t(cell)];
+        t.dv0 = depth(ids[0]); t.dv1 = depth(ids[1]); t.dv2 = depth(ids[2]);
+        if (!max_depth_user_set_)
+            for (float d : {t.dv0,t.dv1,t.dv2})
+                if (std::isfinite(d)) max_depth_ = std::max(max_depth_,double(d));
     }
 }
 

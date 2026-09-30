@@ -3,32 +3,16 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  Depth-weighted, wet-masked free-surface reconstruction at mesh
- *         vertices — the GUI mirror of the engine's
- *         reconstructVertexRenderDepths (VertexReconstruction.cpp), used when
- *         a results source carries no /Mesh2_node_depth field.
+ * \brief  Triangle/quad geometric stage-storage closures and the legacy
+ *         depth-weighted vertex reconstruction.
  *
- *         Turns per-cell mean depths into per-vertex SIGNED depths
- *         (η_v − z_v). Shared by the per-frame animated fill
- *         (applyCurrentDepths_) and the historical max-depth envelope
- *         (maxDepthPerVertex) so the two cannot drift: the envelope is then
- *         provably the per-vertex temporal max of the EXACT field the
- *         animation displays.
+ *         Current maps, profiles and depth queries use the scalar closures
+ *         through CellWaterGeometry, which projects the recovered stages
+ *         continuously within connected wet fans. The older wet-corner-only
+ *         vertex reconstruction remains for compatibility.
  *
- *         Weighting η by the cell depth h lets deep, fully-wet cells (whose
- *         flat-cell η equals the true horizontal water level) dominate
- *         shoreline vertices instead of thin, transiently-wet cells up a
- *         slope dragging the surface up the wall. A wet cell additionally
- *         votes at a corner only when its water actually reaches it
- *         (wetted-contact gate, η > z_v) — without the gate a thin film
- *         pooled at a wall base stamps its low η onto the wall-top vertex,
- *         notching interpolated surfaces near walls. The emitted field is
- *         therefore positive or the 0 no-data sentinel; readers stay
- *         tolerant of negatives from files written by older engines.
- *
- *         Header-only so SWMM2DResultsLayer and the unit tests share one
- *         implementation (the layer's link closure is too large to drive
- *         from a leaf test — same pattern as cellsurfaceinterp.h).
+ *         Header-only so the closures and their numerical tests use the
+ *         same implementation without the full results-layer link closure.
  */
 
 #ifndef VERTEX_DEPTH_RECONSTRUCT_H
@@ -38,6 +22,7 @@
 #include <array>
 #include <cmath>
 #include <vector>
+#include <limits>
 
 namespace VertexDepthReconstruct
 {
@@ -60,29 +45,32 @@ inline double cellEtaFromMeanDepth(double h, double za, double zb, double zc)
 
     const double zbar   = (z1 + z2 + z3) / 3.0;
     const double relief = z3 - z1;
-    if (relief < 1.0e-9 || h >= z3 - zbar)
+    if (relief == 0.0 || h >= z3 - zbar)
         return zbar + h;                              // flat / fully wet
 
     const double h_at_z2 = (z2 - z1) * (z2 - z1) / (3.0 * relief);
     if (h <= h_at_z2)                                 // waterline below z2
         return z1 + std::cbrt(3.0 * h * (z2 - z1) * relief);
 
-    // Waterline between z2 and z3: safeguarded Newton on the bracket.
-    const double denom = 3.0 * relief * (z3 - z2);
-    double lo = z2, hi = z3;
-    double eta = zbar + h;
-    if (eta <= lo || eta >= hi) eta = 0.5 * (lo + hi);
-    for (int it = 0; it < 64; ++it) {
-        const double dz3 = z3 - eta;
-        const double f  = (eta - zbar) + dz3 * dz3 * dz3 / denom - h;
-        if (f > 0.0) hi = eta; else lo = eta;
-        const double df = 1.0 - dz3 * dz3 / (relief * (z3 - z2));
-        double next = (df > 1.0e-12) ? eta - f / df : 0.5 * (lo + hi);
-        if (next <= lo || next >= hi) next = 0.5 * (lo + hi);
-        if (std::abs(next - eta) < 1.0e-12 * (1.0 + relief)) return next;
-        eta = next;
+    // Solve in the local height u=eta-z2. Expanding the storage polynomial
+    // about z2 avoids subtracting large nearly equal terms for shallow pools
+    // when the two low corners have equal (or nearly equal) elevations.
+    const double gap = z3-z2, lowGap = z2-z1;
+    double lo = 0.0, hi = gap;
+    double u = std::clamp(zbar+h-z2,0.0,gap);
+    if (!(u > lo && u < hi)) u = 0.5*gap;
+    for (int it = 0; it < 80; ++it) {
+        const double storage = h_at_z2 + u*(lowGap + u*(1.0-u/(3.0*gap)))/relief;
+        const double f = storage-h;
+        if (std::abs(f) <= 4.0*std::numeric_limits<double>::epsilon()*h) return z2+u;
+        if (f > 0.0) hi = u; else lo = u;
+        const double df = (lowGap + u*(2.0-u/gap))/relief;
+        double next = df > 0.0 ? u-f/df : 0.5*(lo+hi);
+        if (!(next > lo && next < hi)) next = 0.5*(lo+hi);
+        if (next == u) return z2+u;
+        u = next;
     }
-    return eta;
+    return z2+u;
 }
 
 /*! Exact planar-triangle mean depth h̄(η) — the forward stage–storage relation
@@ -96,13 +84,13 @@ inline double triMeanDepthFromEta(double eta, double za, double zb, double zc)
     if (eta <= z1) return 0.0;
     const double relief = z3 - z1;
     const double zbar   = (z1 + z2 + z3) / 3.0;
-    if (relief < 1.0e-9 || eta >= z3) return eta - zbar;
+    if (relief == 0.0 || eta >= z3) return eta - zbar;
     if (eta <= z2) {
         const double d = eta - z1;
         return d * d * d / (3.0 * (z2 - z1) * relief);
     }
-    const double dz3 = z3 - eta;
-    return (eta - zbar) + dz3 * dz3 * dz3 / (3.0 * relief * (z3 - z2));
+    const double a = z2-z1, u = eta-z2, gap = z3-z2;
+    return a*a/(3.0*relief) + u*(a + u*(1.0-u/(3.0*gap)))/relief;
 }
 
 /*!
@@ -149,7 +137,7 @@ inline double quadEtaFromMeanDepth(const double zs[6], double a1, double a2, dou
     }
     if (!(h > 0.0)) return zlow;
     const double relief = ztop - zlow;
-    if (relief < 1.0e-9 || h >= ztop - zw) return zw + h;      // flat / fully wet
+    if (relief == 0.0 || h >= ztop - zw) return zw + h;      // flat / fully wet
 
     auto meanDepth = [&](double eta) {
         return (a1 * triMeanDepthFromEta(eta, zs[0], zs[1], zs[2])
