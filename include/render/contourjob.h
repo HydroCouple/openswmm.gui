@@ -59,10 +59,9 @@ struct ContourJobInput
     /*! Iso levels for contour lines; empty = skip the line pass. */
     std::vector<double> isoLevels;
 
-    /*! Forwarded to marchingTrianglesIsobands. Depth renderers pass false
-     *  so a flat dry cell outside the class range stays unbanded — must
-     *  match the synchronous path exactly. */
-    bool clampUniformOutsideRange = true;
+    /*! Physical visibility cutoff, independent of the color range.
+     *  Depth renderers pass their dry threshold; upper values saturate. */
+    double minimumVisibleValue = -std::numeric_limits<double>::infinity();
 };
 
 struct ContourJobOutput

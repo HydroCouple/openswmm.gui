@@ -62,7 +62,7 @@ ContourJobOutput computeContourJob(const ContourJobInput &in)
     const IndexRange range{n};
     if (in.bandLevels.size() >= 2)
         out.bands = OpenSWMM::Contour::marchingTrianglesIsobands(
-            range, in.bandLevels, extract, in.clampUniformOutsideRange);
+            range, in.bandLevels, extract, in.minimumVisibleValue);
     if (!in.isoLevels.empty())
         out.segs = OpenSWMM::Contour::marchingTriangles(
             range, in.isoLevels, extract);

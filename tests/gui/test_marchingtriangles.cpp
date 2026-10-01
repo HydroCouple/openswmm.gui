@@ -253,27 +253,28 @@ private slots:
         QCOMPARE(bands[0].bandHi,  2.0);
     }
 
-    void isobands_singleBand_belowRange_empty()
+    void isobands_singleBand_aboveRange_saturates()
     {
-        // Triangle entirely above the band → no polygon emitted.
+        // A sloping triangle above the range uses the maximum band.
         std::vector<Tri> tris {
             { {0,0}, {1,0}, {0,1}, 5.0, 6.0, 7.0 }
         };
         const auto bands = marchingTrianglesIsobands(
             tris, std::vector<double>{0.0, 1.0}, extract);
-        QCOMPARE(bands.size(), size_t(0));
+        QCOMPARE(bands.size(), size_t(1));
+        QVERIFY(nearlyEqual(polyArea(bands[0].verts), 0.5, 1e-9));
     }
 
     void isobands_singleBand_partialCoverage()
     {
         // Triangle vertices at values 0, 1, 0.5. Band [0.25, 0.75] cuts
-        // through. Expected polygon is a strip across the middle. Vertex
-        // count should be 4 (two iso-crossings on each of two edges).
+        // through. Below the explicit visibility cutoff is hidden, while
+        // values above the maximum remain in the only band.
         std::vector<Tri> tris {
             { {0,0}, {1,0}, {0,1}, 0.0, 1.0, 0.5 }
         };
         const auto bands = marchingTrianglesIsobands(
-            tris, std::vector<double>{0.25, 0.75}, extract);
+            tris, std::vector<double>{0.25, 0.75}, extract, 0.25);
         QCOMPARE(bands.size(), size_t(1));
         QVERIFY(bands[0].verts.size() >= 3);
         QVERIFY(bands[0].verts.size() <= 5);
@@ -338,9 +339,34 @@ private slots:
         const std::vector<double> lv{0.1, 0.5, 1.0};
         const auto clamped = marchingTrianglesIsobands(tris, lv, extract);
         const auto clipped = marchingTrianglesIsobands(
-            tris, lv, extract, /*clampUniformOutsideRange=*/false);
+            tris, lv, extract, /*minimumVisibleValue=*/0.1);
         QCOMPARE(clamped.size(), size_t(1));
         QCOMPARE(clipped.size(), size_t(0));
+    }
+
+    void isobands_saturateWithoutMovingInteriorCrossings()
+    {
+        // Scalar is x: exact area with x>=0.5 is 1.125. Clamping vertex
+        // values into [0.25,1] would put that crossing at x=2/3 instead.
+        std::vector<Tri> tris{{{0,0},{2,0},{0,2},0,2,0}};
+        const std::vector<double> levels{0.25,0.5,1.0};
+        const auto bands = marchingTrianglesIsobands(tris, levels, extract);
+        double area=0, upper=0;
+        for (const auto &b : bands) {
+            area += polyArea(b.verts);
+            if (b.bandIndex == 1) upper += polyArea(b.verts);
+        }
+        QVERIFY(nearlyEqual(area,2.0,1e-9));
+        QVERIFY(nearlyEqual(upper,1.125,1e-9));
+        const auto wet = marchingTrianglesIsobands(tris,levels,extract,0.1);
+        area=0;
+        for (const auto &b : wet) area+=polyArea(b.verts);
+        QVERIFY(nearlyEqual(area,1.805,1e-9)); // physical cutoff, not range min
+        tris[0].v0=tris[0].v1=tris[0].v2=3;
+        const auto above = marchingTrianglesIsobands(tris,levels,extract,0.1);
+        QCOMPARE(above.size(),size_t(1));
+        QCOMPARE(above[0].bandIndex,1);
+        QVERIFY(nearlyEqual(polyArea(above[0].verts),2.0,1e-9));
     }
 
     void isobands_areaConserved_noGaps()
