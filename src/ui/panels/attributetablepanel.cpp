@@ -44,7 +44,12 @@
 #include "map/mapextent.h"
 #include "map/mapundostack.h"
 #include "map/featurecommands.h"
+#include "feature/featureroles.h"
 #include "feature/featuretypes.h"
+#include "core/unitsystem.h"
+#include "ui/panels/featurefielddelegate.h"
+#include "ui/theme/thememanager.h"
+#include "ui/theme/themetokens.h"
 
 #include <QAction>
 #include <QApplication>
@@ -1220,10 +1225,10 @@ void AttributeTablePanel::refresh()
                     }
                 }
             }
+            // Feature layer: no per-category widths. bindGisSource installs
+            // the column delegates (FeatureFieldDelegate for an editable
+            // FeatureLayer, none for any other vector source).
             bindGisSource(gis);
-            // Feature layer: no SWMM delegates / no per-category widths.
-            for (int c = 0; c < m_proxy->columnCount(); ++c)
-                m_view->setItemDelegateForColumn(c, nullptr);
         } else if (data.toString().startsWith(kMeshPrefix)) {
             bindMeshSource(data.toString());
         }
@@ -1263,6 +1268,46 @@ void AttributeTablePanel::showLayerSource(OpenSWMMVisLayer *layer)
     if (idx < 0) {
         // Layer added since the combo was last rebuilt.
         refresh();
+        idx = m_categoryCombo->findData(key);
+    }
+    if (idx >= 0)
+        m_categoryCombo->setCurrentIndex(idx);   // fires onCategoryChanged
+}
+
+void AttributeTablePanel::showModelCategory(SWMMModelLayer *model, int category,
+                                            SWMMResultsLayer *run)
+{
+    if (!m_layer || (model && model != m_layer.data())) return;
+    if (run) setResultsSource(run);
+
+    int idx = -1;
+    for (int i = 0; i < m_categoryCombo->count(); ++i) {
+        const QVariant d = m_categoryCombo->itemData(i);
+        if (d.userType() == QMetaType::Int && d.toInt() == category) { idx = i; break; }
+    }
+    if (idx < 0) {
+        // Objects added since the combo was last rebuilt (empty categories
+        // are not listed).
+        refresh();
+        for (int i = 0; i < m_categoryCombo->count(); ++i) {
+            const QVariant d = m_categoryCombo->itemData(i);
+            if (d.userType() == QMetaType::Int && d.toInt() == category) { idx = i; break; }
+        }
+    }
+    if (idx >= 0)
+        m_categoryCombo->setCurrentIndex(idx);   // fires onCategoryChanged
+}
+
+void AttributeTablePanel::showMeshTable(SWMM2DMeshLayer *mesh, int meshKind)
+{
+    if (!mesh) return;
+    const auto kind = meshKind == 1 ? MeshAttributeTableModel::Kind::Edge
+                    : meshKind == 2 ? MeshAttributeTableModel::Kind::Cell
+                                    : MeshAttributeTableModel::Kind::Vertex;
+    const QString key = meshSourceKey(mesh, kind);
+    int idx = m_categoryCombo->findData(key);
+    if (idx < 0) {
+        refresh();   // mesh added since the combo was last rebuilt
         idx = m_categoryCombo->findData(key);
     }
     if (idx >= 0)
@@ -1319,9 +1364,7 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
                 }
             }
         }
-        bindGisSource(gis);
-        for (int c = 0; c < m_proxy->columnCount(); ++c)
-            m_view->setItemDelegateForColumn(c, nullptr);
+        bindGisSource(gis);   // also installs the column delegates
     } else if (data.toString().startsWith(kMeshPrefix)) {
         bindMeshSource(data.toString());
     }
@@ -2751,18 +2794,57 @@ void AttributeTablePanel::bindGisSource(GISVectorLayer *gis)
     // stays read-only rather than writing behind the undo history's back.
     m_gisModel->setCanvas(m_canvas.data());
     m_proxy->setSourceModel(m_gisModel);
+    installFeatureDelegates();
 
     if (auto *fl = qobject_cast<FeatureLayer *>(gis)) {
         // A write from anywhere — the map tools, the Features dock, an undo —
         // re-reads the table, so the two grids cannot disagree.
         connect(fl, &FeatureLayer::featuresChanged, this,
                 [this](const QVector<qint64> &) { m_gisModel->reload(); });
+        // A column added, dropped or given a value list changes the
+        // editors as well as the headers.
         connect(fl, &FeatureLayer::schemaChanged, this,
-                [this] { m_gisModel->reload(); });
+                [this] { m_gisModel->reload(); installFeatureDelegates(); });
         // Opening / closing the session flips every cell between editable and
         // read-only; reset so the views pick the new flags up.
         connect(fl, &FeatureLayer::editingChanged, this,
                 [this](bool) { m_gisModel->reload(); });
+    }
+}
+
+void AttributeTablePanel::installFeatureDelegates()
+{
+    // Only while the GIS source is showing: a schema change on a layer the
+    // table is not showing must not touch another source's delegates.
+    if (!m_view || !m_proxy || !m_gisModel || m_proxy->sourceModel() != m_gisModel) return;
+    // Clears (and deletes) whatever the previous source installed.
+    installColumnDelegates({}, m_proxy->columnCount());
+
+    auto *fl = qobject_cast<FeatureLayer *>(m_gisModel->layer());
+    if (!fl) return;
+
+    // FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §6 "Views": the same delegate the
+    // Features dock uses, from the role-aware schema, so a column edits the
+    // same way in both views. Column 0 is the FID; field i is column i + 1.
+    const openswmmvis::feature::Schema schema = fl->editorSchema();
+    const int bcCol = (fl->role() == FeatureLayerRole::BoundaryCondition)
+                          ? schema.indexOf(QStringLiteral("bc_type")) : -1;
+    const QString lengthUnit = UnitSystem::instance()
+                                   ? UnitSystem::instance()->lengthLabel() : QString();
+    for (int i = 0; i < schema.count(); ++i) {
+        auto *del = new openswmmvis::ui::FeatureFieldDelegate(schema.at(i), this);
+        del->setLengthUnit(lengthUnit);
+        del->setBcTypeColumn(bcCol >= 0 ? bcCol + 1 : -1);
+        del->setWarningColor(openswmmvis::ui::ThemeManager::instance()->colors().warning);
+        del->setModelNamesProvider([this](openswmmvis::feature::ModelList list) {
+            if (!m_layer) return QStringList();
+            // 0 = time series; -1 = every curve kind (a 2D rating curve may
+            // reference any curve — MeshAttributeTableModel's AnyCurve).
+            return m_layer->tableIdsOfType(
+                list == openswmmvis::feature::ModelList::TimeSeries ? 0 : -1);
+        });
+        m_view->setItemDelegateForColumn(i + 1, del);
+        m_installedDelegates.append(del);
     }
 }
 

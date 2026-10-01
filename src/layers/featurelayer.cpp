@@ -41,130 +41,8 @@ inline QPointF mapToScene(const QPointF &p) { return QPointF(p.x(), -p.y()); }
 
 }   // namespace
 
-// ---------------------------------------------------------------------------
-// Role
-// ---------------------------------------------------------------------------
-
-QString featureLayerRoleLabel(FeatureLayerRole r)
-{
-    switch (r) {
-    case FeatureLayerRole::DomainBoundary:    return tr_("Mesh domain boundary");
-    case FeatureLayerRole::Breakline:         return tr_("Breaklines / hard points");
-    case FeatureLayerRole::Region:            return tr_("Mesh regions");
-    case FeatureLayerRole::ParameterZone:     return tr_("Parameter zones");
-    case FeatureLayerRole::SwmmDelineation:   return tr_("SWMM delineation");
-    case FeatureLayerRole::BoundaryCondition: return tr_("Boundary-condition lines");
-    case FeatureLayerRole::General:           break;
-    }
-    return tr_("General");
-}
-
-QString featureLayerRoleToken(FeatureLayerRole r)
-{
-    switch (r) {
-    case FeatureLayerRole::DomainBoundary:    return QStringLiteral("domain");
-    case FeatureLayerRole::Breakline:         return QStringLiteral("breakline");
-    case FeatureLayerRole::Region:            return QStringLiteral("region");
-    case FeatureLayerRole::ParameterZone:     return QStringLiteral("zone");
-    case FeatureLayerRole::SwmmDelineation:   return QStringLiteral("swmm");
-    case FeatureLayerRole::BoundaryCondition: return QStringLiteral("bc");
-    case FeatureLayerRole::General:           break;
-    }
-    return QStringLiteral("general");
-}
-
-FeatureLayerRole featureLayerRoleFromToken(const QString &token)
-{
-    const QString t = token.trimmed().toLower();
-    if (t == QLatin1String("domain"))    return FeatureLayerRole::DomainBoundary;
-    if (t == QLatin1String("breakline")) return FeatureLayerRole::Breakline;
-    if (t == QLatin1String("region"))    return FeatureLayerRole::Region;
-    if (t == QLatin1String("zone"))      return FeatureLayerRole::ParameterZone;
-    if (t == QLatin1String("swmm"))      return FeatureLayerRole::SwmmDelineation;
-    if (t == QLatin1String("bc"))        return FeatureLayerRole::BoundaryCondition;
-    return FeatureLayerRole::General;
-}
-
-GeometryType featureLayerRoleGeometry(FeatureLayerRole r)
-{
-    switch (r) {
-    case FeatureLayerRole::DomainBoundary:    return GeometryType::MultiPolygon;
-    case FeatureLayerRole::Breakline:         return GeometryType::MultiLineString;
-    case FeatureLayerRole::Region:            return GeometryType::Polygon;
-    case FeatureLayerRole::ParameterZone:     return GeometryType::Polygon;
-    case FeatureLayerRole::BoundaryCondition: return GeometryType::LineString;
-    case FeatureLayerRole::SwmmDelineation:
-    case FeatureLayerRole::General:           break;
-    }
-    return GeometryType::None;
-}
-
-Schema featureLayerRoleTemplate(FeatureLayerRole r)
-{
-    Schema s;
-    const auto add = [&s](const char *name, FieldType t, const char *desc) {
-        FieldDef f;
-        f.name        = QString::fromLatin1(name);
-        f.type        = t;
-        f.description = tr_(desc);
-        s.append(f);
-    };
-
-    switch (r) {
-    case FeatureLayerRole::DomainBoundary:
-        add("name", FieldType::Text, "Label for this domain part.");
-        break;
-
-    case FeatureLayerRole::Breakline:
-        add("tag",    FieldType::Text,    "Tag applied to the constraint segments.");
-        add("marker", FieldType::Integer, "PSLG marker written on the segments.");
-        break;
-
-    case FeatureLayerRole::Region:
-        // max_area / min_cell drive the refinement and minimum-size loops;
-        // quad_* mirror the per-feature overrides the quad-region layer
-        // already reads (QUAD_MESHING_REDESIGN_PLAN §3.1).
-        add("max_area",     FieldType::Real,    "Maximum triangle area inside this region (0 = inherit).");
-        add("min_cell",     FieldType::Real,    "Minimum cell size inside this region (0 = inherit).");
-        add("quad_mode",    FieldType::Text,    "Auto | Mapped | Submapped | Free | TrianglesOnly.");
-        add("quad_spacing", FieldType::Real,    "Target quad size (0 = inherit).");
-        add("quad_aspect",  FieldType::Real,    "Maximum quad aspect ratio (0 = inherit).");
-        add("quad_angle",   FieldType::Real,    "Alignment angle in degrees.");
-        add("tag",          FieldType::Text,    "Region tag.");
-        break;
-
-    case FeatureLayerRole::ParameterZone:
-        add("mannings_n",   FieldType::Real, "Manning's n for cells in this zone.");
-        add("init_depth",   FieldType::Real, "Initial depth for cells in this zone.");
-        add("landuse",      FieldType::Text, "Land-use class key.");
-        add("hsg",          FieldType::Text, "Hydrologic soil group.");
-        add("infil_method", FieldType::Text, "Infiltration method key.");
-        break;
-
-    case FeatureLayerRole::BoundaryCondition:
-        // Mirrors mesh::MeshEdgeBC (meshedgebc.h:23-46) field for field, so
-        // AssignBCFromLinesCommand is a straight copy with no mapping table.
-        add("bc_type",     FieldType::Text, "Boundary-condition type.");
-        add("head",        FieldType::Real, "Fixed head.");
-        add("slope",       FieldType::Real, "Bed slope for a normal-depth boundary.");
-        add("flow",        FieldType::Real, "Inflow.");
-        add("tseries",     FieldType::Text, "Time-series name.");
-        add("curve",       FieldType::Text, "Curve name.");
-        add("group",       FieldType::Text, "Boundary group.");
-        add("conveyance",  FieldType::Real, "Edge conveyance.");
-        break;
-
-    case FeatureLayerRole::SwmmDelineation:
-        add("name",   FieldType::Text, "SWMM object name.");
-        add("outlet", FieldType::Text, "Outlet node or subcatchment.");
-        break;
-
-    case FeatureLayerRole::General:
-        add("name", FieldType::Text, "Label.");
-        break;
-    }
-    return s;
-}
+// The role helpers (label, token, geometry, template) live in the role
+// registry, feature/featureroles.cpp.
 
 // ---------------------------------------------------------------------------
 // ZPolicy
@@ -352,6 +230,36 @@ bool FeatureLayer::removeField(const QString &name, QString *error)
         return false;
     }
     if (!m_store->removeField(name, error)) return false;
+    emit schemaChanged();
+    afterWrite({});
+    return true;
+}
+
+Schema FeatureLayer::editorSchema() const
+{
+    return openswmmvis::feature::editorSchema(m_role, schema());
+}
+
+bool FeatureLayer::renameField(const QString &from, const QString &to, QString *error)
+{
+    if (!isEditable()) {
+        if (error) *error = tr_("This feature layer is not open for editing.");
+        return false;
+    }
+    if (!m_store->renameField(from, to, error)) return false;
+    emit schemaChanged();
+    afterWrite({});
+    return true;
+}
+
+bool FeatureLayer::setFieldMetadata(const QString &name, const FieldDef &meta,
+                                    QString *error)
+{
+    if (!isEditable()) {
+        if (error) *error = tr_("This feature layer is not open for editing.");
+        return false;
+    }
+    if (!m_store->setFieldMetadata(name, meta, error)) return false;
     emit schemaChanged();
     afterWrite({});
     return true;

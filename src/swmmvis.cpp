@@ -33,7 +33,11 @@
 #include <QElapsedTimer>
 #include <QScopeGuard>
 #include <QLoggingCategory>
+#include <QEventLoop>
 #include <QFutureWatcher>
+
+#include <atomic>
+#include <memory>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFileInfo>
 #include <QCloseEvent>
@@ -80,6 +84,11 @@
 #include "map/tools/maptoolfeatureedit.h"
 #include "ui/dialogs/newfeaturelayerdialog.h"
 #include "ui/panels/featurelayerpanel.h"
+#include "ui/panels/layertreetargets.h"
+#include "ui/dialogs/exportlayerdialog.h"
+#include "io/meshexport.h"
+#include "io/swmmexport.h"
+#include "io/vectorexport.h"
 #include "ui/mdiworkspacechrome.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
@@ -2388,14 +2397,40 @@ void SWMMVis::initializeLayersDockWidget()
                                   QStringLiteral("layer-style-apply"));
             });
 
-    // Right-click "Open Attribute Table" on a layer row → raise the
-    // Attribute Table dock and switch its source to that layer.
+    // Right-click "Open Attribute Table" on a layer, object-type or mesh
+    // sublayer row → raise the Attribute Table dock and switch it to what the
+    // row stands for (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §7).
     connect(mLayerTreePanel, &LayerTreePanel::attributeTableRequested,
-            this, [this](OpenSWMMVisLayer *layer) {
-                if (!mAttributeTablePanel) return;
+            this, [this](const openswmmvis::ui::AttributeTableTarget &target) {
+                if (!mAttributeTablePanel || !target.isValid()) return;
                 onTabularView();   // show + raise the dock, focus the table
-                mAttributeTablePanel->showLayerSource(layer);
+                using K = openswmmvis::ui::AttributeTableTarget::Kind;
+                switch (target.kind) {
+                case K::Layer:
+                    mAttributeTablePanel->showLayerSource(target.layer);
+                    break;
+                case K::ModelCategory: {
+                    auto *pw = activeProjectWindow();
+                    auto *model = qobject_cast<SWMMModelLayer *>(target.layer);
+                    if (!model && pw) model = pw->modelLayer();
+                    mAttributeTablePanel->showModelCategory(
+                        model, target.category,
+                        qobject_cast<SWMMResultsLayer *>(target.layer));
+                    break;
+                }
+                case K::MeshTable:
+                    mAttributeTablePanel->showMeshTable(
+                        qobject_cast<SWMM2DMeshLayer *>(target.layer),
+                        static_cast<int>(target.meshTable));
+                    break;
+                case K::None:
+                    break;
+                }
             });
+    // Right-click Export entries (§8): the host owns the dialogs, the
+    // project paths and the worker.
+    connect(mLayerTreePanel, &LayerTreePanel::exportRequested,
+            this, &SWMMVis::onExportLayerRequested);
 
     // Slice S1 — Layer-row "Set Style…" now routes to the unified
     // LayerStyleDialog instead of the legacy SymbologyDialog. Same dialog
@@ -3560,6 +3595,15 @@ void SWMMVis::initializeFeatureLayerDockWidget()
     // the GeoPackage path, so creation, import and export land here.
     connect(mFeatureLayerPanel, &openswmmvis::ui::FeatureLayerPanel::newLayerRequested,
             this, &SWMMVis::onNewFeatureLayer);
+    // The dock's Export… is the layer tree's Export… on that layer (§8).
+    connect(mFeatureLayerPanel, &openswmmvis::ui::FeatureLayerPanel::exportRequested,
+            this, [this](FeatureLayer *layer) {
+                if (!layer) return;
+                openswmmvis::ui::LayerExportTarget t;
+                t.kind  = openswmmvis::ui::LayerExportTarget::Kind::VectorLayer;
+                t.layer = layer;
+                onExportLayerRequested(t);
+            });
     connect(mFeatureLayerPanel, &openswmmvis::ui::FeatureLayerPanel::message,
             this, [this](const QString &text) {
                 if (statusBar()) statusBar()->showMessage(text, 6000);
@@ -8054,6 +8098,11 @@ void SWMMVis::onSummarizeResults()
 
 void SWMMVis::onExport2DResults()
 {
+    export2DResults(nullptr);
+}
+
+void SWMMVis::export2DResults(SWMM2DResultsLayer *preselected)
+{
     auto *pw = activeProjectWindow();
     if (!pw)
     {
@@ -8061,7 +8110,10 @@ void SWMMVis::onExport2DResults()
                      OpenSWMMVisLogMessage::Warning);
         return;
     }
-    QPointer<SWMM2DResultsLayer> layer = pw->active2DResultsLayer();
+    // The layer tree's "Export 2D Results…" names its run; the Analysis menu
+    // entry exports the active one.
+    QPointer<SWMM2DResultsLayer> layer = preselected ? preselected
+                                                     : pw->active2DResultsLayer();
     IMesh2DSource *source = layer ? layer->source() : nullptr;
     if (!source || source->timeCount() <= 0)
     {
@@ -8175,6 +8227,295 @@ void SWMMVis::onExport2DResults()
         QMessageBox::warning(this, tr("Export Failed"),
                              tr("The 2D results could not be exported.\n\n%1")
                                  .arg(report.error));
+    }
+}
+
+openswmmvis::io::ExportReport SWMMVis::runExportJob(
+    const QString &title,
+    const std::function<bool(const std::function<bool(int, int, const QString &)> &,
+                             openswmmvis::io::ExportReport *)> &job)
+{
+    // The worker only touches its snapshot and GDAL; progress and Cancel cross
+    // threads through atomics, read here by a timer (FEATURE_LAYER_ROLES §8.5).
+    auto done   = std::make_shared<std::atomic<int>>(0);
+    auto total  = std::make_shared<std::atomic<int>>(100);
+    auto cancel = std::make_shared<std::atomic<bool>>(false);
+
+    QProgressDialog progress(title, tr("Cancel"), 0, 100, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(300);
+    progress.setAutoClose(false);
+    progress.setAutoReset(false);
+    connect(&progress, &QProgressDialog::canceled, this, [cancel] { *cancel = true; });
+
+    QTimer tick;
+    connect(&tick, &QTimer::timeout, this, [&progress, done, total] {
+        progress.setMaximum(std::max(1, total->load()));
+        progress.setValue(std::min(done->load(), total->load()));
+    });
+    tick.start(100);
+
+    QFutureWatcher<openswmmvis::io::ExportReport> watcher;
+    QEventLoop loop;
+    connect(&watcher, &QFutureWatcherBase::finished, &loop, &QEventLoop::quit);
+    watcher.setFuture(QtConcurrent::run([job, done, total, cancel]() {
+        openswmmvis::io::ExportReport rep;
+        job([done, total, cancel](int d, int t, const QString &) {
+                *done = d;
+                *total = t;
+                return !cancel->load();
+            },
+            &rep);
+        return rep;
+    }));
+    loop.exec();
+    tick.stop();
+    progress.close();
+    return watcher.result();
+}
+
+void SWMMVis::onExportLayerRequested(const openswmmvis::ui::LayerExportTarget &target)
+{
+    using K = openswmmvis::ui::LayerExportTarget::Kind;
+    using openswmmvis::ui::ExportDialogSetup;
+    using openswmmvis::ui::ExportItem;
+    namespace oio = openswmmvis::io;
+
+    auto *pw = activeProjectWindow();
+    if (!pw || !target.isValid() || !target.layer) return;
+    if (target.kind == K::Results2D) {
+        export2DResults(qobject_cast<SWMM2DResultsLayer *>(target.layer));
+        return;
+    }
+
+    // Defaults beside the project, named after it.
+    const QString inpPath = pw->modelLayer() ? pw->modelLayer()->modelFilePath() : QString();
+    const QFileInfo inpInfo(inpPath);
+    const QString project = inpInfo.completeBaseName().isEmpty() ? QStringLiteral("export")
+                                                                 : inpInfo.completeBaseName();
+    ExportDialogSetup setup;
+    setup.defaultDir = inpInfo.absolutePath().isEmpty() ? QDir::homePath()
+                                                        : inpInfo.absolutePath();
+    // An export replaces its destination: never the feature store or a file
+    // the project has open (the model, a run's results, a layer's source).
+    setup.protectedPaths << featureGpkgPathFor(pw);
+    if (pw->modelLayer()) setup.protectedPaths << pw->modelLayer()->modelFilePath();
+    if (MapCanvas *canvas = pw->canvas()) {
+        for (OpenSWMMVisLayer *l : canvas->layers()) {
+            if (auto *v = qobject_cast<GISVectorLayer *>(l))
+                setup.protectedPaths << v->filePath();
+            else if (auto *r = qobject_cast<GISRasterLayer *>(l))
+                setup.protectedPaths << r->filePath();
+            else if (auto *m = qobject_cast<SWMM2DMeshLayer *>(l))
+                setup.protectedPaths << m->sourcePath();
+            else if (auto *o = qobject_cast<SWMMResultsLayer *>(l))
+                setup.protectedPaths << o->resultsFilePath() << o->reportFilePath();
+        }
+    }
+    setup.protectedPaths.removeAll(QString());
+    const auto crsOf = [&setup](const OpenSWMMVisLayer *l) {
+        if (const SpatialReferenceSystem *srs = l ? l->srs() : nullptr) {
+            setup.sourceSrsWkt   = srs->toWkt();
+            setup.sourceCrsLabel = srs->toAuthority();
+        }
+    };
+
+    SWMMModelLayer   *model  = nullptr;
+    SWMMResultsLayer *run    = nullptr;
+    GISVectorLayer   *vector = nullptr;
+    SWMM2DMeshLayer  *mesh   = nullptr;
+    GISRasterLayer   *raster = nullptr;
+
+    switch (target.kind) {
+    case K::SwmmObjects: {
+        run   = qobject_cast<SWMMResultsLayer *>(target.layer);
+        model = qobject_cast<SWMMModelLayer *>(target.layer);
+        if (!model) model = pw->modelLayer();
+        if (!model) return;
+        if (!run) run = pw->activeResultsLayer();   // offered, not ticked
+        setup.mode = ExportDialogSetup::Mode::SwmmObjects;
+        for (const int cat : oio::swmmSpatialCategories()) {
+            const auto c = static_cast<SWMMModelLayer::Category>(cat);
+            const int n = model->categoryCount(c);
+            ExportItem it;
+            it.id = cat;
+            it.label = QStringLiteral("%1 (%2)").arg(SWMMModelLayer::kindKey(c)).arg(n);
+            it.stem = oio::swmmTableName(cat);
+            // §8.2: everything with objects, or just the type right-clicked.
+            it.checked = target.category >= 0 ? cat == target.category : n > 0;
+            setup.items << it;
+        }
+        const QString what = target.category >= 0
+            ? SWMMModelLayer::kindKey(static_cast<SWMMModelLayer::Category>(target.category))
+            : tr("SWMM objects");
+        setup.title = target.withResults ? tr("Export %1 with results").arg(what)
+                                         : tr("Export %1").arg(what);
+        setup.sourceName = tr("Model: %1").arg(model->name());
+        setup.hasSelection = !model->selectedElementNames().isEmpty();
+        setup.canIncludeResults = (run != nullptr);
+        setup.includeResults = target.withResults && run;
+        setup.defaultBaseName = target.category >= 0
+            ? project + QLatin1Char('_') + oio::swmmTableName(target.category)
+            : project + QStringLiteral("_objects");
+        crsOf(model);
+        break;
+    }
+    case K::VectorLayer: {
+        vector = qobject_cast<GISVectorLayer *>(target.layer);
+        if (!vector) return;
+        setup.mode = ExportDialogSetup::Mode::VectorLayer;
+        const QString stem = openswmmvis::feature::sanitizeTableName(vector->name()).isEmpty()
+                                 ? QStringLiteral("layer")
+                                 : openswmmvis::feature::sanitizeTableName(vector->name());
+        setup.items << ExportItem{0, vector->name(), stem, true};
+        setup.title = tr("Export %1").arg(vector->name());
+        setup.sourceName = tr("Layer: %1").arg(vector->name());
+        setup.hasSelection = !vector->selectedFeatureIds().isEmpty();
+        setup.defaultBaseName = stem;
+        setup.protectedPaths << vector->filePath();
+        crsOf(vector);
+        break;
+    }
+    case K::Mesh: {
+        mesh = qobject_cast<SWMM2DMeshLayer *>(target.layer);
+        if (!mesh) return;
+        setup.mode = ExportDialogSetup::Mode::Mesh;
+        const struct { unsigned bit; int table; QString label; QString stem; int n; } parts[] = {
+            {oio::MeshExportCells,    2, tr("Cells (polygons)"),  QStringLiteral("mesh_cells"),    mesh->triangleCount()},
+            {oio::MeshExportEdges,    1, tr("Edges (lines)"),     QStringLiteral("mesh_edges"),    mesh->edgeCount()},
+            {oio::MeshExportVertices, 0, tr("Vertices (points)"), QStringLiteral("mesh_vertices"), mesh->vertexCount()},
+        };
+        for (const auto &p : parts)
+            setup.items << ExportItem{int(p.bit), QStringLiteral("%1 — %2").arg(p.label).arg(p.n),
+                                      p.stem, target.meshTable < 0 || target.meshTable == p.table};
+        setup.title = tr("Export mesh %1").arg(mesh->name());
+        setup.sourceName = tr("Mesh: %1").arg(mesh->name());
+        setup.defaultBaseName = project + QStringLiteral("_mesh");
+        crsOf(mesh);
+        break;
+    }
+    case K::Raster: {
+        raster = qobject_cast<GISRasterLayer *>(target.layer);
+        if (!raster) return;
+        setup.mode = ExportDialogSetup::Mode::Raster;
+        const QString stem = QFileInfo(raster->filePath()).completeBaseName();
+        setup.items << ExportItem{0, raster->name(), stem, true};
+        setup.title = tr("Export %1").arg(raster->name());
+        setup.sourceName = tr("Raster: %1").arg(raster->name());
+        setup.defaultBaseName = stem.isEmpty() ? QStringLiteral("raster") : stem + QStringLiteral("_export");
+        setup.protectedPaths << raster->filePath();
+        crsOf(raster);
+        break;
+    }
+    case K::Results2D:
+    case K::None:
+        return;
+    }
+
+    // The dialog runs an event loop; a layer it was opened on may be removed
+    // meanwhile, so everything it read is re-checked before use.
+    const QPointer<SWMMVisProjectWindow> pwGuard(pw);
+    const QPointer<OpenSWMMVisLayer> sourceGuard(target.layer);
+    const QPointer<SWMMModelLayer> modelGuard(model);
+    const QPointer<SWMMResultsLayer> runGuard(run);
+    openswmmvis::ui::ExportLayerDialog dlg(setup, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    if (!pwGuard || !sourceGuard || (model && !modelGuard)
+        || (run && dlg.includeResults() && !runGuard)) {
+        onLogMessage(tr("%1: the layer was removed while the dialog was open; nothing "
+                        "was exported.").arg(setup.title),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+
+    oio::ExportOptions opts;
+    opts.driver       = dlg.driver();
+    opts.destination  = dlg.destination();
+    opts.sourceSrsWkt = setup.sourceSrsWkt;
+    opts.targetSrsWkt = dlg.targetSrsWkt();
+
+    // Snapshot on this thread; the engine and the layers stay here.
+    std::function<bool(const oio::ExportProgress &, oio::ExportReport *)> job;
+    switch (target.kind) {
+    case K::SwmmObjects: {
+        const QVector<oio::ExportTable> tables = oio::swmmObjectTables(
+            model, dlg.checkedItems(), dlg.includeResults() ? run : nullptr, dlg.selectedOnly());
+        job = [tables, opts](const oio::ExportProgress &p, oio::ExportReport *r) {
+            return oio::exportVectorTables(tables, opts, p, r);
+        };
+        break;
+    }
+    case K::VectorLayer: {
+        oio::VectorLayerSource src;
+        src.path       = vector->filePath();
+        src.layerName  = vector->ogrLayerName();
+        src.outputName = setup.items.first().stem;
+        if (dlg.selectedOnly()) {
+            const QSet<long long> ids = vector->selectedFeatureIds();
+            for (long long id : ids) src.fids << qint64(id);
+            std::sort(src.fids.begin(), src.fids.end());
+        }
+        job = [src, opts](const oio::ExportProgress &p, oio::ExportReport *r) {
+            return oio::exportVectorLayer(src, opts, p, r);
+        };
+        break;
+    }
+    case K::Mesh: {
+        unsigned parts = 0;
+        for (const int bit : dlg.checkedItems()) parts |= unsigned(bit);
+        const QVector<oio::ExportTable> tables = oio::meshTables(
+            mesh->mesh(), mesh->edgeBCs(), parts,
+            UnitSystem::instance() ? UnitSystem::instance()->lengthLabel() : QString());
+        job = [tables, opts](const oio::ExportProgress &p, oio::ExportReport *r) {
+            return oio::exportVectorTables(tables, opts, p, r);
+        };
+        break;
+    }
+    case K::Raster: {
+        const QString srcPath = raster->filePath();
+        const QString dest = dlg.destination();
+        const QString targetWkt = dlg.targetSrsWkt();
+        job = [srcPath, dest, targetWkt](const oio::ExportProgress &p, oio::ExportReport *r) {
+            return oio::exportRaster(srcPath, dest, targetWkt, p, r);
+        };
+        break;
+    }
+    default:
+        return;
+    }
+
+    const oio::ExportReport report = runExportJob(setup.title, job);   // snapshot only
+    for (const QString &w : report.warnings)
+        onLogMessage(tr("%1: %2").arg(setup.title, w), OpenSWMMVisLogMessage::Warning);
+    if (report.error == QLatin1String("Cancelled")) {
+        onLogMessage(tr("%1: cancelled; no files were kept.").arg(setup.title),
+                     OpenSWMMVisLogMessage::Information);
+        return;
+    }
+    if (!report.error.isEmpty()) {
+        QMessageBox::warning(this, tr("Export Failed"),
+                             tr("The export did not complete.\n\n%1").arg(report.error));
+        return;
+    }
+    onLogMessage(tr("%1: wrote %n file(s): %2", "", int(report.files.size()))
+                     .arg(setup.title, report.files.join(QStringLiteral(", "))),
+                 OpenSWMMVisLogMessage::Information);
+    if (statusBar())
+        statusBar()->showMessage(tr("Exported to %1").arg(opts.destination), 6000);
+
+    // "Add the exported layers to the map" (off by default).
+    if (dlg.addToMap() && target.kind != K::Raster && pwGuard) {
+        QPointer<MapCanvas> canvas(pw->canvas());
+        for (const auto &out : report.layers) {
+            auto *vl = new GISVectorLayer(QString());
+            connect(vl, &GISVectorLayer::openFinished, this,
+                    [vl, canvas](bool ok) {
+                        if (ok && canvas) canvas->addLayer(vl, true);
+                        else              delete vl;
+                    },
+                    static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+            vl->openAsync(out.first, out.second);
+        }
     }
 }
 

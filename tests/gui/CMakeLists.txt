@@ -3751,3 +3751,75 @@ add_swmmvis_gui_test(test_mesh2dvariableexport
     ${CMAKE_SOURCE_DIR}/src/io/mesh2dvariableexport.cpp
 )
 target_link_libraries(test_mesh2dvariableexport PRIVATE GDAL::GDAL Qt6::Quick)
+
+# ── Feature-layer roles, attribute tables and export ─────────────────────────
+# workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md R3–R10. Outputs
+# land in tests/output/feature_layer_roles_2026-09-30/ (reviewable — CLAUDE.md
+# §4.1).
+
+# R3 — the one cell editor for feature columns, against a plain item model.
+# Leaf: the delegate, the role registry and the BC-type tokens it lists.
+add_swmmvis_gui_test(test_featurefielddelegate
+    test_featurefielddelegate.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/featurefielddelegate.cpp
+    ${CMAKE_SOURCE_DIR}/src/feature/featureroles.cpp
+    ${CMAKE_SOURCE_DIR}/src/feature/featuretypes.cpp
+    ${CMAKE_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/panels/featurefielddelegate.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
+)
+target_link_libraries(test_featurefielddelegate PRIVATE GDAL::GDAL)
+
+# R4 — the role-first New Feature Layer dialog and the custom-field editor;
+# a custom Choice field is carried into a GeoPackage and read back.
+add_swmmvis_gui_test(test_newfeaturelayerdialog
+    test_newfeaturelayerdialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_newfeaturelayerdialog)
+target_compile_definitions(test_newfeaturelayerdialog PRIVATE
+    FEATURE_ROLES_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30")
+
+# R7 — what "Open Attribute Table" and "Export…" act on for every kind of
+# layer-tree row. Headless: the predicates take layer-type ordinals.
+add_swmmvis_gui_test(test_layertree_attributetable
+    test_layertree_attributetable.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/layertreetargets.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/layertreecategories.cpp
+)
+
+# R3/R5/R6/R7 inside the real panels: delegate edits push one undo command in
+# the Attribute Table and the Features dock; "Update fields to role…" on an old
+# Region layer; the mesh dialog's pickers filter by geometry and show the role;
+# the Attribute Table switches to an object type and a mesh table.
+add_swmmvis_gui_test(test_featurelayer_editors
+    test_featurelayer_editors.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_featurelayer_editors)
+target_compile_definitions(test_featurelayer_editors PRIVATE
+    FEATURE_EDITORS_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30/editors")
+
+# R8 — the export dialog (format, destination, CRS, options). Full link: the
+# CRS picker it opens is part of the app.
+add_swmmvis_gui_test(test_exportlayerdialog
+    test_exportlayerdialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_exportlayerdialog)
+
+# R9 — SWMM objects from engine-loaded models: 11 layers with the right counts,
+# vertices and polygons intact, and the Import Feature Layer round trip.
+add_swmmvis_gui_test(test_swmmexport
+    test_swmmexport.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_swmmexport)
+target_compile_definitions(test_swmmexport PRIVATE
+    SWMMEXPORT_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30/swmmexport")

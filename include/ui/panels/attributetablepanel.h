@@ -85,6 +85,18 @@ public:
      *  Called from the layer tree's "Open Attribute Table" action. */
     void showLayerSource(OpenSWMMVisLayer *layer);
 
+    /*! Show the SWMM table on \p category (a SWMMModelLayer::Category). When
+     *  \p run is given, the statistics columns switch to that 1D run first
+     *  (setResultsSource). \p model must be the bound project's model; any
+     *  other is ignored. Called from the layer tree's object-type rows
+     *  (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §7). */
+    void showModelCategory(SWMMModelLayer *model, int category,
+                           SWMMResultsLayer *run = nullptr);
+
+    /*! Show mesh \p mesh's vertices (0), edges (1) or cells (2) table —
+     *  MeshAttributeTableModel::Kind order. */
+    void showMeshTable(SWMM2DMeshLayer *mesh, int meshKind);
+
     /*! The current selection rendered as TSV: a header line plus one
      *  line per selected row, in the view's current sort and column
      *  order, hidden columns skipped.  Falls back to every *visible*
@@ -238,6 +250,11 @@ private:
      *  an editable FeatureLayer writable), and hook the layer's change signals
      *  so a write from anywhere reloads the table. */
     void bindGisSource(GISVectorLayer *gis);
+    /*! Install a FeatureFieldDelegate per column when the GIS source is a
+     *  FeatureLayer (dropdowns for choice fields, unit spins), or clear the
+     *  delegates for any other vector source
+     *  (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md R3). */
+    void installFeatureDelegates();
 
     /*! True when the mesh table is the active source — the SWMM-only paths
      *  (delete, change type, object refs) all sit behind this. */

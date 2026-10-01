@@ -90,7 +90,8 @@ public:
      * \param table     Sanitised name (see \ref sanitizeTableName).
      * \param type      Geometry type; decides the table's OGR geometry type.
      * \param hasZ      When true the table is created 2.5D (wkbSetZ).
-     * \param schema    Attribute columns; may be empty.
+     * \param schema    Attribute columns; may be empty. Each column's default,
+     *                  description and Fixed value list are stored too.
      * \param srsWkt    CRS WKT for the geometry column; may be empty.
      * \details Fails when the table already exists — the caller is expected to
      *          have resolved the name with \ref uniqueTableName.
@@ -138,8 +139,10 @@ public:
 
     // ----- Introspection --------------------------------------------------
 
-    /*! \brief The schema read back from the open table. Reflects any field
-     *         added or removed since open. */
+    /*! \brief The schema read back from the open table: names, types,
+     *         defaults, descriptions and Fixed value lists (a coded field
+     *         domain reads back as ChoiceSource::Fixed). Reflects any field
+     *         added, removed or altered since open. */
     [[nodiscard]] Schema schema() const;
     [[nodiscard]] GeometryType geometryType() const;
     [[nodiscard]] bool hasZ() const;
@@ -186,6 +189,30 @@ public:
      *          explanatory message rather than silently leaving the column.
      */
     [[nodiscard]] bool removeField(const QString &name, QString *error = nullptr);
+
+    /*!
+     * \brief Rename column \p from to \p to (sanitised), keeping its values,
+     *        default, description and value list.
+     * \details Fails when \p to is already a column or the driver cannot
+     *          alter field definitions.
+     */
+    [[nodiscard]] bool renameField(const QString &from, const QString &to,
+                                   QString *error = nullptr);
+
+    /*!
+     * \brief Replace the stored default, description and Fixed value list of
+     *        column \p name with those of \p meta. Name and type are not
+     *        touched. A value list is stored as a coded field domain named
+     *        "<table>__<field>" (re-using the column's existing domain when it
+     *        has one); an empty list detaches it.
+     *        (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §6 "Store".)
+     */
+    [[nodiscard]] bool setFieldMetadata(const QString &name, const FieldDef &meta,
+                                        QString *error = nullptr);
+
+    /*! \brief True when this GDAL build stores column descriptions and value
+     *         lists (GDAL >= 3.8). Defaults are stored by every build. */
+    [[nodiscard]] static bool storesFieldMetadata();
 
     /*! \brief Flush pending writes to disk. Called after every command so a
      *         crash cannot lose an edit and so a concurrent read-only opener

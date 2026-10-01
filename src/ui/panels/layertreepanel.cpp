@@ -74,6 +74,32 @@ static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMWMTSLayer)
 static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMM2DMeshLayer)             == OpenSWMMVisLayer::SWMM2DMeshLayer);
 static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMM2DResultsLayer)          == OpenSWMMVisLayer::SWMM2DResultsLayer);
 static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMAnnotationLayer)         == OpenSWMMVisLayer::SWMMAnnotationLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMFeatureLayer)            == OpenSWMMVisLayer::SWMMFeatureLayer);
+
+namespace {
+
+/*! The menu text for a row's export entry (FEATURE_LAYER_ROLES_AND_FIELDS
+ *  plan §8.2): what is written, so the entry reads differently per row. */
+QString exportActionText(const openswmmvis::ui::LayerExportTarget &t, const QString &kindLabel)
+{
+    using K = openswmmvis::ui::LayerExportTarget::Kind;
+    switch (t.kind) {
+    case K::SwmmObjects:
+        if (t.category >= 0)
+            return t.withResults ? LayerTreePanel::tr("Export %1 with results…").arg(kindLabel)
+                                 : LayerTreePanel::tr("Export %1…").arg(kindLabel);
+        return t.withResults ? LayerTreePanel::tr("Export with results…")
+                             : LayerTreePanel::tr("SWMM objects…");
+    case K::VectorLayer: return LayerTreePanel::tr("Export…");
+    case K::Mesh:        return LayerTreePanel::tr("Export mesh…");
+    case K::Results2D:   return LayerTreePanel::tr("Export 2D Results…");
+    case K::Raster:      return LayerTreePanel::tr("Export raster…");
+    case K::None:        break;
+    }
+    return LayerTreePanel::tr("Export…");
+}
+
+}   // namespace
 
 namespace {
 
@@ -96,6 +122,7 @@ inline CategoryId categoryFor(OpenSWMMVisLayer::OpenSWMMVisLayerType t)
     if (id == CatFeatureLayers
         && t != OpenSWMMVisLayer::SWMMVectorLayer
         && t != OpenSWMMVisLayer::SWMMGISLayer
+        && t != OpenSWMMVisLayer::SWMMFeatureLayer
         && t != OpenSWMMVisLayer::SWMMSubProjectLayer
         && t != OpenSWMMVisLayer::SWMMAnnotationLayer)
     {
@@ -1794,6 +1821,25 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             tr("Properties…"));
         actEditStyle->setEnabled(sub->style() != nullptr);
         subMenu.addSeparator();
+
+        // FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §7 / §8 — the sublayer's own
+        // elements: a mesh's vertices / edges / cells table and export.
+        openswmmvis::ui::LayerTreeRow subRow;
+        subRow.kind       = openswmmvis::ui::LayerTreeRow::Kind::Sublayer;
+        subRow.layer      = parentLayer;
+        subRow.layerType  = parentLayer ? int(parentLayer->layerType()) : 0;
+        subRow.sublayerId = sub->id();
+        // A 1D run's object-type sublayers ("results.<kind>") stand for that
+        // SWMM object type.
+        if (const auto *fs = qobject_cast<const OpenSWMM::Render::FeatureSublayer *>(sub))
+            subRow.category = int(fs->category());
+        const auto subTable  = openswmmvis::ui::attributeTableTarget(subRow);
+        const auto subExport = openswmmvis::ui::layerExportTarget(subRow);
+        QAction *actAttrTableS = subMenu.addAction(tr("Open Attribute Table"));
+        actAttrTableS->setEnabled(subTable.isValid());
+        QAction *actExportS = subMenu.addAction(exportActionText(subExport, sub->displayName()));
+        actExportS->setEnabled(subExport.isValid());
+        subMenu.addSeparator();
         QAction *actToggle = subMenu.addAction(
             sub->isVisible() ? tr("Hide %1").arg(sub->displayName())
                              : tr("Show %1").arg(sub->displayName()));
@@ -1823,7 +1869,11 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
 
         QAction *picked = subMenu.exec(m_treeView->viewport()->mapToGlobal(pos));
         if (!picked) return;
-        if (picked == actToggle) {
+        if (picked == actAttrTableS) {
+            emit attributeTableRequested(subTable);
+        } else if (picked == actExportS) {
+            emit exportRequested(subExport);
+        } else if (picked == actToggle) {
             sub->setVisible(!sub->isVisible());
         } else if (picked == actEditStyle) {
             // Slice U-10 — route to the unified LayerStyleDialog focused
@@ -1890,6 +1940,22 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             ks->standardIcon(QStyle::SP_FileDialogInfoView),
             tr("Properties…"));
 
+        // FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §7 / §8 — this object type's
+        // table (with this run's statistics under a results layer) and export.
+        openswmmvis::ui::LayerTreeRow kindRow;
+        kindRow.kind      = openswmmvis::ui::LayerTreeRow::Kind::ObjectType;
+        kindRow.layer     = parentLayer;
+        kindRow.layerType = int(parentLayer->layerType());
+        kindRow.category  = kindOrd;
+        const auto kindTable  = openswmmvis::ui::attributeTableTarget(kindRow);
+        const auto kindExport = openswmmvis::ui::layerExportTarget(kindRow);
+        kindMenu.addSeparator();
+        QAction *actAttrTableK = kindMenu.addAction(tr("Open Attribute Table"));
+        actAttrTableK->setEnabled(kindTable.isValid());
+        QAction *actExportK = kindMenu.addAction(
+            exportActionText(kindExport, kindLabel));
+        actExportK->setEnabled(kindExport.isValid());
+
         // X.7 — unused renderer-mode / arrow / reset actions retained as
         // nullptrs so the pickedK dispatcher below keeps compiling.
         QAction *actStyleSingle      = nullptr;
@@ -1948,7 +2014,11 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         // Use parentLayer (works for both SWMMModelLayer and
         // SWMMResultsLayer) when emitting the style signal so the
         // downstream slot dispatches based on the runtime type.
-        if (pickedK == actPropsK) {
+        if (pickedK == actAttrTableK) {
+            emit attributeTableRequested(kindTable);
+        } else if (pickedK == actExportK) {
+            emit exportRequested(kindExport);
+        } else if (pickedK == actPropsK) {
             // Slice U-10 — kind-row "Properties…" routes to the unified
             // LayerStyleDialog focused on this kind's adapter. Routing
             // ids match the convention used by SWMMModelLayer/Results
@@ -2014,14 +2084,15 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     QStyle *s = QApplication::style();
 
     // Layer-type checks for the disabled-but-visible policy.
-    const int   ltype       = layer->layerType();
-    const bool  isVector    = (ltype == OpenSWMMVisLayer::SWMMVectorLayer
-                            || ltype == OpenSWMMVisLayer::SWMMGISLayer);
     const bool  isResults   = (qobject_cast<SWMMResultsLayer *>(layer) != nullptr);
-    const bool  hasAttrTable = isVector
-                            || ltype == OpenSWMMVisLayer::SWMMModelLayer
-                            || ltype == OpenSWMMVisLayer::SWMMTabularDataLayer
-                            || isResults;
+    // FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §7 / §8 — one predicate each
+    // decides whether the entry is enabled AND what it opens or writes.
+    openswmmvis::ui::LayerTreeRow layerRow;
+    layerRow.kind      = openswmmvis::ui::LayerTreeRow::Kind::Layer;
+    layerRow.layer     = layer;
+    layerRow.layerType = int(layer->layerType());
+    const auto tableTarget  = openswmmvis::ui::attributeTableTarget(layerRow);
+    const auto exportTarget = openswmmvis::ui::layerExportTarget(layerRow);
 
     // Group 1 — navigation
     QAction *actZoom = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
@@ -2032,7 +2103,18 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
 
     // Group 2 — data inspection
     QAction *actAttrTable = menu.addAction(tr("Open Attribute Table"));
-    actAttrTable->setEnabled(hasAttrTable);
+    actAttrTable->setEnabled(tableTarget.isValid());
+    // The model's export is a submenu (one entry today, room for more); every
+    // other row has one entry named after what it writes.
+    QAction *actExport = nullptr;
+    if (exportTarget.kind == openswmmvis::ui::LayerExportTarget::Kind::SwmmObjects
+        && !exportTarget.withResults) {
+        QMenu *exportMenu = menu.addMenu(tr("Export"));
+        actExport = exportMenu->addAction(exportActionText(exportTarget, QString()));
+    } else {
+        actExport = menu.addAction(exportActionText(exportTarget, QString()));
+        actExport->setEnabled(exportTarget.isValid());
+    }
     QAction *actFeatureCount = menu.addAction(tr("Show Feature Count"));
     actFeatureCount->setEnabled(false);             // pending feature
     auto *results2D = qobject_cast<SWMM2DResultsLayer *>(layer);
@@ -2118,7 +2200,8 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     QAction *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
     if (!picked) return;
     if      (picked == actZoom)        zoomToLayer(layer);
-    else if (picked == actAttrTable)   emit attributeTableRequested(layer);
+    else if (picked == actAttrTable)   emit attributeTableRequested(tableTarget);
+    else if (picked == actExport)      emit exportRequested(exportTarget);
     else if (picked == actProps)       emit layerPropertiesRequested(layer);
     else if (picked == actEditSymbology)
         // Same dialog; the "symbology" sentinel makes it open on the

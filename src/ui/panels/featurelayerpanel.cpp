@@ -7,23 +7,31 @@
 
 #include "ui/panels/featurelayerpanel.h"
 
+#include "core/unitsystem.h"
+#include "feature/featureroles.h"
 #include "feature/featuretypes.h"
 #include "layers/featurelayer.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/swmm2dmeshlayer.h"
+#include "layers/swmmmodellayer.h"
 #include "map/featurecommands.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
+#include "ui/dialogs/featurefieldeditor.h"
+#include "ui/panels/featurefielddelegate.h"
+#include "ui/theme/thememanager.h"
+#include "ui/theme/themetokens.h"
 #include "ui/uiscrollhelpers.h"
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
-#include <QInputDialog>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QListWidget>
@@ -33,7 +41,10 @@
 #include <QScopeGuard>
 #include <QShortcut>
 #include <QSpinBox>
+#include <QJsonDocument>
 #include <QTableWidget>
+#include <QTreeWidget>
+#include <QUndoCommand>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -43,7 +54,9 @@
 using namespace openswmmvis::feature;
 using openswmmvis::map::AddFieldCommand;
 using openswmmvis::map::RemoveFieldCommand;
+using openswmmvis::map::RenameFieldCommand;
 using openswmmvis::map::ResampleZCommand;
+using openswmmvis::map::SetFieldMetadataCommand;
 
 namespace openswmmvis::ui {
 
@@ -73,6 +86,22 @@ QString formatOrdinate(double v)
 
 /*! Above this the grid refuses to populate; see refreshVertexTable(). */
 constexpr int kMaxVertexRows = 10000;
+
+/*! The schema table's Type column: "Choice" for a Fixed list. */
+QString fieldTypeText(const FieldDef &f)
+{
+    return f.choiceSource == ChoiceSource::Fixed ? FeatureLayerPanel::tr("Choice")
+                                                 : fieldTypeLabel(f.type);
+}
+
+/*! The SWMM model on \p canvas, for the time-series / curve dropdowns. */
+SWMMModelLayer *modelLayerOn(const MapCanvas *canvas)
+{
+    if (!canvas) return nullptr;
+    for (OpenSWMMVisLayer *l : canvas->layers())
+        if (auto *m = qobject_cast<SWMMModelLayer *>(l)) return m;
+    return nullptr;
+}
 
 /*!
  * \brief Copy Z back from \p from into \p to everywhere except one vertex.
@@ -173,8 +202,15 @@ void FeatureLayerPanel::buildUi()
         auto *btns = new QHBoxLayout();
         m_addFieldBtn    = new QPushButton(tr("Add column…"), g);
         m_removeFieldBtn = new QPushButton(tr("Remove column"), g);
+        m_updateFieldsBtn = new QPushButton(tr("Update fields to role…"), g);
+        m_updateFieldsBtn->setObjectName(QStringLiteral("featureUpdateFieldsButton"));
+        m_updateFieldsBtn->setToolTip(
+            tr("Bring this layer's columns in line with its role: add missing "
+               "fields, rename old ones, attach value lists, and optionally drop "
+               "fields nothing reads any more. Shows what will change first."));
         btns->addWidget(m_addFieldBtn);
         btns->addWidget(m_removeFieldBtn);
+        btns->addWidget(m_updateFieldsBtn);
         btns->addStretch();
         lay->addLayout(btns);
 
@@ -341,6 +377,8 @@ void FeatureLayerPanel::buildUi()
             this, &FeatureLayerPanel::onAddField);
     connect(m_removeFieldBtn, &QPushButton::clicked,
             this, &FeatureLayerPanel::onRemoveField);
+    connect(m_updateFieldsBtn, &QPushButton::clicked,
+            this, &FeatureLayerPanel::onUpdateFieldsToRole);
     connect(m_resampleBtn,    &QPushButton::clicked,
             this, &FeatureLayerPanel::onResampleZ);
 
@@ -490,6 +528,7 @@ void FeatureLayerPanel::refreshDetails()
     m_fieldTable->setEnabled(has);
     m_addFieldBtn->setEnabled(has);
     m_removeFieldBtn->setEnabled(has);
+    m_updateFieldsBtn->setEnabled(has);
     m_exportBtn->setEnabled(has);
     m_importBtn->setEnabled(has);
     m_removeBtn->setEnabled(has);
@@ -501,12 +540,12 @@ void FeatureLayerPanel::refreshDetails()
     // Schema table
     m_fieldTable->setRowCount(0);
     if (has) {
-        const Schema s = l->schema();
+        const Schema s = l->editorSchema();
         for (const FieldDef &f : s.fields()) {
             const int row = m_fieldTable->rowCount();
             m_fieldTable->insertRow(row);
             m_fieldTable->setItem(row, ColName,        new QTableWidgetItem(f.name));
-            m_fieldTable->setItem(row, ColType,        new QTableWidgetItem(fieldTypeLabel(f.type)));
+            m_fieldTable->setItem(row, ColType,        new QTableWidgetItem(fieldTypeText(f)));
             m_fieldTable->setItem(row, ColDescription, new QTableWidgetItem(f.description));
         }
     }
@@ -595,7 +634,7 @@ void FeatureLayerPanel::refreshFeatureTable()
         return;
     }
 
-    const Schema schema = l->schema();
+    const Schema schema = l->editorSchema();
     const bool editing = l->isEditing();
 
     // Column 0 is the feature id: identity, never editable.
@@ -604,6 +643,7 @@ void FeatureLayerPanel::refreshFeatureTable()
     m_featureTable->setColumnCount(headers.size());
     m_featureTable->setHorizontalHeaderLabels(headers);
     m_featureTable->horizontalHeader()->setStretchLastSection(true);
+    installGridDelegates();
 
     const QVector<FeatureId> ids = l->featureIds();
     m_featureTable->setRowCount(ids.size());
@@ -646,6 +686,49 @@ void FeatureLayerPanel::refreshFeatureTable()
     onFeatureSelectionChangedFromLayer();
 }
 
+void FeatureLayerPanel::installGridDelegates()
+{
+    FeatureLayer *l = m_active.data();
+    const Schema schema = l ? l->editorSchema() : Schema{};
+    // Rebuilt only when the columns' definitions change: the grid itself is
+    // rebuilt on every feature write, often from inside a delegate's commit.
+    const QString key = l ? l->layerId() + QLatin1Char('|')
+                                + QString::fromUtf8(QJsonDocument(schema.toJson())
+                                                        .toJson(QJsonDocument::Compact))
+                          : QString();
+    if (key == m_gridDelegateKey) return;
+    m_gridDelegateKey = key;
+
+    for (int c = 0; c < m_featureTable->columnCount(); ++c)
+        m_featureTable->setItemDelegateForColumn(c, nullptr);
+    for (const QPointer<QStyledItemDelegate> &d : std::as_const(m_gridDelegates))
+        if (d) d->deleteLater();   // an editor may still be committing
+    m_gridDelegates.clear();
+    if (!l) return;
+
+    const int bcCol = (l->role() == FeatureLayerRole::BoundaryCondition)
+                          ? schema.indexOf(QStringLiteral("bc_type")) : -1;
+    const QString lengthUnit = UnitSystem::instance()
+                                   ? UnitSystem::instance()->lengthLabel() : QString();
+    for (int i = 0; i < schema.count(); ++i) {
+        const FieldDef f = schema.at(i);
+        if (f.type == FieldType::Boolean) continue;   // the grid's own checkbox
+        auto *del = new FeatureFieldDelegate(f, this);
+        del->setLengthUnit(lengthUnit);
+        del->setBcTypeColumn(bcCol >= 0 ? bcCol + 1 : -1);
+        del->setWarningColor(ThemeManager::instance()->colors().warning);
+        del->setModelNamesProvider([this](ModelList list) {
+            SWMMModelLayer *model = modelLayerOn(m_canvas.data());
+            if (!model) return QStringList();
+            // 0 = time series; -1 = every curve kind (a 2D rating curve may
+            // reference any curve).
+            return model->tableIdsOfType(list == ModelList::TimeSeries ? 0 : -1);
+        });
+        m_featureTable->setItemDelegateForColumn(i + 1, del);
+        m_gridDelegates.append(del);
+    }
+}
+
 void FeatureLayerPanel::onFeatureSelectionChangedFromLayer()
 {
     FeatureLayer *l = m_active.data();
@@ -678,7 +761,7 @@ void FeatureLayerPanel::onFeatureCellChanged(int row, int column)
     Feature f;
     if (!l->feature(id, f)) return;
 
-    const Schema schema = l->schema();
+    const Schema schema = l->editorSchema();
     if (column - 1 >= schema.count()) return;
     const FieldDef fd = schema.at(column - 1);
 
@@ -1054,30 +1137,14 @@ void FeatureLayerPanel::onAddField()
     FeatureLayer *l = m_active.data();
     if (!l || !m_canvas) return;
 
-    bool ok = false;
-    const QString name = QInputDialog::getText(
-        this, tr("Add column"), tr("Column name:"), QLineEdit::Normal, QString(), &ok);
-    if (!ok || name.trimmed().isEmpty()) return;
+    // The same editor the New Feature Layer dialog uses for a custom field,
+    // so a Choice column can be added here too (plan §5).
+    FeatureFieldEditor editor(this);
+    editor.setWindowTitle(tr("Add column"));
+    editor.setExistingNames(l->schema().names());
+    if (editor.exec() != QDialog::Accepted || m_active.data() != l || !m_canvas) return;
 
-    const QStringList typeLabels = {fieldTypeLabel(FieldType::Text),
-                                    fieldTypeLabel(FieldType::Integer),
-                                    fieldTypeLabel(FieldType::Real),
-                                    fieldTypeLabel(FieldType::Boolean)};
-    const QString chosen = QInputDialog::getItem(
-        this, tr("Add column"), tr("Type:"), typeLabels, 0, false, &ok);
-    if (!ok) return;
-
-    FieldDef f;
-    f.name = sanitizeFieldName(name);
-    if (f.name.isEmpty()) {
-        QMessageBox::warning(this, tr("Invalid column name"),
-            tr("\"%1\" cannot be used as a column name. Use letters, digits "
-               "and underscores.").arg(name));
-        return;
-    }
-    f.type = static_cast<FieldType>(typeLabels.indexOf(chosen));
-
-    auto *cmd = new AddFieldCommand(l, f, m_canvas.data());
+    auto *cmd = new AddFieldCommand(l, editor.field(), m_canvas.data());
     if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
     else                       { delete cmd; return; }
     if (!cmd->lastError().isEmpty()) emit message(cmd->lastError());
@@ -1103,6 +1170,115 @@ void FeatureLayerPanel::onRemoveField()
     if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
     else                       { delete cmd; return; }
     if (!cmd->lastError().isEmpty()) emit message(cmd->lastError());
+}
+
+QString FeatureLayerPanel::applyFieldUpdate(const FieldUpdatePlan &plan,
+                                           const QStringList &drop)
+{
+    FeatureLayer *l = m_active.data();
+    if (!l || !m_canvas || !m_canvas->undoStack())
+        return tr("No editable feature layer is selected.");
+
+    // One parent command: one entry in the undo history, one Ctrl+Z.
+    auto *macro = new QUndoCommand(tr("Update fields to role"));
+    QList<openswmmvis::map::FeatureCommandBase *> children;
+    for (const auto &r : plan.rename)
+        children << new RenameFieldCommand(l, r.first, r.second, m_canvas.data(), macro);
+    for (const FieldDef &f : plan.add)
+        children << new AddFieldCommand(l, f, m_canvas.data(), macro);
+    for (const FieldDef &f : plan.attach)
+        children << new SetFieldMetadataCommand(l, f.name, f, m_canvas.data(), macro);
+    for (const auto &r : plan.retired)
+        if (drop.contains(r.first, Qt::CaseInsensitive))
+            children << new RemoveFieldCommand(l, r.first, m_canvas.data(), macro);
+    if (children.isEmpty()) {
+        delete macro;
+        return {};
+    }
+    m_canvas->undoStack()->push(macro);
+    for (const auto *c : std::as_const(children))
+        if (!c->lastError().isEmpty()) return c->lastError();
+    return {};
+}
+
+void FeatureLayerPanel::onUpdateFieldsToRole()
+{
+    FeatureLayer *l = m_active.data();
+    if (!l || !m_canvas) return;
+
+    const Schema stored = l->schema();
+    const FeatureRoleSpec &spec = featureRoleSpec(l->role());
+    QHash<QString, int> counts;
+    const QVector<Feature> feats = l->allFeatures();
+    for (const QString &name : spec.retiredFields) {
+        const FieldDef *f = stored.field(name);
+        if (!f) continue;
+        int n = 0;
+        for (const Feature &ft : feats)
+            if (isNonEmptyValue(ft.attributes.value(f->name))) ++n;
+        counts.insert(f->name, n);
+    }
+    const FieldUpdatePlan plan = planFieldUpdate(l->role(), stored, counts);
+    if (plan.isEmpty()) {
+        QMessageBox::information(this, tr("Update fields to role"),
+            tr("\"%1\" already has the fields of the %2 role.")
+                .arg(l->name(), featureLayerRoleLabel(l->role())));
+        return;
+    }
+
+    // Preview: nothing changes until the user confirms (plan P7, Q3).
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Update fields to role"));
+    auto *lay = new QVBoxLayout(&dlg);
+    auto *intro = new QLabel(
+        tr("These changes bring \"%1\" in line with the %2 role. Tick a retired "
+           "field to drop it with its values. One Undo reverts all of it.")
+            .arg(l->name(), featureLayerRoleLabel(l->role())), &dlg);
+    intro->setWordWrap(true);
+    lay->addWidget(intro);
+    auto *tree = new QTreeWidget(&dlg);
+    tree->setObjectName(QStringLiteral("featureUpdateFieldsPreview"));
+    tree->setHeaderHidden(true);
+    tree->setRootIsDecorated(false);
+    for (const auto &r : plan.rename)
+        new QTreeWidgetItem(tree, {tr("Rename %1 → %2 (values kept)").arg(r.first, r.second)});
+    for (const FieldDef &f : plan.add)
+        new QTreeWidgetItem(tree, {tr("Add %1 (%2)").arg(f.name, fieldTypeText(f))});
+    for (const FieldDef &f : plan.attach)
+        new QTreeWidgetItem(tree, {f.hasFixedChoices()
+                                       ? tr("Attach the value list, default and description to %1")
+                                             .arg(f.name)
+                                       : tr("Attach the default and description to %1").arg(f.name)});
+    QList<QTreeWidgetItem *> dropItems;
+    for (const auto &r : plan.retired) {
+        auto *it = new QTreeWidgetItem(
+            tree, {r.second > 0
+                       ? tr("Drop %1 — %n feature(s) have a value in it", nullptr, r.second)
+                             .arg(r.first)
+                       : tr("Drop %1 — empty").arg(r.first)});
+        it->setFlags(it->flags() | Qt::ItemIsUserCheckable);
+        // Dropping loses data only where there is some: empty ones are ticked.
+        it->setCheckState(0, r.second > 0 ? Qt::Unchecked : Qt::Checked);
+        it->setData(0, Qt::UserRole, r.first);
+        dropItems << it;
+    }
+    lay->addWidget(tree);
+    auto *box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    box->button(QDialogButtonBox::Ok)->setText(tr("Update"));
+    connect(box, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(box, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(box);
+    dlg.resize(520, 360);
+    // The plan was made for this layer: drop it if the layer went or the
+    // selection moved while the preview was open.
+    if (dlg.exec() != QDialog::Accepted || m_active.data() != l || !m_canvas) return;
+
+    QStringList drop;
+    for (const QTreeWidgetItem *it : std::as_const(dropItems))
+        if (it->checkState(0) == Qt::Checked) drop << it->data(0, Qt::UserRole).toString();
+
+    const QString err = applyFieldUpdate(plan, drop);
+    emit message(err.isEmpty() ? tr("Updated the fields of \"%1\".").arg(l->name()) : err);
 }
 
 void FeatureLayerPanel::onResampleZ()

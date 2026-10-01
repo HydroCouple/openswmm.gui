@@ -1,4 +1,6 @@
 #include "ui/widgets/corridorsourceswidget.h"
+#include "feature/featureroles.h"
+#include "layers/featurelayer.h"
 #include "layers/gisvectorlayer.h"
 #include "map/spatialreferencesystem.h"
 #include "ui/theme/themehelpers.h"
@@ -213,7 +215,16 @@ void CorridorSourcesWidget::refreshFields()
     const QString previous = m_widthField->currentData().toString();
     m_widthField->clear();
     for (const auto &field : numericFields(currentLayer())) m_widthField->addItem(field, field);
-    const int match = m_widthField->findData(previous);
+    int match = m_widthField->findData(previous);
+    // A Corridors-role feature layer carries each feature's width in the
+    // role's field (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §4.4):
+    // preselect it and read widths from it, unless a field of this layer was
+    // already picked.
+    const auto *feature = qobject_cast<const FeatureLayer *>(currentLayer());
+    if (match < 0 && feature && feature->role() == FeatureLayerRole::Corridor) {
+        match = m_widthField->findData(openswmmvis::feature::corridorWidthFieldName());
+        if (match >= 0) m_widthMode->setCurrentIndex(m_widthMode->findData(1));
+    }
     if (match >= 0) m_widthField->setCurrentIndex(match);
     syncSourceMode();
 }

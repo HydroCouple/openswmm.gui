@@ -21,6 +21,8 @@
 #include <array>
 #include <vector>
 
+#include "ui/panels/layertreetargets.h"
+
 class QTreeView;
 class QToolBar;
 class QLineEdit;
@@ -317,11 +319,19 @@ signals:
                                   const QString &routingId = QString());
 
     /*!
-     * \brief Emitted when the user picks "Open Attribute Table" on a layer's
-     *        context menu. SWMMVis raises the Attribute Table dock and
-     *        switches its source to \p layer.
+     * \brief Emitted when the user picks "Open Attribute Table" on a layer,
+     *        object-type or mesh-sublayer row. SWMMVis raises the Attribute
+     *        Table dock and switches it to \p target
+     *        (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §7).
      */
-    void attributeTableRequested(OpenSWMMVisLayer *layer);
+    void attributeTableRequested(const openswmmvis::ui::AttributeTableTarget &target);
+
+    /*!
+     * \brief Emitted when the user picks an Export entry on a row. SWMMVis
+     *        opens the export dialog for \p target and runs the write
+     *        (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8).
+     */
+    void exportRequested(const openswmmvis::ui::LayerExportTarget &target);
 
     /*!
      * \brief Emitted when the user picks "Set Style…" on a layer's context

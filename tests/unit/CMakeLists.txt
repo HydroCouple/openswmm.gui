@@ -568,16 +568,67 @@ target_link_libraries(test_featuregeometry PRIVATE Qt6::Gui GDAL::GDAL)
 # FID reuse on insert (the stable-id contract behind AddFeatureCommand) and a
 # concurrent read-only open seeing flushed writes (what a mesh worker does).
 # Artifacts land beside the fixtures — reviewable, not a temp dir (CLAUDE.md §4.1).
+# FEATURE_LAYER_ROLES_AND_FIELDS_PLAN 2026-09-30 R2 extends it with column
+# defaults, descriptions and value lists, read against the role registry.
 add_swmmvis_unit_test(test_featurestore
     test_featurestore.cpp
     ${PROJECT_SOURCE_DIR}/src/feature/featurestore.cpp
     ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featureroles.cpp
     ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
 )
 target_link_libraries(test_featurestore PRIVATE Qt6::Gui GDAL::GDAL)
 target_compile_definitions(test_featurestore
     PRIVATE FEATURESTORE_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data/featurestore_artifacts")
+
+# ---- Feature-layer role registry (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN R1) ----
+# Pure data: persisted role tokens, the §4 field tables, the readers' aliases
+# and the "Update fields to role…" plan. meshbctype supplies the BC tokens
+# (header listed so AUTOMOC sees its Q_OBJECT).
+add_swmmvis_unit_test(test_featureroles
+    test_featureroles.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featureroles.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+)
+target_link_libraries(test_featureroles PRIVATE Qt6::Gui GDAL::GDAL)
+
+# ---- Right-click Export: the widget-free writer and the mesh collector ----
+# (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN R8, R10). Headless GDAL round trips;
+# outputs in tests/output/feature_layer_roles_2026-09-30/ (CLAUDE.md §4.1).
+add_swmmvis_unit_test(test_vectorexport
+    test_vectorexport.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/vectorexport.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/gdaldrivers.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
+)
+target_link_libraries(test_vectorexport PRIVATE Qt6::Gui GDAL::GDAL)
+target_compile_definitions(test_vectorexport PRIVATE
+    VECTOREXPORT_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30/vectorexport")
+
+add_swmmvis_unit_test(test_meshexport
+    test_meshexport.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/meshexport.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/vectorexport.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/gdaldrivers.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featureroles.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshcellparams.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+)
+target_link_libraries(test_meshexport PRIVATE Qt6::Gui GDAL::GDAL)
+target_compile_definitions(test_meshexport PRIVATE
+    MESHEXPORT_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30/meshexport")
 
 # ---- Bundled-example seeder / discovery + curated Bellinge payload guard ----
 # QTemporaryDir fixtures for sync/copy/discovery; BELLINGE_EXAMPLE_DIR points

@@ -20,6 +20,39 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Added
 
+- **Feature layers by role, with dropdowns for coded fields**
+  (`workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md`, Part A). One role registry
+  (`feature::featureRoleSpecs()`) now defines, per role, the geometries, the fields, their types,
+  defaults, units, descriptions and value lists, and the fields an older layer may still carry. The
+  New Feature Layer dialog starts from the role: it offers the role's geometries, lists its fields
+  with checkboxes and editable defaults (required fields cannot be unticked), keeps custom fields
+  across a role change, and adds a custom-field editor for Text / Integer / Real / Yes-No / Choice
+  columns. Fixed value lists (`cells`, `hsg`, `bc_type`) are edited with a dropdown in the Features
+  dock grid and in the Attribute Table; time series and curves list the project's own; tags and
+  land uses suggest the values already in the column; lengths show the project unit; a value
+  outside the list stays visible, in the warning colour, and is never dropped; boundary-condition
+  parameters the row's type does not read are greyed. Defaults, descriptions and value lists are
+  stored in the GeoPackage (defaults with any GDAL; descriptions and value lists with GDAL 3.8 or
+  later), where any GDAL-based reader sees them. An "Update fields to role…" action in the Features dock
+  previews and applies, as one undo step, the renames, additions and metadata a layer needs to
+  match its role; retired columns holding values are only removed when ticked.
+- **"Open Attribute Table" on layer-tree rows** (Part B): feature, GIS vector and tabular layers
+  open their own table; the SWMM model opens its current object type, an object-type row opens
+  that type, and a 1D results layer's object types open with that run's statistics; a 2D mesh
+  opens its cells, and its vertices / edges / boundary-condition / fill rows open the matching
+  table. Rows without a table show the entry disabled.
+- **Export from the layer tree to GIS formats** (Part C). One dialog (GeoPackage by default;
+  Shapefile, GeoJSON, FlatGeobuf, KML, CSV, DXF and File Geodatabase where the GDAL build writes
+  them) exports SWMM object types (the 11 spatial types, optionally with a run's statistics,
+  optionally the selection only), feature and GIS vector layers, the 2D mesh as cells / edges /
+  vertices with their parameters and boundary conditions, and rasters to GeoTIFF; it can
+  reproject, and can add exported vector layers to the map. Choice columns carry INP tokens and, in a
+  GeoPackage, their value lists; Shapefile exports write a `_fields.csv` with each short name's
+  full name, label and unit. Exports run off the GUI thread with progress and Cancel, and a cancel
+  or failure leaves no files behind. An export never replaces a file the project has open or the
+  project's features GeoPackage, and a folder is never taken for a file. SWMM object exports
+  re-import through Import Feature Layer's Auto-match.
+
 - **Terrain break lines: curbs, building walls and banks become mesh edges** (`Model → Generate
   Mesh`, terrain tolerance > 0 with a DTM). The terrain pass now also traces the lines along which
   the DEM bends by more than the terrain tolerance — the principal curvature of largest magnitude,
@@ -108,6 +141,14 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- **Mesh regions read `h` and `cells`; corridors read `width`** (FEATURE_LAYER_ROLES plan §4).
+  A Region layer now carries the target cell size `h` (older layers' `quad_spacing` is still read)
+  and `cells` — "auto" (quads where the region is four-sided) or "triangles" — which the mesh
+  dialog passes to the triangle engine per region; an unknown value is logged and treated as
+  "auto". The quad engine's `max_area`, `min_cell`, `quad_mode`, `quad_aspect` and `quad_angle`
+  are retired: old layers keep them and still mesh, and "Update fields to role…" offers to rename
+  and remove them. The mesh dialog's layer pickers list layers of the right geometry with the
+  role's layers first, and a Corridor layer preselects its `width` field.
 - **Mesh generation on a triangle engine with a guaranteed minimum angle; quads only along
   features** (`workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md`). This supersedes the quadtree
   core and the quad-heavy cell shapes described below. The whole domain is a constrained Delaunay

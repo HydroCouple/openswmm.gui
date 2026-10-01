@@ -203,6 +203,47 @@ private:
 };
 
 /*!
+ * \class RenameFieldCommand
+ * \brief Rename a schema column, keeping its values ("Update fields to
+ *        role…" renames the legacy quad_spacing to h —
+ *        FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §3 P7).
+ */
+class RenameFieldCommand : public FeatureCommandBase
+{
+public:
+    RenameFieldCommand(FeatureLayer *layer, const QString &from, const QString &to,
+                       MapCanvas *canvas, QUndoCommand *parent = nullptr);
+
+    void redo() override;
+    void undo() override;
+
+private:
+    QString m_from;
+    QString m_to;
+};
+
+/*!
+ * \class SetFieldMetadataCommand
+ * \brief Replace a column's stored default, description and Fixed value list
+ *        (name and type unchanged); undo restores the previous ones.
+ */
+class SetFieldMetadataCommand : public FeatureCommandBase
+{
+public:
+    SetFieldMetadataCommand(FeatureLayer *layer, const QString &fieldName,
+                            const openswmmvis::feature::FieldDef &meta,
+                            MapCanvas *canvas, QUndoCommand *parent = nullptr);
+
+    void redo() override;
+    void undo() override;
+
+private:
+    QString                        m_name;
+    openswmmvis::feature::FieldDef m_old;   ///< Captured on the first redo.
+    openswmmvis::feature::FieldDef m_new;
+};
+
+/*!
  * \class RemoveFieldCommand
  * \brief Drop a schema column, snapshotting its values so undo restores them.
  */

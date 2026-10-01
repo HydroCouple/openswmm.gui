@@ -80,6 +80,7 @@ enum class LayerTypeOrdinal : int {
     SWMM2DMeshLayer             = 12,
     SWMM2DResultsLayer          = 13,
     SWMMAnnotationLayer         = 14,
+    SWMMFeatureLayer            = 15,
 };
 
 /*!

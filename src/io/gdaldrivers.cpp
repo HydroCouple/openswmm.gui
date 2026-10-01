@@ -168,4 +168,53 @@ QString vectorOpenFilter()
     return buildFilter(kVectorGroups, int(sizeof(kVectorGroups) / sizeof(kVectorGroups[0])));
 }
 
+QVector<VectorWriteFormat> vectorWriteFormats()
+{
+    ensureRegistered();
+    // §8.3 order: GeoPackage is the default (Q8).
+    const QVector<VectorWriteFormat> curated = {
+        {QStringLiteral("GPKG"), QStringLiteral("GeoPackage"), QStringLiteral("gpkg"),
+         true, false, true, false,
+         QStringLiteral("One file; full field names, descriptions and value lists.")},
+        {QStringLiteral("ESRI Shapefile"), QStringLiteral("ESRI Shapefile"), QStringLiteral("shp"),
+         false, false, false, true,
+         QStringLiteral("One file set per object type; field names cut to 10 characters "
+                        "(a _fields.csv maps them); no value lists; 2 GB limit.")},
+        {QStringLiteral("GeoJSON"), QStringLiteral("GeoJSON"), QStringLiteral("geojson"),
+         false, true, false, false,
+         QStringLiteral("One file per object type, written in WGS 84 as GeoJSON requires.")},
+        {QStringLiteral("FlatGeobuf"), QStringLiteral("FlatGeobuf"), QStringLiteral("fgb"),
+         false, false, false, false,
+         QStringLiteral("One file per object type.")},
+        {QStringLiteral("KML"), QStringLiteral("KML"), QStringLiteral("kml"),
+         false, true, false, false,
+         QStringLiteral("One file per object type, in WGS 84; few attribute types survive.")},
+        {QStringLiteral("CSV"), QStringLiteral("CSV (geometry as WKT)"), QStringLiteral("csv"),
+         false, false, false, false,
+         QStringLiteral("One table per object type; the geometry is a WKT column.")},
+        {QStringLiteral("DXF"), QStringLiteral("AutoCAD DXF"), QStringLiteral("dxf"),
+         false, false, false, false,
+         QStringLiteral("One drawing per object type; attributes are not kept.")},
+        {QStringLiteral("OpenFileGDB"), QStringLiteral("Esri File Geodatabase"), QStringLiteral("gdb"),
+         true, false, true, false,
+         QStringLiteral("One .gdb folder; full field names, descriptions and value lists.")},
+    };
+    QVector<VectorWriteFormat> out;
+    for (const VectorWriteFormat &f : curated) {
+        GDALDriverH drv = GDALGetDriverByName(f.driver.toUtf8().constData());
+        if (!drv) continue;
+        if (!GDALGetMetadataItem(drv, GDAL_DCAP_VECTOR, nullptr)) continue;
+        if (!GDALGetMetadataItem(drv, GDAL_DCAP_CREATE, nullptr)) continue;
+        out.append(f);
+    }
+    return out;
+}
+
+VectorWriteFormat vectorWriteFormat(const QString &driver)
+{
+    for (const VectorWriteFormat &f : vectorWriteFormats())
+        if (f.driver == driver) return f;
+    return {};
+}
+
 } // namespace openswmmvis::io::gdalcaps

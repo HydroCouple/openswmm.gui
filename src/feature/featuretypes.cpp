@@ -14,6 +14,8 @@
 #include <QJsonValue>
 #include <QSet>
 
+#include <algorithm>
+
 namespace openswmmvis::feature {
 
 namespace {
@@ -147,6 +149,69 @@ QString sanitizeTableName(const QString &raw)
 // FieldDef
 // ---------------------------------------------------------------------------
 
+bool sameChoiceSet(QVector<FieldChoice> a, QVector<FieldChoice> b)
+{
+    const auto byValue = [](const FieldChoice &x, const FieldChoice &y) {
+        return x.value < y.value;
+    };
+    std::sort(a.begin(), a.end(), byValue);
+    std::sort(b.begin(), b.end(), byValue);
+    return a == b;
+}
+
+int FieldDef::choiceIndex(const QString &value) const
+{
+    for (int i = 0; i < choices.size(); ++i)
+        if (choices.at(i).value == value) return i;
+    return -1;
+}
+
+QString FieldDef::choiceLabel(const QString &value) const
+{
+    const int i = choiceIndex(value);
+    return i < 0 ? value : choices.at(i).displayLabel();
+}
+
+namespace {
+
+QString choiceSourceToken(ChoiceSource s)
+{
+    switch (s) {
+    case ChoiceSource::Fixed:     return QStringLiteral("fixed");
+    case ChoiceSource::Model:     return QStringLiteral("model");
+    case ChoiceSource::Suggested: return QStringLiteral("suggested");
+    case ChoiceSource::None:      break;
+    }
+    return QString();
+}
+
+ChoiceSource choiceSourceFromToken(const QString &t)
+{
+    if (t == QLatin1String("fixed"))     return ChoiceSource::Fixed;
+    if (t == QLatin1String("model"))     return ChoiceSource::Model;
+    if (t == QLatin1String("suggested")) return ChoiceSource::Suggested;
+    return ChoiceSource::None;
+}
+
+QString modelListToken(ModelList m)
+{
+    switch (m) {
+    case ModelList::TimeSeries: return QStringLiteral("timeseries");
+    case ModelList::Curves:     return QStringLiteral("curves");
+    case ModelList::None:       break;
+    }
+    return QString();
+}
+
+ModelList modelListFromToken(const QString &t)
+{
+    if (t == QLatin1String("timeseries")) return ModelList::TimeSeries;
+    if (t == QLatin1String("curves"))     return ModelList::Curves;
+    return ModelList::None;
+}
+
+}   // namespace
+
 QJsonObject FieldDef::toJson() const
 {
     QJsonObject o;
@@ -156,6 +221,24 @@ QJsonObject FieldDef::toJson() const
         o.insert(QStringLiteral("default"), QJsonValue::fromVariant(defaultValue));
     if (!description.isEmpty())
         o.insert(QStringLiteral("description"), description);
+    if (choiceSource != ChoiceSource::None)
+        o.insert(QStringLiteral("choiceSource"), choiceSourceToken(choiceSource));
+    if (!choices.isEmpty()) {
+        QJsonArray arr;
+        for (const FieldChoice &c : choices) {
+            QJsonObject co;
+            co.insert(QStringLiteral("value"), c.value);
+            if (!c.label.isEmpty()) co.insert(QStringLiteral("label"), c.label);
+            arr.append(co);
+        }
+        o.insert(QStringLiteral("choices"), arr);
+    }
+    if (modelList != ModelList::None)
+        o.insert(QStringLiteral("modelList"), modelListToken(modelList));
+    if (unit == FieldUnit::Length)
+        o.insert(QStringLiteral("unit"), QStringLiteral("length"));
+    if (required)
+        o.insert(QStringLiteral("required"), true);
     return o;
 }
 
@@ -167,6 +250,19 @@ FieldDef FieldDef::fromJson(const QJsonObject &o)
     f.description = o.value(QStringLiteral("description")).toString();
     if (o.contains(QStringLiteral("default")))
         f.defaultValue = o.value(QStringLiteral("default")).toVariant();
+    f.choiceSource = choiceSourceFromToken(o.value(QStringLiteral("choiceSource")).toString());
+    const QJsonArray arr = o.value(QStringLiteral("choices")).toArray();
+    for (const QJsonValue &v : arr) {
+        const QJsonObject co = v.toObject();
+        FieldChoice c;
+        c.value = co.value(QStringLiteral("value")).toString();
+        c.label = co.value(QStringLiteral("label")).toString();
+        if (!c.value.isEmpty()) f.choices.append(c);
+    }
+    f.modelList = modelListFromToken(o.value(QStringLiteral("modelList")).toString());
+    if (o.value(QStringLiteral("unit")).toString() == QLatin1String("length"))
+        f.unit = FieldUnit::Length;
+    f.required = o.value(QStringLiteral("required")).toBool(false);
     return f;
 }
 
@@ -175,7 +271,12 @@ bool FieldDef::operator==(const FieldDef &o) const
     return name == o.name
         && type == o.type
         && defaultValue == o.defaultValue
-        && description == o.description;
+        && description == o.description
+        && choices == o.choices
+        && choiceSource == o.choiceSource
+        && modelList == o.modelList
+        && unit == o.unit
+        && required == o.required;
 }
 
 // ---------------------------------------------------------------------------

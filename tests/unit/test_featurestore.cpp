@@ -25,11 +25,13 @@
  */
 #include <gtest/gtest.h>
 
+#include "feature/featureroles.h"
 #include "feature/featurestore.h"
 #include "feature/featuretypes.h"
 
 #include <gdal_priv.h>
 #include <ogr_api.h>
+#include <ogr_feature.h>
 #include <ogrsf_frmts.h>
 
 #include <QDir>
@@ -461,4 +463,311 @@ TEST(FeatureStoreGuards, ClosedStoreRefusesEveryWrite)
     EXPECT_FALSE(store.removeFeature(1, &err));
     EXPECT_EQ(store.count(), 0);
     EXPECT_TRUE(store.featureIds().isEmpty());
+}
+
+// ---------------------------------------------------------------------------
+// Column metadata: defaults, descriptions, value lists
+// (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md R2)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/*! What the GeoPackage stores of a field: name, type, default, description
+ *  and a Fixed value list. The editor hints (unit, Model / Suggested source,
+ *  required) are the registry's and are not compared. */
+void expectSamePersisted(const FieldDef &stored, const FieldDef &reg)
+{
+    SCOPED_TRACE(reg.name.toStdString());
+    EXPECT_EQ(stored.name, reg.name);
+    EXPECT_EQ(stored.type, reg.type);
+    const QVariant regDefault = reg.defaultValue.isValid()
+                                    ? coerceToFieldType(reg.defaultValue, reg.type)
+                                    : QVariant();
+    EXPECT_EQ(stored.defaultValue, regDefault);
+    if (FeatureStore::storesFieldMetadata()) {
+        EXPECT_EQ(stored.description, reg.description);
+        if (reg.choiceSource == ChoiceSource::Fixed) {
+            EXPECT_EQ(stored.choiceSource, ChoiceSource::Fixed);
+            // GeoPackage returns the list sorted by value.
+            EXPECT_TRUE(sameChoiceSet(stored.choices, reg.choices));
+        } else {
+            EXPECT_TRUE(stored.choices.isEmpty());
+        }
+    }
+}
+
+Feature lineFeature()
+{
+    Ring r;
+    r.pts << QPointF(0.0, 0.0) << QPointF(10.0, 0.0);
+    Part p;
+    p.exterior = r;
+    Feature f;
+    f.geometry = FeatureGeometry(GeometryType::LineString);
+    f.geometry.addPart(p);
+    return f;
+}
+
+}   // namespace
+
+TEST(FeatureStoreMetadata, RoleSchemaRoundTripsThroughReopen)
+{
+    const QString gpkg = freshGpkg(QStringLiteral("role_bc"));
+    const Schema tmpl = featureLayerRoleTemplate(FeatureLayerRole::BoundaryCondition);
+    {
+        FeatureStore store;
+        ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"),
+                              GeometryType::LineString, false, tmpl));
+        const Schema back = store.schema();
+        ASSERT_EQ(back.count(), tmpl.count());
+        for (int i = 0; i < tmpl.count(); ++i)
+            expectSamePersisted(back.at(i), tmpl.at(i));
+    }
+    // A fresh handle reads the same thing back from the file.
+    FeatureStore reopened;
+    QString err;
+    ASSERT_TRUE(reopened.open(gpkg, QStringLiteral("bc_lines"), &err)) << err.toStdString();
+    const Schema back = reopened.schema();
+    ASSERT_EQ(back.count(), tmpl.count());
+    for (int i = 0; i < tmpl.count(); ++i)
+        expectSamePersisted(back.at(i), tmpl.at(i));
+}
+
+TEST(FeatureStoreMetadata, EditorSchemaRestoresTheRegistryOrder)
+{
+    const QString gpkg = freshGpkg(QStringLiteral("role_order"));
+    FeatureStore store;
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"),
+                          GeometryType::LineString, false,
+                          featureLayerRoleTemplate(FeatureLayerRole::BoundaryCondition)));
+    const Schema e = editorSchema(FeatureLayerRole::BoundaryCondition, store.schema());
+    const FieldDef *reg = featureRoleSpec(FeatureLayerRole::BoundaryCondition)
+                              .field(QStringLiteral("bc_type"));
+    EXPECT_EQ(e.field(QStringLiteral("bc_type"))->choices, reg->choices);
+    // And a layer read back from its own file needs no update.
+    EXPECT_TRUE(planFieldUpdate(FeatureLayerRole::BoundaryCondition, store.schema(), {})
+                    .isEmpty());
+}
+
+TEST(FeatureStoreMetadata, NewFeatureTakesItsDefaults)
+{
+    const QString gpkg = freshGpkg(QStringLiteral("role_defaults"));
+    FeatureStore store;
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"),
+                          GeometryType::LineString, false,
+                          featureLayerRoleTemplate(FeatureLayerRole::BoundaryCondition)));
+
+    // The drawing tools start a feature from Schema::defaultAttributes().
+    Feature drawn = lineFeature();
+    drawn.attributes = store.schema().defaultAttributes();
+    QString err;
+    const FeatureId a = store.addFeature(drawn, &err);
+    ASSERT_NE(a, kInvalidFeatureId) << err.toStdString();
+    Feature back;
+    ASSERT_TRUE(store.feature(a, back));
+    EXPECT_DOUBLE_EQ(back.attributes.value(QStringLiteral("conveyance")).toDouble(), 1.0);
+    EXPECT_EQ(back.attributes.value(QStringLiteral("bc_type")).toString(),
+              QStringLiteral("WALL"));
+    EXPECT_DOUBLE_EQ(back.attributes.value(QStringLiteral("slope")).toDouble(), 0.001);
+
+    // A writer that sets no attributes at all gets the column defaults too.
+    const FeatureId b = store.addFeature(lineFeature(), &err);
+    ASSERT_NE(b, kInvalidFeatureId) << err.toStdString();
+    ASSERT_TRUE(store.feature(b, back));
+    EXPECT_DOUBLE_EQ(back.attributes.value(QStringLiteral("conveyance")).toDouble(), 1.0);
+    EXPECT_EQ(back.attributes.value(QStringLiteral("bc_type")).toString(),
+              QStringLiteral("WALL"));
+}
+
+TEST(FeatureStoreMetadata, AddFieldWithAValueListIsVisibleToAPlainOgrHandle)
+{
+    if (!FeatureStore::storesFieldMetadata())
+        GTEST_SKIP() << "GDAL < 3.8 stores no value lists";
+    const QString gpkg = freshGpkg(QStringLiteral("role_domain"));
+    FeatureStore store;
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("zones"),
+                          GeometryType::Polygon, false, Schema()));
+
+    const FieldDef hsg = *featureRoleSpec(FeatureLayerRole::ParameterZone)
+                              .field(QStringLiteral("hsg"));
+    QString err;
+    ASSERT_TRUE(store.addField(hsg, &err)) << err.toStdString();
+    expectSamePersisted(store.schema().at(0), hsg);
+    store.flush();
+
+    GDALDataset *ds = static_cast<GDALDataset *>(GDALOpenEx(
+        gpkg.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
+        nullptr, nullptr, nullptr));
+    ASSERT_TRUE(ds);
+    OGRLayer *layer = ds->GetLayerByName("zones");
+    ASSERT_TRUE(layer);
+    const OGRFieldDefn *fd = layer->GetLayerDefn()->GetFieldDefn(0);
+    ASSERT_TRUE(fd);
+    EXPECT_EQ(fd->GetDomainName(), std::string("zones__hsg"));
+    const OGRFieldDomain *dom = ds->GetFieldDomain(fd->GetDomainName());
+    ASSERT_TRUE(dom);
+    ASSERT_EQ(dom->GetDomainType(), OFDT_CODED);
+    int n = 0;
+    for (const OGRCodedValue *cv =
+             static_cast<const OGRCodedFieldDomain *>(dom)->GetEnumeration();
+         cv && cv->pszCode; ++cv)
+        ++n;
+    EXPECT_EQ(n, 7);
+    EXPECT_EQ(fd->GetComment(), hsg.description.toStdString());
+    GDALClose(ds);
+}
+
+TEST(FeatureStoreMetadata, ARemovedColumnComesBackWithItsValueList)
+{
+    if (!FeatureStore::storesFieldMetadata())
+        GTEST_SKIP() << "GDAL < 3.8 stores no value lists";
+    const QString gpkg = freshGpkg(QStringLiteral("role_domain_drop"));
+    FeatureStore store;
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"),
+                          GeometryType::LineString, false,
+                          featureLayerRoleTemplate(FeatureLayerRole::BoundaryCondition)));
+    QString err;
+    if (!store.removeField(QStringLiteral("bc_type"), &err))
+        GTEST_SKIP() << "this GDAL cannot delete a GeoPackage column: " << err.toStdString();
+    EXPECT_FALSE(store.schema().contains(QStringLiteral("bc_type")));
+
+    // Re-adding it (what an undo does) works whether or not the driver could
+    // delete the old list.
+    const FieldDef bcType = *featureRoleSpec(FeatureLayerRole::BoundaryCondition)
+                                 .field(QStringLiteral("bc_type"));
+    ASSERT_TRUE(store.addField(bcType, &err)) << err.toStdString();
+    expectSamePersisted(*store.schema().field(QStringLiteral("bc_type")), bcType);
+
+    // A different list under the same column name never rewrites a list some
+    // other column may hold: it is stored, and read back, as given.
+    ASSERT_TRUE(store.removeField(QStringLiteral("bc_type"), &err)) << err.toStdString();
+    FieldDef shorter = bcType;
+    shorter.choices.removeLast();
+    ASSERT_TRUE(store.addField(shorter, &err)) << err.toStdString();
+    EXPECT_TRUE(sameChoiceSet(store.schema().field(QStringLiteral("bc_type"))->choices,
+                              shorter.choices));
+}
+
+TEST(FeatureStoreMetadata, RenameKeepsValuesAndMetadataCanBeAttached)
+{
+    // An old Region layer: the quad engine's columns, no metadata.
+    Schema old;
+    for (const char *n : {"quad_mode", "quad_spacing", "tag"}) {
+        FieldDef f;
+        f.name = QLatin1String(n);
+        f.type = (QLatin1String(n) == QLatin1String("quad_spacing")) ? FieldType::Real
+                                                                     : FieldType::Text;
+        old.append(f);
+    }
+    const QString gpkg = freshGpkg(QStringLiteral("role_update"));
+    FeatureStore store;
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("regions"),
+                          GeometryType::Polygon, false, old));
+    Feature f;
+    f.geometry = squarePolygon(0.0, 0.0, 10.0);
+    f.attributes.insert(QStringLiteral("quad_spacing"), 4.5);
+    f.attributes.insert(QStringLiteral("tag"), QStringLiteral("park"));
+    QString err;
+    const FeatureId id = store.addFeature(f, &err);
+    ASSERT_NE(id, kInvalidFeatureId) << err.toStdString();
+
+    ASSERT_TRUE(store.renameField(QStringLiteral("quad_spacing"), QStringLiteral("h"), &err))
+        << err.toStdString();
+    EXPECT_FALSE(store.schema().contains(QStringLiteral("quad_spacing")));
+    Feature back;
+    ASSERT_TRUE(store.feature(id, back));
+    EXPECT_DOUBLE_EQ(back.attributes.value(QStringLiteral("h")).toDouble(), 4.5);
+
+    // Renaming onto an existing column is refused.
+    EXPECT_FALSE(store.renameField(QStringLiteral("h"), QStringLiteral("tag"), &err));
+
+    const FeatureRoleSpec &region = featureRoleSpec(FeatureLayerRole::Region);
+    ASSERT_TRUE(store.setFieldMetadata(QStringLiteral("h"), *region.field(QStringLiteral("h")), &err))
+        << err.toStdString();
+    ASSERT_TRUE(store.setFieldMetadata(QStringLiteral("tag"), *region.field(QStringLiteral("tag")), &err))
+        << err.toStdString();
+    // A Fixed list attached to an existing text column, then detached again.
+    FieldDef cells = *region.field(QStringLiteral("cells"));
+    ASSERT_TRUE(store.setFieldMetadata(QStringLiteral("quad_mode"), cells, &err))
+        << err.toStdString();
+
+    const Schema s = store.schema();
+    expectSamePersisted(*s.field(QStringLiteral("h")), *region.field(QStringLiteral("h")));
+    expectSamePersisted(*s.field(QStringLiteral("tag")), *region.field(QStringLiteral("tag")));
+    if (FeatureStore::storesFieldMetadata()) {
+        EXPECT_TRUE(sameChoiceSet(s.field(QStringLiteral("quad_mode"))->choices,
+                                  cells.choices));
+    }
+
+    cells.choices.clear();
+    cells.choiceSource = ChoiceSource::None;
+    ASSERT_TRUE(store.setFieldMetadata(QStringLiteral("quad_mode"), cells, &err))
+        << err.toStdString();
+    EXPECT_TRUE(store.schema().field(QStringLiteral("quad_mode"))->choices.isEmpty());
+
+    // Values survive the table rebuild AlterFieldDefn may do.
+    ASSERT_TRUE(store.feature(id, back));
+    EXPECT_DOUBLE_EQ(back.attributes.value(QStringLiteral("h")).toDouble(), 4.5);
+    EXPECT_EQ(back.attributes.value(QStringLiteral("tag")).toString(), QStringLiteral("park"));
+}
+
+TEST(FeatureStoreMetadata, TwoTablesNeverShareAValueListByAccident)
+{
+    if (!FeatureStore::storesFieldMetadata())
+        GTEST_SKIP() << "GDAL < 3.8 stores no value lists";
+    // "a" + "b_c" and "a_b" + "c" must not share a value list: neither table
+    // may rewrite or delete the other's (names are "a__b_c" and "a_b__c").
+    // Store "a" stays open throughout, as a FeatureLayer's handle does, and
+    // that handle never sees table "a_b", created after it opened.
+    FieldDef first;
+    first.name = QStringLiteral("b_c");
+    first.type = FieldType::Text;
+    first.choiceSource = ChoiceSource::Fixed;
+    for (const char *v : {"x", "y", "z"})
+        first.choices.append(FieldChoice{QLatin1String(v), QString()});
+    FieldDef second = first;   // the same values: a shared list would be reused
+    second.name = QStringLiteral("c");
+
+    const QString gpkg = freshGpkg(QStringLiteral("domain_collision"));
+    QString err;
+    Schema sa;
+    sa.append(first);
+    FeatureStore a;
+    ASSERT_TRUE(makeStore(a, gpkg, QStringLiteral("a"), GeometryType::Point, false, sa));
+    {
+        Schema s;
+        s.append(second);
+        FeatureStore ab;
+        ASSERT_TRUE(makeStore(ab, gpkg, QStringLiteral("a_b"), GeometryType::Point, false, s));
+    }
+
+    // Through the old handle: change a's list, then drop its column.
+    FieldDef shorter = first;
+    shorter.choices.removeLast();
+    ASSERT_TRUE(a.setFieldMetadata(QStringLiteral("b_c"), shorter, &err)) << err.toStdString();
+    const Schema aNow = a.schema();
+    EXPECT_TRUE(sameChoiceSet(aNow.field(QStringLiteral("b_c"))->choices, shorter.choices));
+    // Dropping the column, where this GDAL can, must not take a_b's list along.
+    const bool dropped = a.removeField(QStringLiteral("b_c"), &err);
+    Q_UNUSED(dropped);
+
+    FeatureStore ab;
+    ASSERT_TRUE(ab.open(gpkg, QStringLiteral("a_b"), &err)) << err.toStdString();
+    const Schema abNow = ab.schema();
+    ASSERT_TRUE(abNow.field(QStringLiteral("c")));
+    EXPECT_TRUE(sameChoiceSet(abNow.field(QStringLiteral("c"))->choices, second.choices));
+}
+
+TEST(FeatureStoreMetadata, TextDefaultsWithQuotesRoundTrip)
+{
+    FieldDef f;
+    f.name = QStringLiteral("label");
+    f.type = FieldType::Text;
+    f.defaultValue = QStringLiteral("O'Brien's");
+    Schema s;
+    s.append(f);
+    const QString gpkg = freshGpkg(QStringLiteral("quoted_default"));
+    FeatureStore store;
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("t"), GeometryType::Point, false, s));
+    EXPECT_EQ(store.schema().at(0).defaultValue.toString(), QStringLiteral("O'Brien's"));
 }

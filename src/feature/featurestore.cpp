@@ -19,7 +19,13 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QLocale>
 #include <QLoggingCategory>
+
+#include <algorithm>
+#include <memory>
+#include <string>
+#include <vector>
 
 Q_LOGGING_CATEGORY(lcFeatureStore, "openswmmvis.feature.store")
 
@@ -58,6 +64,223 @@ GDALDataset *openGpkg(const QString &path, bool update, QString *error)
         setErr(error, tr_("Could not open \"%1\": %2")
                           .arg(path, lastGdalError()));
     return ds;
+}
+
+// ---------------------------------------------------------------------------
+// Column metadata: defaults, descriptions, value lists
+// (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md P5, §6 "Store").
+//
+// Defaults are SQL literals in the table definition and every GDAL stores
+// them. Descriptions (gpkg_data_columns, OGRFieldDefn::SetComment) and coded
+// value lists (gpkg_data_column_constraints, field domains) need GDAL 3.8 for
+// the full add / update / delete set; below that the columns are created
+// without them and the role registry still supplies the dropdowns.
+// ---------------------------------------------------------------------------
+
+#if GDAL_VERSION_NUM >= GDAL_COMPUTE_VERSION(3, 8, 0)
+#define FEATURESTORE_FIELD_META 1
+#else
+#define FEATURESTORE_FIELD_META 0
+#endif
+
+/*! The SQL literal OGRFieldDefn::SetDefault expects for \p f's default, or
+ *  an empty string when \p f has none. Strings are single-quoted with
+ *  embedded quotes doubled; numbers use the shortest round-trip form. */
+QString defaultLiteral(const FieldDef &f)
+{
+    if (!f.defaultValue.isValid() || f.defaultValue.isNull()) return {};
+    const QVariant v = coerceToFieldType(f.defaultValue, f.type);
+    switch (f.type) {
+    case FieldType::Text: {
+        QString s = v.toString();
+        s.replace(QLatin1Char('\''), QStringLiteral("''"));
+        return QLatin1Char('\'') + s + QLatin1Char('\'');
+    }
+    case FieldType::Integer:
+        return QString::number(v.toInt());
+    case FieldType::Real:
+        return QString::number(v.toDouble(), 'g', QLocale::FloatingPointShortest);
+    case FieldType::Boolean:
+        return v.toBool() ? QStringLiteral("1") : QStringLiteral("0");
+    }
+    return {};
+}
+
+/*! Inverse of \ref defaultLiteral. An expression GDAL reports verbatim
+ *  (CURRENT_TIMESTAMP, …) is not a value and reads back invalid. */
+QVariant parseDefaultLiteral(const char *literal, FieldType type)
+{
+    if (!literal || !*literal) return {};
+    const QString s = QString::fromUtf8(literal).trimmed();
+    if (s.size() >= 2 && s.startsWith(QLatin1Char('\'')) && s.endsWith(QLatin1Char('\''))) {
+        QString inner = s.mid(1, s.size() - 2);
+        inner.replace(QStringLiteral("''"), QStringLiteral("'"));
+        return coerceToFieldType(inner, type);
+    }
+    bool ok = false;
+    switch (type) {
+    case FieldType::Integer: {
+        const qlonglong i = s.toLongLong(&ok);
+        if (ok) return QVariant(int(i));
+        const double d = s.toDouble(&ok);   // "1.0" written by another tool
+        return ok ? QVariant(int(d)) : QVariant();
+    }
+    case FieldType::Real: {
+        const double d = s.toDouble(&ok);
+        return ok ? QVariant(d) : QVariant();
+    }
+    case FieldType::Boolean: {
+        const QString l = s.toLower();
+        if (l == QLatin1String("1") || l == QLatin1String("true"))  return true;
+        if (l == QLatin1String("0") || l == QLatin1String("false")) return false;
+        return {};
+    }
+    case FieldType::Text:
+        return {};   // an unquoted text default is an expression
+    }
+    return {};
+}
+
+/*! The name of the coded domain this store creates for \p field of \p table.
+ *  Domain names are per GeoPackage, and every FeatureLayer keeps its own
+ *  long-open handle that does not see tables created after it opened, so
+ *  names must not collide by construction: sanitised names never contain
+ *  "__", so "a" + "b_c" → "a__b_c" and "a_b" + "c" → "a_b__c". */
+QString domainNameFor(const QString &table, const QString &field)
+{
+    return table + QStringLiteral("__") + field;
+}
+
+#if FEATURESTORE_FIELD_META
+/*!
+ * True when any field other than field \p selfIdx of \p self (-1: none
+ * excluded) names \p domain — in \p self or in any other table of \p ds.
+ * Domain names are per dataset, and two tables can derive the same one from
+ * domainNameFor() ("a" + "b_c" and "a_b" + "c").
+ */
+bool domainUsedByOtherField(GDALDataset *ds, const OGRFeatureDefn *self,
+                            const std::string &domain, int selfIdx)
+{
+    if (domain.empty()) return false;
+    const auto usedIn = [&domain](const OGRFeatureDefn *d, int skip) {
+        if (!d) return false;
+        for (int i = 0; i < d->GetFieldCount(); ++i)
+            if (i != skip && d->GetFieldDefn(i)->GetDomainName() == domain)
+                return true;
+        return false;
+    };
+    if (usedIn(self, selfIdx)) return true;
+    for (int l = 0; ds && l < ds->GetLayerCount(); ++l) {
+        OGRLayer *layer = ds->GetLayer(l);
+        const OGRFeatureDefn *d = layer ? layer->GetLayerDefn() : nullptr;
+        if (d && d != self && usedIn(d, -1)) return true;
+    }
+    return false;
+}
+
+/*! The values of coded domain \p name, or empty when it is missing or of
+ *  another kind (a range or glob domain authored elsewhere). */
+QVector<FieldChoice> readCodedDomain(const GDALDataset *ds, const std::string &name)
+{
+    QVector<FieldChoice> out;
+    if (!ds || name.empty()) return out;
+    const OGRFieldDomain *d = ds->GetFieldDomain(name);
+    if (!d || d->GetDomainType() != OFDT_CODED) return out;
+    const OGRCodedValue *cv = static_cast<const OGRCodedFieldDomain *>(d)->GetEnumeration();
+    for (; cv && cv->pszCode; ++cv) {
+        FieldChoice c;
+        c.value = QString::fromUtf8(cv->pszCode);
+        c.label = cv->pszValue ? QString::fromUtf8(cv->pszValue) : QString();
+        out.append(c);
+    }
+    return out;
+}
+
+/*!
+ * \brief Make a coded domain holding \p choices available for field
+ *        \p selfIdx of \p defn (-1 for a field not created yet) and return
+ *        its name, or an empty string on failure.
+ *
+ * \details \p preferred is used when it is free, already holds exactly these
+ *          values, or is this field's alone and can be updated in place.
+ *          Otherwise — a list another column (of any table) still uses, or a driver that
+ *          cannot update a domain (GDAL's GeoPackage driver before 3.x) — the
+ *          list goes under the next free name, preferred_2, _3, …, rather than
+ *          failing or changing another column's list.
+ */
+QString ensureCodedDomain(GDALDataset *ds, const OGRFeatureDefn *defn, int selfIdx,
+                          const QString &preferred, const QVector<FieldChoice> &choices,
+                          QString *error)
+{
+    const auto build = [&choices](const std::string &name) {
+        std::vector<OGRCodedValue> values;
+        values.reserve(size_t(choices.size()));
+        for (const FieldChoice &c : choices) {
+            OGRCodedValue cv;
+            // The domain takes ownership of both strings (CPLFree in its dtor).
+            cv.pszCode  = CPLStrdup(c.value.toUtf8().constData());
+            cv.pszValue = c.label.isEmpty() ? nullptr
+                                            : CPLStrdup(c.label.toUtf8().constData());
+            values.push_back(cv);
+        }
+        return std::make_unique<OGRCodedFieldDomain>(
+            name, std::string(), OFTString, OFSTNone, std::move(values));
+    };
+
+    for (int n = 1; n < 1000; ++n) {
+        const QString name = n == 1 ? preferred
+                                    : preferred + QLatin1Char('_') + QString::number(n);
+        const std::string sname = name.toStdString();
+        std::string reason;
+        CPLErrorReset();
+        const OGRFieldDomain *existing = ds->GetFieldDomain(sname);
+        if (!existing) {
+            if (ds->AddFieldDomain(build(sname), reason)) return name;
+            setErr(error, tr_("Could not store the value list \"%1\": %2")
+                              .arg(name, reason.empty() ? lastGdalError()
+                                                        : QString::fromStdString(reason)));
+            return {};
+        }
+        if (sameChoiceSet(readCodedDomain(ds, sname), choices)) return name;
+        if (!domainUsedByOtherField(ds, defn, sname, selfIdx)
+            && ds->UpdateFieldDomain(build(sname), reason))
+            return name;
+        // In use elsewhere, or not updatable here: try the next name.
+    }
+    setErr(error, tr_("Could not store the value list \"%1\".").arg(preferred));
+    return {};
+}
+
+/*! Delete \p domain when it is one this store named for \p table
+ *  ("<table>__…", or "<table>_…" from builds before 2026-10-01) and no field
+ *  of \p defn uses it any more. Best effort: GeoPackage support for
+ *  deleting a domain depends on the GDAL build, and an orphan is harmless. */
+void dropOrphanDomain(GDALDataset *ds, const OGRFeatureDefn *defn,
+                      const QString &table, const std::string &domain)
+{
+    if (domain.empty()) return;
+    const QString q = QString::fromStdString(domain);
+    if (!q.startsWith(table + QLatin1Char('_'))) return;
+    if (domainUsedByOtherField(ds, defn, domain, -1)) return;
+    std::string reason;
+    if (!ds->DeleteFieldDomain(domain, reason))
+        qCInfo(lcFeatureStore).noquote()
+            << "value list" << q << "kept:" << QString::fromStdString(reason);
+}
+#endif
+
+/*! Write \p f's default, description and value list onto \p defn. The coded
+ *  domain itself must already exist in the dataset (\ref ensureCodedDomain). */
+void applyFieldMetadata(OGRFieldDefn &defn, const FieldDef &f, const QString &domainName)
+{
+    const QString lit = defaultLiteral(f);
+    defn.SetDefault(lit.isEmpty() ? nullptr : lit.toUtf8().constData());
+#if FEATURESTORE_FIELD_META
+    defn.SetComment(f.description.toStdString());
+    defn.SetDomainName(f.hasFixedChoices() ? domainName.toStdString() : std::string());
+#else
+    Q_UNUSED(domainName);
+#endif
 }
 
 /*! Build an OGRSpatialReference from WKT. Caller owns the result (nullptr when
@@ -225,6 +448,19 @@ bool FeatureStore::createTable(const QString &gpkgPath,
                           static_cast<OGRFieldType>(ogrFieldTypeFor(f.type)));
         if (f.type == FieldType::Boolean) defn.SetSubType(OFSTBoolean);
         if (f.type == FieldType::Text)    defn.SetWidth(0);   // unbounded
+        QString domain;
+#if FEATURESTORE_FIELD_META
+        // The domain must exist before a column can name it.
+        if (f.hasFixedChoices()) {
+            domain = ensureCodedDomain(ds, layer->GetLayerDefn(), -1,
+                                       domainNameFor(name, f.name), f.choices, error);
+            if (domain.isEmpty()) {
+                GDALClose(ds);
+                return false;
+            }
+        }
+#endif
+        applyFieldMetadata(defn, f, domain);
         CPLErrorReset();
         if (layer->CreateField(&defn) != OGRERR_NONE) {
             setErr(error, tr_("Could not create the column \"%1\": %2")
@@ -345,6 +581,12 @@ Schema FeatureStore::schema() const
             f.type = FieldType::Text;
             break;
         }
+        f.defaultValue = parseDefaultLiteral(fd->GetDefault(), f.type);
+#if FEATURESTORE_FIELD_META
+        f.description = QString::fromStdString(fd->GetComment());
+        f.choices     = readCodedDomain(m_dataset, fd->GetDomainName());
+        if (!f.choices.isEmpty()) f.choiceSource = ChoiceSource::Fixed;
+#endif
         s.append(f);
     }
     return s;
@@ -677,6 +919,15 @@ bool FeatureStore::addField(const FieldDef &f, QString *error)
     OGRFieldDefn defn(name.toUtf8().constData(),
                       static_cast<OGRFieldType>(ogrFieldTypeFor(f.type)));
     if (f.type == FieldType::Boolean) defn.SetSubType(OFSTBoolean);
+    QString domain;
+#if FEATURESTORE_FIELD_META
+    if (f.hasFixedChoices()) {
+        domain = ensureCodedDomain(m_dataset, m_layer->GetLayerDefn(), -1,
+                                   domainNameFor(m_table, name), f.choices, error);
+        if (domain.isEmpty()) return false;
+    }
+#endif
+    applyFieldMetadata(defn, f, domain);
 
     CPLErrorReset();
     if (m_layer->CreateField(&defn) != OGRERR_NONE) {
@@ -701,6 +952,9 @@ bool FeatureStore::removeField(const QString &name, QString *error)
     OGRFeatureDefn *defn = m_layer->GetLayerDefn();
     const int idx = defn ? defn->GetFieldIndex(name.toUtf8().constData()) : -1;
     if (idx < 0) return true;   // already gone — idempotent
+#if FEATURESTORE_FIELD_META
+    const std::string domain = defn->GetFieldDefn(idx)->GetDomainName();
+#endif
 
     CPLErrorReset();
     if (m_layer->DeleteField(idx) != OGRERR_NONE) {
@@ -708,8 +962,114 @@ bool FeatureStore::removeField(const QString &name, QString *error)
                           .arg(name, lastGdalError()));
         return false;
     }
+#if FEATURESTORE_FIELD_META
+    // Drop the column's own value list with it where the driver allows.
+    dropOrphanDomain(m_dataset, m_layer->GetLayerDefn(), m_table, domain);
+#endif
     flush();
     return true;
+}
+
+bool FeatureStore::renameField(const QString &from, const QString &to, QString *error)
+{
+    if (!m_layer) { setErr(error, tr_("The feature layer is not open.")); return false; }
+    const QString newName = sanitizeFieldName(to);
+    if (newName.isEmpty()) {
+        setErr(error, tr_("\"%1\" is not a usable column name.").arg(to));
+        return false;
+    }
+    OGRFeatureDefn *defn = m_layer->GetLayerDefn();
+    const int idx = defn ? defn->GetFieldIndex(from.toUtf8().constData()) : -1;
+    if (idx < 0) {
+        setErr(error, tr_("There is no column named \"%1\".").arg(from));
+        return false;
+    }
+    const int clash = defn->GetFieldIndex(newName.toUtf8().constData());
+    if (clash >= 0 && clash != idx) {
+        setErr(error, tr_("A column named \"%1\" already exists.").arg(newName));
+        return false;
+    }
+    if (!m_layer->TestCapability(OLCAlterFieldDefn)) {
+        setErr(error, tr_("This build of GDAL cannot rename a GeoPackage column."));
+        return false;
+    }
+
+    OGRFieldDefn renamed(defn->GetFieldDefn(idx));
+    renamed.SetName(newName.toUtf8().constData());
+    CPLErrorReset();
+    if (m_layer->AlterFieldDefn(idx, &renamed, ALTER_NAME_FLAG) != OGRERR_NONE) {
+        setErr(error, tr_("Could not rename the column \"%1\": %2")
+                          .arg(from, lastGdalError()));
+        return false;
+    }
+    flush();
+    return true;
+}
+
+bool FeatureStore::setFieldMetadata(const QString &name, const FieldDef &meta,
+                                    QString *error)
+{
+    if (!m_layer) { setErr(error, tr_("The feature layer is not open.")); return false; }
+    OGRFeatureDefn *defn = m_layer->GetLayerDefn();
+    const int idx = defn ? defn->GetFieldIndex(name.toUtf8().constData()) : -1;
+    if (idx < 0) {
+        setErr(error, tr_("There is no column named \"%1\".").arg(name));
+        return false;
+    }
+    if (!m_layer->TestCapability(OLCAlterFieldDefn)) {
+        setErr(error, tr_("This build of GDAL cannot change a GeoPackage column."));
+        return false;
+    }
+
+    const OGRFieldDefn *current = defn->GetFieldDefn(idx);
+    // The type is the column's, not meta's: a default is written as the
+    // literal of the type the column actually has.
+    FieldDef effective = meta;
+    effective.name = QString::fromUtf8(current->GetNameRef());
+    switch (current->GetType()) {
+    case OFTInteger:
+    case OFTInteger64:
+        effective.type = current->GetSubType() == OFSTBoolean ? FieldType::Boolean
+                                                              : FieldType::Integer;
+        break;
+    case OFTReal: effective.type = FieldType::Real; break;
+    default:      effective.type = FieldType::Text; break;
+    }
+
+    OGRFieldDefn altered(current);
+    int flags = ALTER_DEFAULT_FLAG;
+    QString domain;
+#if FEATURESTORE_FIELD_META
+    const std::string oldDomain = current->GetDomainName();
+    if (effective.hasFixedChoices()) {
+        // Prefer the column's own domain (it keeps its name across a rename).
+        domain = ensureCodedDomain(m_dataset, defn, idx,
+                                   oldDomain.empty() ? domainNameFor(m_table, effective.name)
+                                                     : QString::fromStdString(oldDomain),
+                                   effective.choices, error);
+        if (domain.isEmpty()) return false;
+    }
+    flags |= ALTER_COMMENT_FLAG | ALTER_DOMAIN_FLAG;
+#endif
+    applyFieldMetadata(altered, effective, domain);
+
+    CPLErrorReset();
+    if (m_layer->AlterFieldDefn(idx, &altered, flags) != OGRERR_NONE) {
+        setErr(error, tr_("Could not update the column \"%1\": %2")
+                          .arg(name, lastGdalError()));
+        return false;
+    }
+#if FEATURESTORE_FIELD_META
+    if (oldDomain != domain.toStdString())   // detached or moved: tidy up
+        dropOrphanDomain(m_dataset, m_layer->GetLayerDefn(), m_table, oldDomain);
+#endif
+    flush();
+    return true;
+}
+
+bool FeatureStore::storesFieldMetadata()
+{
+    return FEATURESTORE_FIELD_META != 0;
 }
 
 bool FeatureStore::flush()
