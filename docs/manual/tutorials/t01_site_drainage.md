@@ -3,18 +3,18 @@
 ## Goal
 
 Take the classic EPA site-drainage deck from a cold start to a full 1D result
-set: open it, give it a coordinate system and a basemap, walk the model with
+set: open it, preserve its local coordinate system, walk the model with
 the Object Browser and the attribute tables, review the storm and the
 build-up/wash-off setup, run it, then read the report, animate the map, and
 plot depths, flows, profiles and TSS concentrations. Finish by changing the
 routing method, the infiltration model, and adding an LID control, comparing
 each variant against the base run.
 
-\videotodo{Opening the site drainage model — setting a CRS — running it and animating the result}
+\videotodo{Opening the site drainage model — checking local coordinates — running it and animating the result}
 
 ## Capabilities exercised
 
-Project open · project CRS · XYZ basemap · Object Browser and Properties ·
+Project open · local coordinates and basemap prerequisites · Object Browser and Properties ·
 attribute tables · rain gages and time series · pollutants, land uses,
 build-up/wash-off and coverages · Simulation Options · running · report
 viewer and continuity · results styling and animation · time-series plots ·
@@ -47,8 +47,9 @@ What is in the deck:
 `FLOW_ROUTING DYNWAVE`, `LINK_OFFSETS DEPTH`, and runs from
 `01/01/1998 00:00` to `01/02/1998 06:00` — 30 hours — with a 5-minute
 report step, a 1-minute wet step and a 5-second routing step. `[MAP]` declares
-`Units Feet` but no coordinate reference system, which is the first thing you
-will fix.
+`Units Feet` but no geographic coordinate reference system. Keep these
+synthetic plan coordinates in local feet; assigning an EPSG code would not
+georeference them.
 
 The conveyance is a mix of grass swales and culverts, and the `[TAGS]` section
 says which is which — `C1`, `C4`–`C6`, `C8`–`C10` are tagged `Swale`, `C3`,
@@ -59,50 +60,40 @@ style and label by later.
 
 ### 1. Open the model
 
-**File → Open…** (`Ctrl+O`) opens the dialog titled **Open SWMM Model or
-Project**; pick `examples/site_drainage/site_drainage_model.inp`. The `.inp`
-opens directly — this example has no `.oswp` project wrapper, so SWMMVis
-builds the project from the input file alone and will offer to create the
-`.oswp` when you save.
+Copy `examples/site_drainage/site_drainage_model.inp` to a working folder
+first. **File → Open…** (`Ctrl+O`) opens **Open SWMM Model or Project**;
+pick that copy. The `.inp` opens directly. SWMMVis builds the project from
+the input and keeps GUI settings in the matching `.oswp` sidecar. Keep that
+sidecar with the input when moving the working folder.
 
 The network draws on the map canvas, and the **Layers**, **Object Browser**,
 **Properties** and **Message Logs** docks populate. Press `Ctrl+Shift+F`
 (**Zoom Extent**) if the view does not already frame the site.
 
-\figtodo{t01_open_model.png, The site drainage model on the map canvas immediately after opening}
+\fig{t01_open_model.png, The site drainage model on the map canvas immediately after opening}
 
-### 2. Give the project a CRS and add a basemap
+### 2. Keep the example in local feet
 
-The deck carries plan coordinates in feet with no declared CRS, so nothing
-will line up with web imagery until you tell SWMMVis what those coordinates
-mean.
+The supplied deck has no surveyed geographic location. Use **Model → Set
+Project CRS…** (or the CRS button in the status bar) to inspect **Select
+Coordinate Reference System**. In **Local (no transform)**, select
+**Local — feet (no transform)**. This preserves the drawing's coordinate
+values and units. Cancel the dialog if that is already the current setting.
 
-1. **Model → Set Project CRS…** opens **Select Coordinate Reference System**.
-   Type a name or an EPSG code in **Search:**, narrow with **Authority:** and
-   **Type:**, and pick the projected system the site was surveyed in. If you
-   do not know it, the **Local (no transform)** group at the top of the tree
-   offers **Local — feet (no transform)**, which keeps the drawing honest
-   without pretending to georeference it.
-2. If you pick a real CRS while coordinates are already stored, the
-   **Change Coordinate Reference System** dialog asks *How should the change
-   be applied?* — **Reproject stored coordinates** permanently transforms
-   every node, vertex and polygon; **Re-render only (display in new CRS)**
-   keeps the numbers and reprojects on the fly. For a deck whose coordinates
-   are already correct in the target system, choose re-render.
-3. **File → Import → Add Basemap** opens **Add Basemap**. On the
-   **XYZ Tiles** tab the built-in providers are **OpenStreetMap**,
-   **CartoDB Positron**, **CartoDB Dark Matter**, **Stadia Alidade Smooth**
-   and **ESRI World Imagery**. Positron is the least distracting under a
-   network; Imagery is the one to use when you want to see the parking lots
-   the impervious fractions describe.
+\fig{t01_crs_dialog.png, Select Coordinate Reference System with local feet selected}
 
-\figtodo{t01_crs_dialog.png, Select Coordinate Reference System with the Local group expanded}
+For this example, leave the background plain. A web basemap cannot locate
+synthetic coordinates. Choosing an EPSG code because imagery looks plausible
+would give the model a false location.
 
-\figtodo{t01_basemap.png, The network over a CartoDB Positron basemap}
+For a separate model with a known survey CRS, **File → Import → Add Basemap**
+opens **Add Basemap**. The **XYZ Tiles** tab offers saved connections and a
+URL-template field; the other tabs accept web services or a local raster. Confirm the
+model's true CRS and the provider's terms before adding a background. See
+\ref manual_crs for assigning versus transforming coordinates and
+\ref manual_layers for basemap setup.
 
-A basemap only lands in the right place if the project CRS is right. If the
-network flies off to the Gulf of Guinea, the CRS is wrong — see
-\ref manual_crs.
+\fig{t01_basemap.png, Add Basemap with its XYZ Tiles controls — optional for a geographically referenced model}
 
 ### 3. Walk the model
 
@@ -130,9 +121,9 @@ Open the **Attribute Table** dock and choose the conduits category in
 **Category:**. Sort by length, or type a query in **Query:** and press
 **Apply** to isolate the culverts. **Export CSV…** writes the table out.
 
-\figtodo{t01_object_browser.png, The Object Browser with subcatchment S5 selected and the Properties dock beside it}
+\fig{t01_object_browser.png, The Object Browser with subcatchment S5 selected and the Properties dock beside it}
 
-\figtodo{t01_attribute_table.png, The conduit attribute table sorted by length}
+\fig{t01_attribute_table.png, The conduit attribute table sorted by length}
 
 Select a conduit and look at the **Section View** dock (`Ctrl+Alt+9`): the
 **Section** button draws the cross-section — a 3 ft deep trapezoid for the
@@ -154,12 +145,16 @@ Properties dock to open **Rainfall Visualization**, whose **Overlay** and
 **Per Gage** tabs summarise every gage with columns for total depth, peak
 intensity, peak time, interval and gaps.
 
-The `2-yr` series is 239 six-minute values totalling **2.83 in**, with the
-peak interval — 0.389 in, about 3.9 in/hr — at **12:00** on 1 January 1998.
-Everything before hour 11 is drizzle; the storm is a single sharp burst in the
-middle of the day.
+The `2-yr` series contains 239 values at six-minute timestamps, totalling
+**2.834 in**, with the largest volume, **0.389 in**, at **12:00** on
+1 January 1998. The gage's configured recording interval is **300 seconds
+(five minutes)**. Rainfall Visualization uses that configured interval and
+therefore displays a peak intensity of **4.672 in/hr**. Dividing by the spacing
+between timestamps instead would give 3.89 in/hr. Preserve this distinction
+when reviewing the supplied example; for a measured rainfall record, verify
+that its interval and volume/intensity convention match the source data.
 
-\figtodo{t01_rainfall_visualization.png, Rainfall Visualization showing the 2-yr design storm}
+\fig{t01_rainfall_visualization.png, Rainfall Visualization showing the 2-yr design storm}
 
 ### 5. Review pollutants, land uses and coverages
 
@@ -187,14 +182,15 @@ Coverages are a *subcatchment* property, not a land-use one. Select `S4` and
 click the **Land Uses** row in the Properties dock: the compound editor
 **Land Use Coverage — S4** opens with columns **Land Use** and
 **Coverage (%)**. `S4` is 9 % `Residential_1`, 30 % `Residential_2` and 26 %
-`Commercial`; the dialog's footer warns when coverages do not sum to 100 %,
-which for `S4` they deliberately do not. `S7` has no coverage rows at all, so
-it washes nothing off — the paired-catchment contrast that makes the TSS plots
-in step 10 legible.
+`Commercial`; these sum to 65 %, leaving 35 % without a land-use assignment.
+The editor lists every land use, including zero coverage; its header reports
+three of four assigned for `S4`. `S7` has zero coverage for all land uses, so
+it contributes no land-use wash-off. Its downstream conduit still carries
+TSS from other contributing areas (step 10).
 
-\figtodo{t01_landuse_editor.png, The Land Uses dialog on the Buildup tab}
+\fig{t01_landuse_editor.png, The Land Uses dialog on the Buildup tab}
 
-\figtodo{t01_coverages.png, The Land Use Coverage compound editor for subcatchment S4}
+\fig{t01_coverages.png, The Land Use Coverage compound editor for subcatchment S4}
 
 ### 6. Check Simulation Options
 
@@ -224,7 +220,7 @@ only sets what **File → New** starts a blank project with. An existing model
 keeps whatever its `.inp` declares until you change the combo — `CFS` here. See
 \ref manual_simulation_options for the complete page-by-page reference.
 
-\figtodo{t01_simulation_options.png, Simulation Options on the Models / Processes page}
+\fig{t01_simulation_options.png, Simulation Options on the Models / Processes page}
 
 ### 7. Run
 
@@ -236,8 +232,16 @@ The **Simulation Status** dock (`Ctrl+Alt+6`) shows the running job and its
 progress; **Message Logs** (`Ctrl+Alt+7`) collects engine warnings. **Pause**
 and **Stop** (`Ctrl+.`) act on the selected job. When the run finishes the
 results attach to the project as a results layer in the **Layers** panel.
+If output already exists, **Overwrite output?** lists the files that will be
+replaced. Copy the base run into a separate folder before confirming a rerun
+that you want to compare later.
 
-\figtodo{t01_run_status.png, The Simulation Status dock during a run}
+In the captured build, the status dock shifts its date columns into the
+computer's local time (five hours earlier in this capture). Use **Dates &
+Times** and the report to check the model's simulation clock; this display
+inconsistency does not change the configured input dates.
+
+\fig{t01_run_status.png, The completed drainage job — Success and 100 percent progress with runoff and routing errors}
 
 ### 8. Read the report and the mass balance
 
@@ -260,9 +264,26 @@ sections:
 | `Node Flooding Summary` | which junctions overflow and for how long |
 | `Link Flow Summary` | peak flow magnitude — `Max/Full Flow` and `Max/Full Depth` per conduit |
 
-The viewer shows a banner when the continuity error exceeds 10 %. Anything
-above about 1 % on a deck this small means the routing step is too coarse for
-`DYNWAVE`; drop `Routing step:` on the **Dates & Times** page and re-run.
+The viewer shows a banner when the continuity error exceeds 10 %. A larger
+error needs investigation; it does not by itself prove that the routing step
+is the cause. Check warnings, inflows and outflows, then compare runs with a
+smaller **Routing step:** on **Dates & Times**.
+
+A reference run with the OpenSWMM 6 engine used for these figures reported:
+
+| Balance | Continuity error (%) |
+| ------- | --------------------: |
+| Runoff quantity | −0.111 |
+| Flow routing | 0.026 |
+| Runoff quality (TSS) | 0.000 |
+| Quality routing (TSS) | −1.925 |
+
+No nodes flooded in that run. The water-volume balances are much closer than
+the TSS routing balance; report them separately. These values identify the
+example run, not acceptance criteria for another project or engine version.
+The reference report's **Outfall Loading Summary** TSS total also disagrees
+with **Quality Routing Continuity → External Outflow**. Until that discrepancy
+is resolved, do not use the outfall summary's TSS load as a checked mass total.
 
 **Analysis → Summarize Results** opens the **Statistics Dashboard** instead:
 tabs **Nodes** (**Node**, **Max depth**, **Max head**, **Max overflow**,
@@ -270,19 +291,20 @@ tabs **Nodes** (**Node**, **Max depth**, **Max head**, **Max overflow**,
 velocity**, **Max capacity**) and **Subcatchments** (**Subcatchment**,
 **Peak runoff**, **Total runoff**, **Total infil**, **Total evap**), each
 sortable, filterable with the **Query:** box, and exportable with
-**Export CSV…**. A histogram of the selected column sits below the table.
+**Export CSV…**. The current dashboard presents these results as tables.
 
-\figtodo{t01_report_viewer.png, The Report Viewer with the section navigator open on Flow Routing Continuity}
+\fig{t01_report_viewer.png, The Report Viewer with the section navigator open on Flow Routing Continuity}
 
-\figtodo{t01_statistics_dashboard.png, The Statistics Dashboard on the Links tab}
+\fig{t01_statistics_dashboard.png, The Statistics Dashboard on the Links tab}
 
 ### 9. Colour the map by result and animate it
 
 The **Results** ribbon tab drives playback.
 
-1. **Set Style** opens the results layer's style editor. Use the
-   **Classification** block to pick the **Attribute:** to colour by —
-   link flow or node depth — a **Colour ramp:**, a **Method:**
+1. Select the results layer, then **Set Style → Symbology**. Choose
+   **Conduits** in the left tree and **Color by: LinkFlow**, or choose
+   **Junctions** and **NodeDepth**. In **Classification**, choose a
+   **Colour ramp:**, a **Method:**
    (**Equal interval**, **Quantile**, **Natural breaks (Jenks)**,
    **Standard deviation**, **Logarithmic**, **Exponential** or **Manual**)
    and a **Range:** (**Fixed over run**, **Per-frame auto-stretch** or
@@ -295,7 +317,7 @@ The **Results** ribbon tab drives playback.
 4. **Play**, **Pause**, **Stop**, **Skip Back** and **Skip Forward** run the
    animation. Scrub to 12:00 on 1 January to catch the storm peak.
 
-\figtodo{t01_results_style.png, The results style editor classifying link flow with a fixed range}
+\fig{t01_results_style.png, The results style editor classifying link flow with a fixed range}
 
 \figtodo{t01_animation_peak.png, The map at the storm peak with links coloured by flow and the legend showing}
 
@@ -317,9 +339,12 @@ run species — **TSS (MG/L)** here — and **All attributes**.
 
 That last group is how you get the pollutant plots: right-click `C11` and pick
 **TSS (MG/L)** to see the concentration hydrograph leaving the site, then add
-`C1` (draining the wholly residential `S1`) and a link fed by `S7` (no
-coverages, therefore no wash-off) to the same plot. The first flush shows up
-as a concentration spike ahead of the flow peak.
+`C1` (draining the wholly residential `S1`) and `C10` to the same plot.
+`S7` has no land-use coverage, but it drains to `J10`, which also receives
+`S5` and upstream network flow. Consequently `C10` is a mixed downstream
+signal, not a clean zero-TSS control. Compare each concentration peak with
+its flow peak instead of assuming that every conduit has the same first-flush
+response.
 
 Comparison Plot toolbar essentials: **Fit**, **Show Animation Cursor**
 (`Ctrl+Shift+C`) to tie the plot cursor to the map animation,
@@ -327,11 +352,11 @@ Comparison Plot toolbar essentials: **Fit**, **Show Animation Cursor**
 **Export PNG…** and **Export Data…**. **Load Observed…** reads a CSV/TSV of
 measured values for calibration.
 
-\figtodo{t01_plot_variables.png, The Plot Variables picker with a node and a link expanded}
+\fig{t01_plot_variables.png, The Plot Variables picker with a node and a link expanded}
 
-\figtodo{t01_comparison_plot.png, Depth at J11 and flow in C11 in the Comparison Plot}
+\fig{t01_comparison_plot.png, Depth at J11 and flow in C11 in the Comparison Plot}
 
-\figtodo{t01_tss_plot.png, TSS concentration at three conduits showing the first flush}
+\figtodo{t01_tss_plot.png, TSS concentration at C1 — C10 and C11 for comparison with their flow hydrographs}
 
 ### 11. Plot a profile from the head of the system to the outfall
 
@@ -371,12 +396,31 @@ conduit whose `"Max/Full Depth"` > 0.9, as a CSV" is one query and one button.
 For a period-by-period series instead of a per-object summary, use the
 comparison plot's **Export Data…** (step 10).
 
-\figtodo{t01_tabular_results.png, The Attribute Table dock showing the conduit dynamics columns after a run}
+\fig{t01_tabular_results.png, The Attribute Table dock showing the conduit dynamics columns after a run}
+
+### 13. Save and reopen the working project
+
+1. Clear any table query or selection-only filter before exporting the full
+   conduit inventory. **Export CSV…** writes the current table view; open the
+   CSV and check its header, units and 11 conduit rows. For hydrograph samples,
+   use the Comparison Plot's **Export Data…** instead.
+2. Use **File → Save** (`Ctrl+S`). Keep the `.inp`, matching `.oswp`, `.rpt`
+   and `.out` together in the working folder. The input holds the model;
+   the sidecar holds GUI state and references to results. An image export
+   does not save either of these.
+3. Close the project tab, then **File → Open…** the `.oswp`. Check that the
+   model and results layers are present, the project still uses local feet,
+   and the report opens. Reopen the Links statistics view and compare its
+   values with the base run. This checks the saved files rather than the
+   still-open in-memory session.
+4. Make a separate copy of the complete folder for each variation below.
+   Preserve the base report and results before answering an overwrite prompt.
 
 ## What to look for
 
-- **Continuity.** Both continuity errors in the report should be a small
-  fraction of a percent. They are the first thing to check on every run.
+- **Continuity.** Check water and TSS balances separately against the reference
+  values in step 8; a small water-volume error does not establish a small
+  constituent-mass error.
 - **Where the water goes.** The three culverts (`C3`, `C7`, `C11`) are the
   capacity constrictions; `Max/Full Depth` in the Link Flow Summary tells you
   whether any of them runs full at the peak, and the Node Flooding Summary
@@ -384,7 +428,7 @@ comparison plot's **Export Data…** (step 10).
 - **The 12:00 spike.** Everything interesting happens between 11:30 and 13:00.
   Set the animation window narrow and scrub through that hour.
 - **First flush.** Because build-up is `EXP` per unit curb length and wash-off
-  is `EXP` on runoff rate, TSS concentration peaks *before* flow does. The
+  is `EXP` on runoff rate, compare whether TSS concentration peaks before flow at each selected location. The
   `Undeveloped` land use uses an `RC` (rating-curve) wash-off with no
   build-up, so catchments carrying it behave differently — and `S7`, which
   carries no land use at all, contributes flow but no load.
@@ -409,14 +453,15 @@ and \ref tutorial_2d_inundation build from nothing, but only on a mesh.
 
 Work with the finished model open in a second window as your reference.
 
-1. **File → New**. Give the project a CRS straight away — **Project → Coordinate
-   Reference System…** — so the basemap and any GIS layers line up later. See
-   \ref manual_crs.
-2. **Set the defaults before you draw.** **Project → Defaults…** sets the ID
-   prefixes and the property values every new object starts from: node invert
+1. **File → New**. For this synthetic reconstruction choose local feet in
+   **Model → Set Project CRS…**. Only add georeferenced GIS data when you know
+   how the coordinates relate. See \ref manual_crs.
+2. **Set the defaults before you draw.** **Preferences → Naming** sets ID
+   prefixes; **Preferences → Object Defaults** sets the values for newly
+   drawn objects: node invert
    elevation and max depth, conduit length, roughness and geometry, subcatchment
    area, width, slope and imperviousness. Filling these in first is much faster
-   than correcting twenty objects afterwards. See \ref manual_projects.
+   than correcting twenty objects afterwards. See \ref manual_preferences.
 3. **Draw the subcatchments** with the polygon tool, then the **nodes**, then the
    **conduits** between them, and finally the **outfall**. The drawing tools, the
    snapping rules and the double-click-to-finish convention are documented in
@@ -444,10 +489,11 @@ themselves out to match: **Dynamic Wave** under DYNWAVE, **Finite Volume** under
 FV, **Unsteady Friction** under either. *Models / Processes* keeps a read-only
 mirror of the current choice with a link back here.
 
-- **Kinematic Wave** ignores backwater and cannot surcharge. On this model the
-  culverts stop constraining the system, peaks arrive earlier and flooding
-  disappears. Kinematic wave also ignores the `LINK_OFFSETS DEPTH` outlet
-  offset on `C2`.
+- **Kinematic Wave** ignores backwater and cannot surcharge. Compare its peak
+  timing and magnitude with the base run, rather than expecting a particular
+  change. The reference dynamic-wave run has no
+  flooding to remove. Check the report for routing-method limitations and
+  warnings about offsets.
 - **Finite Volume** switches to the shock-capturing solver and enables the
   **Finite Volume** tab on the same page, holding the **Finite volume solver**
   and **Finite volume performance** groups: **Cell length:**, **Min cells per conduit:**,
@@ -459,9 +505,9 @@ mirror of the current choice with a link back here.
   **Backend:** selector. Start with the defaults and only reach for
   second-order plus a limiter once a first-order run is stable.
 
-Plot flow in `C11` from all three runs in one Comparison Plot: the dynamic and
-finite-volume hydrographs should agree closely, the kinematic one should be
-earlier and sharper.
+Plot flow in `C11` from all three runs in one Comparison Plot: compare their peak timing, magnitude and volume, and check continuity before
+interpreting differences. Agreement is something to test; changing the solver
+alone does not guarantee it.
 
 \figtodo{t01_routing_comparison.png, Flow in C11 under dynamic wave — kinematic wave and finite volume}
 
@@ -471,9 +517,10 @@ earlier and sharper.
 **Horton**, **Modified Horton**, **Green-Ampt**, **Modified Green-Ampt** and
 **Curve Number**. The five `[INFILTRATION]` parameters mean different things
 under each model, so switching the combo is only half the job — the parameters
-on each subcatchment have to be re-entered for the new model. Do it once on
-`S3` (the least impervious catchment, where infiltration matters most) and
-watch its runoff coefficient in the Subcatchment Runoff Summary move.
+on each subcatchment have to be re-entered for the new model. Enter physically appropriate parameters for **every** subcatchment after
+changing this project-wide option. `S7` is 0 % impervious and is a useful
+comparison case; inspect its runoff coefficient in the Subcatchment Runoff
+Summary. Do not reinterpret the old Horton numbers as Green-Ampt parameters.
 
 ### Add an LID control
 
@@ -497,9 +544,11 @@ watch its runoff coefficient in the Subcatchment Runoff Summary move.
 
 \figtodo{t01_lid_usage.png, The LID Usage compound editor on subcatchment S5}
 
-The LID editor cannot read existing layer values back from the engine, so
-treat what you type as the record of truth and check the written `[LID_USAGE]`
-rows in the saved `.inp` if a result surprises you.
+The LID editor warns that it cannot read existing layer values back from the
+engine: a loaded control displays defaults, and editing overwrites its layer
+values. Keep a copy of the input before editing a loaded control. Check both
+`[LID_CONTROLS]` and `[LID_USAGE]` in the saved `.inp`; the former holds the
+layer design and the latter places units within subcatchments.
 
 ## Related
 

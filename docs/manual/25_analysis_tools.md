@@ -2,10 +2,10 @@
 
 ## What you'll do
 
-Use the smaller, single-purpose analysis tools: quick flow and travel-time
-summaries over an upstream or downstream subnetwork, a dedicated window for
+Create saved flow-balance and travel-time maps for completed runs; compare
+upstream and downstream pathways; and use a dedicated window for
 comparing every rain gage's record, per-cell time series picked straight off the
-2D mesh, and the statistics dashboard with its frequency histogram.
+2D mesh, and the sortable statistics dashboard.
 
 \fig{25_analysis_ribbon.png, The Analysis ribbon tab with the Report; Plots and Network Analysis groups}
 
@@ -13,8 +13,8 @@ comparing every rain gage's record, per-cell time series picked straight off the
 
 | Tool | Menu | Ribbon | Needs |
 |------|------|--------|-------|
-| **Flow Balance Downstream / Upstream** | **Analysis** | **Analysis → Network Analysis** | A selection **and** results |
-| **Travel Time Downstream / Upstream** | **Analysis** | **Analysis → Network Analysis** | A selection **and** results |
+| **Flow Balance Downstream / Upstream** | **Analysis** | **Analysis → Network Analysis** | A completed 1D output; choose the seed node on the map or by ID |
+| **Travel Time Downstream / Upstream** | **Analysis** | **Analysis → Network Analysis** | A completed 1D output; choose the seed node on the map or by ID |
 | **Rainfall Visualization…** | **Analysis** | — | Rain gages in the model |
 | **Pick 2D Cells** | — | The **Mesh 2D** toolbar | A 2D results layer |
 | Mesh **Select Vertices** / **Select Edges** | **Model → Mesh** | **Mesh 2D** | A mesh |
@@ -25,44 +25,32 @@ context menu and from a rain gage property editor's **Plot Rainfall…** button.
 
 ## Step-by-step
 
-### Flow Balance — upstream and downstream
+### Flow balance and travel time
 
-**Flow Balance Downstream** and **Flow Balance Upstream** answer "how much water
-crosses the boundary of everything downstream (or upstream) of what I have
-selected?"
+Select an output in **Layers**, then click **Analysis → Flow Balance Upstream/Downstream** or **Travel Time Upstream/Downstream**. The tools use the selected output, falling back to the active output. The output's context menu offers the same actions.
 
-| Step | What happens |
-|------|--------------|
-| Inputs | The current selection — selected **nodes** seed directly; a selected **link** seeds both of its end nodes. The **active 1D results layer** supplies the flows |
-| Computed | A breadth-first walk over the routing graph from the seeds, following link direction (downstream) or reversed direction (upstream), collects the subnetwork. Links with both ends inside are *interior*; links with exactly one end inside are *boundary* links |
-| Reported | Node count, boundary-link count, and the summed **Inflow**, **Outflow** and **Net** across the boundary, in the project's flow units |
+- If nodes are selected, the tool creates their analysis layers immediately. Otherwise, click a node on the map or enter its ID in the small picker. Comma-separated IDs create separate estimates. A link's context menu lets you choose its seed endpoint.
+- The first request automatically computes duration-weighted hydraulic averages and saves a GeoPackage beside the model under `analysis/<run-id>/`. A progress dialog supports cancellation. There is no separate preparation step.
+- Later requests reuse the saved averages. Repeating the same node and direction reopens the saved estimate; requesting another node solves from the averages without rescanning the output.
+- **Flow balance** and **Travel time** appear as static sublayers beneath their output in Layers. Each has its own visibility, opacity and style. Hiding/removing the output hides/removes its analyses from the map. Double-click an analysis sublayer, or use **Style…**, to change link color, link width, node color and node area independently. **Result details…** shows values, coverage, partial balance quantities and CSV export.
 
-The numbers are read from the **final time step** of the results file — this is a
-snapshot balance at the end of the run, not an integral over the simulation. The
-message box says so.
+Link widths use a common zero-based proportional scale. At a balanced split, an incoming flow of 10 divides into widths representing 6 and 4; at a confluence those widths add. Constant-flow reaches keep their width. There is no arbitrary narrowing toward a link's endpoint. Arrows indicate physical flow direction in both upstream and downstream analyses. Flow fractions or flow magnitudes give additive widths; widths themed by time or another quantity do not imply hydraulic conservation. Travel time initially uses time for color and flow fraction for width.
 
-With nothing selected the tool asks you to select a node or a link; with no
-results it asks you to run a simulation or load a `.out`.
+The analysis **Style…** dialog has **Links**, **Nodes**, and **Labels** tabs:
 
-\fig{25_flow_balance_result.png, The Flow Balance summary reporting subnetwork size and boundary inflow-outflow}
+- **Color** uses the same classification editor as other visual layers: choose the quantity, continuous or classified colors, ramp and inversion, automatic or custom range, classification method and class count. Class breaks, colors and legend labels can be edited in the table.
+- **Size** has its own quantity, value range and pixel limits. Link widths default to the proportional scale described above. Select **Custom size scale** to choose minimum/maximum widths and linear, square-root or logarithmic scaling. Custom scales no longer guarantee additive widths. A fixed maximum in proportional mode sets the flow-to-width reference without clipping larger flows. Node marker area follows the chosen scale; pixel limits specify diameter. **Uniform** uses the maximum size.
+- **Labels** can be enabled independently for links and nodes. Choose flow magnitude, fraction, expected travel time, local delay, coverage, or object ID. Add the ID to numeric labels, show fractions as percentages or ratios, set decimal places, and choose font, text size/color and halo. Values are in m³/s or minutes. Partial expected times include coverage; unavailable values are never labeled as zero. Fractions above 100% remain possible in circulating networks.
 
-### Travel Time — upstream and downstream
+Edits preview on the map. **OK** retains the theme; **Cancel** restores the previous style. Flow Balance and Travel Time keep separate themes without recomputing their shared analysis.
 
-**Travel Time Downstream** / **Upstream** build the same subnetwork from the same
-seeds, then sum *length ÷ velocity* over its **interior** links at the final time
-step, skipping links with no length or with a velocity at or below zero.
+Every rerun receives a new identity. Existing analysis sublayers remain attached to the original run, shown under a saved-output parent when needed. The next run prepares its own averages. Previous raw results and reports are retained when a run already has saved analysis, unless retention was disabled in the saved project. Projects preserve their analysis layers and styles, and reopen them even when the original output is unavailable. Save As carries managed analysis folders; explicitly external packages remain referenced.
 
-The result reports the number of flowing conduits counted and the **total in-pipe
-travel time in minutes**. Links that are not flowing at that instant are excluded
-entirely, so the count tells you how much of the subnetwork the number actually
-covers.
+These estimates use duration-weighted trapezoidal averages from the first through last saved report and do not follow animation time. Effective transport follows mean net flow; gross magnitude and reversal diagnostics are stored separately. Passage ratios may exceed one in circulating networks. Travel time uses conduit length divided by mean absolute velocity and storage volume divided by outgoing flow plus known sinks. Non-conduit controls have zero modeled delay. Missing or partially known times remain flagged with coverage. The sampled hydraulic balance is partial, not the simulation's exact continuity report. Imported outputs retain their model-pairing provenance. A one-report output is a snapshot without a duration-based balance.
 
-Both tools present their answer in a message box; they do not colour the map or
-write a table. To *see* the subnetwork instead, use **Select Upstream** /
-**Select Downstream** (\ref manual_selection), which selects every node, link and
-subcatchment in the trace and reports the counts in the message log.
+\figtodo{25_flow_balance_result.png, Flow-balance analysis beneath a completed output with proportional flow widths on the map}
 
-\fig{25_travel_time_result.png, The Travel Time summary for a downstream subnetwork}
+\figtodo{25_travel_time_result.png, Travel-time analysis with time represented by color and flow fraction by width}
 
 ### Rainfall Visualization
 
@@ -99,7 +87,7 @@ Only the focused gage — or the first one — is plotted when the window opens;
 the others in the table to add them. Opening the window from a specific gage's
 context menu or property editor focuses that gage.
 
-\figtodo{25_rainfall_visualization.png, The Rainfall Visualization window on the Overlay tab with the gage summary table}
+\fig{25_rainfall_visualization.png, The Rainfall Visualization window on the Overlay tab with the gage summary table}
 
 \videotodo{Comparing rain gages — switching to cumulative depth and spotting a gage with a broken rain file}
 
@@ -168,22 +156,22 @@ rows. More than 500 series raises a confirmation first.
 
 **Analysis → Summarize Results** opens the statistics dashboard over the active 1D
 results layer: sortable **Nodes**, **Links** and **Subcatchments** tables, a query
-bar, a frequency histogram for the selected column, two-way selection sync with
+bar, two-way selection sync with
 the map, **Zoom to Selected**, and CSV export. It is covered in full in
 \ref manual_tabular_results.
 
-\figtodo{25_statistics_dashboard_histogram.png, The statistics dashboard histogram for a selected column}
+\figtodo{25_statistics_dashboard_histogram.png, The Statistics Dashboard with result tables and query controls}
 
 ## Tips and gotchas
 
-- **Flow Balance and Travel Time are final-time-step snapshots.** They are quick
-  sanity checks, not volume balances over the run — for that, read the continuity
-  sections of the report (\ref manual_running).
-- **Travel Time skips still water.** A conduit with zero velocity at the final
-  step contributes nothing; compare the reported conduit count against the size of
-  the subnetwork before trusting the total.
-- **Both tools seed from the selection**, and a selected link seeds *both* of its
-  ends — select the node, not the pipe, when you want a one-sided trace.
+- **Saved analyses use the run's report interval**, not the animation cursor.
+  They summarize sampled hydraulics and do not replace the engine's continuity
+  report (\ref manual_running).
+- **Choose the run before the seed.** Saved analyses remain attached to their
+  original run after a rerun. Confirm the parent output in Layers.
+- **Read coverage and reversal diagnostics.** Partial or unavailable travel times
+  must not be interpreted as zero. Circulating networks can have passage ratios
+  greater than one.
 - **Rainfall Visualization is a singleton.** Opening it again from a different
   entry point raises the same window and re-focuses it on the gage you picked.
 - **A gage with `file failed to load`** will contribute no rainfall to a run.

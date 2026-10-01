@@ -21,7 +21,7 @@ rules · the Report Viewer's street tables · Comparison Plot.
 
 | File | What it is |
 | ---- | ---------- |
-| `docs/manual/tutorials/models/street_inlet_junction.inp` | The model — a copy of `openswmm.engine/examples/inlets/street_inlet_junction.inp` |
+| `docs/manual/tutorials/models/street_inlet_junction.inp` | The model — based on the engine inlet example with explicit local map units |
 | `openswmm.engine/examples/inlets/README.md` | The engine-side notes this tutorial follows |
 
 No `.rpt` or `.out` is checked in, so the numbers below are ones you produce.
@@ -36,7 +36,9 @@ J_TOP --ST_A--> J_MID --ST_B--> [IJ1] --ST_C--> OUT_ST    street, on grade
 
 A two-hour gutter hydrograph peaking at **12 cfs at 00:45** enters at `J_TOP`.
 `FLOW_UNITS` is `CFS`, routing is `DYNWAVE` (an inlet junction requires it),
-the run is three hours with a one-minute report step.
+the run is three hours with a one-minute report step. The `[MAP]` section
+declares local coordinates in feet; these synthetic coordinates are not a
+geographic CRS.
 
 | | Attachment | Design | Captures to |
 | --- | --- | --- | --- |
@@ -49,8 +51,8 @@ Both are on grade, neither is flow-limited, and both are 10 % clogged.
 
 ### 1. Open the model
 
-**File → Open…** (`Ctrl+O`), then
-`docs/manual/tutorials/models/street_inlet_junction.inp`. The street runs
+Copy `docs/manual/tutorials/models/street_inlet_junction.inp` to a working
+folder, then open that copy with **File → Open…** (`Ctrl+O`). The street runs
 left to right along `y = 0` with the sewer 100 ft below it on the map.
 
 `IJ1` is **not** in `[JUNCTIONS]` — it lives in `[INLET_JUNCTIONS]`, and
@@ -59,7 +61,7 @@ ordinary junction or outfall.
 
 \snippet street_inlet_junction.inp inlet_junctions
 
-\figtodo{t02_open_model.png, The street reach and the parallel sewer after opening the model}
+\fig{t02_open_model.png, The street reach and the parallel sewer after opening the model}
 
 ### 2. See the street cross-section in the Section View
 
@@ -67,13 +69,14 @@ Select conduit `ST_A` on the map and open the **Section View** dock
 (`Ctrl+Alt+9`, or **View → Panels → Section View**). With **Section**
 pressed, the panel draws the street cross-section it was built from and the
 subtitle reads `STREET — ST_MAIN`. Set **V:H** to **5:1** or **10:1** to see
-the 4 % cross slope and the 2 in depressed gutter — at **1:1** a 20 ft
-half-roadway with a 0.5 ft curb is a nearly flat line.
+the 4 % cross slope and the depressed gutter more clearly. The supplied
+geometry has a 20 ft half-roadway and a 0.5 ft curb; step 3 explains the
+unusually deep depression in this fixture.
 
 Press **Profile** to swap to the longitudinal view between `J_TOP` and
 `J_MID`, annotated with `Rim`, `Inv`, `Crown`, the length and the slope.
 
-\figtodo{t02_section_view_street.png, The Section View showing the ST_MAIN street cross-section at 10:1 exaggeration}
+\fig{t02_section_view_street.png, The Section View showing the ST_MAIN street cross-section at 10:1 exaggeration}
 
 ### 3. Open the Street editor
 
@@ -88,7 +91,7 @@ on the right that redraws as you type.
 | **Curb Height** | `Hcurb` | 0.5 ft |
 | **Cross Slope (%)** | `Sx` | 4 |
 | **Road Roughness (n)** | `nRoad` | 0.016 |
-| **Gutter Depression** | `a` | 2 in |
+| **Gutter Depression** | `a` | 2 ft in this OpenSWMM 6 fixture |
 | **Gutter Width** | `W` | 2 ft |
 | **Sides** | `Sides` — **One Sided** or **Two Sided** | One Sided |
 | **Backing Width** | `Tback` | 10 ft |
@@ -96,6 +99,12 @@ on the right that redraws as you type.
 | **Backing Roughness (n)** | `nBack` | 0.016 |
 
 \snippet street_inlet_junction.inp streets
+
+The supplied `a = 2` is interpreted as **2 ft** by the current OpenSWMM 6
+street geometry, not 2 inches. The Section View consequently shows a total
+section depth of 2.900 ft. This is an exaggerated tutorial geometry. For a
+two-inch depression, use `0.1667` ft in a separate copy and regenerate the
+results; the reference numbers below apply to the unchanged input.
 
 The preview draws the engine-ordered station/elevation polyline — backing,
 curb, depressed gutter, crown — with a dashed gutter-invert reference line
@@ -106,7 +115,7 @@ meant it.
 The dialog has **New** and **Delete** buttons and only a **Close** button —
 edits apply as you make them.
 
-\figtodo{t02_street_editor.png, The Street Cross-Sections dialog with ST_MAIN selected and the preview beside it}
+\fig{t02_street_editor.png, The Street Cross-Sections dialog with ST_MAIN selected and the preview beside it}
 
 A street is attached to a conduit through its cross-section: in `[XSECTIONS]`
 the shape is `STREET` and `Geom1` is the street name.
@@ -164,9 +173,9 @@ Click through them and watch the drawing view:
 
 \snippet street_inlet_junction.inp div_curve
 
-\figtodo{t02_inlet_editor_curb.png, The Inlet Editor showing the Curb1 design with its elevation and throat drawings}
+\fig{t02_inlet_editor_curb.png, The Inlet Editor showing the Curb1 design with its elevation and throat drawings}
 
-\figtodo{t02_inlet_editor_combo.png, The Combo1 combination design with the sweeper note}
+\fig{t02_inlet_editor_combo.png, The Combo1 combination design with plan and section drawings}
 
 \figtodo{t02_inlet_editor_custom.png, The Custom1 design rendered as a capture curve}
 
@@ -185,7 +194,7 @@ Inlets page:
 | --- | --------------------- | ----- |
 | **Inlet Design** | Inlet | `Combo1` |
 | **Capture Node** | Node | `MH1` |
-| **Number of Inlets** | #Inlets | 2 |
+| **Number of Inlets** | `#Inlets` | 2 |
 | **% Clogged** | %Clog | 10 |
 | **Flow Restriction (CFS)** | Qmax | 0 — not flow-limited |
 | **Local Depression Height (ft)** | aLocal | 0 |
@@ -198,7 +207,7 @@ and a capture node to add one.* when it is not.
 
 \snippet street_inlet_junction.inp inlet_usage
 
-\figtodo{t02_link_inlet_editor.png, The Edit Link Attribute dialog on the Inlets page for conduit ST_A}
+\fig{t02_link_inlet_editor.png, The Edit Link Attribute dialog on the Inlets page for conduit ST_A}
 
 This form is an *attribute of a link*. Capture is booked at the host conduit's
 downstream node — `J_MID` — and the bypass simply stays there. There is no
@@ -215,7 +224,7 @@ Select `IJ1`. Its Properties dock carries the same eight inlet rows —
 junction shows its rim depth. `IJ1`'s max depth of 0.5 ft *is* the curb: once
 the gutter fills to the top of the curb the node floods.
 
-\figtodo{t02_inlet_junction_properties.png, The Properties dock for inlet junction IJ1}
+\fig{t02_inlet_junction_properties.png, The Properties dock for inlet junction IJ1}
 
 To create one yourself, use **Model → Add Node → Add Inlet Junction** (ribbon
 **Model** tab, **Nodes** group). The status bar prompts *Click a street
@@ -249,7 +258,7 @@ transmitting — which is why it inherits every `[VIRTUAL_JUNCTIONS]` rule.
 ### 7. Run
 
 **Analysis → Execute** (`Ctrl+R`). The model is three hours at a five-second
-routing step and finishes immediately.
+routing step and is small enough to finish quickly on many machines.
 
 ### 8. Read the two street tables
 
@@ -264,13 +273,13 @@ the number of sides and clipped to `Tcrown`.
 - `ST_A` carries the whole hydrograph and has the widest spread in the model.
   Compare it against `ST_MAIN`'s `Tcrown` of 20 ft to see how close the water
   comes to the crown.
-- `ST_B` carries what `Combo1` did not capture, so its peak flow is lower than
-  `ST_A`'s by the peak capture reported in the next table, and its spread is
-  narrower.
+- `ST_B` carries bypass downstream of `Combo1`, so its peak flow and spread
+  are much smaller in this example. Subtract values at the **same time** when
+  comparing hydrographs; separately reported maxima need not be simultaneous.
 - `ST_C` carries what `Curb1` did not capture and is narrower again.
 
-The three rows read as a staircase down the reach. That staircase is the whole
-point of putting inlets on a street.
+The three rows decrease down this particular reach, showing how the inlets
+transfer most of its approach flow into the sewer.
 
 **`Street Inlet Flow Summary`** — one row per inlet *placement*, with columns
 **Inlet Location**, **Inlet Design**, **Placement**, **Count**, **Peak Flow**,
@@ -289,8 +298,20 @@ its node name with a marker — `IJ1 (node)`.
 | **Back Flow Pcnt** | how often the capture node pushed water back onto the street — 0 in this deck, because the sewer never surcharges |
 | **Vol. Captured / Vol. Bypassed** | close against the street continuity: what `ST_A` delivered equals what `Combo1` captured plus what it passed to `ST_B` |
 
-A curb-opening inlet on grade loses efficiency as flow rises, so expect
-**Peak Capture Pcnt** to sit *below* **Avg. Capture Pcnt**.
+Do not infer a fixed ordering between **Peak Capture Pcnt** and **Avg.
+Capture Pcnt**. In the reference OpenSWMM 6 run, `Combo1` reports 99.00 % at
+peak and 98.22 % average; `Curb1` reports 90.00 % for both.
+
+| Reference result | Value |
+| ---------------- | ----- |
+| Peak flow in `ST_A` / `ST_B` / `ST_C` | 11.936 / 0.131 / 0.011 cfs |
+| Volume captured by `ST_A` / `IJ1` | 266.622 / 2.401 thousand US gallons |
+| Backflow percentage, both inlet rows | 0.00 % |
+| Flow routing continuity error | 0.014 % |
+| Node flooding | None |
+
+These are rounded report values for the supplied base deck. Preserve your
+own report with its engine version when comparing edited designs.
 
 Finally check the **Node Depth Summary** and **Node Flooding Summary**. `IJ1`
 appears as an ordinary junction: its 0.5 ft max depth is the flood threshold
@@ -299,7 +320,7 @@ backing into a fictitious storage volume. `J_MID`, the conduit inlet's capture
 point, has no such threshold of its own. That is the modelling difference the
 two forms make.
 
-\figtodo{t02_report_street_tables.png, The Report Viewer on the Street Inlet Flow Summary with the section navigator open}
+\fig{t02_report_street_tables.png, The Report Viewer on the Street Inlet Flow Summary with the section navigator open}
 
 ### 9. Plot capture and bypass
 
@@ -309,27 +330,43 @@ difference between conduit flows, so plot the conduits.
 Select `ST_A`, `ST_B` and `ST_C`, press `Ctrl+T` (**Analysis → Plot Time
 Series**), and tick **Flow (ft³/s)** for each in the **Plot Variables**
 picker. In the **Comparison Plot** the three hydrographs nest inside one
-another; the vertical gap between `ST_A` and `ST_B` is `Combo1`'s capture at
-each instant, and the gap between `ST_B` and `ST_C` is `Curb1`'s.
+another; the gaps show the reduction in street flow along the reach. Conduit storage,
+travel time and the reporting interval can also affect instantaneous
+differences, so do not equate every plotted gap with an exact inlet capture.
 
 Add **Lateral inflow (ft³/s)** at `MH1` and `MH2` from the right-click
 attribute menu to see the same two captures from the sewer's point of view —
-`MH1` should trace the `ST_A`-minus-`ST_B` gap and `MH2` the
-`ST_B`-minus-`ST_C` gap. Add **Depth (node) (ft)** at `IJ1` to see the gutter
+compare the lateral-inflow series with the conduit-flow differences,
+and compare integrated volumes with the inlet report. Add **Depth (node) (ft)** at `IJ1` to see the gutter
 depth that drove the curb-opening capture, and watch it against the 0.5 ft
 curb.
 
-**Export Data…** on the Comparison Plot toolbar writes the series out if you
-want to do the subtraction in a spreadsheet.
+Temporarily uncheck `ST_A` in the Series tree and use **Fit** to inspect the
+much smaller bypass series. **Export Data…** on the Comparison Plot toolbar
+writes the samples out for comparisons in a spreadsheet.
 
-\figtodo{t02_capture_bypass_plot.png, Flow in ST_A — ST_B and ST_C with the capture gaps visible}
+\fig{t02_capture_bypass_plot.png, Flow in ST_A with the much smaller ST_B and ST_C bypass series near zero}
+
+### 10. Export and preserve the base run
+
+Use **Export Data…** in the Comparison Plot to save the selected series as a
+CSV. Check that the export identifies `ST_A`, `ST_B` and `ST_C`, includes time
+and flow units, and contains the three-hour record. Compare simultaneous
+samples when computing differences; the report's independent peak values are
+not a substitute for this time alignment.
+
+**File → Save** keeps the input and its matching `.oswp` sidecar. Retain the
+`.rpt` and `.out` in the same folder, close the project tab, and reopen the
+`.oswp`. Confirm that `IJ1` still uses `Curb1` and captures to `MH2`, and that
+both street report tables remain available. Copy the folder before each
+variation so rerunning cannot replace your only base result.
 
 ## What to look for
 
 - The **staircase** in `Street Flow Summary`: peak flow and spread drop at
   each inlet.
-- **Peak Capture Pcnt below Avg. Capture Pcnt** on both rows — the signature
-  of an on-grade inlet.
+- **Capture efficiencies.** Compare both columns with the actual reference
+  values above; peak and average efficiency can be equal or ordered differently.
 - **Back Flow Pcnt = 0** everywhere, because the 2 ft sewer never surcharges.
 - `IJ1` in the **Node Flooding Summary** if the peak exceeds `Curb1`'s
   capacity — the conduit-attribute inlet cannot produce that row at all.
@@ -356,14 +393,14 @@ placed on this conduit's cross-section. No inlet was assigned.*
 ### Use the unplaced grate
 
 On `ST_A`'s **Inlets** page, change **Inlet Design** from `Combo1` to
-`Grate1`. The difference in **Vol. Captured** between the two runs is how much
-of the combination inlet's capture came from the curb opening rather than the
-grate.
+`Grate1`. Compare **Vol. Captured** between the two runs as a design sensitivity.
+The components interact hydraulically, so the difference is not an isolated
+measurement of the original curb opening's contribution.
 
 ### Change the clog factor
 
-Raise **% Clogged** on either inlet from 10 to, say, 50. Capture drops
-proportionally, and the spread on the downstream street conduits grows. A
+Raise **% Clogged** on either inlet from 10 to, say, 50. Compare capture and downstream spread after rerunning; the network response
+and a combination inlet's total efficiency need not change proportionally. A
 useful sensitivity check before arguing about grate types.
 
 ### Move the inlet onto a sag

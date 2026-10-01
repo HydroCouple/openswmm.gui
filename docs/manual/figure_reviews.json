@@ -1,0 +1,662 @@
+{
+  "00_overview_annotated_window.png": {
+    "reviewedAt": "2026-10-01T18:44:47.182710+00:00",
+    "sha256": "310acfcb01b198d816cc552652f2b4fb9c9e9e242622e1ce4822473b2af5991d",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "01_main_window_annotated.png": {
+    "reviewedAt": "2026-10-01T18:44:47.182896+00:00",
+    "sha256": "310acfcb01b198d816cc552652f2b4fb9c9e9e242622e1ce4822473b2af5991d",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "01_first_model_open.png": {
+    "reviewedAt": "2026-10-01T19:00:03.953590+00:00",
+    "sha256": "312af1f6d84b5d7c49b89f8e273c058ab66e635f619a178937aa0d096c50131b",
+    "baseline": "site-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "02_window_regions.png": {
+    "reviewedAt": "2026-10-01T18:44:47.182326+00:00",
+    "sha256": "310acfcb01b198d816cc552652f2b4fb9c9e9e242622e1ce4822473b2af5991d",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_docks_default_layout.png": {
+    "reviewedAt": "2026-10-01T18:44:47.182519+00:00",
+    "sha256": "310acfcb01b198d816cc552652f2b4fb9c9e9e242622e1ce4822473b2af5991d",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_ribbon_features_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.171231+00:00",
+    "sha256": "98cac09d5a2d2cc8a35f13e2d7a17a10638ee6426627d22a46d0ddffb0231678",
+    "baseline": "orientation-final",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "12a_features_ribbon.png": {
+    "reviewedAt": "2026-10-01T18:44:47.171468+00:00",
+    "sha256": "98cac09d5a2d2cc8a35f13e2d7a17a10638ee6426627d22a46d0ddffb0231678",
+    "baseline": "orientation-final",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "12a_new_feature_layer.png": {
+    "reviewedAt": "2026-10-01T18:44:47.171767+00:00",
+    "sha256": "1806abbf1ca5ceefe98c5896b2a472667981e560cf49238aad66adac00fc51aa",
+    "baseline": "orientation-final",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "12a_mesh_region_fields.png": {
+    "reviewedAt": "2026-10-01T18:44:47.172062+00:00",
+    "sha256": "da0d7a1b42796e69f07a30033dab6ba7848e767d7927a06fd5f7c99d2510a812",
+    "baseline": "orientation-final",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "01_welcome_page.png": {
+    "reviewedAt": "2026-10-01T18:44:47.172667+00:00",
+    "sha256": "57ce9cedbddf3a40a022eabeb10c778add43784a90a82d6758a9a862b4553ccb",
+    "baseline": "welcome",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_general.png": {
+    "reviewedAt": "2026-10-01T18:44:47.173202+00:00",
+    "sha256": "dd400d2dc5a1ac21595197171382f7779941916cae13a9cc590377754c5112c8",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_selection.png": {
+    "reviewedAt": "2026-10-01T18:44:47.173492+00:00",
+    "sha256": "6aa91dcc87567a2ee239967018c05bd855cf8436f35414693b38a38f60037d85",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_rendering.png": {
+    "reviewedAt": "2026-10-01T18:44:47.173757+00:00",
+    "sha256": "f56f917358ad441d15b1080140cbf556e68dfb4daaf3228493c68a5c7f91e0b3",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_2d_defaults.png": {
+    "reviewedAt": "2026-10-01T18:44:47.174039+00:00",
+    "sha256": "1c8c7263e19c7a22e792206b3a8a5361204b4fb1cf9c5923ed652237099235a7",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_object_defaults.png": {
+    "reviewedAt": "2026-10-01T18:44:47.174343+00:00",
+    "sha256": "b8a4d11249f809962825ad29e263648a67e88c64f916b50da9bb4c101a14aeec",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_appearance.png": {
+    "reviewedAt": "2026-10-01T18:44:47.174647+00:00",
+    "sha256": "7541937dcb70c12c9d45c4923ac0fbe7ad2a0d4c2da658852d4f52d0cb2367af",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_shortcut_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.174908+00:00",
+    "sha256": "1ea7a54fd2e97e4ad59d063930a71e6914b27204828dae7aa7358fa5009d0616",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_command_palette.png": {
+    "reviewedAt": "2026-10-01T18:44:47.175205+00:00",
+    "sha256": "e58fd6cb7098ba8a2204db14b77fa489a640c70ca38854990f2cf25801581062",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_ribbon_home_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.175441+00:00",
+    "sha256": "98a1072dfbc4c12111d034289c5f52a8bd4029dccfe15cb1d08222a2784882e1",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_ribbon_model_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.175644+00:00",
+    "sha256": "96886e022c039ebd3cb2197729374e28f50bd88b4999dd42859fe7baf4b52337",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "17_timeseries_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.175862+00:00",
+    "sha256": "9940a70790d72649f503bbb2330c996538e34b682e0a0b1537ad4fd0691d7d3c",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_landuse_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.176179+00:00",
+    "sha256": "a0dc271505c8a7cf27a1619c24fb75ce839e9da347a320f8d43d3175687bfe21",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_landuse_buildup.png": {
+    "reviewedAt": "2026-10-01T18:44:47.176388+00:00",
+    "sha256": "e6411fea4c25b5751d623a9100771e61326b48e001268a3d6c34f1d5bea6f8b0",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_landuse_washoff.png": {
+    "reviewedAt": "2026-10-01T18:44:47.176605+00:00",
+    "sha256": "2af14bac1d079954d0a4eee7f66f0dc9c95db0dead520a6e533a2d2d4370e7ab",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "08_layer_style_dialog.png": {
+    "reviewedAt": "2026-10-01T18:44:47.176798+00:00",
+    "sha256": "19ee3ef14faca3ed8f0f9af3bf39a7224064b91699acc3fc842569e33e8a6c40",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "08_kind_tree_symbology.png": {
+    "reviewedAt": "2026-10-01T18:44:47.177162+00:00",
+    "sha256": "ada026ea97052121e1e23c1b163ad4515bef1bce2642d35de28c11d46ab0d06d",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "06_crs_selection_dialog.png": {
+    "reviewedAt": "2026-10-01T18:44:47.177429+00:00",
+    "sha256": "90574277af15cdc69778b54a412210f7e5465367b42ef9fb79a9e8dcfeb5f3f8",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "10_object_tree.png": {
+    "reviewedAt": "2026-10-01T18:44:47.177820+00:00",
+    "sha256": "06564b9da124de5fa2ded211dbccb36a959c52d87dba4a63dff49d4f57be5701",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "11_attribute_table_dock.png": {
+    "reviewedAt": "2026-10-01T18:44:47.178069+00:00",
+    "sha256": "a7d02e712d9c492fbe67f3a435204079386cce8cc53f843eda90850834440e6c",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "12_editing_toolbar.png": {
+    "reviewedAt": "2026-10-01T18:44:47.178307+00:00",
+    "sha256": "96886e022c039ebd3cb2197729374e28f50bd88b4999dd42859fe7baf4b52337",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_model_ribbon_nodes_links.png": {
+    "reviewedAt": "2026-10-01T18:44:47.178670+00:00",
+    "sha256": "96886e022c039ebd3cb2197729374e28f50bd88b4999dd42859fe7baf4b52337",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "a03_plugins_dialog.png": {
+    "reviewedAt": "2026-10-01T18:44:47.178903+00:00",
+    "sha256": "848fcab84bffc19e08e854e44c75b04df022551504a3f771d02c5c4f71d4dd9c",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "a03_plugins_table.png": {
+    "reviewedAt": "2026-10-01T18:44:47.179260+00:00",
+    "sha256": "7f54e6c21c4fae11ab16d43c9070f6d81a9e10fdbff40b26fecf3f9dc48f09b7",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_link_properties_conduit.png": {
+    "reviewedAt": "2026-10-01T18:44:47.179543+00:00",
+    "sha256": "f2ad21b04276ad79af7b521c360f66462e3aa7da5092b28aa7e008097b85b164",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_xsection_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.179856+00:00",
+    "sha256": "0b6c35ceff0d8c3d12ddb7c83520a63a4d7d446c70cb71f2ea389f63d0d0564e",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "10_link_xsection_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.180130+00:00",
+    "sha256": "0b6c35ceff0d8c3d12ddb7c83520a63a4d7d446c70cb71f2ea389f63d0d0564e",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_wind_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.180441+00:00",
+    "sha256": "61f8597897f129a89a547ac2f6d509a1d255bc50f63cc69227e828708115a445",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_areal_depletion_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.180684+00:00",
+    "sha256": "81583ca3f6dd9a46888e200db95d4fb58735d99294fdcd0a2db412af3600dd4b",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_adjustments_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.180923+00:00",
+    "sha256": "29a4c9aaef8db0773617344109bdf0b8d9e9d4b8c02486cad008f6d262b948c4",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_evaporation_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.181174+00:00",
+    "sha256": "f9f6fcf1ad1946529ed99076fe7b489d64c0047dc5a4142ac9b07e596c82ede8",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t01_landuse_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.181426+00:00",
+    "sha256": "e6411fea4c25b5751d623a9100771e61326b48e001268a3d6c34f1d5bea6f8b0",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t01_simulation_options.png": {
+    "reviewedAt": "2026-10-01T18:44:47.181662+00:00",
+    "sha256": "eec1f12ee1a69ab865fdeb08241f68555d5aa5312eae80a2c5d256d7f90f5d24",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "19_generate_mesh_sources.png": {
+    "reviewedAt": "2026-10-01T18:44:47.183074+00:00",
+    "sha256": "64f60e68d27b0c977bc56286a484124f0c27d19eadd8ecfd6988aca01eefffb7",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "19_generate_mesh_quality.png": {
+    "reviewedAt": "2026-10-01T18:44:47.183431+00:00",
+    "sha256": "19d6936ad9501679186a8f8c456bc4560e306ad5fe07579c82dc38b473e45a54",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "19_generate_mesh_hydraulics.png": {
+    "reviewedAt": "2026-10-01T18:44:47.183744+00:00",
+    "sha256": "3ce50e2a56cf8d83394d9709e4d73c3a1fb7ebb007c3243880320c46f82d6696",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "19_channel_burn_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.184024+00:00",
+    "sha256": "4228e9a2c1d24ea6b3784c6e6a2e0aaefae97ea71f2ce27a18b79a18d1a1edfd",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "23_profile_overview.png": {
+    "reviewedAt": "2026-10-01T18:44:47.184313+00:00",
+    "sha256": "a8a6b1c1691f85a90b73a1cde469ab4c7ee1102347475a11bbb6edb3990db52b",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "23_profile_toolbar_layers.png": {
+    "reviewedAt": "2026-10-01T18:44:47.184573+00:00",
+    "sha256": "a8a6b1c1691f85a90b73a1cde469ab4c7ee1102347475a11bbb6edb3990db52b",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_options_dialog.png": {
+    "reviewedAt": "2026-10-01T18:44:47.185189+00:00",
+    "sha256": "084fd6c13a09d199519bb530ce7504b58da531655e88b5cbddc99eb86fafbca6",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_title_notes.png": {
+    "reviewedAt": "2026-10-01T18:44:47.185492+00:00",
+    "sha256": "47a374b51e12386e4463aab7e7f732d4188769402ad2a54188244ba7169aad7b",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_models_processes.png": {
+    "reviewedAt": "2026-10-01T18:44:47.185821+00:00",
+    "sha256": "084fd6c13a09d199519bb530ce7504b58da531655e88b5cbddc99eb86fafbca6",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_dates_times.png": {
+    "reviewedAt": "2026-10-01T18:44:47.186298+00:00",
+    "sha256": "7dc4093fd320bf4df62268e0730c2ea73ee11ed14cf86de29a0bb3d9f3e88d4b",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_routing_hydraulics.png": {
+    "reviewedAt": "2026-10-01T18:44:47.186859+00:00",
+    "sha256": "eb82c85bd93171292dfbc83fb25f2520c2cb1f42b27514b8bf85725981032f05",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_performance.png": {
+    "reviewedAt": "2026-10-01T18:44:47.187230+00:00",
+    "sha256": "a010ac0776de3c58bca77dbad6cae9b83940574f82c94c79ac1149637339eecd",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_files_subtab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.187537+00:00",
+    "sha256": "3fc134ff92a7acd8137fd4f67a5534edb534a4e7eb1a130b9ff69dc303695841",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_output_subtab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.187819+00:00",
+    "sha256": "0b59f868d8710f160b0e20cfaf28a3a1706e03fb5e2b984537421003b6d19dee",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_plugins_subtab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.188144+00:00",
+    "sha256": "4ea81ae608a3d633fdd85e8b5d24394f004a696245c4b8fac25302be9f1cad2a",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_quality_transport.png": {
+    "reviewedAt": "2026-10-01T18:44:47.188494+00:00",
+    "sha256": "e064325434d4a13e679e93fe9474871b4c389a4e354a02cd7e43abd10ec59023",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_heat_solar_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.188755+00:00",
+    "sha256": "caccda472046e0b4fc1739792ac2d76d6b4425529d4ae6bc57dc87ffa14db558",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_heat_radiative_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.188987+00:00",
+    "sha256": "cf8d9f8460bde922cbe2877693a6b63b82a4fabec6c11c861ba67de574b3807e",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_pollutant_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.189242+00:00",
+    "sha256": "1a90da91007e1d87e5c3830fb3cff78c051e10f0d9160300708b1b304aa0d6af",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_reaction_system_species.png": {
+    "reviewedAt": "2026-10-01T18:44:47.189512+00:00",
+    "sha256": "be492edce2669bb52fec20ed3feafd1a392144c68a793a7f1e57fa4b339b27be",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_reaction_expressions.png": {
+    "reviewedAt": "2026-10-01T18:44:47.189739+00:00",
+    "sha256": "f7ce9ecbbf13057e81749dc983dacf4afab8a74a488cb83f7fefa6e3b9fcfb8a",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_reaction_file_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.189955+00:00",
+    "sha256": "c72cde8c3649c263ffc4649b3eb777b16ee6624b28eaf59ec715d3ff9fbcdf47",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_heat_sources.png": {
+    "reviewedAt": "2026-10-01T18:44:47.190218+00:00",
+    "sha256": "dd1b28aa685ac3c27d05b394ba5a835bc1fe99c98ceda1530dde8349d3ac65e1",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_heat_radiative.png": {
+    "reviewedAt": "2026-10-01T18:44:47.190451+00:00",
+    "sha256": "cf8d9f8460bde922cbe2877693a6b63b82a4fabec6c11c861ba67de574b3807e",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_heat_solar.png": {
+    "reviewedAt": "2026-10-01T18:44:47.190683+00:00",
+    "sha256": "caccda472046e0b4fc1739792ac2d76d6b4425529d4ae6bc57dc87ffa14db558",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_water_age_sources.png": {
+    "reviewedAt": "2026-10-01T18:44:47.190917+00:00",
+    "sha256": "1af66560e9b934faff2a45f1ff21360b06ff95bbd4d87f8d8616c454677c7bf5",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_humidity_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.191157+00:00",
+    "sha256": "29c95965d10343afb8c4733ec8788f69878a807167dc259a90f18e7ddc86602a",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t07_pollutant_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.191376+00:00",
+    "sha256": "1a90da91007e1d87e5c3830fb3cff78c051e10f0d9160300708b1b304aa0d6af",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t07_reaction_editor_expressions.png": {
+    "reviewedAt": "2026-10-01T18:44:47.191611+00:00",
+    "sha256": "f7ce9ecbbf13057e81749dc983dacf4afab8a74a488cb83f7fefa6e3b9fcfb8a",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t07_heat_config_solar.png": {
+    "reviewedAt": "2026-10-01T18:44:47.191838+00:00",
+    "sha256": "caccda472046e0b4fc1739792ac2d76d6b4425529d4ae6bc57dc87ffa14db558",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t07_sim_options_quality.png": {
+    "reviewedAt": "2026-10-01T18:44:47.192076+00:00",
+    "sha256": "e064325434d4a13e679e93fe9474871b4c389a4e354a02cd7e43abd10ec59023",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_street_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.192610+00:00",
+    "sha256": "5271421aa817eea0bda3a9a6a917d7d5fd7064a8589f8ae611993c5077297c8a",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_inlet_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.192851+00:00",
+    "sha256": "c40e5042fdc5d37367dfd84310f80ca003f82e61fb8b8afcdad5373e57a51f3e",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_inlet_usage_page.png": {
+    "reviewedAt": "2026-10-01T18:44:47.193099+00:00",
+    "sha256": "5a9d8239b5b785b1864d7da1320f10115700ba0b35a93dbe947abb3313e8746c",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t02_street_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.193318+00:00",
+    "sha256": "5271421aa817eea0bda3a9a6a917d7d5fd7064a8589f8ae611993c5077297c8a",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t02_link_inlet_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.193596+00:00",
+    "sha256": "5a9d8239b5b785b1864d7da1320f10115700ba0b35a93dbe947abb3313e8746c",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t02_inlet_junction_properties.png": {
+    "reviewedAt": "2026-10-01T18:44:47.193836+00:00",
+    "sha256": "fdef10de7ed9f5c5b86a5c28c964186898cadbe12a430f6a9ed5c5792141c82a",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t02_inlet_editor_combo.png": {
+    "reviewedAt": "2026-10-01T18:44:47.194123+00:00",
+    "sha256": "4e131b8aae0e5570e9d21d52009747189342b4285f2f0f0763e90fdcd1b48027",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t01_open_model.png": {
+    "reviewedAt": "2026-10-01T19:00:03.954053+00:00",
+    "sha256": "312af1f6d84b5d7c49b89f8e273c058ab66e635f619a178937aa0d096c50131b",
+    "baseline": "site-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "t01_object_browser.png": {
+    "reviewedAt": "2026-10-01T19:00:03.954425+00:00",
+    "sha256": "15bb0841e0d83f3d79b66342811a2a25b62f5b71a1ef36070cc8bf74828bcb59",
+    "baseline": "site-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "23_profile_sources_tab.png": {
+    "reviewedAt": "2026-10-01T19:00:03.955282+00:00",
+    "sha256": "cb9c01a0002a884e37318073475e8667ede813b9a38c86e2d93a0323e990ed5c",
+    "baseline": "profile-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "19_mesh_style_panel.png": {
+    "reviewedAt": "2026-10-01T19:00:03.955917+00:00",
+    "sha256": "2d82e3b6372053115cf11d844a1bacbea10168b8fbd5c57aa99c74808f771d64",
+    "baseline": "twod-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "19_mesh2d_ribbon.png": {
+    "reviewedAt": "2026-10-01T19:00:03.956176+00:00",
+    "sha256": "b080d769b94d65cc596bd93e2caa03623575bd359fa36669970dafaf9e31fc57",
+    "baseline": "twod-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "t02_inlet_editor_curb.png": {
+    "reviewedAt": "2026-10-01T19:00:03.956751+00:00",
+    "sha256": "30f71ac6c800bca4b6d616719c64784db0e1c2d65101d7071a07d4a1afcdf9b5",
+    "baseline": "street-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "t02_open_model.png": {
+    "reviewedAt": "2026-10-01T19:00:03.957409+00:00",
+    "sha256": "44311afd5f7cdce69596ea9624948412fe18af597ac2258b794600d7947a7896",
+    "baseline": "street-map-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "18_fv_groups.png": {
+    "reviewedAt": "2026-10-01T19:00:03.958459+00:00",
+    "sha256": "2fba470dcff934895b8f0298da8c87b7aa3fad21ea64200682803d22bdfd8a24",
+    "baseline": "fv-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "09_selection_overview.png": {
+    "reviewedAt": "2026-10-01T19:10:22.110931+00:00",
+    "sha256": "3ea625917cc54a3bd6457c9c0d5317d0897176c891e3f52dcfe4cee52de7107a",
+    "baseline": "selection-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "09_select_upstream.png": {
+    "reviewedAt": "2026-10-01T19:10:22.111375+00:00",
+    "sha256": "27c6d51639e6a58a9fc03195429b7144a7569df131e0d7028cc2c1781b0cf0ba",
+    "baseline": "selection-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "22_statistics_panel.png": {
+    "reviewedAt": "2026-10-01T19:10:22.112551+00:00",
+    "sha256": "1e6b73e286b949babe386358a91902c04792f32153cec4c41e329944c91a653b",
+    "baseline": "plots-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "20_report_viewer.png": {
+    "reviewedAt": "2026-10-01T19:10:22.113273+00:00",
+    "sha256": "14100d64f6a9cd882294cc2ecb863889562ac418cc8fa10989fdcf1e5f997bc1",
+    "baseline": "report-rain-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "25_rainfall_visualization.png": {
+    "reviewedAt": "2026-10-01T19:10:22.113630+00:00",
+    "sha256": "dcd5db723a950704df4c2c9ce244de4ee81593fc36d3f6a7164104d3affb31f4",
+    "baseline": "report-rain-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "22_plot_variables_picker.png": {
+    "reviewedAt": "2026-10-01T19:10:22.114159+00:00",
+    "sha256": "4c8cc8675df19486ad1e70898623a8514d7ea7a1560ac59ea3d8a75bb524aac4",
+    "baseline": "comparison-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "22_chart_modes_toolbar.png": {
+    "reviewedAt": "2026-10-01T19:10:22.114257+00:00",
+    "sha256": "08a1f77839729d223ea6ebe3b51b7d51dee60e3dc1b90955c780c0b44221f56e",
+    "baseline": "comparison-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "t01_crs_dialog.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "6d7f994a12472e216aa443d0360ef2d44c9dd8984d65f370f0fe33dc54cbfb5f",
+    "baseline": "round2-site-accepted",
+    "notes": "Local feet selected in the real coordinate-reference-system picker. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_basemap.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "cdc8efa6af3f71aa287ace574f9abb061cfec924b04a12e3ac0d78bc76171eaf",
+    "baseline": "round2-site-accepted",
+    "notes": "Actual XYZ Tiles connection controls; optional for a geographically referenced model. The synthetic tutorial is not claimed to align with a basemap. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_attribute_table.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "421bad122e9b18db586d246f17274b3fda16f17991f99053953a7236cb7e8a2d",
+    "baseline": "round2-site-accepted",
+    "notes": "All 11 conduits visible in ascending Length order, with object names and table controls. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_coverages.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "eede6994ed3ee38f82565cf8dc4779ef7ebd0fac21b3948fef9e3bca88289dba",
+    "baseline": "round2-site-accepted",
+    "notes": "S4 compound editor shows all four land uses and three positive coverages; the header count matches the visible state. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_run_status.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "15abca4a39324c1462176826135fc5babc559ac4eec7fea936e21c0aa9260fa9",
+    "baseline": "round2-site-accepted",
+    "notes": "Actual sim.run job completed with Success, 100 percent progress, and reference continuity errors. Displayed job dates are shifted to local time; tutorial records that limitation. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_report_viewer.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "1628dc68614144822fed744e484b40c3601b1b6263b090e93b09b6fcb9c2c405",
+    "baseline": "round2-site-accepted",
+    "notes": "Flow Routing Continuity activated and visible in the report; section list and search controls visible. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_statistics_dashboard.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "9fdd9051bf5029d53116068dcf3b32117a0e0f6cfe03f052b1d1daf4f8e26b11",
+    "baseline": "round2-site-accepted",
+    "notes": "Links statistics table shows all 11 links and Export CSV. Does not verify export itself. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_results_style.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "099c6684cef7418b52270437065be0bdc66d1b03a852130a6c5c9a557c9dc6f6",
+    "baseline": "round2-site-accepted",
+    "notes": "Conduits selected with Link Flow classification and Fixed over run range. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_plot_variables.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "ae06463bda3399454c9d1c76b4c946fb8f2788d8a34fe9e4f47c65aa640fae43",
+    "baseline": "round2-site-accepted",
+    "notes": "J11 Depth and C11 Flow checked in expanded groups; lower unselected options require scrolling. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_tabular_results.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "ab83dfa087a15273546dc1f34addf5234d0c10bdd9f376450701ea6bae229a6c",
+    "baseline": "round2-site-accepted",
+    "notes": "All 11 rows with computed flow, velocity, depth and volume columns. Horizontal scroll places object-name columns outside this view. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_rainfall_visualization.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "dcd5db723a950704df4c2c9ce244de4ee81593fc36d3f6a7164104d3affb31f4",
+    "baseline": "round2-site",
+    "notes": "Native rainfall plot shows the storm, 239 points, 2.834 in total and 4.672 in/hr peak. Last date tick is clipped by the application; complete last time is visible in the summary table. Headless variant rejected because its chart was blank."
+  },
+  "t01_comparison_plot.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "2f4ec67ff583f19386216e99d7ee51eb18acd01cfcea45d23e03d0a4daa9d898",
+    "baseline": "round2-site",
+    "notes": "Native comparison contains only J11 Depth and C11 Flow, with correct units, legends, series controls and statistics. Last x-axis tick clips at the right edge, but the complete time range is visible below the plots. This does not validate pollutant labeling."
+  },
+  "t02_section_view_street.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "1d203a288614a3eaa45aa53f079c498e535b82aadfdf047d73725b4e1b97da7b",
+    "baseline": "round2-street-accepted",
+    "notes": "ST_A street section at V:H 10:1, 30 ft width and 2.900 ft total depth. Tutorial explicitly records current fixture gutter depression of 2 ft. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t02_report_street_tables.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "5f5943f51ab6b1c9556f422613216461bfb57c71988cb44a025b901a5f353908",
+    "baseline": "round2-street-accepted",
+    "notes": "Street Inlet Flow Summary activated; both street result tables and numeric columns visible. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t02_capture_bypass_plot.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "cfeec1216f3acfa81e6a12c8349a1dedf59e1dbe701359f9d9b37d508567230a",
+    "baseline": "round2-street-headless",
+    "notes": "Three named street flow series with statistics. Dominant ST_A masks small ST_B/ST_C values at this scale; caption and instructions explain hiding ST_A to inspect bypass. Last x-axis tick clips at the right edge; full range is visible below. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  }
+}

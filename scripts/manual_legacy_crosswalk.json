@@ -1,0 +1,1546 @@
+{
+  "sourceRef": "fc18a61ed935ee5c1001f6ab08684e63c99c57dd",
+  "source": "workplans/LEGACY_MANUAL_CROSSWALK_2026-09-19.md",
+  "rows": [
+    {
+      "source": "user-guide.md",
+      "level": "h2",
+      "heading": "Introducing EPA SWMM",
+      "disposition": "superseded",
+      "target": "manual_introduction"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Hydrologic Modeling Features",
+      "disposition": "superseded",
+      "target": "manual_introduction"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Hydraulic Modeling Features",
+      "disposition": "superseded",
+      "target": "manual_introduction"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Water Quality Modeling Features",
+      "disposition": "superseded",
+      "target": "manual_introduction"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Typical Applications of SWMM",
+      "disposition": "superseded",
+      "target": "manual_introduction"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Steps in Using SWMM",
+      "disposition": "superseded",
+      "target": "manual_introduction"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "What's New in Release 5.2.4",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h2",
+      "heading": "SWMM's Conceptual Model",
+      "disposition": "engine",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Visual Objects",
+      "disposition": "engine",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Non-visual Objects",
+      "disposition": "engine",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Tabular Data",
+      "disposition": "engine",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Computational Methods",
+      "disposition": "engine",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h2",
+      "heading": "SWMM's Main Window",
+      "disposition": "superseded",
+      "target": "manual_interface"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Main Menu",
+      "disposition": "superseded",
+      "target": "manual_interface"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Main Toolbar",
+      "disposition": "superseded",
+      "target": "manual_interface"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Map Toolbar",
+      "disposition": "superseded",
+      "target": "manual_interface"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Status Bar",
+      "disposition": "superseded",
+      "target": "manual_interface"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Study Area Map",
+      "disposition": "superseded",
+      "target": "manual_map_navigation"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Project Browser",
+      "disposition": "superseded",
+      "target": "manual_object_browser"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Map Browser",
+      "disposition": "superseded",
+      "target": "manual_layers"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Property Editor",
+      "disposition": "superseded",
+      "target": "manual_object_browser"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Setting Program Preferences",
+      "disposition": "superseded",
+      "target": "manual_preferences"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h2",
+      "heading": "Working with Projects",
+      "disposition": "superseded",
+      "target": "manual_projects"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Creating a New Project",
+      "disposition": "superseded",
+      "target": "manual_projects"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Opening an Existing Project",
+      "disposition": "superseded",
+      "target": "manual_projects"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Saving a Project",
+      "disposition": "superseded",
+      "target": "manual_projects"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Setting Project Defaults",
+      "disposition": "superseded",
+      "target": "manual_projects"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Units of Measurement",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Link Offset Conventions",
+      "disposition": "superseded",
+      "target": "manual_hydraulics"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Registering Calibration Data",
+      "disposition": "superseded",
+      "target": "manual_data_objects"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Viewing All Project Data",
+      "disposition": "superseded",
+      "target": "manual_object_browser"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h2",
+      "heading": "Working with Objects",
+      "disposition": "superseded",
+      "target": "manual_map_editing"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Types of Objects",
+      "disposition": "superseded",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Adding an Object",
+      "disposition": "superseded",
+      "target": "manual_map_editing"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Selecting an Object",
+      "disposition": "superseded",
+      "target": "manual_selection"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Moving an Object",
+      "disposition": "superseded",
+      "target": "manual_map_editing"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Editing an Object",
+      "disposition": "superseded",
+      "target": "manual_object_browser"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Converting an Object",
+      "disposition": "superseded",
+      "target": "manual_map_editing"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Copying and Pasting Objects",
+      "disposition": "superseded",
+      "target": "manual_map_editing"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Deleting an Object",
+      "disposition": "superseded",
+      "target": "manual_map_editing"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Shaping a Link",
+      "disposition": "superseded",
+      "target": "manual_map_editing"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Shaping a Subcatchment",
+      "disposition": "superseded",
+      "target": "manual_map_editing"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Selecting a Group of Objects",
+      "disposition": "superseded",
+      "target": "manual_selection"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Deleting a Group of Objects",
+      "disposition": "superseded",
+      "target": "manual_selection"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Editing a Group of Objects",
+      "disposition": "superseded",
+      "target": "manual_attribute_tables"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h2",
+      "heading": "Working with the Map",
+      "disposition": "superseded",
+      "target": "manual_map_navigation"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Viewing Map Layers",
+      "disposition": "superseded",
+      "target": "manual_layers"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Selecting a Map Theme",
+      "disposition": "superseded",
+      "target": "manual_styling"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Setting the Map Dimensions",
+      "disposition": "superseded",
+      "target": "manual_crs"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Utilizing a Backdrop Image",
+      "disposition": "superseded",
+      "target": "manual_layers"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Measuring Distances",
+      "disposition": "superseded",
+      "target": "manual_map_navigation"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Zooming the Map",
+      "disposition": "superseded",
+      "target": "manual_map_navigation"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Panning the Map",
+      "disposition": "superseded",
+      "target": "manual_map_navigation"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Viewing at Full Extent",
+      "disposition": "superseded",
+      "target": "manual_map_navigation"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Finding an Object",
+      "disposition": "superseded",
+      "target": "manual_selection"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Submitting a Map Query",
+      "disposition": "superseded",
+      "target": "manual_attribute_tables"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Using the Map Legends",
+      "disposition": "superseded",
+      "target": "manual_styling"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Using the Overview Map",
+      "disposition": "superseded",
+      "target": "manual_map_navigation"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Setting Map Display Options",
+      "disposition": "superseded",
+      "target": "manual_styling"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Exporting the Map",
+      "disposition": "superseded",
+      "target": "manual_map_navigation"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h2",
+      "heading": "Running a Simulation",
+      "disposition": "superseded",
+      "target": "manual_running"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Setting Simulation Options",
+      "disposition": "superseded",
+      "target": "manual_simulation_options"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Starting a Simulation",
+      "disposition": "superseded",
+      "target": "manual_running"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Troubleshooting Results",
+      "disposition": "superseded",
+      "target": "manual_troubleshooting"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h2",
+      "heading": "Viewing Simulation Results",
+      "disposition": "superseded",
+      "target": "manual_results"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Viewing a Status Report",
+      "disposition": "superseded",
+      "target": "manual_tabular_results"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Viewing Summary Results",
+      "disposition": "superseded",
+      "target": "manual_tabular_results"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Variables That Can be Viewed",
+      "disposition": "superseded",
+      "target": "manual_results"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Viewing Results on the Map",
+      "disposition": "superseded",
+      "target": "manual_results"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Viewing Results with a Graph",
+      "disposition": "superseded",
+      "target": "manual_time_series_plots"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Viewing Results with a Table",
+      "disposition": "superseded",
+      "target": "manual_tabular_results"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Viewing a Statistics Report",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h2",
+      "heading": "Printing and Copying",
+      "disposition": "ported",
+      "target": "manual_map_navigation"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Selecting a Printer",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Setting the Page Format",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Previewing the Page",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Printing the Current View",
+      "disposition": "ported",
+      "target": "manual_map_navigation"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Copying the Current View",
+      "disposition": "ported",
+      "target": "manual_map_navigation"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h2",
+      "heading": "Files Used by SWMM",
+      "disposition": "superseded",
+      "target": "manual_file_formats"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Project File",
+      "disposition": "superseded",
+      "target": "manual_file_formats"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Report and Output Files",
+      "disposition": "superseded",
+      "target": "manual_file_formats"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Rainfall Files",
+      "disposition": "superseded",
+      "target": "manual_file_formats"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Climate Files",
+      "disposition": "superseded",
+      "target": "manual_file_formats"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Calibration Files",
+      "disposition": "superseded",
+      "target": "manual_file_formats"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Time Series Files",
+      "disposition": "superseded",
+      "target": "manual_file_formats"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Interface Files",
+      "disposition": "superseded",
+      "target": "manual_file_formats"
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h2",
+      "heading": "Using Add-In Tools",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "What are Add-In Tools",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "user-guide.md",
+      "level": "h3",
+      "heading": "Configuring Add-In Tools",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "reference.md",
+      "level": "h2",
+      "heading": "Measurement Units",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "US Customary",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "SI Metric Units",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h2",
+      "heading": "Tables of Parameter Values",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Soil Characteristics",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "SCS Curve Numbers",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Soil Group Definitions",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Depression Storage",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Manning's n - Overland Flow",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Manning's n - Closed Conduits",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Manning's n - Open Channels",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Water Quality Characteristics of Urban Runoff",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Culvert Code Numbers",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Culvert Inlet Loss Coefficients",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Standard Elliptical Pipe Sizes",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Standard Arch Pipe Sizes",
+      "disposition": "ported",
+      "target": "manual_reference_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h2",
+      "heading": "Visual Object Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Rain Gage Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Subcatchment Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Junction Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Outfall Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Flow Divider Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Storage Unit Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Conduit Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Pump Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Orifice Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Weir Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Outlet Properties",
+      "disposition": "ported",
+      "target": "manual_property_index"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Map Label Properties",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "reference.md",
+      "level": "h2",
+      "heading": "Special Dialog Forms",
+      "disposition": "superseded",
+      "target": "manual_object_browser"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Aquifer Editor",
+      "disposition": "superseded",
+      "target": "manual_hydrology"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Backdrop Dimensions Dialog",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Backdrop Image Selector Dialog",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Climatology Editor",
+      "disposition": "superseded",
+      "target": "manual_climate"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Copy Dialog",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Cross-Section Editor",
+      "disposition": "superseded",
+      "target": "manual_hydraulics"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Curve Editor",
+      "disposition": "superseded",
+      "target": "manual_data_objects"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Events Editor",
+      "disposition": "superseded",
+      "target": "manual_simulation_options"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Graph Options Dialog",
+      "disposition": "superseded",
+      "target": "manual_time_series_plots"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Groundwater Flow Editor",
+      "disposition": "superseded",
+      "target": "manual_hydrology"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Groundwater Equation Editor",
+      "disposition": "superseded",
+      "target": "manual_hydrology"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Group Edit Dialog",
+      "disposition": "superseded",
+      "target": "manual_attribute_tables"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Infiltration Editor",
+      "disposition": "superseded",
+      "target": "manual_hydrology"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Inflows Editor",
+      "disposition": "superseded",
+      "target": "manual_hydraulics"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Initial Buildup Editor",
+      "disposition": "superseded",
+      "target": "manual_water_quality"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Inlet Structure Editor",
+      "disposition": "superseded",
+      "target": "manual_hydraulics"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Inlet Usage Editor",
+      "disposition": "superseded",
+      "target": "manual_hydraulics"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Interface File Combine Dialog",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Interface File Selection Dialog",
+      "disposition": "superseded",
+      "target": "manual_file_formats"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Land Use Assignment Editor",
+      "disposition": "superseded",
+      "target": "manual_water_quality"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Land Use Editor",
+      "disposition": "superseded",
+      "target": "manual_water_quality"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Legend Editor",
+      "disposition": "superseded",
+      "target": "manual_styling"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "LID Editors",
+      "disposition": "superseded",
+      "target": "manual_hydrology"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Map Dimensions Dialog",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Map Options Dialog",
+      "disposition": "superseded",
+      "target": "manual_styling"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Pollutant Editor",
+      "disposition": "superseded",
+      "target": "manual_water_quality"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Profile Plot Selection Dialog",
+      "disposition": "superseded",
+      "target": "manual_profile_plots"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Profile Plot Options Dialog",
+      "disposition": "superseded",
+      "target": "manual_profile_plots"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Project Defaults Dialog",
+      "disposition": "superseded",
+      "target": "manual_projects"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Reporting Options Dialog",
+      "disposition": "superseded",
+      "target": "manual_simulation_options"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Scatter Plot Dialog",
+      "disposition": "superseded",
+      "target": "manual_time_series_plots"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Simulation Options Dialog",
+      "disposition": "superseded",
+      "target": "manual_simulation_options"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Simulation Options - Dynamic Wave",
+      "disposition": "superseded",
+      "target": "manual_simulation_options"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Statistics Selection Dialog",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Storage Shape Editor",
+      "disposition": "superseded",
+      "target": "manual_hydraulics"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Street Section Editor",
+      "disposition": "superseded",
+      "target": "manual_hydraulics"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Table by Object Dialog",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Table by Variable Dialog",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Time Pattern Editor",
+      "disposition": "superseded",
+      "target": "manual_data_objects"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Time Series Editor",
+      "disposition": "superseded",
+      "target": "manual_data_objects"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Time Series Plot Selection Dialog",
+      "disposition": "superseded",
+      "target": "manual_time_series_plots"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Data Series Selection Dialog",
+      "disposition": "superseded",
+      "target": "manual_time_series_plots"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Tool Properties Dialog",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Transect Editor",
+      "disposition": "superseded",
+      "target": "manual_hydraulics"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Treatment Editor",
+      "disposition": "superseded",
+      "target": "manual_water_quality"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Unit Hydrograph Editor",
+      "disposition": "superseded",
+      "target": "manual_hydrology"
+    },
+    {
+      "source": "reference.md",
+      "level": "h2",
+      "heading": "Error Messages",
+      "disposition": "ported",
+      "target": "manual_error_codes"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Run Time Errors",
+      "disposition": "ported",
+      "target": "manual_error_codes"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Property Errors",
+      "disposition": "ported",
+      "target": "manual_error_codes"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Format Errors",
+      "disposition": "ported",
+      "target": "manual_error_codes"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "File Errors",
+      "disposition": "ported",
+      "target": "manual_error_codes"
+    },
+    {
+      "source": "reference.md",
+      "level": "h3",
+      "heading": "Warning Messages",
+      "disposition": "ported",
+      "target": "manual_error_codes"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Introduction",
+      "disposition": "superseded",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Example Study Area",
+      "disposition": "superseded",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h3",
+      "heading": "Study Area map",
+      "disposition": "superseded",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Project Setup",
+      "disposition": "ported",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Setting Map Options",
+      "disposition": "superseded",
+      "target": "manual_styling"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Drawing the Drainage Area Subcatchments",
+      "disposition": "ported",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Drawing the Drainage System Nodes",
+      "disposition": "ported",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Drawing the Drainage System Links",
+      "disposition": "ported",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Adding a Rain Gage",
+      "disposition": "ported",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Re-Positioning Objects",
+      "disposition": "superseded",
+      "target": "manual_map_editing"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Setting Properties",
+      "disposition": "ported",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Setting Subcatchment Properties",
+      "disposition": "ported",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Setting Node/Link Properties",
+      "disposition": "ported",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Setting Rain Gage Properties",
+      "disposition": "ported",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Saving and Opening Projects",
+      "disposition": "superseded",
+      "target": "manual_projects"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Running a Kinematic Wave Analysis",
+      "disposition": "superseded",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Viewing Analysis Results",
+      "disposition": "superseded",
+      "target": "manual_results"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Viewing the Status/Summary Reports",
+      "disposition": "superseded",
+      "target": "manual_tabular_results"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Viewing Results on the Map",
+      "disposition": "superseded",
+      "target": "manual_results"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Viewing a Time Series Plot",
+      "disposition": "superseded",
+      "target": "manual_time_series_plots"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Viewing a Profile Plot",
+      "disposition": "superseded",
+      "target": "manual_profile_plots"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Running a Dynamic Wave Analysis",
+      "disposition": "superseded",
+      "target": "manual_simulation_options"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Simulating Runoff Water Quality",
+      "disposition": "superseded",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Adding Pollutants",
+      "disposition": "superseded",
+      "target": "manual_water_quality"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Adding Land Uses",
+      "disposition": "superseded",
+      "target": "manual_water_quality"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Defining Buildup and Washoff Functions",
+      "disposition": "superseded",
+      "target": "manual_water_quality"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Assigning Land Uses to Subcatchments",
+      "disposition": "superseded",
+      "target": "manual_water_quality"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Running a Water Quality Analysis",
+      "disposition": "superseded",
+      "target": "tutorial_site_drainage"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Running a Continuous Simulation",
+      "disposition": "superseded",
+      "target": "manual_simulation_options"
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Performing a Frequency Analysis",
+      "disposition": "retired",
+      "target": ""
+    },
+    {
+      "source": "basic-tutorial.md",
+      "level": "h2",
+      "heading": "Other Features to Explore",
+      "disposition": "superseded",
+      "target": "manual_introduction"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h2",
+      "heading": "Introduction",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Inlet Types",
+      "disposition": "superseded",
+      "target": "manual_hydraulics"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Inlet Concepts",
+      "disposition": "engine",
+      "target": ""
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Inlet Analysis Workflow",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h2",
+      "heading": "Example Project",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Step 1 - Lay Out the Network",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Step 2 - Add External Inflows",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Step 3 - Create Street Cross-Sections",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Step 4 - Assign Street Cross-Sections",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Step 5 - Create Inlet Designs",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Step 6 - Assign Inlet Designs",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Step 7 - Run a Simulation",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Step 8 - View Simulation Results",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Additional Analyses",
+      "disposition": "superseded",
+      "target": "tutorial_street_inlets"
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h2",
+      "heading": "Computational Methods",
+      "disposition": "engine",
+      "target": ""
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h3",
+      "heading": "Curb and Gutter Inlets",
+      "disposition": "engine",
+      "target": ""
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h2",
+      "heading": "Drop Inlets",
+      "disposition": "engine",
+      "target": ""
+    },
+    {
+      "source": "inlet-tutorial.md",
+      "level": "h2",
+      "heading": "Custom Inlets",
+      "disposition": "engine",
+      "target": ""
+    }
+  ]
+}

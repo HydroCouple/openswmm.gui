@@ -1,5 +1,9 @@
 @page tutorial_pure_2d T6 — A Stand-alone 2D Overland-Flow Model
 
+## Example availability
+
+The VFR slope bundle described below is not tracked in this repository, and the historical input contains retired solver options. Its numerical results have not been regenerated for the documentation build. This chapter is a workflow reference; reproducing it requires a current input and a new run. Use \ref tutorial_2d_boundaries for a tracked example of the 2D controls.
+
 ## Goal
 
 Run a model that has **no 1D network at all** — no junctions, no conduits, no

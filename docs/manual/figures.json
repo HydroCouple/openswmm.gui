@@ -8,51 +8,57 @@
     "widget (objectName), window (grab the main window), page (sidebar/tab text),",
     "tab (sub-tab after page), size (WxH), lane (offscreen|live|human), settleMs.",
     "",
-    "lane:'live' rows need a real display \u2014 scene-graph content reads back blank",
+    "lane:'live' rows need a real display — scene-graph content reads back blank",
     "under the offscreen platform. lane:'human' rows are native menus/pickers the",
     "engine refuses to drive; they are listed in tests/manual/manual_figures/."
   ],
   "defaults": {
-    "outDir": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/output/manual_figures",
+    "outDir": "tests/output/manual_figures",
     "theme": "light",
     "window": "1600x1000",
     "maxWidth": 1400,
     "renderScale": 2.0,
-    "startupMs": 3000,
+    "startupMs": 8000,
     "settleMs": 700
   },
   "models": {
     "_comment": "Passed to the launcher as SWMMVIS_OPEN_ON_STARTUP, not read by the engine.",
     "twod": "docs/manual/tutorials/models/2d_complete_example.inp",
     "site": "examples/site_drainage/site_drainage_model.inp",
-    "transport": "docs/manual/tutorials/models/transport_demo.inp"
+    "transport": "docs/manual/tutorials/models/transport_demo.inp",
+    "street": "docs/manual/tutorials/models/street_inlet_junction.inp",
+    "fv": "examples/swashes_bump_shock/1d_fv.inp"
   },
   "figures": [
     {
       "name": "18_options_dialog.png",
       "action": "model.simulationOptions",
       "page": "Models / Processes",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "name": "18_title_notes.png",
       "action": "model.simulationOptions",
       "page": "Title / Notes",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "name": "18_models_processes.png",
       "action": "model.simulationOptions",
       "page": "Models / Processes",
       "tab": "Domains & Processes",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "name": "18_dates_times.png",
       "action": "model.simulationOptions",
       "page": "Dates & Times",
       "tab": "Simulation Window",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "_note": "Pin the tab. Without it the page inherits whichever tab a previous capture left current, which produced a greyed Finite Volume tab under a dynamic-wave model instead of the default Routing tab.",
@@ -60,233 +66,348 @@
       "action": "model.simulationOptions",
       "page": "Routing & Hydraulics",
       "tab": "Routing",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "name": "18_performance.png",
       "action": "model.simulationOptions",
       "page": "System / Performance",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "name": "18_spatial_crs.png",
       "action": "model.simulationOptions",
       "page": "Spatial & CRS",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "name": "18_mesh_page.png",
       "action": "model.simulationOptions",
       "page": "Mesh",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "name": "18_2d_options.png",
       "action": "model.simulationOptions",
       "page": "2D Surface Routing",
       "tab": "Hydrodynamics",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "name": "18_files_subtab.png",
       "action": "model.simulationOptions",
       "page": "Files / Output / Plugins",
       "tab": "Files",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "name": "18_output_subtab.png",
       "action": "model.simulationOptions",
       "page": "Files / Output / Plugins",
       "tab": "Output",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "name": "18_plugins_subtab.png",
       "action": "model.simulationOptions",
       "page": "Files / Output / Plugins",
       "tab": "Plugins",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
-      "_note": "Both of these need a model whose routing/quality settings make the page live; captured on a separate launch, not with the 'twod' group.",
+      "_note": "Use the tracked finite-volume example so the FV settings are enabled.",
       "name": "18_fv_groups.png",
       "action": "model.simulationOptions",
       "page": "Routing & Hydraulics",
       "tab": "Finite Volume",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen",
+      "_model": "examples/swashes_bump_shock/1d_fv.inp"
     },
     {
       "name": "18_quality_transport.png",
       "action": "model.simulationOptions",
       "page": "Quality & Transport",
       "tab": "General",
-      "size": "980x760"
+      "size": "980x760",
+      "lane": "offscreen"
     },
     {
       "name": "04_preferences_general.png",
       "action": "app.preferences",
       "page": "General",
-      "size": "1360x820"
+      "size": "1360x820",
+      "lane": "offscreen"
     },
     {
       "name": "04_preferences_selection.png",
       "action": "app.preferences",
       "page": "Selection",
-      "size": "1360x820"
+      "size": "1360x820",
+      "lane": "offscreen"
     },
     {
       "name": "04_preferences_rendering.png",
       "action": "app.preferences",
       "page": "Rendering",
       "tab": "Links & Nodes",
-      "size": "1360x820"
+      "size": "1360x820",
+      "lane": "offscreen"
     },
     {
       "name": "04_preferences_2d_defaults.png",
       "action": "app.preferences",
       "page": "Simulation Defaults",
       "tab": "2D Solver",
-      "size": "1360x820"
+      "size": "1360x820",
+      "lane": "offscreen"
     },
     {
       "name": "04_preferences_object_defaults.png",
       "action": "app.preferences",
       "page": "Object Defaults",
       "tab": "Links",
-      "size": "1360x820"
+      "size": "1360x820",
+      "lane": "offscreen"
     },
     {
       "name": "04_preferences_appearance.png",
       "action": "app.preferences",
       "page": "Appearance",
-      "size": "1360x820"
+      "size": "1360x820",
+      "lane": "offscreen"
     },
     {
       "name": "02_shortcut_editor.png",
       "action": "app.preferences",
       "page": "Keyboard",
-      "size": "1360x820"
+      "size": "1360x820",
+      "lane": "offscreen"
     },
     {
       "name": "a01_shortcut_editor.png",
       "action": "app.preferences",
       "page": "Keyboard",
-      "size": "1360x820"
+      "size": "1360x820",
+      "lane": "offscreen"
     },
     {
       "name": "12_object_defaults_page.png",
       "action": "app.preferences",
       "page": "Object Defaults",
       "tab": "Links",
-      "size": "1360x820"
+      "size": "1360x820",
+      "lane": "offscreen"
     },
     {
       "name": "09_select_tool_preferences.png",
       "action": "app.preferences",
       "page": "Selection",
-      "size": "1360x820"
+      "size": "1360x820",
+      "lane": "offscreen"
     },
     {
       "name": "02_command_palette.png",
       "action": "app.commandPalette",
       "type": "mesh",
-      "size": "760x520"
+      "size": "760x520",
+      "lane": "offscreen"
     },
     {
       "name": "a01_command_palette.png",
       "action": "app.commandPalette",
       "type": "mesh",
-      "size": "760x520"
+      "size": "760x520",
+      "lane": "offscreen"
     },
     {
       "name": "03_user_flags_dialog.png",
       "action": "model.userFlags",
-      "size": "760x560"
+      "size": "760x560",
+      "lane": "offscreen"
     },
     {
       "name": "a06_about_dialog.png",
       "action": "app.about",
-      "size": "900x640"
+      "size": "900x640",
+      "lane": "offscreen"
     },
     {
       "name": "01_about_dialog.png",
       "action": "app.about",
-      "size": "900x640"
+      "size": "900x640",
+      "lane": "offscreen"
     },
     {
       "name": "02_window_regions.png",
       "window": true,
       "settleMs": 1400,
       "lane": "live",
-      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane."
+      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane.",
+      "tab": "Home",
+      "tabIn": "compactToolbarTabBar",
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "hostSelect": "J1",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "show": [
+        "dockWidgetPropertiesPanel",
+        "dockWidgetObjectBrowser"
+      ],
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "page": "site_drainage_model",
+      "prepareActions": [
+        "map.zoomExtent"
+      ]
     },
     {
       "name": "02_docks_default_layout.png",
       "window": true,
       "settleMs": 1400,
       "lane": "live",
-      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane."
+      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane.",
+      "tab": "Home",
+      "tabIn": "compactToolbarTabBar",
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "hostSelect": "J1",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "show": [
+        "dockWidgetPropertiesPanel",
+        "dockWidgetObjectBrowser"
+      ],
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "page": "site_drainage_model",
+      "prepareActions": [
+        "map.zoomExtent"
+      ]
     },
     {
       "name": "00_overview_annotated_window.png",
       "window": true,
       "settleMs": 1400,
       "lane": "live",
-      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane."
+      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane.",
+      "tab": "Home",
+      "tabIn": "compactToolbarTabBar",
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "hostSelect": "J1",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "show": [
+        "dockWidgetPropertiesPanel",
+        "dockWidgetObjectBrowser"
+      ],
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "page": "site_drainage_model",
+      "prepareActions": [
+        "map.zoomExtent"
+      ]
     },
     {
       "name": "01_main_window_annotated.png",
       "window": true,
       "settleMs": 1400,
       "lane": "live",
-      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane."
+      "_note": "Whole-window figure: the map canvas is scene-graph content and reads back blank offscreen, so this must run on the cocoa lane.",
+      "tab": "Home",
+      "tabIn": "compactToolbarTabBar",
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "hostSelect": "J1",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "show": [
+        "dockWidgetPropertiesPanel",
+        "dockWidgetObjectBrowser"
+      ],
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "page": "site_drainage_model",
+      "prepareActions": [
+        "map.zoomExtent"
+      ]
     },
     {
       "name": "02_status_bar.png",
-      "widget": "statusBar"
+      "widget": "statusBar",
+      "lane": "offscreen"
     },
     {
       "name": "02_ribbon_home_tab.png",
       "widget": "toolBarHome",
       "tab": "Home",
       "hostSize": "2000x1000",
-      "_note": "hostSize widens the window so the Climate group caption is not clipped to 'limat'; wider still downscales the strip into illegibility."
+      "_note": "hostSize widens the window so the Climate group caption is not clipped to 'limat'; wider still downscales the strip into illegibility.",
+      "lane": "offscreen",
+      "tabIn": "compactToolbarTabBar"
     },
     {
       "name": "02_ribbon_model_tab.png",
       "widget": "toolBarModel",
       "tab": "Model",
       "hostSize": "2000x1000",
-      "_note": "hostSize widens the window so the Climate group caption is not clipped to 'limat'; wider still downscales the strip into illegibility."
+      "_note": "hostSize widens the window so the Climate group caption is not clipped to 'limat'; wider still downscales the strip into illegibility.",
+      "lane": "offscreen",
+      "tabIn": "compactToolbarTabBar"
     },
     {
       "name": "20_message_logs.png",
       "widget": "dockWidgetLogs",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads, which carries the OpenStreetMap basemap, the SRTM DEM, the model and both results layers. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite.",
-      "hostSize": "2000x1000"
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "hostSize": "2000x1000",
+      "lane": "offscreen"
     },
     {
       "name": "a05_message_logs.png",
       "widget": "dockWidgetLogs",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "Use an isolated working copy to produce an actionable load or run error; show the red error row and right-click its Message Logs entry. A loading-only log does not satisfy the caption.",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "hostSize": "2000x1150",
+      "show": [
+        "dockWidgetLogs"
+      ]
     },
     {
       "name": "20_simulation_status_dock.png",
       "widget": "dockWidgetSimulationStatus",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "BLOCKED: the dock only has rows while a job is IN FLIGHT; a completed run leaves it empty. Needs SWMMVIS_RUN_ON_STARTUP and a mid-run grab."
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "lane": "offscreen"
     },
     {
       "name": "07_layers_panel.png",
       "widget": "LayerTreePanel",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads, which carries the OpenStreetMap basemap, the SRTM DEM, the model and both results layers. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. The project restores a dock layout, so the window size must be forced at grab time.",
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
       "hostSize": "1600x1000",
       "size": "420x1180",
-      "maxWidth": 620
+      "maxWidth": 620,
+      "lane": "offscreen"
     },
     {
       "name": "10_properties_panel.png",
@@ -295,27 +416,31 @@
       "widget": "PropertiesPanel",
       "size": "420x900",
       "maxWidth": 760,
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. A STORAGE node, per the caption; site_drainage has none."
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "lane": "offscreen"
     },
     {
       "name": "13_lid_control_editor.png",
       "action": "data.newLidControl",
       "size": "1000x760",
-      "_note": "BLOCKED: no model defines [LID_CONTROLS]; the editor opens with an empty list."
+      "_note": "BLOCKED: no model defines [LID_CONTROLS]; the editor opens with an empty list.",
+      "lane": "offscreen"
     },
     {
       "name": "13_snowpack_editor.png",
       "action": "data.newSnowpack",
       "size": "1000x760",
-      "_note": "BLOCKED: no model defines [SNOWPACKS]; the editor opens with an empty list."
+      "_note": "BLOCKED: no model defines [SNOWPACKS]; the editor opens with an empty list.",
+      "lane": "offscreen"
     },
     {
       "name": "13_aquifer_editor.png",
       "action": "data.newAquifer",
       "size": "1500x860",
       "select": "first",
-      "_model": "tests/gui/data/aquifer_editor/diagram.inp"
+      "_model": "tests/gui/data/aquifer_editor/diagram.inp",
+      "lane": "offscreen"
     },
     {
       "name": "13_unit_hydrograph_editor.png",
@@ -332,7 +457,7 @@
       "size": "1200x780",
       "select": "first",
       "lane": "live",
-      "_note": "Contains a chart. QtCharts paints its axes offscreen but not the series, so the plot area comes back empty \u2014 region-blank, which the blankness score cannot see.",
+      "_note": "Contains a chart. QtCharts paints its axes offscreen but not the series, so the plot area comes back empty — region-blank, which the blankness score cannot see.",
       "_model": "examples/site_drainage/site_drainage_model.inp"
     },
     {
@@ -350,39 +475,44 @@
       "size": "1100x760",
       "select": "first",
       "lane": "live",
-      "_note": "Contains a chart. QtCharts paints its axes offscreen but not the series, so the plot area comes back empty \u2014 region-blank, which the blankness score cannot see.",
+      "_note": "Contains a chart. QtCharts paints its axes offscreen but not the series, so the plot area comes back empty — region-blank, which the blankness score cannot see.",
       "_model": "docs/manual/tutorials/models/2d_complete_example.inp"
     },
     {
       "name": "15_climatology_tabs.png",
       "action": "climate.temperature",
-      "size": "1100x760"
+      "size": "1100x760",
+      "lane": "offscreen"
     },
     {
       "name": "15_snowmelt_tab.png",
       "action": "climate.snow",
-      "size": "1100x760"
+      "size": "1100x760",
+      "lane": "offscreen"
     },
     {
       "name": "15_heat_solar_tab.png",
       "action": "model.editHeatConfig",
       "tab": "Solar",
       "size": "1200x780",
-      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen"
     },
     {
       "name": "15_heat_radiative_tab.png",
       "action": "model.editHeatConfig",
       "tab": "Radiative",
       "size": "1200x780",
-      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen"
     },
     {
       "name": "16_pollutant_editor.png",
       "action": "data.newPollutant",
       "select": "first",
       "size": "1100x760",
-      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen"
     },
     {
       "name": "16_landuse_editor.png",
@@ -390,7 +520,8 @@
       "select": "first",
       "tab": "General & Sweeping",
       "size": "1200x780",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "lane": "offscreen"
     },
     {
       "name": "16_landuse_buildup.png",
@@ -398,7 +529,8 @@
       "select": "first",
       "tab": "Buildup",
       "size": "1200x780",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "lane": "offscreen"
     },
     {
       "name": "16_landuse_washoff.png",
@@ -406,63 +538,72 @@
       "select": "first",
       "tab": "Washoff",
       "size": "1200x780",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "lane": "offscreen"
     },
     {
       "name": "16_reaction_system_species.png",
       "action": "model.editReactionSystem",
       "tab": "Species",
       "size": "1300x820",
-      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen"
     },
     {
       "name": "16_reaction_expressions.png",
       "action": "model.editReactionSystem",
       "tab": "Expressions",
       "size": "1300x820",
-      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen"
     },
     {
       "name": "16_reaction_file_tab.png",
       "action": "model.editReactionSystem",
       "tab": "File",
       "size": "1300x820",
-      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen"
     },
     {
       "name": "16_heat_sources.png",
       "action": "model.editHeatConfig",
       "tab": "Sources",
       "size": "1200x780",
-      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen"
     },
     {
       "name": "16_heat_radiative.png",
       "action": "model.editHeatConfig",
       "tab": "Radiative",
       "size": "1200x780",
-      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen"
     },
     {
       "name": "16_heat_solar.png",
       "action": "model.editHeatConfig",
       "tab": "Solar",
       "size": "1200x780",
-      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen"
     },
     {
       "name": "16_initial_quality.png",
       "action": "actionEditInitialQuality",
       "size": "1100x700",
       "_model": "docs/manual/tutorials/models/transport_demo.inp",
-      "_note": "Not in the ActionCatalog; reached by the QAction objectName."
+      "_note": "Not in the ActionCatalog; reached by the QAction objectName.",
+      "lane": "offscreen"
     },
     {
       "name": "16_water_age_sources.png",
       "action": "actionEditWaterAgeSources",
       "size": "1100x760",
       "_model": "docs/manual/tutorials/models/transport_demo.inp",
-      "_note": "Not in the ActionCatalog; reached by the QAction objectName."
+      "_note": "Not in the ActionCatalog; reached by the QAction objectName.",
+      "lane": "offscreen"
     },
     {
       "name": "14_street_editor.png",
@@ -486,14 +627,16 @@
       "action": "data.newControlRule",
       "select": "first",
       "size": "1200x780",
-      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp"
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "lane": "offscreen"
     },
     {
       "name": "15_temperature_tab.png",
       "action": "climate.temperature",
       "tab": "Temperature",
       "size": "1100x760",
-      "_model": "docs/manual/tutorials/models/transport_demo.inp"
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen"
     },
     {
       "name": "t08_control_rules_editor.png",
@@ -501,20 +644,23 @@
       "select": "first",
       "size": "1200x780",
       "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
-      "_note": "Same view as 14_rules_editor; the tutorial wants Bellinge's five pump rules."
+      "_note": "Same view as 14_rules_editor; the tutorial wants Bellinge's five pump rules.",
+      "lane": "offscreen"
     },
     {
       "name": "08_style_manager.png",
       "action": "view.styleManager",
       "size": "1100x720",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "lane": "offscreen"
     },
     {
       "name": "07_add_basemap_wms_tab.png",
       "action": "actionAddWMSData",
       "size": "1100x720",
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "Caption says 'after Connect' \u2014 that needs the network; review before publishing."
+      "_note": "Caption says 'after Connect' — that needs the network; review before publishing.",
+      "lane": "offscreen"
     },
     {
       "name": "08_layer_style_dialog.png",
@@ -522,7 +668,8 @@
       "hostSelect": "site_drainage_model",
       "page": "Symbology",
       "size": "1200x820",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "lane": "offscreen"
     },
     {
       "name": "07_layer_properties_source_tab.png",
@@ -530,7 +677,8 @@
       "hostSelect": "site_drainage_model",
       "page": "Source",
       "size": "1000x380",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "lane": "offscreen"
     },
     {
       "name": "08_kind_tree_symbology.png",
@@ -540,7 +688,8 @@
       "size": "1200x470",
       "grab": "QTreeView",
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "The kind tree only; the dialog around it is 08_layer_style_dialog."
+      "_note": "The kind tree only; the dialog around it is 08_layer_style_dialog.",
+      "lane": "offscreen"
     },
     {
       "name": "08_mesh_style_panel.png",
@@ -550,7 +699,8 @@
       "tab": "Terrain Fill",
       "size": "1200x650",
       "_model": "docs/manual/tutorials/models/2d_complete_example.inp",
-      "_note": "The mesh layer and the SWMM layer share a name here; the path form picks the mesh."
+      "_note": "The mesh layer and the SWMM layer share a name here; the path form picks the mesh.",
+      "lane": "offscreen"
     },
     {
       "name": "08_classification_editor.png",
@@ -561,57 +711,64 @@
       "size": "1200x820",
       "grab": "ClassificationEditor",
       "_model": "docs/manual/tutorials/models/2d_complete_example.inp",
-      "_note": "Elevation Bands is classified by nature, so the method/classes/breaks controls are live at rest."
+      "_note": "Elevation Bands is classified by nature, so the method/classes/breaks controls are live at rest.",
+      "lane": "offscreen"
     },
     {
       "name": "08_label_expression_dialog.png",
       "action": "actionSetStyle",
       "hostSelect": "BellingeSWMM_v021_nopervious.out",
       "page": "Symbology",
-      "click": "\u2026",
+      "click": "…",
       "size": "900x620",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. The per-kind label editor exists only on a results layer, which is why this was blocked. The template is a QPlainTextEdit; typing into it fills the live preview.",
-      "type": "{name}: {depth} m"
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "type": "{name}: {depth} m",
+      "lane": "offscreen"
     },
     {
       "name": "06_crs_selection_dialog.png",
       "action": "actionSetStyle",
       "hostSelect": "site_drainage_model",
       "page": "Source",
-      "click": "Change\u2026",
+      "click": "Change…",
       "type": "UTM zone 17",
       "size": "1000x700",
       "_model": "examples/site_drainage/site_drainage_model.inp",
       "select": "NAD83(2011) / UTM zone 17N",
       "maxWidth": 1100,
-      "_note": "Dense WKT text: at 1400 px this figure is 470 KB, over the 400 KB audit cap."
+      "_note": "Dense WKT text: at 1400 px this figure is 470 KB, over the 400 KB audit cap.",
+      "lane": "offscreen"
     },
     {
       "name": "10_object_tree.png",
       "widget": "ObjectBrowserPanel",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "lane": "offscreen"
     },
     {
       "name": "09_search_filter.png",
       "widget": "ObjectBrowserPanel",
       "type": "OUT",
       "_model": "docs/manual/tutorials/models/transport_demo.inp",
-      "_note": "site_drainage names its outfall O1, so 'OUT' there matches only the category label."
+      "_note": "site_drainage names its outfall O1, so 'OUT' there matches only the category label.",
+      "lane": "offscreen"
     },
     {
       "name": "14_transect_editor.png",
       "action": "data.newTransect",
       "size": "1200x800",
       "_model": "tests/parity/inlets/Example7-Inlets.inp",
-      "_note": "BLOCKED: tests/parity/inlets/Example7-Inlets.inp is the only deck with [TRANSECTS], and the editor loads its roughness but reports 0 stations \u2014 swmm_transect_get_station_count returns 0, so the chart is empty.",
-      "select": "first"
+      "_note": "BLOCKED: tests/parity/inlets/Example7-Inlets.inp is the only deck with [TRANSECTS], and the editor loads its roughness but reports 0 stations — swmm_transect_get_station_count returns 0, so the chart is empty.",
+      "select": "first",
+      "lane": "offscreen"
     },
     {
       "name": "06_status_bar_crs_button.png",
       "widget": "statusBarCrsButton",
       "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
-      "_note": "The prose says the button shows an EPSG code. Only Bellinge has an ASSIGNED CRS (EPSG:25832, f06d8311); a SOURCE_CRS comment header is not enough, and every other deck reads 'Local'. Needs SWMMVIS_CAPTURE_STARTUP_MS=90000."
+      "_note": "The prose says the button shows an EPSG code. Only Bellinge has an ASSIGNED CRS (EPSG:25832, f06d8311); a SOURCE_CRS comment header is not enough, and every other deck reads 'Local'. Needs SWMMVIS_CAPTURE_STARTUP_MS=90000.",
+      "lane": "offscreen"
     },
     {
       "name": "11_attribute_table_dock.png",
@@ -619,7 +776,8 @@
       "widget": "AttributeTablePanel",
       "page": "Conduits",
       "hostSize": "1800x1000",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "lane": "offscreen"
     },
     {
       "name": "12_editing_toolbar.png",
@@ -627,7 +785,9 @@
       "tab": "Model",
       "hostSize": "2000x1000",
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "Deliberately the same strip as 02_ribbon_model_tab: three chapters show the Model ribbon under three names. Identical bytes here are intended, not a silent no-op."
+      "_note": "Deliberately the same strip as 02_ribbon_model_tab: three chapters show the Model ribbon under three names. Identical bytes here are intended, not a silent no-op.",
+      "lane": "offscreen",
+      "tabIn": "compactToolbarTabBar"
     },
     {
       "name": "14_model_ribbon_nodes_links.png",
@@ -635,20 +795,25 @@
       "tab": "Model",
       "hostSize": "2000x1000",
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "Deliberately the same strip as 02_ribbon_model_tab: three chapters show the Model ribbon under three names. Identical bytes here are intended, not a silent no-op."
+      "_note": "Deliberately the same strip as 02_ribbon_model_tab: three chapters show the Model ribbon under three names. Identical bytes here are intended, not a silent no-op.",
+      "lane": "offscreen",
+      "tabIn": "compactToolbarTabBar"
     },
     {
       "name": "20_live_toggles.png",
       "widget": "ribbonGroupDisplay",
       "tab": "Results",
       "hostSize": "2000x1000",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "lane": "offscreen",
+      "tabIn": "compactToolbarTabBar"
     },
     {
       "name": "a03_plugins_dialog.png",
       "action": "tools.plugins",
       "size": "1000x700",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "lane": "offscreen"
     },
     {
       "name": "a03_plugins_table.png",
@@ -657,7 +822,8 @@
       "tab": "Plugins",
       "size": "980x760",
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "Deliberately the same view as 18_plugins_subtab; the appendix shows it again."
+      "_note": "Deliberately the same view as 18_plugins_subtab; the appendix shows it again.",
+      "lane": "offscreen"
     },
     {
       "name": "a01_timeseries_editor_keys.png",
@@ -666,7 +832,7 @@
       "size": "1200x780",
       "grab": "QToolBar",
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path.",
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path.",
       "lane": "human"
     },
     {
@@ -676,8 +842,9 @@
       "page": "Conduits",
       "column": "Max/Full Depth",
       "hostSize": "2000x1000",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. The simulated block is Max Flow (Sim.) / Max Velocity / Max-Full Depth / Total Flow Volume / Time Surcharged."
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "lane": "offscreen"
     },
     {
       "name": "08_2d_results_style_panel.png",
@@ -686,8 +853,9 @@
       "page": "Symbology",
       "tab": "Depth Isolines",
       "size": "1200x820",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads, which carries the OpenStreetMap basemap, the SRTM DEM, the model and both results layers. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "lane": "offscreen"
     },
     {
       "name": "21_2d_style_panel_tabs.png",
@@ -696,32 +864,39 @@
       "page": "Symbology",
       "tab": "Depth Isolines",
       "size": "1200x820",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads, which carries the OpenStreetMap basemap, the SRTM DEM, the model and both results layers. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "lane": "offscreen"
     },
     {
       "name": "21_active_results_combos.png",
       "widget": "ribbonGroupResultsLayers",
       "tab": "Analysis",
       "hostSize": "2000x1000",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "lane": "offscreen",
+      "tabIn": "compactToolbarTabBar"
     },
     {
       "name": "21_results_ribbon_tab.png",
       "widget": "toolBarAnimation",
       "tab": "Results",
       "hostSize": "2000x1000",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "lane": "offscreen",
+      "tabIn": "compactToolbarTabBar"
     },
     {
       "name": "25_analysis_ribbon.png",
       "widget": "toolBarAnalysis",
       "tab": "Analysis",
       "hostSize": "2000x1000",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "lane": "offscreen",
+      "tabIn": "compactToolbarTabBar"
     },
     {
       "name": "21_results_symbology_tab.png",
@@ -729,26 +904,29 @@
       "hostSelect": "BellingeSWMM_v021_nopervious.out",
       "page": "Symbology",
       "size": "1200x820",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. Conduits selected so the renderer is keyed to flow, as the caption says.",
-      "select": "Conduits"
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "select": "Conduits",
+      "lane": "offscreen"
     },
     {
       "name": "24_report_viewer_sections.png",
       "action": "analysis.report",
       "size": "900x560",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. typeInto targets the section filter; the Search box comes first in child order. Dense monospace text: 941 KB at the default width, so the dialog is captured smaller.",
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
       "type": "Continuity",
       "typeInto": "Filter sections",
-      "maxWidth": 880
+      "maxWidth": 880,
+      "lane": "offscreen"
     },
     {
       "name": "20_report_viewer.png",
       "action": "analysis.report",
       "size": "1200x820",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "BLOCKED: the caption wants the continuity-error banner, which only shows when a Continuity Error (%) in the report exceeds the alert threshold. Bellinge's run is within it, so no banner appears. Needs a deliberately non-converged run."
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a completed site-drainage run with its sibling output and project file; review visible content before publication.",
+      "lane": "live"
     },
     {
       "name": "24_tabular_overview.png",
@@ -757,8 +935,9 @@
       "page": "Conduits",
       "column": "User Flags",
       "hostSize": "2000x1000",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. Centred on the LAST model attribute: centring on the first simulated column clamped at the right edge and produced bytes identical to 24_attribute_table_dynamics."
+      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
+      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
+      "lane": "offscreen"
     },
     {
       "name": "25_rainfall_visualization.png",
@@ -766,8 +945,8 @@
       "page": "Overlay",
       "size": "1200x820",
       "lane": "live",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. Has charts, so live lane."
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a completed site-drainage run with its sibling output and project file; review visible content before publication."
     },
     {
       "name": "14_link_properties_conduit.png",
@@ -776,7 +955,8 @@
       "widget": "PropertiesPanel",
       "size": "420x900",
       "maxWidth": 760,
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "lane": "offscreen"
     },
     {
       "name": "13_subcatchment_properties.png",
@@ -786,7 +966,8 @@
       "size": "420x900",
       "maxWidth": 760,
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "The manual said 'compound Edit buttons'. CompoundEditDelegate renders an '%1 - Edit...' affordance, but no compound row in the Properties panel shows it \u2014 on nodes, links or subcatchments. Caption aligned to the rows themselves; worth checking whether that affordance regressed."
+      "_note": "The manual said 'compound Edit buttons'. CompoundEditDelegate renders an '%1 - Edit...' affordance, but no compound row in the Properties panel shows it — on nodes, links or subcatchments. Caption aligned to the rows themselves; worth checking whether that affordance regressed.",
+      "lane": "offscreen"
     },
     {
       "name": "14_node_inflows_page.png",
@@ -798,9 +979,10 @@
       "_model": "docs/manual/tutorials/models/transport_demo.inp",
       "_note": "transport_demo is the only model with [INFLOWS]; site_drainage's table came up empty.",
       "editCell": "External Inflows",
-      "click": "Edit\u2026",
+      "click": "Edit…",
       "hostSelect": "J1",
-      "hostSelectIn": "AttributeTablePanel"
+      "hostSelectIn": "AttributeTablePanel",
+      "lane": "offscreen"
     },
     {
       "name": "10_node_compound_inflows.png",
@@ -810,11 +992,12 @@
       "hostSelect": "J1",
       "hostSelectIn": "AttributeTablePanel",
       "editCell": "External Inflows",
-      "click": "Edit\u2026",
+      "click": "Edit…",
       "size": "1100x760",
       "hostSize": "2000x1000",
       "_model": "docs/manual/tutorials/models/transport_demo.inp",
-      "_note": "Same view as 14_node_inflows_page; chapter 10 shows it again."
+      "_note": "Same view as 14_node_inflows_page; chapter 10 shows it again.",
+      "lane": "offscreen"
     },
     {
       "name": "14_inlet_usage_page.png",
@@ -824,10 +1007,11 @@
       "hostSelect": "ST_A",
       "hostSelectIn": "AttributeTablePanel",
       "editCell": "Inlet Usage",
-      "click": "Edit\u2026",
+      "click": "Edit…",
       "size": "1100x380",
       "hostSize": "2000x1000",
-      "_model": "docs/manual/tutorials/models/street_inlet_junction.inp"
+      "_model": "docs/manual/tutorials/models/street_inlet_junction.inp",
+      "lane": "offscreen"
     },
     {
       "name": "14_xsection_editor.png",
@@ -837,7 +1021,7 @@
       "hostSelect": "C1",
       "hostSelectIn": "AttributeTablePanel",
       "editCell": "Cross Section",
-      "click": "Edit\u2026",
+      "click": "Edit…",
       "size": "1100x760",
       "hostSize": "2000x1000",
       "_model": "examples/site_drainage/site_drainage_model.inp",
@@ -852,7 +1036,7 @@
       "hostSelect": "C1",
       "hostSelectIn": "AttributeTablePanel",
       "editCell": "Cross Section",
-      "click": "Edit\u2026",
+      "click": "Edit…",
       "size": "1100x760",
       "hostSize": "2000x1000",
       "_model": "examples/site_drainage/site_drainage_model.inp",
@@ -861,16 +1045,17 @@
     },
     {
       "name": "22_plot_variables_picker.png",
-      "hostSelect": "G71F04R",
+      "hostSelect": "J3",
       "hostSelectIn": "ObjectBrowserPanel",
       "action": "analysis.plotTimeSeries",
       "size": "900x700",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a completed site-drainage run. The selected J3 node and system group should be offered by the variables picker.",
+      "lane": "live"
     },
     {
       "name": "22_comparison_plot_overview.png",
-      "hostSelect": "G71F04R",
+      "hostSelect": "J3",
       "hostSelectIn": "ObjectBrowserPanel",
       "action": "analysis.plotTimeSeries",
       "click": [
@@ -879,29 +1064,29 @@
       ],
       "size": "1300x850",
       "lane": "live",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite. Charts, so live lane. Select All checks the variables; OK is disabled until something is. The chart rows load asynchronously from the .out; at the default settle they came back empty.",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a completed site-drainage run. The selected J3 node and system group should be offered by the variables picker.",
       "settleMs": 12000
     },
     {
       "name": "22_chart_modes_toolbar.png",
-      "hostSelect": "G71F04R",
+      "hostSelect": "J3",
       "hostSelectIn": "ObjectBrowserPanel",
       "action": "analysis.plotTimeSeries",
       "click": [
         "Select All",
         "OK"
       ],
-      "size": "1300x850",
-      "lane": "human",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path.",
-      "settleMs": 12000,
+      "size": "800x700",
+      "lane": "live",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a completed site-drainage run with its sibling output and project file; review visible content before publication.",
+      "settleMs": 2000,
       "grab": "QToolBar"
     },
     {
       "name": "22_statistics_panel.png",
-      "hostSelect": "G71F04R",
+      "hostSelect": "J3",
       "hostSelectIn": "ObjectBrowserPanel",
       "action": "analysis.plotTimeSeries",
       "click": [
@@ -910,253 +1095,925 @@
       ],
       "size": "1300x850",
       "lane": "live",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "DEFERRED: the caption wants fit metrics, which only appear once an observed series is loaded \u2014 and that arrives through a file picker (human lane). The summary columns alone also leave the panel ~90% empty.",
-      "settleMs": 12000,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a completed site-drainage run with its sibling output and project file; review visible content before publication.",
+      "settleMs": 2000,
       "grab": "StatsSummaryPanel"
     },
     {
       "name": "01_install_macos_dmg.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "02_menu_model_expanded.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "03_file_menu.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "03_save_as_dialog.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "05_hover_tooltip.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "05_canvas_context_menu.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "05_export_map_dialog.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "07_layer_context_menu.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "10_browser_context_menu.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "10_convert_to_menu.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "11_apply_value_to_rows.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "13_model_data_objects_menu.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "16_quality_overview.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "17_data_objects_menu.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "21_add_results_dialogs.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "22_series_tree_context_menu.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "22_load_observed.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "25_pick_2d_cells_menu.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "a02_oswp_structure.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "a02_export_filters.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "a04_redraw_log.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "t02_rule_violation.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "t03_add_2d_results.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "25_flow_balance_result.png",
-      "hostSelect": "G71F04R",
+      "lane": "live",
+      "window": true,
+      "page": "site_drainage_model",
+      "tab": "Analysis",
+      "tabIn": "compactToolbarTabBar",
+      "hostSelect": "J3",
       "hostSelectIn": "ObjectBrowserPanel",
-      "action": "analysis.flowBalanceDown",
-      "size": "900x600",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+      "prepareActions": [
+        "map.zoomExtent",
+        "analysis.flowBalanceDown"
+      ],
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "show": [
+        "dockWidgetSWMMLayers"
+      ],
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "settleMs": 3000,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Blocked on the local-CRS site-drainage capture: the saved analysis reports an engineering-CRS transform error and does not render. Recheck with an appropriate verified CRS; do not publish a map without the analysis overlay."
     },
     {
       "name": "25_travel_time_result.png",
-      "hostSelect": "G71F04R",
+      "lane": "live",
+      "window": true,
+      "page": "site_drainage_model",
+      "tab": "Analysis",
+      "tabIn": "compactToolbarTabBar",
+      "hostSelect": "J3",
       "hostSelectIn": "ObjectBrowserPanel",
-      "action": "analysis.travelTimeDown",
-      "size": "900x600",
-      "_model": "/Users/calebbuahin/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp",
-      "_note": "Needs a COMPLETED run. Captured from the executed Bellinge project in ~/Downloads. Not reproducible from the repo alone \u2014 re-running Bellinge is the prerequisite."
+      "prepareActions": [
+        "map.zoomExtent",
+        "analysis.travelTimeDown"
+      ],
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "show": [
+        "dockWidgetSWMMLayers"
+      ],
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "settleMs": 3000,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Blocked on the local-CRS site-drainage capture: the saved analysis reports an engineering-CRS transform error and does not render. Recheck with an appropriate verified CRS; do not publish a map without the analysis overlay."
     },
     {
       "name": "05_zoom_rubber_band.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "09_selection_overview.png",
-      "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "lane": "live",
+      "window": true,
+      "page": "site_drainage_model",
+      "tab": "Home",
+      "tabIn": "compactToolbarTabBar",
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "hostSelectIn": "ObjectBrowserPanel",
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "show": [
+        "dockWidgetPropertiesPanel",
+        "dockWidgetObjectBrowser"
+      ],
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "hostSelect": "J3",
+      "prepareActions": [
+        "map.zoomExtent"
+      ]
     },
     {
       "name": "09_select_by_polygon.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "09_select_upstream.png",
-      "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "lane": "live",
+      "window": true,
+      "page": "site_drainage_model",
+      "tab": "Home",
+      "tabIn": "compactToolbarTabBar",
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "hostSelectIn": "ObjectBrowserPanel",
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "show": [
+        "dockWidgetPropertiesPanel",
+        "dockWidgetObjectBrowser"
+      ],
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "hostSelect": "O1",
+      "prepareActions": [
+        "map.zoomExtent",
+        "select.upstream"
+      ]
     },
     {
       "name": "09_mesh_edge_selection.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "09_confirm_bulk_delete.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "12_inline_vertex_edit.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "12_add_node_terrain.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "12_add_conduit_snap.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "23_profile_overview.png",
-      "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "lane": "live",
+      "action": "analysis.plotProfile",
+      "hostSelect": "J3",
+      "hostSelectMore": [
+        "O1"
+      ],
+      "hostSelectIn": "ObjectBrowserPanel",
+      "size": "1400x850",
+      "settleMs": 1800,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a completed site-drainage run. Select J3 and O1 in the Object Browser; Plot Profile routes their connected path."
     },
     {
       "name": "23_profile_path_picker.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "23_profile_anatomy.png",
-      "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "lane": "live",
+      "action": "analysis.plotProfile",
+      "hostSelect": "J3",
+      "hostSelectMore": [
+        "O1"
+      ],
+      "hostSelectIn": "ObjectBrowserPanel",
+      "size": "1400x850",
+      "settleMs": 1800,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a completed site-drainage run. Select J3 and O1 in the Object Browser; Plot Profile routes their connected path."
     },
     {
       "name": "23_profile_toolbar_layers.png",
-      "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "lane": "live",
+      "action": "analysis.plotProfile",
+      "hostSelect": "J3",
+      "hostSelectMore": [
+        "O1"
+      ],
+      "hostSelectIn": "ObjectBrowserPanel",
+      "size": "1400x850",
+      "settleMs": 1800,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a completed site-drainage run. Select J3 and O1 in the Object Browser; Plot Profile routes their connected path."
     },
     {
       "name": "23_profile_sources_tab.png",
-      "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "lane": "live",
+      "action": "analysis.plotProfile",
+      "hostSelect": "J3",
+      "hostSelectMore": [
+        "O1"
+      ],
+      "hostSelectIn": "ObjectBrowserPanel",
+      "size": "1300x850",
+      "settleMs": 1800,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a completed site-drainage run. Select J3 and O1 in the Object Browser; Plot Profile routes their connected path.",
+      "click": "Display Options",
+      "dialogPage": "Sources"
     },
     {
       "name": "23_profile_attribute_tracks.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "23_2d_mesh_profile.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "23_terrain_profile.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "t01_profile_plot.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "Open the completed site-drainage run. Select J3 and O1, then Analysis > Plot Profile. Display Options > Display: enable Max HGL band and Max HGL line. Close options and capture the full profile with its legend; the default profile does NOT show the maximum envelope."
     },
     {
       "name": "t03_2d_profile.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "t04_profile_2d_overlay.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "t05_profile_across_embankment.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
     },
     {
       "name": "t08_profile_pumped_branch.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+    },
+    {
+      "name": "01_first_model_open.png",
+      "window": true,
+      "tab": "Home",
+      "tabIn": "compactToolbarTabBar",
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "show": [
+        "dockWidgetObjectBrowser",
+        "dockWidgetPropertiesPanel"
+      ],
+      "lane": "live",
+      "page": "site_drainage_model",
+      "prepareActions": [
+        "map.zoomExtent"
+      ]
+    },
+    {
+      "name": "01_welcome_page.png",
+      "widget": "welcomeWidget",
+      "page": "Welcome",
+      "size": "1250x780",
+      "maxWidth": 1500,
+      "lane": "live",
+      "_model": null,
+      "_note": "Capture without an open model so recents contain no private paths."
+    },
+    {
+      "name": "02_ribbon_features_tab.png",
+      "widget": "toolBarFeatures",
+      "tab": "Features",
+      "tabIn": "compactToolbarTabBar",
+      "hostSize": "1800x1000",
+      "maxWidth": 1600,
+      "lane": "live"
+    },
+    {
+      "name": "12a_features_ribbon.png",
+      "widget": "toolBarFeatures",
+      "tab": "Features",
+      "tabIn": "compactToolbarTabBar",
+      "hostSize": "1800x1000",
+      "maxWidth": 1600,
+      "lane": "live"
+    },
+    {
+      "name": "12a_new_feature_layer.png",
+      "action": "features.newLayer",
+      "size": "1000x900",
+      "lane": "live"
+    },
+    {
+      "name": "12a_mesh_region_fields.png",
+      "action": "features.newLayer",
+      "page": "Mesh regions",
+      "size": "1000x900",
+      "lane": "live"
+    },
+    {
+      "name": "12a_feature_vertices.png",
+      "lane": "human",
+      "_note": "Create a polygon feature in a working copy; enable Edit Mode; select exactly one feature and show the Features panel Vertices table beside the map."
+    },
+    {
+      "name": "19_generate_mesh_sources.png",
+      "lane": "live",
+      "action": "model.generateMesh",
+      "page": "Sources",
+      "size": "1500x1050",
+      "maxWidth": 1600,
+      "type": "site_drainage_model.2dm",
+      "typeInto": "default: <project>.2dm"
+    },
+    {
+      "name": "19_generate_mesh_quality.png",
+      "lane": "live",
+      "action": "model.generateMesh",
+      "page": "Quality",
+      "size": "1500x1050",
+      "maxWidth": 1600,
+      "type": "site_drainage_model.2dm",
+      "typeInto": "default: <project>.2dm"
+    },
+    {
+      "name": "19_generate_mesh_hydraulics.png",
+      "lane": "live",
+      "action": "model.generateMesh",
+      "page": "Hydraulics",
+      "size": "1500x1050",
+      "maxWidth": 1600,
+      "type": "site_drainage_model.2dm",
+      "typeInto": "default: <project>.2dm"
+    },
+    {
+      "name": "19_channel_burn_tab.png",
+      "lane": "live",
+      "action": "model.generateMesh",
+      "page": "Channel Burn-in",
+      "size": "1500x1050",
+      "maxWidth": 1600,
+      "type": "site_drainage_model.2dm",
+      "typeInto": "default: <project>.2dm"
+    },
+    {
+      "name": "15_wind_tab.png",
+      "lane": "live",
+      "action": "climate.temperature",
+      "tab": "Wind Speed",
+      "size": "1100x720"
+    },
+    {
+      "name": "15_areal_depletion_tab.png",
+      "lane": "live",
+      "action": "climate.temperature",
+      "tab": "Areal Depletion",
+      "size": "1100x720"
+    },
+    {
+      "name": "15_adjustments_tab.png",
+      "lane": "live",
+      "action": "climate.temperature",
+      "tab": "Adjustments",
+      "size": "1100x720"
+    },
+    {
+      "name": "15_evaporation_tab.png",
+      "lane": "live",
+      "action": "climate.evaporation",
+      "tab": "Evaporation",
+      "page": "Monthly Averages",
+      "size": "1100x720"
+    },
+    {
+      "name": "t01_landuse_editor.png",
+      "lane": "live",
+      "action": "data.newLandUse",
+      "select": "first",
+      "tab": "Buildup",
+      "size": "1200x780"
+    },
+    {
+      "name": "t01_simulation_options.png",
+      "lane": "live",
+      "action": "model.simulationOptions",
+      "page": "Models / Processes",
+      "tab": "Domains & Processes",
+      "size": "980x760"
+    },
+    {
+      "name": "t01_open_model.png",
+      "lane": "live",
+      "window": true,
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "tab": "Home",
+      "tabIn": "compactToolbarTabBar",
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "page": "site_drainage_model",
+      "prepareActions": [
+        "map.zoomExtent"
+      ]
+    },
+    {
+      "name": "t01_object_browser.png",
+      "lane": "live",
+      "window": true,
+      "hostSelect": "S5",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "tab": "Home",
+      "tabIn": "compactToolbarTabBar",
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "show": [
+        "dockWidgetPropertiesPanel",
+        "dockWidgetObjectBrowser"
+      ],
+      "page": "site_drainage_model",
+      "prepareActions": [
+        "map.zoomExtent"
+      ]
+    },
+    {
+      "name": "15_humidity_tab.png",
+      "lane": "live",
+      "action": "climate.temperature",
+      "tab": "Humidity",
+      "size": "1100x720"
+    },
+    {
+      "name": "t07_pollutant_editor.png",
+      "action": "data.newPollutant",
+      "select": "first",
+      "size": "1100x760",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen",
+      "_note": "Same transport_demo state as 16_pollutant_editor.png; intentionally reused in tutorial T7."
+    },
+    {
+      "name": "t07_reaction_editor_expressions.png",
+      "action": "model.editReactionSystem",
+      "tab": "Expressions",
+      "size": "1300x820",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen",
+      "_note": "Same transport_demo state as 16_reaction_expressions.png; intentionally reused in tutorial T7."
+    },
+    {
+      "name": "t07_heat_config_solar.png",
+      "action": "model.editHeatConfig",
+      "tab": "Solar",
+      "size": "1200x780",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "lane": "offscreen",
+      "_note": "Same transport_demo state as 16_heat_solar.png; intentionally reused in tutorial T7."
+    },
+    {
+      "name": "t07_sim_options_quality.png",
+      "action": "model.simulationOptions",
+      "page": "Quality & Transport",
+      "tab": "General",
+      "size": "980x760",
+      "lane": "offscreen",
+      "_note": "Same transport_demo state as 18_quality_transport.png; intentionally reused in tutorial T7."
+    },
+    {
+      "name": "t02_street_editor.png",
+      "action": "data.newStreet",
+      "select": "first",
+      "size": "1300x820",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/street_inlet_junction.inp",
+      "_note": "Has a schematic section preview, which is chart-class content: offscreen draws the chrome but not the section."
+    },
+    {
+      "name": "t02_inlet_editor_curb.png",
+      "action": "data.newInlet",
+      "select": "Curb1",
+      "size": "1300x820",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/street_inlet_junction.inp"
+    },
+    {
+      "name": "t02_link_inlet_editor.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Conduits",
+      "hostSelect": "ST_A",
+      "hostSelectIn": "AttributeTablePanel",
+      "editCell": "Inlet Usage",
+      "click": "Edit…",
+      "size": "1100x380",
+      "hostSize": "2000x1000",
+      "_model": "docs/manual/tutorials/models/street_inlet_junction.inp",
+      "lane": "offscreen"
+    },
+    {
+      "name": "t02_open_model.png",
+      "lane": "live",
+      "window": true,
+      "page": "street_inlet_junction",
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "prepareActions": [
+        "map.zoomExtent"
+      ],
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ]
+    },
+    {
+      "name": "t02_inlet_junction_properties.png",
+      "lane": "live",
+      "widget": "PropertiesPanel",
+      "hostSelect": "IJ1",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "size": "480x1000",
+      "maxWidth": 800
+    },
+    {
+      "name": "t02_inlet_editor_combo.png",
+      "lane": "live",
+      "action": "data.newInlet",
+      "select": "Combo1",
+      "size": "1300x900"
+    },
+    {
+      "name": "t02_inlet_editor_custom.png",
+      "lane": "live",
+      "action": "data.newInlet",
+      "select": "Custom1",
+      "size": "1600x1000"
+    },
+    {
+      "name": "t02_report_street_tables.png",
+      "lane": "live",
+      "action": "analysis.report",
+      "activate": "Street Inlet Flow Summary",
+      "size": "1500x540",
+      "maxWidth": 1600,
+      "_model": "docs/manual/tutorials/models/street_inlet_junction.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication."
+    },
+    {
+      "name": "19_mesh_style_panel.png",
+      "lane": "live",
+      "action": "actionSetStyle",
+      "hostSelect": "Meshes/2d_complete_example.inp",
+      "page": "Symbology",
+      "tab": "Terrain Fill",
+      "size": "1200x820"
+    },
+    {
+      "name": "19_mesh2d_ribbon.png",
+      "lane": "live",
+      "widget": "toolBarMeshEditing",
+      "tab": "Mesh 2D",
+      "tabIn": "compactToolbarTabBar",
+      "hostSize": "2200x1000",
+      "maxWidth": 1600
+    },
+    {
+      "name": "t01_crs_dialog.png",
+      "lane": "live",
+      "action": "actionSetStyle",
+      "hostSelect": "site_drainage_model",
+      "page": "Source",
+      "click": "Change…",
+      "select": "Local — feet (no transform)",
+      "size": "1100x700",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication."
+    },
+    {
+      "name": "t01_attribute_table.png",
+      "lane": "live",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Conduits",
+      "sortColumn": "Length (ft)",
+      "size": "1400x500",
+      "hostSize": "1800x1000",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication.",
+      "floatDock": true
+    },
+    {
+      "name": "t01_rainfall_visualization.png",
+      "lane": "live",
+      "action": "actionRainfallVisualization",
+      "page": "Overlay",
+      "size": "1200x820",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication."
+    },
+    {
+      "name": "t01_coverages.png",
+      "lane": "live",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Subcatchments",
+      "hostSelect": "S4",
+      "hostSelectIn": "AttributeTablePanel",
+      "editCell": "Land Use Coverage",
+      "click": "Edit",
+      "size": "850x340",
+      "hostSize": "1800x1000",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication."
+    },
+    {
+      "name": "t01_run_status.png",
+      "lane": "live",
+      "action": "view.dock.simulationStatus",
+      "widget": "dockWidgetSimulationStatus",
+      "prepareActions": [
+        "sim.run"
+      ],
+      "size": "1600x330",
+      "settleMs": 1800,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use prepare_manual_fixtures.py without --engine: start with a fresh input copy and NO sibling results to avoid the output-overwrite prompt. Execute writes only in that disposable folder; inspect the completed job and report.",
+      "floatDock": true
+    },
+    {
+      "name": "t01_report_viewer.png",
+      "lane": "live",
+      "action": "analysis.report",
+      "activate": "Flow Routing Continuity",
+      "size": "1300x500",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication."
+    },
+    {
+      "name": "t01_statistics_dashboard.png",
+      "lane": "live",
+      "action": "analysis.summarize",
+      "page": "Links",
+      "size": "1100x480",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication."
+    },
+    {
+      "name": "t01_results_style.png",
+      "lane": "live",
+      "action": "actionSetStyle",
+      "hostSelect": "site_drainage_model.out",
+      "page": "Symbology",
+      "size": "1350x900",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication.",
+      "select": "Conduits"
+    },
+    {
+      "name": "t01_plot_variables.png",
+      "lane": "live",
+      "action": "analysis.plotTimeSeries",
+      "hostSelect": "J11",
+      "hostSelectMore": [
+        "C11"
+      ],
+      "hostSelectIn": "ObjectBrowserPanel",
+      "check": [
+        "Node J11 > Depth (node) (ft)",
+        "Link C11 > Flow (ft³/s)"
+      ],
+      "size": "780x600",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication."
+    },
+    {
+      "name": "t01_comparison_plot.png",
+      "lane": "live",
+      "action": "analysis.plotTimeSeries",
+      "hostSelect": "J11",
+      "hostSelectMore": [
+        "C11"
+      ],
+      "hostSelectIn": "ObjectBrowserPanel",
+      "check": [
+        "Node J11 > Depth (node) (ft)",
+        "Link C11 > Flow (ft³/s)"
+      ],
+      "size": "1500x950",
+      "click": "OK",
+      "settleMs": 2500,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication."
+    },
+    {
+      "name": "t01_tss_plot.png",
+      "lane": "live",
+      "action": "analysis.plotTimeSeries",
+      "hostSelect": "C11",
+      "hostSelectMore": [
+        "C1",
+        "C10"
+      ],
+      "hostSelectIn": "ObjectBrowserPanel",
+      "check": [
+        "Link C11 > TSS (MG/L)",
+        "Link C1 > TSS (MG/L)",
+        "Link C10 > TSS (MG/L)"
+      ],
+      "click": "OK",
+      "size": "1500x950",
+      "settleMs": 2500,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication."
+    },
+    {
+      "name": "t01_tabular_results.png",
+      "lane": "live",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Conduits",
+      "column": "Max Flow (Sim.) (CFS)",
+      "size": "1500x500",
+      "hostSize": "1800x1000",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication.",
+      "floatDock": true
+    },
+    {
+      "name": "t02_section_view_street.png",
+      "lane": "live",
+      "action": "view.dock.sectionView",
+      "widget": "dockWidgetSectionView",
+      "hostSelect": "ST_A",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "size": "1100x450",
+      "_model": "docs/manual/tutorials/models/street_inlet_junction.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication.",
+      "floatDock": true,
+      "tab": "10:1"
+    },
+    {
+      "name": "t02_capture_bypass_plot.png",
+      "lane": "live",
+      "action": "analysis.plotTimeSeries",
+      "hostSelect": "ST_A",
+      "hostSelectMore": [
+        "ST_B",
+        "ST_C"
+      ],
+      "hostSelectIn": "ObjectBrowserPanel",
+      "check": [
+        "Link ST_A > Flow (ft³/s)",
+        "Link ST_B > Flow (ft³/s)",
+        "Link ST_C > Flow (ft³/s)"
+      ],
+      "click": "OK",
+      "size": "1500x950",
+      "settleMs": 2500,
+      "_model": "docs/manual/tutorials/models/street_inlet_junction.inp",
+      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication."
+    },
+    {
+      "name": "t01_basemap.png",
+      "lane": "live",
+      "action": "import.basemap",
+      "page": "XYZ Tiles",
+      "size": "1100x750",
+      "_note": "Capture the provider controls without adding a basemap to the synthetic local-feet example."
+    },
+    {
+      "name": "t01_animation_peak.png",
+      "lane": "human",
+      "_note": "Open a completed site-drainage run. Select its results layer; Results > Set Style > Symbology > Conduits; Color by LinkFlow; Range Fixed over run. Apply, enable Show Legend, and set the timeline to 01/01/1998 12:00. Fit the network and capture the map with its legend and timestamp."
+    },
+    {
+      "name": "t01_routing_comparison.png",
+      "lane": "human",
+      "_note": "Create three separate drainage working folders; run Dynamic Wave, Kinematic Wave and Finite Volume after checking each report. Add the three outputs to the project and compare C11 Flow in Comparison Plot. Capture only after checking the series/run labels, continuity and readable axes; do not presume agreement."
+    },
+    {
+      "name": "t01_lid_editor.png",
+      "lane": "human",
+      "_note": "In a disposable copy, open Model > Data Objects > LID Controls. Create a Bio-Retention Cell and explicitly enter a complete, physically valid design for Surface, Soil, Storage and Drain. Capture the populated editor in the same session; loaded layer values currently display defaults. Record all parameters and verify the saved LID_CONTROLS before publication."
+    },
+    {
+      "name": "t01_lid_usage.png",
+      "lane": "human",
+      "_note": "Continue the recorded bioretention example. Select S5 > LID Usage, assign the named control with recorded unit count, area, width, initial saturation and impervious treatment fraction. Run successfully, inspect LID results, then capture the populated usage table. Keep the base input separate."
+    },
+    {
+      "name": "t02_new_inlet_junction.png",
+      "lane": "human",
+      "_note": "Open a disposable street example. Activate Model > Add Node > Add Inlet Junction, click a STREET conduit, and choose a compatible inlet design and existing ordinary capture node. Capture the New Inlet Junction panel with both fields populated and OK enabled; cancel without splitting for the figure-only run."
     }
   ]
 }

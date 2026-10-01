@@ -156,3 +156,9 @@ examples/channel_burn_boundary/*
 !examples/channel_burn_boundary/terrain.asc
 !examples/channel_burn_boundary/terrain.prj
 !examples/channel_burn_boundary/study_domain.geojson
+
+# Isolated documentation capture build
+/build-documentation/
+
+# Python caches from documentation tooling
+/scripts/__pycache__/
