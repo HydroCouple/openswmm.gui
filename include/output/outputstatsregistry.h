@@ -31,10 +31,22 @@
 #include <QPointer>
 #include <QString>
 #include <QUuid>
+#include <QJsonArray>
+#include <QJsonObject>
 
 class SWMMResultsLayer;
 
 namespace openswmmvis {
+
+struct OutputRun {
+    QString id, sourceId, path, label, state, previousId, completedAt;
+    QString fingerprint, packagePath, retainedPath, reportPath;
+    QJsonObject snapshot;
+    int number=1;
+    qint64 size=-1, modified=-1;
+    bool native=false;
+    bool canAnalyze()const{return state==QStringLiteral("Complete")||state==QStringLiteral("Imported");}
+};
 
 /*! One row in the registry. Captures everything a consumer needs to
  *  render a row in the Stats-source combo and dispatch a stat-getter
@@ -63,6 +75,7 @@ struct OutputIdentity
      *  orders; QPointer in the registry's internal storage handles
      *  that gracefully). */
     SWMMResultsLayer *layer = nullptr;
+    QString runId;
 };
 
 /*! Per-project registry of loaded output layers. */
@@ -99,9 +112,24 @@ public:
      *  UUID or no match is found. */
     [[nodiscard]] OutputIdentity identityFor(const QUuid &id) const;
 
+    QList<OutputRun> runs()const{return m_runs;}
+    OutputRun run(const QString&id)const;
+    OutputRun latestRun(const QString&path)const;
+    QString beginRun(const QString&path,const QJsonObject&snapshot,const QString&reportPath = {});
+    void finishRun(const QString&id,bool success,bool cancelled);
+    void contentOpened(SWMMResultsLayer*,const QString&path,bool live);
+    void attachAnalysis(const QString&id,const QString&fingerprint,const QString&package,
+                        const QJsonObject&snapshot);
+    void adoptAnalysis(const QString&id,const QString&sourceId,const QString&path,const QString&label,
+                       const QString&fingerprint,const QString&package,const QJsonObject&snapshot);
+    void setRetainedPath(const QString&id,const QString&path);
+    QJsonArray saveRuns(const QString&baseDirectory)const;
+    void restoreRuns(const QJsonArray&,const QString&baseDirectory);
+
 signals:
     /*! Emitted after registerLayer / unregisterLayer mutates the set. */
     void identitiesChanged();
+    void runsChanged();
 
 private:
     /*! Recompute every entry's shortLabel after a set mutation. Resolves
@@ -115,9 +143,12 @@ private:
         QString                     shortLabel;
         QString                     tooltipPath;
         QPointer<SWMMResultsLayer>  layer;
+        QString                    runId;
     };
 
     QList<Slot> m_slots;
+    QList<OutputRun> m_runs;
+    QString importRun(const QString&path);
 };
 
 } // namespace openswmmvis

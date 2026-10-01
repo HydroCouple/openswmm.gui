@@ -650,6 +650,11 @@ set(
 
         # ── Output (Slice QA) ────────────────────────────────────────────────
         include/output/outputstatsregistry.h
+        include/layers/traceanalysislayer.h
+        include/ui/dialogs/traceanalysisdialog.h
+        include/output/tracecontroller.h
+        include/output/tracedata.h
+        include/output/traceanalysisstore.h
 
         # ── Simulation ───────────────────────────────────────────────────────
         include/simulation/runpathresolver.h
@@ -1400,6 +1405,12 @@ set(
 
         # Output (Slice QA)
         src/output/outputstatsregistry.cpp
+        src/layers/traceanalysislayer.cpp
+        src/ui/dialogs/traceanalysisdialog.cpp
+        src/output/tracecontroller.cpp
+        src/output/tracedata.cpp
+        src/output/tracesnapshot.cpp
+        src/output/traceanalysisstore.cpp
 
         # Simulation
         src/simulation/runpathresolver.cpp

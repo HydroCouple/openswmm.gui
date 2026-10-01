@@ -142,3 +142,6 @@ tests/unit/data/channelburn_artifacts/
 *.out
 *.rpt
 *.oswp
+
+# Isolated flow/travel-time development build
+/build-flow-trace/

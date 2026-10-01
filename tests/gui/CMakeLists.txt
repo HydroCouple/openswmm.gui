@@ -54,6 +54,14 @@ function(add_swmmvis_gui_test TEST_NAME)
 endfunction()
 
 # ── Self-contained tests (no app linkage required) ──────────────────────────
+add_swmmvis_gui_test(test_traceanalysisstore
+    test_traceanalysisstore.cpp
+    ${CMAKE_SOURCE_DIR}/src/output/tracedata.cpp
+    ${CMAKE_SOURCE_DIR}/src/output/traceanalysisstore.cpp)
+target_link_libraries(test_traceanalysisstore PRIVATE GDAL::GDAL)
+target_compile_definitions(test_traceanalysisstore PRIVATE
+    SWMMVIS_TRACE_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/workplans/artifacts/flow_trace_2026-10-01/store")
+
 # These exercise headers/sources that are simple enough to include directly.
 
 add_swmmvis_gui_test(test_dirtytrackingbasic
@@ -3934,3 +3942,14 @@ set_property(TEST test_phase35_sectionjourney APPEND PROPERTY ENVIRONMENT
     "SWMMVIS_SECTION_JOURNEY_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/review/section-journey")
 set_property(TEST test_phase35_forcingjourney APPEND PROPERTY ENVIRONMENT
     "SWMMVIS_FORCING_JOURNEY_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/forcing_journey")
+
+add_swmmvis_gui_test(test_traceanalysisjourney
+    test_traceanalysisjourney.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_traceanalysisjourney)
+target_compile_definitions(test_traceanalysisjourney PRIVATE
+    TRACE_JOURNEY_OUTPUT="${CMAKE_SOURCE_DIR}/workplans/artifacts/flow_trace_2026-10-01/journey")
+
+# Keep the full-app acceptance harness quick to compile; production retains its configured optimization.
+target_compile_options(test_traceanalysisjourney PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O0>)

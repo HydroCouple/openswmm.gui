@@ -75,3 +75,25 @@ TEST(OutputStatsRegistry, IdentitiesChangedSignalIsConnectable)
     // signal exists with the documented signature).
     EXPECT_TRUE(spy.isValid());
 }
+
+TEST(OutputStatsRegistry, RerunsAndEqualBasenamesHaveSeparatePersistentIdentities)
+{
+    OutputStatsRegistry registry;
+    auto first = registry.beginRun("/review/a/model.out", {});
+    registry.finishRun(first, true, false);
+    auto other = registry.beginRun("/review/b/model.out", {});
+    registry.finishRun(other, true, false);
+    auto rerun = registry.beginRun("/review/a/model.out", {});
+    EXPECT_NE(first, rerun);
+    EXPECT_EQ(registry.run(rerun).sourceId, registry.run(first).sourceId);
+    EXPECT_NE(registry.run(other).sourceId, registry.run(first).sourceId);
+    EXPECT_NE(registry.run(other).label, registry.run(first).label);
+    EXPECT_EQ(registry.run(rerun).previousId, first);
+    EXPECT_EQ(registry.run(rerun).number, 2);
+    OutputStatsRegistry reopened;
+    reopened.restoreRuns(registry.saveRuns("/review"), "/review");
+    EXPECT_EQ(reopened.run(first).state, QString("Complete"));
+    EXPECT_EQ(reopened.run(rerun).state, QString("Interrupted"));
+    EXPECT_FALSE(reopened.run(rerun).canAnalyze());
+    EXPECT_EQ(reopened.run(rerun).sourceId, registry.run(rerun).sourceId);
+}
