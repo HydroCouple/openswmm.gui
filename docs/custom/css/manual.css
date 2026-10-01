@@ -84,3 +84,29 @@ div.contents table.markdownTable {
     max-width: 100%;
     overflow-x: auto;
 }
+
+/* Numbered orientation markers sit above an unaltered application capture. */
+.manual-layout-map { position: relative; margin: 1.5em 0; }
+.manual-layout-map figure.manual-figure { margin: 0; }
+.manual-region-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    pointer-events: none;
+}
+.manual-region {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    display: grid;
+    place-items: center;
+    width: 1.7em;
+    height: 1.7em;
+    border-radius: 50%;
+    background: #123f65;
+    color: #fff;
+    border: 2px solid #fff;
+    font: bold clamp(10px, 1.1vw, 15px)/1 sans-serif;
+    box-shadow: 0 1px 4px #0006;
+    pointer-events: none;
+}

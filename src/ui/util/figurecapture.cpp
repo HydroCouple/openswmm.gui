@@ -14,6 +14,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QDialog>
+#include <QDockWidget>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -29,6 +30,8 @@
 #include <QListWidget>
 #include <QLoggingCategory>
 #include <QMainWindow>
+#include <QMdiArea>
+#include <QMdiSubWindow>
 #include <QPainter>
 #include <QPixmap>
 #include <QPlainTextEdit>
@@ -36,6 +39,7 @@
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QTableView>
 #include <QTimer>
 #include <QTreeView>
 #include <QTreeWidget>
@@ -357,13 +361,28 @@ bool FigureCapture::loadManifest(QString *error)
         spec.action      = o.value(QStringLiteral("action")).toString();
         spec.widget      = o.value(QStringLiteral("widget")).toString();
         spec.wholeWindow = o.value(QStringLiteral("window")).toBool(false);
+        spec.floatDock   = o.value(QStringLiteral("floatDock")).toBool(false);
         spec.page        = o.value(QStringLiteral("page")).toString();
         spec.tab         = o.value(QStringLiteral("tab")).toString();
+        spec.tabIn       = o.value(QStringLiteral("tabIn")).toString();
+        spec.dialogPage  = o.value(QStringLiteral("dialogPage")).toString();
+        for (const auto &name : o.value(QStringLiteral("hide")).toArray())
+            spec.hide.append(name.toString());
+        for (const auto &name : o.value(QStringLiteral("show")).toArray())
+            spec.show.append(name.toString());
         spec.type        = o.value(QStringLiteral("type")).toString();
         spec.typeInto    = o.value(QStringLiteral("typeInto")).toString();
         spec.select      = o.value(QStringLiteral("select")).toString();
+        spec.activate    = o.value(QStringLiteral("activate")).toString();
+        spec.sortColumn  = o.value(QStringLiteral("sortColumn")).toString();
+        for (const auto &value : o.value(QStringLiteral("check")).toArray())
+            spec.check << value.toString();
         spec.hostSelect  = o.value(QStringLiteral("hostSelect")).toString();
         spec.hostSelectIn = o.value(QStringLiteral("hostSelectIn")).toString();
+        for (const auto &value : o.value(QStringLiteral("hostSelectMore")).toArray())
+            spec.hostSelectMore << value.toString();
+        for (const auto &value : o.value(QStringLiteral("prepareActions")).toArray())
+            spec.prepareActions << value.toString();
         const QJsonValue clickVal = o.value(QStringLiteral("click"));
         if (clickVal.isArray()) {
             const QJsonArray arr = clickVal.toArray();
@@ -460,8 +479,13 @@ bool FigureCapture::applyHostSelect(const FigureSpec &spec)
     QWidget *scope = mHost;
     if (!spec.hostSelectIn.isEmpty())
         scope = descendant_(mHost, spec.hostSelectIn);
-    if (scope && selectItem(scope, spec.hostSelect))
-        return true;
+    if (scope && selectItem(scope, spec.hostSelect)) {
+        bool complete = true;
+        for (const auto &name : spec.hostSelectMore)
+            complete = selectItem(scope, name, true) && complete;
+        if (complete)
+            return true;
+    }
 
     FigureResult r;
     r.name   = spec.name;
@@ -482,6 +506,21 @@ bool FigureCapture::applyHostSelect(const FigureSpec &spec)
 void FigureCapture::captureSpec(const FigureSpec &spec)
 {
     const int settle = spec.settleMs > 0 ? spec.settleMs : mDefaultSettleMs;
+
+    for (const auto &name : spec.hide + spec.show) {
+        QWidget *widget = descendant_(mHost, name);
+        if (!widget) {
+            FigureResult result;
+            result.name = spec.name;
+            result.status = QStringLiteral("failed");
+            result.detail = QStringLiteral("layout widget not found: %1").arg(name);
+            finishSpec(result);
+            return;
+        }
+        widget->setVisible(spec.show.contains(name));
+        if (spec.show.contains(name))
+            widget->raise();
+    }
 
     // An ACTION row must select before the action fires: the styling commands
     // are scoped to the layer selected in the Layers panel. A WIDGET row is
@@ -592,6 +631,10 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
             grabInto(dlg, spec);
         });
 
+        // Profile tools remain checked when their plot closes. Reset the
+        // tool before reopening it for the next figure in the same batch.
+        if (act->isCheckable() && act->isChecked())
+            act->trigger();
         act->trigger();
         return;
     }
@@ -623,6 +666,24 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
     }
 
+    if (spec.floatDock) {
+        auto *parent = target;
+        while (parent && !qobject_cast<QDockWidget *>(parent))
+            parent = parent->parentWidget();
+        if (auto *dock = qobject_cast<QDockWidget *>(parent)) {
+            dock->setFloating(true);
+            if (spec.size.isValid()) dock->resize(spec.size);
+            dock->show();
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        } else {
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("floatDock target is not inside a dock");
+            dismissOpenedBy(spec);
+            finishSpec(r);
+            return;
+        }
+    }
+
     if (spec.size.isValid())
         target->resize(spec.size);
 
@@ -640,11 +701,20 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         return;
     }
 
+    // A category page must exist before selecting its object. In turn, that
+    // selection can reveal controls such as the Section View's V:H combo.
+    if ((!spec.widget.isEmpty() || spec.wholeWindow) && !applyHostSelect(spec))
+        return;
+
     // A sidebar page often carries its own tab strip: let the page switch lay
     // out first, then pick the tab inside whatever it revealed.
     if (!spec.tab.isEmpty()) {
         QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
-        if (!selectPage(target, spec.tab) && !selectPage(mHost, spec.tab)) {
+        QWidget *scope = spec.tabIn.isEmpty() ? nullptr : descendant_(mHost, spec.tabIn);
+        const bool selected = spec.tabIn.isEmpty()
+            ? (selectPage(target, spec.tab) || selectPage(mHost, spec.tab))
+            : (scope && selectPage(scope, spec.tab));
+        if (!selected) {
             r.status    = QStringLiteral("failed");
             r.detail    = QStringLiteral("no tab matching '%1' — pages offered: %2")
                               .arg(spec.tab, offeredPages_(target));
@@ -655,10 +725,22 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         }
     }
 
-    // The other half of the rule above: a widget or whole-window row selects
-    // AFTER its page has switched.
-    if ((!spec.widget.isEmpty() || spec.wholeWindow) && !applyHostSelect(spec))
-        return;
+    // Optional view preparation uses the same registered commands as the UI.
+    // Keep dialog-opening and file commands in their dedicated action lane.
+    for (const auto &id : spec.prepareActions) {
+        QAction *action = ActionRegistry::instance()->action(id);
+        if (!action)
+            action = mHost->findChild<QAction *>(id);
+        if (!action || !action->isEnabled() || nativePickerActions_().contains(id)) {
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("unavailable preparation action: %1").arg(id);
+            dismissOpenedBy(spec);
+            finishSpec(r);
+            return;
+        }
+        action->trigger();
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    }
 
     // A compound property (External Inflows, Cross Section, LID Usage) is
     // edited through a delegate-built "Edit…" button that only exists while
@@ -722,6 +804,18 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         }
     }
 
+    // Set explicit variable checkboxes before OK opens the plot. Tree paths
+    // distinguish the same attribute offered for several selected objects.
+    for (const auto &item : spec.check) {
+        if (!selectItem(target, item, false, QStringLiteral("check"))) {
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("no checkable row matching '%1'").arg(item);
+            dismissOpenedBy(spec);
+            finishSpec(r);
+            return;
+        }
+    }
+
     // Some figures live one button-press further in: the label expression
     // builder opens from the Labels tab, the ramp editor from a ramp picker.
     // Arm the grab BEFORE the click for the same reason the action path does
@@ -774,7 +868,10 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
 
         FigureSpec rest = spec;
         rest.clicks.clear();
-        rest.page.clear();
+        rest.prepareActions.clear();
+        rest.check.clear();
+        rest.page = spec.dialogPage;
+        rest.dialogPage.clear();
         rest.tab.clear();
         rest.editCell.clear();   // already served: it is what raised the dialog
         rest.column.clear();
@@ -888,6 +985,40 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         return;
     }
 
+    if (!spec.activate.isEmpty()
+        && !selectItem(target, spec.activate, false, QStringLiteral("activate"))) {
+        r.status = QStringLiteral("failed");
+        r.detail = QStringLiteral("no item matching '%1' to activate").arg(spec.activate);
+        dismissOpenedBy(spec);
+        finishSpec(r);
+        return;
+    }
+
+    if (!spec.sortColumn.isEmpty()) {
+        bool sorted = false;
+        for (auto *view : target->findChildren<QTableView *>()) {
+            if (!view->isVisibleTo(target) || !view->model())
+                continue;
+            auto *model = view->model();
+            for (int c = 0; c < model->columnCount(); ++c) {
+                if (model->headerData(c, Qt::Horizontal).toString()
+                        .compare(spec.sortColumn, Qt::CaseInsensitive) == 0) {
+                    view->sortByColumn(c, Qt::AscendingOrder);
+                    sorted = true;
+                    break;
+                }
+            }
+            if (sorted) break;
+        }
+        if (!sorted) {
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("no table column '%1' to sort").arg(spec.sortColumn);
+            dismissOpenedBy(spec);
+            finishSpec(r);
+            return;
+        }
+    }
+
     // A results table puts its simulated columns to the RIGHT of the model
     // attributes, past the viewport, so a figure of "the dynamics block"
     // otherwise shows only Name / Type / From / To. Scroll to the named
@@ -955,7 +1086,24 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         target->resize(spec.size);
 
     // Let the resize / page switch lay out before the pixels are read.
-    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    // Layout requests and ribbon compaction can arrive on subsequent timer
+    // turns. A single processEvents() captured the old, hidden toolbar size.
+    QElapsedTimer layoutSettle;
+    layoutSettle.start();
+    // The row's longer data-loading wait already ran before grabInto().
+    // Repeat only the layout wait here, otherwise nested plot captures can
+    // exceed their watchdog while pumping this event loop.
+    while (layoutSettle.elapsed() < mDefaultSettleMs)
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
+
+    if (!target->isVisible()) {
+        r.status = QStringLiteral("failed");
+        r.detail = QStringLiteral("capture target is hidden; check the page/tab scope");
+        r.elapsedMs = int(mSpecTimer.elapsed());
+        dismissOpenedBy(spec);
+        finishSpec(r);
+        return;
+    }
 
     // Render at mRenderScale rather than calling grab(): grab() honours the
     // widget's device pixel ratio, which is 1 under the offscreen QPA, and the
@@ -1010,12 +1158,23 @@ QWidget *FigureCapture::activeDialog() const
 
     // Non-modal: the most recently shown visible dialog that is not the host.
     QWidget *found = nullptr;
+    int deepest = -1;
     const auto tops = QApplication::topLevelWidgets();
     for (QWidget *w : tops) {
         if (w == mHost || !w->isVisible())
             continue;
-        if (qobject_cast<QDialog *>(w))
-            found = w;
+        if (qobject_cast<QDialog *>(w)) {
+            int depth = 0;
+            for (QObject *parent = w->parent(); parent; parent = parent->parent())
+                ++depth;
+            // A non-modal options window is a child of its plot. Top-level
+            // widget iteration order is unspecified and can return the plot
+            // instead of the options window just opened by a click.
+            if (depth > deepest) {
+                found = w;
+                deepest = depth;
+            }
+        }
     }
     return found;
 }
@@ -1023,6 +1182,32 @@ QWidget *FigureCapture::activeDialog() const
 bool FigureCapture::selectPage(QWidget *target, const QString &page) const
 {
     const QString wanted = stripMnemonic_(page);
+
+    // QMdiArea owns the actual active project; changing its private tab bar
+    // alone can highlight a project tab while leaving Welcome on the canvas.
+    for (QMdiArea *area : target->findChildren<QMdiArea *>()) {
+        for (QMdiSubWindow *window : area->subWindowList()) {
+            QString title = window->windowTitle();
+            title.remove(QStringLiteral("[*]"));
+            if (title.endsWith(QLatin1Char('*')))
+                title.chop(1);
+            if (title.trimmed().compare(wanted, Qt::CaseInsensitive) == 0) {
+                area->setActiveSubWindow(window);
+                return true;
+            }
+        }
+    }
+
+    // Explicit tabIn may name the bar itself, rather than its container.
+    if (auto *bar = qobject_cast<QTabBar *>(target)) {
+        for (int i = 0; i < bar->count(); ++i) {
+            if (stripMnemonic_(bar->tabText(i)).compare(wanted, Qt::CaseInsensitive) == 0) {
+                bar->setCurrentIndex(i);
+                return true;
+            }
+        }
+        return false;
+    }
 
     // 1. A tab widget anywhere inside the target.
     const auto tabs = target->findChildren<QTabWidget *>();
@@ -1096,7 +1281,8 @@ bool FigureCapture::selectPage(QWidget *target, const QString &page) const
     return false;
 }
 
-bool FigureCapture::selectItem(QWidget *target, const QString &which) const
+bool FigureCapture::selectItem(QWidget *target, const QString &which, bool append,
+                               const QString &operation) const
 {
     // A list-and-detail editor opens with its list populated but nothing
     // current, so the detail pane is blank and the figure contradicts its
@@ -1120,20 +1306,34 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which) const
         // pushes into the SelectionManager from its view's selectionChanged,
         // and the Properties panel reads the manager. Selecting the row too
         // is also simply what a user's click does.
-        auto pick = [view](const QModelIndex &idx) {
-            view->setCurrentIndex(idx);
-            if (QItemSelectionModel *sel = view->selectionModel())
-                sel->select(idx, QItemSelectionModel::ClearAndSelect
+        auto pick = [view, append, &operation](const QModelIndex &idx) {
+            if (QItemSelectionModel *sel = view->selectionModel()) {
+                sel->setCurrentIndex(idx, QItemSelectionModel::NoUpdate);
+                sel->select(idx, (append ? QItemSelectionModel::Select
+                                       : QItemSelectionModel::ClearAndSelect)
                                      | QItemSelectionModel::Rows);
+            }
+            view->scrollTo(idx);
+            if (operation == QLatin1String("check")) {
+                if (!(idx.flags() & Qt::ItemIsUserCheckable)
+                    || !view->model()->setData(idx, Qt::Checked, Qt::CheckStateRole))
+                    return false;
+            } else if (operation == QLatin1String("activate")) {
+                // The report navigator scrolls on clicked(), whereas ordinary
+                // selection only highlights the row. Use that public signal.
+                if (!QMetaObject::invokeMethod(view, "clicked", Qt::DirectConnection,
+                                               Q_ARG(QModelIndex, idx)))
+                    return false;
+            }
             QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+            return true;
         };
 
         if (wantFirst) {
             const QModelIndex idx = model->index(0, 0, view->rootIndex());
             if (!idx.isValid())
                 continue;
-            pick(idx);
-            return true;
+            return pick(idx);
         }
         // Depth-first: the Layers panel files every layer under a category
         // node, so the row a figure wants is never at the top level there.
@@ -1142,11 +1342,15 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which) const
         // spelled "NAD83(2011) / UTM zone 17N", and splitting it looked for a
         // "UTM zone 17N" nested under a "NAD83(2011)".
         QModelIndex idx = findRow_(model, view->rootIndex(), which);
-        if (!idx.isValid() && which.contains(QLatin1Char('/'))) {
+        if (!idx.isValid() && (which.contains(QLatin1Char('/'))
+                              || which.contains(QStringLiteral(" > ")))) {
             // "Meshes/2d_complete_example.inp", for the models whose mesh
             // layer and SWMM layer carry the same name.
             idx = view->rootIndex();
-            for (const QString &segment : which.split(QLatin1Char('/'))) {
+            // " > " also supports labels with slash units such as ft³/s.
+            const QStringList segments = which.contains(QStringLiteral(" > "))
+                ? which.split(QStringLiteral(" > ")) : which.split(QLatin1Char('/'));
+            for (const QString &segment : segments) {
                 idx = findRow_(model, idx, segment.trimmed());
                 if (!idx.isValid())
                     break;
@@ -1156,8 +1360,7 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which) const
             if (auto *tree = qobject_cast<QTreeView *>(view))
                 for (QModelIndex p = idx.parent(); p.isValid(); p = p.parent())
                     tree->expand(p);
-            pick(idx);
-            return true;
+            return pick(idx);
         }
     }
     return false;

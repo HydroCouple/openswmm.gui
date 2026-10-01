@@ -123,7 +123,7 @@ condition — the component config files only take constants.
 The same fields appear as rows in the Properties panel and as columns in the
 attribute table, so a pollutant can also be edited without opening the dialog.
 
-\figtodo{t07_pollutant_editor.png, The Pollutants dialog with TRACER selected}
+\fig{t07_pollutant_editor.png, The Pollutants dialog with TRACER selected}
 
 ### 3. Initial quality
 
@@ -227,7 +227,7 @@ than display what is currently set — the `(keep current series)` position is t
 no-op. And `[SEDIMENT_EXCHANGE]`, which the engine accepts in a `.heat` file, has
 no GUI at all; edit it by hand.
 
-\figtodo{t07_heat_config_solar.png, The Solar tab of the Heat Configuration dialog}
+\fig{t07_heat_config_solar.png, The Solar tab of the Heat Configuration dialog}
 
 ### 6. Climate → Solar Radiation is a different thing
 
@@ -324,7 +324,7 @@ and a config path. The tutorial model's row set was written by hand:
 Structured edits in the tabs apply to the engine as you make them; only the
 file itself waits for **Save to File**.
 
-\figtodo{t07_reaction_editor_expressions.png, The Expressions tab of the Reaction System editor with the Arrhenius rate expression}
+\fig{t07_reaction_editor_expressions.png, The Expressions tab of the Reaction System editor with the Arrhenius rate expression}
 
 ### 8. Simulation Options → Quality & Transport
 
@@ -387,7 +387,7 @@ If the whole page is disabled, the project is bound to a legacy SWMM 5 engine
 (*Not available in SWMM 5 (legacy engine).*) or to a build that predates the
 transport surface.
 
-\figtodo{t07_sim_options_quality.png, The Quality and Transport page of the Simulation Options dialog}
+\fig{t07_sim_options_quality.png, The Quality and Transport page of the Simulation Options dialog}
 
 ### 9. Run and plot
 

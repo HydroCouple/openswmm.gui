@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Audit the user manual against the sources it is supposed to track.
 
-Three independent checks, each a subcommand, each exiting non-zero on failure:
+Independent checks, each a subcommand, each exiting non-zero on failure:
 
     crosswalk        every heading of the retired legacy manuals is accounted for
     culvert-codes    A7's culvert table matches the combo the user actually sees
     pipe-sizes       A7's elliptical and arch tables match the engine's lookup arrays
+    property-labels  property labels have a documentation target or disposition
+    links            manual page and anchor references resolve
 
 `crosswalk` is the evidence for deleting docs/user-guide, docs/reference,
 docs/basic-tutorial and docs/inlet-tutorial. It reads those files through
@@ -20,13 +22,14 @@ would fork them. They are pinned to their real source instead.
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import re
 import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CROSSWALK = ROOT / "docs" / "LEGACY_MANUAL_CROSSWALK_2026-09-19.md"
+CROSSWALK = ROOT / "workplans" / "LEGACY_MANUAL_CROSSWALK_2026-09-19.md"
 MANUAL = ROOT / "docs" / "manual"
 
 LEGACY_FILES = [
@@ -78,8 +81,14 @@ def headings_of(text: str) -> list[tuple[str, str]]:
 
 
 def parse_crosswalk() -> tuple[str, list[dict]]:
+    # Plans stay local under workplans/. Keep the exported audit evidence
+    # available to clean clones and CI after the old docs/ record is removed.
     if not CROSSWALK.exists():
-        raise SystemExit(f"FAIL: {CROSSWALK.relative_to(ROOT)} does not exist")
+        snapshot = ROOT / "scripts" / "manual_legacy_crosswalk.json"
+        if not snapshot.exists():
+            raise SystemExit("FAIL: neither the crosswalk nor its audit snapshot exists")
+        data = json.loads(snapshot.read_text(encoding="utf-8"))
+        return data["sourceRef"], data["rows"]
     text = CROSSWALK.read_text(encoding="utf-8")
     m = re.search(r"<!--\s*crosswalk-source-ref:\s*(\S+)\s*-->", text)
     if not m:
@@ -356,10 +365,38 @@ def cmd_property_labels(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_links(_args: argparse.Namespace) -> int:
+    """Check manual page references without relying on Doxygen's warning policy."""
+    pages = [p for p in MANUAL.rglob("*.md") if p.read_text().startswith("@page")]
+    identifiers = {}
+    issues = []
+    for path in pages:
+        text = path.read_text()
+        page = re.match(r"@page\s+(\S+)", text).group(1)
+        if page in identifiers:
+            issues.append(f"duplicate page ID: {page}")
+        identifiers[page] = path
+        for anchor in re.findall(r"\{#([\w-]+)\}", text):
+            identifiers[anchor] = path
+    for path in pages:
+        for match in re.finditer(r"\\(ref|subpage)\s+([\w-]+)", path.read_text()):
+            command, target = match.groups()
+            if command == "subpage" or target.startswith(("manual_", "tutorial_", "user_manual")):
+                if target not in identifiers:
+                    issues.append(f"{path.relative_to(ROOT)}: unresolved {target}")
+    for issue in issues:
+        fail(issue)
+    print(f"manual links: {len(pages)} pages; {len(issues)} problems")
+    return int(bool(issues))
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    c = sub.add_parser("links", help="manual page IDs and internal page references")
+    c.set_defaults(func=cmd_links)
 
     c = sub.add_parser("crosswalk", help="every legacy heading is accounted for")
     c.add_argument("--strict", action="store_true",

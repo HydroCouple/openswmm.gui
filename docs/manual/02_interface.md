@@ -3,7 +3,7 @@
 ## What you'll do
 
 Learn what every part of the SWMMVis window is and what every command does. This is
-a reference chapter — use the tables to find a command, then follow the `\ref` link
+a reference chapter — use the tables to find a command, then follow the chapter link
 to the chapter that explains the workflow behind it.
 
 ## Where to find it
@@ -15,44 +15,56 @@ The whole main window. Commands live in three places at once:
   Shapefile…**, **Aquifer…**, **Initial Conditions…**), which live only on the
   ribbon;
 - the **ribbon**, a tabbed compact toolbar with captioned groups (Home, Model,
-  Terrain, Mesh 2D, Analysis, Results, View);
+  Terrain, Mesh 2D, Features, Analysis, Results, View);
 - the **Command Palette** (`Ctrl+Shift+P`), which searches all of them by name.
 
 Keyboard shortcuts listed here are the defaults; rebind any of them in
 **Help → Keyboard Shortcuts…** (see \ref manual_shortcuts).
 
-\figtodo{02_window_regions.png, The main window with the ribbon; tab strip; MDI workspace; docks and status bar called out}
+\htmlonly
+<div class="manual-layout-map" aria-label="Numbered guide to the application window">
+\endhtmlonly
+\fig{02_window_regions.png, The real application window with its ribbon; project tabs; map; docks and status bar}
+\htmlonly
+<div class="manual-region-overlay" style="aspect-ratio:1600/920">
+<span class="manual-region" style="left:91%;top:5%" aria-label="1 Ribbon">1</span>
+<span class="manual-region" style="left:68%;top:12%" aria-label="2 Project tabs">2</span>
+<span class="manual-region" style="left:37%;top:15%" aria-label="3 Map canvas">3</span>
+<span class="manual-region" style="left:11%;top:14%" aria-label="4 Layers and Object Browser">4</span>
+<span class="manual-region" style="left:96%;top:14%" aria-label="5 Properties and Section View">5</span>
+<span class="manual-region" style="left:74%;top:82%" aria-label="6 Bottom panels">6</span>
+<span class="manual-region" style="left:3%;top:98%" aria-label="7 Status bar">7</span>
+</div>
+</div>
+\endhtmlonly
 
 ## Step-by-step
 
 ### Window layout
 
-```
-┌───────────────────────────────────────────────────────────────────────┐
-│ Menu bar  File Edit View Model Analysis Results Tools Window Help     │
-├───────────────────────────────────────────────────────────────────────┤
-│ Tab strip  [Home][Model][Terrain*][Mesh 2D*][Analysis][Results][View] │
-│ Ribbon row  ┌ Project ┐┌ History ┐┌ Navigate ┐┌ Select ┐┌ Import ┐ …  │
-├──────────────┬─────────────────────────────────────┬──────────────────┤
-│  Layers      │  MDI workspace                      │  Object Browser  │
-│  Layer       │  ┌ Welcome ┐┌ model_a ┐┌ model_b ┐  │  Properties      │
-│  Styling     │                                     │  Section View    │
-│              │        map canvas of the            │  Legend          │
-│              │        active project               │                  │
-├──────────────┴─────────────────────────────────────┴──────────────────┤
-│  Attribute Table · Simulation Status · Message Logs                   │
-├───────────────────────────────────────────────────────────────────────┤
-│ Status bar  Engine | Flow Units | progress | Offset Mode | Auto-Length │
-│             | Coordinates | Map Scale | Coordinate Reference System   │
-└───────────────────────────────────────────────────────────────────────┘
-```
+The screenshot above shows a real SWMMVis session with the site-drainage example
+open. The numbered overlays identify the regions in the guide below; the underlying
+image is an unaltered application capture. Docks can be moved or
+tabbed together, so a saved workspace may have a different arrangement.
 
-`*` marks contextual ribbon tabs, which appear only when the active project
-contains the data they act on.
+| Region | How to recognize it | What to do there |
+|---|---|---|
+| **1. Ribbon tabs and command row** | Home; Model; Features; Analysis; Results and View across the top | Choose a task family; then use its labeled command groups |
+| **2. Project tabs** | Welcome and the model name immediately above the map | Switch projects or return to the Welcome page |
+| **3. Map canvas** | The network and subcatchment polygons in the center | Navigate; select; draw; inspect layers and results |
+| **4. Layers and Object Browser** | Dock tabs listing map layers or SWMM object categories | Choose a layer or find an object by name |
+| **5. Properties and Section View** | Values and cross-sections for the selected object | Inspect and edit the model; check the selected object's geometry |
+| **6. Bottom panels** | Message Logs; Attribute Table and Simulation Status | Read messages; edit/query tables; inspect simulation progress |
+| **7. Status bar** | Engine; flow units; offset mode; coordinates; scale and CRS | Check the active project's units and coordinate context |
+
+On macOS the **menu bar** is at the top of the display, outside the captured
+application client area. On Windows and Linux it normally belongs to the window.
+The **Terrain** and **Mesh 2D** tabs appear when the project has the corresponding
+layers.
 
 Docks may be nested, tabbed together, dragged as a group, or floated; the layout is
 saved on exit and restored at the next launch. Right-clicking an empty part of the
-ribbon row opens a short menu of the eight dock toggles — the ribbon rows themselves
+ribbon row opens a short menu of the dock toggles — the ribbon rows themselves
 are managed by the tab strip and cannot be hidden individually.
 
 ### The ribbon
@@ -72,13 +84,16 @@ buttons, closed by a vertical rule, in the ArcGIS Pro idiom.
 | **Model** | **Select** · **Edit** (Edit Existing) · **Nodes** (Junction; Virtual Junction; Inlet Junction; Outfall; Flow Divider; Storage) · **Links** (Pipe; Pump; Orifice; Weir; Outlet) · **Subcatchments** · **Rain Gages** · **Annotation** (Text) · **Climate** (split button over Temperature; Wind; Snow; Evaporation; Solar Radiation) · **Data Objects** (Time Series; Curve; Pattern; Control Rule; Transect; Street; Inlet; Aquifer; LID Control; Pollutant; Land Use; Reaction System; Heat) · **Setup** (Simulation Options; User Flags; Import Feature Layer) · **Tools** (Assign Rain Gages) · **Mesh 2D** (Generate Mesh) |
 | **Terrain** *(contextual)* | **Active Terrain** · **Vertical Units** · **Invert Offsets** · **Profile** |
 | **Mesh 2D** *(contextual)* | **Mesh** (Generate Mesh) · **Cell Data** (From Raster; From Shapefile) · **Groundwater (2D)** (Aquifer Parameters; Initial Conditions) — plus the Mesh Editing toolbar's own groups: **Mesh** · **Vertices** · **Edges** · **2D Results** · **Profile** · **Coupling** |
+| **Features** | **Select** · **Layer** (New Layer) · **Edit** (Edit Mode; Delete) · **Draw** (Point; Line; Polygon) · **Modify** (Add Part; Add Hole; Edit Vertices; Move) — see \ref manual_feature_layers |
 | **Analysis** | **Select** · **Results Layers** (the 1D and 2D results pickers) · **Report** (Summarize; Report; Tabular View) · **Plots** (Time Series; Profile; 2D Profile) · **Network Analysis** (Flow Balance Downstream/Upstream; Travel Time Downstream/Upstream; Mass Balance) |
 | **Results** | **Playback** (Skip Back; Skip Forward; Play; Pause; Stop) · **Timeline** (scrubber; **Window:** look-back; time cursor; **Speed:**; **Cycle**) · **Display** (Show Legend; Set Style; **Live 2D**; **Live 1D**) |
-| **View** | **Panels** (the eight dock toggles) · **Styling** (Layer Styling; Styles) · **Start** (Welcome) |
+| **View** | **Panels** (the dock toggles) · **Styling** (Layer Styling; Styles) · **Start** (Welcome) |
 
 \fig{02_ribbon_home_tab.png, The Home tab with its Project; History; Navigate; Select; Inspect; Import and Run groups}
 
 \fig{02_ribbon_model_tab.png, The Model tab showing the Nodes; Links and Data Objects groups}
+
+\fig{02_ribbon_features_tab.png, The Features ribbon for creating and editing GeoPackage feature layers}
 
 #### Contextual tabs
 
@@ -204,7 +219,7 @@ See \ref manual_selection and \ref manual_map_editing.
 | **Pan** | | Pan tool (checkable) |
 | **Measure** | `Ctrl+Shift+M` | Measures distances and areas on the canvas |
 | **Show Legend** | | Toggles the draggable legend overlay on the active canvas |
-| **Panels ▸** | | The eight dock toggles — see the table below |
+| **Panels ▸** | | The nine dock toggles — see the table below |
 | **Layer Styling Dock** | `Ctrl+Alt+8` | Shows or hides the live layer-styling editor; opening it loads the layer selected in **Layers** |
 | **Appearance ▸** | | **System** / **Light** / **Dark**; mirrors the Preferences Appearance page |
 | **Command Palette…** | `Ctrl+Shift+P` | Opens the palette |
@@ -342,8 +357,8 @@ The MDI backdrop and the Welcome tab track the application theme
 
 ### Dock panels
 
-Eight docks have toggle actions in **View → Panels ▸** and on the **View** ribbon
-tab; the Layer Styling dock has its own View-menu entry.
+Nine docks have toggle actions in **View → Panels ▸** and on the **View** ribbon
+tab. **Layer Styling** has its own View-menu entry and shortcut.
 
 | Panel | Shortcut | What it shows | Chapter |
 |---|---|---|---|
@@ -356,15 +371,15 @@ tab; the Layer Styling dock has its own View-menu entry.
 | **Message Logs** | `Ctrl+Alt+7` | Timestamped Information / Warning / Error messages from the GUI and the engine; auto-scrolled to the newest row | \ref manual_running |
 | **Layer Styling** | `Ctrl+Alt+8` | The always-open variant of the Symbology tab; edits apply live to the canvas and follow the layer selected in **Layers** | \ref manual_styling |
 | **Section View** | `Ctrl+Alt+9` | The cross-section drawing for the selected link or transect | \ref manual_object_browser |
+| **Features** | `Ctrl+Alt+0` | Editable GIS layers; fields; feature attributes; vertex coordinates and elevation sources | \ref manual_feature_layers |
 
-\fig{02_docks_default_layout.png, The default dock arrangement with Layers on the left; Object Browser and Properties on the right and Message Logs at the bottom}
+\fig{02_docks_default_layout.png, An example dock arrangement with the Object Browser; Properties; Message Logs and Attribute Table}
 
-Two further items exist in the code but are **not reachable from the UI in this
-build** and are listed here only so you do not go looking for them: an **Overview
-Map** navigator panel (`overviewmappanel.h`), which is compiled but never created;
-and an **Analysis Toolbox** dock declared in the main-window form, which is never
-populated and has no toggle action. Use \ref manual_map_navigation for the
-navigation workflows the overview map would have served.
+An **Analysis Toolbox** panel can appear in the initial dock layout, but it is
+empty and has no toggle action. Close it to give the other panels more space;
+use the **Analysis** menu or ribbon for analysis commands. The **Overview Map**
+navigator is not created in this build. See \ref manual_map_navigation for
+the supported navigation tools.
 
 ### Status bar
 
@@ -373,7 +388,7 @@ bar; transient messages (*Opening &lt;file&gt;…*, tool hints) appear on the le
 
 | Widget | What it does | Writes |
 |---|---|---|
-| **Engine:** | Picks the engine used to run the **active project**: *OpenSWMM 6.0.0-alpha.4* or *SWMM 5.3.0 (Legacy)*. Disabled until a project is open | Per-project engine selection |
+| **Engine:** | Picks the engine used to run the **active project**: *SWMMVis 6.0.0-alpha.4*; *SWMM 5.3.0 (Legacy)*; and *SWMM 5.2.4 (EPA)* when its worker is bundled. Disabled until a project is open | Per-project engine selection |
 | **Flow Units:** | `CFS` · `GPM` · `MGD` · `CMS` · `LPS` · `MLD`. Changing it re-labels every unit suffix in the whole UI | `[OPTIONS] FLOW_UNITS` |
 | *progress* | A stage label plus a bar; arbitrated between simulation runs; project opens and the plain busy spinner |  |
 | **Offset Mode:** | `Depth [toggle] Elevation` — the active side is bold. Flipping it offers to convert existing link offsets, exactly as EPA SWMM does; the prompt is skipped for a model with no links | `[OPTIONS] LINK_OFFSETS` |

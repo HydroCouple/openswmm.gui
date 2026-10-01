@@ -3,7 +3,7 @@
 ## What you'll do
 
 Read results as numbers rather than as pictures: per-object summary statistics in
-the attribute table, sortable statistics tables with a frequency histogram, and
+the attribute table, sortable and filterable statistics tables, and
 the engine's own text report. Then get any of it out as CSV or into the clipboard.
 
 \fig{24_tabular_overview.png, The Attribute Table dock showing simulated statistics columns beside the model attributes}
@@ -66,8 +66,7 @@ one in the Analysis toolbar's **1D results:** selector, or run a simulation.
 | **Links** | Link, Max flow, Max depth, Max velocity, Max capacity |
 | **Subcatchments** | Subcatchment, Peak runoff, Total runoff, Total infil, Total evap |
 
-Below the tables is a **frequency distribution** histogram of the column you
-select, titled with the sample count and the bin range.
+The current dashboard displays tables only; a histogram is not shown.
 
 | Control | What it does |
 |---------|--------------|
@@ -77,7 +76,7 @@ select, titled with the sample count and the bin range.
 | **Export CSV…** | Writes all three tables (as currently filtered) into one CSV, each preceded by its section name |
 | Column sorting | Every column sorts |
 
-\figtodo{24_statistics_dashboard.png, The Statistics Dashboard with the Links tab filtered by a query and its histogram}
+\figtodo{24_statistics_dashboard.png, The Statistics Dashboard with the Links tab filtered by a query}
 
 ### Report — the engine's text report
 

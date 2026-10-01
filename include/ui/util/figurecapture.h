@@ -55,11 +55,21 @@ struct FigureSpec {
     QString    action;              //!< ActionCatalog id to trigger (opens a dialog)
     QString    widget;              //!< objectName to grab, resolved under the host
     bool       wholeWindow = false; //!< grab the main window itself
+    bool       floatDock = false;   //!< detach the target's dock so size is not constrained by neighbors
     QString    page;                //!< tab / list-row text to select in the target
     QString    tab;                 //!< sub-tab to select after \a page (sidebar + tab)
+    QString    tabIn;               //!< scope tab selection to this objectName (e.g. compactToolbarTabBar)
+    QString    dialogPage;          //!< page in the child dialog opened by the last click
+    QStringList prepareActions;     //!< non-dialog actions applied before rendering (e.g. zoom to extent)
+    QStringList hostSelectMore;     //!< additional selected rows (same panel as hostSelect)
+    QStringList hide;               //!< hide named widgets for this capture layout
+    QStringList show;               //!< show and raise named widgets for this capture layout
     QString    type;                //!< text to type into the target's first editable field
     QString    typeInto;            //!< which field: objectName, or part of its placeholder
     QString    select;              //!< item to select in the target's list ("first", or its text)
+    QString    activate;            //!< select an item and emit its view's clicked signal
+    QStringList check;              //!< check named rows before pressing a dialog button
+    QString    sortColumn;          //!< sort a table by this header, ascending
     QString    hostSelect;          //!< item to select in the MAIN WINDOW before \a action fires
     QString    hostSelectIn;        //!< scope \a hostSelect to this panel (objectName or class)
     QStringList clicks;             //!< buttons to press in the target; the LAST one's dialog becomes the target
@@ -132,7 +142,8 @@ private:
     /*! \brief Select \a page inside \a target (tab bar, list + stack, tree). */
     bool selectPage(QWidget *target, const QString &page) const;
     /*! \brief Select an item in the target's first populated item view. */
-    bool selectItem(QWidget *target, const QString &which) const;
+    bool selectItem(QWidget *target, const QString &which, bool append = false,
+                    const QString &operation = {}) const;
     /*! \brief Close whatever the row opened, without touching the model. */
     void dismissDialogs();
     /*! \brief dismissDialogs(), but only for a row that opens something. */

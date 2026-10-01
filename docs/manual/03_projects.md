@@ -70,7 +70,7 @@ side by side.
 
 The sidecar's path is always the `.inp`'s directory and base name with the
 extension swapped, so `runs/model.inp` pairs with `runs/model.oswp`. Its current
-schema is **version 4**; older schemas are migrated in memory on load, and keys a
+schema is **version 5**; older schemas are migrated in memory on load, and keys a
 newer build writes are skipped silently by an older one.
 
 What the `.oswp` carries:

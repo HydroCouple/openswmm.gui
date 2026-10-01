@@ -87,7 +87,7 @@ Two further controls apply to every source:
 
 Units follow the project unit system throughout.
 
-\figtodo{15_evaporation_tab.png, The Evaporation tab with monthly averages}
+\fig{15_evaporation_tab.png, The Evaporation tab with monthly averages}
 
 ### Wind Speed tab — `[WINDSPEED]`
 
@@ -99,7 +99,7 @@ Units follow the project unit system throughout.
 Choosing the climate-file source here does nothing on its own — the file itself
 is the one selected on the **Temperature** tab.
 
-\figtodo{15_wind_tab.png, The Wind Speed tab with monthly averages}
+\fig{15_wind_tab.png, The Wind Speed tab with monthly averages}
 
 ### Humidity tab — `[TEMPERATURE] HUMIDITY`
 
@@ -117,6 +117,13 @@ The classic hydrology never reads it, so the tab is harmless on a model without
 A dew point is converted to relative humidity every step from the current air
 temperature (`RH = 100·e_s(T_d)/e_s(T_a)`, capped at 100 %). The default with no
 `HUMIDITY` line is a constant 50 %.
+
+Choose the quantity before entering values, check its units, then choose the
+source and populate the corresponding controls. Confirm with **OK** and save
+the model. Heat-process activation and heat-source settings are separate
+(\ref manual_water_quality).
+
+\fig{15_humidity_tab.png, The Humidity tab with quantity and data-source controls}
 
 ### Snow Melt tab
 
@@ -149,7 +156,7 @@ to depth-at-100 %-cover. Four preset buttons fill a column in one click:
 - **Impervious: Natural Area** / **Pervious: Natural Area** — the standard
   natural-area depletion curve
 
-\figtodo{15_areal_depletion_tab.png, The Areal Depletion tab with the four preset buttons}
+\fig{15_areal_depletion_tab.png, The Areal Depletion tab with the four preset buttons}
 
 ### Adjustments tab — `[ADJUSTMENTS]`
 
@@ -162,7 +169,7 @@ so a neutral month is `0` in the Temp column and `1` in the other three.
 `Cond` adjusts hydraulic conductivity, which is how a seasonal soil adjustment is
 applied to infiltration.
 
-\figtodo{15_adjustments_tab.png, The Adjustments tab with monthly multipliers}
+\fig{15_adjustments_tab.png, The Adjustments tab with monthly multipliers}
 
 \videotodo{Setting up temperature from a climate file and adding monthly evaporation adjustments}
 

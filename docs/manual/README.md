@@ -52,8 +52,8 @@ form; when the PNG exists in `docs/manual/images/`, change `\figtodo` to
 `\fig` — nothing else changes.
 
 ```
-\figtodo{07_layers_panel.png, The Layers panel with a basemap, a DEM and a model layer}
-\fig{07_layers_panel.png, The Layers panel with a basemap, a DEM and a model layer}
+\figtodo{07_layers_panel.png, The Layers panel with a basemap; a DEM and a model layer}
+\fig{07_layers_panel.png, The Layers panel with a basemap; a DEM and a model layer}
 ```
 
 Naming: `NN_short_description.png` where `NN` is the chapter number
@@ -65,7 +65,7 @@ contain a comma; use a semicolon or a dash instead.
 The list of every placeholder still to capture:
 
 ```
-grep -rn "figtodo\|videotodo" docs/manual
+python3 scripts/manual_figures.py todo
 ```
 
 ## Videos
@@ -104,3 +104,24 @@ comment lines — SWMM ignores lines starting with `;`, so use
   key it writes) — the engine manuals cover the numerics.
 - Do not document planned features as if they existed; if a control is
   present but inert, say so.
+
+## Capture provenance and completion
+
+Capture the actual application; do not replace GUI images with drawings or
+AI-generated approximations. See `tests/manual/manual_figures/README.md` for
+isolated batches, working fixtures and review. The numbered orientation guide
+uses HTML overlays; its PNG remains an unaltered capture.
+
+Use `scripts/prepare_manual_fixtures.py` to make fresh examples and optionally
+execute their real engine runs. Use `scripts/capture_manual_figures.py -a … -l`
+with explicit filenames and one compatible working model per batch. `_model`
+entries in `figures.json` are hints, not automatic model switching.
+
+The lightweight `manual_figures.py audit` validates published assets. Its
+`--strict` mode additionally requires all recipes, no remaining figure/video
+placeholders, and a dated SHA-256 review record for each published image.
+`figure_reviews.json` contains accepted reviews; missing records remain open
+work. Source-discovered capability coverage is kept in the local
+`workplans/DOCUMENTATION_COVERAGE.json`, refreshed with `manual_coverage.py`.
+A source inventory or screenshot does not establish that an entire workflow
+has been executed and saved successfully.

@@ -4,7 +4,7 @@
 for building, running, and analysing SWMM 6.0 storm-water models with the
 next-generation OpenSWMM engine. It reads and writes standard SWMM `.inp`
 files, adds a GIS map canvas with coordinate reference systems and web/GIS
-data layers, and exposes every SWMM 6.0 engine capability — dynamic-wave and
+data layers, and provides graphical workflows for supported engine capabilities — dynamic-wave and
 finite-volume 1D routing, 2D overland flow on unstructured meshes, 1D–2D
 coupling, advection–reaction–dispersion transport, multispecies reaction
 systems, heat transport, water age, groundwater exchange, streets and inlet
@@ -16,7 +16,7 @@ but complete case studies that exercise the engine end-to-end. Every chapter
 follows the same pattern: *what you'll do*, *where to find it*, a
 *step-by-step* reference, *tips and gotchas*, and *related* chapters.
 
-\figtodo{00_overview_annotated_window.png, SWMMVis main window — ribbon; map canvas; Layers; Object Browser; Properties and Message Logs panels}
+\fig{00_overview_annotated_window.png, SWMMVis main window — ribbon; map canvas; Layers; Object Browser; Properties and Message Logs panels}
 
 ## Part I — Getting started
 
@@ -35,6 +35,7 @@ follows the same pattern: *what you'll do*, *where to find it*, a
 - \subpage manual_object_browser — the Object Browser, the Properties panel, compound editors, the Section View
 - \subpage manual_attribute_tables — attribute tables, selection queries and bulk edits, mesh tables, tabular data layers
 - \subpage manual_map_editing — drawing and editing the network on the map, annotations, importing GIS features
+- \subpage manual_feature_layers — creating editable GIS layers; drawing geometry; editing fields and vertices; preparing mesh inputs
 
 ## Part III — Building a model
 
@@ -57,9 +58,11 @@ follows the same pattern: *what you'll do*, *where to find it*, a
 
 ## Part V — Tutorials and case studies
 
-Each tutorial is small enough to run in minutes but exercises a distinct set of
-engine capabilities. They are ordered from the classic 1D workflow to full
-1D–2D coupling.
+Start with T1 or T2 for the 1D workflow. T5 includes a tracked 2D boundary
+example, and T7 includes a transport model. T3, T4 and T6 describe historical
+demo bundles that are not included in a fresh checkout; their availability
+notes identify the missing inputs and validation work. T8 requires its larger
+catchment data and dependent files. Runtime depends on the model and hardware.
 
 - \subpage tutorial_site_drainage — a 1D site drainage model with water quality (build-up/wash-off)
 - \subpage tutorial_street_inlets — streets, HEC-22 inlets and the SWMM 6 inlet junction

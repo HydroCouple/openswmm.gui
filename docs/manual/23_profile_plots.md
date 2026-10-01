@@ -11,7 +11,7 @@ it. There are three profile tools, each with its own dialog:
 | **Plot 2D Profile** | A polyline you draw across the 2D mesh | Bed elevation, animated water depth and surface, and the maximum-depth envelope |
 | **Terrain Profile** | A polyline you draw over a DEM raster | Ground elevation only |
 
-\figtodo{23_profile_overview.png, A 1D profile plot with the HGL animation and two attribute tracks below it}
+\fig{23_profile_overview.png, A real 1D profile between O1 and J3 with the current HGL and EGL at the first report time}
 
 ## Where to find it
 
@@ -90,8 +90,7 @@ Along the horizontal chainage axis, from the bottom up:
   horizontal, or inline over the node glyphs;
 - a **legend** and a **time label** showing the animation cursor's date and time.
 
-The **ground line** comes from one of four sources, chosen in the layer panel or
-the options dialog: **Auto** (the 2D mesh vertex elevations when the project has a
+The **ground line** comes from one of four sources, chosen in **Display Options…**: **Auto** (the 2D mesh vertex elevations when the project has a
 mesh, otherwise the node rims), **Node rims** (invert + maximum depth),
 **Mesh 2D**, or **Terrain DEM** (sampled from the active DEM raster at each path
 station).
@@ -105,7 +104,7 @@ station).
 | Toolbar | **Select**, **Zoom In**, **Zoom Out**, **Pan**, **Fit to Path**; **Sources**; **2D Inundation**; **Tracks**; **Export PNG…**; **Display Options…** |
 | Header | *Path: N nodes, M links · Length: …* |
 | Chart | The profile itself |
-| **Layers** panel (right) | Quick toggles for the ground source, the current HGL line and fill, EGL, max HGL (as a min↔max band or an invert→max fill), and the label groups |
+| **Display Options…** | Ground source; HGL and EGL; maximum envelopes; node/link labels and other appearance settings |
 | Tracks pane (below) | Attribute tracks, when enabled |
 
 Interaction mirrors the comparison plots: **Select** identifies and selects the
@@ -121,7 +120,7 @@ see \ref manual_time_series_plots.
 The profile follows the global animation cursor, so pressing **Play** on the
 Results tab animates the HGL along the section while the map animates in step.
 
-\figtodo{23_profile_toolbar_layers.png, The profile toolbar and the Layers panel with the HGL and label toggles}
+\fig{23_profile_toolbar_layers.png, The profile window and its toolbar — use Display Options for HGL and label settings}
 
 ### Comparing runs in one profile — the Sources panel
 
@@ -139,7 +138,7 @@ The **Sources** tab of the Display Options dialog does more:
 - **add an external `.out` file** as an extra comparison source, without loading
   it into the project as a map layer.
 
-\figtodo{23_profile_sources_tab.png, The Sources tab of the profile Display Options dialog}
+\fig{23_profile_sources_tab.png, The Sources tab of the profile Display Options dialog}
 
 ### Attribute tracks
 

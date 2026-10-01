@@ -244,3 +244,8 @@ OUT_ST                       600.000              0.000
 MH1                          200.000           -100.000
 MH2                          400.000           -100.000
 OUT_SEW                      600.000           -100.000
+
+[MAP]
+;; Synthetic local drawing coordinates, in the same feet used by this CFS model.
+DIMENSIONS                   -25.0    -125.0    625.0    25.0
+UNITS                        Feet

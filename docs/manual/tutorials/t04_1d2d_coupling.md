@@ -1,5 +1,9 @@
 @page tutorial_1d2d_coupling T4 — Capped Street Inlets Coupled to a 2D Surface
 
+## Example availability
+
+The capped-street bundle described below is not tracked in this repository. Its historical input and output also have the unit and coupling problems documented under **Known state of this example**. Treat this chapter as a workflow reference until a corrected input has been run and reviewed. The tracked example in \ref tutorial_2d_boundaries is available for exploring the 2D controls, but does not reproduce this plaza case.
+
 ## Goal
 
 Work through the demo that exercises the whole 1D ↔ 2D coupling gate: two
@@ -27,9 +31,9 @@ keys.
 | ---- | ---------- |
 | `examples/demo_capped_street/capped_street.oswp` | The SWMMVis project |
 | `examples/demo_capped_street/capped_street.inp` | Self-contained input — the 2D mesh is **inline**, there is no `.2dm` |
-| `examples/demo_capped_street/capped_street.2d.h5` | Checked-in 2D results — 476 steps over 2 hours on 48 cells |
-| `examples/demo_capped_street/capped_street.rpt` | Checked-in report |
-| `examples/demo_capped_street/capped_street.out` | Checked-in 1D binary output |
+| `examples/demo_capped_street/capped_street.2d.h5` | Historical 2D results — 476 steps over 2 hours on 48 cells |
+| `examples/demo_capped_street/capped_street.rpt` | Historical report |
+| `examples/demo_capped_street/capped_street.out` | Historical 1D binary output |
 | `examples/demo_capped_street/README.md` | The detailed engine-side notes this tutorial follows |
 
 ### The model
@@ -69,7 +73,7 @@ report step 15 s, routing step 5 s.
 
 Read this before you interpret any number.
 
-The checked-in `capped_street.inp` is **internally inconsistent about units**.
+The historical `capped_street.inp` is **internally inconsistent about units**.
 `FLOW_UNITS` is `CMS` and `[MAP] Units` is `METERS`, and the inline
 `[2D_VERTICES]` elevations are metres (9.0 – 13.0 m, exactly as the README
 describes). But the 1D inverts, depths and lengths carry foot-valued numbers
@@ -78,7 +82,7 @@ for the same physical quantities: `J1` is `36.4173` where the README says
 says 0.5 m, `C1` is `98.4252` long where the README says 30 m, and `OUT1`'s
 `FIXED` stage is `26.2467` where the README says 8.0 m.
 
-The consequence is visible in the checked-in results:
+The consequence is visible in the historical results:
 
 - The 1D network sits about 26 m *above* the mesh, so neither gate ever opens.
   `Mesh2_face_coupling_flux` in `capped_street.2d.h5` is **identically zero at
@@ -88,14 +92,14 @@ The consequence is visible in the checked-in results:
   `Continuity Error (%)` of **29.199** — the plaza received 71.829 m³ of
   rainfall and still held 50.855 m³ at the end, with no outlet.
 - There is **no `1D <-> 2D Exchange Reconcil.` block and no `2D Solver
-  Statistics` block** in the checked-in `.rpt`.
+  Statistics` block** in the historical `.rpt`.
 - `J1` and `J2` still flood — 0.09 and 0.10 hours respectively, about 0.005 ×
   10⁶ L each — but that flooding is booked as ordinary 1D `Flooding Loss`, not
   as spill onto the surface.
 
 Everything the README predicts about the *coupling* therefore describes what
-the demo is meant to do, not what the shipped artefacts show. This tutorial
-uses the shipped numbers where they exist and says plainly where the
+the demo is meant to do, not what the archived artefacts show. This tutorial
+uses the archived numbers where they exist and says plainly where the
 behaviour you are looking for is absent. If you want to see the coupling work,
 fix the units first: divide every `[JUNCTIONS]`, `[OUTFALLS]` and
 `[CONDUITS]` elevation, depth and length by 3.28084 so the 1D network lands on
@@ -252,7 +256,7 @@ Routing** is ticked — it gates the whole 2D page — then **Analysis → Execu
 
 Because the mesh is inline, the pre-flight *2D mesh not found* dialog will not
 appear. `[2D_OPTIONS] OUTPUT_FILE` is already `capped_street.2d.h5`, so the
-run overwrites the checked-in results file; copy it aside first if you want to
+run overwrites the historical results file; copy it aside first if you want to
 keep the shipped one.
 
 Two initialisation warnings should appear at the top of the report, one for
@@ -265,7 +269,7 @@ z_top the orifice ramp is closed in both directions; above z_top it opens.
 ```
 
 If only one appears, the initialisation loop is short-circuiting. Both are
-present in the checked-in `capped_street.rpt`.
+present in the historical `capped_street.rpt`.
 
 To work from the shipped results instead of running, load them with
 **File → Import → Add SWMM Output** for `capped_street.out` and
@@ -292,7 +296,7 @@ location rise together, the surface depth lags slightly, and after the peak
 the surface depth falls while the node's total lateral inflow gains a small
 tail — the drainback.
 
-In the checked-in results the two curves are unrelated: `J1` and `J2` overflow
+In the historical results the two curves are unrelated: `J1` and `J2` overflow
 between roughly 00:15 and 00:25 (peaks of 0.022 and 0.020 CMS, 0.09 and 0.10
 hours flooded, maximum ponded depth 1.640 m each), while the plaza fills only
 from direct rainfall and its maximum depth of **0.434 m** occurs at
@@ -316,7 +320,7 @@ On the **Results** ribbon tab:
 
 In a working run you would see two spill plumes appear around vertices 33 and
 17 at the storm peak and then spread downslope; as the 1D heads fall the
-puddle near vertex 17 drains back through the same gate. In the checked-in
+puddle near vertex 17 drains back through the same gate. In the historical
 results you see only the uniform rainfall filling the block and pooling
 against the low corner, because the gates never opened.
 
@@ -336,7 +340,7 @@ To check it, plot **Head (m)** at `OUT1` in the Comparison Plot alongside
 head is flat at the fixed stage until vertex 0 wets, then tracks
 `bed + depth`, then releases back to the fixed stage as the corner drains.
 
-In the checked-in report `OUT1`'s maximum HGL is 23.11 m against a `FIXED`
+In the historical report `OUT1`'s maximum HGL is 23.11 m against a `FIXED`
 stage of 26.2467 — the outfall never rose to its own stage, let alone above
 it, which is another symptom of the datum mismatch described above.
 
@@ -384,7 +388,7 @@ accumulated into **`External Inflow`** (`routing_external`). Before that
 accounting landed, a coupled model with `ALLOW_PONDING NO` showed a zero
 flooding row while the 2D side silently absorbed the water.
 
-Checked-in values: `Wet Weather Inflow` 0.014 hectare-m, `External Outflow`
+Historical values: `Wet Weather Inflow` 0.014 hectare-m, `External Outflow`
 0.013, `Flooding Loss` 0.001, `External Inflow` 0.000, continuity error
 **0.003 %**. The runoff ledger reports 30.000 mm of precipitation, 1.636 mm
 infiltrated, 27.346 mm of surface runoff and a −0.074 % error.
@@ -395,7 +399,7 @@ infiltrated, 27.346 mm of surface runoff and a −0.074 % error.
 `Outfall Withdrawal`, `Boundary Outflow`, `Evaporation Loss`,
 `Infiltration Loss`, `Final Stored Volume`, `Continuity Error (%)`.
 
-Checked-in values: `Rainfall Inflow` **71.829 m³**, both exchange rows
+Historical values: `Rainfall Inflow` **71.829 m³**, both exchange rows
 **0.000**, `Final Stored Volume` **50.855 m³**, `Continuity Error (%)`
 **29.199**. That error is the water that fell on the plaza, had no outlet, and
 was neither stored nor accounted for — the signature of a coupling that never
@@ -406,7 +410,7 @@ engaged.
 `Flow Continuity w/ Exchange Internal (%)` — the 1D continuity recomputed with
 the exchange treated as an internal transfer rather than a loss and a gain.
 A working coupled run should show a small net exchange and a continuity error
-well under 1 % on both sides. This block is **absent** from the checked-in
+well under 1 % on both sides. This block is **absent** from the historical
 report.
 
 `2D Solver Statistics` — `Internal Steps`, `Face-Kernel Evals`,
@@ -419,13 +423,13 @@ you want to know what a CFL change cost you.
 ## What to look for
 
 - **Two C3a warnings, not one** — one per capped coupled node. Both are in the
-  checked-in report.
+  historical report.
 - **`Flooding Loss` and `External Inflow` together.** In a working coupled
   run, spill and drainback are visible on the two 1D rows; a zero
   `External Inflow` with non-zero `Flooding Loss` means the gate is one-sided.
 - **`1D -> 2D Spill Inflow` and `2D -> 1D Drain Outflow`** in the 2D ledger,
   and the reconciliation block. All three are the coupling's fingerprint. In
-  the checked-in artefacts they are zero or missing.
+  the historical artefacts they are zero or missing.
 - **The 2D continuity error.** 29 % here. On a healthy coupled run it should
   be a small fraction of a percent, and a large error with zero exchange rows
   means the two domains are not talking.

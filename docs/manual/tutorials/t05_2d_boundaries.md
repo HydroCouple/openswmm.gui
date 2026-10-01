@@ -549,3 +549,11 @@ it stays available for interior edges, which have no boundary condition at all.
 - \ref tutorial_1d2d_coupling — capped street inlets coupled to a 2D surface
 - \ref tutorial_pure_2d — a mesh with no 1D network at all
 - \ref manual_troubleshooting — retired-option warnings and mesh failures
+
+### Example validation
+
+The supplied `2d_complete_example.inp` uses separate free outfalls: C1 drains
+J1 to OUT1 and C2 drains ST1 to OUT2. A free outfall may have only one incoming
+conduit. The example completes with the documented SWMM 6 engine; review its
+continuity report and coupling-area warnings before treating it as a template
+for a calibrated model.

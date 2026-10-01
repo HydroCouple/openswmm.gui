@@ -165,7 +165,7 @@ While a run is in flight with **Live 1D** enabled, the charts extend as the `.ou
 grows — points are appended and axes stretched outward rather than the charts
 being rebuilt, so your zoom and styling survive.
 
-\figtodo{22_chart_modes_toolbar.png, The Comparison Plot toolbar with the interaction modes and view toggles}
+\fig{22_chart_modes_toolbar.png, The Comparison Plot toolbar with the interaction modes and view toggles}
 
 ### Series styling
 
@@ -223,7 +223,7 @@ remembered between sessions. A Shift-drag X selection on any chart narrows every
 tab's statistics to that time window; clearing the selection restores the full
 series.
 
-\figtodo{22_statistics_panel.png, The statistics panel with summary columns and fit metrics}
+\fig{22_statistics_panel.png, Summary statistics for system average rainfall in the site-drainage run}
 
 ### Baseline vs comparison — the 1v1 scatter column
 

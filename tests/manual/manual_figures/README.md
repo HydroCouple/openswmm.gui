@@ -1,9 +1,58 @@
-# The 48 manual figures — by hand
+# Manual figure capture and review
 
-Companion to the automated figure capture (`docs/manual/figures.json`,
-`scripts/capture_manual_figures.sh`). Every other figure in the user manual is
-captured by driving the app from a manifest; these 48 cannot be, and this page
-is the click-through for them.
+The capture manifest is a work queue, not evidence that a figure is finished.
+Use `python3 scripts/manual_figures.py audit` for current counts and
+`python3 scripts/manual_coverage.py` to refresh the capability ledger under
+`workplans/`. Some figures still lack a tested recipe. The procedures below
+cover native controls and map interactions that need an interactive session.
+
+## Reproducible automated batches
+
+Use an explicit application binary and a **new** output directory for each
+batch. First prepare working copies of the five portable examples:
+
+```sh
+python3 scripts/prepare_manual_fixtures.py \
+  --output tests/output/manual_figures/my-review/fixtures \
+  --engine /absolute/path/to/openswmm
+python3 scripts/capture_manual_figures.py \
+  -a /absolute/path/to/SWMMVis.app/Contents/MacOS/SWMMVis -l \
+  -m tests/output/manual_figures/my-review/fixtures/site/site_drainage_model.inp \
+  -o 02_window_regions.png,02_ribbon_features_tab.png \
+  -d tests/output/manual_figures/my-review/interface
+```
+
+`-a` selects the build; `-l` selects the native display; `-m` selects a working
+model; `-o` selects exact manifest filenames; `-f` supplies an alternate manifest;
+`--prepare-only` validates and records a batch without starting the app.
+The shell launcher accepts the same options. On macOS an offscreen run requires
+`QT_PLUGINS` from the selected build. Scene-graph maps require the native display. Standard Qt dialogs and
+Qt Charts can be rendered offscreen, but inspect each result; scene-graph
+content that appears blank must be recaptured natively. Record the actual
+platform in the batch baseline.
+
+The driver isolates application settings and writes `capture-baseline.json`,
+`capture-manifest.json`, `capture.log` and `run.json`. The baseline records the
+binary and engine hashes, source revision/diff fingerprint, platform and model.
+A nonzero exit, failed capture, hidden target or blank image needs investigation.
+An `ok` result still requires a human visual check against the caption.
+
+Manifest `_model` is a preparation hint; it does **not** switch projects during
+a batch. Group rows by compatible fixture and select the appropriate `-m`.
+Do not run the whole manifest against one model. Some editors apply changes
+immediately even when later closed, so capture only disposable working copies.
+A GUI screenshot proves the displayed state, not solver correctness or persistence.
+
+Whole-window recipes use `page` to activate the actual project and
+`prepareActions: ["map.zoomExtent"]` to fit the network. Scope ribbon tabs with
+`tabIn: "compactToolbarTabBar"` to avoid matching similarly named dock tabs.
+`hostSelectMore` adds selected objects, for example two profile endpoints.
+`dialogPage` selects a tab in a child dialog opened by `click`. `hide` and `show`
+configure named docks in this isolated session. `floatDock: true` detaches a
+dock before applying `size`, so neighboring panels cannot squeeze a table
+back to a narrow sidebar. Use `page` for the category and `tab` for a control
+that becomes visible only after the host object is selected (for example the
+Section View's `10:1` scale).
 
 **Why these are by hand.** The capture engine reaches widgets — dialogs, docks,
 panels, tables, ribbons. It cannot reach:
@@ -24,15 +73,35 @@ Save everything into `tests/output/manual_figures/` (git-ignored). That is
 where `scripts/manual_figures.py flip` looks by default, so a finished shot
 publishes with the same command the automated ones use.
 
-## 0. Set the app up once
+## Reproducible selection and report captures
 
-These figures come from your own running app, so your preferences are in every
-shot — unlike a capture run, which isolates its settings. Before starting:
+The manifest supports `activate` for a report section: unlike `select`, it
+also activates the selected view row so the report body scrolls. For example,
+`"activate": "Flow Routing Continuity"` captures that section, not merely its
+highlight in the navigator.
+
+Use `sortColumn` with the exact visible table header for an ascending sort.
+Use `column` separately to scroll a wide table to the fields in the caption.
+For a Plot Variables picker, `check` is a list of exact row paths, for example
+`["Node J11 > Depth (node) (ft)", "Link C11 > Flow (ft³/s)"]`.
+The ` > ` separator permits `/` in unit labels. Checks are applied before
+`"click": "OK"` opens the plot. Do not use Select All when the caption promises
+only particular variables.
+
+These operations use visible Qt controls and their public signals. A capture
+that succeeds still needs visual review: a populated plot can have illegible
+axes or an incorrect legend. Keep failed candidates in the review output and
+leave their published placeholders intact.
+
+## 0. Set up an interactive session
+
+Use a dedicated documentation session and working copies. Do not change or
+close a user's active modeling session. Before starting:
 
 1. Build and launch: `cmake --build build --target SWMMVis -j 8` then open
    `build/SWMMVis.app`.
 2. **Preferences → Appearance → Light.** Every published figure is light-theme;
-   a dark shot will stand out badly next to the other 94.
+   use the same theme throughout a chapter batch.
 3. Size the window to about **1600 × 1000**. Bigger is not better — the strip
    gets downscaled and goes illegible.
 4. Close panels the figure does not need, so the shot is not mostly chrome.
@@ -106,7 +175,7 @@ Small and fast; most menu shots belong here.
 | `10_convert_to_menu.png` | **Convert To** submenu with **Virtual Junction** greyed out, and its rule tooltip showing. Hover the greyed entry until the tooltip appears. |
 | `t02_rule_violation.png` | The same greyed Convert To entry with the virtual-junction rule text as its tooltip. Same interaction as above, framed for the tutorial. |
 
-### 2.5 The executed Bellinge — `~/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp` (6 shots)
+### 2.5 A completed Bellinge run (6 shots)
 
 These need a completed run. Bellinge takes a couple of minutes to open; do all
 six in one session.
@@ -166,8 +235,10 @@ the chapter's figures come from the profile window that opens.
 | `t05_profile_across_embankment.png` | demo_road_culvert | A 2D profile across the road embankment with the ponded upstream surface. |
 | `t08_profile_pumped_branch.png` | Bellinge (run) | A profile through a pumped branch with the HGL at an animation time. |
 
-"Bellinge (run)" means `~/Downloads/bellinge_2d/BellingeSWMM_v021_nopervious.oswp`,
-which carries a completed run. It takes a couple of minutes to open — do all of
+"Bellinge (run)" means a working copy of
+`examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp` with its external mesh,
+DEM and rainfall dependencies and a newly completed run. Do not depend on a
+private Downloads folder or assume generated results are checked in. It takes a couple of minutes to open — do all of
 its shots in one session.
 
 ### 2.8 Outside the app (2 shots)
@@ -177,13 +248,19 @@ its shots in one session.
 | `a02_oswp_structure.png` | An `.oswp` open in a text editor, scrolled so both the `sessions` and `meshLayers` blocks are visible. Use `examples/site_drainage/site_drainage_model.oswp`; a plain light editor theme matches the manual best. |
 | `a01_timeseries_editor_keys.png` | The time-series editor toolbar with **Insert**, **Delete**, **Copy** and **Paste** identifiable. The buttons are icon-only, so hover one and frame the strip with its tooltip — the automated grab was rejected precisely because unlabelled icons do not serve this caption. |
 
-## 3. One of these is an annotated figure
+## 3. Annotated figures
 
-`23_profile_anatomy` needs callouts drawn on top — ground, inverts, crowns,
-HGL, max HGL and the node glyphs each labelled. Shoot the clean profile first
-and keep it; the annotation is a separate pass, and it shares that pass with
-the four other annotated figures still outstanding (`00_overview_annotated_window`,
-`01_main_window_annotated`, `02_window_regions`, `t05_bc_types_reference`).
+The window guide in chapter 02 now uses numbered HTML overlays above an
+unaltered PNG. Keep its overlay aspect ratio synchronized with the raw image
+size, and inspect the rendered page at desktop and narrow widths. The overview
+and introduction reuse the same application state without claiming to label
+every control in the image itself.
+
+`23_profile_anatomy` and `t05_bc_types_reference` still need their own real
+captures and matching explanations. A profile figure that labels maximum HGL
+must actually show that envelope; the ordinary first-timestep overview is not
+sufficient. Preserve the unannotated original and add labels in the document
+layer where possible.
 
 ## 4. Publish them
 
@@ -212,3 +289,17 @@ If a shot cannot match its caption, **do not publish it**. Say so instead, and
 either the caption or the feature needs to change. Several captions have
 already been corrected this way — a placeholder is honest about being missing,
 a wrong figure is not.
+
+## 6. Record acceptance and check the rendered manual
+
+After inspecting the full-size PNG, publish it with `manual_figures.py flip`.
+Record its **published** SHA-256 (after lossless optimization), review date,
+batch baseline and any intended reuse in `docs/manual/figure_reviews.json`.
+Never mark every image in a successful batch accepted automatically. Keep
+rejected attempts in the batch directory with their reason in the handoff.
+
+`manual_figures.py audit --strict` is the completion gate: it fails for missing
+recipes, unfinished figures/videos or absent/stale visual reviews. The ordinary
+audit remains suitable for incremental chapter batches. Build with `doxygen
+Doxyfile` from `docs/`, then inspect the HTML images, captions and numbered
+orientation guide at desktop and narrow reading widths.

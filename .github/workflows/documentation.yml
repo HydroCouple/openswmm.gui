@@ -46,6 +46,7 @@ jobs:
           python3 scripts/manual_docs_audit.py property-labels
           python3 scripts/manual_docs_audit.py culvert-codes
           python3 scripts/manual_figures.py audit
+          python3 scripts/manual_docs_audit.py links
 
       - name: Generate API documentation
         # Doxyfile paths are relative to the config's own dir (OUTPUT_DIRECTORY=.,
