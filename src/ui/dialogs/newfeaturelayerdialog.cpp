@@ -7,12 +7,16 @@
 
 #include "ui/dialogs/newfeaturelayerdialog.h"
 
+#include "core/unitsystem.h"
+#include "feature/featureroles.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "map/mapcanvas.h"
 #include "map/spatialreferencesystem.h"
+#include "ui/dialogs/featurefieldeditor.h"
 #include "ui/uiscrollhelpers.h"
 
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -21,12 +25,15 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QSpinBox>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 using namespace openswmmvis::feature;
@@ -35,9 +42,83 @@ namespace openswmmvis::ui {
 
 namespace {
 
-/*! Column order of the schema table. */
-enum FieldColumn { ColName = 0, ColType = 1, ColDefault = 2, ColDescription = 3,
+/*! Columns of the field table. */
+enum FieldColumn { ColField = 0, ColType = 1, ColDefault = 2, ColDescription = 3,
                    ColCount };
+
+constexpr int kCustomRole   = Qt::UserRole;       ///< bool: a custom field row
+constexpr int kFieldJsonRole = Qt::UserRole + 1;  ///< QJsonObject: custom FieldDef
+
+QString typeText(const FieldDef &f)
+{
+    if (f.choiceSource == ChoiceSource::Fixed) return NewFeatureLayerDialog::tr("Choice");
+    return fieldTypeLabel(f.type);
+}
+
+QString lengthUnit()
+{
+    return UnitSystem::instance() ? UnitSystem::instance()->lengthLabel() : QString();
+}
+
+/*! The default editor for a role field: a combo for Choice / Yes-No, a spin
+ *  with the unit for numbers, a line edit for text. */
+QWidget *defaultEditorFor(const FieldDef &f, QWidget *parent)
+{
+    QWidget *w = nullptr;
+    if (f.type == FieldType::Boolean) {
+        auto *c = new QComboBox(parent);
+        c->addItem(NewFeatureLayerDialog::tr("(none)"), QVariant());
+        c->addItem(NewFeatureLayerDialog::tr("Yes"), true);
+        c->addItem(NewFeatureLayerDialog::tr("No"), false);
+        const int i = f.defaultValue.isValid() ? c->findData(f.defaultValue.toBool()) : 0;
+        c->setCurrentIndex(i >= 0 ? i : 0);
+        w = c;
+    } else if (f.choiceSource == ChoiceSource::Fixed) {
+        auto *c = new QComboBox(parent);
+        if (!f.required) c->addItem(NewFeatureLayerDialog::tr("(none)"), QString());
+        for (const FieldChoice &ch : f.choices) c->addItem(ch.displayLabel(), ch.value);
+        const int i = c->findData(f.defaultValue.toString());
+        c->setCurrentIndex(i >= 0 ? i : 0);
+        w = c;
+    } else if (f.type == FieldType::Real) {
+        auto *s = new QDoubleSpinBox(parent);
+        s->setRange(-1.0e12, 1.0e12);
+        s->setDecimals(4);
+        if (f.unit == FieldUnit::Length && !lengthUnit().isEmpty())
+            s->setSuffix(QLatin1Char(' ') + lengthUnit());
+        s->setValue(f.defaultValue.toDouble());
+        w = s;
+    } else if (f.type == FieldType::Integer) {
+        auto *s = new QSpinBox(parent);
+        s->setRange(-2147483647, 2147483647);
+        s->setValue(f.defaultValue.toInt());
+        w = s;
+    } else {
+        auto *e = new QLineEdit(parent);
+        e->setPlaceholderText(NewFeatureLayerDialog::tr("(none)"));
+        e->setText(f.defaultValue.toString());
+        w = e;
+    }
+    w->setObjectName(QStringLiteral("newFeatureDefault_") + f.name);
+    return w;
+}
+
+/*! Read a default back from \p w for a field of \p f's kind. */
+QVariant defaultFrom(const QWidget *w, const FieldDef &f)
+{
+    if (auto *c = qobject_cast<const QComboBox *>(w)) {
+        const QVariant d = c->currentData();
+        if (f.type == FieldType::Boolean) return d.isValid() ? QVariant(d.toBool()) : QVariant();
+        return d.toString().isEmpty() ? QVariant() : QVariant(d.toString());
+    }
+    if (auto *s = qobject_cast<const QDoubleSpinBox *>(w)) return s->value();
+    if (auto *s = qobject_cast<const QSpinBox *>(w))       return s->value();
+    if (auto *e = qobject_cast<const QLineEdit *>(w)) {
+        const QString t = e->text().trimmed();
+        return t.isEmpty() ? QVariant() : QVariant(t);
+    }
+    return f.defaultValue;
+}
 
 }   // namespace
 
@@ -49,9 +130,9 @@ NewFeatureLayerDialog::NewFeatureLayerDialog(MapCanvas *canvas, QWidget *parent)
     setObjectName(QStringLiteral("NewFeatureLayerDialog"));
     buildUi();
     populateZSources();
-    applyRoleTemplate(FeatureLayerRole::General);
+    onRoleChanged(m_roleCombo->currentIndex());
     onZSourceChanged(m_zSourceCombo->currentIndex());
-    resize(620, 560);
+    resize(640, 600);
 }
 
 void NewFeatureLayerDialog::buildUi()
@@ -61,60 +142,94 @@ void NewFeatureLayerDialog::buildUi()
     auto *vbox = new QVBoxLayout(page);
     vbox->setContentsMargins(8, 8, 8, 8);
 
-    // ----- Identity ------------------------------------------------------
+    // ----- Role, name, geometry, CRS ------------------------------------
     {
-        auto *g = new QGroupBox(tr("Layer"), page);
-        auto *f = new QFormLayout(g);
+        auto *f = new QFormLayout();
 
-        m_nameEdit = new QLineEdit(g);
-        m_nameEdit->setPlaceholderText(tr("e.g. Model domain"));
+        m_roleCombo = new QComboBox(page);
+        m_roleCombo->setObjectName(QStringLiteral("newFeatureRoleCombo"));
+        for (const FeatureRoleSpec &s : featureRoleSpecs())
+            m_roleCombo->addItem(s.label, static_cast<int>(s.role));
+        m_roleCombo->setToolTip(
+            tr("What the layer is for. The role decides the fields and geometry "
+               "offered below; the layer stays a plain table, so anything that "
+               "accepts a vector layer accepts it."));
+        f->addRow(tr("What is it &for?"), m_roleCombo);
+
+        m_roleSummary = new QLabel(page);
+        m_roleSummary->setWordWrap(true);
+        m_roleSummary->setEnabled(false);
+        f->addRow(QString(), m_roleSummary);
+        m_roleNote = new QLabel(page);
+        m_roleNote->setWordWrap(true);
+        m_roleNote->setObjectName(QStringLiteral("newFeatureRoleNote"));
+        f->addRow(QString(), m_roleNote);
+
+        m_nameEdit = new QLineEdit(page);
+        m_nameEdit->setObjectName(QStringLiteral("newFeatureNameEdit"));
+        m_nameEdit->setPlaceholderText(tr("e.g. Regions"));
         f->addRow(tr("&Name:"), m_nameEdit);
 
-        m_roleCombo = new QComboBox(g);
-        for (auto r : {FeatureLayerRole::General,
-                       FeatureLayerRole::DomainBoundary,
-                       FeatureLayerRole::Breakline,
-                       FeatureLayerRole::Region,
-                       FeatureLayerRole::ParameterZone,
-                       FeatureLayerRole::SwmmDelineation,
-                       FeatureLayerRole::BoundaryCondition})
-            m_roleCombo->addItem(featureLayerRoleLabel(r), static_cast<int>(r));
-        m_roleCombo->setToolTip(
-            tr("What the layer is for. A role only pre-fills the columns below "
-               "and decides which \"Use as…\" shortcuts are offered — the layer "
-               "is a plain table whatever you choose, so every consumer that "
-               "accepts a vector layer accepts it."));
-        f->addRow(tr("&Role:"), m_roleCombo);
-
-        m_geomCombo = new QComboBox(g);
-        for (auto t : {GeometryType::Point, GeometryType::LineString,
-                       GeometryType::Polygon, GeometryType::MultiPoint,
-                       GeometryType::MultiLineString, GeometryType::MultiPolygon})
-            m_geomCombo->addItem(geometryTypeLabel(t), static_cast<int>(t));
-        m_geomCombo->setCurrentIndex(m_geomCombo->findData(
-            static_cast<int>(GeometryType::Polygon)));
-        m_geomCombo->setToolTip(
+        m_geomBox = new QWidget(page);
+        auto *gl = new QHBoxLayout(m_geomBox);
+        gl->setContentsMargins(0, 0, 0, 0);
+        m_geomGroup = new QButtonGroup(this);
+        m_geomBox->setToolTip(
             tr("Fixed once the layer exists: it decides the table's geometry "
                "type. Choose a multi-part type if features may have several "
                "parts — a single-part layer cannot be promoted later."));
-        f->addRow(tr("&Geometry:"), m_geomCombo);
+        f->addRow(tr("Geometry:"), m_geomBox);
 
-        m_crsLabel = new QLabel(g);
+        m_crsLabel = new QLabel(page);
         m_crsLabel->setWordWrap(true);
         m_crsLabel->setText(srsWkt().isEmpty()
                                 ? tr("None — coordinates are stored as drawn.")
                                 : tr("Canvas CRS"));
         f->addRow(tr("CRS:"), m_crsLabel);
+        vbox->addLayout(f);
+    }
 
+    // ----- Fields ---------------------------------------------------------
+    {
+        auto *g = new QGroupBox(tr("Fields"), page);
+        auto *lay = new QVBoxLayout(g);
+
+        m_fieldTable = new QTableWidget(0, ColCount, g);
+        m_fieldTable->setObjectName(QStringLiteral("newFeatureFieldTable"));
+        m_fieldTable->setHorizontalHeaderLabels(
+            {tr("Field"), tr("Type"), tr("Default"), tr("Description")});
+        m_fieldTable->horizontalHeader()->setStretchLastSection(true);
+        m_fieldTable->verticalHeader()->setVisible(false);
+        m_fieldTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+        m_fieldTable->setSelectionMode(QAbstractItemView::SingleSelection);
+        m_fieldTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        m_fieldTable->setMinimumHeight(160);
+        lay->addWidget(m_fieldTable);
+
+        auto *btns = new QHBoxLayout();
+        m_addFieldBtn    = new QPushButton(tr("Add custom field…"), g);
+        m_removeFieldBtn = new QPushButton(tr("Remove custom field"), g);
+        m_addFieldBtn->setObjectName(QStringLiteral("newFeatureAddCustomField"));
+        btns->addWidget(m_addFieldBtn);
+        btns->addWidget(m_removeFieldBtn);
+        btns->addStretch();
+        lay->addLayout(btns);
         vbox->addWidget(g);
     }
 
-    // ----- Elevation -----------------------------------------------------
+    // ----- Elevation (collapsible) ---------------------------------------
     {
-        auto *g = new QGroupBox(tr("Elevation (Z)"), page);
-        auto *f = new QFormLayout(g);
+        m_zToggle = new QToolButton(page);
+        m_zToggle->setObjectName(QStringLiteral("newFeatureZToggle"));
+        m_zToggle->setCheckable(true);
+        m_zToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        m_zToggle->setAutoRaise(true);
+        vbox->addWidget(m_zToggle);
 
-        m_zSourceCombo = new QComboBox(g);
+        m_zBody = new QWidget(page);
+        auto *f = new QFormLayout(m_zBody);
+
+        m_zSourceCombo = new QComboBox(m_zBody);
         m_zSourceCombo->addItem(tr("None — 2D layer"),
                                 static_cast<int>(ZPolicy::Source::None));
         m_zSourceCombo->addItem(tr("Constant value"),
@@ -129,19 +244,19 @@ void NewFeatureLayerDialog::buildUi()
                "followed by Resample Z."));
         f->addRow(tr("&Source:"), m_zSourceCombo);
 
-        m_zLayerCombo = new QComboBox(g);
+        m_zLayerCombo = new QComboBox(m_zBody);
         f->addRow(tr("From &layer:"), m_zLayerCombo);
 
-        m_zBandSpin = new QSpinBox(g);
+        m_zBandSpin = new QSpinBox(m_zBody);
         m_zBandSpin->setRange(1, 512);
         f->addRow(tr("Raster &band:"), m_zBandSpin);
 
-        m_zConstantSpin = new QDoubleSpinBox(g);
+        m_zConstantSpin = new QDoubleSpinBox(m_zBody);
         m_zConstantSpin->setRange(-1e9, 1e9);
         m_zConstantSpin->setDecimals(3);
         f->addRow(tr("&Value:"), m_zConstantSpin);
 
-        m_zScaleSpin = new QDoubleSpinBox(g);
+        m_zScaleSpin = new QDoubleSpinBox(m_zBody);
         m_zScaleSpin->setRange(-1e6, 1e6);
         m_zScaleSpin->setDecimals(6);
         m_zScaleSpin->setValue(1.0);
@@ -151,7 +266,7 @@ void NewFeatureLayerDialog::buildUi()
                "metres)."));
         f->addRow(tr("Z &conversion (×):"), m_zScaleSpin);
 
-        m_zDensifySpin = new QDoubleSpinBox(g);
+        m_zDensifySpin = new QDoubleSpinBox(m_zBody);
         m_zDensifySpin->setRange(0.0, 1e9);
         m_zDensifySpin->setDecimals(3);
         m_zDensifySpin->setSpecialValueText(tr("(off)"));
@@ -164,47 +279,24 @@ void NewFeatureLayerDialog::buildUi()
                "then has to clean up."));
         f->addRow(tr("&Densify before sampling:"), m_zDensifySpin);
 
-        m_zResampleBox = new QCheckBox(tr("Re-sample Z when a vertex is moved or inserted"), g);
+        m_zResampleBox = new QCheckBox(tr("Re-sample Z when a vertex is moved or inserted"),
+                                       m_zBody);
         m_zResampleBox->setChecked(true);
         f->addRow(QString(), m_zResampleBox);
 
-        m_zHint = new QLabel(g);
+        m_zHint = new QLabel(m_zBody);
         m_zHint->setWordWrap(true);
         m_zHint->setEnabled(false);
         f->addRow(QString(), m_zHint);
 
-        vbox->addWidget(g);
-    }
-
-    // ----- Schema --------------------------------------------------------
-    {
-        auto *g = new QGroupBox(tr("Attributes"), page);
-        auto *lay = new QVBoxLayout(g);
-
-        m_fieldTable = new QTableWidget(0, ColCount, g);
-        m_fieldTable->setHorizontalHeaderLabels(
-            {tr("Name"), tr("Type"), tr("Default"), tr("Description")});
-        m_fieldTable->horizontalHeader()->setStretchLastSection(true);
-        m_fieldTable->verticalHeader()->setVisible(false);
-        m_fieldTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-        m_fieldTable->setMinimumHeight(140);
-        lay->addWidget(m_fieldTable);
-
-        auto *btns = new QHBoxLayout();
-        m_addFieldBtn    = new QPushButton(tr("Add column"), g);
-        m_removeFieldBtn = new QPushButton(tr("Remove"), g);
-        btns->addWidget(m_addFieldBtn);
-        btns->addWidget(m_removeFieldBtn);
-        btns->addStretch();
-        lay->addLayout(btns);
-
-        vbox->addWidget(g);
+        vbox->addWidget(m_zBody);
     }
 
     vbox->addStretch();
     root->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, this), 1);
 
     m_buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    m_buttons->button(QDialogButtonBox::Ok)->setText(tr("Create"));
     root->addWidget(m_buttons);
 
     connect(m_buttons, &QDialogButtonBox::accepted,
@@ -214,10 +306,269 @@ void NewFeatureLayerDialog::buildUi()
             this, &NewFeatureLayerDialog::onRoleChanged);
     connect(m_zSourceCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &NewFeatureLayerDialog::onZSourceChanged);
+    connect(m_zToggle, &QToolButton::toggled, this, &NewFeatureLayerDialog::setZExpanded);
     connect(m_addFieldBtn, &QPushButton::clicked,
-            this, &NewFeatureLayerDialog::onAddField);
+            this, &NewFeatureLayerDialog::onAddCustomField);
     connect(m_removeFieldBtn, &QPushButton::clicked,
-            this, &NewFeatureLayerDialog::onRemoveField);
+            this, &NewFeatureLayerDialog::onRemoveCustomField);
+}
+
+// ---------------------------------------------------------------------------
+// Role
+// ---------------------------------------------------------------------------
+
+void NewFeatureLayerDialog::onRoleChanged(int)
+{
+    const FeatureRoleSpec &spec = featureRoleSpec(role());
+    m_roleSummary->setText(spec.summary);
+    m_roleNote->setText(spec.note);
+    m_roleNote->setVisible(!spec.note.isEmpty());
+
+    rebuildGeometryChoices();
+    rebuildFieldRows();
+
+    // A breakline layer is only useful in 3D; nudge, don't force.
+    if (spec.role == FeatureLayerRole::Breakline
+        && m_zSourceCombo->currentData().toInt()
+               == static_cast<int>(ZPolicy::Source::None)) {
+        const int idx = m_zSourceCombo->findData(static_cast<int>(ZPolicy::Source::Raster));
+        if (idx >= 0) m_zSourceCombo->setCurrentIndex(idx);
+    }
+    setZExpanded(spec.wantsZ);
+}
+
+void NewFeatureLayerDialog::setRole(FeatureLayerRole r)
+{
+    const int i = m_roleCombo->findData(static_cast<int>(r));
+    if (i >= 0) m_roleCombo->setCurrentIndex(i);
+}
+
+FeatureLayerRole NewFeatureLayerDialog::role() const
+{
+    return static_cast<FeatureLayerRole>(m_roleCombo->currentData().toInt());
+}
+
+void NewFeatureLayerDialog::rebuildGeometryChoices()
+{
+    const GeometryType previous = geometryType();
+    for (QAbstractButton *b : m_geomGroup->buttons()) {
+        m_geomGroup->removeButton(b);
+        delete b;
+    }
+
+    const FeatureRoleSpec &spec = featureRoleSpec(role());
+    auto *lay = static_cast<QHBoxLayout *>(m_geomBox->layout());
+    while (QLayoutItem *item = lay->takeAt(0)) delete item;   // the old stretch
+    for (GeometryType t : spec.geometries) {
+        auto *rb = new QRadioButton(geometryTypeLabel(t), m_geomBox);
+        rb->setObjectName(QStringLiteral("newFeatureGeometry_%1").arg(static_cast<int>(t)));
+        m_geomGroup->addButton(rb, static_cast<int>(t));
+        lay->addWidget(rb);
+    }
+    lay->addStretch();
+
+    // The role's default; otherwise keep what was picked when the role allows
+    // it; otherwise Polygon, then the first kind.
+    GeometryType pick = spec.defaultGeometry;
+    if (pick == GeometryType::None || !spec.allowsGeometry(pick))
+        pick = spec.allowsGeometry(previous) ? previous
+             : spec.allowsGeometry(GeometryType::Polygon) ? GeometryType::Polygon
+             : spec.geometries.value(0, GeometryType::None);
+    setGeometryType(pick);
+}
+
+QVector<GeometryType> NewFeatureLayerDialog::offeredGeometries() const
+{
+    QVector<GeometryType> out;
+    for (QAbstractButton *b : m_geomGroup->buttons())
+        out.append(static_cast<GeometryType>(m_geomGroup->id(b)));
+    return out;
+}
+
+void NewFeatureLayerDialog::setGeometryType(GeometryType t)
+{
+    if (QAbstractButton *b = m_geomGroup->button(static_cast<int>(t)))
+        b->setChecked(true);
+}
+
+GeometryType NewFeatureLayerDialog::geometryType() const
+{
+    const int id = m_geomGroup ? m_geomGroup->checkedId() : -1;
+    return id < 0 ? GeometryType::None : static_cast<GeometryType>(id);
+}
+
+// ---------------------------------------------------------------------------
+// Fields
+// ---------------------------------------------------------------------------
+
+void NewFeatureLayerDialog::rebuildFieldRows()
+{
+    // Keep the custom rows; replace the role rows.
+    QVector<QPair<FieldDef, bool>> custom;   // field, ticked
+    for (int r = 0; r < m_fieldTable->rowCount(); ++r) {
+        const QTableWidgetItem *it = m_fieldTable->item(r, ColField);
+        if (!it || !it->data(kCustomRole).toBool()) continue;
+        custom.append({FieldDef::fromJson(it->data(kFieldJsonRole).toJsonObject()),
+                       it->checkState() == Qt::Checked});
+    }
+    m_fieldTable->setRowCount(0);
+
+    for (const FieldDef &f : featureRoleSpec(role()).fields)
+        appendFieldRow(f, /*custom=*/false);
+    for (const auto &c : custom) {
+        // A custom field whose name the new role uses would be a duplicate.
+        if (rowOf(c.first.name) >= 0) continue;
+        appendFieldRow(c.first, /*custom=*/true);
+        m_fieldTable->item(m_fieldTable->rowCount() - 1, ColField)
+            ->setCheckState(c.second ? Qt::Checked : Qt::Unchecked);
+    }
+    m_fieldTable->resizeColumnsToContents();
+    m_fieldTable->horizontalHeader()->setStretchLastSection(true);
+}
+
+void NewFeatureLayerDialog::appendFieldRow(const FieldDef &f, bool custom)
+{
+    const int row = m_fieldTable->rowCount();
+    m_fieldTable->insertRow(row);
+
+    auto *name = new QTableWidgetItem(f.name);
+    Qt::ItemFlags flags = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    if (custom || !f.required) flags |= Qt::ItemIsUserCheckable;
+    name->setFlags(flags);
+    name->setCheckState(Qt::Checked);
+    name->setData(kCustomRole, custom);
+    if (custom) name->setData(kFieldJsonRole, f.toJson());
+    name->setToolTip(f.required ? tr("Required by this role — always created.")
+                     : custom   ? tr("Custom field. Untick to leave it out.")
+                                : tr("Optional. Untick to leave it out."));
+    m_fieldTable->setItem(row, ColField, name);
+
+    auto *type = new QTableWidgetItem(typeText(f));
+    type->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+    m_fieldTable->setItem(row, ColType, type);
+
+    if (custom) {
+        QString d = f.defaultValue.isValid() ? f.defaultValue.toString() : QString();
+        if (f.choiceSource == ChoiceSource::Fixed && f.defaultValue.isValid())
+            d = f.choiceLabel(f.defaultValue.toString());
+        if (f.type == FieldType::Boolean && f.defaultValue.isValid())
+            d = f.defaultValue.toBool() ? tr("Yes") : tr("No");
+        auto *def = new QTableWidgetItem(d);
+        def->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        m_fieldTable->setItem(row, ColDefault, def);
+    } else {
+        m_fieldTable->setCellWidget(row, ColDefault, defaultEditorFor(f, m_fieldTable));
+    }
+
+    auto *desc = new QTableWidgetItem(f.description);
+    desc->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+    desc->setToolTip(f.description);
+    m_fieldTable->setItem(row, ColDescription, desc);
+}
+
+int NewFeatureLayerDialog::rowOf(const QString &name) const
+{
+    for (int r = 0; r < m_fieldTable->rowCount(); ++r)
+        if (const QTableWidgetItem *it = m_fieldTable->item(r, ColField))
+            if (it->text().compare(name, Qt::CaseInsensitive) == 0) return r;
+    return -1;
+}
+
+QStringList NewFeatureLayerDialog::fieldNames() const
+{
+    QStringList out;
+    for (int r = 0; r < m_fieldTable->rowCount(); ++r)
+        if (const QTableWidgetItem *it = m_fieldTable->item(r, ColField))
+            out << it->text();
+    return out;
+}
+
+bool NewFeatureLayerDialog::setFieldIncluded(const QString &name, bool on)
+{
+    const int r = rowOf(name);
+    if (r < 0) return false;
+    QTableWidgetItem *it = m_fieldTable->item(r, ColField);
+    if (it->flags().testFlag(Qt::ItemIsUserCheckable))
+        it->setCheckState(on ? Qt::Checked : Qt::Unchecked);
+    return it->checkState() == Qt::Checked;
+}
+
+bool NewFeatureLayerDialog::addCustomField(const FieldDef &f)
+{
+    if (!FeatureFieldEditor::validate(f, f.name, fieldNames()).isEmpty())
+        return false;
+    appendFieldRow(f, /*custom=*/true);
+    return true;
+}
+
+void NewFeatureLayerDialog::onAddCustomField()
+{
+    FeatureFieldEditor editor(this);
+    editor.setWindowTitle(tr("Add custom field"));
+    editor.setExistingNames(fieldNames());
+    if (editor.exec() != QDialog::Accepted) return;
+    addCustomField(editor.field());
+}
+
+void NewFeatureLayerDialog::onRemoveCustomField()
+{
+    const int r = m_fieldTable->currentRow();
+    if (r < 0) return;
+    const QTableWidgetItem *it = m_fieldTable->item(r, ColField);
+    if (it && it->data(kCustomRole).toBool()) m_fieldTable->removeRow(r);
+}
+
+Schema NewFeatureLayerDialog::schema() const
+{
+    Schema s;
+    const FeatureRoleSpec &spec = featureRoleSpec(role());
+    for (int r = 0; r < m_fieldTable->rowCount(); ++r) {
+        const QTableWidgetItem *it = m_fieldTable->item(r, ColField);
+        if (!it || it->checkState() != Qt::Checked) continue;
+        if (it->data(kCustomRole).toBool()) {
+            s.append(FieldDef::fromJson(it->data(kFieldJsonRole).toJsonObject()));
+            continue;
+        }
+        const FieldDef *reg = spec.field(it->text());
+        if (!reg) continue;
+        FieldDef f = *reg;
+        f.defaultValue = defaultFrom(m_fieldTable->cellWidget(r, ColDefault), f);
+        s.append(f);
+    }
+    return s;
+}
+
+// ---------------------------------------------------------------------------
+// Elevation
+// ---------------------------------------------------------------------------
+
+void NewFeatureLayerDialog::setZExpanded(bool on)
+{
+    if (m_zToggle->isChecked() != on) {
+        const QSignalBlocker block(m_zToggle);
+        m_zToggle->setChecked(on);
+    }
+    m_zToggle->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
+    m_zBody->setVisible(on);
+    refreshZSummary();
+}
+
+bool NewFeatureLayerDialog::zSectionExpanded() const
+{
+    return m_zToggle->isChecked();
+}
+
+void NewFeatureLayerDialog::refreshZSummary()
+{
+    const auto src = static_cast<ZPolicy::Source>(m_zSourceCombo->currentData().toInt());
+    QString what;
+    switch (src) {
+    case ZPolicy::Source::None:     what = tr("2D"); break;
+    case ZPolicy::Source::Constant: what = tr("3D, constant"); break;
+    case ZPolicy::Source::Raster:   what = tr("3D, from a raster"); break;
+    case ZPolicy::Source::Mesh:     what = tr("3D, from the 2D mesh"); break;
+    }
+    m_zToggle->setText(tr("Elevation (Z) — %1").arg(what));
 }
 
 void NewFeatureLayerDialog::populateZSources()
@@ -234,29 +585,6 @@ void NewFeatureLayerDialog::populateZSources()
             (src == ZPolicy::Source::Raster && qobject_cast<GISRasterLayer *>(l))
          || (src == ZPolicy::Source::Mesh   && qobject_cast<SWMM2DMeshLayer *>(l));
         if (wanted) m_zLayerCombo->addItem(l->name(), l->layerId());
-    }
-}
-
-void NewFeatureLayerDialog::onRoleChanged(int)
-{
-    const auto r = static_cast<FeatureLayerRole>(m_roleCombo->currentData().toInt());
-    applyRoleTemplate(r);
-
-    // Steer the geometry type to what the role implies, but do not lock it:
-    // a user may legitimately want breaklines as points.
-    const GeometryType g = featureLayerRoleGeometry(r);
-    if (g != GeometryType::None) {
-        const int idx = m_geomCombo->findData(static_cast<int>(g));
-        if (idx >= 0) m_geomCombo->setCurrentIndex(idx);
-    }
-
-    // A breakline layer is only useful in 3D; nudge, don't force.
-    if (r == FeatureLayerRole::Breakline
-        && m_zSourceCombo->currentData().toInt()
-               == static_cast<int>(ZPolicy::Source::None)) {
-        const int idx = m_zSourceCombo->findData(
-            static_cast<int>(ZPolicy::Source::Raster));
-        if (idx >= 0) m_zSourceCombo->setCurrentIndex(idx);
     }
 }
 
@@ -289,100 +617,7 @@ void NewFeatureLayerDialog::onZSourceChanged(int)
                             "unsampled rather than set to zero, and counted in "
                             "the Features panel."));
     }
-}
-
-void NewFeatureLayerDialog::applyRoleTemplate(FeatureLayerRole r)
-{
-    writeSchemaTable(featureLayerRoleTemplate(r));
-}
-
-void NewFeatureLayerDialog::writeSchemaTable(const Schema &s)
-{
-    m_fieldTable->setRowCount(0);
-    for (const FieldDef &f : s.fields()) {
-        const int row = m_fieldTable->rowCount();
-        m_fieldTable->insertRow(row);
-        m_fieldTable->setItem(row, ColName, new QTableWidgetItem(f.name));
-
-        auto *typeCombo = new QComboBox(m_fieldTable);
-        for (auto t : {FieldType::Text, FieldType::Integer,
-                       FieldType::Real, FieldType::Boolean})
-            typeCombo->addItem(fieldTypeLabel(t), static_cast<int>(t));
-        typeCombo->setCurrentIndex(typeCombo->findData(static_cast<int>(f.type)));
-        m_fieldTable->setCellWidget(row, ColType, typeCombo);
-
-        m_fieldTable->setItem(row, ColDefault,
-                              new QTableWidgetItem(f.defaultValue.toString()));
-        m_fieldTable->setItem(row, ColDescription, new QTableWidgetItem(f.description));
-    }
-}
-
-Schema NewFeatureLayerDialog::readSchemaTable() const
-{
-    Schema s;
-    for (int row = 0; row < m_fieldTable->rowCount(); ++row) {
-        FieldDef f;
-        const QTableWidgetItem *nameItem = m_fieldTable->item(row, ColName);
-        f.name = sanitizeFieldName(nameItem ? nameItem->text() : QString());
-        if (f.name.isEmpty()) continue;
-
-        if (auto *combo = qobject_cast<QComboBox *>(m_fieldTable->cellWidget(row, ColType)))
-            f.type = static_cast<FieldType>(combo->currentData().toInt());
-
-        if (const QTableWidgetItem *d = m_fieldTable->item(row, ColDefault))
-            if (!d->text().isEmpty())
-                f.defaultValue = coerceToFieldType(d->text(), f.type);
-
-        if (const QTableWidgetItem *desc = m_fieldTable->item(row, ColDescription))
-            f.description = desc->text();
-
-        s.append(f);   // duplicates are dropped by Schema::append
-    }
-    return s;
-}
-
-void NewFeatureLayerDialog::onAddField()
-{
-    const int row = m_fieldTable->rowCount();
-    m_fieldTable->insertRow(row);
-    m_fieldTable->setItem(row, ColName, new QTableWidgetItem(QString()));
-
-    auto *typeCombo = new QComboBox(m_fieldTable);
-    for (auto t : {FieldType::Text, FieldType::Integer,
-                   FieldType::Real, FieldType::Boolean})
-        typeCombo->addItem(fieldTypeLabel(t), static_cast<int>(t));
-    m_fieldTable->setCellWidget(row, ColType, typeCombo);
-
-    m_fieldTable->setItem(row, ColDefault, new QTableWidgetItem(QString()));
-    m_fieldTable->setItem(row, ColDescription, new QTableWidgetItem(QString()));
-    m_fieldTable->editItem(m_fieldTable->item(row, ColName));
-}
-
-void NewFeatureLayerDialog::onRemoveField()
-{
-    const int row = m_fieldTable->currentRow();
-    if (row >= 0) m_fieldTable->removeRow(row);
-}
-
-QString NewFeatureLayerDialog::layerName() const
-{
-    const QString n = m_nameEdit->text().trimmed();
-    return n.isEmpty() ? tr("Features") : n;
-}
-
-GeometryType NewFeatureLayerDialog::geometryType() const
-{
-    return static_cast<GeometryType>(m_geomCombo->currentData().toInt());
-}
-
-Schema NewFeatureLayerDialog::schema() const
-{
-    return readSchemaTable();
-}
-
-FeatureLayerRole NewFeatureLayerDialog::role() const
-{
-    return static_cast<FeatureLayerRole>(m_roleCombo->currentData().toInt());
+    refreshZSummary();
 }
 
 ZPolicy NewFeatureLayerDialog::zPolicy() const
@@ -396,6 +631,16 @@ ZPolicy NewFeatureLayerDialog::zPolicy() const
     p.densifySpacing = m_zDensifySpin->value();
     p.resampleOnEdit = m_zResampleBox->isChecked();
     return p;
+}
+
+// ---------------------------------------------------------------------------
+// Result
+// ---------------------------------------------------------------------------
+
+QString NewFeatureLayerDialog::layerName() const
+{
+    const QString n = m_nameEdit->text().trimmed();
+    return n.isEmpty() ? tr("Features") : n;
 }
 
 QString NewFeatureLayerDialog::srsWkt() const
@@ -419,21 +664,6 @@ void NewFeatureLayerDialog::validateAndAccept()
                              tr("Choose a geometry type."));
         return;
     }
-
-    // A named column the sanitiser could not use is a silent data loss if we
-    // just drop it, so say which one and stop.
-    for (int row = 0; row < m_fieldTable->rowCount(); ++row) {
-        const QTableWidgetItem *item = m_fieldTable->item(row, ColName);
-        const QString raw = item ? item->text().trimmed() : QString();
-        if (raw.isEmpty()) continue;
-        if (sanitizeFieldName(raw).isEmpty()) {
-            QMessageBox::warning(this, tr("Invalid column name"),
-                tr("\"%1\" cannot be used as a column name. Use letters, "
-                   "digits and underscores.").arg(raw));
-            return;
-        }
-    }
-
     accept();
 }
 

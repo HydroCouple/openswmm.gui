@@ -39,6 +39,7 @@
 
 #include "layers/gisvectorlayer.h"
 #include "feature/featuregeometry.h"
+#include "feature/featureroles.h"
 #include "feature/featurestore.h"
 #include "feature/featuretypes.h"
 
@@ -51,38 +52,6 @@
 class GISRasterLayer;
 class SWMM2DMeshLayer;
 class MapCanvas;
-
-/*!
- * \enum FeatureLayerRole
- * \brief What a feature layer is FOR.
- *
- * A role is a schema template plus a label — never a behaviour switch. The
- * layer stays a plain OGR table whatever its role, so every existing consumer
- * that accepts "a vector layer" keeps working unchanged (PLAN §6). The role
- * only drives: the fields pre-filled by the New Feature Layer dialog, the
- * glyph shown beside the layer in the mesh dialog's combos, and which
- * "Use as …" shortcuts are offered.
- */
-enum class FeatureLayerRole
-{
-    General = 0,      ///< No template.
-    DomainBoundary,   ///< Mesh domain polygon(s); interior rings become holes.
-    Breakline,        ///< 3D constraint lines / hard points.
-    Region,           ///< Refinement, quad and min-cell-size regions.
-    ParameterZone,    ///< Roughness, land use, infiltration.
-    SwmmDelineation,  ///< Source for Import Feature Layer → SWMM objects.
-    BoundaryCondition ///< Lines mapped onto 2D mesh boundary edges.
-};
-
-[[nodiscard]] QString featureLayerRoleLabel(FeatureLayerRole r);
-[[nodiscard]] QString featureLayerRoleToken(FeatureLayerRole r);
-[[nodiscard]] FeatureLayerRole featureLayerRoleFromToken(const QString &token);
-/*! \brief The fields a newly created layer of role \p r starts with. */
-[[nodiscard]] openswmmvis::feature::Schema featureLayerRoleTemplate(FeatureLayerRole r);
-/*! \brief The geometry type a role implies, for the New-layer dialog's default.
- *         GeometryType::None when the role does not imply one. */
-[[nodiscard]] openswmmvis::feature::GeometryType
-    featureLayerRoleGeometry(FeatureLayerRole r);
 
 /*!
  * \struct ZPolicy
@@ -191,9 +160,22 @@ public:
 
     // ----- Schema ---------------------------------------------------------
 
+    /*! \brief The schema as stored in the GeoPackage (names, types,
+     *         defaults, descriptions, Fixed choices). */
     [[nodiscard]] Schema schema() const;
+    /*! \brief \ref schema with the role registry's editor hints — dropdown
+     *         sources, units — filled in for the role's own field names
+     *         (openswmmvis::feature::editorSchema). What editors read. */
+    [[nodiscard]] Schema editorSchema() const;
     [[nodiscard]] bool addField(const FieldDef &f, QString *error = nullptr);
     [[nodiscard]] bool removeField(const QString &name, QString *error = nullptr);
+    /*! \brief Rename column \p from to \p to, keeping its values. */
+    [[nodiscard]] bool renameField(const QString &from, const QString &to,
+                                   QString *error = nullptr);
+    /*! \brief Replace the stored default, description and Fixed choices of
+     *         column \p name with those of \p meta (name and type unchanged). */
+    [[nodiscard]] bool setFieldMetadata(const QString &name, const FieldDef &meta,
+                                        QString *error = nullptr);
 
     // ----- Features -------------------------------------------------------
 

@@ -25,6 +25,7 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/gisvectorlayer.h"
 #include "layers/featurelayer.h"
+#include "feature/featureroles.h"
 
 #include "mesh/meshgenerator.h"
 #include "mesh/meshnodemapper.h"
@@ -1037,8 +1038,11 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
     // ── Quad regions (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D12.1) ──
     // A region is a polygon with an optional size (field "h" or
-    // "quad_spacing") and an optional "tag"; a four-sided one is filled with
-    // quads aligned to its sides, any other keeps triangles inside. Layer regions are read HERE with a fresh GDAL
+    // "quad_spacing"), an optional "cells" choice and an optional "tag"
+    // (field names from the role registry — FEATURE_LAYER_ROLES_AND_FIELDS
+    // §4.3); a four-sided one is filled with quads aligned to its sides, any
+    // other keeps triangles inside, and cells = triangles keeps triangles
+    // whatever its shape. Layer regions are read HERE with a fresh GDAL
     // handle (handles must not cross threads); subcatchment regions arrive
     // resolved from collectInputs and are appended after them.
     QVector<mesh::QuadRegion> quadRegions;
@@ -1079,9 +1083,28 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 continue;
             }
             layer->ResetReading();
+            const QStringList sizeFields = openswmmvis::feature::regionSizeFieldNames();
+            const QByteArray cellsField = openswmmvis::feature::regionCellsFieldName().toUtf8();
+            const QByteArray tagField   = openswmmvis::feature::regionTagFieldName().toUtf8();
             while (OGRFeature *f = layer->GetNextFeature())
             {
                 auto fieldIdx = [&](const char *name) { return f->GetFieldIndex(name); };
+                // One "cells" choice per feature, whatever its part count. An
+                // unknown value is logged and treated as auto (plan §6).
+                mesh::QuadRegionMode regionMode = mesh::QuadRegionMode::Auto;
+                if (const int i = fieldIdx(cellsField.constData());
+                    i >= 0 && f->IsFieldSetAndNotNull(i))
+                {
+                    const QString value = QString::fromUtf8(f->GetFieldAsString(i));
+                    bool known = true;
+                    if (openswmmvis::feature::regionCellsFromValue(value, &known)
+                        == openswmmvis::feature::RegionCells::Triangles)
+                        regionMode = mesh::QuadRegionMode::TrianglesOnly;
+                    if (!known)
+                        qWarning().noquote() << "[Mesh][quad] region feature" << f->GetFID()
+                                             << "has cells =" << value
+                                             << "— not auto or triangles; treated as auto";
+                }
                 auto readRing = [&](const OGRPolygon *poly) {
                     mesh::QuadRegion r;
                     const OGRLinearRing *ext = poly ? poly->getExteriorRing() : nullptr;
@@ -1096,10 +1119,12 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                         if (std::isfinite(xs[i]) && std::isfinite(ys[i])) pts.append(QPointF(xs[i], ys[i]));
                     if (pts.size() < 3) return;
                     r.ring = QPolygonF(trimByStraightness(pts, in.trimTurnDeg, in.trimDeviation, {}, true));
-                    for (const char *name : {"h", "quad_spacing"})
-                        if (const int i = fieldIdx(name); i >= 0 && f->IsFieldSetAndNotNull(i))
+                    r.mode = regionMode;
+                    for (const QString &name : sizeFields)
+                        if (const int i = fieldIdx(name.toUtf8().constData());
+                            i >= 0 && f->IsFieldSetAndNotNull(i))
                         { r.spacing = f->GetFieldAsDouble(i); break; }
-                    if (const int i = fieldIdx("tag"); i >= 0 && f->IsFieldSetAndNotNull(i))
+                    if (const int i = fieldIdx(tagField.constData()); i >= 0 && f->IsFieldSetAndNotNull(i))
                         r.tag = QString::fromUtf8(f->GetFieldAsString(i));
                     if (!(r.spacing > 0.0) || !std::isfinite(r.spacing)) r.spacing = 0.0;
                     quadRegions.append(std::move(r));
@@ -2526,6 +2551,7 @@ void MeshGenerationDialog::buildUi()
         auto *boundaryRow = new QHBoxLayout;
         boundaryRow->addWidget(new QLabel(tr("&Boundary polygon:"), g));
         m_boundaryLayerCombo = new QComboBox(g);
+        m_boundaryLayerCombo->setObjectName(QStringLiteral("meshBoundaryLayerCombo"));
         m_boundaryLayerCombo->setToolTip(tr(
             "Polygon layer whose features define the meshing boundary.  "
             "Interior rings (holes) in those polygons are respected — "
@@ -2536,6 +2562,7 @@ void MeshGenerationDialog::buildUi()
 
         lay->addWidget(new QLabel(tr("Constraining &points (check to include):"), g));
         m_pointLayersList = new QListWidget(g);
+        m_pointLayersList->setObjectName(QStringLiteral("meshPointLayersList"));
         m_pointLayersList->setToolTip(tr("Every feature in each checked layer is added as a Steiner point."));
         m_pointLayersList->setMaximumHeight(100);
         m_pointLayersList->setSelectionMode(QAbstractItemView::NoSelection);
@@ -2543,6 +2570,7 @@ void MeshGenerationDialog::buildUi()
 
         lay->addWidget(new QLabel(tr("Constraining &lines (check to include):"), g));
         m_lineLayersList = new QListWidget(g);
+        m_lineLayersList->setObjectName(QStringLiteral("meshLineLayersList"));
         m_lineLayersList->setToolTip(tr("Every feature in each checked layer becomes a constraint segment."));
         m_lineLayersList->setMaximumHeight(100);
         m_lineLayersList->setSelectionMode(QAbstractItemView::NoSelection);
@@ -2846,6 +2874,7 @@ void MeshGenerationDialog::buildUi()
         f->addRow(tr("Conduit &quad strip width:"), m_conduitStripSpin);
 
         m_quadRegionLayerCombo = new QComboBox(g);
+        m_quadRegionLayerCombo->setObjectName(QStringLiteral("meshQuadRegionLayerCombo"));
         m_quadRegionLayerCombo->setToolTip(tr(
             "Polygon layer of quad regions (exterior rings only; read in the "
             "worker and reprojected to the mesh CRS). A four-sided polygon is "
@@ -3483,10 +3512,42 @@ void MeshGenerationDialog::populateLayerCombos()
     if (!m_pw || !m_pw->canvas()) return;
     const auto &layers = m_pw->canvas()->layers();
 
-    QList<GISVectorLayer *> corridorLayers;
-    for (auto *layer : layers)
-        if (auto *vector = qobject_cast<GISVectorLayer *>(layer)) corridorLayers.append(vector);
-    if (m_corridorSources) m_corridorSources->setLayers(corridorLayers);
+    // FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §6 (P6, F4): each picker offers only
+    // the layers whose geometry it can read, lists the layers of the matching
+    // role first, and labels a feature layer with its role. A layer whose
+    // geometry type is not declared (a mixed GeoJSON, a layer still opening)
+    // is offered everywhere, as before.
+    enum class GeomClass { Unknown, Point, Line, Polygon };
+    const auto geomClass = [](GISVectorLayer *v) {
+        OGRLayer *ol = v ? v->ogrLayer() : nullptr;
+        if (!ol) return GeomClass::Unknown;
+        switch (wkbFlatten(ol->GetGeomType())) {
+        case wkbPoint: case wkbMultiPoint:               return GeomClass::Point;
+        case wkbLineString: case wkbMultiLineString:     return GeomClass::Line;
+        case wkbPolygon: case wkbMultiPolygon:           return GeomClass::Polygon;
+        default:                                         return GeomClass::Unknown;
+        }
+    };
+    const auto pickable = [&](GeomClass want, FeatureLayerRole preferred) {
+        QList<GISVectorLayer *> first, rest;
+        for (auto *L : layers)
+            if (auto *v = qobject_cast<GISVectorLayer *>(L))
+            {
+                const GeomClass g = geomClass(v);
+                if (g != GeomClass::Unknown && g != want) continue;
+                auto *fl = qobject_cast<FeatureLayer *>(v);
+                (fl && fl->role() == preferred ? first : rest).append(v);
+            }
+        return first + rest;
+    };
+    const auto labelFor = [](GISVectorLayer *v) {
+        if (auto *fl = qobject_cast<FeatureLayer *>(v))
+            return QStringLiteral("◆ %1  —  %2").arg(fl->name(), featureLayerRoleLabel(fl->role()));
+        return v->name();
+    };
+
+    if (m_corridorSources)
+        m_corridorSources->setLayers(pickable(GeomClass::Line, FeatureLayerRole::Corridor));
 
     m_dtmCombo->clear();
     // Allow generation without a DTM — elevations fall back to IDW from
@@ -3505,20 +3566,18 @@ void MeshGenerationDialog::populateLayerCombos()
                                    QVariant::fromValue<void *>(nullptr));
     m_boundaryLayerCombo->addItem(tr("Use SWMM subcatchment polygons"),
                                    QVariant::fromValue<void *>(reinterpret_cast<void *>(0x1)));
-    for (auto *L : layers)
-        if (auto *v = qobject_cast<GISVectorLayer *>(L))
-            m_boundaryLayerCombo->addItem(v->name(), QVariant::fromValue<void *>(v));
+    for (auto *v : pickable(GeomClass::Polygon, FeatureLayerRole::DomainBoundary))
+        m_boundaryLayerCombo->addItem(labelFor(v), QVariant::fromValue<void *>(v));
 
-    // Quad region layer: same source list and payload as the boundary combo
-    // (no subcatchment pseudo-entry — subcatchments are named in the edit).
+    // Quad region layer: same payload as the boundary combo (no subcatchment
+    // pseudo-entry — subcatchments are named in the edit).
     if (m_quadRegionLayerCombo)
     {
         m_quadRegionLayerCombo->clear();
         m_quadRegionLayerCombo->addItem(tr("(none)"),
                                         QVariant::fromValue<void *>(nullptr));
-        for (auto *L : layers)
-            if (auto *v = qobject_cast<GISVectorLayer *>(L))
-                m_quadRegionLayerCombo->addItem(v->name(), QVariant::fromValue<void *>(v));
+        for (auto *v : pickable(GeomClass::Polygon, FeatureLayerRole::Region))
+            m_quadRegionLayerCombo->addItem(labelFor(v), QVariant::fromValue<void *>(v));
     }
 
     // Decide whether a vector layer carries 3D geometry — uses the declared
@@ -3544,11 +3603,10 @@ void MeshGenerationDialog::populateLayerCombos()
     // Each row gets an "include" checkbox and a "use Z" checkbox; the latter
     // is enabled only when the layer's geometry is 3D.  Rows are stashed so
     // collectInputs() can read both checkbox states directly.
-    auto fillList = [&](QListWidget *list, QVector<AuxLayerRow> &rows) {
+    auto fillList = [&](QListWidget *list, QVector<AuxLayerRow> &rows, GeomClass want) {
         list->clear();
         rows.clear();
-        for (auto *L : layers)
-            if (auto *v = qobject_cast<GISVectorLayer *>(L))
+        for (auto *v : pickable(want, FeatureLayerRole::Breakline))
             {
                 const bool is3D = detect3D(v);
 
@@ -3558,7 +3616,7 @@ void MeshGenerationDialog::populateLayerCombos()
                 h->setContentsMargins(4, 1, 4, 1);
                 h->setSpacing(8);
 
-                auto *inc = new QCheckBox(v->name(), row);
+                auto *inc = new QCheckBox(labelFor(v), row);
                 auto *uz  = new QCheckBox(tr("use Z"), row);
                 uz->setEnabled(is3D);
                 uz->setToolTip(is3D
@@ -3576,10 +3634,11 @@ void MeshGenerationDialog::populateLayerCombos()
                 rows.append({v, inc, uz, is3D});
             }
         if (list->count() == 0)
-            list->addItem(tr("(no vector layers)"));
+            list->addItem(want == GeomClass::Point ? tr("(no point layers)")
+                                                   : tr("(no line layers)"));
     };
-    fillList(m_pointLayersList, m_pointLayerRows);
-    fillList(m_lineLayersList,  m_lineLayerRows);
+    fillList(m_pointLayersList, m_pointLayerRows, GeomClass::Point);
+    fillList(m_lineLayersList,  m_lineLayerRows,  GeomClass::Line);
 }
 
 // ---------------------------------------------------------------------------

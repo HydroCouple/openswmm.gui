@@ -38,6 +38,9 @@ class QToolButton;
 
 class FeatureLayer;
 class MapCanvas;
+class QStyledItemDelegate;
+
+namespace openswmmvis::feature { struct FieldUpdatePlan; }
 
 namespace openswmmvis::ui {
 
@@ -54,6 +57,18 @@ public:
 
     /*! \brief The layer the drawing / editing tools should write into. */
     [[nodiscard]] FeatureLayer *activeLayer() const { return m_active.data(); }
+
+    /*!
+     * \brief Apply "Update fields to role…" to the active layer as ONE undo
+     *        step (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md P7, R6):
+     *        renames first, then added columns, then attached metadata, then
+     *        the retired columns named in \p drop.
+     * \details The dialog-free core behind the button, so the update is
+     *          testable without a modal.
+     * \returns Empty on success, else the first command's error.
+     */
+    QString applyFieldUpdate(const openswmmvis::feature::FieldUpdatePlan &plan,
+                             const QStringList &drop);
 
 public slots:
     /*! \brief Re-read the layer list from the canvas, preserving the selection
@@ -77,6 +92,8 @@ private slots:
     void onLayerRowChanged(int row);
     void onAddField();
     void onRemoveField();
+    /*! Preview, then apply, the registry's current fields for the role. */
+    void onUpdateFieldsToRole();
     void onResampleZ();
     void onZPolicyEdited();
     void onRemoveLayer();
@@ -108,6 +125,9 @@ private:
     /*! Connect / disconnect the per-layer signals as the target changes. */
     void bindActiveLayer(FeatureLayer *layer);
     void populateZSourceLayers();
+    /*! One FeatureFieldDelegate per value column of the feature grid, from
+     *  the role-aware schema; rebuilt only when that schema changes. */
+    void installGridDelegates();
     [[nodiscard]] bool zEditsSuppressed() const { return m_suppressZEdits; }
 
     QPointer<MapCanvas>    m_canvas;
@@ -124,6 +144,7 @@ private:
     QTableWidget *m_fieldTable   = nullptr;
     QPushButton  *m_addFieldBtn  = nullptr;
     QPushButton  *m_removeFieldBtn = nullptr;
+    QPushButton  *m_updateFieldsBtn = nullptr;
 
     // Feature grid — the rows are features, not columns. Read-only until the
     // layer is in an edit session; Delete and the context menu remove rows.
@@ -133,6 +154,9 @@ private:
     /*! Guards refreshFeatureTable()'s own setItem calls from being read back
      *  as user edits, and the selection round trip from echoing. */
     bool m_suppressFeatureEdits = false;
+    /*! The grid's column delegates and the schema they were built for. */
+    QList<QPointer<QStyledItemDelegate>> m_gridDelegates;
+    QString m_gridDelegateKey;
 
     // Vertex grid — the coordinates of the ONE selected feature, one row per
     // vertex. Each row carries its (part, ring, index) address, so interior
