@@ -55,6 +55,15 @@ class TestMeshSizeField : public QObject
 
 private slots:
 
+    void maximumSizeAloneCoarsensAnUnseededDomain()
+    {
+        SizeFieldOptions o=baseOptions(); o.maxSize=200;
+        SizeField f;
+        QVERIFY(f.build(QRectF(0,0,1000,1000),{},{},{},o));
+        QCOMPARE(f.sizeAt(500,500),200.0);
+        QCOMPARE(f.sizeAt(5,5),200.0);
+    }
+
     void refusesToBuildWithoutSeedsOrSense()
     {
         SizeField f;

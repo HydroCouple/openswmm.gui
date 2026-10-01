@@ -59,6 +59,7 @@ struct TerrainSizeOptions
      *  (MESH_OVERHAUL_PHASE6B_FEATURE_CAPTURE_2026-09-30.md §2.1) rides this
      *  pass so the DEM is read once. */
     std::function<void(const float *, int, int, int)> rowSink;
+    bool rowsOnly = false; ///< Stream rows without allocating or computing a size grid.
 };
 
 class TerrainSizeField

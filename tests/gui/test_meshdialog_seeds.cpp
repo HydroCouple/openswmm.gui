@@ -21,17 +21,21 @@
 #include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
 #include "project/openswmmvisworkspace.h"
+#include "project/projectserializer.h"
 #include "swmmvisprojectwindow.h"
 #include "ui/dialogs/meshgenerationdialog.h"
+#include "ui/widgets/meshregiondefaultswidget.h"
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDir>
 #include <QDoubleSpinBox>
+#include <QFileInfo>
 #include <QSettings>
 #include <QSpinBox>
 #include <QTest>
+#include <QTabWidget>
 
 #include <cmath>
 
@@ -61,6 +65,10 @@ private slots:
         // Isolated QSettings (PreferencesManager default-constructs its store).
         QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
         QCoreApplication::setApplicationName(QStringLiteral("meshdialog-seeds-test"));
+        m_output=QFileInfo(fixturePath()).absolutePath()+QStringLiteral("/../../output/terrain_adaptive_mesh_2026-10/dialog");
+        QVERIFY(QDir().mkpath(m_output));
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,m_output);
         QSettings settings;
         settings.remove(QStringLiteral("SWMMVis/Preferences/TwoDDefaults"));
         settings.sync();
@@ -96,6 +104,8 @@ private slots:
         auto *ratio = seam<QDoubleSpinBox>(&dlg, "meshSizeRatioSpin");
         auto *tol   = seam<QDoubleSpinBox>(&dlg, "meshTerrainTolSpin");
         QVERIFY(nodes && rim && sepB && sepS && cell && ratio && tol);
+        QVERIFY(!seam<QCheckBox>(&dlg,"meshRefineFeaturesBox")->isChecked());
+        QVERIFY(seam<QCheckBox>(&dlg,"meshQualityOrderBox")->isChecked());
 
         QVERIFY(nodes->isChecked());
         QVERIFY(rim->isChecked());
@@ -105,7 +115,11 @@ private slots:
         QVERIFY(sepS->value() > 0.0);
         QCOMPARE(cell->value(), 0.0);       // (from extent)
         QCOMPARE(ratio->value(), 1.5);
-        QCOMPARE(tol->value(), 0.0);        // terrain roughness off until asked
+        QCOMPARE(tol->value(), 0.0);        // automatic terrain tolerance
+        QCOMPARE(seam<QComboBox>(&dlg,"meshTerrainModeCombo")->currentIndex(),0);
+        QVERIFY(tol->specialValueText().contains("automatic"));
+        QCOMPARE(seam<QSpinBox>(&dlg,"meshTerrainCacheSpin")->value(),64);
+        QCOMPARE(seam<QSpinBox>(&dlg,"meshMaxCellsSpin")->value(),20'000'000);
         // Triangle engine: a 30° bound, quads in streets, no conduit strips.
         QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshMinAngleSpin")->value(), 30.0);
         QVERIFY(seam<QCheckBox>(&dlg, "meshStreetQuadsBox")->isChecked());
@@ -156,7 +170,82 @@ private slots:
         PreferencesManager::instance()->setTwoDDefaults(PreferencesManager::TwoDDefaults{});
     }
 
+    void optionsSurviveRejectAndProjectReload()
+    {
+        const auto units=m_window->unitSystem()->flowUnits();
+        m_window->unitSystem()->setFlowUnits(swmm_CMS);
+        {
+            MeshGenerationDialog dialog(m_window,m_window);
+            seam<QDoubleSpinBox>(&dialog,"meshCellSizeSpin")->setValue(12.5);
+            seam<QDoubleSpinBox>(&dialog,"meshCoarsenSpin")->setValue(40);
+            seam<QDoubleSpinBox>(&dialog,"meshTerrainTolSpin")->setValue(.4);
+            seam<QDoubleSpinBox>(&dialog,"meshConduitStripSpin")->setValue(2.5);
+            seam<QCheckBox>(&dialog,"meshRefineFeaturesBox")->setChecked(false);
+            seam<QCheckBox>(&dialog,"meshQualityOrderBox")->setChecked(false);
+            seam<QCheckBox>(&dialog,"meshConduitsBox")->setChecked(false);
+            seam<QSpinBox>(&dialog,"meshTerrainCacheSpin")->setValue(128);
+            seam<QSpinBox>(&dialog,"meshMaxCellsSpin")->setValue(10'000'000);
+            seam<QDoubleSpinBox>(&dialog,"meshBurnMaxIncision")->setValue(4.5);
+            auto *regions=dialog.findChild<MeshRegionDefaultsWidget *>(); QVERIFY(regions);
+            auto rows=regions->rows(); QVERIFY(!rows.isEmpty());
+            rows[0].infil.method=mesh::InfilMethod::Constant; rows[0].infil.p[0]=2.25;
+            regions->restoreRows(rows);
+            dialog.reject();
+        }
+        QVERIFY(!m_window->meshGenerationOptions().isEmpty());
+        auto verify=[](MeshGenerationDialog &dialog) {
+            QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshCellSizeSpin")->value(),12.5);
+            QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshCoarsenSpin")->value(),40.0);
+            QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshTerrainTolSpin")->value(),.4);
+            QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshConduitStripSpin")->value(),2.5);
+            QVERIFY(!seam<QCheckBox>(&dialog,"meshRefineFeaturesBox")->isChecked());
+            QVERIFY(!seam<QCheckBox>(&dialog,"meshQualityOrderBox")->isChecked());
+            QVERIFY(!seam<QCheckBox>(&dialog,"meshConduitsBox")->isChecked());
+            QCOMPARE(seam<QSpinBox>(&dialog,"meshTerrainCacheSpin")->value(),128);
+            QCOMPARE(seam<QSpinBox>(&dialog,"meshMaxCellsSpin")->value(),10'000'000);
+            QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshBurnMaxIncision")->value(),4.5);
+            auto *regions=dialog.findChild<MeshRegionDefaultsWidget *>(); QVERIFY(regions);
+            QCOMPARE(regions->rows()[0].infil.method,mesh::InfilMethod::Constant);
+            QCOMPARE(regions->rows()[0].infil.p[0],2.25);
+        };
+        { MeshGenerationDialog dialog(m_window,m_window); verify(dialog); }
+        const QJsonObject saved=m_window->meshGenerationOptions();
+        const QString path=QDir(m_output).filePath("mesh-options.oswp");
+        QString error; QVERIFY2(ProjectSerializer::saveToFile(path,m_window,&error),qPrintable(error));
+        m_window->setMeshGenerationOptions({});
+        QStringList warnings;
+        QVERIFY2(ProjectSerializer::applyFromFile(path,m_window,&error,&warnings),qPrintable(error));
+        QCOMPARE(m_window->meshGenerationOptions(),saved);
+        { MeshGenerationDialog dialog(m_window,m_window); verify(dialog); }
+        m_window->unitSystem()->setFlowUnits(swmm_CFS);
+        {
+            MeshGenerationDialog dialog(m_window,m_window);
+            QVERIFY(std::abs(seam<QDoubleSpinBox>(&dialog,"meshCellSizeSpin")->value()-12.5/.3048)<.001);
+            seam<QComboBox>(&dialog,"meshTerrainModeCombo")->setCurrentIndex(2);
+            QVERIFY(!seam<QDoubleSpinBox>(&dialog,"meshTerrainTolSpin")->isEnabled());
+            dialog.reject();
+        }
+        { MeshGenerationDialog dialog(m_window,m_window); QCOMPARE(seam<QComboBox>(&dialog,"meshTerrainModeCombo")->currentIndex(),2); }
+        m_window->setMeshGenerationOptions({});
+        m_window->unitSystem()->setFlowUnits(units);
+        m_window->setHasChanges(false);
+    }
+
+    void qualityControlsAreVisible()
+    {
+        m_window->setMeshGenerationOptions({});
+        MeshGenerationDialog dialog(m_window,m_window);
+        auto *tabs=dialog.findChild<QTabWidget *>(); QVERIFY(tabs);
+        for(int i=0;i<tabs->count();++i) if(tabs->tabText(i).contains("Quality")) tabs->setCurrentIndex(i);
+        dialog.resize(1000,950); dialog.show(); QTest::qWait(100);
+        QVERIFY(seam<QComboBox>(&dialog,"meshTerrainModeCombo")->isVisible());
+        QVERIFY(seam<QSpinBox>(&dialog,"meshMaxCellsSpin")->isVisible());
+        QVERIFY(seam<QCheckBox>(&dialog,"meshQualityOrderBox")->isChecked());
+        QVERIFY(dialog.grab().save(QDir(m_output).filePath("mesh-quality-options.png")));
+    }
+
 private:
+    QString m_output;
     OpenSWMMVisWorkspace *m_workspace = nullptr;
     SWMMVisProjectWindow *m_window    = nullptr;
 };

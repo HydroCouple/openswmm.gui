@@ -250,11 +250,13 @@ private slots:
         QVERIFY(h <= 4.0 + 0.25 * (1.09 * 100.0 + f.pitch()) + 1e-6);
         QVERIFY(h > 10.0);
 
-        // Nothing to refine with: not built (the caller keeps the uniform cap).
+        // Open ground still needs its maximum-size field, otherwise the
+        // worker silently falls back to the much finer near-feature spacing.
         SizeFieldOptions bare = baseOptions();
         bare.maxSize = 80.0;
         SizeField g;
-        QVERIFY(!g.build(QRectF(0, 0, 1000, 1000), {}, {}, {}, bare));
+        QVERIFY(g.build(QRectF(0, 0, 1000, 1000), {}, {}, {}, bare));
+        QCOMPARE(g.sizeAt(500,500),80.0);
     }
 
     void stepConesAreIgnoredButRoughGroundIsNot()

@@ -155,6 +155,11 @@ public:
          *  wherever the DEM deviates from a cell-sized plane by more than
          *  this (mesh::TerrainSizeField). No terrain vertices are generated. */
         double terrainTolerance = 0.0;
+        bool terrainAdaptive = true; ///< Certify/refine actual triangles rather than a block size surrogate.
+        bool terrainAutoTolerance = false; ///< GUI's automatic setting; explicit callers retain 0 = off.
+        bool terrainBreaklines = true;
+        bool refineAtFeatures = true; ///< Constraints remain mandatory when this size influence is disabled.
+        int terrainCacheMiB = 64;
         // ── Boundaries ──────────────────────────────────────────────
         double trimTurnDeg   = 0.0;   ///< Straightness trimming: max turn (deg); 0 = off.
         double trimDeviation = 0.0;   ///< Straightness trimming: max deviation (map units).
@@ -192,6 +197,7 @@ public:
         // different vertical unit than the SWMM model.
         // e.g., DTM in metres + SWMM in feet → factor = 3.28084
         double zConversionFactor = 1.0;
+        double verticalUnitToSI = 1.0;
 
         // Short, human-readable mesh-CRS identifier ("EPSG:32634", "Local").
         // Emitted in the ;; SOURCE_CRS: header line.  Separate from
@@ -300,6 +306,8 @@ public:
         QStringList       alignmentWarnings; ///< Visible completion notes for degraded quad alignment.
         mesh::MeshResult  meshResult;
         mesh::GenerationStats generationStats; ///< Strips placed/dropped, triangles under the angle bound.
+        double terrainToleranceUsed = 0.0;
+        double verticalUnitToSI = 1.0;
         mesh::CouplingMap coupling;
         QString           meshPath;
         bool              meshUnitsSI = false; ///< Units of the pending generated mesh.
@@ -353,6 +361,8 @@ private:
     static void runMeshPipeline(QPromise<PipelineResult> &promise, PipelineInputs in);
     void buildUi();
     void seedDefaults();
+    void saveOptions();
+    void restoreOptions();
     void populateLayerCombos();
     void updateUnitDisplay();
     void updateZFactor();   // recomputes m_zFactorSpin from DTM + mesh vertical unit combos
@@ -448,6 +458,13 @@ private:
     QDoubleSpinBox *m_sizeRatioSpin    = nullptr;  ///< size ratio between neighbouring cells
     QDoubleSpinBox *m_minCellSizeSpin  = nullptr;  ///< floor (map units); (cell size / 4) at 0
     QDoubleSpinBox *m_terrainTolSpin   = nullptr;  ///< terrain tolerance (vertical units); (off) at 0
+    QComboBox      *m_terrainModeCombo = nullptr;
+    QCheckBox      *m_terrainBreaklinesBox = nullptr;
+    QCheckBox      *m_refineFeaturesBox = nullptr;
+    QCheckBox      *m_qualityOrderBox = nullptr;
+    QSpinBox       *m_terrainCacheSpin = nullptr;
+    QSpinBox       *m_maxCellsSpin = nullptr;
+    QLabel        *m_terrainReportLabel = nullptr;
     // Shape
     QDoubleSpinBox *m_minAngleSpin     = nullptr;  ///< minimum triangle angle (deg)
     QCheckBox      *m_streetQuadsBox   = nullptr;  ///< quads between facing break lines

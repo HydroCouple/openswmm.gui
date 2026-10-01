@@ -288,6 +288,20 @@ void MeshRegionDefaultsWidget::setRegionTags(const QStringList &tags)
     refreshParamHeaders(m_table->currentRow());
 }
 
+void MeshRegionDefaultsWidget::restoreRows(const QVector<RegionRow> &values)
+{
+    auto current = rows();
+    for (auto &row : current)
+        for (const auto &saved : values)
+            if (row.tag == saved.tag) { row = saved; break; }
+    m_updating = true;
+    m_table->setRowCount(0);
+    m_updating = false;
+    for (const auto &row : current) appendRow(row);
+    setStarHydraulics(m_starMannings, m_starDepth);
+    refreshParamHeaders(m_table->currentRow());
+}
+
 void MeshRegionDefaultsWidget::appendRow(const RegionRow &values)
 {
     const int  r    = m_table->rowCount();

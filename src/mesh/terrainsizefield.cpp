@@ -160,7 +160,7 @@ bool TerrainSizeField::buildFromGrid(const float *z, int cols, int rows, const T
     const int no = 1 << m_outLevel;
     m_outCols = (cols + no - 1) / no;
     m_outRows = (rows + no - 1) / no;
-    m_h.fill(kNoSize, m_outCols * m_outRows);
+    m_h.fill(kNoSize, qsizetype(m_outCols) * m_outRows);
     // Whole grid as bands of 2^maxLevel rows so block alignment matches build().
     const int bandH = 1 << m_maxLevel;
     for (int r0 = 0; r0 < rows; r0 += bandH)
@@ -199,9 +199,10 @@ bool TerrainSizeField::build(GDALDataset *ds, int band, int col0, int row0, int 
     const int no = 1 << m_outLevel;
     m_outCols = (cols + no - 1) / no;
     m_outRows = (rows + no - 1) / no;
-    m_h.fill(kNoSize, m_outCols * m_outRows);
+    if (!opt.rowsOnly) m_h.fill(kNoSize, qsizetype(m_outCols) * m_outRows);
+    else m_outCols=m_outRows=0;
 
-    const int bandH = 1 << m_maxLevel;
+    const int bandH = opt.rowsOnly ? int(std::min<qint64>(256,std::max<qint64>(1,opt.maxBandBytes/(qint64(cols)*sizeof(float))))) : 1 << m_maxLevel;
     QVector<float> buf;
     buf.resize(qint64(cols) * bandH);
     for (int r0 = 0; r0 < rows; r0 += bandH)
@@ -224,7 +225,7 @@ bool TerrainSizeField::build(GDALDataset *ds, int band, int col0, int row0, int 
         }
         if (opt.rowSink)
             for (int r = 0; r < h; ++r) opt.rowSink(buf.constData() + qint64(r) * cols, r0 + r, cols, rows);
-        processBand(buf.constData(), cols, h, r0, opt.tolerance);
+        if (!opt.rowsOnly) processBand(buf.constData(), cols, h, r0, opt.tolerance);
         if (progress && !progress(double(r0 + h) / rows))
         {
             m_errorMsg = QStringLiteral("terrain size field: cancelled");
@@ -232,7 +233,7 @@ bool TerrainSizeField::build(GDALDataset *ds, int band, int col0, int row0, int 
             return false;
         }
     }
-    dilateMinimum();
+    if (!opt.rowsOnly) dilateMinimum();
     return true;
 }
 

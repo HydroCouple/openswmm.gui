@@ -19,6 +19,7 @@
 #include <QList>
 #include <QPointF>
 #include <QPointer>
+#include <QJsonObject>
 #include <QString>
 #include <QVector>
 #include <functional>
@@ -383,6 +384,10 @@ public:
     [[nodiscard]] const mesh::ChannelBurnSettings &channelBurnSettings() const
     { return mChannelBurn; }
     void setChannelBurnSettings(const mesh::ChannelBurnSettings &s) { mChannelBurn = s; }
+    /** Last mesh-dialog options, including canceled/failed attempts. Values
+     *  are separate from adopted mesh artifacts and saved in the .oswp. */
+    const QJsonObject &meshGenerationOptions() const { return mMeshGenerationOptions; }
+    void setMeshGenerationOptions(const QJsonObject &options) { mMeshGenerationOptions = options; }
 
     /** Last successfully adopted GIS corridor recipe. Dialog drafts remain
      *  local until generation succeeds; project Save publishes this state. */
@@ -580,6 +585,7 @@ private:
     QString              mEngineVersion       = "6.0.0";  // Default to newest version
     QString              mNotesHtml;                      // [TITLE] notes (rich HTML)
     mesh::ChannelBurnSettings mChannelBurn;               // Channel burn-in tab state
+    QJsonObject mMeshGenerationOptions;
     QVector<mesh::CorridorSource> mCorridorSources;        // adopted GIS corridor recipe
     QString mCorridorRecipeLoadError;                    // prevents overwriting an unsupported recipe
     QJsonArray           mPending2DResultsRestore;        // .oswp 2D results entries

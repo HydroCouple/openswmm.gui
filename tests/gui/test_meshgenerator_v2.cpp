@@ -190,6 +190,22 @@ private slots:
         QVERIFY(gs.minAngleDeg >= 30.0 - 1e-6);
     }
 
+    void adaptiveHeightsIncludeQuadInteriorsAndRespectBudget()
+    {
+        MeshGenerator g; g.setDomain(rect(0,0,100,100));
+        mesh::QuadRegion region; region.ring=rect(20,20,60,60); region.spacing=4; region.tag="R";
+        g.addQuadRegion(region);
+        mesh::RefineHook hook;
+        hook.terrainElevationAt=[](double x,double y) { return 13+.25*x-.125*y; };
+        hook.terrainError=[](const QPointF *,const double *,QPointF *) { return 0.; };
+        hook.terrainTolerance=.1; g.setRefineHook(hook);
+        GenerationOptions o; o.maxArea=100; o.minCellSize=1; g.setOptions(o);
+        const auto m=g.generate(); QVERIFY2(m.ok,qPrintable(m.errorMsg)); QVERIFY(m.quadCount()>0);
+        for (const auto &v:m.vertices) QCOMPARE(v.z,13+.25*v.xy.x()-.125*v.xy.y());
+        o.maxCells=100; g.setOptions(o);
+        const auto capped=g.generate(); QVERIFY(!capped.ok); QVERIFY(capped.errorMsg.contains("cell budget"));
+    }
+
     void gradedSizeFunctionIsFollowed()
     {
         MeshGenerator g;

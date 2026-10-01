@@ -86,6 +86,15 @@ public:
          *  exceeds the equilateral triangle of side h(centroid). Null, or
          *  <= 0 at a point, = no size bound there. */
         std::function<double(double, double)> hAt;
+        /*! Actual surface error at the reference DEM samples covered by a
+         * triangle. Return a failing residual and its source point; NaN means
+         * unverified coverage. Elevations are cached per vertex. */
+        std::function<double(const QPointF *, const double *, QPointF *)> terrainError;
+        std::function<double(double, double)> terrainElevationAt;
+        double terrainTolerance = 0.0;
+        double terrainMinSpacing = 0.0;
+        bool prioritizeQuality = true;
+        int maxTriangles = std::numeric_limits<int>::max();
         /*! Smallest angle every triangle must reach (degrees); 0 = size only.
          *  Refinement terminates up to about 34 degrees. */
         double minAngleDeg = 30.0;
@@ -105,6 +114,9 @@ public:
         int  inserted = 0;        ///< Vertices added, segment splits included.
         int  segmentSplits = 0;
         int  blockedByFixed = 0;  ///< Bad triangles left because their point would encroach a fixed edge.
+        int  sizeInsertions = 0, qualityInsertions = 0, terrainInsertions = 0;
+        int  terrainUnresolved = 0, terrainUnknown = 0;
+        double maxTerrainError = 0.0;
         bool capped = false;      ///< Stopped at maxInsertions.
         bool cancelled = false;
     };
@@ -129,6 +141,7 @@ public:
     // ── Read-out ───────────────────────────────────────────────────────
     [[nodiscard]] const QVector<QPointF> &vertices() const { return m_pts; }
     [[nodiscard]] const QVector<Triangle> &triangles() const { return m_tris; }
+    [[nodiscard]] const QVector<double> &terrainElevations() const { return m_terrainElevations; }
     [[nodiscard]] int liveTriangleCount() const;
     /*! \brief Index of the live triangle containing \p p (on an edge counts), -1 = none. */
     [[nodiscard]] int locate(const QPointF &p) const;
@@ -163,6 +176,7 @@ private:
     bool   exemptShortestEdge(int u, int v) const;
 
     QVector<QPointF>  m_pts;
+    QVector<double>   m_terrainElevations;
     QVector<Triangle> m_tris;
     QVector<int>      m_vertexTri;   ///< Some live triangle incident to each vertex.
     int               m_superBase = 0;
@@ -173,6 +187,9 @@ private:
     QHash<quint64, quint64> m_segPiece;    ///< constrained subsegment → the edge it was inserted as (input piece)
     QHash<int, quint64>     m_vertexSeg;   ///< vertex added on a segment by refinement → its input piece
     QSet<quint64>           m_fixedSub;    ///< subsegments refinement may not split
+    // Installed only during refinement. Every geometric edit invalidates the
+    // affected work, including flips outside the inserted vertex's final star.
+    std::function<void(int)> m_triangleChanged;
 };
 
 } // namespace mesh

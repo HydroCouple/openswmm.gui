@@ -82,6 +82,9 @@ public:
     /*! The `*` row first, then the region rows in table order. */
     [[nodiscard]] QVector<RegionRow> rows() const;
 
+    /*! Restore values for currently available tags; ignore obsolete tags. */
+    void restoreRows(const QVector<RegionRow> &values);
+
     /*! The rows that name a method, as `[2D_INFILTRATION_DEFAULTS]` rows.
      *  Empty when no row names one. */
     [[nodiscard]] QVector<mesh::InfilDefaultRow> infilDefaults() const;

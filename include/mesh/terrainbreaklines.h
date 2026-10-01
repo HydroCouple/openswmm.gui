@@ -39,15 +39,20 @@
  * noise (≈ 3–4 σ), as for the terrain size field.
  *
  * Streaming: rows are pushed in order (the terrain size field's band loop
- * feeds them); the detector keeps a rolling window of three rows and one
- * byte per pixel for the line mask, so peak memory is ~1 B/pixel plus three
- * float rows.
+ * feeds them); the detector keeps a rolling window of three rows. The line
+ * mask uses a bounded cache, spilling to a sparse temporary file on large
+ * rasters. Hysteresis and tracing retain global connectivity across cache
+ * blocks; cache boundaries never become feature boundaries.
  */
 #ifndef OPENSWMMVIS_MESH_TERRAINBREAKLINES_H
 #define OPENSWMMVIS_MESH_TERRAINBREAKLINES_H
 
 #include <QPointF>
 #include <QVector>
+#include <QString>
+#include <functional>
+#include <memory>
+#include <limits>
 
 namespace mesh {
 
@@ -56,15 +61,17 @@ struct TerrainBreaklineOptions
     double tolerance = 0.0;   ///< Break strength threshold, DEM z units. <= 0 = extract nothing.
     double lowRatio  = 0.7;   ///< Hysteresis: grow through |λ| >= lowRatio · tolerance.
     int    minPixels = 5;     ///< Chains with fewer points are dropped.
-    /*! The line mask costs one byte per window pixel; above this many pixels
-     *  extraction is skipped (skipped() reports it) rather than risking the
-     *  allocation. 512 M pixels ≈ an 11 km square of 0.5 m lidar. */
-    qint64 maxPixels = 512ll * 1024 * 1024;
+    qint64 maxPixels = std::numeric_limits<qint64>::max(); ///< Optional explicit work limit.
+    int cacheMiB = 64; ///< Bound on resident mask blocks, independent of raster size.
+    QString cacheDirectory; ///< Optional scratch location; empty uses the OS temporary directory.
+    std::function<bool()> cancelled;
 };
 
 class TerrainBreaklineExtractor
 {
 public:
+    TerrainBreaklineExtractor();
+    ~TerrainBreaklineExtractor();
     /*! \brief Start a window of \p cols × \p rows pixels. */
     void begin(int cols, int rows, const TerrainBreaklineOptions &opt);
     /*! \brief Push the next row (row-major, \p cols floats, NaN = nodata).
@@ -76,6 +83,7 @@ public:
 
     /*! \brief True when begin() declined the window (over maxPixels). */
     [[nodiscard]] bool skipped() const { return m_skipped; }
+    [[nodiscard]] QString errorMsg() const;
 
     /*! \brief Whole in-memory grid in one call (tests, small rasters). */
     [[nodiscard]] static QVector<QVector<QPointF>> extractFromGrid(const float *z, int cols, int rows,
@@ -98,7 +106,10 @@ private:
     /*! Per pixel: bits 0–2 state (0 none, 1 weak, 2 strong, 3 line,
      *  4 traced), bits 3–4 the across-line direction, bits 5–7 the sub-pixel
      *  offset of the break along it, (q − 4)/8 of a step. */
-    QVector<quint8> m_cls;
+    class Mask;
+    std::unique_ptr<Mask> m_cls;
+    bool cancelled();
+    QString m_error;
     float m_high = 0.0f, m_low = 0.0f;
     bool  m_skipped = false;
 };

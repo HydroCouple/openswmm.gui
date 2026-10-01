@@ -12,6 +12,8 @@
 
 #include <QRectF>
 #include <QSet>
+#include <QScopeGuard>
+#include <array>
 
 #include <algorithm>
 #include <cmath>
@@ -295,6 +297,7 @@ void ConstrainedDelaunay::flip(int t, int e)
     if (Nbd >= 0) for (int i = 0; i < 3; ++i) if (m_tris[Nbd].adj[i] == n) m_tris[Nbd].adj[i] = t;
     if (Tca >= 0) for (int i = 0; i < 3; ++i) if (m_tris[Tca].adj[i] == t) m_tris[Tca].adj[i] = n;
     m_vertexTri[a] = t; m_vertexTri[b] = t; m_vertexTri[d] = t; m_vertexTri[c] = n;
+    if (m_triangleChanged) { m_triangleChanged(t); m_triangleChanged(n); }
 }
 
 void ConstrainedDelaunay::legalize(int t0, int e0)
@@ -344,6 +347,7 @@ void ConstrainedDelaunay::splitTriangle(int t, int v)
     if (old.adj[1] >= 0) for (int i = 0; i < 3; ++i) if (m_tris[old.adj[1]].adj[i] == t) m_tris[old.adj[1]].adj[i] = t3;
     m_vertexTri[v] = t1; m_vertexTri[a] = t1; m_vertexTri[b] = t2; m_vertexTri[c] = t3;
     legalize(t1, 0); legalize(t2, 0); legalize(t3, 0);
+    if (m_triangleChanged) { m_triangleChanged(t1); m_triangleChanged(t2); m_triangleChanged(t3); }
 }
 
 void ConstrainedDelaunay::splitEdge(int t, int e, int v)
@@ -393,6 +397,10 @@ void ConstrainedDelaunay::splitEdge(int t, int e, int v)
     }
     legalize(t1, 0); legalize(t2, 0);
     if (n >= 0) { legalize(n1, 0); legalize(n2, 0); }
+    if (m_triangleChanged) {
+        m_triangleChanged(t1); m_triangleChanged(t2);
+        if (n >= 0) { m_triangleChanged(n1); m_triangleChanged(n2); }
+    }
 }
 
 // ── Construction ─────────────────────────────────────────────────────────
@@ -401,6 +409,7 @@ bool ConstrainedDelaunay::build(const QVector<QPointF> &points, QVector<int> *ve
 {
     std::call_once(gPredicatesInit, [] { exactinit(); });
     m_pts.clear(); m_tris.clear(); m_vertexTri.clear(); m_errorMsg.clear();
+    m_terrainElevations.clear();
     m_segOrigin.clear(); m_segOriginExtra.clear(); m_segPiece.clear(); m_vertexSeg.clear(); m_fixedSub.clear();
     m_lastLocate = 0;
 
@@ -853,9 +862,28 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     auto tooShortToSplit = [&](int a, int b) {
         return minEdge2 > 0.0 && dist2(m_pts[a], m_pts[b]) < 4.0 * minEdge2;
     };
+    const bool terrain = opt.terrainError && opt.terrainElevationAt && opt.terrainTolerance > 0;
+    m_terrainElevations.clear();
+    auto &heights = m_terrainElevations;
+    auto terrainError = [&](int t, QPointF *p) {
+        const auto &T = m_tris[t];
+        while (heights.size() < m_pts.size()) heights.append(std::numeric_limits<double>::infinity());
+        QPointF xy[3]; double z[3];
+        for (int k = 0; k < 3; ++k) {
+            const int v = T.v[k]; xy[k] = m_pts[v];
+            if (std::isinf(heights[v])) {
+                const double h = opt.terrainElevationAt(xy[k].x(),xy[k].y());
+                heights[v] = std::isfinite(h) ? h : std::numeric_limits<double>::quiet_NaN();
+            }
+            z[k] = heights[v];
+        }
+        return opt.terrainError(xy,z,p);
+    };
+    int reason = 0; // 1 size, 2 angle, 3 terrain; count successful inserts only.
 
     // Point for a bad triangle; false when it meets both bounds.
     auto badPoint = [&](int t, QPointF *out) {
+        reason = 0;
         const Triangle &T = m_tris[t];
         if (!T.alive || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2])) return false;
         const QPointF &A = m_pts[T.v[0]], &B = m_pts[T.v[1]], &C = m_pts[T.v[2]];
@@ -868,12 +896,22 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
         {
             const QPointF g = (A + B + C) / 3.0;
             const double h = opt.hAt(g.x(), g.y());
-            if (h > 0.0 && 0.5 * cross > kEquilateralArea * h * h) bad = true;
+            if (h > 0.0 && 0.5 * cross > kEquilateralArea * h * h) { bad = true; reason = 1; }
         }
         if (!bad && sinMin > 0.0 && l[s] >= minEdge2)
         {
             const double sinA = cross / std::sqrt(l[(s + 1) % 3] * l[(s + 2) % 3]);   // angle opposite the shortest edge
-            if (sinA < sinMin && !exemptShortestEdge(T.v[(s + 1) % 3], T.v[(s + 2) % 3])) bad = true;
+            if (sinA < sinMin && !exemptShortestEdge(T.v[(s + 1) % 3], T.v[(s + 2) % 3])) { bad = true; reason = 2; }
+        }
+        if (!bad && terrain) {
+            const double e = terrainError(t,out);
+            if (std::isfinite(e) && e > opt.terrainTolerance) {
+                const double clearance = std::max(opt.terrainMinSpacing,opt.minEdge);
+                // A protected elevation or minimum spacing may make the
+                // tolerance impossible. Leave it for the explicit final report.
+                if (std::min({dist2(*out,A),dist2(*out,B),dist2(*out,C)}) <= clearance*clearance) return false;
+                reason = 3; return true;
+            }
         }
         if (!bad) return false;
         // Shortest edge P→Q with R on its left (counter-clockwise order).
@@ -960,8 +998,37 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     };
 
     QVector<quint64> segQueue;
-    QVector<int> triQueue;
-    triQueue.reserve(m_tris.size());
+    // Intrusive FIFO angle buckets: one pending entry per triangle, no stale
+    // history proportional to all insertions, and no O(log N) heap operations.
+    std::array<int,32> heads, tails;
+    heads.fill(-1); tails.fill(-1);
+    QVector<int> next(m_tris.size(),-2); // -2 means not queued, -1 end of list
+    auto enqueue = [&](int t) {
+        while (next.size() < m_tris.size()) next.append(-2);
+        const auto &T = m_tris[t];
+        if (!T.alive || next[t] != -2) return;
+        int bucket = 31;
+        if (opt.prioritizeQuality && sinMin > 0) {
+            const auto &a=m_pts[T.v[0]], &b=m_pts[T.v[1]], &c=m_pts[T.v[2]];
+            const double cross=std::abs((b.x()-a.x())*(c.y()-a.y())-(b.y()-a.y())*(c.x()-a.x()));
+            const double l0=dist2(a,b),l1=dist2(b,c),l2=dist2(c,a);
+            const double denom=std::sqrt(std::max({l0*l1,l1*l2,l2*l0}));
+            if (denom > 0) bucket=std::clamp(int(31*cross/(denom*sinMin)),0,31);
+        }
+        next[t]=-1;
+        if (tails[bucket]>=0) next[tails[bucket]]=t; else heads[bucket]=t;
+        tails[bucket]=t;
+    };
+    auto dequeue = [&]() {
+        for (int k=0;k<32;++k) if (heads[k]>=0) {
+            const int t=heads[k]; heads[k]=next[t];
+            if (heads[k]<0) tails[k]=-1;
+            next[t]=-2; return t;
+        }
+        return -1;
+    };
+    m_triangleChanged = enqueue;
+    const auto clearObserver = qScopeGuard([&] { m_triangleChanged = {}; });
     auto queueEncroachedOf = [&](int t) {
         const Triangle &T = m_tris[t];
         for (int k = 0; k < 3; ++k)
@@ -974,11 +1041,10 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     };
     auto afterInsert = [&](int v) {
         ++rep.inserted;
-        const qsizetype from = triQueue.size();
-        trianglesAround(v, &triQueue);
-        for (qsizetype i = from; i < triQueue.size(); ++i)
-            if (m_tris[triQueue[i]].alive) queueEncroachedOf(triQueue[i]);
-        if (rep.inserted >= opt.maxInsertions) { rep.capped = true; stop = true; }
+        QVector<int> star;
+        trianglesAround(v, &star);
+        for (int t : std::as_const(star)) if (m_tris[t].alive) { enqueue(t); queueEncroachedOf(t); }
+        if (rep.inserted >= opt.maxInsertions || m_tris.size() >= opt.maxTriangles) { rep.capped = true; stop = true; }
         if ((rep.inserted & 4095) == 0 && opt.cancelled && opt.cancelled()) { rep.cancelled = true; stop = true; }
     };
     auto drainSegments = [&]() {
@@ -995,15 +1061,17 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     };
 
     for (int i = 0; i < m_tris.size(); ++i)
-        if (m_tris[i].alive) { triQueue.append(i); queueEncroachedOf(i); }
+        if (m_tris[i].alive) { enqueue(i); queueEncroachedOf(i); }
+    if (m_tris.size() >= opt.maxTriangles) { rep.capped = true; stop = true; }
     drainSegments();
 
-    qsizetype head = 0;
     QVector<quint64> enc;
-    while (head < triQueue.size() && !stop)
+    int examined = 0;
+    while (!stop)
     {
-        if (head > (1 << 20) && 2 * head > triQueue.size()) { triQueue.remove(0, head); head = 0; }
-        const int t = triQueue[head++];
+        const int t = dequeue();
+        if (t < 0) break;
+        if ((++examined & 4095) == 0 && opt.cancelled && opt.cancelled()) { rep.cancelled = true; break; }
         QPointF p;
         if (!badPoint(t, &p)) continue;
         enc.clear();
@@ -1031,7 +1099,7 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
                 afterInsert(v);
             }
             if (!split) { ++rep.blockedByFixed; continue; }
-            triQueue.append(t);   // retried with the subsegments split
+            enqueue(t);   // retried with the subsegments split
             drainSegments();
             continue;
         }
@@ -1039,8 +1107,21 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
         const int before = m_pts.size();
         const int v = insertPoint(p);
         if (v < 0 || v < before) continue;   // outside or coincident
+        if (reason == 1) ++rep.sizeInsertions;
+        else if (reason == 2) ++rep.qualityInsertions;
+        else if (reason == 3) ++rep.terrainInsertions;
         afterInsert(v);
         drainSegments();
+    }
+    // Independent pass over the final geometry: no cached triangle certificate
+    // can survive a missed edge flip or a blocked terrain candidate unnoticed.
+    if (terrain && !rep.cancelled) for (int t=0;t<m_tris.size();++t) {
+        const auto &T=m_tris[t];
+        if (!T.alive || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2])) continue;
+        if ((t & 4095)==0 && opt.cancelled && opt.cancelled()) { rep.cancelled=true; break; }
+        QPointF p; const double e=terrainError(t,&p);
+        if (!std::isfinite(e)) ++rep.terrainUnknown;
+        else { rep.maxTerrainError=std::max(rep.maxTerrainError,e); if (e>opt.terrainTolerance) ++rep.terrainUnresolved; }
     }
     return rep;
 }

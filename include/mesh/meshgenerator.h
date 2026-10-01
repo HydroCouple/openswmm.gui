@@ -93,6 +93,9 @@ struct RefineHook
      *  outside both (a street between curbs, a ditch between its banks).
      *  Null = no strips from break lines. */
     std::function<double(double x, double y)> elevationAt;
+    std::function<double(const QPointF *, const double *, QPointF *)> terrainError;
+    std::function<double(double, double)> terrainElevationAt;
+    double terrainTolerance = 0.0;
 };
 
 /*! \brief Quality knobs surfaced to the user dialog. */
@@ -114,6 +117,8 @@ struct GenerationOptions
      *  the cascade floor (a quarter of the minimum cell size) with a few
      *  triangles under the bound (GenerationStats::trianglesBelowAngle). */
     double minAngleDeg = 30.0;
+    bool prioritizeQuality = true; ///< Worst angle buckets before ordinary size/error work.
+    int maxCells = 20'000'000;       ///< Resource ceiling; reported if reached.
     /*! Two terrain break lines that face each other with lower ground between
      *  them become a bank-pair quad strip (needs RefineHook::elevationAt). */
     bool   quadsBetweenBreaklines = false;
@@ -142,6 +147,9 @@ struct GenerationStats
     int  breaklineStrips = 0;   ///< Quad strips between facing break lines.
     int  stripsDropped = 0;     ///< Strips that did not fit (logged; the feature stays triangles).
     int  refineInserted = 0;    ///< Vertices the quality refinement added.
+    int  sizeInserted = 0, qualityInserted = 0, terrainInserted = 0, segmentSplits = 0;
+    int  terrainUnresolved = 0, terrainUnknown = 0;
+    double maxTerrainError = 0.0;
     /*! Triangles under the minimum angle that the small-input-angle
      *  exemption does not explain: they rest on fixed quad strip edges or on
      *  inputs closer together than a quarter of the minimum cell size. */

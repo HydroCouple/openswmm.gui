@@ -16,6 +16,7 @@
 #include <QTimer>
 #include <QCloseEvent>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QPromise>
 #include <QSet>
@@ -25,6 +26,9 @@
 #include <cmath>
 #include <vector>
 #include <memory>
+#ifdef Q_OS_UNIX
+#include <sys/resource.h>
+#endif
 
 class TestMeshTerrainPipeline : public QObject
 {
@@ -145,6 +149,83 @@ class TestMeshTerrainPipeline : public QObject
     }
 
 private slots:
+    void coverageFillDoesNotCertifyTerrainOutsideTheDEM()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA","."))
+            .absoluteFilePath("../../output/terrain_adaptive_mesh_2026-10/coverage"));
+        QVERIFY(QDir().mkpath(dir.path()));
+        Inputs in; in.inpPath=dir.filePath("model.inp");
+        QVERIFY(writeBytes(in.inpPath,"[TITLE]\nPartial DEM coverage\n[OPTIONS]\nFLOW_UNITS CMS\n"));
+        in.dtmPath=dir.filePath("partial.tif"); GDALAllRegister();
+        auto *ds=GetGDALDriverManager()->GetDriverByName("GTiff")->Create(in.dtmPath.toUtf8().constData(),20,20,1,GDT_Float32,nullptr);
+        QVERIFY(ds); double gt[6]={10,1,0,30,0,-1}; ds->SetGeoTransform(gt);
+        QVector<float> values(400,10);
+        QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Write,0,0,20,20,values.data(),20,20,GDT_Float32,0,0),CE_None);
+        GDALClose(ds);
+        in.modelExtent=MapExtent(0,0,40,40);
+        in.domains={QPolygonF(QVector<QPointF>{{0,0},{40,0},{40,40},{0,40}})};
+        in.auxPoints={{{2,2},12,true},{{20,20},10,true}};
+        in.cellSize=5; in.coarsenFactor=1; in.minCellSize=1;
+        in.genOpts.maxArea=.4330127018922193*25; in.genOpts.minCellSize=1;
+        in.terrainTolerance=.1; in.terrainAdaptive=true; in.mapNodesAfterGen=false;
+        const auto result=run(in); QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        QVERIFY(result.generationStats.terrainUnknown>0);
+        QVERIFY(!result.alignmentWarnings.isEmpty());
+        for(const auto &v:result.meshResult.vertices) QVERIFY(std::isfinite(v.z));
+    }
+
+    void largeTerrainPipelineBenchmark()
+    {
+        const int target=qEnvironmentVariableIntValue("SWMMVIS_TERRAIN_SCALE_CELLS");
+        if(target<100000) QSKIP("Opt-in 1/5/10 million-cell terrain pipeline benchmark.");
+        const QString root=qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT");
+        QVERIFY(!root.isEmpty());
+        const QDir dir(root+QStringLiteral("/scale-%1").arg(target));
+        QVERIFY(QDir().mkpath(dir.path()));
+        Inputs inputs; inputs.inpPath=dir.filePath("model.inp");
+        QVERIFY(writeBytes(inputs.inpPath,"[TITLE]\nTerrain scale benchmark\n[OPTIONS]\nFLOW_UNITS CMS\n"));
+        inputs.dtmPath=dir.filePath("plane.tif");
+        const int pixels=int(std::ceil(std::sqrt(4.*target)))+4;
+        GDALAllRegister();
+        auto *ds=GetGDALDriverManager()->GetDriverByName("GTiff")->Create(inputs.dtmPath.toUtf8().constData(),pixels,pixels,1,GDT_Float32,nullptr);
+        QVERIFY(ds); const double pitch=1000./(pixels-4);
+        double gt[6]={-2*pitch,pitch,0,1000+2*pitch,0,-pitch};
+        QCOMPARE(ds->SetGeoTransform(gt),CE_None);
+        QVector<float> row(pixels);
+        for(int r=0;r<pixels;++r) {
+            for(int c=0;c<pixels;++c) row[c]=float(10+.004*(c+.5)*pitch-.008*(r+.5)*pitch);
+            QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Write,0,r,pixels,1,row.data(),pixels,1,GDT_Float32,0,0),CE_None);
+        }
+        GDALClose(ds);
+        inputs.modelExtent=MapExtent(0,0,1000,1000);
+        inputs.domains={QPolygonF(QVector<QPointF>{{0,0},{1000,0},{1000,1000},{0,1000}})};
+        inputs.meshLinearUnitName="metre";
+        inputs.cellSize=std::sqrt(3.34e6/target)/1.22;
+        inputs.coarsenFactor=1; inputs.minCellSize=inputs.cellSize/4;
+        inputs.genOpts.minCellSize=inputs.minCellSize;
+        inputs.genOpts.maxArea=.4330127018922193*inputs.cellSize*inputs.cellSize;
+        inputs.genOpts.maxCells=20'000'000;
+        inputs.terrainTolerance=.01; inputs.terrainAdaptive=true; inputs.terrainCacheMiB=16;
+        inputs.terrainBreaklines=true; inputs.mapNodesAfterGen=false;
+        QElapsedTimer timer; timer.start();
+        const auto result=run(inputs); const qint64 ms=timer.elapsed();
+        QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        qint64 rss=0;
+#ifdef Q_OS_UNIX
+        struct rusage usage{}; getrusage(RUSAGE_SELF,&usage); rss=usage.ru_maxrss;
+#ifndef Q_OS_MACOS
+        rss*=1024;
+#endif
+#endif
+        qInfo("pipeline scale: target=%d cells=%lld DEM_samples=%lld ms=%lld peakRSS=%lld",target,
+            (long long)result.meshResult.triangles.size(),(long long)pixels*pixels,(long long)ms,(long long)rss);
+        QCOMPARE(result.generationStats.terrainInserted,0);
+        QCOMPARE(result.generationStats.terrainUnresolved,0);
+        QCOMPARE(result.generationStats.terrainUnknown,0);
+        QVERIFY(!result.generationStats.refineCapped);
+        QVERIFY(result.meshResult.triangles.size()>target*.85);
+    }
+
     void bankPairReachesWorker_data()
     {
         QTest::addColumn<bool>("variable");
