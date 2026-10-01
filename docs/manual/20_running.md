@@ -233,14 +233,14 @@ turned on.
 If no `.rpt` exists yet the viewer reports the path it looked at and tells you to
 run a simulation.
 
-\figtodo{20_report_viewer.png, The report viewer with the section list; the continuity banner and the search bar}
+\fig{20_report_viewer.png, The completed site-drainage report with its section list and search bar}
 
 ### Summarize Results
 
 **Analysis → Summarize Results** opens the statistics dashboard over the active
 1D results layer. It reads the engine's cumulative statistics rather than
 re-scanning the `.out`, and shows three sortable tables — **Node**, **Link**,
-**Subcatchment** — plus a frequency histogram for the selected column. It needs
+**Subcatchment**. It needs
 results: with no active results layer it puts up a **No Results** message box
 telling you to run a simulation or load a `.out`. The dashboard is documented in
 full in \ref manual_analysis_tools.

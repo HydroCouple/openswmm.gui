@@ -1,5 +1,9 @@
 @page tutorial_2d_inundation T3 — From a DTM to an Animated 2D Inundation Map
 
+## Example availability
+
+The Snoopy Lagoon files described below are historical demo assets and are not tracked in this repository. This walkthrough requires that separate bundle, a GDAL-readable terrain raster and newly generated results. A fresh checkout cannot reproduce it as written. Start with the tracked 2D boundary example in \ref tutorial_2d_boundaries for an available model; the Snoopy terrain and mesh still need to be prepared before these steps can be verified.
+
 ## Goal
 
 Take the Snoopy Lagoon demo — a parabolic bowl that fills under a short storm
@@ -28,8 +32,8 @@ ledger.
 | `examples/demo_snoopy_lagoon/snoopy.inp` | The SWMM input file |
 | `examples/demo_snoopy_lagoon/snoopy.2dm` | The external mesh — 81 vertices, 128 triangles |
 | `examples/demo_snoopy_lagoon/snoopy_dtm.npz` | A synthetic DTM grid as a NumPy archive |
-| `examples/demo_snoopy_lagoon/snoopy.2d.h5` | Checked-in 2D results — 474 steps over 4 hours, 128 cells |
-| `examples/demo_snoopy_lagoon/snoopy.rpt` | Checked-in report from a **1D-only** run |
+| `examples/demo_snoopy_lagoon/snoopy.2d.h5` | Historical 2D results — 474 steps over 4 hours, 128 cells |
+| `examples/demo_snoopy_lagoon/snoopy.rpt` | Historical report from a **1D-only** run |
 | `examples/demo_snoopy_lagoon/gen_demo.py` | The generator that produced the geometry |
 
 The terrain is a parabolic bowl 100 m in radius, deepest at the centre at
@@ -41,12 +45,12 @@ and the run is four hours with a 30-second report step.
 
 Two facts about this example matter before you start.
 
-**The mesh is attached through the project, not the `.inp`.** The checked-in
+**The mesh is attached through the project, not the `.inp`.** The historical
 `snoopy.inp` contains **no `[2D_*]` sections and no `[2D_MESH_FILE]`
 reference**. What ties `snoopy.2dm` to the model is the `meshLayers` entry in
 `snoopy.oswp`. If you open the `.inp` on its own you get a bare 1D network;
 if you open the `.oswp` you get the mesh layer as well. That is also why the
-checked-in `snoopy.rpt` is an all-zero **1D-only** report — with no rain gage
+historical `snoopy.rpt` is an all-zero **1D-only** report — with no rain gage
 attached to any subcatchment (there are none) and no 2D mesh reachable from
 the `.inp`, the engine had nothing to route.
 
@@ -59,7 +63,7 @@ Imagine, SRTM, USGS DEM, ENVI, NetCDF, HDF5 and friends — but not `.npz`. To
 follow the raster steps below, convert it once, for example with `rasterio` or
 `gdal_translate` after writing an intermediate ASCII grid, and keep the result
 as `snoopy_dtm.tif`. (`gen_demo.py` was originally written to emit a GeoTIFF;
-the checked-in artefact is the `.npz`.)
+the historical artefact is the `.npz`.)
 
 ## Steps
 
@@ -86,7 +90,7 @@ Once you have a GDAL-readable copy of the terrain (see above):
    **All supported (…)**; **GeoTIFF / COG (\*.tif \*.tiff)** is the one you
    want here.
 2. Right-click the new layer in the **Layers** panel → **Properties…** to open
-   *<name> — Layer Properties*, and go to the **Symbology** tab. Its **Layer
+   *layer name — Layer Properties*, and go to the **Symbology** tab. Its **Layer
    type** on the **Information** tab reads **Raster / DEM**.
 3. The raster symbology panel opens on the **Renderer:** the DTM was given at
    load time — **Singleband pseudocolor** (the alternatives are **Paletted /
@@ -275,7 +279,7 @@ With **None (no direct rainfall)** nothing happens at all.
 
 \figtodo{t03_sim_options_2d.png, The 2D Surface Routing page of Simulation Options}
 
-### 7. Run, or load the checked-in results
+### 7. Run, or load the historical results
 
 **Analysis → Execute** (`Ctrl+R`) runs the model. If 2D Surface Routing is
 enabled but no mesh resolves from the `.inp`, SWMMVis stops with the
@@ -293,7 +297,7 @@ opens the **Add 2D Results** dialog with the filter
 the **Layers** panel, and the **Mesh 2D** tab's **2D Results** group becomes
 usable.
 
-The checked-in `snoopy.2d.h5` holds **474 time steps over the full four
+The historical `snoopy.2d.h5` holds **474 time steps over the full four
 hours** on **128 cells**.
 
 \figtodo{t03_add_2d_results.png, The Add 2D Results file dialog}
@@ -354,7 +358,7 @@ tooltip explains the modifiers: *Single-click selects and highlights a cell
 (Shift = add, Ctrl = toggle); drag a box or press L to lasso multiple.
 Right-click a selection to plot its depth / HGL / velocity time series. Esc
 clears.* The toolbar readout beside it reads **Cell: (none)**, then
-**Cell #N** or **Cells: N selected**.
+**Cell number** or **Cells: N selected**.
 
 Click the cell at the bowl centre and right-click it. The attribute menu
 offers **Depth (2D cell) (m)**, **HGL (2D cell) (m)**, **|V| (2D cell)
@@ -413,11 +417,11 @@ A 2D run adds these blocks to the ordinary 1D ones:
 For this model the interesting rows are `Rainfall Inflow` — every drop that
 enters the system, since there are no subcatchments — and
 `2D -> 1D Drain Outflow`, the water leaving the bowl through the coupled
-vertex into `J1`. In the checked-in `snoopy.2d.h5` the coupling flux at the
+vertex into `J1`. In the historical `snoopy.2d.h5` the coupling flux at the
 centre cell peaks at about **−0.0024 m³/s** (negative meaning 2D draining into
 1D), which is what that ledger row integrates.
 
-The checked-in `snoopy.rpt` has **none of these blocks** — it is a 1D-only run
+The historical `snoopy.rpt` has **none of these blocks** — it is a 1D-only run
 with every row zero, `Rainfall/Runoff ........ NO`, and a 0.000 % continuity
 error. `snoopy_fresh.rpt` beside it is the same run reported in SI units, with
 one extra line: `WARNING 02: maximum depth increased for Node J1.` The Report

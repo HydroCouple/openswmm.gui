@@ -16,7 +16,7 @@ your first model.
 | Bundled examples | Welcome page, **Example Projects** |
 | About and credits | **Help → About** |
 
-\figtodo{01_main_window_annotated.png, The SWMMVis main window after opening a model — ribbon; map canvas; Layers; Object Browser; Properties and Message Logs}
+\fig{01_main_window_annotated.png, The SWMMVis main window after opening a model — ribbon; map canvas; Layers; Object Browser; Properties and Message Logs}
 
 ## Step-by-step
 
@@ -35,12 +35,12 @@ Two things distinguish it from the classic SWMM interface:
   vector and raster GIS data, WMS/WMTS/WCS and WFS services, XYZ basemaps,
   delimited-text tables, SWMM model layers, SWMM results layers, 2D meshes, and 2D
   results. See \ref manual_layers and \ref manual_crs.
-- **It exposes the whole SWMM 6 engine.** Everything the engine can do —
+- **It provides graphical workflows for SWMM 6.** Supported capabilities include
   finite-volume 1D routing, 2D overland flow on unstructured meshes, 1D–2D
   coupling, advection–reaction–dispersion transport, multispecies reaction
   systems, heat transport, water age, groundwater exchange, streets and inlet
-  junctions — is reachable from dialogs, tables, plots, and animated maps rather
-  than by hand-editing the `.inp` file.
+  junctions. The following chapters describe the available dialogs, tables, plots
+  and animated maps, including prerequisites and current limitations.
 
 The application is licensed GPL v3; the engine it links is Apache 2.0. Third-party
 components and their licences are listed in **Help → About**.
@@ -55,12 +55,13 @@ changing **Flow Units** in the status bar immediately re-labels every units suff
 in every open editor.
 
 The build this manual documents ships engine **6.0.0-alpha.4**. The status bar's
-**Engine:** picker offers two engines per project:
+**Engine:** picker offers the following engines per project when their workers are bundled:
 
 | Entry | What it runs |
 |---|---|
 | **OpenSWMM 6.0.0-alpha.4** | The refactored SWMM 6 engine — required for finite-volume 1D routing; 2D overland flow; 1D–2D coupling; transport, reaction and heat modules; semi-implicit node continuity; Anderson acceleration |
-| **SWMM 5.3.0 (Legacy)** | The unmodified EPA SWMM 5.x solver preserved inside the engine repository — for regression comparison against classic SWMM results |
+| **SWMM 5.3.0 (Legacy)** | The legacy solver bundled with the OpenSWMM engine — for comparison with classic SWMM workflows |
+| **SWMM 5.2.4 (EPA)** | The separately bundled EPA 5.2.4 worker; this choice requires that worker to be installed |
 
 The default for new projects is set in **Preferences → General → Default engine
 mode**; the status-bar picker overrides it per project. Options that only the
@@ -124,6 +125,10 @@ attribute search, invert selection, and upstream/downstream network tracing. See
 category; the Properties panel edits the selection; compound editors handle
 multi-part properties; the Section View draws cross-sections. See
 \ref manual_object_browser and \ref manual_attribute_tables.
+
+**Editable GIS features.** Create points, lines and polygons in a companion
+GeoPackage; edit their attributes and vertices; use roles for mesh boundaries,
+breaklines, regions and corridors. See \ref manual_feature_layers.
 
 **Drawing the network.** Add junctions, virtual junctions, inlet junctions,
 outfalls, flow dividers, storage units, conduits, pumps, orifices, weirs, outlets,
@@ -245,7 +250,7 @@ has four sections plus a startup checkbox.
 Closing the Welcome tab with its **×** only hides it; **Help → Show Welcome Page**
 brings it back with its content intact.
 
-\figtodo{01_welcome_page.png, The Welcome page showing Start Modeling; Open Recent Files; Learn SWMM and Example Projects}
+\fig{01_welcome_page.png, The Welcome page showing Start Modeling; Open Recent Files; Learn SWMM and Example Projects}
 
 ### Bundled examples and what happens when you open one
 
@@ -357,7 +362,7 @@ system and is enough for 2D mesh generation — and **Abort Open**. Models whose
 coordinates are already in an auto-generated local CRS (`Local (ft)` / `Local (m)`)
 are not prompted. See \ref manual_crs.
 
-\figtodo{01_first_model_open.png, A freshly opened example model on the map canvas with the status bar bound to the project}
+\fig{01_first_model_open.png, A freshly opened example model on the map canvas with the status bar bound to the project}
 
 ### Where to get help
 

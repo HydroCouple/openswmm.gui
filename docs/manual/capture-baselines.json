@@ -1,0 +1,769 @@
+{
+  "orientation-final": {
+    "capturedAt": "2026-10-01T18:25:13.871213+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "bace1022567ccd1d02a954b9a72840d8444d54a6a4aeb6dd5c78e4baef12351f",
+      "bytes": 61652208
+    },
+    "model": {
+      "file": "site_drainage_model.inp",
+      "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db",
+      "bytes": 29206
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "fbca84b82d7e0f7b857a8f79c0f7de095b828f4434c49c7f2a0559738cc0b376",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "40b5b215a7ee4d43130d96537800b84cba78a82b0f3ac4d59b1b8c597a8635fb",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/orientation-final"
+  },
+  "welcome": {
+    "capturedAt": "2026-10-01T18:26:27.735074+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "bace1022567ccd1d02a954b9a72840d8444d54a6a4aeb6dd5c78e4baef12351f",
+      "bytes": 61652208
+    },
+    "model": null,
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "fbca84b82d7e0f7b857a8f79c0f7de095b828f4434c49c7f2a0559738cc0b376",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "1c40ec7c32d2882607b178940cca57a025620727670a43a034b1c61fc2e4e282",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/welcome"
+  },
+  "core-site": {
+    "capturedAt": "2026-10-01T18:28:27.114638+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "bace1022567ccd1d02a954b9a72840d8444d54a6a4aeb6dd5c78e4baef12351f",
+      "bytes": 61652208
+    },
+    "model": {
+      "file": "site_drainage_model.inp",
+      "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db",
+      "bytes": 29206
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "fbca84b82d7e0f7b857a8f79c0f7de095b828f4434c49c7f2a0559738cc0b376",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "8c4a4c8f266a393cb7e657b975c542367d8ab2a5998b88b0f4683a53fe4b80c7",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/core-site"
+  },
+  "workflows-site": {
+    "capturedAt": "2026-10-01T18:33:04.040373+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "f43c30f37f25ffff97edba474762a7484cdeb84631d28f4d7c821fa6ccdf1eb1",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "site_drainage_model.inp",
+      "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db",
+      "bytes": 29206
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "b4367faf84035086d28f6ec77a8a3e5061d3660044ee8c623737c2b44769cf2e",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "984fa5cb8a4625a03cd1d0dfef156110c8661e840cb6a790877699310c56f8bb",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/workflows-site"
+  },
+  "transport": {
+    "capturedAt": "2026-10-01T18:35:29.746351+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "f43c30f37f25ffff97edba474762a7484cdeb84631d28f4d7c821fa6ccdf1eb1",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "transport_demo.inp",
+      "sha256": "c864659586f54fd4b74e6b13d1b116debfb7e8b5cc17465be9e9207574f6a127",
+      "bytes": 3802
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "b4367faf84035086d28f6ec77a8a3e5061d3660044ee8c623737c2b44769cf2e",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "ed4bcb7aa917299cc506b118f5b1e44eba8aca962f8cf97552159c9e3668d453",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/transport"
+  },
+  "street": {
+    "capturedAt": "2026-10-01T18:39:11.417231+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "f43c30f37f25ffff97edba474762a7484cdeb84631d28f4d7c821fa6ccdf1eb1",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "street_inlet_junction.inp",
+      "sha256": "fa8bd70cffd814d94db028594f474d7510fa29ae673cbb4e00b5fd483d27f98a",
+      "bytes": 12044
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "b4367faf84035086d28f6ec77a8a3e5061d3660044ee8c623737c2b44769cf2e",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "98c89c96c5aa6925972b3f7a2dd4f80b230975c46385dcc4938ff26d48a40491",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/street"
+  },
+  "site-final": {
+    "capturedAt": "2026-10-01T18:50:12.348762+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "89863e46a96d1b99c82ff1a4a4bb64225b8dfd5cff4b092b619bf8ce89c778b0",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "site_drainage_model.inp",
+      "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db",
+      "bytes": 29206
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "9989ffb086c096a244eadb9b9f9f7a13e09c392038edef0661443e7cc050a572",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "766664468aaedc411c10c7cfa6796608e9e72217c37d7cc79d526ec6b77322c7",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/site-final"
+  },
+  "profile-final": {
+    "capturedAt": "2026-10-01T18:51:02.771881+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "89863e46a96d1b99c82ff1a4a4bb64225b8dfd5cff4b092b619bf8ce89c778b0",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "site_drainage_model.inp",
+      "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db",
+      "bytes": 29206
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "9989ffb086c096a244eadb9b9f9f7a13e09c392038edef0661443e7cc050a572",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "284572b918bf0c9ca01adc1cd4750ec8393cd82f26dac70f92cf708fe3c959d8",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/profile-final"
+  },
+  "twod-final": {
+    "capturedAt": "2026-10-01T18:54:15.442304+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "89863e46a96d1b99c82ff1a4a4bb64225b8dfd5cff4b092b619bf8ce89c778b0",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "2d_complete_example.inp",
+      "sha256": "eae6c1928f9ec41a6f79088f0063cc3129529f7159b91179becf77871d7379bd",
+      "bytes": 10339
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "9989ffb086c096a244eadb9b9f9f7a13e09c392038edef0661443e7cc050a572",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "5e28badc18e3ff063c0694caf48538f56e6034c6ac6e8eac7de54f737274cbaf",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/twod-final"
+  },
+  "street-final": {
+    "capturedAt": "2026-10-01T18:52:31.666742+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "89863e46a96d1b99c82ff1a4a4bb64225b8dfd5cff4b092b619bf8ce89c778b0",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "street_inlet_junction.inp",
+      "sha256": "fa8bd70cffd814d94db028594f474d7510fa29ae673cbb4e00b5fd483d27f98a",
+      "bytes": 12044
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "9989ffb086c096a244eadb9b9f9f7a13e09c392038edef0661443e7cc050a572",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "94034140a2f0b4ef3198dab0a60f7e2142a11dc1e63e4127118a162a2ee95fc3",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/street-final"
+  },
+  "street-map-final": {
+    "capturedAt": "2026-10-01T18:55:27.489164+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "89863e46a96d1b99c82ff1a4a4bb64225b8dfd5cff4b092b619bf8ce89c778b0",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "street_inlet_junction.inp",
+      "sha256": "3f88651885489fe08e4b769b8a607a4a8c50133ccbed3bb7dc82098e378b6abd",
+      "bytes": 12228
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "9989ffb086c096a244eadb9b9f9f7a13e09c392038edef0661443e7cc050a572",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "ec4c8375ab9016c13673e62be6a515f87f6f5538c97dc91f40ea5c0ba5ec3a47",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/street-map-final"
+  },
+  "fv-final": {
+    "capturedAt": "2026-10-01T18:56:38.163133+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "89863e46a96d1b99c82ff1a4a4bb64225b8dfd5cff4b092b619bf8ce89c778b0",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "1d_fv.inp",
+      "sha256": "4562923f8bda6ae679b503e95f880a498838812f52484d71f7621060454c3877",
+      "bytes": 8648
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "9989ffb086c096a244eadb9b9f9f7a13e09c392038edef0661443e7cc050a572",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "78f970b9b553c74284e780f0135fdcebd0e8660b5b5fb8969900824c36e8aec8",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/fv-final"
+  },
+  "selection-final": {
+    "capturedAt": "2026-10-01T19:02:54.635086+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "27c1d352d919f6d95805ac43da9b382d41b5a36e5bbd659ee7c09a56beaf21e7",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "site_drainage_model.inp",
+      "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db",
+      "bytes": 29206
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "8a0ca8dfe9ddf4d4e0ebb876840e952e4d37f191d6ce75c31f2921f32b1c3d3b",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "f0ae19ca6a53507c69946274823bef05729ef3908c729625e52931f619ab1093",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/selection-final"
+  },
+  "plots-final": {
+    "capturedAt": "2026-10-01T19:04:13.455848+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "27c1d352d919f6d95805ac43da9b382d41b5a36e5bbd659ee7c09a56beaf21e7",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "site_drainage_model.inp",
+      "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db",
+      "bytes": 29206
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "8a0ca8dfe9ddf4d4e0ebb876840e952e4d37f191d6ce75c31f2921f32b1c3d3b",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "8030ee326a031aaa4df00b842a9861eb23ed75a0c6e902ab6077954f114e87cf",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/plots-final"
+  },
+  "report-rain-final": {
+    "capturedAt": "2026-10-01T19:06:46.200259+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "27c1d352d919f6d95805ac43da9b382d41b5a36e5bbd659ee7c09a56beaf21e7",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "site_drainage_model.inp",
+      "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db",
+      "bytes": 29206
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "8a0ca8dfe9ddf4d4e0ebb876840e952e4d37f191d6ce75c31f2921f32b1c3d3b",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "98dd29e1a9a307f36aabe83c7de17dd60ba232b974e6e80721430441f6d1da17",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/report-rain-final"
+  },
+  "comparison-final": {
+    "capturedAt": "2026-10-01T19:07:52.498930+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "27c1d352d919f6d95805ac43da9b382d41b5a36e5bbd659ee7c09a56beaf21e7",
+      "bytes": 61668624
+    },
+    "model": {
+      "file": "site_drainage_model.inp",
+      "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db",
+      "bytes": 29206
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "8a0ca8dfe9ddf4d4e0ebb876840e952e4d37f191d6ce75c31f2921f32b1c3d3b",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "runManifestSha256": "76e18dc50a526ab2949dca0bed26ee00991e8fd4e5fcc69b8a49777bc15308fa",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01/comparison-final"
+  },
+  "round2-site-accepted": {
+    "capturedAt": "2026-10-01T19:44:34.709110+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "57bc8b08d7d6e012fae53c3c2a68f7368c446af90ba8e6e188c9de179881684b",
+      "bytes": 61669040
+    },
+    "model": {
+      "file": "site_drainage_model.inp",
+      "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db",
+      "bytes": 29206
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "9b8e7c2beea30eff780b7ec84ee040bec05dd36860bb43e7f9b85404d8b4417f",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": false,
+    "qtPlatform": "offscreen",
+    "runManifestSha256": "b4e786eb1f3a59407371bf373861af65357941c28b6c3927909ed7001a39df2b",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01_round2/site-accepted",
+    "sourceRunExitCode": 0,
+    "publishedFigures": [
+      "t01_crs_dialog.png",
+      "t01_basemap.png",
+      "t01_attribute_table.png",
+      "t01_coverages.png",
+      "t01_run_status.png",
+      "t01_report_viewer.png",
+      "t01_statistics_dashboard.png",
+      "t01_results_style.png",
+      "t01_plot_variables.png",
+      "t01_tabular_results.png"
+    ]
+  },
+  "round2-site": {
+    "capturedAt": "2026-10-01T19:30:22.136412+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "a897aa41499607753bf254194f03d8a393a0dedec67dcff15638f8f75c45094c",
+      "bytes": 61668944
+    },
+    "model": {
+      "file": "site_drainage_model.inp",
+      "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db",
+      "bytes": 29206
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "eada974e9a198fe5a25c27c197458592f43cb370ee01b144a100425ebf3ff14b",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": true,
+    "qtPlatform": "cocoa",
+    "runManifestSha256": "e4bac357e70c78bb319878a4e4b5ce2b43acee8306c6c0636d2b8cd96b23e3e9",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01_round2/site",
+    "sourceRunExitCode": 1,
+    "publishedFigures": [
+      "t01_rainfall_visualization.png",
+      "t01_comparison_plot.png"
+    ]
+  },
+  "round2-street-accepted": {
+    "capturedAt": "2026-10-01T19:44:34.702916+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "57bc8b08d7d6e012fae53c3c2a68f7368c446af90ba8e6e188c9de179881684b",
+      "bytes": 61669040
+    },
+    "model": {
+      "file": "street_inlet_junction.inp",
+      "sha256": "3f88651885489fe08e4b769b8a607a4a8c50133ccbed3bb7dc82098e378b6abd",
+      "bytes": 12228
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "9b8e7c2beea30eff780b7ec84ee040bec05dd36860bb43e7f9b85404d8b4417f",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": false,
+    "qtPlatform": "offscreen",
+    "runManifestSha256": "9026436afd9cab5d943d47a1e0a3ffe25051e333d29d818c45b3eae58273a59b",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01_round2/street-accepted",
+    "sourceRunExitCode": 0,
+    "publishedFigures": [
+      "t02_section_view_street.png",
+      "t02_report_street_tables.png"
+    ]
+  },
+  "round2-street-headless": {
+    "capturedAt": "2026-10-01T19:39:44.682598+00:00",
+    "application": {
+      "file": "SWMMVis",
+      "sha256": "a897aa41499607753bf254194f03d8a393a0dedec67dcff15638f8f75c45094c",
+      "bytes": 61668944
+    },
+    "model": {
+      "file": "street_inlet_junction.inp",
+      "sha256": "3f88651885489fe08e4b769b8a607a4a8c50133ccbed3bb7dc82098e378b6abd",
+      "bytes": 12228
+    },
+    "guiHead": "4a4fc0c2b44740ad33e6b08d8adde42f40e8842b",
+    "sourceDiffSha256": "eada974e9a198fe5a25c27c197458592f43cb370ee01b144a100425ebf3ff14b",
+    "workingTreeHadChanges": true,
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "nativeDisplay": false,
+    "qtPlatform": "offscreen",
+    "runManifestSha256": "40fab2e2631a6052419b233e17a757e2999ed2992f6a0217b2c508596597e7f0",
+    "bundledEngines": [
+      {
+        "file": "libopenswmm.engine.6.dylib",
+        "sha256": "898c777108e9951321345c013b1336e568d24df38c5083e0f065d936b974b6da",
+        "bytes": 9094784
+      },
+      {
+        "file": "libopenswmm.legacy.engine.6.dylib",
+        "sha256": "8dd5f794a32d8f96f2695309a8a06b61e3acebe2c2603bdfd427e0bce7411a36",
+        "bytes": 554544
+      },
+      {
+        "file": "libopenswmm_gpu_omp.dylib",
+        "sha256": "86d9cca59d6457d9357f17fb2389449b3464ed53ce112bc49e9de8d5c937fff2",
+        "bytes": 819648
+      }
+    ],
+    "localArtifacts": "tests/output/manual_figures/documentation_2026-10-01_round2/street-headless",
+    "sourceRunExitCode": 1,
+    "publishedFigures": [
+      "t02_capture_bypass_plot.png"
+    ]
+  }
+}

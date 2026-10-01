@@ -24,6 +24,8 @@ that could swallow a caption.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 import shutil
 import struct
@@ -80,7 +82,7 @@ def scan() -> list[tuple[Path, int, str, str, str]]:
 # audit
 # --------------------------------------------------------------------------
 
-def cmd_audit(_args: argparse.Namespace) -> int:
+def cmd_audit(args: argparse.Namespace) -> int:
     refs = scan()
     problems: list[str] = []
 
@@ -128,15 +130,44 @@ def cmd_audit(_args: argparse.Namespace) -> int:
     #    drifted from the manual it serves
     manifest = MANUAL / "figures.json"
     if manifest.exists():
-        import json
         data = json.loads(
             "\n".join(l for l in manifest.read_text().splitlines()))
-        for row in data.get("figures", []):
+        rows = data.get("figures", [])
+        names = [row.get("name") for row in rows]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            problems.append(f"duplicate capture recipes: {', '.join(duplicates)}")
+        for row in rows:
             name = row.get("name")
             if name and name not in known:
                 problems.append(
                     f"docs/manual/figures.json: '{name}' matches no "
                     f"\\figtodo or \\fig in the manual")
+
+        if getattr(args, "strict", False):
+            for name in sorted(known - set(names)):
+                problems.append(f"no capture recipe: {name}")
+            for row in rows:
+                if row.get("lane") == "human" and not row.get("_note"):
+                    problems.append(f"human capture has no instructions: {row['name']}")
+
+    if getattr(args, "strict", False):
+        if not manifest.exists():
+            problems.append("capture manifest does not exist")
+        for name in sorted(pending):
+            problems.append(f"unpublished figure: {name}")
+        for page in manual_pages():
+            if "\\videotodo{" in page.read_text():
+                problems.append(f"video placeholders remain: {page.relative_to(REPO)}")
+        review_path = MANUAL / "figure_reviews.json"
+        reviews = json.loads(review_path.read_text()) if review_path.exists() else {}
+        for name in sorted(published):
+            img = IMAGES / name
+            review = reviews.get(name, {})
+            if not review.get("reviewedAt") or not img.exists():
+                problems.append(f"visual review missing: {name}")
+            elif review.get("sha256") != hashlib.sha256(img.read_bytes()).hexdigest():
+                problems.append(f"image changed since visual review: {name}")
 
     print(f"figures published : {len(published)}")
     print(f"still placeholder : {len(pending)}")
@@ -300,7 +331,9 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("audit", help="check published figures; non-zero on problems")
+    audit = sub.add_parser("audit", help="check published figures; non-zero on problems")
+    audit.add_argument("--strict", action="store_true",
+                       help="also require complete recipes, no placeholders and current visual reviews")
 
     f = sub.add_parser("flip", help="publish staged PNGs and flip placeholders")
     f.add_argument("names", nargs="*", help="figure file names")

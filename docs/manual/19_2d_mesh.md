@@ -84,7 +84,7 @@ footer. Generation runs
 on a worker thread with a progress bar and a live stage label; **Cancel
 Generation** stops it cleanly at the next stage boundary.
 
-\figtodo{19_generate_mesh_sources.png, The Generate 2D Mesh dialog on the Sources tab}
+\fig{19_generate_mesh_sources.png, The Generate 2D Mesh dialog on the Sources tab}
 
 **Sources tab — Sources group**
 
@@ -131,7 +131,7 @@ is selected.
 | **NN variant** | **Sibson (area-stealing)** or **Laplace (edge-ratio)**; natural neighbour falls back to IDW outside the seed convex hull |
 | **IDW power** | Shepard exponent |
 
-\figtodo{19_generate_mesh_quality.png, The Quality tab with the Triangle quality and minimum cell size groups}
+\fig{19_generate_mesh_quality.png, The Quality tab with the Triangle quality and minimum cell size groups}
 
 **Quality tab — Resolution and terrain accuracy**
 
@@ -183,7 +183,7 @@ the `.oswp` sidecar. Distances are stored in canonical units, and layer choices
 use stable layer identifiers. The last generation's cell count and terrain
 result appear in the Quality tab.
 
-\figtodo{19_generate_mesh_hydraulics.png, The Hydraulics tab with the initial cell values and the region defaults table}
+\fig{19_generate_mesh_hydraulics.png, The Hydraulics tab with the initial cell values and the region defaults table}
 
 **Hydraulics tab — Initial cell values**
 
@@ -241,7 +241,7 @@ cross-sections to represent the channel bed in the mesh. Raster export and
 mesh refinement use the same channel surface, so a channel narrower than a
 DTM pixel can still be represented. The source DTM is never modified.
 
-\figtodo{19_channel_burn_tab.png, The Generate 2D Mesh dialog on the Channel Burn-in tab}
+\fig{19_channel_burn_tab.png, The Generate 2D Mesh dialog on the Channel Burn-in tab}
 
 **Selection and domain**
 
@@ -327,7 +327,8 @@ These checks verify representation; they do not establish hydraulic
 calibration or equivalence to an entire 1D network.
 
 For a small reproducible test, use the bundled **Channel Burn at the Study
-Boundary** example. Its [testing instructions](../../examples/channel_burn_boundary/README.md)
+Boundary** example. Its testing instructions in
+`examples/channel_burn_boundary/README.md` in the source repository
 describe boundary clipping, interior-node removal, closed-pipe coupling,
 outside-channel retention and Undo/Redo with expected results.
 
@@ -345,7 +346,7 @@ mesh the engine actually reads when a project has several — see
 
 ### The Mesh 2D ribbon tab
 
-\figtodo{19_mesh2d_ribbon.png, The Mesh 2D ribbon tab with the Mesh; Vertices; Edges; 2D Results; Profile and Coupling groups}
+\fig{19_mesh2d_ribbon.png, The Mesh 2D ribbon tab with the Mesh; Vertices; Edges; 2D Results; Profile and Coupling groups}
 
 The Mesh Editing toolbar is organised into captioned groups. Clusters appear
 and disappear with the selection, so the tab shows the editors that apply right
@@ -639,7 +640,7 @@ Edges**, **Mesh Vertices**, **Boundary Conditions** and **Coupled Nodes**.
 Right-clicking a sublayer in the Layers panel and choosing **Edit Sublayer
 Style…** opens the matching tab directly. See \ref manual_styling.
 
-\figtodo{19_mesh_style_panel.png, The 2D mesh style panel showing the terrain fill and isoline tabs}
+\fig{19_mesh_style_panel.png, The 2D mesh style panel showing the terrain fill and isoline tabs}
 
 ### Saving
 

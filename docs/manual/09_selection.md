@@ -7,7 +7,7 @@ rain gages, GIS features, 2D mesh vertices/edges/cells — from whichever view i
 most convenient, and have every other view follow. Then edit them, plot them,
 trace the network from them, or delete them in bulk.
 
-\figtodo{09_selection_overview.png, A selection made on the map mirrored in the Object Browser; the Properties panel and the Attribute Table}
+\fig{09_selection_overview.png, Junction J3 selected in the Object Browser and on the map with its properties shown}
 
 ## Where to find it
 
@@ -174,7 +174,7 @@ a subcatchment seed.
 If nothing traceable is selected the command says so in the message log and
 does nothing.
 
-\figtodo{09_select_upstream.png, The upstream subnetwork of a selected outfall highlighted on the map}
+\fig{09_select_upstream.png, The upstream subnetwork of a selected outfall highlighted on the map}
 
 ### Invert Selection
 

@@ -10,22 +10,18 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 230 figures, 35 videos. Published so far: 96.
+Remaining: 180 figures, 35 videos. Published so far: 152.
 
 ## 01_introduction.md
 
-- [ ] `01_main_window_annotated.png` (line 19) — The SWMMVis main window after opening a model — ribbon; map canvas; Layers; Object Browser; Properties and Message Logs
-- [ ] `01_install_macos_dmg.png` (line 202) — The macOS disk image with SWMMVis.app being dragged into Applications
-- [ ] `01_license_agreement.png` (line 230) — The License Agreement dialog with the GPL v3 notice and the show-on-startup checkbox
-- [ ] `01_welcome_page.png` (line 248) — The Welcome page showing Start Modeling; Open Recent Files; Learn SWMM and Example Projects
-- [ ] `01_example_copy_prompt.png` (line 319) — Choosing the destination folder before an example is copied and opened
-- [ ] `01_first_model_open.png` (line 360) — A freshly opened example model on the map canvas with the status bar bound to the project
+- [ ] `01_install_macos_dmg.png` (line 207) — The macOS disk image with SWMMVis.app being dragged into Applications
+- [ ] `01_license_agreement.png` (line 235) — The License Agreement dialog with the GPL v3 notice and the show-on-startup checkbox
+- [ ] `01_example_copy_prompt.png` (line 324) — Choosing the destination folder before an example is copied and opened
 
 ## 02_interface.md
 
-- [ ] `02_window_regions.png` (line 24) — The main window with the ribbon; tab strip; MDI workspace; docks and status bar called out
-- [ ] `02_ribbon_compact_modes.png` (line 118) — The same ribbon row at three window widths showing Full; Compact and Collapsed groups
-- [ ] `02_menu_model_expanded.png` (line 320) — The Model menu expanded with the Add Node; Add Link; Climate; Data Objects and Mesh submenus
+- [ ] `02_ribbon_compact_modes.png` (line 133) — The same ribbon row at three window widths showing Full; Compact and Collapsed groups
+- [ ] `02_menu_model_expanded.png` (line 335) — The Model menu expanded with the Add Node; Add Link; Climate; Data Objects and Mesh submenus
 
 ## 03_projects.md
 
@@ -65,9 +61,7 @@ Remaining: 230 figures, 35 videos. Published so far: 96.
 
 ## 09_selection.md
 
-- [ ] `09_selection_overview.png` (line 10) — A selection made on the map mirrored in the Object Browser; the Properties panel and the Attribute Table
 - [ ] `09_select_by_polygon.png` (line 109) — A lasso being drawn across a sewer network with the enclosed objects highlighted
-- [ ] `09_select_upstream.png` (line 177) — The upstream subnetwork of a selected outfall highlighted on the map
 - [ ] `09_mesh_edge_selection.png` (line 225) — Boundary edges of a 2D mesh selected along an outfall face
 - [ ] `09_confirm_bulk_delete.png` (line 345) — The Confirm Delete prompt for a multi-object selection
 
@@ -87,8 +81,8 @@ Remaining: 230 figures, 35 videos. Published so far: 96.
 - [ ] `11_dynamics_columns.png` (line 111) — The right-hand dynamics block of the Conduits table after a run
 - [ ] `11_query_and_selection.png` (line 175) — A WHERE clause matching 47 of 1205 rows with the Replace radio armed
 - [ ] `11_apply_value_to_rows.png` (line 217) — The right-click menu offering to apply one roughness value to twelve selected conduits
-- [ ] `11_mesh_cells_smallest_first.png` (line 359) — The mesh Cells table sorted ascending by area with the smallest cells selected
-- [ ] `11_assign_infiltration_dialog.png` (line 389) — The Assign Infiltration to Selection dialog with Green-Ampt parameters and the region-tag option
+- [ ] `11_mesh_cells_smallest_first.png` (line 360) — The mesh Cells table sorted ascending by area with the smallest cells selected
+- [ ] `11_assign_infiltration_dialog.png` (line 390) — The Assign Infiltration to Selection dialog with Green-Ampt parameters and the region-tag option
 
 ## 12_map_editing.md
 
@@ -98,6 +92,10 @@ Remaining: 230 figures, 35 videos. Published so far: 96.
 - [ ] `12_add_conduit_snap.png` (line 231) — Drawing a conduit with the snap indicator ringing the target node
 - [ ] `12_annotation_style_dialog.png` (line 290) — The Add Text Annotation dialog with the halo and background groups expanded
 - [ ] `12_import_feature_layer.png` (line 338) — The Import Feature Layer dialog with the attribute mapping table and a preview
+
+## 12a_feature_layers.md
+
+- [ ] `12a_feature_vertices.png` (line 91) — A selected feature with its part; ring and vertex coordinates in the Features panel
 
 ## 13_hydrology.md
 
@@ -125,10 +123,6 @@ Remaining: 230 figures, 35 videos. Published so far: 96.
 ## 15_climate.md
 
 - [ ] `15_temperature_tab.png` (line 67) — The Temperature tab with an external climate file selected
-- [ ] `15_evaporation_tab.png` (line 90) — The Evaporation tab with monthly averages
-- [ ] `15_wind_tab.png` (line 102) — The Wind Speed tab with monthly averages
-- [ ] `15_areal_depletion_tab.png` (line 152) — The Areal Depletion tab with the four preset buttons
-- [ ] `15_adjustments_tab.png` (line 165) — The Adjustments tab with monthly multipliers
 
 ## 16_water_quality.md
 
@@ -148,17 +142,11 @@ Remaining: 230 figures, 35 videos. Published so far: 96.
 ## 19_2d_mesh.md
 
 - [ ] `19_2d_overview.png` (line 13) — A generated 2D mesh over a DTM with the 1D network and coupled nodes
-- [ ] `19_terrain_toolbar.png` (line 67) — The Terrain toolbar with the active raster; vertical unit and invert offsets
-- [ ] `19_generate_mesh_sources.png` (line 85) — The Generate 2D Mesh dialog on the Sources tab
-- [ ] `19_generate_mesh_quality.png` (line 132) — The Quality tab with the Triangle quality and minimum cell size groups
-- [ ] `19_generate_mesh_hydraulics.png` (line 185) — The Hydraulics tab with the initial cell values and the region defaults table
-- [ ] `19_mesh2d_ribbon.png` (line 250) — The Mesh 2D ribbon tab with the Mesh; Vertices; Edges; 2D Results; Profile and Coupling groups
-- [ ] `19_cell_editor.png` (line 300) — The per-cell parameter editor on the Mesh 2D tab with cells selected
-- [ ] `19_assign_cell_data.png` (line 340) — The Assign 2D Cell Data dialog in classified infiltration lookup mode
-- [ ] `19_edge_bc.png` (line 389) — Assigning a boundary condition to a selected run of boundary edges
-- [ ] `19_coupling.png` (line 433) — Coupled vertices and cells highlighted with their SWMM node ids
-- [ ] `19_gw2d_preview.png` (line 489) — The 2D Groundwater preview dialog with its disabled inputs and banner
-- [ ] `19_mesh_style_panel.png` (line 508) — The 2D mesh style panel showing the terrain fill and isoline tabs
+- [ ] `19_terrain_toolbar.png` (line 68) — The Terrain toolbar with the active raster; vertical unit and invert offsets
+- [ ] `19_cell_editor.png` (line 399) — The per-cell parameter editor on the Mesh 2D tab with cells selected
+- [ ] `19_assign_cell_data.png` (line 438) — The Assign 2D Cell Data dialog in classified infiltration lookup mode
+- [ ] `19_edge_bc.png` (line 487) — Assigning a boundary condition to a selected run of boundary edges
+- [ ] `19_coupling.png` (line 531) — Coupled vertices and cells highlighted with their SWMM node ids
 
 ## 20_running.md
 
@@ -166,7 +154,6 @@ Remaining: 230 figures, 35 videos. Published so far: 96.
 - [ ] `20_run_preconditions_log.png` (line 53) — Message Logs showing the auto-save line and the resolved output paths
 - [ ] `20_overwrite_prompt.png` (line 97) — The Overwrite output prompt listing the 1D and 2D results files
 - [ ] `20_simulation_status_dock.png` (line 125) — The Simulation Status dock with a running job and its warning children
-- [ ] `20_report_viewer.png` (line 236) — The report viewer with the section list; the continuity banner and the search bar
 
 ## 21_results.md
 
@@ -178,31 +165,27 @@ Remaining: 230 figures, 35 videos. Published so far: 96.
 
 - [ ] `22_series_tree_context_menu.png` (line 113) — The series tree with a run group; a baseline marker and the series context menu
 - [ ] `22_load_observed.png` (line 133) — The observed-attribute prompt after choosing a CSV
-- [ ] `22_chart_modes_toolbar.png` (line 168) — The Comparison Plot toolbar with the interaction modes and view toggles
 - [ ] `22_series_style_editor.png` (line 187) — The series property editor showing line and marker groups
-- [ ] `22_statistics_panel.png` (line 226) — The statistics panel with summary columns and fit metrics
 - [ ] `22_1v1_scatter_metrics.png` (line 262) — A 1v1 scatter with the identity line and the fit metrics in the title
 
 ## 23_profile_plots.md
 
-- [ ] `23_profile_overview.png` (line 14) — A 1D profile plot with the HGL animation and two attribute tracks below it
 - [ ] `23_profile_path_picker.png` (line 63) — The path picker listing candidate routes with length; conduit counts and invert drop
-- [ ] `23_profile_anatomy.png` (line 99) — An annotated 1D profile identifying ground; inverts; crowns; HGL; max HGL and node glyphs
-- [ ] `23_profile_toolbar_layers.png` (line 124) — The profile toolbar and the Layers panel with the HGL and label toggles
-- [ ] `23_profile_sources_tab.png` (line 142) — The Sources tab of the profile Display Options dialog
-- [ ] `23_profile_attribute_tracks.png` (line 170) — Two attribute tracks below a profile with the envelope overlay visible
-- [ ] `23_2d_mesh_profile.png` (line 235) — A 2D mesh profile with the bed; the animated water surface and the maximum-depth envelope
-- [ ] `23_terrain_profile.png` (line 276) — A terrain profile traced over a DEM with the position marker on the map
+- [ ] `23_profile_anatomy.png` (line 98) — An annotated 1D profile identifying ground; inverts; crowns; HGL; max HGL and node glyphs
+- [ ] `23_profile_attribute_tracks.png` (line 169) — Two attribute tracks below a profile with the envelope overlay visible
+- [ ] `23_2d_mesh_profile.png` (line 234) — A 2D mesh profile with the bed; the animated water surface and the maximum-depth envelope
+- [ ] `23_terrain_profile.png` (line 297) — A terrain profile traced over a DEM with the position marker on the map
 
 ## 24_tabular_results.md
 
-- [ ] `24_statistics_dashboard.png` (line 80) — The Statistics Dashboard with the Links tab filtered by a query and its histogram
+- [ ] `24_statistics_dashboard.png` (line 79) — The Statistics Dashboard with the Links tab filtered by a query
 
 ## 25_analysis_tools.md
 
-- [ ] `25_rainfall_visualization.png` (line 102) — The Rainfall Visualization window on the Overlay tab with the gage summary table
-- [ ] `25_pick_2d_cells_menu.png` (line 150) — A lasso selection of mesh cells with the attribute context menu open
-- [ ] `25_statistics_dashboard_histogram.png` (line 175) — The statistics dashboard histogram for a selected column
+- [ ] `25_flow_balance_result.png` (line 51) — Flow-balance analysis beneath a completed output with proportional flow widths on the map
+- [ ] `25_travel_time_result.png` (line 53) — Travel-time analysis with time represented by color and flow fraction by width
+- [ ] `25_pick_2d_cells_menu.png` (line 138) — A lasso selection of mesh cells with the attribute context menu open
+- [ ] `25_statistics_dashboard_histogram.png` (line 163) — The Statistics Dashboard with result tables and query controls
 
 ## appendices/a01_shortcuts.md
 
@@ -233,79 +216,50 @@ Remaining: 230 figures, 35 videos. Published so far: 96.
 
 - [ ] `a06_license_agreement.png` (line 94) — The startup License Agreement dialog
 
-## manual.md
-
-- [ ] `00_overview_annotated_window.png` (line 19) — SWMMVis main window — ribbon; map canvas; Layers; Object Browser; Properties and Message Logs panels
-
 ## tutorials/t01_site_drainage.md
 
-- [ ] `t01_open_model.png` (line 72) — The site drainage model on the map canvas immediately after opening
-- [ ] `t01_crs_dialog.png` (line 99) — Select Coordinate Reference System with the Local group expanded
-- [ ] `t01_basemap.png` (line 101) — The network over a CartoDB Positron basemap
-- [ ] `t01_object_browser.png` (line 133) — The Object Browser with subcatchment S5 selected and the Properties dock beside it
-- [ ] `t01_attribute_table.png` (line 135) — The conduit attribute table sorted by length
-- [ ] `t01_rainfall_visualization.png` (line 162) — Rainfall Visualization showing the 2-yr design storm
-- [ ] `t01_landuse_editor.png` (line 195) — The Land Uses dialog on the Buildup tab
-- [ ] `t01_coverages.png` (line 197) — The Land Use Coverage compound editor for subcatchment S4
-- [ ] `t01_simulation_options.png` (line 227) — Simulation Options on the Models / Processes page
-- [ ] `t01_run_status.png` (line 240) — The Simulation Status dock during a run
-- [ ] `t01_report_viewer.png` (line 275) — The Report Viewer with the section navigator open on Flow Routing Continuity
-- [ ] `t01_statistics_dashboard.png` (line 277) — The Statistics Dashboard on the Links tab
-- [ ] `t01_results_style.png` (line 298) — The results style editor classifying link flow with a fixed range
-- [ ] `t01_animation_peak.png` (line 300) — The map at the storm peak with links coloured by flow and the legend showing
-- [ ] `t01_plot_variables.png` (line 330) — The Plot Variables picker with a node and a link expanded
-- [ ] `t01_comparison_plot.png` (line 332) — Depth at J11 and flow in C11 in the Comparison Plot
-- [ ] `t01_tss_plot.png` (line 334) — TSS concentration at three conduits showing the first flush
-- [ ] `t01_profile_plot.png` (line 359) — Profile plot from J3 to the outfall with the maximum HGL envelope
-- [ ] `t01_tabular_results.png` (line 374) — The Attribute Table dock showing the conduit dynamics columns after a run
-- [ ] `t01_routing_comparison.png` (line 466) — Flow in C11 under dynamic wave — kinematic wave and finite volume
-- [ ] `t01_lid_editor.png` (line 496) — The LID Controls dialog with a bio-retention cell defined
-- [ ] `t01_lid_usage.png` (line 498) — The LID Usage compound editor on subcatchment S5
+- [ ] `t01_animation_peak.png` (line 322) — The map at the storm peak with links coloured by flow and the legend showing
+- [ ] `t01_tss_plot.png` (line 359) — TSS concentration at C1 — C10 and C11 for comparison with their flow hydrographs
+- [ ] `t01_profile_plot.png` (line 384) — Profile plot from J3 to the outfall with the maximum HGL envelope
+- [ ] `t01_routing_comparison.png` (line 512) — Flow in C11 under dynamic wave — kinematic wave and finite volume
+- [ ] `t01_lid_editor.png` (line 543) — The LID Controls dialog with a bio-retention cell defined
+- [ ] `t01_lid_usage.png` (line 545) — The LID Usage compound editor on subcatchment S5
 
 ## tutorials/t02_street_inlets.md
 
-- [ ] `t02_open_model.png` (line 62) — The street reach and the parallel sewer after opening the model
-- [ ] `t02_section_view_street.png` (line 76) — The Section View showing the ST_MAIN street cross-section at 10:1 exaggeration
-- [ ] `t02_street_editor.png` (line 109) — The Street Cross-Sections dialog with ST_MAIN selected and the preview beside it
-- [ ] `t02_inlet_editor_curb.png` (line 167) — The Inlet Editor showing the Curb1 design with its elevation and throat drawings
-- [ ] `t02_inlet_editor_combo.png` (line 169) — The Combo1 combination design with the sweeper note
-- [ ] `t02_inlet_editor_custom.png` (line 171) — The Custom1 design rendered as a capture curve
-- [ ] `t02_link_inlet_editor.png` (line 201) — The Edit Link Attribute dialog on the Inlets page for conduit ST_A
-- [ ] `t02_inlet_junction_properties.png` (line 218) — The Properties dock for inlet junction IJ1
-- [ ] `t02_new_inlet_junction.png` (line 240) — The New Inlet Junction dialog with a design and capture node chosen
-- [ ] `t02_report_street_tables.png` (line 302) — The Report Viewer on the Street Inlet Flow Summary with the section navigator open
-- [ ] `t02_capture_bypass_plot.png` (line 325) — Flow in ST_A — ST_B and ST_C with the capture gaps visible
-- [ ] `t02_rule_violation.png` (line 414) — The greyed Convert To entry with the virtual-junction rule text as its tooltip
+- [ ] `t02_inlet_editor_custom.png` (line 180) — The Custom1 design rendered as a capture curve
+- [ ] `t02_new_inlet_junction.png` (line 249) — The New Inlet Junction dialog with a design and capture node chosen
+- [ ] `t02_rule_violation.png` (line 451) — The greyed Convert To entry with the virtual-junction rule text as its tooltip
 
 ## tutorials/t03_2d_inundation.md
 
-- [ ] `t03_project_open.png` (line 78) — The Snoopy Lagoon project with the mesh layer and the 1D network
-- [ ] `t03_raster_style.png` (line 109) — The raster symbology editor with an auto-stretched ramp and hillshade enabled
-- [ ] `t03_mesh_style_panel.png` (line 147) — The mesh style panel on the Terrain Fill tab
-- [ ] `t03_mesh_elevation.png` (line 149) — The mesh coloured by bed elevation with hillshade and the wireframe visible
-- [ ] `t03_mesh_attribute_table.png` (line 176) — The mesh Vertices table sorted by elevation with the coupled vertex highlighted
-- [ ] `t03_mesh_generation_sources.png` (line 219) — The Generate 2D Mesh dialog on the Sources tab with a DTM selected
-- [ ] `t03_sim_options_2d.png` (line 276) — The 2D Surface Routing page of Simulation Options
-- [ ] `t03_add_2d_results.png` (line 299) — The Add 2D Results file dialog
-- [ ] `t03_results_style_panel.png` (line 344) — The 2D results style panel on the Cell Depth Fill tab
-- [ ] `t03_animation_peak.png` (line 346) — The bowl at maximum inundation with the depth ramp and legend
-- [ ] `t03_velocity_vectors.png` (line 348) — Velocity vectors over the draining bowl
-- [ ] `t03_cell_timeseries.png` (line 370) — Depth time series for a rim cell and a centre cell in the Comparison Plot
-- [ ] `t03_2d_profile.png` (line 396) — A 2D mesh profile across the bowl with the ground line and water surface
-- [ ] `t03_mass_balance_2d.png` (line 426) — The Report Viewer on the 2D Surface Routing Continuity block
+- [ ] `t03_project_open.png` (line 82) — The Snoopy Lagoon project with the mesh layer and the 1D network
+- [ ] `t03_raster_style.png` (line 113) — The raster symbology editor with an auto-stretched ramp and hillshade enabled
+- [ ] `t03_mesh_style_panel.png` (line 151) — The mesh style panel on the Terrain Fill tab
+- [ ] `t03_mesh_elevation.png` (line 153) — The mesh coloured by bed elevation with hillshade and the wireframe visible
+- [ ] `t03_mesh_attribute_table.png` (line 180) — The mesh Vertices table sorted by elevation with the coupled vertex highlighted
+- [ ] `t03_mesh_generation_sources.png` (line 223) — The Generate 2D Mesh dialog on the Sources tab with a DTM selected
+- [ ] `t03_sim_options_2d.png` (line 280) — The 2D Surface Routing page of Simulation Options
+- [ ] `t03_add_2d_results.png` (line 303) — The Add 2D Results file dialog
+- [ ] `t03_results_style_panel.png` (line 348) — The 2D results style panel on the Cell Depth Fill tab
+- [ ] `t03_animation_peak.png` (line 350) — The bowl at maximum inundation with the depth ramp and legend
+- [ ] `t03_velocity_vectors.png` (line 352) — Velocity vectors over the draining bowl
+- [ ] `t03_cell_timeseries.png` (line 374) — Depth time series for a rim cell and a centre cell in the Comparison Plot
+- [ ] `t03_2d_profile.png` (line 400) — A 2D mesh profile across the bowl with the ground line and water surface
+- [ ] `t03_mass_balance_2d.png` (line 430) — The Report Viewer on the 2D Surface Routing Continuity block
 
 ## tutorials/t04_1d2d_coupling.md
 
-- [ ] `t04_project_open.png` (line 122) — The capped street project with the inline mesh and the four 1D nodes
-- [ ] `t04_vertex_coupling_toolbar.png` (line 165) — The Mesh 2D Vertices group showing vertex 33 coupled to J1 with Cd and Area
-- [ ] `t04_vertices_attribute_table.png` (line 167) — The mesh Vertices table with the three coupled rows
-- [ ] `t04_coupled_nodes_style.png` (line 169) — The mesh with coupled vertices marked
-- [ ] `t04_retired_key_warnings.png` (line 245) — The Message Logs dock with the WARNING 104 lines for the retired 2D options
-- [ ] `t04_comparison_1d_2d.png` (line 302) — Node overflow at J1 and J2 against 2D cell depth at the same locations
-- [ ] `t04_animation_ponding.png` (line 323) — The plaza at maximum depth with the ramp and legend
-- [ ] `t04_outfall_tailwater.png` (line 346) — Head at OUT1 against 2D depth at the coupled corner vertex
-- [ ] `t04_profile_2d_overlay.png` (line 373) — Profile from J1 to OUT1 with the 2D water surface overlaid
-- [ ] `t04_mass_balance_coupled.png` (line 417) — The Report Viewer on the 2D Surface Routing Continuity block
+- [ ] `t04_project_open.png` (line 126) — The capped street project with the inline mesh and the four 1D nodes
+- [ ] `t04_vertex_coupling_toolbar.png` (line 169) — The Mesh 2D Vertices group showing vertex 33 coupled to J1 with Cd and Area
+- [ ] `t04_vertices_attribute_table.png` (line 171) — The mesh Vertices table with the three coupled rows
+- [ ] `t04_coupled_nodes_style.png` (line 173) — The mesh with coupled vertices marked
+- [ ] `t04_retired_key_warnings.png` (line 249) — The Message Logs dock with the WARNING 104 lines for the retired 2D options
+- [ ] `t04_comparison_1d_2d.png` (line 306) — Node overflow at J1 and J2 against 2D cell depth at the same locations
+- [ ] `t04_animation_ponding.png` (line 327) — The plaza at maximum depth with the ramp and legend
+- [ ] `t04_outfall_tailwater.png` (line 350) — Head at OUT1 against 2D depth at the coupled corner vertex
+- [ ] `t04_profile_2d_overlay.png` (line 377) — Profile from J1 to OUT1 with the 2D water surface overlaid
+- [ ] `t04_mass_balance_coupled.png` (line 421) — The Report Viewer on the 2D Surface Routing Continuity block
 
 ## tutorials/t05_2d_boundaries.md
 
@@ -322,23 +276,19 @@ Remaining: 230 figures, 35 videos. Published so far: 96.
 
 ## tutorials/t06_pure_2d.md
 
-- [ ] `t06_vfr_slope_overview.png` (line 34) — The tilted-plane mesh coloured by bed elevation with the rain gage symbol west of the domain
-- [ ] `t06_mesh_style_terrain.png` (line 122) — The Terrain Fill tab of the mesh layer style dialog with hillshade settings
-- [ ] `t06_rainfall_visualization.png` (line 169) — The Rainfall Visualization dialog showing the one-hour 20 mm per hour block
-- [ ] `t06_depth_animation_frame.png` (line 250) — A mid-drainage animation frame — a wedge of water against the west wall and a thin film upslope
-- [ ] `t06_cell_timeseries.png` (line 266) — A comparison plot with depth traces from a crest cell and a toe cell
-- [ ] `t06_flat_vs_vfr.png` (line 309) — Depth along the ramp under FLAT and under VFR at the same drainage time
-- [ ] `t06_generate_mesh_dialog.png` (line 360) — The Generate 2D Mesh dialog on the Sources tab
+- [ ] `t06_vfr_slope_overview.png` (line 38) — The tilted-plane mesh coloured by bed elevation with the rain gage symbol west of the domain
+- [ ] `t06_mesh_style_terrain.png` (line 126) — The Terrain Fill tab of the mesh layer style dialog with hillshade settings
+- [ ] `t06_rainfall_visualization.png` (line 173) — The Rainfall Visualization dialog showing the one-hour 20 mm per hour block
+- [ ] `t06_depth_animation_frame.png` (line 254) — A mid-drainage animation frame — a wedge of water against the west wall and a thin film upslope
+- [ ] `t06_cell_timeseries.png` (line 270) — A comparison plot with depth traces from a crest cell and a toe cell
+- [ ] `t06_flat_vs_vfr.png` (line 313) — Depth along the ramp under FLAT and under VFR at the same drainage time
+- [ ] `t06_generate_mesh_dialog.png` (line 364) — The Generate 2D Mesh dialog on the Sources tab
 
 ## tutorials/t07_transport.md
 
 - [ ] `t07_model_layout.png` (line 44) — The five-junction line on the map canvas with the inflow at J1 and the outfall OUT1
-- [ ] `t07_pollutant_editor.png` (line 126) — The Pollutants dialog with TRACER selected
 - [ ] `t07_initial_quality.png` (line 150) — The Initial Quality dialog with a node row and a link row
 - [ ] `t07_water_age_sources.png` (line 180) — The Water Age Sources dialog with global ages and one per-node override
-- [ ] `t07_heat_config_solar.png` (line 230) — The Solar tab of the Heat Configuration dialog
-- [ ] `t07_reaction_editor_expressions.png` (line 327) — The Expressions tab of the Reaction System editor with the Arrhenius rate expression
-- [ ] `t07_sim_options_quality.png` (line 390) — The Quality and Transport page of the Simulation Options dialog
 - [ ] `t07_timeseries_species.png` (line 430) — A time-series plot with tracer; decaying constituent; water age and temperature at J1 and J5
 - [ ] `t07_solver_comparison.png` (line 467) — A comparison plot of the tracer front at J5 under the legacy; ARD and Lagrangian solvers
 - [ ] `t07_map_by_water_age.png` (line 486) — The node symbols graduated by water age mid-flush
