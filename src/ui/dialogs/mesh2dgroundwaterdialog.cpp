@@ -26,6 +26,7 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QPointer>
 #include <QSpinBox>
 #include <QStyledItemDelegate>
 #include <QTableView>
@@ -47,30 +48,32 @@ namespace {
 class ComboDelegate : public QStyledItemDelegate
 {
 public:
-    ComboDelegate(QStringList items, QObject *parent)
-        : QStyledItemDelegate(parent), m_items(std::move(items)) {}
+    ComboDelegate(QStringList items, QObject *parent, bool inherited=false)
+        : QStyledItemDelegate(parent), m_items(std::move(items)), m_inherited(inherited) {}
 
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &,
                           const QModelIndex &) const override
     {
         auto *cb = new QComboBox(parent);
-        cb->addItems(m_items);
+        if(m_inherited)cb->addItem(tr("(model default)"),-1);
+        for(int i=0;i<m_items.size();++i)cb->addItem(m_items[i],i);
         return cb;
     }
     void setEditorData(QWidget *editor, const QModelIndex &index) const override
     {
         if (auto *cb = qobject_cast<QComboBox *>(editor))
-            cb->setCurrentIndex(index.data(Qt::EditRole).toInt());
+            cb->setCurrentIndex(cb->findData(index.data(Qt::EditRole).toInt()));
     }
     void setModelData(QWidget *editor, QAbstractItemModel *model,
                       const QModelIndex &index) const override
     {
         if (auto *cb = qobject_cast<QComboBox *>(editor))
-            model->setData(index, cb->currentIndex(), Qt::EditRole);
+            model->setData(index, cb->currentData().toInt(), Qt::EditRole);
     }
 
 private:
     QStringList m_items;
+    bool m_inherited=false;
 };
 
 QString optionText(SWMM_Engine e, const char *key)
@@ -114,7 +117,10 @@ Mesh2DGroundwaterDialog::Mesh2DGroundwaterDialog(SWMM_Engine engine,
     setWindowTitle(tr("2D Groundwater"));
     buildUi(initialPage);
     loadFromEngine();
+    if(parent){if(parent->metaObject()->indexOfSignal("engineAboutToClose()")>=0)connect(parent,SIGNAL(engineAboutToClose()),this,SLOT(invalidateContext()));connect(parent,&QObject::destroyed,this,&Mesh2DGroundwaterDialog::invalidateContext);}
+    if(units){connect(units,&UnitSystem::unitsChanged,this,&Mesh2DGroundwaterDialog::invalidateContext);connect(units,&QObject::destroyed,this,&Mesh2DGroundwaterDialog::invalidateContext);}
 }
+void Mesh2DGroundwaterDialog::invalidateContext(){m_engine=nullptr;m_editable=false;setEnabled(false);QDialog::reject();}
 
 void Mesh2DGroundwaterDialog::buildUi(Page initialPage)
 {
@@ -286,10 +292,10 @@ QWidget *Mesh2DGroundwaterDialog::buildAquiferPage()
         new ComboDelegate({tr("All cells"), tr("Tag"), tr("Cell")}, this));
     m_aquiferView->setItemDelegateForColumn(
         Mesh2DAquiferModel::ColSoil,
-        new ComboDelegate(soilModelTokens(), this));
+        new ComboDelegate(soilModelTokens(), this, true));
     m_aquiferView->setItemDelegateForColumn(
         Mesh2DAquiferModel::ColClosure,
-        new ComboDelegate(closureTokens(), this));
+        new ComboDelegate(closureTokens(), this, true));
     v->addWidget(m_aquiferView, 1);
 
     auto *row = new QHBoxLayout;
@@ -431,6 +437,7 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
     m_cgwSpin->setValue(optionText(m_engine, "C_GW").toDouble());
     m_ccolSpin->setValue(optionText(m_engine, "C_COL").toDouble());
 
+    m_loadedOptions=readOptions();m_displayedOptions=optionDraft();
     m_aquifer->load(m_engine);
     m_nodes->load(m_engine);
     refreshState();
@@ -471,27 +478,17 @@ void Mesh2DGroundwaterDialog::setEditable(bool on, const QString &whyNot)
     }
 }
 
+QMap<QString,QString> Mesh2DGroundwaterDialog::optionDraft()const
+{
+ return {{"SOIL_CHAR",m_soilCombo->currentText()},{"CLOSURE",m_closureCombo->currentText()},{"M_LAYERS",QString::number(m_layersSpin->value())},{"CAPILLARY_DIFF",m_capillaryCheck->isChecked()?"YES":"NO"},{"C_GW",QString::number(m_cgwSpin->value(),'g',17)},{"C_COL",QString::number(m_ccolSpin->value(),'g',17)},{"FORCE_CLOSED_FORM",m_forceCfCheck->isChecked()?"YES":"NO"},{"DUNNE",m_dunneCheck->isChecked()?"YES":"NO"},{"MODE",m_modeCombo->currentText()},{"GW_ET",m_gwEtCombo->currentText()}};
+}
+QMap<QString,QString> Mesh2DGroundwaterDialog::readOptions()const
+{
+ QMap<QString,QString> values;for(const auto&key:optionDraft().keys())values[key]=optionText(m_engine,key.toUtf8().constData());return values;
+}
 QString Mesh2DGroundwaterDialog::applyOptions()
 {
-    if (!m_engine) return tr("No model is open.");
-    struct KV { const char *key; QString value; };
-    const QList<KV> kv = {
-        {"SOIL_CHAR",         m_soilCombo->currentText()},
-        {"CLOSURE",           m_closureCombo->currentText()},
-        {"M_LAYERS",          QString::number(m_layersSpin->value())},
-        {"CAPILLARY_DIFF",    m_capillaryCheck->isChecked() ? "YES" : "NO"},
-        {"C_GW",              QString::number(m_cgwSpin->value())},
-        {"C_COL",             QString::number(m_ccolSpin->value())},
-        {"FORCE_CLOSED_FORM", m_forceCfCheck->isChecked() ? "YES" : "NO"},
-        {"DUNNE",             m_dunneCheck->isChecked() ? "YES" : "NO"},
-        {"MODE",              m_modeCombo->currentText()},
-        {"GW_ET",             m_gwEtCombo->currentText()},
-    };
-    for (const KV &e : kv)
-        if (!setOption(m_engine, e.key, e.value))
-            return tr("The engine refused %1 = %2.")
-                       .arg(QString::fromLatin1(e.key), e.value);
-    return {};
+ const auto draft=optionDraft();for(auto it=draft.cbegin();it!=draft.cend();++it)if(it.value()!=m_displayedOptions.value(it.key()))if(!setOption(m_engine,it.key().toUtf8().constData(),it.value()))return tr("The engine refused %1 = %2.").arg(it.key(),it.value());return {};
 }
 
 void Mesh2DGroundwaterDialog::onApply()
@@ -501,26 +498,32 @@ void Mesh2DGroundwaterDialog::onApply()
 
 bool Mesh2DGroundwaterDialog::applyChanges()
 {
-    if (!m_engine || !m_editable) return false;
-    if (!canEdit(m_engine)) {
-        QMessageBox::warning(this, tr("2D Groundwater"),
-            tr("The model is no longer editable. Reset the simulation before "
-               "applying these changes. Your edits remain in this dialog."));
-        return false;
+    if(!m_engine||!m_editable)return false;
+    if(!canEdit(m_engine)){QMessageBox::warning(this,tr("2D Groundwater"),tr("Reset the simulation before applying edits. Your draft remains here."));return false;}
+    if(auto*focus=focusWidget())focus->clearFocus();
+    const auto draft=optionDraft();const bool optionsChanged=draft!=m_displayedOptions,aqChanged=m_aquifer->isDirty(),nodesChanged=m_nodes->isDirty();
+    if(!optionsChanged&&!aqChanged&&!nodesChanged)return true;
+    QString error;if(readOptions()!=m_loadedOptions)error=tr("Groundwater options changed outside this editor. Reopen it to preserve newer edits.");
+    if(error.isEmpty())error=m_aquifer->validateCommit(m_engine);
+    if(error.isEmpty())error=m_nodes->validateCommit(m_engine);
+    if(error.isEmpty()&&optionsChanged){SWMM_Engine check=swmm_engine_new();if(!check)error=tr("Cannot allocate option validation model.");else {for(auto it=draft.cbegin();it!=draft.cend();++it)if(it.value()!=m_displayedOptions.value(it.key())&&!setOption(check,it.key().toUtf8().constData(),it.value())){error=tr("Invalid groundwater option %1.").arg(it.key());break;}swmm_engine_destroy(check);}}
+    if(!error.isEmpty()){QMessageBox::warning(this,tr("2D Groundwater"),error);return false;}
+    QPointer<Mesh2DGroundwaterDialog> self=this;emit changesMayHaveBeenApplied();if(!self||!m_engine||!canEdit(m_engine))return false;
+    // Dirty observers may close or modify a model synchronously. Recheck after
+    // that signal, before the first write, without restoring over their edits.
+    if(readOptions()!=m_loadedOptions)error=tr("Groundwater options changed before commit.");
+    if(error.isEmpty())error=m_aquifer->validateCommit(m_engine);
+    if(error.isEmpty())error=m_nodes->validateCommit(m_engine);
+    if(!error.isEmpty()){QMessageBox::warning(this,tr("2D Groundwater"),error);return false;}
+    error=applyOptions();if(error.isEmpty())error=m_aquifer->commit(m_engine,false);if(error.isEmpty())error=m_nodes->commit(m_engine,false);
+    if(!error.isEmpty()){
+        QStringList failed;if(aqChanged){auto e=m_aquifer->restoreLoaded(m_engine);if(!e.isEmpty())failed.append(e);}if(nodesChanged){auto e=m_nodes->restoreLoaded(m_engine);if(!e.isEmpty())failed.append(e);}
+        for(auto it=m_loadedOptions.cbegin();it!=m_loadedOptions.cend();++it)if(draft.value(it.key())!=m_displayedOptions.value(it.key())&&!setOption(m_engine,it.key().toUtf8().constData(),it.value()))failed.append(it.key());
+        error+=failed.isEmpty()?tr(" Previous values restored; your draft remains available."):tr(" Rollback incomplete: %1. Reload the saved model before further editing.").arg(failed.join(", "));
+        QMessageBox::warning(this,tr("2D Groundwater"),error);return false;
     }
-    // Row commits currently use several engine calls. A later refusal can
-    // leave earlier writes applied, so dirty tracking begins before writing.
-    emit changesMayHaveBeenApplied();
-    QString err = applyOptions();
-    if (err.isEmpty()) err = m_aquifer->commit(m_engine);
-    if (err.isEmpty()) err = m_nodes->commit(m_engine);
-    if (!err.isEmpty()) {
-        QMessageBox::warning(this, tr("2D Groundwater"), err);
-        return false;
-    }
-    refreshState();
-    emit applied();
-    return true;
+    m_aquifer->acceptChanges();m_nodes->acceptChanges();m_loadedOptions=readOptions();m_displayedOptions=draft;
+    refreshState();emit applied();return true;
 }
 
 void Mesh2DGroundwaterDialog::onAddAquiferRow()
@@ -533,8 +536,7 @@ void Mesh2DGroundwaterDialog::onAddAquiferRow()
 void Mesh2DGroundwaterDialog::onRemoveAquiferRow()
 {
     const auto sel = m_aquiferView->selectionModel()->selectedRows();
-    for (int i = sel.size() - 1; i >= 0; --i)
-        m_aquifer->removeRow(sel.at(i).row());
+    QList<int> rows;for(const auto&i:sel)rows.append(i.row());std::sort(rows.begin(),rows.end(),std::greater<int>());for(int row:rows)m_aquifer->removeRow(row);
 }
 
 void Mesh2DGroundwaterDialog::onAddNodeBed()
@@ -547,8 +549,7 @@ void Mesh2DGroundwaterDialog::onAddNodeBed()
 void Mesh2DGroundwaterDialog::onRemoveNodeBed()
 {
     const auto sel = m_nodeView->selectionModel()->selectedRows();
-    for (int i = sel.size() - 1; i >= 0; --i)
-        m_nodes->removeRow(sel.at(i).row());
+    QList<int> rows;for(const auto&i:sel)rows.append(i.row());std::sort(rows.begin(),rows.end(),std::greater<int>());for(int row:rows)m_nodes->removeRow(row);
 }
 
 void Mesh2DGroundwaterDialog::refreshState()

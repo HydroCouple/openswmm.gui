@@ -10,6 +10,7 @@
 
 #include <QBrush>
 #include <QColor>
+#include <QSet>
 
 #include <cmath>
 
@@ -170,10 +171,10 @@ QVariant Mesh2DAquiferModel::data(const QModelIndex &index, int role) const
     case ColThetaR: return r.thetaR;
     case ColAlpha:  return r.alpha;
     case ColSoil:
-        if (role == Qt::EditRole) return r.soil;
+        if (role == Qt::EditRole) return r.soilSet?r.soil:-1;
         return r.soilSet ? soilTokens().value(r.soil) : tr("(model default)");
     case ColClosure:
-        if (role == Qt::EditRole) return closureIndexOf(r.closure);
+        if (role == Qt::EditRole) return r.closureSet?closureIndexOf(r.closure):-1;
         return r.closureSet ? closureTokens().value(closureIndexOf(r.closure))
                             : tr("(model default)");
     case ColHg0:
@@ -255,6 +256,7 @@ bool Mesh2DAquiferModel::setData(const QModelIndex &index,
     }
     case ColSoil: {
         const int s = value.toInt(&ok);
+        if(ok&&s==-1){r.soil=0;r.soilSet=false;break;}
         if (!ok || s < 0 || s >= soilTokens().size()) return false;
         r.soil = s;
         r.soilSet = true;
@@ -262,6 +264,7 @@ bool Mesh2DAquiferModel::setData(const QModelIndex &index,
     }
     case ColClosure: {
         const int i = value.toInt(&ok);
+        if(ok&&i==-1){r.closure=-1;r.closureSet=false;break;}
         if (!ok || i < 0 || i >= closureTokens().size()) return false;
         r.closure = closureCodeAt(i);
         r.closureSet = true;
@@ -335,16 +338,16 @@ void Mesh2DAquiferModel::load(SWMM_Engine engine)
 {
     beginResetModel();
     m_rows.clear();
+    m_loadError.clear();
     if (engine) {
         int n = 0;
         if (swmm_gw2d_row_count(engine, &n) == SWMM_OK) {
             for (int i = 0; i < n; ++i) {
                 Row r;
-                char tag[128] = {0};
+                char tag[4096] = {0};
                 if (swmm_gw2d_row_get(engine, i, &r.scope, tag, sizeof tag,
                                       &r.cell, &r.ks, &r.zs, &r.thetaS,
-                                      &r.thetaR, &r.alpha) != SWMM_OK)
-                    continue;
+                                      &r.thetaR, &r.alpha) != SWMM_OK) {m_loadError=tr("Cannot read every aquifer row.");break;}
                 r.tag     = QString::fromUtf8(tag);
                 r.hg0     = getProp(engine, i, kKeyHg0,    -1.0);
                 r.cLoss   = getProp(engine, i, kKeyCLoss,   0.0);
@@ -358,11 +361,9 @@ void Mesh2DAquiferModel::load(SWMM_Engine engine)
                     std::lround(getProp(engine, i, kKeySoil, 0.0)));
                 r.closure = static_cast<int>(
                     std::lround(getProp(engine, i, kKeyClosr, -1.0)));
-                // The API reports the effective value, not whether the row
-                // set it; treat a non-default as "set" so a round trip does
-                // not quietly promote every row to explicit.
-                r.soilSet    = false;
-                r.closureSet = (r.closure != SWMM_GW2D_CLOSURE_AUTO);
+                double soilSet=0,closureSet=0;
+                if(swmm_gw2d_row_get_property(engine,i,"SOIL_CHAR_SET",&soilSet)!=SWMM_OK||swmm_gw2d_row_get_property(engine,i,"CLOSURE_SET",&closureSet)!=SWMM_OK){m_loadError=tr("This engine cannot preserve aquifer inheritance. Update the engine before editing.");break;}
+                r.soilSet=soilSet!=0;r.closureSet=closureSet!=0;
                 m_rows.append(r);
             }
         }
@@ -371,49 +372,36 @@ void Mesh2DAquiferModel::load(SWMM_Engine engine)
     endResetModel();
 }
 
-QString Mesh2DAquiferModel::commit(SWMM_Engine engine)
+QString Mesh2DAquiferModel::replaceRows(SWMM_Engine engine,const QList<Row>&rows) const
 {
-    if (!engine) return tr("No engine.");
-    if (!isDirty()) return {};
-
-    // The C API has no "set row", so the whole table is rewritten. That is
-    // also what makes a reorder commit correctly — and order matters here,
-    // because two rows of the same scope resolve last-wins.
-    int n = 0;
-    swmm_gw2d_row_count(engine, &n);
-    for (int i = n - 1; i >= 0; --i) {
-        if (swmm_gw2d_row_remove(engine, i) != SWMM_OK)
-            return tr("The aquifer rows cannot be edited while a simulation "
-                      "is running. Reset the run and try again.");
+    int n=0;if(swmm_gw2d_row_count(engine,&n)!=SWMM_OK)return tr("Cannot read aquifer row count.");
+    for(int i=n-1;i>=0;--i)if(swmm_gw2d_row_remove(engine,i)!=SWMM_OK)return tr("Cannot remove aquifer row %1.").arg(i+1);
+    for(int i=0;i<rows.size();++i){const auto&r=rows[i];auto tag=r.tag.toUtf8();
+        if(swmm_gw2d_row_add(engine,r.scope,r.scope==SWMM_GW2D_SCOPE_TAG?tag.constData():nullptr,r.cell,r.ks,r.zs,r.thetaS,r.thetaR,r.alpha)!=SWMM_OK)return tr("Aquifer row %1 was refused.").arg(i+1);
+        auto set=[&](const char*key,double value){return swmm_gw2d_row_set_property(engine,i,key,value)==SWMM_OK;};
+        if(!set(kKeyHg0,r.hg0)||!set(kKeyCLoss,r.cLoss)||!set(kKeyPsiB,r.psiB)||!set(kKeyLambda,r.lambda)||!set(kKeyN,r.vgN)||!set(kKeyL,r.vgL)||(r.soilSet&&!set(kKeySoil,r.soil))||(r.closureSet&&!set(kKeyClosr,r.closure))||(r.mLayers>0&&!set(kKeyLayers,r.mLayers)))return tr("Optional properties of aquifer row %1 were refused.").arg(i+1);
     }
-
-    for (int i = 0; i < m_rows.size(); ++i) {
-        const Row &r = m_rows.at(i);
-        const QByteArray tag = r.tag.toUtf8();
-        if (swmm_gw2d_row_add(engine, r.scope,
-                              r.scope == SWMM_GW2D_SCOPE_TAG ? tag.constData()
-                                                             : nullptr,
-                              r.cell, r.ks, r.zs, r.thetaS, r.thetaR,
-                              r.alpha) != SWMM_OK)
-            return tr("Row %1 was refused by the engine. Check the porosity, "
-                      "the residual water content and the scope target.")
-                       .arg(i + 1);
-        auto set = [&](const char *k, double v) {
-            swmm_gw2d_row_set_property(engine, i, k, v);
-        };
-        if (r.hg0 >= 0.0) set(kKeyHg0, r.hg0);
-        if (r.cLoss > 0.0) set(kKeyCLoss, r.cLoss);
-        set(kKeyPsiB, r.psiB);
-        set(kKeyLambda, r.lambda);
-        set(kKeyN, r.vgN);
-        set(kKeyL, r.vgL);
-        if (r.soilSet)    set(kKeySoil, r.soil);
-        if (r.closureSet) set(kKeyClosr, r.closure);
-        if (r.mLayers > 0) set(kKeyLayers, r.mLayers);
-    }
-    m_loaded = m_rows;
     return {};
 }
+QString Mesh2DAquiferModel::validateCommit(SWMM_Engine engine) const
+{
+    if(!engine)return tr("No engine.");if(!m_loadError.isEmpty())return m_loadError;
+    int state=0;if(swmm_engine_get_state(engine,&state)!=SWMM_OK||(state!=SWMM_STATE_BUILDING&&state!=SWMM_STATE_OPENED))return tr("Reset the run before editing aquifer rows.");
+    Mesh2DAquiferModel current;current.load(engine);if(!current.m_loadError.isEmpty())return current.m_loadError;
+    if(current.m_rows!=m_loaded)return tr("Aquifer rows changed outside this editor. Reopen it to preserve newer edits.");
+    for(int i=0;i<m_rows.size();++i){const auto&r=m_rows[i];for(double v:{r.ks,r.zs,r.thetaS,r.thetaR,r.alpha,r.hg0,r.cLoss,r.psiB,r.lambda,r.vgN,r.vgL})if(!std::isfinite(v))return tr("Aquifer row %1 contains a nonfinite value.").arg(i+1);
+        if(r.hg0>r.zs)return tr("Initial saturated depth in row %1 exceeds aquifer thickness.").arg(i+1);
+    }
+    SWMM_Engine check=swmm_engine_new();if(!check)return tr("Cannot allocate validation model.");const auto error=replaceRows(check,m_rows);swmm_engine_destroy(check);return error;
+}
+QString Mesh2DAquiferModel::commit(SWMM_Engine engine,bool advanceBaseline)
+{
+    if(!isDirty())return {};auto error=validateCommit(engine);if(!error.isEmpty())return error;
+    error=replaceRows(engine,m_rows);if(!error.isEmpty()){const auto rollback=restoreLoaded(engine);return rollback.isEmpty()?error+tr(" Original rows restored."):error+tr(" Rollback failed: ")+rollback;}
+    if(advanceBaseline)acceptChanges();return {};
+}
+QString Mesh2DAquiferModel::restoreLoaded(SWMM_Engine engine)const{return replaceRows(engine,m_loaded);}
+void Mesh2DAquiferModel::acceptChanges(){for(auto&r:m_rows){if(r.scope!=SWMM_GW2D_SCOPE_TAG)r.tag.clear();if(r.scope!=SWMM_GW2D_SCOPE_CELL)r.cell=-1;}m_loaded=m_rows;}
 
 bool Mesh2DAquiferModel::isDirty() const { return m_rows != m_loaded; }
 
@@ -581,15 +569,15 @@ void Mesh2DAquiferNodeModel::load(SWMM_Engine engine)
 {
     beginResetModel();
     m_rows.clear();
+    m_loadError.clear();
     if (engine) {
         int n = 0;
         if (swmm_gw2d_node_count(engine, &n) == SWMM_OK) {
             for (int i = 0; i < n; ++i) {
                 Row r;
-                char name[128] = {0};
+                char name[4096] = {0};
                 if (swmm_gw2d_node_get(engine, i, name, sizeof name, &r.cell,
-                                       &r.kc, &r.dc, &r.area) != SWMM_OK)
-                    continue;
+                                       &r.kc, &r.dc, &r.area) != SWMM_OK) {m_loadError=tr("Cannot read every node bed.");break;}
                 r.node = QString::fromUtf8(name);
                 m_rows.append(r);
             }
@@ -599,28 +587,30 @@ void Mesh2DAquiferNodeModel::load(SWMM_Engine engine)
     endResetModel();
 }
 
-QString Mesh2DAquiferNodeModel::commit(SWMM_Engine engine)
+QString Mesh2DAquiferNodeModel::replaceRows(SWMM_Engine engine,const QList<Row>&rows)const
 {
-    if (!engine) return tr("No engine.");
-    if (!isDirty()) return {};
-    int n = 0;
-    swmm_gw2d_node_count(engine, &n);
-    for (int i = n - 1; i >= 0; --i) {
-        if (swmm_gw2d_node_remove(engine, i) != SWMM_OK)
-            return tr("The node beds cannot be edited while a simulation is "
-                      "running. Reset the run and try again.");
-    }
-    for (int i = 0; i < m_rows.size(); ++i) {
-        const Row &r = m_rows.at(i);
-        const QByteArray node = r.node.toUtf8();
-        if (swmm_gw2d_node_add(engine, node.constData(), r.cell, r.kc, r.dc,
-                               r.area) != SWMM_OK)
-            return tr("Bed %1 (node '%2') was refused. A bed conductivity "
-                      "needs a positive thickness.").arg(i + 1).arg(r.node);
-    }
-    m_loaded = m_rows;
+    int n=0;if(swmm_gw2d_node_count(engine,&n)!=SWMM_OK)return tr("Cannot read node-bed count.");
+    for(int i=n-1;i>=0;--i)if(swmm_gw2d_node_remove(engine,i)!=SWMM_OK)return tr("Cannot remove node bed %1.").arg(i+1);
+    for(int i=0;i<rows.size();++i){const auto&r=rows[i];auto node=r.node.toUtf8();if(swmm_gw2d_node_add(engine,node.constData(),r.cell,r.kc,r.dc,r.area)!=SWMM_OK)return tr("Bed %1 (%2) was refused; conductivity requires positive thickness.").arg(i+1).arg(r.node);}
     return {};
 }
+QString Mesh2DAquiferNodeModel::validateCommit(SWMM_Engine engine)const
+{
+    if(!engine)return tr("No engine.");if(!m_loadError.isEmpty())return m_loadError;
+    int state=0;if(swmm_engine_get_state(engine,&state)!=SWMM_OK||(state!=SWMM_STATE_BUILDING&&state!=SWMM_STATE_OPENED))return tr("Reset the run before editing node beds.");
+    Mesh2DAquiferNodeModel current;current.load(engine);if(!current.m_loadError.isEmpty())return current.m_loadError;
+    if(current.m_rows!=m_loaded)return tr("Node beds changed outside this editor. Reopen it to preserve newer edits.");
+    QSet<QString> names;for(const auto&r:m_rows){if(r.node.trimmed().isEmpty()||names.contains(r.node))return tr("Node beds require unique node names.");names.insert(r.node);if(!std::isfinite(r.kc)||!std::isfinite(r.dc)||!std::isfinite(r.area))return tr("Node-bed values must be finite.");}
+    SWMM_Engine check=swmm_engine_new();if(!check)return tr("Cannot allocate validation model.");const auto error=replaceRows(check,m_rows);swmm_engine_destroy(check);return error;
+}
+QString Mesh2DAquiferNodeModel::commit(SWMM_Engine engine,bool advanceBaseline)
+{
+    if(!isDirty())return {};auto error=validateCommit(engine);if(!error.isEmpty())return error;
+    error=replaceRows(engine,m_rows);if(!error.isEmpty()){const auto rollback=restoreLoaded(engine);return rollback.isEmpty()?error+tr(" Original rows restored."):error+tr(" Rollback failed: ")+rollback;}
+    if(advanceBaseline)acceptChanges();return {};
+}
+QString Mesh2DAquiferNodeModel::restoreLoaded(SWMM_Engine engine)const{return replaceRows(engine,m_loaded);}
+void Mesh2DAquiferNodeModel::acceptChanges(){m_loaded=m_rows;}
 
 bool Mesh2DAquiferNodeModel::isDirty() const { return m_rows != m_loaded; }
 

@@ -38,6 +38,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTableView>
+#include <QStyledItemDelegate>
 #include <QTimer>
 #include <QComboBox>
 #include <QTabWidget>
@@ -55,11 +56,56 @@ struct Engine {
 };
 } // namespace
 
+class ClosingOwner:public QWidget { Q_OBJECT
+signals:void engineAboutToClose();
+};
+
 class TestMesh2DGroundwaterDialog : public QObject
 {
     Q_OBJECT
 
 private slots:
+    void noOpApplyDoesNotDirtyOrRoundOptions(){
+        Engine e;QCOMPARE(swmm_gw2d_option_set(e.handle,"C_GW","0.123456789012345"),SWMM_OK);
+        Mesh2DGroundwaterDialog dialog(e.handle);QSignalSpy writes(&dialog,&Mesh2DGroundwaterDialog::changesMayHaveBeenApplied);QSignalSpy applied(&dialog,&Mesh2DGroundwaterDialog::applied);
+        dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();QCOMPARE(writes.count(),0);QCOMPARE(applied.count(),0);
+        char value[128]{};swmm_gw2d_option_get(e.handle,"C_GW",value,sizeof value);QVERIFY(QString::fromUtf8(value).startsWith("0.123457")||QString::fromUtf8(value).startsWith("0.123456789"));
+    }
+    void unrelatedRowEditPreservesHighPrecisionSafetyOptions(){
+        Engine e;QCOMPARE(swmm_gw2d_option_set(e.handle,"C_GW","0.123456789012345"),SWMM_OK);QCOMPARE(swmm_gw2d_option_set(e.handle,"C_COL","0.765432109876543"),SWMM_OK);
+        char gw[128]{},column[128]{};QCOMPARE(swmm_gw2d_option_get(e.handle,"C_GW",gw,sizeof gw),SWMM_OK);QCOMPARE(swmm_gw2d_option_get(e.handle,"C_COL",column,sizeof column),SWMM_OK);const QByteArray originalGw(gw),originalColumn(column);
+        QCOMPARE(QString::fromUtf8(gw).toDouble(),.123456789012345);QCOMPARE(QString::fromUtf8(column).toDouble(),.765432109876543);
+        Mesh2DGroundwaterDialog dialog(e.handle);dialog.findChild<Mesh2DAquiferModel*>()->appendRow();dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(swmm_gw2d_option_get(e.handle,"C_GW",gw,sizeof gw),SWMM_OK);QCOMPARE(swmm_gw2d_option_get(e.handle,"C_COL",column,sizeof column),SWMM_OK);QCOMPARE(QByteArray(gw),originalGw);QCOMPARE(QByteArray(column),originalColumn);
+    }
+    void invalidNodeDraftDoesNotClearExistingRows(){
+        Engine e;QCOMPARE(swmm_gw2d_node_add(e.handle,"Original",0,.5,1,2),SWMM_OK);Mesh2DGroundwaterDialog dialog(e.handle);auto*nodes=dialog.findChild<Mesh2DAquiferNodeModel*>();auto*aq=dialog.findChild<Mesh2DAquiferModel*>();aq->appendRow();int row=nodes->appendRow("Invalid",1);QVERIFY(nodes->setData(nodes->index(row,Mesh2DAquiferNodeModel::ColKc),1.));
+        QSignalSpy writes(&dialog,&Mesh2DGroundwaterDialog::changesMayHaveBeenApplied);QTimer::singleShot(0,&dialog,[&]{if(auto*m=dialog.findChild<QMessageBox*>())m->accept();});dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        int count=0;swmm_gw2d_node_count(e.handle,&count);QCOMPARE(count,1);swmm_gw2d_row_count(e.handle,&count);QCOMPARE(count,0);QCOMPARE(writes.count(),0);
+    }
+    void concurrentAquiferEditIsNotOverwritten(){
+        Engine e;QCOMPARE(swmm_gw2d_row_add(e.handle,0,nullptr,-1,1,5,.45,.1,2),SWMM_OK);Mesh2DAquiferModel model;model.load(e.handle);QVERIFY(model.setData(model.index(0,Mesh2DAquiferModel::ColKs),2.));QCOMPARE(swmm_gw2d_row_set_property(e.handle,0,"L",-.25),SWMM_OK);QVERIFY(!model.commit(e.handle).isEmpty());double v=0;swmm_gw2d_row_get_property(e.handle,0,"L",&v);QCOMPARE(v,-.25);
+    }
+    void successfulScopeChangeAcceptsNormalizedBaseline(){
+        Engine e;QCOMPARE(swmm_gw2d_row_add(e.handle,1,"PriorTag",-1,1,5,.45,.1,2),SWMM_OK);Mesh2DAquiferModel model;model.load(e.handle);
+        QVERIFY(model.setData(model.index(0,Mesh2DAquiferModel::ColScope),2));QVERIFY(model.setData(model.index(0,Mesh2DAquiferModel::ColTarget),1));QVERIFY2(model.commit(e.handle).isEmpty(),"First scope change must succeed");
+        QVERIFY(model.setData(model.index(0,Mesh2DAquiferModel::ColKs),2.));QVERIFY2(model.commit(e.handle).isEmpty(),"Own normalized previous write must not look like an external edit");
+        QVERIFY(model.setData(model.index(0,Mesh2DAquiferModel::ColScope),0));QVERIFY(model.commit(e.handle).isEmpty());QVERIFY(model.setData(model.index(0,Mesh2DAquiferModel::ColKs),3.));QVERIFY(model.commit(e.handle).isEmpty());
+    }
+    void explicitSoilLawSurvivesUnrelatedEdit(){
+        Engine e;QCOMPARE(swmm_gw2d_row_add(e.handle,0,nullptr,-1,1,5,.45,.1,2),SWMM_OK);QCOMPARE(swmm_gw2d_row_set_property(e.handle,0,"SOIL_CHAR",1),SWMM_OK);Mesh2DAquiferModel model;model.load(e.handle);QVERIFY(model.setData(model.index(0,Mesh2DAquiferModel::ColKs),2.));QVERIFY(model.commit(e.handle).isEmpty());double v=0;swmm_gw2d_row_get_property(e.handle,0,"SOIL_CHAR",&v);QCOMPARE(v,1.);
+    }
+    void inheritedChoicesRemainNoOpAndCanBeRestored(){
+        Engine e;QCOMPARE(swmm_gw2d_row_add(e.handle,0,nullptr,-1,1,5,.45,.1,2),SWMM_OK);Mesh2DGroundwaterDialog dialog(e.handle);auto*model=dialog.findChild<Mesh2DAquiferModel*>();QTableView*view=nullptr;for(auto*v:dialog.findChildren<QTableView*>())if(v->model()==model)view=v;QVERIFY(view);
+        for(int column:{Mesh2DAquiferModel::ColSoil,Mesh2DAquiferModel::ColClosure}){
+            const auto index=model->index(0,column);auto*delegate=view->itemDelegateForColumn(column);QStyleOptionViewItem option;auto*editor=delegate->createEditor(view,option,index);QVERIFY(editor);delegate->setEditorData(editor,index);auto*combo=qobject_cast<QComboBox*>(editor);QVERIFY(combo);QCOMPARE(combo->currentData().toInt(),-1);delegate->setModelData(editor,model,index);QVERIFY(!model->isDirty());delete editor;
+            QVERIFY(model->setData(index,0));QVERIFY(model->isDirty());QVERIFY(model->setData(index,-1));QVERIFY(!model->isDirty());
+        }
+    }
+    void ownerPrecloseDisablesAllEngineCallbacks(){
+        Engine e;ClosingOwner owner;Mesh2DGroundwaterDialog dialog(e.handle,&owner);emit owner.engineAboutToClose();QVERIFY(!dialog.isEnabled());QSignalSpy writes(&dialog,&Mesh2DGroundwaterDialog::changesMayHaveBeenApplied);QVERIFY(QMetaObject::invokeMethod(&dialog,"onApply"));QCOMPARE(writes.count(),0);QVERIFY(QMetaObject::invokeMethod(&dialog,"refreshState"));
+    }
+
     void openingAndCancellingDoesNotAuthorGroundwaterOptions()
     {
         const QString output = qEnvironmentVariable("SWMMVIS_GROUNDWATER_DIALOG_TEST_OUTPUT",
@@ -181,7 +227,7 @@ private slots:
         QCOMPARE(accepted.count(), 0);
         QVERIFY(dlg.isVisible());
         QCOMPARE(applied.count(), 0);
-        QCOMPARE(writes.count(), 1);
+        QCOMPARE(writes.count(), 0);
         QVERIFY(nodes->isDirty());
         QCOMPARE(nodes->index(row, Mesh2DAquiferNodeModel::ColNode).data().toString(),
                  QStringLiteral("DraftNode"));
@@ -190,7 +236,7 @@ private slots:
         dlg.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
         QCOMPARE(accepted.count(), 1);
         QCOMPARE(applied.count(), 1);
-        QCOMPARE(writes.count(), 2);
+        QCOMPARE(writes.count(), 1);
         QVERIFY(!nodes->isDirty());
     }
 
@@ -235,7 +281,7 @@ private slots:
         QCOMPARE(count, 1);
         buttons->button(QDialogButtonBox::Ok)->click();
         QCOMPARE(accepted.count(), 1);
-        QCOMPARE(applied.count(), 2);
+        QCOMPARE(applied.count(), 1);
     }
 
     void rowActionsCannotBecomeEnterDefault()

@@ -276,6 +276,7 @@ set(
         include/render/sublayers/resultscalarsublayer.h
         include/io/mesh2dscalarframe.h
         include/io/mesh2dresultvariable.h
+        include/io/mesh2dlivevariables.h
         include/render/sublayers/scalarfillsublayer.h
         # Mesh styling restructure — BC indicators + coupled-node markers as
         # first-class sublayers.
@@ -350,6 +351,11 @@ set(
         include/plot/profileattributetrackoptions.h
         include/plot/profileattributetrackswidget.h
         include/plot/profileplotoptions.h
+        include/assignment/groundwatertransportassignment.h
+        include/ui/dialogs/groundwaterassigndialog.h
+        include/project/groundwaterrecipestore.h
+        include/assignment/groundwaterassignment.h
+        include/assignment/meshassignmentsampling.h
         include/project/profilesectionstore.h
         include/plot/profilesectionseries.h
         include/plot/meshprofiletrackswidget.h
@@ -1096,6 +1102,11 @@ set(
         src/plot/profileattributetrackoptions.cpp
         src/plot/profileattributetrackswidget.cpp
         src/plot/profileplotoptions.cpp
+        src/assignment/groundwatertransportassignment.cpp
+        src/ui/dialogs/groundwaterassigndialog.cpp
+        src/project/groundwaterrecipestore.cpp
+        src/assignment/groundwaterassignment.cpp
+        src/assignment/meshassignmentsampling.cpp
         src/project/profilesectionstore.cpp
         src/plot/profilesectionseries.cpp
         src/io/profilesectionio.cpp
@@ -1229,6 +1240,7 @@ set(
         src/layers/swmm2dresultslayer.cpp
         src/layers/meshspatialgrid.cpp
         src/io/mesh2dh5reader.cpp
+        src/io/mesh2dlivevariables.cpp
         src/io/mesh2dresultsexport.cpp
         src/io/rptparser.cpp
         src/io/timeseriesparse.cpp
@@ -1999,6 +2011,12 @@ if(APPLE)
             COMMENT "macdeployqt: bundling Qt frameworks, QML modules and linked dylibs (incl. GDAL)"
             VERBATIM
         )
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND "${CMAKE_COMMAND}"
+                    "-DAPP_BUNDLE=$<TARGET_BUNDLE_DIR:SWMMVis>"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/PruneUnsupportedQtSqlDrivers.cmake"
+            VERBATIM
+        )
     else()
         message(WARNING
             "macdeployqt not found — Qt frameworks will not be bundled. "
@@ -2142,6 +2160,7 @@ if(APPLE)
     add_custom_command(TARGET SWMMVis POST_BUILD
         COMMAND codesign --force --sign "${_codesign_identity}" --deep
                 "$<TARGET_BUNDLE_DIR:SWMMVis>"
+        COMMAND codesign --verify --deep --strict "$<TARGET_BUNDLE_DIR:SWMMVis>"
         COMMENT "codesign: re-signing bundle (identity=${_codesign_identity})"
         VERBATIM
     )
@@ -2159,7 +2178,10 @@ if(APPLE)
                 \"${MACDEPLOYQT_EXECUTABLE}\"
                 \"\${CMAKE_INSTALL_PREFIX}/SWMMVis.app\"
                 \"-qmldir=${CMAKE_CURRENT_SOURCE_DIR}/resources/qml\"
-                -always-overwrite)"
+                -always-overwrite
+                COMMAND_ERROR_IS_FATAL ANY)
+             set(APP_BUNDLE \"\${CMAKE_INSTALL_PREFIX}/SWMMVis.app\")
+             include(\"${CMAKE_CURRENT_SOURCE_DIR}/cmake/PruneUnsupportedQtSqlDrivers.cmake\")"
             COMPONENT Runtime
         )
     endif()

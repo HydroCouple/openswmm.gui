@@ -41,5 +41,6 @@ protected:
 private:
     ProfileSection::Section m_section;
     double m_xMin = 0, m_xMax = 1, m_cursor = -1;
+    void refreshAccessibleDescription();
 };
 #endif

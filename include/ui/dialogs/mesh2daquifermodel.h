@@ -80,7 +80,10 @@ public:
     //! Apply the staged rows to the engine. Every row is rewritten (the C API
     //! has no "set row"), which is also what makes a reorder work.
     //! \returns an empty string on success, else the first engine complaint.
-    QString commit(SWMM_Engine engine);
+    QString commit(SWMM_Engine engine, bool advanceBaseline = true);
+    QString validateCommit(SWMM_Engine engine) const;
+    QString restoreLoaded(SWMM_Engine engine) const;
+    void acceptChanges();
     [[nodiscard]] bool isDirty() const;
 
     //! Append a row seeded with the defaults the parser uses.
@@ -113,6 +116,8 @@ private:
         bool operator==(const Row &o) const;
     };
 
+    QString replaceRows(SWMM_Engine engine, const QList<Row> &rows) const;
+    QString m_loadError;
     QList<Row> m_rows;
     QList<Row> m_loaded;
     QString    m_lengthLabel = QStringLiteral("m");
@@ -141,7 +146,10 @@ public:
                     const QModelIndex &parent = QModelIndex()) override;
 
     void load(SWMM_Engine engine);
-    QString commit(SWMM_Engine engine);
+    QString commit(SWMM_Engine engine, bool advanceBaseline = true);
+    QString validateCommit(SWMM_Engine engine) const;
+    QString restoreLoaded(SWMM_Engine engine) const;
+    void acceptChanges();
     [[nodiscard]] bool isDirty() const;
     int appendRow(const QString &node, int cell);
 
@@ -158,6 +166,8 @@ private:
         bool operator==(const Row &o) const;
     };
 
+    QString replaceRows(SWMM_Engine engine, const QList<Row> &rows) const;
+    QString m_loadError;
     QList<Row> m_rows;
     QList<Row> m_loaded;
     QString    m_lengthLabel = QStringLiteral("m");

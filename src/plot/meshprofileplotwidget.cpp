@@ -25,6 +25,7 @@
 #include <QWheelEvent>
 #include <QKeyEvent>
 #include <QAccessible>
+#include "plot/profilesectionpresentation.h"
 
 #include <algorithm>
 #include <cmath>
@@ -112,6 +113,7 @@ MeshProfilePlotWidget::MeshProfilePlotWidget(QWidget *parent)
 void MeshProfilePlotWidget::setProfile(const MeshProfileSampler::MeshProfile &profile)
 {
     m_profile = profile;
+    refreshAccessibleDescription();
     recomputeBounds();
     update();
 }
@@ -163,6 +165,7 @@ void MeshProfilePlotWidget::setCursorChainage(double chainage)
     if (chainage < 0.0 || m_profile.samples.isEmpty()) {
         if (!m_hasCursor) return;
         m_hasCursor = false;
+        refreshAccessibleDescription();
         update();
         return;
     }
@@ -171,13 +174,24 @@ void MeshProfilePlotWidget::setCursorChainage(double chainage)
     if (m_hasCursor && std::abs(c - m_cursorChainage) < 1e-9) return;
     m_hasCursor = true;
     m_cursorChainage = c;
-    setAccessibleDescription(tr("Station %1. Left and Right move between section stations.").arg(c,0,'g',12));
+    refreshAccessibleDescription();
     QAccessibleValueChangeEvent accessibleEvent(this,c);
     QAccessible::updateAccessibility(&accessibleEvent);
     update();
 }
 
 // ── Bounds / zoom / pan ───────────────────────────────────────────────────
+
+void MeshProfilePlotWidget::refreshAccessibleDescription()
+{
+    QStringList descriptions;
+    if (m_hasCursor) descriptions.append(tr("Station %1.").arg(m_cursorChainage,0,'g',12));
+    descriptions.append(tr("Left and Right move between section stations. Home and End move to the first and last station."));
+    for (const auto &series : m_profile.series)
+        if (series.definition.visible && series.definition.role == ProfileSection::SeriesRole::Elevation)
+            descriptions.append(ProfileSection::accessibleSeriesSummary(series));
+    setAccessibleDescription(descriptions.join(QStringLiteral("; ")));
+}
 
 void MeshProfilePlotWidget::recomputeBounds()
 {
@@ -1071,9 +1085,8 @@ void MeshProfilePlotWidget::paintLegend(QPainter &p) const
         if (!series.definition.visible || series.definition.role != ProfileSection::SeriesRole::Elevation) continue;
         QPen pen = series.definition.pen; QColor color = pen.color(); color.setAlphaF(color.alphaF()*series.definition.opacity); pen.setColor(color);
         const QString units = series.unitsKnown ? series.units : tr("units unknown");
-        const QString timing = series.effectiveTime.isValid() ? series.effectiveTime.toString(Qt::ISODate) : tr("Static / unavailable");
-        const QString label = QStringLiteral("%1 [%2] — %3%4").arg(series.definition.label,units,timing,
-            series.error.isEmpty() ? QString() : tr(" (unavailable)"));
+        const QString timing = ProfileSection::effectiveTimeLabel(series);
+        const QString label = QStringLiteral("%1 [%2] — %3").arg(series.definition.label,units,timing);
         rows.push_back({label,false,true,QBrush(Qt::NoBrush),pen});
     }
     if (rows.isEmpty()) return;

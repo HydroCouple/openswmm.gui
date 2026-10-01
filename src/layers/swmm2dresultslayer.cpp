@@ -1171,13 +1171,88 @@ void EngineMesh2DSource::setHistoryPinned(bool pinned)
     if (!pinned_) enforceCap_();
 }
 
+bool EngineMesh2DSource::pushFaceVariables(openswmmvis::io::Mesh2DLiveVariablesPtr frame,
+                                          QDateTime simTime, double elapsedSec)
+{
+    if (!frame || frame->cellCount != triangleCount() || !std::isfinite(elapsedSec)
+        || frame->variables.isEmpty()) return false;
+    QSet<QString> keys;
+    for (const auto &v : frame->variables) {
+        const QString key = v.descriptor.key();
+        if (key.isEmpty() || keys.contains(key) || v.values.size() != cells_.size()
+            || v.status.size() != cells_.size()) return false;
+        keys.insert(key);
+        for (const auto &known : live_variables_)
+            if (known.key() == key && (known.units != v.descriptor.units
+                || known.unitsKnown != v.descriptor.unitsKnown || known.zone != v.descriptor.zone
+                || known.temporal != v.descriptor.temporal))
+                return false; // never relabel old numerical values with new units
+    }
+    for (const auto &v : frame->variables) {
+        bool known = false;
+        for (const auto &d : live_variables_) if (d.key() == v.descriptor.key()) { known = true; break; }
+        if (!known) live_variables_.append(v.descriptor);
+    }
+    for (const auto &warning : frame->warnings)
+        if (!live_variable_warnings_.contains(warning)) live_variable_warnings_.append(warning);
+    if (!history_.empty() && std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
+        history_.back().variables = std::move(frame);
+    else {
+        Tick tick; tick.variables = std::move(frame); tick.sim_time = simTime; tick.elapsed_sec = elapsedSec;
+        history_.push_back(std::move(tick));
+    }
+    // A queued chemical payload can complete an already-observed hydraulic
+    // frame without changing timeCount; invalidate generic frame/catalog caches.
+    ++variable_generation_;
+    enforceCap_();
+    return true;
+}
+
+QVector<openswmmvis::io::Mesh2DResultVariable> EngineMesh2DSource::faceVariables(QStringList *warnings) const
+{
+    if (warnings) *warnings = live_variable_warnings_;
+    auto variables = live_variables_;
+    for (auto &v : variables) v.frameCount = v.temporal == openswmmvis::io::Mesh2DResultVariable::Temporal::Static ? 0 : timeCount();
+    return variables;
+}
+
+bool EngineMesh2DSource::readFaceVariableAt(const openswmmvis::io::Mesh2DResultVariable &variable,
+    int timeIdx, std::vector<float> &values, std::vector<openswmmvis::io::Mesh2DValueStatus> &status)
+{
+    using Status = openswmmvis::io::Mesh2DValueStatus;
+    values.clear(); status.clear();
+    const openswmmvis::io::Mesh2DResultVariable *known = nullptr;
+    for (const auto &v : live_variables_)
+        if (v.key() == variable.key() && v.zone == variable.zone) { known = &v; break; }
+    if (!known) return false;
+    const bool independent = known->temporal == openswmmvis::io::Mesh2DResultVariable::Temporal::Static;
+    if (!independent && (timeIdx < 0 || timeIdx >= timeCount())) return false;
+    // Static base elevation remains available even if frame zero predates the
+    // first chemical/GW snapshot. It has no requested report index.
+    const int begin = independent ? 0 : timeIdx, end = independent ? timeCount() : timeIdx + 1;
+    for (int i = begin; i < end; ++i) {
+        const auto &frame = history_[size_t(i)].variables;
+        if (frame) for (const auto &v : frame->variables)
+            if (v.descriptor.key() == variable.key() && v.descriptor.zone == variable.zone) {
+                values = v.values; status = v.status; return true;
+            }
+    }
+    // The species exists in this run but this retained tick did not carry it.
+    // Preserve the gap instead of borrowing values from another time/row.
+    values.assign(cells_.size(), std::numeric_limits<float>::quiet_NaN());
+    status.assign(cells_.size(), Status::Missing);
+    return true;
+}
+
 size_t EngineMesh2DSource::historyBytes() const
 {
     size_t n = 0;
     for (const Tick& t : history_)
         n += t.depths.size() + t.flux.size() + t.vertex_depths.size()
            + t.rainfall.size() + t.rain_cum.size() + t.heads.size();
-    return n * sizeof(float);
+    size_t bytes = n * sizeof(float);
+    for (const Tick &t : history_) if (t.variables) bytes += t.variables->payloadBytes();
+    return bytes;
 }
 
 void EngineMesh2DSource::enforceCap_()

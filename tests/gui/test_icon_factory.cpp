@@ -33,6 +33,7 @@ struct ReviewedIcon { const char *alias; const char *action; const char *label; 
 const ReviewedIcon reviewedIcons[] = {
     {"Aquifer", "actionNewAquifer", "Aquifer (1D)"},
     {"GW2DParams", "actionMesh2DGWParams", "Aquifer parameters (2D)"},
+    {"GW2DParams", "actionAssignGroundwater", "Assign groundwater"},
     {"GW2DInit", "actionMesh2DGWInitCond", "Groundwater initial state"},
     {"Select", "actionSelect", "Pointer / rectangle selection"},
     {"SelectByPolygon", "actionSelectByPolygon", "Polygon selection"},
@@ -43,6 +44,7 @@ const ReviewedIcon reviewedIcons[] = {
     {"MeshAssignVector", "actionMeshAssignFromVector", "Assign features to cells"},
     {"Profile", "actionPlotProfile", "Network profile"},
     {"Profile2D", "actionPlotProfile2D", "2D section profile"},
+    {"Profile2D", "actionSaved2DSections", "Saved 2D sections"},
     {"ImportGIS", "actionImportFeatureLayer", "Import GIS features"},
     {"ExportMap", "actionExportMap", "Export map"},
     {"Export2DResults", "actionExport2DResults", "Export 2D results"},

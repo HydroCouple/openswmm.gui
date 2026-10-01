@@ -2597,6 +2597,7 @@ find_package(Qt6 REQUIRED COMPONENTS Concurrent)
 # the .cpp), so AUTOMOC would otherwise skip their Q_OBJECT moc output.
 add_swmmvis_gui_test(test_simstatus_2derr
     test_simstatus_2derr.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
@@ -2613,6 +2614,7 @@ target_link_libraries(test_simstatus_2derr PRIVATE Qt6::Concurrent)
 # <stem>.runlog.txt — never in std::terminate. Same lean link set.
 add_swmmvis_gui_test(test_simrunner_failures
     test_simrunner_failures.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
@@ -2629,6 +2631,7 @@ target_link_libraries(test_simrunner_failures PRIVATE Qt6::Concurrent)
 if(TARGET openswmm_legacy_worker_524)
     add_swmmvis_gui_test(test_simrunner_legacy_524
         test_simrunner_legacy_524.cpp
+        ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
         ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
         ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
         ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
@@ -3730,6 +3733,12 @@ add_swmmvis_gui_test(test_resultvariables
 )
 swmmvis_link_full_app_deps(test_resultvariables)
 
+add_swmmvis_gui_test(test_livegroundwatervariables
+    test_livegroundwatervariables.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_livegroundwatervariables)
+
 add_swmmvis_gui_test(test_resultscalarsublayer
     test_resultscalarsublayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/resultscalarsublayer.cpp
@@ -3824,7 +3833,7 @@ swmmvis_link_full_app_deps(test_swmmexport)
 target_compile_definitions(test_swmmexport PRIVATE
     SWMMEXPORT_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30/swmmexport")
 
-# Configurable surface and groundwater profile sections.
+# Phase 35 combined surface/groundwater sections and atomic assignment.
 add_swmmvis_gui_test(test_profilesectionseries
     test_profilesectionseries.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/profilesectionseries.cpp
@@ -3835,6 +3844,18 @@ add_swmmvis_gui_test(test_profilesectionstore
     ${CMAKE_SOURCE_DIR}/src/project/profilesectionstore.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/profilesectionseries.cpp
     ${CMAKE_SOURCE_DIR}/src/io/profilesectionio.cpp)
+add_swmmvis_gui_test(test_groundwaterassignment
+    ../unit/test_groundwaterassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp)
+add_swmmvis_gui_test(test_groundwaterassignmentsampling
+    ../unit/test_groundwaterassignmentsampling.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/meshassignmentsampling.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/dtmsampler.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp)
+target_sources(test_groundwaterassignmentsampling PRIVATE ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp)
+target_link_libraries(test_groundwaterassignmentsampling PRIVATE GDAL::GDAL predicates_lib)
+
 add_swmmvis_gui_test(test_meshprofile_combined
     test_meshprofile_combined.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotwidget.cpp
@@ -3859,15 +3880,49 @@ add_swmmvis_gui_test(test_meshprofile_combined
     ${CMAKE_SOURCE_DIR}/src/io/profilesectionio.cpp
 )
 
+add_swmmvis_gui_test(test_groundwaterrecipestore
+    test_groundwaterrecipestore.cpp
+    ${CMAKE_SOURCE_DIR}/include/project/groundwaterrecipestore.h
+    ${CMAKE_SOURCE_DIR}/src/project/groundwaterrecipestore.cpp)
+add_swmmvis_gui_test(test_groundwaterassigndialog
+    test_groundwaterassigndialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_groundwaterassigndialog)
+
+add_swmmvis_gui_test(test_phase35_projectpersistence
+    test_phase35_projectpersistence.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_phase35_projectpersistence)
+target_compile_definitions(test_phase35_projectpersistence PRIVATE
+    PHASE35_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/project")
+
+add_swmmvis_gui_test(test_groundwatertransportassignment
+    test_groundwatertransportassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwatertransportassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp)
+target_compile_definitions(test_groundwatertransportassignment PRIVATE
+    SWMMVIS_GW_TRANSPORT_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/transport")
+
+set_property(TEST test_groundwaterassigndialog APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_FORCING_TEST_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/ui_tests")
+set_property(TEST test_groundwatertransportassignment APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_GW_TRANSPORT_TEST_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/transport")
+
 # The result-source interface exposes its coordinate transform type.
 foreach(profile_target test_profilesectionseries test_profilesectionstore test_meshprofile_combined)
     target_link_libraries(${profile_target} PRIVATE GDAL::GDAL)
 endforeach()
 
-add_swmmvis_gui_test(test_phase35_sectionjourney
-    test_phase35_sectionjourney.cpp
-    ${SWMMVIS_TEST_SOURCES}
-    ${SWMMVIS_TEST_EXTRA_SOURCES})
-swmmvis_link_full_app_deps(test_phase35_sectionjourney)
+foreach(journey sectionjourney forcingjourney)
+    add_swmmvis_gui_test(test_phase35_${journey}
+        test_phase35_${journey}.cpp
+        ${SWMMVIS_TEST_SOURCES}
+        ${SWMMVIS_TEST_EXTRA_SOURCES})
+    swmmvis_link_full_app_deps(test_phase35_${journey})
+endforeach()
 set_property(TEST test_phase35_sectionjourney APPEND PROPERTY ENVIRONMENT
     "SWMMVIS_SECTION_JOURNEY_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/review/section-journey")
+set_property(TEST test_phase35_forcingjourney APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_FORCING_JOURNEY_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/forcing_journey")

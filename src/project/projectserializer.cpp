@@ -6,6 +6,7 @@
 
 #include "project/projectserializer.h"
 #include "project/profilesectionstore.h"
+#include "project/groundwaterrecipestore.h"
 #include "project/meshcorridorrecipe.h"
 
 #include "connections/basemapconnection.h"
@@ -331,6 +332,12 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         // writeRootJson validates before writing any session.
         store->serialize(QFileInfo(oswpFile).absolutePath(), sections);
         if (!sections.isEmpty()) obj[QStringLiteral("profileSections")] = sections;
+    }
+
+    if (auto *store = GroundwaterRecipeStore::forOwner(pw, false)) {
+        QJsonArray history;
+        store->serialize(QFileInfo(oswpFile).absolutePath(), history);
+        if (!history.isEmpty()) obj[QStringLiteral("groundwaterAssignmentHistory")] = history;
     }
 
     obj[kInpPath]       = toRelativePath(layer->modelFilePath(), oswpFile);
@@ -715,8 +722,17 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             warningsOut->append(error);
     }
 
+    {
+        QString error;
+        if (!GroundwaterRecipeStore::forOwner(pw)->restore(
+                sessionObj.contains(QStringLiteral("groundwaterAssignmentHistory"))
+                    ? sessionObj.value(QStringLiteral("groundwaterAssignmentHistory")) : QJsonValue(QJsonArray{}),
+                QFileInfo(oswpFile).absolutePath(), &error) && warningsOut)
+            warningsOut->append(error);
+    }
+
     if (sessionObj.contains(kEngineVersion))
-        pw->setEngineVersion(sessionObj.value(kEngineVersion).toString("6.0.0"));
+        pw->setEngineVersion(sessionObj.value(kEngineVersion).toString("6.0.0"), false);
 
     if (sessionObj.contains(kNotesHtml))
         pw->setNotesHtml(sessionObj.value(kNotesHtml).toString());
@@ -1106,6 +1122,14 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
                 return false;
             }
         }
+        if (auto *store = GroundwaterRecipeStore::forOwner(pw, false)) {
+            QJsonArray history;
+            QString error;
+            if (!store->serialize(QFileInfo(oswpPath).absolutePath(), history, &error)) {
+                setErr(error);
+                return false;
+            }
+        }
         if (!pw->corridorRecipeLoadError().isEmpty()) {
             setErr(pw->corridorRecipeLoadError());
             return false;
@@ -1332,7 +1356,7 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
         applySession(sessionObj, pw, oswpPath, warningsOut);
     } else if (sessionObj.contains(kEngineVersion)) {
         // No layer yet but engineVersion still useful.
-        pw->setEngineVersion(sessionObj.value(kEngineVersion).toString("6.0.0"));
+        pw->setEngineVersion(sessionObj.value(kEngineVersion).toString("6.0.0"), false);
     }
     pw->setCorridorSources(corridorSources);
     pw->setCorridorRecipeLoadError({});

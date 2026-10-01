@@ -33,6 +33,7 @@
 #define OPENSWMMVIS_UI_DIALOGS_MESH2DGROUNDWATERDIALOG_H
 
 #include <QDialog>
+#include <QMap>
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -72,6 +73,9 @@ public:
     /*! \brief Unsaturated-zone closures, AUTO first. */
     [[nodiscard]] static QStringList closureTokens();
 
+public slots:
+    void invalidateContext();
+
 signals:
     /*! Authoring writes are about to start; a later refusal may be partial. */
     void changesMayHaveBeenApplied();
@@ -94,6 +98,9 @@ private:
     QWidget *buildStatePage();
 
     void loadFromEngine();
+    QMap<QString,QString> optionDraft() const;
+    QMap<QString,QString> readOptions() const;
+    QMap<QString,QString> m_loadedOptions, m_displayedOptions;
     QString applyOptions();
     bool    applyChanges();
     void    setEditable(bool on, const QString &whyNot);

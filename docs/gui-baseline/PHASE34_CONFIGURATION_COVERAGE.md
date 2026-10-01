@@ -38,3 +38,12 @@ The effective main-window catalog is authoritative: registered Designer icons ar
 ## Explicit completion boundary
 
 This batch closes tested classification/session defects and establishes a usable file-backed scalar-species chain through configuration, rendering, legend, inspection, persistence and CSV. It does not certify all of W4/W4a: arbitrary species contours/labels, generic GIS raster/vector export, live species streaming and engine unit/runtime gates remain. They are retained requirements, not silently treated as completed or multiplied into new micro-phases. Phase 35 consumes the descriptor contracts; Phase 36 combines native/performance/release acceptance and remaining visualization integration with the meshing owner’s evidence.
+
+
+## Phase 35 follow-through
+
+The later combined-section/forcing work resolves the HDF groundwater species-unit part of ENG-2: the engine writes identity-aligned native units for SAT/UNSAT concentrations, including groundwater-only transport and raw age seconds. Source water/species consumption is verified by actual engine ledger, hotstart and GUI Save/reopen/run tests. See [Phase 35 evidence](PHASE35_PROFILES_GROUNDWATER.md). Older output without authoritative units remains explicitly unknown. Live immutable groundwater chemical frames and the other coverage-table gates remain separate; this note does not retroactively change Phase 34's historical evidence.
+
+## Phase 36 follow-through
+
+Live groundwater table/base elevations and SAT/UNSAT chemical snapshots are now implemented with actual runtime identities and native units, immutable worker capture, groundwater water-state masks and export-safe history. The runtime tests cover reordered pollutants, count units, declared MSX units, age seconds and negative temperature. Retained live history deliberately refuses complete whole-run range claims. General species contours/labels and GIS raster/vector export remain separate gaps. See [Phase 36 report](PHASE36_INTEGRATED_ACCEPTANCE.md).
