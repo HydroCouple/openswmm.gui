@@ -68,16 +68,17 @@ void TestTwoDDefaultsPrefs::compiledDefaultsPinTheContract()
     QCOMPARE(d.rainfallMode, QStringLiteral("NATURAL_NEIGHBOUR"));
     QVERIFY(!d.report2D);
 
-    // Mesh-generation seeds — the overhaul's option surface
-    // (MESH_OVERHAUL_PLAN_2026-09-29.md §3: 11 controls in physical units).
-    QCOMPARE(d.meshCellSizeM, 0.0);            // 0 = derive from extent
-    QCOMPARE(d.meshCoarsenFactor, 4.0);
+    // Mesh-generation seeds (MESH_OVERHAUL_PLAN_2026-09-29.md §3,
+    // MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5).
+    QCOMPARE(d.meshCellSizeM, 0.0);
+    QCOMPARE(d.meshCoarsenFactor, 20.0);
     QCOMPARE(d.meshSizeRatio, 1.5);
-    QCOMPARE(d.meshMinCellSizeM, 0.0);         // 0 = cell size / 4
-    QCOMPARE(d.meshTerrainToleranceM, 0.0);    // 0 = off
-    QVERIFY(!d.meshTrianglesOnly);             // quads where possible
+    QCOMPARE(d.meshMinCellSizeM, 0.0);
+    QCOMPARE(d.meshTerrainToleranceM, 0.0);
+    QCOMPARE(d.meshMinAngleDeg, 30.0);
+    QVERIFY(d.meshQuadsBetweenBreaklines);
     QCOMPARE(d.meshTrimTurnDeg, 5.0);
-    QCOMPARE(d.meshTrimDeviationM, 0.0);       // 0 = cell size / 10
+    QCOMPARE(d.meshTrimDeviationM, 0.0);
     QCOMPARE(d.meshIdwPower, 2.0);
     QCOMPARE(d.meshNodeFlattenRadM, 5.0);
     // 2026-09-11 decision: nodes pinned at rim elevation with the minimum
@@ -86,8 +87,8 @@ void TestTwoDDefaultsPrefs::compiledDefaultsPinTheContract()
     QVERIFY(d.meshNodesUseRim);
     QVERIFY(d.meshMinNodeSepOn);
     QCOMPARE(d.meshMinNodeSepM, 2.0);
-    QCOMPARE(d.meshManningsN, 0.035);
     QCOMPARE(d.meshInitDepth, 0.0);
+    QCOMPARE(d.meshManningsN, 0.035);
     QVERIFY(d.meshOutputExternal);
 }
 
@@ -114,13 +115,14 @@ void TestTwoDDefaultsPrefs::roundTripPersistsAllFields()
     d.couplingAreaAuto = true;
     d.rainfallMode = QStringLiteral("SYSTEM");
     d.report2D = true;
-    d.meshCellSizeM = 12.5;
-    d.meshCoarsenFactor = 6.0;
+    d.meshCellSizeM = 3.5;
+    d.meshCoarsenFactor = 12.0;
     d.meshSizeRatio = 1.3;
-    d.meshMinCellSizeM = 2.5;
-    d.meshTerrainToleranceM = 0.25;
-    d.meshTrianglesOnly = true;
-    d.meshTrimTurnDeg = 8.0;
+    d.meshMinCellSizeM = 0.8;
+    d.meshTerrainToleranceM = 0.1;
+    d.meshMinAngleDeg = 26.0;
+    d.meshQuadsBetweenBreaklines = false;
+    d.meshTrimTurnDeg = 3.0;
     d.meshTrimDeviationM = 0.4;
     d.meshIdwPower = 3.0;
     d.meshNodeFlattenRadM = 8.0;
@@ -128,8 +130,8 @@ void TestTwoDDefaultsPrefs::roundTripPersistsAllFields()
     d.meshNodesUseRim = false;
     d.meshMinNodeSepOn = false;
     d.meshMinNodeSepM = 3.0;
+    d.meshInitDepth = 0.05;
     d.meshManningsN = 0.05;
-    d.meshInitDepth = 0.1;
     d.meshOutputExternal = false;
 
     p->setTwoDDefaults(d);
@@ -158,7 +160,8 @@ void TestTwoDDefaultsPrefs::roundTripPersistsAllFields()
     QCOMPARE(r.meshSizeRatio, d.meshSizeRatio);
     QCOMPARE(r.meshMinCellSizeM, d.meshMinCellSizeM);
     QCOMPARE(r.meshTerrainToleranceM, d.meshTerrainToleranceM);
-    QCOMPARE(r.meshTrianglesOnly, d.meshTrianglesOnly);
+    QCOMPARE(r.meshMinAngleDeg, d.meshMinAngleDeg);
+    QCOMPARE(r.meshQuadsBetweenBreaklines, d.meshQuadsBetweenBreaklines);
     QCOMPARE(r.meshTrimTurnDeg, d.meshTrimTurnDeg);
     QCOMPARE(r.meshTrimDeviationM, d.meshTrimDeviationM);
     QCOMPARE(r.meshIdwPower, d.meshIdwPower);
@@ -167,8 +170,8 @@ void TestTwoDDefaultsPrefs::roundTripPersistsAllFields()
     QCOMPARE(r.meshNodesUseRim, d.meshNodesUseRim);
     QCOMPARE(r.meshMinNodeSepOn, d.meshMinNodeSepOn);
     QCOMPARE(r.meshMinNodeSepM, d.meshMinNodeSepM);
-    QCOMPARE(r.meshManningsN, d.meshManningsN);
     QCOMPARE(r.meshInitDepth, d.meshInitDepth);
+    QCOMPARE(r.meshManningsN, d.meshManningsN);
     QCOMPARE(r.meshOutputExternal, d.meshOutputExternal);
 
     // Restore compiled-in defaults so later tests see a clean slate.

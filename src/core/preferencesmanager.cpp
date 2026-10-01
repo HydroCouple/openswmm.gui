@@ -11,6 +11,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include <algorithm>
+
 namespace {
 
 // All keys live under SWMMVis/Preferences/<group>/<key> so a future
@@ -1713,7 +1715,10 @@ PreferencesManager::TwoDDefaults PreferencesManager::twoDDefaults() const
     d.meshSizeRatio         = readTwoDSetting<double>(s, QStringLiteral("MeshSizeRatio"),         d.meshSizeRatio);
     d.meshMinCellSizeM      = readTwoDSetting<double>(s, QStringLiteral("MeshMinCellSizeM"),      d.meshMinCellSizeM);
     d.meshTerrainToleranceM = readTwoDSetting<double>(s, QStringLiteral("MeshTerrainToleranceM"), d.meshTerrainToleranceM);
-    d.meshTrianglesOnly     = readTwoDSetting<bool>(s,   QStringLiteral("MeshTrianglesOnly"),     d.meshTrianglesOnly);
+    // Same key as the pre-overhaul Triangle bound: a saved value carries over
+    // (the triangle engine gives it the same meaning, MESH_TRIANGLE_ENGINE_PLAN D10).
+    d.meshMinAngleDeg       = std::clamp(readTwoDSetting<double>(s, QStringLiteral("MeshMinAngleDeg"), d.meshMinAngleDeg), 20.0, 33.0);
+    d.meshQuadsBetweenBreaklines = readTwoDSetting<bool>(s, QStringLiteral("MeshQuadsBetweenBreaklines"), d.meshQuadsBetweenBreaklines);
     d.meshTrimTurnDeg       = readTwoDSetting<double>(s, QStringLiteral("MeshTrimTurnDeg"),       d.meshTrimTurnDeg);
     d.meshTrimDeviationM    = readTwoDSetting<double>(s, QStringLiteral("MeshTrimDeviationM"),    d.meshTrimDeviationM);
     // Migration from the pre-overhaul seeds (MESH_OVERHAUL_PLAN_2026-09-29.md
@@ -1775,7 +1780,8 @@ void PreferencesManager::setTwoDDefaults(const TwoDDefaults &d)
     put(QStringLiteral("MeshSizeRatio"),         d.meshSizeRatio);
     put(QStringLiteral("MeshMinCellSizeM"),      d.meshMinCellSizeM);
     put(QStringLiteral("MeshTerrainToleranceM"), d.meshTerrainToleranceM);
-    put(QStringLiteral("MeshTrianglesOnly"),     d.meshTrianglesOnly);
+    put(QStringLiteral("MeshMinAngleDeg"),       d.meshMinAngleDeg);
+    put(QStringLiteral("MeshQuadsBetweenBreaklines"), d.meshQuadsBetweenBreaklines);
     put(QStringLiteral("MeshTrimTurnDeg"),       d.meshTrimTurnDeg);
     put(QStringLiteral("MeshTrimDeviationM"),    d.meshTrimDeviationM);
     put(QStringLiteral("MeshIdwPower"),          d.meshIdwPower);

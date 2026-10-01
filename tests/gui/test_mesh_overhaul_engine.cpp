@@ -3,8 +3,10 @@
 // Mesh overhaul Phase 7 step 4 (MESH_OVERHAUL_PHASE7_HANDOFF_2026-09-30.md):
 // engine round trip on meshes from the NEW generator.
 //
-//  1. Lake at rest — the SWASHES immersed-bump deck re-meshed (quads and
-//     triangles-only): the engine must hold max |h − h0| = 0 exactly and
+//  1. Lake at rest — the SWASHES immersed-bump deck re-meshed (triangles,
+//     and triangles round a four-sided quad region — the triangle engine,
+//     MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md): the engine must hold
+//     max |h − h0| = 0 exactly and
 //     conserve volume to 1e-9 over the run. Also proves Q1 by construction:
 //     the engine accepts the mesh with no T-junction/degenerate-cell
 //     complaints.
@@ -127,14 +129,14 @@ private slots:
 
     void lakeAtRest_data()
     {
-        QTest::addColumn<bool>("trianglesOnly");
-        QTest::newRow("quads") << false;
-        QTest::newRow("triangles") << true;
+        QTest::addColumn<bool>("quadRegion");
+        QTest::newRow("triangles") << false;
+        QTest::newRow("quad-region") << true;
     }
 
     void lakeAtRest()
     {
-        QFETCH(bool, trianglesOnly);
+        QFETCH(bool, quadRegion);
         const QString shippedInp =
             m_repo + "/examples/swashes_lake_at_rest_immersed/2d_explicit.inp";
         const ShippedMesh shipped = parseInlineMesh(shippedInp);
@@ -154,14 +156,28 @@ private slots:
         mesh::MeshGenerator g;
         g.setDomain(QPolygonF(QVector<QPointF>{
             {x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}));
+        if (quadRegion) {
+            // Aligned quads down the middle of the channel, triangles round
+            // them: the mixed mesh must be at rest too.
+            mesh::QuadRegion qr;
+            qr.ring = QPolygonF(QVector<QPointF>{
+                {x0 + 2.0, -0.6}, {x1 - 2.0, -0.6}, {x1 - 2.0, 0.6}, {x0 + 2.0, 0.6}});
+            qr.spacing = 0.4;
+            g.addQuadRegion(qr);
+        }
         mesh::GenerationOptions o;
         o.maxArea       = kSqrt3_4;          // cell size 1 m ≈ the shipped grid
         o.minCellSize   = 0.25;
-        o.trianglesOnly = trianglesOnly;
         g.setOptions(o);
         mesh::MeshResult m = g.generate();
         QVERIFY2(m.errorMsg.isEmpty(), qPrintable(m.errorMsg));
         QVERIFY(m.triangles.size() > 0);
+        int quadCells = 0;
+        for (const auto &cell : m.triangles) quadCells += cell.isQuad() ? 1 : 0;
+        if (quadRegion)
+            QVERIFY2(quadCells > 0, qPrintable(g.quadRegionReports().value(0).message));
+        else
+            QCOMPARE(quadCells, 0);
 
         // Bed from the shipped surface; lake-at-rest initial condition.
         for (auto &v : m.vertices) v.z = bedAt(shipped, v.xy);

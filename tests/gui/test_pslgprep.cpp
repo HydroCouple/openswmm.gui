@@ -284,6 +284,35 @@ private slots:
         QCOMPARE(pts[2].xy, QPointF(1.0, 1.0));
         QCOMPARE(pts[3].xy, QPointF(2.0, 2.0));
     }
+
+    void unfoldPolyline_reversedListsAndHairpins()
+    {
+        using mesh::pslg::unfoldPolyline;
+        bool changed = true;
+        // A good alignment is left alone.
+        const QVector<QPointF> good {{0, 0}, {10, 1}, {20, 0}, {30, 2}};
+        QCOMPARE(unfoldPolyline(good, 150.0, &changed), good);
+        QVERIFY(!changed);
+        // Interior vertices stored from the to-node back (Bellinge
+        // G61F042_G61F041): reversed.
+        const QVector<QPointF> backwards {{0, 0}, {29, 1}, {20, 0.5}, {10, 1}, {1, 0.5}, {30, 0}};
+        QCOMPARE(unfoldPolyline(backwards, 150.0, &changed),
+                 (QVector<QPointF>{{0, 0}, {1, 0.5}, {10, 1}, {20, 0.5}, {29, 1}, {30, 0}}));
+        QVERIFY(changed);
+        // A stray vertex 30 m back along the line (G80F560_G80F540) and a
+        // spike at the start (G72K050_G72F050): dropped, ends kept.
+        const QVector<QPointF> stray {{0, 0}, {10, 0}, {20, 0}, {5, 0.2}, {40, 0}};
+        const QVector<QPointF> fixedStray = unfoldPolyline(stray, 150.0, &changed);
+        QVERIFY(changed);
+        QCOMPARE(fixedStray.first(), QPointF(0, 0));
+        QCOMPARE(fixedStray.last(), QPointF(40, 0));
+        for (int k = 1; k + 1 < fixedStray.size(); ++k)
+            QVERIFY(fixedStray[k].x() > fixedStray[k - 1].x());
+        const QVector<QPointF> spike {{0, 0}, {-0.9, 0.6}, {-0.7, 0.45}, {8, -8}, {15, -15}};
+        QCOMPARE(unfoldPolyline(spike), (QVector<QPointF>{{0, 0}, {8, -8}, {15, -15}}));
+        // Two points: nothing to do.
+        QCOMPARE(unfoldPolyline({{0, 0}, {1, 1}}), (QVector<QPointF>{{0, 0}, {1, 1}}));
+    }
 };
 
 QTEST_MAIN(TestPslgPrep)

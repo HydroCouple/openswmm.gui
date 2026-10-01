@@ -7,7 +7,8 @@
  *           - nodes → Steiner vertices ON, at rim elevation, with the
  *             minimum node separation enforced
  *           - cell size derived from the extent, size ratio 1.5, terrain
- *             tolerance off (MESH_OVERHAUL_PLAN_2026-09-29.md §3)
+ *             tolerance off, mixed cell shape (MESH_OVERHAUL_PLAN_2026-09-29.md
+ *             §3, PHASE6B §2.2)
  *           - SI-canonical lengths scaled to the model unit
  *           - a 2D Defaults preference override reaches the dialog
  *
@@ -105,6 +106,10 @@ private slots:
         QCOMPARE(cell->value(), 0.0);       // (from extent)
         QCOMPARE(ratio->value(), 1.5);
         QCOMPARE(tol->value(), 0.0);        // terrain roughness off until asked
+        // Triangle engine: a 30° bound, quads in streets, no conduit strips.
+        QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshMinAngleSpin")->value(), 30.0);
+        QVERIFY(seam<QCheckBox>(&dlg, "meshStreetQuadsBox")->isChecked());
+        QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshConduitStripSpin")->value(), 0.0);
     }
 
     void lengthsAreScaledToTheModelUnit()
@@ -137,14 +142,16 @@ private slots:
         d.meshNodesAsVertices = false;
         d.meshNodesUseRim     = false;
         d.meshSizeRatio       = 1.25;
-        d.meshTrianglesOnly   = true;
+        d.meshMinAngleDeg     = 26.0;
+        d.meshQuadsBetweenBreaklines = false;
         PreferencesManager::instance()->setTwoDDefaults(d);
 
         MeshGenerationDialog dlg(m_window, m_window);
         QVERIFY(!seam<QCheckBox>(&dlg, "meshNodesAsVerticesBox")->isChecked());
         QVERIFY(!seam<QCheckBox>(&dlg, "meshNodesUseRimBox")->isChecked());
         QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshSizeRatioSpin")->value(), 1.25);
-        QCOMPARE(seam<QComboBox>(&dlg, "meshCellShapeCombo")->currentIndex(), 1);
+        QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshMinAngleSpin")->value(), 26.0);
+        QVERIFY(!seam<QCheckBox>(&dlg, "meshStreetQuadsBox")->isChecked());
 
         PreferencesManager::instance()->setTwoDDefaults(PreferencesManager::TwoDDefaults{});
     }

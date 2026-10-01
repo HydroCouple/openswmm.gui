@@ -77,8 +77,9 @@ private slots:
         QGroupBox *bnd = groupTitled(m_dlg, QStringLiteral("Boundaries"));
         QVERIFY2(res && shape && bnd, "Resolution / Shape / Boundaries groups are missing");
         QCOMPARE(res->findChildren<QDoubleSpinBox *>().size(), 5);   // size, coarsen, ratio, floor, terrain
-        QCOMPARE(shape->findChildren<QComboBox *>().size(), 2);      // cell shape, region layer
-        QCOMPARE(shape->findChildren<QDoubleSpinBox *>().size(), 1); // grid angle
+        QCOMPARE(shape->findChildren<QComboBox *>().size(), 1);      // region layer
+        QCOMPARE(shape->findChildren<QDoubleSpinBox *>().size(), 2); // minimum angle, conduit strip width
+        QCOMPARE(shape->findChildren<QCheckBox *>().size(), 1);      // quads between facing break lines
         QCOMPARE(bnd->findChildren<QDoubleSpinBox *>().size(), 2);   // turn, deviation
         // The retired groups are gone.
         for (const char *gone : {"Triangle quality", "Minimum Cell Size", "Terrain-Adaptive Thinning",
@@ -104,10 +105,10 @@ private slots:
         const auto bspins = bnd->findChildren<QDoubleSpinBox *>();
         QCOMPARE(bspins[0]->value(), t.meshTrimTurnDeg);
         QCOMPARE(bspins[0]->suffix(), QStringLiteral("°"));
-        QGroupBox *shape = groupTitled(m_dlg, QStringLiteral("Shape"));
-        const auto combos = shape->findChildren<QComboBox *>();
-        QCOMPARE(combos[0]->count(), 2);
-        QCOMPARE(combos[0]->currentIndex(), t.meshTrianglesOnly ? 1 : 0);
+        // Triangle engine (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5).
+        QCOMPARE(m_dlg->findChild<QDoubleSpinBox *>(QStringLiteral("meshMinAngleSpin"))->value(), t.meshMinAngleDeg);
+        QCOMPARE(m_dlg->findChild<QCheckBox *>(QStringLiteral("meshStreetQuadsBox"))->isChecked(), t.meshQuadsBetweenBreaklines);
+        QCOMPARE(m_dlg->findChild<QDoubleSpinBox *>(QStringLiteral("meshConduitStripSpin"))->value(), 0.0);
     }
 
 private:

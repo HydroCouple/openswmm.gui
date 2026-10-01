@@ -40,6 +40,7 @@
 #include "project/generatedmeshartifacts.h"
 #include "mesh/pslgprep.h"
 #include "mesh/sizefield.h"
+#include "mesh/terrainbreaklines.h"
 #include "mesh/terrainsizefield.h"
 
 #include <openswmm/engine/openswmm_inflows.h>
@@ -631,15 +632,20 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
         if (in.includeConduits)
         {
+            int unfolded = 0;
             for (const auto &link : std::as_const(in.candidateLinks))
             {
-                // Dedupe, then drop intermediate vertices closer than the
-                // minimum cell size (deviation-capped, endpoints kept): the
-                // alignment keeps its shape and coupling identity, and no
-                // conduit vertex pair can demand a sub-floor cell.
-                QVector<QPointF> path = mesh::pslg::resampleMinLength(
-                    clipIntermediateToDomain(dedupeSegPath(link.second)),
-                    in.minCellSize, 0.1 * in.minCellSize);
+                // Dedupe, unfold (a vertex list stored backwards or a stray
+                // vertex folds the alignment onto itself), then drop
+                // intermediate vertices closer than the minimum cell size
+                // (deviation-capped, endpoints kept): the alignment keeps its
+                // shape and coupling identity, and no conduit vertex pair can
+                // demand a sub-floor cell.
+                bool changed = false;
+                QVector<QPointF> path = mesh::pslg::unfoldPolyline(dedupeSegPath(link.second), 150.0, &changed);
+                if (changed) ++unfolded;
+                path = mesh::pslg::resampleMinLength(clipIntermediateToDomain(path),
+                                                     in.minCellSize, 0.1 * in.minCellSize);
                 if (path.size() < 2) continue;
                 // Both endpoints must be inside the domain polygon — a link
                 // crossing the boundary without a vertex at the crossing
@@ -647,10 +653,14 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 if (!inDomain(path.first()) || !inDomain(path.last())) continue;
                 mesh::ConstraintSegment cs;
                 cs.path = std::move(path); cs.marker = nextMarker; cs.tag = link.first;
+                cs.stripWidth = in.conduitStripWidth;   // 0 = plain edges (MESH_TRIANGLE_ENGINE_PLAN D12.4)
                 in.constraintSegs.append(cs);
                 in.edgeMarkerToTag.insert(nextMarker, link.first);
                 ++nextMarker;
             }
+            if (unfolded > 0)
+                qInfo() << "[Mesh]" << unfolded
+                        << "conduit alignment(s) unfolded (vertices stored backwards or a stray vertex)";
         }
 
         for (const auto &ap : std::as_const(in.auxPoints))
@@ -1025,11 +1035,10 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     for (const auto &cs : std::as_const(in.constraintSegs))
         g.addConstraintSegment(cs);
 
-    // ── Quad regions (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ──────────
+    // ── Quad regions (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D12.1) ──
     // A region is a polygon with an optional size (field "h" or
-    // "quad_spacing"), an optional grid angle ("angle" or "quad_angle",
-    // degrees from +x CCW — the region then gets its own quadtree frame)
-    // and an optional "tag". Layer regions are read HERE with a fresh GDAL
+    // "quad_spacing") and an optional "tag"; a four-sided one is filled with
+    // quads aligned to its sides, any other keeps triangles inside. Layer regions are read HERE with a fresh GDAL
     // handle (handles must not cross threads); subcatchment regions arrive
     // resolved from collectInputs and are appended after them.
     QVector<mesh::QuadRegion> quadRegions;
@@ -1090,9 +1099,6 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                     for (const char *name : {"h", "quad_spacing"})
                         if (const int i = fieldIdx(name); i >= 0 && f->IsFieldSetAndNotNull(i))
                         { r.spacing = f->GetFieldAsDouble(i); break; }
-                    for (const char *name : {"angle", "quad_angle"})
-                        if (const int i = fieldIdx(name); i >= 0 && f->IsFieldSetAndNotNull(i))
-                        { r.hasAlignAngle = true; r.alignAngleDeg = f->GetFieldAsDouble(i); break; }
                     if (const int i = fieldIdx("tag"); i >= 0 && f->IsFieldSetAndNotNull(i))
                         r.tag = QString::fromUtf8(f->GetFieldAsString(i));
                     if (!(r.spacing > 0.0) || !std::isfinite(r.spacing)) r.spacing = 0.0;
@@ -1444,6 +1450,16 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 ? 0.5 * sizeOptions.nearSize / unitScale : 0.0;
             tso.outLevel = (pitchDem > 0.0 && thinner.pixelSize() > 0.0)
                 ? qBound(1, int(std::floor(std::log2(pitchDem / thinner.pixelSize()))), 6) : 1;
+            // Terrain break lines (Phase 6b §2.1) ride the same row pass:
+            // one tolerance, one meaning — where the surface departs from a
+            // plane by more than it, the mesh gets an edge.
+            mesh::TerrainBreaklineExtractor breaklines;
+            mesh::TerrainBreaklineOptions blo;
+            blo.tolerance = tso.tolerance;
+            tso.rowSink = [&breaklines, &blo](const float *row, int r, int cols, int rows) {
+                if (r == 0) breaklines.begin(cols, rows, blo);
+                breaklines.pushRow(row);
+            };
             stageClock.restart();
             const bool built = terrainField.buildFromFile(
                 in.dtmPath, 1, dx0, dy0, dx1, dy1, tso,
@@ -1463,6 +1479,48 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             qCInfo(lcMeshPerf) << "[Mesh][terrain] size field" << terrainField.outCols()
                                << "x" << terrainField.outRows() << "| levels" << terrainField.levelsUsed()
                                << "| tolerance (DEM units)" << tso.tolerance << "| unit scale" << unitScale;
+            {
+                // Window pixels → DEM CRS → mesh CRS. A chain with any point
+                // that fails reprojection is dropped whole (a gap would be
+                // bridged by a straight segment).
+                const QVector<QVector<QPointF>> chains = breaklines.finish();
+                QVector<QVector<QPointF>> lines;
+                lines.reserve(chains.size());
+                qsizetype dropped = 0;
+                for (const QVector<QPointF> &chain : chains)
+                {
+                    QVector<double> xs(chain.size()), ys(chain.size());
+                    for (int k = 0; k < chain.size(); ++k)
+                    {
+                        const QPointF geo = terrainField.windowPixelToGeo(chain[k].x(), chain[k].y());
+                        xs[k] = geo.x(); ys[k] = geo.y();
+                    }
+                    if (transformChecked(dtmToMesh, xs.size(), xs.data(), ys.data()) > 0) { ++dropped; continue; }
+                    QVector<QPointF> line(chain.size());
+                    for (int k = 0; k < chain.size(); ++k) line[k] = QPointF(xs[k], ys[k]);
+                    lines.append(std::move(line));
+                }
+                g.setTerrainBreaklines(lines);
+                // The lines the generator will keep become mesh edges: the size
+                // field must not refine around their steps
+                // (MESH_TRIANGLE_ENGINE_PLAN D13). Lines it drops keep theirs.
+                sizeOptions.steps = g.previewTerrainBreaklines();
+                QVector<int> lengths;
+                lengths.reserve(chains.size());
+                for (const auto &c : chains) lengths.append(int(c.size()));
+                std::sort(lengths.begin(), lengths.end());
+                const int medianLength = lengths.isEmpty() ? 0 : lengths[lengths.size() / 2];
+                qCInfo(lcMeshPerf) << "[Mesh][terrain] break lines extracted" << lines.size()
+                                   << "| median length (px)" << medianLength
+                                   << "| dropped (reprojection)" << dropped
+                                   << (breaklines.skipped() ? "| SKIPPED: DEM window over the pixel cap" : "");
+                // Many short chains = the tolerance is inside the DEM's noise
+                // (SRTM stores whole metres: anything under ~3 m traces noise).
+                if (lines.size() > 500 && medianLength < 10)
+                    qWarning() << "[Mesh][terrain]" << lines.size() << "short break lines (median"
+                               << medianLength << "px): the terrain tolerance" << in.terrainTolerance
+                               << "looks smaller than the DEM's noise — the mesh will follow noise.";
+            }
             sizeOptions.terrainSizeAt = [&terrainField, meshToDTM, unitScale](double x, double y) {
                 double gx = x, gy = y;
                 if (meshToDTM && !meshToDTM->Transform(1, &gx, &gy)) return 0.0;
@@ -1557,12 +1615,32 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 return sizeField.targetAreaAt(x, y);
             };
         }
+        // Ground elevation for the street / ditch trough test (DEM units —
+        // only compared with itself).
+        if (useDTM)
+            hook.elevationAt = [&thinner, meshToDTM](double x, double y) {
+                double gx = x, gy = y;
+                if (meshToDTM && !meshToDTM->Transform(1, &gx, &gy)) return std::numeric_limits<double>::quiet_NaN();
+                return thinner.sampleAt(gx, gy);
+            };
         g.setRefineHook(hook);
     }
 
     stageClock.restart();
     mesh::MeshResult result = g.generate();
     stageMark("generate()");
+    if (!g.acceptedTerrainBreaklines().isEmpty())
+        qCInfo(lcMeshPerf) << "[Mesh][terrain] break lines kept as mesh edges"
+                           << g.acceptedTerrainBreaklines().size();
+    {
+        const mesh::GenerationStats &st = g.stats();
+        qCInfo(lcMeshPerf) << "[Mesh] quad strips: regions" << st.regionPatches << "| conduits" << st.conduitStrips
+                           << "| streets/ditches" << st.breaklineStrips << "| dropped" << st.stripsDropped
+                           << "| refinement added" << st.refineInserted << "vertices"
+                           << "| triangles under the angle bound (strip edges, close inputs)" << st.trianglesBelowAngle;
+        if (st.refineCapped)
+            qWarning() << "[Mesh] refinement hit its safety cap — some triangles miss the size or angle bound.";
+    }
     if (promise.isCanceled())
     {
         if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
@@ -1582,6 +1660,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     {
         qCInfo(lcMeshPerf).nospace() << "[Mesh][quad] region " << rep.index
                                      << (rep.accepted ? " accepted" : " skipped")
+                                     << (rep.resolved == mesh::QuadRegionMode::Mapped ? " | quads" : " | triangles")
                                      << " | h " << rep.spacing
                                      << (rep.message.isEmpty() ? QString() : QStringLiteral(" | ") + rep.message);
         if (!rep.accepted)
@@ -2182,6 +2261,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     PResult out;
     out.ok         = true;
     out.meshResult = std::move(result);
+    out.generationStats = g.stats();
     out.coupling   = std::move(coupling);
     out.meshPath   = intendedMeshPath;
     out.outputMode = in.outputMode;
@@ -2652,9 +2732,9 @@ void MeshGenerationDialog::buildUi()
                  tr("S&ources"));
 
     // ================================================================
-    // Tab 2 — Quality (MESH_OVERHAUL_PLAN_2026-09-29.md §3)
-    // Eleven controls in three groups, every one in a physical unit:
-    // Resolution (size field), Shape (cell type, orientation, regions,
+    // Tab 2 — Quality (MESH_OVERHAUL_PLAN_2026-09-29.md §3,
+    // MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5): Resolution (size field),
+    // Shape (minimum angle, where quads go: streets, conduits, regions,
     // corridors) and Boundaries (straightness trimming).
     // ================================================================
     auto *qualityPage = new QWidget;
@@ -2714,7 +2794,9 @@ void MeshGenerationDialog::buildUi()
         m_terrainTolSpin->setToolTip(tr(
             "Vertical tolerance for terrain fidelity: cells are refined "
             "wherever the DEM deviates from a cell-sized plane by more than "
-            "this. Needs a DTM. 0 ignores terrain roughness."));
+            "this, and where the surface breaks by more than this (a curb, "
+            "a wall, a bank) a mesh edge is laid along the break. Needs a "
+            "DTM; set it above the DEM noise. 0 ignores terrain."));
         f->addRow(tr("&Terrain tolerance:"), m_terrainTolSpin);
 
         qualityVBox->addWidget(g);
@@ -2726,33 +2808,51 @@ void MeshGenerationDialog::buildUi()
         auto *f = new QFormLayout(g);
         f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
 
-        m_cellShapeCombo = new QComboBox(g);
-        m_cellShapeCombo->setObjectName(QStringLiteral("meshCellShapeCombo"));
-        m_cellShapeCombo->addItem(tr("Quads where possible"));
-        m_cellShapeCombo->addItem(tr("Triangles"));
-        m_cellShapeCombo->setToolTip(tr(
-            "Quads where possible: square cells in the interior, triangles "
-            "and paired quads where the geometry demands them. Triangles: "
-            "every cell a triangle."));
-        f->addRow(tr("Cell &shape:"), m_cellShapeCombo);
+        // Triangles everywhere, quads only in aligned strips
+        // (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D10–D12).
+        m_minAngleSpin = new QDoubleSpinBox(g);
+        m_minAngleSpin->setObjectName(QStringLiteral("meshMinAngleSpin"));
+        m_minAngleSpin->setRange(20.0, 33.0);
+        m_minAngleSpin->setDecimals(1);
+        m_minAngleSpin->setSuffix(QStringLiteral("°"));
+        m_minAngleSpin->setToolTip(tr(
+            "Every triangle's smallest angle reaches this: higher gives rounder "
+            "triangles and more of them. The exceptions are the wedge between "
+            "two lines that meet at a smaller angle and triangles resting on "
+            "the edge of a quad strip."));
+        f->addRow(tr("Minimum &angle:"), m_minAngleSpin);
 
-        m_gridAngleSpin = new QDoubleSpinBox(g);
-        m_gridAngleSpin->setRange(-90.0, 90.0);
-        m_gridAngleSpin->setDecimals(1);
-        m_gridAngleSpin->setSuffix(QStringLiteral("°"));
-        m_gridAngleSpin->setToolTip(tr(
-            "Orientation of the background grid, degrees from the +x axis "
-            "counter-clockwise. A region layer can override it per polygon."));
-        f->addRow(tr("Grid &orientation:"), m_gridAngleSpin);
+        m_streetQuadsBox = new QCheckBox(tr("Quads between facing break lines (streets, ditches)"), g);
+        m_streetQuadsBox->setObjectName(QStringLiteral("meshStreetQuadsBox"));
+        m_streetQuadsBox->setToolTip(tr(
+            "Where two terrain break lines run side by side with lower ground "
+            "between them — the curbs of a street, the banks of a ditch — the "
+            "cells between them are rows of quads along the feature. Needs a "
+            "DTM and a terrain tolerance; everywhere else the mesh is "
+            "triangles."));
+        f->addRow(QString(), m_streetQuadsBox);
+
+        m_conduitStripSpin = new QDoubleSpinBox(g);
+        m_conduitStripSpin->setObjectName(QStringLiteral("meshConduitStripSpin"));
+        m_conduitStripSpin->setRange(0.0, 1e6);
+        m_conduitStripSpin->setDecimals(3);
+        m_conduitStripSpin->setSpecialValueText(tr("(off)"));
+        m_conduitStripSpin->setToolTip(tr(
+            "Width of a strip of quads laid along every conduit, the conduit "
+            "on its middle row. Each strip stops one to four widths short of "
+            "the conduit's ends so strips never meet at a junction; a strip "
+            "that would cross or crowd another feature is left out and the "
+            "conduit stays a line of triangle edges."));
+        f->addRow(tr("Conduit &quad strip width:"), m_conduitStripSpin);
 
         m_quadRegionLayerCombo = new QComboBox(g);
         m_quadRegionLayerCombo->setToolTip(tr(
-            "Polygon layer whose features override the size and orientation "
-            "inside them (exterior rings only; read in the worker and "
-            "reprojected to the mesh CRS).\n\n"
+            "Polygon layer of quad regions (exterior rings only; read in the "
+            "worker and reprojected to the mesh CRS). A four-sided polygon is "
+            "filled with quads aligned to its sides; any other shape keeps "
+            "its outline as cell edges with triangles inside.\n\n"
             "Optional per-feature attributes:\n"
             "  h / quad_spacing   cell size inside the polygon (map units)\n"
-            "  angle / quad_angle grid orientation in degrees from +x\n"
             "  tag                cell tag"));
         f->addRow(tr("Region &layer:"), m_quadRegionLayerCombo);
 
@@ -2760,7 +2860,8 @@ void MeshGenerationDialog::buildUi()
         m_quadRegionSubcatchEdit->setPlaceholderText(tr("comma-separated subcatchment IDs"));
         m_quadRegionSubcatchEdit->setToolTip(tr(
             "Subcatchment polygons whose rings become cell boundaries, tagged "
-            "subcatch_<ID>. An unknown ID stops generation with an error."));
+            "subcatch_<ID>; four-sided ones are filled with aligned quads. An "
+            "unknown ID stops generation with an error."));
         f->addRow(tr("Subcatchments:"), m_quadRegionSubcatchEdit);
 
         qualityVBox->addWidget(g);
@@ -3237,6 +3338,7 @@ void MeshGenerationDialog::updateUnitDisplay()
     if (m_cellSizeSpin)      m_cellSizeSpin->setSuffix(suf);
     if (m_minCellSizeSpin)   m_minCellSizeSpin->setSuffix(suf);
     if (m_terrainTolSpin)    m_terrainTolSpin->setSuffix(suf);
+    if (m_conduitStripSpin)  m_conduitStripSpin->setSuffix(suf);
     if (m_trimDeviationSpin) m_trimDeviationSpin->setSuffix(suf);
 }
 
@@ -3307,8 +3409,9 @@ void MeshGenerationDialog::seedDefaults()
     m_sizeRatioSpin->setValue(t.meshSizeRatio);
     m_minCellSizeSpin->setValue(t.meshMinCellSizeM * toUnit);
     m_terrainTolSpin->setValue(t.meshTerrainToleranceM * toUnit);
-    m_cellShapeCombo->setCurrentIndex(t.meshTrianglesOnly ? 1 : 0);
-    m_gridAngleSpin->setValue(0.0);
+    m_minAngleSpin->setValue(t.meshMinAngleDeg);
+    m_streetQuadsBox->setChecked(t.meshQuadsBetweenBreaklines);
+    m_conduitStripSpin->setValue(0.0);
     m_trimTurnSpin->setValue(t.meshTrimTurnDeg);
     m_trimDeviationSpin->setValue(t.meshTrimDeviationM * toUnit);
     if (m_corridorSources && m_pw) m_corridorSources->setSources(m_pw->corridorSources());
@@ -3542,8 +3645,9 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                                                             : 0.1 * out->cellSize;
     out->genOpts.maxArea       = 0.4330127018922193 * out->cellSize * out->cellSize;
     out->genOpts.minCellSize   = out->minCellSize;
-    out->genOpts.trianglesOnly = m_cellShapeCombo->currentIndex() == 1;
-    out->genOpts.frameAngleDeg = m_gridAngleSpin->value();
+    out->genOpts.minAngleDeg   = m_minAngleSpin->value();
+    out->genOpts.quadsBetweenBreaklines = m_streetQuadsBox->isChecked();
+    out->conduitStripWidth     = m_conduitStripSpin->value();
 
     // ── Mesh CRS — initialised first so every source can reproject to it ──
     // All PSLG inputs (domain polygons, hole rings, constraint segments,

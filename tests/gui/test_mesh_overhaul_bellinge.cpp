@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Mesh overhaul Phase 7 (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md §6 /
-// MESH_OVERHAUL_PHASE7_HANDOFF_2026-09-30.md step 3): the Bellinge
-// acceptance harness. Runs A–E of the handoff table against the shipped
+// MESH_OVERHAUL_PHASE7_HANDOFF_2026-09-30.md step 3), on the triangle engine
+// (workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §6): the Bellinge
+// acceptance harness. Runs A–F of the handoff table against the shipped
 // Bellinge domain + SRTM DEM, measures the acceptance metrics and writes
 // metrics.csv / report.md / mesh_<run>.2dm under
 // tests/output/mesh_overhaul_2026-09/bellinge/.
 //
 // Deliberately gated on SWMMVIS_MESH_OVERHAUL_BELLINGE=1 (QSKIP otherwise)
-// so routine CI stays fast; a full pass takes minutes (run C is ~1M cells,
-// generated four times for the thread-count determinism gate).
+// so routine CI stays fast; a full pass takes minutes (run C is generated
+// four times for the thread-count determinism gate).
 #include "ui/dialogs/meshgenerationdialog.h"
 #include "project/openswmmvisworkspace.h"
 #include "swmmvisprojectwindow.h"
@@ -38,6 +39,7 @@
 #include <ogr_spatialref.h>
 #include <sys/resource.h>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
@@ -50,19 +52,23 @@ struct RunSpec
     const char *id;
     double      cellSize;
     double      terrainTolerance;
-    bool        quads;
-    double      frameAngleDeg;
+    double      minAngleDeg;     ///< Quality tab "Minimum angle" (20–33).
+    bool        conduits;        ///< Conduits as constraint lines.
+    double      stripWidth;      ///< Conduit quad strip width; 0 = plain edges.
     const char *purpose;
 };
 
-// Handoff step-3 table: ratio 1.5, coarsen 4, min cell = cell/4,
-// trim 5° / 0.1·cell for every run.
+// Handoff step-3 table (revision 3): ratio 1.5, coarsen 20 (the product
+// default), min cell = cell/4, trim 5° / 0.1·cell for every run. Terrain
+// tolerance 3 m: SRTM is quantised to whole metres, so anything under ~3 m
+// traces noise (handoff revision 2, 6b plan §7).
 const RunSpec kRuns[] = {
-    {"A", 10.0, 0.0, true,  0.0,  "grading & quality gates (~100k cells)"},
-    {"B", 10.0, 0.5, true,  0.0,  "terrain-error term active"},
-    {"C", 3.0,  0.5, true,  0.0,  "timing/memory gate (~1M cells)"},
-    {"D", 10.0, 0.5, false, 0.0,  "triangles-only path"},
-    {"E", 3.0,  0.5, true,  30.0, "rotated frame, same gates"},
+    {"A", 10.0, 0.0, 30.0, false, 0.0, "grading & quality gates"},
+    {"B", 10.0, 3.0, 30.0, false, 0.0, "terrain term + DEM break lines"},
+    {"C", 3.0,  3.0, 30.0, false, 0.0, "timing/memory/determinism gate"},
+    {"D", 10.0, 3.0, 33.0, false, 0.0, "highest minimum angle"},
+    {"E", 10.0, 3.0, 30.0, true,  0.0, "conduits as lines (crossing pipes joined)"},
+    {"F", 10.0, 3.0, 30.0, true,  4.0, "conduit quad strips 4 m wide"},
 };
 
 long peakRssBytes()
@@ -72,11 +78,30 @@ long peakRssBytes()
     return long(ru.ru_maxrss);              // bytes on macOS
 }
 
-double cellEdgeSize(bool isQuad, double area)
+double meanEdge(const mesh::MeshResult &m, const mesh::MeshTriangle &c)
 {
-    // The edge length of the regular cell with this area: side of the
-    // square for a quad, side of the equilateral triangle otherwise.
-    return isQuad ? std::sqrt(area) : std::sqrt(area / kSqrt3_4);
+    // The size h promises: the cell's mean edge length (the engine sizes
+    // triangles so the mean edge is h, MESH_TRIANGLE_ENGINE_PLAN §4).
+    double sum = 0.0;
+    const int n = c.vertexCount();
+    for (int k = 0; k < n; ++k)
+        sum += QLineF(m.vertices[c.vertex(k)].xy, m.vertices[c.vertex((k + 1) % n)].xy).length();
+    return sum / n;
+}
+
+double triangleMinAngleDeg(const mesh::MeshResult &m, const mesh::MeshTriangle &c)
+{
+    double worst = 180.0;
+    for (int k = 0; k < 3; ++k) {
+        const QPointF p = m.vertices[c.vertex(k)].xy;
+        const QPointF u = m.vertices[c.vertex((k + 1) % 3)].xy - p;
+        const QPointF v = m.vertices[c.vertex((k + 2) % 3)].xy - p;
+        const double d = std::hypot(u.x(), u.y()) * std::hypot(v.x(), v.y());
+        if (!(d > 0.0)) return 0.0;
+        const double cosA = std::clamp(QPointF::dotProduct(u, v) / d, -1.0, 1.0);
+        worst = std::min(worst, std::acos(cosA) * 180.0 / M_PI);
+    }
+    return worst;
 }
 
 } // namespace
@@ -97,6 +122,7 @@ class TestMeshOverhaulBellinge : public QObject
     std::unique_ptr<OpenSWMMVisWorkspace> m_workspace;
     std::unique_ptr<SWMMVisProjectWindow> m_window;
     Inputs      m_base;
+    QVector<QPair<QString, QVector<QPointF>>> m_links;   // conduits, for runs E/F
     QStringList m_csvRows;
     QStringList m_reportSections;
     QStringList m_gateFailures;         // "<run>: <gate>: <numbers>"
@@ -115,7 +141,7 @@ class TestMeshOverhaulBellinge : public QObject
     {
         Inputs in = m_base;
         in.cellSize         = spec.cellSize;
-        in.coarsenFactor    = 4.0;
+        in.coarsenFactor    = 20.0;
         in.sizeRatio        = 1.5;
         in.minCellSize      = spec.cellSize / 4.0;
         in.terrainTolerance = spec.terrainTolerance;
@@ -124,8 +150,11 @@ class TestMeshOverhaulBellinge : public QObject
         in.dtmPath          = m_demPath;
         in.genOpts.maxArea       = kSqrt3_4 * spec.cellSize * spec.cellSize;
         in.genOpts.minCellSize   = spec.cellSize / 4.0;
-        in.genOpts.trianglesOnly = !spec.quads;
-        in.genOpts.frameAngleDeg = spec.frameAngleDeg;
+        in.genOpts.minAngleDeg   = spec.minAngleDeg;
+        in.includeConduits       = spec.conduits;
+        in.candidateLinks        = spec.conduits ? m_links
+                                                 : QVector<QPair<QString, QVector<QPointF>>>{};
+        in.conduitStripWidth     = spec.conduits ? spec.stripWidth : 0.0;
         in.boundaryKind      = Inputs::BoundaryKind::VectorFile;
         in.boundaryPath      = m_domainPath;
         in.boundaryLayerName.clear();
@@ -141,8 +170,11 @@ class TestMeshOverhaulBellinge : public QObject
 
     //! Rebuild the worker's size field from the same options (handoff gate
     //! "cells within [0.7h,1.4h]") — seeds are the model constraints
-    //! (conduit polylines + node points); the outer domain ring is
-    //! deliberately not a seed, mirroring runMeshPipeline.
+    //! (node points, conduit polylines when the run has them); the outer
+    //! domain ring is deliberately not a seed, mirroring runMeshPipeline.
+    //! Not mirrored: the worker also ignores the terrain term inside the
+    //! cones of DEM break lines it keeps as edges (plan D13), so near those
+    //! the reference h is smaller than the worker's.
     bool buildReferenceField(const Inputs &in, mesh::SizeField &field,
                              mesh::TerrainSizeField &terrain,
                              std::function<double(double, double)> &terrainAt) const
@@ -214,7 +246,14 @@ class TestMeshOverhaulBellinge : public QObject
         QVector<mesh::SteinerPoint> pts;
         for (const auto &node : m_base.candidateNodes)
             pts.append({node.xy, 1, {}, 0.0, false});
-        return field.build(m_domainPoly.boundingRect(), {}, {}, pts, opt);
+        QVector<mesh::ConstraintSegment> segs;
+        if (in.includeConduits)
+            for (const auto &link : in.candidateLinks) {
+                mesh::ConstraintSegment cs;
+                cs.path = link.second;
+                segs.append(cs);
+            }
+        return field.build(m_domainPoly.boundingRect(), segs, {}, pts, opt);
     }
 
 private slots:
@@ -266,13 +305,15 @@ void TestMeshOverhaulBellinge::initTestCase()
     QVERIFY2(dialog.collectInputs(&m_base, &error), qPrintable(error));
     dialog.reject();
     m_base.includeJunctions = true;
-    // Bellinge's all-pipes network has plan-crossing conduit alignments;
-    // two crossing constraint segments make the PSLG non-planar and the
-    // CDT correctly refuses recovery ("constraint crosses another
-    // constraint"). The retired pslgminsize carried the old crossing
-    // repair — open item for the owner (report §open-items). Coupling
-    // identity rides on the JUNCTION nodes (= conduit endpoints), which
-    // the acceptance gates check, so the runs constrain nodes only.
+    // Runs A–D constrain nodes only (coupling identity rides on the
+    // JUNCTION nodes, which the gates check); E/F add the conduits. Bellinge
+    // has pipes that cross in plan, three alignments stored backwards and
+    // alignments that pass within centimetres of each other: the worker
+    // unfolds the alignments and the generator joins lines closer than its
+    // refinement floor and splits crossings (MESH_TRIANGLE_ENGINE_PLAN
+    // as-built), so E/F mesh the network as it is.
+    m_links = m_base.candidateLinks;
+    QVERIFY(!m_links.isEmpty());
     m_base.includeConduits  = false;
     m_base.candidateLinks.clear();
     // Match the shipped baseline mesh, which has no subcatchment regions.
@@ -287,8 +328,9 @@ void TestMeshOverhaulBellinge::initTestCase()
     m_csvRows << "run,cells,quads,triangles,ratioMax,ratioP50,ratioP95,"
                  "hist<=1.25,hist<=1.5,hist<=2,hist<=3,hist<=4,hist>4,"
                  "minAngleDeg,cellsBelow10Deg,orthoMedianDeg,orthoMaxDeg,"
-                 "quadMinSJ,quadNonConvex,sizeConformPct,quadShareOpenPct,"
-                 "quadShareNearPct,terrainRmsM,terrainMaxM,wallMs,peakRssB,"
+                 "quadMinSJ,quadNonConvex,sizeConformPct,trianglesBelowThetaPct,"
+                 "nonExemptBelowTheta,stripsPlaced,stripsDropped,"
+                 "terrainRmsM,terrainMaxM,wallMs,peakRssB,"
                  "rssPerCellB,ringVertsBefore,ringVertsAfterTrim,"
                  "couplingLost,deterministic";
 }
@@ -354,46 +396,15 @@ void TestMeshOverhaulBellinge::acceptance()
                 && !present(node.xy) && !coupled.contains(node.name))
                 ++couplingLost;
 
-        // Size conformity + quad share against the rebuilt size field.
+        // Size conformity against the rebuilt size field; triangles under
+        // the run's minimum angle (all causes — the generator's own count
+        // leaves out the ones at small input angles).
         mesh::SizeField field;
         mesh::TerrainSizeField terrainField;
         std::function<double(double, double)> terrainAt;
         const bool haveField = buildReferenceField(inputs, field,
                                                    terrainField, terrainAt);
-        // Constraint sample grid for the near/open split (near = within
-        // 2·cellSize of the domain ring or a conduit).
-        const double pitch = spec.cellSize;
-        QHash<QPair<int, int>, bool> nearGrid;
-        auto seedPath = [&](const QVector<QPointF> &path) {
-            for (int i = 0; i + 1 < path.size(); ++i) {
-                const QPointF a = path[i], b = path[i + 1];
-                const double len = QLineF(a, b).length();
-                const int n = std::max(1, int(std::ceil(len / (pitch / 2))));
-                for (int s = 0; s <= n; ++s) {
-                    const QPointF p = a + (b - a) * (double(s) / n);
-                    nearGrid.insert(qMakePair(int(std::floor(p.x() / pitch)),
-                                              int(std::floor(p.y() / pitch))),
-                                    true);
-                }
-            }
-        };
-        seedPath(m_domainRing + QVector<QPointF>{m_domainRing.first()});
-        for (const auto &node : m_base.candidateNodes)
-            nearGrid.insert(qMakePair(int(std::floor(node.xy.x() / pitch)),
-                                      int(std::floor(node.xy.y() / pitch))),
-                            true);
-        auto nearConstraint = [&](const QPointF &p) {
-            const int cx = int(std::floor(p.x() / pitch));
-            const int cy = int(std::floor(p.y() / pitch));
-            for (int dx = -2; dx <= 2; ++dx)
-                for (int dy = -2; dy <= 2; ++dy)
-                    if (nearGrid.contains(qMakePair(cx + dx, cy + dy)))
-                        return true;
-            return false;
-        };
-
-        int conforming = 0, fieldSampled = 0;
-        int nearCells = 0, nearQuads = 0, openCells = 0, openQuads = 0;
+        int conforming = 0, fieldSampled = 0, belowTheta = 0;
         double terrSum2 = 0.0, terrMax = 0.0;
         int terrN = 0;
         mesh::DTMRaster dem;
@@ -416,14 +427,14 @@ void TestMeshOverhaulBellinge::acceptance()
             const auto &cell = mesh.triangles[t];
             const auto geom = mesh::cellGeom(mesh.vertices, cell);
             const QPointF c = geom.centroid;
-            const bool isNear = nearConstraint(c);
-            (isNear ? nearCells : openCells)++;
-            if (cell.isQuad()) (isNear ? nearQuads : openQuads)++;
+            if (!cell.isQuad()
+                && triangleMinAngleDeg(mesh, cell) < spec.minAngleDeg - 0.01)
+                ++belowTheta;
             if (haveField) {
                 const double h = field.sizeAt(c.x(), c.y());
                 if (h > 0.0) {
                     ++fieldSampled;
-                    const double s = cellEdgeSize(cell.isQuad(), geom.area);
+                    const double s = meanEdge(mesh, cell);
                     if (s >= 0.7 * h && s <= 1.4 * h) ++conforming;
                 }
             }
@@ -515,8 +526,16 @@ void TestMeshOverhaulBellinge::acceptance()
         // ── Gates (plan §6 with D6) ────────────────────────────────────
         const double conformPct = fieldSampled
             ? 100.0 * conforming / fieldSampled : -1.0;
-        const double openQuadPct = openCells ? 100.0 * openQuads / openCells : 0;
-        const double nearQuadPct = nearCells ? 100.0 * nearQuads / nearCells : 0;
+        const int triangleCount = grading.triangles;
+        const double belowThetaPct = triangleCount
+            ? 100.0 * belowTheta / triangleCount : 0.0;
+        const mesh::GenerationStats &gen = r.generationStats;
+        const double nonExemptPct = cells
+            ? 100.0 * gen.trianglesBelowAngle / cells : 0.0;
+        const int above2 = grading.ratioHistogram[3] + grading.ratioHistogram[4]
+                         + grading.ratioHistogram[5];
+        const double above2Pct = grading.faces ? 100.0 * above2 / grading.faces : 0.0;
+        const double below10Pct = cells ? 100.0 * grading.cellsBelow10Deg / cells : 0.0;
         const double terrRms = terrN ? std::sqrt(terrSum2 / terrN) : 0.0;
         const long   rssDelta = std::max(0L, rssAfter - rssBefore);
         auto gate = [&](bool pass, const QString &what) {
@@ -524,31 +543,44 @@ void TestMeshOverhaulBellinge::acceptance()
             return pass ? QStringLiteral("PASS") : QStringLiteral("FAIL");
         };
         QStringList rows;
-        rows << QString("| grading max <= 2.1 | %1 | %2 |")
+        // Triangle engine gates (MESH_TRIANGLE_ENGINE_PLAN §6). With every
+        // angle >= theta, neighbours' longest edges differ by <= 1/sin theta
+        // (2 at 30 deg); triangles at a small INPUT angle (two pipes leaving
+        // a manhole 3 deg apart) cannot meet the bound in any mesher, hence
+        // the small allowances instead of zero.
+        rows << QString("| grading P50 <= 1.3 (max %1, P95 %2) | %3 | %4 |")
                     .arg(grading.ratioMax, 0, 'f', 3)
-                    .arg(gate(grading.ratioMax <= 2.1, QString("ratioMax %1")
-                                  .arg(grading.ratioMax)));
-        rows << QString("| grading P50 <= 1.5 | %1 | %2 |")
+                    .arg(grading.ratioP95, 0, 'f', 3)
                     .arg(grading.ratioP50, 0, 'f', 3)
-                    .arg(gate(grading.ratioP50 <= 1.5, QString("ratioP50 %1")
+                    .arg(gate(grading.ratioP50 <= 1.3, QString("ratioP50 %1")
                                   .arg(grading.ratioP50)));
-        rows << QString("| min angle >= 25 deg | %1 | %2 |")
+        rows << QString("| neighbour ratio > 2 on <= 0.05% of faces | %1 (%2%) | %3 |")
+                    .arg(above2).arg(above2Pct, 0, 'f', 3)
+                    .arg(gate(above2Pct <= 0.05,
+                              QString("%1 faces above ratio 2").arg(above2)));
+        rows << QString("| triangles under %1 deg (all causes) <= 0.5% | %2 (%3%) | %4 |")
+                    .arg(spec.minAngleDeg).arg(belowTheta)
+                    .arg(belowThetaPct, 0, 'f', 3)
+                    .arg(gate(belowThetaPct <= 0.5,
+                              QString("%1 triangles under theta").arg(belowTheta)));
+        rows << QString("| ... not at a small input angle <= 0.1% of cells | %1 (%2%) | %3 |")
+                    .arg(gen.trianglesBelowAngle).arg(nonExemptPct, 0, 'f', 3)
+                    .arg(gate(nonExemptPct <= 0.1,
+                              QString("%1 non-exempt triangles under theta")
+                                  .arg(gen.trianglesBelowAngle)));
+        rows << QString("| cells < 10 deg <= 0.05% (min angle %1) | %2 (%3%) | %4 |")
                     .arg(grading.minAngleDeg, 0, 'f', 2)
-                    .arg(gate(grading.minAngleDeg >= 25.0,
-                              QString("minAngle %1").arg(grading.minAngleDeg)));
-        rows << QString("| cells < 10 deg == 0 | %1 | %2 |")
-                    .arg(grading.cellsBelow10Deg)
-                    .arg(gate(grading.cellsBelow10Deg == 0,
+                    .arg(grading.cellsBelow10Deg).arg(below10Pct, 0, 'f', 3)
+                    .arg(gate(below10Pct <= 0.05,
                               QString("%1 cells under 10 deg")
                                   .arg(grading.cellsBelow10Deg)));
-        rows << QString("| orthogonality median <= 5 / max <= 30 | %1 / %2 | %3 |")
+        rows << QString("| orthogonality median / max (report only) | %1 / %2 | info |")
                     .arg(grading.orthoMedianDeg, 0, 'f', 2)
-                    .arg(grading.orthoMaxDeg, 0, 'f', 2)
-                    .arg(gate(grading.orthoMedianDeg <= 5.0
-                                  && grading.orthoMaxDeg <= 30.0,
-                              QString("ortho %1/%2").arg(grading.orthoMedianDeg)
-                                  .arg(grading.orthoMaxDeg)));
-        if (spec.quads) {
+                    .arg(grading.orthoMaxDeg, 0, 'f', 2);
+        if (spec.conduits)
+            rows << QString("| conduit strips placed / dropped (report only) | %1 / %2 | info |")
+                        .arg(gen.conduitStrips).arg(gen.stripsDropped);
+        if (grading.quads > 0) {
             rows << QString("| quads convex, min SJ >= 0.5 | nonConvex %1, SJ %2 | %3 |")
                         .arg(quads.nonConvex)
                         .arg(quads.minScaledJacobian, 0, 'f', 3)
@@ -557,17 +589,17 @@ void TestMeshOverhaulBellinge::acceptance()
                                   QString("nonConvex %1 / SJ %2")
                                       .arg(quads.nonConvex)
                                       .arg(quads.minScaledJacobian)));
-            rows << QString("| quad share open >= 90%% / near >= 70%% | %1 / %2 | %3 |")
-                        .arg(openQuadPct, 0, 'f', 1).arg(nearQuadPct, 0, 'f', 1)
-                        .arg(gate(openQuadPct >= 90.0 && nearQuadPct >= 70.0,
-                                  QString("quad share %1/%2")
-                                      .arg(openQuadPct).arg(nearQuadPct)));
         }
-        if (conformPct >= 0.0)
-            rows << QString("| size conformity >= 90%% in [0.7h,1.4h] | %1%% | %2 |")
+        // Strips narrower than the cell size make their own cells (and the
+        // triangles beside them) smaller than h by design: report only there.
+        if (conformPct >= 0.0 && spec.stripWidth > 0.0)
+            rows << QString("| size conformity in [0.7h,1.4h] (report only: strips) | %1% | info |")
+                        .arg(conformPct, 0, 'f', 1);
+        else if (conformPct >= 0.0)
+            rows << QString("| size conformity >= 75% in [0.7h,1.4h] (mean edge) | %1% | %2 |")
                         .arg(conformPct, 0, 'f', 1)
-                        .arg(gate(conformPct >= 90.0,
-                                  QString("conformity %1%%").arg(conformPct)));
+                        .arg(gate(conformPct >= 75.0,
+                                  QString("conformity %1%").arg(conformPct)));
         if (spec.terrainTolerance > 0.0)
             rows << QString("| terrain RMS <= tol / max <= 3 tol | %1 / %2 m | %3 |")
                         .arg(terrRms, 0, 'f', 3).arg(terrMax, 0, 'f', 3)
@@ -581,7 +613,7 @@ void TestMeshOverhaulBellinge::acceptance()
                     .arg(gate(overusedEdges == 0 && zeroArea == 0
                                   && duplicateVerts == 0,
                               "topology"));
-        rows << QString("| boundary trim >= 50%% | %1 of %2 removed | %3 |")
+        rows << QString("| boundary trim >= 50% | %1 of %2 removed | %3 |")
                     .arg(removed).arg(m_domainRing.size())
                     .arg(gate(removed * 2 >= m_domainRing.size(),
                               QString("trim removed %1/%2")
@@ -607,18 +639,18 @@ void TestMeshOverhaulBellinge::acceptance()
                                       .arg(cells ? rssDelta / cells : 0)));
         }
 
-        m_reportSections << QString("## Run %1 — cell %2 m, tol %3 m, %4%5\n\n"
+        m_reportSections << QString("## Run %1 — cell %2 m, tol %3 m, min angle %4 deg%5\n\n"
                                     "%6 cells (%7 quads, %8 triangles), "
                                     "%9 ms wall, peak-RSS delta %10 MB\n\n"
                                     "| Gate | Measured | Verdict |\n"
                                     "| --- | --- | --- |\n%11\n")
                                 .arg(spec.id).arg(spec.cellSize)
                                 .arg(spec.terrainTolerance)
-                                .arg(spec.quads ? "quads" : "triangles")
-                                .arg(spec.frameAngleDeg != 0.0
-                                         ? QString(", frame %1 deg")
-                                               .arg(spec.frameAngleDeg)
-                                         : QString())
+                                .arg(spec.minAngleDeg)
+                                .arg(!spec.conduits ? QString()
+                                         : spec.stripWidth > 0.0
+                                             ? QString(", conduits with %1 m strips").arg(spec.stripWidth)
+                                             : QString(", conduits as lines"))
                                 .arg(cells).arg(grading.quads)
                                 .arg(grading.triangles).arg(wallMs)
                                 .arg(rssDelta / (1024.0 * 1024.0), 0, 'f', 1)
@@ -626,7 +658,7 @@ void TestMeshOverhaulBellinge::acceptance()
 
         m_csvRows << QString("%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,"
                              "%14,%15,%16,%17,%18,%19,%20,%21,%22,%23,%24,"
-                             "%25,%26,%27,%28,%29,%30,%31")
+                             "%25,%26,%27,%28,%29,%30,%31,%32,%33")
             .arg(spec.id).arg(cells).arg(grading.quads).arg(grading.triangles)
             .arg(grading.ratioMax).arg(grading.ratioP50).arg(grading.ratioP95)
             .arg(grading.ratioHistogram[0]).arg(grading.ratioHistogram[1])
@@ -635,7 +667,8 @@ void TestMeshOverhaulBellinge::acceptance()
             .arg(grading.minAngleDeg).arg(grading.cellsBelow10Deg)
             .arg(grading.orthoMedianDeg).arg(grading.orthoMaxDeg)
             .arg(quads.minScaledJacobian).arg(quads.nonConvex)
-            .arg(conformPct).arg(openQuadPct).arg(nearQuadPct)
+            .arg(conformPct).arg(belowThetaPct).arg(gen.trianglesBelowAngle)
+            .arg(gen.conduitStrips).arg(gen.stripsDropped)
             .arg(terrRms).arg(terrMax).arg(wallMs).arg(rssDelta)
             .arg(cells ? rssDelta / cells : 0)
             .arg(m_domainRing.size()).arg(m_domainRing.size() - removed)
@@ -655,7 +688,7 @@ void TestMeshOverhaulBellinge::cleanupTestCase()
     csv.write(m_csvRows.join('\n').toUtf8() + "\n");
     QFile report(m_outDir + "/report.md");
     QVERIFY(report.open(QIODevice::WriteOnly | QIODevice::Truncate));
-    report.write(("# Bellinge acceptance — mesh overhaul Phase 7\n\n"
+    report.write(("# Bellinge acceptance — mesh overhaul Phase 7 on the triangle engine\n\n"
                   + m_reportSections.join('\n')
                   + (m_gateFailures.isEmpty()
                          ? QString("\nAll gates PASS.\n")

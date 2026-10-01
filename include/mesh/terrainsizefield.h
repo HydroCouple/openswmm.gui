@@ -27,10 +27,16 @@
  *
  * NoData / NaN pixels are skipped inside a block; a NaN corner fails the
  * block (conservative near the DEM edge; the caller's minimum size clamps).
+ *
+ * Finally the output grid takes the minimum over each 3×3 neighbourhood: a
+ * step lying exactly on a block boundary is seen only by the blocks whose far
+ * corner touches it, which would refine one side of it and not the other.
+ * (Phase 6b, MESH_OVERHAUL_PHASE6B_FEATURE_CAPTURE_2026-09-30.md.)
  */
 #ifndef OPENSWMMVIS_MESH_TERRAINSIZEFIELD_H
 #define OPENSWMMVIS_MESH_TERRAINSIZEFIELD_H
 
+#include <QPointF>
 #include <QString>
 #include <QVector>
 
@@ -48,6 +54,11 @@ struct TerrainSizeOptions
                                  ///< the size-field pitch so the grid stays small.
     qint64 maxBandBytes = 256ll * 1024 * 1024; ///< Streaming budget; lowers maxLevel when
                                  ///< a full-width band of 2^maxLevel rows would exceed it.
+    /*! Optional: receives every row of the window in order, after NoData →
+     *  NaN, as (row, rowIndex, cols, rows). The terrain break-line extractor
+     *  (MESH_OVERHAUL_PHASE6B_FEATURE_CAPTURE_2026-09-30.md §2.1) rides this
+     *  pass so the DEM is read once. */
+    std::function<void(const float *, int, int, int)> rowSink;
 };
 
 class TerrainSizeField
@@ -74,6 +85,10 @@ public:
     [[nodiscard]] double sizeAtGeo(double x, double y) const;
     /*! \brief Mean absolute pixel size in raster-CRS units (buildFromFile). */
     [[nodiscard]] double pixelSize() const { return m_pixelSize; }
+    /*! \brief Raster-CRS coordinate of a fractional WINDOW pixel position
+     *  (pixel (0, 0) spans [0, 1)², its centre is (0.5, 0.5)). Only after
+     *  buildFromFile(). */
+    [[nodiscard]] QPointF windowPixelToGeo(double px, double py) const;
 
     /*! \brief Same computation on an in-memory row-major float grid (NaN =
      *  nodata), the whole grid as one band. For tests and small rasters. */
@@ -97,6 +112,9 @@ private:
     /*! Process one band of rows [bandRow0, bandRow0+bandRows) of the window;
      *  z is row-major cols × bandRows. */
     void processBand(const float *z, int cols, int bandRows, int bandRow0, double tol);
+    /*! 3×3 minimum over the output grid (symmetric refinement at features
+     *  that sit on a block boundary). */
+    void dilateMinimum();
 
     QVector<float> m_h;          ///< outCols × outRows, resolved size in pixels.
     int    m_outCols = 0, m_outRows = 0;

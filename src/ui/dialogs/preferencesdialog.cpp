@@ -1174,8 +1174,14 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
     m_twoDMeshTerrainTolSpin->setSpecialValueText(tr("off"));
     meshForm->addRow(tr("Terrain tolerance"), m_twoDMeshTerrainTolSpin);
 
-    m_twoDMeshTrianglesBox = new QCheckBox(tr("Triangles only (no quads)"), meshGroup);
-    meshForm->addRow(QString(), m_twoDMeshTrianglesBox);
+    m_twoDMeshMinAngleSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshMinAngleSpin->setRange(20.0, 33.0);
+    m_twoDMeshMinAngleSpin->setDecimals(1);
+    m_twoDMeshMinAngleSpin->setSuffix(QStringLiteral("°"));
+    meshForm->addRow(tr("Minimum triangle angle"), m_twoDMeshMinAngleSpin);
+
+    m_twoDMeshStreetQuadsBox = new QCheckBox(tr("Quads between facing break lines (streets, ditches)"), meshGroup);
+    meshForm->addRow(QString(), m_twoDMeshStreetQuadsBox);
 
     m_twoDMeshTrimTurnSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshTrimTurnSpin->setRange(0.0, 45.0);
@@ -1784,7 +1790,8 @@ void PreferencesDialog::applyTwoDDefaultsToWidgets(
     m_twoDMeshSizeRatioSpin     ->setValue(d.meshSizeRatio);
     m_twoDMeshMinCellSizeSpin   ->setValue(d.meshMinCellSizeM);
     m_twoDMeshTerrainTolSpin    ->setValue(d.meshTerrainToleranceM);
-    m_twoDMeshTrianglesBox      ->setChecked(d.meshTrianglesOnly);
+    m_twoDMeshMinAngleSpin      ->setValue(d.meshMinAngleDeg);
+    m_twoDMeshStreetQuadsBox    ->setChecked(d.meshQuadsBetweenBreaklines);
     m_twoDMeshTrimTurnSpin      ->setValue(d.meshTrimTurnDeg);
     m_twoDMeshTrimDeviationSpin ->setValue(d.meshTrimDeviationM);
     m_twoDMeshIdwPowerSpin      ->setValue(d.meshIdwPower);
@@ -1938,7 +1945,8 @@ void PreferencesDialog::writeToManager()
         d.meshSizeRatio         = m_twoDMeshSizeRatioSpin     ->value();
         d.meshMinCellSizeM      = m_twoDMeshMinCellSizeSpin   ->value();
         d.meshTerrainToleranceM = m_twoDMeshTerrainTolSpin    ->value();
-        d.meshTrianglesOnly     = m_twoDMeshTrianglesBox      ->isChecked();
+        d.meshMinAngleDeg       = m_twoDMeshMinAngleSpin      ->value();
+        d.meshQuadsBetweenBreaklines = m_twoDMeshStreetQuadsBox->isChecked();
         d.meshTrimTurnDeg       = m_twoDMeshTrimTurnSpin      ->value();
         d.meshTrimDeviationM    = m_twoDMeshTrimDeviationSpin ->value();
         d.meshIdwPower          = m_twoDMeshIdwPowerSpin      ->value();
