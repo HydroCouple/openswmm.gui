@@ -5,6 +5,7 @@
  */
 
 #include "project/projectserializer.h"
+#include "project/profilesectionstore.h"
 #include "project/meshcorridorrecipe.h"
 
 #include "connections/basemapconnection.h"
@@ -324,6 +325,13 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
 
     auto *layer = pw->modelLayer();
     if (!layer) return obj;
+
+    if (auto *store = ProfileSectionStore::forOwner(pw, false)) {
+        QJsonArray sections;
+        // writeRootJson validates before writing any session.
+        store->serialize(QFileInfo(oswpFile).absolutePath(), sections);
+        if (!sections.isEmpty()) obj[QStringLiteral("profileSections")] = sections;
+    }
 
     obj[kInpPath]       = toRelativePath(layer->modelFilePath(), oswpFile);
     obj[kEngineVersion] = pw->engineVersion();
@@ -696,6 +704,15 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
                                       QStringList *warningsOut)
 {
     if (!pw) return false;
+
+    {
+        QString error;
+        if (!ProfileSectionStore::forOwner(pw)->restore(
+                sessionObj.contains(QStringLiteral("profileSections"))
+                    ? sessionObj.value(QStringLiteral("profileSections")) : QJsonValue(QJsonArray{}),
+                QFileInfo(oswpFile).absolutePath(), &error) && warningsOut)
+            warningsOut->append(error);
+    }
 
     if (sessionObj.contains(kEngineVersion))
         pw->setEngineVersion(sessionObj.value(kEngineVersion).toString("6.0.0"));
@@ -1080,6 +1097,14 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
     { setErr(QObject::tr("No project windows to serialize")); return false; }
     for (auto *pw : windows) {
         if (!pw) continue;
+        if (auto *store = ProfileSectionStore::forOwner(pw, false)) {
+            QJsonArray sections;
+            QString error;
+            if (!store->serialize(QFileInfo(oswpPath).absolutePath(), sections, &error)) {
+                setErr(error);
+                return false;
+            }
+        }
         if (!pw->corridorRecipeLoadError().isEmpty()) {
             setErr(pw->corridorRecipeLoadError());
             return false;

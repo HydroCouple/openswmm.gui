@@ -38,6 +38,7 @@
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class SWMMVis; }
+namespace ProfileSection { struct Definition; }
 QT_END_NAMESPACE
 
 namespace openswmmvis::ui { class CompactToolbarController; }
@@ -672,7 +673,10 @@ private slots:
     /*! Shared mesh-profile dialog builder. \p results may be null (bed-only). */
     void openMeshProfileDialog(const QVector<QPointF> &scenePolyline,
                                class SWMM2DResultsLayer *results,
-                               const QString &title);
+                               const QString &title,
+                               SWMMVisProjectWindow *owner = nullptr,
+                               const ProfileSection::Definition *definition = nullptr);
+    void openSavedMeshProfile(SWMMVisProjectWindow *owner, const QString &id);
 
     /*! Open the comparison plot with one time series — edge flow (Q) or edge
      *  flux (q), per `attr` — of the mesh edge the user right-clicked in the

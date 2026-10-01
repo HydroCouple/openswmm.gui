@@ -3823,3 +3823,51 @@ add_swmmvis_gui_test(test_swmmexport
 swmmvis_link_full_app_deps(test_swmmexport)
 target_compile_definitions(test_swmmexport PRIVATE
     SWMMEXPORT_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30/swmmexport")
+
+# Configurable surface and groundwater profile sections.
+add_swmmvis_gui_test(test_profilesectionseries
+    test_profilesectionseries.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/profilesectionseries.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/profilesectionio.cpp)
+add_swmmvis_gui_test(test_profilesectionstore
+    test_profilesectionstore.cpp
+    ${CMAKE_SOURCE_DIR}/include/project/profilesectionstore.h
+    ${CMAKE_SOURCE_DIR}/src/project/profilesectionstore.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/profilesectionseries.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/profilesectionio.cpp)
+add_swmmvis_gui_test(test_meshprofile_combined
+    test_meshprofile_combined.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotwidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotoptions.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileinterp.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofilesampler.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofiletrackswidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofiletrackswidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileserieseditor.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileserieseditor.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/profilesectionseries.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/profilesectionio.cpp
+)
+
+# The result-source interface exposes its coordinate transform type.
+foreach(profile_target test_profilesectionseries test_profilesectionstore test_meshprofile_combined)
+    target_link_libraries(${profile_target} PRIVATE GDAL::GDAL)
+endforeach()
+
+add_swmmvis_gui_test(test_phase35_sectionjourney
+    test_phase35_sectionjourney.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_phase35_sectionjourney)
+set_property(TEST test_phase35_sectionjourney APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_SECTION_JOURNEY_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/review/section-journey")

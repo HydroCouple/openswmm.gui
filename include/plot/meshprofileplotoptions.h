@@ -17,6 +17,7 @@
 #include "plot/numberformat.h"
 
 #include <QBrush>
+#include <QJsonObject>
 #include <QColor>
 #include <QFont>
 #include <QObject>
@@ -106,6 +107,8 @@ public:
 
 public:
     explicit MeshProfilePlotOptions(QObject *parent = nullptr);
+    QJsonObject toJson() const;
+    bool fromJson(const QJsonObject &, QString *error = nullptr);
 
     /*! \brief Human-readable label for the QPropertyModel row header. */
     Q_INVOKABLE QString displayLabelFor(const QString &propertyName) const;
