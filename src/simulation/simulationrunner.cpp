@@ -826,6 +826,7 @@ void SimulationRunner::start()
             // simulation start.
             double elapsed = 0.0;
             qint64 stepCount = 0;
+            QString lastGroundwaterCaptureError;
             qint64 skipped2DTicks = 0;   // bundles dropped because the GUI thread was behind
             QElapsedTimer tickTimer;
             tickTimer.start();
@@ -1044,6 +1045,25 @@ void SimulationRunner::start()
                                 Qt::QueuedConnection);
                         }
                     }
+                    // Read while the worker owns the initialized engine; the
+                    // GUI receives only immutable values, never a live handle.
+                    QString groundwaterError;
+                    auto groundwater = openswmmvis::io::captureGroundwaterVariables(
+                        eng, twoD_n_tri, &groundwaterError);
+                    if (groundwater) {
+                        QMetaObject::invokeMethod(rawSelf,
+                            [rawSelf, jobId, groundwater = std::move(groundwater), curQDT, curTSec]() {
+                                emit rawSelf->twoDVariablesAvailable(jobId, groundwater, curQDT, curTSec);
+                            }, Qt::QueuedConnection);
+                    }
+                    if (!groundwaterError.isEmpty() && groundwaterError != lastGroundwaterCaptureError) {
+                        QMetaObject::invokeMethod(rawSelf,
+                            [rawSelf, jobId, groundwaterError]() {
+                                emit rawSelf->warningReceived(jobId, 0, groundwaterError);
+                            }, Qt::QueuedConnection);
+                    }
+                    lastGroundwaterCaptureError = groundwaterError;
+
                     // Trailing marker: same receiver, so it is delivered
                     // after the bundle's payloads (FIFO) — i.e. once the GUI
                     // thread has run every slot for this tick.

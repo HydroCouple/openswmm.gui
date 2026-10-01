@@ -7,6 +7,7 @@
 #ifndef SIMULATIONRUNNER_H
 #define SIMULATIONRUNNER_H
 
+#include "io/mesh2dlivevariables.h"
 #include <QDateTime>
 #include <QFuture>
 #include <QObject>
@@ -223,6 +224,10 @@ signals:
     // the solver's head rather than a depth + bed approximation.
     void twoDHeadsAvailable(int jobId, QVector<float> heads,
                             QDateTime simTime, double elapsedSec);
+
+    // Immutable groundwater species values and authoritative native units.
+    void twoDVariablesAvailable(int jobId, openswmmvis::io::Mesh2DLiveVariablesPtr frame,
+                                QDateTime simTime, double elapsedSec);
 
     // Per-tick cumulative per-cell maxima (m, m/s) from
     // swmm_2d_get_stat_max_depths / swmm_2d_get_stat_max_velocities — the

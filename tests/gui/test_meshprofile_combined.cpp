@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QImage>
 #include <QSignalSpy>
+#include <QAccessible>
 #include "plot/meshprofileplotwidget.h"
 #include "plot/meshprofileplotoptions.h"
 #include "plot/meshprofiletrackswidget.h"
@@ -55,6 +56,49 @@ class TestMeshProfileCombined : public QObject
 {
     Q_OBJECT
 private slots:
+    void sampleTimesDistinguishStaticEnvelopeAndUnavailable_data()
+    {
+        QTest::addColumn<int>("temporal");QTest::addColumn<QString>("error");QTest::addColumn<QString>("expected");
+        using T=openswmmvis::io::Mesh2DResultVariable::Temporal;
+        QTest::newRow("static")<<int(T::Static)<<QString()<<QString("Static");
+        QTest::newRow("envelope")<<int(T::Envelope)<<QString()<<QString("Whole-run maximum");
+        QTest::newRow("missing-report")<<int(T::Reported)<<QString()<<QString("No report available");
+        QTest::newRow("missing-static-source")<<int(T::Static)<<QString("Source file unavailable")<<QString("Unavailable");
+    }
+    void sampleTimesDistinguishStaticEnvelopeAndUnavailable()
+    {
+        QFETCH(int,temporal);QFETCH(QString,error);QFETCH(QString,expected);
+        auto section=drySection();auto series=groundwater();
+        series.effectiveTime={};series.error=error;
+        series.descriptor.temporal=static_cast<openswmmvis::io::Mesh2DResultVariable::Temporal>(temporal);
+        section.series.append(series);Definition definition;definition.horizontalUnits="m";
+        MeshProfileSamplesModel table;table.setSection(section,definition);
+        QCOMPARE(table.data(table.index(6,8)).toString(),expected);
+        QCOMPARE(table.data(table.index(6,8),Qt::AccessibleTextRole).toString(),expected);
+        if(!error.isEmpty())QVERIFY(table.data(table.index(6,8),Qt::AccessibleDescriptionRole).toString().contains(error));
+    }
+    void seriesStatusRemainsAccessibleWhileMovingProfileCursor()
+    {
+        auto section=drySection();auto series=groundwater();series.effectiveTime={};
+        series.descriptor.temporal=openswmmvis::io::Mesh2DResultVariable::Temporal::Static;
+        section.series.append(series);
+        MeshProfilePlotWidget elevation;elevation.setProfile(section);
+        auto *accessible=QAccessible::queryAccessibleInterface(&elevation);QVERIFY(accessible);
+        QVERIFY(accessible->text(QAccessible::Description).contains("Static"));
+        elevation.setCursorChainage(5);
+        QVERIFY(accessible->text(QAccessible::Description).contains("Station 5"));
+        QVERIFY(accessible->text(QAccessible::Description).contains("Static"));
+        section.series[0].definition.role=SeriesRole::Scalar;
+        section.series[0].error="Source file unavailable";
+        MeshProfileTracksWidget tracks;tracks.setSection(section);
+        auto *trackAccessible=QAccessible::queryAccessibleInterface(&tracks);QVERIFY(trackAccessible);
+        QVERIFY(trackAccessible->text(QAccessible::Description).contains("Source file unavailable"));
+        tracks.setCursorChainage(5);
+        QVERIFY(trackAccessible->text(QAccessible::Description).contains("Station 5"));
+        QVERIFY(trackAccessible->text(QAccessible::Description).contains("Source file unavailable"));
+        tracks.show();tracks.setFocus();QTest::keyClick(&tracks,Qt::Key_End);
+        QVERIFY(trackAccessible->text(QAccessible::Description).contains("Station 10"));
+    }
     void groundwaterEmergenceRemainsVisibleAboveDryGround()
     {
         auto section = drySection(); section.series.append(groundwater());

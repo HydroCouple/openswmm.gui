@@ -77,6 +77,8 @@
 
 #include "swmmvis.h"
 #include "project/profilesectionstore.h"
+#include "project/groundwaterrecipestore.h"
+#include "ui/dialogs/groundwaterassigndialog.h"
 // Editable feature layers (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §6.2).
 #include "feature/featurestore.h"
 #include "layers/featurelayer.h"
@@ -1354,6 +1356,40 @@ void SWMMVis::initializeMeshEditingToolBar()
     });
     if (mMeshEditingToolbar) mMeshEditingToolbar->addCellAction(actAssignInfil);
 
+    auto *assignGroundwater = new QAction(tr("Assign Groundwater…"), this);
+    assignGroundwater->setObjectName(QStringLiteral("actionAssignGroundwater"));
+    assignGroundwater->setToolTip(tr("Preview and assign groundwater values using selected cells, feature layers or rasters."));
+    connect(assignGroundwater, &QAction::triggered, this, [this] {
+        auto *pw = activeProjectWindow();
+        if (!pw || !pw->modelLayer()) return;
+        auto *mesh = mMeshEditingToolbar ? mMeshEditingToolbar->activeMesh() : nullptr;
+        if (!mesh || !pw->canvas()->layers().contains(mesh)) {
+            QMessageBox::information(pw, tr("Assign groundwater"),
+                tr("Choose an active 2D mesh in this project first."));
+            return;
+        }
+        auto *store = GroundwaterRecipeStore::forOwner(pw);
+        if (!store->loadError().isEmpty()) {
+            QMessageBox::warning(pw, tr("Assignment history"), store->loadError());
+            return;
+        }
+        auto *dialog = new openswmmvis::ui::GroundwaterAssignDialog(pw->modelLayer(),
+            mesh, pw->canvas(), pw->selectionManager(), pw->unitSystem(), pw);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        connect(dialog, &openswmmvis::ui::GroundwaterAssignDialog::applied,
+                pw, [pw] { pw->setHasChanges(true); });
+        connect(dialog->assignmentEvents(), &openswmmvis::ui::GroundwaterAssignmentEvents::changed,
+                pw, [pw, store](const QJsonObject &recipe, bool) {
+            pw->setHasChanges(true);
+            QString error;
+            if (!store->append(recipe, &error))
+                QMessageBox::warning(pw, tr("Assignment history"), error);
+        });
+        dialog->show();
+    });
+    if (mMeshEditingToolbar) mMeshEditingToolbar->addCellAction(assignGroundwater);
+    if (ui->menuModel) ui->menuModel->addAction(assignGroundwater);
+
     // ── Groundwater (2D) ─────────────────────────────────────────────────
     // G1 (2026-09-07): the two-zone kernel is in the engine, so this editor
     // is live — [2D_AQUIFER_OPTIONS], the per-scope [2D_AQUIFER] rows, the
@@ -1366,6 +1402,12 @@ void SWMMVis::initializeMeshEditingToolBar()
             openswmmvis::ui::Mesh2DGroundwaterDialog dlg(
                 engine, this, page, pw ? pw->unitSystem() : nullptr);
             if (pw) {
+                if (pw->modelLayer()) {
+                    connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose,
+                            &dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+                    connect(pw->modelLayer(), &QObject::destroyed,
+                            &dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+                }
                 connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied,
                         pw, [pw] { pw->setHasChanges(true); });
             }
@@ -9793,6 +9835,22 @@ void SWMMVis::onRunSimulation()
                 if (!engineSrc) return;
                 engineSrc->pushHeads(std::vector<float>(heads.begin(), heads.end()),
                                      simTime, elapsedSec);
+            });
+
+    connect(runner, &SimulationRunner::twoDVariablesAvailable, this,
+            [self](int jobId, openswmmvis::io::Mesh2DLiveVariablesPtr frame,
+                   QDateTime simTime, double elapsedSec) {
+                if (!self) return;
+                const auto it = self->mActive2DResultsLayers.constFind(jobId);
+                if (it == self->mActive2DResultsLayers.constEnd() || !it.value()) return;
+                auto *layer = it.value().data();
+                auto *source = dynamic_cast<EngineMesh2DSource *>(layer->source());
+                if (!source) return;
+                if (!source->pushFaceVariables(std::move(frame), simTime, elapsedSec)) {
+                    self->onLogMessage(tr("Live groundwater frame rejected: its mesh or metadata changed."));
+                    return;
+                }
+                if (layer->isVisible()) layer->refreshTimeRange();
             });
 
     // Per-tick cumulative maxima — the live ENVELOPES the mid-run export's

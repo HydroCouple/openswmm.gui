@@ -7,6 +7,7 @@
 
 #include "swmmvisprojectwindow.h"
 #include "project/profilesectionstore.h"
+#include "project/groundwaterrecipestore.h"
 
 #include "swmmvis.h"   // closeEvent's Save As hand-off (saveProjectWindowAs)
 #include "map/mapcanvas.h"
@@ -118,6 +119,8 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     mUnits            = new UnitSystem(this);
     mSelectionManager = new SelectionManager(this);
     connect(ProfileSectionStore::forOwner(this), &ProfileSectionStore::edited,
+            this, [this] { setHasChanges(true); });
+    connect(GroundwaterRecipeStore::forOwner(this), &GroundwaterRecipeStore::edited,
             this, [this] { setHasChanges(true); });
     // Slice QA.2 — per-project output-identity registry. Layers wire
     // themselves in / out below via the MapCanvas layerAdded /
@@ -2536,10 +2539,11 @@ void SWMMVisProjectWindow::setAutoLengthEnabled(bool enabled)
     emit autoLengthChanged(enabled);
 }
 
-void SWMMVisProjectWindow::setEngineVersion(const QString &version)
+void SWMMVisProjectWindow::setEngineVersion(const QString &version, bool markDirty)
 {
+    if (mEngineVersion == version) return;
     mEngineVersion = version;
-    setHasChanges(true);
+    if (markDirty) setHasChanges(true);
 }
 
 // ── Terrain editing ───────────────────────────────────────────────────────────
@@ -2619,7 +2623,7 @@ void SWMMVisProjectWindow::refreshActive2DCellHighlight()
     }
 }
 
-void SWMMVisProjectWindow::setActiveTerrain(GISRasterLayer *layer)
+void SWMMVisProjectWindow::setActiveTerrain(GISRasterLayer *layer, bool markDirty)
 {
     if (mActiveTerrain == layer) return;
     mActiveTerrain = layer;
@@ -2640,7 +2644,7 @@ void SWMMVisProjectWindow::setActiveTerrain(GISRasterLayer *layer)
         mCanvas->setTerrainElevation({});
 
     emit activeTerrainChanged(layer);
-    setHasChanges(true);
+    if (markDirty) setHasChanges(true);
 }
 
 void SWMMVisProjectWindow::setTerrainNodeOffset(double offset)
@@ -2669,7 +2673,7 @@ void SWMMVisProjectWindow::setTerrainLinkOffset(double offset)
     setHasChanges(true);
 }
 
-void SWMMVisProjectWindow::setTerrainVerticalUnit(const QString &unit)
+void SWMMVisProjectWindow::setTerrainVerticalUnit(const QString &unit, bool markDirty)
 {
     const QString newUnit = unit.isEmpty() ? QStringLiteral("m") : unit;
 
@@ -2708,7 +2712,7 @@ void SWMMVisProjectWindow::setTerrainVerticalUnit(const QString &unit)
     // Vertical-unit change also affects the conversion factor profile
     // dialogs need — re-fire activeTerrainChanged so they re-sample.
     emit activeTerrainChanged(mActiveTerrain);
-    setHasChanges(true);
+    if (markDirty) setHasChanges(true);
 }
 
 void SWMMVisProjectWindow::restoreTerrainState(const QString &absoluteLayerPath,
@@ -2731,11 +2735,11 @@ void SWMMVisProjectWindow::restoreTerrainState(const QString &absoluteLayerPath,
         }
     }
 
-    setActiveTerrain(found);
+    setActiveTerrain(found, false);
 
     // Restore or auto-detect vertical unit.
     const QString unit = vertUnit.isEmpty()
                              ? (found ? found->detectVerticalUnit() : QStringLiteral("m"))
                              : vertUnit;
-    setTerrainVerticalUnit(unit);
+    setTerrainVerticalUnit(unit, false);
 }

@@ -1,4 +1,6 @@
 #include "plot/meshprofiletrackswidget.h"
+#include "plot/profilesectionpresentation.h"
+#include <QAccessible>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -38,7 +40,7 @@ QVariant MeshProfileSamplesModel::data(const QModelIndex &index, int role) const
     const auto row = m_rows[index.row()]; const auto &s = m_section.series[row.first];
     const auto &point = s.points[row.second];
     if (role == Qt::UserRole) return point.chainage;
-    if (role == Qt::ToolTipRole) return s.error;
+    if (role == Qt::ToolTipRole || role == Qt::AccessibleDescriptionRole) return accessibleSeriesSummary(s);
     if (role != Qt::DisplayRole && role != Qt::AccessibleTextRole) return {};
     switch (index.column()) {
     case 0: return s.definition.label.isEmpty() ? s.descriptor.label : s.definition.label;
@@ -49,7 +51,7 @@ QVariant MeshProfileSamplesModel::data(const QModelIndex &index, int role) const
     case 5: return units(s);
     case 6: return statusText(point.status);
     case 7: return s.requestedTime.isValid() ? s.requestedTime.toString(Qt::ISODate) : tr("Not specified");
-    case 8: return s.effectiveTime.isValid() ? s.effectiveTime.toString(Qt::ISODate) : tr("Static / unavailable");
+    case 8: return effectiveTimeLabel(s);
     case 9: return s.sourcePath.isEmpty() ? s.definition.sourceId : s.sourcePath;
     }
     return {};
@@ -66,6 +68,7 @@ MeshProfileTracksWidget::MeshProfileTracksWidget(QWidget *parent) : QWidget(pare
 {
     setFocusPolicy(Qt::StrongFocus); setAccessibleName(tr("Scalar profile tracks"));
     setToolTip(tr("Each quantity retains its own units. Left and Right move the shared station cursor."));
+    refreshAccessibleDescription();
     setMinimumHeight(150);
 }
 int MeshProfileTracksWidget::trackCount() const
@@ -80,19 +83,33 @@ void MeshProfileTracksWidget::setSection(const Section &section)
     m_section = section;
     if (!section.samples.isEmpty()) { m_xMin = section.samples.front().chainage; m_xMax = section.samples.back().chainage; }
     if (!(m_xMax > m_xMin)) m_xMax = m_xMin + 1;
-    QStringList names;
-    for (const auto &s : section.series)
-        if (s.definition.visible && s.definition.role == SeriesRole::Scalar)
-            names.append(QStringLiteral("%1 [%2]").arg(s.definition.label, units(s)));
-    setAccessibleDescription(names.join(QStringLiteral("; ")));
+    refreshAccessibleDescription();
     setMinimumHeight(std::max(1, trackCount()) * 150); update();
+}
+void MeshProfileTracksWidget::refreshAccessibleDescription()
+{
+    QStringList names;
+    if (m_cursor >= 0) names.append(tr("Station %1.").arg(m_cursor,0,'g',12));
+    names.append(tr("Left and Right move between section stations. Home and End move to the first and last station."));
+    for (const auto &s : m_section.series)
+        if (s.definition.visible && s.definition.role == SeriesRole::Scalar)
+            names.append(accessibleSeriesSummary(s));
+    setAccessibleDescription(names.join(QStringLiteral("; ")));
 }
 void MeshProfileTracksWidget::setViewRange(const QRectF &range)
 {
     if (!std::isfinite(range.left()) || !std::isfinite(range.right()) || range.width() <= 0) return;
     m_xMin = range.left(); m_xMax = range.right(); update();
 }
-void MeshProfileTracksWidget::setCursorChainage(double chainage) { m_cursor = chainage; update(); }
+void MeshProfileTracksWidget::setCursorChainage(double chainage)
+{
+    if (!std::isfinite(chainage)) return;
+    m_cursor = chainage;
+    refreshAccessibleDescription();
+    QAccessibleValueChangeEvent event(this, chainage);
+    QAccessible::updateAccessibility(&event);
+    update();
+}
 void MeshProfileTracksWidget::paintEvent(QPaintEvent *)
 {
     QPainter painter(this); painter.setRenderHint(QPainter::Antialiasing);
@@ -103,7 +120,7 @@ void MeshProfileTracksWidget::paintEvent(QPaintEvent *)
         const int top = track++ * 150;
         const QRectF plot(64, top + 36, std::max(1, width()-80), 94);
         painter.setPen(palette().text().color());
-        const QString timing = s.effectiveTime.isValid() ? s.effectiveTime.toString(Qt::ISODate) : tr("Static / unavailable");
+        const QString timing = effectiveTimeLabel(s);
         const QString title = QStringLiteral("%1 [%2] — %3").arg(s.definition.label, units(s), timing);
         painter.drawText(QRectF(8, top+3, width()-16, 28), Qt::AlignLeft|Qt::AlignVCenter,
                          painter.fontMetrics().elidedText(title, Qt::ElideRight, width()-16));
@@ -139,7 +156,7 @@ void MeshProfileTracksWidget::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
         const double fraction = std::clamp((event->position().x()-64)/std::max(1,width()-80),0.,1.);
-        m_cursor = m_xMin + fraction*(m_xMax-m_xMin); emit cursorChainageChanged(m_cursor); update(); event->accept();
+        setCursorChainage(m_xMin + fraction*(m_xMax-m_xMin)); emit cursorChainageChanged(m_cursor); event->accept();
     } else QWidget::mousePressEvent(event);
 }
 void MeshProfileTracksWidget::keyPressEvent(QKeyEvent *event)
@@ -153,5 +170,5 @@ void MeshProfileTracksWidget::keyPressEvent(QKeyEvent *event)
     else if (event->key() == Qt::Key_Right) { auto it = std::upper_bound(stations.begin(),stations.end(),m_cursor); m_cursor = it == stations.end() ? stations.back() : *it; }
     else if (event->key() == Qt::Key_Left) { auto it = std::lower_bound(stations.begin(),stations.end(),m_cursor); m_cursor = it == stations.begin() ? stations.front() : *--it; }
     else { QWidget::keyPressEvent(event); return; }
-    emit cursorChainageChanged(m_cursor); update(); event->accept();
+    setCursorChainage(m_cursor); emit cursorChainageChanged(m_cursor); event->accept();
 }

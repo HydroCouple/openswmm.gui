@@ -22,6 +22,7 @@
 #define OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
 
 #include "io/mesh2dscalarframe.h"
+#include "io/mesh2dlivevariables.h"
 #include "io/mesh2dh5reader.h"       // openswmmvis::io::CoordinateReference
 #include "layers/openswmmvislayer.h"
 #include "layers/meshspatialgrid.h"
@@ -102,6 +103,9 @@ public:
      *  newest frame for a live source — the user drives playback via the
      *  slider / Play. A completed file source returns false. */
     virtual bool isLive() const { return false; }
+    // Periodic live snapshots are not a complete report history, even after
+    // stopping. Whole-run scalar extrema require a complete output source.
+    virtual bool supportsWholeRunRange() const { return !isLive(); }
     virtual QString sourcePath() const { return {}; }
 
     /*! \brief Fetch mesh geometry as a DISPLAY triangle fan. Resizes outputs.
@@ -179,6 +183,9 @@ public:
     { values.clear(); status.clear(); return false; }
 
     virtual int historyGeneration() const { return 0; }
+    // Generic variable content can arrive after a hydraulic tick. This revision
+    // invalidates value/catalog caches without changing pinned frame indexes.
+    virtual int resultGeneration() const { return historyGeneration(); }
 
     /*! \brief Wall-clock sim time at \p timeIdx (invalid if out of range or unknown). */
     virtual QDateTime simTimeAt(int timeIdx) const { (void)timeIdx; return {}; }
@@ -363,6 +370,15 @@ public:
                    QDateTime simTime,
                    double elapsedSec);
 
+    // Immutable worker-captured variables, paired with the hydraulic tick.
+    // Invalid shape/identity is refused without modifying the history.
+    bool pushFaceVariables(openswmmvis::io::Mesh2DLiveVariablesPtr frame,
+                           QDateTime simTime, double elapsedSec);
+    QVector<openswmmvis::io::Mesh2DResultVariable> faceVariables(QStringList *warnings = nullptr) const override;
+    bool readFaceVariableAt(const openswmmvis::io::Mesh2DResultVariable &variable, int timeIdx,
+                            std::vector<float> &values,
+                            std::vector<openswmmvis::io::Mesh2DValueStatus> &status) override;
+
     /*!
      * \brief Replace the cumulative per-cell envelopes (m, m/s) read via
      * \c swmm_2d_get_stat_max_depths / \c _velocities — the live counterparts
@@ -406,6 +422,7 @@ public:
     int  vertexCount()   const override { return static_cast<int>(vx_.size()); }
     int  triangleCount() const override { return static_cast<int>(cells_.size()); }
     int  timeCount()     const override { return static_cast<int>(history_.size()); }
+    bool supportsWholeRunRange() const override { return false; }
     bool isLive()        const override { return !finished_; } // streaming from the running sim
 
     /*! \brief Stop advertising as live once the run has ended. The retained
@@ -417,6 +434,7 @@ public:
     void markFinished() { finished_ = true; }
     bool readDepthAt(int timeIdx, int cell, float& out) override;
     int  historyGeneration() const override { return generation_; }
+    int  resultGeneration() const override { return generation_ + variable_generation_; }
 
     /*! \brief Cap on retained frames (default 2000). Past the cap the OLDER
      *  half of the history is thinned 2:1 (frames keep their sim times, so
@@ -476,10 +494,13 @@ private:
         std::vector<float> rainfall;   ///< [tri] m/s; empty when engine lacks the rainfall bulk API.
         std::vector<float> rain_cum;   ///< [tri] m³ cumulative; paired with rainfall.
         std::vector<float> heads;      ///< [tri] m water surface; empty when not pushed.
+        openswmmvis::io::Mesh2DLiveVariablesPtr variables;
         QDateTime          sim_time;
         double             elapsed_sec = 0.0;
     };
     std::vector<Tick> history_;
+    QVector<openswmmvis::io::Mesh2DResultVariable> live_variables_;
+    QStringList live_variable_warnings_;
     bool              has_rainfall_ = false;   ///< any tick carried rainfall
     bool              has_heads_    = false;   ///< any tick carried heads
     bool              has_flux_     = false;   ///< any tick carried flux
@@ -489,6 +510,7 @@ private:
     int               max_frames_   = 2000;    ///< see setMaxFrames
     size_t            max_bytes_    = 0;       ///< see setMaxBytes (0 = unlimited)
     int               generation_   = 0;       ///< see historyGeneration
+    int               variable_generation_ = 0; ///< completed variable payloads
     bool              finished_     = false;   ///< see markFinished
     bool              pinned_       = false;   ///< see setHistoryPinned
     void enforceCap_();

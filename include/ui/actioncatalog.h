@@ -189,6 +189,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"analysis.plotTimeSeries",  "actionPlotTimeSeries",       "Analysis", "Ctrl+T",       "Chart", "analysis", "Analysis", NoTags},
     {"analysis.plotProfile",     "actionPlotProfile",          "Analysis", "Ctrl+Shift+T", "Profile", "analysis", "Analysis", NoTags},
     {"analysis.plotProfile2D",   "actionPlotProfile2D",        "Analysis", "",             "Profile2D", "analysis", "Analysis", NoTags},
+    {"analysis.savedSections2D", "actionSaved2DSections",      "Analysis", "",             "Profile2D", "analysis", "Analysis", NoTags},
     {"analysis.flowBalanceDown", "actionFlowBalanceDownstream","Analysis", "",             "FlowBalanceDownstream", "analysis", "Analysis", NoTags},
     {"analysis.flowBalanceUp",   "actionFlowBalanceUpstream",  "Analysis", "",             "FlowBalanceUpstream", "analysis", "Analysis", NoTags},
     {"analysis.travelTimeDown",  "actionTravelTimeDownstream", "Analysis", "",             "TravelTimeDownstream", "analysis", "Analysis", NoTags},
@@ -205,6 +206,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"mesh.assignFromVector", "actionMeshAssignFromVector", "Mesh 2D", "", "MeshAssignVector", "mesh2d", "Model/Mesh", Contextual2D},
     // Groundwater (2D) — preview of the pending [2D_AQUIFER] editor.
     {"mesh.gw2dParams",       "actionMesh2DGWParams",   "Mesh 2D", "", "GW2DParams", "mesh2d", "Model/Mesh", Contextual2D},
+    {"mesh.assignGroundwater", "actionAssignGroundwater", "Mesh 2D", "", "GW2DParams", "mesh2d", "Model/Mesh", Contextual2D},
     {"mesh.gw2dInitCond",     "actionMesh2DGWInitCond", "Mesh 2D", "", "GW2DInit",   "mesh2d", "Model/Mesh", Contextual2D},
     {"terrain.profile",       "actionTerrainProfile",   "Model",   "", "Profile",  "model", "Model", NoTags},
 

@@ -284,8 +284,9 @@ here the moment it is added. Today they are Manning's n and Initial Depth
 (`[2D_TRIANGLES]`), the per-cell infiltration set — Infiltration Method plus its
 positional parameters (`[2D_INFILTRATION]`) — and a greyed-out 2D groundwater
 block (Saturated Conductivity, Aquifer Thickness, Porosity, initial unsaturated
-and saturated depths) that is listed so the roadmap is visible but refuses
-edits until the engine supports it.
+and saturated depths). Edit groundwater through **Model → Assign Groundwater…**
+or the dedicated aquifer/initial-state dialog; the legacy table columns do not
+write groundwater records.
 
 A cell showing **—** does not apply to that row:
 

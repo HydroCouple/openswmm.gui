@@ -365,7 +365,8 @@ public:
 
     /** Engine version selector (e.g., "5.3.0", "6.0.0", "6.0.0-alpha.1"). Per-project, persisted to project file. */
     QString engineVersion() const { return mEngineVersion; }
-    void setEngineVersion(const QString &version);
+    /** Restore saved metadata with markDirty=false; user changes mark dirty by default. */
+    void setEngineVersion(const QString &version, bool markDirty = true);
 
     /** Rich-text notes mirrored to the engine's [TITLE] section as plain text.
      *  HTML form is preserved in the .oswp sidecar; the engine only ever sees
@@ -419,7 +420,7 @@ public:
      *        and add-link tools owned by this window.
      * \param layer  Raster layer to sample; nullptr = no terrain assistance.
      */
-    void setActiveTerrain(GISRasterLayer *layer);
+    void setActiveTerrain(GISRasterLayer *layer, bool markDirty = true);
 
     /*! Sets node offset and forwards it to all add-node tools. */
     void setTerrainNodeOffset(double offset);
@@ -434,7 +435,7 @@ public:
      * \brief Sets the terrain raster's vertical unit and updates the conversion
      *        factor applied when computing node/link invert elevations.
      */
-    void setTerrainVerticalUnit(const QString &unit);
+    void setTerrainVerticalUnit(const QString &unit, bool markDirty = true);
 
     /*!
      * \brief Restores terrain state from a persisted .oswp session.

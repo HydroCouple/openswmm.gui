@@ -234,6 +234,28 @@ legend and time-label groups as the 1D profile.
 
 \figtodo{23_2d_mesh_profile.png, A 2D mesh profile with the bed; the animated water surface and the maximum-depth envelope}
 
+#### Combined groundwater and overland sections
+
+Use **Series and styles** in the 2D section dialog to add groundwater table/base
+elevations and separate scalar tracks for available surface or SAT/UNSAT species.
+Each series chooses its result source, variable, visibility and appearance.
+Groundwater remains visible when the surface cell is dry. Concentrations retain
+their native units and use separate axes from elevations.
+
+Sources retain their own report times and cell mapping. The sample table shows
+requested and effective times, units, values and availability. Static values,
+maximum envelopes, unavailable sources and missing report times have distinct
+labels; a missing value is not zero. Comparing elevations across different
+sources requires a matching declared vertical datum and compatible coordinates.
+
+Choose **Save section** to retain its path, sources and configuration in the
+project, then save the project. **Analysis → Saved 2D Sections…** reopens it.
+Closing an unsaved section does not retain its edits. **Export CSV…** writes
+samples with source identity, time, units and status; unknown-unit data is
+refused for scientific export. **Export image…** saves the combined figure.
+The cursor can be moved with the keyboard, with series status exposed to
+accessibility tools as it moves.
+
 #### How the water surface is drawn at the edges
 
 Two behaviours explain what you see where the water meets dry ground. Neither is a
