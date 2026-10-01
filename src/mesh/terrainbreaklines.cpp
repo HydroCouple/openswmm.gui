@@ -10,6 +10,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <QDir>
+#include <QHash>
+#include <QSet>
+#include <QTemporaryFile>
 
 namespace mesh {
 
@@ -30,9 +34,76 @@ constexpr int kDr[8] = {0, 1, 1, 1, 0, -1, -1, -1};
 
 } // namespace
 
+// Fixed-size clock cache. Each dirty block is saved before eviction. Reading
+// an unwritten block returns zeros without allocating disk space. Small DEMs
+// retain the original direct-array path; large DEMs have exactly the same
+// global detector and tracing order, including chains crossing block seams.
+class TerrainBreaklineExtractor::Mask {
+    static constexpr qint64 blockSize = 65536;
+    struct Block { QByteArray bytes; qint64 id=-1; bool dirty=false, referenced=false; };
+    QVector<quint8> dense;
+    QTemporaryFile file;
+    QVector<Block> blocks;
+    QHash<qint64,int> resident;
+    QSet<qint64> written;
+    int hand=0,last=-1;
+    qint64 count=0;
+    Block *getBlock(qint64 id) {
+        if (!error.isEmpty()) return nullptr;
+        if (last>=0 && blocks[last].id==id) { blocks[last].referenced=true; return &blocks[last]; }
+        auto it=resident.constFind(id);
+        if (it!=resident.constEnd()) { last=*it; blocks[last].referenced=true; return &blocks[last]; }
+        while (blocks[hand].referenced) { blocks[hand].referenced=false; hand=(hand+1)%blocks.size(); }
+        Block &b=blocks[hand];
+        if (b.dirty && (!file.seek(b.id*blockSize) || file.write(b.bytes)!=blockSize)) {
+            error=QStringLiteral("Cannot write terrain feature cache: %1").arg(file.errorString()); return nullptr;
+        }
+        if (b.dirty) written.insert(b.id);
+        if (b.id>=0) resident.remove(b.id);
+        b.bytes.resize(blockSize);
+        if (written.contains(id)) {
+            if (!file.seek(id*blockSize) || file.read(b.bytes.data(),blockSize)!=blockSize) {
+                error=QStringLiteral("Cannot read terrain feature cache: %1").arg(file.errorString()); return nullptr;
+            }
+        } else b.bytes.fill(0);
+        b.id=id; b.dirty=false; b.referenced=true;
+        last=hand; resident.insert(id,hand); hand=(hand+1)%blocks.size();
+        return &b;
+    }
+public:
+    QString error;
+    Mask(qint64 n,const TerrainBreaklineOptions &opt) : count(n) {
+        const qint64 budget=qint64(std::clamp(opt.cacheMiB,1,1024))*1024*1024;
+        if (n<=budget) { dense.fill(0,n); return; }
+        file.setFileTemplate(QDir(opt.cacheDirectory.isEmpty()?QDir::tempPath():opt.cacheDirectory)
+            .filePath(QStringLiteral("openswmm-terrain-mask-XXXXXX")));
+        if (!file.open()) { error=QStringLiteral("Cannot create terrain feature cache: %1").arg(file.errorString()); return; }
+        blocks.resize(budget/blockSize);
+    }
+    qint64 size() const { return count; }
+    quint8 at(qint64 i) {
+        if (!dense.isEmpty()) return dense[i];
+        auto *b=getBlock(i/blockSize); return b?quint8(b->bytes[i%blockSize]):0;
+    }
+    void set(qint64 i,quint8 v) {
+        if (!dense.isEmpty()) { dense[i]=v; return; }
+        auto *b=getBlock(i/blockSize);
+        if (b && quint8(b->bytes[i%blockSize])!=v) { b->bytes[i%blockSize]=char(v); b->dirty=true; }
+    }
+};
+
+TerrainBreaklineExtractor::TerrainBreaklineExtractor() = default;
+TerrainBreaklineExtractor::~TerrainBreaklineExtractor() = default;
+QString TerrainBreaklineExtractor::errorMsg() const { return !m_error.isEmpty()?m_error:m_cls?m_cls->error:QString(); }
+bool TerrainBreaklineExtractor::cancelled() {
+    if (m_opt.cancelled && m_opt.cancelled()) m_error=QStringLiteral("Terrain feature extraction cancelled.");
+    return !errorMsg().isEmpty();
+}
+
 void TerrainBreaklineExtractor::begin(int cols, int rows, const TerrainBreaklineOptions &opt)
 {
     m_opt = opt;
+    m_error.clear();
     m_cols = std::max(0, cols);
     m_rows = std::max(0, rows);
     m_pushed = m_lambdaDone = m_nmsDone = 0;
@@ -43,8 +114,8 @@ void TerrainBreaklineExtractor::begin(int cols, int rows, const TerrainBreakline
         m_dir[i].fill(0, m_cols);
     }
     m_skipped = qint64(m_cols) * m_rows > opt.maxPixels;
-    if (m_skipped) { m_cols = m_rows = 0; m_cls.clear(); }
-    else m_cls.fill(kNone, qsizetype(m_cols) * m_rows);
+    if (m_skipped) { m_cols = m_rows = 0; m_cls.reset(); }
+    else m_cls=std::make_unique<Mask>(qint64(m_cols)*m_rows,opt);
     m_high = float(opt.tolerance);
     m_low  = float(opt.tolerance * std::clamp(opt.lowRatio, 0.0, 1.0));
 }
@@ -107,7 +178,6 @@ void TerrainBreaklineExtractor::suppressRow(int r)
     };
     const float *mag = m_mag[r % 3].constData();
     const quint8 *dir = m_dir[r % 3].constData();
-    quint8 *cls = m_cls.data() + qsizetype(r) * m_cols;
     for (int c = 0; c < m_cols; ++c)
     {
         const float v = mag[c];
@@ -123,14 +193,14 @@ void TerrainBreaklineExtractor::suppressRow(int r)
             const float den = prev - 2.0f * v + next;
             const float off = den < 0.0f ? 0.5f * (prev - next) / den : 0.0f;
             const int q = std::clamp(int(std::lround(off * 8.0f)) + 4, 0, 7);
-            cls[c] = quint8((v >= m_high ? kStrong : kWeak) | (k << 3) | (q << 5));
+            m_cls->set(qint64(r)*m_cols+c,quint8((v >= m_high ? kStrong : kWeak) | (k << 3) | (q << 5)));
         }
     }
 }
 
 void TerrainBreaklineExtractor::pushRow(const float *z)
 {
-    if (!z || m_pushed >= m_rows || m_cols <= 0) return;
+    if (!z || m_pushed >= m_rows || m_cols <= 0 || cancelled()) return;
     std::copy(z, z + m_cols, m_z[m_pushed % 3].begin());
     ++m_pushed;
     // λ(r) needs z(r+1); the first and last rows are zero.
@@ -145,28 +215,33 @@ void TerrainBreaklineExtractor::pushRow(const float *z)
 
 void TerrainBreaklineExtractor::hysteresis()
 {
-    const qsizetype n = m_cls.size();
+    const qsizetype n = m_cls->size();
     QVector<qsizetype> stack;
-    quint8 *cls = m_cls.data();
     for (qsizetype i = 0; i < n; ++i)
     {
-        if (stateOf(cls[i]) != kStrong) continue;
-        cls[i] = withState(cls[i], kLine);
+        if ((i & 65535)==0 && cancelled()) return;
+        if (stateOf(m_cls->at(i)) != kStrong) continue;
+        m_cls->set(i,withState(m_cls->at(i), kLine));
         stack.append(i);
         while (!stack.isEmpty())
         {
             const qsizetype p = stack.takeLast();
+            if ((p & 4095)==0 && cancelled()) return;
             const int r = int(p / m_cols), c = int(p % m_cols);
             for (int k = 0; k < 8; ++k)
             {
                 const int rr = r + kDr[k], cc = c + kDc[k];
                 if (rr < 0 || rr >= m_rows || cc < 0 || cc >= m_cols) continue;
                 const qsizetype q = qsizetype(rr) * m_cols + cc;
-                if (stateOf(cls[q]) == kWeak || stateOf(cls[q]) == kStrong) { cls[q] = withState(cls[q], kLine); stack.append(q); }
+                const quint8 value=m_cls->at(q);
+                if (stateOf(value) == kWeak || stateOf(value) == kStrong) { m_cls->set(q,withState(value, kLine)); stack.append(q); }
             }
         }
     }
-    for (qsizetype i = 0; i < n; ++i) if (stateOf(cls[i]) != kLine) cls[i] = kNone;
+    for (qsizetype i = 0; i < n; ++i) {
+        if ((i & 65535)==0 && cancelled()) return;
+        if (stateOf(m_cls->at(i)) != kLine) m_cls->set(i,kNone);
+    }
 
     // Bridge one-pixel gaps: suppression drops the corner pixel where a wall
     // turns, which would break a building outline into pieces. A line end
@@ -174,14 +249,14 @@ void TerrainBreaklineExtractor::hysteresis()
     // that is not already reachable through its own neighbour, by filling
     // the pixel between them.
     auto isLine = [&](int c, int r) {
-        return r >= 0 && r < m_rows && c >= 0 && c < m_cols && stateOf(cls[qsizetype(r) * m_cols + c]) == kLine;
+        return r >= 0 && r < m_rows && c >= 0 && c < m_cols && stateOf(m_cls->at(qsizetype(r) * m_cols + c)) == kLine;
     };
     for (int r = 0; r < m_rows; ++r)
     {
-        const quint8 *row = cls + qsizetype(r) * m_cols;
+        if (cancelled()) return;
         for (int c = 0; c < m_cols; ++c)
         {
-            if (stateOf(row[c]) != kLine) continue;
+            if (stateOf(m_cls->at(qsizetype(r)*m_cols+c)) != kLine) continue;
             int nb = 0, nbc = 0, nbr = 0;
             for (int k = 0; k < 8; ++k)
                 if (isLine(c + kDc[k], r + kDr[k])) { ++nb; nbc = c + kDc[k]; nbr = r + kDr[k]; }
@@ -195,7 +270,7 @@ void TerrainBreaklineExtractor::hysteresis()
                     if (!isLine(qc, qr)) continue;
                     if (nb == 1 && std::abs(qc - nbc) <= 1 && std::abs(qr - nbr) <= 1) continue;   // own chain
                     const int mc = c + dc / 2, mr = r + dr / 2;
-                    cls[qsizetype(mr) * m_cols + mc] = quint8(kLine | (4 << 5));   // bridge: no offset
+                    m_cls->set(qsizetype(mr)*m_cols+mc,quint8(kLine | (4 << 5))); // bridge: no offset
                     bridged = true;
                 }
         }
@@ -204,14 +279,13 @@ void TerrainBreaklineExtractor::hysteresis()
 
 QVector<QVector<QPointF>> TerrainBreaklineExtractor::trace()
 {
-    quint8 *cls = m_cls.data();
     auto isLine = [&](int c, int r) {
-        return r >= 0 && r < m_rows && c >= 0 && c < m_cols && stateOf(cls[qsizetype(r) * m_cols + c]) == kLine;
+        return r >= 0 && r < m_rows && c >= 0 && c < m_cols && stateOf(m_cls->at(qsizetype(r) * m_cols + c)) == kLine;
     };
-    auto mark = [&](int c, int r) { quint8 &v = cls[qsizetype(r) * m_cols + c]; v = withState(v, kTraced); };
+    auto mark = [&](int c, int r) { const qint64 i=qint64(r)*m_cols+c; m_cls->set(i,withState(m_cls->at(i),kTraced)); };
     // Pixel centre moved to the sub-pixel peak across the line.
     auto pointAt = [&](int c, int r) {
-        const quint8 v = cls[qsizetype(r) * m_cols + c];
+        const quint8 v = m_cls->at(qsizetype(r) * m_cols + c);
         const int k = (v >> 3) & 3;
         const double off = (((v >> 5) & 7) - 4) / 8.0;
         return QPointF(c + 0.5 + off * kNmsDc[k], r + 0.5 + off * kNmsDr[k]);
@@ -223,6 +297,7 @@ QVector<QVector<QPointF>> TerrainBreaklineExtractor::trace()
         int d = prevDir;
         for (;;)
         {
+            if ((out->size() & 4095)==0 && cancelled()) return;
             int best = -1, bestScore = 1 << 20;
             for (int k = 0; k < 8; ++k)
             {
@@ -253,7 +328,8 @@ QVector<QVector<QPointF>> TerrainBreaklineExtractor::trace()
     for (int r = 0; r < m_rows; ++r)
         for (int c = 0; c < m_cols; ++c)
         {
-            if (stateOf(cls[qsizetype(r) * m_cols + c]) != kLine) continue;
+            if ((c & 65535)==0 && cancelled()) return {};
+            if (stateOf(m_cls->at(qsizetype(r)*m_cols+c)) != kLine) continue;
             mark(c, r);
             QVector<QPoint> fwd, bwd;
             walk(c, r, -1, &fwd);
@@ -284,9 +360,9 @@ QVector<QVector<QPointF>> TerrainBreaklineExtractor::trace()
 
 QVector<QVector<QPointF>> TerrainBreaklineExtractor::finish()
 {
-    if (m_skipped) return {};
+    if (m_skipped || cancelled()) return {};
     if (m_pushed < m_rows) m_rows = m_pushed;
-    if (m_rows < 3 || m_cols < 3 || !(m_high > 0.0f)) { m_cls.clear(); return {}; }
+    if (m_rows < 3 || m_cols < 3 || !(m_high > 0.0f)) { m_cls.reset(); return {}; }
     while (m_lambdaDone < m_rows)
     {
         computeLambdaRow(m_lambdaDone++);
@@ -294,9 +370,10 @@ QVector<QVector<QPointF>> TerrainBreaklineExtractor::finish()
     }
     while (m_nmsDone < m_rows) suppressRow(m_nmsDone++);
     hysteresis();
+    if (cancelled()) return {};
     QVector<QVector<QPointF>> chains = trace();
-    m_cls.clear();
-    m_cls.squeeze();
+    if (cancelled()) return {};
+    m_cls.reset();
     return chains;
 }
 

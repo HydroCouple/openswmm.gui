@@ -20,6 +20,7 @@
 #include "mesh/inpmeshwriter.h"
 #include "mesh/sizefield.h"
 #include "mesh/terrainsizefield.h"
+#include "mesh/terrainerrorfield.h"
 #include "mesh/pslgprep.h"
 #include "mesh/dtmraster.h"
 
@@ -145,6 +146,10 @@ class TestMeshOverhaulBellinge : public QObject
         in.sizeRatio        = 1.5;
         in.minCellSize      = spec.cellSize / 4.0;
         in.terrainTolerance = spec.terrainTolerance;
+        in.terrainAutoTolerance = false;
+        in.terrainAdaptive = false;
+        in.refineAtFeatures = true;
+        in.genOpts.prioritizeQuality = false;
         in.trimTurnDeg      = 5.0;
         in.trimDeviation    = 0.1 * spec.cellSize;
         in.dtmPath          = m_demPath;
@@ -259,6 +264,8 @@ class TestMeshOverhaulBellinge : public QObject
 private slots:
     void initTestCase();
     void acceptance();
+    void adaptiveComparison();
+    void adaptiveWithModelConstraints();
     void cleanupTestCase();
 };
 
@@ -269,11 +276,22 @@ void TestMeshOverhaulBellinge::initTestCase()
               "acceptance harness (minutes; ~1M-cell runs).");
 
     m_repoDir = QStringLiteral(SWMMVIS_MESH_OVERHAUL_REPO_DIR);
-    m_outDir  = QStringLiteral(SWMMVIS_MESH_OVERHAUL_OUT_DIR);
+    m_outDir  = qEnvironmentVariable("SWMMVIS_BELLINGE_OUTPUT",QStringLiteral(SWMMVIS_MESH_OVERHAUL_OUT_DIR));
     QVERIFY(QDir().mkpath(m_outDir));
     m_inpPath    = m_repoDir + "/examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp";
     m_demPath    = m_repoDir + "/examples/bellinge_2d/output_SRTMGL1.tif";
-    m_domainPath = m_outDir + "/domain.geojson";
+    const QString selected=qEnvironmentVariable("SWMMVIS_BELLINGE_INPUT");
+    if (!selected.isEmpty()) {
+        // All staged output belongs to the review directory, never the user's
+        // reference model. The DEM remains a read-only absolute input.
+        const QDir source=QFileInfo(selected).absoluteDir();
+        m_inpPath=m_outDir+"/reference.inp";
+        if (!QFileInfo::exists(m_inpPath)) QVERIFY(QFile::copy(selected,m_inpPath));
+        m_demPath=source.filePath("output_SRTMGL1.tif");
+        for(const auto &file:source.entryList({"*.dat"},QDir::Files))
+            if(!QFileInfo::exists(QDir(m_outDir).filePath(file))) QVERIFY(QFile::copy(source.filePath(file),QDir(m_outDir).filePath(file)));
+    }
+    m_domainPath = qEnvironmentVariable("SWMMVIS_BELLINGE_DOMAIN",m_outDir + "/domain.geojson");
     QVERIFY(QFileInfo::exists(m_inpPath));
     QVERIFY(QFileInfo::exists(m_demPath));
     QVERIFY2(QFileInfo::exists(m_domainPath),
@@ -333,6 +351,77 @@ void TestMeshOverhaulBellinge::initTestCase()
                  "terrainRmsM,terrainMaxM,wallMs,peakRssB,"
                  "rssPerCellB,ringVertsBefore,ringVertsAfterTrim,"
                  "couplingLost,deterministic";
+}
+
+void TestMeshOverhaulBellinge::adaptiveComparison()
+{
+    QFile csv(m_outDir+"/adaptive_comparison.csv"); QVERIFY(csv.open(QIODevice::WriteOnly));
+    csv.write("mode,tolerance,cells,vertices,wall_ms,peak_rss_bytes,max_sample_error,violating_cells,terrain_inserts,size_inserts,quality_inserts\n");
+    mesh::TerrainErrorField terrain;
+    QVERIFY2(terrain.open(m_demPath,m_base.meshCRSWkt,m_domainPoly.boundingRect()),qPrintable(terrain.errorMsg()));
+    for (int mode=0;mode<3;++mode) for(double tolerance:{1.,2.,3.,5.}) {
+        RunSpec spec{"comparison",10,tolerance,30,false,0,"terrain refinement comparison"};
+        auto in=makeInputs(spec);
+        in.terrainAdaptive=mode!=0;
+        in.genOpts.prioritizeQuality=mode!=0;
+        in.refineAtFeatures=mode!=2;
+        in.nodesUseRim=false; in.nodeFlattenRadius=0;
+        in.genOpts.quadsBetweenBreaklines=false; // compare triangular terrain interpolation
+        QElapsedTimer timer; timer.start();
+        const auto result=run(in); const qint64 ms=timer.elapsed();
+        QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        double maxError=0; int violations=0;
+        for (const auto &cell:result.meshResult.triangles) {
+            QPointF xy[3]; double z[3];
+            for(int k=0;k<3;++k) { const auto &v=result.meshResult.vertices[cell.vertex(k)]; xy[k]=v.xy; z[k]=v.z; }
+            const auto q=terrain.queryTriangle(xy,z,tolerance,true);
+            QVERIFY(q.valid); maxError=std::max(maxError,q.maxError);
+            if(q.maxError>tolerance) ++violations;
+        }
+        const auto &st=result.generationStats;
+        const QString line=QStringLiteral("%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11\n")
+            .arg(mode==0?"legacy":mode==1?"adaptive_features":"adaptive_geometry")
+            .arg(tolerance).arg(result.meshResult.triangles.size()).arg(result.meshResult.vertices.size())
+            .arg(ms).arg(peakRssBytes()).arg(maxError,0,'g',12).arg(violations)
+            .arg(st.terrainInserted).arg(st.sizeInserted).arg(st.qualityInserted);
+        csv.write(line.toUtf8()); csv.flush(); qInfo().noquote()<<line.trimmed();
+        QFile meshFile(m_outDir+QStringLiteral("/%1_%2m.2dm").arg(mode==0?"legacy":mode==1?"adaptive_features":"adaptive_geometry").arg(tolerance));
+        QVERIFY(meshFile.open(QIODevice::WriteOnly));
+        mesh::InpMeshWriter::UnitInfo units;
+        units.linearUnitName=in.meshLinearUnitName; units.sourceCrsTag=in.meshCRSTag;
+        meshFile.write(mesh::InpMeshWriter::buildSectionText(result.meshResult,result.coupling,.035,units).toUtf8());
+        if(mode && !st.refineCapped) QCOMPARE(violations,st.terrainUnresolved);
+    }
+}
+
+void TestMeshOverhaulBellinge::adaptiveWithModelConstraints()
+{
+    const RunSpec spec{"constraints",10,3,30,true,0,"adaptive default with model constraints"};
+    auto in=makeInputs(spec);
+    in.terrainAdaptive=true; in.terrainAutoTolerance=true;
+    in.refineAtFeatures=false; in.genOpts.prioritizeQuality=true;
+    QElapsedTimer timer; timer.start(); const auto result=run(in);
+    QVERIFY2(result.ok,qPrintable(result.errorMsg));
+    const auto &m=result.meshResult;
+    const auto edges=mesh::buildEdgeTriangles(m);
+    for(auto it=edges.cbegin();it!=edges.cend();++it) QVERIFY(it.value().size()<=2);
+    for(const auto &cell:m.triangles) QVERIFY(mesh::cellGeom(m.vertices,cell).area>0);
+    QSet<QString> coupled;
+    for(const auto &v:m.vertices) if(!v.tag.isEmpty()) coupled.insert(v.tag);
+    for(const auto &v:m.cellCouplings) coupled.insert(v.nodeId);
+    for(const auto &id:result.coupling.vertexToNode) coupled.insert(id);
+    for(const auto &id:result.coupling.triangleToNode) coupled.insert(id);
+    int expected=0;
+    for(const auto &node:m_base.candidateNodes) if(m_domainPoly.containsPoint(node.xy,Qt::OddEvenFill)) {
+        ++expected; QVERIFY2(coupled.contains(node.name),qPrintable(node.name));
+    }
+    qInfo()<<"adaptive model constraints: cells"<<m.triangles.size()<<"vertices"<<m.vertices.size()
+           <<"coupled nodes"<<expected<<"tolerance"<<result.terrainToleranceUsed
+           <<"unresolved terrain"<<result.generationStats.terrainUnresolved<<"wall ms"<<timer.elapsed();
+    for(const auto &warning:result.alignmentWarnings) qInfo().noquote()<<warning;
+    QFile output(m_outDir+"/adaptive_model_constraints.2dm"); QVERIFY(output.open(QIODevice::WriteOnly));
+    output.write(mesh::InpMeshWriter::buildSectionText(m,result.coupling).toUtf8());
+    QVERIFY(!result.generationStats.refineCapped);
 }
 
 void TestMeshOverhaulBellinge::acceptance()

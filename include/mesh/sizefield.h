@@ -110,7 +110,7 @@ public:
     /*!
      * \brief Build the field.  Returns false (and leaves the field invalid)
      *        when there is nothing to build from — degenerate bbox, no seeds
-     *        and neither a terrain term nor a region, or nonsensical options.
+     *        and no finite maximum, terrain term or region, or nonsensical options.
      *        Callers fall back to the uniform cap. Without seeds every cell
      *        starts from maxSize (nearSize when unbounded) and only the
      *        terrain and region terms refine it.

@@ -133,56 +133,55 @@ is selected.
 
 \figtodo{19_generate_mesh_quality.png, The Quality tab with the Triangle quality and minimum cell size groups}
 
-**Quality tab — Triangle quality**
+**Quality tab — Resolution and terrain accuracy**
 
-| Control | What it does |
-| --- | --- |
-| **Max triangle area** | Upper bound on triangle area in project length units squared; **(no cap)** at 0 |
-| **Min angle** | Minimum triangle angle. 0–33° is reliable; above 33° refinement may not terminate |
-| **Size gradation** | Replaces the uniform area cap with a graded size field: the cap is kept *at* the constrained features and the permitted area grows with distance at this Lipschitz slope. Strictly fewer cells with smooth transitions. **(uniform)** at 0; needs a non-zero max area |
-| **Max Steiner points** | Cap on the points Triangle may insert; **(unlimited)** at 0 |
-| **Allow Steiner refinement on boundary** | Lets Triangle split boundary segments |
+The constrained Delaunay generator starts with coarse cells and inserts vertices
+where size, angle, geometry or terrain accuracy requires them. It compares the
+actual triangle surface with the original valid DEM pixel centres. A constant
+slope can therefore be as coarse as flat ground. The retired normal-dot-product
+node-removal controls are no longer used.
 
-**PSLG Optimisation**
+| Control | What it does | Default |
+| --- | --- | --- |
+| **Cell size at features** | Reference spacing for the size controls; 0 derives it from the model extent | From extent |
+| **Coarsen away from features up to** | Maximum requested size as a multiple of the reference spacing | ×20 |
+| **Size ratio between neighbours** | Requested growth rate of the background size field; constraints and terrain refinement can create larger final ratios | 1.5 |
+| **Minimum cell size** | Minimum requested spacing and a limit on refinement. Constraints and angle refinement can create smaller cells | Reference size / 4 |
+| **Terrain refinement** | **Adaptive elevation error**, **Legacy block sizing**, or **Off** | Adaptive |
+| **Terrain tolerance** | Maximum vertical deviation at original DEM samples. Automatic uses 0.1 m, or three source elevation increments for whole-unit quantized terrain, whichever is larger | Automatic |
+| **Capture terrain breaklines** | Align mesh edges with DEM ridges, banks and slope breaks | On |
+| **Refine around model features** | Request extra fine spacing near included nodes and lines. With this off, those geometric constraints and coupling identities remain included | Off |
 
-| Control | What it does |
-| --- | --- |
-| **Geometry simplification ε** | Ramer–Douglas–Peucker tolerance applied to every polygon ring and polyline before it enters Triangle; **(off)** at 0 |
-| **Steiner snap radius** | Near-coincident Steiner points from different sources within this distance are merged to one; **(off)** at 0 |
-| **Max boundary edge length** | Splits domain and hole ring edges longer than this into equal parts after simplification — pure vertex insertion; **(off)** at 0 |
+Choose an explicit tolerance appropriate to the DEM and the features that matter
+to the model. Automatic tolerance is a starting value, not an estimate of DEM
+survey accuracy. For metre-quantized SRTM it resolves to 3 m. Small channels,
+crests or walls absent from the DEM need authored geometry or a better terrain
+source. The error check does not claim knowledge of terrain between source
+measurements.
 
-**Minimum Cell Size** — Ruppert refinement emits cells at the scale the *input*
-demands, so a minimum cell size means conditioning the input geometry. On the
-explicit 2D marcher a single sliver sets the timestep for the whole domain, so
-this group is usually worth the small geometry change it costs.
+**Shape, boundaries and resource limits**
 
-| Control | What it does |
-| --- | --- |
-| **Minimum cell size** | The target minimum feature size *h* in project length units; **(off)** at 0, which reproduces an unconditioned mesh exactly |
-| **Suggest** | Fills the field with one third of the side of the equilateral triangle matching the **Max triangle area** |
-| **Enforce — may move or merge SWMM coupling points** | Off (advisory): tagged nodes and conduit endpoints never move or merge — on real models nearly every crowded vertex *is* such an identity, so the minimum is rarely achieved. On (enforce): identities closer than *h* may merge, crowded nodes are not pinned as vertices, and the cleanup may absorb slivers into an identity vertex. **No coupling is ever lost** — a merged or demoted node couples through its containing cell instead, and the log says which |
-| **Trim corners sharper than** | Corner-trim threshold in degrees; **(off)** at 0 |
-| **Also trim corners at SWMM nodes** | Extends corner trimming to node-tagged corners |
-| **Drop holes smaller than one cell** | Removes sub-scale hole rings that could only produce slivers |
-| **Collapse leftover slivers after meshing** | Post-Triangle sliver collapse; on by default |
+| Control | What it does | Default |
+| --- | --- | --- |
+| **Minimum angle** | Smallest requested triangle angle; constrained acute corners and fixed strips can prevent it | 30° |
+| **Prioritize worst triangle angles** | Process poor angles first; turn off to compare FIFO refinement | On |
+| **Quads between facing break lines** | Build aligned quads in suitable streets and ditches | On |
+| **Conduit quad strip width / region layer / corridors** | Explicit local alignment and spacing requirements | No conduit strip; no region override |
+| **Trim boundary vertices: max turn / max deviation** | Simplify boundary, hole and auxiliary-line geometry within the requested deviation | 5° / reference size ÷ 10 |
+| **Cell budget** | Stop refinement and report the unmet requirements at the resource limit | 20,000,000 |
+| **Terrain cache** | Budget per DEM-tile or feature-mask cache. Large feature masks spill to disk; mesh arrays, summaries and feature chains use additional memory | 64 MiB |
 
-Under the group a read-only line reports what the current *h* implies: the
-refinement floor per cell, the weld radius within which vertices merge, and the
-statement that no vertex moves further than that radius. It also warns when the
-minimum angle is above 28°, because a high angle bound multiplies cells around
-sharp features.
+Final verification uses the exported geometry and elevations. Fixed strips,
+minimum spacing, missing DEM data or prescribed rim elevations may prevent the
+requested tolerance. The result then includes counts and example locations;
+model elevation offsets are distinguished from insufficient terrain resolution.
+A warning means the mesh has not met all requested requirements.
 
-**Terrain-Adaptive Thinning** — decimates the DTM grid to the points that
-actually carry terrain shape, by iterative normal-deviation scoring.
-
-| Control | What it does |
-| --- | --- |
-| **Enable normal-deviation terrain simplification** | Turns thinning on |
-| **Normal dot threshold** | Above this score the neighbourhood is smooth and the vertex is dropped; below it the vertex is a terrain feature and is kept. Default 0.75 |
-| **Thinning passes** | Iteration count; **(unlimited)** at 0. Default 1 |
-| **Max thinning points** | Cap on retained terrain points; **(unlimited)** at 0 |
-| **Min point spacing (Poisson-disk)** | Poisson-disk filter over the retained points; **(auto)** at 0. **On by default** at 15 m, seeded as a whole number of model units (15 m or 49 ft) |
-| **Boundary buffer** | Terrain candidates outside the domain, inside a hole, or closer than this to any constrained segment or mandatory Steiner vertex are dropped so they cannot force boundary slivers; **(auto)** at 0 uses half the effective terrain point spacing |
+The dialog remembers its settings when closed, including **Close** without
+Generate. It reloads them on reopening; saving the project also stores them in
+the `.oswp` sidecar. Distances are stored in canonical units, and layer choices
+use stable layer identifiers. The last generation's cell count and terrain
+result appear in the Quality tab.
 
 \figtodo{19_generate_mesh_hydraulics.png, The Hydraulics tab with the initial cell values and the region defaults table}
 
@@ -246,7 +245,7 @@ in the conduit's cross-section.
 The **Channel Burn-in** tab reconstructs each selected conduit's bed from its
 cross-section and writes it into a **copy** of the DTM. Your raster is never
 modified. The mesh run then reads the burned copy, which is what makes the rest
-work: terrain-adaptive thinning keeps points where the surface bends, so a
+work: terrain-error refinement adds vertices where the surface needs them, so a
 burned channel densifies its own banks, and the corridor can be meshed as
 streamwise quads.
 
@@ -678,28 +677,24 @@ visibility, panel layouts, the active mesh layer — lives in the project's
 - **Constrain, don't just refine.** A breakline as a constraint line puts mesh
   edges *on* the feature. Refining everywhere until the feature happens to be
   resolved costs orders of magnitude more cells and still misses the crest.
-- **Use size gradation instead of a smaller area cap.** It keeps the resolution
-  at the features and coarsens away from them, always producing fewer cells than
-  the uniform cap, never more.
+- **Let planar areas coarsen.** Use adaptive terrain refinement and increase the
+  coarsening limit. Enable extra spacing around model features only where the
+  hydraulic model needs that resolution; geometric constraints remain included.
 - **One sliver sets the timestep for the whole domain.** The explicit marcher is
   CFL-limited on the smallest cell. If a run is inexplicably slow, set a
   minimum cell size and regenerate.
-- **Advisory minimum cell size is often inert.** On a real SWMM model almost
-  every crowded vertex is a coupling identity that advisory mode may not touch.
-  Turn on **Enforce** when you actually need the floor — no coupling is lost,
-  the affected nodes just couple through their containing cell.
-- **A min angle above 28° is rarely worth it.** It multiplies cells around sharp
-  input angles for no practical benefit; 26–28° with a minimum cell size is the
-  better pairing.
-- **Junctions as Steiner vertices is off for a reason.** Pinning a vertex at
-  every node distorts the mesh where nodes cluster. Let the post-generation
-  mapper author the coupling instead.
+- **Review accuracy conflicts.** A node forced to a rim elevation can disagree
+  with the DEM. More triangles cannot remove a prescribed elevation offset.
+- **Keep the angle requirement deliberate.** The default is 30°. Increasing it
+  raises cell counts and can cause refinement cascades around difficult inputs.
+- **Keep coupling identities.** Nodes are included by default; close clusters
+  may couple through cells instead of being forced into separate mesh vertices.
 - **Regenerating the mesh invalidates the coupling.** Run **Remap 1D↔2D**
   afterwards; it reports every node it could not place.
 - **Burn the channel before you chase the mesh.** If a creek refuses to convey
   water, the usual cause is that the DTM never had it — no amount of refinement
-  resolves a bed the raster does not contain. Burn it in, and the thinner
-  densifies the banks on its own.
+  resolves a bed the raster does not contain. Burn it in, and enable terrain
+  refinement and breakline capture to represent the resulting bed and banks.
 - **Check the burn report, not just the mesh.** It names every conduit that was
   skipped and why. A channel that silently did not burn looks exactly like a
   channel that did until you read the row.
