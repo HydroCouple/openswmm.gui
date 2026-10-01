@@ -1,0 +1,54 @@
+[TITLE]
+Synthetic channel burn and boundary replacement example (metres)
+
+[OPTIONS]
+FLOW_UNITS CMS
+FLOW_ROUTING DYNWAVE
+START_DATE 01/01/2026
+END_DATE 01/02/2026
+
+[JUNCTIONS]
+;;Name Invert MaxDepth InitDepth Surcharge PondedArea
+A 9.2 2 0 0 0
+B 8.5 2 0 0 0
+C 8.0 2 0 0 0
+D 7.8 2 0 0 0
+X 8.0 2 0 0 0
+
+[OUTFALLS]
+E 7.0 FREE NO
+Y 7.5 FREE NO
+
+[CONDUITS]
+;;Name From To Length Roughness InOffset OutOffset InitFlow MaxFlow
+AB A B 8 .013 0 .4 0 0
+BC B C 18 .027 .2 .1 0 0
+CD C D 8 .029 .1 .2 0 0
+DE D E 6 .014 .3 0 0 0
+XY X Y 10 .030 0 0 0 0
+
+[XSECTIONS]
+;;Name Shape Depth BottomWidth LeftSlope RightSlope Barrels
+AB CIRCULAR 1 0 0 0 1
+BC TRAPEZOIDAL 2 2 1 1 1
+CD TRAPEZOIDAL 2 2 1 1 1
+DE CIRCULAR 1 0 0 0 1
+XY TRAPEZOIDAL 2 2 1 1 1
+
+[LOSSES]
+BC .1 .2 .3 NO .002
+
+[COORDINATES]
+A -10 16
+B -2 16
+C 16 16
+D 24 16
+E 30 16
+X 40 24
+Y 50 24
+
+[TAGS]
+LINK BC creek
+LINK CD creek
+LINK XY outside
+NODE C interior

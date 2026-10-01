@@ -80,6 +80,8 @@ void BurnCorridorIndex::build(const QVector<BurnProfile> &profiles)
             s.b = p.centerline[i + 1];
             s.chainageA = p.chainage[i];
             s.profile   = pi;
+            s.first = i == 0;
+            s.last = i + 2 == p.centerline.size();
             const double len = std::hypot(s.b.x() - s.a.x(), s.b.y() - s.a.y());
             if (!(len > 0.0)) continue;
             segLenSum += len;
@@ -138,6 +140,11 @@ void BurnCorridorIndex::projectAll(const QPointF &p, QVector<BurnProjection> *ou
             for (const int si : it.value())
             {
                 const Seg &s = m_seg[si];
+                const QPointF direction = s.b-s.a;
+                const double dot = QPointF::dotProduct(p-s.a,direction);
+                const double length2 = QPointF::dotProduct(direction,direction);
+                // Flat interface caps: never extend burning into the retained link.
+                if ((s.first && dot < -1e-10) || (s.last && dot > length2+1e-10)) continue;
                 double len = 0.0;
                 const double t = projectOnSegment(s.a, s.b, p, &len);
                 const QPointF q = s.a + (s.b - s.a) * t;
@@ -289,6 +296,7 @@ QString burnFingerprint(const QString &demIdentity, const BurnOptions &opt,
                                                         sizeof(v))); };
 
     h.addData(demIdentity.toUtf8());
+    h.addData(QByteArrayView("domain-surface-v2"));
 
     feed(opt.forceHalfWidth);  feed(opt.maxHalfWidth);
     feedI(opt.clipToBanks);    feed(opt.bankPad);
@@ -296,6 +304,8 @@ QString burnFingerprint(const QString &demIdentity, const BurnOptions &opt,
     feedI(int(opt.anchor));    feed(opt.sectionBlend);
     feedI(opt.enforceMonotone);feed(opt.maxIncision);
     feedI(opt.burnStreets);
+    feed(opt.channelCellSize); feed(opt.geometryTolerance);
+    feedI(opt.removeBurnedFrom1D);
 
     for (const BurnProfile &p : profiles)
     {

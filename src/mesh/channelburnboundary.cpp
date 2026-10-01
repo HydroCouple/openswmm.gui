@@ -20,10 +20,24 @@
 
 #include <algorithm>
 #include <cmath>
+#include <QCryptographicHash>
 
 namespace mesh {
 
 namespace {
+
+bool pointOnRing(const QPolygonF &ring,const QPointF &p)
+{
+    for(int i=0;i<ring.size();++i) {
+        const QPointF a=ring[i],d=ring[(i+1)%ring.size()]-a;
+        const double length2=QPointF::dotProduct(d,d);
+        if(!(length2>0)) continue;
+        const double t=std::clamp(QPointF::dotProduct(p-a,d)/length2,0.0,1.0);
+        const QPointF delta=p-(a+d*t);
+        if(QPointF::dotProduct(delta,delta)<=1e-18*std::max(1.0,length2)) return true;
+    }
+    return false;
+}
 
 /*! Cumulative length along \p path. */
 QVector<double> chainageOf(const QVector<QPointF> &path)
@@ -110,10 +124,10 @@ bool BurnDomain::contains(const QPointF &p) const
 {
     bool inside = false;
     for (const QPolygonF &r : rings)
-        if (r.size() >= 3 && pointInRing(r, p)) { inside = true; break; }
+        if (r.size() >= 3 && (pointInRing(r, p) || pointOnRing(r,p))) { inside = true; break; }
     if (!inside) return false;
     for (const QPolygonF &h : holes)
-        if (h.size() >= 3 && pointInRing(h, p)) return false;
+        if (h.size() >= 3 && pointInRing(h, p) && !pointOnRing(h,p)) return false;
     return true;
 }
 
@@ -222,6 +236,113 @@ bool truncationCrossing(const QVector<QPointF> &path, const BurnDomain &domain,
     }
     if (out) *out = xs.first();
     return true;
+}
+
+BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
+                                         const BurnNetwork &network, const BurnDomain &domain)
+{
+    BurnReplacementPlan plan;
+    plan.network = network;
+    QHash<QString, int> links;
+    QSet<QString> names;
+    for (int i = 0; i < network.links.size(); ++i) {
+        links.insert(network.links[i].id, i);
+        names.insert(network.links[i].id.toUpper());
+    }
+    for (const auto &n : network.nodes) names.insert(n.id.toUpper());
+    auto uniqueName = [&](const QString &id, int ordinal, const char *kind) {
+        const QString stem = QStringLiteral("B%1_%2_%3")
+            .arg(QString::fromLatin1(kind), QString::fromLatin1(
+                QCryptographicHash::hash(id.toUtf8(), QCryptographicHash::Sha256).toHex().left(12)))
+            .arg(ordinal);
+        QString name = stem;
+        int suffix = 0;
+        while (names.contains(name.toUpper())) name = stem + '_' + QString::number(++suffix);
+        names.insert(name.toUpper());
+        return name;
+    };
+    for (const auto &p : profiles) {
+        bool valid=p.isValid() && p.length()>0;
+        for(int i=1;i<p.offsets.size();++i) valid=valid && p.offsets[i]>p.offsets[i-1];
+        if(!valid) {
+            plan.error=QStringLiteral("Channel %1 has an invalid profile or offset ladder.").arg(p.conduitId);
+            return plan;
+        }
+        QVector<double> bounds{0.0};
+        const double eps = std::max(1e-10, p.length() * 1e-12);
+        // Only true changes in ownership need network splits; tangencies do not.
+        for (const auto &c : boundaryCrossings(p.centerline, domain))
+            if (c.chainage > eps && c.chainage < p.length() - eps) bounds.append(c.chainage);
+        bounds.append(p.length());
+        QVector<bool> inside;
+        bool anyInside = false;
+        for (int i = 0; i + 1 < bounds.size(); ++i) {
+            const bool in = domain.contains(pointAt(p.centerline, p.chainage, (bounds[i]+bounds[i+1])*0.5));
+            inside.append(in);
+            anyInside |= in;
+        }
+        if (!anyInside) {
+            plan.notes << QStringLiteral("%1: outside the mesh domain; retained in 1D").arg(p.conduitId);
+            continue;
+        }
+        const int li = links.value(p.conduitId, -1);
+        if (li >= 0 && !network.links[li].replacementError.isEmpty()) {
+            plan.error = QStringLiteral("%1 cannot be replaced: %2")
+                .arg(p.conduitId, network.links[li].replacementError);
+            return plan;
+        }
+        plan.originalIds.insert(p.conduitId);
+        QString currentId = p.conduitId;
+        int currentLink = li;
+        for (int i = 0; i < inside.size(); ++i) {
+            if (i + 1 < inside.size()) {
+                BurnSplit split;
+                split.linkId = currentId;
+                split.nodeId = uniqueName(p.conduitId, i+1, "N");
+                split.downstreamId = uniqueName(p.conduitId, i+1, "L");
+                split.t = (bounds[i+1]-bounds[i])/(p.length()-bounds[i]);
+                split.xy = pointAt(p.centerline, p.chainage, bounds[i+1]);
+                split.bedZ = bedZAt(p, bounds[i+1]);
+                plan.splits.append(split);
+                if (currentLink >= 0) {
+                    const int node = plan.network.nodes.size();
+                    plan.network.nodes.append({split.nodeId});
+                    const int to = plan.network.links[currentLink].to;
+                    plan.network.links[currentLink].to = node;
+                    plan.network.links.append({split.downstreamId, node, to, {}});
+                }
+            }
+            if (inside[i]) {
+                BurnProfile slice = p;
+                slice.conduitId = currentId;
+                slice.centerline.clear(); slice.chainage.clear(); slice.bedZ.clear(); slice.relZ.clear();
+                QVector<double> stations{bounds[i]};
+                for (double c : p.chainage)
+                    if (c > bounds[i]+eps && c < bounds[i+1]-eps) stations.append(c);
+                stations.append(bounds[i+1]);
+                for (double c : stations) {
+                    slice.centerline.append(pointAt(p.centerline, p.chainage, c));
+                    slice.chainage.append(c-bounds[i]);
+                    const double bed = bedZAt(p,c);
+                    slice.bedZ.append(bed);
+                    QVector<double> row;
+                    for (double offset : p.offsets) row.append(sectionZAt(p,c,offset)-bed);
+                    slice.relZ.append(row);
+                }
+                plan.profiles.append(std::move(slice));
+                plan.replacedIds.insert(currentId);
+            }
+            plan.notes << QStringLiteral("%1 [%2, %3]: %4 (%5)").arg(p.conduitId)
+                .arg(bounds[i],0,'g',12).arg(bounds[i+1],0,'g',12)
+                .arg(inside[i]?QStringLiteral("replace with mesh"):QStringLiteral("retain in 1D"),currentId);
+            if (i+1 < inside.size()) {
+                currentId = plan.splits.last().downstreamId;
+                if (currentLink >= 0) currentLink = plan.network.links.size()-1;
+            }
+        }
+    }
+    plan.nodes = classifyBurnNodes(plan.network, plan.replacedIds);
+    return plan;
 }
 
 } // namespace mesh

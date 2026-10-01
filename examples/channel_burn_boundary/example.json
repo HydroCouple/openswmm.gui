@@ -1,0 +1,4 @@
+{
+  "name": "Channel Burn at the Study Boundary",
+  "description": "Small synthetic meshing test: clip a channel at the domain edge, retire its interior junction, couple to a closed pipe, and preserve an outside channel. Includes terrain, study boundary, saved options and testing instructions."
+}

@@ -388,10 +388,8 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
     if (!notesHtml.isEmpty())
         obj[kNotesHtml] = notesHtml;
 
-    // Channel burn-in (D-H). Only once it has been switched on, so an untouched
-    // project's .oswp is byte-for-byte what it was before the feature landed.
-    if (pw->channelBurnSettings().enabled)
-        obj[kChannelBurn] = ProjectSerializer::channelBurnToJson(pw->channelBurnSettings());
+    // Preserve configured burn options even when the feature is switched off.
+    obj[kChannelBurn] = ProjectSerializer::channelBurnToJson(pw->channelBurnSettings());
     if (!pw->corridorSources().isEmpty()) {
         QJsonObject recipe;
         // writeRootJson validates all recipes before serializing any session.

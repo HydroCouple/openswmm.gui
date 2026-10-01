@@ -48,7 +48,12 @@ QVector<BurnNodePlan> classifyBurnNodes(const BurnNetwork &net,
         p.burnedLinks    = burned[i];
         p.survivingLinks = surviving[i];
 
-        if (surviving[i] >= 2)
+        if (!net.nodes[i].isJunction || net.nodes[i].preserve)
+        {
+            p.role = BurnNodeRole::CoupledJunction;
+            p.note = QStringLiteral("preserve the existing node type and referenced behavior");
+        }
+        else if (surviving[i] >= 2)
         {
             p.role = BurnNodeRole::CoupledJunction;
             p.note = QStringLiteral("%1 links survive here; an outfall may carry only one, "

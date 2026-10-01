@@ -936,7 +936,29 @@ static LinkSnapshot snapshotLinkByIdx(SWMM_Engine engine, int idx)
     swmm_link_get_end_contractions(engine,idx, &s.endContractions);
     swmm_link_get_flap_gate(engine,       idx, &s.flapGate);
     swmm_link_get_pump_init_state(engine, idx, &s.pumpInitState);
+    char tag[4096] = {};
+    if(swmm_link_get_tag(engine,idx,tag,sizeof(tag))==SWMM_OK) s.tag=QString::fromUtf8(tag);
+    swmm_link_get_xsect(engine,idx,&s.shape,&s.geom[0],&s.geom[1],&s.geom[2],&s.geom[3]);
+    swmm_link_get_barrels(engine,idx,&s.barrels);
+    swmm_link_get_culvert_code(engine,idx,&s.culvertCode);
+    swmm_link_get_initial_flow(engine,idx,&s.initialFlow);
+    swmm_link_get_max_flow(engine,idx,&s.maxFlow);
+    swmm_link_get_seep_rate(engine,idx,&s.seepRate);
+    swmm_link_get_loss_coeff(engine,idx,&s.lossIn,&s.lossOut,&s.lossAverage);
     return s;
+}
+
+static void restoreConduitProperties(SWMM_Engine engine,int index,const LinkSnapshot &s)
+{
+    swmm_link_set_tag(engine,index,s.tag.toUtf8().constData());
+    if(s.linkType!=SWMM_LINK_CONDUIT) return;
+    if(s.shape>=0) swmm_link_set_xsect(engine,index,s.shape,s.geom[0],s.geom[1],s.geom[2],s.geom[3]);
+    swmm_link_set_barrels(engine,index,s.barrels);
+    swmm_link_set_culvert_code(engine,index,s.culvertCode);
+    swmm_link_set_initial_flow(engine,index,s.initialFlow);
+    swmm_link_set_max_flow(engine,index,s.maxFlow);
+    swmm_link_set_seep_rate(engine,index,s.seepRate);
+    swmm_link_set_loss_coeff(engine,index,s.lossIn,s.lossOut,s.lossAverage);
 }
 
 } // namespace
@@ -971,6 +993,8 @@ void DeleteObjectCommand::snapshotNode(const QString &name)
     if (idx < 0) return;
 
     m_node.name = name;
+    char tag[4096] = {};
+    if(swmm_node_get_tag(eng,idx,tag,sizeof(tag))==SWMM_OK) m_node.tag=QString::fromUtf8(tag);
     int t = 0; swmm_node_get_type(eng, idx, &t); m_node.nodeType = t;
     double nx = 0, ny = 0;
     swmm_spatial_get_node_coord(eng, idx, &nx, &ny);
@@ -1086,6 +1110,7 @@ void DeleteObjectCommand::restoreNode()
     SWMM_Engine eng = m_layer->engine();
     const int idx = swmm_node_index(eng, m_node.name.toUtf8().constData());
     if (idx >= 0) {
+        swmm_node_set_tag(eng,idx,m_node.tag.toUtf8().constData());
         swmm_node_set_invert_elev(eng,     idx, m_node.invertElev);
         swmm_node_set_max_depth(eng,       idx, m_node.maxDepth);
         swmm_node_set_initial_depth(eng,   idx, m_node.initDepth);
@@ -1116,6 +1141,7 @@ void DeleteObjectCommand::restoreNode()
         swmm_link_set_discharge_coeff(eng,  li, ls.dischargeCoeff);
         swmm_link_set_end_contractions(eng, li, ls.endContractions);
         swmm_link_set_pump_init_state(eng,  li, ls.pumpInitState);
+        restoreConduitProperties(eng,li,ls);
     }
 
     // Virtual flag LAST: the rule check needs the two conduits back, so it
@@ -1167,6 +1193,7 @@ void DeleteObjectCommand::restoreLink()
     swmm_link_set_discharge_coeff(eng,  li, m_link.dischargeCoeff);
     swmm_link_set_end_contractions(eng, li, m_link.endContractions);
     swmm_link_set_pump_init_state(eng,  li, m_link.pumpInitState);
+    restoreConduitProperties(eng,li,m_link);
 }
 
 void DeleteObjectCommand::restoreGage()

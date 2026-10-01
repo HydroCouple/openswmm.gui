@@ -55,12 +55,14 @@ struct BurnNetwork
          *  outfall clears its type-specific data, so the plan says so out loud
          *  in the report rather than discovering it later. */
         bool    isJunction = true;
+        bool    preserve = false; ///< Storage, initial water, controls or other non-link references.
     };
     struct Link
     {
         QString id;
         int     from = -1;   ///< Index into \ref nodes.
         int     to   = -1;
+        QString replacementError; ///< A reference which cannot safely follow a split/removal.
     };
 
     QVector<Node> nodes;

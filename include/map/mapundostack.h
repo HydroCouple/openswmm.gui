@@ -31,6 +31,7 @@
 struct NodeSnapshot
 {
     QString name;
+    QString tag;
     int     nodeType  = 0;
     double  x = 0, y = 0;
     double  invertElev     = 0;
@@ -77,6 +78,11 @@ struct LinkSnapshot
     double  endContractions = 0;
     int     flapGate        = 0;
     int     pumpInitState   = 0;
+    QString tag;
+    int shape = -1, barrels = 1, culvertCode = 0;
+    double geom[4] = {};
+    double initialFlow = 0, maxFlow = 0, seepRate = 0;
+    double lossIn = 0, lossOut = 0, lossAverage = 0;
 };
 
 /*! Minimal snapshot for a deleted rain gage. */
