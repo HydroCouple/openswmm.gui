@@ -145,3 +145,14 @@ tests/unit/data/channelburn_artifacts/
 
 # Isolated flow/travel-time development build
 /build-flow-trace/
+
+# Portable channel replacement example inputs (generated runs stay ignored).
+!examples/channel_burn_boundary/
+examples/channel_burn_boundary/*
+!examples/channel_burn_boundary/README.md
+!examples/channel_burn_boundary/example.json
+!examples/channel_burn_boundary/channel_burn_boundary.inp
+!examples/channel_burn_boundary/channel_burn_boundary.oswp
+!examples/channel_burn_boundary/terrain.asc
+!examples/channel_burn_boundary/terrain.prj
+!examples/channel_burn_boundary/study_domain.geojson

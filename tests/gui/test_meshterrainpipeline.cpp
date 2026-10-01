@@ -8,10 +8,22 @@
 #include "ui/widgets/corridorsourceswidget.h"
 #include "mesh/meshcellgeom.h"
 #include "map/mapcanvas.h"
+#include "map/mapundostack.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "layers/gisvectorlayer.h"
+#include "layers/gisrasterlayer.h"
+#include "project/projectserializer.h"
+#include "core/unitsystem.h"
+#include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_model.h>
 #include "map/spatialreferencesystem.h"
 #include "layers/featurelayer.h"
 #include <QApplication>
+#include <QCryptographicHash>
 #include <QMessageBox>
+#include <QCheckBox>
+#include <QComboBox>
 #include <QLineF>
 #include <QTimer>
 #include <QCloseEvent>
@@ -20,6 +32,7 @@
 #include <QFile>
 #include <QPromise>
 #include <QSet>
+#include <QScopeGuard>
 #include <QTest>
 #include <gdal_priv.h>
 #include <ogr_spatialref.h>
@@ -149,6 +162,346 @@ class TestMeshTerrainPipeline : public QObject
     }
 
 private slots:
+    void bundledChannelBoundaryExample()
+    {
+        const QDir source(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA","."))
+            .absoluteFilePath("../../../examples/channel_burn_boundary"));
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/bundled_channel_example");
+        QVERIFY(QDir().mkpath(dir.path()));
+        QMap<QString,QByteArray> originals;
+        for(const auto *name:{"channel_burn_boundary.inp","channel_burn_boundary.oswp",
+                            "terrain.asc","terrain.prj","study_domain.geojson"}) {
+            QFile file(source.filePath(name));QVERIFY2(file.open(QIODevice::ReadOnly),qPrintable(file.fileName()));
+            const auto bytes=file.readAll();originals.insert(name,bytes);
+            QVERIFY(writeBytes(dir.filePath(name),bytes));
+        }
+        auto workspace=std::unique_ptr<OpenSWMMVisWorkspace>(OpenSWMMVisWorkspace::newInstance(QString(),nullptr));
+        auto window=std::make_unique<SWMMVisProjectWindow>(workspace.get(),dir.filePath("channel_burn_boundary.inp"),nullptr);
+        QList<QString> warnings,errors;QString error;
+        QVERIFY2(window->loadModel(warnings,errors),qPrintable(errors.join('\n')));
+        QVERIFY2(ProjectSerializer::applyFromFile(dir.filePath("channel_burn_boundary.oswp"),window.get(),&error,&warnings),qPrintable(error));
+        const auto restoreUnits=qScopeGuard([previous=UnitSystem::activeProject()]{UnitSystem::setActiveProject(previous);});
+        UnitSystem::setActiveProject(window->unitSystem());
+        const auto outsideSectionIntact=[](SWMM_Engine engine) {
+            int shape=-1;double a=0,b=0,c=0,d=0;
+            return swmm_link_get_xsect(engine,swmm_link_index(engine,"XY"),&shape,&a,&b,&c,&d)==SWMM_OK
+                && shape==SWMM_XSECT_TRAPEZOIDAL && a==2 && b==2 && c==1 && d==1;
+        };
+        QVERIFY(outsideSectionIntact(window->modelLayer()->engine()));
+        auto terrain=[&]() -> GISRasterLayer * {
+            for(auto *layer:window->canvas()->layers())
+                if(auto *raster=qobject_cast<GISRasterLayer *>(layer);
+                   raster && QFileInfo(raster->filePath()).fileName()=="terrain.asc") return raster;
+            return nullptr;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(terrain()!=nullptr,10000);
+        auto boundary=[&]() -> GISVectorLayer * {
+            for(auto *layer:window->canvas()->layers())
+                if(auto *vector=qobject_cast<GISVectorLayer *>(layer);
+                   vector && QFileInfo(vector->filePath()).fileName()=="study_domain.geojson") return vector;
+            return nullptr;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(boundary()!=nullptr,10000);
+        MeshGenerationDialog dialog(window.get(),nullptr);
+        const int terrainIndex=dialog.m_dtmCombo->findData(QVariant::fromValue<void *>(terrain()));
+        QVERIFY(terrainIndex>=0);dialog.m_dtmCombo->setCurrentIndex(terrainIndex);
+        const int index=dialog.m_boundaryLayerCombo->findData(QVariant::fromValue<void *>(boundary()));
+        QVERIFY(index>=0);dialog.m_boundaryLayerCombo->setCurrentIndex(index);
+        Inputs in;QVERIFY2(dialog.collectInputs(&in,&error),qPrintable(error));
+        QCOMPARE(in.boundaryKind,Inputs::BoundaryKind::VectorFile);
+        QCOMPARE(in.cellSize,4.);QCOMPARE(in.terrainTolerance,.1);
+        QVERIFY(in.burnEnabled);QCOMPARE(in.burnOptions.geometryTolerance,.05);
+        QCOMPARE(in.burnProfiles.size(),3); // XY is eligible, but wholly outside.
+        auto result=run(in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        QVERIFY(result.burnRan);QCOMPARE(result.burnSurgery.splits.size(),1);
+        QCOMPARE(result.burnSurgery.burnedConduits.size(),2);
+        QVERIFY(!result.burnSurgery.burnedConduits.contains("XY"));
+        QVERIFY(!result.meshResult.triangles.isEmpty());
+        // Use the GUI's normal adoption path, including its undo command.
+        auto *stack=window->canvas()->undoStack();const int before=stack->count();
+        dialog.beginGenerationGuard();
+        QPromise<Result> promise;promise.start();promise.addResult(result);promise.finish();
+        dialog.m_watcher=new QFutureWatcher<Result>(&dialog);dialog.m_watcher->setFuture(promise.future());
+        QTimer::singleShot(0,[]{for(auto *w:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(w))box->accept();});
+        dialog.onMeshFinished();QCOMPARE(stack->count(),before+1);
+        const auto engine=window->modelLayer()->engine();
+        QVERIFY(outsideSectionIntact(engine));
+        QCOMPARE(swmm_link_count(engine),4);QCOMPARE(swmm_node_count(engine),7);
+        QVERIFY(swmm_link_index(engine,"CD")<0);QVERIFY(swmm_node_index(engine,"C")<0);
+        for(const auto *name:{"AB","BC","DE","XY"}) QVERIFY(swmm_link_index(engine,name)>=0);
+        int type=-1;double invert=0,offset=0,length=0;
+        swmm_node_get_type(engine,swmm_node_index(engine,"D"),&type);QCOMPARE(type,int(SWMM_NODE_OUTFALL));
+        swmm_node_get_invert_elev(engine,swmm_node_index(engine,"D"),&invert);
+        swmm_link_get_offset_up(engine,swmm_link_index(engine,"DE"),&offset);
+        QVERIFY(std::abs(invert+offset-8.1)<1e-10);
+        swmm_link_get_length(engine,swmm_link_index(engine,"BC"),&length);
+        QVERIFY(std::abs(length-2)<1e-10);
+        swmm_link_get_length(engine,swmm_link_index(engine,"XY"),&length);QCOMPARE(length,10.);
+        const auto &split=result.burnSurgery.splits.first();
+        swmm_node_get_type(engine,swmm_node_index(engine,split.nodeId.toUtf8().constData()),&type);
+        QCOMPARE(type,int(SWMM_NODE_OUTFALL));
+        for(const auto &v:result.meshResult.vertices) {
+            QVERIFY(v.xy.x()>=-1e-8 && v.xy.x()<=32+1e-8 && v.xy.y()>=-1e-8 && v.xy.y()<=32+1e-8);
+            QVERIFY(std::isfinite(v.z));
+        }
+        stack->undo();QCOMPARE(swmm_link_count(engine),5);QCOMPARE(swmm_node_count(engine),7);
+        QVERIFY(outsideSectionIntact(engine));
+        QVERIFY(swmm_node_index(engine,"C")>=0);QVERIFY(swmm_link_index(engine,"CD")>=0);
+        stack->redo();QVERIFY(swmm_node_index(engine,"C")<0);
+        QVERIFY(outsideSectionIntact(engine));
+        const QString saved=dir.filePath("adopted.inp");
+        QVERIFY2(window->saveAs(saved,&error),qPrintable(error));
+        SWMMModelLayer reopened(saved);QVERIFY2(reopened.loadModel(warnings,errors),qPrintable(errors.join('\n')));
+        QCOMPARE(swmm_validate_model(reopened.engine()),SWMM_OK);
+        QVERIFY(outsideSectionIntact(reopened.engine()));
+        QCOMPARE(swmm_link_count(reopened.engine()),4);QCOMPARE(swmm_node_count(reopened.engine()),7);
+        // Saved raster must change inside the domain, and never outside it.
+        const auto rasters=QDir(dir.filePath("terrain")).entryList({"*.tif"},QDir::Files);
+        QVERIFY(!rasters.isEmpty());
+        auto *ds=static_cast<GDALDataset *>(GDALOpen(QDir(dir.filePath("terrain")).filePath(rasters.first()).toUtf8().constData(),GA_ReadOnly));
+        QVERIFY(ds);double gt[6];QCOMPARE(ds->GetGeoTransform(gt),CE_None);
+        const int width=ds->GetRasterXSize(),height=ds->GetRasterYSize();QVector<double> values(width*height);
+        QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Read,0,0,width,height,values.data(),width,height,GDT_Float64,0,0),CE_None);
+        GDALClose(ds);int changed=0;
+        for(int y=0;y<height;++y) for(int x=0;x<width;++x) {
+            const double px=gt[0]+(x+.5)*gt[1],py=gt[3]+(y+.5)*gt[5];
+            const double z=values[y*width+x];
+            if(px<0 || px>32 || py<0 || py>32) QCOMPARE(z,10.);
+            else if(std::abs(z-10)>1e-6) ++changed;
+        }
+        QVERIFY(changed>0);
+        for(auto it=originals.cbegin();it!=originals.cend();++it) {
+            QFile file(source.filePath(it.key()));QVERIFY(file.open(QIODevice::ReadOnly));QCOMPARE(file.readAll(),it.value());
+        }
+    }
+
+    void geographicDemUsesPhysicalChannelSpacing()
+    {
+        Inputs in;
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/geographic_channel");
+        QVERIFY(prepareBurnFixture(dir,in,false));
+        OGRSpatialReference geographic,projected;
+        geographic.importFromEPSG(4326);projected.importFromEPSG(3857);
+        char *wkt=nullptr;geographic.exportToWkt(&wkt);in.burnDemCRSWkt=QString::fromUtf8(wkt);CPLFree(wkt);
+        projected.exportToWkt(&wkt);in.meshCRSWkt=QString::fromUtf8(wkt);CPLFree(wkt);
+        auto *ds=static_cast<GDALDataset *>(GDALOpen(in.dtmPath.toUtf8().constData(),GA_Update));QVERIFY(ds);
+        double gt[6];QCOMPARE(ds->GetGeoTransform(gt),CE_None);
+        for(double &value:gt) value/=111319.49079327358;
+        QCOMPARE(ds->SetGeoTransform(gt),CE_None);QCOMPARE(ds->SetProjection(in.burnDemCRSWkt.toUtf8().constData()),CE_None);
+        GDALClose(ds);in.burnDemPixel=std::abs(gt[1]);
+        in.burnOptions.chainageStep=0;in.cellSize=2;in.minCellSize=.05;in.genOpts.maxArea=2;
+        const auto result=run(in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        QVERIFY(result.burnRan);QVERIFY(result.meshResult.triangles.size()<10000);
+        QVERIFY(result.burnStats.pixelsReplaced>0);
+    }
+
+    void channelReplacementDomainAndNodes_data()
+    {
+        QTest::addColumn<QString>("scenario");
+        for(const auto *name:{"outside","crossing","crossing-quads","interior","interior-quads","incision","nodata","rectangle","rectangle-quads"})
+            QTest::newRow(name)<<QString(name);
+    }
+    void channelReplacementDomainAndNodes()
+    {
+        QFETCH(QString,scenario);
+        Inputs in;
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/channel_replacement/"+scenario);
+        QVERIFY(prepareBurnFixture(dir,in,false));
+        in.cellSize=2;in.minCellSize=.05;in.genOpts.maxArea=2;
+        in.terrainAdaptive=true;in.terrainTolerance=.1;
+        in.burnProfiles.clear();in.burnOptions.chainageStep=0;
+        in.burnOptions.quadCorridor=scenario.contains("quads");
+        in.burnOptions.channelCellSize=2;
+        in.burnNetwork.nodes={{"A"},{"B"},{"C"}};
+        auto add=[&](QString id,QPointF a,QPointF b,int from,int to) {
+            mesh::ChannelInput c;c.conduitId=id;c.centerline={a,b};c.zUp=c.zDn=8;
+            c.section=mesh::sectionFromWidths({0,1,2},{2,3,4});
+            if(scenario.startsWith("rectangle")) c.section=mesh::sectionFromWidths({0,2},{4,4});
+            in.burnProfiles.append(mesh::buildBurnProfile(c,in.burnOptions));
+            in.burnNetwork.links.append({id,from,to});
+        };
+        if(scenario=="outside") add("AB",{34,10},{35,10},0,1);
+        else if(scenario.startsWith("crossing")) add("AB",{-2,16},{16,16},0,1);
+        else {
+            add("AB",{8,16},{16,16},0,1);add("BC",{16,16},{24,16},1,2);
+            in.includeJunctions=true;in.nodesUseRim=true;in.includeConduits=true;
+            in.candidateNodes={{"A",{8,16},10,true},{"B",{16,16},10,true},{"C",{24,16},10,true}};
+            in.couplingNodes={{"A",{8,16}},{"B",{16,16}},{"C",{24,16}}};
+            in.candidateLinks={{"AB",{{8,16},{16,16}}},{"BC",{{16,16},{24,16}}}};
+        }
+        if(scenario=="incision") in.burnOptions.maxIncision=.5;
+        if(scenario=="nodata") {
+            auto *ds=static_cast<GDALDataset *>(GDALOpen(in.dtmPath.toUtf8().constData(),GA_Update));QVERIFY(ds);
+            auto *band=ds->GetRasterBand(1);band->SetNoDataValue(-9999);
+            double missing=-9999;
+            QCOMPARE(band->RasterIO(GF_Write,20,19,1,1,&missing,1,1,GDT_Float64,0,0),CE_None);
+            GDALClose(ds);
+        }
+        const auto result=run(in);
+        if(scenario=="incision") {
+            QVERIFY(!result.ok);QVERIFY2(result.errorMsg.contains("incision"),qPrintable(result.errorMsg));return;
+        }
+        // The authored channel supplies bathymetry at a missing source pixel;
+        // this is valid when the complete section passes channel verification.
+        QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        if(scenario=="outside") {
+            QVERIFY(!result.burnRan);QVERIFY(result.burnSurgery.burnedConduits.isEmpty());return;
+        }
+        QVERIFY(result.burnRan);
+        if(scenario.startsWith("crossing")) {
+            QCOMPARE(result.burnSurgery.splits.size(),1);
+            QVERIFY(!result.burnSurgery.burnedConduits.contains("AB"));
+            QCOMPARE(result.burnSurgery.burnedConduits.size(),1);
+        } else {
+            QCOMPARE(result.burnSurgery.burnedConduits.size(),2);
+            QVERIFY(result.coupling.vertexToNode.isEmpty());QVERIFY(result.meshResult.cellCouplings.isEmpty());
+            bool bedFound=false;
+            for(const auto &v:result.meshResult.vertices) if(std::abs(v.xy.y()-16)<1e-7 && v.xy.x()>=8 && v.xy.x()<=24) {
+                QVERIFY2(std::abs(v.z-8)<.05,qPrintable(QString::number(v.z)));bedFound=true;
+            }
+            QVERIFY(bedFound);
+        }
+    }
+
+    void channelAdoptionRestoresNetworkAndPreviousMesh_data()
+    {
+        QTest::addColumn<bool>("crossing");
+        QTest::addColumn<bool>("invalidPlan");
+        QTest::newRow("inside")<<false<<false;QTest::newRow("crossing")<<true<<false;
+        QTest::newRow("rollback")<<true<<true;
+    }
+    void channelAdoptionRestoresNetworkAndPreviousMesh()
+    {
+        QFETCH(bool,crossing);
+        QFETCH(bool,invalidPlan);
+        Inputs in;
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/channel_undo/"+QTest::currentDataTag());
+        QVERIFY(prepareBurnFixture(dir,in,false));
+        QByteArray authored=R"([TITLE]
+Channel replacement undo fixture
+[OPTIONS]
+FLOW_UNITS CMS
+FLOW_ROUTING DYNWAVE
+START_DATE 01/01/2026
+END_DATE 01/02/2026
+[JUNCTIONS]
+A 9 2 0 0 0
+B 8.5 2 0 0 0
+C 8 2 0 0 0
+D 8.25 2 0 0 0
+[OUTFALLS]
+E 7 FREE NO
+[CONDUITS]
+AB A B 80 .013 0 .4 0 0
+BC B C 80 .027 .2 .1 0 0
+CD C D 80 .029 .1 .2 0 0
+DE D E 80 .014 .3 0 0 0
+[XSECTIONS]
+AB CIRCULAR 1 0 0 0 1
+BC TRAPEZOIDAL 2 2 1 1 1
+CD TRAPEZOIDAL 2 2 1 1 1
+DE CIRCULAR 1 0 0 0 1
+[LOSSES]
+BC .1 .2 .3 NO .002
+[COORDINATES]
+A 2 16
+B 8 16
+C 16 16
+D 24 16
+E 30 16
+[TAGS]
+LINK BC creek
+NODE C interior
+)";
+        if(crossing) authored.replace("B 8 16","B -2 16");
+        QVERIFY(writeBytes(in.inpPath,authored));
+        auto workspace=std::unique_ptr<OpenSWMMVisWorkspace>(OpenSWMMVisWorkspace::newInstance(QString(),nullptr));
+        auto window=std::make_unique<SWMMVisProjectWindow>(workspace.get(),in.inpPath,nullptr);
+        QList<QString> warnings,errors;
+        QVERIFY2(window->loadModel(warnings,errors),qPrintable(errors.join('\n')));
+        in.burnProfiles.clear();in.burnOptions.chainageStep=0;in.burnOptions.channelCellSize=2;
+        in.cellSize=2;in.minCellSize=.05;in.genOpts.maxArea=2;
+        in.burnNetwork.nodes={{"A"},{"B"},{"C"},{"D"},{"E",false,false}};
+        in.burnNetwork.links={{"AB",0,1},{"BC",1,2},{"CD",2,3},{"DE",3,4}};
+        for(int i=0;i<2;++i) {
+            mesh::ChannelInput c;c.conduitId=i?"CD":"BC";
+            c.centerline={{crossing && i==0?-2.:8.+i*8,16},{16.+i*8,16}};
+            c.zUp=i?8.1:8.7;c.zDn=i?8.45:8.1;
+            c.section=mesh::sectionFromWidths({0,2},{2,6});
+            in.burnProfiles.append(mesh::buildBurnProfile(c,in.burnOptions));
+        }
+        auto result=run(in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        QCOMPARE(result.burnSurgery.burnedConduits.size(),2);
+        if(invalidPlan) {
+            mesh::BurnNodePlan missing;missing.nodeId="MISSING_INTERFACE";missing.role=mesh::BurnNodeRole::Outfall;
+            result.burnSurgery.nodePlans.append(missing);
+        }
+        auto *oldMesh=new SWMM2DMeshLayer(result.meshResult,"old.2dm");
+        oldMesh->setActiveMesh(true);window->canvas()->addLayer(oldMesh,false);
+        auto *stack=window->canvas()->undoStack();const int before=stack->count();
+        MeshGenerationDialog dialog(window.get(),nullptr);
+        if(!crossing) {
+            dialog.m_burnEnabledBox->setChecked(true);
+            Inputs converted;converted.dtmPath=in.dtmPath;converted.inpPath=in.inpPath;
+            converted.meshLinearUnitToSI=.3048;converted.verticalUnitToSI=.3048;
+            QVERIFY(dialog.collectBurnInputs(&converted));QCOMPARE(converted.burnProfiles.size(),2);
+            const auto &profile=converted.burnProfiles.first();
+            QVERIFY(std::abs(profile.bedZ.first()-8.7/.3048)<1e-9);
+            QVERIFY(std::abs(profile.section.sMax-3./.3048)<1e-9);
+            QCOMPARE(profile.centerline.size(),2); // no DEM-pixel densification
+            QVERIFY(std::abs(converted.burnOptions.forceHalfWidth-2./.3048)<1e-9);
+        }
+        dialog.beginGenerationGuard();
+        QPromise<Result> promise;promise.start();promise.addResult(result);promise.finish();
+        dialog.m_watcher=new QFutureWatcher<Result>(&dialog);dialog.m_watcher->setFuture(promise.future());
+        QTimer::singleShot(0,[]{for(auto *w:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(w))box->accept();});
+        dialog.onMeshFinished();
+        if(invalidPlan) {
+            QCOMPARE(stack->count(),before);
+            QVERIFY(oldMesh->isActiveMesh());
+            const auto engine=window->modelLayer()->engine();
+            QCOMPARE(swmm_node_count(engine),5);QCOMPARE(swmm_link_count(engine),4);
+            QVERIFY(swmm_node_index(engine,"C")>=0);QVERIFY(swmm_link_index(engine,"CD")>=0);
+            int type=-1;swmm_node_get_type(engine,swmm_node_index(engine,"D"),&type);
+            QCOMPARE(type,int(SWMM_NODE_JUNCTION));
+            QFile source(in.inpPath);QVERIFY(source.open(QIODevice::ReadOnly));QCOMPARE(source.readAll(),authored);
+            return;
+        }
+        QCOMPARE(stack->count(),before+1);
+        const auto engine=window->modelLayer()->engine();
+        QCOMPARE(swmm_link_index(engine,"BC")>=0,crossing);QVERIFY(swmm_node_index(engine,"C")<0);
+        int type=-1;double invert=0,offset=0;
+        QCOMPARE(swmm_node_get_type(engine,swmm_node_index(engine,"B"),&type),SWMM_OK);
+        QCOMPARE(type,int(crossing?SWMM_NODE_JUNCTION:SWMM_NODE_OUTFALL));
+        swmm_node_get_invert_elev(engine,swmm_node_index(engine,"B"),&invert);
+        swmm_link_get_offset_dn(engine,swmm_link_index(engine,"AB"),&offset);
+        QVERIFY(std::abs(invert+offset-8.9)<1e-10);
+        QVERIFY(!oldMesh->isActiveMesh());
+        stack->undo();
+        QVERIFY(oldMesh->isActiveMesh());QVERIFY(swmm_node_index(engine,"C")>=0);
+        const int link=swmm_link_index(engine,"BC");QVERIFY(link>=0);
+        int shape=-1;double g1=0,g2=0,g3=0,g4=0,n=0,a=0,b=0,c=0;
+        swmm_link_get_xsect(engine,link,&shape,&g1,&g2,&g3,&g4);
+        QCOMPARE(shape,int(SWMM_XSECT_TRAPEZOIDAL));QCOMPARE(g1,2.);QCOMPARE(g2,2.);
+        swmm_link_get_roughness(engine,link,&n);QVERIFY(std::abs(n-.027)<1e-12);
+        swmm_link_get_loss_coeff(engine,link,&a,&b,&c);
+        QCOMPARE(a,.1);QCOMPARE(b,.2);QCOMPARE(c,.3);
+        char tag[100]{};swmm_node_get_tag(engine,swmm_node_index(engine,"C"),tag,100);
+        QCOMPARE(QString::fromUtf8(tag),QString("interior"));
+        stack->redo();QCOMPARE(swmm_link_index(engine,"BC")>=0,crossing);QVERIFY(!oldMesh->isActiveMesh());
+        QString saveError;
+        const QString saved=dir.absoluteFilePath("adopted.inp");
+        QVERIFY2(window->saveAs(saved,&saveError),qPrintable(saveError));
+        SWMMModelLayer reopened(saved);
+        QVERIFY2(reopened.loadModel(warnings,errors),qPrintable(errors.join('\n')));
+        QVERIFY(reopened.engine());
+        QCOMPARE(swmm_link_count(reopened.engine()),crossing?3:2);
+        QCOMPARE(swmm_node_count(reopened.engine()),crossing?5:4);
+        QCOMPARE(swmm_validate_model(reopened.engine()),SWMM_OK);
+        stack->undo();
+        QFile source(in.inpPath);QVERIFY(source.open(QIODevice::ReadOnly));QCOMPARE(source.readAll(),authored);
+    }
+
     void coverageFillDoesNotCertifyTerrainOutsideTheDEM()
     {
         const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA","."))
@@ -177,6 +530,7 @@ private slots:
     void largeTerrainPipelineBenchmark()
     {
         const int target=qEnvironmentVariableIntValue("SWMMVIS_TERRAIN_SCALE_CELLS");
+        const bool channel=qEnvironmentVariableIsSet("SWMMVIS_CHANNEL_SCALE");
         if(target<100000) QSKIP("Opt-in 1/5/10 million-cell terrain pipeline benchmark.");
         const QString root=qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT");
         QVERIFY(!root.isEmpty());
@@ -193,7 +547,7 @@ private slots:
         QCOMPARE(ds->SetGeoTransform(gt),CE_None);
         QVector<float> row(pixels);
         for(int r=0;r<pixels;++r) {
-            for(int c=0;c<pixels;++c) row[c]=float(10+.004*(c+.5)*pitch-.008*(r+.5)*pitch);
+            for(int c=0;c<pixels;++c) row[c]=channel?12.f:float(10+.004*(c+.5)*pitch-.008*(r+.5)*pitch);
             QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Write,0,r,pixels,1,row.data(),pixels,1,GDT_Float32,0,0),CE_None);
         }
         GDALClose(ds);
@@ -207,6 +561,13 @@ private slots:
         inputs.genOpts.maxCells=20'000'000;
         inputs.terrainTolerance=.01; inputs.terrainAdaptive=true; inputs.terrainCacheMiB=16;
         inputs.terrainBreaklines=true; inputs.mapNodesAfterGen=false;
+        if(channel) {
+            inputs.burnEnabled=true;inputs.burnOutputDir=dir.filePath("terrain");inputs.burnFingerprint="scale";
+            inputs.burnOptions.clipToBanks=false;inputs.burnOptions.channelCellSize=inputs.cellSize*4;
+            mesh::ChannelInput creek;creek.conduitId="channel";creek.centerline={{-1,500},{1001,500}};
+            creek.zUp=creek.zDn=10;creek.section=mesh::sectionFromWidths({0,2},{4,12});
+            inputs.burnProfiles={mesh::buildBurnProfile(creek,inputs.burnOptions)};
+        }
         QElapsedTimer timer; timer.start();
         const auto result=run(inputs); const qint64 ms=timer.elapsed();
         QVERIFY2(result.ok,qPrintable(result.errorMsg));
@@ -219,7 +580,7 @@ private slots:
 #endif
         qInfo("pipeline scale: target=%d cells=%lld DEM_samples=%lld ms=%lld peakRSS=%lld",target,
             (long long)result.meshResult.triangles.size(),(long long)pixels*pixels,(long long)ms,(long long)rss);
-        QCOMPARE(result.generationStats.terrainInserted,0);
+        if(!channel) QCOMPARE(result.generationStats.terrainInserted,0);
         QCOMPARE(result.generationStats.terrainUnresolved,0);
         QCOMPARE(result.generationStats.terrainUnknown,0);
         QVERIFY(!result.generationStats.refineCapped);
@@ -526,8 +887,18 @@ private slots:
         const QDir dir(root + "/burn_staging/" + QString::fromLatin1(QTest::currentDataTag()));
         Inputs inputs;
         QVERIFY(prepareBurnFixture(dir, inputs, existing));
-        const QString finalDem = QDir(inputs.burnOutputDir).filePath("source_burned_fixture23.tif");
-        const QString finalReport = QDir(inputs.burnOutputDir).filePath("source_burned_fixture23_burn_report.csv");
+        QByteArray identity=inputs.burnFingerprint.toUtf8()+inputs.meshCRSWkt.toUtf8()+inputs.burnDemCRSWkt.toUtf8()
+            +QByteArray::number(inputs.zConversionFactor,'g',17);
+        for(const auto &ring:inputs.domains) {
+            identity+='|';for(const auto &p:ring)identity+=QByteArray::number(p.x(),'g',17)+','+QByteArray::number(p.y(),'g',17)+';';
+        }
+        const QString digest=QString::fromLatin1(QCryptographicHash::hash(identity,QCryptographicHash::Sha256).toHex().left(16));
+        const QString finalDem = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+".tif");
+        const QString finalReport = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+"_burn_report.csv");
+        if(existing) {
+            QVERIFY(writeBytes(finalDem,"saved DEM sentinel\n"));
+            QVERIFY(writeBytes(finalReport,"saved report sentinel\n"));
+        }
         QFile sourceBefore(inputs.dtmPath);
         QVERIFY(sourceBefore.open(QIODevice::ReadOnly));
         const auto originalSource = sourceBefore.readAll();
@@ -547,7 +918,7 @@ private slots:
         } else {
             QVERIFY2(generated.ok, qPrintable(generated.errorMsg));
             QVERIFY(generated.burnRan);
-            QVERIFY(generated.burnStats.pixelsLowered > 0);
+            QVERIFY(generated.burnStats.pixelsLowered+generated.burnStats.pixelsReplaced > 0);
             QCOMPARE(generated.burnedDemPath, finalDem);
             QCOMPARE(generated.burnReportPath, finalReport);
         }
@@ -636,8 +1007,18 @@ private slots:
         const QDir dir(root + "/burn_cancellation/" + QString::fromLatin1(QTest::currentDataTag()));
         Inputs inputs;
         QVERIFY(prepareBurnFixture(dir, inputs, existing));
-        const QString finalDem = QDir(inputs.burnOutputDir).filePath("source_burned_fixture23.tif");
-        const QString finalReport = QDir(inputs.burnOutputDir).filePath("source_burned_fixture23_burn_report.csv");
+        QByteArray identity=inputs.burnFingerprint.toUtf8()+inputs.meshCRSWkt.toUtf8()+inputs.burnDemCRSWkt.toUtf8()
+            +QByteArray::number(inputs.zConversionFactor,'g',17);
+        for(const auto &ring:inputs.domains) {
+            identity+='|';for(const auto &p:ring)identity+=QByteArray::number(p.x(),'g',17)+','+QByteArray::number(p.y(),'g',17)+';';
+        }
+        const QString digest=QString::fromLatin1(QCryptographicHash::hash(identity,QCryptographicHash::Sha256).toHex().left(16));
+        const QString finalDem = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+".tif");
+        const QString finalReport = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+"_burn_report.csv");
+        if(existing) {
+            QVERIFY(writeBytes(finalDem,"saved DEM sentinel\n"));
+            QVERIFY(writeBytes(finalReport,"saved report sentinel\n"));
+        }
         QString jobDirectory;
         std::weak_ptr<GeneratedMeshArtifacts> observer;
         {

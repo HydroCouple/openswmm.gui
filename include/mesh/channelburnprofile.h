@@ -76,8 +76,9 @@ struct SectionGeometry
 /*!
  * \brief Every knob the burn takes (plan §3).
  *
- * Lengths are MODEL length units throughout; the DEM-unit conversion happens
- * once, in the rasterizer (plan §4.5 trap).
+ * Persisted lengths use model units, except geometryTolerance (metres).
+ * The dialog converts horizontal lengths to mesh-CRS units and elevations to
+ * output vertical units before preparing worker inputs.
  */
 struct BurnOptions
 {
@@ -88,7 +89,7 @@ struct BurnOptions
     double bankPad        = 0.0;   ///< Extra distance beyond the banks before stopping.
 
     // ── resolution ───────────────────────────────────────────────────────
-    double chainageStep   = 0.0;   ///< 0 = auto (P1 resolves min(demPixel/2, R/4); P0 falls back to R/4).
+    double chainageStep   = 0.0;   ///< 0 = retain geometric stations; never infer distance from raster degrees.
     double lateralStep    = 0.0;   ///< 0 = off; else no two corridor offsets are further apart than this.
     int    stringCount    = 2;     ///< Intermediate offset strings per side, beyond +-R, the banks and the extent.
 
@@ -110,6 +111,8 @@ struct BurnOptions
     bool   quadCorridor   = true;  ///< Corridor -> mesh::PatchMesh when quads are enabled (§16.2).
     double channelCellSize = 0.0;  ///< 0 = derive from the size field.
     double channelAspectMax = 4.0; ///< Streamwise-elongated cells are wanted here.
+    double geometryTolerance = 0.05; ///< Channel elevation tolerance, in metres (independent of DEM tolerance).
+    qint64 maxCorridorVertices = 2000000; ///< Preparation allocation guard; further limited by mesh cell budget.
     bool   roughnessFromTransect = true; ///< n_left / n_channel / n_right -> per-cell Manning's n.
 
     // ── network surgery (gated by D-A / D-B) ─────────────────────────────

@@ -97,7 +97,7 @@ TEST(ChannelBurnLattice, LatticeIsConformalAndCarriesTheExactBurnedZ)
     const BurnLattice lat = buildCorridorLattice(p, 2.0, 0.0, nullptr, &err);
     ASSERT_TRUE(lat.isValid()) << err.toStdString();
     EXPECT_EQ(lat.nAcross, p.offsets.size());
-    EXPECT_EQ(lat.nAlong, 21);                       // 40 / 2 + 1
+    EXPECT_EQ(lat.nAlong, p.chainage.size()); // retain original profile stations
 
     for (int i = 0; i < lat.nAlong; ++i)
         for (int k = 0; k < lat.nAcross; ++k)
@@ -268,12 +268,9 @@ TEST(ChannelBurnLattice, AHairpinIsReportedRatherThanEmittedFolded)
     // fold. The gate is that this is REPORTED, not handed to Triangle.
     const BurnProfile p = curved(1.5);
     ASSERT_TRUE(p.isValid());
-    const BurnLattice lat = buildCorridorLattice(p, 0.5, 0.0);
-    ASSERT_TRUE(lat.isValid());
-
     QString err;
-    const PatchMesh pm = corridorPatch(lat, p, options(), &err);
-    EXPECT_TRUE(pm.quads.isEmpty());
+    const BurnLattice lat = buildCorridorLattice(p, 0.5, 0.0, nullptr, &err);
+    EXPECT_FALSE(lat.isValid());
     EXPECT_FALSE(err.isEmpty());
     EXPECT_TRUE(err.contains(QStringLiteral("folds")));
 }
@@ -390,4 +387,52 @@ TEST(ChannelBurnLattice, ZeroAlongStepFallsBackToTheProfileStations)
     const BurnLattice lat = buildCorridorLattice(p, 0.0, 0.0);
     ASSERT_TRUE(lat.isValid());
     EXPECT_EQ(lat.chainage, p.chainage);
+}
+
+TEST(ChannelBurnLattice, ReferenceDetectsSubpixelChannelWithoutDemSamples)
+{
+    const auto p=straight();
+    const auto lat=buildCorridorLattice(p,2,0);
+    BurnSurface surface;surface.build({lat});
+    const QPointF triangle[3]={{4,-5},{8,-5},{6,5}};
+    const double flat[3]={12,12,12};
+    const auto error=surface.error(triangle,flat,{});
+    EXPECT_TRUE(error.touched);EXPECT_GT(error.maximum,2);
+    const auto hit=surface.sample({6,0});
+    EXPECT_NEAR(hit.z,9.94,1e-10);
+    EXPECT_LT(surface.sample({-1,0}).profile,0); // flat end cap
+}
+
+TEST(ChannelBurnLattice, SparseReferenceHandlesThousandsOfReachesAndMixedScales)
+{
+    QVector<BurnLattice> lattices;
+    for(int i=0;i<2000;++i) {
+        const double x=500000+i*3,y=7000000;
+        BurnLattice lat;lat.nAlong=lat.nAcross=2;lat.chainage={0,1};lat.offsets={-1,1};
+        lat.xy={{x,y-1},{x,y+1},{x+1,y-1},{x+1,y+1}};lat.z={1,1,1,1};
+        lattices.append(lat);
+    }
+    BurnLattice broad=lattices.first();
+    broad.xy={{1e8,1e8},{1e8,2e8},{2e8,1e8},{2e8,2e8}};
+    broad.z={2,2,2,2};lattices.append(broad);
+    BurnSurface surface;surface.build(lattices);
+    for(int i=0;i<2000;i+=17) {
+        const auto hit=surface.sample({500000+i*3+.5,7000000});
+        EXPECT_EQ(hit.profile,i);EXPECT_DOUBLE_EQ(hit.z,1);
+    }
+    EXPECT_EQ(surface.sample({1.5e8,1.5e8}).profile,2000);
+    EXPECT_FALSE(surface.intersects(QRectF(1e7,1e7,10,10)));
+}
+
+TEST(ChannelBurnLattice, ConflictingOverlapCannotHideAnInteriorRidge)
+{
+    BurnLattice a;a.nAlong=a.nAcross=2;a.chainage={0,1};a.offsets={0,1};
+    a.xy={{0,0},{0,1},{1,0},{1,1}};a.z={0,0,1,1};
+    auto b=a;b.z={1,1,0,0};
+    BurnSurface surface;surface.build({a,b});
+    QPointF xy[3]={{0,0},{1,0},{1,1}};double z[3]={0,0,0};
+    // Envelope samples at these corners all equal zero, but its centre is
+    // higher. Competing authored planes must be rejected, not certified flat.
+    for(auto p:xy) EXPECT_DOUBLE_EQ(surface.sample(p).z,0);
+    EXPECT_GE(surface.error(xy,z,{}).maximum,.5);
 }

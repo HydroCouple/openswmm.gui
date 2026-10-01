@@ -186,6 +186,7 @@ private slots:
             seam<QSpinBox>(&dialog,"meshTerrainCacheSpin")->setValue(128);
             seam<QSpinBox>(&dialog,"meshMaxCellsSpin")->setValue(10'000'000);
             seam<QDoubleSpinBox>(&dialog,"meshBurnMaxIncision")->setValue(4.5);
+            seam<QDoubleSpinBox>(&dialog,"meshBurnGeometryTolerance")->setValue(.025);
             auto *regions=dialog.findChild<MeshRegionDefaultsWidget *>(); QVERIFY(regions);
             auto rows=regions->rows(); QVERIFY(!rows.isEmpty());
             rows[0].infil.method=mesh::InfilMethod::Constant; rows[0].infil.p[0]=2.25;
@@ -204,6 +205,7 @@ private slots:
             QCOMPARE(seam<QSpinBox>(&dialog,"meshTerrainCacheSpin")->value(),128);
             QCOMPARE(seam<QSpinBox>(&dialog,"meshMaxCellsSpin")->value(),10'000'000);
             QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshBurnMaxIncision")->value(),4.5);
+            QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshBurnGeometryTolerance")->value(),.025);
             auto *regions=dialog.findChild<MeshRegionDefaultsWidget *>(); QVERIFY(regions);
             QCOMPARE(regions->rows()[0].infil.method,mesh::InfilMethod::Constant);
             QCOMPARE(regions->rows()[0].infil.p[0],2.25);

@@ -32,6 +32,8 @@
 #include <QPolygonF>
 #include <QString>
 #include <QVector>
+#include "mesh/channelburnprofile.h"
+#include "mesh/channelburnnetwork.h"
 
 namespace mesh {
 
@@ -61,6 +63,32 @@ struct BurnDomain
     /*! \brief Inside some ring and outside every hole. */
     [[nodiscard]] bool contains(const QPointF &p) const;
 };
+
+struct BurnSplit
+{
+    QString linkId, nodeId, downstreamId;
+    double t = 0.0; ///< Position on the remaining link at the time of this split.
+    QPointF xy;
+    double bedZ = 0.0;
+};
+
+struct BurnReplacementPlan
+{
+    QVector<BurnProfile> profiles; ///< Only intervals inside the domain.
+    BurnNetwork network;          ///< Topology after splitting, before retirement.
+    QVector<BurnSplit> splits;     ///< Apply in this order.
+    QSet<QString> replacedIds;
+    QSet<QString> originalIds;
+    QVector<BurnNodePlan> nodes;
+    QStringList notes;
+    QString error;
+};
+
+/*! Partition all selected links at every crossing before allocating mesh corridors.
+ * Outside intervals retain their 1D conveyance. Generated names avoid existing IDs. */
+[[nodiscard]] BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
+                                                       const BurnNetwork &network,
+                                                       const BurnDomain &domain);
 
 /*! \brief Every crossing along \p path, in path order. */
 [[nodiscard]] QVector<BoundaryCrossing> boundaryCrossings(const QVector<QPointF> &path,

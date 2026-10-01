@@ -236,114 +236,100 @@ geometry and every per-element attribute are unchanged.
 
 ### Burning open channels into the terrain
 
-A DTM rarely resolves a channel. An aerial survey sees the water surface, not
-the bed, and a 1 m raster cannot hold a 3 m ditch at all — so a mesh built
-straight from the terrain routes the flood plain and misses the channel that
-carries the flow. Meanwhile the model already knows the channel's shape: it is
-in the conduit's cross-section.
-
-The **Channel Burn-in** tab reconstructs each selected conduit's bed from its
-cross-section and writes it into a **copy** of the DTM. Your raster is never
-modified. The mesh run then reads the burned copy, which is what makes the rest
-work: terrain-error refinement adds vertices where the surface needs them, so a
-burned channel densifies its own banks, and the corridor can be meshed as
-streamwise quads.
+The **Channel Burn-in** tab uses selected open-channel conduits and their
+cross-sections to represent the channel bed in the mesh. Raster export and
+mesh refinement use the same channel surface, so a channel narrower than a
+DTM pixel can still be represented. The source DTM is never modified.
 
 \figtodo{19_channel_burn_tab.png, The Generate 2D Mesh dialog on the Channel Burn-in tab}
 
-**Conduits to burn**
+**Selection and domain**
+
+Select **Every open channel**, a **Matching filter**, or **Named conduits**.
+Filters use the attribute table syntax, such as `link_tag = 'creek'`.
+Closed conduits are excluded. Open-shaped weirs are structures and are not
+selected as channel conduits.
+
+Replacement is restricted to the mesh domain. A channel crossing the boundary
+is split at every crossing; outside intervals remain in 1D. Holes count as
+outside. The channel's lateral footprint, constraints and raster edits are
+also clipped. Channels wholly outside the domain are retained unchanged.
+The report lists which intervals were retained or replaced.
+
+**Geometry and resolution**
 
 | Control | What it does |
 | --- | --- |
-| **Every open channel** | Every conduit whose section is an open channel |
-| **Matching filter** | The same `WHERE` syntax as the attribute table's filter bar, over the same column keys — `link_tag = 'creek'`, `link_length > 50` |
-| **Named conduits** | An explicit list, comma- or space-separated |
-| **Include street sections** | Off by default: a street is usually already in the DTM, so burning it cuts the crown twice |
+| **Stop at the transect's bank stations** | Restricts the lateral extent to the banks |
+| **Beyond the banks** | Adds a specified distance beyond the banks |
+| **Maximum half-width** | Limits the lateral extent |
+| **Forced half-width** | In terrain-only mode, replaces the DTM within this distance; farther out it only lowers the DTM |
+| **Maximum incision** | Limits the cut below the DTM; replacement stops if this prevents the section meeting its tolerance |
+| **Along-channel step** | Sets physical sample spacing; **auto** retains geometric stations and uses mesh spacing, independent of raster pixels |
+| **Across-channel step** | Sets the largest lateral gap; slope breaks, bank crests, toes and roughness boundaries are retained |
+| **Strings per side** | Adds lateral subdivisions |
+| **Section anchor** | Places the section at its thalweg, bank midpoint or station zero |
+| **Clamp adverse reaches flat** | Optional; disabled by default so real adverse slopes remain |
+| **Channel cell size** | Overrides the along-channel spacing used for the corridor |
+| **Channel elevation tolerance** | Independently checks channel elevations; defaults to **0.05 m**, regardless of the background terrain tolerance |
+| **Prefer quads** | Uses quads in regular, complete corridors, with triangles at clipped boundaries and overlapping junctions |
+| **Take Manning's n from the transect** | Assigns channel and overbank roughness to corridor cells |
 
-Closed conduits are never burned, whichever mode you choose. A culvert is a
-structure, not terrain — burning one digs a trench where there is a road.
-Rejected conduits are listed with their reason in the burn report, so a channel
-that quietly did not burn is something you can look up rather than guess at.
+When replacing 1D conveyance, the complete selected cross-section extent
+replaces the terrain; the terrain-only lowering rule does not apply.
+Channel elevations follow the link's endpoint inverts and offsets, with the
+section's relative shape retained. Horizontal dimensions and elevations are
+converted independently between model, mesh and raster units.
 
-**Corridor**
+A terrain surface cannot represent an exactly vertical wall. Rectangular
+channels retain the toe and crest using a small outward batter of 0.1% of the
+section width per bank. This changes rectangular cross-section area by at most
+0.1% and top width by at most 0.2% through bank-full depth. The mesh must still
+pass the elevation check; increase resolution if a narrow bank cannot be
+represented. Folded corridors are rejected with the channel name.
 
-The corridor is the band of DTM the burn is allowed to touch, and it obeys two
-rules at once:
+Automatic section blending is disabled: it previously changed elevations
+without reconciling different channel widths. Authored section changes remain.
+Check confluences and genuine invert drops; an incompatible overlap blocks
+replacement rather than silently removing its 1D conveyance.
 
-- Within the **forced half-width** the section *replaces* the DTM, even where
-  that **raises** it. This is what forcing the centreline means: the channel
-  you modelled is the channel the mesh gets.
-- Beyond it the section can only ever *lower* the terrain. Cross-sections are
-  often extended vertically upward or out into the flood plain to keep a 1D
-  model stable at high stage, and that extension is not terrain. Restricting
-  the outer band to lowering means such a section cannot invent a levee.
+**Network changes and Undo**
 
-| Control | What it does |
+| Connection | Result when replacement succeeds |
 | --- | --- |
-| **Forced half-width** | Distance either side of the centreline where the section replaces the DTM outright |
-| **Stop at the transect's bank stations** | Clip the corridor at the banks, so a section extended into the flood plain cannot reach it at all |
-| **Beyond the banks** | Extra distance past the bank stations before the corridor stops |
-| **Maximum half-width** | Hard cap, for sections that carry no bank stations |
-| **Maximum incision** | Never cut more than this far below the original DTM — a guard against a vertical-unit mistake burning the bed far too deep |
+| Ordinary junction with exactly one surviving 1D link | Coupled outfall, when interface conversion is enabled |
+| Ordinary junction with multiple surviving links | Retained junction with a mesh coupling |
+| Headwater receiving runoff or external inflow | Retained delivery point coupled to the mesh |
+| Interior junction with no surviving links, inflow, initial water or other references | Removed |
+| Storage, divider, prescribed outfall or referenced node | Existing node type and behavior preserved |
 
-**Resolution and shape**
+Surviving pipe endpoint elevations are preserved: conversion does not move
+the node invert or pipe offsets. Links referenced by controls or other model
+objects require those dependencies to be resolved before replacement.
 
-| Control | What it does |
-| --- | --- |
-| **Along-channel step** | Spacing of the bed samples along the channel; **auto** is half the DTM pixel, capped at a quarter of the forced half-width |
-| **Across-channel step** | Largest gap between lateral samples; the section's own detail is always kept |
-| **Strings per side** | Extra longitudinal lines beyond the centreline, the forced half-width, the banks and the corridor edge |
-| **Section anchor** | Where the section sits across the digitised link — **Thalweg** (the deepest point), **Midway between the banks**, or **Station zero** |
-| **Blend across nodes** | Morph one conduit's section into the next over this distance either side of a shared node, instead of stepping at it |
-| **Clamp adverse reaches flat** | Off by default: a reach that rises downstream is usually real data you authored, so the burn warns instead of silently fixing it |
+The generated mesh and network changes form **one Undo operation**. A failed
+adoption restores the previous network; Undo restores both the network and the
+previous mesh. Options are remembered when the dialog is reopened and saved
+with the project, including when burn-in is disabled.
 
-The **thalweg** anchor is the default because a digitised link generally follows
-the visible channel rather than the midpoint between two survey banks. Blending
-is station-normalised, so a 3 m ditch meeting a 30 m creek produces a sensible
-intermediate rather than a 30 m ditch.
+**Outputs and checks**
 
-Elevations are taken as a **shape** and re-anchored on the invert interpolated
-between the two end inverts, not as an absolute datum. A transect's survey datum
-may agree with neither the node inverts nor the DTM; its shape is the part that
-is reliably what you meant. The burn is therefore consistent with the 1D
-hydraulics by construction.
+Generation prepares a floating-point burned GeoTIFF and a CSV report. Project
+**Save** publishes them in the model's `terrain/` folder. The filename includes
+a hash of geometry, options, domain and coordinate reference information.
+The report includes interval decisions and raster edit statistics.
 
-**Mesh and 1D network**
+Replacement requires channel geometry, elevation coverage and interface
+couplings to pass validation. A resource limit or unresolved channel error
+blocks replacement. A zero pixel-edit count is acceptable when the source
+already matches the channel or the channel lies between raster sample centres.
+These checks verify representation; they do not establish hydraulic
+calibration or equivalence to an entire 1D network.
 
-| Control | What it does |
-| --- | --- |
-| **Mesh the channel corridor as quads** | The corridor becomes a structured quad patch, streamwise-aligned; without it the corridor is refined triangles |
-| **Channel cell size** | Along-channel cell length in the corridor; **from the size field** follows the surrounding mesh |
-| **Take Manning's n from the transect** | Writes the transect's left-overbank / channel / right-overbank roughness onto the corridor cells each one covers |
-| **Remove burned conduits from 1D and couple their nodes** | A burned reach is conveyed by the mesh, so leaving it in the 1D network would route it twice |
-| **Truncate channels at the mesh boundary** | A channel leaving the 2D domain is split at the crossing; the outside reach stays 1D and hands over through a coupled outfall |
-
-When burned conduits leave the 1D network their boundary nodes become **coupled
-outfalls** at the channel bottom, ungated so the 2D water surface drives them.
-What happens to a node depends on what is left on it:
-
-| What remains on the node | What happens |
-| --- | --- |
-| One 1D link | Becomes a coupled outfall — the interface between the network and the burned reach |
-| Two or more 1D links | Stays a junction and couples as one. A SWMM outfall carries exactly one link, so an outfall is not legal there |
-| Nothing, but runoff or an inflow still arrives | Becomes a coupled outfall — that water now reaches the channel here |
-| Nothing at all | Removed with the reach; an outfall with nothing on either side would be an orphan |
-
-The whole operation — the removals and every conversion — is a single undo step.
-
-**What you get**
-
-Beside the source raster, in a `terrain/` folder:
-
-- `<dem>_burned_<hash>.tif`, the burned DTM. The hash covers the source raster,
-  every option and the resolved conduit geometry, so re-running with the same
-  inputs reuses the same file and a changed input can never collide with it.
-- `<dem>_burned_<hash>_burn_report.csv`, one row per conduit — length, end
-  inverts, slope, corridor extent, roughness, how many pixels were replaced and
-  lowered, and the deepest cut — under a header that states both vertical units.
-
-Load the burned raster as a layer and difference it against the original to see
-exactly what the burn did.
+For a small reproducible test, use the bundled **Channel Burn at the Study
+Boundary** example. Its [testing instructions](../../examples/channel_burn_boundary/README.md)
+describe boundary clipping, interior-node removal, closed-pipe coupling,
+outside-channel retention and Undo/Redo with expected results.
 
 ### Importing an existing mesh
 

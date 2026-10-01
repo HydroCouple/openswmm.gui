@@ -45,6 +45,11 @@ public:
     qint64 summaryBytes() const;
     double verticalQuantum() const; ///< Whole-unit quantization, in output z units; 0 if unproven.
     void setCancellation(std::function<bool()> cancelled);
+    // Composite references (e.g. authored channel bathymetry) override pixel
+    // elevations only inside the supplied bounds. Ordinary terrain keeps its
+    // fast planar hierarchy. sampleAt() still samples the original raster.
+    void setQueryOverride(const QRectF &bounds, std::function<double(double,double,double)> value,
+                          std::function<bool(const QRectF &)> intersects = {});
 
 private:
     struct Impl;

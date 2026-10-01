@@ -114,8 +114,7 @@ public:
 
     /*! Channel burn-in settings ↔ JSON (CHANNEL_BURN_IN_PLAN_2026-09-21.md D-H).
      *
-     *  Written only when the tab has been switched on, so a project that never
-     *  used the burn keeps the same .oswp it had before the feature existed.
+     *  Written even when disabled so configured options survive reopening.
      *  Every read falls back to the struct's own default, so an older file — or a
      *  newer one missing a key — loads as the defaults rather than as zeros. */
     [[nodiscard]] static inline QJsonObject channelBurnToJson(const mesh::ChannelBurnSettings &s)
@@ -148,6 +147,8 @@ public:
         op[QStringLiteral("burnStreets")]     = b.burnStreets;
         op[QStringLiteral("quadCorridor")]    = b.quadCorridor;
         op[QStringLiteral("channelCellSize")] = b.channelCellSize;
+        op[QStringLiteral("geometryToleranceM")] = b.geometryTolerance;
+        o[QStringLiteral("version")] = 2;
         op[QStringLiteral("roughnessFromTransect")] = b.roughnessFromTransect;
         op[QStringLiteral("removeBurnedFrom1D")]    = b.removeBurnedFrom1D;
         op[QStringLiteral("convertInterfaceNodes")] = b.convertInterfaceNodes;
@@ -189,6 +190,8 @@ public:
         b.burnStreets     = op.value(QStringLiteral("burnStreets")).toBool(b.burnStreets);
         b.quadCorridor    = op.value(QStringLiteral("quadCorridor")).toBool(b.quadCorridor);
         b.channelCellSize = op.value(QStringLiteral("channelCellSize")).toDouble(b.channelCellSize);
+        b.geometryTolerance = op.value(QStringLiteral("geometryToleranceM")).toDouble(b.geometryTolerance);
+        if (!std::isfinite(b.geometryTolerance) || b.geometryTolerance<=0) b.geometryTolerance=0.05;
         b.roughnessFromTransect =
             op.value(QStringLiteral("roughnessFromTransect")).toBool(b.roughnessFromTransect);
         b.removeBurnedFrom1D =

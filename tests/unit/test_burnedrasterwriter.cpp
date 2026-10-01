@@ -309,7 +309,7 @@ TEST(BurnedRasterWriter, CancellationRemovesThePartialOutput)
     EXPECT_FALSE(QFileInfo::exists(dst));
 }
 
-TEST(BurnedRasterWriter, IntegerDemWarnsAboutRounding)
+TEST(BurnedRasterWriter, IntegerDemIsPromotedToFloatingPoint)
 {
     const QString src = outPath(QStringLiteral("int_dem.tif"));
     const QString dst = outPath(QStringLiteral("int_dem_burned.tif"));
@@ -331,8 +331,15 @@ TEST(BurnedRasterWriter, IntegerDemWarnsAboutRounding)
     BurnRasterStats st;
     QString err;
     ASSERT_TRUE(writeBurnedRaster(request(src, dst), &st, &err)) << err.toStdString();
-    ASSERT_FALSE(st.warnings.isEmpty());
-    EXPECT_TRUE(st.warnings.first().contains(QStringLiteral("integer")));
+    auto *output=static_cast<GDALDataset *>(GDALOpen(dst.toUtf8().constData(),GA_ReadOnly));
+    ASSERT_NE(output,nullptr);
+    EXPECT_EQ(output->GetRasterBand(1)->GetRasterDataType(),GDT_Float64);
+    GDALClose(output);
+    const auto req=request(src,dst);
+    BurnCorridorIndex index;index.build(req.profiles);
+    BurnProjection projection;double section=0;
+    ASSERT_TRUE(bestBurnAt(index,req.profiles,{20.5,0.5},&projection,&section));
+    EXPECT_NEAR(sampleAt(dst,20.5,0.5),section,1e-10);
 }
 
 TEST(BurnedRasterWriter, ReportUsesLogicalDestinationNotJobStage)
