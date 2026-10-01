@@ -108,6 +108,7 @@ protected:
     void keyPressEvent(QKeyEvent *event) override;
 
 private:
+    void refreshAccessibleDescription();
     [[nodiscard]] QRectF  plotRect() const;
     [[nodiscard]] QPointF dataToPixel(double chainage, double elev) const;
     [[nodiscard]] double  pixelToChainage(double px) const;

@@ -18,9 +18,8 @@
  * signal that keeps the toolbar, the properties panel and the map in sync no
  * matter which surface made the edit) and onto the undo stack.
  *
- * Parameters awaiting engine support (the 2D two-zone groundwater set) are
- * listed with `enabled = false`: they show greyed in every selector so the
- * roadmap is visible, and `applyCellParam` refuses them.
+ * Groundwater parameters use a separate assignment workflow. Their entries
+ * remain disabled in this generic mesh-field selector and direct users to it.
  */
 #ifndef OPENSWMMVIS_MESH_MESHCELLPARAMS_H
 #define OPENSWMMVIS_MESH_MESHCELLPARAMS_H
@@ -55,7 +54,7 @@ struct CellParamSpec
     double     step         = 0.01;
     double     defaultValue = 0.0;
     int        decimals     = 4;
-    bool       enabled      = true;  ///< false → engine support pending
+    bool       enabled      = true;  ///< false → unavailable in this generic editor
     QString    tooltip;
     /*! Value kind. New members stay at the END of the struct: the registry
      *  builds its entries with positional aggregate initialisers, which fall

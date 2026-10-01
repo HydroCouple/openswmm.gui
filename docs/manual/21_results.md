@@ -274,3 +274,31 @@ or `Ctrl+C` over the map to copy the current view to the clipboard (see
 - \ref manual_analysis_tools — 2D cell time series and the statistics dashboard
 - \ref manual_2d_mesh — the mesh the 2D results are drawn on
 - \ref manual_map_navigation — exporting and printing the map view
+
+
+### Additional groundwater and species results
+
+The 2D result style panel's **Additional Results** controls configure independent
+scalar sublayers by dataset, species name and groundwater zone. Each keeps its
+own colour classification, range, visibility, opacity and missing/waterless
+colours. Saved settings resolve species by name when reopened; a missing species
+remains unavailable instead of selecting another row.
+
+File-backed results expose supported surface pollutants/multispecies and
+groundwater quantities. Groundwater concentration units come from the file's
+per-species metadata; older files without that information remain labelled
+unknown. Zero concentration is a valid value, separate from missing or waterless
+data. Groundwater values do not disappear merely because surface depth is zero.
+
+Live groundwater snapshots include table/base elevations and SAT/UNSAT
+concentrations with native units. Captures remain readable after the simulation
+ends. Current-frame and explicit ranges work on retained live history; a
+whole-run range requires complete file-backed output. The live history can be
+thinned to reduce memory, so it cannot establish chemical extrema for the
+complete simulation. Groundwater age is in seconds and temperature in degrees C.
+
+Named species can also be sampled in combined sections (\ref manual_profile_plots).
+Native-unit CSV includes values and validity status; unresolved units prevent
+scientific CSV export. General species contours, labels and GIS raster/vector
+export are not supplied by these scalar fills. Live surface chemical
+concentrations remain unavailable through the current engine interface.

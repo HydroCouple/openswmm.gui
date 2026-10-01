@@ -20,7 +20,7 @@ bool HDF5Mesh2DSource::readFaceVariableAt(const Mesh2DResultVariable &v, int t,
 QVector<Mesh2DResultVariable> SWMM2DResultsLayer::resultVariables(QStringList *warnings) const
 {
     if (!source_) { if (warnings) warnings->clear(); return {}; }
-    const int generation = source_->historyGeneration(), times = source_->timeCount();
+    const int generation = source_->resultGeneration(), times = source_->timeCount();
     if (m_resultCatalogRevision != source_revision_ || m_resultCatalogGeneration != generation
         || m_resultCatalogTimes != times) {
         m_resultCatalog = source_->faceVariables(&m_resultCatalogWarnings);
@@ -60,7 +60,7 @@ std::shared_ptr<const Mesh2DScalarFrame> SWMM2DResultsLayer::resultFrame(
     auto frame = std::make_shared<Mesh2DScalarFrame>();
     frame->time = time;
     if (!source_) { frame->error = tr("No result source is available."); return frame; }
-    const int generation = source_->historyGeneration(), times = source_->timeCount();
+    const int generation = source_->resultGeneration(), times = source_->timeCount();
     if (m_resultCacheRevision != source_revision_ || m_resultCacheGeneration != generation
         || m_resultCacheTimes != times) {
         m_resultFrames.clear(); m_resultRanges.clear(); m_resultCacheBytes = 0;
@@ -81,8 +81,8 @@ std::shared_ptr<const Mesh2DScalarFrame> SWMM2DResultsLayer::resultFrame(
         frame->error = tr("The selected variable has no valid frame at this time."); return frame;
     }
     const bool scan = wholeRun && frame->descriptor.frameCount > 0;
-    if (scan && source_->isLive()) {
-        frame->error = tr("Whole-run range is unavailable while the run is still live. Choose current frame or an explicit range.");
+    if (scan && !source_->supportsWholeRunRange()) {
+        frame->error = tr("Whole-run range requires a complete output history. Live or retained snapshots support current frame or an explicit range.");
         return frame;
     }
     std::shared_ptr<const Mesh2DScalarFrame> range;

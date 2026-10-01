@@ -22,7 +22,8 @@ the `.inp` — inline, or into a sibling `.2dm` file referenced by
 | **Select Vertices** / **Select Edges** | **Model → Mesh →**, and the **Mesh 2D** tab |
 | **From Raster…** / **From Shapefile…** (Cell Data) | Ribbon **Mesh 2D** tab |
 | **Assign Infiltration to Selection…** | **Model → Mesh →**, and the **Mesh 2D** tab while cells are selected |
-| **Aquifer…** / **Initial Conditions…** (2D groundwater preview) | Ribbon **Mesh 2D** tab |
+| **Aquifer…** / **Initial Conditions…** (2D groundwater) | Ribbon **Mesh 2D** tab |
+| **Assign Groundwater…** | **Model** menu and mesh cell tools |
 | Active terrain raster, vertical unit, invert offsets | The Terrain toolbar |
 | **Terrain Profile** | **Model → Terrain Profile**; ribbon **Model** tab |
 | Which mesh the engine reads; 2D solver options | **Model → Simulation Options…** → *Mesh* and *2D Surface Routing* |
@@ -432,11 +433,10 @@ tag's numbers (or the `*` row's), which is what the engine will run. Editing one
 materialises a per-cell override; undoing that edit puts the cell back to
 *inheriting*, not to a materialised override carrying the same numbers.
 
-A further group of **2D groundwater** parameters — **Saturated Conductivity
-(Ks)**, **Aquifer Thickness (zs)**, **Porosity (theta_s)**, **Initial
-Unsaturated Depth (hu)** and **Initial Saturated Depth (hg)** — appears greyed
-in every selector. The engine kernel is not implemented, and assignment refuses
-them.
+The legacy cell-parameter selector still disables its groundwater entries.
+Use **Model → Assign Groundwater…** for aquifer properties, initial water state,
+SAT/UNSAT initial species concentrations and injection/extraction sources.
+These values use the engine's groundwater authoring records and project undo.
 
 Every cell edit goes onto the project undo stack and refreshes the map, the
 Properties panel and the attribute table through the layer's change signal, so
@@ -604,23 +604,47 @@ uniform system mean. Valid zero-rain readings remain zero; nearest neighbour
 does not switch to a more distant wet gage. The engine currently treats a
 coordinate of exactly (0,0) as unlocated.
 
-### 2D groundwater (preview)
+### 2D groundwater
 
 **Aquifer…** and **Initial Conditions…** on the **Mesh 2D** tab open the
-**2D Groundwater (Preview)** dialog. **Every input is disabled** and a banner
-says why: the two-zone groundwater kernel is not in the engine yet. The dialog
-exists so the planned parameter surface is visible.
+operational groundwater editor. It edits aquifer properties and initial water
+state, preserving global, tag and cell inheritance. Values are checked before
+Apply; invalid or stale edits do not partially overwrite the model.
 
-\figtodo{19_gw2d_preview.png, The 2D Groundwater preview dialog with its disabled inputs and banner}
+For a consistent spatial workflow, choose **Model → Assign Groundwater…**:
 
-The **Aquifer Properties** page lays out **Saturated conductivity (Ks)**,
-**Aquifer thickness (zs)**, **Porosity (theta_s)**, a **Soil model** with its
-model-specific parameters, a **Closure** mode and a **Kinematic layers** count
-used by the kinematic closure. **Initial Conditions** holds **Initial
-unsaturated depth (hu)** and **Initial saturated depth (hg)**. An **Apply to**
-scope combo offers **All cells**, **Selected cells** and **Cells with tag…**.
+1. Select mesh cells with the rectangle or polygon tool, or choose all cells,
+   a mesh tag, explicit 1-based cell numbers or a polygon in mesh coordinates.
+2. Choose an aquifer property, initial water state, **Initial species
+   concentration — SAT / UNSAT**, or **Add injection / extraction sources**.
+3. Choose **Manual constant**, **Feature layer** or **Raster**. Spatial inputs
+   sample cell centroids. Supply the vector numeric field or raster band and
+   any explicit scale/offset. Source and mesh coordinate systems must be known.
+4. Choose **Preview**, inspect values, units and totals, then **Apply reviewed
+   values**. Preview does not edit the model. A changed selection, model or
+   source file invalidates the reviewed batch. Apply creates one undo operation.
 
-Nothing here writes to the model.
+Property and initial-state inputs do not create a continuing flow. Source flow
+is signed **m³/s**: positive values inject, negative values extract available
+water and its in-situ dissolved quality. A manual constant or named time series
+can represent each cell's flow or a total distributed by selected cell area.
+Feature/raster flow values are **per-cell rates**; raster flux density is not
+integrated over cell area. Spatial region-total and time-series assignments
+are refused rather than interpreted implicitly.
+
+Source **CONC** terms use each species' native concentration units. Pollutant
+**MASS** uses native mass/s; unresolved species mass dimensions are refused.
+Groundwater age uses **seconds**. Each source Apply adds new named sources;
+repeating it adds forcing again. Undo removes that batch. NoData can preserve
+existing cells when explicitly selected; otherwise missing coverage refuses
+the batch. Overlapping ambiguous vector features and failed transformations
+also refuse the preview.
+
+Save preserves authored records in the model and assignment provenance in the
+project sidecar. Provenance records the reviewed snapshot; reopening does not
+reapply or automatically refresh the source layer. Hydraulic groundwater
+boundary chemistry, per-sigma-layer initial chemistry and coupled groundwater
+RK2 are currently unsupported and report errors.
 
 ### Styling the mesh
 

@@ -79,6 +79,8 @@ CMakeUserPresets.json
 
 # --- Build & generated artifacts (added 2026-06-04) ---
 build/
+# Isolated GUI robustness acceptance checkpoint (concurrent-agent builds).
+/build-phase35/
 packages/
 docs/html/
 docs/test_output/

@@ -145,14 +145,10 @@ const QVector<CellParamSpec> &cellParamSpecs()
             v.append(s);
         }
 
-        // ---- Pending: 2D two-zone groundwater ------------------------------
-        // Shown greyed so the roadmap is visible in every selector. Keys and
-        // ranges follow the engine's draft [2D_AQUIFER] design
-        // (plans/TWO_ZONE_GROUNDWATER_EXPLICIT_LTS_PLAN_2026-08-15.md);
-        // applyCellParam refuses them until the engine and MeshTriangle carry
-        // the fields.
+        // Groundwater is authored through the common assignment workflow,
+        // rather than these generic MeshTriangle fields.
         const QString pending =
-            tr("Requires 2D groundwater engine support (not yet available).");
+            tr("Use Model → Assign Groundwater to preview and assign groundwater values.");
         v.append({"gw.Ks", tr("Saturated Conductivity (Ks)"), {},
                   false, 1e-9, 1.0, 1e-6, 1e-5, 8, false, pending});
         v.append({"gw.zs", tr("Aquifer Thickness (zs)"), {},
