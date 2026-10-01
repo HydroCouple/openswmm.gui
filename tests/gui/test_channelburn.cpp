@@ -108,7 +108,7 @@ void TestChannelBurn::reconstructionMatchesEngineTables_data()
     // it behaves like one (plan §16.7).
     QTest::newRow("trapezoidal") << int(SWMM_XSECT_TRAPEZOIDAL) << 3.0 << 4.0 << 2.0 << 2.0 << 1e-6;
     QTest::newRow("triangular")  << int(SWMM_XSECT_TRIANGULAR)  << 2.0 << 6.0 << 0.0 << 0.0 << 1e-6;
-    QTest::newRow("rect_open")   << int(SWMM_XSECT_RECT_OPEN)   << 3.0 << 5.0 << 0.0 << 0.0 << 1e-6;
+    QTest::newRow("rect_open")   << int(SWMM_XSECT_RECT_OPEN)   << 3.0 << 5.0 << 0.0 << 0.0 << 0.00201;
     QTest::newRow("parabolic")   << int(SWMM_XSECT_PARABOLIC)   << 2.0 << 6.0 << 0.0 << 0.0 << 1e-3;
 }
 
@@ -143,10 +143,8 @@ void TestChannelBurn::reconstructionMatchesEngineTables()
     QCOMPARE(swmm_xsect_create(shape, g1, g2, g3, g4, SWMM_UNITS_US, &x), SWMM_OK);
     QVERIFY(x != nullptr);
 
-    // A vertical wall cannot live in a raster, so a constant-width section
-    // reduces to its bed (plan §16.4); its AREA therefore diverges from the
-    // engine above the invert by construction. Width is still exact.
-    const bool verticalWalls = (shape == SWMM_XSECT_RECT_OPEN);
+    // Rectangular walls use a bounded finite batter; check their area and
+    // top width over the same stage range as the other sections.
 
     for (int i = 1; i <= 10; ++i)
     {
@@ -159,7 +157,6 @@ void TestChannelBurn::reconstructionMatchesEngineTables()
         QVERIFY2(std::abs(gotW - refW) <= tol * std::max(1.0, refW),
                  qPrintable(QStringLiteral("depth %1: width %2 vs engine %3")
                                 .arg(d).arg(gotW).arg(refW)));
-        if (verticalWalls) continue;
 
         const double gotA = areaAtDepth(ns, d);
         QVERIFY2(std::abs(gotA - refA) <= tol * std::max(1.0, refA),

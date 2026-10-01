@@ -149,22 +149,25 @@ TEST(ChannelBurnProfile, TriangleAndParabolaReproduceClosedFormArea)
     }
 }
 
-TEST(ChannelBurnProfile, ConstantWidthReducesToAFlatBedOfThatWidth)
+TEST(ChannelBurnProfile, ConstantWidthPreservesToeAndCrestWithBoundedWallBatter)
 {
-    // RECT_OPEN: the walls are vertical, so the burn writes a flat bed 6 wide
-    // and leaves the DEM alone beyond it.
+    // RECT_OPEN: a finite wall batter preserves both toe and bank crest.
     const QVector<double> depths = {0.0, 0.5, 1.0, 2.0};
     const QVector<double> widths = {6.0, 6.0, 6.0, 6.0};
     const SectionGeometry g = sectionFromWidths(depths, widths);
     ASSERT_TRUE(validateSection(g).isEmpty()) << validateSection(g).toStdString();
-    ASSERT_EQ(g.station.size(), 2);
+    ASSERT_EQ(g.station.size(), 4);
 
     const NormalizedSection ns = normalizeSection(g, plainOptions());
     ASSERT_TRUE(ns.isValid());
-    EXPECT_NEAR(ns.sMin, -3.0, 1e-12);
-    EXPECT_NEAR(ns.sMax,  3.0, 1e-12);
+    EXPECT_NEAR(ns.sMin, -3.006, 1e-12);
+    EXPECT_NEAR(ns.sMax,  3.006, 1e-12);
     EXPECT_NEAR(relZAt(ns, 0.0),  0.0, 1e-12);
     EXPECT_NEAR(relZAt(ns, -3.0), 0.0, 1e-12);
+    EXPECT_DOUBLE_EQ(relZAt(ns, ns.sMin),2.0);
+    EXPECT_DOUBLE_EQ(relZAt(ns, ns.sMax),2.0);
+    for(double depth:{0.1,0.5,1.0,2.0})
+        EXPECT_NEAR(areaAtDepth(ns,depth),6.0*depth,0.00101*6.0*depth);
     EXPECT_TRUE(std::isnan(relZAt(ns, 3.5)));
 }
 
@@ -459,7 +462,7 @@ TEST(ChannelBurnProfile, BlendIsStationNormalisedNotAbsolute)
 
     const NormalizedSection mid = blendSections(ditch, creek, 0.5);
     ASSERT_TRUE(mid.isValid());
-    EXPECT_NEAR(mid.sMax - mid.sMin, 16.5, 1e-9);
+    EXPECT_NEAR(mid.sMax - mid.sMin, 16.5*1.002, 1e-9); // includes the finite wall batter
     EXPECT_NEAR(relZAt(mid, 0.0), 0.0, 1e-12);
 
     EXPECT_NEAR(blendSections(ditch, creek, 0.0).sMax, ditch.sMax, 1e-12);
@@ -529,4 +532,19 @@ TEST(ChannelBurnProfile, BlendOfZeroIsANoOp)
     blendAtSharedNode(pu, pd, 0.0);
     EXPECT_EQ(pu.relZ, beforeU);
     EXPECT_EQ(pd.relZ, beforeD);
+}
+
+TEST(ChannelBurnProfile, AuthoredIrregularBreakpointsSurviveAutomaticResolution)
+{
+    ChannelInput input;input.conduitId="compound";input.centerline={{0,0},{10000,0}};
+    input.section=sectionFromTransect({-5,-4,-3,0,3,4,5},{5,1,4,0,4,1,5},-5,5,.04,.03,.04);
+    BurnOptions options;options.chainageStep=0;options.clipToBanks=false;
+    auto p=buildBurnProfile(input,options);
+    ASSERT_TRUE(p.isValid());EXPECT_EQ(p.centerline.size(),2);
+    EXPECT_NEAR(sectionZAt(p,5000,-4),1,1e-12);
+    EXPECT_NEAR(sectionZAt(p,5000,4),1,1e-12);
+    options.chainageStep=1e-9;
+    QString error;
+    EXPECT_FALSE(buildBurnProfile(input,options,nullptr,&error).isValid());
+    EXPECT_TRUE(error.contains("budget"));
 }

@@ -16,6 +16,139 @@
 namespace mesh {
 
 namespace {
+double cross(const QPointF &a,const QPointF &b) { return a.x()*b.y()-a.y()*b.x(); }
+bool barycentric(const QPointF *p,const QPointF &q,double *u,double *v)
+{
+    const double d=cross(p[1]-p[0],p[2]-p[0]);
+    if(std::abs(d)<1e-18) return false;
+    *u=cross(q-p[0],p[2]-p[0])/d;
+    *v=cross(p[1]-p[0],q-p[0])/d;
+    return *u>=-1e-9 && *v>=-1e-9 && *u+*v<=1+1e-9;
+}
+QRectF triangleBounds(const QPointF *p) {
+    return QRectF(QPointF(std::min({p[0].x(),p[1].x(),p[2].x()}),std::min({p[0].y(),p[1].y(),p[2].y()})),
+                  QPointF(std::max({p[0].x(),p[1].x(),p[2].x()}),std::max({p[0].y(),p[1].y(),p[2].y()})));
+}
+}
+
+void BurnSurface::build(const QVector<BurnLattice> &lattices)
+{
+    faces.clear(); grid.clear();
+    double sum=0;
+    for(int pi=0;pi<lattices.size();++pi) {
+        const auto &lat=lattices[pi];
+        for(int i=0;i+1<lat.nAlong;++i) for(int k=0;k+1<lat.nAcross;++k) {
+            const int ids[4]={lat.at(i,k),lat.at(i+1,k),lat.at(i+1,k+1),lat.at(i,k+1)};
+            for(int half=0;half<2;++half) {
+                Face f; f.profile=pi;
+                const int c[3]={0,half?2:1,half?3:2};
+                for(int j=0;j<3;++j) {
+                    f.p[j]=lat.xy[ids[c[j]]]; f.z[j]=lat.z[ids[c[j]]];
+                    f.offset[j]=lat.offsets[k+(c[j]>=2?1:0)];
+                }
+                if(std::abs(cross(f.p[1]-f.p[0],f.p[2]-f.p[0]))<1e-18) continue;
+                f.bounds=triangleBounds(f.p); sum+=std::max(f.bounds.width(),f.bounds.height());
+                faces.append(f);
+            }
+        }
+    }
+    QRectF bounds;
+    for(const auto &face:faces) bounds=bounds.united(face.bounds);
+    surfaceBounds=bounds.adjusted(-1e-9,-1e-9,1e-9,1e-9);
+    origin=bounds.topLeft();
+    pitch=faces.isEmpty()?1:std::max({1e-6,sum/faces.size(),bounds.width()/1e8,bounds.height()/1e8});
+    // A rare very large face amongst small reaches must not allocate a
+    // rectangle containing billions of empty buckets.
+    const double bucketBudget=std::max(4096.0,16.0*faces.size());
+    for(;;) {
+        double entries=0;
+        for(const auto &face:faces) {
+            entries+=(std::ceil(face.bounds.width()/pitch)+2)*(std::ceil(face.bounds.height()/pitch)+2);
+            if(entries>bucketBudget) break;
+        }
+        if(entries<=bucketBudget) break;
+        pitch*=2;
+    }
+    for(int id=0;id<faces.size();++id) {
+        const auto &b=faces[id].bounds;
+        for(int x=int(std::floor((b.left()-origin.x())/pitch));x<=int(std::floor((b.right()-origin.x())/pitch));++x)
+            for(int y=int(std::floor((b.top()-origin.y())/pitch));y<=int(std::floor((b.bottom()-origin.y())/pitch));++y)
+                grid[{x,y}].append(id);
+    }
+}
+
+QVector<int> BurnSurface::candidates(const QRectF &b) const
+{
+    QSet<int> ids;
+    if(faces.isEmpty() || !surfaceBounds.intersects(b)) return {};
+    const QRectF clipped=b.intersected(surfaceBounds);
+    const int x0=int(std::floor((clipped.left()-origin.x())/pitch)),x1=int(std::floor((clipped.right()-origin.x())/pitch));
+    const int y0=int(std::floor((clipped.top()-origin.y())/pitch)),y1=int(std::floor((clipped.bottom()-origin.y())/pitch));
+    if(qint64(x1-x0+1)*(y1-y0+1)>grid.size()) {
+        for(int i=0;i<faces.size();++i) if(faces[i].bounds.intersects(b)) ids.insert(i);
+    } else for(int x=x0;x<=x1;++x) for(int y=y0;y<=y1;++y)
+        for(int id:grid.value({x,y})) ids.insert(id);
+    return ids.values();
+}
+
+bool BurnSurface::intersects(const QRectF &bounds) const
+{
+    for(int id:candidates(bounds)) if(faces[id].bounds.intersects(bounds)) return true;
+    return false;
+}
+
+BurnSurface::Hit BurnSurface::sample(const QPointF &p) const
+{
+    Hit hit;
+    if(faces.isEmpty() || !surfaceBounds.contains(p)) return hit;
+    const auto it=grid.constFind({int(std::floor((p.x()-origin.x())/pitch)),int(std::floor((p.y()-origin.y())/pitch))});
+    if(it==grid.cend()) return hit;
+    for(int id:*it) {
+        const auto &f=faces[id]; double u=0,v=0;
+        if(!barycentric(f.p,p,&u,&v)) continue;
+        const double z=f.z[0]+u*(f.z[1]-f.z[0])+v*(f.z[2]-f.z[0]);
+        if(!std::isfinite(hit.z) || z<hit.z || (z==hit.z && f.profile<hit.profile))
+            hit={z,f.profile,f.offset[0]+u*(f.offset[1]-f.offset[0])+v*(f.offset[2]-f.offset[0])};
+    }
+    return hit;
+}
+
+BurnSurface::Error BurnSurface::error(const QPointF *xy,const double *z,
+                                     const std::function<bool(const QPointF &)> &inside) const
+{
+    Error out;
+    const double orientation=cross(xy[1]-xy[0],xy[2]-xy[0])>=0?1:-1;
+    for(int id:candidates(triangleBounds(xy))) {
+        const auto &f=faces[id];
+        QVector<QPointF> poly{f.p[0],f.p[1],f.p[2]};
+        for(int e=0;e<3 && !poly.isEmpty();++e) {
+            QVector<QPointF> next;
+            const QPointF a=xy[e],d=xy[(e+1)%3]-a;
+            for(int j=0;j<poly.size();++j) {
+                const QPointF p=poly[j],q=poly[(j+1)%poly.size()];
+                const double dp=orientation*cross(d,p-a),dq=orientation*cross(d,q-a);
+                if(dp>=-1e-10) next.append(p);
+                if((dp>0 && dq<0)||(dp<0 && dq>0)) next.append(p+(q-p)*(dp/(dp-dq)));
+            }
+            poly=std::move(next);
+        }
+        for(const auto &p:poly) {
+            if(inside && !inside(p)) continue;
+            double u=0,v=0; if(!barycentric(xy,p,&u,&v)) continue;
+            // Check every authored face, including overlaps. Sampling only
+            // their lower envelope at polygon corners can hide an interior
+            // ridge where two conflicting channel planes intersect.
+            double fu=0,fv=0;if(!barycentric(f.p,p,&fu,&fv)) continue;
+            const double reference=f.z[0]+fu*(f.z[1]-f.z[0])+fv*(f.z[2]-f.z[0]);
+            out.touched=true;
+            const double delta=std::abs(reference-(z[0]+u*(z[1]-z[0])+v*(z[2]-z[0])));
+            if(delta>out.maximum) {out.maximum=delta;out.point=p;}
+        }
+    }
+    return out;
+}
+
+namespace {
 
 /*! Point at chainage \p t along a polyline with cumulative \p chain. */
 QPointF pointAtChainage(const QVector<QPointF> &path, const QVector<double> &chain, double t)
@@ -91,19 +224,31 @@ BurnLattice buildCorridorLattice(const BurnProfile &p,
         return lat;
     }
 
-    // Along stations: uniform, both ends exact.
+    // Preserve authored bends and section-change stations, then subdivide.
     const double L = p.length();
     if (alongStep > 0.0)
     {
-        const int n = std::max(1, int(std::llround(L / alongStep)));
-        lat.chainage.reserve(n + 1);
-        for (int i = 0; i <= n; ++i) lat.chainage.append(L * double(i) / double(n));
+        const double estimated = std::ceil(L/alongStep)+p.chainage.size();
+        if (!std::isfinite(estimated) || estimated*lat.nAcross > 2000000) {
+            if(err) *err=QStringLiteral("corridor exceeds the preparation vertex budget; increase spacing");
+            return {};
+        }
+        lat.chainage.append(0.0);
+        for (int j=1;j<p.chainage.size();++j) {
+            const double a=p.chainage[j-1], b=p.chainage[j];
+            const int n=std::max(1,int(std::ceil((b-a)/alongStep)));
+            for(int i=1;i<=n;++i) lat.chainage.append(a+(b-a)*i/n);
+        }
     }
     else
     {
         lat.chainage = p.chainage;
     }
     lat.nAlong = int(lat.chainage.size());
+    if (qint64(lat.nAlong)*lat.nAcross > 2000000) {
+        if(err) *err=QStringLiteral("corridor exceeds the preparation vertex budget");
+        return {};
+    }
     if (lat.nAlong < 2)
     {
         if (err) *err = QStringLiteral("conduit '%1': corridor has fewer than 2 stations")
@@ -111,7 +256,11 @@ BurnLattice buildCorridorLattice(const BurnProfile &p,
         return lat;
     }
 
-    const double h = (lat.nAlong > 1) ? 0.5 * (L / double(lat.nAlong - 1)) : L;
+    // Dense along-channel sampling must not concentrate the entire rotation
+    // of a bank into one tiny interval at an authored bend. Use a physical
+    // section-width neighbourhood for directions, independent of DEM pixels.
+    const double h = std::max(std::min(lat.offsets.last()-lat.offsets.first(),L*0.05),
+                              0.5 * (L / double(lat.nAlong - 1)));
     lat.xy.reserve(qsizetype(lat.nAlong) * lat.nAcross);
     lat.z .reserve(qsizetype(lat.nAlong) * lat.nAcross);
 
@@ -136,6 +285,22 @@ BurnLattice buildCorridorLattice(const BurnProfile &p,
         }
     }
 
+    // The reference surface must be valid even when the final corridor uses
+    // triangles. Reject folded cells before burning pixels or retiring links.
+    double winding=0;
+    for(int i=0;i+1<lat.nAlong;++i) for(int k=0;k+1<lat.nAcross;++k) {
+        const QPointF corners[4]={lat.xy[lat.at(i,k)],lat.xy[lat.at(i+1,k)],
+            lat.xy[lat.at(i+1,k+1)],lat.xy[lat.at(i,k+1)]};
+        for(int j=0;j<4;++j) {
+            const double turn=cross(corners[(j+1)%4]-corners[j],corners[(j+2)%4]-corners[(j+1)%4]);
+            if(winding==0) winding=turn;
+            if(std::abs(turn)<1e-18 || turn*winding<=0) {
+                if(err) *err=QStringLiteral("conduit '%1': corridor folds at a bend; reduce its width or correct the centreline").arg(p.conduitId);
+                return {};
+            }
+        }
+    }
+
     // Spacings, for the densification guard (§4.6).
     lat.minAlongSpacing = std::numeric_limits<double>::infinity();
     for (int i = 1; i < lat.nAlong; ++i)
@@ -150,8 +315,8 @@ BurnLattice buildCorridorLattice(const BurnProfile &p,
         if (worst < minCellSize)
             warnings->append(
                 QStringLiteral("conduit '%1': corridor lattice spacing %2 is below the mesh "
-                               "minimum cell size %3 — the cleanup pass will collapse cells "
-                               "inside the channel")
+                               "minimum cell size %3 — channel edges are retained and the "
+                               "completed mesh must pass the channel accuracy check")
                     .arg(p.conduitId).arg(worst).arg(minCellSize));
     }
     return lat;

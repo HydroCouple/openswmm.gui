@@ -301,6 +301,7 @@ add_swmmvis_unit_test(test_channelburnnetwork
     ${PROJECT_SOURCE_DIR}/include/mesh/channelburnboundary.h
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnnetwork.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnboundary.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
 )
 target_link_libraries(test_channelburnnetwork PRIVATE Qt6::Gui)

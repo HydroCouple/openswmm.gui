@@ -97,10 +97,13 @@ SectionGeometry sectionFromWidths(const QVector<double> &depths,
     const int n = std::min(depths.size(), widths.size());
     if (n < 1) return g;
 
-    // Keep the FIRST depth at which each half-width occurs.  The station ladder
-    // has to stay strictly ascending, so a width that repeats (a vertical wall)
-    // contributes one station, and a width that shrinks with depth — a closed
-    // shape, which the open-section gate excludes — contributes none.
+    // A height field cannot hold a vertical wall. Retain its toe and crest
+    // with a small outward batter: at most 0.1% of full width per side. This
+    // bounds the rectangular section's area/top-width change by 0.1%/0.2%
+    // while retaining bank height (the former flat-bed conversion lost it).
+    double fullWidth=0;
+    for(double w:widths) if(std::isfinite(w)) fullWidth=std::max(fullWidth,w);
+    const double wallRun=fullWidth*0.001;
     QVector<double> d, hw;
     d.reserve(n);
     hw.reserve(n);
@@ -111,6 +114,14 @@ SectionGeometry sectionFromWidths(const QVector<double> &depths,
         if (!d.isEmpty() && (depths[i] <= d.last() || h <= hw.last())) continue;
         d.append(depths[i]);
         hw.append(h);
+        int end=i;
+        while(end+1<n && std::isfinite(depths[end+1]) && depths[end+1]>depths[end]
+              && widths[end+1]==widths[i]) ++end;
+        if(end>i && wallRun>0) {
+            double run=wallRun;
+            if(end+1<n && widths[end+1]>widths[i]) run=std::min(run,(widths[end+1]-widths[i])*0.25);
+            d.append(depths[end]); hw.append(h+run); i=end;
+        }
     }
     if (d.isEmpty()) return g;
 
@@ -321,6 +332,17 @@ QVector<double> corridorOffsets(const NormalizedSection &ns, const BurnOptions &
     pushOffset(out, 0.0, eps);
     pushOffset(out, ns.sMin, eps);
     pushOffset(out, ns.sMax, eps);
+    for (int i=0;i<ns.station.size();++i) {
+        const double station=ns.station[i];
+        // A sampled straight bank needs its slope breaks, not every redundant
+        // sample from the analytic shape's depth ladder.
+        if(i>0 && i+1<ns.station.size()) {
+            const double a=(ns.relZ[i]-ns.relZ[i-1])*(ns.station[i+1]-station);
+            const double b=(ns.relZ[i+1]-ns.relZ[i])*(station-ns.station[i-1]);
+            if(std::abs(a-b)<=1e-12*std::max({1.0,std::abs(a),std::abs(b)})) continue;
+        }
+        if (station >= ns.sMin && station <= ns.sMax) pushOffset(out, station, eps);
+    }
     if (R > 0.0)
     {
         pushOffset(out, std::max(ns.sMin, -R), eps);
@@ -351,7 +373,9 @@ QVector<double> corridorOffsets(const NormalizedSection &ns, const BurnOptions &
             dense.append(out[i]);
             if (i + 1 >= out.size()) break;
             const double gap = out[i + 1] - out[i];
-            const int    k   = int(std::ceil(gap / opt.lateralStep)) - 1;
+            const double count = std::ceil(gap / opt.lateralStep);
+            if (!std::isfinite(count) || count + dense.size() > opt.maxCorridorVertices) return {};
+            const int    k   = int(count) - 1;
             for (int j = 1; j <= k; ++j)
                 dense.append(out[i] + gap * double(j) / double(k + 1));
         }
@@ -432,11 +456,18 @@ BurnProfile buildBurnProfile(const ChannelInput &in, const BurnOptions &opt,
         return p;
     }
 
-    // Chainage resolution.  The DEM-aware auto rule (min(demPixel/2, R/4)) needs
-    // the raster, so it is resolved by the caller in P1; here 0 falls back to
-    // R/4, and to the raw vertices when there is no R either.
-    double step = opt.chainageStep;
-    if (!(step > 0.0)) step = (opt.forceHalfWidth > 0.0) ? opt.forceHalfWidth * 0.25 : 0.0;
+    const double step = opt.chainageStep;
+    double stationCount = 1;
+    for (int i=1; i<in.centerline.size(); ++i) {
+        const QPointF delta = in.centerline[i]-in.centerline[i-1];
+        stationCount += step > 0 ? std::max(1.0,std::ceil(std::hypot(delta.x(),delta.y())/step)) : 1;
+    }
+    p.offsets = corridorOffsets(p.section,opt);
+    if (p.offsets.size()<2 || !std::isfinite(stationCount)
+        || stationCount * p.offsets.size() > opt.maxCorridorVertices) {
+        if(err) *err=QStringLiteral("conduit '%1': corridor exceeds the preparation vertex budget; increase spacing").arg(in.conduitId);
+        return {};
+    }
 
     p.centerline = densifyPolyline(in.centerline, step);
     p.chainage   = polylineChainage(p.centerline);

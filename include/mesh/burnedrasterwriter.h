@@ -6,22 +6,11 @@
  *
  * Writing the burned DEM (CHANNEL_BURN_IN_PLAN_2026-09-21.md §4.5, D1, phase P1).
  *
- * D1 — "the burn erases the DEM" — means a real raster on disk, not an
- * in-memory override. Three things fall out of that and none of them are
- * available any other way:
- *
- *  1. **Cache correctness is free.** `MeshStageCache`'s Stage-B key is the DEM's
- *     {absPath, mtime, size}. A new burned file is automatically a new key, so
- *     no format-version bump and no stale-terrain failure mode.
- *  2. **Refinement follows the channel for free.** `DTMThinner::generatePoints`
- *     is normal-deviation decimation — it keeps points where the surface bends,
- *     and a burned channel is a bend. Burning after thinning would produce a
- *     trench with cells that ignore it.
- *  3. **The user can look at it.** Load the burned raster, difference it against
- *     the original, and see exactly what the burn did.
- *
- * The source raster is never modified: the burned file is a `CreateCopy`, and
- * only the corridor's own window is rewritten.
+ * Exports a separate Float64 copy and rewrites only indexed corridor tiles.
+ * Sample locations are transformed into the physical mesh frame and masked
+ * against the study domain. The shared section callback gives raster export
+ * and mesh refinement the same bathymetry, including sub-pixel channels.
+ * The source raster is never modified.
  */
 #ifndef OPENSWMMVIS_MESH_BURNEDRASTERWRITER_H
 #define OPENSWMMVIS_MESH_BURNEDRASTERWRITER_H
@@ -63,9 +52,9 @@ struct BurnRasterStats
 /*!
  * \brief One burn run.
  *
- * \note \ref profiles and \ref rule must already be in the RASTER's frame —
- *       see \ref toRasterFrame / \ref toRasterRule. This module does no
- *       coordinate or unit conversion of its own, deliberately (§4.5 trap).
+ * \note Profiles and rules share one physical frame. Supply toProfileFrame
+ *       and rasterToProfileZ for mixed raster/mesh coordinates or units.
+ *       Without callbacks, profiles use the raster's frame (legacy callers).
  */
 struct BurnRasterRequest
 {
@@ -75,6 +64,14 @@ struct BurnRasterRequest
     int     band = 1;
     QVector<BurnProfile> profiles;
     BurnRule             rule;
+    // Optional inverse transform: query each raster pixel in the physical
+    // profile frame. Widths are never approximated by a single CRS scale.
+    std::function<bool(QPointF *)> toProfileFrame;
+    std::function<bool(const QPointF &)> inDomain;
+    QVector<QRectF> rasterWindows;
+    double rasterToProfileZ = 1.0;
+    QStringList planNotes;
+    std::function<bool(const QPointF &, BurnProjection *, double *)> sectionAt;
     /*! Called before copying, during copy and between raster blocks with a
      *  monotone 0-100 percentage. Return false to cancel. Only the job-owned
      *  partial output is deleted; existing nonempty outputs are refused. */

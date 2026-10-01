@@ -80,6 +80,28 @@ struct BurnLattice
     }
 };
 
+/*! Piecewise-linear authored bathymetry, indexed independently of DEM pixels.
+ * Raster export, vertex elevations and final triangle checks share this surface. */
+class BurnSurface
+{
+public:
+    struct Hit { double z=qQNaN(); int profile=-1; double offset=0; };
+    struct Error { double maximum=0; QPointF point; bool touched=false; };
+    void build(const QVector<BurnLattice> &lattices);
+    Hit sample(const QPointF &p) const;
+    bool intersects(const QRectF &bounds) const;
+    Error error(const QPointF *xy, const double *z,
+                const std::function<bool(const QPointF &)> &inside) const;
+private:
+    struct Face { QPointF p[3]; double z[3],offset[3]; int profile; QRectF bounds; };
+    QVector<Face> faces;
+    QHash<QPair<int,int>,QVector<int>> grid;
+    double pitch=1;
+    QPointF origin;
+    QRectF surfaceBounds;
+    QVector<int> candidates(const QRectF &bounds) const;
+};
+
 /*!
  * \brief Sample \p p onto a lattice at \p alongStep spacing.
  *

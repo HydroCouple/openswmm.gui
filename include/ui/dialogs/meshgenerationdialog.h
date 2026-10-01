@@ -210,6 +210,7 @@ public:
         // values — XY are written in project-CRS units, matching today's
         // engine expectations.
         QString meshLinearUnitName;
+        double meshLinearUnitToSI = 1.0;
 
         // 3D aux-line vertices: exact (x,y)->z in mesh CRS, seeded into
         // elevCache by coordinate so PSLG simplification can't desync a
@@ -322,6 +323,7 @@ public:
          *  needs MapUndoStack and therefore the GUI thread (plan §16.3). */
         struct BurnSurgery
         {
+            QVector<mesh::BurnSplit> splits;
             QStringList                  burnedConduits;  ///< Leave the 1D network (D-A).
             QVector<mesh::BurnNodePlan>  nodePlans;
             QHash<QString, double>       outfallInvert;   ///< node id → channel bottom.
@@ -384,9 +386,6 @@ private:
     /*! \brief Resolve the burn set against the model and build one profile per
      *         accepted conduit. GUI thread only — it reads the engine. */
     bool collectBurnInputs(PipelineInputs *out) const;
-    /*! \brief Apply the 1D surgery the worker planned, as one undo macro.
-     *         GUI thread only — it drives MapUndoStack (plan §16.3). */
-    void applyBurnSurgery(const PipelineResult &res);
     /*! \brief Enable/disable the burn widgets from the master checkbox. */
     void updateBurnEnabled();
     /*! \brief Resolve the burn set and report what WOULD burn, without
@@ -497,6 +496,7 @@ private:
     QDoubleSpinBox *m_burnMaxIncision     = nullptr;
     QCheckBox      *m_burnQuadCorridorBox = nullptr;
     QDoubleSpinBox *m_burnChannelCellSize = nullptr;
+    QDoubleSpinBox *m_burnGeometryTolerance = nullptr;
     QCheckBox      *m_burnRoughnessBox    = nullptr;
     QCheckBox      *m_burnConvertNodesBox = nullptr;
     QCheckBox      *m_burnTruncateBox     = nullptr;

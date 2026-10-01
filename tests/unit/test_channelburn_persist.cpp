@@ -50,6 +50,7 @@ ChannelBurnSettings authored()
     s.options.burnStreets           = true;
     s.options.quadCorridor          = false;
     s.options.channelCellSize       = 1.5;
+    s.options.geometryTolerance      = .025;
     s.options.roughnessFromTransect = false;
     s.options.removeBurnedFrom1D    = false;
     s.options.convertInterfaceNodes = false;
@@ -78,6 +79,7 @@ void expectSame(const ChannelBurnSettings &a, const ChannelBurnSettings &b)
     EXPECT_EQ(a.options.burnStreets,           b.options.burnStreets);
     EXPECT_EQ(a.options.quadCorridor,          b.options.quadCorridor);
     EXPECT_DOUBLE_EQ(a.options.channelCellSize, b.options.channelCellSize);
+    EXPECT_DOUBLE_EQ(a.options.geometryTolerance,b.options.geometryTolerance);
     EXPECT_EQ(a.options.roughnessFromTransect, b.options.roughnessFromTransect);
     EXPECT_EQ(a.options.removeBurnedFrom1D,    b.options.removeBurnedFrom1D);
     EXPECT_EQ(a.options.convertInterfaceNodes, b.options.convertInterfaceNodes);

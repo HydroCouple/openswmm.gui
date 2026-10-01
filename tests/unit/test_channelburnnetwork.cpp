@@ -116,14 +116,14 @@ TEST(ChannelBurnNetwork, NodeKeepingTwoSurvivingLinksStaysAJunction)
     EXPECT_TRUE(c.note.contains(QStringLiteral("only one")));
 }
 
-TEST(ChannelBurnNetwork, ConvertingANonJunctionIsCalledOut)
+TEST(ChannelBurnNetwork, SpecialNodeBehaviorIsPreserved)
 {
     BurnNetwork n = chain();
     n.nodes[1].isJunction = false;                    // B is a storage unit
     const BurnNodePlan b =
         planFor(classifyBurnNodes(n, {QStringLiteral("L2")}), QStringLiteral("B"));
-    EXPECT_EQ(b.role, BurnNodeRole::Outfall);
-    EXPECT_TRUE(b.note.contains(QStringLiteral("type-specific data")));
+    EXPECT_EQ(b.role, BurnNodeRole::CoupledJunction);
+    EXPECT_TRUE(b.note.contains(QStringLiteral("preserve")));
 }
 
 TEST(ChannelBurnNetwork, BurnedLinksToRemoveKeepsNetworkOrderAndIgnoresStrangers)
@@ -251,4 +251,48 @@ TEST(ChannelBurnBoundary, DegenerateInputIsRejectedQuietly)
     EXPECT_FALSE(truncationCrossing({QPointF(0, 0)}, unitSquare(), &c));
     EXPECT_FALSE(truncationCrossing({QPointF(0, 0), QPointF(1, 0)}, BurnDomain{}, &c));
     EXPECT_TRUE(clipPolylineToDomain({QPointF(0, 0), QPointF(1, 0)}, BurnDomain{}).isEmpty());
+}
+
+TEST(ChannelBurnBoundary, ReplacementPartitionsEveryCrossingAndHole)
+{
+    ChannelInput input; input.conduitId="creek"; input.centerline={{-20,0},{20,0}};
+    input.zUp=10; input.zDn=6;
+    input.section=sectionFromWidths({0,1},{2,4});
+    BurnOptions options; options.chainageStep=0; options.clipToBanks=false;
+    auto domain=unitSquare();
+    domain.holes.append(QPolygonF(QVector<QPointF>{{-2,-2},{2,-2},{2,2},{-2,2}}));
+    BurnNetwork network;network.nodes={{"A"},{"B"}};network.links={{"creek",0,1}};
+    const auto plan=planBurnReplacement({buildBurnProfile(input,options)},network,domain);
+    ASSERT_TRUE(plan.error.isEmpty());
+    ASSERT_EQ(plan.splits.size(),4);
+    ASSERT_EQ(plan.profiles.size(),2);
+    EXPECT_EQ(plan.network.links.size(),5);
+    EXPECT_EQ(plan.replacedIds.size(),2);
+    EXPECT_FALSE(plan.replacedIds.contains("creek")); // original upstream outside reach
+    EXPECT_DOUBLE_EQ(plan.profiles[0].length(),8);
+    EXPECT_DOUBLE_EQ(plan.profiles[1].length(),8);
+    EXPECT_DOUBLE_EQ(plan.profiles[0].bedZ.first(),9);
+    EXPECT_DOUBLE_EQ(plan.profiles[1].bedZ.last(),7);
+    for(const auto &node:plan.nodes) EXPECT_EQ(node.role,BurnNodeRole::Outfall);
+    double remaining=1,position=0;
+    for(const auto &split:plan.splits) {
+        position+=remaining*split.t;remaining=1-position;
+    }
+    EXPECT_NEAR(position,.75,1e-12);
+}
+
+TEST(ChannelBurnBoundary, OutsideSelectionDoesNotChangeNetwork)
+{
+    ChannelInput input;input.conduitId="outside";input.centerline={{20,20},{30,20}};
+    input.section=sectionFromWidths({0,1},{2,4});
+    BurnNetwork network;network.nodes={{"A"},{"B"}};network.links={{"outside",0,1}};
+    const auto plan=planBurnReplacement({buildBurnProfile(input,{})},network,unitSquare());
+    EXPECT_TRUE(plan.profiles.isEmpty());EXPECT_TRUE(plan.splits.isEmpty());
+    EXPECT_TRUE(plan.nodes.isEmpty());EXPECT_TRUE(plan.replacedIds.isEmpty());
+}
+
+TEST(ChannelBurnNetwork, ReferencedInteriorNodeIsKept)
+{
+    auto n=chain();n.nodes[1].preserve=true;
+    EXPECT_EQ(planFor(classifyBurnNodes(n,{"L1","L2"}),"B").role,BurnNodeRole::CoupledJunction);
 }

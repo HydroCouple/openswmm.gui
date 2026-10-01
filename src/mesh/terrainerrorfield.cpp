@@ -36,6 +36,9 @@ double planeDifference(const Node &n, const Node &p) {
 }
 
 struct TerrainErrorField::Impl {
+    QRectF overrideBounds;
+    std::function<double(double,double,double)> queryOverride;
+    std::function<bool(const QRectF &)> overrideIntersects;
     GDALDataset *ds = nullptr;
     OGRCoordinateTransformation *toMesh = nullptr, *toDEM = nullptr;
     int width = 0, height = 0, c0 = 0, r0 = 0, cols = 0, rows = 0;
@@ -277,13 +280,21 @@ TerrainErrorField::Query TerrainErrorField::queryTriangle(const QPointF *xy,cons
     const double slack=roundoff(std::max({std::abs(z[0]),std::abs(z[1]),std::abs(z[2])})
                               +std::abs(plane.a)*(std::abs(x0)+std::abs(x1))
                               +std::abs(plane.b)*(std::abs(y0)+std::abs(y1)));
+    const QRectF queryBounds(QPointF(x0,y0)+d->origin,QPointF(x1,y1)+d->origin);
+    const bool hasOverride=d->queryOverride && d->overrideBounds.intersects(queryBounds)
+        && (!d->overrideIntersects || d->overrideIntersects(queryBounds));
     int visited=0;
     auto visit=[&](auto &&self,int level,int c,int r)->void {
         if ((++visited & 255)==0 && d->cancelled && d->cancelled()) { out.valid=false; return; }
         const Level &l=d->levels[level]; const Node &n=l.nodes[r*l.cols+c];
         if ((!n.count && !n.missing) || n.x1<x0 || n.x0>x1 || n.y1<y0 || n.y0>y1 || !out.valid) return;
         const double bound=n.error+planeDifference(n,plane)+slack;
-        if (!exhaustive && !n.missing && bound<=tolerance) { out.upperBound=std::max(out.upperBound,bound); return; }
+        const QRectF nodeBounds=QRectF(QPointF(n.x0,n.y0)+d->origin,
+            QPointF(n.x1,n.y1)+d->origin).adjusted(-1e-9,-1e-9,1e-9,1e-9);
+        const QRectF overlap=nodeBounds.intersected(queryBounds);
+        const bool overridden = hasOverride && d->overrideBounds.intersects(overlap)
+            && (!d->overrideIntersects || d->overrideIntersects(overlap));
+        if (!overridden && !exhaustive && !n.missing && bound<=tolerance) { out.upperBound=std::max(out.upperBound,bound); return; }
         if (level) {
             const Level &child=d->levels[level-1];
             for(int dr=0;dr<2;++dr) for(int dc=0;dc<2;++dc)
@@ -296,11 +307,13 @@ TerrainErrorField::Query TerrainErrorField::queryTriangle(const QPointF *xy,cons
         for(int rr=by;rr<std::min(by+kLeaf,d->r0+d->rows);++rr)
             for(int cc=bx;cc<std::min(bx+kLeaf,d->c0+d->cols);++cc) {
                 const int i=(rr-t->y)*t->cols+cc-t->x;
-                const double zz=t->z[i],x=t->xMesh[i],y=t->yMesh[i];
+                const double x=t->xMesh[i],y=t->yMesh[i];
+                double zz=t->z[i];
                 if(x<x0 || x>x1 || y<y0 || y>y1) continue;
                 const double px=x-p[0].x(),py=y-p[0].y();
                 const double u=(px*ey-py*ex)/det,v=(dx*py-dy*px)/det;
                 if(u < -1e-12 || v < -1e-12 || u+v > 1+1e-12) continue;
+                if(d->queryOverride) zz=d->queryOverride(x+d->origin.x(),y+d->origin.y(),zz);
                 if(!std::isfinite(zz)) { ++out.noDataSamples; continue; }
                 ++out.samples;
                 const double e=std::abs(zz-(z[0]+u*(z[1]-z[0])+v*(z[2]-z[0])));
@@ -316,4 +329,7 @@ quint64 TerrainErrorField::referenceSamples() const { return d->levels.isEmpty()
 qint64 TerrainErrorField::summaryBytes() const { qint64 n=0; for(const auto &l:d->levels) n+=l.nodes.size()*qint64(sizeof(Node)); return n; }
 double TerrainErrorField::verticalQuantum() const { return d->wholeUnits && d->maxZ-d->minZ>=d->scale ? d->scale : 0; }
 void TerrainErrorField::setCancellation(std::function<bool()> cancelled) { d->cancelled=std::move(cancelled); }
+void TerrainErrorField::setQueryOverride(const QRectF &bounds,std::function<double(double,double,double)> value,
+                                        std::function<bool(const QRectF &)> intersects)
+{ d->overrideBounds=bounds; d->queryOverride=std::move(value);d->overrideIntersects=std::move(intersects); }
 }

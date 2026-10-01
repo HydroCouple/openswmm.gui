@@ -32,6 +32,9 @@
 #include "mesh/meshpatch.h"
 #include "mesh/meshresult.h"
 #include "mesh/channelburnselector.h"
+#include "mesh/channelburnboundary.h"
+#include <openswmm/engine/openswmm_edit.h>
+#include <QScopeGuard>
 #include "mesh/dtmraster.h"
 #include "mesh/inpmeshwriter.h"
 #include "mesh/inpmeshreader.h"
@@ -531,6 +534,65 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     }
     }   // if (!bprepReady)
 
+    mesh::BurnDomain burnDomain;
+    burnDomain.rings=in.domains;
+    for(const auto &hole:in.holeRings) burnDomain.holes.append(QPolygonF(hole));
+    mesh::BurnReplacementPlan burnPlan;
+    QSet<QString> retiringNodes, channelNodes;
+    if (in.burnEnabled) {
+        burnPlan=mesh::planBurnReplacement(in.burnProfiles,
+            in.burnOptions.removeBurnedFrom1D?in.burnNetwork:mesh::BurnNetwork{},burnDomain);
+        if(!burnPlan.error.isEmpty()) { fail(burnPlan.error); return; }
+        if(!in.burnOptions.convertInterfaceNodes)
+            for(auto &node:burnPlan.nodes) if(node.role==mesh::BurnNodeRole::Outfall)
+                node.role=mesh::BurnNodeRole::CoupledJunction;
+        in.burnWarnings += burnPlan.notes;
+        in.burnProfiles = burnPlan.profiles;
+        in.burnEnabled = !in.burnProfiles.isEmpty();
+        if(in.burnOptions.removeBurnedFrom1D) {
+            for(const auto &node:burnPlan.nodes) {
+                channelNodes.insert(node.nodeId);
+                if(node.role==mesh::BurnNodeRole::Removed) retiringNodes.insert(node.nodeId);
+            }
+            in.candidateNodes.erase(std::remove_if(in.candidateNodes.begin(),in.candidateNodes.end(),
+                [&](const auto &n){return channelNodes.contains(n.name);}),in.candidateNodes.end());
+            in.candidateLinks.erase(std::remove_if(in.candidateLinks.begin(),in.candidateLinks.end(),
+                [&](const auto &l){return burnPlan.originalIds.contains(l.first);}),in.candidateLinks.end());
+            in.couplingNodes.erase(std::remove_if(in.couplingNodes.begin(),in.couplingNodes.end(),
+                [&](const auto &n){return retiringNodes.contains(n.first);}),in.couplingNodes.end());
+            QSet<QString> mapped;
+            for(const auto &n:in.couplingNodes) mapped.insert(n.first);
+            for(const auto &sp:burnPlan.splits) {
+                in.couplingNodes.append({sp.nodeId,sp.xy});
+                mapped.insert(sp.nodeId);
+                in.steinerPoints.append({sp.xy,0,sp.nodeId});
+            }
+            QHash<QString,int> profileByLink;
+            for(int i=0;i<in.burnProfiles.size();++i) profileByLink.insert(in.burnProfiles[i].conduitId,i);
+            QHash<QString,QPointF> interfaceXY;
+            for(const auto &link:burnPlan.network.links) {
+                const auto it=profileByLink.constFind(link.id);
+                if(it==profileByLink.cend()) continue;
+                const auto &profile=in.burnProfiles[*it];
+                interfaceXY.insert(burnPlan.network.nodes[link.from].id,profile.centerline.first());
+                interfaceXY.insert(burnPlan.network.nodes[link.to].id,profile.centerline.last());
+            }
+            for(const auto &node:burnPlan.nodes) {
+                if(node.role==mesh::BurnNodeRole::Removed || mapped.contains(node.nodeId)) continue;
+                const auto point=interfaceXY.constFind(node.nodeId);
+                if(point!=interfaceXY.cend()) in.couplingNodes.append({node.nodeId,*point});
+            }
+            if(in.burnEnabled) in.mapNodesAfterGen=true;
+        }
+        QByteArray identity=in.burnFingerprint.toUtf8()+in.meshCRSWkt.toUtf8()+in.burnDemCRSWkt.toUtf8()
+            +QByteArray::number(in.zConversionFactor,'g',17);
+        for(const auto &rings:{burnDomain.rings,burnDomain.holes}) for(const auto &ring:rings) {
+            identity += '|';
+            for(const auto &p:ring) identity+=QByteArray::number(p.x(),'g',17)+','+QByteArray::number(p.y(),'g',17)+';';
+        }
+        in.burnFingerprint=QString::fromLatin1(QCryptographicHash::hash(identity,QCryptographicHash::Sha256).toHex().left(16));
+    }
+
     // ── Candidate filtering + marker assignment (worker-side) ────────
     // Mirrors the original collectInputs sequence exactly — junctions →
     // conduits → aux points → aux lines → region markers → snapAndDedupe —
@@ -804,10 +866,9 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                    << "invalid hole ring(s) — self-intersecting or degenerate.";
 
     // ══ Channel burn-in — B2..B5 (CHANNEL_BURN_IN_PLAN_2026-09-21.md §5) ══
-    // Placement is load-bearing. The burned raster must exist and dtmPath must
-    // point at it BEFORE the DTM is opened below, because the terrain error
-    // field (mesh::TerrainSizeField) only densifies along the banks if the
-    // channel is already in the surface it measures.
+    // Raster output and refinement share the analytic channel surface. Keep
+    // the original DEM as the terrain reference; a narrow channel may fall
+    // entirely between its pixel centres.
     QVector<QPolygonF> burnCorridorRings;
     QStringList        burnWarnings = in.burnWarnings;
     QString            burnedDemPath, burnReportPath;
@@ -815,79 +876,135 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     mesh::BurnRasterStats burnStats;
     bool               burnRan = false;
 
+    if(in.burnEnabled && in.dtmPath.isEmpty()) {
+        fail(QObject::tr("Channel %1 requires a DEM to resolve its terrain transition.").arg(in.burnProfiles.first().conduitId)); return;
+    }
+    mesh::TerrainErrorField terrainReference;
+    bool terrainReferenceOpen=false;
+    mesh::BurnCorridorIndex channelIndex;
+    channelIndex.build(in.burnProfiles);
+    QVector<mesh::BurnLattice> channelLattices;
+    qint64 channelVertexCount=0;
+    for(const auto &profile:in.burnProfiles) {
+        if(promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+        double spacing=in.burnOptions.channelCellSize;
+        if(!(spacing>0)) spacing=in.burnOptions.chainageStep;
+        if(!(spacing>0)) spacing=in.cellSize;
+        QString error;
+        auto lat=mesh::buildCorridorLattice(profile,spacing,in.burnMinCellSize,&burnWarnings,&error);
+        if(!lat.isValid()) { fail(error); return; }
+        channelVertexCount+=lat.xy.size();
+        if(channelVertexCount>std::min<qint64>(in.burnOptions.maxCorridorVertices,std::max(4,in.genOpts.maxCells))) {
+            fail(QObject::tr("Channel corridors exceed the vertex/cell budget. Increase channel spacing.")); return;
+        }
+        channelLattices.append(std::move(lat));
+    }
+    mesh::BurnSurface channelSurface;
+    channelSurface.build(channelLattices);
+    auto sectionAt = [&](const QPointF &p,mesh::BurnProjection *pr,double *z) {
+        const auto hit=channelSurface.sample(p);
+        if(hit.profile<0) return false;
+        *z=hit.z; pr->profile=hit.profile;pr->offset=hit.offset; return true;
+    };
+    const double channelTolerance=in.burnOptions.geometryTolerance/in.verticalUnitToSI;
+    if(in.burnOptions.removeBurnedFrom1D && channelLattices.size()>1) {
+        // Verify overlapping sections before exporting a raster or attempting
+        // refinement: incompatible planes cannot be fixed by adding cells.
+        for(const auto &lat:channelLattices) for(int row=0;row+1<lat.nAlong;++row) {
+            if(promise.isCanceled()) {fail(QObject::tr("Cancelled."));return;}
+            for(int col=0;col+1<lat.nAcross;++col) for(int half=0;half<2;++half) {
+                const int ids[3]={lat.at(row,col),half?lat.at(row+1,col+1):lat.at(row+1,col),
+                                  half?lat.at(row,col+1):lat.at(row+1,col+1)};
+                QPointF xy[3];double z[3];for(int k=0;k<3;++k){xy[k]=lat.xy[ids[k]];z[k]=lat.z[ids[k]];}
+                const auto error=channelSurface.error(xy,z,[&](const QPointF &p){return burnDomain.contains(p);});
+                if(error.maximum>channelTolerance) {
+                    fail(QObject::tr("Channel %1 overlaps an incompatible section near (%2, %3). Resolve the junction geometry before replacement.")
+                        .arg(lat.conduitId).arg(error.point.x(),0,'g',12).arg(error.point.y(),0,'g',12));return;
+                }
+            }
+        }
+    }
+    mesh::BurnRule channelRule{in.burnOptions.forceHalfWidth,in.burnOptions.maxIncision};
+    // Replacement must represent the complete authored section. Terrain-only
+    // mode retains the optional lowering-only shoulder rule.
+    if(in.burnOptions.removeBurnedFrom1D) channelRule.forceHalfWidth=std::numeric_limits<double>::infinity();
+    auto channelValue = [&](double x,double y,double source) {
+        if(!in.burnEnabled) return source;
+        mesh::BurnProjection pr; double section=0;
+        if(!sectionAt({x,y},&pr,&section) || !burnDomain.contains({x,y})) return source;
+        double z=source;
+        mesh::burnPixel(source,!std::isfinite(source),section,pr.offset,channelRule,&z);
+        return z;
+    };
+    auto channelElevation = [&](const QPointF &p) {
+        return channelValue(p.x(),p.y(),terrainReference.sampleAt(p.x(),p.y()));
+    };
+
     if (in.burnEnabled && !in.burnProfiles.isEmpty() && !in.dtmPath.isEmpty())
     {
         progress(15, QObject::tr("Burning channels into the DEM…"));
         if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
-        // Mesh → DEM transform, from the WKTs collectInputs captured. Same
-        // axis-order discipline as the DTM block below: GDAL 3 defaults to
-        // lat-first for geographic CRSs and every transform here must not.
-        OGRCoordinateTransformation *meshToDem = nullptr;
-        OGRSpatialReference mSRS, dSRS;
+        using TransformPtr=std::unique_ptr<OGRCoordinateTransformation,decltype(&OGRCoordinateTransformation::DestroyCT)>;
+        TransformPtr meshToDem(nullptr,OGRCoordinateTransformation::DestroyCT);
+        TransformPtr demToMesh(nullptr,OGRCoordinateTransformation::DestroyCT);
+        OGRSpatialReference mSRS,dSRS;
         mSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         dSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-        if (!in.meshCRSWkt.isEmpty() && !in.burnDemCRSWkt.isEmpty()
-            && mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData()) == OGRERR_NONE
-            && dSRS.importFromWkt(in.burnDemCRSWkt.toUtf8().constData()) == OGRERR_NONE
-            && !mSRS.IsSame(&dSRS))
-        {
-            meshToDem = OGRCreateCoordinateTransformation(&mSRS, &dSRS);
+        if(in.meshCRSWkt.isEmpty()!=in.burnDemCRSWkt.isEmpty()) {
+            fail(QObject::tr("Channel burn requires both model and DEM coordinate systems, or a shared local frame.")); return;
         }
-
-        auto toDem = [&](QPointF p) {
-            if (!meshToDem) return p;
-            double x = p.x(), y = p.y();
-            if (meshToDem->Transform(1, &x, &y))
-                return QPointF(x, y);
-            return QPointF(std::numeric_limits<double>::quiet_NaN(),
-                           std::numeric_limits<double>::quiet_NaN());
-        };
-
-        // Horizontal scale, measured rather than assumed: one mesh unit near
-        // the corridor, transformed, tells us what the lateral offsets and the
-        // forced half-width become in the raster's own units.
-        double hScale = 1.0;
-        if (meshToDem && !in.burnProfiles.isEmpty()
-            && !in.burnProfiles.first().centerline.isEmpty())
-        {
-            const QPointF a = in.burnProfiles.first().centerline.first();
-            const QPointF b = a + QPointF(1.0, 0.0);
-            const QPointF ta = toDem(a), tb = toDem(b);
-            const double d = std::hypot(tb.x() - ta.x(), tb.y() - ta.y());
-            if (std::isfinite(d) && d > 0.0) hScale = d;
+        if(!in.meshCRSWkt.isEmpty()) {
+            if(mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData())!=OGRERR_NONE
+                || dSRS.importFromWkt(in.burnDemCRSWkt.toUtf8().constData())!=OGRERR_NONE || mSRS.IsGeographic()) {
+                fail(QObject::tr("Channel burn requires a valid projected model coordinate system and DEM CRS.")); return;
+            }
+            if(!mSRS.IsSame(&dSRS)) {
+                meshToDem.reset(OGRCreateCoordinateTransformation(&mSRS,&dSRS));
+                demToMesh.reset(OGRCreateCoordinateTransformation(&dSRS,&mSRS));
+                if(!meshToDem || !demToMesh) { fail(QObject::tr("Cannot transform between model and DEM coordinate systems.")); return; }
+            }
         }
-        // The pipeline multiplies raster samples BY zConversionFactor to reach
-        // model units, so model → raster is its reciprocal. Getting this
-        // backwards is the 3.28x silent failure the plan warns about.
-        const double vScale = (in.zConversionFactor > 0.0) ? 1.0 / in.zConversionFactor : 1.0;
-
+        QRectF domainBounds;
+        for(const auto &ring:in.domains) domainBounds=domainBounds.united(ring.boundingRect());
+        if(!terrainReference.open(in.dtmPath,in.meshCRSWkt,domainBounds,in.zConversionFactor,
+            in.terrainCacheMiB,[&](double){return !promise.isCanceled();})) {
+            fail(terrainReference.errorMsg()); return;
+        }
+        terrainReferenceOpen=true;
+        terrainReference.setCancellation([&]{return promise.isCanceled();});
+        terrainReference.setQueryOverride(channelIndex.bounds(),channelValue,
+            [&](const QRectF &bounds){return channelSurface.intersects(bounds);});
         mesh::BurnRasterRequest req;
-        req.sourcePath = in.dtmPath;
-        req.rule       = mesh::toRasterRule(in.burnOptions, hScale, vScale);
-        req.profiles.reserve(in.burnProfiles.size());
-        for (const mesh::BurnProfile &p : std::as_const(in.burnProfiles))
-        {
-            QVector<QPointF> demLine;
-            demLine.reserve(p.centerline.size());
-            bool ok = true;
-            for (const QPointF &pt : p.centerline)
-            {
-                const QPointF t = toDem(pt);
-                if (!std::isfinite(t.x()) || !std::isfinite(t.y())) { ok = false; break; }
-                demLine.append(t);
+        req.sourcePath=in.dtmPath;
+        req.rule=channelRule;
+        req.profiles=in.burnProfiles;
+        req.rasterToProfileZ=in.zConversionFactor;
+        req.inDomain=[&](const QPointF &p){return burnDomain.contains(p);};
+        req.toProfileFrame=[&](QPointF *p) {
+            double x=p->x(),y=p->y();
+            if(demToMesh && !demToMesh->Transform(1,&x,&y)) return false;
+            *p={x,y}; return std::isfinite(x)&&std::isfinite(y);
+        };
+        req.planNotes=burnPlan.notes;
+        req.sectionAt=sectionAt;
+        for(const auto &profile:in.burnProfiles) {
+            const double extent=std::max(std::abs(profile.section.sMin),std::abs(profile.section.sMax));
+            // Per-segment windows avoid the empty area between distant reaches.
+            for(int i=1;i<profile.centerline.size();++i) {
+                QRectF box;
+                bool first=true;
+                for(const QPointF &c:{profile.centerline[i-1],profile.centerline[i]})
+                    for(double dx:{-extent,extent}) for(double dy:{-extent,extent}) {
+                        double x=c.x()+dx,y=c.y()+dy;
+                        if(meshToDem && !meshToDem->Transform(1,&x,&y)) { fail(QObject::tr("Channel footprint reprojection failed.")); return; }
+                        if(first) {box=QRectF(QPointF(x,y),QPointF(x,y)); first=false;}
+                        else {box.setLeft(std::min(box.left(),x));box.setRight(std::max(box.right(),x));
+                              box.setTop(std::min(box.top(),y));box.setBottom(std::max(box.bottom(),y));}
+                    }
+                req.rasterWindows.append(box);
             }
-            if (!ok)
-            {
-                burnWarnings << QObject::tr("Conduit \"%1\" could not be reprojected "
-                                            "into the DEM's CRS; not burned.")
-                                    .arg(p.conduitId);
-                continue;
-            }
-            mesh::BurnProfile rp = mesh::toRasterFrame(p, demLine, hScale, vScale);
-            if (rp.isValid()) req.profiles.append(std::move(rp));
         }
-        if (meshToDem) OGRCoordinateTransformation::DestroyCT(meshToDem);
 
         if (req.profiles.isEmpty())
         {
@@ -935,19 +1052,22 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 return;
             }
             burnWarnings += burnStats.warnings;
+            if(in.burnOptions.removeBurnedFrom1D && burnStats.pixelsNoData>0) {
+                fail(QObject::tr("Channel replacement stopped: the channel footprint contains missing DEM coverage."));
+                return;
+            }
 
             const QString units =
-                QObject::tr("model z x %1 = raster z; horizontal x %2")
-                    .arg(vScale).arg(hScale);
+                QObject::tr("profile XY in mesh CRS; profile z x %1 = metres; raster z x %2 = metres; incision statistics in raster z units")
+                    .arg(in.verticalUnitToSI).arg(in.zConversionFactor*in.verticalUnitToSI);
             QString repErr;
             if (!mesh::writeBurnReport(reportStage, req, burnStats, units, &repErr)) {
                 fail(QObject::tr("Channel burn report failed: %1").arg(repErr));
                 return;
             }
 
-            // D1: the burn ERASES the DEM as far as the rest of the run is
-            // concerned. Everything downstream is untouched, which is the point.
-            in.dtmPath    = req.outputPath;
+            // Mesh against the composite original terrain + exact channel surface.
+            // The raster is an inspection/export artifact, not the sub-pixel reference.
             burnRan       = true;
 
             qCInfo(lcMeshPerf) << "[Mesh][burn]" << req.profiles.size() << "conduit(s),"
@@ -966,72 +1086,63 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
         int burnMarker = 9000;
-        for (const mesh::BurnProfile &p : std::as_const(in.burnProfiles))
-        {
-            double along = in.burnOptions.channelCellSize;
-            if (!(along > 0.0)) along = in.burnOptions.chainageStep;
-
-            QStringList w;
-            QString err;
-            const mesh::BurnLattice lat =
-                mesh::buildCorridorLattice(p, along, in.burnMinCellSize, &w, &err);
-            burnWarnings += w;
-            if (!lat.isValid())
-            {
-                if (in.burnOptions.quadCorridor || in.burnOptions.emitStrings)
-                {
-                    fail(QObject::tr("Conduit \"%1\": cannot build the requested corridor (%2). "
-                                     "Correct its profile or spacing and generate again.")
-                             .arg(p.conduitId, err));
-                    return;
+        QSet<QString> clippedIntervals;
+        for(const auto &split:burnPlan.splits) {clippedIntervals.insert(split.linkId);clippedIntervals.insert(split.downstreamId);}
+        QVector<QPolygonF> rings;
+        for(const auto &lat:channelLattices) rings.append(mesh::corridorRing(lat));
+        QVector<QRectF> ringBounds;
+        QVector<int> order,active;
+        QVector<bool> isolated(rings.size(),true);
+        for(int i=0;i<rings.size();++i) {ringBounds.append(rings[i].boundingRect());order.append(i);}
+        std::sort(order.begin(),order.end(),[&](int a,int b){return ringBounds[a].left()<ringBounds[b].left();});
+        for(int i:order) {
+            active.erase(std::remove_if(active.begin(),active.end(),[&](int j){return ringBounds[j].right()<ringBounds[i].left();}),active.end());
+            for(int j:active) if(ringBounds[i].intersects(ringBounds[j]) && !rings[i].intersected(rings[j]).isEmpty())
+                isolated[i]=isolated[j]=false;
+            active.append(i);
+        }
+        for (int pi=0;pi<channelLattices.size();++pi) {
+            const auto &p=in.burnProfiles[pi];
+            auto lat=channelLattices[pi];
+            bool complete=!clippedIntervals.contains(p.conduitId);
+            for(int i=0;i<lat.xy.size();++i) {
+                if(!burnDomain.contains(lat.xy[i])) { complete=false; continue; }
+                const double resolved=channelElevation(lat.xy[i]);
+                if(!std::isfinite(resolved)) { fail(QObject::tr("Channel %1 has missing elevation coverage.").arg(p.conduitId)); return; }
+                if(in.burnOptions.removeBurnedFrom1D && std::abs(resolved-lat.z[i])>channelTolerance) {
+                    fail(QObject::tr("Channel %1 cannot be replaced: the incision limit or overlap changes its authored section beyond the channel tolerance.").arg(p.conduitId)); return;
                 }
-                burnWarnings << QObject::tr("Conduit \"%1\": no corridor (%2).")
-                                    .arg(p.conduitId, err);
-                continue;
+                lat.z[i]=resolved;
+                in.featureZSeedXY.append(lat.xy[i]); in.featureZSeedZ.append(resolved);
             }
-
-            // Exact burned z for every lattice vertex, by coordinate — the
-            // elevation fill is coordinate-keyed, so these are never
-            // re-sampled whether they end up as Steiner points or as stitched
-            // patch vertices.
-            mesh::corridorZSeeds(lat, &in.featureZSeedXY, &in.featureZSeedZ);
-
-            const QPolygonF ring = mesh::corridorRing(lat);
-            if (ring.size() >= 3) burnCorridorRings.append(ring);
-
-            if (in.burnOptions.quadCorridor)
-            {
-                QString perr;
-                mesh::PatchMesh pm = mesh::corridorPatch(lat, p, in.burnOptions, &perr);
-                if (pm.quads.isEmpty())
-                {
-                    fail(QObject::tr("Conduit \"%1\": cannot build the requested quad corridor (%2). "
-                                     "Correct its geometry or spacing and generate again.")
-                             .arg(p.conduitId, perr));
-                    return;
-                }
-                else
-                {
-                    in.patches.append(std::move(pm));
-                    continue;
+            // Automatically use conforming triangles at clipped ends/junctions.
+            if(in.burnOptions.quadCorridor && complete && isolated[pi]) {
+                QString error;
+                auto patch=mesh::corridorPatch(lat,p,in.burnOptions,&error);
+                bool conflict=false;
+                for(const auto &cs:in.constraintSegs) for(const auto &point:cs.path)
+                    if(rings[pi].containsPoint(point,Qt::OddEvenFill)) {conflict=true;break;}
+                if(!patch.quads.isEmpty() && !conflict) {
+                    in.patches.append(std::move(patch)); burnCorridorRings.append(rings[pi]); continue;
                 }
             }
-
-            // Triangles-only corridor: the strings are breaklines and the
-            // lattice vertices are exact-z Steiner points. Never both this and
-            // a patch for the same conduit — a patch interior is a hole, and a
-            // constraint segment inside it is invalid.
-            if (in.burnOptions.emitStrings)
-            {
-                for (const mesh::ConstraintSegment &cs :
-                     mesh::corridorStrings(lat, burnMarker, &in.edgeMarkerToTag))
-                {
-                    g.addConstraintSegment(cs);
-                    ++burnMarker;
-                }
-                for (const mesh::SteinerPoint &sp : mesh::corridorPoints(lat, burnMarker))
+            // Clip every string, including both banks, at every boundary/hole.
+            auto strings=mesh::corridorStrings(lat,burnMarker);
+            for(int row=0;row<lat.nAlong;++row) {
+                mesh::ConstraintSegment cs;
+                for(int k=0;k<lat.nAcross;++k) cs.path.append(lat.xy[lat.at(row,k)]);
+                strings.append(cs);
+            }
+            for(const auto &cs:strings) for(const auto &path:mesh::clipPolylineToDomain(cs.path,burnDomain)) {
+                mesh::ConstraintSegment clipped=cs; clipped.path=path; clipped.marker=burnMarker++;
+                clipped.tag=QStringLiteral("channel:%1").arg(p.conduitId);
+                g.addConstraintSegment(clipped);
+                for(const auto &xy:path) {
+                    const double z=channelElevation(xy);
+                    if(!std::isfinite(z)) continue;
+                    mesh::SteinerPoint sp;sp.xy=xy;sp.z=z;sp.hasZ=true;
                     in.steinerPoints.append(sp);
-                ++burnMarker;
+                }
             }
         }
         stageMark("channel burn: corridors");
@@ -1415,14 +1526,13 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // Terrain-error size term (Stage 2). Lives here so the size field built
     // after the DTM block can still sample it.
     mesh::TerrainSizeField terrainField;
-    mesh::TerrainErrorField terrainReference;
     QSet<QPair<qint64,qint64>> missingTerrainVertices;
     const bool useAdaptiveTerrain = useDTM && in.terrainAdaptive
         && (in.terrainTolerance > 0.0 || in.terrainAutoTolerance);
     if (useAdaptiveTerrain)
     {
         stageClock.restart();
-        if (!terrainReference.open(in.dtmPath, in.meshCRSWkt, QRectF(bx0,by0,bx1-bx0,by1-by0),
+        if (!terrainReferenceOpen && !terrainReference.open(in.dtmPath, in.meshCRSWkt, QRectF(bx0,by0,bx1-bx0,by1-by0),
                 in.zConversionFactor,in.terrainCacheMiB,[&](double f) {
                     progress(30+int(5*f),QObject::tr("Indexing terrain for elevation-error refinement…"));
                     return !promise.isCanceled();
@@ -1687,12 +1797,13 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 if (meshToDTM && !meshToDTM->Transform(1, &gx, &gy)) return std::numeric_limits<double>::quiet_NaN();
                 return thinner.sampleAt(gx, gy);
             };
-        if (useAdaptiveTerrain)
+        if (useAdaptiveTerrain || in.burnEnabled)
         {
-            hook.terrainTolerance = in.terrainTolerance;
+            hook.terrainTolerance = useAdaptiveTerrain?in.terrainTolerance:channelTolerance;
             hook.terrainElevationAt = [&](double x,double y) {
                 const auto key=keyOf(x,y);
-                const double terrainZ=terrainReference.sampleAt(x,y);
+                const double terrainZ=channelValue(x,y,terrainReference.sampleAt(x,y));
+                if(in.burnEnabled && channelSurface.sample({x,y}).profile>=0 && burnDomain.contains({x,y})) return terrainZ;
                 // Keep source coverage even when a rim value or the later
                 // coverage fill supplies a finite model elevation here.
                 if (!std::isfinite(terrainZ)) missingTerrainVertices.insert(key);
@@ -1702,9 +1813,15 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 return std::isfinite(flat)?flat:terrainZ;
             };
             hook.terrainError = [&](const QPointF *xy,const double *z,QPointF *out) {
-                const auto q=terrainReference.queryTriangle(xy,z,in.terrainTolerance);
+                auto q=useAdaptiveTerrain?terrainReference.queryTriangle(xy,z,in.terrainTolerance):mesh::TerrainErrorField::Query{};
+                double error=q.valid?q.maxError:0;
                 *out=q.point;
-                return q.valid?q.maxError:std::numeric_limits<double>::quiet_NaN();
+                if(in.burnEnabled && in.burnOptions.removeBurnedFrom1D) {
+                    const auto channel=channelSurface.error(xy,z,[&](const QPointF &p){return burnDomain.contains(p);});
+                    const double scaled=channel.maximum*(useAdaptiveTerrain?in.terrainTolerance/channelTolerance:1.0);
+                    if(scaled>error) {error=scaled;*out=channel.point;}
+                }
+                return error;
             };
         }
         g.setRefineHook(hook);
@@ -2204,6 +2321,32 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                            << nm.sharedCells << "shared cell(s)";
     }
 
+    if(in.burnEnabled) {
+        for(auto &v:result.vertices) {
+            const auto hit=channelSurface.sample(v.xy);
+            if(hit.profile>=0 && burnDomain.contains(v.xy)) {
+                const double elevation=channelElevation(v.xy);
+                if(!std::isfinite(elevation)) {
+                    if(in.burnOptions.removeBurnedFrom1D) {fail(QObject::tr("Channel replacement stopped: missing elevation coverage at a channel vertex."));return;}
+                    continue;
+                }
+                v.z=elevation;
+            }
+        }
+        for(const auto &cell:result.triangles) {
+            for(int half=0;half<(cell.isQuad()?2:1);++half) {
+                const int ids[3]={cell.v0,half?cell.v2:cell.v1,half?cell.v3:cell.v2};
+                QPointF xy[3]; double z[3];
+                for(int k=0;k<3;++k){xy[k]=result.vertices[ids[k]].xy;z[k]=result.vertices[ids[k]].z;}
+                const auto error=channelSurface.error(xy,z,[&](const QPointF &p){return burnDomain.contains(p);});
+                if(error.maximum>channelTolerance+1e-8 && in.burnOptions.removeBurnedFrom1D) {
+                    fail(QObject::tr("Channel replacement stopped: mesh error %1 exceeds channel tolerance %2 near (%3, %4). Reduce the minimum cell size or channel spacing.")
+                         .arg(error.maximum).arg(channelTolerance).arg(error.point.x()).arg(error.point.y())); return;
+                }
+            }
+        }
+    }
+
     // ── Seed per-cell hydraulic attributes ───────────────────────────
     // Author the dialog's constant values onto the triangles themselves, not
     // just into the written file: the layer built from this MeshResult is what
@@ -2219,6 +2362,20 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         t.mannings  = in.manningsN;
         t.initDepth = in.initDepth;
 
+        if(in.burnEnabled && in.burnOptions.roughnessFromTransect) {
+            QPointF center=(result.vertices[t.v0].xy+result.vertices[t.v1].xy+result.vertices[t.v2].xy);
+            if(t.isQuad()) center+=result.vertices[t.v3].xy;
+            center/=t.isQuad()?4:3;
+            const auto hit=channelSurface.sample(center);
+            if(hit.profile>=0) {
+                const auto &sec=in.burnProfiles[hit.profile].section;
+                const double n=std::isfinite(sec.leftBank)&&hit.offset<sec.leftBank?sec.nLeft:
+                    std::isfinite(sec.rightBank)&&hit.offset>sec.rightBank?sec.nRight:sec.nChannel;
+                if(std::isfinite(n)&&n>0) t.mannings=n;
+                t.tag=QStringLiteral("channel:%1").arg(in.burnProfiles[hit.profile].conduitId);
+                continue;
+            }
+        }
         if (in.regionHydraulics.isEmpty() || t.tag.isEmpty()) continue;
         const auto rh = in.regionHydraulics.constFind(t.tag);
         if (rh == in.regionHydraulics.constEnd()) continue;
@@ -2307,66 +2464,22 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         << " triangles + " << result.quadCount() << " quads";
 
     // ══ B6 plan — what the 1D surgery will do (CHANNEL_BURN_IN_PLAN §6) ══
-    // Planned HERE because the outfall invert has to come from the MESHED bed
-    // at the coupling point, not the pre-mesh nominal. APPLYING it needs
-    // MapUndoStack and therefore the GUI thread (§16.3), so the plan travels
-    // back in the result.
+    // Commit the precomputed interval plan only after channel geometry and
+    // couplings pass verification. Application belongs on the GUI thread.
     MeshGenerationDialog::PipelineResult::BurnSurgery surgery;
-    if (in.burnEnabled && burnRan && in.burnOptions.removeBurnedFrom1D
-        && !in.burnNetwork.nodes.isEmpty())
-    {
-        QSet<QString> burnedIds;
-        QHash<QString, const mesh::BurnProfile *> profileById;
-        for (const mesh::BurnProfile &p : std::as_const(in.burnProfiles))
-        {
-            burnedIds.insert(p.conduitId);
-            profileById.insert(p.conduitId, &p);
-        }
-        surgery.burnedConduits = mesh::burnedLinksToRemove(in.burnNetwork, burnedIds);
-        surgery.nodePlans      = mesh::classifyBurnNodes(in.burnNetwork, burnedIds);
-
-        // Node id → its coordinate, and → the mesh z the coupling will see.
-        QHash<QString, QPointF> nodeXY;
-        for (const auto &cn : std::as_const(in.couplingNodes)) nodeXY.insert(cn.first, cn.second);
-        QHash<QString, double> meshZ;
-        for (auto it = coupling.vertexToNode.constBegin();
-             it != coupling.vertexToNode.constEnd(); ++it)
-            if (it.key() >= 0 && it.key() < result.vertices.size())
-                meshZ.insert(it.value(), result.vertices[it.key()].z);
-
-        for (const mesh::BurnNodePlan &np : std::as_const(surgery.nodePlans))
-        {
-            if (np.role != mesh::BurnNodeRole::Outfall) continue;
-
-            // The channel bottom at this node: the end of whichever burned
-            // reach touches it. A node is the upstream end of one and the
-            // downstream end of another, so take the LOWEST — the outfall sits
-            // at the bed, and a step between two reaches is real geometry.
-            const int ni = in.burnNetwork.indexOfNode(np.nodeId);
-            double invert = std::numeric_limits<double>::quiet_NaN();
-            for (const mesh::BurnNetwork::Link &l : std::as_const(in.burnNetwork.links))
-            {
-                if (!burnedIds.contains(l.id)) continue;
-                if (l.from != ni && l.to != ni) continue;
-                const mesh::BurnProfile *p = profileById.value(l.id, nullptr);
-                if (!p || p->bedZ.isEmpty()) continue;
-                const double z = (l.from == ni) ? p->bedZ.first() : p->bedZ.last();
-                if (!std::isfinite(invert) || z < invert) invert = z;
+    if(in.burnEnabled && burnRan && in.burnOptions.removeBurnedFrom1D && !in.burnNetwork.nodes.isEmpty()) {
+        if(generationStats.refineCapped) { fail(QObject::tr("Channel replacement stopped: refinement reached its resource limit.")); return; }
+        surgery.splits=burnPlan.splits;
+        surgery.burnedConduits=mesh::burnedLinksToRemove(burnPlan.network,burnPlan.replacedIds);
+        surgery.nodePlans=burnPlan.nodes;
+        // Preserve existing node inverts/pipe offsets. A real drop is not a datum error.
+        QSet<QString> coupled;
+        for(auto it=coupling.vertexToNode.cbegin();it!=coupling.vertexToNode.cend();++it) coupled.insert(it.value());
+        for(const auto &row:result.cellCouplings) coupled.insert(row.nodeId);
+        for(const auto &node:surgery.nodePlans)
+            if(node.role!=mesh::BurnNodeRole::Removed && !coupled.contains(node.nodeId)) {
+                fail(QObject::tr("Channel replacement stopped: interface %1 could not be coupled to the mesh.").arg(node.nodeId)); return;
             }
-            if (!std::isfinite(invert)) continue;
-            surgery.outfallInvert.insert(np.nodeId, invert);
-
-            // maxDepth keeps the node's rim at the mesh surface, which is what
-            // the spec's vertical-datum guard checks. A coupling point below
-            // the bed would give a non-positive depth; fall back to leaving it
-            // alone rather than writing a negative one.
-            const auto mz = meshZ.constFind(np.nodeId);
-            if (mz != meshZ.constEnd() && std::isfinite(mz.value()))
-            {
-                const double d = mz.value() - invert;
-                if (d > 0.0) surgery.outfallMaxDepth.insert(np.nodeId, d);
-            }
-        }
     }
 
     // Keep generation in memory. Project Save owns all final INP/2DM writes;
@@ -2537,6 +2650,7 @@ MeshGenerationDialog::MeshGenerationDialog(SWMMVisProjectWindow *pw,
     m_burnMaxIncision->setObjectName(QStringLiteral("meshBurnMaxIncision"));
     m_burnQuadCorridorBox->setObjectName(QStringLiteral("meshBurnQuadCorridorBox"));
     m_burnChannelCellSize->setObjectName(QStringLiteral("meshBurnChannelCellSize"));
+    m_burnGeometryTolerance->setObjectName(QStringLiteral("meshBurnGeometryTolerance"));
     m_burnRoughnessBox->setObjectName(QStringLiteral("meshBurnRoughnessBox"));
     m_burnConvertNodesBox->setObjectName(QStringLiteral("meshBurnConvertNodesBox"));
     m_burnTruncateBox->setObjectName(QStringLiteral("meshBurnTruncateBox"));
@@ -3367,8 +3481,7 @@ void MeshGenerationDialog::buildUi()
             m_burnChainageStep->setDecimals(3);
             m_burnChainageStep->setSpecialValueText(tr("auto"));
             m_burnChainageStep->setToolTip(
-                tr("Spacing of the bed samples along the channel. Auto uses half "
-                   "the DEM pixel, capped at a quarter of the forced half-width."));
+                tr("Maximum physical distance between profile stations. Auto preserves authored bends and section changes; final cells follow channel cell size."));
             f->addRow(tr("Along-channel step:"), m_burnChainageStep);
 
             m_burnLateralStep = new QDoubleSpinBox(g);
@@ -3420,7 +3533,7 @@ void MeshGenerationDialog::buildUi()
             auto *f = new QFormLayout(g);
 
             m_burnQuadCorridorBox = new QCheckBox(
-                tr("Mesh the channel corridor as quads"), g);
+                tr("Prefer quads on regular reaches (triangles at boundaries and junctions)"), g);
             m_burnQuadCorridorBox->setToolTip(
                 tr("The corridor's own lattice becomes a structured quad patch, "
                    "so the channel is quad-meshed and streamwise-aligned. Without "
@@ -3432,6 +3545,12 @@ void MeshGenerationDialog::buildUi()
             m_burnChannelCellSize->setDecimals(3);
             m_burnChannelCellSize->setSpecialValueText(tr("from the size field"));
             f->addRow(tr("Channel cell size:"), m_burnChannelCellSize);
+            m_burnGeometryTolerance=new QDoubleSpinBox(g);
+            m_burnGeometryTolerance->setRange(0.001,100.0);
+            m_burnGeometryTolerance->setDecimals(3);
+            m_burnGeometryTolerance->setSuffix(tr(" m"));
+            m_burnGeometryTolerance->setToolTip(tr("Maximum channel elevation error in metres, independent of DEM accuracy. Replacement stops when this cannot be met."));
+            f->addRow(tr("Channel elevation tolerance:"),m_burnGeometryTolerance);
 
             m_burnRoughnessBox = new QCheckBox(
                 tr("Take Manning's n from the transect"), g);
@@ -3441,7 +3560,7 @@ void MeshGenerationDialog::buildUi()
             f->addRow(QString(), m_burnRoughnessBox);
 
             m_burnConvertNodesBox = new QCheckBox(
-                tr("Remove burned conduits from 1D and couple their nodes"), g);
+                tr("Replace selected in-domain 1D channels with the 2D mesh"), g);
             m_burnConvertNodesBox->setToolTip(
                 tr("A burned reach is conveyed by the 2D mesh, so leaving it in "
                    "the 1D network would route it twice. Its boundary nodes become "
@@ -3452,21 +3571,18 @@ void MeshGenerationDialog::buildUi()
             m_burnTruncateBox = new QCheckBox(
                 tr("Truncate channels at the mesh boundary"), g);
             m_burnTruncateBox->setToolTip(
-                tr("A channel leaving the 2D domain is split at the crossing; the "
-                   "outside reach stays 1D and hands over through a coupled "
-                   "outfall at the channel bottom."));
+                tr("Required: split at every domain or hole crossing. Outside "
+                   "intervals remain in 1D; surviving endpoint elevations are preserved."));
             f->addRow(QString(), m_burnTruncateBox);
 
             burnVBox->addWidget(g);
         }
 
         auto *previewRow = new QHBoxLayout;
-        m_burnPreviewBtn = new QPushButton(tr("Preview burn set"), burnPage);
+        m_burnPreviewBtn = new QPushButton(tr("Preview eligible sections"), burnPage);
         m_burnPreviewBtn->setToolTip(
-            tr("Resolve the selection against the model and report what would be "
-               "burned — which conduits, which were refused and why, how wide the "
-               "corridor ends up and how fine its cells would be. Nothing is "
-               "written and no mesh is generated."));
+            tr("Show eligible sections, dimensions and exclusions. Domain clipping "
+               "and replacement validation are applied during generation."));
         previewRow->addWidget(m_burnPreviewBtn);
         previewRow->addStretch(1);
         burnVBox->addLayout(previewRow);
@@ -3605,6 +3721,10 @@ void MeshGenerationDialog::updateUnitDisplay()
     if (m_terrainTolSpin)    m_terrainTolSpin->setSuffix(suf);
     if (m_conduitStripSpin)  m_conduitStripSpin->setSuffix(suf);
     if (m_trimDeviationSpin) m_trimDeviationSpin->setSuffix(suf);
+    for(auto *spin:{m_burnForceHalfWidth,m_burnMaxHalfWidth,m_burnBankPad,
+                    m_burnChainageStep,m_burnLateralStep,m_burnSectionBlend,
+                    m_burnMaxIncision,m_burnChannelCellSize})
+        if(spin) spin->setSuffix(suf);
 }
 
 void MeshGenerationDialog::seedDefaults()
@@ -3651,9 +3771,10 @@ void MeshGenerationDialog::seedDefaults()
         m_burnMaxIncision->setValue(d.maxIncision);
         m_burnQuadCorridorBox->setChecked(d.quadCorridor);
         m_burnChannelCellSize->setValue(d.channelCellSize);
+        m_burnGeometryTolerance->setValue(d.geometryTolerance);
         m_burnRoughnessBox->setChecked(d.roughnessFromTransect);
         m_burnConvertNodesBox->setChecked(d.convertInterfaceNodes);
-        m_burnTruncateBox->setChecked(d.truncateAtBoundary);
+        m_burnTruncateBox->setChecked(true);
         m_burnSummaryLabel->clear();
 
         // …then let the project override them. The dialog is rebuilt every
@@ -4129,6 +4250,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         if (out->meshCRSTag.isEmpty())
             out->meshCRSTag = srs->description();
         out->meshLinearUnitName = lui.name;
+        out->meshLinearUnitToSI = lui.metresPerUnit;
     }
     else
     {
@@ -4759,7 +4881,7 @@ void MeshGenerationDialog::updateBurnEnabled()
         m_burnListEdit, m_burnStreetsBox, m_burnForceHalfWidth, m_burnMaxHalfWidth,
         m_burnClipToBanksBox, m_burnBankPad, m_burnChainageStep, m_burnLateralStep,
         m_burnStringCount, m_burnAnchorCombo, m_burnSectionBlend, m_burnMonotoneBox,
-        m_burnMaxIncision, m_burnQuadCorridorBox, m_burnChannelCellSize,
+        m_burnMaxIncision, m_burnQuadCorridorBox, m_burnChannelCellSize, m_burnGeometryTolerance,
         m_burnRoughnessBox, m_burnConvertNodesBox, m_burnTruncateBox,
         m_burnPreviewBtn };
     for (QWidget *w : ws) if (w) w->setEnabled(on);
@@ -4775,6 +4897,11 @@ void MeshGenerationDialog::updateBurnEnabled()
         if (m_burnBankPad && m_burnClipToBanksBox)
             m_burnBankPad->setEnabled(m_burnClipToBanksBox->isChecked());
     }
+    m_burnTruncateBox->setChecked(true);
+    m_burnTruncateBox->setEnabled(false);
+    m_burnSectionBlend->setValue(0);
+    m_burnSectionBlend->setEnabled(false);
+    m_burnSectionBlend->setToolTip(tr("Authored section changes are preserved. Automatic section blending is unavailable."));
 }
 
 void MeshGenerationDialog::previewBurn()
@@ -4872,7 +4999,7 @@ void MeshGenerationDialog::previewBurn()
     }
     else
     {
-        lines << tr("%n conduit(s) would be burned.", nullptr, accepted);
+        lines << tr("%n conduit section(s) eligible before domain clipping.", nullptr, accepted);
         if (std::isfinite(narrowest))
             lines << tr("Corridor width %1 to %2.")
                          .arg(narrowest, 0, 'f', 2).arg(widest, 0, 'f', 2);
@@ -4880,8 +5007,8 @@ void MeshGenerationDialog::previewBurn()
         {
             lines << tr("Finest corridor spacing %1.").arg(finest, 0, 'f', 2);
             if (minCell > 0.0 && finest < minCell)
-                lines << tr("That is below the minimum cell size (%1), so the "
-                            "cleanup pass would collapse cells inside the channel.")
+                lines << tr("That is below the minimum cell size (%1). Channel "
+                            "edges are preserved, but generation must pass the channel accuracy check.")
                              .arg(minCell, 0, 'f', 2);
         }
     }
@@ -4951,9 +5078,10 @@ void MeshGenerationDialog::applyBurnSettings(const mesh::ChannelBurnSettings &st
     m_burnMaxIncision->setValue(b.maxIncision);
     m_burnQuadCorridorBox->setChecked(b.quadCorridor);
     m_burnChannelCellSize->setValue(b.channelCellSize);
+    m_burnGeometryTolerance->setValue(b.geometryTolerance);
     m_burnRoughnessBox->setChecked(b.roughnessFromTransect);
     m_burnConvertNodesBox->setChecked(b.convertInterfaceNodes);
-    m_burnTruncateBox->setChecked(b.truncateAtBoundary);
+    m_burnTruncateBox->setChecked(true);
     updateBurnEnabled();
 }
 
@@ -5003,6 +5131,7 @@ mesh::BurnOptions MeshGenerationDialog::burnOptionsFromUi() const
 
     o.quadCorridor         = m_burnQuadCorridorBox->isChecked();
     o.channelCellSize      = m_burnChannelCellSize->value();
+    o.geometryTolerance   = m_burnGeometryTolerance->value();
     o.roughnessFromTransect = m_burnRoughnessBox->isChecked();
     o.emitStrings          = true;
 
@@ -5010,7 +5139,7 @@ mesh::BurnOptions MeshGenerationDialog::burnOptionsFromUi() const
     // governs whether the surgery runs at all, not whether it double-counts.
     o.removeBurnedFrom1D    = m_burnConvertNodesBox->isChecked();
     o.convertInterfaceNodes = m_burnConvertNodesBox->isChecked();
-    o.truncateAtBoundary    = m_burnTruncateBox->isChecked();
+    o.truncateAtBoundary    = true;
     return o;
 }
 
@@ -5098,10 +5227,8 @@ bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
     out->burnOptions     = burnOptionsFromUi();
     out->burnMinCellSize = out->minCellSize;
 
-    // Probe the DEM once, here: the worker needs the CRS to place the corridor
-    // in the raster's frame, and the auto chainage step needs the pixel size
-    // BEFORE the profiles are built. A GDAL handle must not cross the thread
-    // boundary, so it is opened and closed entirely on this side.
+    // Probe metadata only; raster pixels never determine physical channel
+    // spacing. The handle is closed before crossing the thread boundary.
     {
         mesh::DTMRaster probe;
         if (!probe.open(out->dtmPath))
@@ -5114,19 +5241,10 @@ bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
         out->burnDemCRSWkt = probe.crsWkt();
         out->burnDemPixel  = probe.pixelSize();
     }
-    // Plan §3: 0 = auto, min(demPixel/2, R/4). The pixel is a raster length;
-    // when the two CRSs disagree the worker's own scaling handles the rest, and
-    // a half-pixel is conservative either way.
-    if (!(out->burnOptions.chainageStep > 0.0))
-    {
-        const double byPixel = (out->burnDemPixel > 0.0) ? out->burnDemPixel * 0.5 : 0.0;
-        const double byR     = (out->burnOptions.forceHalfWidth > 0.0)
-                                   ? out->burnOptions.forceHalfWidth * 0.25 : 0.0;
-        double step = 0.0;
-        if (byPixel > 0.0 && byR > 0.0) step = std::min(byPixel, byR);
-        else                            step = std::max(byPixel, byR);
-        out->burnOptions.chainageStep = step;
-    }
+    // Auto preserves authored geometry. Final physical spacing is resolved in
+    // the worker after domain filtering; geographic DEM pixels are not lengths.
+    out->burnOptions.maxCorridorVertices = std::min<qint64>(2000000,
+        std::max(4,out->genOpts.maxCells));
 
     // Selector.
     mesh::BurnSelector sel;
@@ -5177,12 +5295,32 @@ bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
         mesh::resolveBurnSet(eng, sel, out->burnOptions, polylines, si, rows, &warnings);
     out->burnWarnings += warnings;
 
+    // Engine sections/options use project units, XY uses the mesh CRS, and
+    // vertex elevations use the selected output vertical unit. Convert each
+    // axis independently; a projected DEM can also have a geographic CRS.
+    const double modelToSI=si?1.0:0.3048;
+    const double xyScale=modelToSI/out->meshLinearUnitToSI;
+    const double zScale=modelToSI/out->verticalUnitToSI;
+    auto &options=out->burnOptions;
+    for(double *length:{&options.forceHalfWidth,&options.maxHalfWidth,&options.bankPad,
+                       &options.chainageStep,&options.lateralStep,&options.channelCellSize,
+                       &options.sectionBlend}) *length*=xyScale;
+    options.maxIncision*=zScale;
+    auto preparationOptions=options;
+    // Densify in the worker, after rejecting/clipping outside intervals.
+    preparationOptions.chainageStep=0;
+
     for (const mesh::BurnCandidate &c : cands)
     {
         if (!c.accepted) continue;
         QStringList w;
         QString err;
-        mesh::BurnProfile p = mesh::buildBurnProfile(c.input, out->burnOptions, &w, &err);
+        auto input=c.input;
+        for(auto &station:input.section.station) station*=xyScale;
+        input.section.leftBank*=xyScale; input.section.rightBank*=xyScale;
+        for(auto &elevation:input.section.elevation) elevation*=zScale;
+        input.zUp*=zScale; input.zDn*=zScale;
+        mesh::BurnProfile p = mesh::buildBurnProfile(input, preparationOptions, &w, &err);
         if (!p.isValid())
         {
             out->burnWarnings << tr("Conduit \"%1\" not burned: %2").arg(c.conduitId, err);
@@ -5192,33 +5330,10 @@ bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
         out->burnProfiles.append(std::move(p));
     }
 
-    // Inter-section blending across shared nodes, once every profile exists.
-    if (out->burnOptions.sectionBlend > 0.0 && out->burnProfiles.size() > 1)
-    {
-        QHash<QString, int> byId;
-        for (int i = 0; i < out->burnProfiles.size(); ++i)
-            byId.insert(out->burnProfiles[i].conduitId, i);
-        for (int i = 0; i < out->burnProfiles.size(); ++i)
-        {
-            const int eUp = swmm_link_index(
-                eng, out->burnProfiles[i].conduitId.toUtf8().constData());
-            if (eUp < 0) continue;
-            int dnNode = -1;
-            if (swmm_link_get_to_node(eng, eUp, &dnNode) != SWMM_OK) continue;
-            for (int j = 0; j < out->burnProfiles.size(); ++j)
-            {
-                if (i == j) continue;
-                const int eDn = swmm_link_index(
-                    eng, out->burnProfiles[j].conduitId.toUtf8().constData());
-                int upNode = -1;
-                if (eDn < 0 || swmm_link_get_from_node(eng, eDn, &upNode) != SWMM_OK)
-                    continue;
-                if (upNode != dnNode) continue;
-                mesh::blendAtSharedNode(out->burnProfiles[i], out->burnProfiles[j],
-                                        out->burnOptions.sectionBlend);
-            }
-        }
-    }
+    // Preserve real section changes. Blending across a confluence or across
+    // unequal widths cannot be represented by the old constant-offset ladder.
+    if (out->burnOptions.sectionBlend > 0)
+        out->burnWarnings << tr("Section blending is disabled for replacement; authored section changes are retained.");
 
     if (out->burnProfiles.isEmpty())
     {
@@ -5230,6 +5345,15 @@ bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
     // The 1D topology as plain data, so the worker can classify nodes without
     // ever touching the engine.
     const QSet<int> fedNodes = nodesWithExternalInflow(eng);
+    QSet<int> affectedNodes;
+    QSet<QString> affectedLinks;
+    for(const auto &profile:out->burnProfiles) {
+        affectedLinks.insert(profile.conduitId);
+        const int index=swmm_link_index(eng,profile.conduitId.toUtf8().constData());
+        int from=-1,to=-1;
+        swmm_link_get_from_node(eng,index,&from);swmm_link_get_to_node(eng,index,&to);
+        affectedNodes.insert(from);affectedNodes.insert(to);
+    }
     const int nNodes = swmm_node_count(eng);
     out->burnNetwork.nodes.reserve(nNodes);
     QHash<int, int> engineToLocal;
@@ -5243,6 +5367,20 @@ bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
         swmm_node_get_type(eng, i, &t);
         n.isJunction = (t == SWMM_NODE_JUNCTION);
         n.hasExternalInflow = fedNodes.contains(i);
+        double initialDepth=0;
+        swmm_node_get_initial_depth(eng,i,&initialDepth);
+        n.preserve = initialDepth > 0;
+        SWMM_ImpactReport impact{};
+        if (affectedNodes.contains(i)) {
+            if(swmm_node_analyze_impact(eng,i,&impact)!=SWMM_OK) n.preserve=true;
+            for(int j=0;j<impact.n_entries;++j)
+                if(impact.entries[j].obj_type != SWMM_REF_LINK
+                   && impact.entries[j].obj_type != SWMM_REF_EXT_INFLOW
+                   && impact.entries[j].obj_type != SWMM_REF_DWF_INFLOW
+                   && impact.entries[j].obj_type != SWMM_REF_RDII_ASSIGN
+                   && impact.entries[j].obj_type != SWMM_REF_SUBCATCH) n.preserve=true;
+        }
+        swmm_impact_report_free(&impact);
         engineToLocal.insert(i, out->burnNetwork.nodes.size());
         out->burnNetwork.nodes.append(n);
     }
@@ -5257,11 +5395,16 @@ bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
         swmm_link_get_to_node(eng, i, &b);
         out->burnNetwork.links.append({QString::fromUtf8(id),
                                        engineToLocal.value(a, -1),
-                                       engineToLocal.value(b, -1)});
+                                       engineToLocal.value(b, -1), {}});
+        SWMM_ImpactReport impact{};
+        if(affectedLinks.contains(QString::fromUtf8(id))
+           && (swmm_link_analyze_impact(eng,i,&impact)!=SWMM_OK || impact.n_entries))
+            out->burnNetwork.links.last().replacementError = tr("referenced by a control, structure or other model object");
+        swmm_impact_report_free(&impact);
     }
 
-    // Where the burned raster goes, and its identity. A new file is a new
-    // MeshStageCache terrain key, so an option change re-reads terrain for free.
+    // Staged export destination and recipe identity; the original DEM remains
+    // the terrain-cache source and the channel surface is rebuilt each run.
     const QFileInfo inpInfo(out->inpPath.isEmpty() ? out->dtmPath : out->inpPath);
     QDir terrainDir(inpInfo.absolutePath());
     out->burnOutputDir = terrainDir.absoluteFilePath(QStringLiteral("terrain"));
@@ -5276,73 +5419,119 @@ bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
     return true;
 }
 
-void MeshGenerationDialog::applyBurnSurgery(const PipelineResult &res)
+namespace {
+// The prepared mesh and network share one undo entry. Preparation may mutate
+// the network under a bulk-edit guard, but rolls back before returning failure.
+// Mesh buffers are moved/owned by layers, never copied into undo snapshots.
+class ChannelMeshAdoptionCommand final : public QUndoCommand
 {
-    if (!res.burnRan) return;
-    const auto &sx = res.burnSurgery;
-    if (sx.burnedConduits.isEmpty() && sx.nodePlans.isEmpty()) return;
-
-    SWMMModelLayer *layer = m_pw ? m_pw->modelLayer() : nullptr;
-    MapCanvas *canvas = m_pw ? m_pw->canvas() : nullptr;
-    MapUndoStack *stack = canvas ? canvas->undoStack() : nullptr;
-    if (!layer || !stack) return;
-
-    // One macro, so a whole burn run is a single Ctrl-Z.
-    stack->beginMacro(tr("Burn channels into the DEM"));
-
-    // Order matters and is not free: an outfall must be TERMINAL, so every
-    // burned conduit has to leave the network BEFORE the nodes it left behind
-    // are converted. Converting first would be refused.
-    QList<BatchDeleteCommand::Target> gone;
-    for (const QString &id : sx.burnedConduits)
-        gone.append({id, DeleteObjectCommand::DeleteLink});
-    for (const mesh::BurnNodePlan &np : sx.nodePlans)
-        if (np.role == mesh::BurnNodeRole::Removed)
-            gone.append({np.nodeId, DeleteObjectCommand::DeleteNode});
-    if (!gone.isEmpty())
-        stack->push(new BatchDeleteCommand(
-            layer, gone, canvas,
-            tr("Remove %n burned conduit(s)", nullptr, int(sx.burnedConduits.size()))));
-
-    QStringList converted, refused;
-    for (const mesh::BurnNodePlan &np : sx.nodePlans)
+    struct Previous { QPointer<SWMM2DMeshLayer> mesh; int index; bool active; bool remove; };
+    QPointer<SWMMVisProjectWindow> window;
+    QPointer<SWMMModelLayer> model;
+    QPointer<MapCanvas> canvas;
+    QPointer<SWMM2DMeshLayer> generated;
+    QVector<Previous> previous;
+    std::vector<std::unique_ptr<QUndoCommand>> changes;
+    QVector<mesh::CorridorSource> oldSources,newSources;
+    bool networkApplied=false,adopted=false;
+public:
+    ChannelMeshAdoptionCommand(SWMMVisProjectWindow *pw,SWMM2DMeshLayer *mesh,
+                              QVector<mesh::CorridorSource> sources)
+        : QUndoCommand(QObject::tr("Generate mesh and replace channels")),window(pw),model(pw->modelLayer()),
+          canvas(pw->canvas()),generated(mesh),oldSources(pw->corridorSources()),newSources(std::move(sources))
     {
-        if (np.role != mesh::BurnNodeRole::Outfall) continue;
-
-        GeneratedOutfallSpec spec;
-        spec.applyOutfall = true;
-        spec.outfallType  = GeneratedOutfallSpec::kOutfallNormal;
-        spec.flapGate     = false;   // a gate would block the 2D tailwater override
-        spec.tag          = QStringLiteral("burn:outfall");
-        const auto inv = sx.outfallInvert.constFind(np.nodeId);
-        if (inv != sx.outfallInvert.constEnd())
-        { spec.hasInvert = true; spec.invert = inv.value(); }
-        const auto dep = sx.outfallMaxDepth.constFind(np.nodeId);
-        if (dep != sx.outfallMaxDepth.constEnd())
-        { spec.hasMaxDepth = true; spec.maxDepth = dep.value(); }
-
-        auto *cmd = new ConvertNodeTypeCommand(layer, np.nodeId, SWMM_NODE_OUTFALL,
-                                               spec, canvas);
-        stack->push(cmd);
-        if (cmd->converted()) converted << np.nodeId;
-        else                  refused   << np.nodeId;
+        const QString path=QFileInfo(mesh->sourcePath()).absoluteFilePath();
+        for(int i=0;i<canvas->layers().size();++i) {
+            auto *old=qobject_cast<SWMM2DMeshLayer *>(canvas->layers()[i]);
+            if(!old) continue;
+            const bool remove=old->isActiveMesh() || (!mesh->isExternalMesh()&&!old->isExternalMesh())
+                || (!old->sourcePath().isEmpty()&&QFileInfo(old->sourcePath()).absoluteFilePath()==path);
+            previous.append({old,i,old->isActiveMesh(),remove});
+        }
     }
-    stack->endMacro();
-
-    QStringList notes;
-    if (!sx.burnedConduits.isEmpty())
-        notes << tr("%n conduit(s) left the 1D network.", nullptr,
-                    int(sx.burnedConduits.size()));
-    if (!converted.isEmpty())
-        notes << tr("%n node(s) became coupled outfalls.", nullptr, int(converted.size()));
-    if (!refused.isEmpty())
-        notes << tr("Could not convert: %1.").arg(refused.join(QStringLiteral(", ")));
-    for (const mesh::BurnNodePlan &np : sx.nodePlans)
-        if (np.role == mesh::BurnNodeRole::CoupledJunction)
-            notes << tr("\"%1\" keeps %n 1D link(s), so it stays a junction and "
-                        "couples as one.", nullptr, np.survivingLinks).arg(np.nodeId);
-    if (m_burnSummaryLabel && !notes.isEmpty())
-        m_burnSummaryLabel->setText(notes.join(QStringLiteral(" ")));
+    ~ChannelMeshAdoptionCommand() override {
+        if(!canvas) return;
+        if(generated && !canvas->layers().contains(generated)) generated->deleteLater();
+        for(const auto &old:previous)
+            if(old.remove && old.mesh && !canvas->layers().contains(old.mesh)) old.mesh->deleteLater();
+    }
+    bool prepare(const MeshGenerationDialog::PipelineResult::BurnSurgery &plan,QString *error) {
+        if(!model || !model->engine()) {if(error)*error=QObject::tr("The model is unavailable.");return false;}
+        SWMMModelLayer::BulkEdit guard(model);
+        changes.reserve(plan.splits.size()+plan.nodePlans.size()+2);
+        auto rollback=qScopeGuard([&] {
+            if(networkApplied) return;
+            for(auto it=changes.rbegin();it!=changes.rend();++it) (*it)->undo();
+            changes.clear();
+        });
+        auto fail=[&](const QString &message) {
+            if(error)*error=message; return false;
+        };
+        auto execute=[&](std::unique_ptr<QUndoCommand> command) {
+            command->redo();changes.push_back(std::move(command));
+        };
+        for(const auto &split:plan.splits) {
+            auto command=std::make_unique<InsertNodeSplitCommand>(model,split.linkId,split.t,
+                split.nodeId,split.downstreamId,SWMM_NODE_JUNCTION,canvas);
+            auto *raw=command.get();execute(std::move(command));
+            if(!raw->retyped()) return fail(QObject::tr("Cannot split channel %1 at the domain boundary.").arg(split.linkId));
+        }
+        // Separate batches avoid duplicate cascade snapshots on Undo.
+        QList<BatchDeleteCommand::Target> links,nodes;
+        for(const auto &id:plan.burnedConduits) links.append({id,DeleteObjectCommand::DeleteLink});
+        if(!links.isEmpty()) execute(std::make_unique<BatchDeleteCommand>(model,links,canvas,QObject::tr("Remove replaced channel intervals")));
+        for(const auto &id:plan.burnedConduits)
+            if(swmm_link_index(model->engine(),id.toUtf8().constData())>=0)
+                return fail(QObject::tr("Cannot remove replaced interval %1.").arg(id));
+        for(const auto &node:plan.nodePlans)
+            if(node.role==mesh::BurnNodeRole::Removed) nodes.append({node.nodeId,DeleteObjectCommand::DeleteNode});
+        if(!nodes.isEmpty()) execute(std::make_unique<BatchDeleteCommand>(model,nodes,canvas,QObject::tr("Remove redundant channel nodes")));
+        for(const auto &node:plan.nodePlans) {
+            const int index=swmm_node_index(model->engine(),node.nodeId.toUtf8().constData());
+            if(node.role==mesh::BurnNodeRole::Removed) {
+                if(index>=0) return fail(QObject::tr("Cannot remove redundant node %1.").arg(node.nodeId));
+                continue;
+            }
+            if(index<0) return fail(QObject::tr("Missing channel interface %1.").arg(node.nodeId));
+            if(node.role!=mesh::BurnNodeRole::Outfall) continue;
+            int type=-1;swmm_node_get_type(model->engine(),index,&type);
+            if(type!=SWMM_NODE_JUNCTION) return fail(QObject::tr("Refusing to change special node %1.").arg(node.nodeId));
+            GeneratedOutfallSpec spec;spec.applyOutfall=true;spec.tag=QStringLiteral("burn:outfall");
+            // Keep invert and offsets: preserve the connected pipe's physical elevation.
+            auto command=std::make_unique<ConvertNodeTypeCommand>(model,node.nodeId,SWMM_NODE_OUTFALL,spec,canvas);
+            auto *raw=command.get();execute(std::move(command));
+            if(!raw->converted()) return fail(QObject::tr("Cannot create coupled outfall %1.").arg(node.nodeId));
+        }
+        networkApplied=true;
+        return true;
+    }
+    void redo() override {
+        if(!canvas || !model || !generated || adopted) return;
+        SWMMModelLayer::BulkEdit guard(model);
+        if(!networkApplied) {for(auto &command:changes) command->redo();networkApplied=true;}
+        for(const auto &old:previous) if(old.mesh) {
+            old.mesh->setActiveMesh(false);
+            if(old.remove) {const int index=canvas->layers().indexOf(old.mesh);if(index>=0)canvas->takeLayer(index,false);}
+        }
+        generated->setActiveMesh(true);
+        canvas->addLayer(generated,false);
+        if(window) {window->setCorridorSources(newSources);window->setHasChanges(true);}
+        adopted=true;
+    }
+    void undo() override {
+        if(!canvas || !model || !adopted) return;
+        SWMMModelLayer::BulkEdit guard(model);
+        const int index=canvas->layers().indexOf(generated);
+        if(index>=0)canvas->takeLayer(index,false);
+        for(const auto &old:previous) if(old.mesh) {
+            if(old.remove)canvas->insertLayer(old.index,old.mesh,false);
+            old.mesh->setActiveMesh(old.active);
+        }
+        for(auto it=changes.rbegin();it!=changes.rend();++it)(*it)->undo();
+        networkApplied=false;adopted=false;
+        if(window) {window->setCorridorSources(oldSources);window->setHasChanges(true);}
+    }
+};
 }
 
 // ---------------------------------------------------------------------------
@@ -5467,35 +5656,25 @@ void MeshGenerationDialog::onMeshFinished()
         }
         auto *meshLayer = pendingLayer.get();
 
-        // Deactivate any existing meshes, and REMOVE any mesh layer that
-        // already references the same output path — regenerating a mesh at an
-        // existing path must REPLACE it, not stack a second (stale) layer on
-        // the canvas. A lingering duplicate is not just visually wrong: on save
-        // duplicate working copies of the same file carry conflicting edits
-        // and cannot be independently persisted by the project save path.
-        const QString newMeshCanonical = QFileInfo(meshLayer->sourcePath()).absoluteFilePath();
-        QList<SWMM2DMeshLayer *> staleMeshes;
-        for (auto *L : canvas->layers()) {
-            auto *m = qobject_cast<SWMM2DMeshLayer *>(L);
-            if (!m) continue;
-            m->setActiveMesh(false);
-            if ((!isExt && !m->isExternalMesh())
-                || (!newMeshCanonical.isEmpty()
-                && !m->sourcePath().isEmpty()
-                && QFileInfo(m->sourcePath()).absoluteFilePath() == newMeshCanonical))
-                staleMeshes.append(m);
+        QString adoptionError;
+        std::unique_ptr<ChannelMeshAdoptionCommand> adoption;
+        bool prepared=false;
+        try {
+            adoption=std::make_unique<ChannelMeshAdoptionCommand>(m_pw,meshLayer,result.corridorSources);
+            prepared=adoption->prepare(result.burnSurgery,&adoptionError);
+        } catch(const std::exception &e) {
+            adoptionError=tr("Could not apply the channel changes: %1").arg(QString::fromUtf8(e.what()));
+        } catch(...) {
+            adoptionError=tr("Could not apply the channel changes.");
         }
-        for (SWMM2DMeshLayer *stale : staleMeshes) {
-            const int idx = canvas->layers().indexOf(stale);
-            if (idx >= 0) {
-                if (OpenSWMMVisLayer *taken =
-                        canvas->takeLayer(idx, /*pushUndo=*/false))
-                    taken->deleteLater();
-            }
+        if(!prepared) {
+            // Once constructed, the command owns detached mesh layers.
+            if(adoption) pendingLayer.release();
+            QMessageBox::critical(this,tr("Generated mesh was not applied"),adoptionError);
+            return;
         }
-
-        canvas->addLayer(meshLayer, /*pushUndo=*/true);
         pendingLayer.release();
+        canvas->undoStack()->push(adoption.release());
         m_pw->attachMeshLayer(meshLayer);
         // Kick the deferred heavy build now that the layer is adopted —
         // mirrors the file-open path (swmmvis.cpp attachMesh2DLayersAsync).
@@ -5510,7 +5689,6 @@ void MeshGenerationDialog::onMeshFinished()
     // and the engine — neither of which the worker may touch (plan §16.3).
     if (result.burnRan)
     {
-        applyBurnSurgery(result);
 
         QStringList lines;
         lines << tr("Burned %n conduit(s) into the DEM: %1 pixels replaced, "

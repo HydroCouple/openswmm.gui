@@ -1299,7 +1299,14 @@ MeshResult MeshGenerator::generate() const
         QVector<QPointF> anchors;
         anchors.reserve(m_steiners.size());
         for (const SteinerPoint &sp : m_steiners) anchors.append(sp.xy);
-        const double tol = kRefineFloor * hMin;
+        double tol = kRefineFloor * hMin;
+        // Channel section edges carry prescribed elevation breaks. Generic
+        // proximity cleanup must not weld a narrow bank crest to its toe.
+        for(const auto &poly:polys) if(poly.tag.startsWith(QLatin1String("channel:")))
+            for(int i=1;i<poly.pts.size();++i) {
+                const double length=QLineF(poly.pts[i-1],poly.pts[i]).length();
+                if(length>0) tol=std::min(tol,length*0.1);
+            }
         const JoinReport jr = joinConstraints(polys, anchors, tol);
         if (jr.merged + jr.snapped + jr.crossings > 0)
             qInfo().noquote() << QStringLiteral("[Mesh] constraint lines joined within %1: %2 vertices merged, %3 put on a "

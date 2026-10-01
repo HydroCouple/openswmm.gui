@@ -97,11 +97,12 @@ private:
         QPointF a, b;
         double  chainageA = 0.0;   ///< Chainage at \ref a.
         int     profile   = -1;
+        bool first = false, last = false;
     };
 
     [[nodiscard]] qint64 cellKey(int i, int j) const noexcept
     {
-        return (qint64(i) << 32) ^ quint32(j);
+        return qint64((quint64(quint32(i)) << 32) | quint32(j));
     }
 
     QVector<Seg>              m_seg;

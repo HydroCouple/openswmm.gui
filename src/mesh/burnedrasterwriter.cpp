@@ -13,9 +13,11 @@
 #include <QFileInfo>
 #include <QSaveFile>
 #include <QScopeGuard>
+#include <QSet>
 #include <QTextStream>
 
 #include <gdal_priv.h>
+#include <gdal_utils.h>
 #include <cpl_string.h>
 
 #include <algorithm>
@@ -107,15 +109,10 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
 
     const int w = src->GetRasterXSize();
     const int h = src->GetRasterYSize();
-    const GDALDataType srcType = src->GetRasterBand(req.band)->GetRasterDataType();
 
     GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("GTiff");
     if (!drv) return fail(QStringLiteral("burn: the GTiff driver is unavailable"));
 
-    char **opts = nullptr;
-    opts = CSLSetNameValue(opts, "TILED", "YES");
-    opts = CSLSetNameValue(opts, "COMPRESS", "DEFLATE");
-    opts = CSLSetNameValue(opts, "BIGTIFF", "IF_SAFER");
     struct CopyProgress { const BurnRasterRequest *request; bool cancelled = false; } copyProgress{&req};
     const auto copyTick = [](double fraction, const char *, void *data) -> int {
         auto &state = *static_cast<CopyProgress *>(data);
@@ -127,9 +124,16 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
         return TRUE;
     };
     outputClaimed = true;
-    GDALDataset *copy = drv->CreateCopy(req.outputPath.toUtf8().constData(), src,
-                                        /*strict*/ FALSE, opts, copyTick, &copyProgress);
-    CSLDestroy(opts);
+    char *translateArgs[] = {const_cast<char *>("-of"),const_cast<char *>("GTiff"),
+        const_cast<char *>("-ot"),const_cast<char *>("Float64"),
+        const_cast<char *>("-co"),const_cast<char *>("TILED=YES"),
+        const_cast<char *>("-co"),const_cast<char *>("COMPRESS=DEFLATE"),
+        const_cast<char *>("-co"),const_cast<char *>("BIGTIFF=IF_SAFER"),nullptr};
+    auto *translateOptions=GDALTranslateOptionsNew(translateArgs,nullptr);
+    GDALTranslateOptionsSetProgress(translateOptions,copyTick,&copyProgress);
+    GDALDataset *copy=static_cast<GDALDataset *>(GDALTranslate(
+        req.outputPath.toUtf8().constData(),src,translateOptions,nullptr));
+    GDALTranslateOptionsFree(translateOptions);
     const CPLErr sourceClose = GDALClose(src);
     src = nullptr;
     const CPLErr copyFlush = copy ? copy->FlushCache(false) : CE_Failure;
@@ -153,39 +157,39 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
     for (int i = 0; i < req.profiles.size(); ++i)
         st.perConduit[i].conduitId = req.profiles[i].conduitId;
 
-    if (srcType != GDT_Float32 && srcType != GDT_Float64)
-        st.warnings << QStringLiteral(
-            "the DEM band is an integer type (%1): burned bed elevations are rounded to "
-            "whole raster units. Convert the DEM to Float32 for a sub-unit channel bed.")
-            .arg(QString::fromLatin1(GDALGetDataTypeName(srcType)));
+    if (!(req.rasterToProfileZ > 0) || !std::isfinite(req.rasterToProfileZ))
+        return fail(QStringLiteral("burn: invalid vertical unit conversion"));
 
-    // ── Corridor window in pixel space ────────────────────────────────────
-    const QRectF b = index.bounds();
-    double cMin = std::numeric_limits<double>::infinity(), rMin = cMin;
-    double cMax = -cMin, rMax = -rMin;
-    const QPointF corners[4] = { b.topLeft(), b.topRight(), b.bottomLeft(), b.bottomRight() };
-    for (const QPointF &p : corners)
-    {
-        const double c = inv[0] + p.x() * inv[1] + p.y() * inv[2];
-        const double r = inv[3] + p.x() * inv[4] + p.y() * inv[5];
-        cMin = std::min(cMin, c); cMax = std::max(cMax, c);
-        rMin = std::min(rMin, r); rMax = std::max(rMax, r);
+    // Sparse 256x256 active tiles, deduplicated across channels. No buffer or
+    // scan spanning the empty rectangle between disconnected reaches.
+    QVector<QRectF> windows=req.rasterWindows;
+    if (windows.isEmpty()) {
+        for (const auto &profile:req.profiles) {
+            BurnCorridorIndex local; local.build({profile}); windows.append(local.bounds());
+        }
     }
-    const int c0 = std::clamp(int(std::floor(cMin)) - 1, 0, w);
-    const int c1 = std::clamp(int(std::ceil (cMax)) + 1, 0, w);
-    const int r0 = std::clamp(int(std::floor(rMin)) - 1, 0, h);
-    const int r1 = std::clamp(int(std::ceil (rMax)) + 1, 0, h);
-    const int wW = c1 - c0, wH = r1 - r0;
-    if (wW <= 0 || wH <= 0)
-    {
-        st.warnings << QStringLiteral("the corridor does not overlap the DEM");
+    QSet<quint64> active;
+    for (const auto &b:windows) {
+        double cMin=std::numeric_limits<double>::infinity(),rMin=cMin,cMax=-cMin,rMax=-cMin;
+        for (const QPointF &p:{b.topLeft(),b.topRight(),b.bottomLeft(),b.bottomRight()}) {
+            const double c=inv[0]+p.x()*inv[1]+p.y()*inv[2],r=inv[3]+p.x()*inv[4]+p.y()*inv[5];
+            cMin=std::min(cMin,c); cMax=std::max(cMax,c);
+            rMin=std::min(rMin,r); rMax=std::max(rMax,r);
+        }
+        const int c0=int(std::clamp(std::floor(cMin)-1,0.0,double(w)));
+        const int c1=int(std::clamp(std::ceil(cMax)+1,0.0,double(w)));
+        const int r0=int(std::clamp(std::floor(rMin)-1,0.0,double(h)));
+        const int r1=int(std::clamp(std::ceil(rMax)+1,0.0,double(h)));
+        if(c0>=c1 || r0>=r1) continue;
+        for(int r=r0/256;r<=(r1-1)/256;++r) for(int c=c0/256;c<=(c1-1)/256;++c)
+            active.insert((quint64(quint32(r))<<32)|quint32(c));
     }
-    QVector<double> buf(qsizetype(std::max(0, wW)) * kStripRows);
-    QVector<BurnProjection> hits;
-
-    for (int rs = r0; wW > 0 && rs < r1; rs += kStripRows)
-    {
-        const int rows = std::min(kStripRows, r1 - rs);
+    auto tiles=active.values(); std::sort(tiles.begin(),tiles.end());
+    QVector<double> buf(256*256);
+    qsizetype done=0;
+    for (quint64 key:tiles) {
+        const int c0=int(quint32(key))*256,rs=int(key>>32)*256;
+        const int wW=std::min(256,w-c0),rows=std::min(256,h-rs);
         if (band->RasterIO(GF_Read, c0, rs, wW, rows, buf.data(), wW, rows,
                            GDT_Float64, 0, 0) != CE_None)
         {
@@ -201,19 +205,25 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
                 const int    col = c0 + i;
                 const double px  = double(col) + 0.5;
                 const double py  = double(row) + 0.5;
-                const QPointF world(gt[0] + px * gt[1] + py * gt[2],
+                QPointF world(gt[0] + px * gt[1] + py * gt[2],
                                     gt[3] + px * gt[4] + py * gt[5]);
+                if (req.toProfileFrame && !req.toProfileFrame(&world))
+                    return fail(QStringLiteral("burn: raster-to-model coordinate transformation failed"));
+                if (req.inDomain && !req.inDomain(world)) continue;
 
                 BurnProjection pr;
                 double zSec = 0.0;
-                if (!bestBurnAt(index, req.profiles, world, &pr, &zSec)) continue;
+                if (!(req.sectionAt ? req.sectionAt(world,&pr,&zSec)
+                                    : bestBurnAt(index, req.profiles, world, &pr, &zSec))) continue;
 
                 double      &cell   = buf[size_t(j) * size_t(wW) + size_t(i)];
                 const double zDem   = cell;
                 const bool   isNoD  = (hasNd && zDem == noData) || !std::isfinite(zDem);
 
                 double zNew = zDem;
-                const BurnOutcome out = burnPixel(zDem, isNoD, zSec, pr.offset, req.rule, &zNew);
+                const BurnOutcome out = burnPixel(zDem*req.rasterToProfileZ, isNoD,
+                    zSec, pr.offset, req.rule, &zNew);
+                zNew /= req.rasterToProfileZ;
 
                 ++st.pixelsVisited;
                 BurnConduitStats &cs = st.perConduit[pr.profile];
@@ -247,7 +257,7 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
 
         if (req.progress)
         {
-            const int pct = 20 + int(80.0 * double(rs + rows - r0) / double(wH));
+            const int pct = 20 + int(80.0 * double(++done) / double(tiles.size()));
             if (!req.progress(pct, QStringLiteral("Burning channels into the DEM…")))
             {
                 return fail(QStringLiteral("Cancelled."));
@@ -255,7 +265,7 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
         }
     }
 
-    if ((wW <= 0 || wH <= 0) && req.progress
+    if (tiles.isEmpty() && req.progress
         && !req.progress(100, QStringLiteral("Finishing the burned DEM…")))
         return fail(QStringLiteral("Cancelled."));
     const CPLErr bandFlush = band->FlushCache(false);
@@ -307,11 +317,13 @@ bool writeBurnReport(const QString &path, const BurnRasterRequest &req,
     QTextStream ts(&f);
 
     ts << "# OpenSWMM channel burn-in report\n";
+    for (const auto &note : req.planNotes)
+        ts << "# replacement," << QString(note).replace(',', ';').replace('\n',' ') << '\n';
     ts << "# source DEM," << req.sourcePath << "\n";
     ts << "# burned DEM," << (req.logicalOutputPath.isEmpty() ? req.outputPath : req.logicalOutputPath) << "\n";
     ts << "# units," << unitsLine << "\n";
-    ts << "# forceHalfWidth (raster units)," << req.rule.forceHalfWidth << "\n";
-    ts << "# maxIncision (raster units)," << req.rule.maxIncision << "\n";
+    ts << "# forceHalfWidth (mesh horizontal units)," << req.rule.forceHalfWidth << "\n";
+    ts << "# maxIncision (mesh vertical units)," << req.rule.maxIncision << "\n";
     ts << "# pixels replaced," << stats.pixelsReplaced
        << ",lowered,"   << stats.pixelsLowered
        << ",unchanged," << stats.pixelsUnchanged
