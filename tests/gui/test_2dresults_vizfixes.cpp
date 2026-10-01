@@ -29,6 +29,11 @@
 #include "plot/meshprofilesampler.h"
 #include "plot/meshprofileplotwidget.h"
 #include "plot/meshprofileplotoptions.h"
+#include "ui/dialogs/swmm2dresultsstylepanel.h"
+#include "ui/dialogs/layerstyledialog.h"
+#include <QCheckBox>
+#include <QDoubleSpinBox>
+#include <QUndoStack>
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/scalarfillsublayer.h"
@@ -242,7 +247,214 @@ private slots:
     void undeclaredSourceUsesCallerFallback();
     void undeclaredSourceDefaultsToNoScaling();
     void mixedMeshQuadRendersAsFanOfItsCell();
+    void thinFilmPolicyPreservesRawWaterAndPartialPools();
+    void thinFilmSettingsRoundTrip();
+    void thinFilmVisibilityCpuQsgAndPendingFrames();
+    void thinFilmSavedAndLiveParity();
 };
+
+void Test2DResultsVizFixes::thinFilmPolicyPreservesRawWaterAndPartialPools()
+{
+    using S=CellWaterGeometry::DisplayState;
+    SWMM2DResultsLayer layer;
+    layer.setDryDepth(0.001);
+    auto source=std::make_unique<VfrSource>(); auto *raw=source.get();
+    source->z.assign(4,0);
+    source->frames={{1.0f,0.0005f},{0.0005f,0.003f},{0.0f,0.0005f}};
+    const auto original=source->frames;
+    layer.setSource(std::move(source));
+    for (int t : {0,2,1,0,1,2}) {
+        layer.setCurrentTimeIndex(t);
+        for (int c=0;c<2;++c) {
+            const bool visible=original[t][c]>0.001;
+            QCOMPARE(layer.cellHasSurface(c),visible);
+            QCOMPARE(std::isfinite(layer.m_sceneTris[c].dv0),visible);
+            QCOMPARE(layer.m_sceneTris[c].depth,original[t][c]);
+        }
+    }
+    QCOMPARE(layer.cellWaterDisplayState(0),S::Dry);
+    QCOMPARE(layer.cellWaterDisplayState(1),S::ThinFilm);
+    const auto peaks=layer.maxSurfaceDepths();
+    QVERIFY(std::abs(peaks[0][0]-1.0)<1e-6);
+    QVERIFY(std::abs(peaks[1][0]-0.003)<1e-6); // independent of current dry frame
+    QSignalSpy changed(&layer,&SWMM2DResultsLayer::waterDisplayPolicyChanged);
+    const auto revision=layer.frameRevision();
+    layer.setThinFilmDepth(0.005);
+    QCOMPARE(changed.count(),1); QVERIFY(layer.frameRevision()>revision);
+    QVERIFY(std::isnan(layer.maxSurfaceDepths()[1][0])); // threshold invalidates history
+    layer.setShowThinFilms(true);
+    QVERIFY(layer.cellHasSurface(1)); QVERIFY(!layer.cellHasSurface(0));
+    QVERIFY(std::isfinite(layer.maxSurfaceDepths()[1][0]));
+    QCOMPARE(raw->frames,original);
+    layer.setShowThinFilms(false);
+    layer.setThinFilmDepth(-1);
+    // On a slope, a low whole-cell mean can hold a real deeper pool.
+    layer.setFallbackCoordinateScale(0.3048);
+    auto slope=std::make_unique<VfrSource>(); slope->frames={{0.00001f,0}};
+    layer.setSource(std::move(slope));
+    QCOMPARE(layer.cellWaterDisplayState(0),S::PartiallyWet);
+    const auto profile=MeshProfileSampler::buildMeshProfile(nullptr,&layer,{{0.1,0},{0.1,-3}},100);
+    QVERIFY(profile.hasResults);
+    bool found=false;
+    for (const auto &s:profile.samples) if (s.triIdx==0) {
+        QCOMPARE(s.signedDepthNow,layer.signedDepthAtDisplayTriangle(s.displayTriIdx,s.scenePt)*layer.depthToMeshUnits());
+        found=true;
+    }
+    QVERIFY(found);
+    auto invalid=std::make_unique<VfrSource>();invalid->z.assign(4,0);
+    invalid->frames={{std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()},
+                     {-1.0f,0.0f}};
+    layer.setSource(std::move(invalid));
+    QCOMPARE(layer.cellWaterDisplayState(0),S::Invalid);
+    QCOMPARE(layer.cellWaterDisplayState(1),S::Dry);
+    layer.setCurrentTimeIndex(0);
+    for(int c=0;c<2;++c) { QCOMPARE(layer.cellWaterDisplayState(c),S::Invalid); QVERIFY(!layer.cellHasSurface(c)); }
+}
+
+void Test2DResultsVizFixes::thinFilmSettingsRoundTrip()
+{
+    SWMM2DResultsLayer layer;
+    layer.setDryDepth(0.001);
+    openswmmvis::ui::Swmm2DResultsStylePanel panel(&layer);
+    auto *model=panel.findChild<QCheckBox *>("useModelThinFilmDepth");
+    auto *depth=panel.findChild<QDoubleSpinBox *>("thinFilmDepth");
+    auto *show=panel.findChild<QCheckBox *>("showThinFilms");
+    QVERIFY(model); QVERIFY(depth); QVERIFY(show);
+    QVERIFY(model->isChecked()); QVERIFY(!depth->isEnabled()); QVERIFY(!show->isChecked());
+    model->setChecked(false); QVERIFY(depth->isEnabled()); depth->setValue(0.005);
+    QCOMPARE(layer.thinFilmDepth(),0.005);
+    show->setChecked(true); QVERIFY(layer.showThinFilms());
+    SWMM2DResultsLayer restored;
+    restored.restoreWaterDisplayPolicy(layer.waterDisplayPolicyToJson());
+    QCOMPARE(restored.thinFilmDepth(),0.005); QVERIFY(restored.showThinFilms());
+    QVERIFY(!restored.usesModelThinFilmDepth());
+    model->setChecked(true); layer.setDryDepth(0.002);
+    QCOMPARE(depth->value(),0.002);
+    restored.setDryDepth(0.003);
+    restored.restoreWaterDisplayPolicy(layer.waterDisplayPolicyToJson());
+    QVERIFY(restored.usesModelThinFilmDepth()); QCOMPARE(restored.thinFilmDepth(),0.003);
+    const auto saved=restored.waterDisplayPolicyToJson();
+    restored.restoreWaterDisplayPolicy({{"version",1},{"thinFilmDepthMetres","bad"},{"showThinFilms",false}});
+    QCOMPARE(restored.waterDisplayPolicyToJson(),saved);
+    QUndoStack undo;
+    {
+        openswmmvis::ui::LayerStyleDialog dialog(&restored,{},nullptr,&undo);
+        restored.setThinFilmDepth(0.05);restored.setShowThinFilms(false);
+        dialog.reject();QCOMPARE(restored.waterDisplayPolicyToJson(),saved);QCOMPARE(undo.count(),0);
+    }
+    {
+        openswmmvis::ui::LayerStyleDialog dialog(&restored,{},nullptr,&undo);
+        restored.setThinFilmDepth(0.05);restored.setShowThinFilms(false);dialog.accept();
+    }
+    QCOMPARE(undo.count(),1);undo.undo();QCOMPARE(restored.waterDisplayPolicyToJson(),saved);
+    undo.redo();QCOMPARE(restored.thinFilmDepth(),0.05);QVERIFY(!restored.showThinFilms());
+}
+
+void Test2DResultsVizFixes::thinFilmVisibilityCpuQsgAndPendingFrames()
+{
+    class Renderer : public SWMM2DResultsQSGRenderer {
+    public: QSGNode *sync(QSGNode *old=nullptr) { return updatePaintNode(old,nullptr); }
+    };
+    SWMM2DResultsLayer layer;
+    auto source=std::make_unique<VfrSource>(); auto *raw=source.get();
+    source->z.assign(4,0); source->frames={{0.003f,0.003f}};
+    layer.setSource(std::move(source)); layer.setDryDepth(0.001); layer.setVisible(true);
+    QGraphicsScene scene; layer.populateScene(&scene,MapExtent(0,0,1,1),nullptr);
+    for (int pass=0;pass<4;++pass) {
+        for(auto *s:layer.sublayers())s->setVisible(false);
+        if(pass<2) { layer.contourBandSublayer()->setVisible(true); layer.contourBandSublayer()->bandStyle()->setSmoothBands(pass==0); }
+        else if(pass==2) layer.cellDepthFillSublayer()->setVisible(true);
+        else layer.smoothDepthFillSublayer()->setVisible(true);
+        layer.setShowThinFilms(false);layer.setThinFilmDepth(0.001);
+        Renderer renderer; renderer.setWidth(400);renderer.setHeight(400);
+        renderer.setMapExtent(MapExtent(0,0,1,1));renderer.setLayer(&layer);
+        QSignalSpy ready(&renderer,&SWMM2DResultsQSGRenderer::contentReady);
+        std::unique_ptr<QSGNode> root(renderer.sync());
+        auto vertexCount=[&] {
+            int count=0;
+            for(auto *n=root->firstChild();n;n=n->nextSibling()) {
+                if(n->type()!=QSGNode::GeometryNodeType)continue;
+                auto *g=static_cast<QSGGeometryNode*>(n)->geometry();
+                if(g&&g->attributeCount()==2)count+=g->vertexCount();
+            }
+            return count;
+        };
+        auto cpuAlpha=[&] {
+            QImage img(400,400,QImage::Format_ARGB32_Premultiplied);img.fill(Qt::transparent);
+            QPainter p(&img);scene.render(&p,QRectF(0,0,400,400),QRectF(0,-1,1,1));p.end();
+            return img.pixelColor(100,300).alpha();
+        };
+        QVERIFY(vertexCount()>0);if(pass<2)QVERIFY(cpuAlpha()>0);
+        raw->frames[0]={0.004f,0.004f};layer.refreshCurrentFrame();
+        root.reset(renderer.sync(root.release())); // may launch an old-policy worker
+        layer.setThinFilmDepth(0.005);
+        root.reset(renderer.sync(root.release()));
+        QCOMPARE(vertexCount(),0);if(pass<2)QCOMPARE(cpuAlpha(),0);
+        if(pass==0&&qEnvironmentVariableIntValue("OPENSWMM_QSG_ASYNC_CONTOURS")==1) {
+            QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,5000);
+            root.reset(renderer.sync(root.release()));QCOMPARE(vertexCount(),0);
+        }
+        const auto profile=MeshProfileSampler::buildMeshProfile(nullptr,&layer,{{0,-0.5},{1,-0.5}});
+        for(const auto &sample:profile.samples)QVERIFY(std::isnan(sample.signedDepthNow));
+        layer.setShowThinFilms(true);root.reset(renderer.sync(root.release()));
+        QVERIFY(vertexCount()>0);if(pass<2)QVERIFY(cpuAlpha()>0);
+        const auto visible=MeshProfileSampler::buildMeshProfile(nullptr,&layer,{{0,-0.5},{1,-0.5}});
+        for(const auto &sample:visible.samples)QVERIFY(std::isfinite(sample.signedDepthNow));
+    }
+}
+
+void Test2DResultsVizFixes::thinFilmSavedAndLiveParity()
+{
+    const QString path=qEnvironmentVariable("VFR_TEST_ROAD_CULVERT");
+    if(path.isEmpty())QSKIP("Set VFR_TEST_ROAD_CULVERT to verify the saved culvert fixture");
+    auto file=std::make_unique<HDF5Mesh2DSource>();QVERIFY(file->open(path));
+    std::vector<double> x,y,z;std::vector<std::array<int,4>> cells;
+    QVERIFY(file->readCells(x,y,z,cells));
+    std::vector<float> depths;QVERIFY(file->readDepthsAt(70,depths));
+    auto live=std::make_unique<EngineMesh2DSource>(x,y,z,cells);
+    live->pushDepths(depths,file->simTimeAt(70),0);
+    SWMM2DResultsLayer saved,stream;
+    saved.setSource(std::move(file)); saved.setCurrentTimeIndex(70);
+    stream.setSource(std::move(live));stream.setCurrentTimeIndex(0);
+    for(auto *layer:{&saved,&stream}){layer->setDryDepth(0.001);layer->setThinFilmDepth(0.005);}
+    int films=0,partial=0;
+    for(int c=0;c<saved.cellCount();++c){
+        QCOMPARE(saved.cellWaterDisplayState(c),stream.cellWaterDisplayState(c));
+        QCOMPARE(saved.cellHasSurface(c),stream.cellHasSurface(c));
+        if(saved.cellWaterDisplayState(c)==CellWaterGeometry::DisplayState::ThinFilm){++films;QVERIFY(!saved.cellHasSurface(c));}
+        if(saved.cellWaterDisplayState(c)==CellWaterGeometry::DisplayState::PartiallyWet){++partial;QVERIFY(saved.cellHasSurface(c));}
+    }
+    QVERIFY(films>0);QVERIFY(partial>0);
+    std::vector<float> after;QVERIFY(saved.source()->readDepthsAt(70,after));QCOMPARE(after,depths);
+    const QString dir=qEnvironmentVariable("VFR_TEST_ARTIFACTS");
+    if(!dir.isEmpty()) {
+        QFile report(dir+"/road-culvert-film-states.txt");QVERIFY(report.open(QIODevice::WriteOnly));
+        report.write(QString("Frame 70; film threshold 0.005 m; %1 hidden film cells; %2 partially wet cells retained.\n"
+                             "Saved and live classifications agree for all %3 cells; stored depths unchanged.\n")
+                         .arg(films).arg(partial).arg(saved.cellCount()).toUtf8());
+        for(int cell:{898,899,900,901,902,903})
+            report.write(QString("cell %1: raw depth %2 m, display state %3\n").arg(cell)
+                .arg(depths[size_t(cell)],0,'g',9).arg(int(saved.cellWaterDisplayState(cell))).toUtf8());
+        MeshProfilePlotOptions options;
+        options.setShowMaxEnvelopeFill(false);options.setShowMaxEnvelopeLine(false);
+        options.setShowTimeLabel(false);options.setLegendVisible(false);
+        MeshProfilePlotWidget plot;plot.setOptions(&options);plot.resize(1000,400);
+        saved.setVisible(true);
+        for(auto *sub:saved.sublayers())sub->setVisible(false);
+        saved.contourBandSublayer()->setVisible(true);
+        QGraphicsScene scene;saved.populateScene(&scene,MapExtent(470,35,535,65),nullptr);
+        for(bool show:{true,false}) {
+            saved.setShowThinFilms(show);
+            plot.setProfile(MeshProfileSampler::buildMeshProfile(nullptr,&saved,{{470,-50},{535,-50}}));
+            QImage profile(plot.size(),QImage::Format_ARGB32_Premultiplied);profile.fill(Qt::white);plot.render(&profile);
+            const QString suffix=show?"shown":"hidden";
+            QVERIFY(profile.save(dir+"/road-profile-films-"+suffix+".png"));
+            QImage map(900,450,QImage::Format_ARGB32_Premultiplied);map.fill(Qt::white);
+            QPainter painter(&map);scene.render(&painter,QRectF(0,0,900,450),QRectF(470,-65,65,30));painter.end();
+            QVERIFY(map.save(dir+"/road-map-films-"+suffix+".png"));
+        }
+    }
+}
 
 void Test2DResultsVizFixes::smoothProfilesAndContoursShareOneSurface()
 {
@@ -343,7 +555,7 @@ void Test2DResultsVizFixes::mapFillsStopAtExactShoreline()
             }
             return std::make_pair(area,minY);
         };
-        const double shore=(1.5-layer.dryDepth())/4.0;
+        const double shore=1.5/4.0;
         auto [area,minY]=measure();
         QVERIFY2(std::abs(minY-(0.5-shore))<1e-6,"Map pass extended uphill past its wet boundary");
         QVERIFY2(std::abs(area-(shore-0.5*shore*shore))<1e-6,"Map pass filled dry terrain or drew overlapping base water");
@@ -582,7 +794,7 @@ void Test2DResultsVizFixes::contourRangesSaturateCpuAndQsg()
                     area+=std::abs((v[i+1].x-v[i].x)*(v[i+2].y-v[i].y)
                                 -(v[i+1].y-v[i].y)*(v[i+2].x-v[i].x))*0.5;
             }
-            const double y=(1.5-layer.dryDepth())/4.0;
+            const double y=1.5/4.0;
             QVERIFY2(std::abs(area-(y-y*y/2))<1e-6,"Color limits changed the wet area");
             const QString dir=qEnvironmentVariable("SWMMVIS_SHORELINE_ARTIFACT_DIR");
             if (!dir.isEmpty() && range==QPointF(0.1,0.2))

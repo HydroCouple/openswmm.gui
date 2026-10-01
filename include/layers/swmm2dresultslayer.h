@@ -14,8 +14,8 @@
  * (Slice AU). The only differences:
  *   - Per-triangle colour comes from depth, not elevation, via the
  *     inundation colour ramp.
- *   - Dry cells (depth < DRY_DEPTH) draw with alpha = 0 so the underlying
- *     SWMM2DMeshLayer terrain shows through.
+ *   - Dry cells and suppressed thin films leave the terrain visible.
+ *     Partially wet cells retain their exact zero-depth shoreline.
  *   - No hillshade pass — the wet "sheen" is intentionally flat colour.
  */
 #ifndef OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
@@ -687,9 +687,18 @@ public:
      */
     void closeSource();
 
-    /*! \brief Dry-cell depth threshold in metres. Cells below this draw with alpha 0. */
+    /*! \brief Model dry depth in metres; also the default thin-film threshold. */
     double dryDepth() const noexcept { return dry_depth_; }
     void   setDryDepth(double d);
+    double thinFilmDepth() const noexcept { return thin_film_depth_ < 0 ? dry_depth_ : thin_film_depth_; }
+    bool usesModelThinFilmDepth() const noexcept { return thin_film_depth_ < 0; }
+    void setThinFilmDepth(double metres); // negative resets to the model threshold
+    bool showThinFilms() const noexcept { return show_thin_films_; }
+    void setShowThinFilms(bool show);
+    QJsonObject waterDisplayPolicyToJson() const;
+    void restoreWaterDisplayPolicy(const QJsonObject &json);
+    CellWaterGeometry::VisibilityPolicy waterVisibilityPolicy() const
+    { return {thinFilmDepth(), showThinFilms()}; }
 
     // ----- Self-description for the Layer Properties dialog ----------------
     [[nodiscard]] QString sourceDescription() const override;
@@ -861,6 +870,7 @@ public:
     [[nodiscard]] float depthAtSceneInterp(const QPointF& scenePt) const;
     [[nodiscard]] float depthAtCellInterp(int cell, const QPointF& scenePt) const;
     [[nodiscard]] bool cellHasSurface(int cell) const;
+    [[nodiscard]] CellWaterGeometry::DisplayState cellWaterDisplayState(int cell) const;
     [[nodiscard]] double groundAtDisplayTriangle(int tri, const QPointF& p) const;
     [[nodiscard]] double signedDepthAtDisplayTriangle(int tri, const QPointF& p) const;
     [[nodiscard]] double signedDepthAtDisplayTriangle(int tri, const QPointF& p,
@@ -996,6 +1006,7 @@ public:
     [[nodiscard]] quint64 geomRevision() const noexcept { return m_geomRevision; }
 
 signals:
+    void waterDisplayPolicyChanged();
     void resultSublayersChanged();
     /*! Emitted when `source()->timeCount()` changes (either via setSource or refreshTimeRange). */
     void timeRangeChanged(int lo, int hi);
@@ -1027,6 +1038,7 @@ private:
         const std::vector<float>& depths, const std::vector<float>& vx,
         const std::vector<float>& vy) const;
     void applyCurrentDepths_();     ///< Copy `current_depths_` into the SceneTri buffer.
+    void refreshWaterDisplayPolicy_();
     void applyCurrentFlux_();       ///< Run RT0 reconstruction → write vx/vy/vmag into SceneTri.
 
     /*!
@@ -1128,7 +1140,9 @@ private:
     mutable int                    cellMaxFramesDone_ = 0;
     mutable const IMesh2DSource*   cellMaxSource_     = nullptr;
     mutable int                    cellMaxGeneration_ = -1;
-    double                         dry_depth_        = 1e-4;  // 0.1 mm — auto-tuned per project
+    double                         dry_depth_        = 1e-4;  // fixed fallback; populated from model
+    double                         thin_film_depth_  = -1.0;  // inherit model threshold
+    bool                           show_thin_films_  = false;
     double                         max_depth_        = 0.01;  // 10 mm — auto-grows from data each tick
     bool                           max_depth_user_set_ = false;
 

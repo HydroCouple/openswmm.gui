@@ -57,6 +57,42 @@ inline Surface reconstruct(const VertexDepthReconstruct::CellSplit& cell,
 
 using CornerDepths = std::array<double,4>;
 
+// Presentation state is separate from stored water and the solver's dry flag.
+enum class DisplayState : unsigned char { Invalid, Dry, ThinFilm, PartiallyWet, Wet };
+struct VisibilityPolicy {
+    double filmDepth = 0.0; // SI metres; zero shows every positive surface
+    bool showThinFilms = false;
+};
+
+inline DisplayState displayState(const VertexDepthReconstruct::CellSplit& cell,
+                                const Surface& surface, const std::vector<double>& z,
+                                const VisibilityPolicy& policy)
+{
+    if (surface.state == State::Invalid) return DisplayState::Invalid;
+    if (surface.state == State::Dry) return DisplayState::Dry;
+    double deepest = 0.0, shallowest = std::numeric_limits<double>::infinity();
+    for (int k = 0; k < cell.vertexCount(); ++k) {
+        const int v = cell.v[k];
+        if (v < 0 || size_t(v) >= z.size()) return DisplayState::Invalid;
+        const double depth = surface.signedDepth(z[size_t(v)]);
+        if (!std::isfinite(depth)) return DisplayState::Invalid;
+        deepest = std::max(deepest, depth);
+        shallowest = std::min(shallowest, depth);
+    }
+    // Source depths are floats: allow four float ulps at the threshold,
+    // independent of elevation datum or cell relief, never a fixed film width.
+    const double tolerance = 4 * std::numeric_limits<float>::epsilon()
+                           * std::max(deepest, policy.filmDepth);
+    if (deepest <= policy.filmDepth + tolerance) return DisplayState::ThinFilm;
+    return shallowest < 0.0 ? DisplayState::PartiallyWet : DisplayState::Wet;
+}
+
+inline bool visible(DisplayState state, const VisibilityPolicy& policy)
+{
+    return state == DisplayState::Wet || state == DisplayState::PartiallyWet
+        || (state == DisplayState::ThinFilm && policy.showThinFilms);
+}
+
 // Shared edges are cached once per mesh. Each pair contains the two cell
 // corners at the SAME endpoint (corner index = 4*cell + local vertex).
 struct SmoothTopology {
@@ -102,7 +138,8 @@ inline void smoothCornerDepths(const std::vector<VertexDepthReconstruct::CellSpl
                                const std::vector<Surface>& surfaces,
                                const std::vector<double>& z,
                                const SmoothTopology& topology,
-                               std::vector<CornerDepths>& out)
+                               std::vector<CornerDepths>& out,
+                               VisibilityPolicy policy = {})
 {
     const double nan=std::numeric_limits<double>::quiet_NaN();
     out.assign(cells.size(),CornerDepths{nan,nan,nan,nan});
@@ -112,7 +149,8 @@ inline void smoothCornerDepths(const std::vector<VertexDepthReconstruct::CellSpl
     for (int c=0;c<int(cells.size()) && c<int(surfaces.size());++c) {
         const auto& cell=cells[size_t(c)];
         const double area=cell.area[0]+(cell.nSub==2 ? cell.area[1] : 0.0);
-        if (surfaces[size_t(c)].state!=State::Wet || !(area>0) || !std::isfinite(area)) continue;
+        if (!visible(displayState(cell,surfaces[size_t(c)],z,policy),policy)
+            || !(area>0) || !std::isfinite(area)) continue;
         for (int k=0;k<cell.vertexCount();++k) {
             const int v=cell.v[k], corner=4*c+k;
             if (v<0 || size_t(v)>=z.size()) continue;

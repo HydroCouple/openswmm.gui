@@ -1686,6 +1686,8 @@ void ProfilePlotDialog::rebuildSurface2DStations()
     m_surface2DGeometryRevision = results->geomRevision();
 
     m_surface2DLayer = results;
+    connect(results, &SWMM2DResultsLayer::waterDisplayPolicyChanged,
+            this, &ProfilePlotDialog::refreshSurface2DDepths);
     // Frame changes (canvas animation of a visible layer, or our own
     // setCurrentSimTimeAsOf from onAnimationTimeChanged) → re-read depths.
     connect(results, &SWMM2DResultsLayer::currentTimeChanged,

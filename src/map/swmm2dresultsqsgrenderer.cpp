@@ -369,6 +369,8 @@ void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
     }
     m_layer = layer;
     if (m_layer) {
+        connect(m_layer, &SWMM2DResultsLayer::waterDisplayPolicyChanged,
+                this, &SWMM2DResultsQSGRenderer::forceRebuild);
         // Ambiguous invalidation — style edits, sublayer toggles, etc.
         // funnel into repaintRequested. updatePaintNode classifies it into
         // the narrowest dirty domain by diffing snapshots (geometry
@@ -838,7 +840,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         }
         const QRectF cullLocal = cullRect.translated(-ox, -oy);
 
-        const double dryDepth = m_layer->dryDepth();
+        // The snapshot already excludes dry cells and hidden films. Keep
+        // the exact zero-depth boundary of every remaining partial cell.
+        const double dryDepth = 0.0;
         const double maxDepth = std::max(m_layer->maxDepth(), dryDepth + 1e-9);
 
         const OpenSWMM::Render::ContourBandStyle *bs =
