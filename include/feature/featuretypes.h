@@ -60,8 +60,64 @@ enum class FieldType
 [[nodiscard]] QVariant   coerceToFieldType(const QVariant &v, FieldType t);
 
 /*!
+ * \struct FieldChoice
+ * \brief One entry of a choice list
+ *        (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md P2).
+ *
+ * The VALUE is what the table stores: a stable token ("triangles",
+ * "TS_STAGE"), never a translated label (plan Q5).
+ */
+struct FieldChoice
+{
+    QString value;   ///< Stored token.
+    QString label;   ///< Shown in combos; empty means "show the value".
+
+    [[nodiscard]] QString displayLabel() const { return label.isEmpty() ? value : label; }
+    [[nodiscard]] bool operator==(const FieldChoice &o) const
+    { return value == o.value && label == o.label; }
+    [[nodiscard]] bool operator!=(const FieldChoice &o) const { return !(*this == o); }
+};
+
+/*! \brief Same (value, label) pairs, in any order. The GeoPackage driver
+ *         reads a coded domain back sorted by value, not in the order it was
+ *         written, so stored and registry lists are compared as sets. */
+[[nodiscard]] bool sameChoiceSet(QVector<FieldChoice> a, QVector<FieldChoice> b);
+
+/*!
+ * \enum ChoiceSource
+ * \brief Where a field's dropdown gets its entries (plan P2).
+ */
+enum class ChoiceSource
+{
+    None = 0,   ///< Free value; no dropdown.
+    Fixed,      ///< \ref FieldDef::choices; persisted as a GeoPackage coded domain.
+    Model,      ///< Names from the open project (\ref ModelList); never persisted.
+    Suggested   ///< Editable combo of the values already used in the column.
+};
+
+/*! \enum ModelList \brief Which project list a \c ChoiceSource::Model field offers. */
+enum class ModelList
+{
+    None = 0,
+    TimeSeries,
+    Curves
+};
+
+/*! \enum FieldUnit \brief The unit a numeric field is shown in. */
+enum class FieldUnit
+{
+    None = 0,
+    Length      ///< Project length unit (the spin-box suffix).
+};
+
+/*!
  * \struct FieldDef
  * \brief One user-defined attribute column.
+ *
+ * Only name, type, default, description and Fixed choices are stored in the
+ * GeoPackage. The editor hints (Model / Suggested sources, unit, required)
+ * come from the role registry for the role's own field names
+ * (feature/featureroles.h, \c editorSchema).
  */
 struct FieldDef
 {
@@ -69,8 +125,20 @@ struct FieldDef
     FieldType type = FieldType::Text;
     QVariant  defaultValue;          ///< Applied to new features; may be invalid.
     QString   description;           ///< Tooltip in the schema editor and property panel.
+    QVector<FieldChoice> choices;    ///< For ChoiceSource::Fixed; empty otherwise.
+    ChoiceSource choiceSource = ChoiceSource::None;
+    ModelList    modelList    = ModelList::None;   ///< For ChoiceSource::Model.
+    FieldUnit    unit         = FieldUnit::None;
+    bool         required     = false;  ///< A role field the New dialog always creates.
 
     [[nodiscard]] bool isValid() const { return !name.isEmpty(); }
+    /*! True for a Fixed choice field with at least one choice. */
+    [[nodiscard]] bool hasFixedChoices() const
+    { return choiceSource == ChoiceSource::Fixed && !choices.isEmpty(); }
+    /*! Index of \p value in \ref choices, or -1. Exact match: tokens are stable. */
+    [[nodiscard]] int choiceIndex(const QString &value) const;
+    /*! The label for \p value, or \p value itself when it is not in the list. */
+    [[nodiscard]] QString choiceLabel(const QString &value) const;
     [[nodiscard]] QJsonObject toJson() const;
     [[nodiscard]] static FieldDef fromJson(const QJsonObject &o);
 

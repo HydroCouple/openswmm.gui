@@ -46,6 +46,7 @@ CategoryId categoryForLayerType(int t)
     case LayerTypeOrdinal::SWMMTabularyTimeSeriesLayer:  return CatTables;
 
     case LayerTypeOrdinal::SWMMAnnotationLayer:          return CatFeatureLayers;
+    case LayerTypeOrdinal::SWMMFeatureLayer:             return CatFeatureLayers;
 
     case LayerTypeOrdinal::SWMMDefaultLayer:             return CatFeatureLayers;
     }

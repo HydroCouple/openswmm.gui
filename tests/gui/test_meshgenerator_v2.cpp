@@ -288,6 +288,49 @@ private slots:
         QCOMPARE(gs.cellsBelow10Deg, 0);
     }
 
+    void trianglesRequestedRegionKeepsTriangles()
+    {
+        // FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §4.3: a Region
+        // feature with cells = triangles is read as QuadRegionMode::
+        // TrianglesOnly, and a four-sided ring that would otherwise be
+        // filled with quads keeps triangles. The same ring in Auto is the
+        // control.
+        const QPolygonF ring({QPointF(40, 40), QPointF(120, 40), QPointF(120, 80),
+                              QPointF(40, 80), QPointF(40, 40)});
+        auto build = [&ring](mesh::QuadRegionMode mode) {
+            MeshGenerator g;
+            g.setDomain(rect(0, 0, 200, 200));
+            mesh::QuadRegion qr;
+            qr.ring = ring;
+            qr.spacing = 4.0;
+            qr.tag = QStringLiteral("T");
+            qr.mode = mode;
+            g.addQuadRegion(qr);
+            GenerationOptions o;
+            o.maxArea = 0.4330127018922193 * 10.0 * 10.0;
+            g.setOptions(o);
+            MeshResult m = g.generate();
+            return std::make_pair(m, g.quadRegionReports());
+        };
+        const auto [tri, triReports] = build(mesh::QuadRegionMode::TrianglesOnly);
+        QVERIFY2(tri.ok, qPrintable(tri.errorMsg));
+        int tagged = 0;
+        for (const mesh::MeshTriangle &c : tri.triangles)
+            if (c.tag == QStringLiteral("T")) { ++tagged; QVERIFY(!c.isQuad()); }
+        QVERIFY(tagged > 0);
+        QCOMPARE(triReports.size(), 1);
+        QCOMPARE(triReports[0].resolved, mesh::QuadRegionMode::TrianglesOnly);
+        QVERIFY(triReports[0].message.contains(QStringLiteral("triangles requested")));
+
+        const auto [quad, quadReports] = build(mesh::QuadRegionMode::Auto);
+        QVERIFY2(quad.ok, qPrintable(quad.errorMsg));
+        int quads = 0;
+        for (const mesh::MeshTriangle &c : quad.triangles)
+            if (c.tag == QStringLiteral("T") && c.isQuad()) ++quads;
+        QCOMPARE(quads, 200);   // 80 / 4 × 40 / 4
+        QCOMPARE(quadReports[0].resolved, mesh::QuadRegionMode::Mapped);
+    }
+
     void identicalInputsBuildIdenticalMeshes()
     {
         auto build = [] {

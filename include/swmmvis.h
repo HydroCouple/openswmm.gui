@@ -45,6 +45,8 @@ namespace openswmmvis::ui { class ComparisonPlotDialog; }
 namespace openswmmvis::ui { class RainfallVisualizationDialog; }
 namespace openswmmvis::ui { class RibbonGroup; }
 namespace openswmmvis::project::examples { struct ExampleInfo; }
+namespace openswmmvis::ui { struct LayerExportTarget; }
+namespace openswmmvis::io { struct ExportReport; }
 
 class QCheckBox;
 class QLabel;
@@ -202,6 +204,21 @@ private:
     /*! Reflect the active layer's edit session into the Edit Mode checkbox
      *  and enable/disable the session-only actions. */
     void syncFeatureEditState();
+
+    /*! Right-click Export (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md
+     *  §8): the export dialog for \p target, a snapshot on this thread, the
+     *  write on a worker behind a cancellable progress dialog, then the
+     *  report in the log and, if asked, the outputs on the map. */
+    void onExportLayerRequested(const openswmmvis::ui::LayerExportTarget &target);
+    /*! Run \p job on a QtConcurrent worker behind a modal progress dialog
+     *  whose Cancel the job's progress callback reports. */
+    [[nodiscard]] openswmmvis::io::ExportReport runExportJob(
+        const QString &title,
+        const std::function<bool(const std::function<bool(int, int, const QString &)> &,
+                                 openswmmvis::io::ExportReport *)> &job);
+    /*! Export 2D Results for \p preselected, or for the active 2D results
+     *  layer when it is null (the Analysis menu entry). */
+    void export2DResults(class SWMM2DResultsLayer *preselected);
 
     void initializeMenus();
     void initializeSettings();

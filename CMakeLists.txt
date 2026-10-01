@@ -384,13 +384,16 @@ set(
         # closure. featurestore.cpp is the repository's first OGR write path.
         include/feature/featuregeometry.h
         include/feature/featuretypes.h
+        include/feature/featureroles.h
         include/feature/featurestore.h
         include/layers/featurelayer.h
         include/map/featurecommands.h
         include/map/tools/maptoolfeaturedraw.h
         include/map/tools/maptoolfeatureedit.h
         include/ui/dialogs/newfeaturelayerdialog.h
+        include/ui/dialogs/featurefieldeditor.h
         include/ui/panels/featurelayerpanel.h
+        include/ui/panels/featurefielddelegate.h
         include/layers/gisobjectref.h
         include/layers/gisvectorsymboladapter.h
         include/layers/gisrasterlayer.h
@@ -486,6 +489,11 @@ set(
         include/io/timeseriesparse.h
         include/io/gdaldrivers.h
         include/io/rastergeoref.h
+        # Right-click Export (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN 2026-09-30 §8):
+        # the widget-free writer and its two collectors.
+        include/io/vectorexport.h
+        include/io/swmmexport.h
+        include/io/meshexport.h
 
         # ── Curve (Slice BQ Phase 6.7.1) ─────────────────────────────────────
         include/curve/curveprovider.h
@@ -658,6 +666,7 @@ set(
         include/ui/panels/attributetablepanel.h
         include/ui/panels/layertreepanel.h
         include/ui/panels/layertreecategories.h
+        include/ui/panels/layertreetargets.h
         include/ui/panels/objectbrowserpanel.h
         include/ui/panels/meshattributetablemodel.h
         include/ui/panels/swmmattributetablemodel.h
@@ -912,6 +921,7 @@ set(
         include/ui/dialogs/timeserieseditordialog.h
         include/ui/dialogs/colorrampeditordialog.h
         include/ui/dialogs/mesh2dresultsexportdialog.h
+        include/ui/dialogs/exportlayerdialog.h
         include/ui/dialogs/statisticsdashboarddialog.h
         include/ui/dialogs/statusreportdialog.h
         include/ui/dialogs/tabularresultsdialog.h
@@ -1111,13 +1121,16 @@ set(
         src/layers/gisvectorlayer.cpp
         src/feature/featuregeometry.cpp
         src/feature/featuretypes.cpp
+        src/feature/featureroles.cpp
         src/feature/featurestore.cpp
         src/layers/featurelayer.cpp
         src/map/featurecommands.cpp
         src/map/tools/maptoolfeaturedraw.cpp
         src/map/tools/maptoolfeatureedit.cpp
         src/ui/dialogs/newfeaturelayerdialog.cpp
+        src/ui/dialogs/featurefieldeditor.cpp
         src/ui/panels/featurelayerpanel.cpp
+        src/ui/panels/featurefielddelegate.cpp
         src/layers/gisobjectref.cpp
         src/layers/gisrasterlayer.cpp
         src/layers/wcslayer.cpp
@@ -1211,6 +1224,9 @@ set(
         src/io/timeseriesparse.cpp
         src/io/gdaldrivers.cpp
         src/io/rastergeoref.cpp
+        src/io/vectorexport.cpp
+        src/io/swmmexport.cpp
+        src/io/meshexport.cpp
 
         # ── Curve (Slice BQ Phase 6.7.1) ─────────────────────────────────────
         src/curve/curveprovider.cpp
@@ -1386,6 +1402,7 @@ set(
         src/ui/panels/attributetablepanel.cpp
         src/ui/panels/layertreepanel.cpp
         src/ui/panels/layertreecategories.cpp
+        src/ui/panels/layertreetargets.cpp
         src/ui/panels/objectbrowserpanel.cpp
         src/ui/panels/overviewmappanel.cpp
         src/ui/panels/meshattributetablemodel.cpp
@@ -1573,6 +1590,7 @@ set(
         src/ui/dialogs/timeserieseditordialog.cpp
         src/ui/dialogs/colorrampeditordialog.cpp
         src/ui/dialogs/mesh2dresultsexportdialog.cpp
+        src/ui/dialogs/exportlayerdialog.cpp
         src/ui/dialogs/statisticsdashboarddialog.cpp
         src/ui/dialogs/statusreportdialog.cpp
         src/ui/dialogs/tabularresultsdialog.cpp

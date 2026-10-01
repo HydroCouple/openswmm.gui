@@ -18,8 +18,42 @@
 
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
 namespace openswmmvis::io::gdalcaps {
+
+/*!
+ * \struct VectorWriteFormat
+ * \brief One vector format this build can WRITE
+ *        (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8.3).
+ */
+struct VectorWriteFormat
+{
+    QString driver;          ///< GDAL short name, e.g. "GPKG".
+    QString label;           ///< Shown in the export dialog.
+    QString extension;       ///< Without the dot ("gpkg", "shp", "gdb").
+    /*! One destination holds every exported table as its own layer
+     *  (GeoPackage, File Geodatabase); otherwise each table is its own file
+     *  in a destination folder. */
+    bool    multiLayer = false;
+    /*! The format's specification requires WGS 84 (GeoJSON, KML). */
+    bool    forcesWgs84 = false;
+    /*! Coded value lists and column descriptions survive (GeoPackage, FileGDB). */
+    bool    keepsValueLists = false;
+    /*! Field names are cut to 10 characters (Shapefile). */
+    bool    shortFieldNames = false;
+    QString note;            ///< One line on the format's limits.
+};
+
+/*!
+ * \brief The curated vector formats whose driver is registered AND can
+ *        create files, GeoPackage first. Writable drivers that are not in the
+ *        curated list are not offered.
+ */
+[[nodiscard]] QVector<VectorWriteFormat> vectorWriteFormats();
+
+/*! \brief The format entry for \p driver, or one with an empty driver. */
+[[nodiscard]] VectorWriteFormat vectorWriteFormat(const QString &driver);
 
 /*! \brief Idempotently registers all GDAL/OGR drivers (safe to call often). */
 void ensureRegistered();

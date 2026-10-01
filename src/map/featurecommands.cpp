@@ -275,7 +275,8 @@ RemoveFieldCommand::RemoveFieldCommand(FeatureLayer *layer, const QString &field
                          layer, canvas, parent)
 {
     if (!layer) return;
-    if (const FieldDef *f = layer->schema().field(fieldName))
+    const Schema schema = layer->schema();   // by value: keep it alive for field()
+    if (const FieldDef *f = schema.field(fieldName))
         m_field = *f;
 
     // Snapshot every value before the column goes, so undo restores content
@@ -318,6 +319,86 @@ void RemoveFieldCommand::undo()
             recordFailure(tr_("Could not restore \"%1\" on feature %2: %3")
                               .arg(m_field.name).arg(it.key()).arg(setErr));
     }
+}
+
+// ---------------------------------------------------------------------------
+// RenameFieldCommand
+// ---------------------------------------------------------------------------
+
+RenameFieldCommand::RenameFieldCommand(FeatureLayer *layer, const QString &from,
+                                       const QString &to, MapCanvas *canvas,
+                                       QUndoCommand *parent)
+    : FeatureCommandBase(tr_("Rename column \"%1\" to \"%2\"").arg(from, to),
+                         layer, canvas, parent)
+    , m_from(from)
+    , m_to(sanitizeFieldName(to))
+{
+}
+
+void RenameFieldCommand::redo()
+{
+    FeatureLayer *l = layer();
+    if (!l) return;
+    QString err;
+    if (!l->renameField(m_from, m_to, &err))
+        recordFailure(tr_("Could not rename the column \"%1\": %2").arg(m_from, err));
+}
+
+void RenameFieldCommand::undo()
+{
+    FeatureLayer *l = layer();
+    if (!l) return;
+    QString err;
+    if (!l->renameField(m_to, m_from, &err))
+        recordFailure(tr_("The column \"%1\" could not be renamed back on undo: %2")
+                          .arg(m_to, err));
+}
+
+// ---------------------------------------------------------------------------
+// SetFieldMetadataCommand
+// ---------------------------------------------------------------------------
+
+SetFieldMetadataCommand::SetFieldMetadataCommand(FeatureLayer *layer,
+                                                 const QString &fieldName,
+                                                 const FieldDef &meta,
+                                                 MapCanvas *canvas,
+                                                 QUndoCommand *parent)
+    : FeatureCommandBase(tr_("Update column \"%1\"").arg(fieldName),
+                         layer, canvas, parent)
+    , m_name(fieldName)
+    , m_new(meta)
+{
+}
+
+void SetFieldMetadataCommand::redo()
+{
+    FeatureLayer *l = layer();
+    if (!l) return;
+    // Captured on the first redo, not at construction: inside the "Update
+    // fields to role" macro the column may only exist once an earlier child
+    // (a rename) has run.
+    if (!m_old.isValid()) {
+        const Schema schema = l->schema();   // by value: keep it alive for field()
+        const FieldDef *f = schema.field(m_name);
+        if (!f) {
+            recordFailure(tr_("There is no column named \"%1\".").arg(m_name));
+            return;
+        }
+        m_old = *f;
+    }
+    QString err;
+    if (!l->setFieldMetadata(m_name, m_new, &err))
+        recordFailure(tr_("Could not update the column \"%1\": %2").arg(m_name, err));
+}
+
+void SetFieldMetadataCommand::undo()
+{
+    FeatureLayer *l = layer();
+    if (!l || !m_old.isValid()) return;
+    QString err;
+    if (!l->setFieldMetadata(m_name, m_old, &err))
+        recordFailure(tr_("The column \"%1\" could not be restored on undo: %2")
+                          .arg(m_name, err));
 }
 
 // ---------------------------------------------------------------------------
