@@ -149,6 +149,32 @@ struct CflStats
  *         `[2D_OPTIONS] LTS_TIERS` (1..8, default 4). */
 [[nodiscard]] CflStats computeCflStats(const MeshResult &mesh, int ltsTiers = 4);
 
+/*! \brief Size-grading and shape gates
+ *         (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md §6).
+ *
+ *  Grading: for every interior face the ratio of the two cells' sizes,
+ *  size = longest edge (the quantity the ≤ 2 bound is stated on; a
+ *  quadtree transition piece has a short edge but never a short longest
+ *  edge next to a coarse neighbour). Orthogonality: the angle between the centroid
+ *  connector of the two cells and the face normal (0 for a regular grid).
+ *  Angles: the smallest interior corner over every cell. */
+struct GradingStats
+{
+    int    faces        = 0;    ///< Interior faces measured; 0 = stats invalid.
+    double ratioMax     = 1.0;
+    double ratioP50     = 1.0;
+    double ratioP95     = 1.0;
+    /*! Faces with ratio in (1.25·k-ish) bands: <=1.25, <=1.5, <=2, <=3, <=4, >4. */
+    int    ratioHistogram[6] = {0,0,0,0,0,0};
+    double orthoMedianDeg = 0.0;
+    double orthoMaxDeg    = 0.0;
+    double minAngleDeg    = 180.0; ///< Over triangles and quads (180 when no cell).
+    int    cellsBelow10Deg = 0;    ///< Cells with a corner under 10°.
+    int    triangles = 0, quads = 0;
+};
+
+[[nodiscard]] GradingStats computeGradingStats(const MeshResult &mesh);
+
 } // namespace mesh
 
 #endif // OPENSWMMVIS_MESH_MESHCELLSTATS_H

@@ -4,11 +4,11 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * Slice AU — thin Qt-friendly wrapper around Shewchuk's Triangle
- * (vendor/triangle/). Builds a constrained-Delaunay triangulation
- * from a domain polygon, optional constraint segments, and required
- * Steiner points. Tags propagate from input → output via Triangle's
- * marker (point/segment) and region-attribute mechanisms.
+ * 2D mesh generator (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md): a
+ * balanced quadtree core sized by the caller's size function, conformed to
+ * every constraint by a constrained-Delaunay fringe (mesh/meshquadtree.h,
+ * mesh/meshcdt.h). Tags propagate from input → output through point and
+ * segment markers and region seeds, as they did with Triangle.
  *
  * The MeshGenerator deals only in geometry. Mapping SWMM 1D objects
  * (junctions, conduits, subcatchments) onto inputs is the caller's
@@ -18,19 +18,20 @@
 #define OPENSWMMVIS_MESH_MESHGENERATOR_H
 
 #include "meshresult.h"
-#include "meshcrossfield.h"
+#include "meshedgekey.h"
 #include "meshpatch.h"
-#include "meshquadmerge.h"
-#include "meshquadcleanup.h"
-#include "meshquadmatch.h"
+#include "meshquadquality.h"
 #include "meshquadregion.h"
-#include "trirefinehook.h"
 
 #include <QHash>
+#include <QPair>
+#include <QSet>
 #include <QPointF>
 #include <QPolygonF>
 #include <QString>
 #include <QVector>
+
+#include <functional>
 
 namespace mesh {
 
@@ -64,50 +65,44 @@ struct RegionMarker
     QString tag;               ///< Convenience.
 };
 
+/*! \brief Cancellation, progress and graded sizing callbacks. */
+struct RefineHook
+{
+    /*! Polled between stages and inside the long loops. Returning true stops
+     *  generation; generate() then reports failure rather than a partial mesh.
+     *  Must be cheap and thread-safe (typically reads an atomic). */
+    std::function<bool()> isCancelled;
+    /*! Maximum permitted triangle area at map coordinate (x, y); the target
+     *  edge length is the side of the equilateral triangle of that area.
+     *  Return <= 0 for "no limit here". When set, this SUPERSEDES
+     *  GenerationOptions::maxArea. */
+    std::function<double(double x, double y)> targetAreaAt;
+    /*! Called every so often with a running cell count. Purely advisory. */
+    std::function<void(qint64 count)> onProgress;
+};
+
 /*! \brief Quality knobs surfaced to the user dialog. */
 struct GenerationOptions
 {
     double maxArea     = 0.0;     ///< 0 = no global cap; else upper bound on triangle area.
                                   ///< Ignored when a refinement size function is
                                   ///< installed (see MeshGenerator::setRefineHook).
-    double minAngle    = 26.0;    ///< 0..33 reliable; above that Triangle may not
-                                  ///< terminate. Cost rises steeply near the top of
-                                  ///< the range — 33° commonly yields 2-4x the
-                                  ///< vertices of 26° for no practical benefit.
-    bool   allowSteiner = true;   ///< false = -YY (no Steiner points on boundary).
-    bool   conformingDelaunay = false; ///< -D switch.
-    int    maxSteinerPoints   = -1; ///< -SN cap; -1 = unlimited.
-    bool   quiet       = true;    ///< -Q (suppress Triangle's stderr).
-    QString customSwitchString;   ///< If non-empty, overrides everything above. Advanced.
+                                  ///< The target edge length is the equilateral side.
 
-    // ── Mixed tri-quad output (TRI_QUAD_MESHING_PLAN §3) ──────────────
-    /*! G2: after Triangle (and after any patches are stitched in), greedily
-     *  merge adjacent triangle pairs into convex quads (mesh/meshquadmerge.h).
-     *  Locked edges = every constrained segment (domain boundary, holes,
-     *  breaklines, patch boundaries). Off by default (plan decision D2). */
-    bool             mergeTrianglePairs = false;
-    QuadMergeOptions quadMerge;
-    /*! G3: snap radius (map units) used to match patch vertices against the
-     *  Triangle output vertices. 0 = the generator's own 1e-7 quantisation
-     *  (exact match of the coordinates the PSLG was built from). */
-    double           patchSnapEps = 0.0;
+    // ── Overhaul (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ───────────────────
+    /*! Floor cell size h_min (map units) = the finest quadtree leaf and the
+     *  lower clamp of the size function. 0 = a quarter of the smallest size
+     *  sampled over the inputs. */
+    double minCellSize = 0.0;
+    /*! Cell shape: false = quads where possible (core squares + paired
+     *  fringe), true = triangles everywhere. */
+    bool   trianglesOnly = false;
+    /*! Orientation of the background grid, degrees from +x counter-clockwise. */
+    double frameAngleDeg = 0.0;
 
-    // ── Quad regions (QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §3–§4) ──
-    /*! Acceptance bounds for quads produced inside quad regions (template
-     *  and gap pairing, cleanup, smoothing). Independent of quadMerge.
-     *  QuadRegion::aspectMax can override the aspect cap for each Free region. */
-    QuadQualityBounds quadRegionBounds;
-    /*! Cleanup / smoothing knobs applied to Free regions after pairing.
-     *  Its bounds are replaced by the resolved quadRegionBounds for that region. */
-    QuadCleanupOptions quadCleanup;
-    /*! Alignment solve controls. generate() supplies region pitch and the
-     *  RefineHook cancellation callback; other controls are used as given. */
-    CrossField::Options quadFieldOptions;
-    /*! Free-region spacing when QuadRegion::spacing == 0 and no size function
-     *  is installed: side of the equilateral triangle of maxArea
-     *  (sqrt(4·maxArea/sqrt 3)); when that is 0 too the region is skipped
-     *  with a report line. With a size function, h = sqrt(2·targetAreaAt(centroid)). */
-    double quadRegionDefaultSpacing = 0.0;
+    /*! Snap radius (map units) used to match patch vertices against the
+     *  output vertices. 0 = 1e-7. */
+    double patchSnapEps = 0.0;
 };
 
 /*! \brief Per-region outcome of generate() (MeshGenerator::quadRegionReports()). */
@@ -115,20 +110,10 @@ struct QuadRegionReport
 {
     int            index = -1;
     QuadRegionMode requested = QuadRegionMode::Auto;
-    QuadRegionMode resolved  = QuadRegionMode::Free;   ///< After Auto classification / fallbacks.
+    QuadRegionMode resolved  = QuadRegionMode::Free;   ///< Free = its own or the background grid; TrianglesOnly in triangles mode.
     bool    accepted = false;                         ///< Region was included in generation, not skipped.
-    double  spacing = 0.0;
-    double  maxAspect = 0.0;                           ///< Resolved Free-region cap; 0 = unbounded, unused for structured modes.
-    int     quads = 0, triangles = 0;                    ///< Cells inside the region on exit.
-    int     templateQuads = 0, gapQuads = 0;
-    int     generatedPoints = 0, droppedSteiners = 0;    ///< Free: lattice points; marker-0 Steiners removed inside.
-    int     doubletsRemoved = 0, diagonalSwaps = 0, verticesMoved = 0;
-    double  minScaledJacobian = 1.0, medianRectangularity = 0.0;
-    CrossField::Status fieldStatus = CrossField::Status::NotBuilt;
-    int     fieldSweeps = 0;
-    double  fieldFinalDelta = std::numeric_limits<double>::infinity();
-    QString alignmentWarning;                           ///< Nonempty when a constant fallback replaced the solve.
-    QString message;                                     ///< Fallback reason / validation error; empty when clean.
+    double  spacing = 0.0;                            ///< Size override inside the ring (0 = none).
+    QString message;                                  ///< Validation error; empty when clean.
 };
 
 /*! \brief Generate a 2D triangular mesh.
@@ -177,39 +162,25 @@ public:
      *  Patch vertices receive whatever elevation fill the caller applies to
      *  MeshResult::vertices afterwards — same path as Triangle's own. */
     void addPatch(const PatchMesh &patch);
-    /*! \brief Register a PSLG quad region (mesh/meshquadregion.h). Resolved in
-     *  generate(): the ring becomes a constraint loop; Mapped / Submapped
-     *  regions are meshed directly (as an internal patch); Free regions get a
-     *  cross-field aligned lattice of Steiner points, no Triangle refinement
-     *  inside (the -u hook returns "unconstrained" there), template + gap
-     *  pairing, cleanup and smoothing after Triangle. Marker-0 Steiner points
-     *  (terrain / aux) inside a Free ring are dropped; marker != 0 points
-     *  (junctions) are kept and pin the lattice. User RegionMarkers inside a
-     *  quad ring are dropped (their tag is inherited when the region's tag is
-     *  empty). Regions failing validation are skipped with a report line. */
+    /*! \brief Register a quad region (mesh/meshquadregion.h): its ring becomes
+     *  a constraint loop, its spacing (when > 0) a size override inside the
+     *  ring, and — when hasAlignAngle — the region gets its own quadtree
+     *  frame at alignAngleDeg. Cells inside carry the region's tag. */
     void addQuadRegion(const QuadRegion &region);
     /*! \brief One report per addQuadRegion() call, filled by generate(). */
     [[nodiscard]] const QVector<QuadRegionReport> &quadRegionReports() const { return m_quadReports; }
-    /*! \brief Edges protecting accepted quad regions from a later global
-     *  triangle-pair merge. Call after generate(), on its result (cell/vertex
-     *  reindexing is allowed). Holes and skipped regions are not protected. */
+    /*! \brief Retained for API compatibility: always empty (core cells are
+     *  never triangle pairs). */
     [[nodiscard]] QSet<QPair<int, int>> quadRegionMergeLocks(const MeshResult &mesh) const;
     void setOptions(const GenerationOptions &opts);
 
     /*! \brief Install cancellation / progress / graded-sizing callbacks.
-     *
-     * Passing a hook with any member set makes generate() add Triangle's `-u`
-     * switch, which routes refinement decisions through the hook.  A hook whose
-     * members are all empty changes nothing.  See trirefinehook.h.
-     *
-     * When \c hook.targetAreaAt is set it supersedes GenerationOptions::maxArea
-     * and the global `-a<area>` switch is omitted.
-     *
-     * If the hook reports cancellation, generate() returns ok=false with
-     * errorMsg set rather than a partially refined mesh. */
+     *  When \c hook.targetAreaAt is set it supersedes GenerationOptions::maxArea.
+     *  If the hook reports cancellation, generate() returns ok=false with
+     *  errorMsg set rather than a partial mesh. */
     void setRefineHook(const RefineHook &hook);
 
-    /*! \brief Run Triangle. Returns a result with ok=false + errorMsg on failure. */
+    /*! \brief Generate the mesh. Returns a result with ok=false + errorMsg on failure. */
     [[nodiscard]] MeshResult generate() const;
 
     /*! \brief Translate an output point's marker back to a tag string.

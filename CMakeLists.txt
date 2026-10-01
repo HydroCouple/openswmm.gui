@@ -132,48 +132,27 @@ include(FetchHydroCoupleOgc)
 # into openswmm-legacy-worker-5.2.4 and bundled beside the 5.3.0 worker.
 include(EngineVersions)
 
-# ── Triangle (Shewchuk) — vendored at vendor/triangle/. Compiled as a small
-#    static C library and linked into SWMMVis. See Slice AU. License is
-#    Shewchuk's research/institutional-free terms — already documented at
-#    resources/licenses/triangle.txt and resources/about/components.json.
-add_library(triangle_lib STATIC vendor/triangle/triangle.c)
-target_include_directories(triangle_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/vendor/triangle)
-target_compile_definitions(triangle_lib PRIVATE
-    TRILIBRARY              # exclude main(), CLI, file I/O — library mode only.
-    ANSI_DECLARATORS        # K&R → ANSI prototypes for clean C99 compile.
-    NO_TIMER                # drop getrusage()/gettimeofday() dep.
-    EXTERNAL_TEST           # triunsuitable() supplied by src/mesh/trirefinehook.cpp
-                            # instead of triangle.c's own stub. Upstream-sanctioned
-                            # extension point (triangle.c:1363-1390) — this is what
-                            # lets us cancel, report progress, and grade element size
-                            # during refinement WITHOUT patching the vendored source.
-                            # The symbol is left undefined in this static library and
-                            # resolved at the final link of SWMMVis.
-)
-# Triangle pre-dates C99 strictness; quiet the legitimate-but-noisy warnings
-# that come with it (Shewchuk's predicates use clever tricks the compiler
-# rightly flags). We don't want to modify the upstream source (license).
+# ── Robust geometric predicates (Shewchuk, public domain) — vendored at
+#    vendor/predicates/. One C file; orient2d()/incircle() back the mesh
+#    generator's constrained Delaunay kernel (src/mesh/meshcdt.cpp). See
+#    resources/licenses/predicates.txt.
+add_library(predicates_lib STATIC vendor/predicates/predicates.c)
+target_include_directories(predicates_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/vendor/predicates)
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU|AppleClang")
-    target_compile_options(triangle_lib PRIVATE
-        -Wno-unused-but-set-variable
-        -Wno-unused-result
-        -Wno-implicit-fallthrough
+    # 1996 K&R definitions; leave the upstream source untouched.
+    target_compile_options(predicates_lib PRIVATE
         -Wno-deprecated-non-prototype
-        -Wno-format-overflow
-        -Wno-unused-function
         -Wno-strict-prototypes
+        -Wno-unused-function
+        -Wno-unused-variable
+        -Wno-implicit-function-declaration
+        -Wno-old-style-definition
     )
 endif()
-# The handle macros round pointers through an integer; that integer is now
-# uintptr_t (was `unsigned long`, which is 32-bit on LLP64 Windows and
-# truncated every pointer at or above 4 GiB). C4311/C4312 are MSVC's
-# diagnostics for exactly that truncation — leave them ENABLED so a
-# regression is caught at compile time rather than as a large-mesh crash.
-# The remaining noise is the same pre-C99 strictness quieted above.
 if(MSVC)
-    target_compile_options(triangle_lib PRIVATE /wd4996 /wd4244 /wd4267)
+    target_compile_options(predicates_lib PRIVATE /wd4996 /wd4244 /wd4267 /wd4101)
 endif()
-set_target_properties(triangle_lib PROPERTIES
+set_target_properties(predicates_lib PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     AUTOMOC OFF
     AUTOUIC OFF
@@ -610,7 +589,9 @@ set(
         include/timeseries/timeseriesseriescommands.h
         include/timeseries/timeseriesundocommands.h
         include/mesh/dtmsampler.h
-        include/mesh/dtmthinner.h
+        include/mesh/dtmraster.h
+        include/mesh/meshcdt.h
+        include/mesh/meshedgekey.h
         include/mesh/inpmeshreader.h
         include/mesh/burnedrasterwriter.h
         include/mesh/channelburn.h
@@ -628,28 +609,23 @@ set(
         include/mesh/meshedgebc.h
         include/mesh/meshgenerator.h
         include/mesh/meshinfil.h
-        include/mesh/meshminsizecleanup.h
         include/mesh/meshreorder.h
         include/mesh/meshstagecache.h
-        include/mesh/pslgminsize.h
         include/mesh/pslgprep.h
         include/mesh/sizefield.h
+        include/mesh/terrainsizefield.h
+        include/mesh/meshquadtree.h
         include/mesh/sms2dmreader.h
         include/mesh/meshhoverprobe.h
         include/mesh/meshobjectref.h
         include/mesh/meshpatch.h
         include/mesh/corridorsource.h
-        include/mesh/meshquadmerge.h
         include/mesh/meshquadquality.h
         include/mesh/meshquadregion.h
-        include/mesh/meshcrossfield.h
-        include/mesh/meshquadpoints.h
         include/mesh/meshquadmatch.h
         include/mesh/meshquadcleanup.h
-        include/mesh/meshsubmap.h
         include/mesh/meshresult.h
         include/mesh/meshcellgeom.h
-        include/mesh/trirefinehook.h
         include/plugins/filefilterregistry.h
 
         # ── Output (Slice QA) ────────────────────────────────────────────────
@@ -1350,7 +1326,6 @@ set(
         src/mesh/channelburnprofile.cpp
         src/mesh/channelburnselector.cpp
         src/mesh/dtmsampler.cpp
-        src/mesh/dtmthinner.cpp
         src/mesh/inpmeshreader.cpp
         src/mesh/inpmeshwriter.cpp
         src/mesh/meshautocouple.cpp
@@ -1361,23 +1336,20 @@ set(
         src/mesh/meshenginesync.cpp
         src/mesh/meshgenerator.cpp
         src/mesh/meshinfil.cpp
-        src/mesh/meshminsizecleanup.cpp
         src/mesh/meshpatch.cpp
         src/mesh/corridorsource.cpp
-        src/mesh/meshquadmerge.cpp
         src/mesh/meshquadregion.cpp
-        src/mesh/meshcrossfield.cpp
-        src/mesh/meshquadpoints.cpp
         src/mesh/meshquadmatch.cpp
         src/mesh/meshquadcleanup.cpp
-        src/mesh/meshsubmap.cpp
         src/mesh/meshreorder.cpp
         src/mesh/meshstagecache.cpp
-        src/mesh/pslgminsize.cpp
+        src/mesh/dtmraster.cpp
+        src/mesh/meshcdt.cpp
         src/mesh/pslgprep.cpp
         src/mesh/sizefield.cpp
+        src/mesh/terrainsizefield.cpp
+        src/mesh/meshquadtree.cpp
         src/mesh/sms2dmreader.cpp
-        src/mesh/trirefinehook.cpp
         src/mesh/meshhoverprobe.cpp
         src/mesh/meshnodemapper.cpp
         src/mesh/meshobjectref.cpp
@@ -1727,7 +1699,7 @@ target_link_libraries(SWMMVis
         nanoflann::nanoflann
         $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>
         openswmm_engine
-        triangle_lib
+        predicates_lib
         ${HDF5_C_LIBRARIES}
 )
 
@@ -1765,12 +1737,9 @@ set_target_properties(SWMMVis PROPERTIES
 # Windows threads default to a 1 MiB stack RESERVE taken from the PE header,
 # and Qt passes dwStackSize = 0 to CreateThread, so QtConcurrent workers get
 # that same 1 MiB — versus 8 MiB for the macOS main thread. The mesh pipeline
-# runs on a pool worker, and triangulate() alone places ~81 KiB of bad-triangle
-# queues (struct mesh's three 4096-element arrays) in a single frame before any
-# of Triangle's recursive routines start. vertexsort() recurses on BOTH
-# partitions with no smaller-half depth guard, so deep inputs are bounded only
-# by the stack. Reserving 8 MiB matches the macOS headroom the code is
-# routinely exercised against; it is address space, not committed memory.
+# runs on a pool worker; the generator's loops are iterative, but reserving
+# 8 MiB keeps the headroom the pipeline is routinely exercised against on
+# macOS. It is address space, not committed memory.
 if(MSVC)
     target_link_options(SWMMVis PRIVATE /STACK:8388608)
 elseif(MINGW)

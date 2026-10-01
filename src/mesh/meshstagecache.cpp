@@ -85,28 +85,6 @@ QByteArray MeshStageCache::boundaryKey(const FileIdentity &src,
     return QCryptographicHash::hash(blob, QCryptographicHash::Sha256).toHex();
 }
 
-QByteArray MeshStageCache::terrainKey(const FileIdentity &dem, int band,
-                                      const DTMThinnerOptions &opts,
-                                      bool doThinning,
-                                      const QRectF &dtmBbox)
-{
-    QByteArray blob;
-    {
-        QDataStream s(&blob, QIODevice::WriteOnly);
-        configureStream(s);
-        s << kFormatVersion << quint8('B');
-        s << dem.absPath << dem.mtimeMs << dem.sizeBytes << qint32(band);
-        s << doThinning;
-        s << opts.gridSpacing << opts.normalDotThreshold << opts.useAverageDot
-          << qint32(opts.maxPoints) << qint32(opts.maxIterations);
-        // Quantise the bbox so last-ulp jitter in the corner transform does
-        // not defeat the cache.
-        s << qRound64(dtmBbox.left()   * 1e6) << qRound64(dtmBbox.top()    * 1e6)
-          << qRound64(dtmBbox.right()  * 1e6) << qRound64(dtmBbox.bottom() * 1e6);
-    }
-    return QCryptographicHash::hash(blob, QCryptographicHash::Sha256).toHex();
-}
-
 // ---------------------------------------------------------------------------
 // Load / store
 // ---------------------------------------------------------------------------
@@ -152,38 +130,6 @@ bool MeshStageCache::storeBoundary(const QByteArray &key, const BoundaryPrep &v)
         configureStream(s);
         s << kMagic << kFormatVersion << quint8('A');
         s << v.domains << v.holeRings << v.holeSeeds << v.holeValid << v.skippedRings;
-    }
-    const bool ok = f.commit();
-    if (ok) prune();
-    return ok;
-}
-
-bool MeshStageCache::loadTerrain(const QByteArray &key, TerrainPoints *out) const
-{
-    if (!out || m_dir.isEmpty()) return false;
-    QFile f(entryPath('B', key));
-    if (!f.open(QIODevice::ReadOnly)) return false;
-    QDataStream s(&f);
-    configureStream(s);
-    if (!readHeader(s, 'B', kMagic, kFormatVersion)) return false;
-    TerrainPoints v;
-    s >> v.xyDtm >> v.z;
-    if (s.status() != QDataStream::Ok || !s.atEnd()) return false;
-    if (v.z.size() != v.xyDtm.size()) return false;
-    *out = std::move(v);
-    return true;
-}
-
-bool MeshStageCache::storeTerrain(const QByteArray &key, const TerrainPoints &v) const
-{
-    if (m_dir.isEmpty()) return false;
-    QSaveFile f(entryPath('B', key));
-    if (!f.open(QIODevice::WriteOnly)) return false;
-    {
-        QDataStream s(&f);
-        configureStream(s);
-        s << kMagic << kFormatVersion << quint8('B');
-        s << v.xyDtm << v.z;
     }
     const bool ok = f.commit();
     if (ok) prune();

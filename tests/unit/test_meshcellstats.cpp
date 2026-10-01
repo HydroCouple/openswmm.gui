@@ -213,3 +213,47 @@ TEST(MeshCflStats, RefinementExplosionIsPunishedByWorkButNotByTheRatio)
     EXPECT_LT(sf.min, sc.min);
     EXPECT_GT(sf.ltsWork, sc.ltsWork);   // strictly worse, and the proxy says so
 }
+
+// ── Grading / orthogonality gates (MESH_OVERHAUL_PLAN_2026-09-29.md §6) ──────
+
+TEST(MeshGradingStats, EmptyMeshYieldsZeroFaces)
+{
+    const mesh::MeshResult m;
+    const auto s = mesh::computeGradingStats(m);
+    EXPECT_EQ(s.faces, 0);
+    EXPECT_EQ(s.triangles + s.quads, 0);
+}
+
+TEST(MeshGradingStats, UniformSquareGridIsPerfectlyGradedAndOrthogonal)
+{
+    // 2x1 unit squares sharing the edge (1,0)-(1,1).
+    mesh::MeshResult m;
+    m.vertices = {v(0,0), v(1,0), v(2,0), v(0,1), v(1,1), v(2,1)};
+    mesh::MeshTriangle q0; q0.v0 = 0; q0.v1 = 1; q0.v2 = 4; q0.v3 = 3;
+    mesh::MeshTriangle q1; q1.v0 = 1; q1.v1 = 2; q1.v2 = 5; q1.v3 = 4;
+    m.triangles = {q0, q1};
+    const auto s = mesh::computeGradingStats(m);
+    EXPECT_EQ(s.faces, 1);
+    EXPECT_EQ(s.quads, 2);
+    EXPECT_DOUBLE_EQ(s.ratioMax, 1.0);
+    EXPECT_EQ(s.ratioHistogram[0], 1);
+    EXPECT_NEAR(s.orthoMaxDeg, 0.0, 1e-9);
+    EXPECT_NEAR(s.minAngleDeg, 90.0, 1e-9);
+    EXPECT_EQ(s.cellsBelow10Deg, 0);
+}
+
+TEST(MeshGradingStats, UnequalNeighboursReportTheSizeRatio)
+{
+    // Triangle (0,0)-(2,0)-(2,1) (longest edge sqrt 5) beside
+    // (2,0)-(3,0)-(2,1) (longest edge sqrt 2) sharing the edge (2,0)-(2,1):
+    // longest-edge ratio sqrt(5/2) = 1.581.
+    mesh::MeshResult m;
+    m.vertices = {v(0,0), v(2,0), v(2,1), v(3,0)};
+    m.triangles = {tri(0, 1, 2), tri(1, 3, 2)};
+    const auto s = mesh::computeGradingStats(m);
+    ASSERT_EQ(s.faces, 1);
+    EXPECT_NEAR(s.ratioMax, std::sqrt(2.5), 1e-12);
+    EXPECT_EQ(s.ratioHistogram[2], 1);   // 1.5 < 1.581 <= 2
+    EXPECT_LT(s.minAngleDeg, 30.0);      // the 1:2 right triangle has a 26.57 deg corner
+    EXPECT_EQ(s.triangles, 2);
+}

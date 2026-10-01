@@ -43,6 +43,48 @@ namespace pslg {
 [[nodiscard]] QVector<QPointF> simplifyRing(const QVector<QPointF> &ring,
                                             double epsilon);
 
+/*!
+ * \brief Straightness trimming (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 1).
+ *
+ * Drops a vertex when the polyline turns by less than \p maxTurnDeg there,
+ * provided the chord that replaces it stays within \p maxDeviation of every
+ * ORIGINAL vertex it spans (so error never accumulates across removals).
+ * Vertices are taken flattest-first from a heap; a vertex whose removal
+ * would breach the deviation cap is kept for good. Protected vertices
+ * (\p protectedFlags, one per input point; may be empty) are never removed;
+ * the endpoints of an open polyline are always protected.
+ *
+ * Closed rings (first == last, or \p closed) are treated circularly, keep
+ * their closing duplicate if they had one, and never drop below 3 distinct
+ * vertices. No-op when maxTurnDeg <= 0. maxDeviation <= 0 = no cap.
+ * \param removedOut  optional; receives the number of vertices dropped.
+ */
+[[nodiscard]] QVector<QPointF> trimByStraightness(const QVector<QPointF> &pts,
+                                                  double maxTurnDeg,
+                                                  double maxDeviation,
+                                                  const QVector<bool> &protectedFlags = {},
+                                                  bool closed = false,
+                                                  int *removedOut = nullptr);
+
+/*!
+ * \brief Insert vertices so that no edge is longer than the local target
+ *        size (Stage 1 resampling at h(x)). Pure insertion, geometry
+ *        unchanged. An edge is split into n = ceil(∫ ds / h(s)) parts, the
+ *        parts spaced by the local h, so a long edge crossing a size
+ *        gradient gets short pieces where h is small and long ones where it
+ *        is large. \p hAt returns the size at a point; a non-positive
+ *        sample means "no limit" there. No-op when hAt is null.
+ */
+[[nodiscard]] QVector<QPointF> resampleAtSize(const QVector<QPointF> &path,
+                                              const std::function<double(double, double)> &hAt);
+
+/*! One flag per vertex of \p pts: true when the vertex lies within \p tol of
+ *  any vertex of any path in \p others (a T-junction or shared endpoint
+ *  that trimming must keep). */
+[[nodiscard]] QVector<bool> flagsForCoincidentVertices(const QVector<QPointF> &pts,
+                                                       const QVector<QVector<QPointF>> &others,
+                                                       double tol);
+
 /*! Split every ring edge longer than \p maxLen into equal parts — pure
  *  vertex insertion, geometry unchanged.  No-op when maxLen <= 0. */
 [[nodiscard]] QVector<QPointF> densifyRing(const QVector<QPointF> &ring,
@@ -124,7 +166,9 @@ struct PreparedRing
 /*! Prepare a single hole ring: simplify → validate → densify → seed. */
 [[nodiscard]] PreparedRing prepareHoleRing(const QVector<QPointF> &raw,
                                            double simplifyEps,
-                                           double maxEdgeLen);
+                                           double maxEdgeLen,
+                                           double trimTurnDeg = 0.0,
+                                           double trimDeviation = 0.0);
 
 /*!
  * \brief Prepare many hole rings in parallel (order-preserving).
@@ -140,7 +184,8 @@ bool prepareHoleRings(const QVector<QVector<QPointF>> &raw,
                       QVector<PreparedRing> *out,
                       const std::function<bool()> &isCancelled = {},
                       const std::function<void(int, int)> &onChunk = {},
-                      int *skippedOut = nullptr);
+                      int *skippedOut = nullptr,
+                      double trimTurnDeg = 0.0, double trimDeviation = 0.0);
 
 /*!
  * \brief y-banded odd-even point-in-rings index.

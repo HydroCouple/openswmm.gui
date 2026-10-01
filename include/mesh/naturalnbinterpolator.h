@@ -10,7 +10,7 @@
  * raster is supplied, mesh-vertex z is interpolated from SWMM junction rim
  * elevations and 3D feature-Z seeds.
  *
- * The seeds are triangulated once with Shewchuk's Triangle (the same
+ * The seeds are triangulated once with the in-house Delaunay kernel (mesh/meshcdt.h) (the same
  * vendored library the MeshGenerator uses) to obtain a Delaunay
  * triangulation + neighbour adjacency.  Each query then performs a local
  * insertion (Watson's method) to recover the natural neighbours of the

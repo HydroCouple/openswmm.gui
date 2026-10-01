@@ -1708,25 +1708,36 @@ PreferencesManager::TwoDDefaults PreferencesManager::twoDDefaults() const
     d.rainfallMode       = readTwoDSetting<QString>(s, QStringLiteral("RainfallMode"),       d.rainfallMode);
     d.report2D           = readTwoDSetting<bool>(s,   QStringLiteral("Report2D"),           d.report2D);
 
-    d.meshMinAngleDeg       = readTwoDSetting<double>(s, QStringLiteral("MeshMinAngleDeg"),       d.meshMinAngleDeg);
-    d.meshMaxArea           = readTwoDSetting<double>(s, QStringLiteral("MeshMaxArea"),           d.meshMaxArea);
-    d.meshMaxSteiner        = readTwoDSetting<int>(s,    QStringLiteral("MeshMaxSteiner"),        d.meshMaxSteiner);
+    d.meshCellSizeM         = readTwoDSetting<double>(s, QStringLiteral("MeshCellSizeM"),         d.meshCellSizeM);
+    d.meshCoarsenFactor     = readTwoDSetting<double>(s, QStringLiteral("MeshCoarsenFactor"),     d.meshCoarsenFactor);
+    d.meshSizeRatio         = readTwoDSetting<double>(s, QStringLiteral("MeshSizeRatio"),         d.meshSizeRatio);
+    d.meshMinCellSizeM      = readTwoDSetting<double>(s, QStringLiteral("MeshMinCellSizeM"),      d.meshMinCellSizeM);
+    d.meshTerrainToleranceM = readTwoDSetting<double>(s, QStringLiteral("MeshTerrainToleranceM"), d.meshTerrainToleranceM);
+    d.meshTrianglesOnly     = readTwoDSetting<bool>(s,   QStringLiteral("MeshTrianglesOnly"),     d.meshTrianglesOnly);
+    d.meshTrimTurnDeg       = readTwoDSetting<double>(s, QStringLiteral("MeshTrimTurnDeg"),       d.meshTrimTurnDeg);
+    d.meshTrimDeviationM    = readTwoDSetting<double>(s, QStringLiteral("MeshTrimDeviationM"),    d.meshTrimDeviationM);
+    // Migration from the pre-overhaul seeds (MESH_OVERHAUL_PLAN_2026-09-29.md
+    // Phase 6): read only when the new key is absent.
+    {
+        const QString grp = QLatin1String(kTwoDDefaultsGroup);
+        auto has = [&](const char *key) { return s.contains(QStringLiteral("%1/%2").arg(grp, QLatin1String(key))); };
+        if (!has("MeshCellSizeM") && has("MeshMaxArea"))
+        {
+            const double area = readTwoDSetting<double>(s, QStringLiteral("MeshMaxArea"), 0.0);
+            if (area > 0.0) d.meshCellSizeM = std::sqrt(4.0 * area / std::sqrt(3.0));
+        }
+        if (!has("MeshTerrainToleranceM") && has("MeshThinningOn")
+            && readTwoDSetting<bool>(s, QStringLiteral("MeshThinningOn"), false))
+            d.meshTerrainToleranceM = 0.1;
+        if (!has("MeshTrimDeviationM") && has("MeshSimplifyEpsM"))
+            d.meshTrimDeviationM = readTwoDSetting<double>(s, QStringLiteral("MeshSimplifyEpsM"), 0.0);
+    }
     d.meshIdwPower          = readTwoDSetting<double>(s, QStringLiteral("MeshIdwPower"),          d.meshIdwPower);
-    d.meshSimplifyEpsM      = readTwoDSetting<double>(s, QStringLiteral("MeshSimplifyEpsM"),      d.meshSimplifyEpsM);
-    d.meshSnapEpsM          = readTwoDSetting<double>(s, QStringLiteral("MeshSnapEpsM"),          d.meshSnapEpsM);
     d.meshNodeFlattenRadM   = readTwoDSetting<double>(s, QStringLiteral("MeshNodeFlattenRadM"),   d.meshNodeFlattenRadM);
     d.meshNodesAsVertices   = readTwoDSetting<bool>(s,   QStringLiteral("MeshNodesAsVertices"),   d.meshNodesAsVertices);
     d.meshNodesUseRim       = readTwoDSetting<bool>(s,   QStringLiteral("MeshNodesUseRim"),       d.meshNodesUseRim);
     d.meshMinNodeSepOn      = readTwoDSetting<bool>(s,   QStringLiteral("MeshMinNodeSepOn"),      d.meshMinNodeSepOn);
     d.meshMinNodeSepM       = readTwoDSetting<double>(s, QStringLiteral("MeshMinNodeSepM"),       d.meshMinNodeSepM);
-    d.meshThinningOn        = readTwoDSetting<bool>(s,   QStringLiteral("MeshThinningOn"),        d.meshThinningOn);
-    d.meshThinningTol       = readTwoDSetting<double>(s, QStringLiteral("MeshThinningTol"),       d.meshThinningTol);
-    d.meshThinningPasses    = readTwoDSetting<int>(s,    QStringLiteral("MeshThinningPasses"),    d.meshThinningPasses);
-    d.meshMinSpacingOn      = readTwoDSetting<bool>(s,   QStringLiteral("MeshMinSpacingOn"),      d.meshMinSpacingOn);
-    d.meshMinSpacingM       = readTwoDSetting<double>(s, QStringLiteral("MeshMinSpacingM"),       d.meshMinSpacingM);
-    d.meshBoundaryBufferM   = readTwoDSetting<double>(s, QStringLiteral("MeshBoundaryBufferM"),   d.meshBoundaryBufferM);
-    d.meshMaxBoundaryEdgeOn = readTwoDSetting<bool>(s,   QStringLiteral("MeshMaxBoundaryEdgeOn"), d.meshMaxBoundaryEdgeOn);
-    d.meshMaxBoundaryEdgeM  = readTwoDSetting<double>(s, QStringLiteral("MeshMaxBoundaryEdgeM"),  d.meshMaxBoundaryEdgeM);
     d.meshManningsN         = readTwoDSetting<double>(s, QStringLiteral("MeshManningsN"),         d.meshManningsN);
     d.meshInitDepth         = readTwoDSetting<double>(s, QStringLiteral("MeshInitDepth"),         d.meshInitDepth);
     d.meshOutputExternal    = readTwoDSetting<bool>(s,   QStringLiteral("MeshOutputExternal"),    d.meshOutputExternal);
@@ -1759,25 +1770,20 @@ void PreferencesManager::setTwoDDefaults(const TwoDDefaults &d)
     put(QStringLiteral("RainfallMode"),       d.rainfallMode);
     put(QStringLiteral("Report2D"),           d.report2D);
 
-    put(QStringLiteral("MeshMinAngleDeg"),       d.meshMinAngleDeg);
-    put(QStringLiteral("MeshMaxArea"),           d.meshMaxArea);
-    put(QStringLiteral("MeshMaxSteiner"),        d.meshMaxSteiner);
+    put(QStringLiteral("MeshCellSizeM"),         d.meshCellSizeM);
+    put(QStringLiteral("MeshCoarsenFactor"),     d.meshCoarsenFactor);
+    put(QStringLiteral("MeshSizeRatio"),         d.meshSizeRatio);
+    put(QStringLiteral("MeshMinCellSizeM"),      d.meshMinCellSizeM);
+    put(QStringLiteral("MeshTerrainToleranceM"), d.meshTerrainToleranceM);
+    put(QStringLiteral("MeshTrianglesOnly"),     d.meshTrianglesOnly);
+    put(QStringLiteral("MeshTrimTurnDeg"),       d.meshTrimTurnDeg);
+    put(QStringLiteral("MeshTrimDeviationM"),    d.meshTrimDeviationM);
     put(QStringLiteral("MeshIdwPower"),          d.meshIdwPower);
-    put(QStringLiteral("MeshSimplifyEpsM"),      d.meshSimplifyEpsM);
-    put(QStringLiteral("MeshSnapEpsM"),          d.meshSnapEpsM);
     put(QStringLiteral("MeshNodeFlattenRadM"),   d.meshNodeFlattenRadM);
     put(QStringLiteral("MeshNodesAsVertices"),   d.meshNodesAsVertices);
     put(QStringLiteral("MeshNodesUseRim"),       d.meshNodesUseRim);
     put(QStringLiteral("MeshMinNodeSepOn"),      d.meshMinNodeSepOn);
     put(QStringLiteral("MeshMinNodeSepM"),       d.meshMinNodeSepM);
-    put(QStringLiteral("MeshThinningOn"),        d.meshThinningOn);
-    put(QStringLiteral("MeshThinningTol"),       d.meshThinningTol);
-    put(QStringLiteral("MeshThinningPasses"),    d.meshThinningPasses);
-    put(QStringLiteral("MeshMinSpacingOn"),      d.meshMinSpacingOn);
-    put(QStringLiteral("MeshMinSpacingM"),       d.meshMinSpacingM);
-    put(QStringLiteral("MeshBoundaryBufferM"),   d.meshBoundaryBufferM);
-    put(QStringLiteral("MeshMaxBoundaryEdgeOn"), d.meshMaxBoundaryEdgeOn);
-    put(QStringLiteral("MeshMaxBoundaryEdgeM"),  d.meshMaxBoundaryEdgeM);
     put(QStringLiteral("MeshManningsN"),         d.meshManningsN);
     put(QStringLiteral("MeshInitDepth"),         d.meshInitDepth);
     put(QStringLiteral("MeshOutputExternal"),    d.meshOutputExternal);

@@ -14,7 +14,7 @@
 #include "mesh/meshquadcleanup.h"
 
 #include "mesh/meshcellgeom.h"
-#include "mesh/meshquadmerge.h"   // edgeKey
+#include "mesh/meshedgekey.h"
 
 #include <QHash>
 
