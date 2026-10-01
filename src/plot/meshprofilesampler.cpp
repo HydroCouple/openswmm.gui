@@ -39,7 +39,7 @@ double characteristicCellSize(SWMM2DMeshLayer *mesh)
 }
 
 // Every interval is owned by one storage triangle. A boundary-aligned path
-// deterministically selects the smallest cell/triangle ID on either direction.
+// retains both adjacent sides so a dry owner cannot hide the wet edge.
 MeshProfile buildResultProfile(SWMM2DResultsLayer* results,
                                const QVector<QPointF>& path)
 {
@@ -96,14 +96,20 @@ MeshProfile buildResultProfile(SWMM2DResultsLayer* results,
                 s.chainage = chain + len*f;
                 s.scenePt = a + f*(b-a);
                 s.triIdx = cell; s.displayTriIdx = tri;
+                if (active.size() == 2) s.boundaryTriIdx = std::next(active.begin())->second;
                 s.breakBefore = end == 0;
                 const double ground = results->groundAtDisplayTriangle(tri,s.scenePt);
                 s.ground = ground*scale;
-                s.signedDepthNow = results->signedDepthAtDisplayTriangle(tri,s.scenePt)*scale;
+                s.signedDepthNow = signedWaterDepth(results,tri,s.boundaryTriIdx,s.scenePt)*scale;
                 s.signedMaxDepth = results->signedDepthAtDisplayTriangle(tri,s.scenePt,maxima)*scale;
+                const double boundaryMax = results->signedDepthAtDisplayTriangle(
+                    s.boundaryTriIdx,s.scenePt,maxima)*scale;
+                if (std::isfinite(boundaryMax)
+                    && (!std::isfinite(s.signedMaxDepth) || boundaryMax > s.signedMaxDepth))
+                    s.signedMaxDepth = boundaryMax;
                 s.depthNow = std::max(0.0,s.signedDepthNow);
                 s.maxDepth = std::max(0.0,s.signedMaxDepth);
-                s.cellHasSurface = results->cellHasSurface(cell);
+                s.cellHasSurface = std::isfinite(s.signedDepthNow);
                 out.samples.push_back(s);
                 if (end == 0 && std::isfinite(s.ground))
                     out.crossings.push_back({s.chainage,s.ground,s.scenePt});
@@ -127,6 +133,14 @@ MeshProfile buildResultProfile(SWMM2DResultsLayer* results,
 }
 
 } // namespace
+
+double signedWaterDepth(SWMM2DResultsLayer *results, int displayTri,
+                        int boundaryTri, const QPointF &scenePoint)
+{
+    const double primary = results->signedDepthAtDisplayTriangle(displayTri,scenePoint);
+    return std::isfinite(primary) ? primary
+        : results->signedDepthAtDisplayTriangle(boundaryTri,scenePoint);
+}
 
 MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
                              SWMM2DResultsLayer *results,

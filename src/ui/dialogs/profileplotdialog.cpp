@@ -19,6 +19,7 @@
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 #include "plot/profileattributesampler.h"
+#include "plot/meshprofilesampler.h"
 #include "plot/profileattributetrackoptions.h"
 #include "plot/profileattributetrackswidget.h"
 #include "plot/profilenetworkadapter.h"
@@ -1652,31 +1653,46 @@ void ProfilePlotDialog::rebuildSurface2DStations()
     SWMM2DResultsLayer *results = m_projectWindow->active2DResultsLayer();
     if (!results || !results->source())               { clearPlot(); return; }
 
-    // Bed elevation comes from the mesh layer's triangulation (the same
-    // sampler the 2D mesh profile uses); the results layer has no z field.
-    SWMM2DMeshLayer *mesh = firstMeshLayer();
-    if (!mesh)                                        { clearPlot(); return; }
-
+    // Resolve every storage-triangle crossing, retaining signed surfaces at
+    // dry corners of wet cells. A regular station grid misses the shoreline.
+    // Use the results bed: adding depth to an unrelated mesh/DEM moves WSE.
+    QVector<QPointF> scenePath;
+    QVector<double> sceneChain, realChain;
     forEachPathStationScene([&](double chain, const QPointF &sp) {
-        const double bed = mesh->sampleZAt(sp.x(), sp.y());
-        if (!std::isfinite(bed)) return;                 // off the mesh
-        const int tri = results->pickCellAt(sp);
-        if (tri < 0) return;
-        Surface2DStation st;
-        st.chainage = chain;
-        st.scenePt  = sp;
-        st.triIdx   = tri;
-        st.bed      = bed;
-        m_surface2D.push_back(st);
+        const double length = scenePath.isEmpty() ? 0.0 : QLineF(scenePath.last(),sp).length();
+        if (!scenePath.isEmpty() && length == 0.0) return;
+        sceneChain.push_back(sceneChain.isEmpty() ? 0.0 : sceneChain.last()+length);
+        realChain.push_back(chain);
+        scenePath.push_back(sp);
     });
-
-    if (m_surface2D.isEmpty())                        { clearPlot(); return; }
+    // Sample once, then map geometric distance back to authored link length.
+    // This also avoids recomputing/copying the maximum field per path segment.
+    const auto section = MeshProfileSampler::buildMeshProfile(nullptr,results,scenePath);
+    int interval = 1;
+    for (const auto &sample : section.samples) {
+        while (interval+1 < sceneChain.size() && sample.chainage > sceneChain[interval]) ++interval;
+        if (interval >= sceneChain.size()) break;
+        const double fraction = (sample.chainage-sceneChain[interval-1])
+                              / (sceneChain[interval]-sceneChain[interval-1]);
+        Surface2DStation st;
+        st.chainage = realChain[interval-1] + fraction*(realChain[interval]-realChain[interval-1]);
+        st.scenePt = sample.scenePt;
+        st.displayTriIdx = sample.displayTriIdx;
+        st.boundaryTriIdx = sample.boundaryTriIdx;
+        st.bed = sample.ground;
+        st.breakBefore = sample.breakBefore;
+        m_surface2D.push_back(st);
+    }
+    m_surface2DGeometryRevision = results->geomRevision();
 
     m_surface2DLayer = results;
     // Frame changes (canvas animation of a visible layer, or our own
     // setCurrentSimTimeAsOf from onAnimationTimeChanged) → re-read depths.
     connect(results, &SWMM2DResultsLayer::currentTimeChanged,
-            this, [this](int) { refreshSurface2DDepths(); });
+            this, [this](int) {
+                if (m_surface2D.isEmpty()) rebuildSurface2DStations();
+                else refreshSurface2DDepths();
+            });
     connect(results, &QObject::destroyed, this, [this] {
         m_surface2D.clear();
         m_surface2DLayer = nullptr;
@@ -1687,25 +1703,21 @@ void ProfilePlotDialog::rebuildSurface2DStations()
 
 void ProfilePlotDialog::refreshSurface2DDepths()
 {
+    if (m_surface2DLayer && m_surface2DGeometryRevision != m_surface2DLayer->geomRevision()) {
+        rebuildSurface2DStations();
+        return;
+    }
     QVector<ProfilePlotWidget::Surface2DSample> out;
     if (m_surface2DLayer && !m_surface2D.isEmpty()) {
         out.reserve(m_surface2D.size());
-        // 2D depths are engine SI metres; the bed (mesh layer) and the 1D
-        // profile are in project units (feet on a US model). Bring the depth
-        // onto the mesh's vertical units before adding it to the bed.
-        const double dToMesh = m_surface2DLayer->depthToMeshUnits();
+        const double scale = m_surface2DLayer->depthToMeshUnits();
         for (const Surface2DStation &st : m_surface2D) {
             ProfilePlotWidget::Surface2DSample s;
             s.chainage = st.chainage;
-            s.bed      = st.bed;
-            // WSE = bed + barycentric depth, only where the cell carries a
-            // valid free surface this frame; dry / no-data stations stay
-            // NaN and render as gaps (same rule as the 2D mesh profile).
-            if (m_surface2DLayer->cellHasSurface(st.triIdx)) {
-                const double d = m_surface2DLayer->depthAtCellInterp(st.triIdx, st.scenePt)
-                                 * dToMesh;
-                if (std::isfinite(d) && d > 0.0) s.wse = st.bed + d;
-            }
+            s.bed = st.bed;
+            s.breakBefore = st.breakBefore;
+            s.wse = st.bed + scale * MeshProfileSampler::signedWaterDepth(
+                m_surface2DLayer, st.displayTriIdx, st.boundaryTriIdx, st.scenePt);
             out.push_back(s);
         }
     }

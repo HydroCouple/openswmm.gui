@@ -48,6 +48,7 @@ struct Sample
     bool breakBefore = false; // never interpolate from the preceding interval
     double signedDepthNow = std::numeric_limits<double>::quiet_NaN();
     double signedMaxDepth = std::numeric_limits<double>::quiet_NaN();
+    int boundaryTriIdx = -1; // other side of a boundary-aligned trace, if present
 };
 
 /*!

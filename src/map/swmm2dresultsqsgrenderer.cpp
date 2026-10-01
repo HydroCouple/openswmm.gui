@@ -861,11 +861,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             } else {
                 bandLevels = OpenSWMM::Contour::evenlySpacedLevelsInclusive(dryDepth, maxDepth, 9);
             }
-            if (!bandLevels.empty() && bandLevels.front() < dryDepth) {
-                bandLevels.erase(bandLevels.begin(),
-                    std::upper_bound(bandLevels.begin(), bandLevels.end(), dryDepth));
-                bandLevels.insert(bandLevels.begin(), dryDepth);
-            }
+
         }
         if (isoVisible && maxDepth > dryDepth) {
             isoLevels = is ? is->levelsForRange(dryDepth, maxDepth,
@@ -918,7 +914,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             input.scalars = std::move(scalars);
             input.bandLevels = smoothBands ? key.bandLevels : std::vector<double>{};
             input.isoLevels = key.isoLevels;
-            input.clampUniformOutsideRange = false;
+            input.minimumVisibleValue = dryDepth;
             auto compute = [frame, input = std::move(input)]() -> std::shared_ptr<const ContourFrame> {
                 frame->contours = computeContourJob(input);
                 return frame;
@@ -1023,7 +1019,6 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             std::vector<QSGGeometry::ColoredPoint2D> bandVerts;
             if (levels.size() >= 2) {
                 const int bandCount = int(levels.size()) - 1;
-                const double bandLo = levels.front();
                 const qreal bandOp = std::clamp<qreal>(bandSub->opacity(), 0.0, 1.0);
                 auto bandColor = [&](int idx) -> QColor {
                     QColor c = bs ? bs->colorForBand(idx, bandCount)
@@ -1038,7 +1033,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                     for (int i : visibleCells) {
                         const auto t = frameTri(i);
                         const auto wet = CellWaterGeometry::clipTriangle(
-                            t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,bandLo);
+                            t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
                         if (wet.size < 3) continue;
                         int idx = int(std::upper_bound(
                                           levels.begin() + 1, levels.end() - 1,
