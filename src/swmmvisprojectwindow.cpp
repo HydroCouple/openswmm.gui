@@ -1,3 +1,4 @@
+#include "layers/traceanalysislayer.h"
 /*!
  * \file   swmmvisprojectwindow.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -166,6 +167,22 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
             [this](OpenSWMMVisLayer *layer) {
         if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer)) {
             mStatsRegistry->registerLayer(rl, rl->resultsFilePath());
+            auto observe = [this, rl] {
+                mStatsRegistry->contentOpened(rl, rl->resultsFilePath(), rl->isLive());
+            };
+            connect(rl, &SWMMResultsLayer::resultsOpened, this, observe);
+            connect(rl, &SWMMResultsLayer::resultsFinalized, this, observe);
+            connect(rl, &SWMMResultsLayer::resultsFilePathChanged, this, observe);
+            observe();
+        }
+    });
+    connect(mCanvas, &MapCanvas::layerAdded, this, [this](OpenSWMMVisLayer *layer) {
+        if (auto *trace = qobject_cast<openswmmvis::trace::TraceAnalysisLayer*>(layer)) {
+            connect(trace->traceStyle(), &OpenSWMM::Render::SublayerStyle::styleChanged,
+                    this, [this] { setHasChanges(true); });
+            for (auto *part : trace->sublayers())
+                connect(part, &OpenSWMM::Render::ISublayer::invalidated,
+                        this, [this] { setHasChanges(true); });
         }
     });
     connect(mCanvas, &MapCanvas::layerRemoved, this,

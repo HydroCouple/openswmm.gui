@@ -1,3 +1,5 @@
+#include "ui/dialogs/traceanalysisdialog.h"
+#include <QInputDialog>
 /*!
  * \file   maptoolselect.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -1631,6 +1633,30 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     if (hitLayer && hitLayer->engine() && ref.objectType == SWMMObjectRef::Link)
         actFlip = menu.addAction(QObject::tr("Flip Direction"));
 
+    if (ref.objectType == SWMMObjectRef::Node || ref.objectType == SWMMObjectRef::Link) {
+        auto *traceMenu = menu.addMenu(tr("Flow Balance and Travel Time"));
+        for (bool upstream : {false, true}) for (bool travel : {false, true}) {
+            const QString title = travel ? (upstream ? tr("Travel Time Upstream…") : tr("Travel Time Downstream…"))
+                                         : (upstream ? tr("Flow Balance Upstream…") : tr("Flow Balance Downstream…"));
+            connect(traceMenu->addAction(title), &QAction::triggered, this, [this, ref, hitLayer, upstream, travel] {
+                auto *pw = qobject_cast<SWMMVisProjectWindow*>(m_canvas->parent());
+                if (!pw) return;
+                QString seed = ref.name;
+                if (ref.objectType == SWMMObjectRef::Link) {
+                    const auto snapshot = openswmmvis::trace::Snapshot::capture(hitLayer, nullptr);
+                    for (const auto &link : snapshot.links) if (link.id == ref.name) {
+                        bool ok = false;
+                        seed = QInputDialog::getItem(m_canvas, tr("Choose seed endpoint"), ref.name,
+                            {snapshot.nodes[link.from].id, snapshot.nodes[link.to].id}, 0, false, &ok);
+                        if (!ok) return;
+                        break;
+                    }
+                }
+                auto *dialog = openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, travel, seed);
+                dialog->setSeedNodes({seed});
+            });
+        }
+    }
     QAction *actDelete = menu.addAction(QObject::tr("Delete…"));
 
     QAction *picked = menu.exec(globalPt);

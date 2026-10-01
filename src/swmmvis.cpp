@@ -1,3 +1,5 @@
+#include "ui/dialogs/traceanalysisdialog.h"
+#include "output/tracecontroller.h"
 /*!
  * \file   swmmvis.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -8727,90 +8729,9 @@ void SWMMVis::onInvertSelection()
 
 // ── Network analysis (Phase 3) ──────────────────────────────────────────────
 
-namespace {
-
-//! Up/down-stream subnetwork of a set of seed nodes, found by BFS over the
-//! routing graph (forward edges for downstream, reversed for upstream).
-struct Subnetwork
-{
-    bool                       ok = false;
-    QSet<int>                  nodes;          // engine node indices reached
-    QVector<int>               interiorLinks;  // engine link idx, both ends inside
-    QVector<QPair<int, bool>>  boundaryLinks;  // (link idx, true=flow enters subnet)
-};
-
-Subnetwork buildSubnetwork(SWMMModelLayer *model, const QSet<int> &seeds, bool upstream)
-{
-    Subnetwork s;
-    if (!model || seeds.isEmpty()) return s;
-    const ProfileRouter::Graph g = ProfileNetworkAdapter::buildGraphFromModel(model);
-
-    QHash<int, QVector<int>> adj;   // traverse-from node -> outgoing edge indices
-    for (int i = 0; i < g.edges.size(); ++i)
-        adj[upstream ? g.edges[i].toNode : g.edges[i].fromNode].push_back(i);
-
-    QSet<int> visited = seeds;
-    QList<int> queue(seeds.begin(), seeds.end());
-    while (!queue.isEmpty())
-    {
-        const int n = queue.takeFirst();
-        for (int ei : adj.value(n))
-        {
-            const int next = upstream ? g.edges[ei].fromNode : g.edges[ei].toNode;
-            if (next >= 0 && !visited.contains(next)) { visited.insert(next); queue.push_back(next); }
-        }
-    }
-    s.nodes = visited;
-
-    for (const auto &e : g.edges)
-    {
-        const bool a = visited.contains(e.fromNode);
-        const bool b = visited.contains(e.toNode);
-        if (a && b)
-            s.interiorLinks.push_back(e.linkId);
-        else if (a != b)
-            // Positive flow (from→to) enters the subnet when the TO end is inside.
-            s.boundaryLinks.push_back({e.linkId, b});
-    }
-    s.ok = true;
-    return s;
-}
-
-//! Seed engine-node indices from the current selection (selected nodes, plus
-//! both endpoints of any selected links).
-QSet<int> seedNodes(SWMMModelLayer *model, const QSet<SWMMObjectRef> &sel)
-{
-    QSet<int> seeds;
-    SWMM_Engine e = model->engine();
-    for (const auto &r : sel)
-    {
-        if (r.objectType == SWMMObjectRef::Node)
-        {
-            const int idx = swmm_node_index(e, r.name.toUtf8().constData());
-            if (idx >= 0) seeds.insert(idx);
-        }
-        else if (r.objectType == SWMMObjectRef::Link)
-        {
-            const int li = swmm_link_index(e, r.name.toUtf8().constData());
-            if (li >= 0)
-            {
-                const int a = model->linkFromNodeIdx(li);
-                const int b = model->linkToNodeIdx(li);
-                if (a >= 0) seeds.insert(a);
-                if (b >= 0) seeds.insert(b);
-            }
-        }
-    }
-    return seeds;
-}
-
-} // namespace
-
 // Select Upstream / Downstream trace the connected subnetwork from whatever is
 // selected — including subcatchments, which drain into it. The math lives in
 // `SelectionOps` (headless-testable); these slots only apply + report.
-// `buildSubnetwork` above is kept for onFlowBalance / onTravelTime, which need
-// its boundaryLinks.
 void SWMMVis::onStreamSelect(bool upstream)
 {
     const QString label = upstream ? tr("Select Upstream") : tr("Select Downstream");
@@ -8838,86 +8759,14 @@ void SWMMVis::onSelectDownstream() { onStreamSelect(/*upstream=*/false); }
 
 void SWMMVis::onFlowBalance(bool upstream)
 {
-    auto *pw = activeProjectWindow();
-    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine() || !pw->selectionManager())
-    { onLogMessage(tr("Flow Balance: open a project first."), OpenSWMMVisLogMessage::Warning); return; }
-    auto *results = pw->activeResultsLayer();
-    if (!results || !results->outputHandle())
-    { QMessageBox::information(this, tr("Flow Balance"),
-          tr("Run a simulation or load a results (.out) file first.")); return; }
-    SWMMModelLayer *model = pw->modelLayer();
-    SWMM_Engine e = model->engine();
-    const QSet<int> seeds = seedNodes(model, pw->selectionManager()->selection());
-    if (seeds.isEmpty())
-    { QMessageBox::information(this, tr("Flow Balance"),
-          tr("Select a node or link first.")); return; }
-
-    const Subnetwork sn = buildSubnetwork(model, seeds, upstream);
-    SWMM_Output out = results->outputHandle();
-    const int periods = swmm_output_get_period_count(out);
-    const int nLinks  = swmm_link_count(e);
-    if (periods <= 0 || nLinks <= 0)
-    { QMessageBox::information(this, tr("Flow Balance"), tr("No results to summarize.")); return; }
-
-    std::vector<float> flow(static_cast<std::size_t>(nLinks), 0.0f);
-    swmm_output_get_link_result(out, periods - 1, SWMM_OUT_LINK_FLOW, flow.data());
-    double inflow = 0.0, outflow = 0.0;
-    for (const auto &bl : sn.boundaryLinks)
-    {
-        if (bl.first < 0 || bl.first >= nLinks) continue;
-        const double into = bl.second ? flow[bl.first] : -flow[bl.first];
-        if (into >= 0.0) inflow += into; else outflow += -into;
-    }
-    QMessageBox::information(this,
-        tr("Flow Balance — %1").arg(upstream ? tr("Upstream") : tr("Downstream")),
-        tr("Subnetwork: %1 node(s), %2 boundary link(s)\n\n"
-           "Inflow:  %3\nOutflow: %4\nNet:     %5\n\n"
-           "(final time-step flows, in project flow units)")
-            .arg(sn.nodes.size()).arg(sn.boundaryLinks.size())
-            .arg(inflow, 0, 'f', 3).arg(outflow, 0, 'f', 3)
-            .arg(inflow - outflow, 0, 'f', 3));
+    if (auto *pw = activeProjectWindow())
+        openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, false);
 }
 
 void SWMMVis::onTravelTime(bool upstream)
 {
-    auto *pw = activeProjectWindow();
-    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine() || !pw->selectionManager())
-    { onLogMessage(tr("Travel Time: open a project first."), OpenSWMMVisLogMessage::Warning); return; }
-    auto *results = pw->activeResultsLayer();
-    if (!results || !results->outputHandle())
-    { QMessageBox::information(this, tr("Travel Time"),
-          tr("Run a simulation or load a results (.out) file first.")); return; }
-    SWMMModelLayer *model = pw->modelLayer();
-    SWMM_Engine e = model->engine();
-    const QSet<int> seeds = seedNodes(model, pw->selectionManager()->selection());
-    if (seeds.isEmpty())
-    { QMessageBox::information(this, tr("Travel Time"), tr("Select a node or link first.")); return; }
-
-    const Subnetwork sn = buildSubnetwork(model, seeds, upstream);
-    SWMM_Output out = results->outputHandle();
-    const int periods = swmm_output_get_period_count(out);
-    const int nLinks  = swmm_link_count(e);
-    if (periods <= 0 || nLinks <= 0)
-    { QMessageBox::information(this, tr("Travel Time"), tr("No results to summarize.")); return; }
-
-    std::vector<float> vel(static_cast<std::size_t>(nLinks), 0.0f);
-    swmm_output_get_link_result(out, periods - 1, SWMM_OUT_LINK_VELOCITY, vel.data());
-    double totalSec = 0.0;
-    int counted = 0;
-    for (int li : sn.interiorLinks)
-    {
-        if (li < 0 || li >= nLinks) continue;
-        double length = 0.0;
-        if (swmm_link_get_length(e, li, &length) != SWMM_OK || length <= 0.0) continue;
-        const double v = vel[li];
-        if (v > 1e-6) { totalSec += length / v; ++counted; }
-    }
-    QMessageBox::information(this,
-        tr("Travel Time — %1").arg(upstream ? tr("Upstream") : tr("Downstream")),
-        tr("Subnetwork: %1 flowing conduit(s)\n\n"
-           "Total in-pipe travel time: %2 min\n\n"
-           "(sum of length / velocity at the final time-step)")
-            .arg(counted).arg(totalSec / 60.0, 0, 'f', 2));
+    if (auto *pw = activeProjectWindow())
+        openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, true);
 }
 
 void SWMMVis::onUserFlags()
@@ -9351,6 +9200,18 @@ void SWMMVis::onRunSimulation()
                          .arg(engineVer, runInpPath, inpPath));
     }
 
+    QString traceRetentionError;
+    if (!openswmmvis::trace::TraceController::forProject(pw)->beforeOverwrite(outPath, &traceRetentionError)) {
+        onLogMessage(traceRetentionError, OpenSWMMVisLogMessage::LogMessageType::Error);
+        mRunningSimProgress.remove(jobId);
+        mSimStatusModel->finishJob(jobId, false, SWMM_ERR_INTERNAL, traceRetentionError, 0.0, 0.0);
+        updateSimulationProgressBar();
+        return;
+    }
+    const QString traceRunId = pw->statsRegistry()->beginRun(outPath,
+        openswmmvis::trace::Snapshot::capture(pw->modelLayer(), nullptr).toJson(), rptPath);
+    pw->setHasChanges(true);
+
     if (releasePreviousResults) {
         // Close any already-open .out handles so the engine can
         // truncate / rewrite without a sharing violation, and remove
@@ -9485,7 +9346,7 @@ void SWMMVis::onRunSimulation()
             });
 
     connect(runner, &SimulationRunner::finished, this,
-            [self, runner, pwGuard, outPathCopy, rptPathCopy, instanceName]
+            [self, runner, pwGuard, outPathCopy, rptPathCopy, instanceName, traceRunId]
             (int finishedJobId, bool success, int errCode, QString errMsg,
              double runoffFrac, double routingFrac, double twoDFrac) {
                 if (!self) return;
@@ -9520,6 +9381,7 @@ void SWMMVis::onRunSimulation()
                 // different text and auto-load the partial results so the
                 // user can still inspect whatever was written.
                 const bool cancelled = !success && errCode == 0;
+                if (pwGuard) pwGuard->statsRegistry()->finishRun(traceRunId, success, cancelled);
                 const bool outHasData = QFileInfo(outPathCopy).exists()
                     && QFileInfo(outPathCopy).size() > 0;
                 if (cancelled) {
