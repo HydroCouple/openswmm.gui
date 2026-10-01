@@ -6,6 +6,7 @@
  */
 
 #include "swmmvisprojectwindow.h"
+#include "project/profilesectionstore.h"
 
 #include "swmmvis.h"   // closeEvent's Save As hand-off (saveProjectWindowAs)
 #include "map/mapcanvas.h"
@@ -116,6 +117,8 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // Per-project services (parented to this window so they die with it)
     mUnits            = new UnitSystem(this);
     mSelectionManager = new SelectionManager(this);
+    connect(ProfileSectionStore::forOwner(this), &ProfileSectionStore::edited,
+            this, [this] { setHasChanges(true); });
     // Slice QA.2 — per-project output-identity registry. Layers wire
     // themselves in / out below via the MapCanvas layerAdded /
     // layerRemoved signals.

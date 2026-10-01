@@ -76,6 +76,7 @@
 #include <cpl_conv.h>   // CPLGetLastErrorMsg — GDAL open-failure detail
 
 #include "swmmvis.h"
+#include "project/profilesectionstore.h"
 // Editable feature layers (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §6.2).
 #include "feature/featurestore.h"
 #include "layers/featurelayer.h"
@@ -1960,6 +1961,29 @@ void SWMMVis::initializeMapTools()
         ui->menuAnalysis->insertAction(before, actPlotProfile2D);
     }
 
+    auto *savedSections = new QAction(tr("Saved 2D Sections…"), this);
+    savedSections->setObjectName(QStringLiteral("actionSaved2DSections"));
+    savedSections->setStatusTip(tr("Reopen a saved surface and groundwater profile section"));
+    if (ui->menuAnalysis) ui->menuAnalysis->addAction(savedSections);
+    connect(savedSections, &QAction::triggered, this, [this] {
+        QPointer<SWMMVisProjectWindow> pw = activeProjectWindow();
+        if (!pw) return;
+        const auto definitions = ProfileSectionStore::forOwner(pw)->definitions();
+        if (definitions.isEmpty()) {
+            QMessageBox::information(pw, tr("Saved sections"),
+                tr("Trace a 2D profile and choose Save Section to add it here."));
+            return;
+        }
+        QStringList labels;
+        for (int i = 0; i < definitions.size(); ++i)
+            labels.append(tr("%1. %2").arg(i + 1).arg(definitions[i].title));
+        bool accepted = false;
+        const QString choice = QInputDialog::getItem(pw, tr("Saved sections"),
+            tr("Section"), labels, 0, false, &accepted);
+        if (pw && accepted && labels.contains(choice))
+            openSavedMeshProfile(pw, definitions[labels.indexOf(choice)].id);
+    });
+
     // Rainfall Visualization — compare every rain gage's series (inline
     // [TIMESERIES] and rain files) on one chart. Programmatic like
     // actPlotProfile2D above; also reachable from the object browser's
@@ -3356,33 +3380,93 @@ void SWMMVis::openProfilePlotFor(const ProfileRouter::Path &path)
 
 void SWMMVis::openMeshProfileDialog(const QVector<QPointF> &scenePolyline,
                                     SWMM2DResultsLayer *results,
-                                    const QString &title)
+                                    const QString &title,
+                                    SWMMVisProjectWindow *owner,
+                                    const ProfileSection::Definition *definition)
 {
-    auto *pw = activeProjectWindow();
-    if (!pw) return;
-    if (scenePolyline.size() < 2) return;
-
-    // Resolve the active 2D mesh (geometry → ground). The mesh is required;
-    // results are optional — bed-only (terrain) when null.
-    SWMM2DMeshLayer *mesh = mMeshEditingToolbar ? mMeshEditingToolbar->activeMesh()
-                                                : nullptr;
-    if (!mesh) {
-        if (auto *canvas = pw->canvas())
-            for (OpenSWMMVisLayer *l : canvas->layers())
-                if (auto *m = qobject_cast<SWMM2DMeshLayer *>(l)) { mesh = m; break; }
+    auto *pw = owner ? owner : activeProjectWindow();
+    if (!pw || scenePolyline.size() < 2) return;
+    SWMM2DMeshLayer *mesh = nullptr;
+    const bool savedMesh = definition && definition->primarySourceId.startsWith(QStringLiteral("mesh:"));
+    QString savedMeshPath;
+    if (savedMesh) for (const auto &source : definition->sources)
+        if (source.id == definition->primarySourceId) savedMeshPath = source.path;
+    QList<SWMM2DResultsLayer *> sources;
+    if (auto *canvas = pw->canvas()) {
+        for (auto *layer : canvas->layers()) {
+            if (auto *candidate = qobject_cast<SWMM2DMeshLayer *>(layer); candidate && !mesh) {
+                if (!savedMesh || (!savedMeshPath.isEmpty()
+                    && QFileInfo(candidate->sourcePath()).absoluteFilePath() == QFileInfo(savedMeshPath).absoluteFilePath())
+                    || definition->primarySourceId == QStringLiteral("mesh:") + candidate->layerId()) mesh = candidate;
+            }
+            if (auto *source = qobject_cast<SWMM2DResultsLayer *>(layer)) sources.append(source);
+        }
     }
-    if (!mesh) {
-        QMessageBox::information(this, tr("No 2D mesh"),
-            tr("Load or generate a 2D mesh before tracing a profile path."));
+    // A saved result section must never fall back to a different authored mesh.
+    if (definition && !savedMesh) mesh = nullptr;
+    if (!mesh && !results) {
+        QMessageBox::information(pw, tr("No section geometry"),
+            tr("Load the section's 2D results or mesh before opening it."));
         return;
     }
-
     auto *dlg = new MeshProfilePlotDialog(mesh, results, mAnimationController,
-                                          scenePolyline, pw, /*parent=*/pw);
+                                          scenePolyline, pw, pw);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    if (!title.isEmpty())
-        dlg->setWindowTitle(title);
+    dlg->setResultSources(sources);
+    auto *store = ProfileSectionStore::forOwner(pw);
+    dlg->setSavedDefinitions(store->definitions());
+    connect(store, &ProfileSectionStore::definitionsChanged, dlg, [dlg, store] {
+        dlg->setSavedDefinitions(store->definitions());
+    });
+    connect(dlg, &MeshProfilePlotDialog::saveDefinitionRequested, store,
+            [dlg, store](const ProfileSection::Definition &section) {
+        QString error;
+        if (!store->saveDefinition(section, &error))
+            QMessageBox::warning(dlg, tr("Save section"), error);
+    });
+    connect(dlg, &MeshProfilePlotDialog::openSavedDefinitionRequested, pw,
+            [this, pw](const QString &id) { openSavedMeshProfile(pw, id); });
+    if (definition) {
+        QString error;
+        if (!dlg->setDefinition(*definition, &error)) {
+            delete dlg;
+            QMessageBox::warning(pw, tr("Open section"), error);
+            return;
+        }
+    }
+    if (!title.isEmpty()) dlg->setWindowTitle(title);
     dlg->show();
+}
+
+void SWMMVis::openSavedMeshProfile(SWMMVisProjectWindow *pw, const QString &id)
+{
+    if (!pw) return;
+    const auto definitions = ProfileSectionStore::forOwner(pw)->definitions();
+    for (const auto &definition : definitions) {
+        if (definition.id != id) continue;
+        QString primaryPath;
+        for (const auto &source : definition.sources)
+            if (source.id == definition.primarySourceId) primaryPath = source.path;
+        SWMM2DResultsLayer *primary = nullptr;
+        if (pw->canvas() && !primaryPath.isEmpty()) {
+            for (auto *layer : pw->canvas()->layers()) {
+                auto *candidate = qobject_cast<SWMM2DResultsLayer *>(layer);
+                if (!candidate || !candidate->source()) continue;
+                const QString path = candidate->source()->sourcePath();
+                if (!path.isEmpty() && QFileInfo(path).absoluteFilePath()
+                        == QFileInfo(primaryPath).absoluteFilePath()) { primary = candidate; break; }
+            }
+        }
+        const bool bedOnly = definition.primarySourceId.startsWith(QStringLiteral("mesh:"));
+        if (!bedOnly && !primary) {
+            QMessageBox::information(pw, tr("Section source unavailable"),
+                tr("Load the saved section’s result file before opening this section:\n%1").arg(primaryPath));
+            return;
+        }
+        // Never substitute another run's water levels when a saved source is unavailable.
+        openMeshProfileDialog(definition.scenePolyline, primary, definition.title, pw, &definition);
+        return;
+    }
 }
 
 void SWMMVis::openMeshProfilePlotFor(const QVector<QPointF> &scenePolyline)

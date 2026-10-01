@@ -16,6 +16,12 @@
 #include "plot/meshprofileplotoptions.h"
 #include "plot/meshprofileplotwidget.h"
 #include "plot/meshprofilesampler.h"
+#include "plot/meshprofiletrackswidget.h"
+#include "plot/meshprofileserieseditor.h"
+#include "map/spatialreferencesystem.h"
+#include <QUuid>
+#include <QScrollArea>
+#include <QSplitter>
 #include "swmmvisprojectwindow.h"
 #include "core/unitsystem.h"
 
@@ -61,7 +67,27 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
                    | openswmmvis::ui::stayAboveAppFlags());
     resize(900, 520);
 
+    m_definition.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_definition.title = tr("2D section");
+    m_definition.scenePolyline = m_scenePolyline;
+    auto *sceneSrs = m_projectWindow && m_projectWindow->canvas() ? m_projectWindow->canvas()->canvasSRS() : (m_results ? m_results->srs() : (m_mesh ? m_mesh->srs() : nullptr));
+    if (sceneSrs) m_definition.sceneCRS = sceneSrs->toWkt();
+    // Existing terrain/water samples are expressed in mesh coordinate units.
+    auto *units = m_projectWindow ? m_projectWindow->unitSystem() : UnitSystem::instance();
+    m_mapUnitsPerMetre = m_results ? m_results->depthToMeshUnits()
+        : ((m_mesh && m_mesh->meshUnitsSI()) || (units && units->isSI()) ? 1.0 : 1.0/0.3048);
+    const double toMap = m_mapUnitsPerMetre;
+    m_definition.elevationUnits = qAbs(toMap - 1.0/0.3048) < 1e-5 ? QStringLiteral("ft") : QStringLiteral("m");
+    m_definition.horizontalUnits = sceneSrs ? sceneSrs->linearUnitsName() : m_definition.elevationUnits;
+    if (m_results) {
+        m_definition.primarySourceId = sourceId(m_results);
+        m_definition.sources.append({m_definition.primarySourceId, m_results->source() ? m_results->source()->sourcePath() : QString(), {}});
+    } else if (m_mesh) {
+        m_definition.primarySourceId = QStringLiteral("mesh:") + m_mesh->layerId();
+        m_definition.sources.append({m_definition.primarySourceId,m_mesh->sourcePath(),{}});
+    }
     buildLayout();
+    setResultSources(m_results ? QList<SWMM2DResultsLayer *>{m_results.data()} : QList<SWMM2DResultsLayer *>{});
     rebuildProfile();
     setupMapOverlay();
 
@@ -93,7 +119,8 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
         connect(m_results, &SWMM2DResultsLayer::timeRangeChanged,
                 this, refreshEnvelope);
         connect(m_results, &SWMM2DResultsLayer::currentTimeChanged,
-                this, [this, refreshEnvelope](int) {
+                this, [this, refreshEnvelope](int index) {
+            if (!m_settingTimeFromAnimation && m_results && m_results->source()) m_requestedTime = m_results->source()->simTimeAt(index);
             refreshCurrentDepths();
             // A replacement live frame may reduce the maximum without
             // extending the time range. Refresh that envelope as well.
@@ -109,14 +136,18 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
         if (m_anim) {
             connect(m_anim, &AnimationController::currentTimeChanged,
                     this, [this](const QDateTime &dt) {
+                m_requestedTime = dt;
+                m_settingTimeFromAnimation = true;
                 if (m_results) m_results->setCurrentSimTimeAsOf(dt);
+                m_settingTimeFromAnimation = false;
+                refreshSectionSeries();
             });
         }
 
         // Initial timestamp + depths for the frame already showing.
         if (auto *src = m_results->source()) {
             const int t = m_results->currentTimeIndex();
-            if (t >= 0) m_plot->setCurrentDateTime(src->simTimeAt(t));
+            if (t >= 0) { m_plot->setCurrentDateTime(src->simTimeAt(t)); m_requestedTime = src->simTimeAt(t); refreshSectionSeries(); }
         }
     }
 
@@ -126,6 +157,10 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
                 this, [this] {
             if (m_anim)    disconnect(m_anim.data(),    nullptr, this, nullptr);
             if (m_results) disconnect(m_results.data(), nullptr, this, nullptr);
+            m_contextValid = false;
+            m_liveRebuild.stop(); m_liveRebuildPending = false;
+            for (const auto &source : m_sectionSources) if (source) disconnect(source.data(),nullptr,this,nullptr);
+            m_sectionSources.clear(); m_results.clear(); m_mesh.clear();
             removeOverlay();   // detach from the scene before it's torn down
             close();
         });
@@ -157,7 +192,8 @@ void MeshProfilePlotDialog::buildLayout()
     actZoomIn->setCheckable(true);
     actZoomOut->setCheckable(true);
     actPan->setCheckable(true);
-    actFit->setShortcut(QKeySequence(Qt::Key_Home));
+    actFit->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Home));
+    actFit->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     auto *modeGroup = new QActionGroup(this);
     modeGroup->setExclusive(true);
     modeGroup->addAction(actSelect);
@@ -179,11 +215,35 @@ void MeshProfilePlotDialog::buildLayout()
     toolbar->addSeparator();
     auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")),
                                           tr("Display Options…"));
+    auto *actSectionSettings = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ResultSources")),
+        tr("Section settings"));
+    // Match the 1D profile's named, persisted show/hide toolbar actions.
+    actSectionSettings->setObjectName(QStringLiteral("showSectionSettings"));
+    actSectionSettings->setToolTip(tr("Show or hide section title, series, styles and samples"));
+    actSectionSettings->setCheckable(true);
+    actSectionSettings->setChecked(false);
     root->addWidget(toolbar);
 
-    m_plot = new MeshProfilePlotWidget(this);
-    m_plot->setOptions(m_options);
-    root->addWidget(m_plot, /*stretch=*/1);
+    m_figure = new QWidget(this);
+    auto *figureLayout = new QVBoxLayout(m_figure); figureLayout->setContentsMargins(0,0,0,0);
+    m_plot = new MeshProfilePlotWidget(m_figure);
+    m_plot->setOptions(m_options); figureLayout->addWidget(m_plot,1);
+    m_tracks = new MeshProfileTracksWidget(m_figure); figureLayout->addWidget(m_tracks);
+    auto *scroll = new QScrollArea(this); scroll->setWidgetResizable(true); scroll->setWidget(m_figure);
+    scroll->setAccessibleName(tr("Elevation and scalar section figure"));
+    root->addWidget(scroll, /*stretch=*/1);
+    auto *sectionSettings = new QWidget(this);
+    sectionSettings->setObjectName(QStringLiteral("sectionSettings"));
+    auto *sectionLayout = new QVBoxLayout(sectionSettings);
+    sectionLayout->setContentsMargins(0, 0, 0, 0);
+    buildSectionControls(sectionLayout);
+    root->addWidget(sectionSettings);
+    sectionSettings->setVisible(actSectionSettings->isChecked());
+    connect(actSectionSettings, &QAction::toggled, sectionSettings, &QWidget::setVisible);
+    connect(m_plot,&MeshProfilePlotWidget::viewRangeChanged,m_tracks,&MeshProfileTracksWidget::setViewRange);
+    connect(m_plot,&MeshProfilePlotWidget::cursorChainageChanged,m_tracks,&MeshProfileTracksWidget::setCursorChainage);
+    connect(m_tracks,&MeshProfileTracksWidget::cursorChainageChanged,this,[this](double station) { m_plot->setCursorChainage(station); emit m_plot->cursorChainageChanged(station); });
 
     // Close row, as ProfilePlotDialog has. Wired to close() so every exit
     // (button, Esc, title bar) takes the same path.
@@ -214,10 +274,18 @@ void MeshProfilePlotDialog::buildLayout()
 
 void MeshProfilePlotDialog::rebuildProfile()
 {
-    if (!m_mesh) return;
+    if (!m_mesh && !m_results) { m_profile = {}; m_plot->setProfile(m_profile); refreshSectionSeries(); return; }
     m_profile = MeshProfileSampler::buildMeshProfile(
         m_mesh.data(), m_results.data(), m_scenePolyline);
-    m_plot->setProfile(m_profile);
+    const double toMap = m_results ? m_results->depthToMeshUnits() : m_mapUnitsPerMetre;
+    const double toAxis = m_definition.elevationUnits == QLatin1String("ft") ? 1.0/0.3048 : 1.0;
+    m_verticalScale = toMap > 0 ? toAxis/toMap : 1.0;
+    for (auto &sample : m_profile.samples) {
+        sample.ground *= m_verticalScale; sample.depthNow *= m_verticalScale; sample.maxDepth *= m_verticalScale;
+        sample.signedDepthNow *= m_verticalScale; sample.signedMaxDepth *= m_verticalScale;
+    }
+    for (auto &crossing : m_profile.crossings) crossing.ground *= m_verticalScale;
+    refreshSectionSeries();
 }
 
 void MeshProfilePlotDialog::refreshCurrentDepths()
@@ -229,7 +297,7 @@ void MeshProfilePlotDialog::refreshCurrentDepths()
     }
     QVector<double> depths, signedDepths;
     QVector<bool> hasSurface;
-    const double scale = m_results->depthToMeshUnits();
+    const double scale = m_results->depthToMeshUnits() * m_verticalScale;
     for (auto& s : m_profile.samples) {
         s.signedDepthNow = m_profile.exactWaterGeometry
             ? m_results->signedDepthAtDisplayTriangle(s.displayTriIdx,s.scenePt)*scale
@@ -241,6 +309,7 @@ void MeshProfilePlotDialog::refreshCurrentDepths()
         hasSurface.push_back(s.cellHasSurface);
     }
     m_plot->setCurrentDepths(depths,hasSurface,signedDepths);
+    refreshSectionSeries();
 }
 
 void MeshProfilePlotDialog::setupMapOverlay()
