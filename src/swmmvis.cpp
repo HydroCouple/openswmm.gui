@@ -6504,7 +6504,7 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
                 // default clips shallow runs invisibly. Prefer the live
                 // engine handle; when none is attached (opened a model
                 // without running), read [2D_OPTIONS] DRY_DEPTH straight
-                // from the .inp. Last resort: a small data-derived floor.
+                // from the .inp. Otherwise retain the fixed layer default.
                 double engineDry = 0.0;
                 const double inpDry =
                     SimulationRunner::parseTwoDOption(
@@ -6517,8 +6517,6 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
                     resLayer->setDryDepth(engineDry);
                 } else if (inpDry > 0.0) {
                     resLayer->setDryDepth(inpDry);
-                } else if (peakDepth > 0.0f) {
-                    resLayer->setDryDepth(std::max(1e-5, 0.05 * peakDepth));
                 }
 
                 // Tune the inundation colour ramp's upper bound to the
@@ -6556,6 +6554,8 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
                     if (r.value(QStringLiteral("dryDepth")).toDouble() > 0.0)
                         resLayer->setDryDepth(
                             r.value(QStringLiteral("dryDepth")).toDouble());
+                    resLayer->restoreWaterDisplayPolicy(
+                        r.value(QStringLiteral("waterDisplayPolicy")).toObject());
                     if (r.value(QStringLiteral("maxDepth")).toDouble() > 0.0)
                         resLayer->setMaxDepth(
                             r.value(QStringLiteral("maxDepth")).toDouble());
@@ -9896,25 +9896,10 @@ void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCod
 
                 layer->setSource(std::move(h5Src));
 
-                // Auto-tune the ramp + dry threshold to the
-                // actual data range. setMaxDepth pins the
-                // upper end (disables further auto-grow);
-                // dry_depth is biased to the floor so very
-                // shallow runs still produce visible cells.
+                // Tune colors to the data without changing the model's dry
+                // threshold or the user's separate thin-film display policy.
                 if (peakDepth > 0.0f) {
                     layer->setMaxDepth(peakDepth);
-                    // Refine-only: the 5%-of-peak heuristic may
-                    // LOWER the wet/dry cutoff (keeps very shallow
-                    // runs visible) but must never RAISE it above
-                    // the model DRY_DEPTH applied at run init —
-                    // raising it culled every cell shallower than
-                    // 5% of peak from the post-run scrub view
-                    // (0.59 m peak → 3 cm cutoff wiped the
-                    // shallow flooding the live view had shown).
-                    const double autoDry =
-                        std::max(1e-5, 0.05 * double(peakDepth));
-                    if (autoDry < layer->dryDepth())
-                        layer->setDryDepth(autoDry);
                     layer->setCurrentTimeIndex(peakFrame);
                 }
 

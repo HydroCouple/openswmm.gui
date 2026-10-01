@@ -118,6 +118,8 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
         };
         connect(m_results, &SWMM2DResultsLayer::timeRangeChanged,
                 this, refreshEnvelope);
+        connect(m_results, &SWMM2DResultsLayer::waterDisplayPolicyChanged,
+                this, &MeshProfilePlotDialog::rebuildProfile);
         connect(m_results, &SWMM2DResultsLayer::currentTimeChanged,
                 this, [this, refreshEnvelope](int index) {
             if (!m_settingTimeFromAnimation && m_results && m_results->source()) m_requestedTime = m_results->source()->simTimeAt(index);

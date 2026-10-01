@@ -60,7 +60,7 @@ struct ContourJobInput
     std::vector<double> isoLevels;
 
     /*! Physical visibility cutoff, independent of the color range.
-     *  Depth renderers pass their dry threshold; upper values saturate. */
+     *  Depth renderers mask films first, then clip at zero; upper values saturate. */
     double minimumVisibleValue = -std::numeric_limits<double>::infinity();
 };
 

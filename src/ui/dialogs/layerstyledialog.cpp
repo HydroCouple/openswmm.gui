@@ -105,6 +105,8 @@ QJsonObject captureSubjectSnapshots(OpenSWMMVisLayer *layer)
         const auto subjects = layer->styleSubjects();
         for (const auto &subject : subjects)
             if (subject) snapshots.insert(subjectSnapshotKey(*subject), subject->snapshot());
+        if (auto *results = qobject_cast<SWMM2DResultsLayer *>(layer))
+            snapshots.insert(QStringLiteral("waterDisplayPolicy"), results->waterDisplayPolicyToJson());
     }
     return snapshots;
 }
@@ -120,6 +122,8 @@ void restoreSubjectSnapshots(OpenSWMMVisLayer *layer, const QJsonObject &snapsho
         const QString key = subjectSnapshotKey(*subject);
         if (snapshots.contains(key)) subject->restore(snapshots.value(key).toObject());
     }
+    if (auto *results = qobject_cast<SWMM2DResultsLayer *>(layer))
+        results->restoreWaterDisplayPolicy(snapshots.value(QStringLiteral("waterDisplayPolicy")).toObject());
 }
 
 void applyStyleSnapshots(OpenSWMMVisLayer *layer, const QJsonObject &styleJson,

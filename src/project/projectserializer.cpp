@@ -654,6 +654,7 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
             r[kResults2DVisible]  = rl->isVisible();
             r[kResults2DOpacity]  = rl->opacity();
             r[kResults2DDryDepth] = rl->dryDepth();
+            r[QStringLiteral("waterDisplayPolicy")] = rl->waterDisplayPolicyToJson();
             r[kResults2DMaxDepth] = rl->maxDepth();
             r[kResults2DMaxVel]   = rl->maxVelocity();
             if (auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(rl))

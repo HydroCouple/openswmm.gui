@@ -155,6 +155,45 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
 
     if (!m_layer) return;
 
+    auto *water = new QGroupBox(tr("Water visibility"), this);
+    auto *waterForm = new QFormLayout(water);
+    auto *modelDepth = new QCheckBox(tr("Use model dry depth"), water);
+    modelDepth->setObjectName(QStringLiteral("useModelThinFilmDepth"));
+    auto *filmDepth = new QDoubleSpinBox(water);
+    filmDepth->setObjectName(QStringLiteral("thinFilmDepth"));
+    filmDepth->setDecimals(6);
+    filmDepth->setRange(0.0, 1000.0);
+    filmDepth->setSingleStep(0.001);
+    filmDepth->setSuffix(tr(" m"));
+    auto *showFilms = new QCheckBox(tr("Show thin films"), water);
+    showFilms->setObjectName(QStringLiteral("showThinFilms"));
+    auto *hint = new QLabel(tr("Hide water in cells that are shallow everywhere. "
+        "Partially wet cells retain their shoreline. Applies to maps and profiles; "
+        "simulation results are unchanged."), water);
+    hint->setWordWrap(true);
+    waterForm->addRow(modelDepth);
+    waterForm->addRow(tr("Thin-film depth:"), filmDepth);
+    waterForm->addRow(showFilms);
+    waterForm->addRow(hint);
+    root->insertWidget(0, water);
+    const auto syncWater = [this,modelDepth,filmDepth,showFilms] {
+        if (!m_layer) return;
+        const QSignalBlocker a(modelDepth), b(filmDepth), c(showFilms);
+        modelDepth->setChecked(m_layer->usesModelThinFilmDepth());
+        filmDepth->setValue(m_layer->thinFilmDepth());
+        filmDepth->setEnabled(!modelDepth->isChecked());
+        showFilms->setChecked(m_layer->showThinFilms());
+    };
+    syncWater();
+    connect(modelDepth, &QCheckBox::toggled, this, [this,filmDepth](bool on) {
+        if (m_layer) m_layer->setThinFilmDepth(on ? -1.0 : filmDepth->value());
+    });
+    connect(filmDepth, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double depth) { if (m_layer) m_layer->setThinFilmDepth(depth); });
+    connect(showFilms, &QCheckBox::toggled, this,
+            [this](bool show) { if (m_layer) m_layer->setShowThinFilms(show); });
+    connect(m_layer, &SWMM2DResultsLayer::waterDisplayPolicyChanged, this, syncWater);
+
     // Each page sits in a scroll area so a narrow/short dialog scrolls
     // instead of compressing the editors below their minimum sizes.
     auto wrapScroll = [tabs](QWidget *page) {
@@ -496,7 +535,7 @@ QWidget *Swmm2DResultsStylePanel::buildScalarFillTab(
             [st] { return st->scheme(); },
             [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
             [] { return QVector<double>{}; },
-            [L] { return qMakePair(L->dryDepth(), L->maxDepth()); },
+            [L] { return qMakePair(0.0, L->maxDepth()); },
             /*supportsContinuousMode=*/true,
             /*supportsRangeModes=*/true);
         lay->addWidget(new ClassificationEditor(binding, /*ownBinding=*/true, page));
@@ -527,7 +566,7 @@ QWidget *Swmm2DResultsStylePanel::buildContourBandTab(QWidget *parent)
             [st] { return st->scheme(); },
             [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
             [] { return QVector<double>{}; },            // table preview only; map samples per frame
-            [L] { return qMakePair(L->dryDepth(), L->maxDepth()); },
+            [L] { return qMakePair(0.0, L->maxDepth()); },
             /*supportsContinuousMode=*/false,
             /*supportsRangeModes=*/false);
         lay->addWidget(new ClassificationEditor(binding, /*ownBinding=*/true, page));

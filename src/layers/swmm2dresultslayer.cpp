@@ -273,7 +273,9 @@ public:
         if (tris.isEmpty()) return;
 
         const QRectF exposed  = option->exposedRect;
-        const double dryDepth = layer_->dryDepth();
+        // Cell visibility is resolved before smoothing. Visible partial cells
+        // reach their true zero-depth shoreline, independently of palette limits.
+        const double dryDepth = 0.0;
         const double maxDepth = layer_->maxDepth();
 
         // Phase 9 (2026-05-25) — sublayer.isVisible() is the authoritative
@@ -719,7 +721,8 @@ public:
                     QHash<qint64, int> bucket;
                     for (int i = 0; i < tris.size(); ++i) {
                         const auto &t = tris[i];
-                        if (t.depth < dryDepth) continue;
+                        if (!std::isfinite(t.dv0) || !std::isfinite(t.dv1)
+                            || !std::isfinite(t.dv2)) continue;
                         const double rx = t.centroid.x() - area.left();
                         const double ry = t.centroid.y() - area.top();
                         if (rx < 0 || ry < 0 || rx > area.width() || ry > area.height())
@@ -1800,24 +1803,21 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
     t = std::clamp(t, 0, n - 1);
 
     current_time_idx_ = t;
-    source_->readDepthsAt(t, current_depths_);
-    if (current_depths_.size() != cells_.size())
-        current_depths_.assign(cells_.size(), 0.0f);
-    // Sanitize at the single choke point every consumer reads from
-    // (heatmap fill, per-vertex reconstruction, ramp autogrow, Quantile/Jenks
-    // samples — CPU and QSG paths alike). A transient NaN/Inf cell depth from
-    // a live tick otherwise slips every dry-gate (`h < dry` is false for NaN),
-    // poisons the vertex reconstruction star-wise around the cell, and reaches
-    // the colour ramp as clamp(NaN) → arbitrary colour — the streaky-triangle
-    // artifact on large live runs. Non-finite → 0 (dry).
+    if (!source_->readDepthsAt(t, current_depths_) || current_depths_.size() != cells_.size())
+        current_depths_.assign(cells_.size(), std::numeric_limits<float>::quiet_NaN());
+    // Unknown cells remain distinct from dry terrain. The shared surface
+    // validity mask excludes them before smoothing, clipping and velocity
+    // reconstruction; never let a failed read reuse the preceding frame.
     {
         int bad = 0;
         for (float &d : current_depths_)
-            if (!std::isfinite(d)) { d = 0.0f; ++bad; }
+            if (!std::isfinite(d) || d < 0.0f) {
+                d = std::numeric_limits<float>::quiet_NaN(); ++bad;
+            }
         static const bool kRenderDebug =
             qEnvironmentVariableIsSet("OPENSWMM_2D_RENDER_DEBUG");
         if (kRenderDebug && bad > 0)
-            qWarning("[2D-render] frame %d: sanitized %d non-finite cell "
+            qWarning("[2D-render] frame %d: masked %d invalid cell "
                      "depth(s) from the source", t, bad);
     }
     // Edge flux is optional — sources without it return false and leave
@@ -2076,6 +2076,7 @@ void SWMM2DResultsLayer::closeSource()
 
 void SWMM2DResultsLayer::setDryDepth(double d)
 {
+    if (!std::isfinite(d) || d < 0.0) return;
     const bool changed = (d != dry_depth_);
     dry_depth_ = d;
     // Drive the vector overlays' wet/dry cutoff from the same model DRY_DEPTH so
@@ -2089,10 +2090,57 @@ void SWMM2DResultsLayer::setDryDepth(double d)
     if (m_velocityVectorSublayer && m_velocityVectorSublayer->vectorStyle())
         m_velocityVectorSublayer->vectorStyle()->setDryDepthCutoff(d);
     if (changed) {
-        if (graphics_item_) graphics_item_->geometryChanged();
-        if (arrows_item_)   arrows_item_->geometryChanged();
-        emit repaintRequested();
+        refreshWaterDisplayPolicy_();
     }
+}
+
+void SWMM2DResultsLayer::setThinFilmDepth(double metres)
+{
+    if (!std::isfinite(metres)) return;
+    metres = metres < 0.0 ? -1.0 : metres;
+    if (thin_film_depth_ == metres) return;
+    thin_film_depth_ = metres;
+    refreshWaterDisplayPolicy_();
+}
+
+void SWMM2DResultsLayer::setShowThinFilms(bool show)
+{
+    if (show_thin_films_ == show) return;
+    show_thin_films_ = show;
+    refreshWaterDisplayPolicy_();
+}
+
+QJsonObject SWMM2DResultsLayer::waterDisplayPolicyToJson() const
+{
+    return {{QStringLiteral("version"),1},
+            {QStringLiteral("thinFilmDepthMetres"),thin_film_depth_},
+            {QStringLiteral("showThinFilms"),show_thin_films_}};
+}
+
+void SWMM2DResultsLayer::restoreWaterDisplayPolicy(const QJsonObject &json)
+{
+    if (json.value(QStringLiteral("version")).toInt() != 1) return;
+    const auto depth = json.value(QStringLiteral("thinFilmDepthMetres"));
+    const auto show = json.value(QStringLiteral("showThinFilms"));
+    if (!depth.isDouble() || !std::isfinite(depth.toDouble()) || !show.isBool()) return;
+    const double metres = depth.toDouble() < 0.0 ? -1.0 : depth.toDouble();
+    if (thin_film_depth_ == metres && show_thin_films_ == show.toBool()) return;
+    thin_film_depth_ = metres;
+    show_thin_films_ = show.toBool();
+    refreshWaterDisplayPolicy_();
+}
+
+void SWMM2DResultsLayer::refreshWaterDisplayPolicy_()
+{
+    // Recompute historical visibility from each historical frame, not the
+    // current mask. Invalidate pending map work before requesting a repaint.
+    surfaceMaxSource_ = nullptr;
+    applyCurrentDepths_();
+    applyCurrentFlux_();
+    if (graphics_item_) graphics_item_->geometryChanged();
+    if (arrows_item_) arrows_item_->geometryChanged();
+    emit waterDisplayPolicyChanged();
+    emit repaintRequested();
 }
 
 void SWMM2DResultsLayer::setMaxDepth(double d)
@@ -2574,18 +2622,29 @@ float SWMM2DResultsLayer::depthAtDisplayTriInterp_(int idx, const QPointF& p) co
 
 bool SWMM2DResultsLayer::cellHasSurface(int cell) const
 {
-    return cell >= 0 && size_t(cell) < cellSurfaces_.size()
-        && cellSurfaces_[size_t(cell)].state == CellWaterGeometry::State::Wet;
+    return CellWaterGeometry::visible(cellWaterDisplayState(cell),waterVisibilityPolicy());
+}
+
+CellWaterGeometry::DisplayState SWMM2DResultsLayer::cellWaterDisplayState(int cell) const
+{
+    if (cell < 0 || size_t(cell) >= cellSurfaces_.size() || size_t(cell) >= cellSplit_.size())
+        return CellWaterGeometry::DisplayState::Invalid;
+    return CellWaterGeometry::displayState(cellSplit_[size_t(cell)],
+        cellSurfaces_[size_t(cell)],vz_,waterVisibilityPolicy());
 }
 
 SWMM2DResultsLayer::VelocityField SWMM2DResultsLayer::captureVelocityField() const
 {
-    return {current_depths_, vvx_, vvy_};
+    VelocityField field{current_depths_, vvx_, vvy_};
+    for (size_t c = 0; c < field.depths.size(); ++c)
+        if (!cellHasSurface(int(c))) field.depths[c] = 0.0f;
+    return field;
 }
 
 bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
                                          float& outVx, float& outVy) const
 {
+    if (!cellHasSurface(pickCellAt(scenePt))) { outVx = outVy = 0.0f; return false; }
     return velocityAtScene_(scenePt, outVx, outVy, current_depths_, vvx_, vvy_);
 }
 
@@ -2609,8 +2668,9 @@ bool SWMM2DResultsLayer::velocityAtScene_(const QPointF& scenePt,
     // vertices borrowed a velocity from a still-wet neighbour. Gate on the
     // cell's own mean depth so arrows never appear in a dry cell.
     const int cell = triCell_[size_t(idx)];
-    if (cell >= 0 && cell < static_cast<int>(depths.size()) &&
-        depths[size_t(cell)] < float(dry_depth_))
+    if (cell < 0 || cell >= static_cast<int>(depths.size())
+        || !std::isfinite(depths[size_t(cell)]) || depths[size_t(cell)] <= 0.0f
+        || depths[size_t(cell)] < float(dry_depth_))
         return false;
 
     const auto& t   = m_sceneTris[idx];
@@ -2652,7 +2712,7 @@ QVector<double> SWMM2DResultsLayer::depthClassificationSamples(
     auto append = [&](const auto& depths) {
         samples.reserve(depths.size());
         for (float d : depths)
-            if (std::isfinite(d) && d >= dry_depth_) samples.push_back(d);
+            if (std::isfinite(d) && d > 0.0) samples.push_back(d);
     };
     if (scheme.rangeMode() == RangeMode::PerFrameAutoStretch)
         append(current_depths_);
@@ -2707,7 +2767,8 @@ std::vector<CellWaterGeometry::CornerDepths> SWMM2DResultsLayer::maxSurfaceDepth
     auto fold=[&](int frame,auto& maximum) {
         if (!source_->readDepthsAt(frame,depths) || depths.size()!=cells_.size()) return false;
         for (size_t c=0;c<cells_.size();++c) surfaces[c]=surfaceForDepth(int(c),depths[c]);
-        CellWaterGeometry::smoothCornerDepths(cellSplit_,surfaces,vz_,surfaceTopology_,field);
+        CellWaterGeometry::smoothCornerDepths(cellSplit_,surfaces,vz_,surfaceTopology_,field,
+                                             waterVisibilityPolicy());
         for (size_t c=0;c<field.size();++c)
             for (int k=0;k<4;++k)
                 if (std::isfinite(field[c][k])
@@ -3072,7 +3133,8 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
     cellSurfaces_.resize(cells_.size());
     for (size_t c = 0; c < cells_.size(); ++c)
         cellSurfaces_[c] = surfaceForDepth(int(c),current_depths_[c]);
-    CellWaterGeometry::smoothCornerDepths(cellSplit_,cellSurfaces_,vz_,surfaceTopology_,surfaceDepths_);
+    CellWaterGeometry::smoothCornerDepths(cellSplit_,cellSurfaces_,vz_,surfaceTopology_,surfaceDepths_,
+                                         waterVisibilityPolicy());
     for (int i = 0; i < m_sceneTris.size(); ++i) {
         const auto& ids = tris_[size_t(i)];
         const int cell = triCell_[size_t(i)];
@@ -3122,7 +3184,7 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
                        cellVm(size_t(nCell), 0.0f);
     for (int c = 0; c < nCell; ++c) {
         const float depth = current_depths_[size_t(c)];
-        if (depth < dryEps) continue;
+        if (depth < dryEps || !cellHasSurface(c)) continue;
 
         double vx_model = 0.0, vy_model = 0.0;
         if (!mesh::rt0CellDischarge(c, cellVertexCount(cells_[size_t(c)]),
@@ -3165,7 +3227,7 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
         std::vector<float> wsum(static_cast<size_t>(nVert), 0.0f);
         for (int c = 0; c < nCell; ++c) {
             const float depth = current_depths_[size_t(c)];
-            if (depth < dryEps || cellVm[size_t(c)] <= 0.0f) continue;
+            if (depth < dryEps || !cellHasSurface(c) || cellVm[size_t(c)] <= 0.0f) continue;
             const auto& cell = cells_[size_t(c)];
             const int nv = cellVertexCount(cell);
             // Depth weight × 3/nv: the plan's 1/nv-per-incident-cell rule,
@@ -3350,7 +3412,7 @@ SWMM2DResultsLayer::sublayerLegendItems() const
 
     QList<LegendSymbolItem> out;
 
-    const double dry = dry_depth_;
+    const double dry = 0.0; // palette range is independent of film visibility
     const double mx  = std::max(dry + 1e-6, max_depth_);
 
     // 2026-06-21 — the depth color ramp legend section was removed along with
