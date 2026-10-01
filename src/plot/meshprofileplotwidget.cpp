@@ -23,6 +23,8 @@
 #include <QRubberBand>
 #include <QStringList>
 #include <QWheelEvent>
+#include <QKeyEvent>
+#include <QAccessible>
 
 #include <algorithm>
 #include <cmath>
@@ -100,6 +102,9 @@ MeshProfilePlotWidget::MeshProfilePlotWidget(QWidget *parent)
             this, applyPlotBackground);
     setMinimumSize(360, 240);
     setMouseTracking(true);
+    setFocusPolicy(Qt::StrongFocus);
+    setAccessibleName(tr("2D elevation profile"));
+    setAccessibleDescription(tr("Left and Right move between section stations. Home and End move to the first and last station."));
 }
 
 // ── Configuration ───────────────────────────────────────────────────────
@@ -166,6 +171,9 @@ void MeshProfilePlotWidget::setCursorChainage(double chainage)
     if (m_hasCursor && std::abs(c - m_cursorChainage) < 1e-9) return;
     m_hasCursor = true;
     m_cursorChainage = c;
+    setAccessibleDescription(tr("Station %1. Left and Right move between section stations.").arg(c,0,'g',12));
+    QAccessibleValueChangeEvent accessibleEvent(this,c);
+    QAccessible::updateAccessibility(&accessibleEvent);
     update();
 }
 
@@ -190,6 +198,14 @@ void MeshProfilePlotWidget::recomputeBounds()
         if (!finiteGround(s)) continue;
         yMin = std::min(yMin, s.ground);
         yMax = std::max(yMax, s.ground + std::max(0.0, s.maxDepth));
+    }
+    for (const auto &series : m_profile.series) {
+        if (!series.definition.visible || series.definition.role != ProfileSection::SeriesRole::Elevation
+            || !series.error.isEmpty()) continue;
+        for (const auto &point : series.points) {
+            if (point.status != openswmmvis::io::Mesh2DValueStatus::Valid || !std::isfinite(point.value)) continue;
+            yMin = std::min(yMin,point.value); yMax = std::max(yMax,point.value);
+        }
     }
     if (!std::isfinite(yMin) || !std::isfinite(yMax) || yMax <= yMin) {
         yMin = 0.0; yMax = 1.0;
@@ -411,6 +427,8 @@ void MeshProfilePlotWidget::resizeEvent(QResizeEvent *) { update(); }
 
 void MeshProfilePlotWidget::paintEvent(QPaintEvent *)
 {
+    const QRectF range = visibleDataRange();
+    if (range != m_lastEmittedViewRange) { m_lastEmittedViewRange = range; emit viewRangeChanged(range); }
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
 
@@ -424,6 +442,7 @@ void MeshProfilePlotWidget::paintEvent(QPaintEvent *)
         paintWseLine(p);
     }
     paintGroundLine(p);
+    paintAdditionalElevations(p);
     paintCellBoundaryDots(p);
     paintCursor(p);
     paintLegend(p);
@@ -891,6 +910,41 @@ void MeshProfilePlotWidget::paintWseLine(QPainter &p) const
                  QBrush(Qt::NoBrush), /*doFill=*/false, pen, /*doLine=*/true, toPx);
 }
 
+void MeshProfilePlotWidget::paintAdditionalElevations(QPainter &p) const
+{
+    p.save(); p.setClipRect(plotRect()); p.setBrush(Qt::NoBrush);
+    for (const auto &series : m_profile.series) {
+        if (!series.definition.visible || series.definition.role != ProfileSection::SeriesRole::Elevation
+            || !series.error.isEmpty()) continue;
+        p.setPen(series.definition.pen); p.setOpacity(series.definition.opacity);
+        QPainterPath path; bool active = false;
+        for (const auto &point : series.points) {
+            if (point.status != openswmmvis::io::Mesh2DValueStatus::Valid || !std::isfinite(point.value)) { active = false; continue; }
+            const QPointF pixel = dataToPixel(point.chainage,point.value);
+            if (!active || point.breakBefore) path.moveTo(pixel); else path.lineTo(pixel);
+            active = true;
+        }
+        p.drawPath(path);
+    }
+    p.restore();
+}
+
+void MeshProfilePlotWidget::keyPressEvent(QKeyEvent *event)
+{
+    QVector<double> stations;
+    for (const auto &sample : m_profile.samples) stations.append(sample.chainage);
+    for (const auto &series : m_profile.series) for (const auto &point : series.points) stations.append(point.chainage);
+    std::sort(stations.begin(),stations.end()); stations.erase(std::unique(stations.begin(),stations.end()),stations.end());
+    if (stations.isEmpty()) { QWidget::keyPressEvent(event); return; }
+    double station = m_hasCursor ? m_cursorChainage : -1;
+    if (event->key() == Qt::Key_Home) station = stations.front();
+    else if (event->key() == Qt::Key_End) station = stations.back();
+    else if (event->key() == Qt::Key_Right) { auto it = std::upper_bound(stations.begin(),stations.end(),station); station = it == stations.end() ? stations.back() : *it; }
+    else if (event->key() == Qt::Key_Left) { auto it = std::lower_bound(stations.begin(),stations.end(),station); station = it == stations.begin() ? stations.front() : *--it; }
+    else { QWidget::keyPressEvent(event); return; }
+    setCursorChainage(station); emit cursorChainageChanged(station); event->accept();
+}
+
 void MeshProfilePlotWidget::paintGroundLine(QPainter &p) const
 {
     const auto &s = m_profile.samples;
@@ -1012,6 +1066,15 @@ void MeshProfilePlotWidget::paintLegend(QPainter &p) const
                              (!m_options || m_options->showMaxEnvelopeLine()),
                              m_options ? m_options->maxEnvelopeBrush() : QBrush(QColor(0x55, 0xA8, 0xE6, 60)),
                              m_options ? m_options->maxEnvelopePen() : QPen(QColor(0x1F, 0x6F, 0xB7), 1.4, Qt::DashLine) });
+    }
+    for (const auto &series : m_profile.series) {
+        if (!series.definition.visible || series.definition.role != ProfileSection::SeriesRole::Elevation) continue;
+        QPen pen = series.definition.pen; QColor color = pen.color(); color.setAlphaF(color.alphaF()*series.definition.opacity); pen.setColor(color);
+        const QString units = series.unitsKnown ? series.units : tr("units unknown");
+        const QString timing = series.effectiveTime.isValid() ? series.effectiveTime.toString(Qt::ISODate) : tr("Static / unavailable");
+        const QString label = QStringLiteral("%1 [%2] — %3%4").arg(series.definition.label,units,timing,
+            series.error.isEmpty() ? QString() : tr(" (unavailable)"));
+        rows.push_back({label,false,true,QBrush(Qt::NoBrush),pen});
     }
     if (rows.isEmpty()) return;
 

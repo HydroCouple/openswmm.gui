@@ -17,14 +17,23 @@
 #define MESH_PROFILE_PLOT_DIALOG_H
 
 #include "plot/meshprofilesampler.h"
+#include "plot/profilesectionseries.h"
 
 #include <QDateTime>
+#include <QHash>
 #include <QDialog>
 #include <QPointer>
 #include <QPointF>
 #include <QTimer>
 #include <QVector>
 
+class QVBoxLayout;
+class QComboBox;
+class QLabel;
+class QTableView;
+class MeshProfileTracksWidget;
+class MeshProfileSamplesModel;
+class MeshProfileSeriesEditor;
 class AnimationController;
 class MapToolProfileMarker;
 class MeshProfileOverlay;
@@ -46,9 +55,24 @@ public:
                           SWMMVisProjectWindow   *projectWindow,
                           QWidget                *parent = nullptr);
     ~MeshProfilePlotDialog() override;
+    ProfileSection::Definition definition() const;
+    bool setDefinition(const ProfileSection::Definition &, QString *error = nullptr);
+    void setResultSources(const QList<SWMM2DResultsLayer *> &sources);
+    void setSavedDefinitions(const QVector<ProfileSection::Definition> &definitions);
+    const ProfileSection::Section &section() const { return m_profile; }
+signals:
+    void saveDefinitionRequested(const ProfileSection::Definition &definition);
+    void openSavedDefinitionRequested(const QString &id);
+    void definitionChanged();
 
 private:
     void buildLayout();
+    void buildSectionControls(QVBoxLayout *layout);
+    void refreshSectionSeries();
+    void refreshSourceChoices();
+    QString sourceId(SWMM2DResultsLayer *) const;
+    void exportSectionImage();
+    void exportSectionTable();
     void rebuildProfile();          // full resample (geometry + envelope)
     void refreshCurrentDepths();    // per-frame depth-column update
     void openDisplayOptions();
@@ -71,6 +95,24 @@ private:
 
     MeshProfilePlotWidget        *m_plot    = nullptr;
     MeshProfilePlotOptions       *m_options = nullptr;
+
+    ProfileSection::Definition m_definition;
+    QList<QPointer<SWMM2DResultsLayer>> m_sectionSources;
+    QVector<QMetaObject::Connection> m_sectionConnections;
+    QHash<QString,QPair<quint64,QVector<ProfileSection::SeriesStation>>> m_seriesStations;
+    MeshProfileTracksWidget *m_tracks = nullptr;
+    MeshProfileSamplesModel *m_samplesModel = nullptr;
+    MeshProfileSeriesEditor *m_seriesEditor = nullptr;
+    QTableView *m_samplesTable = nullptr;
+    QComboBox *m_savedSections = nullptr;
+    QLabel *m_sectionStatus = nullptr;
+    QWidget *m_figure = nullptr;
+    QDateTime m_requestedTime;
+    bool m_loadingDefinition = false;
+    bool m_settingTimeFromAnimation = false;
+    bool m_contextValid = true;
+    double m_verticalScale = 1.0;
+    double m_mapUnitsPerMetre = 1.0;
 
     MeshProfileOverlay           *m_overlay    = nullptr;  // owned by map scene
     MapToolProfileMarker         *m_markerTool = nullptr;  // parented to dialog

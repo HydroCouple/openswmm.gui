@@ -350,6 +350,10 @@ set(
         include/plot/profileattributetrackoptions.h
         include/plot/profileattributetrackswidget.h
         include/plot/profileplotoptions.h
+        include/project/profilesectionstore.h
+        include/plot/profilesectionseries.h
+        include/plot/meshprofiletrackswidget.h
+        include/plot/meshprofileserieseditor.h
         include/plot/profilesection.h
         include/plot/meshprofilesampler.h
         include/plot/rasterprofilesampler.h
@@ -1092,6 +1096,12 @@ set(
         src/plot/profileattributetrackoptions.cpp
         src/plot/profileattributetrackswidget.cpp
         src/plot/profileplotoptions.cpp
+        src/project/profilesectionstore.cpp
+        src/plot/profilesectionseries.cpp
+        src/io/profilesectionio.cpp
+        src/plot/meshprofiletrackswidget.cpp
+        src/plot/meshprofileserieseditor.cpp
+        src/ui/dialogs/meshprofileplotdialog_series.cpp
         src/plot/meshprofilesampler.cpp
         src/plot/rasterprofilesampler.cpp
         src/plot/meshprofileplotwidget.cpp

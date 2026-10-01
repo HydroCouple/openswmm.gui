@@ -96,6 +96,7 @@ signals:
      *  \p chainage is the scene-unit distance along the path. The dialog maps
      *  it to a scene point and moves the map arrow. */
     void cursorChainageChanged(double chainage);
+    void viewRangeChanged(const QRectF &range);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -104,6 +105,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private:
     [[nodiscard]] QRectF  plotRect() const;
@@ -121,6 +123,7 @@ private:
     void paintDepthFill(QPainter &p) const;
     void paintWseLine(QPainter &p) const;
     void paintGroundLine(QPainter &p) const;
+    void paintAdditionalElevations(QPainter &p) const;
     void paintCellBoundaryDots(QPainter &p) const;
     void paintCursor(QPainter &p) const;
     void paintLegend(QPainter &p) const;
@@ -129,6 +132,7 @@ private:
     MeshProfileSampler::MeshProfile      m_profile;
     QPointer<MeshProfilePlotOptions>     m_options;
     QDateTime                            m_currentDateTime;
+    QRectF                               m_lastEmittedViewRange;
     QString                              m_xLabel = QStringLiteral("Distance");
     QString                              m_yLabel = QStringLiteral("Elevation");
 

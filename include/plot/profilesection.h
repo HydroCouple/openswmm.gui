@@ -19,6 +19,7 @@
 #ifndef PROFILE_SECTION_H
 #define PROFILE_SECTION_H
 
+#include "plot/profilesectionseries.h"
 #include <QPointF>
 #include <QVector>
 #include <limits>
@@ -71,6 +72,8 @@ struct CellCrossing
 struct Section
 {
     QVector<Sample> samples;
+    QVector<SampledSeries> series;
+    QDateTime requestedTime, effectiveTime; // primary surface frame, independent of each named series
     QVector<CellCrossing> crossings;  /*!< cell-edge crossings along the path. */
     bool exactWaterGeometry = false;
     quint64 geometryRevision = 0;
