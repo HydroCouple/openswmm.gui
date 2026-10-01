@@ -4,9 +4,18 @@ Status: APPROVED 2026-09-29 (owner: "Proceed with implementation"). Living copy 
 https://claude.ai/code/artifact/ca920188-9c87-469e-8ba2-b12389151456. This file is the vetted plan
 per CLAUDE.md §5.0; later sessions follow it rather than inventing a new strategy.
 
-Progress 2026-09-30: Phases 0–6 implemented in the container build (commits phase0 … phase5 on the
-local copy, see §9); container ctest green (20 suites). Phase 7 pending on the Mac: full GUI build,
-ctest, Bellinge metrics, engine round trip.
+Progress 2026-09-30: Phases 0–6 and the Phase 6b amendment (terrain break lines + mixed cell
+shape, `workplans/MESH_OVERHAUL_PHASE6B_FEATURE_CAPTURE_2026-09-30.md`) implemented in the container
+build; container ctest green (22 suites). Phase 7 pending on the Mac — full GUI build, ctest,
+Bellinge and urban metrics, engine round trip — per
+`workplans/MESH_OVERHAUL_PHASE7_HANDOFF_2026-09-30.md` (revision 2).
+
+Progress 2026-10-01: Phase 8 — the triangle engine
+(`workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md`, decisions D10–D14) — replaces Stages 3–4
+(quadtree core + CDT fringe) and the Phase 6b mixed cell shape: constrained Delaunay refinement with
+a guaranteed minimum angle, quads only in aligned feature strips (quad regions, corridors, streets
+from the DEM, conduit strips), coarsen default 20. Implemented in the container (22 suites green);
+Phase 7 on the Mac continues with handoff revision 3 (patch 0005).
 
 ## 1. Objectives (priority order)
 
@@ -81,7 +90,7 @@ Stage 5 **Assembly**: stitch corridor/Mapped patches, tags, Hilbert (Morton orde
 | Resolution | Size ratio between neighbouring cells | ratio | 1.5 |
 | Resolution | Minimum cell size | map units | cell size / 4 |
 | Resolution | Terrain tolerance | vertical units | 0 = off |
-| Shape | Cell shape | Quads where possible / Triangles | Quads |
+| Shape | Cell shape | Quads where possible / Triangles / Quads on open ground, triangles at terrain features (6b) | the third |
 | Shape | Grid orientation | CRS axes / angle | CRS axes |
 | Shape | Quad regions layer (attrs `h`, `angle`) | layer | none |
 | Shape | Corridors | existing widget | — |
@@ -130,8 +139,12 @@ D1 option surface as above · D2 axis-aligned per-region frames + corridors repl
 D3 bit-identity is a non-goal · D4 Triangle removed, not kept as a backend · D5 (Phase 5) the Mapped
 patch table and quad-region modes are gone; corridors (`CorridorSourcesWidget`) are the only way to
 place structured patches, and the placement/stitch validation stays on them (Q5 closed) · D6 (Phase
-4) grading gate revised to core ≤ 2 / fringe ≤ 2.1 / median ≤ r, see §6. Open: Q1 hanging nodes in
-the engine, Q2 outer ring as size seed (no), Q3 orthogonality sensitivity.
+4) grading gate revised to core ≤ 2 / fringe ≤ 2.1 / median ≤ r, see §6 · D7 (2026-09-30) Phase 6b
+approved and built: terrain break lines as non-coupling constraints, mixed cell shape as the default,
+terrain alone grades the mesh · D8 the terrain tolerance also drives break-line extraction (one
+number, one meaning) · D9 grading gate for meshes with terrain lines: median 1:1, none above 3,
+≤ 0.1 % of faces above 2.1 (measured 0.003 % on a 1 km² curb grid). Open: Q1 hanging nodes in the
+engine, Q2 outer ring as size seed (no), Q3 orthogonality sensitivity.
 
 ## 8. Build/verify workflow for this overhaul
 
@@ -144,5 +157,7 @@ outputs go under `tests/output/mesh_overhaul_2026-09/` (CLAUDE.md §4.1).
 
 The container copy is synced by patch: `git diff 6f0544b HEAD` from the container is written to
 `test_artifacts/mesh_overhaul/patches/NNNN-*.patch` and applied on the Mac with `git apply`
-(`--3way` if the branch moved). Patch 0001 (Phases 0–1) is applied; 0002 carries Phases 2–6 and
-includes the deletions in §5 Phase 5.
+(`--3way` if the branch moved). Applied on the Mac: 0001 (Phases 0–1), 0002 (Phases 2–6, with the
+§5 Phase 5 deletions), 0003 (pipeline test adaptation). 0004 carries Phase 6b and the review fixes;
+it is based on container commit 850e70d (the two workplan documents already on the Mac). The
+container harness (`CMakeLists.txt`, `syntax.sh`) is copied to `test_artifacts/mesh_overhaul/harness/`.

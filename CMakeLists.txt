@@ -614,7 +614,8 @@ set(
         include/mesh/pslgprep.h
         include/mesh/sizefield.h
         include/mesh/terrainsizefield.h
-        include/mesh/meshquadtree.h
+        include/mesh/terrainbreaklines.h
+        include/mesh/breaklinestrips.h
         include/mesh/sms2dmreader.h
         include/mesh/meshhoverprobe.h
         include/mesh/meshobjectref.h
@@ -1348,7 +1349,8 @@ set(
         src/mesh/pslgprep.cpp
         src/mesh/sizefield.cpp
         src/mesh/terrainsizefield.cpp
-        src/mesh/meshquadtree.cpp
+        src/mesh/terrainbreaklines.cpp
+        src/mesh/breaklinestrips.cpp
         src/mesh/sms2dmreader.cpp
         src/mesh/meshhoverprobe.cpp
         src/mesh/meshnodemapper.cpp

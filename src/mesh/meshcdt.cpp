@@ -39,6 +39,29 @@ quint64 mortonKey(quint32 x, quint32 y)
     return spread(x) | (spread(y) << 1);
 }
 
+/*! Undirected edge key: (min << 32) | max. */
+inline quint64 edgeKey64(int a, int b)
+{
+    if (a > b) std::swap(a, b);
+    return (quint64(quint32(a)) << 32) | quint64(quint32(b));
+}
+inline int keyLo(quint64 k) { return int(quint32(k >> 32)); }
+inline int keyHi(quint64 k) { return int(quint32(k & 0xffffffffull)); }
+
+double orientPts(const QPointF &a, const QPointF &b, const QPointF &c)
+{
+    const double pa[2] = {a.x(), a.y()}, pb[2] = {b.x(), b.y()}, pc[2] = {c.x(), c.y()};
+    return orient2d(pa, pb, pc);
+}
+
+inline double dist2(const QPointF &a, const QPointF &b)
+{
+    const double dx = a.x() - b.x(), dy = a.y() - b.y();
+    return dx * dx + dy * dy;
+}
+
+constexpr double kEquilateralArea = 0.4330127018922193;   // √3/4
+
 } // namespace
 
 // ── Predicates ───────────────────────────────────────────────────────────
@@ -146,14 +169,18 @@ bool ConstrainedDelaunay::isConstrained(int a, int b) const
 
 QVector<int> ConstrainedDelaunay::constrainedChain(int a, int b) const
 {
+    // Follow constrained edges from a: first the edge to b itself, then the
+    // subsegments refinement or insertion split off (a, b) — its origin — and
+    // failing both an exactly collinear constrained edge towards b.
+    const quint64 origin = edgeKey64(a, b);
     QVector<int> chain{a};
-    int cur = a;
+    int cur = a, prev = -1;
     for (int guard = 0; guard < 1000000 && cur != b; ++guard)
     {
-        // Among the constrained edges at cur, the one heading to b along the segment.
         QVector<int> fan;
         trianglesAround(cur, &fan);
-        int best = -1;
+        bool reachesB = false;
+        int byOrigin = -1, byLine = -1;
         double bestD2 = std::numeric_limits<double>::infinity();
         const QPointF &P = m_pts[cur], &B = m_pts[b];
         for (int t : fan)
@@ -164,20 +191,25 @@ QVector<int> ConstrainedDelaunay::constrainedChain(int a, int b) const
             {
                 const int v = T.v[(i + k) % 3];
                 const int e = (i + (k == 1 ? 2 : 1)) % 3;   // edge (cur, v) is opposite the third vertex
-                if (!T.constrained[e] || v == cur) continue;
-                if (v == b) { best = b; bestD2 = 0.0; break; }
+                if (!T.constrained[e] || v == cur || v == prev) continue;
+                if (v == b) { reachesB = true; continue; }
+                const quint64 ek = edgeKey64(cur, v);
+                const auto it = m_segOrigin.constFind(ek);
+                if (it != m_segOrigin.constEnd() && (it.value() == origin || m_segOriginExtra.contains(ek, origin)))
+                { byOrigin = v; continue; }
                 if (orient(a, b, v) != 0.0) continue;
                 const QPointF &V = m_pts[v];
                 const double dot = (V.x() - P.x()) * (B.x() - P.x()) + (V.y() - P.y()) * (B.y() - P.y());
                 if (dot <= 0.0) continue;
-                const double d2 = (V.x() - P.x()) * (V.x() - P.x()) + (V.y() - P.y()) * (V.y() - P.y());
-                if (d2 < bestD2) { bestD2 = d2; best = v; }
+                const double d2 = dist2(V, P);
+                if (d2 < bestD2) { bestD2 = d2; byLine = v; }
             }
-            if (best == b) break;
         }
-        if (best < 0) return {};
-        chain.append(best);
-        cur = best;
+        const int next = reachesB ? b : (byOrigin >= 0 ? byOrigin : byLine);
+        if (next < 0) return {};
+        chain.append(next);
+        prev = cur;
+        cur = next;
     }
     return cur == b ? chain : QVector<int>();
 }
@@ -369,6 +401,7 @@ bool ConstrainedDelaunay::build(const QVector<QPointF> &points, QVector<int> *ve
 {
     std::call_once(gPredicatesInit, [] { exactinit(); });
     m_pts.clear(); m_tris.clear(); m_vertexTri.clear(); m_errorMsg.clear();
+    m_segOrigin.clear(); m_segOriginExtra.clear(); m_segPiece.clear(); m_vertexSeg.clear(); m_fixedSub.clear();
     m_lastLocate = 0;
 
     // Dedup on the exact bit pattern.
@@ -472,10 +505,29 @@ int ConstrainedDelaunay::insertPoint(const QPointF &p)
 
 bool ConstrainedDelaunay::insertConstraint(int a, int b)
 {
+    return insertConstraintImpl(a, b, edgeKey64(a, b));
+}
+
+bool ConstrainedDelaunay::insertConstraintImpl(int a, int b, quint64 origin)
+{
     if (a == b) return true;
     if (a < 0 || b < 0 || a >= m_pts.size() || b >= m_pts.size() || isSuperVertex(a) || isSuperVertex(b)) return false;
     int e = -1;
-    if (triangleWithEdge(a, b, &e) >= 0 || triangleWithEdge(b, a, &e) >= 0) { markConstrained(a, b); return true; }
+    // Record the input segment and the piece an edge realises. A second
+    // constraint over the same edge (an overlap) adds its origin.
+    auto record = [&](int x, int y) {
+        const quint64 k = edgeKey64(x, y);
+        const auto it = m_segOrigin.constFind(k);
+        if (it == m_segOrigin.constEnd()) m_segOrigin.insert(k, origin);
+        else if (it.value() != origin && !m_segOriginExtra.contains(k, origin)) m_segOriginExtra.insert(k, origin);
+        if (!m_segPiece.contains(k)) m_segPiece.insert(k, k);
+    };
+    if (triangleWithEdge(a, b, &e) >= 0 || triangleWithEdge(b, a, &e) >= 0)
+    {
+        markConstrained(a, b);
+        record(a, b);
+        return true;
+    }
 
     // Find the triangle at a whose opposite edge the segment a→b crosses.
     // A vertex lying exactly on the segment splits the constraint there.
@@ -495,8 +547,8 @@ bool ConstrainedDelaunay::insertConstraint(int a, int b)
             const int i = edgeIndex(t, a);
             if (i < 0) break;
             const int p = m_tris[t].v[(i + 1) % 3], q = m_tris[t].v[(i + 2) % 3];
-            if (onSegment(p)) return insertConstraint(a, p) && insertConstraint(p, b);
-            if (onSegment(q)) return insertConstraint(a, q) && insertConstraint(q, b);
+            if (onSegment(p)) return insertConstraintImpl(a, p, origin) && insertConstraintImpl(p, b, origin);
+            if (onSegment(q)) return insertConstraintImpl(a, q, origin) && insertConstraintImpl(q, b, origin);
             if (orient(a, b, p) < 0.0 && orient(a, b, q) > 0.0) { start = t; startEdge = i; break; }
             const int next = m_tris[t].adj[dir == 0 ? (i + 1) % 3 : (i + 2) % 3];
             if (next < 0 || next == t0) break;
@@ -522,7 +574,7 @@ bool ConstrainedDelaunay::insertConstraint(int a, int b)
             if (r == b) break;
             const double orr = orient(a, b, r);
             if (orr == 0.0)
-                return insertConstraint(a, r) && insertConstraint(r, b);
+                return insertConstraintImpl(a, r, origin) && insertConstraintImpl(r, b, origin);
             // Next crossed edge: (p, r) if r is left of a→b (q side), else (r, q).
             // In n (CCW): v[k]=r, v[k+1]=q, v[k+2]=p. Edge opposite v[k+1] is (p, r)... indices:
             // edge opposite index j is (v[j+1], v[j+2]).
@@ -568,6 +620,7 @@ bool ConstrainedDelaunay::insertConstraint(int a, int b)
             newEdges.append(qMakePair(apex, d));
     }
     markConstrained(a, b);
+    record(a, b);
     // Restore the Delaunay property on the edges created by the flips.
     for (const QPair<int, int> &ed : newEdges)
     {
@@ -629,86 +682,367 @@ void ConstrainedDelaunay::removeRegionAt(const QPointF &p)
     }
 }
 
-// ── Refinement ──────────────────────────────────────────────────────────
+// ── Quality refinement ──────────────────────────────────────────────────
+// Ruppert's algorithm with Shewchuk's refinements, as Triangle implements
+// them (workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §4).
 
-int ConstrainedDelaunay::refine(const std::function<double(double, double)> &hAt,
-                                double minAngleDeg,
-                                const std::function<bool(const QPointF &)> &allowed,
-                                int maxInsertions,
-                                const QVector<double> *sizeHint)
+void ConstrainedDelaunay::setFixedConstraint(int a, int b)
 {
-    auto hintOf = [&](int v) {
-        return (sizeHint && v < sizeHint->size()) ? (*sizeHint)[v] : 0.0;
-    };
-    const double sinMin = std::sin(std::max(0.0, minAngleDeg) * M_PI / 180.0);
-    auto circum = [&](int t, QPointF *cc, double *r2, double *shortest2) {
-        const Triangle &T = m_tris[t];
-        const QPointF &A = m_pts[T.v[0]], &B = m_pts[T.v[1]], &C = m_pts[T.v[2]];
-        const double bx = B.x() - A.x(), by = B.y() - A.y(), cx = C.x() - A.x(), cy = C.y() - A.y();
-        const double d = 2.0 * (bx * cy - by * cx);
-        if (!(d > 0.0)) return false;
-        const double b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
-        const double ux = (cy * b2 - by * c2) / d, uy = (bx * c2 - cx * b2) / d;
-        *cc = QPointF(A.x() + ux, A.y() + uy);
-        *r2 = ux * ux + uy * uy;
-        const double a2 = (C.x() - B.x()) * (C.x() - B.x()) + (C.y() - B.y()) * (C.y() - B.y());
-        *shortest2 = std::min({a2, b2, c2});
-        return true;
-    };
-    auto bad = [&](int t, QPointF *cc) {
-        if (!m_tris[t].alive) return false;
-        const Triangle &T = m_tris[t];
-        if (isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2])) return false;
-        double r2 = 0.0, s2 = 0.0;
-        if (!circum(t, cc, &r2, &s2)) return false;
-        const double h = hAt ? hAt(cc->x(), cc->y()) : 0.0;
-        if (h > 0.0 && r2 > h * h) return true;
-        // Grading against hinted vertices (core front): longest edge <= 2·hint.
-        double hint = 0.0;
-        for (int k = 0; k < 3; ++k)
+    const QVector<int> chain = constrainedChain(a, b);
+    for (int i = 0; i + 1 < chain.size(); ++i) m_fixedSub.insert(edgeKey64(chain[i], chain[i + 1]));
+}
+
+bool ConstrainedDelaunay::isFixedSub(int a, int b) const
+{
+    return !m_fixedSub.isEmpty() && m_fixedSub.contains(edgeKey64(a, b));
+}
+
+/*! A live triangle on either side of subsegment (a, b) has its apex strictly
+ *  inside the diametral circle (an angle over 90° at the apex). */
+bool ConstrainedDelaunay::subsegmentEncroached(int a, int b) const
+{
+    const QPointF &A = m_pts[a], &B = m_pts[b];
+    for (int dir = 0; dir < 2; ++dir)
+    {
+        int e = -1;
+        const int t = dir == 0 ? triangleWithEdge(a, b, &e) : triangleWithEdge(b, a, &e);
+        if (t < 0 || !m_tris[t].alive) continue;
+        const int c = m_tris[t].v[e];
+        if (isSuperVertex(c)) continue;
+        const QPointF &C = m_pts[c];
+        if ((A.x() - C.x()) * (B.x() - C.x()) + (A.y() - C.y()) * (B.y() - C.y()) < 0.0) return true;
+    }
+    return false;
+}
+
+/*! Split subsegment (a, b) and return the new vertex (-1 when it cannot be
+ *  split further). Midpoint, or — when exactly one end is an input vertex
+ *  with another segment at an acute angle — the power of two in [L/3, 2L/3]
+ *  measured from that end, so splits around a small input angle land on
+ *  concentric circles (Ruppert's shells) and the refinement terminates. */
+int ConstrainedDelaunay::splitSubsegment(int a, int b)
+{
+    int e = -1;
+    int t = triangleWithEdge(a, b, &e);
+    if (t < 0) t = triangleWithEdge(b, a, &e);
+    if (t < 0) return -1;
+    const quint64 key = edgeKey64(a, b);
+    const quint64 origin = m_segOrigin.value(key, key);
+    const quint64 piece = m_segPiece.value(key, key);
+    const QList<quint64> extra = m_segOriginExtra.values(key);
+
+    auto acuteAt = [&](int x, int other) {
+        if (x >= m_superBase) return false;   // refinement vertex, not an input corner
+        const QPointF &X = m_pts[x], &O = m_pts[other];
+        QVector<int> fan;
+        trianglesAround(x, &fan);
+        for (int ft : fan)
         {
-            const double hv = hintOf(T.v[k]);
-            if (hv > 0.0) hint = hint > 0.0 ? std::min(hint, hv) : hv;
-        }
-        if (hint > 0.0)
-        {
-            const QPointF &A = m_pts[T.v[0]], &B = m_pts[T.v[1]], &C = m_pts[T.v[2]];
-            const double e0 = (B.x() - A.x()) * (B.x() - A.x()) + (B.y() - A.y()) * (B.y() - A.y());
-            const double e1 = (C.x() - B.x()) * (C.x() - B.x()) + (C.y() - B.y()) * (C.y() - B.y());
-            const double e2 = (A.x() - C.x()) * (A.x() - C.x()) + (A.y() - C.y()) * (A.y() - C.y());
-            if (std::max({e0, e1, e2}) > 3.61 * hint * hint) return true;   // 1.9·hint, headroom for smoothing
-        }
-        // Skinny: shortest edge / (2R) = sin(min angle).
-        if (sinMin > 0.0 && std::sqrt(s2) < 2.0 * std::sqrt(r2) * sinMin)
-        {
-            // A triangle already smaller than the local size is left alone —
-            // that is what stops refinement cascading at constraint corners.
-            if (h > 0.0 && 4.0 * r2 < 0.25 * h * h) return false;
-            return true;
+            const Triangle &T = m_tris[ft];
+            const int i = edgeIndex(ft, x);
+            if (i < 0) continue;
+            for (int k = 1; k <= 2; ++k)
+            {
+                const int w = T.v[(i + k) % 3];
+                const int ei = (i + (k == 1 ? 2 : 1)) % 3;
+                if (!T.constrained[ei] || w == other) continue;
+                const QPointF &W = m_pts[w];
+                if ((W.x() - X.x()) * (O.x() - X.x()) + (W.y() - X.y()) * (O.y() - X.y()) > 0.0) return true;
+            }
         }
         return false;
     };
-    int inserted = 0;
-    QVector<int> queue;
-    for (int i = 0; i < m_tris.size(); ++i) if (m_tris[i].alive) queue.append(i);
-    int head = 0;
-    while (head < queue.size() && inserted < maxInsertions)
+    const QPointF A = m_pts[a], B = m_pts[b];
+    const double len = std::sqrt(dist2(A, B));
+    if (!(len > 0.0) || !std::isfinite(len)) return -1;
+    const bool acA = acuteAt(a, b), acB = acuteAt(b, a);
+    double split = 0.5;
+    if (acA != acB)
     {
-        const int t = queue[head++];
-        QPointF cc;
-        if (!bad(t, &cc)) continue;
-        if (allowed && !allowed(cc)) continue;
-        const int before = m_tris.size();
-        m_lastLocate = t;
-        const int v = insertPoint(cc);
-        if (v < 0 || v < m_pts.size() - 1) continue;   // outside or coincident
-        ++inserted;
-        // Every triangle touching the new vertex (flips only ever change
-        // those) goes back on the queue.
-        (void)before;
-        trianglesAround(v, &queue);
+        double pw = 1.0;
+        while (len > 3.0 * pw) pw *= 2.0;
+        while (len < 1.5 * pw) pw *= 0.5;
+        split = pw / len;
+        if (acB) split = 1.0 - split;
     }
-    return inserted;
+    const QPointF p = A + (B - A) * split;
+    if (p == A || p == B) return -1;   // below floating-point resolution
+    const int v = m_pts.size();
+    m_pts.append(p);
+    m_vertexTri.append(-1);
+    splitEdge(t, e, v);   // topological split: both halves stay constrained
+    m_segOrigin.remove(key);
+    m_segPiece.remove(key);
+    m_segOriginExtra.remove(key);
+    for (const quint64 half : {edgeKey64(a, v), edgeKey64(v, b)})
+    {
+        m_segOrigin.insert(half, origin);
+        m_segPiece.insert(half, piece);
+        for (quint64 o : extra) m_segOriginExtra.insert(half, o);
+    }
+    m_vertexSeg.insert(v, piece);
+    return v;
+}
+
+/*! Shewchuk's exemption: the shortest edge (u, v) joins two refinement
+ *  vertices on different input pieces that share an input vertex, at the
+ *  same distance from it (concentric shells) — the triangle is thin because
+ *  the input angle is, and splitting it would never end. (Pieces, not
+ *  origins: a segment split at a vertex lying on it meets its neighbour at
+ *  that vertex.) */
+bool ConstrainedDelaunay::exemptShortestEdge(int u, int v) const
+{
+    const auto iu = m_vertexSeg.constFind(u), iv = m_vertexSeg.constFind(v);
+    if (iu == m_vertexSeg.constEnd() || iv == m_vertexSeg.constEnd() || iu.value() == iv.value()) return false;
+    const int a1 = keyLo(iu.value()), b1 = keyHi(iu.value());
+    const int a2 = keyLo(iv.value()), b2 = keyHi(iv.value());
+    int j = -1;
+    if (a1 == a2 || a1 == b2) j = a1;
+    else if (b1 == a2 || b1 == b2) j = b1;
+    if (j < 0) return false;
+    const double d1 = dist2(m_pts[u], m_pts[j]), d2 = dist2(m_pts[v], m_pts[j]);
+    return d1 < 1.001 * d2 && d1 > 0.999 * d2;
+}
+
+bool ConstrainedDelaunay::smallAngleExempt(int t) const
+{
+    const Triangle &T = m_tris[t];
+    double best = std::numeric_limits<double>::infinity();
+    int s = 0;
+    for (int k = 0; k < 3; ++k)
+    {
+        const double l = dist2(m_pts[T.v[(k + 1) % 3]], m_pts[T.v[(k + 2) % 3]]);
+        if (l < best) { best = l; s = k; }
+    }
+    return exemptShortestEdge(T.v[(s + 1) % 3], T.v[(s + 2) % 3]);
+}
+
+bool ConstrainedDelaunay::touchesFixed(int t) const
+{
+    if (m_fixedSub.isEmpty()) return false;
+    for (int k = 0; k < 3; ++k)
+    {
+        const int x = m_tris[t].v[k];
+        QVector<int> fan;
+        trianglesAround(x, &fan);
+        for (int ft : fan)
+        {
+            const Triangle &T = m_tris[ft];
+            const int i = edgeIndex(ft, x);
+            if (i < 0) continue;
+            for (int kk = 1; kk <= 2; ++kk)
+            {
+                const int ei = (i + (kk == 1 ? 2 : 1)) % 3;
+                if (T.constrained[ei] && m_fixedSub.contains(edgeKey64(x, T.v[(i + kk) % 3]))) return true;
+            }
+        }
+    }
+    return false;
+}
+
+ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const QualityOptions &opt)
+{
+    QualityReport rep;
+    const double theta = std::clamp(opt.minAngleDeg, 0.0, 60.0) * M_PI / 180.0;
+    const double sinMin = std::sin(theta);
+    // Üngör's off-centre at Triangle's 0.475 factor: the new triangle on the
+    // shortest edge gets an apex angle just over the bound.
+    const double offK = theta > 0.0 ? 0.475 * std::sqrt((1.0 + std::cos(theta)) / (1.0 - std::cos(theta))) : 0.0;
+    bool stop = false;
+    const double minEdge2 = opt.minEdge > 0.0 ? opt.minEdge * opt.minEdge : 0.0;
+    auto tooShortToSplit = [&](int a, int b) {
+        return minEdge2 > 0.0 && dist2(m_pts[a], m_pts[b]) < 4.0 * minEdge2;
+    };
+
+    // Point for a bad triangle; false when it meets both bounds.
+    auto badPoint = [&](int t, QPointF *out) {
+        const Triangle &T = m_tris[t];
+        if (!T.alive || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2])) return false;
+        const QPointF &A = m_pts[T.v[0]], &B = m_pts[T.v[1]], &C = m_pts[T.v[2]];
+        const double cross = (B.x() - A.x()) * (C.y() - A.y()) - (B.y() - A.y()) * (C.x() - A.x());
+        if (!(cross > 0.0)) return false;
+        const double l[3] = {dist2(B, C), dist2(C, A), dist2(A, B)};   // edge opposite v[i]
+        const int s = (l[0] <= l[1] && l[0] <= l[2]) ? 0 : (l[1] <= l[2] ? 1 : 2);
+        bool bad = false;
+        if (opt.hAt)
+        {
+            const QPointF g = (A + B + C) / 3.0;
+            const double h = opt.hAt(g.x(), g.y());
+            if (h > 0.0 && 0.5 * cross > kEquilateralArea * h * h) bad = true;
+        }
+        if (!bad && sinMin > 0.0 && l[s] >= minEdge2)
+        {
+            const double sinA = cross / std::sqrt(l[(s + 1) % 3] * l[(s + 2) % 3]);   // angle opposite the shortest edge
+            if (sinA < sinMin && !exemptShortestEdge(T.v[(s + 1) % 3], T.v[(s + 2) % 3])) bad = true;
+        }
+        if (!bad) return false;
+        // Shortest edge P→Q with R on its left (counter-clockwise order).
+        const QPointF &P = m_pts[T.v[(s + 1) % 3]], &Q = m_pts[T.v[(s + 2) % 3]], &R = m_pts[T.v[s]];
+        const double bx = Q.x() - P.x(), by = Q.y() - P.y(), cx = R.x() - P.x(), cy = R.y() - P.y();
+        const double d = 2.0 * (bx * cy - by * cx);
+        if (!(d > 0.0)) return false;
+        const double b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+        double ux = (cy * b2 - by * c2) / d, uy = (bx * c2 - cx * b2) / d;
+        if (offK > 0.0)
+        {
+            const double mx = 0.5 * bx, my = 0.5 * by;
+            const double ox = mx - offK * by, oy = my + offK * bx;
+            if ((ox - mx) * (ox - mx) + (oy - my) * (oy - my) < (ux - mx) * (ux - mx) + (uy - my) * (uy - my))
+            { ux = ox; uy = oy; }
+        }
+        *out = QPointF(P.x() + ux, P.y() + uy);
+        return std::isfinite(out->x()) && std::isfinite(out->y());
+    };
+
+    // Straight walk from triangle t's centroid to p. Returns the live
+    // triangle containing p, or -1 with *blockT/*blockE set to the first
+    // constrained edge the walk would cross (-1 when lost).
+    auto walkTo = [&](int t, const QPointF &p, int *blockT, int *blockE) {
+        *blockT = *blockE = -1;
+        const Triangle &T0 = m_tris[t];
+        const QPointF g = (m_pts[T0.v[0]] + m_pts[T0.v[1]] + m_pts[T0.v[2]]) / 3.0;
+        const int cap = 4 * m_tris.size() + 16;
+        for (int step = 0; step < cap; ++step)
+        {
+            const Triangle &T = m_tris[t];
+            double o[3];
+            for (int i = 0; i < 3; ++i) o[i] = orient(T.v[(i + 1) % 3], T.v[(i + 2) % 3], p);
+            if (o[0] >= 0.0 && o[1] >= 0.0 && o[2] >= 0.0) return t;
+            int exit = -1;
+            for (int i = 0; i < 3 && exit < 0; ++i)
+            {
+                if (!(o[i] < 0.0)) continue;
+                const double s1 = orientPts(g, p, m_pts[T.v[(i + 1) % 3]]);
+                const double s2 = orientPts(g, p, m_pts[T.v[(i + 2) % 3]]);
+                if ((s1 <= 0.0 && s2 >= 0.0) || (s1 >= 0.0 && s2 <= 0.0)) exit = i;
+            }
+            if (exit < 0) for (int i = 0; i < 3 && exit < 0; ++i) if (o[i] < 0.0) exit = i;
+            if (T.constrained[exit]) { *blockT = t; *blockE = exit; return -1; }
+            const int n = T.adj[exit];
+            if (n < 0 || !m_tris[n].alive) return -1;
+            t = n;
+        }
+        return -1;
+    };
+
+    // Constrained edges of the insertion cavity of p (triangles whose
+    // circumcircle holds p, reached without crossing a constraint) whose
+    // diametral circle holds p.
+    auto cavityEncroached = [&](int t0, const QPointF &p, QVector<quint64> *enc) {
+        const double pd[2] = {p.x(), p.y()};
+        QVector<int> stack{t0}, seen{t0};
+        while (!stack.isEmpty())
+        {
+            const int t = stack.takeLast();
+            const Triangle &T = m_tris[t];
+            for (int k = 0; k < 3; ++k)
+            {
+                const int a = T.v[(k + 1) % 3], b = T.v[(k + 2) % 3];
+                if (T.constrained[k])
+                {
+                    const QPointF &A = m_pts[a], &B = m_pts[b];
+                    if ((A.x() - p.x()) * (B.x() - p.x()) + (A.y() - p.y()) * (B.y() - p.y()) < 0.0)
+                        enc->append(edgeKey64(a, b));
+                    continue;
+                }
+                const int n = T.adj[k];
+                if (n < 0 || !m_tris[n].alive || seen.contains(n)) continue;
+                const Triangle &N = m_tris[n];
+                if (isSuperVertex(N.v[0]) || isSuperVertex(N.v[1]) || isSuperVertex(N.v[2])) continue;
+                const double pa[2] = {m_pts[N.v[0]].x(), m_pts[N.v[0]].y()};
+                const double pb[2] = {m_pts[N.v[1]].x(), m_pts[N.v[1]].y()};
+                const double pc[2] = {m_pts[N.v[2]].x(), m_pts[N.v[2]].y()};
+                if (!(incircle(pa, pb, pc, pd) > 0.0)) continue;
+                seen.append(n);
+                stack.append(n);
+            }
+        }
+    };
+
+    QVector<quint64> segQueue;
+    QVector<int> triQueue;
+    triQueue.reserve(m_tris.size());
+    auto queueEncroachedOf = [&](int t) {
+        const Triangle &T = m_tris[t];
+        for (int k = 0; k < 3; ++k)
+        {
+            if (!T.constrained[k]) continue;
+            const int a = T.v[(k + 1) % 3], b = T.v[(k + 2) % 3];
+            if (isSuperVertex(a) || isSuperVertex(b) || isFixedSub(a, b)) continue;
+            if (subsegmentEncroached(a, b)) segQueue.append(edgeKey64(a, b));
+        }
+    };
+    auto afterInsert = [&](int v) {
+        ++rep.inserted;
+        const qsizetype from = triQueue.size();
+        trianglesAround(v, &triQueue);
+        for (qsizetype i = from; i < triQueue.size(); ++i)
+            if (m_tris[triQueue[i]].alive) queueEncroachedOf(triQueue[i]);
+        if (rep.inserted >= opt.maxInsertions) { rep.capped = true; stop = true; }
+        if ((rep.inserted & 4095) == 0 && opt.cancelled && opt.cancelled()) { rep.cancelled = true; stop = true; }
+    };
+    auto drainSegments = [&]() {
+        while (!segQueue.isEmpty() && !stop)
+        {
+            const quint64 k = segQueue.takeLast();
+            const int a = keyLo(k), b = keyHi(k);
+            if (isFixedSub(a, b) || tooShortToSplit(a, b) || !isConstrained(a, b) || !subsegmentEncroached(a, b)) continue;
+            const int v = splitSubsegment(a, b);
+            if (v < 0) continue;
+            ++rep.segmentSplits;
+            afterInsert(v);
+        }
+    };
+
+    for (int i = 0; i < m_tris.size(); ++i)
+        if (m_tris[i].alive) { triQueue.append(i); queueEncroachedOf(i); }
+    drainSegments();
+
+    qsizetype head = 0;
+    QVector<quint64> enc;
+    while (head < triQueue.size() && !stop)
+    {
+        if (head > (1 << 20) && 2 * head > triQueue.size()) { triQueue.remove(0, head); head = 0; }
+        const int t = triQueue[head++];
+        QPointF p;
+        if (!badPoint(t, &p)) continue;
+        enc.clear();
+        int blockT = -1, blockE = -1;
+        const int c = walkTo(t, p, &blockT, &blockE);
+        if (c < 0)
+        {
+            if (blockT < 0) continue;   // lost the point: leave the triangle
+            enc.append(edgeKey64(m_tris[blockT].v[(blockE + 1) % 3], m_tris[blockT].v[(blockE + 2) % 3]));
+        }
+        else cavityEncroached(c, p, &enc);
+        if (!enc.isEmpty())
+        {
+            // Split what the point would encroach instead of inserting it
+            // (the subsegments need not be encroached by an existing vertex).
+            bool split = false;
+            for (quint64 k : std::as_const(enc))
+            {
+                const int a = keyLo(k), b = keyHi(k);
+                if (stop || isFixedSub(a, b) || tooShortToSplit(a, b) || !isConstrained(a, b)) continue;
+                const int v = splitSubsegment(a, b);
+                if (v < 0) continue;
+                ++rep.segmentSplits;
+                split = true;
+                afterInsert(v);
+            }
+            if (!split) { ++rep.blockedByFixed; continue; }
+            triQueue.append(t);   // retried with the subsegments split
+            drainSegments();
+            continue;
+        }
+        m_lastLocate = c;
+        const int before = m_pts.size();
+        const int v = insertPoint(p);
+        if (v < 0 || v < before) continue;   // outside or coincident
+        afterInsert(v);
+        drainSegments();
+    }
+    return rep;
 }
 
 } // namespace mesh

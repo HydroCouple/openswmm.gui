@@ -186,29 +186,45 @@ QVector<QPointF> resampleAtSize(const QVector<QPointF> &path,
         const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
         if (len > 0.0)
         {
-            // Integrate ds/h along the edge on a fine sampling (the smaller
-            // of the endpoint sizes over 4, capped at 64 samples) to get the
-            // part count, then place the parts at equal fractions of that
-            // integral so spacing follows the local h.
+            // Integrate ds/h along the edge on a fine sampling (a quarter of
+            // the smallest size seen) to get the part count, then place the
+            // parts at equal fractions of that integral so spacing follows
+            // the local h. The first pass samples at a quarter of the
+            // smallest of the endpoint and midpoint sizes; if it finds a
+            // finer size in between (a narrow refined band crossing a long
+            // edge) it resamples at a quarter of that.
             const double ha = hAt(a.x(), a.y()), hb = hAt(b.x(), b.y());
             const double hm = hAt(0.5 * (a.x() + b.x()), 0.5 * (a.y() + b.y()));
             double hRef = std::numeric_limits<double>::infinity();
             for (double h : {ha, hb, hm}) if (h > 0.0) hRef = std::min(hRef, h);
             if (std::isfinite(hRef))
             {
-                const int samples = std::clamp(int(std::ceil(4.0 * len / hRef)), 1, 64);
-                QVector<double> cum(samples + 1, 0.0);
-                for (int s = 0; s < samples; ++s)
-                {
-                    const double t = (s + 0.5) / samples;
-                    const double h = hAt(a.x() + t * (b.x() - a.x()), a.y() + t * (b.y() - a.y()));
-                    cum[s + 1] = cum[s] + (h > 0.0 ? (len / samples) / h : 0.0);
-                }
+                constexpr int kMaxSamples = 1 << 16;
+                QVector<double> cum;
+                int samples = 0;
+                auto integrate = [&](int n) {
+                    samples = n;
+                    cum.fill(0.0, samples + 1);
+                    double hSeen = std::numeric_limits<double>::infinity();
+                    for (int s = 0; s < samples; ++s)
+                    {
+                        const double t = (s + 0.5) / samples;
+                        const double h = hAt(a.x() + t * (b.x() - a.x()), a.y() + t * (b.y() - a.y()));
+                        if (h > 0.0) hSeen = std::min(hSeen, h);
+                        cum[s + 1] = cum[s] + (h > 0.0 ? (len / samples) / h : 0.0);
+                    }
+                    return hSeen;
+                };
+                auto count = [&](double h) {
+                    return int(std::clamp(std::ceil(4.0 * len / h), 1.0, double(kMaxSamples)));
+                };
+                const double hSeen = integrate(count(hRef));
+                if (std::isfinite(hSeen) && count(hSeen) > samples) integrate(count(hSeen));
                 const int parts = std::max(1, int(std::ceil(cum[samples] - 1e-9)));
+                int s = 0;
                 for (int k = 1; k < parts; ++k)
                 {
                     const double target = cum[samples] * k / parts;
-                    int s = 0;
                     while (s + 1 < samples && cum[s + 1] < target) ++s;
                     const double seg = cum[s + 1] - cum[s];
                     const double f = seg > 0.0 ? (target - cum[s]) / seg : 0.0;
@@ -329,6 +345,41 @@ int firstChordExceeder(const QVector<QPointF> &pts, int lo, int hi, double maxDe
 }
 
 } // namespace
+
+QVector<QPointF> unfoldPolyline(const QVector<QPointF> &pts, double maxTurnDeg, bool *changedOut)
+{
+    if (changedOut) *changedOut = false;
+    if (pts.size() < 3) return pts;
+    QVector<QPointF> out = pts;
+    if (pts.size() >= 4)
+    {
+        QVector<QPointF> rev = pts;
+        std::reverse(rev.begin() + 1, rev.end() - 1);
+        if (polylineLength(rev) < polylineLength(pts)) { out = rev; if (changedOut) *changedOut = true; }
+    }
+    // Turn at interior vertex k (0° straight on, 180° straight back).
+    auto turnAt = [&out](int k) {
+        const QPointF u = out[k] - out[k - 1], v = out[k + 1] - out[k];
+        const double nu = std::hypot(u.x(), u.y()), nv = std::hypot(v.x(), v.y());
+        if (nu == 0.0 || nv == 0.0) return 0.0;
+        const double c = (u.x() * v.x() + u.y() * v.y()) / (nu * nv);
+        return std::acos(std::clamp(c, -1.0, 1.0)) * 180.0 / M_PI;
+    };
+    for (;;)
+    {
+        int worst = -1;
+        double worstTurn = maxTurnDeg;
+        for (int k = 1; k + 1 < out.size(); ++k)
+        {
+            const double t = turnAt(k);
+            if (t > worstTurn) { worstTurn = t; worst = k; }
+        }
+        if (worst < 0) break;
+        out.removeAt(worst);
+        if (changedOut) *changedOut = true;
+    }
+    return out;
+}
 
 QVector<QPointF> resampleMinLength(const QVector<QPointF> &pts, double minLen,
                                    double maxDeviation, int *flaggedOut)

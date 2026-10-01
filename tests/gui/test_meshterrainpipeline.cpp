@@ -147,22 +147,17 @@ class TestMeshTerrainPipeline : public QObject
 private slots:
     void bankPairReachesWorker_data()
     {
-        QTest::addColumn<bool>("backgroundQuads");
         QTest::addColumn<bool>("variable");
-        QTest::newRow("straight-triangles") << false << false;
-        QTest::newRow("straight-quads") << true << false;
-        QTest::newRow("varying-triangles") << false << true;
-        QTest::newRow("varying-quads") << true << true;
+        QTest::newRow("straight") << false;
+        QTest::newRow("varying") << true;
     }
 
     void bankPairReachesWorker()
     {
-        QFETCH(bool, backgroundQuads);
         QFETCH(bool, variable);
         const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT") + "/bank_pair/" + QTest::currentDataTag());
         Inputs inputs;
         QVERIFY(prepareBankFixture(dir, inputs, variable));
-        inputs.genOpts.trianglesOnly = !backgroundQuads;
         inputs.outputMode = mesh::MeshOutputMode::External;
         inputs.meshOutputPath = dir.filePath("pending.2dm");
         QFile saved(inputs.inpPath); QVERIFY(saved.open(QIODevice::ReadOnly));
@@ -220,12 +215,12 @@ private slots:
         QTest::newRow("missing-source-crs") << QString("\"quad_spacing\":2") << true;    // layer already in mesh CRS
         QTest::newRow("missing-source-file") << QString("\"quad_spacing\":2") << false;
         QTest::newRow("empty-multipart") << QString("\"quad_spacing\":2") << false;
-        QTest::newRow("quad-background") << QString("\"quad_spacing\":2") << true;
     }
 
-    /*! A quad-region layer carries a spacing, an optional grid angle and a
-     *  tag (MESH_OVERHAUL_PLAN_2026-09-29.md §3): cells inside the ring take
-     *  the tag, a readable spacing refines them, and an unreadable or
+    /*! A quad-region layer carries a spacing and a tag (an angle attribute
+     *  is ignored: a four-sided ring's quads follow its sides,
+     *  MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D12.1): cells inside the ring
+     *  take the tag, a readable spacing refines them, and an unreadable or
      *  missing layer leaves the mesh untagged rather than failing it. */
     void quadRegionLayer()
     {
@@ -245,7 +240,6 @@ private slots:
         inputs.quadRegionLayers = {{path, "regions", inputs.meshCRSWkt}};
         if (scenario == "missing-source-crs") inputs.quadRegionLayers[0].crsWkt.clear();
         if (scenario == "missing-source-file") inputs.quadRegionLayers[0].path += ".missing";
-        inputs.genOpts.trianglesOnly = scenario != "quad-background";
         const auto generated = run(inputs);
         QVERIFY2(generated.ok, qPrintable(generated.errorMsg));
         int cells = 0;
@@ -300,21 +294,12 @@ private slots:
         QVERIFY(window->corridorSources().isEmpty());
     }
 
-    void selectedCorridorReachesWorkerWithoutBurn_data()
-    {
-        QTest::addColumn<bool>("backgroundQuads");
-        QTest::newRow("triangular-background") << false;
-        QTest::newRow("quad-background") << true;
-    }
-
     void selectedCorridorReachesWorkerWithoutBurn()
     {
-        QFETCH(bool, backgroundQuads);
         const QString root = qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT");
-        const QDir dir(root + "/gis_corridor/" + QTest::currentDataTag());
+        const QDir dir(root + "/gis_corridor");
         Inputs inputs;
         QVERIFY(prepareCorridorFixture(dir, inputs));
-        inputs.genOpts.trianglesOnly = !backgroundQuads;
         const auto generated = run(inputs);
         QVERIFY2(generated.ok, qPrintable(generated.errorMsg));
         QVERIFY(!generated.burnRan);
@@ -826,6 +811,121 @@ private slots:
         QCOMPARE(cached.meshResult.vertices.size(), terrain.meshResult.vertices.size());
         for (qsizetype i = 0; i < terrain.meshResult.vertices.size(); ++i)
             QCOMPARE(cached.meshResult.vertices[i].xy, terrain.meshResult.vertices[i].xy);
+    }
+
+    /*! Phase 6b + triangle engine (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md
+     *  D12.3): a synthetic GeoTIFF street (0.2 m curbs, 20 m carriageway)
+     *  through the real worker. With a terrain tolerance the curbs come back
+     *  as mesh edges (vertices exactly on the pixel-centre rows the
+     *  extractor traces); with street quads the carriageway between them is
+     *  a strip of aligned quads; without a tolerance no line is laid. */
+    void streetCurbsBecomeMeshEdges()
+    {
+        const QString root = qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT",
+            QDir::current().filePath("terrain_pipeline_output"));
+        const QDir dir(root + "/street_curbs");
+        QVERIFY(QDir().mkpath(dir.path()));
+        GDALAllRegister();
+        auto *driver = GetGDALDriverManager()->GetDriverByName("GTiff");
+        QVERIFY(driver);
+        const QString raster = dir.filePath("street.tif");
+        const int cols = 160, rows = 120;   // 80 m × 60 m at 0.5 m
+        auto *dataset = driver->Create(raster.toUtf8().constData(), cols, rows, 1, GDT_Float32, nullptr);
+        QVERIFY(dataset);
+        // North-up, origin (0, 60.3): the 0.3 m shift keeps the curbs off
+        // any round coordinate, so only a traced line can put vertices
+        // exactly on them.
+        double transform[] = {0.0, 0.5, 0.0, 60.3, 0.0, -0.5};
+        QCOMPARE(dataset->SetGeoTransform(transform), CE_None);
+        std::vector<float> values(size_t(cols) * rows);
+        for (int r = 0; r < rows; ++r)
+            for (int c = 0; c < cols; ++c)
+                values[size_t(r) * cols + c] = (r >= 40 && r < 80) ? 0.0f : 0.2f;   // road rows 40..79
+        const auto writeResult = dataset->GetRasterBand(1)->RasterIO(
+            GF_Write, 0, 0, cols, rows, values.data(), cols, rows, GDT_Float32, 0, 0);
+        GDALClose(dataset);
+        QCOMPARE(writeResult, CE_None);
+
+        Inputs inputs;
+        inputs.inpPath = dir.filePath("model.inp");
+        QFile model(inputs.inpPath);
+        QVERIFY(model.open(QIODevice::WriteOnly));
+        const QByteArray deck("[TITLE]\nStreet curb fixture\n[OPTIONS]\nFLOW_UNITS CMS\n");
+        QCOMPARE(model.write(deck), deck.size());
+        model.close();
+        inputs.modelExtent = MapExtent(0, 0.3, 80, 60.3);
+        inputs.domains = {QPolygonF(QVector<QPointF>{{1, 1}, {79, 1}, {79, 59}, {1, 59}})};
+        inputs.auxPoints = {{{40, 30}, 0.0, true}};
+        inputs.meshLinearUnitName = "metre";
+        inputs.mapNodesAfterGen = false;
+        inputs.cellSize = 4.0;
+        inputs.coarsenFactor = 4.0;
+        inputs.sizeRatio = 1.5;
+        inputs.minCellSize = 0.5;
+        inputs.genOpts.maxArea = 0.4330127018922193 * 16.0;
+        inputs.genOpts.minCellSize = 0.5;
+        inputs.genOpts.quadsBetweenBreaklines = false;
+        inputs.dtmPath = raster;
+
+        // The extractor places each line on its step: the boundary between
+        // rows 39|40 and 79|80, i.e. y = 60.3 − 0.5·row.
+        const double curbA = 60.3 - 0.5 * 40.0, curbB = 60.3 - 0.5 * 80.0;
+        auto onCurb = [&](const QPointF &p) {
+            return std::abs(p.y() - curbA) < 1e-9 || std::abs(p.y() - curbB) < 1e-9;
+        };
+
+        inputs.terrainTolerance = 0.1;
+        inputs.meshOutputPath = dir.filePath("with_lines.2dm");
+        const auto withLines = run(inputs);
+        QVERIFY2(withLines.ok, qPrintable(withLines.errorMsg));
+        const auto &m = withLines.meshResult;
+        int onA = 0, onB = 0;
+        for (const auto &v : m.vertices)
+        {
+            if (std::abs(v.xy.y() - curbA) < 1e-9) ++onA;
+            if (std::abs(v.xy.y() - curbB) < 1e-9) ++onB;
+        }
+        // Curbs captured as edges need no fine cells along them (the size
+        // field ignores their step), so a 78 m curb holds a handful.
+        QVERIFY2(onA >= 4 && onB >= 4, qPrintable(QStringLiteral("curb vertices %1 / %2").arg(onA).arg(onB)));
+        QCOMPARE(m.quadCount(), 0);
+        double area = 0.0;
+        for (const auto &c : m.triangles) area += mesh::cellGeom(m.vertices, c).area;
+        QVERIFY2(std::abs(area - 78.0 * 58.0) < 1e-6, qPrintable(QString::number(area, 'g', 17)));
+
+        // Street quads on: the carriageway (lower than both sides) becomes
+        // rows of quads along the street, its sides on the curbs. (The
+        // fixture's elevation point sits in the road; a node inside a strip
+        // would keep it out, so this run goes without it.)
+        inputs.genOpts.quadsBetweenBreaklines = true;
+        const auto auxPoints = inputs.auxPoints;
+        inputs.auxPoints.clear();
+        inputs.meshOutputPath = dir.filePath("street_quads.2dm");
+        const auto street = run(inputs);
+        QVERIFY2(street.ok, qPrintable(street.errorMsg));
+        const auto &ms = street.meshResult;
+        int streetQuads = 0;
+        for (const auto &c : ms.triangles)
+        {
+            if (!c.isQuad()) continue;
+            ++streetQuads;
+            const QPointF ctr = mesh::cellGeom(ms.vertices, c).centroid;
+            QVERIFY2(ctr.y() > curbB && ctr.y() < curbA, qPrintable(QStringLiteral("quad at %1,%2").arg(ctr.x()).arg(ctr.y())));
+        }
+        QVERIFY(streetQuads >= 4);
+        area = 0.0;
+        for (const auto &c : ms.triangles) area += mesh::cellGeom(ms.vertices, c).area;
+        QVERIFY2(std::abs(area - 78.0 * 58.0) < 1e-6, qPrintable(QString::number(area, 'g', 17)));
+        inputs.auxPoints = auxPoints;
+        inputs.genOpts.quadsBetweenBreaklines = false;
+
+        inputs.terrainTolerance = 0.0;
+        inputs.meshOutputPath = dir.filePath("without_lines.2dm");
+        const auto withoutLines = run(inputs);
+        QVERIFY2(withoutLines.ok, qPrintable(withoutLines.errorMsg));
+        int onLine = 0;
+        for (const auto &v : withoutLines.meshResult.vertices) if (onCurb(v.xy)) ++onLine;
+        QVERIFY2(onLine < 4, qPrintable(QStringLiteral("%1 vertices on the curb rows without a tolerance").arg(onLine)));
     }
 };
 

@@ -1,7 +1,10 @@
 # Mesh Overhaul — Phase 6b: Feature Capture — 2026-09-30
 
-Status: PROPOSED (owner review). Amends `workplans/MESH_OVERHAUL_PLAN_2026-09-29.md`; runs before
-Phase 7. Nothing here is implemented.
+Status: IMPLEMENTED in the container build 2026-09-30 (owner: "implement the whole plan in one
+go"; §4 decisions taken at their recommended defaults — see §6). Amends
+`workplans/MESH_OVERHAUL_PLAN_2026-09-29.md`; runs before Phase 7. Validation on the Mac is the
+job of `workplans/MESH_OVERHAUL_PHASE7_HANDOFF_2026-09-30.md` (revision 2). §7 records what was
+built where it differs from §2, and the measured gates.
 
 ## 1. Why
 
@@ -119,3 +122,66 @@ streamed; no change to the 1 M-cell ≤ 10 s gate.
   fringe grows, the core shrinks. Measured, not assumed.
 - Steps 2.1–2.3 each change the mesh on every project with a DEM; the stage-cache version bump
   makes old caches miss rather than mismatch.
+
+## 6. Decisions taken (2026-09-30, owner: "I know the risks")
+
+1. 6b runs before Phase 7 — yes.
+2. DEM resolution — no assumption in the code; curbs need ≤ ~0.5 m pixels, walls and banks are
+   found at any resolution that resolves them. The Phase 7 urban case needs a lidar tile.
+3. Buildings — meshed through their walls (a DSM's walls become lines); a footprint layer still
+   makes holes, and a terrain loop is never itself a hole.
+4. Corridors — unchanged; 6b makes them optional, not obsolete.
+
+## 7. As built (differences from §2, and why)
+
+| § | Proposal | Built | Why |
+| --- | --- | --- | --- |
+| 2.1 | Gradient step response, Canny NMS | Principal curvature of largest magnitude \|λ\| from a (1,2,1)-smoothed Hessian; NMS along its direction with an asymmetric tie-break; hysteresis high = tolerance, low = 0.7·tolerance; one-pixel gap bridging at line ends; sub-pixel peak (parabola across the line) | A gradient detector misses both edges of a wide bank face and fires on every steep uniform slope; \|λ\| gives a step H → H, a crease → its slope change, a plane → 0, so one tolerance means the same as in the terrain field. Low ratio 0.7 keeps noise below site percolation. Bridging closes building corners that NMS drops. Sub-pixel placement puts a step on its pixel boundary (was ½ px off). |
+| 2.1 | Stream with the terrain field | `TerrainSizeOptions::rowSink` feeds rows in order; 1 B/pixel mask; windows > 512 M px skip extraction with a warning | Memory bound for very large lidar windows (review finding). |
+| 2.1 | Simplify with `trimByStraightness(5°, h/4)` | RDP then `resampleMinLength(hMin)` within dev = max(hMin/4, 0.75·spacing), split at fold-backs (< 30°), per-line cut-back D = hMin + 2s + 2·dev, final segment-distance check | A pixel staircase turns 45° at every vertex, so a turn-angle trim never removes it. Per-line D so one sparse line cannot widen the cut-back for all (review). The final check guarantees the CDT never sees crossing constraints. |
+| 2.2 | Leaves where terrain binds are dropped to the fringe | They are kept and split into triangles (`QuadtreeOptions::trianglesAt`); "terrain binds" = the terrain term is the smallest raw size source AND asks for less than 2 × the minimum cell size | Dropping large areas to the CDT is slow and ungraded; splitting in place keeps the 2:1 guarantee. The 2 × floor threshold keeps rolling terrain (sized by the tolerance, planar at its cell size) as quads. |
+| 2.2 | No pairing within 2h of a line | No pairing for fringe triangles with a vertex on a line or a terrain-bound centroid | Simpler, local, and it is what "cells on the line are triangles" needs. |
+| 2.3 | Feature term ignored beyond 2 × cell size on open ground | Size field builds without vector seeds (terrain and regions alone); terrain lines never seed the feature term; with seeds the feature term applies as before | The proposed rule is a no-op: gradation limiting recreates near + g·d from the feature. The real gap was that a DTM-only domain did not grade at all. |
+| 2.4 | — | Terrain size field takes the 3 × 3 minimum of its output | A step on a block boundary refined one side only. |
+| 6b.3 | Stage cache format 4 | Not bumped | Only boundary prep is cached; nothing cached depends on extraction. |
+| — | — | Fringe grading: constraints resampled at the smallest h within one h; near-constraint quadtree leaves ≤ 2 × the constraint's spacing; refine clearance from core fronts; constraint-vertex hints; neighbour grading (2×) in `ConstrainedDelaunay::refine`; `resampleAtSize` second pass at the finest size seen; core constraints from unresampled polylines; warning when refinement hits its cap | Terrain lines put many constraints inside size gradients and exposed these (slivers down to 0.6°, ratio 4.2 in the first city run). They apply to every mesh; the Phase 4 gates still pass (the analytic grading case of `test_meshgenerator_v2` now measures 2.00 max, 38° min angle). |
+
+Measured in the container (Qt 6.4, GCC, `-O3`; 22/22 mesh suites green):
+
+| Gate | Result |
+| --- | --- |
+| 6b.1 synthetic street/curb/building/bank | curb within 0.2 px of the step, ≥ 95 % recovered; building one closed loop within 1 px; bank → top and toe; planes, sub-tolerance steps, nodata edges: nothing; noise σ = tol/4: no chain ≥ 16 px |
+| 6b.1 throughput | 11 ns/px flat, 18 ns/px street grid, 27 ns/px noisy (4000² grids) — target was 10 ns/px |
+| 6b.2 street (`test_meshfeaturecapture`) | every kept segment is a mesh edge; 0 quads on lines; open ground ≥ 90 % quads by area; conforming; area exact; 1 face of 17 565 above 2.1 (2.19); min angle 23° |
+| 6b.2 city 1 km², 625 curb loops | 1.22 M cells in 5.9 s; median ratio 1, 61 of 1.96 M faces above 2.1 (max 2.33); min angle 24°; none below 10° |
+| Phase 4 regression | 1 M cells 4.0 s; all earlier generator/patch/placement suites unchanged |
+| 6b.3 worker (`test_meshterrainpipeline::streetCurbsBecomeMeshEdges`) | written, syntax-checked; runs on the Mac only |
+
+False-positive check (gate 6b.1 as proposed said "Bellinge SRTM yields no lines at 0.5 m"; that
+was mis-specified — SRTM stores whole metres, so 0.5 m is below its quantisation and the terrain
+size field is saturated there too). Measured on the whole Bellinge SRTM tile (5635 × 2660 px,
+`tests/output/mesh_overhaul_2026-09/debug/srtm_probe.txt`):
+
+| Tolerance | Lines | Points (% of px) | Terrain cells ≤ 2 px |
+| --- | --- | --- | --- |
+| 0.5 m | 130 174 | 2.19 M (14.6 %) | 50 % |
+| 1 m | 127 040 | 2.14 M (14.3 %) | 47 % |
+| 2 m | 52 000 | 0.70 M (4.7 %) | 21 % |
+| 3 m | 15 605 | 0.20 M (1.3 %) | 8 % |
+| 5 m | 2 525 | 0.03 M (0.2 %) | 2 % |
+
+So the tolerance must sit above the DEM's noise/quantisation for both terms (SRTM ≥ 3–5 m; lidar
+≈ 3–4 σ, typically 0.1–0.15 m). The worker logs the line count and median chain length and warns
+in the log when there are > 500 lines with a median under 10 px. Corrected gate: at a tolerance at
+or above the DEM noise, traced points ≤ ~1–2 % of pixels on natural terrain.
+
+Grading bound for meshes with terrain lines (D9 in the main plan): median 1:1, none above 3,
+≤ 0.1 % of faces above 2.1. The remaining excess sits where a line, the domain edge and a core
+front meet in too narrow a strip for an intermediate layer.
+
+Known limits (not fixed, recorded for Phase 7): the quadtree samples its near-constraint size in
+the frame's axes and the resampler in mesh axes (rotated frames grade approximately); a hole
+bounded only by open segments (API only, the worker always passes closed rings) is not excluded
+from terrain lines; curbs below 2 × tolerance are captured as lines but not terrain-bound (their
+cells are 1 m quads, not triangles) because a two-pixel block's plane misses them by only half the
+step.
