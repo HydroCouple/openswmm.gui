@@ -1141,44 +1141,61 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
     auto *meshGroup = new QGroupBox(tr("Mesh generation defaults"), page);
     auto *meshForm  = new QFormLayout(meshGroup);
 
-    m_twoDMeshMinAngleSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshMinAngleSpin->setRange(0.0, 34.0);
-    m_twoDMeshMinAngleSpin->setDecimals(1);
-    m_twoDMeshMinAngleSpin->setSuffix(QStringLiteral("°"));
-    meshForm->addRow(tr("Minimum triangle angle"), m_twoDMeshMinAngleSpin);
+    m_twoDMeshCellSizeSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshCellSizeSpin->setRange(0.0, 1e9);
+    m_twoDMeshCellSizeSpin->setDecimals(3);
+    m_twoDMeshCellSizeSpin->setSuffix(QStringLiteral(" m"));
+    m_twoDMeshCellSizeSpin->setSpecialValueText(tr("from extent"));
+    meshForm->addRow(tr("Cell size at features"), m_twoDMeshCellSizeSpin);
 
-    m_twoDMeshMaxAreaSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshMaxAreaSpin->setRange(0.0, 1e9);
-    m_twoDMeshMaxAreaSpin->setDecimals(2);
-    m_twoDMeshMaxAreaSpin->setSpecialValueText(tr("unconstrained"));
-    meshForm->addRow(tr("Maximum triangle area (m²)"), m_twoDMeshMaxAreaSpin);
+    m_twoDMeshCoarsenSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshCoarsenSpin->setRange(1.0, 1000.0);
+    m_twoDMeshCoarsenSpin->setDecimals(1);
+    m_twoDMeshCoarsenSpin->setPrefix(QStringLiteral("× "));
+    meshForm->addRow(tr("Coarsen away from features up to"), m_twoDMeshCoarsenSpin);
 
-    m_twoDMeshMaxSteinerSpin = new QSpinBox(meshGroup);
-    m_twoDMeshMaxSteinerSpin->setRange(-1, 100000000);
-    m_twoDMeshMaxSteinerSpin->setSpecialValueText(tr("unlimited"));
-    meshForm->addRow(tr("Maximum Steiner points"), m_twoDMeshMaxSteinerSpin);
+    m_twoDMeshSizeRatioSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshSizeRatioSpin->setRange(1.05, 2.0);
+    m_twoDMeshSizeRatioSpin->setDecimals(2);
+    m_twoDMeshSizeRatioSpin->setSingleStep(0.05);
+    meshForm->addRow(tr("Size ratio between neighbouring cells"), m_twoDMeshSizeRatioSpin);
+
+    m_twoDMeshMinCellSizeSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshMinCellSizeSpin->setRange(0.0, 1e9);
+    m_twoDMeshMinCellSizeSpin->setDecimals(3);
+    m_twoDMeshMinCellSizeSpin->setSuffix(QStringLiteral(" m"));
+    m_twoDMeshMinCellSizeSpin->setSpecialValueText(tr("cell size / 4"));
+    meshForm->addRow(tr("Minimum cell size"), m_twoDMeshMinCellSizeSpin);
+
+    m_twoDMeshTerrainTolSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshTerrainTolSpin->setRange(0.0, 1e6);
+    m_twoDMeshTerrainTolSpin->setDecimals(3);
+    m_twoDMeshTerrainTolSpin->setSuffix(QStringLiteral(" m"));
+    m_twoDMeshTerrainTolSpin->setSpecialValueText(tr("off"));
+    meshForm->addRow(tr("Terrain tolerance"), m_twoDMeshTerrainTolSpin);
+
+    m_twoDMeshTrianglesBox = new QCheckBox(tr("Triangles only (no quads)"), meshGroup);
+    meshForm->addRow(QString(), m_twoDMeshTrianglesBox);
+
+    m_twoDMeshTrimTurnSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshTrimTurnSpin->setRange(0.0, 45.0);
+    m_twoDMeshTrimTurnSpin->setDecimals(1);
+    m_twoDMeshTrimTurnSpin->setSuffix(QStringLiteral("°"));
+    m_twoDMeshTrimTurnSpin->setSpecialValueText(tr("off"));
+    meshForm->addRow(tr("Trim boundary vertices: max turn"), m_twoDMeshTrimTurnSpin);
+
+    m_twoDMeshTrimDeviationSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshTrimDeviationSpin->setRange(0.0, 1000.0);
+    m_twoDMeshTrimDeviationSpin->setDecimals(3);
+    m_twoDMeshTrimDeviationSpin->setSuffix(QStringLiteral(" m"));
+    m_twoDMeshTrimDeviationSpin->setSpecialValueText(tr("cell size / 10"));
+    meshForm->addRow(tr("Trim boundary vertices: max deviation"), m_twoDMeshTrimDeviationSpin);
 
     m_twoDMeshIdwPowerSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshIdwPowerSpin->setRange(0.1, 10.0);
     m_twoDMeshIdwPowerSpin->setDecimals(1);
     meshForm->addRow(tr("IDW power"), m_twoDMeshIdwPowerSpin);
 
-    m_twoDMeshSimplifyEpsSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshSimplifyEpsSpin->setRange(0.0, 1000.0);
-    m_twoDMeshSimplifyEpsSpin->setDecimals(3);
-    m_twoDMeshSimplifyEpsSpin->setSuffix(QStringLiteral(" m"));
-    meshForm->addRow(tr("Simplify tolerance"), m_twoDMeshSimplifyEpsSpin);
-
-    m_twoDMeshSnapEpsSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshSnapEpsSpin->setRange(0.0, 1000.0);
-    m_twoDMeshSnapEpsSpin->setDecimals(3);
-    m_twoDMeshSnapEpsSpin->setSuffix(QStringLiteral(" m"));
-    meshForm->addRow(tr("Snap tolerance"), m_twoDMeshSnapEpsSpin);
-
-    // One row for both node seeds: 2D Mesh is the tallest Simulation
-    // Defaults tab and a QTabWidget sizes to its tallest page, so every
-    // extra row here makes ALL seven tabs scroll at 1280x800
-    // (test_preferencesdialog_roundtrip::noScrollAt1280x800).
     m_twoDMeshNodesBox = new QCheckBox(tr("Nodes as mesh vertices (except virtual junctions)"),
                                        meshGroup);
     m_twoDMeshNodesRimBox = new QCheckBox(tr("at rim elevation instead of terrain"),
@@ -1203,43 +1220,6 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
     m_twoDMeshMinSepSpin->setDecimals(2);
     m_twoDMeshMinSepSpin->setSuffix(QStringLiteral(" m"));
     meshForm->addRow(tr("Minimum node separation"), m_twoDMeshMinSepSpin);
-
-    m_twoDMeshThinningBox = new QCheckBox(tr("Thin DTM points"), meshGroup);
-    meshForm->addRow(QString(), m_twoDMeshThinningBox);
-    m_twoDMeshThinningTolSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshThinningTolSpin->setRange(0.0, 1.0);
-    m_twoDMeshThinningTolSpin->setDecimals(2);
-    meshForm->addRow(tr("Thinning tolerance (normal dot)"), m_twoDMeshThinningTolSpin);
-    m_twoDMeshThinningPassesSpin = new QSpinBox(meshGroup);
-    m_twoDMeshThinningPassesSpin->setRange(1, 64);
-    meshForm->addRow(tr("Thinning passes"), m_twoDMeshThinningPassesSpin);
-    // Checkbox as the row label (same single-row idiom as the mesh dialog).
-    m_twoDMeshMinSpacingBox = new QCheckBox(tr("Minimum terrain point spacing"), meshGroup);
-    m_twoDMeshMinSpacingBox->setToolTip(tr("Poisson-disk filter over the thinned DTM points."));
-    m_twoDMeshMinSpacingSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshMinSpacingSpin->setRange(0.0, 1000.0);
-    m_twoDMeshMinSpacingSpin->setDecimals(2);
-    m_twoDMeshMinSpacingSpin->setSuffix(QStringLiteral(" m"));
-    m_twoDMeshMinSpacingSpin->setToolTip(tr(
-        "Seeded into the mesh dialog rounded to whole model units\n"
-        "(15 m → 15 m, or 49 ft)."));
-    meshForm->addRow(m_twoDMeshMinSpacingBox, m_twoDMeshMinSpacingSpin);
-
-    m_twoDMeshBoundaryBufSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshBoundaryBufSpin->setRange(0.0, 1000.0);
-    m_twoDMeshBoundaryBufSpin->setDecimals(2);
-    m_twoDMeshBoundaryBufSpin->setSuffix(QStringLiteral(" m"));
-    m_twoDMeshBoundaryBufSpin->setSpecialValueText(tr("auto"));
-    meshForm->addRow(tr("Boundary point filter buffer"), m_twoDMeshBoundaryBufSpin);
-
-    m_twoDMeshMaxEdgeBox = new QCheckBox(tr("Densify long boundary edges"),
-                                         meshGroup);
-    meshForm->addRow(QString(), m_twoDMeshMaxEdgeBox);
-    m_twoDMeshMaxEdgeSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshMaxEdgeSpin->setRange(0.1, 10000.0);
-    m_twoDMeshMaxEdgeSpin->setDecimals(2);
-    m_twoDMeshMaxEdgeSpin->setSuffix(QStringLiteral(" m"));
-    meshForm->addRow(tr("Maximum boundary edge length"), m_twoDMeshMaxEdgeSpin);
 
     m_twoDMeshManningsSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshManningsSpin->setRange(0.001, 1.0);
@@ -1799,25 +1779,20 @@ void PreferencesDialog::applyTwoDDefaultsToWidgets(
     selData(m_twoDRainfallModeCombo, d.rainfallMode);
     m_twoDReport2DBox        ->setChecked(d.report2D);
 
-    m_twoDMeshMinAngleSpin      ->setValue(d.meshMinAngleDeg);
-    m_twoDMeshMaxAreaSpin       ->setValue(d.meshMaxArea);
-    m_twoDMeshMaxSteinerSpin    ->setValue(d.meshMaxSteiner);
+    m_twoDMeshCellSizeSpin      ->setValue(d.meshCellSizeM);
+    m_twoDMeshCoarsenSpin       ->setValue(d.meshCoarsenFactor);
+    m_twoDMeshSizeRatioSpin     ->setValue(d.meshSizeRatio);
+    m_twoDMeshMinCellSizeSpin   ->setValue(d.meshMinCellSizeM);
+    m_twoDMeshTerrainTolSpin    ->setValue(d.meshTerrainToleranceM);
+    m_twoDMeshTrianglesBox      ->setChecked(d.meshTrianglesOnly);
+    m_twoDMeshTrimTurnSpin      ->setValue(d.meshTrimTurnDeg);
+    m_twoDMeshTrimDeviationSpin ->setValue(d.meshTrimDeviationM);
     m_twoDMeshIdwPowerSpin      ->setValue(d.meshIdwPower);
-    m_twoDMeshSimplifyEpsSpin   ->setValue(d.meshSimplifyEpsM);
-    m_twoDMeshSnapEpsSpin       ->setValue(d.meshSnapEpsM);
     m_twoDMeshFlattenRadSpin    ->setValue(d.meshNodeFlattenRadM);
     m_twoDMeshNodesBox          ->setChecked(d.meshNodesAsVertices);
     m_twoDMeshNodesRimBox       ->setChecked(d.meshNodesUseRim);
     m_twoDMeshMinSepBox         ->setChecked(d.meshMinNodeSepOn);
     m_twoDMeshMinSepSpin        ->setValue(d.meshMinNodeSepM);
-    m_twoDMeshThinningBox       ->setChecked(d.meshThinningOn);
-    m_twoDMeshThinningTolSpin   ->setValue(d.meshThinningTol);
-    m_twoDMeshThinningPassesSpin->setValue(d.meshThinningPasses);
-    m_twoDMeshMinSpacingBox     ->setChecked(d.meshMinSpacingOn);
-    m_twoDMeshMinSpacingSpin    ->setValue(d.meshMinSpacingM);
-    m_twoDMeshBoundaryBufSpin   ->setValue(d.meshBoundaryBufferM);
-    m_twoDMeshMaxEdgeBox        ->setChecked(d.meshMaxBoundaryEdgeOn);
-    m_twoDMeshMaxEdgeSpin       ->setValue(d.meshMaxBoundaryEdgeM);
     m_twoDMeshManningsSpin      ->setValue(d.meshManningsN);
     m_twoDMeshInitDepthSpin     ->setValue(d.meshInitDepth);
     m_twoDMeshOutputExternalBox ->setChecked(d.meshOutputExternal);
@@ -1958,25 +1933,20 @@ void PreferencesDialog::writeToManager()
         d.rainfallMode       = m_twoDRainfallModeCombo  ->currentData().toString();
         d.report2D           = m_twoDReport2DBox        ->isChecked();
 
-        d.meshMinAngleDeg       = m_twoDMeshMinAngleSpin      ->value();
-        d.meshMaxArea           = m_twoDMeshMaxAreaSpin       ->value();
-        d.meshMaxSteiner        = m_twoDMeshMaxSteinerSpin    ->value();
+        d.meshCellSizeM         = m_twoDMeshCellSizeSpin      ->value();
+        d.meshCoarsenFactor     = m_twoDMeshCoarsenSpin       ->value();
+        d.meshSizeRatio         = m_twoDMeshSizeRatioSpin     ->value();
+        d.meshMinCellSizeM      = m_twoDMeshMinCellSizeSpin   ->value();
+        d.meshTerrainToleranceM = m_twoDMeshTerrainTolSpin    ->value();
+        d.meshTrianglesOnly     = m_twoDMeshTrianglesBox      ->isChecked();
+        d.meshTrimTurnDeg       = m_twoDMeshTrimTurnSpin      ->value();
+        d.meshTrimDeviationM    = m_twoDMeshTrimDeviationSpin ->value();
         d.meshIdwPower          = m_twoDMeshIdwPowerSpin      ->value();
-        d.meshSimplifyEpsM      = m_twoDMeshSimplifyEpsSpin   ->value();
-        d.meshSnapEpsM          = m_twoDMeshSnapEpsSpin       ->value();
         d.meshNodeFlattenRadM   = m_twoDMeshFlattenRadSpin    ->value();
         d.meshNodesAsVertices   = m_twoDMeshNodesBox          ->isChecked();
         d.meshNodesUseRim       = m_twoDMeshNodesRimBox       ->isChecked();
         d.meshMinNodeSepOn      = m_twoDMeshMinSepBox         ->isChecked();
         d.meshMinNodeSepM       = m_twoDMeshMinSepSpin        ->value();
-        d.meshThinningOn        = m_twoDMeshThinningBox       ->isChecked();
-        d.meshThinningTol       = m_twoDMeshThinningTolSpin   ->value();
-        d.meshThinningPasses    = m_twoDMeshThinningPassesSpin->value();
-        d.meshMinSpacingOn      = m_twoDMeshMinSpacingBox     ->isChecked();
-        d.meshMinSpacingM       = m_twoDMeshMinSpacingSpin    ->value();
-        d.meshBoundaryBufferM   = m_twoDMeshBoundaryBufSpin   ->value();
-        d.meshMaxBoundaryEdgeOn = m_twoDMeshMaxEdgeBox        ->isChecked();
-        d.meshMaxBoundaryEdgeM  = m_twoDMeshMaxEdgeSpin       ->value();
         d.meshManningsN         = m_twoDMeshManningsSpin      ->value();
         d.meshInitDepth         = m_twoDMeshInitDepthSpin     ->value();
         d.meshOutputExternal    = m_twoDMeshOutputExternalBox ->isChecked();

@@ -363,4 +363,85 @@ CflStats computeCflStats(const MeshResult &mesh, int ltsTiers)
     return s;
 }
 
+GradingStats computeGradingStats(const MeshResult &mesh)
+{
+    GradingStats s;
+    const int nt = mesh.triangles.size();
+    const int nv = mesh.vertices.size();
+    if (nt == 0) return s;
+
+    QVector<QPointF> centroid(nt);
+    QVector<double>  size(nt, 0.0);
+    QVector<bool>    ok(nt, false);
+    for (int ti = 0; ti < nt; ++ti)
+    {
+        const MeshTriangle &t = mesh.triangles[ti];
+        if (!triIndicesValid(t, nv)) continue;
+        const CellGeom g = cellGeom(mesh.vertices, t);
+        if (!(g.area > 0.0)) continue;
+        centroid[ti] = g.centroid;
+        const int n = t.vertexCount();
+        // Size = longest edge: the quantity the grading bound is stated on.
+        for (int e = 0; e < n; ++e)
+        {
+            const EdgeVertexPair ev = localEdge(t, e);
+            const QPointF &p = mesh.vertices[ev.first].xy, &q = mesh.vertices[ev.second].xy;
+            size[ti] = std::max(size[ti], std::hypot(q.x() - p.x(), q.y() - p.y()));
+        }
+        if (!(size[ti] > 0.0)) continue;
+        ok[ti] = true;
+        if (n == 4) ++s.quads; else ++s.triangles;
+        double cellMin = 180.0;
+        for (int i = 0; i < n; ++i)
+            cellMin = std::min(cellMin, cellCornerAngleDeg(mesh.vertices, t, i));
+        s.minAngleDeg = std::min(s.minAngleDeg, cellMin);
+        if (cellMin < 10.0) ++s.cellsBelow10Deg;
+    }
+
+    std::vector<double> ratios, orthos;
+    const QHash<EdgeVertexPair, QVector<int>> edgeTris = buildEdgeTriangles(mesh);
+    ratios.reserve(edgeTris.size());
+    orthos.reserve(edgeTris.size());
+    for (auto it = edgeTris.constBegin(); it != edgeTris.constEnd(); ++it)
+    {
+        const QVector<int> &inc = it.value();
+        if (inc.size() != 2) continue;
+        const int t0 = inc[0], t1 = inc[1];
+        if (!ok[t0] || !ok[t1]) continue;
+        const double r = std::max(size[t0], size[t1]) / std::min(size[t0], size[t1]);
+        ratios.push_back(r);
+        const double bands[5] = {1.25, 1.5, 2.0, 3.0, 4.0};
+        int bin = 5;
+        for (int b = 0; b < 5; ++b) if (r <= bands[b]) { bin = b; break; }
+        ++s.ratioHistogram[bin];
+
+        const QPointF &p = mesh.vertices[it.key().first].xy;
+        const QPointF &q = mesh.vertices[it.key().second].xy;
+        const double ex = q.x() - p.x(), ey = q.y() - p.y();
+        const double xi = std::hypot(ex, ey);
+        const double dcx = centroid[t1].x() - centroid[t0].x();
+        const double dcy = centroid[t1].y() - centroid[t0].y();
+        const double chord = std::hypot(dcx, dcy);
+        if (xi > 0.0 && chord > 0.0)
+        {
+            const double nx = ey / xi, ny = -ex / xi;
+            const double c = std::clamp(std::abs(dcx * nx + dcy * ny) / chord, 0.0, 1.0);
+            orthos.push_back(std::acos(c) * 180.0 / M_PI);
+        }
+    }
+    s.faces = int(ratios.size());
+    if (s.faces == 0) return s;
+    std::sort(ratios.begin(), ratios.end());
+    s.ratioMax = ratios.back();
+    s.ratioP50 = ratios[ratios.size() / 2];
+    s.ratioP95 = ratios[std::min(ratios.size() - 1, size_t(ratios.size() * 0.95))];
+    if (!orthos.empty())
+    {
+        std::sort(orthos.begin(), orthos.end());
+        s.orthoMedianDeg = orthos[orthos.size() / 2];
+        s.orthoMaxDeg = orthos.back();
+    }
+    return s;
+}
+
 } // namespace mesh

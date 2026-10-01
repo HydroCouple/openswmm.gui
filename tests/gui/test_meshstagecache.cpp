@@ -32,17 +32,6 @@ MeshStageCache::BoundaryPrep sampleBoundary()
     return v;
 }
 
-MeshStageCache::TerrainPoints sampleTerrain()
-{
-    MeshStageCache::TerrainPoints v;
-    for (int i = 0; i < 1000; ++i)
-    {
-        v.xyDtm.append(QPointF(i * 0.333333333333331, i * 0.777777777777779));
-        v.z.append(1234.56789 + i * 1e-9);
-    }
-    return v;
-}
-
 MeshStageCache::FileIdentity ident(const QString &p, qint64 mt, qint64 sz)
 {
     MeshStageCache::FileIdentity id;
@@ -85,27 +74,6 @@ private slots:
         // Bit-exact doubles.
         QVERIFY(std::memcmp(&got.holeSeeds[0], &v.holeSeeds[0],
                             sizeof(QPointF)) == 0);
-    }
-
-    void terrainRoundTrip_bitExact()
-    {
-        QTemporaryDir dir;
-        QVERIFY(dir.isValid());
-        MeshStageCache cache(dir.filePath("model.inp"));
-
-        const auto v = sampleTerrain();
-        const QByteArray key = MeshStageCache::terrainKey(
-            ident("/dem.tif", 5, 6), 1, {}, true,
-            QRectF(QPointF(0, 0), QPointF(10, 10)));
-
-        QVERIFY(cache.storeTerrain(key, v));
-        MeshStageCache::TerrainPoints got;
-        QVERIFY(cache.loadTerrain(key, &got));
-        QCOMPARE(got.xyDtm.size(), v.xyDtm.size());
-        QVERIFY(std::memcmp(got.xyDtm.constData(), v.xyDtm.constData(),
-                            size_t(v.xyDtm.size()) * sizeof(QPointF)) == 0);
-        QVERIFY(std::memcmp(got.z.constData(), v.z.constData(),
-                            size_t(v.z.size()) * sizeof(double)) == 0);
     }
 
     void keys_changeWithEveryInput()
@@ -157,21 +125,6 @@ private slots:
                 != MeshStageCache::boundaryKey(
                     ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0, false));
 
-        mesh::DTMThinnerOptions o;
-        const QRectF bb(QPointF(0, 0), QPointF(10, 10));
-        const auto tb = MeshStageCache::terrainKey(ident("/d", 1, 2), 1, o, true, bb);
-        QVERIFY(tb != MeshStageCache::terrainKey(ident("/d", 2, 2), 1, o, true, bb));
-        QVERIFY(tb != MeshStageCache::terrainKey(ident("/d", 1, 2), 2, o, true, bb));
-        QVERIFY(tb != MeshStageCache::terrainKey(ident("/d", 1, 2), 1, o, false, bb));
-        mesh::DTMThinnerOptions o2 = o; o2.normalDotThreshold = 0.9;
-        QVERIFY(tb != MeshStageCache::terrainKey(ident("/d", 1, 2), 1, o2, true, bb));
-        mesh::DTMThinnerOptions o3 = o; o3.maxIterations = 5;
-        QVERIFY(tb != MeshStageCache::terrainKey(ident("/d", 1, 2), 1, o3, true, bb));
-        QVERIFY(tb != MeshStageCache::terrainKey(ident("/d", 1, 2), 1, o, true,
-                    QRectF(QPointF(0, 0), QPointF(10, 11))));
-        // Poisson-disk fields are deliberately NOT part of the key.
-        mesh::DTMThinnerOptions o4 = o; o4.useMinSpacing = true; o4.minSpacing = 3.0;
-        QCOMPARE(tb, MeshStageCache::terrainKey(ident("/d", 1, 2), 1, o4, true, bb));
     }
 
     void corruptEntry_isMiss()

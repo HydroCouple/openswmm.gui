@@ -523,12 +523,16 @@ public:
         bool    report2D           = false;   ///< REPORT_2D
 
         // Mesh-generation seeds (SI canonical; the dialog unit-scales).
-        double  meshMinAngleDeg      = 33.0;
-        double  meshMaxArea          = 0.0;   ///< 0 = unconstrained
-        int     meshMaxSteiner       = -1;    ///< -1 = unlimited
+        // MESH_OVERHAUL_PLAN_2026-09-29.md §3: the eleven-control surface.
+        double  meshCellSizeM        = 0.0;   ///< 0 = derive from the model extent
+        double  meshCoarsenFactor    = 4.0;   ///< h_max = cell size × this
+        double  meshSizeRatio        = 1.5;   ///< neighbour edge-length ratio
+        double  meshMinCellSizeM     = 0.0;   ///< 0 = cell size / 4
+        double  meshTerrainToleranceM = 0.0;  ///< 0 = ignore terrain roughness
+        bool    meshTrianglesOnly    = false; ///< false = quads where possible
+        double  meshTrimTurnDeg      = 5.0;   ///< straightness trimming; 0 = off
+        double  meshTrimDeviationM   = 0.0;   ///< 0 = cell size / 10
         double  meshIdwPower         = 2.0;
-        double  meshSimplifyEpsM     = 0.1;
-        double  meshSnapEpsM         = 0.01;
         double  meshNodeFlattenRadM  = 5.0;
         // 2026-09-11: nodes pinned as Steiner vertices, at their rim
         // elevation, with the minimum separation demoting close clusters —
@@ -537,14 +541,6 @@ public:
         bool    meshNodesUseRim      = true;  ///< rim elevation instead of terrain
         bool    meshMinNodeSepOn     = true;
         double  meshMinNodeSepM      = 2.0;
-        bool    meshThinningOn       = true;
-        double  meshThinningTol      = 0.75;  ///< normal-dot threshold
-        int     meshThinningPasses   = 1;
-        bool    meshMinSpacingOn     = true;  ///< Poisson-disk minimum terrain point spacing
-        double  meshMinSpacingM      = 15.0;  ///< the dialog rounds to whole model units
-        double  meshBoundaryBufferM  = 0.0;   ///< 0 = (auto)
-        bool    meshMaxBoundaryEdgeOn = false;
-        double  meshMaxBoundaryEdgeM = 20.0;
         double  meshManningsN        = 0.035;
         double  meshInitDepth        = 0.0;   ///< mesh length units; 0 = dry
         bool    meshOutputExternal   = true;

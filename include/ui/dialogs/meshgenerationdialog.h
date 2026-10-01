@@ -28,12 +28,10 @@
 #include "mesh/channelburnnetwork.h"
 #include "mesh/corridorsource.h"
 #include "mesh/meshgenerator.h"
-#include "mesh/meshquadquality.h"
 #include "mesh/meshquadregion.h"
 #include "mesh/meshresult.h"
 #include "mesh/inpmeshwriter.h"
-#include "mesh/dtmthinner.h"
-#include "mesh/pslgminsize.h"
+#include "map/mapextent.h"
 
 #include <QDialog>
 #include <QFutureWatcher>
@@ -148,30 +146,19 @@ public:
         // a mesh→DTM coordinate transform when the raster CRS differs.
         QString meshCRSWkt;
 
-        // Ramer-Douglas-Peucker epsilon (map units) applied to all
-        // polygon rings and polyline paths before they enter Triangle.
-        // 0 = disabled.
-        double pslgSimplifyEps = 0.0;
-
-        // Grid cell size for Steiner point deduplication before Triangle.
-        // Near-coincident points (within this distance) from different
-        // sources are merged to one.  0 = disabled.
-        double pslgSnapEps = 0.0;
-
-        // 2026-07-19 — boundary-aware terrain filter (worker Step 2). DTM
-        // terrain Steiner candidates outside the domain, inside a hole
-        // ring, or closer than this to any constrained segment (boundary /
-        // hole / constraint paths) or mandatory Steiner vertex are dropped
-        // so they cannot force slivers along the boundary. <= 0 = auto
-        // (0.5 × effective terrain point spacing).
-        double terrainBoundaryBuffer = -1.0;
-
-        // 2026-07-19 — optional boundary densification: split domain/hole
-        // ring edges longer than this into equal parts after RDP
-        // simplification (pure vertex insertion). <= 0 = off.
-        double maxBoundaryEdgeLen = 0.0;
-
-        // Mesh-quality knobs
+        // ── Resolution (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ──────────
+        double cellSize      = 0.0;   ///< Target cell size at features (map units).
+        double coarsenFactor = 4.0;   ///< h_max = cellSize × this away from features.
+        double sizeRatio     = 1.5;   ///< Allowed size ratio between neighbouring cells.
+        double minCellSize   = 0.0;   ///< Floor h_min (map units); 0 = cellSize / 4.
+        /*! Terrain tolerance (mesh vertical units): > 0 bounds the size field
+         *  wherever the DEM deviates from a cell-sized plane by more than
+         *  this (mesh::TerrainSizeField). No terrain vertices are generated. */
+        double terrainTolerance = 0.0;
+        // ── Boundaries ──────────────────────────────────────────────
+        double trimTurnDeg   = 0.0;   ///< Straightness trimming: max turn (deg); 0 = off.
+        double trimDeviation = 0.0;   ///< Straightness trimming: max deviation (map units).
+        // Mesh-quality knobs (cellSize → maxArea, minCellSize, cell shape, frame angle)
         mesh::GenerationOptions genOpts;
 
         // ── Mixed tri-quad output (TRI_QUAD_MESHING_PLAN §3, G2/G3) ──────
@@ -184,69 +171,19 @@ public:
         QVector<mesh::PatchMesh> patches;
         QVector<mesh::CorridorSource> corridorSources;
 
-        // ── PSLG quad regions (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3.1) ──
+        // ── Quad regions (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ──────────
         // Regions the GUI thread could resolve itself (named subcatchments —
         // rings come from SWMMModelLayer's cache, mesh CRS). The worker
         // appends these AFTER the layer regions below and hands every region
-        // to MeshGenerator::addQuadRegion; the generator validates, resolves
-        // Auto mode, drops terrain Steiners inside Free rings and fills
-        // quadRegionReports().
+        // to MeshGenerator::addQuadRegion (ring = constraint, spacing = size
+        // override, alignAngleDeg = own grid frame, tag).
         QVector<mesh::QuadRegion> quadRegions;
         // Polygon layers the WORKER reads with OGR (a GDAL handle must not
-        // cross threads — same rule as boundaryPath). One mesh::QuadRegion
-        // per feature exterior ring, reprojected to the mesh CRS when crsWkt
-        // differs from meshCRSWkt. Usually 0 or 1 entries.
+        // cross threads). One mesh::QuadRegion per feature exterior ring,
+        // reprojected to the mesh CRS when crsWkt differs from meshCRSWkt;
+        // fields "h"/"quad_spacing", "angle"/"quad_angle" and "tag".
         struct QuadRegionLayerSpec { QString path, layerName, crsWkt; };
         QVector<QuadRegionLayerSpec> quadRegionLayers;
-        /*! "Generate quadrilateral cells" (QUAD_EVERYWHERE_PLAN_2026-09-07.md
-         *  §3.5): quad-mesh the whole domain with no polygon required. Explicit
-         *  regions above stay optional overrides — each is subtracted from the
-         *  background and keeps its own mode / spacing. */
-        bool           quadEverywhere = false;
-        /*! Target quad edge for the background region; 0 = follow the size
-         *  field (graded), which is the default and the efficient choice. */
-        double         quadEverywhereSpacing = 0.0;
-        // Mode / spacing / aspect / alignment / tag applied to every region
-        // from a layer or subcatchment unless a per-feature attribute
-        // (quad_mode, quad_spacing, quad_aspect, quad_angle, tag) overrides it.
-        // ring, alignGuide and corners are unused here.
-        mesh::QuadRegion quadRegionDefaults;
-        // Acceptance bounds → genOpts.quadRegionBounds, and (for one set of
-        // numbers in the UI) genOpts.quadMerge.{minAngleDeg, maxAngleDeg,
-        // minScaledJacobian, maxAspect}. genOpts.quadCleanup stays default.
-        mesh::QuadQualityBounds quadBounds;
-
-        // 2026-08-17 — minimum cell size enforcement
-        // (MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17.md).  minSizePolicy
-        // carries h plus the derived radii; minSizeCleanup enables the
-        // post-Triangle sliver collapse.  Both inert when
-        // minSizePolicy.minCellSize <= 0, which is the default, so an
-        // untouched project reproduces its current mesh exactly.
-        mesh::pslg::MinSizePolicy minSizePolicy;
-        bool                      minSizeCleanup = true;
-
-        // 2026-09-01 — V2 enforcement mode
-        // (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN_2026-09-01.md Track A).
-        // When on (requires minSizePolicy.enabled()): coupling identities may
-        // merge within the weld radius (the merged node couples via its
-        // containing cell, the nodeMinSeparation demotion idiom), the
-        // effective node separation is raised to at least h, and the
-        // post-mesh cleanup may absorb slivers into identity vertices.
-        // Default off = V1 "advisory" behaviour, bit-identical meshes.
-        bool minSizeEnforce = false;
-
-        // 2026-09-01 — graded sizing (V2 plan Track B).  > 0 replaces the
-        // uniform maxArea cap with a size field that keeps maxArea AT the
-        // constrained features and lets the permitted area grow with distance
-        // at this Lipschitz slope — strictly fewer cells, smooth transitions.
-        // Requires genOpts.maxArea > 0 (there is no uniform cap to relax
-        // otherwise).  0 = off (uniform cap, existing behaviour).
-        double sizeGradation = 0.0;
-
-        // Terrain-adaptive thinning
-        bool                    doThinning = false;
-        mesh::DTMThinnerOptions thinnerOpts;
-
         // Vertical unit conversion: multiply all DTM-sampled Z values by this
         // factor before writing to the mesh.  Accounts for DTM being in a
         // different vertical unit than the SWMM model.
@@ -408,16 +345,13 @@ private slots:
 
 private:
     friend class TestMeshTerrainPipeline;
-    friend class TestMeshPatchDialog;
+    friend class TestMeshOverhaulBellinge;
     static void runMeshPipeline(QPromise<PipelineResult> &promise, PipelineInputs in);
     void buildUi();
     void seedDefaults();
     void populateLayerCombos();
     void updateUnitDisplay();
     void updateZFactor();   // recomputes m_zFactorSpin from DTM + mesh vertical unit combos
-    /*! Refreshes the read-only "min triangle area / max vertex shift" line
-     *  under the Minimum Cell Size group. */
-    void updateMinCellDerivedLabel();
 
     /*! Region tags the generated mesh will carry, in the order collectInputs()
      *  creates their markers. Empty when no region source is selected, which
@@ -503,15 +437,22 @@ private:
     QComboBox      *m_nnVariantCombo  = nullptr;  // Sibson | Laplace
     QDoubleSpinBox *m_idwPowerSpin    = nullptr;  // Shepard exponent
 
-    // ── Quality ─────────────────────────────────────────────────────
-    QDoubleSpinBox *m_maxAreaSpin      = nullptr;
-    QDoubleSpinBox *m_minAngleSpin     = nullptr;
-    QDoubleSpinBox *m_gradationSpin    = nullptr;  ///< size gradation g; (uniform) at 0
-    QSpinBox       *m_maxSteinerSpin   = nullptr;
-    // PSLG optimizations
-    QDoubleSpinBox *m_simplifyEpsSpin  = nullptr; ///< RDP tolerance (map units; 0 = off)
-    QDoubleSpinBox *m_snapEpsSpin      = nullptr; ///< Steiner snap radius (map units; 0 = off)
-    QCheckBox      *m_allowSteiner   = nullptr;
+    // ── Quality (MESH_OVERHAUL_PLAN_2026-09-29.md §3: eleven controls) ──
+    // Resolution
+    QDoubleSpinBox *m_cellSizeSpin     = nullptr;  ///< cell size at features (map units)
+    QDoubleSpinBox *m_coarsenSpin      = nullptr;  ///< coarsen away from features up to ×
+    QDoubleSpinBox *m_sizeRatioSpin    = nullptr;  ///< size ratio between neighbouring cells
+    QDoubleSpinBox *m_minCellSizeSpin  = nullptr;  ///< floor (map units); (cell size / 4) at 0
+    QDoubleSpinBox *m_terrainTolSpin   = nullptr;  ///< terrain tolerance (vertical units); (off) at 0
+    // Shape
+    QComboBox      *m_cellShapeCombo   = nullptr;  ///< Quads where possible | Triangles
+    QDoubleSpinBox *m_gridAngleSpin    = nullptr;  ///< grid orientation (deg from +x, CCW)
+    QComboBox      *m_quadRegionLayerCombo   = nullptr; ///< "(none)" + polygon GISVectorLayers (fields h, angle, tag)
+    QLineEdit      *m_quadRegionSubcatchEdit = nullptr; ///< comma-separated subcatchment IDs
+    CorridorSourcesWidget *m_corridorSources = nullptr;
+    // Boundaries
+    QDoubleSpinBox *m_trimTurnSpin     = nullptr;  ///< straightness trim: max turn (deg); (off) at 0
+    QDoubleSpinBox *m_trimDeviationSpin = nullptr; ///< straightness trim: max deviation (map units)
 
     // ── Channel burn-in tab ──────────────────────────────────────────────
     QCheckBox      *m_burnEnabledBox      = nullptr;
@@ -539,58 +480,6 @@ private:
     QCheckBox      *m_burnTruncateBox     = nullptr;
     QPushButton    *m_burnPreviewBtn      = nullptr;
     QLabel         *m_burnSummaryLabel    = nullptr;
-    // 2026-07-19 — optional boundary densification (edge split after RDP).
-    QCheckBox      *m_maxBoundaryEdgeBox  = nullptr;
-    QDoubleSpinBox *m_maxBoundaryEdgeSpin = nullptr; ///< split length (map units; (off) at 0)
-
-    // ── Minimum cell size (MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17) ──
-    QDoubleSpinBox *m_minCellSizeSpin      = nullptr; ///< h, map units; (off) at 0
-    QCheckBox      *m_minSizeEnforceBox    = nullptr; ///< V2 enforcement mode
-    QPushButton    *m_minCellSuggestBtn    = nullptr;
-    QDoubleSpinBox *m_trimAngleSpin        = nullptr; ///< corner trim threshold (deg)
-    QCheckBox      *m_trimAtNodesBox       = nullptr;
-    QCheckBox      *m_dropSubScaleHolesBox = nullptr;
-    QCheckBox      *m_cleanupBox           = nullptr; ///< post-mesh sliver collapse
-    QLabel         *m_minCellDerivedLabel  = nullptr; ///< derived area / shift readout
-
-    // ── Quad quality (TRI_QUAD_MESHING_PLAN §3 G2 merge + G3 patches;
-    //    QUAD_MESHING_REDESIGN_PLAN §5 bounds shared with quad regions) ──
-    QCheckBox      *m_quadMergeBox         = nullptr; ///< merge triangle pairs into quads (experimental)
-    QDoubleSpinBox *m_quadMinAngleSpin     = nullptr; ///< accept quads with angles >= (deg)
-    QDoubleSpinBox *m_quadMaxAngleSpin     = nullptr; ///< accept quads with angles <= (deg)
-    QDoubleSpinBox *m_quadMinSjSpin        = nullptr; ///< min scaled Jacobian (sine of worst corner)
-    QDoubleSpinBox *m_quadMaxAspectSpin    = nullptr; ///< max side ratio ((off) at 0)
-    QDoubleSpinBox *m_quadPlanaritySpin    = nullptr; ///< max bed non-planarity (length; (off) at 0)
-
-    // ── Quad regions (PSLG) (QUAD_MESHING_REDESIGN_PLAN §3.1 sources, §6.3) ──
-    QCheckBox      *m_quadEverywhereCheck    = nullptr; ///< quad-mesh the whole domain (no polygon needed)
-    QDoubleSpinBox *m_quadEverywhereSpacingSpin = nullptr; ///< background h; 0 = follow the size field
-    QComboBox      *m_quadRegionLayerCombo   = nullptr; ///< "(none)" + polygon GISVectorLayers
-    QLineEdit      *m_quadRegionSubcatchEdit = nullptr; ///< comma-separated subcatchment IDs
-    QComboBox      *m_quadRegionModeCombo    = nullptr; ///< default mesh::QuadRegionMode
-    QDoubleSpinBox *m_quadRegionSpacingSpin  = nullptr; ///< default h (map units; (from max area) at 0)
-    QCheckBox      *m_quadRegionDirectionalCheck = nullptr; ///< explicit Mapped directional spacing
-    QDoubleSpinBox *m_quadRegionAlongSpin    = nullptr; ///< Along spacing in mesh CRS units
-    QDoubleSpinBox *m_quadRegionAcrossSpin   = nullptr; ///< Across spacing in mesh CRS units
-    QDoubleSpinBox *m_quadRegionAxisSpin     = nullptr; ///< physical Along axis from +x, counter-clockwise
-    QDoubleSpinBox *m_quadRegionAspectSpin   = nullptr; ///< default aspectMax
-    QDoubleSpinBox *m_quadRegionAngleSpin    = nullptr; ///< default align angle ((from boundary) at min)
-    /*! One row per structured patch: Type | Points | N/Across | M/Along |
-     *  Width | Tag. Points are "x y; x y; …" in mesh CRS units — 4 corners
-     *  for a four-sided patch, the centreline for a swept patch. */
-    QTableWidget   *m_patchTable           = nullptr;
-    CorridorSourcesWidget *m_corridorSources = nullptr;
-
-    // ── Thinning (terrain-adaptive Steiner points from DTM) ─────────
-    QCheckBox      *m_thinningBox            = nullptr;
-    QDoubleSpinBox *m_thinningToleranceSpin  = nullptr;
-    QSpinBox       *m_thinningIterationsSpin = nullptr;
-    QSpinBox       *m_thinningMaxPointsSpin  = nullptr;
-    QCheckBox      *m_minSpacingBox  = nullptr;
-    QDoubleSpinBox *m_minSpacingSpin = nullptr;
-    // 2026-07-19 — boundary-aware terrain filter buffer ((auto) at 0).
-    QDoubleSpinBox *m_boundaryBufferSpin = nullptr;
-
     // ── Uniform per-cell hydraulic seeds ────────────────────────────
     // These two stay the editors for the '*' row; the region-defaults table
     // below mirrors them read-only (GG0d, GUI plan §3.3).
