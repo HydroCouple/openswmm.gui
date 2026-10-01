@@ -95,6 +95,15 @@ HydrographGroupEditor::HydrographGroupEditor(SWMMModelLayer *layer, QWidget *par
     if (m_groupListModel) m_filterProxy->setSourceModel(m_groupListModel);
 
     buildUi();
+    setAccessibleDescription(tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    m_groupList->setAccessibleName(tr("Unit hydrograph groups"));
+    m_rtkView->setAccessibleName(tr("Hydrograph response parameters"));
+    m_iaView->setAccessibleName(tr("Initial abstraction parameters"));
+    m_decayView->setAccessibleName(tr("RDII decay parameters"));
+    if (m_layer) {
+        connect(m_layer, &QObject::destroyed, this, &HydrographGroupEditor::invalidateContext);
+        connect(m_layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+    }
 
     if (m_layer) {
         connect(m_layer, &SWMMModelLayer::hydrographChanged,
@@ -122,6 +131,26 @@ HydrographGroupEditor::HydrographGroupEditor(SWMMModelLayer *layer, QWidget *par
 
 HydrographGroupEditor::~HydrographGroupEditor() = default;
 
+void HydrographGroupEditor::invalidateContext()
+{
+    if (!m_contextValid) return;
+    m_contextValid = false;
+    if (m_layer) disconnect(m_layer, nullptr, this, nullptr);
+    m_layer = nullptr;
+    // Clear borrowed model pointers first: detaching views can emit selection changes.
+    m_groupListModel = nullptr;
+    m_rtkModel = nullptr;
+    m_iaModel = nullptr;
+    m_decayModel = nullptr;
+    m_filterProxy->setSourceModel(nullptr);
+    m_rtkView->setModel(nullptr);
+    m_iaView->setModel(nullptr);
+    m_decayView->setModel(nullptr);
+    setEnabled(false);
+    reject();
+}
+
+
 // =========================================================================
 // Window/event plumbing
 // =========================================================================
@@ -133,6 +162,7 @@ void HydrographGroupEditor::showEvent(QShowEvent *e)
 
 void HydrographGroupEditor::openForGroup(const QString &name)
 {
+    if (!m_contextValid) return;
     show();
     raise();
     activateWindow();
@@ -632,6 +662,7 @@ int HydrographGroupEditor::currentMonth() const
 
 void HydrographGroupEditor::onGroupSelectionChanged()
 {
+    if (!m_contextValid) return;
     const QString name = currentGroupName();
     if (m_nameLabel) {
         m_nameLabel->setText(name.isEmpty()
@@ -675,6 +706,7 @@ void HydrographGroupEditor::onGroupSelectionChanged()
 
 void HydrographGroupEditor::onSeasonChanged(int /*index*/)
 {
+    if (!m_contextValid) return;
     if (m_suppressSeasonSignal) return;
     // Commit any in-flight editor before swapping context so a half-typed
     // value doesn't land in the wrong (month, response) cell.
@@ -707,7 +739,7 @@ void HydrographGroupEditor::onNewGroup()
     const QString name = QInputDialog::getText(
         this, tr("New Unit Hydrograph"),
         tr("Name:"), QLineEdit::Normal, suggested, &ok).trimmed();
-    if (!ok || name.isEmpty()) return;
+    if (!ok || name.isEmpty() || !m_layer || !m_contextValid) return;
 
     if (!m_layer->applyHydrographAddGroup(name, /*gageName=*/QString(),
                                            /*initialResponse=*/0)) {
@@ -721,6 +753,7 @@ void HydrographGroupEditor::onNewGroup()
 
 void HydrographGroupEditor::beginNewGroup()
 {
+    if (!m_contextValid) return;
     show();
     raise();
     activateWindow();
@@ -738,7 +771,7 @@ void HydrographGroupEditor::onDeleteGroup()
            "the rain-gage assignment, any RDII decay rows, and any [RDII] "
            "node assignments referencing this group.").arg(name),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (reply != QMessageBox::Yes) return;
+    if (reply != QMessageBox::Yes || !m_layer || !m_contextValid) return;
 
     if (!m_layer->applyHydrographRemoveGroup(name)) {
         QMessageBox::warning(this, tr("Delete Unit Hydrograph"),
@@ -753,7 +786,7 @@ void HydrographGroupEditor::onRenameGroup()
     bool ok = false;
     const QString newName = QInputDialog::getText(this, tr("Rename Unit Hydrograph"),
         tr("New name:"), QLineEdit::Normal, name, &ok).trimmed();
-    if (!ok || newName.isEmpty() || newName == name) return;
+    if (!ok || newName.isEmpty() || newName == name || !m_layer || !m_contextValid) return;
     if (!m_layer->applyHydrographRenameGroup(name, newName)) {
         QMessageBox::warning(this, tr("Rename Unit Hydrograph"),
             tr("Engine rejected the rename. The name may already be in use."));
@@ -764,6 +797,7 @@ void HydrographGroupEditor::onRenameGroup()
 
 void HydrographGroupEditor::onHydrographChanged(const QString &uhName)
 {
+    if (!m_contextValid) return;
     // Models refresh themselves (they're also subscribed to this signal).
     // We still need to update view chrome that doesn't come from a model:
     //   - the bold name label (in case of rename)
@@ -1023,6 +1057,7 @@ void HydrographGroupEditor::commitOpenEditors()
 
 void HydrographGroupEditor::onApplyClicked()
 {
+    if (!m_contextValid) return;
     commitOpenEditors();
     // The model's setData fires hydrographChanged → refreshPreview via the
     // signal chain. Refresh again here defensively in case the user clicked
@@ -1032,6 +1067,7 @@ void HydrographGroupEditor::onApplyClicked()
 
 void HydrographGroupEditor::onOkClicked()
 {
+    if (!m_contextValid) return;
     commitOpenEditors();
     refreshPreview();
     close();

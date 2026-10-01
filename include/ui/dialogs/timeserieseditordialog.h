@@ -171,6 +171,10 @@ protected:
      *  editor closes, and persist dialog geometry + splitter sizes. */
     void closeEvent(QCloseEvent *e) override;
 
+public slots:
+    /*! End editing before the project, registry or undo owner is released. */
+    void invalidateContext();
+
 private slots:
     void onSelectModeTriggered_();
     void onPanModeTriggered_();
@@ -263,7 +267,8 @@ private:
                                         bool *fabricatedOut = nullptr);
 
     QVector<QPointer<openswmmvis::timeseries::TimeseriesProvider>>  m_providers;
-    QUndoStack                              *m_undoStack    = nullptr;
+    QPointer<QUndoStack> m_undoStack;
+    bool m_contextValid = true;
     QPointer<openswmmvis::timeseries::TimeseriesRegistry> m_registry;
     Mode                                     m_mode         = Mode::Edit;
 

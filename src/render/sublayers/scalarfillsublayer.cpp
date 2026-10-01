@@ -94,39 +94,59 @@ QList<LegendSymbolItem> buildFillLegend(const ScalarFillStyle *style,
 {
     QList<LegendSymbolItem> out;
     if (!style) return out;
-    const bool classified = style->classified();
-    const bool haveRange  = style->useCustomRange()
-                            && style->rangeMax() > style->rangeMin();
-    const int n = classified ? std::max(1, style->bandCount()) : 6;
+    const auto &scheme = style->scheme();
+    const bool haveRange = scheme.useCustomRange();
+    const bool dataDependent = scheme.method() == BinMethod::Quantile
+        || scheme.method() == BinMethod::NaturalBreaks || scheme.method() == BinMethod::StdDev;
+    const QString error = haveRange ? scheme.validationError(scheme.rangeMin(), scheme.rangeMax()) : QString();
+    if (!error.isEmpty()) {
+        LegendSymbolItem item;
+        item.sublayerId = subId;
+        item.classKey = QStringLiteral("invalid");
+        item.label = QObject::tr("Invalid classification: %1").arg(error);
+        out.append(item);
+        return out;
+    }
+    if (style->classified() && haveRange && !dataDependent) {
+        // Shared edges preserve manual/logarithmic/other supported spacing,
+        // class colors and user overrides. This API has no frame samples.
+        out = scheme.legendItems(scheme.rangeMin(), scheme.rangeMax());
+        for (auto &item : out) {
+            item.sublayerId = subId;
+            item.symbol.opacity = opacity;
+        }
+        return out;
+    }
+    const int n = style->classified() ? std::max(1, scheme.classCount()) : 6;
     for (int i = 0; i < n; ++i) {
         LegendSymbolItem item;
-        QColor c;
-        if (classified) {
-            c = style->colorForClass(i, n);
-            if (haveRange) {
-                const double lo = style->rangeMin()
-                    + (style->rangeMax() - style->rangeMin()) * double(i) / n;
-                const double hi = style->rangeMin()
-                    + (style->rangeMax() - style->rangeMin()) * double(i + 1) / n;
-                item.label = QStringLiteral("%1 – %2").arg(lo, 0, 'g', 3).arg(hi, 0, 'g', 3);
-                item.range = { lo, hi };
-            } else {
-                item.label = QObject::tr("Class %1").arg(i + 1);
-            }
+        QColor color;
+        if (style->classified()) {
+            color = scheme.colorForClass(i, n);
+            item.userLabel = scheme.labelOverride(i);
+            item.label = haveRange && dataDependent
+                ? QObject::tr("Class %1 (data-dependent bounds)").arg(i + 1)
+                : QObject::tr("Class %1 (range unavailable)").arg(i + 1);
         } else {
-            // Continuous: sample the ramp at evenly spaced stops.
-            const double f = (n > 1) ? double(i) / double(n - 1) : 0.0;
-            c = style->colorForValue(f, 0.0, 1.0);
-            item.label = haveRange
-                ? QString::number(style->rangeMin()
-                      + (style->rangeMax() - style->rangeMin()) * f, 'g', 3)
-                : QString();
+            const double fraction = double(i) / double(n - 1);
+            if (haveRange) {
+                const double value = scheme.rangeMin() + (scheme.rangeMax() - scheme.rangeMin()) * fraction;
+                color = scheme.colorForValue(value, scheme.rangeMin(), scheme.rangeMax());
+                item.label = scheme.formatValue(value);
+                item.range = {value, value};
+            } else {
+                // No data bounds are available here: show the ramp without
+                // inventing numeric values or applying a second normalization.
+                color = scheme.colorAtF(fraction);
+                item.label = QObject::tr("Range unavailable");
+            }
         }
         item.sublayerId = subId;
-        item.classKey   = QString::number(i);
+        item.classKey = QString::number(i);
+        item.sortIndex = i;
         SymbolLayer fill;
         fill.kind = SymbolLayerKind::SimpleFill;
-        SymbolProps::writeColor(fill.props, QStringLiteral("color"), c);
+        SymbolProps::writeColor(fill.props, QStringLiteral("color"), color);
         item.symbol.layers.append(fill);
         item.symbol.opacity = opacity;
         out.append(item);

@@ -14,8 +14,8 @@
  * exercise the GUI side of the loop.
  */
 #include <QtTest/QtTest>
-#include <QTemporaryFile>
-#include <QTemporaryDir>
+#include <QFileInfo>
+#include <QDir>
 
 #include <hdf5.h>
 
@@ -61,22 +61,13 @@ void writeStringAttr(hid_t obj, const char* name, const char* value)
 
 QString writeFixture(bool withNodeHead = false, int startIndex = 0)
 {
-    QString path;
-    if (withNodeHead) {
-        // Transparent-IO rule (CLAUDE.md): new test artefacts go to a
-        // user-reviewable location (cwd = the build dir under ctest), not a
-        // temp folder.
-        QDir out(QDir::currentPath() + QStringLiteral("/test_artifacts"));
-        if (!out.exists()) QDir().mkpath(out.absolutePath());
-        path = out.filePath(QStringLiteral("mesh2d_fixture_with_heads.h5"));
-    } else {
-        // Use a temp file path — leak the QTemporaryFile (it auto-deletes when
-        // cleaned up but we want the file to persist for the H5Fopen call).
-        QTemporaryFile tmp(QDir::tempPath() + "/mesh2d_fixture_XXXXXX.h5");
-        tmp.setAutoRemove(false);
-        if (!tmp.open()) return {};
-        path = tmp.fileName();
-    }
+    static int serial = 0;
+    const QString directory = qEnvironmentVariable("SWMMVIS_RESULTS_TEST_OUTPUT",
+        QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().absoluteFilePath(
+            "../../workplans/artifacts/phase_34_themes_results/reader"));
+    if (!QDir().mkpath(directory)) return {};
+    const QString path = QDir(directory).filePath(QStringLiteral("base_%1_heads_%2_start_%3.h5")
+        .arg(serial++).arg(withNodeHead).arg(startIndex));
 
     hid_t fid = H5Fcreate(path.toUtf8().constData(),
                            H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
@@ -351,11 +342,266 @@ QString writeMixedFixture()
 
 } // namespace
 
+namespace {
+QString catalogCopy(const QString& base, const QString& name)
+{
+    const QString directory = qEnvironmentVariable("SWMMVIS_RESULTS_TEST_OUTPUT",
+        QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().absoluteFilePath(
+            "../../workplans/artifacts/phase_34_themes_results/reader"));
+    if (!QDir().mkpath(directory)) return {};
+    const QString path = QDir(directory).filePath(name + ".h5");
+    QFile::remove(path);
+    return QFile::copy(base, path) ? path : QString();
+}
+void appendCatalogField(const QString& path, const char* name,
+                        const std::vector<hsize_t>& dims, const std::vector<double>& values,
+                        const char* units, const QString& names = {}, const QString& speciesUnits = {},
+                        const char* layout = nullptr, bool fill = false)
+{
+    const hid_t file = H5Fopen(path.toUtf8().constData(), H5F_ACC_RDWR, H5P_DEFAULT);
+    Q_ASSERT(file >= 0);
+    if (H5Lexists(file, name, H5P_DEFAULT) > 0) H5Ldelete(file, name, H5P_DEFAULT);
+    const hid_t space = H5Screate_simple(int(dims.size()), dims.data(), nullptr);
+    const hid_t data = H5Dcreate2(file, name, H5T_NATIVE_DOUBLE, space,
+                                 H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    Q_ASSERT(data >= 0);
+    const herr_t written = H5Dwrite(data, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, values.data());
+    Q_ASSERT(written >= 0);
+    Q_UNUSED(written);
+    writeStringAttr(data, "location", "face");
+    writeStringAttr(data, "mesh", "Mesh2");
+    if (units) writeStringAttr(data, "units", units);
+    if (!names.isEmpty()) writeStringAttr(data, "species_names", names.toUtf8().constData());
+    if (!speciesUnits.isEmpty()) writeStringAttr(data, "species_units", speciesUnits.toUtf8().constData());
+    if (layout) writeStringAttr(data, "layout", layout);
+    if (fill) {
+        const hid_t scalar = H5Screate(H5S_SCALAR);
+        const hid_t attr = H5Acreate2(data, "_FillValue", H5T_NATIVE_DOUBLE, scalar, H5P_DEFAULT, H5P_DEFAULT);
+        const double missing = -9999.; H5Awrite(attr, H5T_NATIVE_DOUBLE, &missing);
+        H5Aclose(attr); H5Sclose(scalar);
+    }
+    H5Dclose(data); H5Sclose(space); H5Fclose(file);
+}
+QString resultCatalogFixture(const QString& base, const QString& tag,
+                             QStringList names = {"TSS", "NO3", "MSX:X", "__WATER_AGE__"},
+                             bool speciesUnits = true)
+{
+    const QString path = catalogCopy(base, tag);
+    const QStringList allNames{"TSS", "NO3", "MSX:X", "__WATER_AGE__"};
+    const QStringList allUnits{"mg/L", "ug/L", "mmol/L", "h"};
+    QStringList units;
+    std::vector<double> conc;
+    for (int t = 0; t < 3; ++t)
+        for (const QString& name : names)
+            for (int cell = 0; cell < 2; ++cell) {
+                const int identity = allNames.indexOf(name);
+                conc.push_back(t == 1 && name == "TSS" && cell == 0 ? 0.
+                    : t == 1 && name == "NO3" && cell == 1 ? -9999.
+                    : 100. * t + 10. * identity + cell);
+            }
+    for (const QString& name : names) units << allUnits.value(allNames.indexOf(name), "mg/L");
+    const std::vector<hsize_t> dims{3, hsize_t(names.size()), 2};
+    appendCatalogField(path, "Mesh2_face_species_conc", dims, conc, "1", names.join(','),
+                       speciesUnits ? units.join(',') : QString(), "[time, species, face]", true);
+    auto sat = conc, unsat = conc;
+    for (std::size_t i = 0; i < conc.size(); ++i) {
+        if (i % 2) sat[i] = 0.;
+        else unsat[i] = 0.;
+    }
+    appendCatalogField(path, "Mesh2_face_gw_sat_conc", dims, sat, "1", names.join(','));
+    appendCatalogField(path, "Mesh2_face_gw_unsat_conc", dims, unsat, "1", names.join(','));
+    appendCatalogField(path, "Mesh2_face_gw_hg", {3,2}, {2,0,2,0,2,0}, "m");
+    appendCatalogField(path, "Mesh2_face_gw_hu", {3,2}, {0,0,0,0,0,0}, "m");
+    appendCatalogField(path, "Mesh2_face_gw_recharge", {3,2}, {0,0,0,1e-6,0,1e-6}, "m s-1");
+    appendCatalogField(path, "Mesh2_face_gw_bed_elev", {2}, {10,11}, "m");
+    appendCatalogField(path, "Mesh2_face_gw_closure", {2}, {0,2}, "1");
+    appendCatalogField(path, "Mesh2_face_gw_theta_sigma", {3,2,2},
+                       {0,.2,0,.3,0,.2,0,.3,0,.2,0,.3}, "1", {}, {},
+                       "[time, layer, face]; layer 0 at the ground surface");
+    return path;
+}
+openswmmvis::io::Mesh2DResultVariable catalogVariable(const Mesh2DH5Reader& reader,
+                                                     const QString& dataset,
+                                                     const QString& species = {}, int layer = -1)
+{
+    for (const auto& variable : reader.faceVariables())
+        if (variable.dataset == dataset && variable.species == species && variable.layer == layer)
+            return variable;
+    return {};
+}
+} // namespace
+
 class TestMesh2DH5Reader : public QObject
 {
     Q_OBJECT
 
 private slots:
+    void resultCatalogSeparatesIdentityUnitsAndTime()
+    {
+        using V = openswmmvis::io::Mesh2DResultVariable;
+        Mesh2DH5Reader reader; QVERIFY(reader.open(resultCatalogFixture(fixturePath_, "catalog")));
+        const auto surface = catalogVariable(reader, "Mesh2_face_species_conc", "NO3");
+        QVERIFY(!surface.key().isEmpty()); QCOMPARE(surface.domain, V::Domain::Surface);
+        QCOMPARE(surface.units, QString("ug/L")); QVERIFY(surface.unitsKnown);
+        QCOMPARE(surface.frameCount, 3);
+        const auto sat = catalogVariable(reader, "Mesh2_face_gw_sat_conc", "NO3");
+        QCOMPARE(sat.zone, V::Zone::Saturated); QVERIFY(!sat.unitsKnown); QVERIFY(sat.units.isEmpty());
+        QVERIFY(sat.key() != surface.key());
+        const auto unsat = catalogVariable(reader, "Mesh2_face_gw_unsat_conc", "NO3");
+        QCOMPARE(unsat.zone, V::Zone::Unsaturated); QVERIFY(unsat.key() != sat.key());
+        const auto recharge = catalogVariable(reader, "Mesh2_face_gw_recharge");
+        QCOMPARE(recharge.temporal, V::Temporal::Held); QCOMPARE(recharge.units, QString("m s-1"));
+        const auto base = catalogVariable(reader, "Mesh2_face_gw_bed_elev");
+        QCOMPARE(base.temporal, V::Temporal::Static); QCOMPARE(base.frameCount, 0);
+    }
+
+    void speciesResolveByNameAfterReorderAndSubset()
+    {
+        using S = openswmmvis::io::Mesh2DValueStatus;
+        Mesh2DH5Reader first, reordered, subset;
+        QVERIFY(first.open(resultCatalogFixture(fixturePath_, "species-original")));
+        const auto nitrate = catalogVariable(first, "Mesh2_face_species_conc", "NO3");
+        QVERIFY(!nitrate.key().isEmpty());
+        QVERIFY(reordered.open(resultCatalogFixture(fixturePath_, "species-reordered",
+            {"MSX:X", "__WATER_AGE__", "NO3", "TSS"})));
+        QCOMPARE(catalogVariable(reordered, nitrate.dataset, nitrate.species).key(), nitrate.key());
+        std::vector<float> values; std::vector<S> status;
+        QVERIFY(reordered.readFaceVariableAt(nitrate, 2, values, status));
+        QCOMPARE(values, std::vector<float>({210,211}));
+        QVERIFY(subset.open(resultCatalogFixture(fixturePath_, "species-subset", {"TSS", "MSX:X"})));
+        QVERIFY(!subset.readFaceVariableAt(nitrate, 2, values, status));
+        QVERIFY(values.empty()); QVERIFY(status.empty()); QVERIFY(!subset.lastError().isEmpty());
+    }
+
+    void resultValidityDistinguishesZeroFillAndWaterless()
+    {
+        using S = openswmmvis::io::Mesh2DValueStatus;
+        Mesh2DH5Reader reader; QVERIFY(reader.open(resultCatalogFixture(fixturePath_, "validity")));
+        std::vector<float> values; std::vector<S> status;
+        QVERIFY(reader.readFaceVariableAt(catalogVariable(reader, "Mesh2_face_species_conc", "TSS"), 1, values, status));
+        QCOMPARE(values[0], 0.f); QCOMPARE(status[0], S::Valid);
+        QVERIFY(reader.readFaceVariableAt(catalogVariable(reader, "Mesh2_face_species_conc", "NO3"), 1, values, status));
+        QVERIFY(std::isnan(values[1])); QCOMPARE(status[1], S::Missing);
+        QVERIFY(reader.readFaceVariableAt(catalogVariable(reader, "Mesh2_face_gw_sat_conc", "TSS"), 1, values, status));
+        QCOMPARE(status[0], S::Valid); QCOMPARE(status[1], S::Waterless);
+        QVERIFY(reader.readFaceVariableAt(catalogVariable(reader, "Mesh2_face_gw_unsat_conc", "TSS"), 1, values, status));
+        QCOMPARE(status[0], S::Waterless); QCOMPARE(status[1], S::Valid);
+        QVERIFY(reader.readFaceVariableAt(catalogVariable(reader, "Mesh2_face_gw_theta_sigma", {}, 1), 1, values, status));
+        QCOMPARE(status[0], S::NotApplicable); QCOMPARE(status[1], S::Valid); QCOMPARE(values[1], .3f);
+    }
+
+    void malformedSpeciesMetadataIsNotInvented()
+    {
+        Mesh2DH5Reader reader;
+        QVERIFY(reader.open(resultCatalogFixture(fixturePath_, "duplicate-species", {"TSS", "TSS"})));
+        QStringList warnings; const auto vars = reader.faceVariables(&warnings);
+        QVERIFY(!warnings.isEmpty());
+        for (const auto& variable : vars) QVERIFY(variable.species.isEmpty());
+        QVERIFY(reader.open(resultCatalogFixture(fixturePath_, "unknown-species-units",
+                                                 {"TSS", "__WATER_AGE__"}, false)));
+        const auto age = catalogVariable(reader, "Mesh2_face_species_conc", "__WATER_AGE__");
+        QVERIFY(!age.key().isEmpty()); QVERIFY(!age.unitsKnown); QVERIFY(age.units.isEmpty());
+    }
+
+    void malformedFaceShapeFailsWithoutPartialValues()
+    {
+        const QString path = catalogCopy(fixturePath_, "wrong-face-size");
+        appendCatalogField(path, "Mesh2_face_wrong", {3,3}, {1,2,3,4,5,6,7,8,9}, "m");
+        Mesh2DH5Reader reader; QVERIFY(reader.open(path));
+        std::vector<float> values{42};
+        QVERIFY(!reader.readFaceFieldAt("Mesh2_face_wrong", 1, values));
+        QVERIFY(values.empty()); QVERIFY(!reader.lastError().isEmpty());
+    }
+
+    void scalarFillValuesAreMissing()
+    {
+        const QString path = catalogCopy(fixturePath_, "scalar-fill");
+        appendCatalogField(path, "Mesh2_face_rainfall", {3,2}, {0,0,0,-9999,1,2}, "m s-1", {}, {}, nullptr, true);
+        Mesh2DH5Reader reader; QVERIFY(reader.open(path));
+        std::vector<float> values;
+        QVERIFY(reader.readFaceFieldAt("Mesh2_face_rainfall", 1, values));
+        QCOMPARE(values[0], 0.f); QVERIFY(std::isnan(values[1]));
+    }
+
+    void reopenedReaderDoesNotReusePresenceCache()
+    {
+        Mesh2DH5Reader reader; QVERIFY(reader.open(fixturePath_));
+        QVERIFY(!reader.hasFaceField("Mesh2_face_gw_hg"));
+        QVERIFY(reader.open(resultCatalogFixture(fixturePath_, "reopened-presence")));
+        QVERIFY(reader.hasFaceField("Mesh2_face_gw_hg"));
+        QVERIFY(reader.open(fixturePath_));
+        QVERIFY(!reader.hasFaceField("Mesh2_face_gw_hg"));
+    }
+
+    void unwrittenChunksAreMissingButWrittenZeroIsValid()
+    {
+        using S = openswmmvis::io::Mesh2DValueStatus;
+        const QString path = catalogCopy(fixturePath_, "unreported-chunks");
+        const hid_t file = H5Fopen(path.toUtf8().constData(), H5F_ACC_RDWR, H5P_DEFAULT);
+        QVERIFY(file >= 0);
+        const hsize_t dims[]{3,2}, chunk[]{1,2}, offset[]{1,0}, count[]{1,2};
+        const hid_t space = H5Screate_simple(2, dims, nullptr);
+        const hid_t props = H5Pcreate(H5P_DATASET_CREATE);
+        QVERIFY(H5Pset_chunk(props, 2, chunk) >= 0);
+        const hid_t data = H5Dcreate2(file, "Mesh2_face_rainfall", H5T_NATIVE_DOUBLE, space,
+                                     H5P_DEFAULT, props, H5P_DEFAULT);
+        QVERIFY(data >= 0);
+        QVERIFY(H5Sselect_hyperslab(space, H5S_SELECT_SET, offset, nullptr, count, nullptr) >= 0);
+        const hid_t memory = H5Screate_simple(2, count, nullptr);
+        const double values[]{0,2};
+        QVERIFY(H5Dwrite(data, H5T_NATIVE_DOUBLE, memory, space, H5P_DEFAULT, values) >= 0);
+        writeStringAttr(data, "units", "m s-1");
+        H5Sclose(memory); H5Dclose(data); H5Pclose(props); H5Sclose(space); H5Fclose(file);
+        Mesh2DH5Reader reader; QVERIFY(reader.open(path));
+        const auto variable = catalogVariable(reader, "Mesh2_face_rainfall");
+        std::vector<float> out; std::vector<S> status;
+        QVERIFY(reader.readFaceVariableAt(variable, 0, out, status));
+        QCOMPARE(status[0], S::Missing); QVERIFY(std::isnan(out[0]));
+        QVERIFY(reader.readFaceVariableAt(variable, 1, out, status));
+        QCOMPARE(status[0], S::Valid); QCOMPARE(out[0], 0.f);
+        QVERIFY(!reader.readFaceVariableAt(variable, 3, out, status));
+        QVERIFY(out.empty()); QVERIFY(status.empty());
+    }
+
+    void nonscalarMetadataIsRefusedSafely()
+    {
+        const QString path = resultCatalogFixture(fixturePath_, "nonscalar-metadata");
+        const hid_t file = H5Fopen(path.toUtf8().constData(), H5F_ACC_RDWR, H5P_DEFAULT);
+        const hid_t data = H5Dopen2(file, "Mesh2_face_species_conc", H5P_DEFAULT);
+        QVERIFY(data >= 0);
+        QVERIFY(H5Adelete(data, "species_names") >= 0);
+        const hsize_t length = 2;
+        const hid_t space = H5Screate_simple(1, &length, nullptr);
+        const hid_t type = H5Tcopy(H5T_C_S1); QVERIFY(H5Tset_size(type, 4) >= 0);
+        const hid_t names = H5Acreate2(data, "species_names", type, space, H5P_DEFAULT, H5P_DEFAULT);
+        const char values[8]{'T','S','S',0,'N','O','3',0};
+        QVERIFY(H5Awrite(names, type, values) >= 0);
+        H5Aclose(names); H5Tclose(type); H5Sclose(space); H5Dclose(data); H5Fclose(file);
+        Mesh2DH5Reader reader; QVERIFY(reader.open(path));
+        QStringList warnings;
+        const auto variables = reader.faceVariables(&warnings);
+        QVERIFY(!warnings.isEmpty());
+        for (const auto& variable : variables) QVERIFY(variable.dataset != "Mesh2_face_species_conc");
+    }
+
+    void groundwaterDeclaredSpeciesUnitsAndStaticSlice()
+    {
+        using S = openswmmvis::io::Mesh2DValueStatus;
+        const QString path = resultCatalogFixture(fixturePath_, "declared-gw-units");
+        const hid_t file = H5Fopen(path.toUtf8().constData(), H5F_ACC_RDWR, H5P_DEFAULT);
+        const hid_t data = H5Dopen2(file, "Mesh2_face_gw_sat_conc", H5P_DEFAULT);
+        QVERIFY(data >= 0);
+        writeStringAttr(data, "species_units", "mg/L,ug/L,mmol/L,h");
+        H5Dclose(data); H5Fclose(file);
+        Mesh2DH5Reader reader; QVERIFY(reader.open(path));
+        const auto nitrate = catalogVariable(reader, "Mesh2_face_gw_sat_conc", "NO3");
+        QCOMPARE(nitrate.units, QString("ug/L")); QVERIFY(nitrate.unitsKnown);
+        const auto base = catalogVariable(reader, "Mesh2_face_gw_bed_elev");
+        std::vector<float> out; std::vector<S> status;
+        QVERIFY(reader.readFaceVariableAt(base, 99, out, status));
+        QCOMPARE(out, std::vector<float>({10,11})); QCOMPARE(status[0], S::Valid);
+    }
+
     void readsGzipCompressedRainfall()
     {
         // Checking metadata alone is insufficient: older builds wrote a
@@ -363,10 +609,8 @@ private slots:
         // A genuinely compressed external result then failed on every read.
         QVERIFY2(H5Zfilter_avail(H5Z_FILTER_DEFLATE) > 0,
                  "HDF5 must include zlib support for compressed result files");
-        QTemporaryDir folder;
-        QVERIFY(folder.isValid());
-        const QString path = folder.filePath(QStringLiteral("compressed.h5"));
-        QVERIFY(QFile::copy(fixturePath_, path));
+        const QString path = catalogCopy(fixturePath_, "compressed");
+        QVERIFY(!path.isEmpty());
         const hid_t fid = H5Fopen(path.toUtf8().constData(), H5F_ACC_RDWR, H5P_DEFAULT);
         QVERIFY(fid >= 0);
         const hsize_t dims[] = {3, 2};
@@ -427,9 +671,7 @@ private slots:
 
     void cleanupTestCase()
     {
-        if (!fixturePath_.isEmpty())        QFile::remove(fixturePath_);
-        if (!fixtureWithCrsPath_.isEmpty()) QFile::remove(fixtureWithCrsPath_);
-        // The with-heads fixture stays on disk for review (transparent-IO).
+        // Retain generated inputs for review alongside the catalog fixtures.
     }
 
     // ----- Issue #155: coordinate reference --------------------------------
@@ -624,7 +866,6 @@ private slots:
         QCOMPARE(tris[0][0], 0); QCOMPARE(tris[0][1], 1); QCOMPARE(tris[0][2], 3);
         QCOMPARE(tris[1][0], 0); QCOMPARE(tris[1][1], 3); QCOMPARE(tris[1][2], 2);
 
-        QFile::remove(path);
     }
 
     void readsTimes()

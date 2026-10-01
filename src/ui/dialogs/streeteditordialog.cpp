@@ -170,6 +170,14 @@ StreetEditorDialog::StreetEditorDialog(StreetRegistry *registry,
     resize(720, 420);
     buildUi_();
 
+    setAccessibleDescription(tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    m_listView->setAccessibleName(tr("Street designs"));
+    if (m_registry) connect(m_registry, &QObject::destroyed, this, &StreetEditorDialog::invalidateContext);
+    if (m_layer) {
+        connect(m_layer, &QObject::destroyed, this, &StreetEditorDialog::invalidateContext);
+        connect(m_layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+    }
+
     if (m_registry) {
         connect(m_registry, &StreetRegistry::providerAdded,
                 this, &StreetEditorDialog::onProviderAdded_);
@@ -184,6 +192,21 @@ StreetEditorDialog::StreetEditorDialog(StreetRegistry *registry,
 }
 
 StreetEditorDialog::~StreetEditorDialog() = default;
+
+void StreetEditorDialog::invalidateContext()
+{
+    if (!m_contextValid) return;
+    m_contextValid = false;
+    if (m_registry) disconnect(m_registry, nullptr, this, nullptr);
+    if (m_layer) disconnect(m_layer, nullptr, this, nullptr);
+    m_registry = nullptr;
+    m_layer = nullptr;
+    bindProvider_(nullptr);
+    m_listModel->setRegistry(nullptr);
+    setEnabled(false);
+    reject();
+}
+
 
 StreetProvider *StreetEditorDialog::currentProvider() const noexcept
 {
@@ -308,6 +331,7 @@ void StreetEditorDialog::buildUi_()
 
 void StreetEditorDialog::bindProvider_(StreetProvider *p)
 {
+    if (!m_contextValid) p = nullptr;
     m_current = p;
     m_preview->setProvider(p);
 
@@ -372,6 +396,7 @@ QString StreetEditorDialog::suggestUniqueName_() const
 
 void StreetEditorDialog::onListSelectionChanged_()
 {
+    if (!m_contextValid) return;
     const QModelIndex idx = m_listView->selectionModel()->currentIndex();
     bindProvider_(idx.isValid() ? m_listModel->providerAt(idx.row()) : nullptr);
 }
@@ -413,7 +438,7 @@ void StreetEditorDialog::onNameEdited_()
     if (!m_registry->rename(m_current, newName)) {
         QMessageBox::warning(this, tr("Rename Street"),
             tr("A street named \"%1\" already exists.").arg(newName));
-        m_nameEdit->setText(m_current->name());
+        if (m_current) m_nameEdit->setText(m_current->name());
     }
 }
 
@@ -501,7 +526,7 @@ QString StreetEditorDialog::pickStreet(StreetRegistry *registry,
 
     // Flush the registry to the engine so a subsequent name → index lookup
     // resolves through engine setters (mirrors pickTransect).
-    registry->saveToEngine();
+    if (dlg.m_registry) dlg.m_registry->saveToEngine();
 
     auto *p = dlg.currentProvider();
     return p ? p->name() : QString();

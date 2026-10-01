@@ -111,6 +111,25 @@ LinkCompoundEditDialog::LinkCompoundEditDialog(LinkCompoundEditRef ref,
     auto *root = new QVBoxLayout(this);
     root->addWidget(m_stack);
     root->addWidget(m_buttons);
+    setAccessibleDescription(tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    if (m_ref.layer) {
+        connect(m_ref.layer, &QObject::destroyed, this, &LinkCompoundEditDialog::invalidateContext);
+        connect(m_ref.layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+        connect(m_ref.layer, SIGNAL(geometryChanged()), this, SLOT(checkContext()));
+    }
+}
+
+void LinkCompoundEditDialog::invalidateContext()
+{
+    m_ref.engine = nullptr;
+    m_ref.layer = nullptr;
+    setEnabled(false);
+    reject();
+}
+
+void LinkCompoundEditDialog::checkContext()
+{
+    if (linkIdx() < 0) invalidateContext();
 }
 
 int LinkCompoundEditDialog::linkIdx() const
@@ -171,6 +190,7 @@ void LinkCompoundEditDialog::buildXSectionPage()
 
     // ---- Left: thumbnail palette ---------------------------------------
     m_xsShapeList = new QListWidget(m_xsSplitter);
+    m_xsShapeList->setAccessibleName(tr("Cross-section shapes"));
     m_xsShapeList->setObjectName(QStringLiteral("xsectionShapeList"));
     m_xsShapeList->setViewMode(QListView::IconMode);
     m_xsShapeList->setFlow(QListView::LeftToRight);

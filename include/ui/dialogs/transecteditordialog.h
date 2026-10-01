@@ -124,6 +124,10 @@ public:
 
     bool renameCurrent(const QString &newName);
 
+public slots:
+    /*! End editing before the project, registry or undo owner is released. */
+    void invalidateContext();
+
 private slots:
     void onListSelectionChanged_();
     void onAddTransectClicked_();
@@ -163,9 +167,10 @@ private:
     void updateStatusBar_();
     QString suggestUniqueName_() const;
 
+    bool m_contextValid = true;
     QPointer<openswmmvis::transect::TransectRegistry> m_registry;
     QPointer<SWMMModelLayer>                            m_layer;
-    QUndoStack                                          *m_undoStack = nullptr;
+    QPointer<QUndoStack> m_undoStack;
     QPointer<openswmmvis::transect::TransectProvider>   m_current;
     Mode                                                m_mode = Mode::Edit;
 

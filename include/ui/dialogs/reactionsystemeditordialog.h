@@ -65,6 +65,9 @@ public:
     /*! \brief Reload every tab from the engine (after external CRUD). */
     void reloadAll();
 
+public slots:
+    void invalidateEngine();
+
 private slots:
     void onAddSpecies();
     void onRemoveSpecies();
@@ -94,6 +97,8 @@ private:
     void loadTerms();
     void loadExpressions();
     void loadInitialQuality();
+    void commitInitialOverride(QDoubleSpinBox *spin);
+    void refreshInitialOverrideAccessibility();
     void loadFileTab();
     bool applyFileTab();           ///< returns false when the text is bad
 

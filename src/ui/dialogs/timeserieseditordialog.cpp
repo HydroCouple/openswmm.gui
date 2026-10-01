@@ -149,9 +149,41 @@ TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesRegistry *registry,
     // Iteration 2 (D2) — geometry + splitter persistence now runs through
     // the app-wide DialogLayoutWatcher (restore on first Show, save on
     // Hide/Close); the hard-coded defaults above are the first-run values.
+    setAccessibleDescription(undoStack
+        ? tr("Changes are applied immediately. Closing this editor does not undo changes. Use Undo to reverse an edit.")
+        : tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    if (m_table) m_table->setAccessibleName(tr("Time series values"));
+    if (m_listView) m_listView->setAccessibleName(tr("Time series objects"));
+    if (m_chartView) m_chartView->setAccessibleName(tr("Time series preview"));
+    if (registry) connect(registry, &QObject::destroyed, this, &TimeseriesEditorDialog::invalidateContext);
+    // Registries outlive an engine reload; their owning layer announces the
+    // close before any cached engine handle becomes invalid.
+    if (registry && registry->parent()
+        && registry->parent()->metaObject()->indexOfSignal("engineAboutToClose()") >= 0)
+        connect(registry->parent(), SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+    if (undoStack) connect(undoStack, &QObject::destroyed, this, &TimeseriesEditorDialog::invalidateContext);
+
 }
 
 TimeseriesEditorDialog::~TimeseriesEditorDialog() = default;
+
+void TimeseriesEditorDialog::invalidateContext()
+{
+    if (!m_contextValid) return;
+    m_contextValid = false;
+    setEnabled(false);
+    if (m_registry) m_registry->disconnect(this);
+    m_registry.clear();
+    m_undoStack.clear();
+    for (const auto &provider : m_providers)
+        if (provider) provider->disconnect(this);
+    m_providers.clear();
+    if (m_tableModel) { m_tableModel->setProviders({}); m_tableModel->setUndoStack(nullptr); }
+    if (m_chartView) { m_chartView->setProvider(nullptr); m_chartView->setUndoStack(nullptr); }
+    if (m_listModel) m_listModel->setRegistry(nullptr);
+    reject();
+}
+
 
 void TimeseriesEditorDialog::closeEvent(QCloseEvent *e)
 {
@@ -211,7 +243,7 @@ QString TimeseriesEditorDialog::pickTimeseries(TimeseriesRegistry *registry,
 
     // Flush any inline edits back to the engine so callers that read
     // names via the engine API see the new/edited series.
-    registry->saveToEngine();
+    if (dlg.m_registry) dlg.m_registry->saveToEngine();
 
     return dlg.currentName();
 }
@@ -2145,6 +2177,7 @@ void TimeseriesEditorDialog::buildListPane_()
 
 void TimeseriesEditorDialog::rebindActiveProvider_(TimeseriesProvider *p)
 {
+    if (!m_contextValid) p = nullptr;
     // Step F — dispose the outgoing provider's in-memory cache if it's
     // ExternalFile-backed. The file path stays on the provider, so a future
     // re-bind (or the user clicking the Reload button) re-reads from disk.
@@ -2232,6 +2265,7 @@ void TimeseriesEditorDialog::rebindActiveProvider_(TimeseriesProvider *p)
 
 void TimeseriesEditorDialog::onListSelectionChanged_()
 {
+    if (!m_contextValid) return;
     if (!m_listView || !m_listModel || !m_listProxy) return;
     const QModelIndex prx = m_listView->currentIndex();
     const bool hasSelection = prx.isValid();
@@ -2284,13 +2318,13 @@ void TimeseriesEditorDialog::onDeleteSeriesClicked_()
     const QModelIndex prx = m_listView->currentIndex();
     if (!prx.isValid()) return;
     const QModelIndex src = m_listProxy->mapToSource(prx);
-    auto *p = m_listModel->providerAt(src.row());
+    QPointer<TimeseriesProvider> p = m_listModel->providerAt(src.row());
     if (!p) return;
 
     const auto choice = QMessageBox::question(this, tr("Delete time series"),
         tr("Delete time series “%1”? This cannot be undone via the editor's Undo stack.").arg(p->name()),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (choice != QMessageBox::Yes) return;
+    if (choice != QMessageBox::Yes || !m_contextValid || !m_registry || !p) return;
 
     m_registry->remove(p);   // also fires providerAboutToBeRemoved → list updates
     // Selection auto-clears; rebind to whatever's now-current (or null).

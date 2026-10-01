@@ -94,9 +94,37 @@ TransectEditorDialog::TransectEditorDialog(TransectRegistry *registry,
     // destructor-time write): naming is the wiring.
     setObjectName(QStringLiteral("TransectEditorDialog"));
     if (m_splitter) m_splitter->setObjectName(QStringLiteral("main"));
+    setAccessibleDescription(undoStack
+        ? tr("Changes are applied immediately. Closing this editor does not undo changes. Use Undo to reverse an edit.")
+        : tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    if (m_table) m_table->setAccessibleName(tr("Transect values"));
+    if (m_listView) m_listView->setAccessibleName(tr("Transect objects"));
+    if (m_chartView) m_chartView->setAccessibleName(tr("Transect preview"));
+    if (registry) connect(registry, &QObject::destroyed, this, &TransectEditorDialog::invalidateContext);
+    if (undoStack) connect(undoStack, &QObject::destroyed, this, &TransectEditorDialog::invalidateContext);
+    if (layer) {
+        connect(layer, &QObject::destroyed, this, &TransectEditorDialog::invalidateContext);
+        connect(layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+    }
+
 }
 
 TransectEditorDialog::~TransectEditorDialog() = default;
+
+void TransectEditorDialog::invalidateContext()
+{
+    if (!m_contextValid) return;
+    m_contextValid = false;
+    setEnabled(false);
+    if (m_registry) m_registry->disconnect(this);
+    m_registry.clear();
+    m_undoStack.clear();
+    m_layer.clear();
+    bindProvider_(nullptr);
+    if (m_listModel) m_listModel->setRegistry(nullptr);
+    reject();
+}
+
 
 TransectEditorDialog *TransectEditorDialog::createNew(TransectRegistry *registry,
                                                        SWMMModelLayer *layer,
@@ -152,7 +180,7 @@ QString TransectEditorDialog::pickTransect(TransectRegistry *registry,
     // layer first vended the registry); the no-arg overload is a no-op
     // if the registry was never bound. This keeps the test target free
     // of the SWMMModelLayer::engine() linkage.
-    registry->saveToEngine();
+    if (dlg.m_registry) dlg.m_registry->saveToEngine();
 
     auto *p = dlg.currentProvider();
     return p ? p->name() : QString();
@@ -504,6 +532,7 @@ void TransectEditorDialog::selectProviderInList_(TransectProvider *p)
 
 void TransectEditorDialog::onListSelectionChanged_()
 {
+    if (!m_contextValid) return;
     if (!m_listView || !m_listModel) return;
     const int row = m_listView->currentIndex().row();
     auto *p = m_listModel->providerAt(row);
@@ -512,6 +541,7 @@ void TransectEditorDialog::onListSelectionChanged_()
 
 void TransectEditorDialog::bindProvider_(TransectProvider *p)
 {
+    if (!m_contextValid) p = nullptr;
     if (m_current.data() == p) {
         refreshPropertyBag_();
         updateStatusBar_();

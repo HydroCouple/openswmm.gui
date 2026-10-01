@@ -85,6 +85,9 @@ public:
 
     void invokeNew();
 
+public slots:
+    void invalidateContext();
+
 private slots:
     void onListSelectionChanged_();
     void onAddClicked_();

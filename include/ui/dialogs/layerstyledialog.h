@@ -94,6 +94,10 @@ public:
                               QUndoStack *undoStack = nullptr);   // #36 — optional
     ~LayerStyleDialog() override;
 
+public slots:
+    void accept() override;
+    void reject() override;
+
 private slots:
     void onApply();
     void onAccept();
@@ -127,6 +131,9 @@ private:
     void populateMetadata();
     void writeGeneralRenderingToLayer();
     void snapshotSubjects();
+    void recordAcceptedSession();
+    bool validClassificationDrafts() const;
+    void invalidateTarget();
     void restoreSubjectsFromSnapshot();
     void focusInitialSubject();
 
@@ -138,7 +145,7 @@ private:
     // refactor), so every panel edits the same instances the snapshots
     // cover. Rendered into the Symbology / Labels tabs as appropriate.
     std::vector<std::unique_ptr<ILayerStyleSubject>> m_subjects;
-    std::vector<QJsonObject> m_subjectSnapshots;
+    QJsonObject m_subjectSnapshots;
     // Full renderer-state baseline for Cancel (kind renderers, layer
     // renderer, label config) via StyleFileIO::styleToJson — the part the
     // per-subject snapshots don't cover. Refreshed on Apply / import.
@@ -149,9 +156,13 @@ private:
     // EditLayerStyleCommand(before,after) onto m_undoStack so the symbology
     // edit is undoable after the dialog closes. Null stack → no command
     // (back-compat for callers without one).
-    QUndoStack              *m_undoStack = nullptr;
-    std::vector<QJsonObject>  m_undoBaseline;
+    QPointer<QUndoStack>     m_undoStack;
+    QJsonObject              m_undoBaseline;
     QJsonObject               m_undoStyleBaseline;
+
+    QJsonObject m_undoGeneralBefore;
+    QJsonObject m_undoGeneralAfter;
+    bool m_sessionFinished = false;
 
     QString  m_initialRoutingId;
 

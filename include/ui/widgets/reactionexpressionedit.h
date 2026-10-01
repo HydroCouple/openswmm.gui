@@ -87,6 +87,7 @@ public:
 
     /*! Run validation immediately (also runs debounced on every edit). */
     void validateNow();
+    void invalidateEngine();
 
 signals:
     void validationChanged(bool ok, const QString &msg, int col);
@@ -121,6 +122,8 @@ public:
 
     explicit ReactionExpressionDelegate(void *engineHandle, int defaultScope,
                                         QObject *parent = nullptr);
+
+    void invalidateEngine() { m_engine = nullptr; }
 
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
                           const QModelIndex &index) const override;

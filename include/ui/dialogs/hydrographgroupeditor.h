@@ -81,6 +81,9 @@ public:
     void openForGroup(const QString &name);
 
 public slots:
+    /*! Detach layer-owned models before the layer or engine is released. */
+    void invalidateContext();
+
     /*! Slice BM.0-Add-New — bring the dialog forward and trigger the
      *  same name-prompt + create flow the left-pane "New" button drives.
      *  External Add-New entrypoints (Object Browser Data section, future
@@ -129,7 +132,8 @@ private:
     QString currentGroupName() const;
     int     currentMonth() const;       ///< -1 for "All", 0..11 for months
 
-    SWMMModelLayer            *m_layer = nullptr;
+    QPointer<SWMMModelLayer>   m_layer;
+    bool m_contextValid = true;
 
     // Layer-owned models (do not delete here — the layer owns them).
     HydrographGroupListModel  *m_groupListModel = nullptr;

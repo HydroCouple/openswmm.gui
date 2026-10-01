@@ -274,6 +274,13 @@ void ReactionExpressionEdit::setExpression(const QString &text)
     validateNow();
 }
 
+void ReactionExpressionEdit::invalidateEngine()
+{
+    m_engine = nullptr;
+    m_debounce->stop();
+    setEnabled(false);
+}
+
 void ReactionExpressionEdit::validateNow()
 {
     const QString expr = toPlainText().trimmed();

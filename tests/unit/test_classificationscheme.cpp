@@ -9,6 +9,8 @@
 #include "render/classificationscheme.h"
 
 #include <QJsonObject>
+#include <limits>
+#include <cmath>
 
 using OpenSWMM::Render::BinMethod;
 using OpenSWMM::Render::ClassificationScheme;
@@ -121,12 +123,9 @@ TEST(ClassificationScheme, CustomRangeOverridesDataRange)
     EXPECT_DOUBLE_EQ(edges[1], 15.0);
     EXPECT_DOUBLE_EQ(edges[2], 20.0);
 
-    // Degenerate custom range falls back to the data range.
+    // An invalid explicit range must not silently switch to the data range.
     s.setRangeMax(10.0);
-    const QVector<double> fb = s.levelEdges(0.0, 100.0);
-    ASSERT_EQ(fb.size(), 3);
-    EXPECT_DOUBLE_EQ(fb[0], 0.0);
-    EXPECT_DOUBLE_EQ(fb[2], 100.0);
+    EXPECT_TRUE(s.levelEdges(0.0, 100.0).isEmpty());
 }
 
 TEST(ClassificationScheme, InteriorLevelsDropEndpoints)
@@ -255,4 +254,42 @@ TEST(ClassificationScheme, DefaultEqualsDefaultButNotModified)
     EXPECT_TRUE(a == b);
     b.setClassCount(3);
     EXPECT_TRUE(a != b);
+}
+
+
+TEST(ClassificationScheme, RejectsInvalidExplicitAndNonfiniteRanges)
+{
+    ClassificationScheme s;
+    const double inf = std::numeric_limits<double>::infinity();
+    EXPECT_TRUE(s.levelEdges(0.0, inf).isEmpty());
+    EXPECT_TRUE(s.levelEdges(-inf, 1.0).isEmpty());
+    s.setUseCustomRange(true);
+    s.setRangeMin(3.0);
+    s.setRangeMax(2.0);
+    EXPECT_TRUE(s.levelEdges(0.0, 100.0).isEmpty());
+    s.setRangeMax(inf);
+    EXPECT_TRUE(s.levelEdges(0.0, 100.0).isEmpty());
+}
+
+TEST(ClassificationScheme, LogarithmicRequiresPositiveDomain)
+{
+    ClassificationScheme s;
+    s.setMethod(BinMethod::Logarithmic);
+    EXPECT_TRUE(s.levelEdges(0.0, 10.0).isEmpty());
+    EXPECT_TRUE(s.levelEdges(-1.0, 10.0).isEmpty());
+    EXPECT_FALSE(s.levelEdges(0.01, 10.0).isEmpty());
+}
+
+TEST(ClassificationScheme, InvalidManualBreakReplacementPreservesPreviousDefinition)
+{
+    ClassificationScheme s;
+    s.setMethod(BinMethod::Manual);
+    const QVector<double> previous{1.0, 2.0, 3.0};
+    s.setManualBreaks(previous);
+    for (const QVector<double> invalid : {QVector<double>{2.0, 1.0}, QVector<double>{1.0, 1.0},
+         QVector<double>{1.0, std::numeric_limits<double>::quiet_NaN()},
+         QVector<double>{1.0, std::numeric_limits<double>::infinity()}}) {
+        s.setManualBreaks(invalid);
+        EXPECT_EQ(s.manualBreaks(), previous);
+    }
 }

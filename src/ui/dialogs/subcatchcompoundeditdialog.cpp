@@ -6,6 +6,7 @@
 
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
 #include "ui/uiscrollhelpers.h"
+#include "layers/swmmmodellayer.h"
 
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_pollutants.h>      // loadings rows
@@ -25,6 +26,7 @@
 #include <QStackedWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include <cmath>
 
 namespace {
 constexpr double kBig = 1e12;
@@ -57,6 +59,12 @@ SubcatchCompoundEditDialog::SubcatchCompoundEditDialog(SubcatchCompoundEditRef r
     lay->addWidget(m_buttons);
 
     refreshActivePage();
+    setAccessibleDescription(tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    if (m_ref.layer) {
+        connect(m_ref.layer, &QObject::destroyed, this, &SubcatchCompoundEditDialog::invalidateContext);
+        connect(m_ref.layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+        connect(m_ref.layer, SIGNAL(geometryChanged()), this, SLOT(checkContext()));
+    }
 }
 
 int SubcatchCompoundEditDialog::pageIndexFor(SubcatchCompoundEditRef::Kind kind)
@@ -70,6 +78,19 @@ int SubcatchCompoundEditDialog::pageIndexFor(SubcatchCompoundEditRef::Kind kind)
     case SubcatchCompoundEditRef::Groundwater: break;
     }
     return 0;
+}
+
+void SubcatchCompoundEditDialog::invalidateContext()
+{
+    m_ref.engine = nullptr;
+    m_ref.layer = nullptr;
+    setEnabled(false);
+    reject();
+}
+
+void SubcatchCompoundEditDialog::checkContext()
+{
+    if (subIdx() < 0) invalidateContext();
 }
 
 int SubcatchCompoundEditDialog::subIdx() const
@@ -95,6 +116,7 @@ void SubcatchCompoundEditDialog::buildLandUsePage()
     vlay->addWidget(m_luSummary);
 
     m_luTable = new QTableWidget(0, 2, page);
+    m_luTable->setAccessibleName(tr("Land use coverage percentages"));
     m_luTable->setHorizontalHeaderLabels({ tr("Land Use"), tr("Coverage (%)") });
     m_luTable->horizontalHeader()->setStretchLastSection(true);
     m_luTable->verticalHeader()->setVisible(false);
@@ -117,7 +139,7 @@ void SubcatchCompoundEditDialog::buildLandUsePage()
         if (lu < 0) return;
         bool ok = false;
         const double pct = item->text().toDouble(&ok);
-        if (!ok || pct < 0.0 || pct > 100.0) {
+        if (!ok || !std::isfinite(pct) || pct < 0.0 || pct > 100.0) {
             QMessageBox::warning(this, tr("Set Coverage"),
                 tr("Coverage must be a percent between 0 and 100."));
             refreshActivePage();
@@ -147,6 +169,7 @@ void SubcatchCompoundEditDialog::buildLoadingsPage()
     vlay->addWidget(m_loadSummary);
 
     m_loadTable = new QTableWidget(0, 2, page);
+    m_loadTable->setAccessibleName(tr("Initial pollutant loadings"));
     m_loadTable->setHorizontalHeaderLabels(
         { tr("Pollutant"), tr("Initial Buildup (mass/area)") });
     m_loadTable->horizontalHeader()->setStretchLastSection(true);
@@ -170,7 +193,7 @@ void SubcatchCompoundEditDialog::buildLoadingsPage()
         if (p < 0) return;
         bool ok = false;
         const double w = item->text().toDouble(&ok);
-        if (!ok || w < 0.0) {
+        if (!ok || !std::isfinite(w) || w < 0.0) {
             QMessageBox::warning(this, tr("Set Initial Loading"),
                 tr("Initial buildup must be a non-negative number."));
             refreshActivePage();
@@ -200,6 +223,7 @@ void SubcatchCompoundEditDialog::buildLidUsagePage()
     vlay->addWidget(m_lidSummary);
 
     m_lidTable = new QTableWidget(0, 6, page);
+    m_lidTable->setAccessibleName(tr("Low impact development usage"));
     m_lidTable->setHorizontalHeaderLabels({
         tr("LID Control"), tr("#"), tr("Area"), tr("Width"),
         tr("Init.Sat"), tr("%Imperv") });
@@ -302,7 +326,7 @@ void SubcatchCompoundEditDialog::refreshActivePage()
             nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
             m_luTable->setItem(row, 0, nameItem);
             m_luTable->setItem(row, 1, new QTableWidgetItem(
-                QString::number(pct, 'g', 6)));
+                QString::number(pct, 'g', 17)));
             if (pct > 0.0) ++assigned;
             sum += pct;
         }
@@ -336,7 +360,7 @@ void SubcatchCompoundEditDialog::refreshActivePage()
             nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
             m_loadTable->setItem(row, 0, nameItem);
             m_loadTable->setItem(row, 1, new QTableWidgetItem(
-                QString::number(w, 'g', 6)));
+                QString::number(w, 'g', 17)));
             if (w > 0.0) ++assigned;
         }
         m_loadRefreshing = false;

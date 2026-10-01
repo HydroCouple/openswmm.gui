@@ -210,6 +210,12 @@ public:
     [[nodiscard]] static QList<int> selectedRowsDescending(
         const QTableWidget *table);
 
+signals:
+    void changesApplied();
+
+public slots:
+    void invalidateContext();
+
 private slots:
     void onApply();
     void onAccept();

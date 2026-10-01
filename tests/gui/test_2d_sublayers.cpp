@@ -11,6 +11,7 @@
  */
 
 #include <QJsonObject>
+#include <cmath>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 
@@ -82,6 +83,10 @@ private slots:
     void cellDepthFill_identity_dynamic();
     void smoothDepthFill_identity_dynamic();
     void scalarFill_json_roundTrip();
+    void scalarFill_continuous_customRange_matches_values();
+    void scalarFill_manual_legend_uses_actual_edges();
+    void scalarFill_unavailable_bounds_are_not_invented();
+    void scalarFill_invalid_custom_range_is_explicit();
 
     // Shared
     void all_sublayers_emit_invalidated_on_style_change();
@@ -426,6 +431,87 @@ void Test2DSublayers::all_sublayers_emit_invalidated_on_style_change()
     QSignalSpy sSpy(&s, &ISublayer::invalidated);
     s.fillStyle()->setColorRampName(QStringLiteral("plasma"));
     QCOMPARE(sSpy.count(), 1);
+}
+
+void Test2DSublayers::scalarFill_continuous_customRange_matches_values()
+{
+    CellDepthFillSublayer cell(QStringLiteral("cell"));
+    SmoothDepthFillSublayer smooth(QStringLiteral("smooth"));
+    for (auto *s : {static_cast<ISublayer *>(&cell), static_cast<ISublayer *>(&smooth)}) {
+        auto *style = qobject_cast<ScalarFillStyle *>(s->style());
+        auto scheme = style->scheme();
+        scheme.setMode(ClassificationScheme::ClassMode::Continuous);
+        scheme.setUseCustomRange(true); scheme.setRangeMin(10); scheme.setRangeMax(40);
+        scheme.setRampName(QString()); scheme.setLowColor(Qt::red); scheme.setHighColor(Qt::blue);
+        scheme.setLabelPrecision(2); style->setScheme(scheme);
+        s->setOpacity(0.4);
+        const auto legend = s->legendSymbolItems();
+        QCOMPARE(legend.size(), 6);
+        for (int i = 0; i < legend.size(); ++i) {
+            const double value = 10 + 30 * double(i) / 5;
+            QCOMPARE(legend[i].label, scheme.formatValue(value));
+            QCOMPARE(SymbolProps::readColor(legend[i].symbol.layers.front().props, "color"),
+                     scheme.colorForValue(value, 10, 40));
+            QCOMPARE(legend[i].range.first, value);
+            QCOMPARE(legend[i].range.second, value);
+            QCOMPARE(legend[i].symbol.opacity, 0.4);
+        }
+    }
+}
+
+void Test2DSublayers::scalarFill_manual_legend_uses_actual_edges()
+{
+    CellDepthFillSublayer cell(QStringLiteral("cell"));
+    auto scheme = cell.fillStyle()->scheme();
+    scheme.setMode(ClassificationScheme::ClassMode::Classified);
+    scheme.setUseCustomRange(true); scheme.setRangeMin(10); scheme.setRangeMax(40);
+    scheme.setClassCount(8); scheme.setMethod(BinMethod::Manual); scheme.setManualBreaks({12, 30});
+    scheme.setLabelOverride(1, "Important interval"); scheme.setColorOverride(1, Qt::magenta);
+    cell.fillStyle()->setScheme(scheme);
+    const auto expected = scheme.legendItems(10, 40);
+    const auto legend = cell.legendSymbolItems();
+    QCOMPARE(legend.size(), 3);
+    for (int i = 0; i < legend.size(); ++i) {
+        QCOMPARE(legend[i].label, expected[i].label);
+        QCOMPARE(legend[i].range, expected[i].range);
+        QCOMPARE(legend[i].userLabel, expected[i].userLabel);
+        QCOMPARE(legend[i].symbol.toJson(), expected[i].symbol.toJson());
+    }
+}
+
+void Test2DSublayers::scalarFill_unavailable_bounds_are_not_invented()
+{
+    CellDepthFillSublayer cell(QStringLiteral("cell"));
+    auto scheme = cell.fillStyle()->scheme();
+    scheme.setMode(ClassificationScheme::ClassMode::Classified);
+    scheme.setMethod(BinMethod::Quantile); scheme.setClassCount(3);
+    scheme.setUseCustomRange(true); scheme.setRangeMin(10); scheme.setRangeMax(40);
+    cell.fillStyle()->setScheme(scheme);
+    auto legend = cell.legendSymbolItems();
+    QCOMPARE(legend.size(), 3);
+    for (const auto &item : legend) {
+        QVERIFY(std::isnan(item.range.first));
+        QVERIFY(item.label.contains("data", Qt::CaseInsensitive));
+    }
+    scheme.setUseCustomRange(false); scheme.setMethod(BinMethod::EqualInterval);
+    cell.fillStyle()->setScheme(scheme);
+    legend = cell.legendSymbolItems();
+    for (const auto &item : legend) {
+        QVERIFY(std::isnan(item.range.first));
+        QVERIFY(item.label.contains("unavailable", Qt::CaseInsensitive));
+    }
+}
+
+void Test2DSublayers::scalarFill_invalid_custom_range_is_explicit()
+{
+    CellDepthFillSublayer cell(QStringLiteral("cell"));
+    auto scheme = cell.fillStyle()->scheme();
+    scheme.setUseCustomRange(true); scheme.setRangeMin(40); scheme.setRangeMax(10);
+    cell.fillStyle()->setScheme(scheme);
+    const auto legend = cell.legendSymbolItems();
+    QCOMPARE(legend.size(), 1);
+    QVERIFY(legend.front().label.contains("Invalid classification"));
+    QVERIFY(std::isnan(legend.front().range.first));
 }
 
 QTEST_MAIN(Test2DSublayers)

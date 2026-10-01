@@ -147,6 +147,8 @@ struct RasterColorRamp
     /*! Names of all built-in ramps, in catalogue order. Used by the
      *  ColorRampComboBox to populate its dropdown. */
     [[nodiscard]] static QStringList builtinNames();
+    /*! True for a supported internal key or display name (trimmed, case-insensitive). */
+    [[nodiscard]] static bool isBuiltin(const QString &name);
 };
 
 Q_DECLARE_METATYPE(RasterColorRamp)

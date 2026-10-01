@@ -652,6 +652,16 @@ const std::array<BuiltinEntry, 25> &builtinTable()
 
 } // namespace
 
+bool RasterColorRamp::isBuiltin(const QString &name)
+{
+    const QString trimmed = name.trimmed();
+    for (const BuiltinEntry &entry : builtinTable())
+        if (entry.key.compare(trimmed, Qt::CaseInsensitive) == 0
+            || entry.displayName.compare(trimmed, Qt::CaseInsensitive) == 0)
+            return true;
+    return false;
+}
+
 RasterColorRamp RasterColorRamp::builtin(const QString &name)
 {
     const QString key = name.trimmed().toLower();

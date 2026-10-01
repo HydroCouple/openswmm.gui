@@ -51,6 +51,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QList>
+#include <QSet>
 #include <QString>
 
 namespace OpenSWMM::Render
@@ -130,6 +131,10 @@ public:
      *        left MeshEdgeStyle for MeshBcStyle). Runs on both project
      *        load and .swmm-style.json import. Default: no-op.
      */
+    // Dynamic hosts create/remove entries before the ordinary ID-based restore.
+    // A complete snapshot can therefore roll back newly added result sublayers.
+    virtual void prepareSublayersJsonLoad(const QJsonObject &j) { Q_UNUSED(j); }
+
     virtual void onSublayersJsonLoaded(const QJsonObject &sublayersJson)
     {
         Q_UNUSED(sublayersJson);
@@ -217,7 +222,20 @@ public:
 
     static void loadSublayersFromJson(ISublayerHost &host, const QJsonObject &j)
     {
+        if (!j.value(QStringLiteral("sublayers")).isArray()) return;
         const QJsonArray arr = j.value(QStringLiteral("sublayers")).toArray();
+        // Validate the complete structural snapshot before dynamic hosts remove
+        // anything. Malformed/ambiguous rows must not become an empty inventory.
+        QSet<QString> identities;
+        for (const auto &value : arr) {
+            if (!value.isObject()) return;
+            const auto row = value.toObject();
+            const auto id = row.value(QStringLiteral("id"));
+            if (!id.isString() || id.toString().isEmpty() || identities.contains(id.toString())) return;
+            if (row.contains(QStringLiteral("style")) && !row.value(QStringLiteral("style")).isObject()) return;
+            identities.insert(id.toString());
+        }
+        host.prepareSublayersJsonLoad(j);
         // Index host's current sublayers by id so we can apply rows out of order
         // and tolerate added/removed sublayers between schema versions.
         QHash<QString, ISublayer *> byId;

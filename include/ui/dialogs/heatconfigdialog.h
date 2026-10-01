@@ -83,6 +83,12 @@ public:
     /*! \brief Number of engine writes the last OK performed (test hook). */
     int lastWriteCount() const { return m_lastWriteCount; }
 
+signals:
+    void changesApplied();
+
+public slots:
+    void invalidateEngine();
+
 private slots:
     void onAccept();
     void onAddOverride();
@@ -91,6 +97,10 @@ private slots:
 private:
     void buildUi();
     void readFromEngine();
+    bool validateDraft();
+    bool reportFailure(QWidget *field, const QString &message);
+    bool checked(int status, QWidget *field, const QString &action);
+    void refreshOverrideAccessibility();
     int  writeToEngine();
     int  writeSolar();
     int  writeRadiative();
@@ -101,6 +111,8 @@ private:
     SWMM_Engine m_engine = nullptr;
     bool m_wroteAnyChanges = false;
     int  m_lastWriteCount = 0;
+    bool m_writeFailed = false;
+    QLabel *m_validationError = nullptr;
     QTabWidget *m_tabs = nullptr;
 
     // Sources tab

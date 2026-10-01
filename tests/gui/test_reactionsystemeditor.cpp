@@ -22,6 +22,7 @@
  */
 
 #include "ui/dialogs/reactionsystemeditordialog.h"
+#include "ui/widgets/reactionexpressionedit.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -63,6 +64,8 @@ class TestReactionSystemEditor : public QObject
 {
     Q_OBJECT
 private slots:
+    void duplicateIdentityDoesNotOverwriteSavedRows();
+    void invalidationStopsExpressionEditorsAndLateWrites();
     void constructsWithNullEngine();
     void structuredCrudReachesEngine();
     void fileTabShowsStructuredEdits();
@@ -70,6 +73,9 @@ private slots:
     void badTextGatesTheTabSwitch();
     void initOverridesCommit();
     void sourcesTabIsDisabled();
+    void survivingOverrideRemainsEditable();
+    void removingUncommittedRowPreservesOtherOverride();
+    void changingOverrideIdentityReplacesOriginal();
 };
 
 void TestReactionSystemEditor::constructsWithNullEngine()
@@ -236,6 +242,114 @@ void TestReactionSystemEditor::sourcesTabIsDisabled()
     ReactionSystemEditorDialog dlg(e, nullptr);
     auto *tabs = child<QTabWidget>(dlg, "rx_tabs");
     QVERIFY(!tabs->isTabEnabled(tabs->count() - 1));
+    swmm_engine_destroy(e);
+}
+
+void TestReactionSystemEditor::survivingOverrideRemainsEditable()
+{
+    SWMM_Engine e = makeEngine();
+    QCOMPARE(swmm_reaction_species_add(e, "HOCL", 0, "MG", 0, 0), SWMM_OK);
+    QCOMPARE(swmm_reaction_init_elem_set(e, 0, 0, 0, 1.25), SWMM_OK);
+    QCOMPARE(swmm_reaction_init_elem_set(e, 0, 1, 0, 2.25), SWMM_OK);
+    ReactionSystemEditorDialog dlg(e, nullptr);
+    auto *table = child<QTableWidget>(dlg, "rx_initOverrideTable");
+    QCOMPARE(table->rowCount(), 2);
+    table->setCurrentCell(0, 0);
+    child<QPushButton>(dlg, "rx_removeInitBtn")->click();
+    QCOMPARE(table->rowCount(), 1);
+    qobject_cast<QDoubleSpinBox *>(table->cellWidget(0, 3))->setValue(7.5);
+    QCOMPARE(swmm_reaction_init_elem_count(e), 1);
+    int scope = -1, element = -1, species = -1;
+    double value = 0;
+    QCOMPARE(swmm_reaction_init_elem_get(e, 0, &scope, &element, &species, &value), SWMM_OK);
+    QCOMPARE(element, 1);
+    QCOMPARE(value, 7.5);
+    swmm_engine_destroy(e);
+}
+
+void TestReactionSystemEditor::removingUncommittedRowPreservesOtherOverride()
+{
+    SWMM_Engine e = makeEngine();
+    QCOMPARE(swmm_reaction_species_add(e, "HOCL", 0, "MG", 0, 0), SWMM_OK);
+    ReactionSystemEditorDialog dlg(e, nullptr);
+    child<QPushButton>(dlg, "rx_addInitBtn")->click();
+    child<QPushButton>(dlg, "rx_addInitBtn")->click();
+    auto *table = child<QTableWidget>(dlg, "rx_initOverrideTable");
+    qobject_cast<QComboBox *>(table->cellWidget(1, 1))->setCurrentIndex(1);
+    qobject_cast<QDoubleSpinBox *>(table->cellWidget(1, 3))->setValue(7.5);
+    QCOMPARE(swmm_reaction_init_elem_count(e), 1);
+    table->setCurrentCell(0, 0);
+    child<QPushButton>(dlg, "rx_removeInitBtn")->click();
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(swmm_reaction_init_elem_count(e), 1);
+    int scope = -1, element = -1, species = -1;
+    double value = 0;
+    QCOMPARE(swmm_reaction_init_elem_get(e, 0, &scope, &element, &species, &value), SWMM_OK);
+    QCOMPARE(element, 1);
+    QCOMPARE(value, 7.5);
+    swmm_engine_destroy(e);
+}
+
+void TestReactionSystemEditor::changingOverrideIdentityReplacesOriginal()
+{
+    SWMM_Engine e = makeEngine();
+    QCOMPARE(swmm_reaction_species_add(e, "HOCL", 0, "MG", 0, 0), SWMM_OK);
+    QCOMPARE(swmm_reaction_init_elem_set(e, 0, 0, 0, 1.25), SWMM_OK);
+    ReactionSystemEditorDialog dlg(e, nullptr);
+    auto *table = child<QTableWidget>(dlg, "rx_initOverrideTable");
+    qobject_cast<QComboBox *>(table->cellWidget(0, 1))->setCurrentIndex(1);
+    qobject_cast<QDoubleSpinBox *>(table->cellWidget(0, 3))->setValue(7.5);
+    QCOMPARE(swmm_reaction_init_elem_count(e), 1);
+    int scope = -1, element = -1, species = -1;
+    double value = 0;
+    QCOMPARE(swmm_reaction_init_elem_get(e, 0, &scope, &element, &species, &value), SWMM_OK);
+    QCOMPARE(element, 1);
+    QCOMPARE(value, 7.5);
+    swmm_engine_destroy(e);
+}
+
+void TestReactionSystemEditor::invalidationStopsExpressionEditorsAndLateWrites()
+{
+    SWMM_Engine e = makeEngine();
+    ReactionSystemEditorDialog dlg(e, nullptr);
+    auto *edit = new openswmmvis::ui::ReactionExpressionEdit(e, SWMM_RXN_SCOPE_PIPE, &dlg);
+    edit->setPlainText(QStringLiteral("HGW + ("));
+    child<QPlainTextEdit>(dlg, "rx_fileEdit")->setPlainText(QStringLiteral("[REACTION_SPECIES]\nHOCL BULK MG\n"));
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "invalidateEngine", Qt::DirectConnection));
+    swmm_engine_destroy(e);
+    QVERIFY(!dlg.isEnabled());
+    QVERIFY(!edit->isEnabled());
+    edit->validateNow();
+    edit->refreshVocabulary();
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onAddInitOverride", Qt::DirectConnection));
+    QTest::qWait(350);
+    QVERIFY(!dlg.wroteAnyChanges());
+    QCOMPARE(dlg.result(), int(QDialog::Rejected));
+}
+
+void TestReactionSystemEditor::duplicateIdentityDoesNotOverwriteSavedRows()
+{
+    SWMM_Engine e = makeEngine();
+    QCOMPARE(swmm_reaction_species_add(e, "HOCL", 0, "MG", 0, 0), SWMM_OK);
+    QCOMPARE(swmm_reaction_init_elem_set(e, 0, 0, 0, 1.234567891), SWMM_OK);
+    QCOMPARE(swmm_reaction_init_elem_set(e, 0, 1, 0, 2.345678912), SWMM_OK);
+    ReactionSystemEditorDialog dlg(e, nullptr);
+    auto *table = child<QTableWidget>(dlg, "rx_initOverrideTable");
+    qobject_cast<QComboBox *>(table->cellWidget(1, 1))->setCurrentIndex(0);
+    qobject_cast<QDoubleSpinBox *>(table->cellWidget(1, 3))->setValue(7.5);
+    QCOMPARE(swmm_reaction_init_elem_count(e), 2);
+    int scope = -1, element = -1, species = -1;
+    double value = 0;
+    QCOMPARE(swmm_reaction_init_elem_get(e, 0, &scope, &element, &species, &value), SWMM_OK);
+    QCOMPARE(value, 1.234567891);
+    QCOMPARE(swmm_reaction_init_elem_get(e, 1, &scope, &element, &species, &value), SWMM_OK);
+    QCOMPARE(value, 2.345678912);
+    QVERIFY(!dlg.wroteAnyChanges());
+    QVERIFY(!child<QLabel>(dlg, "rx_status")->text().isEmpty());
+    qobject_cast<QComboBox *>(table->cellWidget(1, 1))->setCurrentIndex(1);
+    QCOMPARE(swmm_reaction_init_elem_get(e, 1, &scope, &element, &species, &value), SWMM_OK);
+    QCOMPARE(value, 7.5);
+    QVERIFY(dlg.wroteAnyChanges());
     swmm_engine_destroy(e);
 }
 

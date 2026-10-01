@@ -3,7 +3,7 @@
 
 // UI redesign iteration 2 (D4) — shared dialog accessibility assertions.
 // Call swmmvis_test::assertDialogA11y(&dlg) from any dialog test to guard
-// the sweep invariants: per-window mnemonic uniqueness, icon-only buttons
+// the sweep invariants: per-window mnemonic uniqueness, textless buttons
 // reachable by assistive tech, and the persistence naming contract
 // (dialog objectName + named splitters) that DialogLayoutWatcher keys on.
 //
@@ -12,6 +12,7 @@
 #include <QtTest/QtTest>
 
 #include <QAbstractButton>
+#include <QAccessible>
 #include <QDialog>
 #include <QGroupBox>
 #include <QHash>
@@ -19,7 +20,6 @@
 #include <QRegularExpression>
 #include <QSplitter>
 #include <QTabBar>
-#include <QToolButton>
 
 namespace swmmvis_test {
 
@@ -64,30 +64,30 @@ inline void assertMnemonicsUnique(QWidget *root)
             claim(bar->tabText(i), QStringLiteral("tab ") + bar->tabText(i));
 }
 
-/// Icon-only buttons must be reachable by assistive tech: an accessible
-/// name, a tooltip, or a defaultAction carrying text.
+/// Textless buttons, including painted controls without a QIcon, must expose
+/// a name through Qt's accessibility interface. Explicit names, label buddies
+/// and action labels qualify when Qt exposes them; tooltips alone do not.
 inline void assertIconButtonsNamed(QWidget *root)
 {
     const auto buttons = root->findChildren<QAbstractButton *>();
-    for (const QAbstractButton *b : buttons) {
+    for (QAbstractButton *b : buttons) {
         // Qt-internal helper buttons (line-edit clear buttons, toolbar
         // extension chevrons, …) are outside the sweep's scope.
         const QLatin1String cls(b->metaObject()->className());
         if (b->objectName().startsWith(QLatin1String("qt_"))
             || cls == QLatin1String("QLineEditIconButton")
-            || cls == QLatin1String("QToolBarExtension"))
+            || cls == QLatin1String("QToolBarExtension")
+            || cls == QLatin1String("QTableCornerButton"))
             continue;
-        if (!b->text().isEmpty() || b->icon().isNull())
+        if (!b->text().trimmed().isEmpty())
             continue;
-        bool named = !b->accessibleName().isEmpty() || !b->toolTip().isEmpty();
-        if (!named) {
-            if (auto *tb = qobject_cast<const QToolButton *>(b))
-                named = tb->defaultAction() && !tb->defaultAction()->text().isEmpty();
-        }
+        QAccessibleInterface *accessible = QAccessible::queryAccessibleInterface(b);
+        const bool named = accessible
+            && !accessible->text(QAccessible::Name).trimmed().isEmpty();
         QVERIFY2(named,
                  qPrintable(QStringLiteral(
-                     "icon-only button '%1' has no accessible name, tooltip "
-                     "or default action").arg(b->objectName())));
+                     "textless button '%1' (%2) exposes no accessible Name")
+                     .arg(b->objectName(), QString::fromLatin1(b->metaObject()->className()))));
     }
 }
 

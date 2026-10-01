@@ -74,6 +74,11 @@ public:
      *  an external change / Cancel rollback. */
     void refresh();
 
+    /*! Invalid visible drafts never reach the live binding. Hosts must refuse
+     * Apply/OK until the user corrects them or cancels the containing session. */
+    [[nodiscard]] bool hasValidDraft() const;
+
+
 signals:
     /*! Emitted after any edit has been pushed to the binding — hosts that
      *  show a live legend swatch or derived UI can refresh on this. */
@@ -98,6 +103,11 @@ private:
     void buildUi();
     void rebuildTable();
     void applyVisibility();
+    void updateStatus();
+    QString m_breakError;
+    QString m_rangeError;
+    QString m_schemeError;
+    QLabel *m_status = nullptr;
     /*! Read the editor's binding scheme, mutate via \p fn, push back. */
     template <class Fn> void mutateScheme(Fn fn);
 

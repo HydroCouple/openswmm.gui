@@ -175,6 +175,17 @@ InletEditorDialog::InletEditorDialog(InletRegistry *registry,
     buildUi_();
     buildToolbar_();
 
+    setAccessibleDescription(tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    m_listView->setAccessibleName(tr("Inlet designs"));
+    if (m_registry) connect(m_registry, &QObject::destroyed, this, &InletEditorDialog::invalidateContext);
+    if (m_layer) {
+        connect(m_layer, &QObject::destroyed, this, &InletEditorDialog::invalidateContext);
+        connect(m_layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+    }
+    if (m_undoStack) connect(m_undoStack, &QObject::destroyed, this, &InletEditorDialog::invalidateContext);
+    m_propertyTree->setAccessibleName(tr("Inlet design properties"));
+    m_drawing->setAccessibleName(tr("Inlet preview"));
+
     if (m_registry) {
         connect(m_registry, &InletRegistry::providerRenamed,
                 this, &InletEditorDialog::onProviderRenamed_);
@@ -196,6 +207,22 @@ InletEditorDialog::InletEditorDialog(InletRegistry *registry,
 }
 
 InletEditorDialog::~InletEditorDialog() = default;
+
+void InletEditorDialog::invalidateContext()
+{
+    if (!m_contextValid) return;
+    m_contextValid = false;
+    if (m_registry) disconnect(m_registry, nullptr, this, nullptr);
+    if (m_layer) disconnect(m_layer, nullptr, this, nullptr);
+    m_registry = nullptr;
+    m_layer = nullptr;
+    m_undoStack = nullptr;
+    bindProvider_(nullptr);
+    m_listModel->setRegistry(nullptr);
+    setEnabled(false);
+    reject();
+}
+
 
 InletEditorDialog *InletEditorDialog::createNew(InletRegistry *registry,
                                                   SWMMModelLayer *layer,
@@ -255,7 +282,7 @@ QString InletEditorDialog::pickInlet(InletRegistry *registry,
     // Flush the registry to the engine so the caller's setter (which resolves
     // the design by name through the engine) can find it — mirrors
     // TransectEditorDialog::pickTransect.
-    registry->saveToEngine();
+    if (dlg.m_registry) dlg.m_registry->saveToEngine();
 
     InletProvider *p = dlg.currentProvider();
     if (!p) return {};
@@ -537,12 +564,14 @@ void InletEditorDialog::selectProviderInList_(InletProvider *p)
 
 void InletEditorDialog::onListSelectionChanged_()
 {
+    if (!m_contextValid) return;
     if (!m_listView || !m_listModel) return;
     bindProvider_(m_listModel->providerAt(m_listView->currentIndex().row()));
 }
 
 void InletEditorDialog::bindProvider_(InletProvider *p)
 {
+    if (!m_contextValid) p = nullptr;
     if (m_current.data() != p) {
         if (m_current) m_current->disconnect(this);
         m_current = QPointer<InletProvider>(p);
@@ -708,7 +737,7 @@ void InletEditorDialog::onPickCurveClicked_()
 
     const QString chosen = CurveEditorDialog::pickCurve(
         reg, m_undoStack, m_current->curveId(), this);
-    if (chosen.isEmpty()) return;
+    if (chosen.isEmpty() || !m_contextValid || !m_current || !m_layer) return;
 
     InletDesignData after = m_current->design();
     after.curveId = chosen;

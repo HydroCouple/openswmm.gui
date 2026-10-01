@@ -198,6 +198,8 @@
 #include "map/tools/maptoolidentify.h"   // IdentifyResult
 
 #include <QPointer>
+#include <QSaveFile>
+#include <QTemporaryFile>
 #include <QEvent>
 #include <QFrame>
 #include <QMdiSubWindow>
@@ -1207,7 +1209,7 @@ void SWMMVis::initializeMeshEditingToolBar()
     mMeshEditingToolbar->addToolSeparator();
 
     auto *actPick2DCells = new QAction(QIcon(QStringLiteral(":/swmmvis/SelectCell")),
-                                       "", mMeshEditingToolbar);
+                                       tr("Select 2D Cells"), mMeshEditingToolbar);
     actPick2DCells->setObjectName(QStringLiteral("actionPick2DCells"));
     actPick2DCells->setCheckable(true);
     actPick2DCells->setToolTip(tr(
@@ -7806,7 +7808,9 @@ void SWMMVis::clearSimulationStatusForProject(SWMMVisProjectWindow *pw)
         // the project or removing its output) that the run's results are
         // no longer wanted. The finished() lambda still fires later but
         // its model/progress-map writes no-op against the cleared state.
-        if (auto *runner = mActiveRunners.take(jobId))
+        // Cancellation is asynchronous: retain output reservations until
+        // finished(), even after the project's status rows disappear.
+        if (auto *runner = mActiveRunners.value(jobId))
             runner->cancel();
         mRunningSimProgress.remove(jobId);
         mSimulationStarts.remove(jobId);
@@ -7835,7 +7839,7 @@ void SWMMVis::onAbout()
 
 void SWMMVis::onSimulationOptions()
 {
-    auto *pw = activeProjectWindow();
+    QPointer<SWMMVisProjectWindow> pw(activeProjectWindow());
     if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
     {
         onLogMessage(tr("Open a SWMM project first to edit simulation options."),
@@ -7845,7 +7849,8 @@ void SWMMVis::onSimulationOptions()
 
     SimulationOptionsDialog dlg(pw->modelLayer()->engine(), pw->modelLayer(),
                                 pw->engineVersion(), pw, this);
-    if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
+    dlg.exec();
+    if (pw && dlg.wroteAnyChanges())
     {
         pw->setHasChanges(true);
         // Some option changes (e.g. FLOW_UNITS via this dialog later) want
@@ -7875,7 +7880,7 @@ void SWMMVis::onClimatology(int tab)
 
 void SWMMVis::onEditWaterAgeSources()
 {
-    auto *pw = activeProjectWindow();
+    QPointer<SWMMVisProjectWindow> pw(activeProjectWindow());
     if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
     {
         onLogMessage(tr("Open a SWMM project first to edit water age sources."),
@@ -7884,13 +7889,19 @@ void SWMMVis::onEditWaterAgeSources()
     }
 
     OpenSWMMVis::WaterAgeSourcesDialog dlg(pw->modelLayer()->engine(), this);
-    if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
+    connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg, &OpenSWMMVis::WaterAgeSourcesDialog::invalidateEngine);
+    connect(pw->modelLayer(), &QObject::destroyed, &dlg, &OpenSWMMVis::WaterAgeSourcesDialog::invalidateEngine);
+    connect(pw, &SWMMVisProjectWindow::aboutToClose, &dlg, &OpenSWMMVis::WaterAgeSourcesDialog::invalidateEngine);
+    connect(&dlg, &OpenSWMMVis::WaterAgeSourcesDialog::changesApplied,
+            pw, [pw] { if (pw) pw->setHasChanges(true); });
+    dlg.exec();
+    if (pw && dlg.wroteAnyChanges())
         pw->setHasChanges(true);
 }
 
 void SWMMVis::onEditInitialQuality()
 {
-    auto *pw = activeProjectWindow();
+    QPointer<SWMMVisProjectWindow> pw(activeProjectWindow());
     if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
     {
         onLogMessage(tr("Open a SWMM project first to edit initial quality."),
@@ -7901,6 +7912,9 @@ void SWMMVis::onEditInitialQuality()
     OpenSWMMVis::InitialQualityDialog dlg(pw->modelLayer()->engine(), this);
     connect(&dlg, &OpenSWMMVis::InitialQualityDialog::changesApplied,
             pw, [pw] { pw->setHasChanges(true); });
+    connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg, &OpenSWMMVis::InitialQualityDialog::invalidateEngine);
+    connect(pw->modelLayer(), &QObject::destroyed, &dlg, &OpenSWMMVis::InitialQualityDialog::invalidateEngine);
+    connect(pw, &SWMMVisProjectWindow::aboutToClose, &dlg, &OpenSWMMVis::InitialQualityDialog::invalidateEngine);
     dlg.exec();
     if (dlg.wroteAnyChanges())
     {
@@ -7914,7 +7928,7 @@ void SWMMVis::onEditInitialQuality()
 
 void SWMMVis::onEditHeatConfig(int tab)
 {
-    auto *pw = activeProjectWindow();
+    QPointer<SWMMVisProjectWindow> pw(activeProjectWindow());
     if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
     {
         onLogMessage(tr("Open a SWMM project first to edit the heat "
@@ -7925,13 +7939,19 @@ void SWMMVis::onEditHeatConfig(int tab)
 
     OpenSWMMVis::HeatConfigDialog dlg(pw->modelLayer()->engine(), this);
     if (tab >= 0) dlg.setCurrentTab(tab);
-    if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
+    connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg, &OpenSWMMVis::HeatConfigDialog::invalidateEngine);
+    connect(pw->modelLayer(), &QObject::destroyed, &dlg, &OpenSWMMVis::HeatConfigDialog::invalidateEngine);
+    connect(pw, &SWMMVisProjectWindow::aboutToClose, &dlg, &OpenSWMMVis::HeatConfigDialog::invalidateEngine);
+    connect(&dlg, &OpenSWMMVis::HeatConfigDialog::changesApplied,
+            pw, [pw] { if (pw) pw->setHasChanges(true); });
+    dlg.exec();
+    if (pw && dlg.wroteAnyChanges())
         pw->setHasChanges(true);
 }
 
 void SWMMVis::onEditReactionSystem()
 {
-    auto *pw = activeProjectWindow();
+    QPointer<SWMMVisProjectWindow> pw(activeProjectWindow());
     if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
     {
         onLogMessage(tr("Open a SWMM project first to edit the reaction "
@@ -7942,8 +7962,11 @@ void SWMMVis::onEditReactionSystem()
 
     OpenSWMMVis::ReactionSystemEditorDialog dlg(pw->modelLayer()->engine(),
                                                 this);
+    connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg, &OpenSWMMVis::ReactionSystemEditorDialog::invalidateEngine);
+    connect(pw->modelLayer(), &QObject::destroyed, &dlg, &OpenSWMMVis::ReactionSystemEditorDialog::invalidateEngine);
+    connect(pw, &SWMMVisProjectWindow::aboutToClose, &dlg, &OpenSWMMVis::ReactionSystemEditorDialog::invalidateEngine);
     dlg.exec();
-    if (dlg.wroteAnyChanges())
+    if (pw && dlg.wroteAnyChanges())
         pw->setHasChanges(true);
 }
 
@@ -8514,6 +8537,30 @@ void SWMMVis::onRunSimulation()
         return;
     }
 
+    const auto alreadyRunning = [&]() {
+        const int existing = mSimStatusModel->ensureJobForModel(pw,
+            QFileInfo(inpPath).fileName(), inpPath, pw->engineVersion());
+        if (!mActiveRunners.contains(existing)) return false;
+        onLogMessage(tr("This project is already running with the selected engine. Stop it or wait for completion before starting it again."),
+                     OpenSWMMVisLogMessage::Warning);
+        return true;
+    };
+    if (alreadyRunning()) return;
+
+    QPointer<SWMMVisProjectWindow> owner(pw);
+    QPointer<SWMMModelLayer> model(pw->modelLayer());
+    const SWMM_Engine editingEngine = model->engine();
+    quint64 revision = model->editRevision();
+    const auto contextCurrent = [&]() {
+        const bool current = owner && !owner->isClosing() && model
+            && owner->modelLayer() == model && model->engine() == editingEngine
+            && model->modelFilePath() == inpPath && model->editRevision() == revision;
+        if (!current)
+            onLogMessage(tr("Run cancelled because the project changed or closed during preparation. Start the run again from the current project."),
+                         OpenSWMMVisLogMessage::Warning);
+        return current;
+    };
+
     // Auto-save dirty edits so the engine sees the latest state.
     if (pw->hasChanges())
     {
@@ -8524,6 +8571,9 @@ void SWMMVis::onRunSimulation()
                 tr("Could not save the project before running:\n%1").arg(err));
             return;
         }
+        if (!owner || !model || owner->isClosing() || model->engine() != editingEngine) return;
+        inpPath = model->modelFilePath();
+        revision = model->editRevision();
         onLogMessage(tr("Auto-saved before running."));
     }
 
@@ -8556,6 +8606,7 @@ void SWMMVis::onRunSimulation()
                    "Simulation Options → Mesh) to run the 2D solver.\n\n"
                    "Continue with a 1D-only run?"),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+            if (!contextCurrent()) return;
             if (reply != QMessageBox::Yes) {
                 onLogMessage(tr("Run cancelled — 2D enabled but no mesh found."),
                              OpenSWMMVisLogMessage::Information);
@@ -8579,8 +8630,11 @@ void SWMMVis::onRunSimulation()
             if (swmm_options_set_ext(pw->modelLayer()->engine(),
                                      "OUTPUT_FILE",
                                      h5Default.toUtf8().constData()) == SWMM_OK) {
+                pw->setHasChanges(true);
                 QString err;
                 if (pw->save(&err)) {
+                    if (!owner || !model || owner->isClosing() || model->engine() != editingEngine) return;
+                    revision = model->editRevision();
                     // Mirror parseTwoDOutputFile's relative-to-.inp resolution
                     // rather than re-reading the file we just wrote.
                     h5Path = QFileInfo(inpPath).absoluteDir()
@@ -8589,10 +8643,9 @@ void SWMMVis::onRunSimulation()
                                     "[2D_OPTIONS] OUTPUT_FILE to change it.")
                                      .arg(h5Default));
                 } else {
-                    onLogMessage(tr("Could not save the 2D OUTPUT_FILE default "
-                                    "(%1) — 2D results will not persist for "
-                                    "this run.").arg(err),
+                    onLogMessage(tr("Run cancelled: the 2D output setting could not be saved (%1). The project remains unsaved; correct the save problem and retry.").arg(err),
                                  OpenSWMMVisLogMessage::Warning);
+                    return;
                 }
             }
         }
@@ -8629,19 +8682,40 @@ void SWMMVis::onRunSimulation()
     // is used below to detect, prompt on, and clear stale 2D results in
     // lockstep with the 1D .out — see CF.MVP-fix.2.
 
-    // ── Output-path collision guard ──────────────────────────────────
-    // 1) An in-flight simulation is already writing to this .out — hard
-    //    abort, even an overwrite would corrupt a running engine.
-    const QString outCanon = QFileInfo(outPath).absoluteFilePath();
-    for (SimulationRunner *runner : std::as_const(mActiveRunners)) {
-        if (QFileInfo(runner->outPath()).absoluteFilePath() == outCanon) {
-            QMessageBox::warning(this, tr("Output file in use"),
-                tr("A simulation is already writing to:\n%1\n\n"
-                   "Stop or wait for that run to finish before starting "
-                   "another with the same output file.").arg(outPath));
-            return;
+    // Validate every known output before closing result handles, deleting
+    // HDF5 files or writing a legacy compatibility input. Recheck after any
+    // nested overwrite prompt because another run may have started meanwhile.
+    const QString engineVer = pw->engineVersion();
+    const QString compatibilityInput = engineVer.startsWith(QLatin1String("5."))
+        ? QFileInfo(rptPath).absoluteDir().filePath(
+            QFileInfo(rptPath).completeBaseName() + QStringLiteral(".swmm5.inp")) : QString();
+    const auto pathsAvailable = [&]() {
+        if (!contextCurrent() || alreadyRunning()) return false;
+        QStringList inputs, active;
+        for (QMdiSubWindow *window : ui->mdiAreaCentral->subWindowList()) {
+            auto *project = qobject_cast<SWMMVisProjectWindow *>(window);
+            if (!project || !project->modelLayer()) continue;
+            const QString path = project->modelLayer()->modelFilePath();
+            if (!path.isEmpty()) inputs << path << ProjectSerializer::sidecarPathFor(path);
+            if (project->canvas())
+                for (auto *layer : project->canvas()->layers())
+                    if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer); mesh && !mesh->sourcePath().isEmpty())
+                        inputs << mesh->sourcePath();
         }
-    }
+        for (auto *runner : std::as_const(mActiveRunners)) {
+            active.append(runner->outputPaths());
+            // A compatibility deck must not replace a running engine's input.
+            inputs.append(runner->inpPath());
+        }
+        QString error;
+        const QStringList extra = compatibilityInput.isEmpty() ? QStringList() : QStringList{compatibilityInput};
+        if (SimulationRunner::validateRunPaths(inpPath, rptPath, outPath, inputs, active, &error, extra))
+            return true;
+        QMessageBox::warning(this, tr("Run file conflict"), error);
+        return false;
+    };
+    if (!pathsAvailable()) return;
+    bool releasePreviousResults = false;
     // 2) Concluded run / pre-existing .out (or .h5) / already-loaded
     //    results layer — overwriting is OK but warn the user first.
     //    Inspect every project's canvas, not just this one's, since a
@@ -8659,14 +8733,14 @@ void SWMMVis::onRunSimulation()
             if (!otherPw || !otherPw->canvas()) continue;
             for (OpenSWMMVisLayer *l : otherPw->canvas()->layers()) {
                 if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
-                    if (QFileInfo(rl->resultsFilePath()).absoluteFilePath() == outCanon) {
+                    if (SimulationRunner::sameFilePath(rl->resultsFilePath(), outPath)) {
                         resultLayerOpen = true;
                     }
                 }
                 if (!h5Canon.isEmpty()) {
                     if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(l)) {
                         if (auto *h5Src = dynamic_cast<HDF5Mesh2DSource *>(r2d->source());
-                            h5Src && QFileInfo(h5Src->path()).absoluteFilePath() == h5Canon)
+                            h5Src && SimulationRunner::sameFilePath(h5Src->path(), h5Path))
                         {
                             result2DLayerOpen = true;
                         }
@@ -8712,58 +8786,9 @@ void SWMMVis::onRunSimulation()
                 return;
             }
 
-            // Close any already-open .out handles so the engine can
-            // truncate / rewrite without a sharing violation, and remove
-            // any stale 2D-results layer pointing at the doomed .h5 (its
-            // source is replaced by the upcoming run's twoDInitialized
-            // handler, but the old layer must release its HDF5 handle so
-            // the engine can recreate the file).
-            for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList()) {
-                auto *otherPw = qobject_cast<SWMMVisProjectWindow *>(sw);
-                if (!otherPw || !otherPw->canvas()) continue;
-                auto *canvas = otherPw->canvas();
+            if (!pathsAvailable()) return;
 
-                // First pass — close 1D results in place (the layer object
-                // stays; only its file handle is dropped).
-                for (OpenSWMMVisLayer *l : canvas->layers()) {
-                    if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
-                        if (QFileInfo(rl->resultsFilePath()).absoluteFilePath() == outCanon)
-                            rl->closeResults();
-                    }
-                }
-
-                // Second pass — collect indices of stale 2D layers and
-                // remove them (takeLayer mutates the layers list, so we
-                // can't iterate while removing).
-                if (!h5Canon.isEmpty()) {
-                    QList<int> stale2DIdx;
-                    const auto layerList = canvas->layers();
-                    for (int i = 0; i < layerList.size(); ++i) {
-                        auto *r2d = qobject_cast<SWMM2DResultsLayer *>(layerList.at(i));
-                        if (!r2d) continue;
-                        auto *h5Src = dynamic_cast<HDF5Mesh2DSource *>(r2d->source());
-                        if (h5Src && QFileInfo(h5Src->path()).absoluteFilePath() == h5Canon)
-                            stale2DIdx.prepend(i);   // prepend → descending order for safe take
-                    }
-                    for (int idx : stale2DIdx) {
-                        // closeSource first so the HDF5 handle is gone before
-                        // we delete the file; then physically remove the
-                        // layer (no undo — overwrite-confirm already accepted).
-                        if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(
-                                canvas->layers().at(idx)))
-                            r2d->closeSource();
-                        OpenSWMMVisLayer *taken = canvas->takeLayer(idx, /*pushUndo=*/false);
-                        // If this layer was the animation controller's
-                        // fallback, drop the dangling pointer.
-                        if (taken == mAnimationController->fallback2DLayer())
-                            mAnimationController->setFallback2DLayer(nullptr);
-                        delete taken;
-                    }
-                }
-            }
-            if (h5OnDisk) {
-                QFile::remove(h5Canon);
-            }
+            releasePreviousResults = true;
         }
     }
 
@@ -8771,7 +8796,6 @@ void SWMMVis::onRunSimulation()
     // Reuse the existing row for this project window so re-running the same
     // model doesn't accumulate duplicate rows.
     const QString instanceName = QFileInfo(inpPath).fileName();
-    const QString engineVer    = pw ? pw->engineVersion() : QStringLiteral("6.0.0");
     const int jobId = mSimStatusModel->addOrReuseJobForModel(pw, instanceName, inpPath, engineVer);
 
     ui->dockWidgetSimulationStatus->show();
@@ -8796,9 +8820,7 @@ void SWMMVis::onRunSimulation()
     // is not touched; the compat file is a run artifact.
     QString runInpPath = inpPath;
     if (engineVer.startsWith(QLatin1String("5."))) {
-        const QFileInfo rptFi(rptPath);
-        runInpPath = rptFi.absoluteDir().filePath(
-            rptFi.completeBaseName() + QStringLiteral(".swmm5.inp"));
+        runInpPath = compatibilityInput;
         SWMM_Engine eng = pw->modelLayer()->engine();
         const int warnBefore = swmm_get_warning_count(eng);
         // Only the in-tree legacy engine (LEGACY_SWMM_VERSION) parses the
@@ -8809,13 +8831,47 @@ void SWMMVis::onRunSimulation()
         const int profile = (engineVer == QLatin1String(LEGACY_SWMM_VERSION))
                                 ? SWMM_INP_PROFILE_SWMM5
                                 : SWMM_INP_PROFILE_SWMM5_STOCK;
-        const int rc = swmm_model_write_compat(eng, runInpPath.toUtf8().constData(),
-                                               profile);
-        if (rc != SWMM_OK) {
-            onLogMessage(tr("Could not write the SWMM 5.x input file %1 (engine code %2); "
-                            "the run was not started.").arg(runInpPath).arg(rc),
+        // Publish a complete compatibility deck atomically, preserving an
+        // existing run deck if serialization or filesystem writes fail.
+        QTemporaryFile stage(QFileInfo(runInpPath).absoluteDir().filePath(
+            QStringLiteral(".openswmm-compat-XXXXXX.inp")));
+        QString preparationError;
+        int rc = SWMM_OK;
+        if (!stage.open()) {
+            preparationError = stage.errorString();
+        } else {
+            stage.close();
+            rc = swmm_model_write_compat(eng, stage.fileName().toUtf8().constData(), profile);
+            if (rc == SWMM_OK) {
+                QFile prepared(stage.fileName());
+                QSaveFile destination(runInpPath);
+                destination.setDirectWriteFallback(false);
+                if (!prepared.open(QIODevice::ReadOnly)) preparationError = prepared.errorString();
+                else if (!destination.open(QIODevice::WriteOnly)) preparationError = destination.errorString();
+                else {
+                    while (!prepared.atEnd()) {
+                        const QByteArray bytes = prepared.read(64 * 1024);
+                        if (prepared.error() != QFileDevice::NoError) {
+                            preparationError = prepared.errorString();
+                            break;
+                        }
+                        if (destination.write(bytes) != bytes.size()) {
+                            preparationError = destination.errorString();
+                            break;
+                        }
+                    }
+                    if (preparationError.isEmpty() && !destination.commit())
+                        preparationError = destination.errorString();
+                }
+            }
+        }
+        if (rc != SWMM_OK || !preparationError.isEmpty()) {
+            onLogMessage(tr("Could not write the SWMM 5.x input file %1 (engine code %2; %3); "
+                            "the run was not started.").arg(runInpPath).arg(rc).arg(preparationError),
                          OpenSWMMVisLogMessage::LogMessageType::Error);
             mRunningSimProgress.remove(jobId);
+            mSimStatusModel->finishJob(jobId, false, rc == SWMM_OK ? SWMM_ERR_INTERNAL : rc,
+                tr("Compatibility input preparation failed: %1").arg(preparationError), 0.0, 0.0);
             updateSimulationProgressBar();
             return;
         }
@@ -8826,6 +8882,59 @@ void SWMMVis::onRunSimulation()
                          OpenSWMMVisLogMessage::LogMessageType::Warning);
         onLogMessage(tr("Engine %1 runs %2 (SWMM 5 profile of %3)")
                          .arg(engineVer, runInpPath, inpPath));
+    }
+
+    if (releasePreviousResults) {
+        // Close any already-open .out handles so the engine can
+        // truncate / rewrite without a sharing violation, and remove
+        // any stale 2D-results layer pointing at the doomed .h5 (its
+        // source is replaced by the upcoming run's twoDInitialized
+        // handler, but the old layer must release its HDF5 handle so
+        // the engine can recreate the file).
+        for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList()) {
+            auto *otherPw = qobject_cast<SWMMVisProjectWindow *>(sw);
+            if (!otherPw || !otherPw->canvas()) continue;
+            auto *canvas = otherPw->canvas();
+
+            // First pass — close 1D results in place (the layer object
+            // stays; only its file handle is dropped).
+            for (OpenSWMMVisLayer *l : canvas->layers()) {
+                if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
+                    if (SimulationRunner::sameFilePath(rl->resultsFilePath(), outPath))
+                        rl->closeResults();
+                }
+            }
+
+            // Second pass — collect indices of stale 2D layers and
+            // remove them (takeLayer mutates the layers list, so we
+            // can't iterate while removing).
+            if (!h5Path.isEmpty()) {
+                QList<int> stale2DIdx;
+                const auto layerList = canvas->layers();
+                for (int i = 0; i < layerList.size(); ++i) {
+                    auto *r2d = qobject_cast<SWMM2DResultsLayer *>(layerList.at(i));
+                    if (!r2d) continue;
+                    auto *h5Src = dynamic_cast<HDF5Mesh2DSource *>(r2d->source());
+                    if (h5Src && SimulationRunner::sameFilePath(h5Src->path(), h5Path))
+                        stale2DIdx.prepend(i);   // prepend → descending order for safe take
+                }
+                for (int idx : stale2DIdx) {
+                    // closeSource first so the HDF5 handle is gone before
+                    // we delete the file; then physically remove the
+                    // layer (no undo — overwrite-confirm already accepted).
+                    if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(
+                            canvas->layers().at(idx)))
+                        r2d->closeSource();
+                    OpenSWMMVisLayer *taken = canvas->takeLayer(idx, /*pushUndo=*/false);
+                    // If this layer was the animation controller's
+                    // fallback, drop the dangling pointer.
+                    if (taken == mAnimationController->fallback2DLayer())
+                        mAnimationController->setFallback2DLayer(nullptr);
+                    delete taken;
+                }
+            }
+        }
+
     }
 
     // Create runner; wire signals → model; runner deletes itself after finish.

@@ -29,14 +29,18 @@
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_tables.h>
 
+#include <QAccessible>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QLabel>
 #include <QObject>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QSignalSpy>
 #include <QTableWidget>
+#include <QTabWidget>
 #include <QTest>
 
 using OpenSWMMVis::HeatConfigDialog;
@@ -77,6 +81,8 @@ class TestHeatConfigDialog : public QObject
 {
     Q_OBJECT
 private slots:
+    void tableControlsExposeFieldAndRowContext();
+    void invalidationDiscardsDraftAndGuardsLaterSignals();
     void constructsWithNullEngine();
     void hydratesSourcesAndModules();
     void writesEditedSourceAndModuleOnOk();
@@ -85,6 +91,13 @@ private slots:
     void overrideSourcesAreParserScoped();
     void cloudEnableConfiguresAndUncheckClears();
     void boundTimeseriesNamesDisplayAndRebindOnlyOnChange();
+    void exactValuesSurviveRoundedDisplay_data();
+    void exactValuesSurviveRoundedDisplay();
+    void invalidDraftRefusesBeforeWrites_data();
+    void invalidDraftRefusesBeforeWrites();
+    void timeseriesChoicesExcludeCurves();
+    void failedWriteRetainsDraftAndPartialChangeFlag_data();
+    void failedWriteRetainsDraftAndPartialChangeFlag();
 };
 
 void TestHeatConfigDialog::constructsWithNullEngine()
@@ -293,6 +306,215 @@ void TestHeatConfigDialog::boundTimeseriesNamesDisplayAndRebindOnlyOnChange()
         QCOMPARE(swmm_heat_get_shortwave_timeseries(e, buf, sizeof buf),
                  SWMM_OK);
         QCOMPARE(QString::fromUtf8(buf), QStringLiteral("alt_series"));
+    }
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::exactValuesSurviveRoundedDisplay_data()
+{
+    QTest::addColumn<QString>("edit");
+    for (const char *name : {"none", "unrelated", "explicit"})
+        QTest::newRow(name) << QString::fromLatin1(name);
+}
+
+void TestHeatConfigDialog::exactValuesSurviveRoundedDisplay()
+{
+    QFETCH(QString, edit);
+    SWMM_Engine e = makeHeatEngine();
+    QCOMPARE(swmm_heat_set_source_temp(e, SWMM_HEAT_SRC_DWF, 9.1234567), SWMM_OK);
+    QCOMPARE(swmm_heat_set_node_override(e, SWMM_HEAT_SRC_DWF, 0, 8.7654321), SWMM_OK);
+    QCOMPARE(swmm_heat_set_radiative(e, SWMM_HEAT_RAD_ALBEDO, 0.12345678), SWMM_OK);
+    QCOMPARE(swmm_heat_set_solar(e, SWMM_HEAT_SOLAR_LATITUDE, 37.1234567), SWMM_OK);
+    QCOMPARE(swmm_heat_set_cloud(e, SWMM_HEAT_CLOUD_FRACTION, 0.23456789), SWMM_OK);
+    HeatConfigDialog dlg(e);
+    if (edit == "unrelated")
+        dlg.findChild<QCheckBox *>(QStringLiteral("hc_module_%1").arg(SWMM_HEAT_SURFACE_EXCHANGE))->setChecked(true);
+    if (edit == "explicit") srcSpin(dlg, SWMM_HEAT_SRC_DWF)->setValue(14.25);
+    clickOk(dlg);
+    double actual = 0;
+    QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_DWF, &actual), SWMM_OK);
+    QCOMPARE(actual, edit == "explicit" ? 14.25 : 9.1234567);
+    QCOMPARE(swmm_heat_get_node_override(e, 0, nullptr, nullptr, &actual), SWMM_OK);
+    QCOMPARE(actual, 8.7654321);
+    QCOMPARE(swmm_heat_get_radiative(e, SWMM_HEAT_RAD_ALBEDO, &actual), SWMM_OK);
+    QCOMPARE(actual, 0.12345678);
+    QCOMPARE(swmm_heat_get_solar(e, SWMM_HEAT_SOLAR_LATITUDE, &actual), SWMM_OK);
+    QCOMPARE(actual, 37.1234567);
+    QCOMPARE(swmm_heat_get_cloud(e, SWMM_HEAT_CLOUD_FRACTION, &actual), SWMM_OK);
+    QCOMPARE(actual, 0.23456789);
+    QCOMPARE(dlg.wroteAnyChanges(), edit != "none");
+    if (edit == "none") QCOMPARE(dlg.lastWriteCount(), 0);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::invalidDraftRefusesBeforeWrites_data()
+{
+    QTest::addColumn<QString>("invalid");
+    for (const char *name : {"duplicate", "missing-source", "missing-node", "missing-shortwave-series"})
+        QTest::newRow(name) << QString::fromLatin1(name);
+}
+
+void TestHeatConfigDialog::invalidDraftRefusesBeforeWrites()
+{
+    QFETCH(QString, invalid);
+    SWMM_Engine e = makeHeatEngine();
+    QCOMPARE(swmm_heat_set_source_temp(e, SWMM_HEAT_SRC_GW, 12.0), SWMM_OK);
+    HeatConfigDialog dlg(e);
+    QSignalSpy applied(&dlg, &HeatConfigDialog::changesApplied);
+    srcSpin(dlg, SWMM_HEAT_SRC_GW)->setValue(18.0);
+    auto *tabs = dlg.findChild<QTabWidget *>(QStringLiteral("hc_tabs"));
+    QWidget *invalidField = nullptr;
+    if (invalid == "missing-shortwave-series") {
+        dlg.findChild<QRadioButton *>(QStringLiteral("hc_swTimeseries"))->setChecked(true);
+        invalidField = dlg.findChild<QComboBox *>(QStringLiteral("hc_swTsCombo"));
+    } else {
+        auto *add = dlg.findChild<QPushButton *>(QStringLiteral("hc_addOverride"));
+        add->click();
+        auto *table = dlg.findChild<QTableWidget *>(QStringLiteral("hc_overrideTable"));
+        if (invalid == "duplicate") {
+            add->click();
+            invalidField = table->cellWidget(1, 0);
+        } else {
+            invalidField = table->cellWidget(0, invalid == "missing-source" ? 0 : 1);
+            qobject_cast<QComboBox *>(invalidField)->setCurrentIndex(-1);
+        }
+    }
+    dlg.setCurrentTab(HeatConfigDialog::TabCloud);
+    dlg.show(); dlg.activateWindow(); QTest::qWait(1);
+    clickOk(dlg);
+    QVERIFY(dlg.isVisible());
+    QVERIFY(!dlg.wroteAnyChanges());
+    QCOMPARE(applied.count(), 0);
+    QCOMPARE(dlg.lastWriteCount(), 0);
+    double value = 0;
+    QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_GW, &value), SWMM_OK);
+    QCOMPARE(value, 12.0);
+    int count = -1;
+    QCOMPARE(swmm_heat_node_override_count(e, &count), SWMM_OK);
+    QCOMPARE(count, 0);
+    auto *error = dlg.findChild<QLabel *>(QStringLiteral("hc_validationError"));
+    QVERIFY(error && !error->text().isEmpty());
+    QCOMPARE(tabs->currentIndex(), int(invalid == "missing-shortwave-series"
+        ? HeatConfigDialog::TabRadiative : HeatConfigDialog::TabSources));
+    QTRY_VERIFY(invalidField->hasFocus());
+    dlg.reject();
+    QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_GW, &value), SWMM_OK);
+    QCOMPARE(value, 12.0);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::timeseriesChoicesExcludeCurves()
+{
+    SWMM_Engine e = makeHeatEngine();
+    QCOMPARE(swmm_timeseries_add(e, "solar_series"), SWMM_OK);
+    // The implementation takes the unified table type (1 = storage),
+    // unlike the older curve-creation comment that calls storage type 0.
+    QCOMPARE(swmm_curve_add(e, "storage_curve", 1), SWMM_OK);
+    int curveType = -1;
+    QCOMPARE(swmm_table_get_type(e, swmm_table_index(e, "storage_curve"), &curveType), SWMM_OK);
+    QCOMPARE(curveType, 1);
+    HeatConfigDialog dlg(e);
+    for (const char *name : {"hc_swTsCombo", "hc_cloudTsCombo"}) {
+        auto *combo = dlg.findChild<QComboBox *>(QLatin1String(name));
+        QVERIFY(combo);
+        QVERIFY(combo->findData(QStringLiteral("solar_series")) >= 0);
+        QCOMPARE(combo->findData(QStringLiteral("storage_curve")), -1);
+    }
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::failedWriteRetainsDraftAndPartialChangeFlag_data()
+{
+    QTest::addColumn<bool>("retry");
+    QTest::newRow("cancel-after-failure") << false;
+    QTest::newRow("correct-and-retry") << true;
+}
+
+void TestHeatConfigDialog::failedWriteRetainsDraftAndPartialChangeFlag()
+{
+    QFETCH(bool, retry);
+    SWMM_Engine e = makeHeatEngine();
+    QCOMPARE(swmm_heat_set_source_temp(e, SWMM_HEAT_SRC_GW, 12.0), SWMM_OK);
+    HeatConfigDialog dlg(e);
+    QSignalSpy applied(&dlg, &HeatConfigDialog::changesApplied);
+    srcSpin(dlg, SWMM_HEAT_SRC_GW)->setValue(18.0);
+    auto *albedo = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("hc_rad_%1").arg(SWMM_HEAT_RAD_ALBEDO));
+    QVERIFY(albedo);
+    // Inject a real engine refusal through the widget without a production
+    // callback seam. Normal input is bounded, but setter failures must still
+    // retain drafts and report the successful earlier source write.
+    albedo->setMaximum(2.0);
+    albedo->setValue(1.5);
+    dlg.show(); dlg.activateWindow(); QTest::qWait(1);
+    clickOk(dlg);
+    QVERIFY(dlg.isVisible());
+    QVERIFY(dlg.wroteAnyChanges());
+    QCOMPARE(dlg.lastWriteCount(), 1);
+    QCOMPARE(applied.count(), 1);
+    QCOMPARE(albedo->value(), 1.5);
+    QTRY_VERIFY(albedo->hasFocus());
+    auto *error = dlg.findChild<QLabel *>(QStringLiteral("hc_validationError"));
+    QVERIFY(error && error->text().contains(QStringLiteral("albedo"), Qt::CaseInsensitive));
+    double value = 0;
+    QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_GW, &value), SWMM_OK);
+    QCOMPARE(value, 18.0);
+    QCOMPARE(swmm_heat_get_radiative(e, SWMM_HEAT_RAD_ALBEDO, &value), SWMM_OK);
+    QVERIFY(value != 1.5);
+    if (retry) {
+        // Restore the unchanged engine value: the retry writes nothing but
+        // must retain the earlier partial-write notification.
+        albedo->setValue(value);
+        clickOk(dlg);
+        QCOMPARE(dlg.result(), int(QDialog::Accepted));
+        QCOMPARE(dlg.lastWriteCount(), 0);
+    } else dlg.reject();
+    QVERIFY(dlg.wroteAnyChanges());
+    QCOMPARE(applied.count(), 1);
+    QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_GW, &value), SWMM_OK);
+    QCOMPARE(value, 18.0);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::invalidationDiscardsDraftAndGuardsLaterSignals()
+{
+    SWMM_Engine e = makeHeatEngine();
+    HeatConfigDialog dlg(e);
+    dlg.show();
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "invalidateEngine", Qt::DirectConnection));
+    QVERIFY(!dlg.isEnabled());
+    QVERIFY(!dlg.isVisible());
+    swmm_engine_destroy(e);
+    // A queued/direct accepted signal after model closure cannot reuse the
+    // original handle or change the rejected result.
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onAccept", Qt::DirectConnection));
+    QCOMPARE(dlg.result(), int(QDialog::Rejected));
+    QVERIFY(!dlg.wroteAnyChanges());
+}
+
+void TestHeatConfigDialog::tableControlsExposeFieldAndRowContext()
+{
+    SWMM_Engine e = makeHeatEngine();
+    HeatConfigDialog dlg(e);
+    auto *globals = dlg.findChild<QTableWidget *>(QStringLiteral("hc_sourceTable"));
+    auto *overrides = dlg.findChild<QTableWidget *>(QStringLiteral("hc_overrideTable"));
+    QVERIFY(!globals->accessibleName().isEmpty());
+    QVERIFY(!overrides->accessibleName().isEmpty());
+    for (int row = 0; row < globals->rowCount(); ++row)
+        for (int col = 1; col < globals->columnCount(); ++col)
+            QVERIFY(!globals->cellWidget(row, col)->accessibleName().isEmpty());
+    auto *add = dlg.findChild<QPushButton *>(QStringLiteral("hc_addOverride"));
+    auto *remove = dlg.findChild<QPushButton *>(QStringLiteral("hc_removeOverride"));
+    QVERIFY(!add->autoDefault());
+    QVERIFY(!remove->autoDefault());
+    add->click(); add->click();
+    overrides->setCurrentCell(0, 0); remove->click();
+    for (int col = 0; col < overrides->columnCount(); ++col) {
+        auto *field = overrides->cellWidget(0, col);
+        auto *accessible = QAccessible::queryAccessibleInterface(field);
+        QVERIFY(accessible);
+        const QString description = accessible->text(QAccessible::Description);
+        QVERIFY(description.contains(QStringLiteral("1")));
+        QVERIFY(description.contains(overrides->horizontalHeaderItem(col)->text()));
     }
     swmm_engine_destroy(e);
 }

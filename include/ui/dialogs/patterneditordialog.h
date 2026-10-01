@@ -190,6 +190,10 @@ public:
 protected:
     void closeEvent(QCloseEvent *e) override;
 
+public slots:
+    /*! End editing before the project, registry or undo owner is released. */
+    void invalidateContext();
+
 private slots:
     void onListSelectionChanged_();
     void onListContextMenu_(const QPoint &pos);
@@ -226,8 +230,9 @@ private:
     void saveDialogSettings_() const;
     void restoreDialogSettings_();
 
+    bool m_contextValid = true;
     QPointer<openswmmvis::pattern::PatternRegistry> m_registry;
-    QUndoStack                                      *m_undoStack = nullptr;
+    QPointer<QUndoStack> m_undoStack;
     QPointer<openswmmvis::pattern::PatternProvider>  m_current;
     Mode                                             m_mode      = Mode::Edit;
 

@@ -69,6 +69,9 @@ signals:
     /*! At least one engine mutation succeeded, even if a later write failed. */
     void changesApplied();
 
+public slots:
+    void invalidateEngine();
+
 private slots:
     void onAddRow();
     void onRemoveRow();

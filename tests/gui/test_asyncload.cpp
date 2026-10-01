@@ -42,11 +42,42 @@
 #include <QMessageBox>
 #include <QObject>
 #include <QSignalSpy>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <QSemaphore>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QThreadPool>
 #include <QTimer>
+#include <QtConcurrent/QtConcurrentRun>
+#include <stdexcept>
 
 namespace {
+
+// Keep the actual open queued until the GUI-side ownership/path change has
+// happened. This makes stale-context regressions independent of disk speed.
+class QueuedOpenBarrier {
+public:
+    QueuedOpenBarrier() : oldMaximum(QThreadPool::globalInstance()->maxThreadCount()) {
+        QThreadPool::globalInstance()->waitForDone();
+        QThreadPool::globalInstance()->setMaxThreadCount(1);
+        blocker = QtConcurrent::run([this] { entered.release(); resume.acquire(); });
+        entered.acquire();
+    }
+    void release() {
+        if (!released) { released = true; resume.release(); }
+    }
+    ~QueuedOpenBarrier() {
+        release();
+        QThreadPool::globalInstance()->waitForDone();
+        QThreadPool::globalInstance()->setMaxThreadCount(oldMaximum);
+    }
+private:
+    int oldMaximum;
+    bool released = false;
+    QSemaphore entered, resume;
+    QFuture<void> blocker;
+};
 
 // Capture openswmm.load.* telemetry emitted during a scoped block so the
 // timing regression guard can assert on the category channel (load timing
@@ -295,6 +326,186 @@ private slots:
             delete window;
         }
 
+        delete workspace;
+    }
+
+    void duplicateAsyncOpenIsRefused()
+    {
+        auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+        auto *window = new SWMMVisProjectWindow(workspace, fixturePath(), nullptr);
+        QSignalSpy spy(window, &SWMMVisProjectWindow::modelLoadFinished);
+        {
+            QueuedOpenBarrier barrier;
+            window->loadModelAsync();
+            window->loadModelAsync();
+            barrier.release();
+            QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 20000);
+        }
+        int successes = 0, failures = 0;
+        for (const auto &args : spy) {
+            if (args.at(0).toBool()) ++successes;
+            else { ++failures; QVERIFY(!args.at(2).value<QList<QString>>().isEmpty()); }
+        }
+        QCOMPARE(successes, 1);
+        QCOMPARE(failures, 1);
+        delete window;
+        delete workspace;
+    }
+
+    void asyncOpenRejectsChangedPath()
+    {
+        auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+        auto *window = new SWMMVisProjectWindow(workspace, fixturePath(), nullptr);
+        QSignalSpy spy(window, &SWMMVisProjectWindow::modelLoadFinished);
+        {
+            QueuedOpenBarrier barrier;
+            window->loadModelAsync();
+            window->modelLayer()->setModelFilePath(nonexistentPath());
+            barrier.release();
+            QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 20000);
+        }
+        QVERIFY(!spy.at(0).at(0).toBool());
+        QVERIFY(!spy.at(0).at(2).value<QList<QString>>().isEmpty());
+        QVERIFY(window->modelLayer()->engine() == nullptr);
+        QCOMPARE(window->modelLayer()->cachedNodeCount(), 0);
+        QCOMPARE(window->modelLayer()->modelFilePath(), nonexistentPath());
+        delete window;
+        delete workspace;
+    }
+
+    void asyncOpenDoesNotReplaceLoadedEngine()
+    {
+        auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+        auto *window = new SWMMVisProjectWindow(workspace, fixturePath(), nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY(window->loadModel(warnings, errors));
+        const SWMM_Engine original = window->modelLayer()->engine();
+        const int count = window->modelLayer()->cachedNodeCount();
+        QSignalSpy spy(window, &SWMMVisProjectWindow::modelLoadFinished);
+        window->loadModelAsync();
+        QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 20000);
+        QVERIFY(!spy.at(0).at(0).toBool());
+        QCOMPARE(window->modelLayer()->engine(), original);
+        QCOMPARE(window->modelLayer()->cachedNodeCount(), count);
+        delete window;
+        delete workspace;
+    }
+
+    void asyncOpenRejectsChangedRevision()
+    {
+        auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+        auto *window = new SWMMVisProjectWindow(workspace, fixturePath(), nullptr);
+        QSignalSpy spy(window, &SWMMVisProjectWindow::modelLoadFinished);
+        {
+            QueuedOpenBarrier barrier;
+            window->loadModelAsync();
+            emit window->modelLayer()->modelEdited();
+            barrier.release();
+            QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 20000);
+        }
+        QVERIFY(!spy.at(0).at(0).toBool());
+        QVERIFY(window->modelLayer()->engine() == nullptr);
+        QCOMPARE(window->modelLayer()->cachedNodeCount(), 0);
+        delete window;
+        delete workspace;
+    }
+
+    void closingOwnerDuringCrsPromptIsSafe()
+    {
+        auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+        QPointer<SWMMVisProjectWindow> window =
+            new SWMMVisProjectWindow(workspace, fixturePath(), nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY(window->loadModel(warnings, errors));
+        window->modelLayer()->setSRS(SpatialReferenceSystem::untitled(window->modelLayer()), true);
+        window->mCanvasCRSAdopted = false;
+        QTimer::singleShot(0, [window] { delete window.data(); });
+        QVERIFY(!window->finishModelLoad(warnings, errors));
+        QVERIFY(!window);
+        QVERIFY(!errors.isEmpty());
+        delete workspace;
+    }
+
+    void asyncWorkerExceptionIsReportedAndRetryWorks()
+    {
+        auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+        auto *window = new SWMMVisProjectWindow(workspace, fixturePath(), nullptr);
+        QSignalSpy spy(window, &SWMMVisProjectWindow::modelLoadFinished);
+        window->mAsyncLoadWorkerTestHook = [] { throw std::runtime_error("injected open failure"); };
+        window->loadModelAsync();
+        QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 20000);
+        QVERIFY(!spy.at(0).at(0).toBool());
+        QVERIFY(spy.at(0).at(2).value<QList<QString>>().join(' ').contains("injected open failure"));
+        QVERIFY(window->modelLayer()->engine() == nullptr);
+        QCOMPARE(window->modelLayer()->cachedNodeCount(), 0);
+        window->mAsyncLoadWorkerTestHook = {};
+        spy.clear();
+        window->loadModelAsync();
+        QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 20000);
+        QVERIFY(spy.at(0).at(0).toBool());
+        QVERIFY(window->modelLayer()->engine() != nullptr);
+        delete window;
+        delete workspace;
+    }
+
+    void asyncOwnerTeardown_data()
+    {
+        QTest::addColumn<QString>("owner");
+        QTest::newRow("window") << QString("window");
+        QTest::newRow("layer") << QString("layer");
+        QTest::newRow("workspace") << QString("workspace");
+    }
+
+    void asyncOwnerTeardown()
+    {
+        QFETCH(QString, owner);
+        if (qEnvironmentVariable("SWMMVIS_ASYNC_TEARDOWN_CHILD") != owner) {
+            QProcess child;
+            auto environment = QProcessEnvironment::systemEnvironment();
+            environment.insert("SWMMVIS_ASYNC_TEARDOWN_CHILD", owner);
+            child.setProcessEnvironment(environment);
+            child.start(QCoreApplication::applicationFilePath(),
+                        {"asyncOwnerTeardown:" + owner, "-o", "-,txt"});
+            QVERIFY(child.waitForStarted());
+            const bool ended = child.waitForFinished(30000);
+            if (!ended) { child.kill(); child.waitForFinished(); }
+            const QByteArray details = child.readAllStandardOutput() + child.readAllStandardError();
+            QVERIFY2(ended, details.constData());
+            QVERIFY2(child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0,
+                     details.constData());
+            return;
+        }
+        auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+        QPointer<SWMMVisProjectWindow> window =
+            new SWMMVisProjectWindow(workspace, fixturePath(), nullptr);
+        QPointer<SWMMModelLayer> layer = window->modelLayer();
+        QSignalSpy spy(window, &SWMMVisProjectWindow::modelLoadFinished);
+        {
+            QueuedOpenBarrier barrier;
+            window->loadModelAsync();
+            if (owner == "window") { delete window; }
+            else if (owner == "layer") {
+                const int index = window->canvas()->layers().indexOf(layer);
+                QVERIFY(index >= 0);
+                window->canvas()->takeLayer(index, false);
+                delete layer;
+            } else {
+                delete window;
+                delete workspace;
+                workspace = nullptr;
+            }
+            barrier.release();
+            QThreadPool::globalInstance()->waitForDone();
+        }
+        QCoreApplication::processEvents();
+        if (window) {
+            QCOMPARE(spy.count(), 1);
+            QVERIFY(!spy.at(0).at(0).toBool());
+        } else if (layer) {
+            QVERIFY(layer->engine() == nullptr);
+            QCOMPARE(layer->cachedNodeCount(), 0);
+        }
+        delete window;
         delete workspace;
     }
 

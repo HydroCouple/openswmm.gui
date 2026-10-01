@@ -112,6 +112,10 @@ public:
     void invokeNew();
     void deleteCurrentSilently();
 
+public slots:
+    /*! End editing before the model, registry or undo owner is released. */
+    void invalidateContext();
+
 private slots:
     void onListSelectionChanged_();
     void onAddClicked_();
@@ -148,9 +152,10 @@ private:
      *  was opened for. Always true when no shape filter is active. */
     bool passesShapeFilter_(openswmmvis::inlet::InletProvider *p) const;
 
+    bool m_contextValid = true;
     QPointer<openswmmvis::inlet::InletRegistry> m_registry;
     QPointer<SWMMModelLayer>                    m_layer;
-    QUndoStack                                 *m_undoStack = nullptr;
+    QPointer<QUndoStack>                         m_undoStack;
     QPointer<openswmmvis::inlet::InletProvider> m_current;
     Mode                                        m_mode = Mode::Edit;
     int                                         m_shapeFilter = -1;

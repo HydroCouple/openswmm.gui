@@ -2186,6 +2186,9 @@ public slots:
     void markEdited() { emit modelEdited(); }
 
 signals:
+    /*! Emitted before the editing engine is closed; borrowed-handle editors
+     * must stop callbacks and discard their context synchronously. */
+    void engineAboutToClose();
     void modelFilePathChanged(const QString &path);
     void showNodesChanged(bool show);
     void showLinksChanged(bool show);

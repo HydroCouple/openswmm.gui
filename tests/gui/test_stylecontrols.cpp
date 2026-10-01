@@ -1,4 +1,17 @@
 #include "ui/widgets/colorbutton.h"
+#include "ui/widgets/classificationeditor.h"
+#include "ui/dialogs/editors/classificationbindings.h"
+#include "ui/dialogs/swmm2dresultsstylepanel.h"
+#include "layers/swmm2dresultslayer.h"
+#include "render/sublayers/resultscalarsublayer.h"
+#include <QListWidget>
+#include <QPushButton>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QLabel>
+#include <QStandardItemModel>
+#include <QTableView>
 #include "ui/widgets/sunpositionthumb.h"
 #include "ui/widgets/labelconfigeditor.h"
 #include "ui/dialogs/colorrampeditordialog.h"
@@ -20,6 +33,56 @@
 using namespace openswmmvis::ui;
 
 namespace {
+class PanelVariableSource : public IMesh2DSource {
+public:
+    int vertexCount() const override { return 3; }
+    int triangleCount() const override { return 1; }
+    int timeCount() const override { return 1; }
+    bool readMeshGeometry(std::vector<double>&x,std::vector<double>&y,std::vector<double>&z,
+                          std::vector<std::array<int,3>>&t) override {
+        x={0,1,0}; y={0,0,1}; z={0,0,0}; t={{0,1,2}}; return true;
+    }
+    bool readDepthsAt(int,std::vector<float>&v) override { v={0}; return true; }
+    QVector<openswmmvis::io::Mesh2DResultVariable> faceVariables(QStringList * = nullptr) const override {
+        using V=openswmmvis::io::Mesh2DResultVariable;
+        V a; a.dataset="Mesh2_face_species_conc"; a.species="Nitrate";
+        a.label="Surface Nitrate"; a.units="mg/L"; a.unitsKnown=true; a.frameCount=1;
+        V b=a; b.dataset="Mesh2_face_gw_sat_species_conc"; b.domain=V::Domain::Groundwater;
+        b.zone=V::Zone::Saturated; b.label="Saturated Nitrate"; b.units.clear(); b.unitsKnown=false;
+        return {a,b};
+    }
+    bool readFaceVariableAt(const openswmmvis::io::Mesh2DResultVariable&v,int,
+        std::vector<float>&out,std::vector<openswmmvis::io::Mesh2DValueStatus>&status) override {
+        using V=openswmmvis::io::Mesh2DResultVariable;
+        using S=openswmmvis::io::Mesh2DValueStatus;
+        out={0}; status={v.domain==V::Domain::Surface?S::Valid:S::Waterless}; return true;
+    }
+};
+class PanelQuadVariableSource : public PanelVariableSource {
+public:
+    int vertexCount() const override { return 4; }
+    bool readMeshGeometry(std::vector<double>&x,std::vector<double>&y,std::vector<double>&z,
+                          std::vector<std::array<int,3>>&t) override {
+        x={0,1,1,0};y={0,0,1,1};z={0,0,0,0};t={{0,1,2},{0,2,3}};return true;
+    }
+    bool readCells(std::vector<double>&x,std::vector<double>&y,std::vector<double>&z,
+                   std::vector<std::array<int,4>>&c) override {
+        std::vector<std::array<int,3>> t;readMeshGeometry(x,y,z,t);c={{0,1,2,3}};return true;
+    }
+};
+class TestClassificationBinding : public IClassificationBinding
+{
+public:
+    OpenSWMM::Render::ClassificationScheme value;
+    QPair<double, double> range{0.0, 10.0};
+    QVector<double> samples;
+    int writes = 0;
+    OpenSWMM::Render::ClassificationScheme scheme() const override { return value; }
+    void setScheme(const OpenSWMM::Render::ClassificationScheme &s) override { value = s; ++writes; }
+    QPair<double, double> dataRange() const override { return range; }
+    QVector<double> sampleValues() const override { return samples; }
+    bool supportsCustomRange() const override { return true; }
+};
 QString outputDir()
 {
     return qEnvironmentVariable("SWMMVIS_STYLE_TEST_OUTPUT",
@@ -43,6 +106,224 @@ class TestStyleControls : public QObject
 {
     Q_OBJECT
 private slots:
+    void additionalResultsIndependentAndRemovable()
+    {
+        SWMM2DResultsLayer layer; layer.setSource(std::make_unique<PanelVariableSource>());
+        Swmm2DResultsStylePanel panel(&layer);
+        auto *catalog=panel.findChild<QComboBox *>("additionalResultCatalog"); QVERIFY(catalog);
+        QCOMPARE(catalog->count(),2);
+        auto *add=panel.findChild<QPushButton *>("additionalResultAdd"); QVERIFY(add);
+        add->click(); add->click();
+        auto *list=panel.findChild<QListWidget *>("additionalResultList"); QVERIFY(list);
+        QCOMPARE(list->count(),2);
+        auto *a=qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(
+            OpenSWMM::Render::ISublayerHost::findSublayer(layer,list->item(0)->data(Qt::UserRole).toString()));
+        auto *b=qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(
+            OpenSWMM::Render::ISublayerHost::findSublayer(layer,list->item(1)->data(Qt::UserRole).toString()));
+        QVERIFY(a); QVERIFY(b); QVERIFY(a!=b);
+        auto *opacity=panel.findChild<QDoubleSpinBox *>("additionalResultOpacity"); QVERIFY(opacity);
+        opacity->setValue(35); QCOMPARE(b->opacity(),.35); QCOMPARE(a->opacity(),1.);
+        auto *missing=panel.findChild<ColorButton *>("additionalResultMissing"); QVERIFY(missing);
+        missing->setColor(Qt::red); QMetaObject::invokeMethod(missing,"colorChanged",Q_ARG(QColor,QColor(Qt::red)));
+        QCOMPARE(b->fillStyle()->missingColor(),QColor(Qt::red));
+        QVERIFY(a->fillStyle()->missingColor()!=QColor(Qt::red));
+        panel.findChild<QPushButton *>("additionalResultRemove")->click(); QCOMPARE(list->count(),1);
+    }
+    void additionalResultsRetainDraftDuringSelectionChanges()
+    {
+        SWMM2DResultsLayer layer; layer.setSource(std::make_unique<PanelVariableSource>());
+        auto *sub=layer.addResultSublayer(layer.resultVariables()[0].key());
+        auto scheme=sub->fillStyle()->scheme(); scheme.setUseCustomRange(true);
+        scheme.setMode(OpenSWMM::Render::ClassificationScheme::ClassMode::Classified);
+        scheme.setRangeMin(0); scheme.setRangeMax(10);
+        scheme.setMethod(OpenSWMM::Render::BinMethod::Manual); scheme.setManualBreaks({3,7});
+        sub->fillStyle()->setScheme(scheme);
+        Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id()));
+        auto *editor=panel.findChild<ClassificationEditor *>("additionalResultClassification"); QVERIFY(editor);
+        auto *table=editor->findChild<QTableView *>(); QVERIFY(table);
+        QVERIFY(table->model()->setData(table->model()->index(0,1),QStringLiteral("oops")));
+        QVERIFY(!editor->hasValidDraft());
+        layer.highlightCells({0});
+        QCOMPARE(panel.findChild<ClassificationEditor *>("additionalResultClassification"),editor);
+        QCOMPARE(table->model()->index(0,1).data().toString(),QStringLiteral("oops"));
+        QVERIFY(!editor->hasValidDraft());
+    }
+    void additionalResultsRetainUnavailableVariable()
+    {
+        SWMM2DResultsLayer layer; layer.setSource(std::make_unique<PanelVariableSource>());
+        const QString key="groundwater:missing:species:Unavailable";
+        auto *sub=layer.addResultSublayer(key); QVERIFY(sub);
+        Swmm2DResultsStylePanel panel(&layer);
+        auto *selector=panel.findChild<QComboBox *>("additionalResultVariable"); QVERIFY(selector);
+        QCOMPARE(selector->currentData().toString(),key); QCOMPARE(sub->variableKey(),key);
+        auto *editor=panel.findChild<ClassificationEditor *>("additionalResultClassification"); QVERIFY(editor);
+        QVERIFY(!editor->isEnabled());
+        auto *exportButton=panel.findChild<QPushButton *>("additionalResultExport"); QVERIFY(exportButton);
+        QVERIFY(!exportButton->isEnabled());
+    }
+    void additionalResultsInspectionMapsQuadTrianglesToCell()
+    {
+        SWMM2DResultsLayer layer;layer.setSource(std::make_unique<PanelQuadVariableSource>());
+        QVERIFY(layer.triCellMap().size()>=2);layer.highlightCells({0,1});
+        layer.addResultSublayer(layer.resultVariables()[0].key());
+        Swmm2DResultsStylePanel panel(&layer);
+        auto *table=panel.findChild<QTableWidget *>("additionalResultInspection");QVERIFY(table);
+        QCOMPARE(table->rowCount(),1);QCOMPARE(table->item(0,0)->text(),QStringLiteral("1 (first of 1 selected)"));
+        layer.highlightCells({1});QCOMPARE(table->rowCount(),1);
+        QCOMPARE(table->item(0,1)->text(),QStringLiteral("Valid"));
+    }
+    void additionalResultsInspectionAndUnitGate()
+    {
+        SWMM2DResultsLayer layer; layer.setSource(std::make_unique<PanelVariableSource>());
+        layer.highlightCells({0});
+        auto vars=layer.resultVariables(); layer.addResultSublayer(vars[0].key());
+        Swmm2DResultsStylePanel panel(&layer);
+        auto *table=panel.findChild<QTableWidget *>("additionalResultInspection"); QVERIFY(table);
+        QCOMPARE(table->item(0,1)->text(),QStringLiteral("Valid"));
+        QCOMPARE(table->item(0,2)->text(),QStringLiteral("0"));
+        QVERIFY(panel.findChild<QPushButton *>("additionalResultExport")->isEnabled());
+        QVERIFY(panel.focusResult(layer.sublayers().last()->id()));
+        panel.resize(940,860);panel.show();QTest::qWait(30);
+        QVERIFY(QDir().mkpath(outputDir()));
+        QVERIFY(panel.grab().save(QDir(outputDir()).filePath("additional_results_panel.png")));
+        auto *selector=panel.findChild<QComboBox *>("additionalResultVariable"); QVERIFY(selector);
+        selector->setCurrentIndex(selector->findData(vars[1].key()));
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        table=panel.findChild<QTableWidget *>("additionalResultInspection"); QVERIFY(table);
+        QCOMPARE(table->item(0,1)->text(),QStringLiteral("Waterless"));
+        QVERIFY(!panel.findChild<QPushButton *>("additionalResultExport")->isEnabled());
+    }
+    void resultsPanelInvalidatesWithLayer()
+    {
+        auto layer=std::make_unique<SWMM2DResultsLayer>();
+        Swmm2DResultsStylePanel panel(layer.get()); layer.reset();
+        QVERIFY(!panel.isEnabled());
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        QVERIFY(panel.findChildren<ClassificationEditor *>().isEmpty());
+    }
+    void legacyElevationIsNotAnEnabledDeadControl()
+    {
+        SWMM2DResultsLayer layer; Swmm2DResultsStylePanel panel(&layer);
+        for (auto *combo:panel.findChildren<QComboBox *>()) {
+            const int row=combo->findData(QStringLiteral("elevation"));
+            if(row>=0) QVERIFY(!(combo->model()->flags(combo->model()->index(row,0))&Qt::ItemIsEnabled));
+        }
+    }
+    void classificationBreakDraftValidation_data()
+    {
+        QTest::addColumn<QString>("text");
+        QTest::newRow("not-a-number") << QStringLiteral("oops");
+        QTest::newRow("nonfinite") << QStringLiteral("nan");
+        QTest::newRow("infinity") << QStringLiteral("inf");
+        QTest::newRow("descending") << QStringLiteral("9");
+        QTest::newRow("duplicate") << QStringLiteral("7");
+        QTest::newRow("outside-range") << QStringLiteral("-1");
+    }
+    void classificationBreakDraftValidation()
+    {
+        QFETCH(QString, text);
+        TestClassificationBinding binding;
+        binding.value.setMethod(OpenSWMM::Render::BinMethod::Manual);
+        binding.value.setManualBreaks({3.0, 7.0});
+        ClassificationEditor editor(&binding);
+        const auto original = binding.value.toJson();
+        auto *table = editor.findChild<QTableView *>(); QVERIFY(table);
+        QVERIFY(table->model()->setData(table->model()->index(0, 1), text));
+        QCOMPARE(binding.value.toJson(), original);
+        QCOMPARE(binding.writes, 0);
+        auto *status = editor.findChild<QLabel *>("classificationStatus");
+        QVERIFY(status); QVERIFY(!status->text().isEmpty());
+        // Keep the rejected draft available, then commit a corrected value.
+        QCOMPARE(table->model()->index(0, 1).data().toString(), text);
+        QVERIFY(table->model()->setData(table->model()->index(0, 1), QStringLiteral("4")));
+        QCOMPARE(binding.value.manualBreaks(), QVector<double>({4.0, 7.0}));
+    }
+    void classificationEditingOneBreakPreservesOtherExactValues()
+    {
+        TestClassificationBinding binding;
+        binding.value.setMethod(OpenSWMM::Render::BinMethod::Manual);
+        binding.value.setManualBreaks({1.234567890123, 7.987654321098});
+        binding.value.setLabelPrecision(2);
+        ClassificationEditor editor(&binding);
+        auto *table = editor.findChild<QTableView *>(); QVERIFY(table);
+        QVERIFY(table->model()->setData(table->model()->index(0, 1), QStringLiteral("2.5")));
+        QCOMPARE(binding.value.manualBreaks(), QVector<double>({2.5, 7.987654321098}));
+    }
+    void classificationInvalidRangeRemainsDraft()
+    {
+        TestClassificationBinding binding;
+        binding.value.setUseCustomRange(true);
+        binding.value.setRangeMin(1.0); binding.value.setRangeMax(8.0);
+        ClassificationEditor editor(&binding);
+        const auto spins = editor.findChildren<QDoubleSpinBox *>(); QCOMPARE(spins.size(), 2);
+        spins[0]->setValue(9.0);
+        QCOMPARE(binding.value.rangeMin(), 1.0);
+        QCOMPARE(binding.value.rangeMax(), 8.0);
+        QCOMPARE(binding.writes, 0);
+        spins[1]->setValue(10.0);
+        QCOMPARE(binding.value.rangeMin(), 9.0);
+        QCOMPARE(binding.value.rangeMax(), 10.0);
+    }
+    void classificationRangeEditPreservesUntouchedPrecision()
+    {
+        TestClassificationBinding binding;
+        binding.value.setUseCustomRange(true);
+        binding.value.setRangeMin(0.1234567890123); binding.value.setRangeMax(8.9876543210987);
+        ClassificationEditor editor(&binding);
+        const auto spins = editor.findChildren<QDoubleSpinBox *>(); QCOMPARE(spins.size(), 2);
+        spins[1]->setValue(9.5);
+        QCOMPARE(binding.value.rangeMin(), 0.1234567890123);
+        QCOMPARE(binding.value.rangeMax(), 9.5);
+    }
+    void classificationRampAliasesAreRecognized_data()
+    {
+        QTest::addColumn<QString>("name");
+        QTest::newRow("internal-lowercase")<<QStringLiteral("viridis");
+        QTest::newRow("display-mixed-case")<<QStringLiteral("vIrIdIs");
+        QTest::newRow("internal-hyphenated")<<QStringLiteral("water-depth");
+        QTest::newRow("legacy-internal")<<QStringLiteral("legacy-swmm-pollutant");
+        QTest::newRow("trimmed")<<QStringLiteral("  Viridis  ");
+    }
+    void classificationRampAliasesAreRecognized()
+    {
+        QFETCH(QString,name); TestClassificationBinding binding;
+        binding.value.setRampName(name); ClassificationEditor editor(&binding);
+        auto *status=editor.findChild<QLabel *>("classificationStatus"); QVERIFY(status);
+        QVERIFY2(status->text().isEmpty(),qPrintable(status->text()));
+        binding.value.setRampName(QStringLiteral("missing-test-ramp"));editor.refresh();
+        QVERIFY(status->text().contains(QStringLiteral("unavailable")));
+        QVERIFY(status->isEnabled());
+        QVERIFY(status->styleSheet().contains(QStringLiteral("palette(text)")));
+    }
+    void classificationMissingSamplesStatusRefreshes()
+    {
+        TestClassificationBinding binding;
+        binding.value.setMethod(OpenSWMM::Render::BinMethod::Quantile);
+        ClassificationEditor editor(&binding);
+        auto *status = editor.findChild<QLabel *>("classificationStatus");
+        QVERIFY(status); QVERIFY(!status->text().isEmpty());
+        binding.samples = {0.0, 0.1, 0.2, 0.3, 1.0, 5.0, 8.0, 10.0};
+        editor.refresh();
+        QVERIFY(status->text().isEmpty());
+    }
+    void classificationThemePreservesScientificDefinition()
+    {
+        TestClassificationBinding binding;
+        binding.value.setRampName("Viridis");
+        binding.value.setColorOverride(0, QColor("#d24a18"));
+        ClassificationEditor editor(&binding);
+        editor.show();
+        const auto before = binding.value.toJson();
+        auto *theme = ThemeManager::instance();
+        theme->setMode(ThemeManager::Mode::Light); QCoreApplication::processEvents();
+        theme->setMode(ThemeManager::Mode::Dark); QCoreApplication::processEvents();
+        QCOMPARE(binding.value.toJson(), before);
+        QCOMPARE(binding.writes, 0);
+        theme->setMode(ThemeManager::Mode::System); QCoreApplication::processEvents();
+        QCOMPARE(binding.value.toJson(), before);
+        theme->setMode(ThemeManager::Mode::Light);
+    }
     void initTestCase()
     {
         QVERIFY(QDir().mkpath(outputDir()));

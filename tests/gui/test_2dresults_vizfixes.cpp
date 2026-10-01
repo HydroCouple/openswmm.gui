@@ -195,6 +195,26 @@ public:
     }
 };
 
+// Same sloping fixture with a spatially uniform RT0 flow. Reversing speed
+// exercises both dense and grid-sampled velocity snapshots during handoff.
+class FlowVfrSource : public VfrSource {
+public:
+    float speed = 1.0f;
+    bool readEdgeGeometry(std::vector<float>& lengths,
+        std::vector<float>& nx, std::vector<float>& ny) override {
+        const float diagonal = std::sqrt(2.0f), n = 1.0f/diagonal;
+        lengths={1,diagonal,1,0, 1,1,diagonal,0};
+        nx={0,n,-1,0, 1,0,-n,0}; ny={-1,n,0,0, 0,1,-n,0};
+        return true;
+    }
+    bool readEdgeFluxAt(int, std::vector<float>& flux) override {
+        std::vector<float> length,nx,ny; readEdgeGeometry(length,nx,ny);
+        flux.resize(length.size());
+        for (size_t i=0;i<flux.size();++i) flux[i]=length[i]*nx[i]*speed;
+        return true;
+    }
+};
+
 } // namespace
 
 class Test2DResultsVizFixes : public QObject
@@ -205,6 +225,8 @@ private slots:
     void smoothProfilesAndContoursShareOneSurface();
     void smoothMaximumContainsEveryFrame();
     void mapFillsStopAtExactShoreline();
+    void contourAnimationPublishesCompleteFrames();
+    void depthClassificationRemainsStableDuringPlayback();
     void cpuContoursStopAtExactShoreline();
     void exactProfileIgnoresStationSpacing();
     void latestFrameReplacementCanReduceEnvelope();
@@ -323,29 +345,143 @@ void Test2DResultsVizFixes::mapFillsStopAtExactShoreline()
         auto [area,minY]=measure();
         QVERIFY2(std::abs(minY-(0.5-shore))<1e-6,"Map pass extended uphill past its wet boundary");
         QVERIFY2(std::abs(area-(shore-0.5*shore*shore))<1e-6,"Map pass filled dry terrain or drew overlapping base water");
-        if (pass==0 && qEnvironmentVariableIntValue("OPENSWMM_QSG_ASYNC_CONTOURS")==1) {
-            QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,5000);
-            root.reset(renderer.sync(root.release()));
-            const auto published=measure();
-            QVERIFY(std::abs(published.first-area)<1e-6);
-            QVERIFY(std::abs(published.second-minY)<1e-6);
-        }
         // Same timestamp, lower stored volume: the renderer must discard
         // cached contours even though its time index and ramp are unchanged.
         raw->frames[0][0]=0.1f;
         layer.refreshCurrentFrame();
         root.reset(renderer.sync(root.release()));
+        if (pass==0 && qEnvironmentVariableIntValue("OPENSWMM_QSG_ASYNC_CONTOURS")==1) {
+            // Keep the complete previous shoreline until the replacement is ready.
+            QCOMPARE(measure(),std::make_pair(area,minY));
+            QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,5000);
+            root.reset(renderer.sync(root.release()));
+        }
         const auto smaller=measure();
         QVERIFY(smaller.first<area);
         QVERIFY(smaller.second>minY);
-        if (pass==0 && qEnvironmentVariableIntValue("OPENSWMM_QSG_ASYNC_CONTOURS")==1) {
-            QTRY_VERIFY_WITH_TIMEOUT(ready.count()>1,5000);
-            root.reset(renderer.sync(root.release()));
-            const auto published=measure();
-            QVERIFY(std::abs(published.first-smaller.first)<1e-6);
-            QVERIFY(std::abs(published.second-smaller.second)<1e-6);
-        }
     }
+}
+
+void Test2DResultsVizFixes::contourAnimationPublishesCompleteFrames()
+{
+    if (qEnvironmentVariableIntValue("OPENSWMM_QSG_ASYNC_CONTOURS")!=1)
+        QSKIP("Run with OPENSWMM_QSG_ASYNC_CONTOURS=1 to exercise worker handoff");
+    class Renderer : public SWMM2DResultsQSGRenderer {
+    public:
+        QSGNode* sync(QSGNode* old=nullptr) { return updatePaintNode(old,nullptr); }
+    };
+    SWMM2DResultsLayer layer;
+    auto source=std::make_unique<FlowVfrSource>(); auto* raw=source.get();
+    layer.setSource(std::move(source));
+    layer.setMaxDepth(2.0); // fixed scale also permits dry/re-wet frames below
+    layer.setVisible(true);
+    for (auto* sub : layer.sublayers()) sub->setVisible(false);
+    layer.contourBandSublayer()->setVisible(true);
+    layer.isolineSublayer()->setVisible(true);
+    layer.isolineSublayer()->isolineStyle()->setLabels(false);
+    layer.velocityVectorSublayer()->setVisible(true);
+    layer.smoothDepthFillSublayer()->setVisible(true); // must use the same frame
+    Renderer renderer;
+    renderer.setWidth(400); renderer.setHeight(400);
+    renderer.setMapExtent(MapExtent(0,0,1,1)); renderer.setLayer(&layer);
+    QSignalSpy ready(&renderer,&SWMM2DResultsQSGRenderer::contentReady);
+    std::unique_ptr<QSGNode> root(renderer.sync());
+    auto signature=[&](bool colored) {
+        QByteArray bytes;
+        for (auto* child=root->firstChild(); child; child=child->nextSibling()) {
+            if (child->type()!=QSGNode::GeometryNodeType) continue;
+            const auto* g=static_cast<QSGGeometryNode*>(child)->geometry();
+            if (!g || (g->attributeCount()==2)!=colored) continue;
+            bytes.append(reinterpret_cast<const char*>(g->vertexData()),
+                         g->vertexCount()*g->sizeOfVertex());
+        }
+        return bytes;
+    };
+    const auto initialFill=signature(true), initialLines=signature(false);
+    QVERIFY(!initialFill.isEmpty()); QVERIFY(!initialLines.isEmpty());
+    QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+    raw->speed=-1.0f;
+    raw->frames[0][0]=0.1f; layer.refreshCurrentFrame();
+    const auto firstReplacement=layer.frameRevision();
+    root.reset(renderer.sync(root.release()));
+    QCOMPARE(signature(true),initialFill); QCOMPARE(signature(false),initialLines);
+    renderer.setMapExtent(MapExtent(0.2,0,1.2,1));
+    root.reset(renderer.sync(root.release()));
+    QCOMPARE(signature(true),initialFill); QCOMPARE(signature(false),initialLines);
+    renderer.setMapExtent(MapExtent(0,0,1,1));
+    // A faster producer must neither queue every snapshot nor starve the map.
+    raw->frames[0][0]=0.25f; layer.refreshCurrentFrame();
+    root.reset(renderer.sync(root.release()));
+    raw->frames[0][0]=0.35f; layer.refreshCurrentFrame();
+    root.reset(renderer.sync(root.release()));
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,5000);
+    root.reset(renderer.sync(root.release()));
+    QCOMPARE(renderer.displayedFrameRevision(),firstReplacement);
+    QVERIFY(signature(true)!=initialFill); QVERIFY(signature(false)!=initialLines);
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>1,5000);
+    root.reset(renderer.sync(root.release()));
+    QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+    // Completed empty geometry is a real dry frame, never a cache miss.
+    raw->frames[0][0]=0; layer.refreshCurrentFrame();
+    root.reset(renderer.sync(root.release()));
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>2,5000);
+    root.reset(renderer.sync(root.release()));
+    QVERIFY(signature(true).isEmpty()); QVERIFY(signature(false).isEmpty());
+    QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+    // Style edits bootstrap the requested frame; a pending older result cannot undo it.
+    raw->frames[0][0]=0.2f; layer.refreshCurrentFrame();
+    root.reset(renderer.sync(root.release()));
+    raw->frames[0][0]=0.4f; layer.refreshCurrentFrame();
+    layer.contourBandSublayer()->bandStyle()->setBandCount(5);
+    root.reset(renderer.sync(root.release()));
+    const auto editedFill=signature(true), editedLines=signature(false);
+    QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>3,5000);
+    root.reset(renderer.sync(root.release()));
+    QCOMPARE(signature(true),editedFill); QCOMPARE(signature(false),editedLines);
+    // A layer switch while work is pending must reject the old mesh/source.
+    raw->frames[0][0]=0.3f; layer.refreshCurrentFrame();
+    root.reset(renderer.sync(root.release()));
+    SWMM2DResultsLayer other;
+    other.setSource(std::make_unique<VfrSource>()); other.setVisible(true);
+    renderer.setLayer(&other);
+    root.reset(renderer.sync(root.release()));
+    const auto otherFill=signature(true), otherLines=signature(false);
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>4,5000);
+    root.reset(renderer.sync(root.release()));
+    QCOMPARE(signature(true),otherFill); QCOMPARE(signature(false),otherLines);
+}
+
+void Test2DResultsVizFixes::depthClassificationRemainsStableDuringPlayback()
+{
+    using namespace OpenSWMM::Render;
+    auto source=std::make_unique<VfrSource>();
+    source->frames={{0.8f,0.0f},{0.1f,0.15f}};
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::move(source));
+    const double maximum=layer.maxDepth();
+    QVERIFY(maximum>0.8); // surface depth, not the cell mean
+    ClassificationScheme scheme;
+    scheme.setMethod(BinMethod::Quantile);
+    scheme.setClassCount(3);
+    const auto samples=layer.depthClassificationSamples(scheme);
+    const auto edges=scheme.levelEdges(layer.dryDepth(),maximum,samples);
+    for (int t : {0,1,0,1}) {
+        layer.setCurrentTimeIndex(t);
+        QCOMPARE(layer.maxDepth(),maximum);
+        QCOMPARE(layer.depthClassificationSamples(scheme),samples);
+        QCOMPARE(scheme.levelEdges(layer.dryDepth(),maximum,
+            layer.depthClassificationSamples(scheme)),edges);
+        for (const auto& tri : layer.m_sceneTris)
+            for (float d : {tri.dv0,tri.dv1,tri.dv2})
+                if (std::isfinite(d)) QVERIFY(d<=maximum);
+    }
+    scheme.setRangeMode(RangeMode::PerFrameAutoStretch);
+    const auto perFrame=layer.depthClassificationSamples(scheme);
+    layer.setCurrentTimeIndex(0);
+    QVERIFY(layer.depthClassificationSamples(scheme)!=perFrame);
+    layer.setMaxDepth(7.0); layer.setCurrentTimeIndex(1);
+    QCOMPARE(layer.maxDepth(),7.0); // explicit user range is preserved
 }
 
 void Test2DResultsVizFixes::cpuContoursStopAtExactShoreline()

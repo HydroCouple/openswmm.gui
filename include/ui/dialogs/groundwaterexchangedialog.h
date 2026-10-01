@@ -22,6 +22,7 @@
 #define GROUNDWATEREXCHANGEDIALOG_H
 
 #include <QDialog>
+#include <array>
 
 #include "ui/properties/subcatchcompoundeditref.h"
 
@@ -50,6 +51,9 @@ public:
     /*! True when an aquifer is assigned and both expressions validate. */
     [[nodiscard]] bool canApply() const;
 
+public slots:
+    void invalidateContext();
+
 signals:
     /*! Emitted after every successful Apply (engine written, layer marked
      *  edited) so the opening cell can refresh its summary. */
@@ -65,10 +69,24 @@ private:
 
     [[nodiscard]] int subIdx() const;   // swmm_subcatch_index, or -1
 
+    struct Snapshot {
+        int aquifer = -1;
+        int node = -1;
+        QString aquiferName, nodeName, lateral, deep;
+        std::array<double, 8> values{};
+        bool operator==(const Snapshot &) const = default;
+    };
+    bool readSnapshot(Snapshot &snapshot) const;
+    void reportWriteError(const QString &message, QWidget *field = nullptr);
+    void notifyEdited();
+    Snapshot m_loaded;
+    bool m_loadedOk = false;
+
     SubcatchCompoundEditRef m_ref;
 
     QLabel   *m_header = nullptr;
     QLabel   *m_hint   = nullptr;
+    QLabel   *m_writeError = nullptr;
     QWidget  *m_form   = nullptr;   ///< everything below the header (gated on aquifer)
 
     QComboBox      *m_node   = nullptr;

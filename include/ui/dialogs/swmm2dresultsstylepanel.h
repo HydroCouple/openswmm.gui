@@ -17,8 +17,11 @@
 
 #include <QWidget>
 #include <QPointer>
+#include <functional>
 
 class SWMM2DResultsLayer;
+class QListWidget;
+class QComboBox;
 
 namespace OpenSWMM::Render {
 class ISublayer;
@@ -32,6 +35,7 @@ class Swmm2DResultsStylePanel : public QWidget
     Q_OBJECT
 public:
     explicit Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWidget *parent = nullptr);
+    bool focusResult(const QString &id);
 
 private:
     /*! Shared builder for the Cell Depth Fill / Smooth Depth Fill tabs —
@@ -46,6 +50,13 @@ private:
     [[nodiscard]] QWidget *buildMeshEdgeTab(QWidget *parent);   // Issue 6
     [[nodiscard]] QWidget *buildMeshNodeTab(QWidget *parent);   // Issue 6
 
+    QWidget *buildAdditionalResultsTab(QWidget *parent);
+    void refreshAdditionalResults();
+    void rebuildResultDetails();
+    std::function<void()> m_refreshResultData;
+    QListWidget *m_resultList = nullptr;
+    QComboBox *m_resultCatalog = nullptr;
+    QWidget *m_resultDetailHost = nullptr;
     QPointer<SWMM2DResultsLayer> m_layer;
 };
 

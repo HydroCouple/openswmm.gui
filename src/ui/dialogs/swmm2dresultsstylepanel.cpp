@@ -13,6 +13,19 @@
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
 
 #include "layers/swmm2dresultslayer.h"
+#include "render/sublayers/resultscalarsublayer.h"
+#include "io/mesh2dvariableexport.h"
+#include <QListWidget>
+#include <QPushButton>
+#include <QHBoxLayout>
+#include <QHeaderView>
+#include <QTableWidget>
+#include <QStandardItemModel>
+#include <QSignalBlocker>
+#include <QFileDialog>
+#include <algorithm>
+#include <cmath>
+#include <limits>
 #include "render/sublayers/scalarfillsublayer.h"
 #include "ui/dialogs/editors/classificationbindings.h"
 #include "ui/dialogs/sublayertabhelpers.h"
@@ -186,6 +199,265 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     // results renderer does not honour them (no dead knobs).
     addTab(buildMeshEdgeTab(tabs),     tr("&Mesh Edges"),    m_layer->meshEdgeSublayer());
     addTab(buildMeshNodeTab(tabs),     tr("Mes&h Vertices"), m_layer->meshNodeSublayer());
+    tabs->addTab(wrapScroll(buildAdditionalResultsTab(tabs)),tr("Additional &Results"));
+    connect(m_layer,&QObject::destroyed,this,[this,tabs] {
+        m_layer.clear(); m_refreshResultData={}; setEnabled(false);
+        m_resultList=nullptr; m_resultCatalog=nullptr; m_resultDetailHost=nullptr;
+        while(tabs->count()) {
+            auto *page=tabs->widget(0); tabs->removeTab(0);
+            page->setEnabled(false);
+            // Silence pending editor callbacks without disconnecting Qt's
+            // internal destroyed/model bookkeeping. destroyed() is emitted
+            // even while signals are blocked, so deferred deletion stays safe.
+            for(auto *object:page->findChildren<QObject *>()) object->blockSignals(true);
+            page->hide(); page->setParent(nullptr); page->deleteLater();
+        }
+    });
+}
+
+QWidget *Swmm2DResultsStylePanel::buildAdditionalResultsTab(QWidget *parent)
+{
+    auto *page=new QWidget(parent);
+    auto *layout=new QVBoxLayout(page);
+    m_resultList=new QListWidget(page);
+    m_resultList->setObjectName("additionalResultList");
+    m_resultList->setAccessibleName(tr("Configured result layers"));
+    m_resultList->setMaximumHeight(100);
+    layout->addWidget(m_resultList);
+    auto *row=new QHBoxLayout;
+    m_resultCatalog=new QComboBox(page);
+    m_resultCatalog->setObjectName("additionalResultCatalog");
+    m_resultCatalog->setAccessibleName(tr("Result variable to add"));
+    row->addWidget(m_resultCatalog,1);
+    auto *add=new QPushButton(tr("&Add result"),page); add->setObjectName("additionalResultAdd");
+    row->addWidget(add);
+    auto *remove=new QPushButton(tr("&Remove result"),page); remove->setObjectName("additionalResultRemove");
+    row->addWidget(remove); layout->addLayout(row);
+    m_resultDetailHost=new QWidget(page); new QVBoxLayout(m_resultDetailHost);
+    layout->addWidget(m_resultDetailHost);
+    connect(add,&QPushButton::clicked,this,[this] {
+        if(!m_layer || m_resultCatalog->currentIndex()<0) return;
+        auto *sub=m_layer->addResultSublayer(m_resultCatalog->currentData().toString());
+        if(!sub) return;
+        for(int i=0;i<m_resultList->count();++i)
+            if(m_resultList->item(i)->data(Qt::UserRole).toString()==sub->id()) m_resultList->setCurrentRow(i);
+    });
+    connect(remove,&QPushButton::clicked,this,[this] {
+        if(m_layer && m_resultList->currentItem())
+            m_layer->removeResultSublayer(m_resultList->currentItem()->data(Qt::UserRole).toString());
+    });
+    connect(m_resultList,&QListWidget::currentRowChanged,this,[this,remove](int row) {
+        remove->setEnabled(row>=0); rebuildResultDetails();
+    });
+    connect(m_layer,&SWMM2DResultsLayer::resultSublayersChanged,this,&Swmm2DResultsStylePanel::refreshAdditionalResults);
+    connect(m_layer,&SWMM2DResultsLayer::timeRangeChanged,this,&Swmm2DResultsStylePanel::refreshAdditionalResults);
+    connect(m_layer,&SWMM2DResultsLayer::currentTimeChanged,this,[this]{if(m_refreshResultData)m_refreshResultData();});
+    connect(m_layer,&SWMM2DResultsLayer::highlightedCellsChanged,this,[this]{if(m_refreshResultData)m_refreshResultData();});
+    refreshAdditionalResults();
+    add->setEnabled(m_resultCatalog->count()>0); remove->setEnabled(m_resultList->currentRow()>=0);
+    connect(m_resultCatalog,qOverload<int>(&QComboBox::currentIndexChanged),add,[add](int row){add->setEnabled(row>=0);});
+    return page;
+}
+
+namespace {
+QString resultVariableLabel(const openswmmvis::io::Mesh2DResultVariable &v)
+{
+    using V=openswmmvis::io::Mesh2DResultVariable;
+    QString domain=v.domain==V::Domain::Groundwater?QObject::tr("Groundwater"):QObject::tr("Surface");
+    if(v.zone==V::Zone::Saturated) domain+=QObject::tr(" / saturated");
+    else if(v.zone==V::Zone::Unsaturated) domain+=QObject::tr(" / unsaturated");
+    else if(v.zone==V::Zone::Sigma) domain+=QObject::tr(" / sigma %1").arg(v.layer);
+    const QString label=v.label.isEmpty()?v.dataset:v.label;
+    const QString named=label.startsWith(domain,Qt::CaseInsensitive)
+        ?label:QStringLiteral("%1 — %2").arg(domain,label);
+    return QStringLiteral("%1 [%2]").arg(named,v.unitsKnown?v.units:QObject::tr("units unknown"));
+}
+}
+
+bool Swmm2DResultsStylePanel::focusResult(const QString &id)
+{
+    if(!m_resultList)return false;
+    for(int row=0;row<m_resultList->count();++row) {
+        if(m_resultList->item(row)->data(Qt::UserRole).toString()!=id)continue;
+        m_resultList->setCurrentRow(row);
+        for(auto *tabs:findChildren<QTabWidget *>())
+            for(int i=0;i<tabs->count();++i)
+                if(tabs->widget(i)->isAncestorOf(m_resultList))tabs->setCurrentIndex(i);
+        m_resultList->setFocus();return true;
+    }
+    return false;
+}
+
+void Swmm2DResultsStylePanel::refreshAdditionalResults()
+{
+    if(!m_layer || !m_resultList) return;
+    const QString selected=m_resultList->currentItem()?m_resultList->currentItem()->data(Qt::UserRole).toString():QString();
+    const QString adding=m_resultCatalog->currentData().toString();
+    {
+        QSignalBlocker block(m_resultCatalog);
+        m_resultCatalog->clear();
+        for(const auto &v:m_layer->resultVariables()) m_resultCatalog->addItem(resultVariableLabel(v),v.key());
+        const int index=m_resultCatalog->findData(adding);
+        if(index>=0) m_resultCatalog->setCurrentIndex(index);
+    }
+    {
+        QSignalBlocker block(m_resultList); m_resultList->clear();
+        int row=0,chosen=-1;
+        for(auto *base:m_layer->sublayers()) if(auto *sub=qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(base)) {
+            QString label=tr("Unavailable — %1").arg(sub->variableKey());
+            for(const auto &v:m_layer->resultVariables())
+                if(v.key()==sub->variableKey()){label=resultVariableLabel(v);break;}
+            auto *item=new QListWidgetItem(label,m_resultList);
+            item->setData(Qt::UserRole,sub->id()); item->setToolTip(sub->variableKey());
+            if(sub->id()==selected) chosen=row;
+            ++row;
+        }
+        m_resultList->setCurrentRow(chosen>=0?chosen:(row>0?0:-1));
+    }
+    if(auto *add=findChild<QPushButton *>("additionalResultAdd")) add->setEnabled(m_resultCatalog->count()>0);
+    if(auto *remove=findChild<QPushButton *>("additionalResultRemove")) remove->setEnabled(m_resultList->currentRow()>=0);
+    rebuildResultDetails();
+}
+
+void Swmm2DResultsStylePanel::rebuildResultDetails()
+{
+    using namespace OpenSWMM::Render;
+    using namespace openswmmvis::io;
+    m_refreshResultData={};
+    if(!m_resultDetailHost) return;
+    // A change can arrive inside a child signal callback. Remove old controls
+    // from discovery/focus immediately, but defer their destruction safely.
+    auto *layout=qobject_cast<QVBoxLayout *>(m_resultDetailHost->layout());
+    while(auto *item=layout->takeAt(0)) {
+        if(auto *w=item->widget()) {w->setEnabled(false); w->hide(); w->setParent(nullptr); w->deleteLater();}
+        delete item;
+    }
+    if(!m_layer || !m_resultList->currentItem()) return;
+    QPointer<ResultScalarSublayer> sub=qobject_cast<ResultScalarSublayer *>(
+        ISublayerHost::findSublayer(*m_layer,m_resultList->currentItem()->data(Qt::UserRole).toString()));
+    if(!sub) return;
+    QPointer<SWMM2DResultsLayer> layer=m_layer;
+    QPointer<ResultScalarStyle> style=sub->fillStyle();
+    auto *page=new QWidget(m_resultDetailHost); layout->addWidget(page);
+    auto *form=new QFormLayout(page);
+    form->setFormAlignment(Qt::AlignTop);
+    auto *variable=new QComboBox(page); variable->setObjectName("additionalResultVariable");
+    variable->setAccessibleName(tr("Configured result variable"));
+    QStringList warnings;
+    const auto variables=layer->resultVariables(&warnings);
+    for(const auto &v:variables) variable->addItem(resultVariableLabel(v),v.key());
+    int current=variable->findData(sub->variableKey());
+    if(current<0) {
+        current=variable->count(); variable->addItem(tr("Unavailable — %1").arg(sub->variableKey()),sub->variableKey());
+        if(auto *model=qobject_cast<QStandardItemModel *>(variable->model())) model->item(current)->setEnabled(false);
+    }
+    variable->setCurrentIndex(current); form->addRow(tr("&Variable:"),variable);
+    connect(variable,qOverload<int>(&QComboBox::currentIndexChanged),page,[this,sub,variable](int index) {
+        if(sub && index>=0) {sub->setVariableKey(variable->itemData(index).toString()); refreshAdditionalResults();}
+    });
+    auto *visible=new QCheckBox(tr("Show result layer"),page); visible->setChecked(sub->isVisible());
+    visible->setObjectName("additionalResultVisible"); form->addRow(visible);
+    connect(visible,&QCheckBox::toggled,page,[sub](bool value){if(sub)sub->setVisible(value);});
+    auto *opacity=new QDoubleSpinBox(page); opacity->setObjectName("additionalResultOpacity");
+    opacity->setRange(0,100); opacity->setSuffix(tr(" %")); opacity->setValue(sub->opacity()*100);
+    form->addRow(tr("&Opacity:"),opacity);
+    connect(opacity,qOverload<double>(&QDoubleSpinBox::valueChanged),page,[sub](double value){if(sub)sub->setOpacity(value/100);});
+    auto frameFor=[layer,sub,style] {
+        return layer&&sub&&style?layer->resultFrame(sub->variableKey(),layer->currentTimeIndex(),
+            !style->scheme().useCustomRange() && style->scheme().rangeMode()==RangeMode::FixedOverRun):std::shared_ptr<const Mesh2DScalarFrame>();
+    };
+    auto *binding=new SublayerSchemeBinding(
+        [style]{return style?style->scheme():ClassificationScheme();},
+        [style](const ClassificationScheme&s){if(style)style->setScheme(s);},
+        [frameFor]{auto f=frameFor();return f?f->samples:QVector<double>();},
+        [frameFor]{auto f=frameFor();const double nan=std::numeric_limits<double>::quiet_NaN();
+            return f?qMakePair(f->minimum,f->maximum):qMakePair(nan,nan);},true,true);
+    auto *classification=new ClassificationEditor(binding,true,page);
+    classification->setObjectName("additionalResultClassification"); form->addRow(classification);
+    auto addColor=[&](const QString &label,const char *name,QColor value,auto setter) {
+        auto *button=new ColorButton(page); button->setObjectName(name); button->setAccessibleName(label);
+        button->setShowAlpha(true); button->setColor(value); form->addRow(label,button);
+        connect(button,&ColorButton::colorChanged,page,[style,setter](const QColor &c){if(style)(style.data()->*setter)(c);});
+    };
+    addColor(tr("Missing data:"),"additionalResultMissing",style->missingColor(),&ResultScalarStyle::setMissingColor);
+    addColor(tr("Waterless cell:"),"additionalResultWaterless",style->waterlessColor(),&ResultScalarStyle::setWaterlessColor);
+    addColor(tr("Not applicable:"),"additionalResultNotApplicable",style->notApplicableColor(),&ResultScalarStyle::setNotApplicableColor);
+    auto *status=new QLabel(page); status->setObjectName("additionalResultStatus");
+    status->setTextFormat(Qt::PlainText); status->setWordWrap(true); status->setAccessibleName(tr("Result availability"));
+    form->addRow(status);
+    auto *table=new QTableWidget(0,4,page); table->setObjectName("additionalResultInspection");
+    table->setMaximumHeight(90);
+    table->setAccessibleName(tr("Selected cell result")); table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setHorizontalHeaderLabels({tr("Cell"),tr("Status"),tr("Raw value"),tr("Units")});
+    table->setToolTip(tr("Select a mesh cell on the map to inspect this variable. Missing and waterless values are not physical zeros."));
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents); form->addRow(table);
+    auto *exportButton=new QPushButton(tr("Export current variable to CSV…"),page);
+    exportButton->setObjectName("additionalResultExport");
+    exportButton->setToolTip(tr("Exports all cells for this variable at the current report frame, with native units and availability status."));
+    form->addRow(exportButton);
+    m_refreshResultData=[layer,sub,classification,status,table,exportButton,warnings] {
+        if(!layer || !sub)return;
+        const auto frame=layer->resultFrame(sub->variableKey(),layer->currentTimeIndex());
+        const bool available=frame && frame->error.isEmpty();
+        // Keep the editor and any invalid visible draft intact during animation
+        // and selection changes. Only refresh a complete, valid draft.
+        if(classification->hasValidDraft()) classification->refresh();
+        classification->setEnabled(available && std::isfinite(frame->minimum) && std::isfinite(frame->maximum));
+        table->setRowCount(0);
+        QStringList messages=warnings;
+        if(!available) messages<< (frame?frame->error:tr("Result data unavailable."));
+        else {
+            const auto &v=frame->descriptor;
+            messages<< (v.unitsKnown?tr("Native units: %1.").arg(v.units):tr("Units are unknown. Raw inspection is available; scientific export is disabled."));
+            switch(v.temporal) {
+            case Mesh2DResultVariable::Temporal::Held: messages<<tr("Held result sampled at report times; this is not the solver firing time."); break;
+            case Mesh2DResultVariable::Temporal::Static: messages<<tr("Static result; independent of report time."); break;
+            case Mesh2DResultVariable::Temporal::Envelope: messages<<tr("Run envelope; values need not occur simultaneously."); break;
+            default: messages<<tr("Result at the current report frame."); break;
+            }
+        }
+        status->setText(messages.join('\n'));
+        QSet<int> selectedCells;
+        const auto &triCell=layer->triCellMap();
+        for(int triangle:layer->highlightedCells())
+            if(triangle>=0 && size_t(triangle)<triCell.size())selectedCells.insert(triCell[size_t(triangle)]);
+        if(available && !selectedCells.isEmpty()) {
+            const int cell=*std::min_element(selectedCells.begin(),selectedCells.end());
+            if(cell>=0 && cell<int(frame->values.size()) && cell<int(frame->status.size())) {
+                QString state;
+                switch(frame->status[size_t(cell)]) {
+                case Mesh2DValueStatus::Valid:state=tr("Valid");break;
+                case Mesh2DValueStatus::Missing:state=tr("Missing");break;
+                case Mesh2DValueStatus::Waterless:state=tr("Waterless");break;
+                case Mesh2DValueStatus::NotApplicable:state=tr("Not applicable");break;
+                }
+                table->setRowCount(1);
+                const double raw=frame->values[size_t(cell)];
+                const QStringList cells={tr("%1 (first of %2 selected)").arg(cell+1).arg(selectedCells.size()),state,
+                    std::isfinite(raw)?QString::number(raw,'g',9):tr("Unavailable"),frame->descriptor.unitsKnown?frame->descriptor.units:tr("Unknown")};
+                for(int i=0;i<cells.size();++i)table->setItem(0,i,new QTableWidgetItem(cells[i]));
+            }
+        }
+
+        exportButton->setEnabled(available && frame->descriptor.unitsKnown && !frame->descriptor.units.isEmpty());
+    };
+    m_refreshResultData();
+
+    connect(exportButton,&QPushButton::clicked,page,[this,layer,sub,status] {
+        if(!layer || !sub || !layer->source())return;
+        const QString key=sub->variableKey(); const int time=layer->currentTimeIndex();
+        const quint64 revision=layer->sourceRevision(); auto *source=layer->source();
+        QPointer<QLabel> safeStatus=status;
+        const QString path=QFileDialog::getSaveFileName(this,tr("Export result variable"),QString(),tr("CSV files (*.csv)"));
+        if(path.isEmpty() || !safeStatus)return;
+        if(!layer || !sub || layer->source()!=source || layer->sourceRevision()!=revision ||
+           layer->currentTimeIndex()!=time || sub->variableKey()!=key) {
+            safeStatus->setText(tr("The result source or selection changed. Reopen export for the current result."));return;
+        }
+        QString error;
+        if(!exportMesh2DVariableCsv(*source,key,time,path,&error))safeStatus->setText(error);
+        else safeStatus->setText(tr("Exported %1").arg(path));
+    });
 }
 
 // ─── Scalar depth fills (cell / smooth) ─────────────────────────────────────
@@ -204,9 +476,12 @@ QWidget *Swmm2DResultsStylePanel::buildScalarFillTab(
         auto *attrForm = new QFormLayout(attrBox);
         auto *attr = new QComboBox(attrBox);
         attr->addItem(tr("Depth"),     QStringLiteral("depth"));
-        attr->addItem(tr("Elevation"), QStringLiteral("elevation"));
         const int cur = attr->findData(st->attribute());
-        attr->setCurrentIndex(cur >= 0 ? cur : 0);
+        if(cur<0) {
+            attr->addItem(tr("Unsupported — %1").arg(st->attribute()),st->attribute());
+            if(auto *model=qobject_cast<QStandardItemModel *>(attr->model()))model->item(attr->count()-1)->setEnabled(false);
+        }
+        attr->setCurrentIndex(cur>=0?cur:attr->count()-1);
         attr->setMinimumWidth(kComboMinWidthPx);
         attrForm->addRow(tr("&Attribute:"), attr);
         lay->addWidget(attrBox);

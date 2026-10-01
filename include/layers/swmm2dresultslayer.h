@@ -21,6 +21,7 @@
 #ifndef OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
 #define OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
 
+#include "io/mesh2dscalarframe.h"
 #include "io/mesh2dh5reader.h"       // openswmmvis::io::CoordinateReference
 #include "layers/openswmmvislayer.h"
 #include "layers/meshspatialgrid.h"
@@ -51,6 +52,7 @@ class SWMM2DVelocityArrowsItem;
 
 namespace openswmmvis::io { class Mesh2DH5Reader; }
 namespace OpenSWMM::Render {
+class ResultScalarSublayer;
 class IFeatureRenderer;
 class RuleList;   // Slice B.5b — see ruleList() override below.
 }
@@ -100,6 +102,7 @@ public:
      *  newest frame for a live source — the user drives playback via the
      *  slider / Play. A completed file source returns false. */
     virtual bool isLive() const { return false; }
+    virtual QString sourcePath() const { return {}; }
 
     /*! \brief Fetch mesh geometry as a DISPLAY triangle fan. Resizes outputs.
      *
@@ -166,6 +169,15 @@ public:
     /*! \brief Bumps whenever frames are removed or reordered (a live source
      *  thinning its history), invalidating anything cached per frame index.
      *  Appends do not bump it. */
+    // Semantic result identities are source-local and never species row indexes.
+    virtual QVector<openswmmvis::io::Mesh2DResultVariable>
+        faceVariables(QStringList *warnings = nullptr) const
+    { Q_UNUSED(warnings); return {}; }
+    virtual bool readFaceVariableAt(const openswmmvis::io::Mesh2DResultVariable &,
+        int, std::vector<float> &values,
+        std::vector<openswmmvis::io::Mesh2DValueStatus> &status)
+    { values.clear(); status.clear(); return false; }
+
     virtual int historyGeneration() const { return 0; }
 
     /*! \brief Wall-clock sim time at \p timeIdx (invalid if out of range or unknown). */
@@ -501,8 +513,14 @@ public:
     HDF5Mesh2DSource();
     ~HDF5Mesh2DSource() override;
 
+    QVector<openswmmvis::io::Mesh2DResultVariable>
+        faceVariables(QStringList *warnings = nullptr) const override;
+    bool readFaceVariableAt(const openswmmvis::io::Mesh2DResultVariable &, int,
+        std::vector<float> &, std::vector<openswmmvis::io::Mesh2DValueStatus> &) override;
+
     bool open(const QString& path);
     const QString& path() const noexcept { return path_; }
+    QString sourcePath() const override { return path_; }
 
     // IMesh2DSource
     int  vertexCount()   const override;
@@ -575,6 +593,15 @@ public:
      * `finished` to swap to the on-disk file for scrubbing.
      */
     void setSource(std::unique_ptr<IMesh2DSource> source);
+
+    QVector<openswmmvis::io::Mesh2DResultVariable>
+        resultVariables(QStringList *warnings = nullptr) const;
+    std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame>
+        resultFrame(const QString &key, int time, bool wholeRun = false) const;
+    OpenSWMM::Render::ResultScalarSublayer *addResultSublayer(
+        const QString &key, const QString &id = {});
+    bool removeResultSublayer(const QString &id);
+    void prepareSublayersJsonLoad(const QJsonObject &) override;
 
     quint64 sourceRevision() const noexcept { return source_revision_; }
     IMesh2DSource* source() noexcept { return source_.get(); }
@@ -853,6 +880,18 @@ public:
     [[nodiscard]] bool velocityAtScene(const QPointF& scenePt,
                                        float& outVx, float& outVy) const;
 
+    // Immutable velocity input for a completed contour frame. Geometry is
+    // shared with the layer; callers must discard this on geometry changes.
+    struct VelocityField {
+        std::vector<float> depths, vx, vy;
+    };
+    [[nodiscard]] VelocityField captureVelocityField() const;
+    [[nodiscard]] bool velocityAtScene(const QPointF& scenePt,
+        float& outVx, float& outVy, const VelocityField& field) const;
+    // Fixed classifications use one temporal peak mean-depth sample per cell.
+    [[nodiscard]] QVector<double> depthClassificationSamples(
+        const OpenSWMM::Render::ClassificationScheme& scheme) const;
+
     // Compatibility vertex summary of the smooth temporal envelope.
     // Separate values are retained internally for disconnected vertex fans.
     [[nodiscard]] QVector<float> maxDepthPerVertex() const;
@@ -957,6 +996,7 @@ public:
     [[nodiscard]] quint64 geomRevision() const noexcept { return m_geomRevision; }
 
 signals:
+    void resultSublayersChanged();
     /*! Emitted when `source()->timeCount()` changes (either via setSource or refreshTimeRange). */
     void timeRangeChanged(int lo, int hi);
 
@@ -983,6 +1023,9 @@ signals:
 private:
     bool loadFrame_(int t);          ///< Re-read frame \p t and emit frame/repaint signals.
     void rebuildSceneGeometry_();   ///< Recompute scene-space triangle vertices + centroids; refresh cached edge geometry.
+    bool velocityAtScene_(const QPointF& scenePt, float& outVx, float& outVy,
+        const std::vector<float>& depths, const std::vector<float>& vx,
+        const std::vector<float>& vy) const;
     void applyCurrentDepths_();     ///< Copy `current_depths_` into the SceneTri buffer.
     void applyCurrentFlux_();       ///< Run RT0 reconstruction → write vx/vy/vmag into SceneTri.
 
@@ -1141,6 +1184,15 @@ private:
     // User-customisable paint order (Slice GUI-2026-05-30 §2).  Lazy-seeded
     // from the default order in sublayers(); reordered via moveSublayer();
     // round-tripped through ISublayerHost::save/loadSublayersFromJson.
+    mutable quint64 m_resultCatalogRevision = 0;
+    mutable int m_resultCatalogGeneration = -1, m_resultCatalogTimes = -1;
+    mutable QVector<openswmmvis::io::Mesh2DResultVariable> m_resultCatalog;
+    mutable QStringList m_resultCatalogWarnings;
+    mutable quint64 m_resultCacheRevision = 0;
+    mutable int m_resultCacheGeneration = -1, m_resultCacheTimes = -1;
+    mutable size_t m_resultCacheBytes = 0;
+    mutable QHash<QString, std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame>> m_resultFrames;
+    mutable QHash<QString, std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame>> m_resultRanges;
     mutable QList<OpenSWMM::Render::ISublayer *> m_sublayerOrder;
 
 public:
