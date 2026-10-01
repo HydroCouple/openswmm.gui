@@ -10,6 +10,7 @@
 #include "render/symbolstyle.h"
 
 #include <QJsonObject>
+#include <QCoreApplication>
 
 #include <algorithm>
 #include <atomic>
@@ -24,6 +25,14 @@ namespace
 // Process-global revision source. Starts at 1 so a freshly stamped scheme
 // never collides with the default-constructed revision of 0.
 std::atomic<quint64> g_revisionCounter{1};
+
+bool validManualBreaks(const QVector<double> &breaks)
+{
+    for (qsizetype i = 0; i < breaks.size(); ++i)
+        if (!std::isfinite(breaks[i]) || (i > 0 && !(breaks[i] > breaks[i - 1])))
+            return false;
+    return true;
+}
 
 QString modeToString(ClassificationScheme::ClassMode m)
 {
@@ -81,7 +90,9 @@ void ClassificationScheme::setClassCount(int n)
 
 void ClassificationScheme::setManualBreaks(QVector<double> breaks)
 {
-    std::sort(breaks.begin(), breaks.end());
+    // A replacement is atomic. Interactive callers report the rejected draft;
+    // the value type never sorts or drops entries to make invalid input fit.
+    if (!validManualBreaks(breaks)) return;
     if (m_binner.manualBreaks() == breaks) return;
     m_binner.setManualBreaks(std::move(breaks));
     bump();
@@ -209,9 +220,26 @@ QString ClassificationScheme::formatValue(double v) const
 
 QPair<double, double> ClassificationScheme::effectiveRange(double dataMin, double dataMax) const
 {
-    if (m_useCustomRange && m_rangeMax > m_rangeMin)
+    if (m_useCustomRange)
         return { m_rangeMin, m_rangeMax };
     return { dataMin, dataMax };
+}
+
+QString ClassificationScheme::validationError(double dataMin, double dataMax) const
+{
+    const auto [lo, hi] = effectiveRange(dataMin, dataMax);
+    const auto text = [](const char *message) {
+        return QCoreApplication::translate("ClassificationScheme", message);
+    };
+    if (!std::isfinite(lo) || !std::isfinite(hi))
+        return text("Classification bounds must be finite numbers.");
+    if (hi < lo || (m_useCustomRange && hi == lo))
+        return text("The maximum classification bound must be greater than the minimum.");
+    if (m_mode == ClassMode::Classified && m_binner.method() == BinMethod::Logarithmic && lo <= 0.0)
+        return text("Logarithmic classification requires a strictly positive range.");
+    if (m_binner.method() == BinMethod::Manual && !validManualBreaks(m_binner.manualBreaks()))
+        return text("Class breaks must be finite and strictly increasing.");
+    return {};
 }
 
 QColor ClassificationScheme::colorOverride(int classIndex) const
@@ -263,6 +291,7 @@ void ClassificationScheme::clearOverrides()
 QVector<double> ClassificationScheme::levelEdges(double dataMin, double dataMax,
                                                  const QVector<double> &samples) const
 {
+    if (!validationError(dataMin, dataMax).isEmpty()) return {};
     const auto [lo, hi] = effectiveRange(dataMin, dataMax);
     if (!(hi > lo)) return {};
 

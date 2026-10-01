@@ -719,6 +719,7 @@ void SWMMModelLayer::closeEngine()
 {
     if (m_engine)
     {
+        emit engineAboutToClose();
         swmm_engine_close(m_engine);
         swmm_engine_destroy(m_engine);
         m_engine = nullptr;

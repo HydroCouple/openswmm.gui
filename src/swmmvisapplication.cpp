@@ -358,6 +358,11 @@ bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
                     if (nativeStacking && dlg->windowModality() == Qt::NonModal)
                         openswmmvis::platform::attachAsChildWindow(dlg);
 #endif
+                    // Restore the whole plot stack after the new window has
+                    // been raised and (on macOS) attached to its native host.
+                    auto *registry = openswmmvis::ui::DialogRegistry::instance();
+                    if (registry->openDialogs().contains(dlg))
+                        registry->raiseAllInOrder();
                 });
             }
         }

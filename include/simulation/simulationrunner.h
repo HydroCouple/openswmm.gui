@@ -8,8 +8,10 @@
 #define SIMULATIONRUNNER_H
 
 #include <QDateTime>
+#include <QFuture>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <atomic>
 
@@ -39,6 +41,7 @@ public:
                               const QString &outPath,
                               const QString &engineVersion = "6.0.0",
                               QObject *parent = nullptr);
+    ~SimulationRunner() override;
 
     /** Launch the simulation on a worker thread via QtConcurrent::run. */
     void start();
@@ -60,6 +63,17 @@ public:
     int     jobId()   const { return m_jobId; }
     QString outPath() const { return m_outPath; }
     QString inpPath() const { return m_inpPath; }
+    QStringList outputPaths() const {
+        return m_outputPaths.isEmpty() ? runOutputPaths(m_inpPath, m_rptPath, m_outPath) : m_outputPaths;
+    }
+
+    // GUI preflight can add source resources and active run destinations.
+    // Always includes INP protection and checks aliases between all outputs.
+    static QStringList runOutputPaths(const QString &inp, const QString &rpt, const QString &out);
+    static bool sameFilePath(const QString &left, const QString &right);
+    static bool validateRunPaths(const QString &inp, const QString &rpt, const QString &out,
+                                 const QStringList &protectedInputs, const QStringList &activeOutputs,
+                                 QString *error, const QStringList &additionalOutputs = {});
 
     /*!
      * \brief Scan a .inp for `[2D_OPTIONS] OUTPUT_FILE` and return the
@@ -231,6 +245,9 @@ private:
     QString m_rptPath;
     QString m_outPath;
     QString m_engineVersion;
+    QStringList m_outputPaths;
+    bool m_started = false;
+    QFuture<void> m_workerFuture;
 
     std::atomic<bool> m_cancel{false};
     std::atomic<bool> m_paused{false};

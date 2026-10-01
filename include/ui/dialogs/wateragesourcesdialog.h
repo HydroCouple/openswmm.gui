@@ -64,6 +64,12 @@ public:
      *         dialog was accepted with no edits). Test-facing. */
     [[nodiscard]] int lastWriteCount() const { return m_lastWriteCount; }
 
+signals:
+    void changesApplied();
+
+public slots:
+    void invalidateEngine();
+
 private slots:
     void onAddOverride();
     void onRemoveOverride();
@@ -72,13 +78,17 @@ private slots:
 private:
     void buildUi();
     void readFromEngine();
+    bool validateOverrides();
+    void refreshOverrideAccessibility();
     int  writeToEngine();          ///< returns the number of writes made
 
     SWMM_Engine   m_engine          = nullptr;
     QTableWidget *m_globalTable     = nullptr;
     QTableWidget *m_overrideTable   = nullptr;
     QLabel       *m_hintLabel       = nullptr;
+    QLabel       *m_validationError = nullptr;
     bool          m_wroteAnyChanges = false;
+    bool          m_writeFailed = false;
     int           m_lastWriteCount  = 0;
 };
 

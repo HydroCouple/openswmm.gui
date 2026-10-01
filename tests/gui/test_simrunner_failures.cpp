@@ -16,6 +16,9 @@
 #include <QSignalSpy>
 #include <QDir>
 #include <QFile>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <filesystem>
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -133,6 +136,190 @@ class TestSimRunnerFailures : public QObject
 private slots:
 
     void cleanup() { qunsetenv("SWMMVIS_TEST_FAULT"); }
+
+
+    void quotedLastOutputOption_data()
+    {
+        QTest::addColumn<QByteArray>("options"); QTest::addColumn<QString>("expected");
+        QTest::newRow("quoted-space-comment") << QByteArray("[ 2D_OPTIONS ] ; settings\nOUTPUT_FILE \"flow output.h5\" ; comment\n") << QString("flow output.h5");
+        QTest::newRow("quoted-semicolon") << QByteArray("[2D_OPTIONS]\nOUTPUT_FILE \"flow;output.h5\"\n") << QString("flow;output.h5");
+        QTest::newRow("last-assignment") << QByteArray("[2D_OPTIONS]\nOUTPUT_FILE first.h5\nOUTPUT_FILE final.h5\n") << QString("final.h5");
+        QTest::newRow("csv") << QByteArray("[2D_OPTIONS]\nOUTPUT_FILE,flow.h5\n") << QString("flow.h5");
+        QTest::newRow("embedded-comma") << QByteArray("[2D_OPTIONS]\nOUTPUT_FILE flow,output.h5\n") << QString("flow,output.h5");
+        QTest::newRow("trailing-comma") << QByteArray("[2D_OPTIONS]\nOUTPUT_FILE flow.h5,\n") << QString("flow.h5");
+    }
+
+    void quotedLastOutputOption()
+    {
+        QFETCH(QByteArray, options); QFETCH(QString, expected);
+        const QString inp = writeDeck("quoted_output", (QByteArray(kMinimal1D) + "\n" + options).constData());
+        QVERIFY(!inp.isEmpty());
+        QCOMPARE(SimulationRunner::parseTwoDOutputFile(inp), QFileInfo(inp).absoluteDir().filePath(expected));
+    }
+
+    void declaredResourcesAreProtected_data()
+    {
+        QTest::addColumn<QByteArray>("reference");
+        QTest::newRow("series") << QByteArray("[TIMESERIES]\nS FILE \"source data.dat\"\n");
+        QTest::newRow("series-column") << QByteArray("[TIMESERIES]\nS FILE \"source data.dat:flow\"\n");
+        QTest::newRow("rain") << QByteArray("[RAINGAGES]\nR INTENSITY 0:05 1 FILE \"source data.dat\" STATION MM\n");
+        QTest::newRow("hotstart-input") << QByteArray("[FILES]\nUSE HOTSTART \"source data.dat\"\n");
+        QTest::newRow("climate") << QByteArray("[TEMPERATURE]\nFILE \"source data.dat\"\n");
+        QTest::newRow("mesh") << QByteArray("[2D_MESH_FILE]\nFILE \"source data.dat\"\n");
+        QTest::newRow("mesh-unquoted-space") << QByteArray("[2D_MESH_FILE]\nFILE source data.dat\n");
+        QTest::newRow("groundwater-quality") << QByteArray("[2D_GW_INITIAL_QUALITY]\nFILE \"source data.dat\"\n");
+        QTest::newRow("plugin-library") << QByteArray("[PLUGINS]\n\"source data.dat\"\n");
+        QTest::newRow("component-config") << QByteArray("[PROCESS_COMPONENTS]\nHEAT \"config=source data.dat\"\n");
+    }
+
+    void declaredResourcesAreProtected()
+    {
+        QFETCH(QByteArray, reference);
+        const QString inp = writeDeck("declared_resource", (QByteArray(kMinimal1D) + "\n" + reference).constData());
+        QVERIFY(!inp.isEmpty()); const QDir directory = QFileInfo(inp).absoluteDir();
+        QString error;
+        QVERIFY(!SimulationRunner::validateRunPaths(inp, directory.filePath("safe.rpt"), directory.filePath("source data.dat"), {}, {}, &error));
+        QVERIFY(error.contains("protected input"));
+    }
+
+    void additionalAndActiveOutputsAreGuarded()
+    {
+        const QString inp = writeDeck("additional_outputs", (QByteArray(kMinimal1D) + "\n[FILES]\nSAVE HOTSTART \"saved state.hsf\"\n").constData());
+        QVERIFY(!inp.isEmpty()); const QDir directory = QFileInfo(inp).absoluteDir();
+        const QString rpt = directory.filePath("additional_outputs.rpt"), out = directory.filePath("additional_outputs.out");
+        QString error;
+        QVERIFY(SimulationRunner::runOutputPaths(inp, rpt, out).contains(directory.filePath("saved state.hsf")));
+        QVERIFY(SimulationRunner::validateRunPaths(inp, rpt, out, {}, {}, &error));
+        QVERIFY(!SimulationRunner::validateRunPaths(inp, rpt, out, {}, {}, &error, {inp}));
+        QVERIFY(!SimulationRunner::validateRunPaths(inp, rpt, out, {directory.filePath("saved state.hsf")}, {}, &error));
+        QVERIFY(!SimulationRunner::validateRunPaths(inp, rpt, out, {}, {directory.filePath("saved state.hsf")}, &error));
+        QVERIFY(!SimulationRunner::validateRunPaths(inp, rpt, out, {}, {directory.filePath("additional_outputs.runlog.txt")}, &error));
+        SimulationRunner unstarted(105, "paths_before_start", inp, rpt, out);
+        QCOMPARE(unstarted.outputPaths(), SimulationRunner::runOutputPaths(inp, rpt, out));
+    }
+
+    void duplicateStartRunsOnce()
+    {
+        const QString inp = writeDeck("single_start", kMinimal1D);
+        QVERIFY(!inp.isEmpty());
+        qputenv("SWMMVIS_TEST_FAULT", "step:bad_alloc");
+        SimulationRunner runner(100, "single_start", inp,
+            QDir(outputDir()).filePath("single_start.rpt"), QDir(outputDir()).filePath("single_start.out"));
+        QSignalSpy started(&runner, &SimulationRunner::started), finished(&runner, &SimulationRunner::finished);
+        runner.start(); runner.start();
+        // Drain both old workers before asserting, so the baseline failure
+        // does not itself destroy a receiver still used by a worker.
+        QTRY_VERIFY_WITH_TIMEOUT(finished.count() >= started.count(), 15000);
+        QCOMPARE(started.count(), 1); QCOMPARE(finished.count(), 1);
+    }
+
+    void ownerDestructionStopsPausedWorker()
+    {
+        if (qEnvironmentVariableIsSet("SWMMVIS_TEST_RUNNER_OWNER_CHILD")) {
+            const QString inp = writeDeck("owner_destruction", kMinimal1D);
+            QVERIFY(!inp.isEmpty());
+            auto *owner = new QObject;
+            auto *runner = new SimulationRunner(101, "owner_destruction", inp,
+                QDir(outputDir()).filePath("owner_destruction.rpt"),
+                QDir(outputDir()).filePath("owner_destruction.out"), "6.0.0", owner);
+            runner->setPaused(true);
+            QSignalSpy dates(runner, &SimulationRunner::simulationDatesKnown);
+            runner->start();
+            QVERIFY(dates.count() || dates.wait(15000));
+            delete owner;
+            return;
+        }
+        // Isolate the baseline use-after-free / stuck worker from the suite.
+        QProcess child;
+        auto environment = QProcessEnvironment::systemEnvironment();
+        environment.insert("SWMMVIS_TEST_RUNNER_OWNER_CHILD", "1");
+        child.setProcessEnvironment(environment);
+        child.start(QCoreApplication::applicationFilePath(), {"ownerDestructionStopsPausedWorker", "-o", "-,txt"});
+        QVERIFY(child.waitForStarted());
+        const bool stopped = child.waitForFinished(20000);
+        if (!stopped) { child.kill(); child.waitForFinished(); }
+        const QByteArray details = child.readAllStandardOutput() + child.readAllStandardError();
+        QVERIFY2(stopped, details.constData());
+        QVERIFY2(child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0, details.constData());
+    }
+
+    void parallelRelativeFilesLeaveProcessDirectoryAlone()
+    {
+        const QString originalDirectory = QDir::currentPath();
+        const QString root = QFileInfo(outputDir()).absoluteFilePath();
+        QStringList inputs, reports, outputs;
+        for (const QString &name : {QString("relative_a"), QString("relative_b")}) {
+            const QDir directory(QDir(root).filePath(name)); QVERIFY(QDir().mkpath(directory.path()));
+            QFile series(directory.filePath("flow.dat")); QVERIFY(series.open(QIODevice::WriteOnly));
+            series.write("01/01/2026 00:00 1\n01/01/2026 01:00 1\n"); series.close();
+            QFile model(directory.filePath("model.inp")); QVERIFY(model.open(QIODevice::WriteOnly));
+            model.write(kMinimal1D); model.write("\n[TIMESERIES]\nF FILE flow.dat\n"); model.close();
+            inputs << model.fileName(); reports << directory.filePath("model.rpt"); outputs << directory.filePath("model.out");
+        }
+        SimulationRunner first(102, "relative_a", inputs[0], reports[0], outputs[0]);
+        SimulationRunner second(103, "relative_b", inputs[1], reports[1], outputs[1]);
+        QSignalSpy firstDates(&first, &SimulationRunner::simulationDatesKnown), secondDates(&second, &SimulationRunner::simulationDatesKnown);
+        QSignalSpy firstDone(&first, &SimulationRunner::finished), secondDone(&second, &SimulationRunner::finished);
+        first.setPaused(true); second.setPaused(true);
+        first.start();
+        const bool firstReady = firstDates.count() || firstDates.wait(15000);
+        const QString duringFirst = QDir::currentPath();
+        second.start();
+        const bool secondReady = secondDates.count() || secondDates.wait(15000);
+        const QString duringBoth = QDir::currentPath();
+        first.setPaused(false); second.setPaused(false);
+        const bool firstFinished = firstDone.count() || firstDone.wait(15000);
+        const bool secondFinished = secondDone.count() || secondDone.wait(15000);
+        const QString after = QDir::currentPath();
+        QDir::setCurrent(originalDirectory); // leave the old baseline clean
+        QVERIFY(firstReady); QVERIFY(secondReady); QVERIFY(firstFinished); QVERIFY(secondFinished);
+        QVERIFY2(firstDone.first()[1].toBool(), qPrintable(firstDone.first()[3].toString()));
+        QVERIFY2(secondDone.first()[1].toBool(), qPrintable(secondDone.first()[3].toString()));
+        QCOMPARE(duringFirst, originalDirectory); QCOMPARE(duringBoth, originalDirectory); QCOMPARE(after, originalDirectory);
+    }
+
+    void outputAliasesNeverModifyInputs_data()
+    {
+        QTest::addColumn<QString>("kind");
+        for (const char *kind : {"report-input", "output-input", "report-output", "log-input", "h5-input", "h5-report", "quoted-h5-input", "last-h5-input", "symlink-input", "hardlink-input"})
+            QTest::newRow(kind) << QString::fromLatin1(kind);
+    }
+
+    void outputAliasesNeverModifyInputs()
+    {
+        QFETCH(QString, kind);
+        const QDir directory(QDir(outputDir()).absoluteFilePath("path_guard_" + kind));
+        QVERIFY(QDir().mkpath(directory.path()));
+        QString inp = directory.filePath(kind == "log-input" ? "run.runlog.txt" : "model.inp");
+        QString rpt = directory.filePath("run.rpt"), out = directory.filePath("run.out");
+        QByteArray original(kMinimal1D);
+        if (kind == "quoted-h5-input") original += "\n[ 2D_OPTIONS ] ; header\nOUTPUT_FILE \"model.inp\" ; collision\n";
+        if (kind == "last-h5-input") original += "\n[2D_OPTIONS]\nOUTPUT_FILE harmless.h5\nOUTPUT_FILE model.inp\n";
+        if (kind == "h5-input" || kind == "h5-report")
+            original += "\n[2D_OPTIONS]\nOUTPUT_FILE " + QFileInfo(kind == "h5-input" ? inp : rpt).fileName().toUtf8() + "\n";
+        for (const auto &path : {inp, rpt, out}) QFile::remove(path);
+        QFile file(inp); QVERIFY(file.open(QIODevice::WriteOnly)); QCOMPARE(file.write(original), qint64(original.size())); file.close();
+        if (kind == "report-input") rpt = inp;
+        if (kind == "output-input") out = inp;
+        if (kind == "report-output") out = rpt;
+        if (kind == "symlink-input" || kind == "hardlink-input") {
+            std::error_code error;
+            if (kind == "symlink-input") std::filesystem::create_symlink(inp.toStdString(), out.toStdString(), error);
+            else std::filesystem::create_hard_link(inp.toStdString(), out.toStdString(), error);
+            QVERIFY2(!error, error.message().c_str());
+        }
+        SimulationRunner runner(104, kind, inp, rpt, out);
+        QSignalSpy finished(&runner, &SimulationRunner::finished);
+        runner.start(); QVERIFY(finished.count() || finished.wait(15000));
+        QVERIFY(!finished.first()[1].toBool());
+        QVERIFY(finished.first()[2].toInt() != 0);
+        QVERIFY(finished.first()[3].toString().contains("path", Qt::CaseInsensitive)
+            || finished.first()[3].toString().contains("file", Qt::CaseInsensitive));
+        QFile unchanged(inp); QVERIFY(unchanged.open(QIODevice::ReadOnly)); QCOMPARE(unchanged.readAll(), original);
+        if (rpt != inp && kind != "log-input") QVERIFY(!QFileInfo::exists(rpt));
+    }
+
+
 
     void openFailureNamesThePhaseAndWritesTheRunLog()
     {

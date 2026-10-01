@@ -251,6 +251,13 @@ void GwfExpressionEdit::setExpression(const QString &text)
     validateNow();
 }
 
+void GwfExpressionEdit::invalidateEngine()
+{
+    m_debounce->stop();
+    m_engine = nullptr;
+    setEnabled(false);
+}
+
 void GwfExpressionEdit::validateNow()
 {
     const QString expr = toPlainText().trimmed();

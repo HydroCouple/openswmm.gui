@@ -126,18 +126,45 @@ PatternEditorDialog::PatternEditorDialog(PatternRegistry *registry,
     setObjectName(QStringLiteral("PatternEditorDialog"));
     if (m_splitter) m_splitter->setObjectName(QStringLiteral("main"));
     restoreDialogSettings_();
+    setAccessibleDescription(undoStack
+        ? tr("Changes are applied immediately. Closing this editor does not undo changes. Use Undo to reverse an edit.")
+        : tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    if (m_table) m_table->setAccessibleName(tr("Pattern values"));
+    if (m_listView) m_listView->setAccessibleName(tr("Pattern objects"));
+    if (m_chartView) m_chartView->setAccessibleName(tr("Pattern preview"));
+    if (registry) connect(registry, &QObject::destroyed, this, &PatternEditorDialog::invalidateContext);
+    // Registries outlive an engine reload; their owning layer announces the
+    // close before any cached engine handle becomes invalid.
+    if (registry && registry->parent()
+        && registry->parent()->metaObject()->indexOfSignal("engineAboutToClose()") >= 0)
+        connect(registry->parent(), SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+    if (undoStack) connect(undoStack, &QObject::destroyed, this, &PatternEditorDialog::invalidateContext);
+
 }
 
 PatternEditorDialog::~PatternEditorDialog() = default;
+
+void PatternEditorDialog::invalidateContext()
+{
+    if (!m_contextValid) return;
+    m_contextValid = false;
+    setEnabled(false);
+    if (m_registry) m_registry->disconnect(this);
+    m_registry.clear();
+    m_undoStack.clear();
+    bindProvider_(nullptr);
+    if (m_chartView) m_chartView->setUndoStack(nullptr);
+    if (m_listModel) m_listModel->clear();
+    reject();
+}
+
 
 PatternEditorDialog *PatternEditorDialog::createNew(PatternRegistry *registry,
                                                      QUndoStack *undoStack,
                                                      QWidget *parent)
 {
     auto *dlg = new PatternEditorDialog(registry, undoStack, parent);
-    dlg->m_mode = Mode::CreateNew;
-    if (dlg->m_createCard) dlg->m_createCard->show();
-    if (dlg->m_nameEdit)   dlg->m_nameEdit->setFocus();
+    dlg->onNewClicked_();
     dlg->setWindowTitle(tr("New Time Pattern"));
     return dlg;
 }
@@ -163,9 +190,7 @@ QString PatternEditorDialog::pickPattern(PatternRegistry *registry,
     dlg.setModal(true);
     if (initialName.isEmpty()) {
         // CreateNew — mirror createNew()'s setup without WA_DeleteOnClose.
-        dlg.m_mode = Mode::CreateNew;
-        if (dlg.m_createCard) dlg.m_createCard->show();
-        if (dlg.m_nameEdit)   dlg.m_nameEdit->setFocus();
+        dlg.onNewClicked_();
         dlg.setWindowTitle(tr("New Time Pattern"));
     } else {
         dlg.setWindowTitle(tr("Edit Time Pattern"));
@@ -644,6 +669,7 @@ void PatternEditorDialog::selectProviderInList_(PatternProvider *p)
 
 void PatternEditorDialog::onListSelectionChanged_()
 {
+    if (!m_contextValid) return;
     const QModelIndex proxyIdx = m_listView->currentIndex();
     const QModelIndex srcIdx = (m_listProxy && proxyIdx.isValid())
         ? m_listProxy->mapToSource(proxyIdx) : proxyIdx;
@@ -660,6 +686,7 @@ void PatternEditorDialog::onListSelectionChanged_()
 
 void PatternEditorDialog::bindProvider_(PatternProvider *p)
 {
+    if (!m_contextValid) p = nullptr;
     if (m_current == p && p) {
         // Same provider — refresh chart from current state.
         refreshChart_();
@@ -862,7 +889,9 @@ void PatternEditorDialog::onMutationRejected_(const QString &reason)
 
 void PatternEditorDialog::onNewClicked_()
 {
-    if (!m_createCard) return;
+    if (!m_contextValid || !m_registry || !m_createCard) return;
+    if (m_listView) { m_listView->clearSelection(); m_listView->setCurrentIndex({}); }
+    bindProvider_(nullptr);
     m_mode = Mode::CreateNew;
     if (m_nameEdit) {
         m_nameEdit->clear();

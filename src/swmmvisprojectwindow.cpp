@@ -89,6 +89,8 @@
 #include <filesystem>
 #include <atomic>
 #include <memory>
+#include <exception>
+#include <stdexcept>
 
 #include "core/measurementunitmanager.h"
 
@@ -617,6 +619,10 @@ bool engineMeshMatches(SWMM_Engine engine, const mesh::MeshResult &m)
 
 bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &errors)
 {
+    if (mAsyncLoadInProgress || mClosing || !mModelLayer) {
+        errors.append(tr("Cannot replace the model while its project is opening or closing."));
+        return false;
+    }
     QString recoveryError, recoveryNotice;
     if (!ProjectSaveOutputs::recover(mModelLayer->modelFilePath(), &recoveryError, &recoveryNotice)) {
         errors.append(recoveryError);
@@ -630,119 +636,170 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
 
 void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
 {
-    // Engine create+open (the dominant load cost — full .inp parse) runs in a
-    // worker thread so the GUI stays responsive and the status-bar busy
-    // indicator actually animates. Everything that touches Qt state — SoA
-    // adoption, CRS resolution (may open a dialog), canvas zoom — happens
-    // back on the GUI thread in the watcher's finished handler.
+    const auto refuse = [this](const QString &message) {
+        QTimer::singleShot(0, this, [this, message] {
+            emit modelLoadFinished(false, {}, {message});
+        });
+    };
+    if (mAsyncLoadInProgress) {
+        refuse(tr("This project is already opening a model."));
+        return;
+    }
+    if (mClosing || !mModelLayer || mModelLayer->engine()) {
+        refuse(tr("Open requires an available project with no model already loaded."));
+        return;
+    }
+
+    // The worker owns only its engine and plain result data. It never reads or
+    // fills a QObject-owned layer, even while the layer is hidden.
     struct AsyncOpenOutcome {
         SWMM_Engine engine = nullptr;
-        QString     errorDetail;
-        QString     recoveryNotice;
-        qint64      openMs = 0;
-        qint64      soaMs  = 0;
-        qint64      geomMs = 0;
+        QString errorDetail, recoveryNotice;
+        qint64 openMs = 0;
+        ~AsyncOpenOutcome() {
+            if (engine) { swmm_engine_close(engine); swmm_engine_destroy(engine); }
+        }
     };
-
+    auto outcome = std::make_shared<AsyncOpenOutcome>();
+    auto invalidated = std::make_shared<std::atomic_bool>(false);
     const QString path = mModelLayer->modelFilePath();
-    SWMMModelLayer *layer = mModelLayer;
-
-    // The worker now also runs buildFromEngine() — the SoA copy + geometry
-    // cache — directly on the layer's arrays. A visible layer would be painted
-    // from the GUI thread mid-fill (data race), so hide it for the duration;
-    // adoptOpenEngine + finishModelLoad restore visibility on completion. The
-    // layer is workspace-owned and outlives window close, so the worker's
-    // access stays valid even if this window is torn down first.
-    const bool wasVisible = mModelLayer->isVisible();
-    mModelLayer->setVisible(false);
-
-    // QPointer guards window teardown during the open: if this window is
-    // closed before the worker finishes, the handler destroys the orphaned
-    // engine instead of touching dead widgets.
-    QPointer<SWMMVisProjectWindow> self(this);
-    auto *watcher = new QFutureWatcher<AsyncOpenOutcome>();
-
-    // Determinate progress: the worker packs (stage, localPct) into the
-    // QPromise's single integer channel and this handler — on the GUI thread,
-    // courtesy of QFutureWatcher — unpacks it into the model. QPointer guards
-    // the model being retired while the worker is still running.
-    QPointer<OpenProgressModel> progressGuard(progress);
-    QObject::connect(watcher, &QFutureWatcherBase::progressValueChanged, watcher,
-                     [progressGuard](int packed) {
-        // packed == 0 is the valid encoding for (EngineParse, 0%), which is
-        // also what QFutureWatcher emits on reset — harmless either way, since
-        // a 0% local report cannot advance the monotonic model.
-        if (!progressGuard || packed < 0)
-            return;
+    const quint64 revision = mModelLayer->editRevision();
+    const QPointer<SWMMModelLayer> layer(mModelLayer);
+    const QPointer<SWMMVisProjectWindow> self(this);
+    const QPointer<OpenProgressModel> progressGuard(progress);
+    const bool wasVisible = layer->isVisible();
+    const auto workerHook = mAsyncLoadWorkerTestHook;
+    mAsyncLoadInProgress = true;
+    layer->setVisible(false);
+    auto *watcher = new QFutureWatcher<void>(qApp);
+    const auto invalidate = [invalidated] { invalidated->store(true); };
+    connect(this, &SWMMVisProjectWindow::aboutToClose, watcher, invalidate);
+    connect(this, &QObject::destroyed, watcher, invalidate);
+    connect(layer, &SWMMModelLayer::modelFilePathChanged, watcher, invalidate);
+    connect(layer, &SWMMModelLayer::engineAboutToClose, watcher, invalidate);
+    connect(layer, &SWMMModelLayer::geometryChanged, watcher, invalidate);
+    connect(layer, &QObject::destroyed, watcher, invalidate);
+    connect(layer, &QObject::destroyed, this, [this, original = layer.data()] {
+        if (mModelLayer == original) mModelLayer = nullptr;
+    });
+    connect(watcher, &QFutureWatcherBase::progressValueChanged, watcher,
+            [self, layer, progressGuard, invalidated](int packed) {
+        if (!self || self->isClosing() || !layer || !progressGuard
+            || invalidated->load() || packed < 0) return;
         const OpenStage stage = unpackLoadProgressStage(packed);
         progressGuard->setStage(stage, unpackLoadProgressPct(packed),
                                 OpenProgressModel::stageLabel(stage));
     });
-
-    QObject::connect(watcher, &QFutureWatcherBase::finished, watcher,
-                     [watcher, self, layer, wasVisible]() {
-        const AsyncOpenOutcome outcome = watcher->result();
-        watcher->deleteLater();
-
-        if (!self) {
-            // Window gone: the layer survives (workspace-owned) but was never
-            // adopted — drop the orphan engine and restore its visibility flag.
-            if (outcome.engine)
-                swmm_engine_destroy(outcome.engine);
-            if (layer)
-                layer->setVisible(wasVisible);
-            return;
+    connect(watcher, &QFutureWatcherBase::finished, watcher,
+            [watcher, self, layer, path, revision, wasVisible,
+             outcome, invalidated, progressGuard] {
+        auto cleanup = qScopeGuard([watcher, self] {
+            watcher->deleteLater();
+            if (self) self->mAsyncLoadInProgress = false;
+        });
+        try { watcher->future().waitForFinished(); }
+        catch (const std::exception &ex) {
+            outcome->errorDetail = QObject::tr("Model open failed: %1").arg(QString::fromUtf8(ex.what()));
+        } catch (...) {
+            outcome->errorDetail = QObject::tr("Model open failed with an unexpected worker exception.");
         }
-
+        if (!self || self->isClosing()) return;
         QList<QString> warnings, errors;
-        if (!outcome.recoveryNotice.isEmpty()) warnings.append(outcome.recoveryNotice);
+        if (!outcome->recoveryNotice.isEmpty()) warnings.append(outcome->recoveryNotice);
+        const auto contextCurrent = [self, layer, path, revision, invalidated] {
+            return self && !self->isClosing() && layer && self->mModelLayer == layer
+                && !invalidated->load() && layer->modelFilePath() == path
+                && layer->editRevision() == revision && !layer->engine();
+        };
         bool ok = false;
-        if (!outcome.engine) {
-            errors.append(outcome.errorDetail);
-            self->mModelLayer->setVisible(wasVisible);
+        if (!contextCurrent()) {
+            errors.append(QObject::tr("Model open discarded because its project or model changed."));
+        } else if (!outcome->errorDetail.isEmpty() || !outcome->engine) {
+            errors.append(outcome->errorDetail.isEmpty()
+                ? QObject::tr("Model open did not produce a usable engine.") : outcome->errorDetail);
         } else {
-            ok = self->mModelLayer->adoptOpenEngine(outcome.engine,
-                                                    warnings, errors,
-                                                    outcome.openMs, outcome.soaMs,
-                                                    outcome.geomMs)
-                 && self->finishModelLoad(warnings, errors);  // sets visible(true)
+            SWMM_Engine opened = outcome->engine;
+            try {
+                // This bounded safety correction deliberately performs SoA/cache
+                // preparation on the GUI thread. A detached data-transfer API is
+                // needed to move it back to a worker safely.
+                qint64 soaMs = 0, geomMs = 0;
+                if (progressGuard) progressGuard->setStage(OpenStage::SoaCopy, 0,
+                    OpenProgressModel::stageLabel(OpenStage::SoaCopy));
+                if (!contextCurrent()) throw std::runtime_error("The model changed during open.");
+                layer->closeEngine(); // discard any prior failed, unadopted arrays
+                layer->buildFromEngine(opened, &soaMs, &geomMs);
+                if (progressGuard) {
+                    progressGuard->finishStage(OpenStage::SoaCopy);
+                    if (progressGuard) progressGuard->finishStage(OpenStage::GeomCache);
+                }
+                if (!contextCurrent()) throw std::runtime_error("The model changed during open.");
+                // If an adoption callback closes/deletes the layer, ownership
+                // must leave the result before that callback frees the engine.
+                connect(layer, &SWMMModelLayer::engineAboutToClose, watcher,
+                        [layer, outcome] {
+                    if (layer && layer->engine() == outcome->engine) outcome->engine = nullptr;
+                });
+                ok = layer->adoptOpenEngine(opened, warnings, errors, outcome->openMs, soaMs, geomMs);
+                if (layer && layer->engine() == opened) outcome->engine = nullptr;
+                if (ok && self && layer && !self->isClosing()
+                    && self->mModelLayer == layer && layer->engine() == opened
+                    && layer->modelFilePath() == path && layer->editRevision() == revision)
+                    ok = self->finishModelLoad(warnings, errors);
+                else ok = false;
+            } catch (const std::exception &ex) {
+                ok = false;
+                errors.append(QObject::tr("Model adoption failed: %1").arg(QString::fromUtf8(ex.what())));
+            } catch (...) {
+                ok = false;
+                errors.append(QObject::tr("Model adoption failed with an unexpected exception."));
+            }
+            // Adoption may have taken ownership before a later GUI exception.
+            if (layer && layer->engine() == opened) outcome->engine = nullptr;
+            if (!ok && layer && !layer->engine()) layer->closeEngine();
         }
+        if (!self || self->isClosing()) return;
+        if (!ok && layer && !layer->engine()) layer->setVisible(wasVisible);
+        if (!ok && errors.isEmpty()) errors.append(QObject::tr("Model open was cancelled."));
+        // Allow a failure handler to repair/retry immediately.
+        cleanup.dismiss();
+        watcher->deleteLater();
+        self->mAsyncLoadInProgress = false;
         emit self->modelLoadFinished(ok, warnings, errors);
     });
-
-    // QPromise overload (same shape MeshGenerationDialog uses) so the worker
-    // can report determinate progress. The range spans every stage the worker
-    // owns; see packLoadProgress() for the encoding.
-    watcher->setFuture(QtConcurrent::run(
-        [path, layer](QPromise<AsyncOpenOutcome> &promise) {
-        promise.setProgressRange(
-            0, packLoadProgress(OpenStage::GeomCache, 100));
-
-        AsyncOpenOutcome outcome;
-        promise.setProgressValue(packLoadProgress(OpenStage::EngineParse, 0));
-        if (!ProjectSaveOutputs::recover(path, &outcome.errorDetail, &outcome.recoveryNotice)) {
-            promise.addResult(outcome);
-            return;
+    watcher->setFuture(QtConcurrent::run([path, outcome, invalidated, workerHook](QPromise<void> &promise) {
+        promise.setProgressRange(0, packLoadProgress(OpenStage::EngineParse, 100));
+        try {
+            if (invalidated->load()) return;
+            promise.setProgressValue(packLoadProgress(OpenStage::EngineParse, 0));
+            if (!ProjectSaveOutputs::recover(path, &outcome->errorDetail, &outcome->recoveryNotice)) return;
+            if (invalidated->load()) return;
+            outcome->engine = SWMMModelLayer::openEngineForPath(path, &outcome->errorDetail, &outcome->openMs);
+            if (workerHook) workerHook();
+            promise.setProgressValue(packLoadProgress(OpenStage::EngineParse, 100));
+        } catch (const std::exception &ex) {
+            outcome->errorDetail = QObject::tr("Model open failed: %1").arg(QString::fromUtf8(ex.what()));
+        } catch (...) {
+            outcome->errorDetail = QObject::tr("Model open failed with an unexpected exception.");
         }
-        outcome.engine = SWMMModelLayer::openEngineForPath(
-            path, &outcome.errorDetail, &outcome.openMs);
-
-        // SoA copy + buildGeometryCache on the worker (the old GUI-thread
-        // freeze). No m_engine assignment / signals here — adoptOpenEngine
-        // finalizes on the GUI thread.
-        if (outcome.engine) {
-            promise.setProgressValue(packLoadProgress(OpenStage::SoaCopy, 0));
-            layer->buildFromEngine(outcome.engine, &outcome.soaMs,
-                                   &outcome.geomMs);
-            promise.setProgressValue(packLoadProgress(OpenStage::GeomCache, 100));
-        }
-        promise.addResult(outcome);
     }));
 }
+
 
 bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QString> &errors)
 {
     Q_UNUSED(warnings);
+    const QPointer<SWMMVisProjectWindow> owner(this);
+    const QPointer<SWMMModelLayer> model(mModelLayer);
+    if (!model || mClosing) return false;
+    const SWMM_Engine loadedEngine = model->engine();
+    const QString loadedPath = model->modelFilePath();
+    const quint64 loadedRevision = model->editRevision();
+    const auto contextCurrent = [owner, model, loadedEngine, loadedPath, loadedRevision] {
+        return owner && !owner->isClosing() && model && owner->modelLayer() == model
+            && model->engine() == loadedEngine && model->modelFilePath() == loadedPath
+            && model->editRevision() == loadedRevision;
+    };
     {
         mHasChanges = false;
         updateWindowTitle();
@@ -848,11 +905,17 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
             {
                 while (true)
                 {
-                    CRSSelectionDialog dlg(this);
-                    dlg.setWindowTitle(tr("Coordinate Reference System"));
-                    if (dlg.exec() == QDialog::Accepted)
+                    QPointer<CRSSelectionDialog> dlg = new CRSSelectionDialog(this);
+                    const auto releaseDialog = qScopeGuard([dlg] { if (dlg) dlg->deleteLater(); });
+                    dlg->setWindowTitle(tr("Coordinate Reference System"));
+                    const int result = dlg->exec();
+                    if (!contextCurrent() || !dlg) {
+                        errors.append(QObject::tr("Project open cancelled because its model or owner changed."));
+                        return false;
+                    }
+                    if (result == QDialog::Accepted)
                     {
-                        if (SpatialReferenceSystem *picked = dlg.selectedSRS())
+                        if (SpatialReferenceSystem *picked = dlg->selectedSRS())
                         {
                             mModelLayer->setSRS(picked, true);
                             modelSRS = picked;
@@ -861,31 +924,36 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                         // Accepted with no selection — treat as cancel.
                     }
 
-                    QMessageBox mb(this);
-                    mb.setIcon(QMessageBox::Warning);
-                    mb.setWindowTitle(tr("CRS Required"));
-                    mb.setText(tr("A coordinate reference system is required to open this SWMM model."));
-                    mb.setInformativeText(tr("Choose a CRS to continue, or abort opening the project."));
-                    QPushButton *chooseBtn = mb.addButton(tr("Choose CRS…"), QMessageBox::AcceptRole);
+                    QPointer<QMessageBox> mb = new QMessageBox(this);
+                    const auto releaseMessage = qScopeGuard([mb] { if (mb) mb->deleteLater(); });
+                    mb->setIcon(QMessageBox::Warning);
+                    mb->setWindowTitle(tr("CRS Required"));
+                    mb->setText(tr("A coordinate reference system is required to open this SWMM model."));
+                    mb->setInformativeText(tr("Choose a CRS to continue, or abort opening the project."));
+                    QPushButton *chooseBtn = mb->addButton(tr("Choose CRS…"), QMessageBox::AcceptRole);
                     // Local-projected shortcut: matches the model's flow-unit
                     // system (ft vs. m) so 2D mesh generation has a usable
                     // linear unit without forcing the user through the picker.
                     const QString lenLabel = (mUnits && mUnits->isSI())
                                                  ? QStringLiteral("m")
                                                  : QStringLiteral("ft");
-                    QPushButton *localBtn  = mb.addButton(
+                    QPushButton *localBtn  = mb->addButton(
                         tr("Use local projected (%1)").arg(lenLabel),
                         QMessageBox::AcceptRole);
-                    QPushButton *abortBtn  = mb.addButton(tr("Abort Open"),  QMessageBox::RejectRole);
-                    mb.setDefaultButton(chooseBtn);
-                    mb.exec();
-                    if (mb.clickedButton() == abortBtn)
+                    QPushButton *abortBtn  = mb->addButton(tr("Abort Open"),  QMessageBox::RejectRole);
+                    mb->setDefaultButton(chooseBtn);
+                    mb->exec();
+                    if (!contextCurrent() || !mb) {
+                        errors.append(QObject::tr("Project open cancelled because its model or owner changed."));
+                        return false;
+                    }
+                    if (mb->clickedButton() == abortBtn)
                     {
                         errors.append(tr("Project open cancelled: no CRS selected."));
                         mModelLayer->setVisible(false);
                         return false;
                     }
-                    if (mb.clickedButton() == localBtn)
+                    if (mb->clickedButton() == localBtn)
                     {
                         const QString mapUnits = (mUnits && mUnits->isSI())
                                                      ? QStringLiteral("METERS")
@@ -1410,8 +1478,8 @@ bool SWMMVisProjectWindow::initializeBlankModel(
     const SWMMModelLayer::NewProjectSpec &spec,
     QList<QString> &warnings, QList<QString> &errors)
 {
-    if (!mModelLayer) {
-        errors.append(tr("No model layer to initialize."));
+    if (!mModelLayer || mAsyncLoadInProgress || mClosing) {
+        errors.append(tr("No available model layer to initialize, or the project is opening or closing."));
         return false;
     }
     if (!mModelLayer->adoptNewEngine(spec, warnings, errors))

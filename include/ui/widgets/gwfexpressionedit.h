@@ -72,6 +72,7 @@ public:
 
     /*! Run validation immediately (also runs debounced on every edit). */
     void validateNow();
+    void invalidateEngine();
 
     /*! Last verdict from validateNow() (true until the first run). */
     [[nodiscard]] bool isValid() const { return m_valid; }

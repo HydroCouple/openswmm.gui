@@ -67,6 +67,8 @@ public:
      */
     void recordWrittenKey(const char *key);
 
+    void invalidate() { engine_ = nullptr; layer_ = nullptr; pw_ = nullptr; }
+
     void beginWritePass();                              ///< Clears writtenKeys().
     [[nodiscard]] QStringList writtenKeys() const { return written_; }
 

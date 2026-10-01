@@ -127,6 +127,10 @@ public:
      *  (bypasses the confirmation dialog). */
     void deleteCurrentSilently();
 
+public slots:
+    /*! End editing before the project, registry or undo owner is released. */
+    void invalidateContext();
+
 private slots:
     void onListSelectionChanged_();
     void onListContextMenu_(const QPoint &pos);
@@ -162,8 +166,9 @@ private:
     void populateTypeCombo_(QComboBox *combo) const;
     void applyTypeFilter_();
 
+    bool m_contextValid = true;
     QPointer<openswmmvis::curve::CurveRegistry> m_registry;
-    QUndoStack                                  *m_undoStack = nullptr;
+    QPointer<QUndoStack> m_undoStack;
     QPointer<openswmmvis::curve::CurveProvider>  m_current;
     Mode                                         m_mode      = Mode::Edit;
 

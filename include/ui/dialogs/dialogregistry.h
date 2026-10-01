@@ -24,6 +24,10 @@
  *       is activated, every registered dialog is raise()d in MRU order. No
  *       native gluing at all, so dialogs are fully independent windows.
  *
+ *     In both modes, showing or activating a modeless dialog also raises
+ *     its visible peers in MRU order, so opening a rainfall plot cannot
+ *     leave an existing comparison plot buried behind the main window.
+ *
  *     The mode is read once at startup from the OPENSWMM_DIALOG_STACKING
  *     environment variable ("qt" / "native"), else the "Window/DialogStacking"
  *     QSettings key, else the platform default. The environment override

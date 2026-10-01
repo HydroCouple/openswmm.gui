@@ -26,6 +26,8 @@
 #include "render/sublayers/meshedgesublayer.h"
 #include "render/sublayers/meshnodesublayer.h"
 #include "render/sublayers/velocityvectorsublayer.h"
+#include "render/sublayers/resultscalarsublayer.h"
+#include <QSet>
 
 #include <QFont>
 #include <QFontMetricsF>
@@ -234,6 +236,7 @@ void appendThickSegColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
 
 struct ResultsRootNode : QSGTransformNode
 {
+    QHash<QString, QSGGeometryNode *> resultScalarNodes;
     QSGGeometryNode *cellFillNode   = nullptr;
     QSGGeometryNode *smoothFillNode = nullptr;
     QSGGeometryNode *bandNode       = nullptr;
@@ -314,38 +317,32 @@ bool asyncContoursEnabled(int nTri)
 
 // ---------------------------------------------------------------------------
 
+struct SWMM2DResultsQSGRenderer::ContourFrame {
+    ContourJobKey key;
+    std::shared_ptr<const std::vector<std::array<float, 3>>> scalars;
+    // Only dynamic attributes are retained; geometry stays shared by revision.
+    std::vector<std::array<float, 4>> cellValues; // depth, vx, vy, speed per display tri
+    SWMM2DResultsLayer::VelocityField velocity;
+    double maxVelocity = 0;
+    bool hasVelocity = false;
+    ContourJobOutput contours;
+};
+
 SWMM2DResultsQSGRenderer::SWMM2DResultsQSGRenderer(QQuickItem *parent)
     : QQuickItem(parent)
 {
     setFlag(ItemHasContents, true);
-    setupAsyncContourJob(m_bandJob);
-    setupAsyncContourJob(m_isoJob);
-}
-
-void SWMM2DResultsQSGRenderer::setupAsyncContourJob(AsyncContourJob &job)
-{
-    // Phase 7 — worker completion lands here on the GUI thread. Stale
-    // results (a newer job was started, or the geometry was invalidated)
-    // are dropped by the generation guard; fresh ones are published,
-    // flagged as a Data-domain change so the next sync re-runs the fill
-    // passes, and surfaced to MapCanvas via contentReady() so the
-    // offscreen QSG frame is regrabbed.
-    connect(&job.watcher, &QFutureWatcherBase::finished, this, [this, &job]() {
-        auto future = job.watcher.future();
-        if (!future.isValid() || future.resultCount() == 0) return;
-        if (job.buf.tryPublish(job.inflightGen, future.takeResult())) {
-            job.publishedKey = job.inflightKey;
-            m_dirty.noteDataChanged();
-            update();
-            emit contentReady();
-        }
-        // A newer key was requested while this job ran: sync again so the
-        // launch branch sees it (published/inflight keys differ from it).
-        if (job.relaunch) {
-            job.relaunch = false;
-            m_dirty.noteDataChanged();
-            update();
-        }
+    connect(&m_contourWatcher, &QFutureWatcherBase::finished, this, [this]() {
+        m_contourBusy = false;
+        const auto result = m_contourWatcher.result();
+        // Accept completed intermediate frames during fast playback, but never
+        // cross a geometry/style epoch or replace a newer synchronous frame.
+        if (result && result->key.compatible(m_requestedContourKey)
+            && (!m_contourFrame || result->key.frameRev > m_contourFrame->key.frameRev))
+            m_contourFrame = result;
+        m_dirty.noteDataChanged();
+        noteContentChanged();
+        emit contentReady(); // also schedules the coalesced latest request
     });
 }
 
@@ -364,7 +361,12 @@ void SWMM2DResultsQSGRenderer::clearLabelTextureCache()
 void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
 {
     if (m_layer == layer) return;
-    if (m_layer) QObject::disconnect(m_layer, nullptr, this, nullptr);
+    if (m_layer) {
+        for (auto *base : m_layer->sublayers())
+            if (auto *sub = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(base))
+                sub->publishPresentedFrame({});
+        QObject::disconnect(m_layer, nullptr, this, nullptr);
+    }
     m_layer = layer;
     if (m_layer) {
         // Ambiguous invalidation — style edits, sublayer toggles, etc.
@@ -380,10 +382,6 @@ void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
         // does not emit repaintRequested) — a pure Data-domain event.
         connect(m_layer, &SWMM2DResultsLayer::currentTimeChanged, this,
                 [this](int) {
-                    m_cachedBands.clear();
-                    m_cachedSegs.clear();
-                    m_bandCacheTime = -1;
-                    m_isoCacheTime  = -1;
                     m_dirty.noteDataChanged();
                     noteContentChanged();
                 });
@@ -399,17 +397,6 @@ void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
     m_chunks.clear();
     m_lastGeomRev = ~quint64(0);
     m_lastHighlight.clear();
-    // Async contour products belong to the previous layer's geometry.
-    m_bandJob.buf.invalidate();
-    m_bandJob.inflightKey  = {};
-    m_bandJob.publishedKey = {};
-    m_isoJob.buf.invalidate();
-    m_isoJob.inflightKey  = {};
-    m_isoJob.publishedKey = {};
-    m_contourPositions.reset();
-    m_contourPositionsRev = ~quint64(0);
-    m_contourScalars.reset();
-    m_contourScalarsTime = -1;
     forceRebuild();
 }
 
@@ -430,10 +417,10 @@ void SWMM2DResultsQSGRenderer::setMapExtent(const MapExtent &extent)
 void SWMM2DResultsQSGRenderer::forceRebuild()
 {
     clearLabelTextureCache();
-    m_cachedBands.clear();
-    m_cachedSegs.clear();
-    m_bandCacheTime  = -1;
-    m_isoCacheTime   = -1;
+    ++m_contourEpoch;
+    m_requestedContourKey.epoch = m_contourEpoch;
+    m_contourFrame.reset();
+    m_contourPositions.reset();
     m_builtCoverage  = QRectF();
     m_builtLodKey    = ~quint64(0);
     m_dirty.noteLayerChanged();
@@ -457,9 +444,17 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                m_layer ? m_layer->currentTimeIndex() : -999, m_lastRenderedTime,
                m_dirty.pending(), int(m_extent.isValid()), width(), height());
 
+    auto clearPresentedFrames = [&]() {
+        if (!m_layer) return;
+        for (auto *base : m_layer->sublayers())
+            if (auto *sub = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(base))
+                sub->publishPresentedFrame({});
+    };
+
     if (!m_layer || !m_layer->isVisible() || !m_extent.isValid()
         || width() <= 0 || height() <= 0) {
         if (kUpnDebug) qDebug("[2D-qsg]   -> null-return (gate 1)");
+        clearPresentedFrames();
         delete oldNode;
         return nullptr;
     }
@@ -471,6 +466,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         && !m_layer->liveRenderEnabled()) {
         if (kUpnDebug) qDebug("[2D-qsg]   -> null-return (live gate: "
                               "isLive=1 liveRenderEnabled=0)");
+        clearPresentedFrames();
         delete oldNode;
         return nullptr;
     }
@@ -566,11 +562,13 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
     };
 
     auto clearAll = [&]() {
+        clearPresentedFrames();
         const std::vector<QSGGeometry::ColoredPoint2D> empty_c;
         const std::vector<QSGGeometry::Point2D>        empty_p;
         uploadColoredVerts(cellFillNode, empty_c);
         uploadColoredVerts(smoothFillNode, empty_c);
         uploadColoredVerts(bandNode, empty_c);
+        for (auto *node : root->resultScalarNodes) uploadColoredVerts(node, empty_c);
         uploadFlatVerts(isoNode, empty_p);
         uploadFlatVerts(isoIndexNode, empty_p);
         while (auto *c = isoLabels->firstChild()) {
@@ -585,6 +583,19 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
     };
 
     auto syncSublayerOrder = [&]() {
+        QSet<QString> currentResultIds;
+        for (auto *sub : m_layer->sublayers()) {
+            if (!qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) continue;
+            currentResultIds.insert(sub->id());
+            if (!root->resultScalarNodes.contains(sub->id()))
+                root->resultScalarNodes.insert(sub->id(), makeColoredNode());
+        }
+        for (auto it = root->resultScalarNodes.begin(); it != root->resultScalarNodes.end();) {
+            if (currentResultIds.contains(it.key())) { ++it; continue; }
+            if (it.value()->parent()) it.value()->parent()->removeChildNode(it.value());
+            delete it.value();
+            it = root->resultScalarNodes.erase(it);
+        }
         auto appendNode = [&](QSGNode *node) {
             if (!node) return;
             if (node->parent() == root)
@@ -641,7 +652,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         for (OpenSWMM::Render::ISublayer *sub : m_layer->sublayers()) {
             if (!sub) continue;
             const QString id = sub->id();
-            if (id == QLatin1String("results2d.cellDepthFill")) {
+            if (qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) {
+                appendNode(root->resultScalarNodes.value(id));
+            } else if (id == QLatin1String("results2d.cellDepthFill")) {
                 addCell();
             } else if (id == QLatin1String("results2d.smoothDepthFill")) {
                 addSmooth();
@@ -736,8 +749,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
     li.wantVertexMarkers = nodeSub && nodeSub->isVisible();
     li.wantContours      = isoSub && isoSub->isVisible();
     li.wantContourLabels = li.wantContours;
-    li.wantVelocity      = velSub && velSub->isVisible()
-                        && m_layer->hasVelocityData();
+    li.wantVelocity      = velSub && velSub->isVisible();
     li.haveSelection     = !m_layer->highlightedCells().isEmpty();
     li.previousBucket    = m_lastBucket;
     li.previousZoomStep  = m_lastZoomStep;
@@ -806,87 +818,12 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         if (bits & D::Geometry) {
             m_anchorX = (bb.left() + bb.right())  * 0.5;
             m_anchorY = (bb.top()  + bb.bottom()) * 0.5;
-            // Phase 7 — async contour products are anchored to the old
-            // geometry; a pending worker result must never apply.
-            m_bandJob.buf.invalidate();
-            m_bandJob.inflightKey  = {};
-            m_bandJob.publishedKey = {};
-            m_isoJob.buf.invalidate();
-            m_isoJob.inflightKey  = {};
-            m_isoJob.publishedKey = {};
+            ++m_contourEpoch;
+            m_requestedContourKey.epoch = m_contourEpoch;
+            m_contourFrame.reset();
             m_contourPositions.reset();
-            m_contourPositionsRev = ~quint64(0);
-            m_contourScalars.reset();
-            m_contourScalarsTime = -1;
         }
         const double ox = m_anchorX, oy = m_anchorY;
-
-        // Phase 7 — immutable snapshots handed to worker threads. The
-        // position snapshot is rebuilt once per geometry revision; the
-        // scalar snapshot once per (frame, geometry) and shared by the
-        // band and isoline jobs of that frame.
-        auto ensureContourSnapshots = [&]() {
-            const quint64 rev = m_layer->geomRevision();
-            if (m_contourPositionsRev != rev || !m_contourPositions) {
-                auto p = std::make_shared<std::vector<ContourJobInput::TriPos>>();
-                p->resize(size_t(nTri));
-                for (int i = 0; i < nTri; ++i) {
-                    const auto &t = tris[i];
-                    (*p)[size_t(i)] = {float(t.a.x() - ox), float(t.a.y() - oy),
-                                       float(t.b.x() - ox), float(t.b.y() - oy),
-                                       float(t.c.x() - ox), float(t.c.y() - oy)};
-                }
-                m_contourPositions    = std::move(p);
-                m_contourPositionsRev = rev;
-            }
-            const int time = m_layer->currentTimeIndex();
-            if (m_contourScalarsFrame != m_layer->frameRevision() || m_contourScalarsTime != time
-                || m_contourScalarsGeomRev != rev || !m_contourScalars) {
-                auto s = std::make_shared<std::vector<std::array<float, 3>>>();
-                s->resize(size_t(nTri));
-                for (int i = 0; i < nTri; ++i) {
-                    const auto &t = tris[i];
-                    (*s)[size_t(i)] = {t.dv0, t.dv1, t.dv2};
-                }
-                m_contourScalars        = std::move(s);
-                m_contourScalarsTime    = time;
-                m_contourScalarsFrame = m_layer->frameRevision();
-                m_contourScalarsGeomRev = rev;
-            }
-        };
-
-        // Launch (or keep riding) an async marching job for `key`; returns
-        // output only when it matches the current frame. While a worker is
-        // in flight, the fill uses the current clipped cell geometry.
-        auto runAsyncContourJob =
-            [&](AsyncContourJob &job, const ContourJobKey &key,
-                std::vector<double> bandLevels, std::vector<double> isoLevels,
-                bool clampUniformOutsideRange)
-            -> const ContourJobOutput * {
-            if (!(job.publishedKey == key) && job.inflightKey != key) {
-                if (job.watcher.isRunning()) {
-                    // One snapshot in flight per job. A live run changes the
-                    // key every tick; launching each one queued another
-                    // full-mesh snapshot on the pool (pinned until it ran),
-                    // so a GUI that fell behind grew that queue without
-                    // bound. The finished handler re-arms the sync instead.
-                    job.relaunch = true;
-                } else {
-                    ensureContourSnapshots();
-                    ContourJobInput in;
-                    in.positions  = m_contourPositions;
-                    in.scalars    = m_contourScalars;
-                    in.bandLevels = std::move(bandLevels);
-                    in.isoLevels  = std::move(isoLevels);
-                    in.clampUniformOutsideRange = clampUniformOutsideRange;
-                    job.inflightKey = key;
-                    job.inflightGen = job.buf.beginJob();
-                    job.watcher.setFuture(QtConcurrent::run(
-                        [input = std::move(in)]() { return computeContourJob(input); }));
-                }
-            }
-            return job.buf.hasValue() && job.publishedKey == key ? &job.buf.value() : nullptr;
-        };
 
         // Coverage rect: content is culled to the viewport plus half a
         // viewport of margin on every side, so pans inside it stay
@@ -910,6 +847,100 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             isoSub ? isoSub->isolineStyle() : nullptr;
         const OpenSWMM::Render::VelocityVectorStyle *vs =
             velSub ? velSub->vectorStyle() : nullptr;
+
+        const bool bandsVisible = bandSub && bandSub->isVisible();
+        const bool isoVisible = isoSub && isoSub->isVisible() && lod.drawContours;
+        const bool smoothBands = bandsVisible && (!bs || bs->smoothBands())
+                              && lod.exactContourBands;
+        std::vector<double> bandLevels, isoLevels;
+        if (bandsVisible && maxDepth > dryDepth) {
+            if (bs) {
+                const auto edges = bs->scheme().levelEdges(dryDepth, maxDepth,
+                    m_layer->depthClassificationSamples(bs->scheme()));
+                bandLevels.assign(edges.cbegin(), edges.cend());
+            } else {
+                bandLevels = OpenSWMM::Contour::evenlySpacedLevelsInclusive(dryDepth, maxDepth, 9);
+            }
+            if (!bandLevels.empty() && bandLevels.front() < dryDepth) {
+                bandLevels.erase(bandLevels.begin(),
+                    std::upper_bound(bandLevels.begin(), bandLevels.end(), dryDepth));
+                bandLevels.insert(bandLevels.begin(), dryDepth);
+            }
+        }
+        if (isoVisible && maxDepth > dryDepth) {
+            isoLevels = is ? is->levelsForRange(dryDepth, maxDepth,
+                m_layer->depthClassificationSamples(is->scheme()))
+                : OpenSWMM::Contour::evenlySpacedLevels(dryDepth, maxDepth, 8);
+            isoLevels.erase(std::remove_if(isoLevels.begin(), isoLevels.end(),
+                [dryDepth](double v) { return !std::isfinite(v) || v < dryDepth; }), isoLevels.end());
+        }
+        ContourJobKey key;
+        key.time = m_layer->currentTimeIndex();
+        key.frameRev = m_layer->frameRevision();
+        key.epoch = m_contourEpoch;
+        key.dryDepth = dryDepth;
+        key.maxDepth = maxDepth;
+        key.velocity = velSub && velSub->isVisible();
+        key.bandLevels = bandLevels;
+        key.smoothBands = smoothBands;
+        key.isoLevels = isoLevels;
+        m_requestedContourKey = key;
+        const bool compatible = m_contourFrame && m_contourFrame->key.compatible(key);
+        const bool needsMarching = (smoothBands && key.bandLevels.size() >= 2) || !key.isoLevels.empty();
+        const bool background = asyncContoursEnabled(nTri) && needsMarching && compatible;
+        if ((!m_contourFrame || !(m_contourFrame->key == key))
+            && (!background || !m_contourBusy)) {
+            if (!m_contourPositions) {
+                auto positions = std::make_shared<std::vector<ContourJobInput::TriPos>>(nTri);
+                for (int i = 0; i < nTri; ++i) {
+                    const auto& t = tris[i];
+                    (*positions)[i] = {float(t.a.x()-ox), float(t.a.y()-oy),
+                        float(t.b.x()-ox), float(t.b.y()-oy),
+                        float(t.c.x()-ox), float(t.c.y()-oy)};
+                }
+                m_contourPositions = std::move(positions);
+            }
+            auto frame = std::make_shared<ContourFrame>();
+            frame->key = key;
+            auto scalars = std::make_shared<std::vector<std::array<float,3>>>(nTri);
+            frame->cellValues.resize(nTri);
+            for (int i = 0; i < nTri; ++i) {
+                const auto& t = tris[i];
+                (*scalars)[i] = {t.dv0, t.dv1, t.dv2};
+                frame->cellValues[i] = {t.depth, t.vx, t.vy, t.vmag};
+            }
+            frame->scalars = scalars;
+            if (key.velocity) frame->velocity = m_layer->captureVelocityField();
+            frame->maxVelocity = m_layer->maxVelocity();
+            frame->hasVelocity = m_layer->hasVelocityData();
+            ContourJobInput input;
+            input.positions = m_contourPositions;
+            input.scalars = std::move(scalars);
+            input.bandLevels = smoothBands ? key.bandLevels : std::vector<double>{};
+            input.isoLevels = key.isoLevels;
+            input.clampUniformOutsideRange = false;
+            auto compute = [frame, input = std::move(input)]() -> std::shared_ptr<const ContourFrame> {
+                frame->contours = computeContourJob(input);
+                return frame;
+            };
+            if (background) {
+                m_contourBusy = true;
+                m_contourWatcher.setFuture(QtConcurrent::run(std::move(compute)));
+            } else {
+                // Bootstrap/style changes get a complete frame immediately.
+                // Never substitute cell colours or blank contour lines.
+                m_contourFrame = compute();
+            }
+        }
+        const auto& frame = *m_contourFrame;
+        auto frameTri = [&](int i) {
+            auto t = tris[i];
+            const auto& d = (*frame.scalars)[i];
+            const auto& c = frame.cellValues[i];
+            t.dv0=d[0]; t.dv1=d[1]; t.dv2=d[2];
+            t.depth=c[0]; t.vx=c[1]; t.vy=c[2]; t.vmag=c[3];
+            return t;
+        };
 
         // Issue 3B diagnostic — off by default. Set OPENSWMM_2D_RENDER_DEBUG=1
         // to log, per content rebuild, the guard states that decide whether
@@ -986,63 +1017,26 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         }
 
         // ---- Pass 2: filled contour bands -------------------------------
-        const bool bandsVisible = bandSub && bandSub->isVisible();
         if (rebuildFills) {
         if (bandsVisible && maxDepth > dryDepth) {
-            using namespace OpenSWMM::Contour;
-            // Slice US.2 — class edges come from the sublayer's
-            // ClassificationScheme (method-aware: EqualInterval reproduces the
-            // legacy even spacing exactly; Quantile/Jenks/StdDev bin against
-            // the frame's wet-cell depths).
-            std::vector<double> levels;
-            quint64 schemeRev = 0;
-            if (bs) {
-                QVector<double> samples;
-                const auto m = bs->scheme().method();
-                if (m == OpenSWMM::Render::BinMethod::Quantile
-                    || m == OpenSWMM::Render::BinMethod::NaturalBreaks
-                    || m == OpenSWMM::Render::BinMethod::StdDev) {
-                    // One sample per CELL: a quad's two display triangles
-                    // are consecutive in the fan and carry the same depth.
-                    samples.reserve(nTri);
-                    for (int i = 0; i < nTri; ++i) {
-                        if (i > 0 && cellOfTri(i) == cellOfTri(i - 1)) continue;
-                        if (tris[i].depth >= dryDepth)
-                            samples.push_back(double(tris[i].depth));
-                    }
-                }
-                const QVector<double> edges =
-                    bs->scheme().levelEdges(dryDepth, maxDepth, samples);
-                levels.assign(edges.cbegin(), edges.cend());
-                schemeRev = bs->scheme().revision();
-            } else {
-                levels = evenlySpacedLevelsInclusive(dryDepth, maxDepth, 9);
-            }
-
-            if (!levels.empty() && levels.front() < dryDepth) {
-                const auto first = std::upper_bound(levels.begin(),levels.end(),dryDepth);
-                levels.erase(levels.begin(),first);
-                levels.insert(levels.begin(),dryDepth);
-            }
+            const auto& levels = bandLevels;
             std::vector<QSGGeometry::ColoredPoint2D> bandVerts;
             if (levels.size() >= 2) {
                 const int bandCount = int(levels.size()) - 1;
                 const double bandLo = levels.front();
-                const double bandHi = levels.back();
                 const qreal bandOp = std::clamp<qreal>(bandSub->opacity(), 0.0, 1.0);
                 auto bandColor = [&](int idx) -> QColor {
                     QColor c = bs ? bs->colorForBand(idx, bandCount)
-                                  : viridisAt((double(idx) + 0.5) / bandCount);
+                                  : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / bandCount);
                     c.setAlphaF(c.alphaF() * bandOp);
                     return c;
                 };
 
                 // Flat per-cell classification (bucket each cell against the
-                // scheme edges), clipped to the wet footprint. Also used
-                // while an asynchronous smooth-band result is pending.
+                // scheme edges), clipped to the wet footprint.
                 auto emitFlatCells = [&]() {
                     for (int i : visibleCells) {
-                        const auto &t = tris[i];
+                        const auto t = frameTri(i);
                         const auto wet = CellWaterGeometry::clipTriangle(
                             t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,bandLo);
                         if (wet.size < 3) continue;
@@ -1066,75 +1060,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                     }
                 };
 
-                // Exact marching-triangles bands at every bucket: the band
-                // set follows the layer's static classification range, so
-                // it must not change as the user zooms (exactContourBands
-                // is now true Far..Near; the flag remains the single hook
-                // for any future density veto).
-                const bool smooth =
-                    (!bs || bs->smoothBands()) && lod.exactContourBands;
-                if (smooth) {
-                    // Marching source: Phase 7 moves the per-tick marching
-                    // onto a pool thread for big meshes; pending work uses
-                    // current clipped cells. Small meshes use the sync cache.
-                    const std::vector<IsoBandPolygon> *bandPolys = nullptr;
-                    if (asyncContoursEnabled(nTri)) {
-                        ContourJobKey key;
-                        key.valid     = true;
-                        key.time      = m_layer->currentTimeIndex();
-                        key.lo        = bandLo;
-                        key.hi        = bandHi;
-                        key.bandCount = bandCount;
-                        key.paramsRev = schemeRev;
-                        key.tris      = size_t(nTri);
-                        key.geomRev   = m_layer->geomRevision();
-                    key.frameRev = m_layer->frameRevision();
-                        const ContourJobOutput *out = runAsyncContourJob(
-                            m_bandJob, key, levels, {},
-                            /*clampUniformOutsideRange=*/false);
-                        bandPolys = out ? &out->bands : nullptr;
-                    } else {
-                        const bool cacheHit =
-                            m_bandCacheFrame == m_layer->frameRevision()
-                            && m_bandCacheTime  == m_layer->currentTimeIndex()
-                            && m_bandCacheLo    == bandLo
-                            && m_bandCacheHi    == bandHi
-                            && m_bandCacheCount == bandCount
-                            && m_bandCacheTris  == size_t(nTri)
-                            && m_bandCacheRev   == schemeRev
-                            && !m_cachedBands.empty();
-                        if (!cacheHit) {
-                            const auto extract =
-                                [ox, oy](const SWMM2DResultsLayer::SceneTri &t,
-                                         QPointF &p0, QPointF &p1, QPointF &p2,
-                                         double &v0, double &v1, double &v2) {
-                                p0 = QPointF(t.a.x() - ox, t.a.y() - oy);
-                                p1 = QPointF(t.b.x() - ox, t.b.y() - oy);
-                                p2 = QPointF(t.c.x() - ox, t.c.y() - oy);
-                                v0 = double(t.dv0);
-                                v1 = double(t.dv1);
-                                v2 = double(t.dv2);
-                            };
-                            m_cachedBands = marchingTrianglesIsobands(
-                                tris, levels, extract,
-                                /*clampUniformOutsideRange=*/false);
-                            m_bandCacheTime  = m_layer->currentTimeIndex();
-                            m_bandCacheFrame = m_layer->frameRevision();
-                            m_bandCacheLo    = bandLo;
-                            m_bandCacheHi    = bandHi;
-                            m_bandCacheCount = bandCount;
-                            m_bandCacheTris  = size_t(nTri);
-                            m_bandCacheRev   = schemeRev;
-                        }
-                        bandPolys = &m_cachedBands;
-                    }
-                    static const std::vector<IsoBandPolygon> kNoBands;
-                    const std::vector<IsoBandPolygon> &bandsRef =
-                        bandPolys ? *bandPolys : kNoBands;
-                    bandVerts.reserve(visibleCells.size()*3 + bandsRef.size()*9);
-                    // Pending jobs get a current, clipped wet mask, never a
-                    // stale shoreline or an entire triangle under the bands.
-                    if (!bandPolys) emitFlatCells();
+                if (smoothBands) {
+                    const auto& bandsRef = frame.contours.bands;
+                    bandVerts.reserve(bandsRef.size()*9);
                     // Smooth band polygons, culled per-poly to the coverage
                     // rect (poly verts are anchor-relative → cullLocal).
                     for (const auto &bp : bandsRef) {
@@ -1202,18 +1130,13 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             std::vector<double> levels;
             int bandCount = 1;
             if (classified) {
-                QVector<double> samples;
-                const auto mth = style->scheme().method();
-                if (mth == OpenSWMM::Render::BinMethod::Quantile
-                    || mth == OpenSWMM::Render::BinMethod::NaturalBreaks
-                    || mth == OpenSWMM::Render::BinMethod::StdDev) {
-                    // One sample per CELL: a quad's two display triangles
-                    // are consecutive in the fan and carry the same depth.
-                    samples.reserve(nTri);
+                auto samples = m_layer->depthClassificationSamples(style->scheme());
+                if (style->scheme().rangeMode() == OpenSWMM::Render::RangeMode::PerFrameAutoStretch) {
+                    samples.clear();
                     for (int i = 0; i < nTri; ++i) {
-                        if (i > 0 && cellOfTri(i) == cellOfTri(i - 1)) continue;
-                        if (tris[i].depth >= dryDepth)
-                            samples.push_back(double(tris[i].depth));
+                        if (i > 0 && cellOfTri(i) == cellOfTri(i-1)) continue;
+                        const auto d = frame.cellValues[i][0];
+                        if (std::isfinite(d) && d >= dryDepth) samples.push_back(d);
                     }
                 }
                 const QVector<double> edges =
@@ -1248,7 +1171,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 out.push_back(v);
             };
             for (int i : visibleCells) {
-                const auto &t = tris[i];
+                const auto t = frameTri(i);
                 const auto wet = CellWaterGeometry::clipTriangle(
                     t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
                 for (int k = 1; k+1 < wet.size; ++k)
@@ -1286,92 +1209,55 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                     qint64(smoothVerts.size()*sizeof(QSGGeometry::ColoredPoint2D)));
         }
 
+        // Additional cell scalars share CPU classification and availability
+        // colors. Use the displayed hydraulic frame while a newer contour
+        // job is pending, so overlays cannot show different reporting times.
+        if (rebuildFills) {
+            for (auto *base : m_layer->sublayers()) {
+                auto *sub = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(base);
+                if (!sub) continue;
+                std::vector<QSGGeometry::ColoredPoint2D> vertices;
+                std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> presented;
+                if (sub->isVisible() && sub->opacity() > 0) {
+                    const auto &scheme = sub->fillStyle()->scheme();
+                    const bool wholeRun = !scheme.useCustomRange()
+                        && scheme.rangeMode() == OpenSWMM::Render::RangeMode::FixedOverRun;
+                    const auto scalarFrame = m_layer->resultFrame(sub->variableKey(), frame.key.time, wholeRun);
+                    const auto colors = scalarFrame ? sub->cellColors(*scalarFrame) : QVector<QColor>();
+                    if (!colors.isEmpty()) presented = scalarFrame;
+                    vertices.reserve(visibleCells.size() * 3);
+                    for (int triangle : visibleCells) {
+                        const int cell = cellOfTri(triangle);
+                        if (cell < 0 || cell >= colors.size() || colors[cell].alpha() == 0) continue;
+                        const auto &color = colors[cell];
+                        const quint8 alpha = quint8(color.alpha());
+                        const auto &tri = tris[triangle];
+                        // Groundwater and chemistry have their own availability
+                        // status; a dry surface is not a clipping criterion.
+                        for (const QPointF &point : {tri.a, tri.b, tri.c}) {
+                            QSGGeometry::ColoredPoint2D vertex;
+                            vertex.set(float(point.x() - ox), float(point.y() - oy),
+                                premul(quint8(color.red()), alpha), premul(quint8(color.green()), alpha),
+                                premul(quint8(color.blue()), alpha), alpha);
+                            vertices.push_back(vertex);
+                        }
+                    }
+                }
+                uploadColoredVerts(root->resultScalarNodes.value(sub->id()), vertices);
+                sub->publishPresentedFrame(std::move(presented));
+                if (statsOn && !vertices.empty())
+                    stats.addPass(sub->id(), qint64(vertices.size()),
+                        qint64(vertices.size() * sizeof(QSGGeometry::ColoredPoint2D)));
+            }
+        }
+
         // ---- Pass 3 + 3b: isolines, index contours, labels ---------------
-        const bool isoVisible = isoSub && isoSub->isVisible()
-                             && lod.drawContours;
         if (rebuildFills) {
         if (isoVisible && maxDepth > dryDepth) {
             using namespace OpenSWMM::Contour;
-            QVector<double> isoSamples;
-            if (is) {
-                const auto m = is->scheme().method();
-                if (m == OpenSWMM::Render::BinMethod::Quantile
-                    || m == OpenSWMM::Render::BinMethod::NaturalBreaks
-                    || m == OpenSWMM::Render::BinMethod::StdDev) {
-                    isoSamples.reserve(nTri);
-                    for (int i = 0; i < nTri; ++i) {
-                        if (i > 0 && cellOfTri(i) == cellOfTri(i - 1)) continue;
-                        if (tris[i].depth >= dryDepth)
-                            isoSamples.push_back(double(tris[i].depth));
-                    }
-                }
-            }
-            std::vector<double> levels = is
-                ? is->levelsForRange(dryDepth, maxDepth, isoSamples)
-                : evenlySpacedLevels(dryDepth, maxDepth, 8);
-
-            levels.erase(std::remove_if(levels.begin(),levels.end(),
-                [dryDepth](double level) { return !std::isfinite(level) || level < dryDepth; }),levels.end());
+            const auto& levels = isoLevels;
             if (!levels.empty()) {
-                // Params hash for the segment cache.
-                quint64 params = 0;
-                if (is) {
-                    params = quint64(int(is->levelMode())) * 1315423911ull
-                           ^ quint64(is->isoValueCount()) * 2654435761ull
-                           ^ quint64(std::llround(is->levelInterval() * 1e9))
-                           ^ (quint64(std::llround(is->baseLevel() * 1e9)) << 1)
-                           ^ (is->scheme().revision() * 2246822519ull);
-                }
-                // Marching source — same Phase 7 async split as the bands.
-                const std::vector<IsoLineSegment> *segsPtr = nullptr;
-                if (asyncContoursEnabled(nTri)) {
-                    ContourJobKey key;
-                    key.valid     = true;
-                    key.time      = m_layer->currentTimeIndex();
-                    key.lo        = dryDepth;
-                    key.hi        = maxDepth;
-                    key.bandCount = -1;
-                    key.paramsRev = params;
-                    key.tris      = size_t(nTri);
-                    key.geomRev   = m_layer->geomRevision();
-                    key.frameRev = m_layer->frameRevision();
-                    const ContourJobOutput *out = runAsyncContourJob(
-                        m_isoJob, key, {}, levels,
-                        /*clampUniformOutsideRange=*/true);
-                    segsPtr = out ? &out->segs : nullptr;
-                } else {
-                    const bool cacheHit =
-                        m_isoCacheFrame == m_layer->frameRevision()
-                        && m_isoCacheTime == m_layer->currentTimeIndex()
-                        && m_isoCacheLo     == dryDepth
-                        && m_isoCacheHi     == maxDepth
-                        && m_isoCacheParams == params
-                        && m_isoCacheTris   == size_t(nTri)
-                        && !m_cachedSegs.empty();
-                    if (!cacheHit) {
-                        const auto extract =
-                            [ox, oy](const SWMM2DResultsLayer::SceneTri &t,
-                                     QPointF &p0, QPointF &p1, QPointF &p2,
-                                     double &v0, double &v1, double &v2) {
-                            p0 = QPointF(t.a.x() - ox, t.a.y() - oy);
-                            p1 = QPointF(t.b.x() - ox, t.b.y() - oy);
-                            p2 = QPointF(t.c.x() - ox, t.c.y() - oy);
-                            v0 = double(t.dv0);
-                            v1 = double(t.dv1);
-                            v2 = double(t.dv2);
-                        };
-                        m_cachedSegs = marchingTriangles(tris, levels, extract);
-                        m_isoCacheTime   = m_layer->currentTimeIndex();
-                        m_isoCacheFrame = m_layer->frameRevision();
-                        m_isoCacheLo     = dryDepth;
-                        m_isoCacheHi     = maxDepth;
-                        m_isoCacheParams = params;
-                        m_isoCacheTris   = size_t(nTri);
-                    }
-                    segsPtr = &m_cachedSegs;
-                }
-                static const std::vector<IsoLineSegment> kNoSegs;
-                const auto &segs = segsPtr ? *segsPtr : kNoSegs;
+                const auto& segs = frame.contours.segs;
 
                 // Coverage-culled view of the cached segments (anchor-
                 // relative → cullLocal). Shared by the draw + label passes.
@@ -1567,13 +1453,13 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
 
         // ---- Pass 4: velocity-vector glyphs ------------------------------
         const bool velVisible = velSub && velSub->isVisible()
-                                && m_layer->hasVelocityData()
+                                && frame.hasVelocity
                                 && lod.drawVelocityVectors;
         if (rebuildVel) {
         if (velVisible) {
             const double dryCut = vs
                 ? std::max(vs->dryDepthCutoff(), dryDepth) : dryDepth;
-            const double maxVel = std::max(m_layer->maxVelocity(), 1e-6);
+            const double maxVel = std::max(frame.maxVelocity, 1e-6);
             const double vmagSkip = std::max(maxVel * 1e-4, 1e-9);
             const qreal velOp = std::clamp<qreal>(velSub->opacity(), 0.0, 1.0);
             const float shaftHW = float(0.5 * (vs ? vs->shaftWidthPx() : 1.5))
@@ -1659,7 +1545,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                         for (double gx = x0; gx <= x1; gx += gridStep) {
                             float svx, svy;
                             if (!m_layer->velocityAtScene(QPointF(gx, gy),
-                                                          svx, svy))
+                                                          svx, svy, frame.velocity))
                                 continue;
                             const float smag = std::sqrt(svx * svx + svy * svy);
                             if (smag < vmagSkip) continue;
@@ -1671,7 +1557,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 // Dense per-cell mode: one arrow at each wet visible cell
                 // centroid, using the cell's own RT0 vector.
                 for (int i : visibleCells) {
-                    const auto &t = tris[i];
+                    const auto t = frameTri(i);
                     if (t.depth < dryCut)  continue;
                     if (t.vmag < vmagSkip) continue;
                     emitGlyphAt(t.centroid.x(), t.centroid.y(),
@@ -1781,7 +1667,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 }
             } else {
                 for (int i : visibleCells) {
-                    const auto &t = tris[i];
+                    const auto t = frameTri(i);
                     emitQuad(float(t.a.x()-ox), float(t.a.y()-oy));
                     emitQuad(float(t.b.x()-ox), float(t.b.y()-oy));
                     emitQuad(float(t.c.x()-ox), float(t.c.y()-oy));
@@ -1869,8 +1755,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
 
         // ---- Snapshot / key bookkeeping ----------------------------------
         if (rebuildFills) {
-            m_lastRenderedTime = m_layer->currentTimeIndex();
-            m_lastRenderedFrame = m_layer->frameRevision();
+            m_lastRenderedTime = frame.key.time;
+            m_lastRenderedFrame = frame.key.frameRev;
         }
         if (bits & D::Geometry)
             m_lastGeomRev = m_layer->geomRevision();

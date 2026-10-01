@@ -21,6 +21,7 @@
 #include <QPointer>
 #include <QString>
 #include <QVector>
+#include <functional>
 
 #include "plot/plotattribute.h"   // PlotAttribute (edge flow vs flux relay)
 #include "layers/swmmmodellayer.h"  // SWMMModelLayer::NewProjectSpec (nested)
@@ -130,16 +131,15 @@ public:
     void importMeshFileAsync(const QString &srcPath);
 
     /*!
-     * \brief Non-blocking variant of loadModel().
+     * \brief Open a model with engine parsing on a worker.
      *
-     * Runs the engine create+open (the dominant cost — full .inp parse) in a
-     * QtConcurrent worker so the GUI event loop stays responsive; completes
-     * the load (SoA adoption, CRS resolution, canvas zoom) on the GUI thread
-     * and then emits modelLoadFinished(). Safe against the window being
-     * closed mid-load.
+     * Engine create+open runs in a QtConcurrent worker. Geometry/cache
+     * preparation, adoption and CRS resolution run on the GUI thread and may
+     * take time on large models. Duplicate requests and replacing an already
+     * loaded model are refused; closed or changed owners discard the result.
      *
      * \param progress Optional determinate-progress sink. The worker reports
-     *        into the EngineParse / SoaCopy / GeomCache stages; null is the
+     *        into EngineParse; GUI adoption completes SoaCopy / GeomCache. Null is the
      *        "nobody is watching" case used by tests and the sync path.
      */
     void loadModelAsync(class OpenProgressModel *progress = nullptr);
@@ -453,7 +453,8 @@ signals:
     void modelLoaded();
     void modelLoadError(const QString &msg);
 
-    /*! Completion signal for loadModelAsync(): fired exactly once per call,
+    /*! Completion signal for loadModelAsync(): fired once per call while its
+     *  window remains open (closed/destroyed owners discard their result),
      *  on the GUI thread, after the model is fully adopted (success) or the
      *  open failed. Warnings/errors carry the same diagnostics the sync
      *  loadModel() returns via out-params. */
@@ -543,6 +544,9 @@ protected:
 
 private:
     friend class TestMeshImport;
+    friend class TestAsyncLoad;
+    // Empty in production; copied into an async job by deterministic failure tests.
+    std::function<void()> mAsyncLoadWorkerTestHook;
     void updateWindowTitle();
     void repositionMeasurePanel();
     void updateMeasureUnitCombo();
@@ -569,6 +573,7 @@ private:
     bool                 mUntitled            = false;  // Slice Y — never saved
     bool                 mClosePromptActive   = false;  // re-entrancy guard for closeEvent's prompt
     bool                 mClosing             = false;  // see isClosing()
+    bool                 mAsyncLoadInProgress = false;  // GUI-thread request/adoption guard
     quint64              mMeshImportSerial     = 0;      // only the latest import may be adopted
     QStringList          mLastSaveWarnings;   // delta across the last successful engine write
     QString              mEngineVersion       = "6.0.0";  // Default to newest version

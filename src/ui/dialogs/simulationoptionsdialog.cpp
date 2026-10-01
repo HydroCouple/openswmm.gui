@@ -7,6 +7,8 @@
 #include "ui/dialogs/simulationoptionsdialog.h"
 
 #include "ui/uiscrollhelpers.h"
+#include "layers/swmmmodellayer.h"
+#include "swmmvisprojectwindow.h"
 #include "ui/dialogs/simoptions/simoptionscontext.h"
 #include "ui/dialogs/simoptions/simoptionspage.h"
 #include "ui/dialogs/simoptions/datespage.h"
@@ -63,6 +65,16 @@ SimulationOptionsDialog::SimulationOptionsDialog(SWMM_Engine engine,
     buildUi();
     readFromEngine();
     applyEngineConstraints();
+    if (m_layer) {
+        connect(this, &SimulationOptionsDialog::changesApplied, m_layer, &SWMMModelLayer::markEdited);
+        connect(m_layer, &SWMMModelLayer::engineAboutToClose, this, &SimulationOptionsDialog::invalidateContext);
+        connect(m_layer, &QObject::destroyed, this, &SimulationOptionsDialog::invalidateContext);
+    }
+    if (m_projectWindow) {
+        connect(this, &SimulationOptionsDialog::changesApplied, m_projectWindow,
+                [project = m_projectWindow] { project->setHasChanges(true); });
+        connect(m_projectWindow, &SWMMVisProjectWindow::aboutToClose, this, &SimulationOptionsDialog::invalidateContext);
+    }
 }
 
 // Destructor is now inline in the header to keep the moc vtable self-contained.
@@ -436,6 +448,7 @@ void SimulationOptionsDialog::readFromEngine()
 
 int SimulationOptionsDialog::writeToEngine()
 {
+    if (!m_engine) return 0;
     // One write pass: the key record starts empty and collects every key this
     // pass considered, so lastWriteKeys() can be compared against the tagged
     // editors (the reachability seam).
@@ -443,8 +456,10 @@ int SimulationOptionsDialog::writeToEngine()
     int n = 0;
     for (openswmmvis::ui::SimOptionsPage *p : m_pageOrder)
         n += p->write();
-    if (n > 0)
+    if (n > 0) {
         m_wroteChanges = true;
+        emit changesApplied();
+    }
     return n;
 }
 
@@ -476,9 +491,20 @@ bool SimulationOptionsDialog::confirmBeforeWrite()
     return true;
 }
 
+void SimulationOptionsDialog::invalidateContext()
+{
+    m_engine = nullptr;
+    m_layer = nullptr;
+    m_projectWindow = nullptr;
+    if (m_ctx) m_ctx->invalidate();
+    setEnabled(false);
+    reject();
+}
+
 void SimulationOptionsDialog::onApply()
 {
-    if (!confirmBeforeWrite()) return;
+    if (!m_engine) return;
+    if (!confirmBeforeWrite() || !m_engine) return;
     writeToEngine();
     // Re-read after write so the controls reflect whatever the engine
     // actually accepted (some keys may be clamped or normalised).
@@ -487,7 +513,8 @@ void SimulationOptionsDialog::onApply()
 
 void SimulationOptionsDialog::onAccept()
 {
-    if (!confirmBeforeWrite()) return;
+    if (!m_engine) return;
+    if (!confirmBeforeWrite() || !m_engine) return;
     writeToEngine();
     accept();
 }
