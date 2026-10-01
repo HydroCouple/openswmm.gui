@@ -289,14 +289,16 @@ inline void clipHalfplane(const std::vector<QPointF> &inPts,
  * \brief Generate filled iso-band polygons for every (triangle, band) pair.
  *
  * \p levels is interpreted as N break levels defining N-1 bands; consecutive
- * pairs `[levels[k], levels[k+1]]` define band k. For best results pass an
- * inclusive level vector (see \ref evenlySpacedLevelsInclusive) so boundary
- * triangles aren't clipped away.
+ * pairs `[levels[k], levels[k+1]]` define band k. The first and last bands
+ * extend beyond the corresponding endpoint (saturated end colors).
  *
  * Implementation: each triangle is clipped twice per band via two
  * Sutherland-Hodgman passes (one for `value >= L1`, one for `value <= L2`).
  * The output convex polygon has up to 5 vertices and is suitable for fan
  * triangulation by the caller.
+ *
+ * End bands saturate outside the color range. minimumVisibleValue is an
+ * optional physical cutoff (e.g. dry depth), independent of color limits.
  *
  * Complexity O(|tris| * |bands|) with an early-out per (triangle, band) when
  * the band lies entirely outside the triangle's value range.
@@ -306,7 +308,7 @@ std::vector<IsoBandPolygon>
 marchingTrianglesIsobands(const TriRange         &tris,
                           const std::vector<double> &levels,
                           Extract                  extract,
-                          bool                     clampUniformOutsideRange = true)
+                          double                   minimumVisibleValue = -std::numeric_limits<double>::infinity())
 {
     std::vector<IsoBandPolygon> out;
     if (levels.size() < 2) return out;
@@ -337,12 +339,9 @@ marchingTrianglesIsobands(const TriRange         &tris,
             // breaks, clamped so values at/below the first level land in band 0
             // and values at/above the last level land in the last band.
             //
-            // Depth renderers pass clampUniformOutsideRange=false so a flat dry
-            // cell below the first break (the dry threshold) remains
-            // transparent instead of being painted as the first wet band.
-            if (!clampUniformOutsideRange
-                && (vMin < levels.front() || vMin > levels.back()))
-                continue;
+            // Physical visibility (e.g. dry depth) is independent of the
+            // color range. Values above the last break always saturate.
+            if (vMin <= minimumVisibleValue) continue;
             const int nb = int(levels.size()) - 1;   // number of bands (>= 1)
             int k = int(std::upper_bound(levels.begin() + 1, levels.end() - 1,
                                          vMin)
@@ -360,17 +359,21 @@ marchingTrianglesIsobands(const TriRange         &tris,
         for (size_t k = 0; k + 1 < levels.size(); ++k) {
             const double L1 = levels[k];
             const double L2 = levels[k + 1];
-            if (L2 < vMin || L1 > vMax) continue;
+            const double lower = k == 0 ? minimumVisibleValue
+                                         : std::max(L1, minimumVisibleValue);
+            const double upper = k + 2 == levels.size()
+                ? std::numeric_limits<double>::infinity() : L2;
+            if (upper < vMin || lower > vMax) continue;
             if (!(L2 > L1)) continue;   // degenerate band
 
             // Initialise polygon = triangle
             a = {p0, p1, p2};
             aV = {v0, v1, v2};
 
-            // Clip 1: keep value >= L1
-            detail::clipHalfplane(a, aV, L1, /*keepAbove=*/true,  b, bV);
-            // Clip 2: keep value <= L2
-            detail::clipHalfplane(b, bV, L2, /*keepAbove=*/false, a, aV);
+            // Extend the end bands instead of clamping vertex scalars:
+            // clamping scalars would move the interior class boundaries.
+            detail::clipHalfplane(a, aV, lower, /*keepAbove=*/true, b, bV);
+            detail::clipHalfplane(b, bV, upper, /*keepAbove=*/false, a, aV);
 
             if (a.size() >= 3) {
                 IsoBandPolygon bp;

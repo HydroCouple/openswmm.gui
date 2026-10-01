@@ -59,6 +59,13 @@ inline constexpr int kMaxSamples = ProfileSection::kMaxSamples;
                                            const QVector<QPointF> &scenePolyline,
                                            double stepHint = 0.0);
 
+/*! Signed current surface at an exact interval station. On a shared edge,
+ *  a dry owner must not hide water on the other side. Never extrapolates
+ *  into either cell interior. Returns metres, before profile unit scaling. */
+[[nodiscard]] double signedWaterDepth(SWMM2DResultsLayer *results,
+                                      int displayTri, int boundaryTri,
+                                      const QPointF &scenePoint);
+
 } // namespace MeshProfileSampler
 
 #endif // MESH_PROFILE_SAMPLER_H

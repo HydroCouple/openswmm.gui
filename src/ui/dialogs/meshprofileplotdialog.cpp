@@ -300,10 +300,11 @@ void MeshProfilePlotDialog::refreshCurrentDepths()
     const double scale = m_results->depthToMeshUnits() * m_verticalScale;
     for (auto& s : m_profile.samples) {
         s.signedDepthNow = m_profile.exactWaterGeometry
-            ? m_results->signedDepthAtDisplayTriangle(s.displayTriIdx,s.scenePt)*scale
+            ? MeshProfileSampler::signedWaterDepth(m_results,s.displayTriIdx,s.boundaryTriIdx,s.scenePt)*scale
             : m_results->depthAtCellInterp(s.triIdx,s.scenePt)*scale;
         s.depthNow = std::max(0.0,s.signedDepthNow);
-        s.cellHasSurface = m_results->cellHasSurface(s.triIdx);
+        s.cellHasSurface = m_profile.exactWaterGeometry
+            ? std::isfinite(s.signedDepthNow) : m_results->cellHasSurface(s.triIdx);
         depths.push_back(s.depthNow);
         signedDepths.push_back(s.signedDepthNow);
         hasSurface.push_back(s.cellHasSurface);

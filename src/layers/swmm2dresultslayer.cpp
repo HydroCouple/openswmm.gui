@@ -338,7 +338,7 @@ public:
 
             double bandLo = dryDepth, bandHi = maxDepth;
             if (bs && bs->useCustomRange() && bs->rangeMax() > bs->rangeMin()) {
-                bandLo = std::max(dryDepth,bs->rangeMin());
+                bandLo = bs->rangeMin();
                 bandHi = bs->rangeMax();
             }
 
@@ -369,7 +369,7 @@ public:
                     };
                     const auto bands = marchingTrianglesIsobands(
                         tris, levels, extract,
-                        /*clampUniformOutsideRange=*/false);
+                        dryDepth);
                     for (const auto &bp : bands) {
                         if (bp.verts.size() < 3) continue;
                         p->setBrush(bandColor(bp.bandIndex));
@@ -385,7 +385,7 @@ public:
                     const double span = bandHi - bandLo;
                     for (const auto &t : tris) {
                         const auto wet = CellWaterGeometry::clipTriangle(
-                            t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,bandLo);
+                            t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
                         if (wet.size < 3 || span <= 0.0) continue;
                         const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
                         const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});

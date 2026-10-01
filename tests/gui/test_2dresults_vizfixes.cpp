@@ -229,6 +229,8 @@ private slots:
     void depthClassificationRemainsStableDuringPlayback();
     void cpuContoursStopAtExactShoreline();
     void exactProfileIgnoresStationSpacing();
+    void boundaryProfileKeepsWetSideAcrossFrames();
+    void contourRangesSaturateCpuAndQsg();
     void latestFrameReplacementCanReduceEnvelope();
     void edgesAreDeduplicated();
     void liveScrubHoldsFrame();
@@ -505,6 +507,87 @@ void Test2DResultsVizFixes::cpuContoursStopAtExactShoreline()
         QCOMPARE(image.pixelColor(360,320).alpha(),0); // dry adjacent cell
         const QString dir=qEnvironmentVariable("VFR_TEST_ARTIFACTS");
         if (!dir.isEmpty()) QVERIFY(image.save(dir+(smooth ? "/map-smooth-bands.png" : "/map-flat-bands.png")));
+    }
+    layer.depopulateScene(&scene);
+}
+
+void Test2DResultsVizFixes::boundaryProfileKeepsWetSideAcrossFrames()
+{
+    auto source=std::make_unique<VfrSource>();
+    source->frames={{0,0.0703125f},{0.4921875f,0},{0,0},{0.4921875f,0.0703125f}};
+    SWMM2DResultsLayer layer; layer.setSource(std::move(source));
+    for (const QVector<QPointF> path : {QVector<QPointF>{{1,0},{0,-1}},
+                                       QVector<QPointF>{{0,-1},{1,0}}}) {
+        layer.setCurrentTimeIndex(0);
+        const auto profile=MeshProfileSampler::buildMeshProfile(nullptr,&layer,path);
+        QCOMPARE(profile.samples.size(),2);
+        for (const auto &s : profile.samples) QVERIFY(s.boundaryTriIdx>=0);
+        for (int t : {0,1,2,3}) {
+            layer.setCurrentTimeIndex(t);
+            for (const auto &s : profile.samples) {
+                const double d=MeshProfileSampler::signedWaterDepth(
+                    &layer,s.displayTriIdx,s.boundaryTriIdx,s.scenePt);
+                if (t==2) { QVERIFY(std::isnan(d)); continue; }
+                // Exact lake-at-rest stage, even with a dry cell on one side
+                // and independently when both cells have matching volumes.
+                QVERIFY(std::abs(s.ground+d-1.5)<1e-6);
+                QVERIFY(s.signedMaxDepth>=d-1e-6);
+            }
+        }
+        layer.setCurrentTimeIndex(0);
+        QCOMPARE(layer.depthAtCellInterp(0,{0.1,-0.1}),0.0f);
+    }
+}
+
+void Test2DResultsVizFixes::contourRangesSaturateCpuAndQsg()
+{
+    class Renderer : public SWMM2DResultsQSGRenderer {
+    public:
+        QSGNode* sync(QSGNode* old=nullptr) { return updatePaintNode(old,nullptr); }
+    };
+    SWMM2DResultsLayer layer; layer.setSource(std::make_unique<VfrSource>());
+    layer.setVisible(true);
+    for (auto *sub:layer.sublayers()) sub->setVisible(false);
+    auto *bands=layer.contourBandSublayer(); bands->setVisible(true);
+    auto *style=bands->bandStyle(); style->setUseCustomRange(true);
+    QGraphicsScene scene; layer.populateScene(&scene,MapExtent(0,0,1,1),nullptr);
+    Renderer renderer;
+    renderer.setWidth(400); renderer.setHeight(400);
+    renderer.setMapExtent(MapExtent(0,0,1,1)); renderer.setLayer(&layer);
+    std::unique_ptr<QSGNode> root;
+    for (bool smooth : {false,true}) {
+        style->setSmoothBands(smooth);
+        // Above maximum, below minimum, and a color range wholly below dry cutoff.
+        for (const auto range : {QPointF(0.1,0.2),QPointF(2,3),QPointF(0,0.00001)}) {
+            style->setRangeMin(range.x()); style->setRangeMax(range.y());
+            QImage img(400,400,QImage::Format_ARGB32_Premultiplied); img.fill(Qt::transparent);
+            QPainter p(&img); scene.render(&p,QRectF(0,0,400,400),QRectF(0,-1,1,1)); p.end();
+            const QColor actual=img.pixelColor(100,320); // depth 0.7, above max or below min
+            QVERIFY(actual.alpha()>0);
+            const int count=style->bandCount();
+            const QColor expected=style->colorForBand(range.x()>1.5 ? 0 : count-1,count);
+            QVERIFY(std::abs(actual.red()-expected.red())<=2);
+            QVERIFY(std::abs(actual.green()-expected.green())<=2);
+            QVERIFY(std::abs(actual.blue()-expected.blue())<=2);
+            QVERIFY(img.pixelColor(100,260).alpha()>0); // shallow wet bank
+            QCOMPARE(img.pixelColor(100,240).alpha(),0); // physical dry area still hidden
+            root.reset(renderer.sync(root.release()));
+            double area=0;
+            for(auto *n=root->firstChild();n;n=n->nextSibling()) {
+                if(n->type()!=QSGNode::GeometryNodeType) continue;
+                auto *g=static_cast<QSGGeometryNode*>(n)->geometry();
+                if(!g || g->attributeCount()!=2) continue;
+                const auto *v=g->vertexDataAsColoredPoint2D();
+                for(int i=0;i+2<g->vertexCount();i+=3)
+                    area+=std::abs((v[i+1].x-v[i].x)*(v[i+2].y-v[i].y)
+                                -(v[i+1].y-v[i].y)*(v[i+2].x-v[i].x))*0.5;
+            }
+            const double y=(1.5-layer.dryDepth())/4.0;
+            QVERIFY2(std::abs(area-(y-y*y/2))<1e-6,"Color limits changed the wet area");
+            const QString dir=qEnvironmentVariable("SWMMVIS_SHORELINE_ARTIFACT_DIR");
+            if (!dir.isEmpty() && range==QPointF(0.1,0.2))
+                QVERIFY(img.save(dir+(smooth?"/contours-saturated-smooth.png":"/contours-saturated-flat.png")));
+        }
     }
     layer.depopulateScene(&scene);
 }

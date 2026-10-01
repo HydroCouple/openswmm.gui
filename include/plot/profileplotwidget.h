@@ -174,14 +174,16 @@ public:
      *        layer's water surface sampled where the path crosses the mesh.
      *        `chainage` is REAL path chainage (converted to virtual x when
      *        painting, like terrain samples). `bed` is the mesh bed elevation
-     *        at the station; `wse` is bed + interpolated depth, or NaN when
-     *        the station is dry / off-mesh / has no data (a gap).
+     *        at the station; `wse` is the signed reconstructed surface, including
+     *        its continuation below the bed for exact shoreline clipping.
+     *        NaN denotes a dry cell / off-mesh / no data (a gap).
      */
     struct Surface2DSample
     {
         double chainage = 0.0;
         double bed      = std::numeric_limits<double>::quiet_NaN();
         double wse      = std::numeric_limits<double>::quiet_NaN();
+        bool breakBefore = false; // start of a separately owned mesh interval
     };
 
     /*!

@@ -9,6 +9,7 @@
 #include "ui/theme/themetokens.h"
 
 #include "plot/profileplotoptions.h"
+#include "layers/cellwatergeometry.h"
 
 #include <QFontMetricsF>
 #include <QInputDialog>
@@ -1640,19 +1641,19 @@ double ProfilePlotWidget::groundElevAtReal(double realX) const
     // the ground: the sampled ground (DEM or 2D mesh, per the dialog's
     // ground-source option) or the node rims.
     auto interp = [realX](auto begin, auto end, auto xOf, auto yOf) -> double {
-        double px = std::numeric_limits<double>::quiet_NaN();
-        double py = px;
-        for (auto it = begin; it != end; ++it) {
-            const double x = xOf(*it), y = yOf(*it);
-            if (!isFinite(x) || !isFinite(y)) continue;
-            if (x >= realX) {
-                if (!isFinite(px) || x == realX) return y;
-                const double t = (realX - px) / (x - px);
-                return py + t * (y - py);
+        auto hi=std::lower_bound(begin,end,realX,
+            [&](const auto &point,double x) { return xOf(point)<x; });
+        while (hi!=end && (!isFinite(xOf(*hi)) || !isFinite(yOf(*hi)))) ++hi;
+        auto lo=hi;
+        while (lo!=begin) {
+            --lo;
+            if (isFinite(xOf(*lo)) && isFinite(yOf(*lo))) {
+                if (hi==end) return yOf(*lo);
+                const double dx=xOf(*hi)-xOf(*lo);
+                return dx>0 ? yOf(*lo)+(realX-xOf(*lo))/dx*(yOf(*hi)-yOf(*lo)) : yOf(*hi);
             }
-            px = x; py = y;
         }
-        return py;   // past the last sample: hold
+        return hi!=end ? yOf(*hi) : std::numeric_limits<double>::quiet_NaN();
     };
     if (m_toggles.useTerrainGround && !m_path.terrainSamples.isEmpty())
         return interp(m_path.terrainSamples.begin(), m_path.terrainSamples.end(),
@@ -1682,54 +1683,53 @@ void ProfilePlotWidget::paintSurface2D(QPainter &p) const
     p.save();
     p.setClipRect(plotRect());
 
-    // The band fills from the DRAWN ground line (DEM / mesh bed / rims —
-    // whatever paintSoilFill used) up to the 2D WSE, and only where the
-    // water surface actually stands above that ground; anything at or
-    // below ground is not shown.
-    const int n = m_surface2D.size();
-    QVector<double> ground(n);
-    for (int k = 0; k < n; ++k)
-        ground[k] = groundElevAtReal(m_surface2D[k].chainage);
-    auto wet = [&](int k) {
-        const Surface2DSample &s = m_surface2D[k];
-        return isFinite(ground[k]) && isFinite(s.wse) && s.wse > ground[k];
-    };
-    // Walk contiguous wet runs; each becomes one polygon: WSE polyline
-    // forward, ground polyline back.
-    int i = 0;
-    while (i < n) {
-        if (!wet(i)) { ++i; continue; }
-        int j = i;
-        while (j < n && wet(j)) ++j;
-        // [i, j) is a wet run.
-        QPolygonF band;
-        QVector<QPointF> top;
-        band.reserve((j - i) * 2);
-        top.reserve(j - i);
-        for (int k = i; k < j; ++k) {
-            const double vx = realChainageToVirtualX(m_surface2D[k].chainage);
-            top.push_back(dataToPixel(vx, m_surface2D[k].wse));
+    // Clip each owned interval against both the result bed and the drawn
+    // ground. Split at ground/axis knots too, so a DEM kink or a compressed
+    // link cannot move the intersection. Never join across missing cells.
+    QPainterPath fill, line;
+    fill.setFillRule(Qt::WindingFill);
+    QVector<double> groundKnots=m_path.chainage;
+    if (m_toggles.useTerrainGround)
+        for (const auto &g : m_path.terrainSamples)
+            if (isFinite(g.x())) groundKnots.push_back(g.x());
+    std::sort(groundKnots.begin(),groundKnots.end());
+    groundKnots.erase(std::unique(groundKnots.begin(),groundKnots.end()),groundKnots.end());
+    for (int i = 1; i < m_surface2D.size(); ++i) {
+        const auto &a = m_surface2D[i-1], &b = m_surface2D[i];
+        if (b.breakBefore || !(b.chainage > a.chainage)
+            || !isFinite(a.wse) || !isFinite(b.wse)
+            || !isFinite(a.bed) || !isFinite(b.bed)) continue;
+        QVector<double> knots{a.chainage};
+        for (auto it=std::upper_bound(groundKnots.cbegin(),groundKnots.cend(),a.chainage);
+             it!=groundKnots.cend() && *it<b.chainage; ++it) knots.push_back(*it);
+        knots.push_back(b.chainage);
+        auto lerpAt = [&](double x, double v0, double v1) {
+            return v0 + (x-a.chainage)/(b.chainage-a.chainage)*(v1-v0);
+        };
+        for (int k = 1; k < knots.size(); ++k) {
+            const double x0 = knots[k-1], x1 = knots[k];
+            const double w0 = lerpAt(x0,a.wse,b.wse), w1 = lerpAt(x1,a.wse,b.wse);
+            const double z0 = groundElevAtReal(x0), z1 = groundElevAtReal(x1);
+            double lo, hi, bedLo, bedHi;
+            if (!CellWaterGeometry::wetInterval(w0-z0,w1-z1,0.0,lo,hi)
+                || !CellWaterGeometry::wetInterval(
+                    w0-lerpAt(x0,a.bed,b.bed), w1-lerpAt(x1,a.bed,b.bed),
+                    0.0,bedLo,bedHi)) continue;
+            lo = std::max(lo,bedLo); hi = std::min(hi,bedHi);
+            if (!(hi > lo)) continue;
+            auto px = [&](double t, double v0, double v1) {
+                return dataToPixel(realChainageToVirtualX(x0+t*(x1-x0)),v0+t*(v1-v0));
+            };
+            const QPointF left=px(lo,w0,w1), right=px(hi,w0,w1);
+            fill.moveTo(left); fill.lineTo(right);
+            fill.lineTo(px(hi,z0,z1)); fill.lineTo(px(lo,z0,z1)); fill.closeSubpath();
+            if (line.isEmpty() || QLineF(line.currentPosition(),left).length()>1e-6)
+                line.moveTo(left);
+            line.lineTo(right);
         }
-        band.append(top);
-        for (int k = j - 1; k >= i; --k) {
-            const double vx = realChainageToVirtualX(m_surface2D[k].chainage);
-            band.push_back(dataToPixel(vx, ground[k]));
-        }
-        if (brush.style() != Qt::NoBrush && band.size() >= 3) {
-            p.setPen(Qt::NoPen);
-            p.setBrush(brush);
-            p.drawPolygon(band);
-        }
-        if (pen.style() != Qt::NoPen && top.size() >= 2) {
-            p.setBrush(Qt::NoBrush);
-            p.setPen(pen);
-            p.drawPolyline(top.constData(), top.size());
-        } else if (pen.style() != Qt::NoPen && top.size() == 1) {
-            p.setPen(pen);
-            p.drawPoint(top.first());
-        }
-        i = j;
     }
+    if (brush.style() != Qt::NoBrush) p.fillPath(fill,brush);
+    if (pen.style() != Qt::NoPen) { p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawPath(line); }
     p.restore();
 }
 

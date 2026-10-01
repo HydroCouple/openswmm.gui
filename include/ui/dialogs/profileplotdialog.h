@@ -217,16 +217,18 @@ private:
     {
         double  chainage = 0.0;   ///< real path chainage
         QPointF scenePt;          ///< 2D layer scene coords (x, -y of canvas CRS)
-        int     triIdx   = -1;    ///< containing results cell
-        double  bed      = 0.0;   ///< mesh bed elevation at the station
+        int     displayTriIdx = -1; ///< containing results storage triangle
+        int     boundaryTriIdx = -1; ///< opposite side of a shared-edge trace
+        double  bed      = 0.0;   ///< result bed in profile elevation units
+        bool    breakBefore = false;
     };
 
     /*!
      * \brief Rebinds the overlay to the project's active 2D results layer:
-     *        resolves the mesh, transforms every path station into the 2D
-     *        scene, caches its containing cell + bed, then refreshes the
+     *        transforms the path into the 2D scene, caches exact storage-
+     *        triangle intervals and result bed, then refreshes the
      *        depths for the current frame. Clears everything when the
-     *        option is off or no 2D layer / mesh is available.
+     *        option is off or no 2D results layer is available.
      */
     void rebuildSurface2DStations();
 
@@ -235,6 +237,7 @@ private:
     void refreshSurface2DDepths();
 
     QVector<Surface2DStation>             m_surface2D;
+    quint64 m_surface2DGeometryRevision = 0;
     QPointer<class SWMM2DResultsLayer>    m_surface2DLayer;
     QAction                              *m_actShow2D = nullptr;
 
