@@ -1640,6 +1640,23 @@ add_swmmvis_gui_test(test_initialqualitydialog
     ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditref.h
 )
 
+# Phase 33 — pollutant editor precision and owner-lifetime contract.
+add_swmmvis_gui_test(test_pollutanteditordialog
+    test_pollutanteditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/pollutanteditordialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/pollutanteditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantprovider.h
+    ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantprovider.cpp
+    ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantregistry.h
+    ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantregistry.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/models/pollutantlistmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/models/pollutantlistmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
+)
+target_link_libraries(test_pollutanteditordialog PRIVATE Qt6::Svg)
+
 # G-B2/G-C1 — the Reaction System editor (structured tabs + raw text tab),
 # driven against a synthetic BUILDING engine through the swmm_reaction_* /
 # swmm_process_component_* ABI.
@@ -3561,6 +3578,8 @@ add_swmmvis_gui_test(test_dialog_registry
 # dialog_a11y_checks.h assertions.
 add_swmmvis_gui_test(test_dialog_a11y_standalone
     test_dialog_a11y_standalone.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/colorbutton.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/colorbutton.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/aboutdialog.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/aboutdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/pluginsdialog.h
@@ -3682,3 +3701,40 @@ add_swmmvis_gui_test(test_corridorsourceswidget
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_corridorsourceswidget)
+
+# Phase34 — preview-session rollback and one undo transaction across Apply.
+add_swmmvis_gui_test(test_layerstyledialog_transactions
+    test_layerstyledialog_transactions.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_layerstyledialog_transactions)
+
+add_swmmvis_gui_test(test_resultvariables
+    test_resultvariables.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_resultvariables)
+
+add_swmmvis_gui_test(test_resultscalarsublayer
+    test_resultscalarsublayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/resultscalarsublayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/scalarfillsublayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/classificationscheme.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/resultscalarsublayer.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/scalarfillsublayer.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/include/render/isublayer.h
+)
+
+add_swmmvis_gui_test(test_mesh2dvariableexport
+    test_mesh2dvariableexport.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dvariableexport.cpp
+)
+target_link_libraries(test_mesh2dvariableexport PRIVATE GDAL::GDAL Qt6::Quick)

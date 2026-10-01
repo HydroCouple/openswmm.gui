@@ -10,6 +10,7 @@
  * differs (depth → inundation ramp instead of elevation → terrain ramp).
  */
 #include "layers/swmm2dresultslayer.h"
+#include "render/sublayers/resultscalarsublayer.h"
 
 #include "contour/contourchain.h"
 #include "contour/marchingtriangles.h"
@@ -321,6 +322,7 @@ public:
         // below) now provide the depth fill; dry cells stay unpainted so the
         // SWMM2DMeshLayer terrain shows through.
 
+        auto paintBandPass = [&] {
         // --- Pass 2 (optional): filled isobands. Phase 9 — sublayer gate +
         // sublayer-style-driven band count. VS.8 — the ContourBandStyle bag
         // also drives the colour source (named ramp / two-colour gradient,
@@ -403,6 +405,8 @@ public:
             }
         }
 
+        };
+        auto paintIsolinePass = [&] {
         // --- Pass 3 (optional): iso-line contour strokes. Phase 9 — sublayer
         // gate + sublayer-style-driven iso count + colour + line width.
         // VS.8 — levels by count OR fixed interval + base, index contours
@@ -578,6 +582,8 @@ public:
             }
         }
 
+        };
+        auto paintEdgePass = [&] {
         // --- Pass 4 (optional): mesh wireframe overlay from MeshEdgeSublayer.
         // Issue 3 — iterate the DEDUPLICATED edge set (m_sceneEdges) so each
         // undirected edge is stroked exactly once. Previously every triangle
@@ -612,6 +618,8 @@ public:
             p->restore();
         }
 
+        };
+        auto paintNodePass = [&] {
         // --- Pass 5 (optional): mesh-vertex markers from MeshNodeSublayer.
         // Vertices appear duplicated across SceneTris; we just draw at each
         // corner. The QPainter cost is negligible at marker sizes <= 8 px.
@@ -657,6 +665,33 @@ public:
                 drawMarker(t.c);
             }
             p->restore();
+        }
+
+        };
+        for (auto *sub : layer_->sublayers()) {
+            if (!sub || !sub->isVisible()) continue;
+            if (auto *scalar = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) {
+                const auto *style = scalar->fillStyle();
+                const auto frame = layer_->resultFrame(style->attribute(), layer_->currentTimeIndex(),
+                    !style->scheme().useCustomRange()
+                    && style->scheme().rangeMode() == OpenSWMM::Render::RangeMode::FixedOverRun);
+                const auto colors = scalar->cellColors(*frame);
+                const auto &map = layer_->triCellMap();
+                p->save(); p->setPen(Qt::NoPen);
+                for (int i = 0; i < tris.size(); ++i) {
+                    const int cell = i < int(map.size()) ? map[size_t(i)] : i;
+                    if (cell < 0 || cell >= colors.size() || colors[cell].alpha() == 0) continue;
+                    const auto &t = tris[i];
+                    const QPointF pts[] = {t.a,t.b,t.c};
+                    const QPolygonF polygon(QVector<QPointF>{t.a,t.b,t.c});
+                    if (!exposed.isNull() && !polygon.boundingRect().intersects(exposed)) continue;
+                    p->setBrush(colors[cell]); p->drawConvexPolygon(pts,3);
+                }
+                p->restore();
+            } else if (sub == bandSub) paintBandPass();
+            else if (sub == isolineSub) paintIsolinePass();
+            else if (sub == layer_->meshEdgeSublayer()) paintEdgePass();
+            else if (sub == layer_->meshNodeSublayer()) paintNodePass();
         }
 
         // --- VS.10: optional per-cell value labels. Driven by the base
@@ -1732,28 +1767,19 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
         }
     }
 
-    // Auto-seed max_depth_ from a global scan over every frame so the depth
-    // colour ramp is anchored to the run's true peak depth from the first
-    // frame shown — mirroring the velocity seed above. Without this,
-    // loadFrame_() only auto-GROWS max_depth_ as frames are visited, so the
-    // peak depth (which usually occurs mid-run, not on the last frame that
-    // setCurrentTimeIndex shows first) is not mapped to the top of the ramp
-    // until the user happens to scrub onto that exact frame — i.e. the max
-    // depth doesn't reach the max colour. Skipped when the user pinned the
-    // range explicitly. Cheap: n frames × cell count, one linear pass.
-    if (source_ && n > 0 && !cells_.empty() && !max_depth_user_set_)
-    {
-        float scanned_max_depth = 0.0f;
-        std::vector<float> depthBuf;
-        for (int t = 0; t < n; ++t) {
-            source_->readDepthsAt(t, depthBuf);
-            if (depthBuf.size() != cells_.size()) continue;
-            for (float d : depthBuf)
-                if (std::isfinite(d) && d > scanned_max_depth)
-                    scanned_max_depth = d;
+    // A cell's temporal peak mean depth bounds its VFR stage. The maximum
+    // stage above that cell's lowest corner also bounds any wet-fan average.
+    // Seed this bound before playback: scanning mean depths alone lets the
+    // colour range grow when a shallow, partially wet slope is first visited.
+    if (source_ && n > 0 && !cells_.empty() && !max_depth_user_set_) {
+        const auto peaks = maxDepthPerCell();
+        double peak = 0.01;
+        for (int c = 0; c < peaks.size(); ++c) {
+            const auto surface = surfaceForDepth(c, peaks[c]);
+            if (surface.state == CellWaterGeometry::State::Wet)
+                peak = std::max(peak, double(float(surface.level)));
         }
-        if (scanned_max_depth > 0.0f)
-            max_depth_ = scanned_max_depth;
+        max_depth_ = peak;
     }
 
     // Show a frame immediately if any are available. A live source shows its
@@ -2552,11 +2578,29 @@ bool SWMM2DResultsLayer::cellHasSurface(int cell) const
         && cellSurfaces_[size_t(cell)].state == CellWaterGeometry::State::Wet;
 }
 
+SWMM2DResultsLayer::VelocityField SWMM2DResultsLayer::captureVelocityField() const
+{
+    return {current_depths_, vvx_, vvy_};
+}
+
 bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
                                          float& outVx, float& outVy) const
 {
+    return velocityAtScene_(scenePt, outVx, outVy, current_depths_, vvx_, vvy_);
+}
+
+bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
+    float& outVx, float& outVy, const VelocityField& field) const
+{
+    return velocityAtScene_(scenePt, outVx, outVy, field.depths, field.vx, field.vy);
+}
+
+bool SWMM2DResultsLayer::velocityAtScene_(const QPointF& scenePt,
+    float& outVx, float& outVy, const std::vector<float>& depths,
+    const std::vector<float>& vx, const std::vector<float>& vy) const
+{
     outVx = outVy = 0.0f;
-    if (vvx_.empty() || vvy_.empty()) return false;
+    if (vx.empty() || vy.empty()) return false;
     const int idx = pickDisplayTriAt_(scenePt);
     if (idx < 0 || idx >= m_sceneTris.size() ||
         idx >= static_cast<int>(tris_.size()))
@@ -2565,16 +2609,15 @@ bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
     // vertices borrowed a velocity from a still-wet neighbour. Gate on the
     // cell's own mean depth so arrows never appear in a dry cell.
     const int cell = triCell_[size_t(idx)];
-    if (cell >= 0 && cell < static_cast<int>(current_depths_.size()) &&
-        current_depths_[size_t(cell)] < float(dry_depth_))
+    if (cell >= 0 && cell < static_cast<int>(depths.size()) &&
+        depths[size_t(cell)] < float(dry_depth_))
         return false;
 
     const auto& t   = m_sceneTris[idx];
     const auto& tri = tris_[idx];
-    const int nVert = static_cast<int>(vvx_.size());
     auto vget = [&](int k, const std::vector<float>& arr) -> double {
         const int vi = tri[k];
-        return (vi >= 0 && vi < nVert) ? double(arr[vi]) : 0.0;
+        return (vi >= 0 && size_t(vi) < arr.size()) ? double(arr[vi]) : 0.0;
     };
     // Barycentric weights — identical basis to depthAtCellInterp (a→w, b→v,
     // c→u) so the velocity field shares the depth field's interpolation.
@@ -2593,9 +2636,29 @@ bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
         const double v = (d00 * d21 - d01 * d20) / denom;   // weight for b
         wC = u; wB = v; wA = 1.0 - u - v;
     }
-    outVx = float(wA * vget(0, vvx_) + wB * vget(1, vvx_) + wC * vget(2, vvx_));
-    outVy = float(wA * vget(0, vvy_) + wB * vget(1, vvy_) + wC * vget(2, vvy_));
+    outVx = float(wA * vget(0, vx) + wB * vget(1, vx) + wC * vget(2, vx));
+    outVy = float(wA * vget(0, vy) + wB * vget(1, vy) + wC * vget(2, vy));
     return true;
+}
+
+QVector<double> SWMM2DResultsLayer::depthClassificationSamples(
+    const OpenSWMM::Render::ClassificationScheme& scheme) const
+{
+    using namespace OpenSWMM::Render;
+    if (scheme.method() != BinMethod::Quantile
+        && scheme.method() != BinMethod::NaturalBreaks
+        && scheme.method() != BinMethod::StdDev) return {};
+    QVector<double> samples;
+    auto append = [&](const auto& depths) {
+        samples.reserve(depths.size());
+        for (float d : depths)
+            if (std::isfinite(d) && d >= dry_depth_) samples.push_back(d);
+    };
+    if (scheme.rangeMode() == RangeMode::PerFrameAutoStretch)
+        append(current_depths_);
+    else
+        append(maxDepthPerCell());
+    return samples;
 }
 
 QVector<float> SWMM2DResultsLayer::maxDepthPerCell() const
@@ -3330,7 +3393,7 @@ SWMM2DResultsLayer::sublayerLegendItems() const
             // value labels follow the actual class edges (equal interval,
             // quantile, Jenks, …) and pick up per-class colour overrides. The
             // swatch colours match colorForBand the renderer paints with.
-            const auto items = bs->scheme().legendItems(dry, mx);
+            const auto items = bs->scheme().legendItems(dry, mx, depthClassificationSamples(bs->scheme()));
             for (LegendSymbolItem item : items) {
                 item.sublayerId = bandSubId;
                 item.symbol.opacity = filledContoursOpacity();
@@ -3420,6 +3483,17 @@ SWMM2DResultsLayer::sublayerLegendItems() const
             item.symbol.layers.append(sl);
             out.append(item);
         }
+    }
+
+    for (auto *sub : sublayers()) {
+        auto *scalar = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub);
+        if (!scalar || !scalar->isVisible()) continue;
+        const auto *style = scalar->fillStyle();
+        auto frame = qsgOwnsRendering() ? scalar->presentedFrame() : nullptr;
+        if (!frame) frame = resultFrame(style->attribute(), currentTimeIndex(),
+            !style->scheme().useCustomRange()
+            && style->scheme().rangeMode() == OpenSWMM::Render::RangeMode::FixedOverRun);
+        out.append(scalar->legendSymbolItems(*frame));
     }
 
     return out;
@@ -3744,6 +3818,9 @@ SWMM2DResultsLayer::styleSubjects()
     add(m_contourBandSublayer,      sect);
     add(m_isolineSublayer,          sect);
     add(m_velocityVectorSublayer,   sect);
+    for (auto *sub : sublayers())
+        if (qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) add(sub, sect);
+
 
     return out;
 }

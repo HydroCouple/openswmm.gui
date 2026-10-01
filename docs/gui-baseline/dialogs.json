@@ -407,10 +407,10 @@
       "tests/gui/test_curve_editor_dialog.cpp:279",
       "tests/gui/test_curve_editor_dialog.cpp:302"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Borrowed model/registry/undo handles invalidate before teardown; guarded modal paths preserve owner safety.",
+    "requiredChanges": "Native workflow, keyboard, theme and assistive-technology acceptance remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/customreportdialog.h::CustomReportDialog",
@@ -799,17 +799,12 @@
       "QDialogButtonBox"
     ],
     "testReferences": [
-      "tests/gui/test_groundwaterexchangedialog.cpp:80",
-      "tests/gui/test_groundwaterexchangedialog.cpp:110",
-      "tests/gui/test_groundwaterexchangedialog.cpp:111",
-      "tests/gui/test_groundwaterexchangedialog.cpp:149",
-      "tests/gui/test_groundwaterexchangedialog.cpp:160",
-      "tests/gui/test_groundwaterexchangedialog.cpp:181"
+      "tests/gui/test_groundwaterexchangedialog.cpp"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Exact values/full expressions retained, changed source data refused, checked writes and engine-close invalidation; partial writes mark the owner dirty.",
+    "requiredChanges": "Engine HGWW validation and atomic rollback remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/heatconfigdialog.h::HeatConfigDialog",
@@ -843,10 +838,10 @@
       "tests/gui/test_heatconfigdialog.cpp:266",
       "tests/gui/test_heatconfigdialog.cpp:282"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Exact numbers retained; whole-draft preflight, checked writes, partial-write accounting and guarded owner lifetime.",
+    "requiredChanges": "General concurrent edit conflict detection and atomic rollback remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/hydrographgroupeditor.h::HydrographGroupEditor",
@@ -872,10 +867,10 @@
       "QDialogButtonBox"
     ],
     "testReferences": [],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Borrowed model/registry/undo handles invalidate before teardown; guarded modal paths preserve owner safety.",
+    "requiredChanges": "Native workflow, keyboard, theme and assistive-technology acceptance remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/import/importfeaturelayerdialog.h::ImportFeatureLayerDialog",
@@ -950,10 +945,10 @@
       "tests/gui/test_initialqualitydialog.cpp:313",
       "tests/gui/test_initialqualitydialog.cpp:335"
     ],
-    "auditStatus": "Phase 21 partial: row identity, CSV protection and accessible fields verified; native acceptance pending",
-    "ownerAndPersistence": "engine owns committed values; widgets buffer until OK; FILE rows remain CSV-owned; Cancel discards draft; named dialog uses shared geometry persistence",
-    "requiredChanges": "checked multi-call write/accept/dirty handling with launchers; native keyboard/VoiceOver, themes and enlarged-font acceptance",
-    "verification": "Phase 21: test_initialqualitydialog passes 16 QtTest checks including fixtures; four baseline failures reproduced; see PHASE21_DIALOG_CONSISTENCY.md"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Exact numbers retained; guarded main/Simulation Options launch paths invalidate before engine close.",
+    "requiredChanges": "Other launch paths and general concurrent edit handling need inventory acceptance. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/inleteditordialog.h::InletEditorDialog",
@@ -981,10 +976,10 @@
       "QDialogButtonBox"
     ],
     "testReferences": [],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Borrowed model/registry/undo handles invalidate before teardown; guarded modal paths preserve owner safety.",
+    "requiredChanges": "Native workflow, keyboard, theme and assistive-technology acceptance remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/inletjunctionsetupdialog.h::InletJunctionSetupDialog",
@@ -1298,10 +1293,10 @@
     "testReferences": [
       "tests/gui/test_linkpropertyadapter.cpp:426"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Borrowed model/registry/undo handles invalidate before teardown; guarded modal paths preserve owner safety.",
+    "requiredChanges": "Native workflow, keyboard, theme and assistive-technology acceptance remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/mesh2dgroundwaterdialog.h::Mesh2DGroundwaterDialog",
@@ -1498,10 +1493,10 @@
       "QDialogButtonBox"
     ],
     "testReferences": [],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Borrowed model/registry/undo handles invalidate before teardown; guarded modal paths preserve owner safety.",
+    "requiredChanges": "Native workflow, keyboard, theme and assistive-technology acceptance remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/objectdefaultspage.h::ObjectDefaultsPage",
@@ -1581,10 +1576,10 @@
       "tests/gui/test_pattern_editor_dialog.cpp:652",
       "tests/gui/test_pattern_editor_dialog.cpp:670"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Borrowed model/registry/undo handles invalidate before teardown; guarded modal paths preserve owner safety.",
+    "requiredChanges": "Native workflow, keyboard, theme and assistive-technology acceptance remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/plotvariablepickerdialog.h::PlotVariablePickerDialog",
@@ -1663,10 +1658,10 @@
       "QDialogButtonBox"
     ],
     "testReferences": [],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Per-field updates preserve untouched numbers; registry/model-close invalidation and guarded Delete confirmation.",
+    "requiredChanges": "Native acceptance and broader stale-draft conflict handling remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/preferencesdialog.h::PreferencesDialog",
@@ -1875,10 +1870,10 @@
       "tests/gui/test_reactionsystemeditor.cpp:210",
       "tests/gui/test_reactionsystemeditor.cpp:236"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Stable row identity after deletion, replacement of changed identities, duplicate refusal and engine-close invalidation.",
+    "requiredChanges": "Native acceptance and general concurrent edit conflict handling remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/ruleseditordialog.h::RulesEditorDialog",
@@ -2115,11 +2110,13 @@
       "src/ui/dialogs/simulationoptionsdialog.cpp:362"
     ],
     "sharedComponents": [],
-    "testReferences": [],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "testReferences": [
+      "tests/gui/test_simulationoptions_roundtrip.cpp"
+    ],
+    "auditStatus": "Phase 32 nested Water Age dirty tracking verified; broader workflow/keyboard/theme/lifetime verification pending",
+    "ownerAndPersistence": "Simulation Options owns page drafts; accepted independent Water Age child writes go directly to the engine and mark their specific project unsaved, surviving outer Cancel.",
+    "requiredChanges": "Continue broader family audit, native accessibility/theme and lifetime verification; see PHASE32_NESTED_EDITOR_DIRTY.md",
+    "verification": "Phase 32: 10 integration checks pass, including four real nested-launch cases and project isolation; Water Age suite 15 passes; native acceptance pending"
   },
   {
     "id": "include/ui/dialogs/simoptions/simoptionspage.h::SimOptionsPage",
@@ -2360,10 +2357,10 @@
       "tests/gui/test_simulationoptionsdialog.cpp:313",
       "tests/gui/test_simulationoptionsdialog.cpp:330"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Context invalidates before owner/engine teardown; successful Apply marks the owner dirty even if later cancelled.",
+    "requiredChanges": "All nested page workflows still require native acceptance. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/snowpackeditordialog.h::SnowpackEditorDialog",
@@ -2447,10 +2444,10 @@
       "QDialogButtonBox"
     ],
     "testReferences": [],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Borrowed model/registry/undo handles invalidate before teardown; guarded modal paths preserve owner safety.",
+    "requiredChanges": "Native workflow, keyboard, theme and assistive-technology acceptance remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/streeteditordialog.h::StreetSectionPreview",
@@ -2513,10 +2510,10 @@
       "tests/gui/test_subcatch_coverage_loadings.cpp:119",
       "tests/gui/test_subcatch_coverage_loadings.cpp:135"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Borrowed model/registry/undo handles invalidate before teardown; guarded modal paths preserve owner safety.",
+    "requiredChanges": "Native workflow, keyboard, theme and assistive-technology acceptance remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/sublayerselectiondialog.h::SublayerSelectionDialog",
@@ -2709,10 +2706,10 @@
       "tests/gui/test_timeseries_editor_dialog.cpp:1165",
       "tests/gui/test_timeseries_editor_dialog.cpp:1194"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Borrowed model/registry/undo handles invalidate before teardown; guarded modal paths preserve owner safety.",
+    "requiredChanges": "Native workflow, keyboard, theme and assistive-technology acceptance remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/transecteditordialog.h::TransectEditorDialog",
@@ -2744,10 +2741,10 @@
       "tests/gui/test_transect_editor_dialog.cpp:687",
       "tests/gui/test_transect_editor_dialog.cpp:708"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Borrowed model/registry/undo handles invalidate before teardown; guarded modal paths preserve owner safety.",
+    "requiredChanges": "Native workflow, keyboard, theme and assistive-technology acceptance remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/userflagsdialog.h::UserFlagsDialog",
@@ -2818,21 +2815,12 @@
       "QDialogButtonBox"
     ],
     "testReferences": [
-      "tests/gui/test_wateragesourcesdialog.cpp:41",
-      "tests/gui/test_wateragesourcesdialog.cpp:55",
-      "tests/gui/test_wateragesourcesdialog.cpp:61",
-      "tests/gui/test_wateragesourcesdialog.cpp:85",
-      "tests/gui/test_wateragesourcesdialog.cpp:99",
-      "tests/gui/test_wateragesourcesdialog.cpp:113",
-      "tests/gui/test_wateragesourcesdialog.cpp:135",
-      "tests/gui/test_wateragesourcesdialog.cpp:157",
-      "tests/gui/test_wateragesourcesdialog.cpp:181",
-      "tests/gui/test_wateragesourcesdialog.cpp:203"
+      "tests/gui/test_wateragesourcesdialog.cpp"
     ],
-    "auditStatus": "pending workflow/keyboard/theme/lifetime verification",
-    "ownerAndPersistence": "resolve from constructor and launch path in W3",
-    "requiredChanges": "apply family contract after workflow audit; see README",
-    "verification": "source discovery only; a test reference is not a passing test"
+    "auditStatus": "Phase 33 scoped implementation and automated checks verified; native acceptance pending",
+    "ownerAndPersistence": "Exact numbers retained; checked writes notify the owner even when a later write fails; guarded main/nested launch paths invalidate before engine close.",
+    "requiredChanges": "General concurrent edit conflict detection and atomic rollback remain open. See PHASE33_COMBINED_DIALOGS_AND_SAFETY.md for scope and limits.",
+    "verification": "Phase 33 report records suite-specific evidence, including actual owner teardown. Combined: 439 passed, two known engine-validator failures, two explicit skips; setup/cleanup included. Native acceptance remains pending."
   },
   {
     "id": "include/ui/dialogs/wmsconnectiondialog.h::WMSConnectionDialog",

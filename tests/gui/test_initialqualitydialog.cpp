@@ -88,6 +88,9 @@ class TestInitialQualityDialog : public QObject
 {
     Q_OBJECT
 private slots:
+    void invalidationDiscardsDraftAndGuardsLaterSignals();
+    void exactValuesSurviveRoundedDisplay_data();
+    void exactValuesSurviveRoundedDisplay();
     void duplicateRowsRefuseBeforeWriting_data();
     void duplicateRowsRefuseBeforeWriting();
     void propertyEditorReportsOnlyRealChanges_data();
@@ -750,6 +753,52 @@ void TestInitialQualityDialog::elementScopeAddAndRemoveStayScoped()
         QCOMPARE(v, 5.0);
     }
     swmm_engine_destroy(e);
+}
+
+void TestInitialQualityDialog::exactValuesSurviveRoundedDisplay_data()
+{
+    QTest::addColumn<bool>("editOtherRow");
+    QTest::newRow("no-op") << false;
+    QTest::newRow("unrelated-row") << true;
+}
+
+void TestInitialQualityDialog::exactValuesSurviveRoundedDisplay()
+{
+    QFETCH(bool, editOtherRow);
+    SWMM_Engine e = makeEngine();
+    auto cleanup = qScopeGuard([e] { swmm_engine_destroy(e); });
+    const double exact = 1.234567891;
+    QCOMPARE(swmm_init_quality_set(e, 0, 0, "TSS", exact), SWMM_OK);
+    QCOMPARE(swmm_init_quality_set(e, 0, 1, "TSS", 8.76543219), SWMM_OK);
+    InitialQualityDialog dlg(e);
+    if (editOtherRow)
+        qobject_cast<QDoubleSpinBox *>(table(dlg)->cellWidget(1, 3))->setValue(9.25);
+    clickOk(dlg);
+    int scope = -1, element = -1;
+    char constituent[128] = {};
+    double actual = 0;
+    QCOMPARE(swmm_init_quality_get(e, 0, &scope, &element, constituent, sizeof(constituent), &actual), SWMM_OK);
+    QCOMPARE(actual, exact);
+    QCOMPARE(swmm_init_quality_get(e, 1, &scope, &element, constituent, sizeof(constituent), &actual), SWMM_OK);
+    QCOMPARE(actual, editOtherRow ? 9.25 : 8.76543219);
+    QCOMPARE(dlg.wroteAnyChanges(), editOtherRow);
+    if (!editOtherRow) QCOMPARE(dlg.lastWriteCount(), 0);
+}
+
+void TestInitialQualityDialog::invalidationDiscardsDraftAndGuardsLaterSignals()
+{
+    SWMM_Engine e = makeEngine();
+    InitialQualityDialog dlg(e);
+    dlg.show();
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "invalidateEngine", Qt::DirectConnection));
+    QVERIFY(!dlg.isEnabled());
+    QVERIFY(!dlg.isVisible());
+    swmm_engine_destroy(e);
+    // A queued/direct accepted signal after model closure cannot reuse the
+    // original handle or change the rejected result.
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onAccept", Qt::DirectConnection));
+    QCOMPARE(dlg.result(), int(QDialog::Rejected));
+    QVERIFY(!dlg.wroteAnyChanges());
 }
 
 QTEST_MAIN(TestInitialQualityDialog)

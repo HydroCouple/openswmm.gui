@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/layerstyledialog.h"
+#include "ui/widgets/classificationeditor.h"
 
 #include "ui/dialogs/ilayerstylesubject.h"
 #include "ui/dialogs/istyleeditorwidget.h"
@@ -89,17 +90,47 @@ namespace {
 // setKindRenderer, not through adapters). Apply order: renderers first (a
 // SingleSymbol install back-writes the legacy structs), then the subject
 // snapshots so struct-level detail wins.
-void applyStyleSnapshots(OpenSWMMVisLayer *layer,
-                         const QJsonObject &styleJson,
-                         const std::vector<QJsonObject> &snaps)
+QString subjectSnapshotKey(const ILayerStyleSubject &subject)
+{
+    // Current sublayers expose stable routing IDs. Retain a title fallback for
+    // legacy singleton subjects that predate the routing contract.
+    return subject.routingId().isEmpty() ? QStringLiteral("title:") + subject.title()
+                                        : QStringLiteral("id:") + subject.routingId();
+}
+
+QJsonObject captureSubjectSnapshots(OpenSWMMVisLayer *layer)
+{
+    QJsonObject snapshots;
+    if (layer) {
+        const auto subjects = layer->styleSubjects();
+        for (const auto &subject : subjects)
+            if (subject) snapshots.insert(subjectSnapshotKey(*subject), subject->snapshot());
+    }
+    return snapshots;
+}
+
+void restoreSubjectSnapshots(OpenSWMMVisLayer *layer, const QJsonObject &snapshots)
 {
     if (!layer) return;
-    if (!styleJson.isEmpty())
-        OpenSWMM::Render::StyleFileIO::applyStyleJson(layer, styleJson);
-    auto subs = layer->styleSubjects();
-    const size_t n = std::min(subs.size(), snaps.size());
-    for (size_t i = 0; i < n; ++i)
-        if (subs[i]) subs[i]->restore(snaps[i]);
+    // Structural style restoration may recreate sublayers. Never reuse the
+    // dialog's wrappers or assume their old vector order still identifies them.
+    const auto subjects = layer->styleSubjects();
+    for (const auto &subject : subjects) {
+        if (!subject) continue;
+        const QString key = subjectSnapshotKey(*subject);
+        if (snapshots.contains(key)) subject->restore(snapshots.value(key).toObject());
+    }
+}
+
+void applyStyleSnapshots(OpenSWMMVisLayer *layer, const QJsonObject &styleJson,
+                         const QJsonObject &snapshots, const QJsonObject &general)
+{
+    if (!layer) return;
+    if (!styleJson.isEmpty()) OpenSWMM::Render::StyleFileIO::applyStyleJson(layer, styleJson);
+    restoreSubjectSnapshots(layer, snapshots);
+    if (general.contains("name")) layer->setName(general.value("name").toString());
+    if (general.contains("visible")) layer->setVisible(general.value("visible").toBool());
+    if (general.contains("opacity")) layer->setOpacity(general.value("opacity").toDouble());
 }
 
 class EditLayerStyleCommand : public QUndoCommand
@@ -107,30 +138,28 @@ class EditLayerStyleCommand : public QUndoCommand
 public:
     EditLayerStyleCommand(OpenSWMMVisLayer *layer,
                           QJsonObject styleBefore, QJsonObject styleAfter,
-                          std::vector<QJsonObject> before,
-                          std::vector<QJsonObject> after)
-        : m_layer(layer),
-          m_styleBefore(std::move(styleBefore)),
-          m_styleAfter(std::move(styleAfter)),
-          m_before(std::move(before)), m_after(std::move(after))
+                          QJsonObject before, QJsonObject after,
+                          QJsonObject generalBefore, QJsonObject generalAfter)
+        : m_layer(layer), m_styleBefore(std::move(styleBefore)), m_styleAfter(std::move(styleAfter)),
+          m_before(std::move(before)), m_after(std::move(after)),
+          m_generalBefore(std::move(generalBefore)), m_generalAfter(std::move(generalAfter))
     {
         setText(QCoreApplication::translate("LayerStyleDialog", "Edit layer style")
-                + (layer ? QStringLiteral(" — %1").arg(layer->objectName()) : QString()));
+                + (layer ? QStringLiteral(" — %1").arg(layer->name()) : QString()));
     }
-    void undo() override { applyStyleSnapshots(m_layer.data(), m_styleBefore, m_before); }
+    void undo() override { applyStyleSnapshots(m_layer.data(), m_styleBefore, m_before, m_generalBefore); }
     void redo() override
     {
-        // QUndoStack::push fires redo() immediately; the layer is already in
-        // the "after" state (edits applied live), so the first redo is a
-        // harmless re-apply.
-        applyStyleSnapshots(m_layer.data(), m_styleAfter, m_after);
+        // Preview/Apply already installed this state. Avoid a redundant first
+        // replay, particularly when structural sublayers can be recreated.
+        if (m_firstRedo) { m_firstRedo = false; return; }
+        applyStyleSnapshots(m_layer.data(), m_styleAfter, m_after, m_generalAfter);
     }
 private:
     QPointer<OpenSWMMVisLayer> m_layer;
-    QJsonObject                m_styleBefore;
-    QJsonObject                m_styleAfter;
-    std::vector<QJsonObject>   m_before;
-    std::vector<QJsonObject>   m_after;
+    QJsonObject m_styleBefore, m_styleAfter, m_before, m_after;
+    QJsonObject m_generalBefore, m_generalAfter;
+    bool m_firstRedo = true;
 };
 
 // ---------------------------------------------------------------------------
@@ -390,6 +419,12 @@ LayerStyleDialog::LayerStyleDialog(OpenSWMMVisLayer *layer,
     setWindowTitle(layer ? tr("%1 — Layer Properties").arg(layer->name())
                          : tr("Layer Properties"));
     resize(820, 600);
+
+    if (m_layer) connect(m_layer, &QObject::destroyed, this, &LayerStyleDialog::invalidateTarget);
+    if (m_undoStack) connect(m_undoStack, &QObject::destroyed, this, [this] {
+        onCancel();
+        setEnabled(false);
+    });
 
     m_caps = layerCapabilities(layer);
 
@@ -1016,30 +1051,37 @@ void LayerStyleDialog::readFromLayer()
 void LayerStyleDialog::writeGeneralRenderingToLayer()
 {
     if (!m_layer) return;
-    if (m_nameEdit && m_nameEdit->text() != m_layer->name())
+    // These controls are drafts (unlike live symbology). Only write a field
+    // changed relative to its hydrated display, preserving external edits and
+    // precise stored opacity when the rounded percentage was untouched.
+    if (m_nameEdit && m_nameEdit->text() != m_snapshotName && m_nameEdit->text() != m_layer->name()) {
+        if (!m_undoGeneralBefore.contains("name")) m_undoGeneralBefore.insert("name", m_layer->name());
         m_layer->setName(m_nameEdit->text());
-    if (m_visibleBox && m_visibleBox->isChecked() != m_layer->isVisible())
+        m_undoGeneralAfter.insert("name", m_layer->name());
+    }
+    if (m_visibleBox && m_visibleBox->isChecked() != m_snapshotVisible && m_visibleBox->isChecked() != m_layer->isVisible()) {
+        if (!m_undoGeneralBefore.contains("visible")) m_undoGeneralBefore.insert("visible", m_layer->isVisible());
         m_layer->setVisible(m_visibleBox->isChecked());
-    if (m_opacitySpin) {
-        const double newOpacity = m_opacitySpin->value() / 100.0;
-        if (!qFuzzyCompare(newOpacity, m_layer->opacity()))
-            m_layer->setOpacity(newOpacity);
+        m_undoGeneralAfter.insert("visible", m_layer->isVisible());
+    }
+    if (m_opacitySpin && m_opacitySpin->value() != qRound(m_snapshotOpacity * 100.0)) {
+        const double opacity = m_opacitySpin->value() / 100.0;
+        if (opacity != m_layer->opacity()) {
+            if (!m_undoGeneralBefore.contains("opacity")) m_undoGeneralBefore.insert("opacity", m_layer->opacity());
+            m_layer->setOpacity(opacity);
+            m_undoGeneralAfter.insert("opacity", opacity);
+        }
     }
 }
 
 void LayerStyleDialog::snapshotSubjects()
 {
-    m_subjectSnapshots.clear();
-    m_subjectSnapshots.reserve(m_subjects.size());
-    for (auto &up : m_subjects)
-        m_subjectSnapshots.push_back(up->snapshot());
+    m_subjectSnapshots = captureSubjectSnapshots(m_layer);
 }
 
 void LayerStyleDialog::restoreSubjectsFromSnapshot()
 {
-    const size_t n = std::min(m_subjects.size(), m_subjectSnapshots.size());
-    for (size_t i = 0; i < n; ++i)
-        m_subjects[i]->restore(m_subjectSnapshots[i]);
+    restoreSubjectSnapshots(m_layer, m_subjectSnapshots);
 }
 
 void LayerStyleDialog::focusInitialSubject()
@@ -1059,6 +1101,8 @@ void LayerStyleDialog::focusInitialSubject()
     for (int i = 0; i < m_tabs->count(); ++i) {
         if (plainTabText(m_tabs->tabText(i)) == target) {
             m_tabs->setCurrentIndex(i);
+            if(auto *results=m_tabs->widget(i)->findChild<Swmm2DResultsStylePanel *>())
+                if(results->focusResult(m_initialRoutingId))return;
             // Walk the inner QTabWidget if present.
             auto *inner = m_tabs->widget(i)->findChild<QTabWidget *>();
             if (inner) {
@@ -1078,68 +1122,74 @@ void LayerStyleDialog::focusInitialSubject()
 // Slots
 // ---------------------------------------------------------------------------
 
+bool LayerStyleDialog::validClassificationDrafts() const
+{
+    for (auto *editor : findChildren<ClassificationEditor *>())
+        if (!editor->hasValidDraft()) { editor->setFocus(Qt::OtherFocusReason); return false; }
+    return true;
+}
+
 void LayerStyleDialog::onApply()
 {
+    if (m_sessionFinished || !m_layer || !validClassificationDrafts()) return;
     writeGeneralRenderingToLayer();
     snapshotSubjects();
-    // Apply commits the current state as the new Cancel baseline — including
-    // the full renderer JSON (kind renderers + label config).
-    if (m_layer)
-        m_styleSnapshot = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
-    m_snapshotName    = m_layer ? m_layer->name()     : m_snapshotName;
-    m_snapshotVisible = m_layer ? m_layer->isVisible() : m_snapshotVisible;
-    m_snapshotOpacity = m_layer ? m_layer->opacity()  : m_snapshotOpacity;
+    m_styleSnapshot = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
+    readFromLayer();
 }
+
+void LayerStyleDialog::recordAcceptedSession()
+{
+    if (!m_undoStack || !m_layer) return;
+    const QJsonObject after = captureSubjectSnapshots(m_layer);
+    const QJsonObject styleAfter = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
+    // Drop net-zero general edits, just as no-op symbology sessions are dropped.
+    for (const QString &key : m_undoGeneralBefore.keys()) {
+        if (m_undoGeneralBefore.value(key) == m_undoGeneralAfter.value(key)) {
+            m_undoGeneralBefore.remove(key);
+            m_undoGeneralAfter.remove(key);
+        }
+    }
+    if (after != m_undoBaseline || styleAfter != m_undoStyleBaseline || !m_undoGeneralBefore.isEmpty())
+        m_undoStack->push(new EditLayerStyleCommand(m_layer, m_undoStyleBaseline, styleAfter,
+            m_undoBaseline, after, m_undoGeneralBefore, m_undoGeneralAfter));
+}
+
+void LayerStyleDialog::accept() { onAccept(); }
+void LayerStyleDialog::reject() { onCancel(); }
 
 void LayerStyleDialog::onAccept()
 {
+    if (m_sessionFinished || !m_layer || !validClassificationDrafts()) return;
     writeGeneralRenderingToLayer();
-
-    // #36 — if an undo stack was supplied and the symbology actually changed,
-    // push one command capturing the open-time vs final state (full renderer
-    // JSON + subject snapshots) so the whole dialog edit is a single
-    // undoable step after the dialog closes.
-    if (m_undoStack && m_layer && !m_subjects.empty()) {
-        std::vector<QJsonObject> after;
-        after.reserve(m_subjects.size());
-        for (const auto &s : m_subjects)
-            after.push_back(s ? s->snapshot() : QJsonObject{});
-        const QJsonObject styleAfter =
-            OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
-        if (after != m_undoBaseline || styleAfter != m_undoStyleBaseline)
-            m_undoStack->push(new EditLayerStyleCommand(
-                m_layer.data(), m_undoStyleBaseline, styleAfter,
-                m_undoBaseline, std::move(after)));
-    }
-    accept();
+    recordAcceptedSession();
+    m_sessionFinished = true;
+    QDialog::accept();
 }
 
 void LayerStyleDialog::onCancel()
 {
+    if (m_sessionFinished) return;
     if (m_layer) {
-        if (m_layer->name() != m_snapshotName)
-            m_layer->setName(m_snapshotName);
-        if (m_layer->isVisible() != m_snapshotVisible)
-            m_layer->setVisible(m_snapshotVisible);
-        if (!qFuzzyCompare(m_layer->opacity(), m_snapshotOpacity))
-            m_layer->setOpacity(m_snapshotOpacity);
-
-        // Adapter-ownership refactor — Cancel now rolls SYMBOLOGY back too.
-        // The historical reason this was disabled (the dialog's m_subjects
-        // wrapped different adapter instances from the ones the panels
-        // edited, so restoring wrote a stale parallel copy) is gone: every
-        // surface edits the layer's persistent adapters, and the snapshots
-        // taken at open/Apply time are authoritative. Renderer state (kind
-        // renderers, label config) is restored from the full-style JSON
-        // first, then subject snapshots re-apply struct-level detail.
-        const QJsonObject styleNow =
-            OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
+        const QJsonObject styleNow = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
         if (styleNow != m_styleSnapshot)
-            OpenSWMM::Render::StyleFileIO::applyStyleJson(m_layer,
-                                                          m_styleSnapshot);
+            OpenSWMM::Render::StyleFileIO::applyStyleJson(m_layer, m_styleSnapshot);
         restoreSubjectsFromSnapshot();
+        // Apply is a committed checkpoint. Roll back only its later preview,
+        // then make the retained accepted part of this session undoable.
+        recordAcceptedSession();
     }
-    reject();
+    m_sessionFinished = true;
+    QDialog::reject();
+}
+
+void LayerStyleDialog::invalidateTarget()
+{
+    m_layer = nullptr;
+    m_subjects.clear();
+    m_sessionFinished = true;
+    setEnabled(false);
+    QDialog::reject();
 }
 
 // ---------------------------------------------------------------------------
@@ -1153,7 +1203,7 @@ void LayerStyleDialog::onExportStyle()
     const QString path = QFileDialog::getSaveFileName(
         this, tr("Export style"), defaultName,
         tr("SWMMVis style (*.swmm-style.json *.json)"));
-    if (path.isEmpty()) return;
+    if (path.isEmpty() || !m_layer || m_sessionFinished) return;
 
     const auto res = OpenSWMM::Render::StyleFileIO::exportStyle(m_layer, path);
     if (!res.ok) {
@@ -1175,7 +1225,7 @@ void LayerStyleDialog::onImportStyle()
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Import style"), QString(),
         tr("Style files (*.swmm-style.json *.json *.qml);;All files (*)"));
-    if (path.isEmpty()) return;
+    if (path.isEmpty() || !m_layer || m_sessionFinished) return;
 
     const auto res = OpenSWMM::Render::StyleFileIO::importStyle(m_layer, path);
     if (!res.ok) {
@@ -1190,16 +1240,9 @@ void LayerStyleDialog::onImportStyle()
                                   tr("Imported with warnings:\n\n%1")
                                       .arg(res.warnings.join(QChar('\n'))));
     }
-    // Re-baseline EVERYTHING so Cancel/undo treat the import as the new
-    // reference state instead of reverting it: subjects, their snapshots,
-    // the undo baseline, and the full-style JSON.
-    if (m_layer) {
-        m_subjects = m_layer->styleSubjects();
-        snapshotSubjects();
-        m_undoBaseline      = m_subjectSnapshots;
-        m_styleSnapshot     = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
-        m_undoStyleBaseline = m_styleSnapshot;
-    }
+    // Import is a preview within this edit session. Keep the original Cancel
+    // and undo checkpoints so it remains reversible until Apply/OK.
+    if (m_layer) m_subjects = m_layer->styleSubjects();
 }
 
 void LayerStyleDialog::onPickCRS()

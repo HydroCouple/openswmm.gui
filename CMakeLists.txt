@@ -294,6 +294,9 @@ set(
         include/render/sublayers/velocityvectorsublayer.h
         include/render/sublayers/isolinesublayer.h
         include/render/sublayers/contourbandsublayer.h
+        include/render/sublayers/resultscalarsublayer.h
+        include/io/mesh2dscalarframe.h
+        include/io/mesh2dresultvariable.h
         include/render/sublayers/scalarfillsublayer.h
         # Mesh styling restructure — BC indicators + coupled-node markers as
         # first-class sublayers.
@@ -1084,6 +1087,10 @@ set(
         src/render/sublayers/velocityvectorsublayer.cpp
         src/render/sublayers/isolinesublayer.cpp
         src/render/sublayers/contourbandsublayer.cpp
+        src/render/sublayers/resultscalarsublayer.cpp
+        src/layers/swmm2dresultvariables.cpp
+        src/io/mesh2dvariableexport.cpp
+        include/io/mesh2dvariableexport.h
         src/render/sublayers/scalarfillsublayer.cpp
         src/render/sublayers/meshbcsublayer.cpp
         src/render/sublayers/couplednodesublayer.cpp

@@ -199,6 +199,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     // ── Mesh 2D / terrain ───────────────────────────────────────────────
     {"mesh.selectVertices",   "actionMeshSelectVertex", "Mesh 2D", "", "SelectTriNode", "mesh2d", "Model/Mesh", Contextual2D},
     {"mesh.selectEdges",      "actionMeshSelectEdge",   "Mesh 2D", "", "SelectTriEdge", "mesh2d", "Model/Mesh", Contextual2D},
+    {"mesh.selectCells",      "actionPick2DCells",      "Mesh 2D", "", "SelectCell", "mesh2d", "Model/Mesh", Contextual2D},
     // Cell Data — assign per-cell parameters from a raster or a vector field.
     {"mesh.assignFromRaster", "actionMeshAssignFromRaster", "Mesh 2D", "", "MeshAssignRaster", "mesh2d", "Model/Mesh", Contextual2D},
     {"mesh.assignFromVector", "actionMeshAssignFromVector", "Mesh 2D", "", "MeshAssignVector", "mesh2d", "Model/Mesh", Contextual2D},

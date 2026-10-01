@@ -12,6 +12,7 @@
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "render/ifeaturerenderer.h"
+#include "render/isublayerhost.h"
 #include "render/irasterrenderer.h"
 #include "render/labelconfig.h"
 #include "render/rasterrendererfactory.h"
@@ -126,6 +127,8 @@ QJsonObject StyleFileIO::styleToJson(const OpenSWMMVisLayer *layer)
 
     root[QStringLiteral("schema")]    = QString::fromLatin1(kSchema);
     root[QStringLiteral("layerType")] = layerTypeTag(layer);
+    if(const auto *host=dynamic_cast<const ISublayerHost *>(layer))
+        root[QStringLiteral("sublayers")]=ISublayerHost::saveSublayersToJson(*host).value(QStringLiteral("sublayers"));
 
     if (const auto *r = layer->renderer())
         root[QStringLiteral("renderer")] = r->toJson();
@@ -259,6 +262,12 @@ StyleFileIO::Result StyleFileIO::applyStyleJson(OpenSWMMVisLayer *layer,
         res.errorMessage = QObject::tr("No layer provided.");
         return res;
     }
+
+    // Restore dynamic entries before looking up their styles by stable ID.
+    // Older style files without this block retain the current sublayers.
+    if(root.contains(QStringLiteral("sublayers")))
+        if(auto *host=dynamic_cast<ISublayerHost *>(layer))
+            ISublayerHost::loadSublayersFromJson(*host,root);
 
     // Layer-level renderer.
     if (root.contains(QStringLiteral("renderer"))) {

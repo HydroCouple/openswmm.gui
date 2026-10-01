@@ -12,6 +12,7 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
+#include <QPointer>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QTabWidget>
@@ -19,6 +20,7 @@
 
 #include "ui/dialogs/initialqualitydialog.h"
 #include "swmmvisprojectwindow.h"
+#include "layers/swmmmodellayer.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/wateragesourcesdialog.h"
 
@@ -205,10 +207,24 @@ void QualityPage::buildUi()
     ageSrcBtn->setObjectName(QStringLiteral("qt_editAgeSourcesBtn"));
     ageSrcBtn->setToolTip(
         tr("Initial age of water entering by each source pathway "
-           "(WATER_AGE_SOURCES). Negative ages extract age-volume."));
+           "(WATER_AGE_SOURCES). Negative ages extract age-volume. "
+           "Accepted source-age changes remain applied if Simulation Options is cancelled."));
     connect(ageSrcBtn, &QPushButton::clicked, this, [this]() {
+        QPointer<SWMMVisProjectWindow> project(ctx_.projectWindow());
+        if (!ctx_.engine()) return;
         OpenSWMMVis::WaterAgeSourcesDialog dlg(ctx_.engine(), this);
+        if (auto *layer = ctx_.modelLayer()) {
+            connect(layer, &SWMMModelLayer::engineAboutToClose, &dlg, &OpenSWMMVis::WaterAgeSourcesDialog::invalidateEngine);
+            connect(layer, &QObject::destroyed, &dlg, &OpenSWMMVis::WaterAgeSourcesDialog::invalidateEngine);
+        }
+        if (project) {
+            connect(project, &SWMMVisProjectWindow::aboutToClose, &dlg, &OpenSWMMVis::WaterAgeSourcesDialog::invalidateEngine);
+            connect(&dlg, &OpenSWMMVis::WaterAgeSourcesDialog::changesApplied,
+                    project, [project] { if (project) project->setHasChanges(true); });
+        }
         dlg.exec();   // writes straight to the engine; OK/Cancel is its own
+        if (project && dlg.wroteAnyChanges())
+            project->setHasChanges(true);
     });
     resLay->addWidget(ageSrcBtn);
 
@@ -221,8 +237,14 @@ void QualityPage::buildUi()
         tr("Per-node and per-link initial concentrations "
            "(INITIAL_QUALITY), overriding the global Cinit."));
     connect(initQualBtn, &QPushButton::clicked, this, [this]() {
+        if (!ctx_.engine()) return;
         OpenSWMMVis::InitialQualityDialog dlg(ctx_.engine(), this);
+        if (auto *layer = ctx_.modelLayer()) {
+            connect(layer, &SWMMModelLayer::engineAboutToClose, &dlg, &OpenSWMMVis::InitialQualityDialog::invalidateEngine);
+            connect(layer, &QObject::destroyed, &dlg, &OpenSWMMVis::InitialQualityDialog::invalidateEngine);
+        }
         if (auto *project = ctx_.projectWindow()) {
+            connect(project, &SWMMVisProjectWindow::aboutToClose, &dlg, &OpenSWMMVis::InitialQualityDialog::invalidateEngine);
             connect(&dlg, &OpenSWMMVis::InitialQualityDialog::changesApplied,
                     project, [project] { project->setHasChanges(true); });
         }

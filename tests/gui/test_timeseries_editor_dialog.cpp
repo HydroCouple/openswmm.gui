@@ -33,6 +33,7 @@
 #include <QLineSeries>
 #include <QLabel>
 #include <QListView>
+#include <QMessageBox>
 #include <QObject>
 #include <QPushButton>
 #include <QRadioButton>
@@ -41,6 +42,8 @@
 #include <QTableView>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
+#include <QApplication>
 #include <QTextStream>
 #include <QToolBar>
 #include <QUndoStack>
@@ -80,6 +83,73 @@ class TestTimeseriesEditorDialog : public QObject
     Q_OBJECT
 
 private slots:
+
+    void registryDeletedDuringDeleteConfirmation()
+    {
+        auto *registry = new TimeseriesRegistry;
+        auto *provider = registry->create(QStringLiteral("Delete while closing"));
+        QVERIFY(provider);
+        QUndoStack stack;
+        TimeseriesEditorDialog dialog(registry, &stack, provider);
+        dialog.show();
+        bool sawConfirmation = false;
+        QTimer::singleShot(0, &dialog, [&] {
+            auto *question = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+            if (!question) return;
+            sawConfirmation = true;
+            delete registry;
+            registry = nullptr;
+            // Simulate the already-open prompt completing after owner invalidation.
+            question->done(QMessageBox::Yes);
+        });
+        QVERIFY(QMetaObject::invokeMethod(&dialog, "onDeleteSeriesClicked_", Qt::DirectConnection));
+        QVERIFY(sawConfirmation);
+        QVERIFY(!dialog.isEnabled());
+        QVERIFY(!dialog.isVisible());
+        QCOMPARE(dialog.tableModel()->rowCount(), 0);
+        delete registry;
+    }
+
+    void ownerRegistryDeletionInvalidatesEditor()
+    {
+        auto *registry = new TimeseriesRegistry;
+        auto *provider = registry->create(QStringLiteral("Owned"));
+        QVERIFY(provider);
+        QUndoStack stack;
+        TimeseriesEditorDialog dialog(registry, &stack, provider);
+        dialog.show();
+        delete registry;
+        QVERIFY2(!dialog.isEnabled(), "A closed registry must disable the editor before stale callbacks can mutate it.");
+        QVERIFY(!dialog.isVisible());
+        QCOMPARE(dialog.tableModel()->rowCount(), 0);
+    }
+
+    void undoOwnerDeletionInvalidatesEditor()
+    {
+        TimeseriesRegistry registry;
+        auto *provider = registry.create(QStringLiteral("Owned"));
+        QVERIFY(provider);
+        auto *stack = new QUndoStack;
+        TimeseriesEditorDialog dialog(&registry, stack, provider);
+        dialog.show();
+        delete stack;
+        QVERIFY2(!dialog.isEnabled(), "The editor must not retain a dangling undo owner.");
+        QVERIFY(!dialog.isVisible());
+        QCOMPARE(dialog.tableModel()->rowCount(), 0);
+        QVERIFY(registry.findByName(QStringLiteral("Owned")) == provider);
+    }
+
+    void editorTableHasAccessiblePurpose()
+    {
+        TimeseriesRegistry registry;
+        auto *provider = registry.create(QStringLiteral("Owned"));
+        QUndoStack stack;
+        TimeseriesEditorDialog dialog(&registry, &stack, provider);
+        auto *table = dialog.findChild<QTableView *>();
+        QVERIFY(table);
+        QVERIFY2(!table->accessibleName().isEmpty(), "Data tables need a specific accessible name, beyond their row/column cells.");
+        QVERIFY2(!dialog.accessibleDescription().isEmpty(), "Live editors must explain that Close does not undo applied edits.");
+    }
 
     void dialogOpens_BothViewsBound()
     {

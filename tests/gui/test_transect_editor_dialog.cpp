@@ -67,6 +67,8 @@
 #include <QSignalSpy>
 #include <QTableView>
 #include <QTest>
+#include <QTimer>
+#include <QApplication>
 #include <QTreeView>
 #include <QUndoStack>
 #include <QAbstractItemModel>
@@ -85,6 +87,47 @@ class TestTransectEditorDialog : public QObject
     Q_OBJECT
 
 private slots:
+
+    void ownerRegistryDeletionInvalidatesEditor()
+    {
+        auto *registry = new TransectRegistry;
+        auto *provider = registry->create(QStringLiteral("Owned"));
+        QVERIFY(provider);
+        QUndoStack stack;
+        TransectEditorDialog dialog(registry, nullptr, &stack);
+        dialog.show();
+        delete registry;
+        QVERIFY2(!dialog.isEnabled(), "A closed registry must disable the editor before stale callbacks can mutate it.");
+        QVERIFY(!dialog.isVisible());
+        QCOMPARE(dialog.tableModel()->rowCount(), 0);
+    }
+
+    void undoOwnerDeletionInvalidatesEditor()
+    {
+        TransectRegistry registry;
+        auto *provider = registry.create(QStringLiteral("Owned"));
+        QVERIFY(provider);
+        auto *stack = new QUndoStack;
+        TransectEditorDialog dialog(&registry, nullptr, stack);
+        dialog.show();
+        delete stack;
+        QVERIFY2(!dialog.isEnabled(), "The editor must not retain a dangling undo owner.");
+        QVERIFY(!dialog.isVisible());
+        QCOMPARE(dialog.tableModel()->rowCount(), 0);
+        QVERIFY(registry.findByName(QStringLiteral("Owned")) == provider);
+    }
+
+    void editorTableHasAccessiblePurpose()
+    {
+        TransectRegistry registry;
+        auto *provider = registry.create(QStringLiteral("Owned"));
+        QUndoStack stack;
+        TransectEditorDialog dialog(&registry, nullptr, &stack);
+        auto *table = dialog.stationTable();
+        QVERIFY(table);
+        QVERIFY2(!table->accessibleName().isEmpty(), "Data tables need a specific accessible name, beyond their row/column cells.");
+        QVERIFY2(!dialog.accessibleDescription().isEmpty(), "Live editors must explain that Close does not undo applied edits.");
+    }
 
     // ── TransectProvider ────────────────────────────────────────────────────
 

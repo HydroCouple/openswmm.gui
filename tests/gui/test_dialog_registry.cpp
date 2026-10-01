@@ -29,6 +29,20 @@ using openswmmvis::ui::DialogRegistry;
 
 namespace {
 
+class RaiseRecorder : public QObject
+{
+public:
+    QList<QObject *> raised;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::ZOrderChange)
+            raised.append(watched);
+        return false;
+    }
+};
+
 // The registry is installed as a filter on the individual dialog rather than
 // on qApp: that drives the REAL eventFilter() path (calling it directly is
 // not possible — it is protected) without leaking tracking between test
@@ -79,6 +93,8 @@ private slots:
     void destroyedDialogNeverDangles();
     void emitsChangeSignal();
     void environmentOverridesStackingMode();
+    void siblingDialogsStayAboveMainWindow_data();
+    void siblingDialogsStayAboveMainWindow();
 
 private:
     /// The registry is a process-wide singleton, so every test starts by
@@ -119,6 +135,65 @@ void TestDialogRegistry::initTestCase()
 void TestDialogRegistry::init()
 {
     drain();
+}
+
+void TestDialogRegistry::siblingDialogsStayAboveMainWindow_data()
+{
+    QTest::addColumn<DialogRegistry::StackingMode>("mode");
+    QTest::newRow("qt") << DialogRegistry::StackingMode::QtRaiseOnActivate;
+    QTest::newRow("native") << DialogRegistry::StackingMode::NativeChildWindow;
+}
+
+void TestDialogRegistry::siblingDialogsStayAboveMainWindow()
+{
+    QFETCH(DialogRegistry::StackingMode, mode);
+    auto *reg = DialogRegistry::instance();
+    reg->setStackingMode(mode);
+    QWidget mainWindow;
+    QDialog comparison(&mainWindow), rainfall(&mainWindow);
+    RaiseRecorder recorder;
+    comparison.installEventFilter(&recorder);
+    rainfall.installEventFilter(&recorder);
+    comparison.installEventFilter(reg);
+    rainfall.installEventFilter(reg);
+    mainWindow.show();
+    comparison.show();
+    QCoreApplication::processEvents();
+
+    // A new plot must bring the existing plot back above the main window,
+    // with the new plot last. Visibility alone cannot detect a buried window.
+    mainWindow.raise();
+    recorder.raised.clear();
+    rainfall.show();
+    QCoreApplication::processEvents();
+    QVERIFY(comparison.isVisible());
+    QVERIFY(rainfall.isVisible());
+    QVERIFY(recorder.raised.contains(&comparison));
+    QCOMPARE(recorder.raised.last(), &rainfall);
+
+    // Switching between plots keeps both in front, in the user's MRU order.
+    recorder.raised.clear();
+    sendActivate(reg, &comparison);
+    QCoreApplication::processEvents();
+    QVERIFY(recorder.raised.contains(&rainfall));
+    QCOMPARE(recorder.raised.last(), &comparison);
+
+    // A modal prompt opened before the queued restack runs stays on top.
+    sendActivate(reg, &comparison);
+    QDialog prompt(&comparison);
+    prompt.setModal(true);
+    prompt.show();
+    recorder.raised.clear();
+    QCoreApplication::processEvents();
+    QCOMPARE(QApplication::activeModalWidget(), &prompt);
+    QVERIFY(recorder.raised.isEmpty());
+    prompt.close();
+
+    // Explicitly closing one plot must leave the other alone.
+    rainfall.close();
+    QCoreApplication::processEvents();
+    QVERIFY(comparison.isVisible());
+    QVERIFY(!rainfall.isVisible());
 }
 
 void TestDialogRegistry::tracksModelessTopLevelDialogs()

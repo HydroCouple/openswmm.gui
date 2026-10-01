@@ -110,6 +110,10 @@ public:
     void deleteCurrentSilently();
     bool renameCurrent(const QString &newName);
 
+public slots:
+    /*! End editing before the model, registry or undo owner is released. */
+    void invalidateContext();
+
 private slots:
     void onListSelectionChanged_();
     void onAddStreetClicked_();
@@ -127,6 +131,7 @@ private:
     void selectProviderInList_(openswmmvis::street::StreetProvider *p);
     QString suggestUniqueName_() const;
 
+    bool m_contextValid = true;
     QPointer<openswmmvis::street::StreetRegistry> m_registry;
     QPointer<SWMMModelLayer>                       m_layer;
     QPointer<openswmmvis::street::StreetProvider>  m_current;

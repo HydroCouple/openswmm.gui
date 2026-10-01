@@ -19,6 +19,7 @@
 #include "ui/uiscrollhelpers.h"
 
 #include <QComboBox>
+#include <QPointer>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
@@ -74,6 +75,25 @@ NodeCompoundEditDialog::NodeCompoundEditDialog(NodeCompoundEditRef ref,
     lay->addWidget(m_buttons);
 
     refreshActivePage();
+    setAccessibleDescription(tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    if (m_ref.layer) {
+        connect(m_ref.layer, &QObject::destroyed, this, &NodeCompoundEditDialog::invalidateContext);
+        connect(m_ref.layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+        connect(m_ref.layer, SIGNAL(geometryChanged()), this, SLOT(checkContext()));
+    }
+}
+
+void NodeCompoundEditDialog::invalidateContext()
+{
+    m_ref.engine = nullptr;
+    m_ref.layer = nullptr;
+    setEnabled(false);
+    reject();
+}
+
+void NodeCompoundEditDialog::checkContext()
+{
+    if (nodeIdx() < 0) invalidateContext();
 }
 
 int NodeCompoundEditDialog::nodeIdx() const
@@ -189,7 +209,7 @@ QString NodeCompoundEditDialog::launchObjectEditor(int dataCategory,
             reg, /*undoStack=*/nullptr, currentName, this);
     }
     case SWMMModelLayer::DataPatterns: {
-        auto *reg = qobject_cast<openswmmvis::pattern::PatternRegistry *>(
+        QPointer<openswmmvis::pattern::PatternRegistry> reg = qobject_cast<openswmmvis::pattern::PatternRegistry *>(
             m_ref.layer->ensurePatternRegistry());
         if (!reg) return {};
         const QString picked = openswmmvis::ui::PatternEditorDialog::pickPattern(
@@ -197,7 +217,7 @@ QString NodeCompoundEditDialog::launchObjectEditor(int dataCategory,
         // PatternRegistry::create only mutates the registry; flush so the
         // combo's repopulate (which reads via swmm_pattern_count) sees a
         // brand-new pattern.
-        if (m_ref.engine) reg->saveToEngine(m_ref.engine);
+        if (m_ref.engine && reg) reg->saveToEngine(m_ref.engine);
         return picked;
     }
     case SWMMModelLayer::DataHydrographs:
@@ -275,6 +295,7 @@ void NodeCompoundEditDialog::buildInflowsPage()
     vlay->addWidget(m_inflowsSummary);
 
     m_inflowsTable = new QTableWidget(0, 7, page);
+    m_inflowsTable->setAccessibleName(tr("External inflows"));
     m_inflowsTable->setHorizontalHeaderLabels({
         tr("Constituent"), tr("Type"), tr("Time Series"),
         tr("Baseline"), tr("M-Factor"), tr("S-Factor"), tr("Pattern")});
@@ -453,6 +474,7 @@ void NodeCompoundEditDialog::buildDwfPage()
     vlay->addWidget(m_dwfSummary);
 
     m_dwfTable = new QTableWidget(0, 6, page);
+    m_dwfTable->setAccessibleName(tr("Dry weather inflows"));
     m_dwfTable->setHorizontalHeaderLabels({
         tr("Constituent"), tr("Average"),
         tr("Monthly"), tr("Daily"), tr("Hourly"), tr("Weekend")});
@@ -596,6 +618,7 @@ void NodeCompoundEditDialog::buildRdiiPage()
     vlay->addWidget(m_rdiiSummary);
 
     m_rdiiTable = new QTableWidget(0, 2, page);
+    m_rdiiTable->setAccessibleName(tr("RDII inflows"));
     m_rdiiTable->setHorizontalHeaderLabels({tr("UH Group"), tr("Sewer Area")});
     m_rdiiTable->horizontalHeader()->setStretchLastSection(true);
     m_rdiiTable->verticalHeader()->setVisible(false);
@@ -724,6 +747,7 @@ void NodeCompoundEditDialog::buildTreatmentPage()
     vlay->addWidget(hint);
 
     m_treatmentTable = new QTableWidget(0, 2, page);
+    m_treatmentTable->setAccessibleName(tr("Pollutant treatment expressions"));
     m_treatmentTable->setHorizontalHeaderLabels(
         {tr("Pollutant"), tr("Expression")});
     m_treatmentTable->horizontalHeader()->setStretchLastSection(true);

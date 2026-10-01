@@ -21,6 +21,9 @@ This is a source-reviewed allocation of the critical journeys. Detailed discover
 
 Remaining source rows are assigned to their matching family. `dialog-files.json` retains every implementation including models, adapters, delegates and registry helpers; those are not extra dialogs. The Designer file is `forms/swmmvis.ui`. Standard prompts and dynamic QWidget pages must be checked through their hosts, not omitted because they lack QDialog subclasses.
 
+Phase 34's chain-by-chain implementation and remaining acceptance matrix is in
+[PHASE34_CONFIGURATION_COVERAGE.md](PHASE34_CONFIGURATION_COVERAGE.md). Its file-backed species work supersedes the original “missing catalog/reader” rows below; the original inventory remains historical scope evidence.
+
 ## Visualization configuration coverage
 
 For each row, W4 must record separately: **model → editor → renderer → legend/probe → serializer → reopen → export**. No row is globally “complete” based on source presence.

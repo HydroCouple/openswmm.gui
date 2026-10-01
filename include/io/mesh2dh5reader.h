@@ -17,14 +17,14 @@
  *                                     attribute `_FillValue` (−1) and dataset
  *                                     /Mesh2_face_nv [nFace] (int8, 3|4) once
  *                                     the mesh holds a quadrilateral
- *   /time           [nTime]           seconds since simulation start
+ *   /time           [nTime]           SWMM absolute days since 1899-12-30
  *   /Mesh2_face_depth [nTime, nFace]  overland flow depth (m), per CELL
  *   /Mesh2_node_head  [nTime, nNode]  reconstructed vertex head (m; engine
  *                                     pseudo-Laplacian, VertexReconstruction —
  *                                     SOLVER field, no longer rendered)
  *   /Mesh2_node_depth [nTime, nNode]  SIGNED vertex depth η_v − z_v (m; engine
  *                                     wet-masked render reconstruction)
- *   /Mesh2_edge_flux  [nTime, nFace, 3|4] signed normal flux per edge (m^2 s^-1)
+ *   /Mesh2_edge_flux  [nTime, nFace, 3|4] signed volumetric flux per edge (m^3 s^-1)
  *   /Mesh2_edge_length [nFace, 3|4]   edge length (m, CF.2 / new in engine 6.0+)
  *   /Mesh2_edge_nx    [nFace, 3|4]    edge outward unit normal x (CF.2)
  *   /Mesh2_edge_ny    [nFace, 3|4]    edge outward unit normal y (CF.2)
@@ -65,6 +65,9 @@
 #define OPENSWMMVIS_IO_MESH2DH5READER_H
 
 #include <QString>
+#include <QStringList>
+#include <QVector>
+#include "io/mesh2dresultvariable.h"
 
 #include <array>
 #include <cstdint>
@@ -234,6 +237,19 @@ public:
      */
     bool readFaceEnvelope(const char* dataset, std::vector<float>& values) const;
 
+    /*! Available per-cell scalar/species/sigma variables, with file-declared
+     * identities and units. Unsupported/malformed metadata is reported through
+     * warnings and never assigned a guessed species name or concentration unit. */
+    QVector<Mesh2DResultVariable> faceVariables(QStringList* warnings = nullptr) const;
+
+    /*! Read one requested variable/frame only. Resolves species by name in
+     * the currently open file, so descriptors survive reordered output subsets.
+     * On failure both outputs are empty; lastError explains the unavailable
+     * field/frame. Static/envelope fields ignore timeIdx. */
+    bool readFaceVariableAt(const Mesh2DResultVariable& variable, int timeIdx,
+                            std::vector<float>& values,
+                            std::vector<Mesh2DValueStatus>& status) const;
+
     /*!
      * \brief Read one time slice of \c /Mesh2_node_head — the engine's
      *        pseudo-Laplacian vertex-head reconstruction.
@@ -267,7 +283,7 @@ public:
      * \param flux    Output, resized to \c cellCount()*kEdgeStride, indexed
      *                \c [cell*kEdgeStride + localEdge] (mesh::edgeSlot)
      *                whatever the file's own width (\ref edgeStride); slot 3
-     *                of a triangle is 0. Units m² s⁻¹; sign convention
+     *                of a triangle is 0. Units m³ s⁻¹; sign convention
      *                positive = outward through the edge's outward normal.
      * \returns true on success; false (with \c lastError set) if the file
      *          does not carry the dataset.

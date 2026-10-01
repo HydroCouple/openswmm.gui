@@ -57,7 +57,6 @@
 #include "map/mapextent.h"
 #include "render/contourjob.h"
 #include "render/meshrenderchunkindex.h"
-#include "render/qsg2dasyncresult.h"
 #include "render/qsg2ddirtystate.h"
 #include "render/qsg2dlodpolicy.h"
 
@@ -105,6 +104,11 @@ public:
      *  changes are keyed separately by the canvas and do not bump this. */
     [[nodiscard]] quint64 contentRevision() const noexcept
     { return m_contentRev; }
+
+    /*! Revision actually presented by the last scene-graph sync; may trail
+     *  the requested frame while its complete contour geometry is prepared. */
+    [[nodiscard]] quint64 displayedFrameRevision() const noexcept
+    { return m_lastRenderedFrame; }
 
 signals:
     /*! QSG-2D-1M Phase 7 — emitted when an asynchronous derived-geometry
@@ -156,54 +160,33 @@ private:
     OpenSWMM::Render::MeshRenderChunkIndex m_chunks;
     quint64 m_chunksRev = ~quint64(0);
 
-    // ── Phase 7: async contour recomputation ───────────────────────────
-    /*! Everything that identifies one marching product. Two jobs (bands,
-     *  isolines) each track the key in flight and the key published. */
-    struct ContourJobKey
-    {
-        int     time      = -1;
-        double  lo        = 0.0;
-        double  hi        = 0.0;
-        int     bandCount = -1;
-        quint64 paramsRev = 0;      ///< scheme revision / iso params hash
-        size_t  tris      = 0;
-        quint64 geomRev   = ~quint64(0);
-        quint64 frameRev = 0;
-        bool    valid     = false;
-        bool operator==(const ContourJobKey &o) const
-        {
-            return valid == o.valid && time == o.time && lo == o.lo
-                && hi == o.hi && bandCount == o.bandCount
-                && paramsRev == o.paramsRev && tris == o.tris
-                && geomRev == o.geomRev && frameRev == o.frameRev;
+    // Bands and lines are one complete frame, with matching water/velocity
+    // inputs. Only one worker is in flight; newer ticks coalesce to the next
+    // request while the last complete frame remains available for pan/zoom.
+    struct ContourJobKey {
+        int time = -1;
+        quint64 frameRev = 0, epoch = 0;
+        double dryDepth = 0, maxDepth = 0;
+        bool velocity = false, smoothBands = false;
+        std::vector<double> bandLevels, isoLevels;
+        bool compatible(const ContourJobKey& o) const {
+            return epoch == o.epoch && dryDepth == o.dryDepth
+                && maxDepth == o.maxDepth && velocity == o.velocity
+                && smoothBands == o.smoothBands
+                && bandLevels == o.bandLevels && isoLevels == o.isoLevels;
         }
-        bool operator!=(const ContourJobKey &o) const { return !(*this == o); }
+        bool operator==(const ContourJobKey& o) const {
+            return compatible(o) && time == o.time && frameRev == o.frameRev;
+        }
     };
-
-    struct AsyncContourJob
-    {
-        OpenSWMM::Render::Qsg2DAsyncResult<OpenSWMM::Render::ContourJobOutput> buf;
-        QFutureWatcher<OpenSWMM::Render::ContourJobOutput> watcher;
-        quint64       inflightGen = 0;
-        ContourJobKey inflightKey;
-        ContourJobKey publishedKey;
-        bool          relaunch = false;   ///< a newer key arrived while a job was in flight
-    };
-    AsyncContourJob m_bandJob;
-    AsyncContourJob m_isoJob;
-
-    /*! Immutable per-geometry position snapshot shared with workers. */
+    struct ContourFrame;
+    std::shared_ptr<const ContourFrame> m_contourFrame;
+    QFutureWatcher<std::shared_ptr<const ContourFrame>> m_contourWatcher;
+    ContourJobKey m_requestedContourKey;
+    quint64 m_contourEpoch = 0;
+    bool m_contourBusy = false; // includes a queued finished signal
     std::shared_ptr<const std::vector<OpenSWMM::Render::ContourJobInput::TriPos>>
         m_contourPositions;
-    quint64 m_contourPositionsRev = ~quint64(0);
-
-    /*! Per-frame scalar snapshot (shared by both jobs of that frame). */
-    std::shared_ptr<const std::vector<std::array<float, 3>>> m_contourScalars;
-    int     m_contourScalarsTime    = -1;
-    quint64 m_contourScalarsFrame = ~quint64(0);
-    quint64 m_contourScalarsGeomRev = ~quint64(0);
-
-    void setupAsyncContourJob(AsyncContourJob &job);
 
     // ── Isoline-label texture cache ────────────────────────────────────
     // Keyed by "text|fontPt|halo|color" so style edits re-rasterise.
@@ -212,26 +195,6 @@ private:
     mutable QHash<QString, QSGTexture *> m_labelTextureCache;
     void clearLabelTextureCache();
 
-    // ── Per-frame contour geometry caches ──────────────────────────────
-    // Marching output depends on the depth frame + classification params
-    // but is invariant under pan/zoom, so ticks rebuild and interactions
-    // reuse. Key: (time index, range, level params, triangle count).
-    int     m_bandCacheTime  = -1;
-    quint64 m_bandCacheFrame = ~quint64(0);
-    double  m_bandCacheLo    = 0.0;
-    double  m_bandCacheHi    = 0.0;
-    int     m_bandCacheCount = -1;
-    size_t  m_bandCacheTris  = 0;
-    quint64 m_bandCacheRev   = 0;   ///< Slice US.2 — ClassificationScheme::revision()
-    std::vector<OpenSWMM::Contour::IsoBandPolygon> m_cachedBands;
-
-    int     m_isoCacheTime   = -1;
-    quint64 m_isoCacheFrame = ~quint64(0);
-    double  m_isoCacheLo     = 0.0;
-    double  m_isoCacheHi     = 0.0;
-    quint64 m_isoCacheParams = 0;   ///< hash of (mode, count, interval, base)
-    size_t  m_isoCacheTris   = 0;
-    std::vector<OpenSWMM::Contour::IsoLineSegment> m_cachedSegs;
 };
 
 #endif // SWMM2DRESULTSQSGRENDERER_H

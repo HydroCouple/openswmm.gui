@@ -1,5 +1,8 @@
 # Engine, species and forcing capability baseline
 
+> **2026-09-30 update:** The historical probe evidence below is retained with its original scope. The currently installed headers now include the surface-quality and groundwater APIs; this alone does not establish runtime advancement. Phase 34 adds file-backed semantic scalar/species catalogs, rank-3 reads, validity-aware independent map fills, inspection and declared-unit CSV. Installed surface APIs still provide no live concentration/species-list getter, and groundwater concentration output with generic `units=1` still lacks concentration-unit evidence. See [the current coverage matrix](PHASE34_CONFIGURATION_COVERAGE.md) and `workplans/phase34_results_notes.md`. Do not treat the old installed-header absence as current or infer completed transport acceptance from the new GUI reader.
+
+
 Evidence lives in `workplans/artifacts/phase_07_w0_baseline/runtime/` and the retained `probe_runtime.py`. The probe uses owned copies of Phase 06's two-cell compatibility decks, explicitly loads the installed library, records API return codes before/after initialization and at the end, completes the run, and inventories HDF5 output. It does not modify the engine installation, user models or plugin configuration.
 
 ## What the installed build actually establishes

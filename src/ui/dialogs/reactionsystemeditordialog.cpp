@@ -5,6 +5,7 @@
  */
 
 #include "ui/dialogs/reactionsystemeditordialog.h"
+#include "ui/precisenumericvalue.h"
 
 #include "ui/widgets/reactionexpressionedit.h"
 
@@ -25,6 +26,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSet>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTimer>
@@ -154,6 +156,18 @@ ReactionSystemEditorDialog::ReactionSystemEditorDialog(SWMM_Engine engine,
 // ─────────────────────────────────────────────────────────────────────────────
 // UI construction
 // ─────────────────────────────────────────────────────────────────────────────
+
+void ReactionSystemEditorDialog::invalidateEngine()
+{
+    m_engine = nullptr;
+    for (auto *editor : findChildren<openswmmvis::ui::ReactionExpressionEdit *>())
+        editor->invalidateEngine();
+    for (auto *delegate : findChildren<openswmmvis::ui::ReactionExpressionDelegate *>())
+        delegate->invalidateEngine();
+    for (auto *timer : findChildren<QTimer *>()) timer->stop();
+    setEnabled(false);
+    reject();
+}
 
 void ReactionSystemEditorDialog::buildUi()
 {
@@ -478,6 +492,7 @@ QWidget *ReactionSystemEditorDialog::buildInitialQualityTab()
     lay->addWidget(new QLabel(tr("Global initial values:"), w));
     m_initGlobalTable = new QTableWidget(0, 2, w);
     m_initGlobalTable->setObjectName(QStringLiteral("rx_initGlobalTable"));
+    m_initGlobalTable->setAccessibleName(tr("Global reaction initial values"));
     m_initGlobalTable->setHorizontalHeaderLabels(
         {tr("Species"), tr("Value")});
     m_initGlobalTable->verticalHeader()->setVisible(false);
@@ -491,6 +506,7 @@ QWidget *ReactionSystemEditorDialog::buildInitialQualityTab()
     m_initOverrideTable = new QTableWidget(0, 4, w);
     m_initOverrideTable->setObjectName(
         QStringLiteral("rx_initOverrideTable"));
+    m_initOverrideTable->setAccessibleName(tr("Reaction initial value overrides"));
     m_initOverrideTable->setHorizontalHeaderLabels(
         {tr("Scope"), tr("Element"), tr("Species"), tr("Value")});
     m_initOverrideTable->verticalHeader()->setVisible(false);
@@ -502,6 +518,8 @@ QWidget *ReactionSystemEditorDialog::buildInitialQualityTab()
     addBtn->setObjectName(QStringLiteral("rx_addInitBtn"));
     auto *remBtn = new QPushButton(tr("&Remove"), w);
     remBtn->setObjectName(QStringLiteral("rx_removeInitBtn"));
+    addBtn->setAutoDefault(false);
+    remBtn->setAutoDefault(false);
     btnRow->addWidget(addBtn);
     btnRow->addWidget(remBtn);
     btnRow->addStretch();
@@ -839,8 +857,10 @@ void ReactionSystemEditorDialog::loadInitialQuality()
             if (idx >= 0) c->setCurrentIndex(idx);
         }
         if (auto *sBox = qobject_cast<QDoubleSpinBox *>(
-                m_initOverrideTable->cellWidget(row, 3)))
-            sBox->setValue(v);
+                m_initOverrideTable->cellWidget(row, 3))) {
+            OpenSWMM::Ui::setHydratedValue(sBox, v);
+            sBox->setProperty("committedInitialKey", QVariantList{is_link, elem, sp});
+        }
     }
     m_loading = false;
 }
@@ -980,26 +1000,6 @@ void ReactionSystemEditorDialog::onAddInitOverride()
     const int row = m_initOverrideTable->rowCount();
     m_initOverrideTable->insertRow(row);
 
-    auto commit = [this](int r) {
-        if (m_loading || !m_engine) return;
-        auto *sc = qobject_cast<QComboBox *>(
-            m_initOverrideTable->cellWidget(r, 0));
-        auto *ec = qobject_cast<QComboBox *>(
-            m_initOverrideTable->cellWidget(r, 1));
-        auto *pc = qobject_cast<QComboBox *>(
-            m_initOverrideTable->cellWidget(r, 2));
-        auto *vs = qobject_cast<QDoubleSpinBox *>(
-            m_initOverrideTable->cellWidget(r, 3));
-        if (!sc || !ec || !pc || !vs || ec->currentIndex() < 0 ||
-            pc->currentIndex() < 0)
-            return;
-        if (swmm_reaction_init_elem_set(m_engine, sc->currentData().toInt(),
-                                        ec->currentData().toInt(),
-                                        pc->currentData().toInt(),
-                                        vs->value()) == SWMM_OK)
-            bumpWrites();
-    };
-
     auto *scopeCombo = new QComboBox(m_initOverrideTable);
     scopeCombo->addItem(tr("Node"), 0);
     scopeCombo->addItem(tr("Link"), 1);
@@ -1008,6 +1008,7 @@ void ReactionSystemEditorDialog::onAddInitOverride()
     auto *elemCombo = new QComboBox(m_initOverrideTable);
     m_initOverrideTable->setCellWidget(row, 1, elemCombo);
     auto populateElems = [this, scopeCombo, elemCombo]() {
+        const QSignalBlocker blocker(elemCombo);
         const bool link = scopeCombo->currentData().toInt() == 1;
         elemCombo->clear();
         const int n = link ? swmm_link_count(m_engine)
@@ -1020,8 +1021,7 @@ void ReactionSystemEditorDialog::onAddInitOverride()
         }
     };
     populateElems();
-    connect(scopeCombo, &QComboBox::currentIndexChanged, this,
-            [populateElems]() { populateElems(); });
+
 
     auto *spCombo = new QComboBox(m_initOverrideTable);
     const QStringList names = speciesNames();
@@ -1031,7 +1031,106 @@ void ReactionSystemEditorDialog::onAddInitOverride()
     auto *spin = makeValueSpin(m_initOverrideTable);
     m_initOverrideTable->setCellWidget(row, 3, spin);
     connect(spin, &QDoubleSpinBox::valueChanged, this,
-            [commit, row]() { commit(row); });
+            [this, spin]() { commitInitialOverride(spin); });
+    connect(scopeCombo, &QComboBox::currentIndexChanged, this,
+            [this, spin, populateElems]() { populateElems(); commitInitialOverride(spin); });
+    connect(elemCombo, &QComboBox::currentIndexChanged, this,
+            [this, spin]() { commitInitialOverride(spin); });
+    connect(spCombo, &QComboBox::currentIndexChanged, this,
+            [this, spin]() { commitInitialOverride(spin); });
+    refreshInitialOverrideAccessibility();
+}
+
+void ReactionSystemEditorDialog::refreshInitialOverrideAccessibility()
+{
+    for (int row = 0; row < m_initOverrideTable->rowCount(); ++row) {
+        for (int col = 0; col < m_initOverrideTable->columnCount(); ++col) {
+            auto *editor = m_initOverrideTable->cellWidget(row, col);
+            if (!editor) continue;
+            const QString label = tr("Override row %1, %2").arg(row + 1)
+                .arg(m_initOverrideTable->horizontalHeaderItem(col)->text());
+            editor->setAccessibleName(label);
+            editor->setAccessibleDescription(tr("%1. Each element and species combination must be unique. Changes apply immediately.").arg(label));
+        }
+    }
+}
+
+void ReactionSystemEditorDialog::commitInitialOverride(QDoubleSpinBox *spin)
+{
+    if (m_loading || !m_engine) return;
+    int row = -1;
+    for (int i = 0; i < m_initOverrideTable->rowCount(); ++i)
+        if (m_initOverrideTable->cellWidget(i, 3) == spin) { row = i; break; }
+    if (row < 0) return;
+    auto *scope = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(row, 0));
+    auto *element = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(row, 1));
+    auto *species = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(row, 2));
+    auto refuse = [this, row](QWidget *field, const QString &message) {
+        setStatus(tr("Override row %1: %2").arg(row + 1).arg(message), true);
+        field->setAccessibleDescription(tr("%1. %2").arg(field->accessibleName(), message));
+        field->setFocus(Qt::OtherFocusReason);
+    };
+    if (!scope || !element || !species || scope->currentIndex() < 0 || element->currentIndex() < 0 || species->currentIndex() < 0) {
+        refuse(spin, tr("Select a scope, element and species before saving the value."));
+        return;
+    }
+    const QVariantList key{scope->currentData().toInt(), element->currentData().toInt(), species->currentData().toInt()};
+    for (int i = 0; i < m_initOverrideTable->rowCount(); ++i) {
+        if (i == row) continue;
+        auto *sc = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(i, 0));
+        auto *ec = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(i, 1));
+        auto *pc = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(i, 2));
+        if (sc && ec && pc && sc->currentIndex() >= 0 && ec->currentIndex() >= 0 && pc->currentIndex() >= 0
+            && QVariantList{sc->currentData(), ec->currentData(), pc->currentData()} == key) {
+            refuse(element, tr("This element and species already appear in row %1.").arg(i + 1));
+            return;
+        }
+    }
+    auto findKey = [this](const QVariantList &wanted, double *value) {
+        if (wanted.size() != 3) return -1;
+        for (int i = 0; i < swmm_reaction_init_elem_count(m_engine); ++i) {
+            int scope = -1, element = -1, species = -1;
+            double current = 0;
+            if (swmm_reaction_init_elem_get(m_engine, i, &scope, &element, &species, &current) == SWMM_OK
+                && QVariantList{scope, element, species} == wanted) {
+                if (value) *value = current;
+                return i;
+            }
+        }
+        return -1;
+    };
+    const QVariantList oldKey = spin->property("committedInitialKey").toList();
+    double existing = 0;
+    const int target = findKey(key, &existing);
+    if (target >= 0 && oldKey != key) {
+        refuse(element, tr("This element and species already have a saved override. Reopen the dialog to review it."));
+        return;
+    }
+    const double desired = OpenSWMM::Ui::preciseValue(spin);
+    if (target < 0 || existing != desired) {
+        const int status = swmm_reaction_init_elem_set(m_engine, key[0].toInt(), key[1].toInt(), key[2].toInt(), desired);
+        if (status != SWMM_OK) {
+            refuse(spin, tr("The engine refused this value (error %1); the draft is retained.").arg(status));
+            return;
+        }
+        bumpWrites();
+    }
+    // Identity changes replace the previously committed key, never a table
+    // position. Draft rows and deleted rows need not match engine ordering.
+    if (!oldKey.isEmpty() && oldKey != key) {
+        const int previous = findKey(oldKey, nullptr);
+        if (previous >= 0) {
+            const int status = swmm_reaction_init_elem_remove(m_engine, previous);
+            if (status != SWMM_OK) {
+                refuse(element, tr("The new value was saved but the previous override could not be removed (error %1). Reopen the dialog to review both entries.").arg(status));
+                return;
+            }
+            bumpWrites();
+        }
+    }
+    spin->setProperty("committedInitialKey", key);
+    refreshInitialOverrideAccessibility();
+    setStatus(QString(), false);
 }
 
 void ReactionSystemEditorDialog::onRemoveInitOverride()
@@ -1039,14 +1138,26 @@ void ReactionSystemEditorDialog::onRemoveInitOverride()
     if (!m_engine) return;
     const int row = m_initOverrideTable->currentRow();
     if (row < 0) return;
-    // The engine list mirrors the table order (both hydrate in entry
-    // order and appends land at the end), so the row index IS the entry
-    // index while the dialog is the only writer.
-    if (row < swmm_reaction_init_elem_count(m_engine)) {
-        if (swmm_reaction_init_elem_remove(m_engine, row) == SWMM_OK)
-            bumpWrites();
+    auto *spin = qobject_cast<QDoubleSpinBox *>(m_initOverrideTable->cellWidget(row, 3));
+    const QVariantList key = spin ? spin->property("committedInitialKey").toList() : QVariantList{};
+    for (int i = 0; key.size() == 3 && i < swmm_reaction_init_elem_count(m_engine); ++i) {
+        int scope = -1, element = -1, species = -1;
+        double value = 0;
+        if (swmm_reaction_init_elem_get(m_engine, i, &scope, &element, &species, &value) != SWMM_OK) {
+            setStatus(tr("Could not read the saved override. The row has been retained."), true);
+            return;
+        }
+        if (QVariantList{scope, element, species} != key) continue;
+        if (swmm_reaction_init_elem_remove(m_engine, i) != SWMM_OK) {
+            setStatus(tr("Could not remove the saved override. The row has been retained."), true);
+            return;
+        }
+        bumpWrites();
+        break;
     }
     m_initOverrideTable->removeRow(row);
+    refreshInitialOverrideAccessibility();
+    setStatus(QString(), false);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

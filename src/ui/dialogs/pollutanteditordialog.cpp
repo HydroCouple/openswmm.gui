@@ -50,10 +50,38 @@ PollutantEditorDialog::PollutantEditorDialog(PollutantRegistry *registry,
             selectProviderInList_(m_registry->providers().first());
         else
             bindProvider_(nullptr);
+    } else {
+        bindProvider_(nullptr);
+    }
+    if (registry) {
+        connect(registry, &QObject::destroyed, this, &PollutantEditorDialog::invalidateContext);
+        // Registries survive a model unload; their guarded QObject pointer
+        // alone does not protect the cached engine used by rename/save.
+        if (registry->parent()
+            && registry->parent()->metaObject()->indexOfSignal("engineAboutToClose()") >= 0)
+            connect(registry->parent(), SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+    }
+    if (layer) {
+        connect(layer, &QObject::destroyed, this, &PollutantEditorDialog::invalidateContext);
+        connect(layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()), Qt::UniqueConnection);
     }
 }
 
 PollutantEditorDialog::~PollutantEditorDialog() = default;
+
+void PollutantEditorDialog::invalidateContext()
+{
+    // Clear mutation targets before disabling controls: focus-out can emit
+    // editingFinished, and a nested confirmation may return after closure.
+    if (m_registry) m_registry->disconnect(this);
+    m_current.clear();
+    m_registry.clear();
+    m_layer.clear();
+    m_listModel->setRegistry(nullptr);
+    bindProvider_(nullptr);
+    setEnabled(false);
+    reject();
+}
 
 PollutantProvider *PollutantEditorDialog::currentProvider() const noexcept
 {
@@ -75,6 +103,8 @@ void PollutantEditorDialog::buildUi_()
     auto *leftLay  = new QVBoxLayout(leftPane);
     leftLay->setContentsMargins(0, 0, 0, 0);
     m_listView  = new QListView(leftPane);
+    m_listView->setAccessibleName(tr("Pollutants"));
+    m_listView->setAccessibleDescription(tr("Select a pollutant to edit its properties. Changes apply immediately."));
     m_listModel = new PollutantListModel(this);
     m_listView->setModel(m_listModel);
     m_listView->setEditTriggers(QAbstractItemView::DoubleClicked
@@ -86,6 +116,8 @@ void PollutantEditorDialog::buildUi_()
                                tr("New"), leftPane);
     m_delBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
                                tr("Delete"), leftPane);
+    m_addBtn->setAutoDefault(false);
+    m_delBtn->setAutoDefault(false);
     btnRow->addWidget(m_addBtn);
     btnRow->addWidget(m_delBtn);
     leftLay->addLayout(btnRow);
@@ -189,6 +221,8 @@ void PollutantEditorDialog::bindProvider_(PollutantProvider *p)
     m_suppressFieldSync = true;
 
     const bool enabled = (p != nullptr);
+    m_addBtn->setEnabled(m_registry != nullptr);
+    m_delBtn->setEnabled(enabled);
     for (QWidget *w : { static_cast<QWidget*>(m_nameEdit),
                         static_cast<QWidget*>(m_unitsCombo),
                         static_cast<QWidget*>(m_rainSpin),
@@ -264,13 +298,14 @@ void PollutantEditorDialog::onAddClicked_()
 void PollutantEditorDialog::onDeleteClicked_()
 {
     if (!m_registry || !m_current) return;
+    const QPointer<PollutantProvider> victim = m_current;
     const auto answer = QMessageBox::question(
         this, tr("Delete Pollutant"),
         tr("Delete pollutant \"%1\"?").arg(m_current->name()));
-    if (answer != QMessageBox::Yes) return;
+    if (answer != QMessageBox::Yes || !m_registry || !victim
+        || !m_registry->providers().contains(victim.data())) return;
 
-    PollutantProvider *victim = m_current;
-    m_current = nullptr;
+    if (m_current == victim) m_current.clear();
     m_registry->remove(victim);
     if (m_registry->providerCount() > 0)
         selectProviderInList_(m_registry->providers().first());
@@ -283,26 +318,30 @@ void PollutantEditorDialog::onNameEdited_()
     if (m_suppressFieldSync || !m_registry || !m_current) return;
     const QString newName = m_nameEdit->text().trimmed();
     if (newName.isEmpty() || newName == m_current->name()) return;
-    if (!m_registry->rename(m_current, newName)) {
+    const QPointer<PollutantProvider> edited = m_current;
+    if (!m_registry->rename(edited, newName)) {
         QMessageBox::warning(this, tr("Rename Pollutant"),
             tr("A pollutant named \"%1\" already exists.").arg(newName));
-        m_nameEdit->setText(m_current->name());
+        if (edited && m_current == edited) m_nameEdit->setText(edited->name());
     }
 }
 
 void PollutantEditorDialog::onFieldEdited_()
 {
     if (m_suppressFieldSync || !m_current) return;
-    m_current->setUnits(m_unitsCombo->currentData().toInt());
-    m_current->setRainConc(m_rainSpin->value());
-    m_current->setGwConc(m_gwSpin->value());
-    m_current->setRdiiConc(m_rdiiSpin->value());
-    m_current->setInitConc(m_initSpin->value());
-    m_current->setKDecay(m_decaySpin->value());
-    m_current->setMwt(m_mwtSpin->value());
-    m_current->setSnowOnly(m_snowOnlyCheck->isChecked());
-    m_current->setCoPollutant(m_coPollCombo->currentData().toString());
-    m_current->setCoFraction(m_coFracSpin->value());
+    // Commit only the edited field. Other controls may display a rounded or
+    // range-limited view of valid provider values and must not rewrite them.
+    const QObject *field = sender();
+    if (field == m_unitsCombo) m_current->setUnits(m_unitsCombo->currentData().toInt());
+    else if (field == m_rainSpin) m_current->setRainConc(m_rainSpin->value());
+    else if (field == m_gwSpin) m_current->setGwConc(m_gwSpin->value());
+    else if (field == m_rdiiSpin) m_current->setRdiiConc(m_rdiiSpin->value());
+    else if (field == m_initSpin) m_current->setInitConc(m_initSpin->value());
+    else if (field == m_decaySpin) m_current->setKDecay(m_decaySpin->value());
+    else if (field == m_mwtSpin) m_current->setMwt(m_mwtSpin->value());
+    else if (field == m_snowOnlyCheck) m_current->setSnowOnly(m_snowOnlyCheck->isChecked());
+    else if (field == m_coPollCombo) m_current->setCoPollutant(m_coPollCombo->currentData().toString());
+    else if (field == m_coFracSpin) m_current->setCoFraction(m_coFracSpin->value());
 }
 
 void PollutantEditorDialog::onProviderRenamed_(PollutantProvider *p,

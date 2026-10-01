@@ -12,6 +12,8 @@
 #include "ui/dialogs/editors/classificationbindings.h"
 #include "ui/widgets/colorcelldelegate.h"
 #include "ui/widgets/colorrampcombobox.h"
+#include "ui/precisenumericvalue.h"
+#include "ui/theme/themehelpers.h"
 
 #include <QCheckBox>
 #include <QColor>
@@ -35,6 +37,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
 
 using OpenSWMM::Render::BinMethod;
 using OpenSWMM::Render::ClassificationScheme;
@@ -57,6 +60,7 @@ ClassificationEditor::ClassificationEditor(IClassificationBinding *binding,
     : QWidget(parent), m_binding(binding), m_ownBinding(ownBinding)
 {
     buildUi();
+    connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &ClassificationEditor::updateStatus);
     refresh();
 }
 
@@ -224,6 +228,15 @@ void ClassificationEditor::buildUi()
     m_table->setItemDelegateForColumn(2, new ColorCellDelegate(m_table));
     m_table->setMinimumHeight(150);
     form->addRow(m_table);
+    m_table->setAccessibleName(tr("Classification ranges, colours and labels"));
+    m_rangeMinSpin->setAccessibleName(tr("Minimum classification value"));
+    m_rangeMaxSpin->setAccessibleName(tr("Maximum classification value"));
+    m_status = new QLabel(box);
+    m_status->setObjectName(QStringLiteral("classificationStatus"));
+    m_status->setAccessibleName(tr("Classification status"));
+    m_status->setWordWrap(true);
+    m_status->setTextFormat(Qt::PlainText);
+    form->addRow(m_status);
 
     connect(m_modeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ClassificationEditor::onModeChanged);
@@ -259,15 +272,25 @@ void ClassificationEditor::mutateScheme(Fn fn)
     if (m_suppress || !m_binding) return;
     ClassificationScheme s = m_binding->scheme();
     fn(s);
-    m_binding->setScheme(s);
+    const auto [lo, hi] = m_binding->dataRange();
+    m_schemeError = s.validationError(lo, hi);
+    if (!m_breakError.isEmpty() || !m_rangeError.isEmpty() || !m_schemeError.isEmpty()) {
+        updateStatus();
+        return;
+    }
+    const bool changed = !(s == m_binding->scheme());
+    if (changed) m_binding->setScheme(s);
     rebuildTable();
-    emit edited();
+    if (changed) emit edited();
 }
 
 void ClassificationEditor::refresh()
 {
     if (!m_binding) return;
     m_suppress = true;
+    m_breakError.clear();
+    m_rangeError.clear();
+    m_schemeError.clear();
 
     const ClassificationScheme s = m_binding->scheme();
 
@@ -328,8 +351,8 @@ void ClassificationEditor::refresh()
         QSignalBlocker bmax(m_rangeMaxSpin);
         m_customRangeCheck->setChecked(s.useCustomRange());
         const auto [lo, hi] = m_binding->dataRange();
-        m_rangeMinSpin->setValue(s.useCustomRange() ? s.rangeMin() : lo);
-        m_rangeMaxSpin->setValue(s.useCustomRange() ? s.rangeMax() : hi);
+        OpenSWMM::Ui::setHydratedValue(m_rangeMinSpin, s.useCustomRange() ? s.rangeMin() : lo);
+        OpenSWMM::Ui::setHydratedValue(m_rangeMaxSpin, s.useCustomRange() ? s.rangeMax() : hi);
     }
     {
         QSignalBlocker bf(m_labelFormatCombo);
@@ -398,6 +421,7 @@ void ClassificationEditor::rebuildTable()
     const ClassificationScheme s = m_binding->scheme();
     if (s.mode() == ClassificationScheme::ClassMode::Continuous) {
         m_suppress = prevSuppress;
+        updateStatus();
         return;
     }
 
@@ -417,6 +441,8 @@ void ClassificationEditor::rebuildTable()
         auto *lowerItem = new QStandardItem(s.formatValue(lower));
         lowerItem->setEditable(false);
         auto *upperItem = new QStandardItem(s.formatValue(upper));
+        upperItem->setData(upper, Qt::UserRole);
+        upperItem->setData(upperItem->text(), Qt::UserRole + 1);
         upperItem->setEditable(i < n - 1); // last upper is the range max (fixed)
         auto *colorItem = new QStandardItem;
         colorItem->setData(s.colorForClass(i, n), Qt::BackgroundRole);
@@ -427,6 +453,45 @@ void ClassificationEditor::rebuildTable()
         m_tableModel->appendRow({ lowerItem, upperItem, colorItem, labelItem });
     }
     m_suppress = prevSuppress;
+    updateStatus();
+}
+
+bool ClassificationEditor::hasValidDraft() const
+{
+    if (!isEnabled()) return true;
+    if (!m_breakError.isEmpty() || !m_rangeError.isEmpty() || !m_schemeError.isEmpty()) return false;
+    if (!m_binding) return true;
+    const auto [lo, hi] = m_binding->dataRange();
+    return m_binding->scheme().validationError(lo, hi).isEmpty();
+}
+
+void ClassificationEditor::updateStatus()
+{
+    if (!m_status || !m_binding) return;
+    QString message = !m_breakError.isEmpty() ? m_breakError
+        : !m_rangeError.isEmpty() ? m_rangeError : m_schemeError;
+    const auto s = m_binding->scheme();
+    const auto [dataMin, dataMax] = m_binding->dataRange();
+    if (message.isEmpty()) message = s.validationError(dataMin, dataMax);
+    const bool error = !message.isEmpty();
+    if (!error) {
+        const auto [lo, hi] = s.effectiveRange(dataMin, dataMax);
+        if (lo == hi) message = tr("The available data is constant; there are no distinct class boundaries.");
+        else if (s.method() == BinMethod::Quantile || s.method() == BinMethod::NaturalBreaks || s.method() == BinMethod::StdDev) {
+            const auto samples = m_binding->sampleValues();
+            const bool any = std::any_of(samples.cbegin(), samples.cend(), [lo, hi](double v) {
+                return std::isfinite(v) && v >= lo && v <= hi;
+            });
+            if (!any) message = tr("No finite samples are available in this range. Class boundaries currently use the range endpoints; refresh when samples are available.");
+        }
+        if (message.isEmpty() && !s.hasCustomRamp() && !s.rampName().isEmpty()
+            && !RasterColorRamp::isBuiltin(s.rampName()))
+            message = tr("The named colour ramp is unavailable; the current preview uses the grayscale fallback. Select an available ramp or import its definition.");
+    }
+    m_status->setEnabled(true);
+    m_status->setStyleSheet(error ? theme::errorTextStyle() : QStringLiteral("color: palette(text);"));
+    m_status->setText(message);
+    m_status->setVisible(!message.isEmpty());
 }
 
 // ── Slots ───────────────────────────────────────────────────────────────
@@ -472,6 +537,7 @@ void ClassificationEditor::onInvertToggled(bool on)
 void ClassificationEditor::onMethodChanged(int row)
 {
     const auto method = static_cast<BinMethod>(m_methodCombo->itemData(row).toInt());
+    if (method != BinMethod::Manual) m_breakError.clear();
     mutateScheme([&](ClassificationScheme &s) {
         // Switching to Manual seeds editable breaks from the current edges so
         // the user tweaks a sensible starting point rather than an empty set.
@@ -481,6 +547,10 @@ void ClassificationEditor::onMethodChanged(int row)
         }
         s.setMethod(method);
     });
+    if (!m_schemeError.isEmpty() && m_binding) {
+        const QSignalBlocker blocker(m_methodCombo);
+        m_methodCombo->setCurrentIndex(m_methodCombo->findData(int(m_binding->scheme().method())));
+    }
 }
 
 void ClassificationEditor::onClassCountChanged(int n)
@@ -491,12 +561,13 @@ void ClassificationEditor::onClassCountChanged(int n)
 void ClassificationEditor::onRangeModeChanged(int row)
 {
     const auto mode = static_cast<RangeMode>(m_rangeModeCombo->itemData(row).toInt());
+    if (mode != RangeMode::FixedUser) m_rangeError.clear();
     mutateScheme([&](ClassificationScheme &s) {
         s.setRangeMode(mode);
         s.setUseCustomRange(mode == RangeMode::FixedUser);
         if (mode == RangeMode::FixedUser) {
-            s.setRangeMin(m_rangeMinSpin->value());
-            s.setRangeMax(m_rangeMaxSpin->value());
+            s.setRangeMin(OpenSWMM::Ui::preciseValue(m_rangeMinSpin));
+            s.setRangeMax(OpenSWMM::Ui::preciseValue(m_rangeMaxSpin));
         }
     });
     applyVisibility();
@@ -504,11 +575,12 @@ void ClassificationEditor::onRangeModeChanged(int row)
 
 void ClassificationEditor::onCustomRangeToggled(bool on)
 {
+    if (!on) m_rangeError.clear();
     mutateScheme([&](ClassificationScheme &s) {
         s.setUseCustomRange(on);
         if (on) {
-            s.setRangeMin(m_rangeMinSpin->value());
-            s.setRangeMax(m_rangeMaxSpin->value());
+            s.setRangeMin(OpenSWMM::Ui::preciseValue(m_rangeMinSpin));
+            s.setRangeMax(OpenSWMM::Ui::preciseValue(m_rangeMaxSpin));
         }
     });
     applyVisibility();
@@ -517,8 +589,16 @@ void ClassificationEditor::onCustomRangeToggled(bool on)
 void ClassificationEditor::onCustomRangeEdited()
 {
     if (m_suppress) return;
-    double mn = m_rangeMinSpin->value();
-    double mx = m_rangeMaxSpin->value();
+    if (!m_binding) return;
+    const double mn = OpenSWMM::Ui::preciseValue(m_rangeMinSpin);
+    const double mx = OpenSWMM::Ui::preciseValue(m_rangeMaxSpin);
+    auto candidate = m_binding->scheme();
+    candidate.setUseCustomRange(true);
+    candidate.setRangeMin(mn);
+    candidate.setRangeMax(mx);
+    const auto [lo, hi] = m_binding->dataRange();
+    m_rangeError = candidate.validationError(lo, hi);
+    if (!m_rangeError.isEmpty()) { updateStatus(); return; }
     mutateScheme([&](ClassificationScheme &s) {
         s.setRangeMin(mn);
         s.setRangeMax(mx);
@@ -543,7 +623,7 @@ void ClassificationEditor::onLabelPrecisionChanged(int digits)
 
 void ClassificationEditor::onAutoClassify()
 {
-    if (m_suppress || !m_binding) return;
+    if (m_suppress || !m_binding || !hasValidDraft()) return;
     m_binding->autoClassify();
     rebuildTable();
     emit edited();
@@ -558,11 +638,24 @@ void ClassificationEditor::onTableItemChanged(QStandardItem *item)
         // breaks (each row's upper, except the last).
         QVector<double> breaks;
         const int rows = m_tableModel->rowCount();
+        const auto [dataMin, dataMax] = m_binding->dataRange();
+        const auto [lo, hi] = m_binding->scheme().effectiveRange(dataMin, dataMax);
+        double previous = lo;
         for (int i = 0; i < rows - 1; ++i) {
+            const auto *upper = m_tableModel->item(i, 1);
             bool ok = false;
-            const double v = m_tableModel->item(i, 1)->text().toDouble(&ok);
-            if (ok) breaks.append(v);
+            double v = upper->text().toDouble(&ok);
+            if (upper->text() == upper->data(Qt::UserRole + 1).toString())
+                v = upper->data(Qt::UserRole).toDouble(&ok);
+            if (!ok || !std::isfinite(v) || !(v > previous && v < hi)) {
+                m_breakError = tr("Class break %1 must be a finite number greater than the previous bound and less than the range maximum.").arg(i + 1);
+                updateStatus();
+                return;
+            }
+            breaks.append(v);
+            previous = v;
         }
+        m_breakError.clear();
         mutateScheme([&](ClassificationScheme &s) {
             s.setMethod(BinMethod::Manual);
             s.setManualBreaks(breaks);

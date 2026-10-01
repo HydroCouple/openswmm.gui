@@ -27,6 +27,7 @@
 #include <QThread>
 #include <QVector>
 #include <exception>
+#include <filesystem>
 #include <memory>
 #include <new>
 #include <QtConcurrent/QtConcurrentRun>
@@ -192,30 +193,161 @@ QString findLegacyWorker(const QString &version)
 // Public static helpers
 // ---------------------------------------------------------------------------
 
-QString SimulationRunner::parseTwoDOption(const QString &inpPath,
-                                            const QString &key)
+namespace {
+QString withoutInpComment(QString line)
 {
-    QFile f(inpPath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    bool quoted = false;
+    for (int i = 0; i < line.size(); ++i) {
+        if (line[i] == '"') quoted = !quoted;
+        else if (line[i] == ';' && !quoted) { line.truncate(i); break; }
+    }
+    return line.trimmed();
+}
+
+// Match the engine's quoted-token and comma-delimiter rules for option rows.
+// In a whitespace row an embedded comma belongs to a name; pure CSV separates it.
+QStringList optionTokens(const QString &line)
+{
+    bool quoted = false, pureCsv = true;
+    for (const auto c : line) {
+        if (c == '"') quoted = !quoted;
+        else if (!quoted && c.isSpace()) pureCsv = false;
+    }
+    const auto comma = [&](int i) {
+        return line[i] == ',' && (pureCsv || i == 0 || i + 1 == line.size()
+            || line[i - 1].isSpace() || line[i + 1].isSpace());
+    };
+    QStringList tokens;
+    int i = 0;
+    while (i < line.size()) {
+        while (i < line.size() && line[i].isSpace()) ++i;
+        if (i == line.size()) break;
+        if (comma(i)) {
+            if (i == 0 || line[i - 1] == ',') tokens.append(QString());
+            ++i; continue;
+        }
+        if (line[i] == '"') {
+            const int start = ++i;
+            while (i < line.size() && line[i] != '"') ++i;
+            tokens.append(line.mid(start, i - start));
+            if (i < line.size()) ++i;
+            while (i < line.size() && line[i].isSpace()) ++i;
+            if (i < line.size() && line[i] == ',') ++i;
+        } else {
+            const int start = i;
+            while (i < line.size() && !line[i].isSpace() && !comma(i)) ++i;
+            tokens.append(line.mid(start, i - start));
+            if (i < line.size() && comma(i)) ++i;
+        }
+    }
+    return tokens;
+}
+
+struct RunFileReferences { QStringList inputs, outputs; };
+
+RunFileReferences knownRunReferences(const QString &inp)
+{
+    RunFileReferences references;
+    QFile file(inp);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return references;
+    const QDir directory = QFileInfo(inp).absoluteDir();
+    const auto path = [&](const QString &token) {
+        return QDir::cleanPath(QFileInfo(token).isAbsolute() ? token : directory.absoluteFilePath(token));
+    };
+    const auto addInput = [&](const QString &token) {
+        if (!token.isEmpty()) references.inputs.append(path(token));
+    };
+    QString section;
+    while (!file.atEnd()) {
+        const QString line = withoutInpComment(QString::fromUtf8(file.readLine()));
+        if (line.isEmpty()) continue;
+        if (line.startsWith('[') && line.endsWith(']')) {
+            section = line.mid(1, line.size() - 2).trimmed().toUpper();
+            continue;
+        }
+        const auto tokens = optionTokens(line);
+        if (tokens.isEmpty()) continue;
+        if (section == "FILES" && tokens.size() >= 3) {
+            const auto mode = tokens[0].toUpper();
+            if (mode == "USE") addInput(tokens[2]);
+            else if (mode == "SAVE" && !tokens[2].isEmpty()) references.outputs.append(path(tokens[2]));
+        } else if (section == "TIMESERIES" || section == "RAINGAGES") {
+            for (int i = 1; i + 1 < tokens.size(); ++i) {
+                if (tokens[i].compare("FILE", Qt::CaseInsensitive) != 0) continue;
+                addInput(tokens[i + 1]);
+                // The engine's timeseries path:column decorator is not part
+                // of the physical datasource. Protect both forms conservatively.
+                if (section == "TIMESERIES") {
+                    const int colon = tokens[i + 1].lastIndexOf(':');
+                    if (colon > 1) addInput(tokens[i + 1].left(colon));
+                }
+                break;
+            }
+        } else if ((section == "TEMPERATURE" || section == "2D_MESH_FILE"
+                    || section.contains("INITIAL_QUALITY"))
+                   && tokens.size() >= 2 && tokens[0].compare("FILE", Qt::CaseInsensitive) == 0) {
+            // The engine's external-mesh handler also accepts unquoted paths
+            // with spaces by joining every token after FILE.
+            addInput(section == "2D_MESH_FILE" ? tokens.mid(1).join(' ') : tokens[1]);
+        } else if (section == "PLUGINS") {
+            addInput(tokens[0]);
+        } else if (section == "PROCESS_COMPONENTS") {
+            for (const auto &token : tokens)
+                if (token.startsWith("config=", Qt::CaseInsensitive)) addInput(token.mid(7));
+        }
+    }
+    // This intentionally covers declared built-in references, not arbitrary
+    // plugin arguments or nested component/datasource dependency graphs.
+    return references;
+}
+
+std::filesystem::path nativeRunPath(const QString &path)
+{
+#ifdef Q_OS_WIN
+    return std::filesystem::path(path.toStdWString());
+#else
+    return std::filesystem::path(path.toUtf8().constData());
+#endif
+}
+
+bool sameRunFile(const QString &left, const QString &right)
+{
+    if (left.isEmpty() || right.isEmpty()) return false;
+    std::error_code error;
+    if (std::filesystem::equivalent(nativeRunPath(left), nativeRunPath(right), error)) return true;
+    const auto a = std::filesystem::weakly_canonical(nativeRunPath(left), error);
+    if (!error) {
+        const auto b = std::filesystem::weakly_canonical(nativeRunPath(right), error);
+        if (!error && a == b) return true;
+    }
+#ifdef Q_OS_WIN
+    constexpr auto sensitivity = Qt::CaseInsensitive;
+#else
+    constexpr auto sensitivity = Qt::CaseSensitive;
+#endif
+    return QDir::cleanPath(QFileInfo(left).absoluteFilePath()).compare(
+        QDir::cleanPath(QFileInfo(right).absoluteFilePath()), sensitivity) == 0;
+}
+} // namespace
+
+QString SimulationRunner::parseTwoDOption(const QString &inpPath, const QString &key)
+{
+    QFile file(inpPath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
     bool inOptions = false;
     QString value;
-    while (!f.atEnd()) {
-        const QByteArray rawLine = f.readLine();
-        QString line = QString::fromUtf8(rawLine).trimmed();
-        if (line.isEmpty() || line.startsWith(';')) continue;
+    while (!file.atEnd()) {
+        const QString line = withoutInpComment(QString::fromUtf8(file.readLine()));
+        if (line.isEmpty()) continue;
         if (line.startsWith('[') && line.endsWith(']')) {
-            inOptions = (line.compare(QStringLiteral("[2D_OPTIONS]"),
-                                       Qt::CaseInsensitive) == 0);
+            inOptions = line.mid(1, line.size() - 2).trimmed().compare(
+                QStringLiteral("2D_OPTIONS"), Qt::CaseInsensitive) == 0;
             continue;
         }
         if (!inOptions) continue;
-        const QStringList tokens = line.split(QRegularExpression(R"(\s+)"),
-                                               Qt::SkipEmptyParts);
-        if (tokens.size() < 2) continue;
-        if (tokens.first().compare(key, Qt::CaseInsensitive) == 0) {
-            value = tokens.at(1);
-            break;
-        }
+        const auto tokens = optionTokens(line);
+        if (tokens.size() >= 2 && tokens.first().compare(key, Qt::CaseInsensitive) == 0)
+            value = tokens[1]; // The engine applies the last option assignment.
     }
     return value;
 }
@@ -227,6 +359,53 @@ QString SimulationRunner::parseTwoDOutputFile(const QString &inpPath)
     QFileInfo fi(value);
     if (fi.isAbsolute()) return value;
     return QFileInfo(inpPath).absoluteDir().absoluteFilePath(value);
+}
+
+QStringList SimulationRunner::runOutputPaths(const QString &inp, const QString &rpt, const QString &out)
+{
+    const QFileInfo report(rpt);
+    QStringList paths{QFileInfo(rpt).absoluteFilePath(), QFileInfo(out).absoluteFilePath(),
+        report.absoluteDir().filePath(report.completeBaseName() + QStringLiteral(".runlog.txt"))};
+    const QString h5 = parseTwoDOutputFile(inp);
+    if (!h5.isEmpty()) paths.append(QFileInfo(h5).absoluteFilePath());
+    paths.append(knownRunReferences(inp).outputs);
+    return paths;
+}
+
+bool SimulationRunner::sameFilePath(const QString &left, const QString &right)
+{
+    return sameRunFile(left, right);
+}
+
+bool SimulationRunner::validateRunPaths(const QString &inp, const QString &rpt, const QString &out,
+                                        const QStringList &protectedInputs, const QStringList &activeOutputs,
+                                        QString *error, const QStringList &additionalOutputs)
+{
+    if (error) error->clear();
+    const auto fail = [&](const QString &why) { if (error) *error = why; return false; };
+    if (inp.isEmpty() || rpt.isEmpty() || out.isEmpty())
+        return fail(tr("Run input, report and output file paths must be specified."));
+    QStringList inputs = protectedInputs;
+    inputs.append(inp);
+    inputs.append(knownRunReferences(inp).inputs);
+    auto outputs = runOutputPaths(inp, rpt, out);
+    outputs.append(additionalOutputs);
+    for (int i = 0; i < outputs.size(); ++i) {
+        const auto &path = outputs[i];
+        const QFileInfo info(path);
+        if ((info.isSymLink() && !info.exists()) || (info.exists() && !info.isFile()))
+            return fail(tr("Run output path is not a regular file: %1").arg(path));
+        for (const auto &input : inputs)
+            if (sameRunFile(path, input))
+                return fail(tr("Run output file %1 would overwrite protected input %2. Choose a different output path.").arg(path, input));
+        for (int j = 0; j < i; ++j)
+            if (sameRunFile(path, outputs[j]))
+                return fail(tr("Run output file paths %1 and %2 refer to the same file. Choose separate destinations.").arg(path, outputs[j]));
+        for (const auto &active : activeOutputs)
+            if (sameRunFile(path, active))
+                return fail(tr("Run output file %1 is already in use by another simulation (%2). Stop that run or choose another path.").arg(path, active));
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +478,15 @@ SimulationRunner::SimulationRunner(int jobId,
     (void)s_metatypesRegistered;
 }
 
+SimulationRunner::~SimulationRunner()
+{
+    // Keep callback receiver and atomics alive until the worker no longer
+    // uses them. Cancellation cannot interrupt an engine/library call already
+    // in progress, so shutdown may wait for that call to return.
+    cancel();
+    m_workerFuture.waitForFinished();
+}
+
 namespace {
 // The engine's step loop must NOT share the GLOBAL QThreadPool with the
 // per-tick map-render, contour and .out-rescan jobs the GUI queues while a
@@ -323,14 +511,26 @@ QThreadPool *enginePool()
 
 void SimulationRunner::start()
 {
+    if (m_started) return;
+    m_started = true;
+    if (!m_inpPath.isEmpty()) m_inpPath = QFileInfo(m_inpPath).absoluteFilePath();
+    if (!m_rptPath.isEmpty()) m_rptPath = QFileInfo(m_rptPath).absoluteFilePath();
+    if (!m_outPath.isEmpty()) m_outPath = QFileInfo(m_outPath).absoluteFilePath();
+    m_outputPaths = runOutputPaths(m_inpPath, m_rptPath, m_outPath);
     emit started(m_jobId);
+    QString pathError;
+    if (!validateRunPaths(m_inpPath, m_rptPath, m_outPath, {}, {}, &pathError)) {
+        QMetaObject::invokeMethod(this, [this, pathError] {
+            emit finished(m_jobId, false, SWMM_ERR_BADPARAM, pathError, 0, 0, qQNaN());
+        }, Qt::QueuedConnection);
+        return;
+    }
 
     // Capture everything the lambda needs by value; the runner pointer is
     // passed as user_data to the C callbacks (safe because the runner lives
     // until after finished() fires and the caller calls deleteLater()).
-    // Absolute paths: the worker pins the process cwd to the model folder for
-    // the run (CwdGuard below), after which a relative .inp/.rpt/.out would
-    // resolve against the wrong directory and the engine could not open it.
+    // Capture absolute paths before dispatch. Current-engine external file
+    // slots resolve against the INP directory; legacy workers get their own cwd.
     const QByteArray inp = QFileInfo(m_inpPath).absoluteFilePath().toUtf8();
     const QByteArray rpt = QFileInfo(m_rptPath).absoluteFilePath().toUtf8();
     const QByteArray out = QFileInfo(m_outPath).absoluteFilePath().toUtf8();
@@ -381,31 +581,9 @@ void SimulationRunner::start()
 
     auto body = [inp, rpt, out, rawSelf, tickIntervalMs, engineVersion,
                  phase, runLog, fault]() -> SimulationResult {
-            // The engine resolves RELATIVE sidecar paths named in the .inp —
-            // [RAINGAGES] FILE, interface files, hotstarts — against the
-            // PROCESS working directory. The GUI runs the engine in-process,
-            // so that directory is wherever the .app happened to be launched
-            // from, NOT the model folder. A relative rain-file reference then
-            // silently resolves to nothing and the run proceeds with ZERO
-            // rainfall: the 1D network and the 2D mesh both stay dry except
-            // where coupling/outfall water arrives. The same model run from
-            // the CLI in its own directory rains normally, which is what made
-            // this look like a rendering fault.
-            //
-            // Pin the cwd to the model directory for the duration of the run.
-            // Process-global, so concurrent runs from different folders would
-            // race — acceptable today (runs are launched one at a time) and
-            // far better than silently dropping the forcing.
-            struct CwdGuard {
-                QString prev;
-                explicit CwdGuard(const QString &dir) : prev(QDir::currentPath())
-                {
-                    if (!dir.isEmpty()) QDir::setCurrent(dir);
-                }
-                ~CwdGuard() { if (!prev.isEmpty()) QDir::setCurrent(prev); }
-            };
-            const CwdGuard cwdGuard(
-                QFileInfo(QString::fromUtf8(inp)).absolutePath());
+            // Do not change process cwd: independent simulations and GUI
+            // file operations share it. Current-engine file slots are anchored
+            // by PostParseResolver; legacy cwd is set on its child below.
 
             // Use legacy worker for 5.x versions, refactored engine for 6.0.0+
             const bool useLegacy = engineVersion.startsWith("5.");
@@ -974,6 +1152,7 @@ void SimulationRunner::start()
 
                 QProcess worker;
                 worker.setProgram(workerPath);
+                worker.setWorkingDirectory(QFileInfo(QString::fromUtf8(inp)).absolutePath());
                 // 4th arg: progress emit interval (ms) from the user's
                 // progressTickMs preference, so the worker rate-limits by
                 // wall-clock the same way the in-process path does (Gap 2).
@@ -1148,7 +1327,7 @@ void SimulationRunner::start()
             }
         };
 
-    watcher->setFuture(QtConcurrent::run(enginePool(),
+    const auto future = QtConcurrent::run(enginePool(),
         [body, phase, runLog]() -> SimulationResult {
             // Last line of defence for the run: nothing thrown by the worker
             // may escape the future. Report it as a failed run, with the
@@ -1172,7 +1351,9 @@ void SimulationRunner::start()
                 return exceptionResult(*phase,
                     QStringLiteral("non-standard exception"), runLog.get());
             }
-        }));
+        });
+    m_workerFuture = QFuture<void>(future);
+    watcher->setFuture(future);
 }
 
 void SimulationRunner::cancel()

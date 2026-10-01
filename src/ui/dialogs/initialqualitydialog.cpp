@@ -5,6 +5,7 @@
  */
 
 #include "ui/dialogs/initialqualitydialog.h"
+#include "ui/precisenumericvalue.h"
 
 #include <openswmm/engine/openswmm_initial_quality.h>
 #include <openswmm/engine/openswmm_links.h>
@@ -86,6 +87,14 @@ InitialQualityDialog::InitialQualityDialog(SWMM_Engine engine,
     buildUi();
     readFromEngine();
     if (!m_editable) setReadOnly();
+}
+
+void InitialQualityDialog::invalidateEngine()
+{
+    m_engine = nullptr;
+    m_editable = false;
+    setEnabled(false);
+    reject();
 }
 
 void InitialQualityDialog::buildUi()
@@ -393,7 +402,7 @@ void InitialQualityDialog::readFromEngine()
         }
         if (auto *s = qobject_cast<QDoubleSpinBox *>(
                 m_table->cellWidget(r, kColValue)))
-            s->setValue(value);
+            OpenSWMM::Ui::setHydratedValue(s, value);
         // U2: a row that came from the FILE sidecar is displayed but not
         // editable here — the CSV is its source, and writeToEngine skips it.
         if (swmm_init_quality_is_file(m_engine, i)) {
@@ -454,7 +463,7 @@ void InitialQualityDialog::onImportCsv()
             else { c->addItem(tok[2], tok[2]); c->setCurrentIndex(c->count() - 1); }
         }
         if (auto *s = qobject_cast<QDoubleSpinBox *>(m_table->cellWidget(r, kColValue)))
-            s->setValue(v);
+            OpenSWMM::Ui::setHydratedValue(s, v);
         if (!resolved) { m_table->removeRow(r); ++skipped; continue; }
         ++added;
     }
@@ -549,7 +558,7 @@ QString InitialQualityDialog::writeToEngine(QWidget *&failedWidget)
                     .arg(sc->currentText(), ec->currentText(), cc->currentData().toString());
             }
         }
-        tableRows.append({key, vs->value(), r,
+        tableRows.append({key, OpenSWMM::Ui::preciseValue(vs), r,
             tr("%1 %2, %3").arg(sc->currentText(), ec->currentText(), cc->currentData().toString())});
     }
 

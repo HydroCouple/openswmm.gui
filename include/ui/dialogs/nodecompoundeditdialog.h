@@ -47,6 +47,13 @@ public:
      *  `ref.summary` if no mutation succeeded. */
     [[nodiscard]] QString updatedSummary() const { return m_ref.summary; }
 
+public slots:
+    /*! Disable editing before the project engine or owning layer is released. */
+    void invalidateContext();
+
+private slots:
+    void checkContext();
+
 private:
     void buildInflowsPage();
     void buildDwfPage();

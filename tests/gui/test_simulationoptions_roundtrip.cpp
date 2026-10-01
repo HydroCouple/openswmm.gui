@@ -24,22 +24,54 @@
  * (reviewable, CLAUDE.md §4.1).
  */
 #include "layers/swmmmodellayer.h"
+#include "project/openswmmvisworkspace.h"
+#include "swmmvisprojectwindow.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
+#include "ui/dialogs/wateragesourcesdialog.h"
+#include "ui/dialogs/nodecompoundeditdialog.h"
+#include "ui/dialogs/linkcompoundeditdialog.h"
+#include "ui/dialogs/subcatchcompoundeditdialog.h"
+#include "ui/dialogs/groundwaterexchangedialog.h"
+#include "ui/dialogs/streeteditordialog.h"
+#include "ui/dialogs/inleteditordialog.h"
+#include "ui/dialogs/hydrographgroupeditor.h"
+#include "curve/curveregistry.h"
+#include "ui/dialogs/curveeditordialog.h"
+#include "pattern/patternregistry.h"
+#include "ui/dialogs/patterneditordialog.h"
+#include "timeseries/timeseriesregistry.h"
+#include "ui/dialogs/timeserieseditordialog.h"
+#include "transect/transectregistry.h"
+#include "ui/dialogs/transecteditordialog.h"
+#include "street/streetregistry.h"
+#include "inlet/inletregistry.h"
+#include <QListView>
+#include <QLineEdit>
+#include <QTableView>
+#include <QUndoStack>
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_water_age.h>
 
+#include <QApplication>
 #include <QCoreApplication>
+#include <QDialogButtonBox>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QSettings>
 #include <QFile>
 #include <QFileInfo>
 #include <QMap>
+#include <QLabel>
 #include <QObject>
+#include <QPushButton>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QString>
 #include <QStringList>
 #include <QTest>
+#include <QTimer>
 
 #include <memory>
 
@@ -58,6 +90,19 @@ std::unique_ptr<SWMMModelLayer> openLayer(const QString &path)
     QList<QString> warnings, errors;
     if (!layer->loadModel(warnings, errors)) return nullptr;
     return layer;
+}
+
+std::unique_ptr<SWMMVisProjectWindow> openProjectWindow(const QString &path, QString *error)
+{
+    auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+    auto window = std::make_unique<SWMMVisProjectWindow>(workspace, path, nullptr);
+    workspace->setParent(window.get());
+    QList<QString> warnings, errors;
+    if (!window->loadModel(warnings, errors)) {
+        if (error) *error = errors.join(QStringLiteral("; "));
+        return nullptr;
+    }
+    return window;
 }
 
 QString readAll(const QString &path)
@@ -162,6 +207,133 @@ private:
     }
 
 private slots:
+
+    void modelEditorOwnerLifetime_data()
+    {
+        QTest::addColumn<QString>("family");
+        QTest::addColumn<bool>("destroyOwner");
+        for (const QString &family : {QStringLiteral("node"), QStringLiteral("link"),
+             QStringLiteral("subcatchment"), QStringLiteral("groundwater"), QStringLiteral("simulation"),
+             QStringLiteral("street"), QStringLiteral("inlet"), QStringLiteral("hydrograph"),
+             QStringLiteral("curve"), QStringLiteral("pattern"), QStringLiteral("timeseries"), QStringLiteral("transect")}) {
+            QTest::newRow(qPrintable(family + "-close-engine")) << family << false;
+            QTest::newRow(qPrintable(family + "-delete-layer")) << family << true;
+        }
+    }
+
+    void modelEditorOwnerLifetime()
+    {
+        QFETCH(QString, family);
+        QFETCH(bool, destroyOwner);
+        auto layer = openLayer(fixture("gw_exchange_fixture.inp"));
+        QVERIFY(layer);
+        std::unique_ptr<QDialog> dialog;
+        const auto engine = layer->engine();
+        if (family == "node") {
+            NodeCompoundEditRef ref; ref.engine = engine; ref.layer = layer.get(); ref.nodeName = "J1";
+            dialog = std::make_unique<NodeCompoundEditDialog>(ref);
+        } else if (family == "link") {
+            LinkCompoundEditRef ref; ref.engine = engine; ref.layer = layer.get(); ref.linkName = "C1";
+            dialog = std::make_unique<LinkCompoundEditDialog>(ref);
+        } else if (family == "subcatchment" || family == "groundwater") {
+            SubcatchCompoundEditRef ref; ref.engine = engine; ref.layer = layer.get(); ref.subName = "S1";
+            if (family == "groundwater") dialog = std::make_unique<GroundwaterExchangeDialog>(ref);
+            else dialog = std::make_unique<SubcatchCompoundEditDialog>(ref);
+        } else if (family == "simulation") {
+            dialog = std::make_unique<SimulationOptionsDialog>(engine, layer.get());
+        } else if (family == "curve") {
+            auto *reg = qobject_cast<openswmmvis::curve::CurveRegistry *>(layer->ensureCurveRegistry());
+            QVERIFY(reg);
+            dialog = std::make_unique<openswmmvis::ui::CurveEditorDialog>(reg, nullptr);
+        } else if (family == "pattern") {
+            auto *reg = qobject_cast<openswmmvis::pattern::PatternRegistry *>(layer->ensurePatternRegistry());
+            QVERIFY(reg);
+            dialog = std::make_unique<openswmmvis::ui::PatternEditorDialog>(reg, nullptr);
+        } else if (family == "timeseries") {
+            auto *reg = qobject_cast<openswmmvis::timeseries::TimeseriesRegistry *>(layer->ensureTimeseriesRegistry());
+            QVERIFY(reg);
+            dialog = std::make_unique<openswmmvis::ui::TimeseriesEditorDialog>(reg, nullptr);
+        } else if (family == "transect") {
+            auto *reg = qobject_cast<openswmmvis::transect::TransectRegistry *>(layer->ensureTransectRegistry());
+            QVERIFY(reg);
+            dialog = std::make_unique<openswmmvis::ui::TransectEditorDialog>(reg, layer.get(), nullptr);
+        } else if (family == "street") {
+            auto *reg = qobject_cast<openswmmvis::street::StreetRegistry *>(layer->ensureStreetRegistry());
+            QVERIFY(reg); QVERIFY(reg->create("LifetimeStreet"));
+            dialog = std::make_unique<openswmmvis::ui::StreetEditorDialog>(reg, layer.get());
+        } else if (family == "inlet") {
+            auto *reg = qobject_cast<openswmmvis::inlet::InletRegistry *>(layer->ensureInletRegistry());
+            QVERIFY(reg); QVERIFY(reg->create("LifetimeInlet"));
+            dialog = std::make_unique<openswmmvis::ui::InletEditorDialog>(reg, layer.get(), nullptr);
+        } else {
+            QVERIFY(layer->applyHydrographAddGroup("LifetimeUH", QString(), 0));
+            dialog = std::make_unique<HydrographGroupEditor>(layer.get());
+        }
+        dialog->show();
+        QVERIFY(dialog->isEnabled());
+        bool sawLiveEngine = false;
+        QObject closeObserver;
+        SWMMModelLayer *owner = layer.get();
+        // A dialog may disconnect all of its layer callbacks while invalidating.
+        // Observe the engine contract independently of those recipient connections.
+        connect(owner, &SWMMModelLayer::engineAboutToClose, &closeObserver, [&] {
+            sawLiveEngine = owner->engine() == engine;
+        });
+        if (destroyOwner) layer.reset(); else layer->closeEngine();
+        QVERIFY(sawLiveEngine);
+        QVERIFY(!dialog->isEnabled());
+        QVERIFY(!dialog->isVisible());
+        QCOMPARE(dialog->result(), int(QDialog::Rejected));
+        // Includes pending preview/debounce callbacks after the engine is gone.
+        QTest::qWait(350);
+        QVERIFY(!dialog->isEnabled());
+    }
+
+    void nestedRegistryAndUndoLifetime_data()
+    {
+        QTest::addColumn<QString>("owner");
+        QTest::newRow("street-registry") << QStringLiteral("street");
+        QTest::newRow("inlet-registry") << QStringLiteral("inlet");
+        QTest::newRow("inlet-undo-stack") << QStringLiteral("undo");
+    }
+
+    void nestedRegistryAndUndoLifetime()
+    {
+        QFETCH(QString, owner);
+        std::unique_ptr<QDialog> dialog;
+        auto streets = std::make_unique<openswmmvis::street::StreetRegistry>();
+        auto inlets = std::make_unique<openswmmvis::inlet::InletRegistry>();
+        auto undo = std::make_unique<QUndoStack>();
+        QVERIFY(streets->create("Street")); QVERIFY(inlets->create("Inlet"));
+        if (owner == "street") dialog = std::make_unique<openswmmvis::ui::StreetEditorDialog>(streets.get(), nullptr);
+        else dialog = std::make_unique<openswmmvis::ui::InletEditorDialog>(inlets.get(), nullptr, undo.get());
+        dialog->show();
+        if (owner == "street") streets.reset();
+        else if (owner == "inlet") inlets.reset();
+        else undo.reset();
+        QVERIFY(!dialog->isEnabled());
+        QVERIFY(!dialog->isVisible());
+        // Check the provider list, not QComboBox's internal popup QListViews:
+        // static inlet-type choices legitimately remain present in a disabled editor.
+        QListView *providerList = nullptr;
+        if (owner == "street") {
+            auto *editor = qobject_cast<openswmmvis::ui::StreetEditorDialog *>(dialog.get());
+            QVERIFY(editor);
+            providerList = editor->listView();
+            QVERIFY(!editor->currentProvider());
+            QVERIFY(editor->nameEdit()->text().isEmpty());
+        } else {
+            auto *editor = qobject_cast<openswmmvis::ui::InletEditorDialog *>(dialog.get());
+            QVERIFY(editor);
+            providerList = editor->listView();
+            QVERIFY(!editor->currentProvider());
+            QVERIFY(editor->nameEdit()->text().isEmpty());
+        }
+        QVERIFY(providerList);
+        QVERIFY(providerList->model());
+        QCOMPARE(providerList->model()->rowCount(), 0);
+        QTest::qWait(350);
+    }
     /*! Point QSettings at a scratch store under the test data directory.
      *
      *  The dialog keeps a per-project "is the 2D module on" preference in
@@ -219,6 +391,121 @@ private slots:
         QCOMPARE(swmm_options_set(layer->engine(), "ROUTING_STEP", "17"), 0);
         QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
         QVERIFY(dlg.wroteAnyChanges());
+    }
+
+    void nestedWaterAgeEditorTracksOwningProject_data()
+    {
+        QTest::addColumn<QString>("action");
+        QTest::addColumn<bool>("expectDirty");
+        QTest::newRow("accept-edit") << QStringLiteral("edit") << true;
+        QTest::newRow("accept-no-op") << QStringLiteral("no-op") << false;
+        QTest::newRow("cancel-edit") << QStringLiteral("cancel") << false;
+        QTest::newRow("refuse-duplicate-then-cancel") << QStringLiteral("duplicate") << false;
+    }
+
+    void nestedWaterAgeEditorTracksOwningProject()
+    {
+        QFETCH(QString, action);
+        QFETCH(bool, expectDirty);
+        const QString output = qEnvironmentVariable("SWMMVIS_OPTIONS_CHILD_TEST_OUTPUT",
+            QDir(dataDir()).filePath(QStringLiteral("options_child_output")));
+        const QString caseDir = QDir(output).filePath(QString::fromLatin1(QTest::currentDataTag()));
+        QVERIFY(QDir().mkpath(caseDir));
+        const QString ownerPath = QDir(caseDir).filePath(QStringLiteral("owner.inp"));
+        const QString otherPath = QDir(caseDir).filePath(QStringLiteral("other.inp"));
+        for (const auto &path : {ownerPath, otherPath}) {
+            if (QFile::exists(path)) QVERIFY(QFile::remove(path));
+            QVERIFY(QFile::copy(fixture(QStringLiteral("typed_selection_fixture.inp")), path));
+        }
+        const QString ownerFileBefore = readAll(ownerPath);
+        QString error;
+        auto owner = openProjectWindow(ownerPath, &error);
+        QVERIFY2(owner, qPrintable(error));
+        auto other = openProjectWindow(otherPath, &error);
+        QVERIFY2(other, qPrintable(error));
+        SWMM_Engine engine = owner->modelLayer()->engine();
+        QVERIFY(engine && other->modelLayer()->engine() != engine);
+        QCOMPARE(swmm_water_age_set_global_source(engine, SWMM_AGE_SRC_GW, 4.0), SWMM_OK);
+        int overrideCount = -1;
+        QCOMPARE(swmm_water_age_override_count(engine, &overrideCount), SWMM_OK);
+        QCOMPARE(overrideCount, 0);
+        double otherAgeBefore = 0.0;
+        QCOMPARE(swmm_water_age_get_global_source(other->modelLayer()->engine(),
+            SWMM_AGE_SRC_GW, &otherAgeBefore), SWMM_OK);
+        owner->setHasChanges(false);
+        other->setHasChanges(false);
+
+        SimulationOptionsDialog outer(engine, owner->modelLayer(), QStringLiteral("6.0.0"),
+                                      owner.get(), nullptr);
+        auto *launch = outer.findChild<QPushButton *>(QStringLiteral("qt_editAgeSourcesBtn"));
+        QVERIFY(launch && launch->isEnabled());
+        QVERIFY(!owner->hasChanges());
+        QVERIFY(!other->hasChanges());
+        bool handledChild = false;
+        bool invalidRefused = false;
+        bool childWrote = false;
+        int childResult = -1;
+        QString interactionError;
+        QTimer::singleShot(0, &outer, [&] {
+            auto *child = qobject_cast<OpenSWMMVis::WaterAgeSourcesDialog *>(QApplication::activeModalWidget());
+            if (!child) {
+                interactionError = QStringLiteral("Water Age Sources was not the active modal dialog");
+                if (auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget())) modal->reject();
+                return;
+            }
+            const auto dismissOnFailure = qScopeGuard([child] { if (child->isVisible()) child->reject(); });
+            auto *spin = child->findChild<QDoubleSpinBox *>(
+                QStringLiteral("wa_globalSpin_%1").arg(SWMM_AGE_SRC_GW));
+            auto *buttons = child->findChild<QDialogButtonBox *>();
+            if (!spin || !buttons) {
+                interactionError = QStringLiteral("Water Age Sources controls are missing");
+                return;
+            }
+            if (action != QStringLiteral("no-op")) spin->setValue(8.0);
+            if (action == QStringLiteral("duplicate")) {
+                auto *add = child->findChild<QPushButton *>(QStringLiteral("wa_addBtn"));
+                if (!add) { interactionError = QStringLiteral("Override Add button is missing"); return; }
+                add->click();
+                add->click();
+                buttons->button(QDialogButtonBox::Ok)->click();
+                auto *validation = child->findChild<QLabel *>(QStringLiteral("wa_validationError"));
+                invalidRefused = child->isVisible() && !child->wroteAnyChanges()
+                    && child->lastWriteCount() == 0 && validation && !validation->text().isEmpty();
+                if (child->isVisible()) buttons->button(QDialogButtonBox::Cancel)->click();
+            } else {
+                buttons->button(action == QStringLiteral("cancel")
+                    ? QDialogButtonBox::Cancel : QDialogButtonBox::Ok)->click();
+            }
+            childWrote = child->wroteAnyChanges();
+            childResult = child->result();
+            handledChild = true;
+        });
+        launch->click(); // Real Quality-page launch, including the child's modal event loop.
+        QVERIFY2(interactionError.isEmpty(), qPrintable(interactionError));
+        QVERIFY(handledChild);
+        if (action == QStringLiteral("duplicate")) QVERIFY(invalidRefused);
+        QCOMPARE(childWrote, expectDirty);
+        QCOMPARE(childResult, int(action == QStringLiteral("cancel") || action == QStringLiteral("duplicate")
+            ? QDialog::Rejected : QDialog::Accepted));
+        // This assertion precedes outer Apply/OK/Cancel: the child has already
+        // committed, and the project must warn about those unsaved edits now.
+        QCOMPARE(owner->hasChanges(), expectDirty);
+        QVERIFY(!other->hasChanges());
+        double age = 0.0;
+        QCOMPARE(swmm_water_age_get_global_source(engine, SWMM_AGE_SRC_GW, &age), SWMM_OK);
+        QCOMPARE(age, expectDirty ? 8.0 : 4.0);
+        QCOMPARE(swmm_water_age_override_count(engine, &overrideCount), SWMM_OK);
+        QCOMPARE(overrideCount, 0);
+
+        outer.reject();
+        QCOMPARE(owner->hasChanges(), expectDirty);
+        QVERIFY(!other->hasChanges());
+        QCOMPARE(swmm_water_age_get_global_source(engine, SWMM_AGE_SRC_GW, &age), SWMM_OK);
+        QCOMPARE(age, expectDirty ? 8.0 : 4.0);
+        QCOMPARE(swmm_water_age_get_global_source(other->modelLayer()->engine(),
+            SWMM_AGE_SRC_GW, &age), SWMM_OK);
+        QCOMPARE(age, otherAgeBefore);
+        QCOMPARE(readAll(ownerPath), ownerFileBefore); // No Save is implied by either dialog.
     }
 };
 

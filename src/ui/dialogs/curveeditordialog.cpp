@@ -112,18 +112,45 @@ CurveEditorDialog::CurveEditorDialog(CurveRegistry *registry,
     } else {
         bindProvider_(nullptr);
     }
+    setAccessibleDescription(undoStack
+        ? tr("Changes are applied immediately. Closing this editor does not undo changes. Use Undo to reverse an edit.")
+        : tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    if (m_table) m_table->setAccessibleName(tr("Curve values"));
+    if (m_listView) m_listView->setAccessibleName(tr("Curve objects"));
+    if (m_chartView) m_chartView->setAccessibleName(tr("Curve preview"));
+    if (registry) connect(registry, &QObject::destroyed, this, &CurveEditorDialog::invalidateContext);
+    // Registries outlive an engine reload; their owning layer announces the
+    // close before any cached engine handle becomes invalid.
+    if (registry && registry->parent()
+        && registry->parent()->metaObject()->indexOfSignal("engineAboutToClose()") >= 0)
+        connect(registry->parent(), SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+    if (undoStack) connect(undoStack, &QObject::destroyed, this, &CurveEditorDialog::invalidateContext);
+
 }
 
 CurveEditorDialog::~CurveEditorDialog() = default;
+
+void CurveEditorDialog::invalidateContext()
+{
+    if (!m_contextValid) return;
+    m_contextValid = false;
+    setEnabled(false);
+    if (m_registry) m_registry->disconnect(this);
+    m_registry.clear();
+    m_undoStack.clear();
+    bindProvider_(nullptr);
+    if (m_chartView) m_chartView->setUndoStack(nullptr);
+    if (m_listModel) m_listModel->clear();
+    reject();
+}
+
 
 CurveEditorDialog *CurveEditorDialog::createNew(CurveRegistry *registry,
                                                  QUndoStack *undoStack,
                                                  QWidget *parent)
 {
     auto *dlg = new CurveEditorDialog(registry, undoStack, parent);
-    dlg->m_mode = Mode::CreateNew;
-    if (dlg->m_createCard) dlg->m_createCard->show();
-    if (dlg->m_nameEdit)   dlg->m_nameEdit->setFocus();
+    dlg->onNewClicked_();
     dlg->setWindowTitle(tr("New Curve"));
     return dlg;
 }
@@ -143,9 +170,7 @@ QString CurveEditorDialog::pickCurve(CurveRegistry *registry,
     if (initialName.isEmpty()) {
         // CreateNew — reveal the create-card without instantiating a
         // second dialog (we already own one on the stack).
-        dlg.m_mode = Mode::CreateNew;
-        if (dlg.m_createCard) dlg.m_createCard->show();
-        if (dlg.m_nameEdit)   dlg.m_nameEdit->setFocus();
+        dlg.onNewClicked_();
         dlg.setWindowTitle(tr("New Curve"));
     } else {
         dlg.setWindowTitle(tr("Edit Curve"));
@@ -677,6 +702,7 @@ void CurveEditorDialog::selectProviderInList_(CurveProvider *p)
 
 void CurveEditorDialog::onListSelectionChanged_()
 {
+    if (!m_contextValid) return;
     const QModelIndex view = m_listView->currentIndex();
     const QModelIndex src = (m_listProxy && view.isValid())
         ? m_listProxy->mapToSource(view) : view;
@@ -692,6 +718,7 @@ void CurveEditorDialog::onListSelectionChanged_()
 
 void CurveEditorDialog::bindProvider_(CurveProvider *p)
 {
+    if (!m_contextValid) p = nullptr;
     if (m_current == p && p) {
         refreshChart_();
         updateStatusBar_();
@@ -1094,7 +1121,9 @@ void CurveEditorDialog::onMutationRejected_(const QString &reason)
 
 void CurveEditorDialog::onNewClicked_()
 {
-    if (!m_createCard) return;
+    if (!m_contextValid || !m_registry || !m_createCard) return;
+    if (m_listView) { m_listView->clearSelection(); m_listView->setCurrentIndex({}); }
+    bindProvider_(nullptr);
     m_mode = Mode::CreateNew;
     if (m_nameEdit) {
         m_nameEdit->clear();

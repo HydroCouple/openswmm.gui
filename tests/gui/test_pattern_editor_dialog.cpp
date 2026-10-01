@@ -50,6 +50,8 @@
 #include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QTest>
+#include <QTimer>
+#include <QApplication>
 #include <QUndoStack>
 
 #include "ui/widgets/interactivechartview.h"
@@ -96,6 +98,75 @@ class TestPatternEditorDialog : public QObject
     Q_OBJECT
 
 private slots:
+
+    void ownerRegistryDeletionInvalidatesEditor()
+    {
+        auto *registry = new PatternRegistry;
+        auto *provider = registry->create(QStringLiteral("Owned"), PatternType::Monthly);
+        QVERIFY(provider);
+        QUndoStack stack;
+        PatternEditorDialog dialog(registry, &stack);
+        dialog.show();
+        delete registry;
+        QVERIFY2(!dialog.isEnabled(), "A closed registry must disable the editor before stale callbacks can mutate it.");
+        QVERIFY(!dialog.isVisible());
+        QCOMPARE(dialog.tableModel()->rowCount(), 0);
+    }
+
+    void undoOwnerDeletionInvalidatesEditor()
+    {
+        PatternRegistry registry;
+        auto *provider = registry.create(QStringLiteral("Owned"), PatternType::Monthly);
+        QVERIFY(provider);
+        auto *stack = new QUndoStack;
+        PatternEditorDialog dialog(&registry, stack);
+        dialog.show();
+        delete stack;
+        QVERIFY2(!dialog.isEnabled(), "The editor must not retain a dangling undo owner.");
+        QVERIFY(!dialog.isVisible());
+        QCOMPARE(dialog.tableModel()->rowCount(), 0);
+        QVERIFY(registry.findByName(QStringLiteral("Owned")) == provider);
+    }
+
+    void editorTableHasAccessiblePurpose()
+    {
+        PatternRegistry registry;
+        auto *provider = registry.create(QStringLiteral("Owned"), PatternType::Monthly);
+        QUndoStack stack;
+        PatternEditorDialog dialog(&registry, &stack);
+        auto *table = dialog.factorTable();
+        QVERIFY(table);
+        QVERIFY2(!table->accessibleName().isEmpty(), "Data tables need a specific accessible name, beyond their row/column cells.");
+        QVERIFY2(!dialog.accessibleDescription().isEmpty(), "Live editors must explain that Close does not undo applied edits.");
+    }
+
+    void newDraftDoesNotBindAnExistingObject()
+    {
+        PatternRegistry registry;
+        auto *provider = registry.create(QStringLiteral("Owned"), PatternType::Monthly);
+        QUndoStack stack;
+        auto *dialog = PatternEditorDialog::createNew(&registry, &stack);
+        const bool hasNoProvider = dialog->currentProvider() == nullptr;
+        const int rows = dialog->tableModel()->rowCount();
+        delete dialog;
+        QVERIFY2(hasNoProvider, "Creating a new object must not silently expose the previously selected object for editing.");
+        QCOMPARE(rows, 0);
+        QCOMPARE(registry.providerCount(), 1);
+        QVERIFY(registry.findByName(QStringLiteral("Owned")) == provider);
+    }
+
+    void cancelEmptyPickerDoesNotChooseExistingObject()
+    {
+        PatternRegistry registry;
+        QVERIFY(registry.create(QStringLiteral("Owned"), PatternType::Monthly));
+        QUndoStack stack;
+        QTimer::singleShot(0, [] {
+            if (auto *dialog = qobject_cast<PatternEditorDialog *>(QApplication::activeModalWidget())) dialog->reject();
+        });
+        const QString selected = PatternEditorDialog::pickPattern(&registry, &stack, {});
+        QVERIFY2(selected.isEmpty(), "Closing an uncommitted new-object picker must not select an unrelated existing object.");
+        QCOMPARE(registry.providerCount(), 1);
+    }
 
     // ── PatternProvider ─────────────────────────────────────────────────────
 

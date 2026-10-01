@@ -155,6 +155,11 @@ public:
 
     /*! (lo, hi) the scheme classifies over: the custom range when enabled
      *  and non-degenerate, otherwise (dataMin, dataMax). */
+    /*! Validate a completed classification configuration. Sequential range
+     * setters remain available; consumers must not silently replace invalid
+     * explicit bounds with automatic bounds. Constant automatic data is legal. */
+    [[nodiscard]] QString validationError(double dataMin, double dataMax) const;
+
     [[nodiscard]] QPair<double, double> effectiveRange(double dataMin, double dataMax) const;
 
     // ── Per-class overrides ────────────────────────────────────────────

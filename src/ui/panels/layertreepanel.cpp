@@ -344,6 +344,9 @@ void LayerTreeModel::rebuildCategories()
         QObject::disconnect(layer, &OpenSWMMVisLayer::opacityChanged,    this, nullptr);
         QObject::disconnect(layer, &OpenSWMMVisLayer::visibilityChanged, this, nullptr);
         QObject::disconnect(layer, &OpenSWMMVisLayer::nameChanged,       this, nullptr);
+        QObject::disconnect(layer, &OpenSWMMVisLayer::childrenChanged, this, nullptr);
+        QObject::connect(layer, &OpenSWMMVisLayer::childrenChanged, this,
+                         &LayerTreeModel::notifyHostSubOrderChanged);
         QObject::connect(layer, &OpenSWMMVisLayer::opacityChanged, this,
                          [this, layer]() { onLayerDataChanged(layer); });
         QObject::connect(layer, &OpenSWMMVisLayer::visibilityChanged, this,
