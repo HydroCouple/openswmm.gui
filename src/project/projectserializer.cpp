@@ -342,6 +342,8 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
 
     obj[kInpPath]       = toRelativePath(layer->modelFilePath(), oswpFile);
     obj[kEngineVersion] = pw->engineVersion();
+    if (!pw->meshGenerationOptions().isEmpty())
+        obj[QStringLiteral("meshGenerationOptions")] = pw->meshGenerationOptions();
 
     const QString notesHtml = pw->notesHtml();
     if (!notesHtml.isEmpty())
@@ -712,6 +714,8 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
                                       QStringList *warningsOut)
 {
     if (!pw) return false;
+
+    pw->setMeshGenerationOptions(sessionObj.value(QStringLiteral("meshGenerationOptions")).toObject());
 
     {
         QString error;

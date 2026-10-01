@@ -140,7 +140,8 @@ bool SizeField::build(const QRectF &bbox,
     // decides, the coarsening cap only bounds it): unseeded cells start at
     // maxSize in buildSizeGrid and are min'd with the terrain/region sizes.
     // Only a field with no size source at all is refused.
-    if (!haveSeed && !opt.terrainSizeAt && opt.regions.isEmpty())
+    if (!haveSeed && !opt.terrainSizeAt && opt.regions.isEmpty()
+        && !(std::isfinite(opt.maxSize) && opt.maxSize > 0.0))
         return false;
 
     m_near  = opt.nearSize;

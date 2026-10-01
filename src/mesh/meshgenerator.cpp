@@ -1657,6 +1657,10 @@ MeshResult MeshGenerator::generate() const
     for (const SteinerPoint &sp : m_steiners) cdtPoints.append(sp.xy);
     if (cdtPoints.size() < 3) return fail(QStringLiteral("MeshGenerator: too few points to triangulate."));
 
+    qint64 fixedCells=0;
+    for (const auto &patch:std::as_const(patches)) fixedCells+=patch.quads.size();
+    if (fixedCells>=m_opts.maxCells)
+        return fail(QStringLiteral("Structured feature cells exhaust the cell budget. Increase the budget or the feature spacing."));
     ConstrainedDelaunay cdt;
     QVector<int> pointVertex;
     if (!cdt.build(cdtPoints, &pointVertex))
@@ -1727,10 +1731,26 @@ MeshResult MeshGenerator::generate() const
         qo.minAngleDeg = std::clamp(m_opts.minAngleDeg, 0.0, 34.0);
         qo.maxInsertions = int(std::min(2.0e9, 8.0 * expected + 20.0 * cdtPoints.size() + 10000.0));
         qo.minEdge = kRefineFloor * hMin;   // a floor against cascades, well under the minimum cell size
+        qo.prioritizeQuality = m_opts.prioritizeQuality;
+        qo.maxTriangles = std::max(1,int(m_opts.maxCells-fixedCells));
+        qo.terrainError = m_refineHook.terrainError;
+        qo.terrainElevationAt = m_refineHook.terrainElevationAt;
+        qo.terrainTolerance = m_refineHook.terrainTolerance;
+        qo.terrainMinSpacing = qo.minEdge;
+        // Terrain may require far more cells than the coarse size estimate.
+        // The explicit cell budget remains the hard resource limit.
+        if (qo.terrainError) qo.maxInsertions = std::max(qo.maxInsertions,qo.maxTriangles);
         qo.cancelled = [&]() { progress(cdt.vertices().size()); return cancelled(); };
         const auto rep = cdt.refineQuality(qo);
         if (rep.cancelled || cancelled()) return fail(QStringLiteral("Cancelled."));
         m_stats.refineInserted = rep.inserted;
+        m_stats.sizeInserted = rep.sizeInsertions;
+        m_stats.qualityInserted = rep.qualityInsertions;
+        m_stats.terrainInserted = rep.terrainInsertions;
+        m_stats.segmentSplits = rep.segmentSplits;
+        m_stats.terrainUnresolved = rep.terrainUnresolved;
+        m_stats.terrainUnknown = rep.terrainUnknown;
+        m_stats.maxTerrainError = rep.maxTerrainError;
         // What the guarantee leaves out, counted: triangles under the bound
         // that are not the small-input-angle exemption (they rest on strip
         // edges, or on inputs closer than the floor).
@@ -1762,12 +1782,14 @@ MeshResult MeshGenerator::generate() const
 
     QVector<int> cdtToGlobal(cdt.vertices().size(), -1);
     QHash<QPair<qint64, qint64>, int> globalOfCoord;
-    auto addVertex = [&](const QPointF &xy) {
+    auto addVertex = [&](const QPointF &xy, double elevation = std::numeric_limits<double>::quiet_NaN()) {
         const auto key = coordKey(xy);
         const auto it = globalOfCoord.constFind(key);
         if (it != globalOfCoord.constEnd()) return it.value();
         MeshVertex v;
         v.xy = xy;
+        if (m_refineHook.terrainElevationAt)
+            v.z = std::isfinite(elevation) ? elevation : m_refineHook.terrainElevationAt(xy.x(),xy.y());
         v.marker = markerOf.value(key, 0);
         v.tag = m_vertexTagByMarker.value(v.marker);
         const int id = result.vertices.size();
@@ -1776,7 +1798,8 @@ MeshResult MeshGenerator::generate() const
         return id;
     };
     for (int v = 0; v < cdt.vertices().size(); ++v)
-        if (!cdt.isSuperVertex(v)) cdtToGlobal[v] = addVertex(cdt.vertices()[v]);
+        if (!cdt.isSuperVertex(v)) cdtToGlobal[v] = addVertex(cdt.vertices()[v],
+            v < cdt.terrainElevations().size() ? cdt.terrainElevations()[v] : std::numeric_limits<double>::quiet_NaN());
 
     QVector<int> cellOfCdtTriangle(cdt.triangles().size(), -1);
     for (int ti = 0; ti < cdt.triangles().size(); ++ti)
@@ -1860,6 +1883,8 @@ MeshResult MeshGenerator::generate() const
                 if (it != outIndex.constEnd()) { localToGlobal[k] = it.value(); continue; }
                 MeshVertex v;
                 v.xy = pm.xy[k];
+                if (m_refineHook.terrainElevationAt)
+                    v.z = m_refineHook.terrainElevationAt(v.xy.x(),v.xy.y());
                 localToGlobal[k] = result.vertices.size();
                 result.vertices.append(v);
                 outIndex.insert(keyOf(pm.xy[k]), localToGlobal[k]);
