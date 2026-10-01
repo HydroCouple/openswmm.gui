@@ -5,10 +5,12 @@
  * \license GPL-3.0-or-later
  *
  * Natural-neighbour (Sibson / Laplace) interpolation built on a Delaunay
- * triangulation of the seed points produced by the vendored Triangle
- * library.  See naturalnbinterpolator.h for the algorithm overview.
+ * triangulation of the seed points from the in-house kernel
+ * (mesh/meshcdt.h).  See naturalnbinterpolator.h for the algorithm overview.
  */
 #include "mesh/naturalnbinterpolator.h"
+
+#include "mesh/meshcdt.h"
 
 #include <QHash>
 
@@ -17,12 +19,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-
-extern "C" {
-#define TRILIBRARY   // exposes triangulate_safe() in triangle.h
-#include "triangle.h"
-#undef TRILIBRARY
-}
 
 namespace mesh {
 
@@ -36,16 +32,6 @@ constexpr double kOrientEps = 1e-12;   // collinearity / on-edge tolerance
 constexpr double kInCircEps = 1e-12;   // in-circle tolerance
 constexpr double kAreaEps   = 1e-15;   // degenerate stolen-area tolerance
 constexpr double kSeedEps   = 1e-12;   // query-coincident-with-seed tolerance
-
-void zeroIO(triangulateio &t) { std::memset(&t, 0, sizeof(t)); }
-
-void freeOutput(triangulateio &t)
-{
-    if (t.pointlist)       trifree(t.pointlist);
-    if (t.pointmarkerlist) trifree(t.pointmarkerlist);
-    if (t.trianglelist)    trifree(t.trianglelist);
-    if (t.neighborlist)    trifree(t.neighborlist);
-}
 
 // 2x signed area of triangle (a,b,c); > 0 when CCW.
 inline double orient2d(double ax, double ay, double bx, double by,
@@ -109,17 +95,6 @@ bool NaturalNeighbourInterpolator::build(const QVector<QPointF> &pts,
     if (n < 3)
         return setErr(QStringLiteral("need >= 3 unique seed points for natural neighbour"));
 
-    // Same first-block pool bound MeshGenerator applies, recomputed for this
-    // call's switch string: 'n' (neighbour list) forces Triangle's element
-    // size to 6*sizeof(triangle) + sizeof(int), so initializetrisubpools()
-    // asks for ~112 bytes per seed in ONE contiguous block. Unbounded, a
-    // large seed set turns into a multi-GB request with no diagnostic.
-    constexpr int kMaxSeeds = (2147483647 - 16) / 112;   // 19173962
-    if (n > kMaxSeeds)
-        return setErr(QStringLiteral(
-            "too many seed points for natural neighbour interpolation (%1 > %2)")
-            .arg(n).arg(kMaxSeeds));
-
     // ── Normalise to a local [0,~1] space for numeric conditioning ───────
     double minx = ux[0], miny = uy[0], maxx = ux[0], maxy = uy[0];
     for (int i = 1; i < n; ++i)
@@ -133,48 +108,44 @@ bool NaturalNeighbourInterpolator::build(const QVector<QPointF> &pts,
         return setErr(QStringLiteral("degenerate seed extent"));
     m_scale = scale;
 
-    // ── Triangulate the bare point set ───────────────────────────────────
-    triangulateio in, out;
-    zeroIO(in); zeroIO(out);
-    in.numberofpoints = n;
-    in.pointlist = static_cast<REAL *>(std::malloc(sizeof(REAL) * 2 * n));
-    if (!in.pointlist)
-        return setErr(QStringLiteral("out of memory"));
+    // ── Triangulate the bare point set (mesh/meshcdt.h) ──────────────────
+    QVector<QPointF> norm(n);
     for (int i = 0; i < n; ++i)
-    {
-        in.pointlist[2 * i + 0] = (ux[i] - m_ox) / m_scale;
-        in.pointlist[2 * i + 1] = (uy[i] - m_oy) / m_scale;
-    }
-
-    // z = zero-based, n = neighbour list, Q = quiet.
-    //
-    // NOT 'N': that switch suppresses Triangle's node output, which (per
-    // triangle.h) leaves out.pointlist uninitialised — the copy loop below
-    // then dereferenced NULL and crashed the mesh pipeline on every valid
-    // seed set.  It was here on a misreading of 'N' as "no node markers"
-    // (that is 'B', for boundary markers, which this code never reads).
-    char sw[] = "znQ";
-    const int triErr = triangulate_safe(sw, &in, &out, nullptr);
-    if (triErr != 0 || out.numberoftriangles <= 0 || out.numberofcorners != 3)
-    {
-        freeOutput(out);
-        std::free(in.pointlist);
-        return setErr(QStringLiteral("Triangle failed (collinear or too few seeds)"));
-    }
+        norm[i] = QPointF((ux[i] - m_ox) / m_scale, (uy[i] - m_oy) / m_scale);
+    ConstrainedDelaunay cdt;
+    QVector<int> vertexOf;
+    if (!cdt.build(norm, &vertexOf))
+        return setErr(QStringLiteral("Delaunay failed (collinear or too few seeds): %1").arg(cdt.errorMsg()));
+    for (int i = 0; i < n; ++i)
+        if (vertexOf[i] != i)
+            return setErr(QStringLiteral("coincident seeds after normalisation"));
+    cdt.removeSuperTriangles();
 
     // ── Copy into owned arrays (order preserved → z aligns by index) ─────
-    const int np = out.numberofpoints;
-    m_px.resize(np); m_py.resize(np); m_pz.assign(uz.begin(), uz.end());
-    m_pz.resize(np, 0.0);  // np should equal n for a pure point triangulation
-    for (int i = 0; i < np; ++i)
-    {
-        m_px[i] = out.pointlist[2 * i + 0];
-        m_py[i] = out.pointlist[2 * i + 1];
-    }
+    m_px.resize(n); m_py.resize(n); m_pz.assign(uz.begin(), uz.end());
+    for (int i = 0; i < n; ++i) { m_px[i] = norm[i].x(); m_py[i] = norm[i].y(); }
 
-    m_numTri = out.numberoftriangles;
-    m_tris.assign(out.trianglelist, out.trianglelist + 3 * m_numTri);
-    m_nbrs.assign(out.neighborlist, out.neighborlist + 3 * m_numTri);
+    // Compact the live triangles; neighbour = across the edge opposite
+    // corner i (the convention the walk and the cavity search rely on).
+    const auto &T = cdt.triangles();
+    std::vector<int> newIndex(T.size(), -1);
+    m_numTri = 0;
+    for (int t = 0; t < T.size(); ++t) if (T[t].alive) newIndex[t] = m_numTri++;
+    if (m_numTri <= 0)
+        return setErr(QStringLiteral("Delaunay produced no triangles (collinear seeds)"));
+    m_tris.resize(3 * m_numTri);
+    m_nbrs.resize(3 * m_numTri);
+    for (int t = 0; t < T.size(); ++t)
+    {
+        if (!T[t].alive) continue;
+        const int k = newIndex[t];
+        for (int i = 0; i < 3; ++i)
+        {
+            m_tris[3 * k + i] = T[t].v[i];
+            const int a = T[t].adj[i];
+            m_nbrs[3 * k + i] = (a >= 0 && T[a].alive) ? newIndex[a] : -1;
+        }
+    }
 
     // Precompute circumcenters (NaN when degenerate).
     m_ccx.resize(m_numTri); m_ccy.resize(m_numTri);
@@ -187,9 +158,6 @@ bool NaturalNeighbourInterpolator::build(const QVector<QPointF> &pts,
         else
         { m_ccx[t] = kNaN; m_ccy[t] = kNaN; }
     }
-
-    freeOutput(out);
-    std::free(in.pointlist);
 
     m_valid = true;
     return true;

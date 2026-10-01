@@ -22,6 +22,7 @@
 #include <QTest>
 #include <gdal_priv.h>
 #include <ogr_spatialref.h>
+#include <cmath>
 #include <vector>
 #include <memory>
 
@@ -84,7 +85,6 @@ class TestMeshTerrainPipeline : public QObject
         inputs.genOpts.maxArea = 64;
         inputs.meshLinearUnitName = "metre";
         inputs.mapNodesAfterGen = false;
-        inputs.thinnerOpts.gridSpacing = 2;
         inputs.burnEnabled = true;
         inputs.burnOptions.forceHalfWidth = 1.0;
         inputs.burnOptions.maxHalfWidth = 4.0;
@@ -110,7 +110,6 @@ class TestMeshTerrainPipeline : public QObject
         if (!prepareBurnFixture(dir, inputs, true)) return false;
         inputs.burnEnabled = false;
         inputs.dtmPath.clear();
-        inputs.genOpts.minAngle = 0;
         OGRSpatialReference srs;
         if (srs.importFromEPSG(3857) != OGRERR_NONE) return false;
         char *wkt = nullptr;
@@ -163,8 +162,7 @@ private slots:
         const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT") + "/bank_pair/" + QTest::currentDataTag());
         Inputs inputs;
         QVERIFY(prepareBankFixture(dir, inputs, variable));
-        inputs.quadEverywhere = backgroundQuads;
-        inputs.quadEverywhereSpacing = 8;
+        inputs.genOpts.trianglesOnly = !backgroundQuads;
         inputs.outputMode = mesh::MeshOutputMode::External;
         inputs.meshOutputPath = dir.filePath("pending.2dm");
         QFile saved(inputs.inpPath); QVERIFY(saved.open(QIODevice::ReadOnly));
@@ -211,68 +209,68 @@ private slots:
         QVERIFY(!QFileInfo::exists(inputs.meshOutputPath));
     }
 
-    void directionalMappedLayer_data()
+    void quadRegionLayer_data()
     {
         QTest::addColumn<QString>("attributes");
-        QTest::addColumn<bool>("valid");
-        QTest::newRow("directional") << QString("\"quad_h_along\":6,\"quad_h_across\":2,\"quad_axis\":0") << true;
-        QTest::newRow("partial") << QString("\"quad_h_along\":6") << false;
-        QTest::newRow("text-spacing") << QString("\"quad_h_along\":\"six\",\"quad_h_across\":2,\"quad_axis\":0") << false;
-        QTest::newRow("null-spacing") << QString("\"quad_h_along\":6,\"quad_h_across\":null,\"quad_axis\":0") << false;
-        QTest::newRow("ambiguous-axis") << QString("\"quad_h_along\":6,\"quad_h_across\":2,\"quad_axis\":45") << false;
-        for (const char *name : {"missing-source-crs", "missing-source-file", "quad-background", "empty-multipart"})
-            QTest::newRow(name) << QString("\"quad_h_along\":6,\"quad_h_across\":2,\"quad_axis\":0")
-                               << (QString::fromLatin1(name) == "quad-background");
-        QTest::newRow("all-null") << QString("\"quad_h_along\":null,\"quad_h_across\":null,\"quad_axis\":null") << true;
+        QTest::addColumn<bool>("tagged");
+        QTest::newRow("spacing-and-angle") << QString("\"quad_spacing\":2,\"quad_angle\":0") << true;
+        QTest::newRow("spacing-only") << QString("\"quad_spacing\":2") << true;
+        QTest::newRow("text-spacing") << QString("\"quad_spacing\":\"two\"") << true;   // unreadable spacing = no override
+        QTest::newRow("all-null") << QString("\"quad_spacing\":null,\"quad_angle\":null") << true;
+        QTest::newRow("missing-source-crs") << QString("\"quad_spacing\":2") << true;    // layer already in mesh CRS
+        QTest::newRow("missing-source-file") << QString("\"quad_spacing\":2") << false;
+        QTest::newRow("empty-multipart") << QString("\"quad_spacing\":2") << false;
+        QTest::newRow("quad-background") << QString("\"quad_spacing\":2") << true;
     }
 
-    void directionalMappedLayer()
+    /*! A quad-region layer carries a spacing, an optional grid angle and a
+     *  tag (MESH_OVERHAUL_PLAN_2026-09-29.md §3): cells inside the ring take
+     *  the tag, a readable spacing refines them, and an unreadable or
+     *  missing layer leaves the mesh untagged rather than failing it. */
+    void quadRegionLayer()
     {
         QFETCH(QString, attributes);
-        QFETCH(bool, valid);
+        QFETCH(bool, tagged);
         Inputs inputs;
-        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT") + "/directional_mapped/" + QTest::currentDataTag());
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT") + "/quad_region_layer/" + QTest::currentDataTag());
         QVERIFY(prepareCorridorFixture(dir, inputs));
         inputs.corridorSources.clear();
-        const QString path = dir.absoluteFilePath("mapped.geojson");
+        const QString path = dir.absoluteFilePath("regions.geojson");
         const QString scenario = QString::fromLatin1(QTest::currentDataTag());
-        QByteArray json = QString(R"({"type":"FeatureCollection","name":"regions","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"features":[{"type":"Feature","properties":{"quad_mode":"mapped","tag":"directed",%1},"geometry":{"type":"Polygon","coordinates":[[[4,12],[28,12],[28,20],[4,20],[4,12]]]}}]})").arg(attributes).toUtf8();
+        QByteArray json = QString(R"({"type":"FeatureCollection","name":"regions","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"features":[{"type":"Feature","properties":{"tag":"directed",%1},"geometry":{"type":"Polygon","coordinates":[[[4,12],[28,12],[28,20],[4,20],[4,12]]]}}]})").arg(attributes).toUtf8();
         if (scenario == "empty-multipart")
             json.replace("\"type\":\"Polygon\",\"coordinates\":[[[4,12],[28,12],[28,20],[4,20],[4,12]]]",
                          "\"type\":\"MultiPolygon\",\"coordinates\":[]");
         QVERIFY(writeBytes(path, json));
-        inputs.quadRegionDefaults.spacing = 2;
         inputs.quadRegionLayers = {{path, "regions", inputs.meshCRSWkt}};
         if (scenario == "missing-source-crs") inputs.quadRegionLayers[0].crsWkt.clear();
         if (scenario == "missing-source-file") inputs.quadRegionLayers[0].path += ".missing";
-        if (scenario == "quad-background") {
-            inputs.quadEverywhere = true;
-            inputs.quadEverywhereSpacing = 8;
-        }
+        inputs.genOpts.trianglesOnly = scenario != "quad-background";
         const auto generated = run(inputs);
-        if (!valid) {
-            QVERIFY2(!generated.ok, "An explicit invalid directional request must not silently generate an isotropic mesh.");
-            QVERIFY(!generated.errorMsg.isEmpty());
-            QVERIFY(!QFileInfo::exists(dir.absoluteFilePath("model.2dm")));
-            return;
-        }
         QVERIFY2(generated.ok, qPrintable(generated.errorMsg));
         int cells = 0;
-        double totalArea = 0;
+        double totalArea = 0, taggedArea = 0;
         for (const auto &cell : generated.meshResult.triangles) {
-            totalArea += mesh::cellGeom(generated.meshResult.vertices, cell).area;
+            const double area = mesh::cellGeom(generated.meshResult.vertices, cell).area;
+            totalArea += area;
             if (cell.tag != "directed") continue;
-            QVERIFY(cell.isQuad());
             ++cells;
-            const QPointF a = generated.meshResult.vertices[cell.v0].xy;
-            const QPointF b = generated.meshResult.vertices[cell.v1].xy;
-            const QPointF c = generated.meshResult.vertices[cell.v2].xy;
-            const double ab = QLineF(a,b).length(), bc = QLineF(b,c).length();
-            QVERIFY(std::abs(std::max(ab,bc) - (scenario == "all-null" ? 2.0 : 6.0)) < 1e-8);
-            QVERIFY(std::abs(std::min(ab,bc) - 2.0) < 1e-8);
+            taggedArea += area;
         }
-        QCOMPARE(cells, scenario == "all-null" ? 48 : 16);
         QVERIFY(std::abs(totalArea - 1024.0) < 1e-7);
+        if (!tagged) {
+            QCOMPARE(cells, 0);
+        } else {
+            QVERIFY(cells > 0);
+            QVERIFY2(std::abs(taggedArea - 192.0) < 1e-7,
+                     qPrintable(QString("tagged area %1, expected the 24x8 ring").arg(taggedArea, 0, 'g', 17)));
+            // A readable spacing of 2 refines the ring well below the
+            // background (maxArea 64): mean tagged cell area under 8.
+            const bool refined = scenario != "text-spacing" && scenario != "all-null";
+            const double meanArea = taggedArea / cells;
+            if (refined) QVERIFY2(meanArea < 8.0, qPrintable(QString("mean tagged area %1").arg(meanArea)));
+            else QVERIFY2(meanArea > 8.0, qPrintable(QString("mean tagged area %1").arg(meanArea)));
+        }
         QVERIFY(!QFileInfo::exists(generated.meshPath));
     }
 
@@ -316,8 +314,7 @@ private slots:
         const QDir dir(root + "/gis_corridor/" + QTest::currentDataTag());
         Inputs inputs;
         QVERIFY(prepareCorridorFixture(dir, inputs));
-        inputs.quadEverywhere = backgroundQuads;
-        inputs.quadEverywhereSpacing = 8;
+        inputs.genOpts.trianglesOnly = !backgroundQuads;
         const auto generated = run(inputs);
         QVERIFY2(generated.ok, qPrintable(generated.errorMsg));
         QVERIFY(!generated.burnRan);
@@ -470,15 +467,14 @@ private slots:
         const auto originalSource = sourceBefore.readAll();
         sourceBefore.close();
         if (laterFailure) {
-            // The burn uses its own raster resolution. Terrain thinning later
-            // rejects this width before allocation, after both burn outputs exist.
-            inputs.doThinning = true;
-            inputs.thinnerOpts.gridSpacing = 1e-12;
+            // The generator rejects a missing cell size after both burn
+            // outputs exist.
+            inputs.genOpts.maxArea = 0.0;
         }
         auto generated = run(inputs);
         if (laterFailure) {
             QVERIFY(!generated.ok);
-            QVERIFY2(generated.errorMsg.contains("grid is too wide"), qPrintable(generated.errorMsg));
+            QVERIFY2(generated.errorMsg.contains("no cell size"), qPrintable(generated.errorMsg));
             QVERIFY(!generated.generatedArtifacts);
             QVERIFY(dir.entryList({".openswmm-generation-*"},
                                   QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
@@ -753,16 +749,20 @@ private slots:
         QCOMPARE(generated.meshPath, external ? finalMesh : QString());
     }
 
-    void retainedTerrainControlsQuadSizing_data()
+    void terrainToleranceControlsSizing_data()
     {
-        QTest::addColumn<bool>("thinning");
-        QTest::newRow("raw-sampling") << false;
-        QTest::newRow("thinner-sampling") << true;
+        QTest::addColumn<bool>("toleranceOn");
+        QTest::newRow("tolerance-off") << false;
+        QTest::newRow("tolerance-on") << true;
     }
 
-    void retainedTerrainControlsQuadSizing()
+    /*! The terrain-error size term (MESH_OVERHAUL_PLAN_2026-09-29.md Stage
+     *  2): with a tolerance set, a rippled DEM refines the mesh; with the
+     *  tolerance off the same DEM leaves the cell count alone. The cached
+     *  boundary/terrain stages must reproduce the refined mesh exactly. */
+    void terrainToleranceControlsSizing()
     {
-        QFETCH(bool, thinning);
+        QFETCH(bool, toleranceOn);
         const QString root = qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT",
             QDir::current().filePath("terrain_pipeline_output"));
         const QDir dir(root + "/" + QString::fromLatin1(QTest::currentDataTag()));
@@ -770,12 +770,15 @@ private slots:
         GDALAllRegister();
         auto *driver = GetGDALDriverManager()->GetDriverByName("GTiff");
         QVERIFY(driver);
-        const QString raster = dir.filePath("flat.tif");
+        const QString raster = dir.filePath("ripple.tif");
         auto *dataset = driver->Create(raster.toUtf8().constData(), 40, 40, 1, GDT_Float32, nullptr);
         QVERIFY(dataset);
         double transform[] = {-4, 1, 0, 36, 0, -1};
         QCOMPARE(dataset->SetGeoTransform(transform), CE_None);
         std::vector<float> values(1600, 0.0f);
+        for (int r = 0; r < 40; ++r)
+            for (int c = 0; c < 40; ++c)
+                values[r * 40 + c] = 2.0f * std::sin(0.8 * c) * std::sin(0.8 * r);   // ~4 px ripples
         const auto writeResult = dataset->GetRasterBand(1)->RasterIO(
             GF_Write, 0, 0, 40, 40, values.data(), 40, 40, GDT_Float32, 0, 0);
         GDALClose(dataset);
@@ -785,7 +788,7 @@ private slots:
         inputs.inpPath = dir.filePath("model.inp");
         QFile model(inputs.inpPath);
         QVERIFY(model.open(QIODevice::WriteOnly));
-        const QByteArray deck("[TITLE]\nTerrain handoff fixture\n[OPTIONS]\nFLOW_UNITS CMS\n");
+        const QByteArray deck("[TITLE]\nTerrain tolerance fixture\n[OPTIONS]\nFLOW_UNITS CMS\n");
         QCOMPARE(model.write(deck), deck.size());
         model.close();
         inputs.modelExtent = MapExtent(0, 0, 32, 32);
@@ -793,27 +796,28 @@ private slots:
         inputs.auxPoints = {{{16, 16}, 0.0, true}}; // valid flat elevation fallback without a DEM
         inputs.meshOutputPath = dir.filePath("coarse.2dm");
         inputs.meshLinearUnitName = "metre";
-        inputs.quadEverywhere = true;
-        inputs.sizeGradation = 0.25;
-        inputs.genOpts.maxArea = 64;
+        inputs.cellSize = 8.0;
+        inputs.coarsenFactor = 1.0;
+        inputs.sizeRatio = 1.5;
+        inputs.minCellSize = 1.0;
+        inputs.terrainTolerance = toleranceOn ? 0.2 : 0.0;
+        inputs.genOpts.maxArea = 0.4330127018922193 * 64.0;
+        inputs.genOpts.minCellSize = 1.0;
         inputs.mapNodesAfterGen = false;
-        inputs.doThinning = thinning;
-        inputs.thinnerOpts.gridSpacing = 1;
-        inputs.thinnerOpts.useMinSpacing = false;
-        inputs.thinnerOpts.normalDotThreshold = 2; // retain the flat sampling lattice
         const auto coarse = run(inputs);
         QVERIFY2(coarse.ok, qPrintable(coarse.errorMsg));
         inputs.dtmPath = raster;
         inputs.meshOutputPath = dir.filePath("terrain.2dm");
         const auto terrain = run(inputs);
         QVERIFY2(terrain.ok, qPrintable(terrain.errorMsg));
-        QVERIFY2(terrain.meshResult.triangles.size() > 2 * coarse.meshResult.triangles.size(),
-            qPrintable(QString("Terrain handoff did not refine quads: coarse=%1 terrain=%2")
-                .arg(coarse.meshResult.triangles.size()).arg(terrain.meshResult.triangles.size())));
-        QVERIFY(terrain.meshResult.quadCount() > coarse.meshResult.quadCount());
+        if (toleranceOn)
+            QVERIFY2(terrain.meshResult.triangles.size() > 2 * coarse.meshResult.triangles.size(),
+                qPrintable(QString("Terrain tolerance did not refine: coarse=%1 terrain=%2")
+                    .arg(coarse.meshResult.triangles.size()).arg(terrain.meshResult.triangles.size())));
+        else
+            QCOMPARE(terrain.meshResult.triangles.size(), coarse.meshResult.triangles.size());
 
-        // Same project/raster/options exercises the Stage-B cache hit. It
-        // must still feed accepted terrain to sizing after candidate filtering.
+        // Same project/raster/options exercises the stage-cache hit.
         inputs.meshOutputPath = dir.filePath("cached.2dm");
         const auto cached = run(inputs);
         QVERIFY2(cached.ok, qPrintable(cached.errorMsg));

@@ -88,6 +88,36 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- **Mesh generation rebuilt on a quadtree core with a constrained-Delaunay fringe**
+  (`workplans/MESH_OVERHAUL_PLAN_2026-09-29.md`). The size field is now one graded function
+  h(x) = clamp(min(cell size + (ratio − 1)·d, terrain-error size, region size), min cell,
+  cell size × coarsen factor), gradation-limited so neighbouring cells never differ by more
+  than the size ratio at the fine scale, and the core is a 2:1-balanced quadtree sized by
+  that field — so the longest-edge ratio between neighbouring core cells is bounded at 2 by
+  construction, and the fringe between the core and the constraints (domain rings, holes,
+  conduits, breaklines, corridors) is a constrained-Delaunay triangulation refined with size
+  hints so it grades into the core within 2.1. Terrain detail enters through an error field
+  (`mesh::TerrainSizeField`: a dyadic block pyramid over the DEM keeps a block only while it
+  deviates from its bilinear plane by less than the terrain tolerance) rather than through a
+  thinned point cloud, so a 1 M-cell mesh builds in a few seconds and the result no longer
+  depends on the thinner's sampling. The Generate Mesh dialog's Quality tab is replaced by
+  eleven controls in four groups — Resolution (cell size, coarsen factor, size ratio, minimum
+  cell size, terrain tolerance), Shape (quads or triangles, grid angle, quad-region layer and
+  subcatchment override), Corridors, and Boundaries (trim turn angle, trim deviation) — and
+  the matching 2D Defaults preferences migrate the old MeshMaxArea / MeshThinningOn /
+  MeshSimplifyEpsM values. Cell shape is a single choice: quads (the quadtree plus paired
+  fringe triangles) or triangles everywhere.
+- **Polygon boundaries can be trimmed by straightness** — `mesh::trimByStraightness` drops a
+  vertex when the turn there is below the trim angle and the chord stays within the trim
+  deviation of the original line, on domain rings, hole rings and auxiliary breaklines; the
+  deviation is measured against the original vertices so repeated removals cannot drift, and
+  vertices shared with other constraints are protected. Coupling lines (conduits) are never
+  trimmed, only resampled at the minimum cell size.
+- **Triangle (Shewchuk) is no longer vendored.** Its role is taken by an in-tree constrained
+  Delaunay kernel (`mesh::ConstrainedDelaunay`, exact orientation and in-circle tests from
+  Shewchuk's public-domain `predicates.c`, the only remaining vendored file), which also
+  backs the natural-neighbour interpolator. The About dialog credits the predicates instead.
+
 - **The canvas layer stack is kept grouped by category and the order is saved per project** —
   `MapCanvas::addLayer` inserts a new layer at the top of its own category group instead of the
   top of the stack, so the tree is an exact picture of the paint order; the category order moved
@@ -323,6 +353,15 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Removed
 
+- **The Triangle library, the DTM thinner and the quad-region option set** — `vendor/triangle`,
+  `mesh/dtmthinner`, `mesh/pslgminsize`, `mesh/meshminsizecleanup`, `mesh/meshcrossfield`,
+  `mesh/meshquadpoints`, `mesh/meshquadmerge`, `mesh/meshsubmap` and `mesh/trirefinehook`,
+  with their tests and manual harnesses. Quad regions keep a spacing, an alignment angle and
+  a tag; the Mapped / Submapped / Free / TrianglesOnly modes, the quad-everywhere lattice
+  controls, the minimum-size policy, the sub-scale cleanup and the triangle-pair merge are
+  gone, as is the terrain-density size input. The mesh stage cache format is bumped to 3 (no
+  terrain stage). `mesh::DTMRaster` keeps the thinner's raster sampling half for elevation
+  readback.
 - **The four legacy EPA-derived documentation trees** — `docs/user-guide/`, `docs/reference/`,
   `docs/basic-tutorial/` and `docs/inlet-tutorial/`: 179 tracked files, ~165 of them Delphi-era
   screenshots of EPA SWMM 5.x. They had already been excluded from the Doxygen build and were dark

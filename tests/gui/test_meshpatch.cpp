@@ -23,7 +23,7 @@
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshgenerator.h"
 #include "mesh/meshpatch.h"
-#include "mesh/meshquadmerge.h"
+#include "mesh/meshedgekey.h"
 #include "mesh/meshquadquality.h"
 #include "mesh/meshquadregion.h"
 #include "mesh/meshresult.h"
@@ -698,9 +698,7 @@ private slots:
     void generator_patchStitched()
     {
         MeshGenerator g;
-        // Patches make the generator emit 'Y' (no Steiner points on the mesh
-        // boundary), so give the outline a vertex every 10 units — the same
-        // densification the dialog's "max boundary edge length" performs.
+        // Give the outline a vertex every 10 units, roughly the cell size.
         QPolygonF dom;
         for (int i = 0; i < 10; ++i) dom << QPointF(10 * i, 0);
         for (int i = 0; i < 10; ++i) dom << QPointF(100, 10 * i);
@@ -717,7 +715,8 @@ private slots:
         g.addPatch(pm);
 
         GenerationOptions o;
-        o.maxArea = 200.0; o.minAngle = 28.0;
+        o.maxArea = 200.0;
+        o.trianglesOnly = true;   // so the patch supplies the only quads
         g.setOptions(o);
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
@@ -787,50 +786,6 @@ private slots:
         for (const MeshEdge &e : r.boundaryEdges) bset.insert(edgeKey(e.v0, e.v1));
         for (int k = 0; k < ring.size(); ++k)
             QVERIFY(bset.contains(edgeKey(indexAt(ring[k]), indexAt(ring[(k + 1) % ring.size()]))));
-    }
-
-    /*! Generator option: merging triangle pairs produces quads that never
-     *  straddle a constrained edge (domain boundary or breakline). */
-    void generator_mergeTrianglePairs()
-    {
-        MeshGenerator g;
-        QPolygonF dom;
-        dom << QPointF(0, 0) << QPointF(100, 0) << QPointF(100, 100) << QPointF(0, 100);
-        g.setDomain(dom);
-        ConstraintSegment brk;
-        brk.path << QPointF(0, 50) << QPointF(100, 50);
-        brk.marker = 7; brk.tag = QStringLiteral("crest");
-        g.addConstraintSegment(brk);
-        GenerationOptions o;
-        o.maxArea = 100.0; o.minAngle = 30.0;
-        o.mergeTrianglePairs = true;
-        // QUAD_MESHING_REDESIGN_PLAN §5 tightened the merge defaults to
-        // 60°/120°, SJ >= 0.866, aspect <= 2 — a near-equilateral Delaunay
-        // mesh (pairs form ~60/120 rhombi) can legitimately yield zero quads
-        // under them. This test is about the no-straddle rule, so relax the
-        // shape bounds to the previous 45°/135° window.
-        o.quadMerge.minAngleDeg = 45.0;
-        o.quadMerge.maxAngleDeg = 135.0;
-        o.quadMerge.minScaledJacobian = 0.7;
-        o.quadMerge.maxAspect = 0.0;
-        g.setOptions(o);
-        const MeshResult r = g.generate();
-        QVERIFY2(r.ok, qPrintable(r.errorMsg));
-        QVERIFY(r.quadCount() > 0);
-
-        QSet<QPair<int, int>> locked;
-        for (const MeshEdge &e : r.boundaryEdges) locked.insert(edgeKey(e.v0, e.v1));
-        QVERIFY(!locked.isEmpty());
-        bool seenQuad = false;
-        for (const MeshTriangle &c : r.triangles)
-        {
-            if (c.isQuad()) seenQuad = true; else QVERIFY(!seenQuad);
-            if (!c.isQuad()) continue;
-            QVERIFY(cellIsConvex(r.vertices, c));
-            // The merged-away edge is a diagonal of the quad.
-            QVERIFY(!locked.contains(edgeKey(c.v0, c.v2)));
-            QVERIFY(!locked.contains(edgeKey(c.v1, c.v3)));
-        }
     }
 };
 

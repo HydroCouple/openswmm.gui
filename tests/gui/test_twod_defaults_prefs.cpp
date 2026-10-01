@@ -68,29 +68,26 @@ void TestTwoDDefaultsPrefs::compiledDefaultsPinTheContract()
     QCOMPARE(d.rainfallMode, QStringLiteral("NATURAL_NEIGHBOUR"));
     QVERIFY(!d.report2D);
 
-    // Mesh-generation seeds — the historical seedDefaults() values.
-    QCOMPARE(d.meshMinAngleDeg, 33.0);
-    QCOMPARE(d.meshMaxArea, 0.0);
-    QCOMPARE(d.meshMaxSteiner, -1);
+    // Mesh-generation seeds — the overhaul's option surface
+    // (MESH_OVERHAUL_PLAN_2026-09-29.md §3: 11 controls in physical units).
+    QCOMPARE(d.meshCellSizeM, 0.0);            // 0 = derive from extent
+    QCOMPARE(d.meshCoarsenFactor, 4.0);
+    QCOMPARE(d.meshSizeRatio, 1.5);
+    QCOMPARE(d.meshMinCellSizeM, 0.0);         // 0 = cell size / 4
+    QCOMPARE(d.meshTerrainToleranceM, 0.0);    // 0 = off
+    QVERIFY(!d.meshTrianglesOnly);             // quads where possible
+    QCOMPARE(d.meshTrimTurnDeg, 5.0);
+    QCOMPARE(d.meshTrimDeviationM, 0.0);       // 0 = cell size / 10
     QCOMPARE(d.meshIdwPower, 2.0);
-    QCOMPARE(d.meshSimplifyEpsM, 0.1);
-    QCOMPARE(d.meshSnapEpsM, 0.01);
     QCOMPARE(d.meshNodeFlattenRadM, 5.0);
     // 2026-09-11 decision: nodes pinned at rim elevation with the minimum
-    // separation on; thinning 0.75 / 1 pass; Poisson-disk spacing 15 m on.
+    // separation on.
     QVERIFY(d.meshNodesAsVertices);
     QVERIFY(d.meshNodesUseRim);
     QVERIFY(d.meshMinNodeSepOn);
     QCOMPARE(d.meshMinNodeSepM, 2.0);
-    QVERIFY(d.meshThinningOn);
-    QCOMPARE(d.meshThinningTol, 0.75);
-    QCOMPARE(d.meshThinningPasses, 1);
-    QVERIFY(d.meshMinSpacingOn);
-    QCOMPARE(d.meshMinSpacingM, 15.0);
-    QCOMPARE(d.meshBoundaryBufferM, 0.0);
-    QVERIFY(!d.meshMaxBoundaryEdgeOn);
-    QCOMPARE(d.meshMaxBoundaryEdgeM, 20.0);
     QCOMPARE(d.meshManningsN, 0.035);
+    QCOMPARE(d.meshInitDepth, 0.0);
     QVERIFY(d.meshOutputExternal);
 }
 
@@ -117,26 +114,22 @@ void TestTwoDDefaultsPrefs::roundTripPersistsAllFields()
     d.couplingAreaAuto = true;
     d.rainfallMode = QStringLiteral("SYSTEM");
     d.report2D = true;
-    d.meshMinAngleDeg = 26.0;
-    d.meshMaxArea = 50.0;
-    d.meshMaxSteiner = 100000;
+    d.meshCellSizeM = 12.5;
+    d.meshCoarsenFactor = 6.0;
+    d.meshSizeRatio = 1.3;
+    d.meshMinCellSizeM = 2.5;
+    d.meshTerrainToleranceM = 0.25;
+    d.meshTrianglesOnly = true;
+    d.meshTrimTurnDeg = 8.0;
+    d.meshTrimDeviationM = 0.4;
     d.meshIdwPower = 3.0;
-    d.meshSimplifyEpsM = 0.2;
-    d.meshSnapEpsM = 0.02;
     d.meshNodeFlattenRadM = 8.0;
     d.meshNodesAsVertices = false;
     d.meshNodesUseRim = false;
     d.meshMinNodeSepOn = false;
     d.meshMinNodeSepM = 3.0;
-    d.meshThinningOn = false;
-    d.meshThinningTol = 0.5;
-    d.meshThinningPasses = 5;
-    d.meshMinSpacingOn = false;
-    d.meshMinSpacingM = 7.5;
-    d.meshBoundaryBufferM = 4.0;
-    d.meshMaxBoundaryEdgeOn = true;
-    d.meshMaxBoundaryEdgeM = 30.0;
     d.meshManningsN = 0.05;
+    d.meshInitDepth = 0.1;
     d.meshOutputExternal = false;
 
     p->setTwoDDefaults(d);
@@ -160,26 +153,22 @@ void TestTwoDDefaultsPrefs::roundTripPersistsAllFields()
     QCOMPARE(r.couplingAreaAuto, d.couplingAreaAuto);
     QCOMPARE(r.rainfallMode, d.rainfallMode);
     QCOMPARE(r.report2D, d.report2D);
-    QCOMPARE(r.meshMinAngleDeg, d.meshMinAngleDeg);
-    QCOMPARE(r.meshMaxArea, d.meshMaxArea);
-    QCOMPARE(r.meshMaxSteiner, d.meshMaxSteiner);
+    QCOMPARE(r.meshCellSizeM, d.meshCellSizeM);
+    QCOMPARE(r.meshCoarsenFactor, d.meshCoarsenFactor);
+    QCOMPARE(r.meshSizeRatio, d.meshSizeRatio);
+    QCOMPARE(r.meshMinCellSizeM, d.meshMinCellSizeM);
+    QCOMPARE(r.meshTerrainToleranceM, d.meshTerrainToleranceM);
+    QCOMPARE(r.meshTrianglesOnly, d.meshTrianglesOnly);
+    QCOMPARE(r.meshTrimTurnDeg, d.meshTrimTurnDeg);
+    QCOMPARE(r.meshTrimDeviationM, d.meshTrimDeviationM);
     QCOMPARE(r.meshIdwPower, d.meshIdwPower);
-    QCOMPARE(r.meshSimplifyEpsM, d.meshSimplifyEpsM);
-    QCOMPARE(r.meshSnapEpsM, d.meshSnapEpsM);
     QCOMPARE(r.meshNodeFlattenRadM, d.meshNodeFlattenRadM);
     QCOMPARE(r.meshNodesAsVertices, d.meshNodesAsVertices);
     QCOMPARE(r.meshNodesUseRim, d.meshNodesUseRim);
     QCOMPARE(r.meshMinNodeSepOn, d.meshMinNodeSepOn);
     QCOMPARE(r.meshMinNodeSepM, d.meshMinNodeSepM);
-    QCOMPARE(r.meshThinningOn, d.meshThinningOn);
-    QCOMPARE(r.meshThinningTol, d.meshThinningTol);
-    QCOMPARE(r.meshThinningPasses, d.meshThinningPasses);
-    QCOMPARE(r.meshMinSpacingOn, d.meshMinSpacingOn);
-    QCOMPARE(r.meshMinSpacingM, d.meshMinSpacingM);
-    QCOMPARE(r.meshBoundaryBufferM, d.meshBoundaryBufferM);
-    QCOMPARE(r.meshMaxBoundaryEdgeOn, d.meshMaxBoundaryEdgeOn);
-    QCOMPARE(r.meshMaxBoundaryEdgeM, d.meshMaxBoundaryEdgeM);
     QCOMPARE(r.meshManningsN, d.meshManningsN);
+    QCOMPARE(r.meshInitDepth, d.meshInitDepth);
     QCOMPARE(r.meshOutputExternal, d.meshOutputExternal);
 
     // Restore compiled-in defaults so later tests see a clean slate.

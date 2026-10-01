@@ -4,7 +4,7 @@
     </qresource>
     <qresource prefix="/licenses">
         <file alias="openswmmengine.txt">licenses/openswmmengine.txt</file>
-        <file alias="triangle.txt">licenses/triangle.txt</file>
+        <file alias="predicates.txt">licenses/predicates.txt</file>
         <file alias="qt6.txt">licenses/qt6.txt</file>
         <file alias="qpropertymodel.txt">licenses/qpropertymodel.txt</file>
         <file alias="gdal.txt">licenses/gdal.txt</file>

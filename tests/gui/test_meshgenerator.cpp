@@ -57,17 +57,18 @@ private slots:
         QVERIFY(!r.errorMsg.isEmpty());
     }
 
-    /*! Trivial 100×100 square: any quality min angle should give ≥2 tris. */
+    /*! Trivial 100×100 square at a cell size larger than the square: the
+     *  quadtree core keeps nothing and the fringe covers it with a few cells. */
     void unitSquare_hasTriangles()
     {
         MeshGenerator g;
         QPolygonF dom;
         dom << QPointF(0,0) << QPointF(100,0) << QPointF(100,100) << QPointF(0,100);
         g.setDomain(dom);
-        g.setOptions({.maxArea = 5000.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
-        QVERIFY(r.triangles.size() >= 2);
+        QVERIFY(!r.triangles.isEmpty());
         QVERIFY(r.vertices.size() >= 4);
     }
 
@@ -130,7 +131,7 @@ private slots:
                 << QPointF(100,100) << QPointF(0,100);
             g.setDomain(dom);
             g.addSteinerPoint({QPointF(50.0, 50.0), 9, "J3"});
-            g.setOptions({.maxArea = 500.0, .minAngle = 28.0});
+            g.setOptions({.maxArea = 500.0});
             const MeshResult r = g.generate();
             QVERIFY2(r.ok, qPrintable(r.errorMsg));
             QVERIFY(!r.triangles.isEmpty());
@@ -158,7 +159,7 @@ private slots:
             << QPointF(ox + 100, oy + 100)
             << QPointF(ox, oy + 100);
         g.setDomain(dom);
-        g.setOptions({.maxArea = 500.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 500.0});
         const MeshResult r = g.generate();
 
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
@@ -198,7 +199,7 @@ private slots:
         sp.tag    = QStringLiteral("J1");
         g.addSteinerPoint(sp);
 
-        g.setOptions({.maxArea = 5000.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
 
@@ -223,7 +224,7 @@ private slots:
         cs.tag    = QStringLiteral("C5");
         g.addConstraintSegment(cs);
 
-        g.setOptions({.maxArea = 5000.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
 
@@ -247,7 +248,7 @@ private slots:
         rm.tag = QStringLiteral("subcatch_S1");
         g.addRegion(rm);
 
-        g.setOptions({.maxArea = 5000.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
 
@@ -272,7 +273,7 @@ private slots:
         sp.tag    = QStringLiteral("corner");
         g.addSteinerPoint(sp);
 
-        g.setOptions({.maxArea = 5000.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
         // The corner vertex should now carry marker 99 (promoted from 0).
@@ -319,7 +320,7 @@ private slots:
         g.addConstraintSegment(cs);
         g.addHole(QPointF(3, 3));   // strictly inside the L (both arms)
 
-        g.setOptions({.maxArea = 20.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 20.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
         QVERIFY(!r.triangles.isEmpty());
@@ -342,6 +343,7 @@ private slots:
         QPolygonF dom;
         dom << QPointF(0,0) << QPointF(100,0) << QPointF(50,80);
         g.setDomain(dom);
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
         QVERIFY(r.triangles.size() >= 1);

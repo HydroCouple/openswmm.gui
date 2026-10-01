@@ -6,9 +6,9 @@
  * \brief  Mesh-generation dialog seeds (2026-09-11 defaults):
  *           - nodes → Steiner vertices ON, at rim elevation, with the
  *             minimum node separation enforced
- *           - terrain thinning normal-dot 0.75, 1 pass
- *           - Poisson-disk minimum point spacing ON at 15 m, seeded as a
- *             whole number of MODEL units (15 m, or 49 ft)
+ *           - cell size derived from the extent, size ratio 1.5, terrain
+ *             tolerance off (MESH_OVERHAUL_PLAN_2026-09-29.md §3)
+ *           - SI-canonical lengths scaled to the model unit
  *           - a 2D Defaults preference override reaches the dialog
  *
  *         Widgets are found by the object names the dialog sets as test seams.
@@ -24,6 +24,7 @@
 #include "ui/dialogs/meshgenerationdialog.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QCoreApplication>
 #include <QDir>
 #include <QDoubleSpinBox>
@@ -90,11 +91,10 @@ private slots:
         auto *rim   = seam<QCheckBox>(&dlg, "meshNodesUseRimBox");
         auto *sepB  = seam<QCheckBox>(&dlg, "meshMinNodeSepBox");
         auto *sepS  = seam<QDoubleSpinBox>(&dlg, "meshMinNodeSepSpin");
-        auto *tol   = seam<QDoubleSpinBox>(&dlg, "meshThinningTolSpin");
-        auto *pass  = seam<QSpinBox>(&dlg, "meshThinningPassesSpin");
-        auto *spB   = seam<QCheckBox>(&dlg, "meshMinSpacingBox");
-        auto *spS   = seam<QDoubleSpinBox>(&dlg, "meshMinSpacingSpin");
-        QVERIFY(nodes && rim && sepB && sepS && tol && pass && spB && spS);
+        auto *cell  = seam<QDoubleSpinBox>(&dlg, "meshCellSizeSpin");
+        auto *ratio = seam<QDoubleSpinBox>(&dlg, "meshSizeRatioSpin");
+        auto *tol   = seam<QDoubleSpinBox>(&dlg, "meshTerrainTolSpin");
+        QVERIFY(nodes && rim && sepB && sepS && cell && ratio && tol);
 
         QVERIFY(nodes->isChecked());
         QVERIFY(rim->isChecked());
@@ -102,33 +102,33 @@ private slots:
         QVERIFY(sepB->isChecked());
         QVERIFY(sepS->isEnabled());
         QVERIFY(sepS->value() > 0.0);
-        QCOMPARE(tol->value(), 0.75);
-        QCOMPARE(pass->value(), 1);
-        QVERIFY(spB->isChecked());
-        QVERIFY(spS->isEnabled());
-        QCOMPARE(spS->value(), expectedSpacing(15.0));
-        // Whole model units, whatever the unit system.
-        QCOMPARE(spS->value(), std::round(spS->value()));
+        QCOMPARE(cell->value(), 0.0);       // (from extent)
+        QCOMPARE(ratio->value(), 1.5);
+        QCOMPARE(tol->value(), 0.0);        // terrain roughness off until asked
     }
 
-    void minSpacingRoundsToWholeModelUnits()
+    void lengthsAreScaledToTheModelUnit()
     {
         UnitSystem *us = m_window->unitSystem();
         const swmm_FlowUnitsProperty original = us->flowUnits();
+        PreferencesManager::TwoDDefaults d;
+        d.meshCellSizeM = 3.048;             // 10 ft exactly
+        PreferencesManager::instance()->setTwoDDefaults(d);
 
-        us->setFlowUnits(swmm_CFS);          // US customary: 15 m = 49.21 ft → 49
+        us->setFlowUnits(swmm_CFS);          // US customary
         QVERIFY(!us->isSI());
         {
             MeshGenerationDialog dlg(m_window, m_window);
-            QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshMinSpacingSpin")->value(), 49.0);
+            QVERIFY(std::abs(seam<QDoubleSpinBox>(&dlg, "meshCellSizeSpin")->value() - 10.0) < 1e-6);
         }
-        us->setFlowUnits(swmm_CMS);          // SI: 15 m → 15
+        us->setFlowUnits(swmm_CMS);          // SI
         QVERIFY(us->isSI());
         {
             MeshGenerationDialog dlg(m_window, m_window);
-            QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshMinSpacingSpin")->value(), 15.0);
+            QVERIFY(std::abs(seam<QDoubleSpinBox>(&dlg, "meshCellSizeSpin")->value() - 3.048) < 1e-6);
         }
         us->setFlowUnits(original);
+        PreferencesManager::instance()->setTwoDDefaults(PreferencesManager::TwoDDefaults{});
     }
 
     void preferenceOverridesSeedTheDialog()
@@ -136,28 +136,20 @@ private slots:
         PreferencesManager::TwoDDefaults d;
         d.meshNodesAsVertices = false;
         d.meshNodesUseRim     = false;
-        d.meshMinSpacingOn    = false;
-        d.meshMinSpacingM     = 10.0;
-        d.meshThinningPasses  = 4;
+        d.meshSizeRatio       = 1.25;
+        d.meshTrianglesOnly   = true;
         PreferencesManager::instance()->setTwoDDefaults(d);
 
         MeshGenerationDialog dlg(m_window, m_window);
         QVERIFY(!seam<QCheckBox>(&dlg, "meshNodesAsVerticesBox")->isChecked());
         QVERIFY(!seam<QCheckBox>(&dlg, "meshNodesUseRimBox")->isChecked());
-        QVERIFY(!seam<QCheckBox>(&dlg, "meshMinSpacingBox")->isChecked());
-        QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshMinSpacingSpin")->value(), expectedSpacing(10.0));
-        QCOMPARE(seam<QSpinBox>(&dlg, "meshThinningPassesSpin")->value(), 4);
+        QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshSizeRatioSpin")->value(), 1.25);
+        QCOMPARE(seam<QComboBox>(&dlg, "meshCellShapeCombo")->currentIndex(), 1);
 
         PreferencesManager::instance()->setTwoDDefaults(PreferencesManager::TwoDDefaults{});
     }
 
 private:
-    double expectedSpacing(double metres) const
-    {
-        const double toUnit = m_window->unitSystem()->isSI() ? 1.0 : 1.0 / 0.3048;
-        return std::round(metres * toUnit);
-    }
-
     OpenSWMMVisWorkspace *m_workspace = nullptr;
     SWMMVisProjectWindow *m_window    = nullptr;
 };

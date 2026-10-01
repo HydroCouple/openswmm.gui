@@ -4,19 +4,14 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * Silent sidecar disk cache for the two expensive, rarely-changing stages of
- * mesh generation, so parameter-tweaking re-runs skip minutes of recompute:
+ * Silent sidecar disk cache for the expensive, rarely-changing boundary
+ * stage of mesh generation, so parameter-tweaking re-runs skip minutes of
+ * recompute:
  *
  *   Stage A — prepared PSLG boundary: dissolved domains + prepared hole
  *             rings/seeds.  Keyed by the boundary source identity (path +
  *             mtime + size + layer name, or a hash of the subcatchment
- *             vertices), both CRS WKTs, and the two ring-prep parameters.
- *   Stage B — terrain candidate points (DTM CRS, PRE-filter): the output of
- *             DTMThinner::generatePoints()/readPixels().  Keyed by the DEM
- *             identity + band + the thinning-relevant options + the sampled
- *             bbox.  Poisson/boundary-filter/mesh-CRS parameters are
- *             deliberately NOT in the key — those passes are cheap and rerun
- *             on both paths, so tweaking them still hits the cache.
+ *             vertices), both CRS WKTs, and the ring-trimming parameters.
  *
  * Entries live in <project dir>/.meshcache/ (sidecar convention, like .ovr
  * and .oswp), one file per entry, written atomically via QSaveFile.  Any
@@ -27,7 +22,6 @@
 #ifndef OPENSWMMVIS_MESH_MESHSTAGECACHE_H
 #define OPENSWMMVIS_MESH_MESHSTAGECACHE_H
 
-#include "mesh/dtmthinner.h"
 
 #include <QByteArray>
 #include <QLoggingCategory>
@@ -69,13 +63,6 @@ public:
         qint32                    skippedRings = 0;
     };
 
-    // ── Stage B payload: terrain candidates (DTM CRS, pre-filter) ────
-    struct TerrainPoints
-    {
-        QVector<QPointF> xyDtm;
-        QVector<double>  z;
-    };
-
     /*! SHA-256 hex key for a Stage A entry.  Pass \p src for a file-backed
      *  boundary (subcatchHash empty), or \p subcatchHash for the
      *  subcatchment source (src fields empty).  \p minSizeEnforce is part of
@@ -92,18 +79,8 @@ public:
                                   double minCellSize = 0.0,
                                   bool   minSizeEnforce = false);
 
-    /*! SHA-256 hex key for a Stage B entry.  Only the thinning-relevant
-     *  DTMThinnerOptions fields participate (gridSpacing, threshold,
-     *  useAverageDot, maxPoints, maxIterations). */
-    static QByteArray terrainKey(const FileIdentity &dem, int band,
-                                 const DTMThinnerOptions &opts,
-                                 bool doThinning,
-                                 const QRectF &dtmBbox);
-
     bool loadBoundary(const QByteArray &key, BoundaryPrep *out) const;
     bool storeBoundary(const QByteArray &key, const BoundaryPrep &v) const;
-    bool loadTerrain(const QByteArray &key, TerrainPoints *out) const;
-    bool storeTerrain(const QByteArray &key, const TerrainPoints &v) const;
 
     /*! Keep only the newest \p keepPerStage entries per stage (by mtime). */
     void prune(int keepPerStage = 8) const;
@@ -113,14 +90,11 @@ public:
 private:
     static constexpr quint32 kMagic         = 0x4D435348;  // "MCSH"
     // Salted into every cache key AND written into every payload header —
-    // bumping it invalidates all entries at once.  MUST be bumped when
-    // DTMThinner's banded-thinning geometry constants change
-    // (kBytesPerGridPoint, kMaxGridBytesDefault, kMaxThinningHalo in
-    // dtmthinner.{h,cpp}): they determine multi-band tiling and therefore
-    // the terrain-point OUTPUT for banded configurations.
-    // Version 2: local horizontal normal scoring and double lattice emission
-    // replace absolute-float coordinates; prior terrain points are stale.
-    static constexpr quint16 kFormatVersion = 2;
+    // bumping it invalidates all entries at once.
+    // Version 3 (MESH_OVERHAUL_PLAN_2026-09-29.md): boundary rings are
+    // trimmed by straightness instead of RDP+densify; the terrain stage
+    // (B) no longer exists.
+    static constexpr quint16 kFormatVersion = 3;
 
     [[nodiscard]] QString entryPath(char stage, const QByteArray &key) const;
 

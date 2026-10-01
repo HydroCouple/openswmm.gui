@@ -17,6 +17,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <queue>
 
 namespace mesh {
 namespace pslg {
@@ -94,6 +96,164 @@ QVector<QPointF> simplifyRing(const QVector<QPointF> &ring, double epsilon)
     if (simplified.size() < 3) return ring;  // degenerate — return original
     if (closed) simplified.append(simplified.first());  // re-close
     return simplified;
+}
+
+QVector<QPointF> trimByStraightness(const QVector<QPointF> &pts,
+                                    double maxTurnDeg, double maxDeviation,
+                                    const QVector<bool> &protectedFlags,
+                                    bool closed, int *removedOut)
+{
+    if (removedOut) *removedOut = 0;
+    if (maxTurnDeg <= 0.0 || pts.size() < 3) return pts;
+    const bool hadClosingDup = pts.size() >= 2 && pts.first() == pts.last();
+    const bool ring = closed || hadClosingDup;
+    const QVector<QPointF> open = hadClosingDup ? pts.mid(0, pts.size() - 1) : pts;
+    const int n = open.size();
+    if (n < 3 || (ring && n < 4)) return pts;
+
+    QVector<int> prev(n), next(n);
+    QVector<bool> live(n, true), prot(n, false);
+    for (int i = 0; i < n; ++i)
+    {
+        prev[i] = i - 1; next[i] = i + 1;
+        if (i < protectedFlags.size() && protectedFlags[i]) prot[i] = true;
+    }
+    if (ring) { prev[0] = n - 1; next[n - 1] = 0; }
+    else      { prot[0] = prot[n - 1] = true; }
+
+    const double cosMax = std::cos(maxTurnDeg * M_PI / 180.0);
+    auto turnCos = [&](int i) {   // cos of the turning angle at live vertex i
+        const QPointF &a = open[prev[i]], &b = open[i], &c = open[next[i]];
+        const double ux = b.x() - a.x(), uy = b.y() - a.y();
+        const double vx = c.x() - b.x(), vy = c.y() - b.y();
+        const double lu = std::hypot(ux, uy), lv = std::hypot(vx, vy);
+        if (!(lu > 0.0) || !(lv > 0.0)) return 1.0;   // duplicate: perfectly "straight"
+        return std::clamp((ux * vx + uy * vy) / (lu * lv), -1.0, 1.0);
+    };
+    // Max-heap on cos(turn): the flattest vertex (largest cos) pops first.
+    struct Entry { double c; int i; int ver; bool operator<(const Entry &o) const { return c < o.c; } };
+    QVector<int> version(n, 0);
+    std::priority_queue<Entry> heap;
+    auto push = [&](int i) {
+        if (!live[i] || prot[i]) return;
+        const double c = turnCos(i);
+        if (c >= cosMax) heap.push({c, i, ++version[i]});
+    };
+    for (int i = 0; i < n; ++i) push(i);
+
+    const double dev2 = maxDeviation > 0.0 ? maxDeviation * maxDeviation : -1.0;
+    int liveCount = n, removed = 0;
+    while (!heap.empty())
+    {
+        const Entry e = heap.top(); heap.pop();
+        const int i = e.i;
+        if (!live[i] || prot[i] || e.ver != version[i]) continue;
+        if (ring && liveCount <= 3) break;
+        const int a = prev[i], b = next[i];
+        if (a == b) break;
+        if (dev2 >= 0.0)
+        {
+            // Every original vertex between a and b (in ring order) must stay
+            // within the cap of the chord a→b.
+            bool ok = true;
+            for (int k = (a + 1) % n; k != b; k = (k + 1) % n)
+                if (distSqToSegment(open[k], open[a], open[b]) > dev2) { ok = false; break; }
+            if (!ok) { prot[i] = true; continue; }   // kept for good
+        }
+        live[i] = false; --liveCount; ++removed;
+        next[a] = b; prev[b] = a;
+        push(a); push(b);
+    }
+    if (removedOut) *removedOut = removed;
+    if (removed == 0) return pts;
+    QVector<QPointF> out;
+    out.reserve(liveCount + 1);
+    for (int i = 0; i < n; ++i) if (live[i]) out.append(open[i]);
+    if (hadClosingDup) out.append(out.first());
+    return out;
+}
+
+QVector<QPointF> resampleAtSize(const QVector<QPointF> &path,
+                                const std::function<double(double, double)> &hAt)
+{
+    if (!hAt || path.size() < 2) return path;
+    QVector<QPointF> out;
+    out.reserve(path.size() * 2);
+    out.append(path.first());
+    for (int i = 1; i < path.size(); ++i)
+    {
+        const QPointF &a = path[i - 1], &b = path[i];
+        const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
+        if (len > 0.0)
+        {
+            // Integrate ds/h along the edge on a fine sampling (the smaller
+            // of the endpoint sizes over 4, capped at 64 samples) to get the
+            // part count, then place the parts at equal fractions of that
+            // integral so spacing follows the local h.
+            const double ha = hAt(a.x(), a.y()), hb = hAt(b.x(), b.y());
+            const double hm = hAt(0.5 * (a.x() + b.x()), 0.5 * (a.y() + b.y()));
+            double hRef = std::numeric_limits<double>::infinity();
+            for (double h : {ha, hb, hm}) if (h > 0.0) hRef = std::min(hRef, h);
+            if (std::isfinite(hRef))
+            {
+                const int samples = std::clamp(int(std::ceil(4.0 * len / hRef)), 1, 64);
+                QVector<double> cum(samples + 1, 0.0);
+                for (int s = 0; s < samples; ++s)
+                {
+                    const double t = (s + 0.5) / samples;
+                    const double h = hAt(a.x() + t * (b.x() - a.x()), a.y() + t * (b.y() - a.y()));
+                    cum[s + 1] = cum[s] + (h > 0.0 ? (len / samples) / h : 0.0);
+                }
+                const int parts = std::max(1, int(std::ceil(cum[samples] - 1e-9)));
+                for (int k = 1; k < parts; ++k)
+                {
+                    const double target = cum[samples] * k / parts;
+                    int s = 0;
+                    while (s + 1 < samples && cum[s + 1] < target) ++s;
+                    const double seg = cum[s + 1] - cum[s];
+                    const double f = seg > 0.0 ? (target - cum[s]) / seg : 0.0;
+                    const double t = (s + f) / samples;
+                    out.append(QPointF(a.x() + t * (b.x() - a.x()), a.y() + t * (b.y() - a.y())));
+                }
+            }
+        }
+        out.append(b);
+    }
+    return out;
+}
+
+QVector<bool> flagsForCoincidentVertices(const QVector<QPointF> &pts,
+                                         const QVector<QVector<QPointF>> &others,
+                                         double tol)
+{
+    QVector<bool> flags(pts.size(), false);
+    if (pts.isEmpty() || tol < 0.0) return flags;
+    // Hash the other vertices on a grid of cell size tol (or a tiny cell
+    // for exact matching) and probe the 3x3 neighbourhood.
+    const double cell = tol > 0.0 ? tol : 1e-9;
+    QHash<QPair<qint64, qint64>, QVector<QPointF>> grid;
+    auto key = [&](const QPointF &p) {
+        return qMakePair(qint64(std::floor(p.x() / cell)), qint64(std::floor(p.y() / cell)));
+    };
+    for (const QVector<QPointF> &o : others)
+        for (const QPointF &p : o) grid[key(p)].append(p);
+    const double tol2 = tol * tol;
+    for (int i = 0; i < pts.size(); ++i)
+    {
+        const QPair<qint64, qint64> k = key(pts[i]);
+        for (qint64 dy = -1; dy <= 1 && !flags[i]; ++dy)
+            for (qint64 dx = -1; dx <= 1 && !flags[i]; ++dx)
+            {
+                const auto it = grid.constFind(qMakePair(k.first + dx, k.second + dy));
+                if (it == grid.constEnd()) continue;
+                for (const QPointF &q : it.value())
+                {
+                    const double ddx = q.x() - pts[i].x(), ddy = q.y() - pts[i].y();
+                    if (ddx * ddx + ddy * ddy <= tol2) { flags[i] = true; break; }
+                }
+            }
+    }
+    return flags;
 }
 
 QVector<QPointF> densifyRing(const QVector<QPointF> &ring, double maxLen)
@@ -400,7 +560,8 @@ QVector<bool> greedyMinSeparation(const QVector<QPointF> &pts, double minSep)
 // ---------------------------------------------------------------------------
 
 PreparedRing prepareHoleRing(const QVector<QPointF> &raw,
-                             double simplifyEps, double maxEdgeLen)
+                             double simplifyEps, double maxEdgeLen,
+                             double trimTurnDeg, double trimDeviation)
 {
     PreparedRing pr;
     if (raw.size() < 3)
@@ -409,7 +570,10 @@ PreparedRing prepareHoleRing(const QVector<QPointF> &raw,
         return pr;
     }
 
-    const QVector<QPointF> simplified = simplifyRing(raw, simplifyEps);
+    // Straightness trimming first (overhaul Stage 1), then the legacy RDP
+    // when a caller still asks for it.
+    const QVector<QPointF> trimmed = trimByStraightness(raw, trimTurnDeg, trimDeviation, {}, true);
+    const QVector<QPointF> simplified = simplifyRing(trimmed, simplifyEps);
     pr.ring = densifyRing(simplified, maxEdgeLen);
 
     // Validate the SMALL simplified ring (see the header note): the O(n²)
@@ -432,7 +596,8 @@ bool prepareHoleRings(const QVector<QVector<QPointF>> &raw,
                       QVector<PreparedRing> *out,
                       const std::function<bool()> &isCancelled,
                       const std::function<void(int, int)> &onChunk,
-                      int *skippedOut)
+                      int *skippedOut,
+                      double trimTurnDeg, double trimDeviation)
 {
     out->clear();
     out->reserve(raw.size());
@@ -451,8 +616,8 @@ bool prepareHoleRings(const QVector<QVector<QPointF>> &raw,
         const QVector<QVector<QPointF>> slice = raw.mid(base, n);
         const QVector<PreparedRing> chunk =
             QtConcurrent::blockingMapped<QVector<PreparedRing>>(
-                slice, [simplifyEps, maxEdgeLen](const QVector<QPointF> &r) {
-                    return prepareHoleRing(r, simplifyEps, maxEdgeLen);
+                slice, [simplifyEps, maxEdgeLen, trimTurnDeg, trimDeviation](const QVector<QPointF> &r) {
+                    return prepareHoleRing(r, simplifyEps, maxEdgeLen, trimTurnDeg, trimDeviation);
                 });
         for (const PreparedRing &pr : chunk)
         {

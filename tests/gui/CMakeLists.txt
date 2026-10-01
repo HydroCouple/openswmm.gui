@@ -2033,93 +2033,88 @@ add_swmmvis_gui_test(test_layerreprojection
 target_include_directories(test_layerreprojection PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_layerreprojection PRIVATE GDAL::GDAL)
 
-# Slice AU — Mesh generation + DTM sampling. Both link triangle_lib (Shewchuk
-# vendored at vendor/triangle/) and GDAL respectively.
+# Mesh generation (MESH_OVERHAUL_PLAN_2026-09-29.md): the quadtree core +
+# constrained-Delaunay fringe generator, linking the public-domain predicates.
 add_swmmvis_gui_test(test_meshgenerator
     test_meshgenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadtree.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
     ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
 )
-target_link_libraries(test_meshgenerator PRIVATE triangle_lib)
+target_link_libraries(test_meshgenerator PRIVATE Qt6::Concurrent predicates_lib)
 
-# G2 — tri-pair merge into convex quads (TRI_QUAD_MESHING_PLAN §3.1):
-# full merge of a grid, locked edges, attribute mismatch, index remap.
-add_swmmvis_gui_test(test_meshquadmerge
-    test_meshquadmerge.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadmerge.h
-)
-
-# G3 — structured quad patches (TRI_QUAD_MESHING_PLAN §3.2): transfinite
-# and swept generators, validation, and end-to-end stitching into the
-# Triangle domain (links the generator, Triangle and the merge pass).
-add_swmmvis_gui_test(test_meshpatch
-    test_meshpatch.cpp
+# End-to-end generator gates: conformity, holes, junctions, region tags,
+# grading and shape metrics, triangles mode, frames, determinism, timing.
+add_swmmvis_gui_test(test_meshgenerator_v2
+    test_meshgenerator_v2.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadtree.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellstats.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
+)
+target_link_libraries(test_meshgenerator_v2 PRIVATE Qt6::Concurrent predicates_lib)
+
+# Constrained Delaunay kernel: Delaunay property by brute force, constraint
+# recovery, vertices on constraints, regions, cocircular input, refinement.
+add_swmmvis_gui_test(test_meshcdt
+    test_meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshcdt.h
+)
+target_link_libraries(test_meshcdt PRIVATE predicates_lib)
+
+add_swmmvis_gui_test(test_meshpatch
+    test_meshpatch.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadtree.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshpatch.h
 )
-target_link_libraries(test_meshpatch PRIVATE triangle_lib)
+target_link_libraries(test_meshpatch PRIVATE Qt6::Concurrent predicates_lib)
 
-# ── Quad-region redesign (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md
-# §7 gates 1–8). One executable per module so a regression names its module;
-# only the e2e test links Triangle. Fixture output (gate 8 report) lands in
-# tests/output/quad_redesign_2026-09-06/ (CLAUDE.md §4.1).
+# ── Quad modules kept by the overhaul (quality metrics, region geometry,
+# pairing, cleanup). One executable per module so a regression names it.
 
-# Gate 1 — header-only quad quality metrics (SJ, rectangularity, aspect,
+# Header-only quad quality metrics (SJ, rectangularity, aspect,
 # skew, convexity, default bounds, combined score).
 add_swmmvis_gui_test(test_meshquadquality
     test_meshquadquality.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshquadquality.h
 )
 
-# Gate 2 — region geometry: normalisation, turning angles, Auto
-# classification, validation against domains / holes, overlap, resampling.
+# Region geometry: normalisation, turning angles, classification,
+# validation against domains / holes, overlap, resampling.
 add_swmmvis_gui_test(test_meshquadregion
     test_meshquadregion.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshquadregion.h
 )
 
-# Gate 3 — 4-RoSy cross field: constant / rotated / annulus / guide,
-# rejections, directionsAt.
-add_swmmvis_gui_test(test_meshcrossfield
-    test_meshcrossfield.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshcrossfield.h
-)
-
-# Gate 4 — frontal field-aligned point placement + template recognition.
-add_swmmvis_gui_test(test_meshquadpoints
-    test_meshquadpoints.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadpoints.h
-)
-
-# Gate 5 — template pairing, blossom gap pairing (vs brute force), unionQuad.
+# Template pairing, blossom gap pairing (vs brute force), unionQuad.
 add_swmmvis_gui_test(test_meshquadmatch
     test_meshquadmatch.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
@@ -2128,7 +2123,7 @@ add_swmmvis_gui_test(test_meshquadmatch
     ${CMAKE_SOURCE_DIR}/include/mesh/meshquadmatch.h
 )
 
-# Gate 6 — doublet removal, diagonal swap, guarded smoothing, reorder.
+# Doublet removal, diagonal swap, guarded smoothing, reorder.
 add_swmmvis_gui_test(test_meshquadcleanup
     test_meshquadcleanup.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
@@ -2136,46 +2131,13 @@ add_swmmvis_gui_test(test_meshquadcleanup
     ${CMAKE_SOURCE_DIR}/include/mesh/meshquadcleanup.h
 )
 
-# Gate 7 — rectilinear submapping (L / U / rotated / noisy / rejections).
-add_swmmvis_gui_test(test_meshsubmap
-    test_meshsubmap.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshsubmap.h
-)
-
-# Gate 8 — MeshGenerator::addQuadRegion end-to-end (Free / Mapped /
-# Submapped / skipped / terrain Steiners / unchanged-when-absent). Links
-# Triangle; writes tests/output/quad_redesign_2026-09-06/e2e_report.txt.
-add_swmmvis_gui_test(test_meshquadregion_e2e
-    test_meshquadregion_e2e.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellstats.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadregion.h
-)
-target_link_libraries(test_meshquadregion_e2e PRIVATE triangle_lib)
-set_property(TEST test_meshquadregion_e2e APPEND PROPERTY
-    ENVIRONMENT "SWMMVIS_QUAD_E2E_OUT=${CMAKE_SOURCE_DIR}/tests/output/quad_redesign_2026-09-06")
-
 add_swmmvis_gui_test(test_nninterpdegenerate
     test_nninterpdegenerate.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/naturalnbinterpolator.h
 )
-target_link_libraries(test_nninterpdegenerate PRIVATE triangle_lib)
+target_link_libraries(test_nninterpdegenerate PRIVATE predicates_lib)
 
 # Characterization of the interpolator's NUMERIC output. test_nninterpdegenerate
 # above asserts only on degenerate inputs, so it cannot catch a weight
@@ -2184,10 +2146,10 @@ target_link_libraries(test_nninterpdegenerate PRIVATE triangle_lib)
 add_swmmvis_gui_test(test_nninterpvalues
     test_nninterpvalues.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/naturalnbinterpolator.h
 )
-target_link_libraries(test_nninterpvalues PRIVATE triangle_lib)
+target_link_libraries(test_nninterpvalues PRIVATE predicates_lib)
 
 add_swmmvis_gui_test(test_dtmsampler
     test_dtmsampler.cpp
@@ -2208,47 +2170,44 @@ add_swmmvis_gui_test(test_pslgprep
 )
 target_link_libraries(test_pslgprep PRIVATE Qt6::Concurrent)
 
-# Minimum feature size conditioning: resampling, welding, vertex-edge fix-up,
-# crossing repair, corner trimming, and the fail-safe. Links the generator and
-# Triangle as well, because the assertion that matters most is that a
-# conditioned PSLG is still something Triangle will accept.
-add_swmmvis_gui_test(test_pslgminsize
-    test_pslgminsize.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/pslgminsize.cpp
+# Boundary preparation (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 1):
+# straightness trimming, size resampling, coincidence flags.
+add_swmmvis_gui_test(test_pslgtrim
+    test_pslgtrim.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
     ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/pslgminsize.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/pslgprep.h
 )
-target_link_libraries(test_pslgminsize PRIVATE Qt6::Concurrent triangle_lib)
+target_link_libraries(test_pslgtrim PRIVATE Qt6::Concurrent)
 
-# Post-mesh sliver collapse: protection rules, link condition, rollback.
-add_swmmvis_gui_test(test_meshminsizecleanup
-    test_meshminsizecleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshminsizecleanup.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshminsizecleanup.h
+# Quadtree core (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 3): sizing, 2:1
+# balance, templates, frames, holes/constraints, Triangles mode, timing.
+add_swmmvis_gui_test(test_meshquadtree
+    test_meshquadtree.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadtree.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadtree.h
 )
+target_link_libraries(test_meshquadtree PRIVATE Qt6::Concurrent)
+
+# Size field v2 (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 2): terrain-error
+# blocks, combined sources, clamps and gradation limiting. Built in the
+# container harness during Phases 0-6; registered here in Phase 7.
+add_swmmvis_gui_test(test_sizefield_v2
+    test_sizefield_v2.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/sizefield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/terrainsizefield.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/sizefield.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/terrainsizefield.h
+)
+target_include_directories(test_sizefield_v2 PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_sizefield_v2 PRIVATE GDAL::GDAL)
 
 # Graded size field: near-feature cap parity, Lipschitz growth bound, floor
 # rule, determinism, budget coarsening.
 add_swmmvis_gui_test(test_meshsizefield
     test_meshsizefield.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/sizefield.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/sizefield.h
-)
-
-add_swmmvis_gui_test(test_terrainsizehandoff
-    test_terrainsizehandoff.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/sizefield.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/sizefield.h
 )
@@ -2264,7 +2223,6 @@ add_swmmvis_gui_test(test_meshreorder
 add_swmmvis_gui_test(test_meshstagecache
     test_meshstagecache.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshstagecache.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/dtmthinner.cpp
     ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshstagecache.h
 )
@@ -2272,37 +2230,14 @@ target_include_directories(test_meshstagecache PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_meshstagecache PRIVATE GDAL::GDAL)
 
 # Batch sampler parity: sampleMany must be bit-identical to per-point
-# sampleAt across NoData, edge clamps, and strip-boundary windows.
-add_swmmvis_gui_test(test_dtmthinner_samplemany
-    test_dtmthinner_samplemany.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/dtmthinner.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/dtmthinner.h
-    ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
+# DTMRaster::sampleMany must be bit-identical to per-point sampleAt().
+add_swmmvis_gui_test(test_dtmraster_samplemany
+    test_dtmraster_samplemany.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/dtmraster.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/dtmraster.h
 )
-target_include_directories(test_dtmthinner_samplemany PRIVATE ${GDAL_INCLUDE_DIRS})
-target_link_libraries(test_dtmthinner_samplemany PRIVATE GDAL::GDAL)
-
-# Banded (tiled) thinning: forced tiny per-band budgets must be bit-identical
-# to the untiled run (halo/ghost-zone exactness, global lattice, NoData across
-# seams, row-major ordering), plus progress/cancel and guard-rail coverage.
-add_swmmvis_gui_test(test_dtmthinner_banded
-    test_dtmthinner_banded.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/dtmthinner.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/dtmthinner.h
-    ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
-)
-target_include_directories(test_dtmthinner_banded PRIVATE ${GDAL_INCLUDE_DIRS})
-target_link_libraries(test_dtmthinner_banded PRIVATE GDAL::GDAL)
-
-# W2/M6: translation-invariant terrain thinning at projected origins.
-add_swmmvis_gui_test(test_dtmthinner_precision
-    test_dtmthinner_precision.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/dtmthinner.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/dtmthinner.h
-    ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
-)
-target_include_directories(test_dtmthinner_precision PRIVATE ${GDAL_INCLUDE_DIRS})
-target_link_libraries(test_dtmthinner_precision PRIVATE GDAL::GDAL)
+target_include_directories(test_dtmraster_samplemany PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_dtmraster_samplemany PRIVATE GDAL::GDAL)
 
 # DEM-raster longitudinal profile sampler — the terrain peer of
 # MeshProfileSampler. Pure logic over DTMSampler (bilinear) +
@@ -2750,7 +2685,7 @@ function(swmmvis_link_full_app_deps TEST_NAME)
         GDAL::GDAL HydroCoupleOgc::HydroCoupleOgc
         OpenSSL::SSL OpenSSL::Crypto nanoflann::nanoflann
         $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>
-        openswmm_engine triangle_lib ${HDF5_C_LIBRARIES}
+        openswmm_engine predicates_lib ${HDF5_C_LIBRARIES}
     )
     if(APPLE)
         target_link_libraries(${TEST_NAME} PRIVATE "-framework AppKit")
@@ -2901,15 +2836,15 @@ add_swmmvis_gui_test(test_plot_batch_counts
 )
 swmmvis_link_full_app_deps(test_plot_batch_counts)
 
-# Minimum Cell Size group on the mesh-generation dialog's Quality tab. Needs
-# the full app: the dialog takes a live SWMMVisProjectWindow. The default-OFF
-# state is the point — an untouched project must still mesh exactly as before.
-add_swmmvis_gui_test(test_meshmincelldialog
-    test_meshmincelldialog.cpp
+# The mesh-generation dialog's Quality tab (MESH_OVERHAUL_PLAN_2026-09-29.md
+# §3): three groups, eleven controls, seeded from the 2D Defaults page. Needs
+# the full app: the dialog takes a live SWMMVisProjectWindow.
+add_swmmvis_gui_test(test_meshqualitydialog
+    test_meshqualitydialog.cpp
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
-swmmvis_link_full_app_deps(test_meshmincelldialog)
+swmmvis_link_full_app_deps(test_meshqualitydialog)
 
 # Mesh-generation dialog seeds (2026-09-11 defaults): nodes as vertices at
 # rim elevation with the minimum separation on, thinning 0.75 / 1 pass, and
@@ -3152,6 +3087,45 @@ add_swmmvis_gui_test(test_meshterrainpipeline
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_meshterrainpipeline)
+# The container harness exported SWMMVIS_TERRAIN_PIPELINE_OUTPUT; several
+# cases use it without a fallback, so the Mac registration must set it too
+# (CLAUDE.md §4.1 — a reviewable location, not a temp dir).
+set_tests_properties(test_meshterrainpipeline PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};QTEST_FUNCTION_TIMEOUT=30000;SWMMVIS_TERRAIN_PIPELINE_OUTPUT=${CMAKE_SOURCE_DIR}/tests/output/mesh_overhaul_2026-09/terrain_pipeline")
+
+# Mesh overhaul Phase 7 — the Bellinge acceptance harness
+# (MESH_OVERHAUL_PLAN_2026-09-29.md §6). Self-skips unless
+# SWMMVIS_MESH_OVERHAUL_BELLINGE=1: a full pass generates the ~1M-cell run
+# four times for the thread-count determinism gate.
+add_swmmvis_gui_test(test_mesh_overhaul_bellinge
+    test_mesh_overhaul_bellinge.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_mesh_overhaul_bellinge)
+target_compile_definitions(test_mesh_overhaul_bellinge PRIVATE
+    SWMMVIS_MESH_OVERHAUL_REPO_DIR="${CMAKE_SOURCE_DIR}"
+    SWMMVIS_MESH_OVERHAUL_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/mesh_overhaul_2026-09/bellinge")
+set_tests_properties(test_mesh_overhaul_bellinge PROPERTIES
+    TIMEOUT 3600
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};QTEST_FUNCTION_TIMEOUT=3500000")
+
+# Mesh overhaul Phase 7 step 4 — engine round trip on new-generator meshes
+# (lake at rest exact + Bellinge storm continuity). Self-skips unless
+# SWMMVIS_MESH_OVERHAUL_ENGINE=1; the storm case needs the Bellinge
+# harness's mesh_B.2dm first.
+add_swmmvis_gui_test(test_mesh_overhaul_engine
+    test_mesh_overhaul_engine.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_mesh_overhaul_engine)
+target_compile_definitions(test_mesh_overhaul_engine PRIVATE
+    SWMMVIS_MESH_OVERHAUL_REPO_DIR="${CMAKE_SOURCE_DIR}"
+    SWMMVIS_MESH_OVERHAUL_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/mesh_overhaul_2026-09")
+set_tests_properties(test_mesh_overhaul_engine PROPERTIES
+    TIMEOUT 25200
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};QTEST_FUNCTION_TIMEOUT=25000000")
 
 # [OPTIONS] CRS is the coordinate system of record: the .inp's CRS beats the
 # .oswp sidecar's on open, and the layer's assigned CRS is written on save
@@ -3620,13 +3594,13 @@ add_swmmvis_gui_test(test_mesh2dresultsexport
     ${CMAKE_SOURCE_DIR}/src/io/gdaldrivers.cpp
     ${CMAKE_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
     ${CMAKE_SOURCE_DIR}/include/io/mesh2dresultsexport.h
 )
 target_include_directories(test_mesh2dresultsexport PRIVATE
     ${HDF5_INCLUDE_DIRS} ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_mesh2dresultsexport PRIVATE
-    ${HDF5_C_LIBRARIES} GDAL::GDAL triangle_lib nanoflann::nanoflann)
+    ${HDF5_C_LIBRARIES} GDAL::GDAL predicates_lib nanoflann::nanoflann)
 
 # The "Export 2D Results…" option collector (same plan). Lean: the dialog is
 # widget-only, so this links the dialog and the GDAL driver probe it uses to
@@ -3664,26 +3638,19 @@ set_tests_properties(test_meshimportartifacts PROPERTIES LABELS "gui")
 # Phase25: corridor placement and structured patch authoring.
 add_swmmvis_gui_test(test_meshpatchplacement
     test_meshpatchplacement.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadtree.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmerge.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcrossfield.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadpoints.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshsubmap.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshpatch.h
 )
-target_link_libraries(test_meshpatchplacement PRIVATE triangle_lib)
-add_swmmvis_gui_test(test_meshpatchdialog
-    test_meshpatchdialog.cpp
-    ${SWMMVIS_TEST_SOURCES}
-    ${SWMMVIS_TEST_EXTRA_SOURCES}
-)
-swmmvis_link_full_app_deps(test_meshpatchdialog)
+target_link_libraries(test_meshpatchplacement PRIVATE Qt6::Concurrent predicates_lib)
 
 # Selected GIS centrelines to independent rectangular corridor patches.
 add_swmmvis_gui_test(test_corridorsource

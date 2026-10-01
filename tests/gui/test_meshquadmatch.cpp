@@ -26,7 +26,7 @@
 
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshquadmatch.h"
-#include "mesh/meshquadmerge.h"
+#include "mesh/meshedgekey.h"
 #include "mesh/meshquadquality.h"
 #include "mesh/meshquadregion.h"
 #include "mesh/meshresult.h"

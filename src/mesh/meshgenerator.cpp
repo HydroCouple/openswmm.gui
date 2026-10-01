@@ -4,307 +4,55 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * Slice AU — Triangle wrapper. Builds the input \c triangulateio,
- * runs Shewchuk's `triangulate()`, and re-packs the output into
- * \ref mesh::MeshResult. Tag round-trip is via Triangle's marker
- * (point/segment) and region-attribute (triangle) channels.
+ * Mesh generator (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md Stages 3–5):
  *
- * Quad regions (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §3.3, §4)
- * ride on the same single CDT: Mapped / Submapped rings become internal
- * patches (hole + stitched quads, exactly like addPatch), Free /
- * TrianglesOnly rings become a locked constraint loop with a RegionMarker
- * whose attribute is -(regionIndex+1); Free regions additionally receive a
- * cross-field aligned lattice of Steiner points, no Triangle area refinement
- * inside (the -u hook returns "unconstrained" there), and after Triangle
- * their triangles are paired into quads (template lookup + blossom), cleaned
- * up and smoothed. Without quad regions the pipeline is unchanged.
+ *  1. size function h(x) from the caller's RefineHook (or the uniform
+ *     maxArea), with quad-region spacings as overrides;
+ *  2. constraint polylines (domain rings, holes, breaklines, region rings,
+ *     patch boundaries) resampled at h(x); Steiner points are fixed vertices;
+ *  3. quadtree cores — one background core in the caller's frame, one per
+ *     quad region that carries its own alignment angle — sized by h(x),
+ *     2:1 balanced, kept clear of every constraint (mesh/meshquadtree.h);
+ *  4. the fringe between core fronts and constraints triangulated with the
+ *     constrained-Delaunay kernel (mesh/meshcdt.h): exterior and holes
+ *     removed, core interiors removed, light refinement, guarded smoothing
+ *     and (quads mode) blossom pairing of fringe triangles;
+ *  5. assembly: markers and tags, boundary edges, region tags by flood fill
+ *     bounded by constraints, structured patches stitched by coordinate.
  */
 #include "mesh/meshgenerator.h"
 
+#include "mesh/meshcdt.h"
 #include "mesh/meshcellgeom.h"
-#include "mesh/meshcrossfield.h"
-#include "mesh/meshquadpoints.h"
+#include "mesh/meshquadcleanup.h"
+#include "mesh/meshquadmatch.h"
 #include "mesh/meshquadquality.h"
-#include "mesh/meshsubmap.h"
+#include "mesh/meshquadtree.h"
+#include "mesh/pslgprep.h"
+
+#include "core/editgeometry.h"
 
 #include <QDebug>
 #include <QHash>
 #include <QPainterPath>
 #include <QRectF>
 #include <QSet>
-#include <QStringList>
-#include <QtMath>
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <limits>
 
-extern "C" {
-#define TRILIBRARY   // needed to expose triangulate_safe() in triangle.h
-#include "triangle.h"
-#undef TRILIBRARY
-}
-
 namespace mesh {
 
-// ---------------------------------------------------------------------------
-// Setters — trivial passthrough for build clarity
-// ---------------------------------------------------------------------------
-
-void MeshGenerator::setDomain(const QPolygonF &p)
-{
-    m_domains.clear();
-    if (!p.isEmpty()) m_domains.append(p);
-}
-
-void MeshGenerator::setDomains(const QVector<QPolygonF> &polys)
-{
-    m_domains.clear();
-    for (const auto &p : polys)
-        if (!p.isEmpty()) m_domains.append(p);
-}
-
-void MeshGenerator::addDomain(const QPolygonF &p)
-{
-    if (!p.isEmpty()) m_domains.append(p);
-}
-void MeshGenerator::addConstraintSegment(const ConstraintSegment &s) { m_segments.append(s); }
-void MeshGenerator::addSteinerPoint(const SteinerPoint &p)    { m_steiners.append(p); }
-void MeshGenerator::reserveSteinerPoints(qsizetype additional)
-{
-    m_steiners.reserve(m_steiners.size() + additional);
-}
-void MeshGenerator::addHole(const QPointF &xy)                { m_holes.append(xy); }
-void MeshGenerator::addRegion(const RegionMarker &r)          { m_regions.append(r); }
-void MeshGenerator::addPatch(const PatchMesh &p)              { m_patches.append(p); }
-void MeshGenerator::addQuadRegion(const QuadRegion &r)        { m_quadRegions.append(r); }
-void MeshGenerator::setOptions(const GenerationOptions &o)    { m_opts = o; }
-void MeshGenerator::setRefineHook(const RefineHook &h)        { m_refineHook = h; }
-
-QString MeshGenerator::tagForVertexMarker(int marker) const
-{
-    return m_vertexTagByMarker.value(marker);
-}
-QString MeshGenerator::tagForEdgeMarker(int marker) const
-{
-    return m_edgeTagByMarker.value(marker);
-}
-
-// ---------------------------------------------------------------------------
-// Helpers — triangulateio struct lifecycle
-// ---------------------------------------------------------------------------
-
+// ── Structured patch placement ─────────────────────────────────────────────
+// Patches (corridors) are topology, not hints: an overlapping, out-of-domain
+// or constraint-crossing patch cannot be stitched, so it is rejected up
+// front. Coordinates are taken relative to the domain so projected CRS
+// offsets cannot erase small overlaps in the clipping arithmetic.
 namespace {
 
-void zeroIO(triangulateio &t)
-{
-    std::memset(&t, 0, sizeof(t));
-}
-
-// Triangle allocates output arrays with malloc(); free with free()/trifree().
-// We call trifree() on every output pointer we asked Triangle to populate.
-void freeOutput(triangulateio &t)
-{
-    if (t.pointlist)             trifree(t.pointlist);
-    if (t.pointattributelist)    trifree(t.pointattributelist);
-    if (t.pointmarkerlist)       trifree(t.pointmarkerlist);
-    if (t.trianglelist)          trifree(t.trianglelist);
-    if (t.triangleattributelist) trifree(t.triangleattributelist);
-    if (t.trianglearealist)      trifree(t.trianglearealist);
-    if (t.neighborlist)          trifree(t.neighborlist);
-    if (t.segmentlist)           trifree(t.segmentlist);
-    if (t.segmentmarkerlist)     trifree(t.segmentmarkerlist);
-    if (t.edgelist)              trifree(t.edgelist);
-    if (t.edgemarkerlist)        trifree(t.edgemarkerlist);
-    // Inputs we hand-allocated with malloc are freed by us — Triangle does
-    // NOT free its inputs.
-}
-
-// Quantise points so duplicates resolve. Triangle is robust but the input
-// PSLG must not contain coincident points (different markers) or zero-length
-// segments. We snap to the 7th decimal — sub-mm in metric CRSes.
-struct PointHasher
-{
-    int operator()(const QPointF &p) const noexcept
-    {
-        const qint64 ix = static_cast<qint64>(qRound64(p.x() * 1e7));
-        const qint64 iy = static_cast<qint64>(qRound64(p.y() * 1e7));
-        return qHash(ix) ^ (qHash(iy) << 1);
-    }
-    bool equals(const QPointF &a, const QPointF &b) const noexcept
-    {
-        return qRound64(a.x() * 1e7) == qRound64(b.x() * 1e7)
-            && qRound64(a.y() * 1e7) == qRound64(b.y() * 1e7);
-    }
-};
-
-// ── Quad regions (QUAD_MESHING_REDESIGN_PLAN §3.3) ───────────────────────────
-
-/*! Segment marker of a Free / TrianglesOnly region ring. Reserved: far above
- *  any tag id the dialog hands out; mapped back to marker 0 / empty tag on
- *  readback so ring edges behave exactly like patch boundaries (locked,
- *  untagged). */
-constexpr int kQuadRingMarker = 0x7FFF0001;
-
-/*! A quad region that passed validation and enters the PSLG. */
-struct PreparedQuadRegion
-{
-    int            index = -1;                   ///< Position in m_quadRegions / m_quadReports.
-    QuadQualityBounds bounds;                   ///< Resolved per-region acceptance limits.
-    QuadRegionMode mode  = QuadRegionMode::Free; ///< Resolved mode.
-    double         h     = 0.0;
-    QPolygonF      ring;                         ///< normalizeRingCCW(r.ring).
-    QPolygonF      ringR;                        ///< resampleRing(ring, h) — Free / TrianglesOnly.
-    QVector<QPolygonF> holesR;                   ///< normalizeRingCCW of every r.holes ring.
-    /*! Ring is a domain outline already present in the PSLG: emit no ring
-     *  segments for it (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.1). */
-    bool           isBackground = false;
-    /*! No explicit QuadRegion::spacing was given, so \ref h came from the size
-     *  function and the lattice should follow it point by point rather than
-     *  hold the single centroid sample. */
-    bool           gradeFromField = false;
-    QRectF         bbox;
-    QString        tag;                          ///< r.tag or inherited from a dropped RegionMarker.
-    // Free only
-    QVector<int>          ringInputIdx;          ///< pushPoint index of every ringR vertex.
-    QVector<QPointF>      seedXY;                ///< Fixed interior seeds (junction Steiners, segment vertices).
-    QVector<int>          seedInputIdx;
-    QSet<int>             seedSet;
-    QVector<QuadTemplate> templates;             ///< Input (== Triangle output) vertex ids.
-    QSet<int>             movable;               ///< Generated lattice vertices (new pushPoint indices).
-    int                   droppedSteiners = 0;
-};
-
-bool inQuadRing(const PreparedQuadRegion &q, const QPointF &p)
-{
-    return q.bbox.contains(p) && pointInRing(q.ring, p);
-}
-
-/*! Inside the region's meshable area: within the ring and outside every hole.
- *  Distinct from inQuadRing(), which is what decides whether a fixed vertex
- *  SEEDS the lattice — a hole-ring vertex lies on the hole boundary and must
- *  still seed, so seeding keeps using the ring-only test. */
-bool inQuadRegion(const PreparedQuadRegion &q, const QPointF &p)
-{
-    return q.bbox.contains(p) && pointInRegion(q.ring, q.holesR, p);
-}
-
-/*! Strictly inside one of the region's holes (an area the region does not mesh). */
-bool pointInRegionHole(const PreparedQuadRegion &q, const QPointF &p)
-{
-    for (const QPolygonF &h : q.holesR)
-        if (pointInRing(h, p)) return true;
-    return false;
-}
-
-/*! A point strictly inside \p ring: the vertex mean when that is inside,
- *  else the first ear centroid that is. */
-QPointF ringInteriorPoint(const QPolygonF &ring)
-{
-    const int n = ring.size();
-    QPointF c;
-    for (const QPointF &p : ring) c += p;
-    c /= double(std::max(1, n));
-    if (pointInRing(ring, c)) return c;
-    for (int i = 0; i < n; ++i)
-    {
-        const QPointF e = (ring[(i + n - 1) % n] + ring[i] + ring[(i + 1) % n]) / 3.0;
-        if (pointInRing(ring, e)) return e;
-    }
-    return c;
-}
-
-/*! Region-attribute seed for a background region: a point inside the ring and
- *  outside every hole. Triangle flood-fills the attribute from here, bounded by
- *  the PSLG segments, so it must not land in a hole (the fill would be discarded
- *  with the hole) nor inside a nested region (whose own seed owns that area).
- *  Falls back to the ring interior point when the scan finds nothing. */
-QPointF backgroundSeedPoint(const PreparedQuadRegion &q)
-{
-    const QPointF c = ringInteriorPoint(q.ring);
-    if (q.holesR.isEmpty() || pointInRegion(q.ring, q.holesR, c)) return c;
-    const QRectF b = q.bbox;
-    constexpr int kN = 64;
-    double bestD = -1.0;
-    QPointF best = c;
-    for (int iy = 1; iy < kN; ++iy)
-        for (int ix = 1; ix < kN; ++ix)
-        {
-            const QPointF p(b.left() + b.width() * double(ix) / kN,
-                            b.top()  + b.height() * double(iy) / kN);
-            if (!pointInRegion(q.ring, q.holesR, p)) continue;
-            // Prefer the most interior candidate so the seed is robust.
-            const double d = distanceToRings(q.ring, q.holesR, p);
-            if (d > bestD) { bestD = d; best = p; }
-        }
-    return best;
-}
-
-int orientSign(const QPointF &a, const QPointF &b, const QPointF &c) noexcept
-{
-    const double v = (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x());
-    return v > 0.0 ? 1 : (v < 0.0 ? -1 : 0);
-}
-
-/*! True when a constraint path has a vertex strictly inside the ring or an
- *  edge properly crossing a ring edge (plan §3.2: forces Mapped/Submapped
- *  to Free — a segment cannot run through a hole). */
-bool segmentsCrossRing(const QVector<ConstraintSegment> &segs, const PreparedQuadRegion &q)
-{
-    const int n = q.ring.size();
-    for (const ConstraintSegment &cs : segs)
-    {
-        if (!polylineIntersectsRect(cs.path, q.bbox)) continue;
-        for (const QPointF &p : cs.path)
-        {
-            if (!inQuadRing(q, p)) continue;
-            // The closed-box filter includes boundary contact. A path that
-            // merely ends on the ring must not turn a mapped patch into Free.
-            bool onBoundary = false;
-            for (int j = 0; j < n && !onBoundary; ++j)
-            {
-                const QPointF &a = q.ring[j], &b = q.ring[(j + 1) % n];
-                onBoundary = orientSign(a, b, p) == 0
-                    && p.x() >= std::min(a.x(), b.x()) && p.x() <= std::max(a.x(), b.x())
-                    && p.y() >= std::min(a.y(), b.y()) && p.y() <= std::max(a.y(), b.y());
-            }
-            if (!onBoundary) return true;
-        }
-        for (int i = 0; i + 1 < cs.path.size(); ++i)
-        {
-            const QPointF &p1 = cs.path[i], &p2 = cs.path[i + 1];
-            for (int j = 0; j < n; ++j)
-            {
-                const QPointF &q1 = q.ring[j], &q2 = q.ring[(j + 1) % n];
-                if (orientSign(p1, p2, q1) * orientSign(p1, p2, q2) < 0
-                    && orientSign(q1, q2, p1) * orientSign(q1, q2, p2) < 0)
-                    return true;
-            }
-        }
-    }
-    return false;
-}
-
-/*! Angle (degrees) of the longest ring edge — constant-field fallback. */
-double longestEdgeAngleDeg(const QPolygonF &ring)
-{
-    const int n = ring.size();
-    double best = -1.0, ang = 0.0;
-    for (int i = 0; i < n; ++i)
-    {
-        const QPointF d = ring[(i + 1) % n] - ring[i];
-        const double len = std::hypot(d.x(), d.y());
-        if (len > best) { best = len; ang = std::atan2(d.y(), d.x()) * 180.0 / M_PI; }
-    }
-    return ang;
-}
-
-// Structured patches are topology, not optional hints. All tests below use
-// coordinates relative to the domain so projected CRS offsets cannot erase
-// small overlaps through cancellation in polygon clipping/area arithmetic.
 QPainterPath patchRingPath(const QPolygonF &ring)
 {
     QPainterPath path;
@@ -338,13 +86,9 @@ QPolygonF patchRelativeRing(const QPolygonF &ring, const QPointF &origin)
     return relative;
 }
 
-double patchCross(const QPointF &a, const QPointF &b)
-{
-    return a.x() * b.y() - a.y() * b.x();
-}
+double patchCross(const QPointF &a, const QPointF &b) { return a.x() * b.y() - a.y() * b.x(); }
 
-bool patchPointOnSegment(const QPointF &point, const QPointF &a, const QPointF &b,
-                         double tolerance)
+bool patchPointOnSegment(const QPointF &point, const QPointF &a, const QPointF &b, double tolerance)
 {
     const QPointF delta = b - a;
     const double length = std::hypot(delta.x(), delta.y());
@@ -362,15 +106,13 @@ bool patchPointOnRing(const QPointF &point, const QPolygonF &ring, double tolera
 }
 
 // Endpoints alone miss a segment traversing a concave patch or crossing from
-// boundary to boundary. Split at all intersections and inspect each interval.
+// boundary to boundary: split at every intersection and test each interval.
 bool patchSegmentEntersInterior(const QPointF &a, const QPointF &b,
-                                const QPolygonF &ring, const QPainterPath &path,
-                                double tolerance)
+                                const QPolygonF &ring, const QPainterPath &path, double tolerance)
 {
     const QPointF delta = b - a;
     const double length2 = QPointF::dotProduct(delta, delta);
-    if (!(length2 > 0))
-        return path.contains(a) && !patchPointOnRing(a, ring, tolerance);
+    if (!(length2 > 0)) return path.contains(a) && !patchPointOnRing(a, ring, tolerance);
     QVector<double> cuts{0, 1};
     for (int i = 0; i < ring.size(); ++i) {
         const QPointF c = ring[i], d = ring[(i + 1) % ring.size()];
@@ -380,8 +122,7 @@ bool patchSegmentEntersInterior(const QPointF &a, const QPointF &b,
             const double t = patchCross(c - a, edge) / denominator;
             const double u = patchCross(c - a, delta) / denominator;
             if (t >= 0 && t <= 1 && u >= 0 && u <= 1) cuts.append(t);
-        } else if (patchPointOnSegment(c, a, b, tolerance)
-                   || patchPointOnSegment(d, a, b, tolerance)) {
+        } else if (patchPointOnSegment(c, a, b, tolerance) || patchPointOnSegment(d, a, b, tolerance)) {
             cuts.append(std::clamp(QPointF::dotProduct(c - a, delta) / length2, 0.0, 1.0));
             cuts.append(std::clamp(QPointF::dotProduct(d - a, delta) / length2, 0.0, 1.0));
         }
@@ -395,6 +136,8 @@ bool patchSegmentEntersInterior(const QPointF &a, const QPointF &b,
     return false;
 }
 
+/*! Empty on success. \p exclusionBoundaries receives the hole rings (relative
+ *  to \p origin) so the stitch check can exempt patch edges lying on them. */
 QString validatePatchPlacement(const QVector<PatchMesh> &patches,
                                const QVector<QPolygonF> &domains,
                                const QVector<QPointF> &holes,
@@ -406,9 +149,8 @@ QString validatePatchPlacement(const QVector<PatchMesh> &patches,
     for (const QPolygonF &ring : domains) domain = domain.united(patchRingPath(patchRelativeRing(ring, origin)));
     const double span = std::max(domain.boundingRect().width(), domain.boundingRect().height());
     const double tolerance = std::max(1e-9, span * 16 * std::numeric_limits<double>::epsilon());
-    // Hole seeds identify a face, not a particular constraint ring. With
-    // nested closed rings only the innermost enclosing ring bounds that
-    // face; an enclosing protection ring must remain part of the domain.
+    // A hole seed identifies a face: with nested closed rings only the
+    // innermost enclosing ring bounds it, an enclosing ring stays domain.
     QVector<QPolygonF> closedRings;
     QVector<QPainterPath> closedPaths;
     QVector<double> closedAreas;
@@ -430,8 +172,7 @@ QString validatePatchPlacement(const QVector<PatchMesh> &patches,
             if (innermost < 0 || closedAreas[i] < closedAreas[innermost]) innermost = i;
         }
         if (innermost < 0) continue;
-        const double areaTolerance = std::max(1e-24,
-            closedAreas[innermost] * 64 * std::numeric_limits<double>::epsilon());
+        const double areaTolerance = std::max(1e-24, closedAreas[innermost] * 64 * std::numeric_limits<double>::epsilon());
         for (int other : enclosing)
             if (patchPathArea(closedPaths[innermost].subtracted(closedPaths[other])) > areaTolerance)
                 return QStringLiteral("MeshGenerator: an excluded-hole seed lies in intersecting constraint rings; "
@@ -455,8 +196,7 @@ QString validatePatchPlacement(const QVector<PatchMesh> &patches,
             return fail(error.isEmpty() ? QStringLiteral("has no valid boundary.") : error);
         const QPolygonF ring = patchRelativeRing(ordered, origin);
         const QPainterPath path = patchRingPath(ring);
-        const double areaTolerance = std::max(1e-24,
-            patchPathArea(path) * 64 * std::numeric_limits<double>::epsilon());
+        const double areaTolerance = std::max(1e-24, patchPathArea(path) * 64 * std::numeric_limits<double>::epsilon());
         if (patchPathArea(path.subtracted(domain)) > areaTolerance)
             return fail(QStringLiteral("extends outside the meshing domain; clip or resize it before generating."));
         for (int j = 0; j < priorPaths.size(); ++j)
@@ -468,8 +208,7 @@ QString validatePatchPlacement(const QVector<PatchMesh> &patches,
         for (const ConstraintSegment &segment : segments) {
             if (!polylineIntersectsRect(segment.path, ordered.boundingRect())) continue;
             for (int k = 1; k < segment.path.size(); ++k)
-                if (patchSegmentEntersInterior(segment.path[k - 1] - origin,
-                        segment.path[k] - origin, ring, path, tolerance))
+                if (patchSegmentEntersInterior(segment.path[k - 1] - origin, segment.path[k] - origin, ring, path, tolerance))
                     return fail(QStringLiteral("crosses or contains a required constraint; align the boundary or split the patch."));
         }
         priorPaths.append(path);
@@ -477,12 +216,11 @@ QString validatePatchPlacement(const QVector<PatchMesh> &patches,
     return {};
 }
 
-bool patchEdgeOnOutline(const QPointF &a, const QPointF &b,
-                        const QVector<QPolygonF> &outlines, double tolerance)
+/*! True when the edge a–b lies entirely on one of \p outlines, checking
+ *  every sub-interval so a gap between collinear segments is not bridged. */
+bool patchEdgeOnOutline(const QPointF &a, const QPointF &b, const QVector<QPolygonF> &outlines, double tolerance)
 {
     for (const QPolygonF &ring : outlines) {
-        // A patch edge can span several collinear outline segments. Check
-        // every subinterval, not just its endpoints, to avoid bridging gaps.
         QVector<double> cuts{0, 1};
         const QPointF delta = b - a;
         const double length2 = QPointF::dotProduct(delta, delta);
@@ -494,9 +232,7 @@ bool patchEdgeOnOutline(const QPointF &a, const QPointF &b,
         bool covered = true;
         for (int i = 1; i < cuts.size(); ++i) {
             if (!(cuts[i] > cuts[i - 1])) continue;
-            if (!patchPointOnRing(a + delta * ((cuts[i] + cuts[i - 1]) / 2), ring, tolerance)) {
-                covered = false; break;
-            }
+            if (!patchPointOnRing(a + delta * ((cuts[i] + cuts[i - 1]) / 2), ring, tolerance)) { covered = false; break; }
         }
         if (covered) return true;
     }
@@ -505,41 +241,156 @@ bool patchEdgeOnOutline(const QPointF &a, const QPointF &b,
 
 } // namespace
 
-// ---------------------------------------------------------------------------
-// generate
-// ---------------------------------------------------------------------------
+// ── Input accumulation ─────────────────────────────────────────────────────
 
-QSet<QPair<int, int>> MeshGenerator::quadRegionMergeLocks(const MeshResult &mesh) const
+void MeshGenerator::setDomain(const QPolygonF &p)
 {
-    // Use geometry rather than cell ids: the GUI samples elevations and may
-    // compact cells before its final merge. Respect background-region holes.
-    QVector<int> active;
-    QVector<QRectF> boxes;
-    for (const QuadRegionReport &rep : m_quadReports)
-        if (rep.accepted && rep.index >= 0 && rep.index < m_quadRegions.size())
-        {
-            active.append(rep.index);
-            boxes.append(m_quadRegions[rep.index].ring.boundingRect());
-        }
-    QSet<QPair<int, int>> locked;
-    if (active.isEmpty()) return locked;
-    for (const MeshTriangle &c : mesh.triangles)
+    m_domains.clear();
+    m_domains.append(p);
+}
+
+void MeshGenerator::setDomains(const QVector<QPolygonF> &polys)
+{
+    m_domains = polys;
+}
+
+void MeshGenerator::addDomain(const QPolygonF &p)                { m_domains.append(p); }
+void MeshGenerator::addConstraintSegment(const ConstraintSegment &s) { m_segments.append(s); }
+void MeshGenerator::addSteinerPoint(const SteinerPoint &p)       { m_steiners.append(p); }
+void MeshGenerator::reserveSteinerPoints(qsizetype additional)
+{
+    m_steiners.reserve(m_steiners.size() + additional);
+}
+void MeshGenerator::addHole(const QPointF &xy)                   { m_holes.append(xy); }
+void MeshGenerator::addRegion(const RegionMarker &r)             { m_regions.append(r); }
+void MeshGenerator::addPatch(const PatchMesh &p)                 { m_patches.append(p); }
+void MeshGenerator::addQuadRegion(const QuadRegion &r)           { m_quadRegions.append(r); }
+void MeshGenerator::setOptions(const GenerationOptions &o)       { m_opts = o; }
+void MeshGenerator::setRefineHook(const RefineHook &h)           { m_refineHook = h; }
+
+QString MeshGenerator::tagForVertexMarker(int marker) const
+{
+    return m_vertexTagByMarker.value(marker);
+}
+
+QString MeshGenerator::tagForEdgeMarker(int marker) const
+{
+    return m_edgeTagByMarker.value(marker);
+}
+
+QSet<QPair<int, int>> MeshGenerator::quadRegionMergeLocks(const MeshResult &) const
+{
+    return {};   // core cells are never triangle pairs; nothing to protect
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+namespace {
+
+constexpr int    kBoundaryMarker = 1;
+constexpr double kEquilateral    = 0.4330127018922193;   // √3/4
+constexpr double kClearance      = 0.5;                  // core leaves: × h from any constraint
+constexpr double kRefineClearance = 0.3;                 // fringe insertions: × h from any constraint
+constexpr double kFringeMinAngle = 25.0;
+
+using EdgeKey = QPair<int, int>;   // mesh::edgeKey (meshedgekey.h) builds them
+
+/*! Exact-coordinate key (bit pattern, -0 folded). */
+inline QPair<qint64, qint64> coordKey(const QPointF &p)
+{
+    double x = p.x(), y = p.y();
+    if (x == 0.0) x = 0.0;
+    if (y == 0.0) y = 0.0;
+    qint64 kx, ky;
+    std::memcpy(&kx, &x, 8); std::memcpy(&ky, &y, 8);
+    return {kx, ky};
+}
+
+/*! Ring without its closing duplicate and without consecutive duplicates. */
+QVector<QPointF> openRing(const QVector<QPointF> &ring)
+{
+    QVector<QPointF> out;
+    out.reserve(ring.size());
+    for (const QPointF &p : ring)
+        if (out.isEmpty() || out.last() != p) out.append(p);
+    if (out.size() > 1 && out.first() == out.last()) out.removeLast();
+    return out;
+}
+
+bool pointInRing(const QVector<QPointF> &ring, const QPointF &p)
+{
+    bool inside = false;
+    const int n = ring.size();
+    for (int i = 0, j = n - 1; i < n; j = i++)
     {
-        if (c.isQuad()) continue;
-        const QPointF center = cellGeom(mesh.vertices, c).centroid;
-        for (int i = 0; i < active.size(); ++i)
+        const QPointF &a = ring[i], &b = ring[j];
+        if ((a.y() > p.y()) != (b.y() > p.y()))
         {
-            const QuadRegion &q = m_quadRegions[active[i]];
-            if (boxes[i].contains(center) && pointInRegion(q.ring, q.holes, center))
-            {
-                for (int k = 0; k < 3; ++k)
-                    locked.insert(edgeKey(c.vertex(k), c.vertex((k + 1) % 3)));
-                break;
-            }
+            const double xi = a.x() + (p.y() - a.y()) * (b.x() - a.x()) / (b.y() - a.y());
+            if (p.x() < xi) inside = !inside;
         }
     }
-    return locked;
+    return inside;
 }
+
+/*! Uniform grid over segments for "is anything within r of p" queries. */
+class SegmentGrid
+{
+public:
+    void build(const QVector<QPair<QPointF, QPointF>> &segs, double cell)
+    {
+        m_segs = segs;
+        m_cell = cell > 0.0 ? cell : 1.0;
+        m_index.clear();
+        for (int i = 0; i < m_segs.size(); ++i)
+        {
+            const QPointF &a = m_segs[i].first, &b = m_segs[i].second;
+            const qint64 x0 = cellOf(std::min(a.x(), b.x())), x1 = cellOf(std::max(a.x(), b.x()));
+            const qint64 y0 = cellOf(std::min(a.y(), b.y())), y1 = cellOf(std::max(a.y(), b.y()));
+            for (qint64 y = y0; y <= y1; ++y)
+                for (qint64 x = x0; x <= x1; ++x)
+                    m_index[qMakePair(x, y)].append(i);
+        }
+    }
+    /*! Squared distance to the nearest segment, or +inf when none within r. */
+    [[nodiscard]] double nearest2(const QPointF &p, double r) const
+    {
+        double best = std::numeric_limits<double>::infinity();
+        const qint64 x0 = cellOf(p.x() - r), x1 = cellOf(p.x() + r);
+        const qint64 y0 = cellOf(p.y() - r), y1 = cellOf(p.y() + r);
+        for (qint64 y = y0; y <= y1; ++y)
+            for (qint64 x = x0; x <= x1; ++x)
+            {
+                const auto it = m_index.constFind(qMakePair(x, y));
+                if (it == m_index.constEnd()) continue;
+                for (int i : it.value())
+                    best = std::min(best, pslg::distSqToSegment(p, m_segs[i].first, m_segs[i].second));
+            }
+        return best;
+    }
+private:
+    [[nodiscard]] qint64 cellOf(double v) const { return qint64(std::floor(v / m_cell)); }
+    QVector<QPair<QPointF, QPointF>> m_segs;
+    QHash<QPair<qint64, qint64>, QVector<int>> m_index;
+    double m_cell = 1.0;
+};
+
+/*! A constraint polyline after preparation. */
+struct Poly
+{
+    QVector<QPointF> pts;     ///< Open sequence; closed rings wrap.
+    int     marker = 0;
+    QString tag;
+    bool    closed = false;
+    bool    resample = true;  ///< Patch edges keep their stationing.
+    bool    isDomain = false;
+    bool    isHole = false;
+    QVector<int> cdtIds;      ///< Vertex ids after CDT build.
+};
+
+} // namespace
+
+// ── Generation ─────────────────────────────────────────────────────────────
 
 MeshResult MeshGenerator::generate() const
 {
@@ -549,1347 +400,676 @@ MeshResult MeshGenerator::generate() const
     m_triangleTagByRegionId.clear();
     m_quadReports.clear();
 
-    if (m_domains.isEmpty())
-    {
-        result.errorMsg = QStringLiteral("MeshGenerator: domain is empty.");
+    auto fail = [&](const QString &msg) {
+        result = MeshResult();
+        result.ok = false;
+        result.errorMsg = msg;
         return result;
-    }
+    };
+    auto cancelled = [&]() { return m_refineHook.isCancelled && m_refineHook.isCancelled(); };
+    auto progress = [&](qint64 n) { if (m_refineHook.onProgress) m_refineHook.onProgress(n); };
 
-    // ── Reject non-finite input coordinates ───────────────────────────────
-    // A NaN coordinate is invisible to duplicate/degeneracy screening: NaN
-    // compares false against everything, so it is neither equal to nor
-    // orderable against any other vertex, and qRound64(NaN * 1e7) is
-    // undefined. It therefore reaches Triangle intact, and a vertex with BOTH
-    // coordinates NaN kills the INITIAL DELAUNAY pass — before any segment or
-    // hole processing. Measured on a plain point set with no PSLG at all
-    // (switches "zQ"):
-    //
-    //   triangulate -> delaunay -> divconqdelaunay -> divconqrecurse
-    //     -> mergehulls -> counterclockwise -> SIGSEGV
-    //
-    // Every orientation test against NaN returns false, so the hull-merge
-    // walk never finds its stopping edge, runs off the end of the
-    // triangulation and dereferences garbage. That is a hardware fault, so
-    // triangulate_safe()'s setjmp cannot catch it and the process dies. A
-    // single NaN coordinate is milder but still silently wrong: the vertex is
-    // dropped from the output (measured: 6955 triangles where a clean run
-    // gives 6972), which is arguably worse because nothing reports it.
-    //
-    // NaN reaches us legitimately — dtmthinner.cpp yields NaN for NoData and
-    // for grid points outside the DEM footprint — and infinities arrive from
-    // failed reprojections. Screen every input before Triangle sees any of it.
+    if (m_domains.isEmpty()) return fail(QStringLiteral("MeshGenerator: domain is empty."));
+
+    // ── Finite input check ───────────────────────────────────────────────
     {
-        const auto isFinitePt = [](const QPointF &p) {
-            return std::isfinite(p.x()) && std::isfinite(p.y());
-        };
+        const auto isFinitePt = [](const QPointF &p) { return std::isfinite(p.x()) && std::isfinite(p.y()); };
         qsizetype nBad = 0;
-        for (const QPolygonF &dom : m_domains)
-            for (const QPointF &p : dom)      if (!isFinitePt(p))     ++nBad;
-        for (const SteinerPoint &sp : m_steiners)
-            if (!isFinitePt(sp.xy)) ++nBad;
-        for (const ConstraintSegment &cs : m_segments)
-            for (const QPointF &p : cs.path)  if (!isFinitePt(p))     ++nBad;
-        for (const QPointF &h : m_holes)      if (!isFinitePt(h))     ++nBad;
-        for (const RegionMarker &rm : m_regions)
-            if (!isFinitePt(rm.xy)) ++nBad;
-        for (const PatchMesh &pm : m_patches)
-            for (const QPointF &p : pm.xy)    if (!isFinitePt(p))     ++nBad;
-        for (const QuadRegion &qr : m_quadRegions)
-        {
-            for (const QPointF &p : qr.ring)       if (!isFinitePt(p)) ++nBad;
-            for (const QPointF &p : qr.alignGuide) if (!isFinitePt(p)) ++nBad;
-        }
-
+        for (const QPolygonF &dom : m_domains) for (const QPointF &p : dom) if (!isFinitePt(p)) ++nBad;
+        for (const SteinerPoint &sp : m_steiners) if (!isFinitePt(sp.xy)) ++nBad;
+        for (const ConstraintSegment &cs : m_segments) for (const QPointF &p : cs.path) if (!isFinitePt(p)) ++nBad;
+        for (const QPointF &h : m_holes) if (!isFinitePt(h)) ++nBad;
+        for (const RegionMarker &rm : m_regions) if (!isFinitePt(rm.xy)) ++nBad;
+        for (const PatchMesh &pm : m_patches) for (const QPointF &p : pm.xy) if (!isFinitePt(p)) ++nBad;
+        for (const QuadRegion &qr : m_quadRegions) for (const QPointF &p : qr.ring) if (!isFinitePt(p)) ++nBad;
         if (nBad > 0)
-        {
-            result.errorMsg = QStringLiteral(
-                "MeshGenerator: %1 input coordinate(s) are not finite (NaN or "
-                "infinite), so meshing was not attempted. A non-finite vertex "
-                "crashes Triangle's Delaunay pass outright. The usual sources "
-                "are DTM NoData or out-of-footprint samples reaching the point "
-                "set, and failed coordinate reprojection.").arg(nBad);
-            return result;
-        }
+            return fail(QStringLiteral(
+                "MeshGenerator: %1 input coordinate(s) are not finite (NaN or infinite), so meshing "
+                "was not attempted. The usual sources are DTM NoData or out-of-footprint samples "
+                "reaching the point set, and failed coordinate reprojection.").arg(nBad));
     }
 
-    // ── Collect unique input points ───────────────────────────────────────
-    // Order: domain vertices first (markers reserved for boundary tagging),
-    // then Steiner points, then constraint-segment interior points. We
-    // snap-and-dedupe so a Steiner that coincides with a domain vertex maps
-    // to the same input index — Triangle would reject duplicates otherwise.
-    // Key by quantised (qint64,qint64) instead of QPointF so we don't need
-    // a qHash<QPointF> overload (Qt provides none — fuzzy equality).
-    using PointKey = QPair<qint64, qint64>;
-    QHash<PointKey, int /*input index*/> pointIndex;
-    QVector<QPointF> points;
-    QVector<int>     pointMarkers;
-    // Boundary markers are 1 (assigned when we push domain vertices below).
-    // Any later push with a different non-zero marker wins — that's a
-    // tagged Steiner / segment endpoint coinciding with a corner, and its
-    // SWMM-side tag (junction id, conduit id) is more specific than the
-    // generic "boundary" label.
-    constexpr int kBoundaryMarker = 1;
+    // ── Tag tables ───────────────────────────────────────────────────────
+    for (const SteinerPoint &sp : m_steiners)
+        if (sp.marker != 0 && !sp.tag.isEmpty()) m_vertexTagByMarker.insert(sp.marker, sp.tag);
+    for (const ConstraintSegment &cs : m_segments)
+        if (cs.marker != 0 && !cs.tag.isEmpty()) m_edgeTagByMarker.insert(cs.marker, cs.tag);
+    for (const RegionMarker &rm : m_regions)
+        m_triangleTagByRegionId.insert(int(rm.attribute), rm.tag);
+
+    // ── Size function ────────────────────────────────────────────────────
+    const double hUniform = m_opts.maxArea > 0.0 ? std::sqrt(m_opts.maxArea / kEquilateral) : 0.0;
+    const bool haveHook = bool(m_refineHook.targetAreaAt);
+    if (!haveHook && hUniform <= 0.0)
+        return fail(QStringLiteral("MeshGenerator: no cell size — set maxArea or install a size function."));
+
+    QVector<QPair<QVector<QPointF>, double>> spacingOverrides;   // quad regions with a spacing
+    QVector<QVector<QPointF>> regionRings(m_quadRegions.size());
+    for (int i = 0; i < m_quadRegions.size(); ++i)
     {
-        // Upper bound on unique input points: every domain vertex, Steiner
-        // point, and constraint-path vertex (dedupe only shrinks it).
-        qsizetype estPts = m_steiners.size();
-        for (const QPolygonF &dom : m_domains) estPts += dom.size();
-        for (const ConstraintSegment &cs : m_segments) estPts += cs.path.size();
-        points.reserve(estPts);
-        pointMarkers.reserve(estPts);
-        pointIndex.reserve(estPts);
+        regionRings[i] = openRing(QVector<QPointF>(m_quadRegions[i].ring.begin(), m_quadRegions[i].ring.end()));
+        if (m_quadRegions[i].spacing > 0.0 && regionRings[i].size() >= 3)
+            spacingOverrides.append(qMakePair(regionRings[i], m_quadRegions[i].spacing));
     }
-    // Quantise the OFFSET from a reference vertex, not the absolute coordinate.
-    // The key is built by scaling by 1e7, so the product has to stay inside the
-    // range a double represents as an exact integer (2^53). Absolute projected
-    // coordinates blow that budget: at |x| = 1e9 the key gains a step of 2, so
-    // distinct points start sharing one; past |x| ~ 9.2e11 the qint64 conversion
-    // overflows outright. Measured: two points 1e-7 apart at x = 1e12 produce an
-    // IDENTICAL key and are silently merged, which then drops the segments
-    // between them as zero-length. Quantising (xy - quantOrigin) bounds the
-    // product by the domain SPAN instead, so the key stays exact for any CRS
-    // (1e-7 resolution holds out to a 9e8-unit span). The reference is the first
-    // domain vertex: O(1), and every input point lies within one span of it.
-    const QPointF quantOrigin = m_domains.constFirst().constFirst();
-    auto pushPoint = [&](const QPointF &xy, int marker) {
-        const qint64 qx = qRound64((xy.x() - quantOrigin.x()) * 1e7);
-        const qint64 qy = qRound64((xy.y() - quantOrigin.y()) * 1e7);
-        const PointKey key(qx, qy);
-        auto it = pointIndex.find(key);
-        if (it != pointIndex.end())
+    const std::function<double(double, double)> hAt = [&](double x, double y) {
+        double h = hUniform;
+        if (haveHook)
         {
-            int &existing = pointMarkers[it.value()];
-            if (marker != 0 && (existing == 0 || existing == kBoundaryMarker))
-                existing = marker;
-            return it.value();
+            const double a = m_refineHook.targetAreaAt(x, y);
+            if (std::isfinite(a) && a > 0.0) h = std::sqrt(a / kEquilateral);
         }
-        const int idx = points.size();
-        points.append(QPointF(quantOrigin.x() + qx / 1e7,
-                              quantOrigin.y() + qy / 1e7));
-        pointMarkers.append(marker);
-        pointIndex.insert(key, idx);
-        return idx;
+        for (const auto &ov : spacingOverrides)
+            if (pointInRing(ov.first, QPointF(x, y))) h = (h > 0.0) ? std::min(h, ov.second) : ov.second;
+        return h;
     };
 
-    // 1) Outer boundary — push every domain polygon as its own closed
-    //    ring of segments, all sharing the kBoundaryMarker. Multiple
-    //    disjoint polygons are supported (e.g. boundary feature layer
-    //    with several non-overlapping polygons, or subcatchment-union
-    //    yielding a MultiPolygon). Triangle treats each ring as an
-    //    independent boundary; the unmeshed exterior between rings is
-    //    automatically excluded by the PSLG topology.
-    QVector<QPair<int, int>> domSegments;  // (v0, v1) pairs to add to segmentlist
+    // ── Structured patch placement ───────────────────────────────────────
+    QVector<QPolygonF> patchExclusionBoundaries;   // hole rings, relative to patchOrigin
+    const QPointF patchOrigin = m_domains.first().isEmpty() ? QPointF() : m_domains.first().first();
+    if (!m_patches.isEmpty())
     {
-        qsizetype estDomSegs = 0;
-        for (const QPolygonF &dom : m_domains) estDomSegs += dom.size();
-        domSegments.reserve(estDomSegs);
+        if (!(std::isfinite(m_opts.patchSnapEps) && m_opts.patchSnapEps >= 0.0))
+            return fail(QStringLiteral("MeshGenerator: patch snap tolerance is invalid or too small for the coordinate span."));
+        const QString err = validatePatchPlacement(m_patches, m_domains, m_holes, m_segments,
+                                                   patchOrigin, &patchExclusionBoundaries);
+        if (!err.isEmpty()) return fail(err);
     }
+
+    // ── Constraint polylines ─────────────────────────────────────────────
+    QVector<Poly> polys;
+    QVector<QVector<QPointF>> domainRings;
     for (const QPolygonF &dom : m_domains)
     {
-        const int domN = dom.size();
-        if (domN < 3) continue;
-        const int ringSegStart = domSegments.size();
-        int firstIdx = -1, prevIdx = -1;
-        for (int i = 0; i < domN; ++i)
-        {
-            const QPointF &p = dom[i];
-            if (i == domN - 1 && i > 0
-                && qFuzzyCompare(p.x() + 1, dom[0].x() + 1)
-                && qFuzzyCompare(p.y() + 1, dom[0].y() + 1))
-                break;  // closed polygon: skip the dup-of-first vertex.
-            const int idx = pushPoint(p, kBoundaryMarker);
-            if (firstIdx < 0) { firstIdx = idx; prevIdx = idx; continue; }
-            // Skip zero-length segments: after quantisation two consecutive
-            // vertices may map to the same index.  OGR UnaryUnion (dissolve)
-            // can produce such duplicates at polygon-join points.
-            if (idx == prevIdx) continue;
-            domSegments.append(qMakePair(prevIdx, idx));
-            prevIdx = idx;
-        }
-        // Ring closing segment — only when the ring already contributed ≥ 2
-        // open segments (a closed ring needs ≥ 3 total). Gating on a vertex
-        // count over-counted revisited vertices, letting a polygon that
-        // quantised down to 2 distinct vertices emit the degenerate pair
-        // (a,b),(b,a) as a "closed ring".
-        if (domSegments.size() - ringSegStart >= 2
-            && prevIdx >= 0 && firstIdx >= 0 && prevIdx != firstIdx)
-            domSegments.append(qMakePair(prevIdx, firstIdx));
+        Poly p;
+        p.pts = openRing(QVector<QPointF>(dom.begin(), dom.end()));
+        if (p.pts.size() < 3) continue;
+        p.marker = kBoundaryMarker; p.closed = true; p.isDomain = true;
+        domainRings.append(p.pts);
+        polys.append(p);
     }
-    if (domSegments.isEmpty())
-    {
-        result.errorMsg = QStringLiteral(
-            "MeshGenerator: no usable boundary polygons "
-            "(every supplied polygon had < 3 vertices after vertex deduplication).");
-        return result;
-    }
-
-    // ── Quad regions — PREPARE (QUAD_MESHING_REDESIGN_PLAN §3.3, §4) ─────
-    // Resolve every region before any Steiner / segment point is pushed, so
-    // the Steiner and segment loops below can (a) drop terrain points inside
-    // Free rings and (b) record the fixed seeds that pin a Free lattice.
-    // Mapped / Submapped regions become entries of the LOCAL patch list;
-    // user RegionMarkers seeded inside a quad ring are removed from the LOCAL
-    // region list (their tag is inherited when the region's own is empty).
-    // Both local lists replace m_patches / m_regions for the rest of generate().
-    QVector<PatchMesh>          patches = m_patches;
-    QVector<RegionMarker>       regions = m_regions;
-    QVector<PreparedQuadRegion> qregs;
-    if (!m_quadRegions.isEmpty())
-    {
-        QHash<int, QString> userTagById;   // what the packing loop will build for m_regions
-        for (const RegionMarker &rm : m_regions)
-            if (!rm.tag.isEmpty()) userTagById.insert(static_cast<int>(rm.attribute), rm.tag);
-
-        m_quadReports.resize(m_quadRegions.size());
-        QVector<QuadRegion> acceptedSoFar;     // pairwise overlap check
-        for (int i = 0; i < m_quadRegions.size(); ++i)
-        {
-            const QuadRegion &r = m_quadRegions[i];
-            QuadRegionReport &rep = m_quadReports[i];
-            rep.index = i;
-            rep.requested = r.mode;
-            rep.resolved  = r.mode;
-            QStringList notes;
-            const auto rejectDirectional = [&](const QString &why) {
-                rep.message = QStringLiteral("directional Mapped request refused: %1").arg(why);
-                result.errorMsg = QStringLiteral("Quad region %1 (%2): %3")
-                    .arg(i + 1).arg(r.tag, rep.message);
-            };
-            if (r.directionalSpacing) {
-                const QString error = validateQuadRegion(r, m_domains, {});
-                if (!error.isEmpty()) { rejectDirectional(error); return result; }
-            }
-
-            PreparedQuadRegion q;
-            q.index        = i;
-            q.bounds       = quadRegionQualityBounds(r, m_opts.quadRegionBounds);
-            rep.maxAspect  = q.bounds.maxAspect;
-            q.ring         = normalizeRingCCW(r.ring);
-            q.bbox         = q.ring.boundingRect();
-            q.isBackground = r.isBackground;
-            for (const QPolygonF &hr : r.holes)
-            {
-                const QPolygonF n = normalizeRingCCW(hr);
-                if (n.size() >= 3) q.holesR.append(n);
-            }
-
-            // Spacing h: explicit, else the size function at the centroid
-            // (sqrt(2·area) matches the neighbouring triangle edge length),
-            // else the option default.
-            double h = r.directionalSpacing ? std::min(r.hAlong, r.hAcross) : r.spacing;
-            if (!(h > 0.0) && m_refineHook.targetAreaAt && !q.ring.isEmpty())
-            {
-                const QPointF c = q.holesR.isEmpty() ? ringInteriorPoint(q.ring)
-                                                     : backgroundSeedPoint(q);
-                const double a = m_refineHook.targetAreaAt(c.x(), c.y());
-                if (a > 0.0) h = std::sqrt(2.0 * a);
-                q.gradeFromField = true;
-            }
-            if (!(h > 0.0)) h = m_opts.quadRegionDefaultSpacing;
-            if (!(h > 0.0) || !std::isfinite(h))
-            {
-                rep.message = QStringLiteral("skipped: no spacing (set QuadRegion::spacing, "
-                                             "a size function, or quadRegionDefaultSpacing)");
-                continue;
-            }
-            q.h = h;
-            rep.spacing = h;
-
-            // m_holes are seed POINTS, not rings, so no hole-ring test is
-            // possible here; a hole seed inside a quad ring is the caller's error.
-            QuadRegion rv = r;
-            rv.spacing = h;
-            const QString bad = validateQuadRegion(rv, m_domains, QVector<QPolygonF>());
-            if (!bad.isEmpty())
-            {
-                if (r.directionalSpacing) { rejectDirectional(bad); return result; }
-                rep.message = QStringLiteral("skipped: %1").arg(bad);
-                continue;
-            }
-            // The legacy vertex/crossing test misses coincident boundaries
-            // and collinear positive-area overlaps. Explicit directional
-            // regions must not compete with another region for those cells.
-            for (const QuadRegion &prior : std::as_const(acceptedSoFar)) {
-                if (!r.directionalSpacing && !prior.directionalSpacing) continue;
-                const auto currentPath = patchRingPath(patchRelativeRing(rv.ring, quantOrigin));
-                const auto priorPath = patchRingPath(patchRelativeRing(prior.ring, quantOrigin));
-                auto common = currentPath.intersected(priorPath);
-                for (const auto &hole : rv.holes)
-                    common = common.subtracted(patchRingPath(patchRelativeRing(hole, quantOrigin)));
-                for (const auto &hole : prior.holes)
-                    common = common.subtracted(patchRingPath(patchRelativeRing(hole, quantOrigin)));
-                const double areaTolerance = std::max(1e-24,
-                    std::min(patchPathArea(currentPath), patchPathArea(priorPath))
-                        * 64 * std::numeric_limits<double>::epsilon());
-                // Boolean operations may leave cancelling OddEven contours.
-                // Simplify before signed-area accumulation to measure filled area.
-                if (patchPathArea(common.simplified()) > areaTolerance) {
-                    rejectDirectional(QStringLiteral("overlaps another quad region"));
-                    return result;
-                }
-            }
-            acceptedSoFar.append(rv);
-            if (!validateQuadRegionsDisjoint(acceptedSoFar).isEmpty())
-            {
-                acceptedSoFar.removeLast();
-                if (r.directionalSpacing) {
-                    rejectDirectional(QStringLiteral("overlaps an earlier quad region"));
-                    return result;
-                }
-                if (std::any_of(acceptedSoFar.cbegin(), acceptedSoFar.cend(),
-                                [&rv](const QuadRegion &region) {
-                                    return region.directionalSpacing
-                                        && !validateQuadRegionsDisjoint({region, rv}).isEmpty();
-                                })) {
-                    result.errorMsg = QStringLiteral("Quad region %1 overlaps an earlier region while directional Mapped regions are requested.").arg(i + 1);
-                    return result;
-                }
-                rep.message = QStringLiteral("skipped: overlaps an earlier quad region");
-                continue;
-            }
-
-            // Tag, and user RegionMarkers seeded inside the ring.
-            q.tag = r.tag;
-            for (int k = regions.size() - 1; k >= 0; --k)
-            {
-                if (!inQuadRing(q, regions[k].xy)) continue;
-                if (q.tag.isEmpty())
-                {
-                    q.tag = userTagById.value(static_cast<int>(regions[k].attribute));
-                    if (!q.tag.isEmpty())
-                        notes << QStringLiteral("inherited tag '%1' from a region marker inside the ring").arg(q.tag);
-                }
-                regions.removeAt(k);
-            }
-
-            // Mode. Explicit Mapped corners index the CALLER's ring; relocate
-            // them on the normalised ring by coordinate.
-            QuadRegionMode mode = r.mode;
-            // A background region spans the whole domain: it carries holes and
-            // every conduit/breakline crosses it, so the structured modes never
-            // apply (Auto on a rectangular domain would otherwise pick Mapped
-            // and mesh straight over the holes).
-            if (q.isBackground && mode != QuadRegionMode::TrianglesOnly)
-                mode = QuadRegionMode::Free;
-            QVector<int> corners;
-            if ((mode == QuadRegionMode::Mapped && r.corners.size() == 4)
-                || (r.directionalSpacing && !r.corners.isEmpty()))
-            {
-                if (r.directionalSpacing && r.corners.size() != 4) {
-                    rejectDirectional(QStringLiteral("exactly four explicit corners are required"));
-                    return result;
-                }
-                for (int c : r.corners)
-                {
-                    if (c < 0 || c >= r.ring.size()) break;
-                    int at = -1;
-                    if (r.directionalSpacing) {
-                        for (int index = 0; index < q.ring.size(); ++index)
-                            if (q.ring[index].x() == r.ring[c].x() && q.ring[index].y() == r.ring[c].y()) {
-                                at = index;
-                                break;
-                            }
-                    } else at = q.ring.indexOf(r.ring[c]);
-                    if (at < 0) break;
-                    corners.append(at);
-                }
-                std::sort(corners.begin(), corners.end());
-                if (corners.size() != 4 || std::adjacent_find(corners.begin(), corners.end()) != corners.end())
-                    corners.clear();
-                if (r.directionalSpacing) {
-                    if (corners.size() != 4) {
-                        rejectDirectional(QStringLiteral("supplied corners must identify four distinct valid ring vertices"));
-                        return result;
-                    }
-                    mode = QuadRegionMode::Mapped;
-                }
-            }
-            if (mode == QuadRegionMode::Auto)
-                mode = classifyQuadRegion(q.ring, &corners);
-            else if (mode == QuadRegionMode::Mapped && corners.size() != 4)
-            {
-                classifyQuadRegion(q.ring, &corners);
-                if (corners.size() != 4)
-                {
-                    mode = QuadRegionMode::Free;
-                    notes << QStringLiteral("Mapped needs 4 corners: fell back to Free");
-                }
-            }
-            if ((mode == QuadRegionMode::Mapped || mode == QuadRegionMode::Submapped)
-                && segmentsCrossRing(m_segments, q))
-            {
-                if (r.directionalSpacing) {
-                    rejectDirectional(QStringLiteral("a protected constraint crosses the region"));
-                    return result;
-                }
-                mode = QuadRegionMode::Free;
-                notes << QStringLiteral("a constraint segment crosses the region: fell back to Free");
-            }
-            if (r.directionalSpacing && mode != QuadRegionMode::Mapped) {
-                rejectDirectional(QStringLiteral("the polygon does not resolve to four logical Mapped sides"));
-                return result;
-            }
-            if (mode == QuadRegionMode::Submapped)
-            {
-                QString e;
-                const PatchMesh pm = makeSubmappedPatch(q.ring, h, q.tag, &e);
-                if (pm.quads.isEmpty())
-                {
-                    mode = QuadRegionMode::Free;
-                    notes << QStringLiteral("submapping failed (%1): fell back to Free").arg(e);
-                }
-                else patches.append(pm);
-            }
-            if (mode == QuadRegionMode::Mapped)
-            {
-                QString e;
-                const PatchMesh pm = r.directionalSpacing
-                    ? makeMappedPatch(q.ring, corners, r.hAlong, r.hAcross, r.mappedAlongAngleDeg, q.tag, &e)
-                    : makeMappedPatch(q.ring, corners, h, q.tag, &e);
-                if (pm.quads.isEmpty())
-                {
-                    if (r.directionalSpacing) { rejectDirectional(e); return result; }
-                    mode = QuadRegionMode::Free;
-                    notes << QStringLiteral("mapped patch failed (%1): fell back to Free").arg(e);
-                }
-                else {
-                    patches.append(pm);
-                    if (r.directionalSpacing)
-                        notes << QStringLiteral("directional spacing: Along %1, Across %2, physical axis %3 degrees from +x")
-                            .arg(r.hAlong).arg(r.hAcross).arg(r.mappedAlongAngleDeg);
-                }
-            }
-            if (mode == QuadRegionMode::Free || mode == QuadRegionMode::TrianglesOnly)
-            {
-                if (!q.isBackground)
-                    q.ringR = resampleRing(q.ring, h);
-                else
-                {
-                    // A background ring IS the domain outline, whose segments the
-                    // PSLG has already emitted — so its vertices are never
-                    // replaced, only added to. Densify each edge to the local
-                    // lattice spacing (a raw 4-corner domain would otherwise give
-                    // the boundary layer 4 seeds and leave the perimeter
-                    // triangulated). The new vertices lie ON those segments, so
-                    // Triangle subdivides them; no segment is emitted here.
-                    const auto areaAt = m_refineHook.targetAreaAt;
-                    auto hOn = [&](const QPointF &a, const QPointF &b) {
-                        if (!q.gradeFromField || !areaAt) return h;
-                        const QPointF m = (a + b) / 2.0;
-                        const double ar = areaAt(m.x(), m.y());
-                        return (ar > 0.0 && std::isfinite(ar)) ? std::sqrt(2.0 * ar) : h;
-                    };
-                    const int n = q.ring.size();
-                    q.ringR.clear();
-                    q.ringR.reserve(n * 2);
-                    for (int i = 0; i < n; ++i)
-                    {
-                        const QPointF &a = q.ring[i], &b = q.ring[(i + 1) % n];
-                        q.ringR.append(a);
-                        const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
-                        const double he  = hOn(a, b);
-                        const int    k   = (he > 0.0) ? int(std::floor(len / he)) : 0;
-                        for (int s = 1; s <= k; ++s)
-                        {
-                            const double t = double(s) / double(k + 1);
-                            q.ringR.append(a + (b - a) * t);
-                        }
-                    }
-                }
-            }
-
-            q.mode = mode;
-            rep.resolved = mode;
-            rep.message  = notes.join(QStringLiteral("; "));
-            rep.accepted = true;
-            qregs.append(q);
-        }
-    }
-    bool anyFree = false;
-    for (const PreparedQuadRegion &q : qregs)
-        if (q.mode == QuadRegionMode::Free) anyFree = true;
-    // A pushed point inside a Free ring that must stay fixed (junction
-    // Steiner, constraint-segment vertex) seeds that region's lattice.
-    auto noteFixedSeed = [&](int idx) {
-        if (!anyFree) return;
-        const QPointF &p = points[idx];
-        for (PreparedQuadRegion &q : qregs)
-        {
-            if (q.mode != QuadRegionMode::Free || !inQuadRing(q, p)) continue;
-            if (q.seedSet.contains(idx)) return;
-            q.seedSet.insert(idx);
-            q.seedXY.append(p);
-            q.seedInputIdx.append(idx);
-            return;
-        }
-    };
-
-    // 2) Steiner points — exact-coord vertices that must appear in the mesh.
-    //    Marker-0 points (terrain / aux) inside a Free quad ring are dropped
-    //    (plan D5: the lattice replaces them; z is re-sampled downstream).
-    //    So are marker-0 points OUTSIDE the ring but closer than h to it: a
-    //    vertex inside a ring segment's diametral lens makes Triangle split
-    //    that segment (its -u hook suppresses area refinement only), which
-    //    dissolves every template touching the ring (measured: a 4 m terrain
-    //    cloud against an h = 5 ring dropped the region from 100 % to 55 %
-    //    quads). The size field grades the outside triangles to h anyway.
-    for (const SteinerPoint &sp : m_steiners)
-    {
-        if (anyFree && sp.marker == 0)
-        {
-            bool drop = false;
-            for (PreparedQuadRegion &q : qregs)
-            {
-                if (q.mode != QuadRegionMode::Free) continue;
-                // Inside the lattice area, or close enough outside it to split a
-                // ring segment. A point inside a HOLE is left alone: no lattice
-                // is generated there, so nothing replaces it.
-                if (inQuadRegion(q, sp.xy)
-                    || (q.bbox.adjusted(-q.h, -q.h, q.h, q.h).contains(sp.xy)
-                        && !pointInRegionHole(q, sp.xy)
-                        && distanceToRings(q.ringR, q.holesR, sp.xy) < q.h))
-                { ++q.droppedSteiners; drop = true; break; }
-            }
-            if (drop) continue;
-        }
-        const int idx = pushPoint(sp.xy, sp.marker);
-        if (sp.marker != 0 && !sp.tag.isEmpty())
-            m_vertexTagByMarker.insert(sp.marker, sp.tag);
-        if (sp.marker != 0) noteFixedSeed(idx);
-    }
-
-    // 3) Constraint segments — push every polyline vertex; record segments.
-    QVector<QPair<int, int>> userSegments;
-    QVector<int>             userSegmentMarkers;
-    {
-        qsizetype estUserSegs = 0;
-        for (const ConstraintSegment &cs : m_segments) estUserSegs += cs.path.size();
-        userSegments.reserve(estUserSegs);
-        userSegmentMarkers.reserve(estUserSegs);
-    }
+    if (domainRings.isEmpty())
+        return fail(QStringLiteral("MeshGenerator: no domain ring with 3 or more vertices."));
     for (const ConstraintSegment &cs : m_segments)
     {
-        if (cs.path.size() < 2) continue;
-        if (cs.marker != 0 && !cs.tag.isEmpty())
-            m_edgeTagByMarker.insert(cs.marker, cs.tag);
-        int prev = pushPoint(cs.path.first(), cs.marker);
-        noteFixedSeed(prev);
-        for (int i = 1; i < cs.path.size(); ++i)
+        Poly p;
+        const bool closed = cs.path.size() >= 4 && cs.path.first() == cs.path.last();
+        p.pts = closed ? openRing(cs.path) : cs.path;
+        if (!closed)
         {
-            const int curr = pushPoint(cs.path[i], cs.marker);
-            noteFixedSeed(curr);
-            if (curr != prev)
-            {
-                userSegments.append(qMakePair(prev, curr));
-                userSegmentMarkers.append(cs.marker);
-            }
-            prev = curr;
+            QVector<QPointF> dd;
+            for (const QPointF &q : p.pts) if (dd.isEmpty() || dd.last() != q) dd.append(q);
+            p.pts = dd;
         }
+        if (p.pts.size() < 2) continue;
+        p.marker = cs.marker; p.tag = cs.tag; p.closed = closed;
+        polys.append(p);
     }
-
-    // 4) Structured patches (G3) — every boundary segment of a patch is a
-    //    PSLG constraint (its vertices become Triangle input points, kept
-    //    unsplit by the 'Y' switch below), and the patch interior is carved out as a hole
-    //    seeded at the first quad's centroid (inside, since quads are
-    //    convex). The quads themselves are stitched in after Triangle runs.
-    //    `patches` = m_patches + the Mapped / Submapped quad regions.
-    QVector<QPolygonF> patchExclusionBoundaries;
-    if (!patches.isEmpty()) {
-        const QString error = validatePatchPlacement(patches, m_domains, m_holes,
-            m_segments, quantOrigin, &patchExclusionBoundaries);
-        if (!error.isEmpty()) {
-            result.errorMsg = error;
-            return result;
-        }
-    }
-    QVector<QPointF> holes = m_holes;
-    for (const PatchMesh &pm : patches)
+    for (int i = 0; i < regionRings.size(); ++i)
     {
-        for (const QPair<int, int> &seg : pm.boundarySegments)
-        {
-            const int a = pushPoint(pm.xy[seg.first], 0);
-            const int b = pushPoint(pm.xy[seg.second], 0);
-            if (a != b)
-            {
-                userSegments.append(qMakePair(a, b));
-                userSegmentMarkers.append(0);
-            }
-        }
-        const MeshTriangle &q0 = pm.quads.first();
-        holes.append((pm.xy[q0.v0] + pm.xy[q0.v1] + pm.xy[q0.v2] + pm.xy[q0.v3]) / 4.0);
+        if (regionRings[i].size() < 3 || m_quadRegions[i].isBackground) continue;
+        Poly p;
+        p.pts = regionRings[i]; p.closed = true;
+        polys.append(p);
     }
-
-    // 5) Free / TrianglesOnly quad regions (plan §3.3, §4.4). The resampled
-    //    ring is a locked constraint loop (marker kQuadRingMarker, points
-    //    pushed with marker 0 so a coincident junction keeps its own marker;
-    //    Triangle stamps the segment marker on the remaining ring vertices and
-    //    readback maps it to 0). One RegionMarker seeded inside carries the
-    //    attribute -(index+1) that identifies the region's triangles on
-    //    readback. Free regions then get their cross field and the frontal
-    //    lattice; the generated points are plain marker-0 Steiner points.
-    //
-    //    Template quads are NOT emitted as constraint segments (plan §4.4f
-    //    describes that variant): pairTrianglesIntoQuads looks the two
-    //    triangles of a template up by vertex triple in the Delaunay output,
-    //    which is diagonal-agnostic, so the extra ~2 segments per lattice
-    //    point buy nothing here.
-    for (PreparedQuadRegion &q : qregs)
+    for (const PatchMesh &pm : m_patches)
+        for (const auto &seg : pm.boundarySegments)
+        {
+            if (seg.first < 0 || seg.first >= pm.xy.size() || seg.second < 0 || seg.second >= pm.xy.size()) continue;
+            Poly p;
+            p.pts = {pm.xy[seg.first], pm.xy[seg.second]};
+            p.resample = false;
+            polys.append(p);
+        }
+    // Hole rings: closed non-domain polylines that contain a hole seed.
+    QVector<QVector<QPointF>> holeRings;
+    for (Poly &p : polys)
     {
-        if (q.mode != QuadRegionMode::Free && q.mode != QuadRegionMode::TrianglesOnly) continue;
-        QuadRegionReport &rep = m_quadReports[q.index];
-        const QuadRegion &r = m_quadRegions[q.index];
-        rep.droppedSteiners = q.droppedSteiners;
-
-        const int nr = q.ringR.size();
-        q.ringInputIdx.resize(nr);
-        // marker 0 never overwrites an existing one, so a background ring's
-        // vertices keep the kBoundaryMarker the domain pass gave them and we
-        // simply recover their indices.
-        for (int i = 0; i < nr; ++i) q.ringInputIdx[i] = pushPoint(q.ringR[i], 0);
-        if (!q.isBackground)
-            for (int i = 0; i < nr; ++i)
-            {
-                const int a = q.ringInputIdx[i], b = q.ringInputIdx[(i + 1) % nr];
-                if (a == b) continue;
-                userSegments.append(qMakePair(a, b));
-                userSegmentMarkers.append(kQuadRingMarker);
-            }
-        RegionMarker rm;
-        rm.xy        = q.isBackground ? backgroundSeedPoint(q) : ringInteriorPoint(q.ring);
-        rm.attribute = -double(q.index + 1);
-        rm.maxArea   = -1.0;
-        rm.tag       = q.tag;
-        regions.append(rm);
-        if (q.mode != QuadRegionMode::Free) continue;
-
-        // Cross field: constant when an alignment angle is given, otherwise
-        // harmonic from the ring, every constraint path near the ring and the
-        // optional guide polyline.
-        CrossField field;
-        if (m_refineHook.isCancelled && m_refineHook.isCancelled())
-        {
-            rep.fieldStatus = CrossField::Status::Cancelled;
-            result.errorMsg = QStringLiteral("Mesh generation cancelled during quad alignment.");
-            return result;
-        }
-        if (r.hasAlignAngle)
-        {
-            field.setConstant(r.alignAngleDeg);
-            rep.fieldStatus = field.status();
-            rep.fieldFinalDelta = field.finalDelta();
-        }
-        else
-        {
-            QVector<QVector<QPointF>> aligned;
-            QVector<QPointF> closed = q.ringR;
-            closed.append(q.ringR.first());
-            aligned.append(closed);
-            for (const ConstraintSegment &cs : m_segments)
-                if (polylineIntersectsRect(cs.path, q.bbox))
-                    aligned.append(cs.path);
-            if (r.alignGuide.size() >= 2) aligned.append(r.alignGuide);
-            CrossField::Options fo = m_opts.quadFieldOptions;
-            fo.pitch = q.h;
-            fo.isCancelled = m_refineHook.isCancelled;
-            const bool solved = field.build(q.bbox, aligned, fo);
-            rep.fieldStatus = field.status();
-            rep.fieldSweeps = field.sweepsUsed();
-            rep.fieldFinalDelta = field.finalDelta();
-            if (!solved)
-            {
-                if (field.status() == CrossField::Status::Cancelled)
-                {
-                    result.errorMsg = QStringLiteral("Mesh generation cancelled during quad alignment.");
-                    return result;
-                }
-                QString reason;
-                switch (field.status())
-                {
-                case CrossField::Status::IterationLimit:
-                    reason = QStringLiteral("alignment did not converge after %1 sweeps (last update %2, tolerance %3)")
-                                 .arg(rep.fieldSweeps).arg(rep.fieldFinalDelta, 0, 'g', 4).arg(fo.tol, 0, 'g', 4);
-                    break;
-                case CrossField::Status::GridLimit:
-                    reason = QStringLiteral("alignment grid exceeds the 4,000,000-cell limit");
-                    break;
-                case CrossField::Status::NoConstraints:
-                    reason = QStringLiteral("alignment has no usable direction constraints");
-                    break;
-                default:
-                    reason = QStringLiteral("alignment solve received invalid input");
-                    break;
-                }
-                const double angle = longestEdgeAngleDeg(q.ringR);
-                field.setConstant(angle);
-                rep.alignmentWarning = reason
-                    + QStringLiteral("; used a constant direction of %1 degrees along the longest ring edge. "
-                                     "Road/river alignment may be reduced; inspect this region.").arg(angle, 0, 'g', 6);
-                rep.message += (rep.message.isEmpty() ? QString() : QStringLiteral("; "))
-                             + rep.alignmentWarning;
-            }
-        }
-
-        // Seeds = ring vertices (quantised, in ring order) then the fixed
-        // interior points; template indices are combined indices into
-        // [seeds..., generated...] and are mapped to pushPoint indices, which
-        // equal Triangle's output ids for input points.
-        QVector<QPointF> seeds;
-        seeds.reserve(nr + q.seedXY.size());
-        for (int idx : q.ringInputIdx) seeds.append(points[idx]);
-        seeds += q.seedXY;
-        QuadPointOptions po;
-        po.h = q.h;
-        // Graded lattice (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.2): follow the
-        // size function wherever the caller did NOT pin a spacing. An explicit
-        // QuadRegion::spacing means "this size everywhere in this region", so it
-        // stays uniform; q.h remains the fallback for a bad sample.
-        if (q.gradeFromField && m_refineHook.targetAreaAt)
-        {
-            const auto areaAt = m_refineHook.targetAreaAt;
-            po.hAt = [areaAt](double x, double y) {
-                const double a = areaAt(x, y);
-                return a > 0.0 && std::isfinite(a) ? std::sqrt(2.0 * a) : 0.0;
-            };
-        }
-        const QuadPointSet ps = placeQuadPoints(q.ringR, q.holesR, seeds, nr, field, po);
-
-        QVector<int> combined = q.ringInputIdx + q.seedInputIdx;
-        combined.reserve(combined.size() + ps.generated.size());
-        for (const QPointF &p : ps.generated)
-        {
-            const int before = points.size();
-            const int idx = pushPoint(p, 0);
-            if (points.size() > before) q.movable.insert(idx);
-            combined.append(idx);
-        }
-        rep.generatedPoints = ps.generated.size();
-        q.templates.reserve(ps.templates.size());
-        for (const QuadTemplate &t : ps.templates)
-        {
-            QuadTemplate o;
-            for (int k = 0; k < 4; ++k)
-                o.v[k] = (t.v[k] >= 0 && t.v[k] < combined.size()) ? combined[t.v[k]] : -1;
-            q.templates.append(o);
-        }
+        if (!p.closed || p.isDomain) continue;
+        for (const QPointF &seed : m_holes)
+            if (pointInRing(p.pts, seed)) { p.isHole = true; break; }
+        if (p.isHole) holeRings.append(p.pts);
     }
 
-    // ── Final PSLG validation ─────────────────────────────────────────────
-    // Strip any zero-length segments (v0 == v1) that may have survived from
-    // user constraint segments or from the domain boundary on degenerate input
-    // (e.g., OGR UnaryUnion duplicate vertices at polygon-join points).
-    // Triangle aborts with a fatal error on zero-length segments.
+    // ── Floor size ───────────────────────────────────────────────────────
+    double hMin = m_opts.minCellSize > 0.0 ? m_opts.minCellSize : 0.0;
+    if (hMin <= 0.0)
     {
-        auto stripZeroLen = [](QVector<QPair<int,int>> &segs,
-                               QVector<int>             &markers) {
-            // Single-pass compaction; segs and markers stay in lockstep.
-            int w = 0;
-            for (int i = 0; i < segs.size(); ++i)
+        double hs = std::numeric_limits<double>::infinity();
+        int sampled = 0;
+        for (const Poly &p : polys)
+            for (const QPointF &q : p.pts)
             {
-                if (segs[i].first == segs[i].second) continue;
-                segs[w]    = segs[i];
-                markers[w] = markers[i];
-                ++w;
+                if (sampled++ > 20000) break;
+                const double h = hAt(q.x(), q.y());
+                if (h > 0.0) hs = std::min(hs, h);
             }
-            segs.resize(w);
-            markers.resize(w);
-        };
-        QVector<int> domMarkers(domSegments.size(), kBoundaryMarker);
-        stripZeroLen(domSegments, domMarkers);
-        stripZeroLen(userSegments, userSegmentMarkers);
+        for (const SteinerPoint &sp : m_steiners) { const double h = hAt(sp.xy.x(), sp.xy.y()); if (h > 0.0) hs = std::min(hs, h); }
+        if (!std::isfinite(hs)) hs = hUniform > 0.0 ? hUniform : 1.0;
+        hMin = 0.25 * hs;
     }
-    if (domSegments.isEmpty())
-    {
-        result.errorMsg = QStringLiteral(
-            "MeshGenerator: all domain boundary segments were degenerate "
-            "(zero-length after vertex deduplication).");
-        return result;
-    }
-
-    // ── Bound the point count against Triangle's first-block pool sizing ──
-    // poolinit() sizes a pool's first block as
-    //   trimalloc(itemsfirstblock * itembytes + sizeof(void*) + alignbytes)
-    // The binding pool is the TRIANGLE pool, not the vertex pool: while
-    // initializevertexpool() passes itemsfirstblock = invertices with
-    // itembytes 32, initializetrisubpools() passes 2*invertices - 2 with
-    // itembytes 72 for our switch string (2D, no point attributes, -A region
-    // attributes, -p/-q always set). That is 144 bytes per input point —
-    // 4.5x the vertex pool, so bounding on 32 was far too permissive and left
-    // a live window between the two limits.
-    //
-    // The arithmetic itself is now size_t in the vendored triangle.c (both
-    // operands were int and wrapped silently), so overflowing this no longer
-    // corrupts the heap. The bound is kept as a fail-fast: past it the
-    // triangle pool alone wants > 2 GB in ONE contiguous block, which is a
-    // request worth refusing with an actionable message rather than letting
-    // it become a bad_alloc — or, on Windows, a commit-limit kill.
-    //
-    // NOTE: derived by reading triangle.c (poolinit / initializetrisubpools),
-    // NOT reproduced — provoking it needs > 2 GB of pool.
-    constexpr qsizetype kMaxTrianglePoints = (2147483647 - 16) / 144;  // 14913080
-    if (points.size() > kMaxTrianglePoints)
-    {
-        result.errorMsg = QStringLiteral(
-            "MeshGenerator: %1 mesh points exceeds the %2 this triangulator "
-            "can size its element pool for (it allocates ~144 bytes per input "
-            "point in a single contiguous block). Reduce the terrain point "
-            "density, enable thinning, or mesh a smaller extent.")
-            .arg(points.size()).arg(kMaxTrianglePoints);
-        return result;
-    }
-
-    // ── Pack input triangulateio ──────────────────────────────────────────
-    triangulateio in{};   zeroIO(in);
-    triangulateio out{};  zeroIO(out);
-
-    // std::malloc returns NULL on failure — it does NOT throw — so writing
-    // through an unchecked pointer here is a raw SIGSEGV that the pipeline's
-    // bad_alloc guard cannot intercept. At the kMaxTrianglePoints bound the
-    // pointlist alone is ~1 GB contiguous, which a large DEM can push past
-    // the commit limit. Check every packing allocation and fail gracefully.
-    auto packOom = [&]() {
-        std::free(in.pointlist);      std::free(in.pointmarkerlist);
-        std::free(in.segmentlist);    std::free(in.segmentmarkerlist);
-        std::free(in.holelist);       std::free(in.regionlist);
-        result.errorMsg = QStringLiteral(
-            "MeshGenerator: out of memory while packing %1 mesh points for "
-            "Triangle. Reduce the terrain point density, enable thinning, or "
-            "mesh a smaller extent.").arg(points.size());
-        return result;
+    const std::function<double(double, double)> hClamped = [&](double x, double y) {
+        const double h = hAt(x, y);
+        return h > 0.0 ? std::max(h, hMin) : h;
     };
 
-    // Points
-    in.numberofpoints = points.size();
-    in.pointlist      = static_cast<REAL *>(std::malloc(sizeof(REAL) * 2 * points.size()));
-    in.pointmarkerlist = static_cast<int *>(std::malloc(sizeof(int) * points.size()));
-    if (!in.pointlist || !in.pointmarkerlist) return packOom();
-    for (int i = 0; i < points.size(); ++i)
+    // ── Resample constraints at h(x) ─────────────────────────────────────
+    for (Poly &p : polys)
     {
-        in.pointlist[2 * i + 0] = points[i].x();
-        in.pointlist[2 * i + 1] = points[i].y();
-        in.pointmarkerlist[i]   = pointMarkers[i];
+        if (!p.resample) continue;
+        QVector<QPointF> path = p.pts;
+        if (p.closed) path.append(path.first());
+        path = pslg::resampleAtSize(path, hClamped);
+        if (p.closed) path.removeLast();
+        p.pts = path;
     }
+    if (cancelled()) return fail(QStringLiteral("Cancelled."));
 
-    // Segments — boundary + user
-    const int totalSeg = domSegments.size() + userSegments.size();
-    in.numberofsegments = totalSeg;
-    if (totalSeg > 0)
+    // ── Quadtree cores ───────────────────────────────────────────────────
+    QVector<QVector<QPointF>> coreConstraints;
+    for (const Poly &p : polys)
     {
-        in.segmentlist       = static_cast<int *>(std::malloc(sizeof(int) * 2 * totalSeg));
-        in.segmentmarkerlist = static_cast<int *>(std::malloc(sizeof(int) * totalSeg));
-        if (!in.segmentlist || !in.segmentmarkerlist) return packOom();
-        int s = 0;
-        for (const auto &seg : domSegments)
+        if (p.isDomain || p.isHole) continue;   // domains/holes go in as rings
+        QVector<QPointF> path = p.pts;
+        if (p.closed) path.append(path.first());
+        coreConstraints.append(path);
+    }
+    for (const SteinerPoint &sp : m_steiners)
+        coreConstraints.append({sp.xy, sp.xy});   // a point cuts the leaf it lands in
+
+    QVector<QPolygonF> domainPolys, holePolys;
+    for (const auto &r : domainRings) domainPolys.append(QPolygonF(r));
+    for (const auto &r : holeRings) holePolys.append(QPolygonF(r));
+
+    QRectF bbox;
+    for (const QPolygonF &d : domainPolys) bbox = bbox.isValid() ? bbox.united(d.boundingRect()) : d.boundingRect();
+
+    struct CoreJob { QVector<QPolygonF> domains, holes; QuadtreeFrame frame; int regionIndex = -1; };
+    QVector<CoreJob> jobs;
+    {
+        CoreJob bg;
+        bg.domains = domainPolys;
+        bg.holes = holePolys;
+        bg.frame.origin = bbox.center();
+        bg.frame.angleDeg = m_opts.frameAngleDeg;
+        for (int i = 0; i < m_quadRegions.size(); ++i)
         {
-            in.segmentlist[2 * s + 0] = seg.first;
-            in.segmentlist[2 * s + 1] = seg.second;
-            in.segmentmarkerlist[s]   = kBoundaryMarker;
-            ++s;
+            const QuadRegion &qr = m_quadRegions[i];
+            if (!qr.hasAlignAngle || regionRings[i].size() < 3 || qr.isBackground) continue;
+            bg.holes.append(QPolygonF(regionRings[i]));
+            CoreJob rj;
+            rj.domains = {QPolygonF(regionRings[i])};
+            for (const auto &hr : holeRings)
+                if (!hr.isEmpty() && pointInRing(regionRings[i], hr.first())) rj.holes.append(QPolygonF(hr));
+            rj.frame.origin = QPolygonF(regionRings[i]).boundingRect().center();
+            rj.frame.angleDeg = qr.alignAngleDeg;
+            rj.regionIndex = i;
+            jobs.append(rj);
         }
-        for (int u = 0; u < userSegments.size(); ++u)
+        jobs.prepend(bg);
+    }
+    QVector<QuadtreeMesh> cores(jobs.size());
+    qint64 coreCells = 0;
+    for (int j = 0; j < jobs.size(); ++j)
+    {
+        QuadtreeOptions qo;
+        qo.hAt = hClamped;
+        qo.hMin = hMin;
+        qo.clearance = kClearance;
+        qo.triangles = m_opts.trianglesOnly;
+        qo.progress = [&](double) { progress(coreCells); return !cancelled(); };
+        if (!buildQuadtreeCore(jobs[j].domains, jobs[j].holes, coreConstraints, jobs[j].frame, qo, &cores[j]))
         {
-            in.segmentlist[2 * s + 0] = userSegments[u].first;
-            in.segmentlist[2 * s + 1] = userSegments[u].second;
-            in.segmentmarkerlist[s]   = userSegmentMarkers[u];
-            ++s;
+            if (cores[j].errorMsg.contains(QStringLiteral("cancelled"))) return fail(QStringLiteral("Cancelled."));
+            return fail(QStringLiteral("MeshGenerator: %1").arg(cores[j].errorMsg));
         }
+        coreCells += cores[j].cells.size();
     }
+    if (cancelled()) return fail(QStringLiteral("Cancelled."));
 
-    // Holes (user holes + patch interiors)
-    in.numberofholes = holes.size();
-    if (!holes.isEmpty())
+    // ── Fringe: constrained Delaunay of front + constraint vertices ──────
+    QVector<QPointF> cdtPoints;
+    QVector<QVector<int>> coreFrontPointIds(cores.size());   // core vertex id → cdt point index (-1 = interior)
+    for (int j = 0; j < cores.size(); ++j)
     {
-        in.holelist = static_cast<REAL *>(std::malloc(sizeof(REAL) * 2 * holes.size()));
-        if (!in.holelist) return packOom();
-        for (int i = 0; i < holes.size(); ++i)
+        QVector<int> &map = coreFrontPointIds[j];
+        map.fill(-1, cores[j].vertices.size());
+        for (const auto &e : cores[j].frontEdges)
+            for (int v : {e.first, e.second})
+                if (map[v] < 0) { map[v] = cdtPoints.size(); cdtPoints.append(cores[j].vertices[v]); }
+    }
+    QVector<int> polyPointStart(polys.size());
+    for (int i = 0; i < polys.size(); ++i)
+    {
+        polyPointStart[i] = cdtPoints.size();
+        for (const QPointF &q : polys[i].pts) cdtPoints.append(q);
+    }
+    for (const SteinerPoint &sp : m_steiners) cdtPoints.append(sp.xy);
+    if (cdtPoints.size() < 3) return fail(QStringLiteral("MeshGenerator: too few points to triangulate."));
+
+    ConstrainedDelaunay cdt;
+    QVector<int> pointVertex;
+    if (!cdt.build(cdtPoints, &pointVertex))
+        return fail(QStringLiteral("MeshGenerator: %1").arg(cdt.errorMsg()));
+    if (cancelled()) return fail(QStringLiteral("Cancelled."));
+
+    // Constraint edges: polylines then core fronts.
+    QSet<EdgeKey> constraintEdges;   // in CDT vertex ids
+    for (int i = 0; i < polys.size(); ++i)
+    {
+        Poly &p = polys[i];
+        p.cdtIds.resize(p.pts.size());
+        for (int k = 0; k < p.pts.size(); ++k) p.cdtIds[k] = pointVertex[polyPointStart[i] + k];
+        const int n = p.pts.size();
+        const int edges = p.closed ? n : n - 1;
+        for (int k = 0; k < edges; ++k)
         {
-            in.holelist[2 * i + 0] = holes[i].x();
-            in.holelist[2 * i + 1] = holes[i].y();
+            const int a = p.cdtIds[k], b = p.cdtIds[(k + 1) % n];
+            if (a == b) continue;
+            if (!cdt.insertConstraint(a, b))
+                return fail(QStringLiteral("MeshGenerator: constraint%1 could not be recovered — %2. "
+                                           "Constraints cross each other or the domain boundary.")
+                                .arg(p.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(p.tag), cdt.errorMsg()));
+            constraintEdges.insert(edgeKey(a, b));
         }
     }
-
-    // Regions — Triangle's regionlist is an array of 4-doubles per region:
-    // (x, y, attribute, max_area). Attribute is propagated to
-    // triangleattributelist for each output triangle.
-    in.numberofregions = regions.size();
-    if (!regions.isEmpty())
-    {
-        in.regionlist = static_cast<REAL *>(std::malloc(sizeof(REAL) * 4 * regions.size()));
-        if (!in.regionlist) return packOom();
-        for (int i = 0; i < regions.size(); ++i)
+    for (int j = 0; j < cores.size(); ++j)
+        for (const auto &e : cores[j].frontEdges)
         {
-            in.regionlist[4 * i + 0] = regions[i].xy.x();
-            in.regionlist[4 * i + 1] = regions[i].xy.y();
-            in.regionlist[4 * i + 2] = regions[i].attribute;
-            in.regionlist[4 * i + 3] = regions[i].maxArea > 0
-                                           ? regions[i].maxArea
-                                           : -1.0;
-            if (!regions[i].tag.isEmpty())
-                m_triangleTagByRegionId.insert(
-                    static_cast<int>(regions[i].attribute), regions[i].tag);
+            const int a = pointVertex[coreFrontPointIds[j][e.first]], b = pointVertex[coreFrontPointIds[j][e.second]];
+            if (a == b) continue;
+            if (!cdt.insertConstraint(a, b))
+                return fail(QStringLiteral("MeshGenerator: core front edge could not be recovered — %1.").arg(cdt.errorMsg()));
+        }
+    if (cancelled()) return fail(QStringLiteral("Cancelled."));
+
+    cdt.removeExterior();
+    for (const QPointF &seed : m_holes) cdt.removeRegionAt(seed);
+    for (const PatchMesh &pm : m_patches)
+        if (!pm.quads.isEmpty())
+        {
+            const MeshTriangle &q = pm.quads.first();
+            const QPointF c = 0.25 * (pm.xy[q.v0] + pm.xy[q.v1] + pm.xy[q.v2] + pm.xy[q.v3]);
+            cdt.removeRegionAt(c);
+        }
+    // Core interiors: one seed per connected component of kept cells.
+    for (const QuadtreeMesh &core : cores)
+    {
+        const int nc = core.cells.size();
+        if (nc == 0) continue;
+        QVector<int> parent(nc);
+        for (int i = 0; i < nc; ++i) parent[i] = i;
+        std::function<int(int)> find = [&](int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+        QHash<EdgeKey, int> firstCellOfEdge;
+        for (int c = 0; c < nc; ++c)
+        {
+            const QuadtreeCell &cell = core.cells[c];
+            const int v[4] = {cell.v0, cell.v1, cell.v2, cell.v3};
+            const int n = cell.v3 < 0 ? 3 : 4;
+            for (int e = 0; e < n; ++e)
+            {
+                const EdgeKey k = edgeKey(v[e], v[(e + 1) % n]);
+                auto it = firstCellOfEdge.find(k);
+                if (it == firstCellOfEdge.end()) firstCellOfEdge.insert(k, c);
+                else parent[find(c)] = find(it.value());
+            }
+        }
+        QSet<int> seeded;
+        for (int c = 0; c < nc; ++c)
+        {
+            const int root = find(c);
+            if (seeded.contains(root)) continue;
+            seeded.insert(root);
+            const QuadtreeCell &cell = core.cells[c];
+            QPointF ctr = core.vertices[cell.v0] + core.vertices[cell.v1] + core.vertices[cell.v2];
+            ctr = cell.v3 < 0 ? ctr / 3.0 : (ctr + core.vertices[cell.v3]) / 4.0;
+            cdt.removeRegionAt(ctr);
         }
     }
+    if (cancelled()) return fail(QStringLiteral("Cancelled."));
 
-    // ── Refinement hook ───────────────────────────────────────────────────
-    // With Free quad regions the hook is wrapped so that targetAreaAt returns
-    // "unconstrained" (0) inside every Free ring — Triangle must not insert
-    // its own Steiner points into the lattice (plan §3.3) — and outside it
-    // defers to the user's size function, else to the uniform maxArea (the
-    // numeric 'a' switch is omitted once a size function exists, so the cap
-    // has to come through the hook). -q angle refinement is unaffected: a
-    // right-isosceles lattice has 45° corners, above the default minAngle.
-    // Without Free regions `hook` is a plain copy of m_refineHook.
-    RefineHook hook = m_refineHook;
-    if (anyFree)
+    // Light refinement, clear of constraints.
     {
-        QVector<QPolygonF> rings;
-        QVector<QRectF>    boxes;
-        for (const PreparedQuadRegion &q : qregs)
-            if (q.mode == QuadRegionMode::Free) { rings.append(q.ring); boxes.append(q.bbox); }
-        const std::function<double(double, double)> userArea = m_refineHook.targetAreaAt;
-        const double uniformArea = m_opts.maxArea;
-        hook.targetAreaAt = [rings, boxes, userArea, uniformArea](double x, double y) {
-            const QPointF p(x, y);
-            for (int i = 0; i < rings.size(); ++i)
-                if (boxes[i].contains(p) && pointInRing(rings[i], p)) return 0.0;
-            if (userArea) return userArea(x, y);
-            return uniformArea > 0.0 ? uniformArea : 0.0;
-        };
+        QVector<QPair<QPointF, QPointF>> segs;
+        for (const Poly &p : polys)
+        {
+            const int n = p.pts.size();
+            const int edges = p.closed ? n : n - 1;
+            for (int k = 0; k < edges; ++k) segs.append(qMakePair(p.pts[k], p.pts[(k + 1) % n]));
+        }
+        SegmentGrid grid;
+        grid.build(segs, std::max(hMin * 4.0, 1e-9));
+        const int fringeVertices = cdtPoints.size();
+        // Size hint per CDT vertex: the shortest front edge at a core front
+        // vertex, so the fringe never runs more than 2x coarser than the
+        // core cells it touches (the grading bound across the interface).
+        QVector<double> hint(cdt.vertices().size(), 0.0);
+        for (int j = 0; j < cores.size(); ++j)
+            for (const auto &e : cores[j].frontEdges)
+            {
+                const QPointF d = cores[j].vertices[e.second] - cores[j].vertices[e.first];
+                const double len = std::hypot(d.x(), d.y());
+                for (int v : {e.first, e.second})
+                {
+                    const int id = pointVertex[coreFrontPointIds[j][v]];
+                    hint[id] = hint[id] > 0.0 ? std::min(hint[id], len) : len;
+                }
+            }
+        cdt.refine(hClamped, kFringeMinAngle,
+                   [&](const QPointF &c) {
+                       const double h = hClamped(c.x(), c.y());
+                       if (!(h > 0.0)) return false;
+                       const double r = kRefineClearance * h;
+                       return grid.nearest2(c, r) > r * r;
+                   },
+                   4 * fringeVertices + 10000, &hint);
     }
+    if (cancelled()) return fail(QStringLiteral("Cancelled."));
 
-    // ── Switch string ─────────────────────────────────────────────────────
-    QString sw;
-    if (!m_opts.customSwitchString.isEmpty())
-    {
-        sw = m_opts.customSwitchString;
-    }
-    else
-    {
-        // p = read PSLG; z = zero-based; A = regional attributes per triangle.
-        //
-        // 'e' (output edge list) was here on the assumption that it produced
-        // boundaryEdges. It does not — boundaryEdges is built from
-        // out.segmentlist below, which comes from 'p'. Requesting 'e' made
-        // Triangle allocate m.edges*2 ints (~3 edges per vertex) and traverse
-        // the whole mesh in writeedges(), at the exact moment its memory pools
-        // are still live, for an array nothing ever read.
-        sw = QStringLiteral("pzA");
-        if (m_opts.minAngle > 0.0)
-            sw += QStringLiteral("q%1").arg(m_opts.minAngle, 0, 'f', 2);
+    // ── Assembly ─────────────────────────────────────────────────────────
+    // Marker per exact coordinate: Steiner markers win over the boundary marker.
+    QHash<QPair<qint64, qint64>, int> markerOf;
+    for (const Poly &p : polys)
+        if (p.isDomain) for (const QPointF &q : p.pts) markerOf.insert(coordKey(q), kBoundaryMarker);
+    for (const SteinerPoint &sp : m_steiners)
+        if (sp.marker != 0) markerOf.insert(coordKey(sp.xy), sp.marker);
 
-        // A size function supersedes the uniform cap: 'u' routes every
-        // refinement decision through the hook, so emitting 'a<area>' as well
-        // would apply both constraints and defeat the grading.
-        const bool useSizeFn = static_cast<bool>(hook.targetAreaAt);
-        if (m_opts.maxArea > 0.0 && !useSizeFn)
-            sw += QStringLiteral("a%1").arg(m_opts.maxArea, 0, 'f', 4);
-        else if (!regions.isEmpty())
-            sw += QStringLiteral("a");  // per-region area only.
-
-        // 'u' enables the triunsuitable() hook (cancellation, progress, graded
-        // sizing). It also sets Triangle's `quality` flag, so the refinement
-        // pass — and therefore the hook — runs even when minAngle and maxArea
-        // are both zero. That is what makes cancellation available at all.
-        if (useSizeFn || hook.isCancelled || hook.onProgress)
-            sw += QStringLiteral("u");
-        // A structured patch's boundary is a mesh boundary (its interior is
-        // a hole), and a Steiner point inserted on it would leave a hanging
-        // node against the patch quads. 'Y' forbids splitting segments that
-        // have a triangle on one side only — exactly the patch boundaries
-        // (and the domain outline); interior breaklines may still split.
-        // A Free quad ring has triangles on both sides, so 'Y' does not
-        // protect it and no 'YY' is added for it (plan §4.4f).
-        if (!m_opts.allowSteiner)         sw += QStringLiteral("YY");
-        else if (!patches.isEmpty())      sw += QStringLiteral("Y");
-        if (m_opts.conformingDelaunay)    sw += QStringLiteral("D");
-        if (m_opts.maxSteinerPoints > 0)
-            sw += QStringLiteral("S%1").arg(m_opts.maxSteinerPoints);
-        if (m_opts.quiet)                 sw += QStringLiteral("Q");
-    }
-    QByteArray swBa = sw.toLatin1();
-
-    // ── Run Triangle ──────────────────────────────────────────────────────
-    // triangulate_safe() wraps triangulate() with setjmp so that any fatal
-    // error inside Triangle (degenerate PSLG, out-of-memory, intersecting
-    // segments) is caught via longjmp rather than calling exit(), which
-    // would kill the entire process from the worker thread.
-    int triErr = 0;
-    bool cancelled = false;
-    {
-        // Scoped so the hook is uninstalled before we touch the results, and so
-        // a nested/concurrent generate() on another thread is unaffected.
-        const RefineHookGuard hookGuard(&hook);
-        triErr    = triangulate_safe(swBa.data(), &in, &out, nullptr);
-        cancelled = refineHookWasCancelled();
-    }
-
-    if (triErr != 0)
-    {
-        freeOutput(out);
-        // Free the inputs we malloc'd above (Triangle never frees its inputs).
-        std::free(in.pointlist);      std::free(in.pointmarkerlist);
-        std::free(in.segmentlist);    std::free(in.segmentmarkerlist);
-        std::free(in.holelist);       std::free(in.regionlist);
-        result.errorMsg = QStringLiteral(
-            "Triangle fatal error — check PSLG for degenerate geometry "
-            "(duplicate/coincident vertices, crossing or zero-length "
-            "constraint segments, boundary not forming a closed ring).");
-        return result;
-    }
-
-    if (cancelled)
-    {
-        // Refinement was abandoned partway, so the mesh satisfies neither the
-        // angle nor the area constraints. Triangle still returned normally (the
-        // hook drains rather than aborts), so its pools are already freed — we
-        // just discard the output instead of handing back a half-refined mesh.
-        freeOutput(out);
-        std::free(in.pointlist);      std::free(in.pointmarkerlist);
-        std::free(in.segmentlist);    std::free(in.segmentmarkerlist);
-        std::free(in.holelist);       std::free(in.regionlist);
-        result.errorMsg = QStringLiteral("Cancelled during Triangle refinement.");
-        return result;
-    }
-
-    // ── Copy out → MeshResult ─────────────────────────────────────────────
-    result.vertices.reserve(out.numberofpoints);
-    for (int i = 0; i < out.numberofpoints; ++i)
-    {
+    QVector<int> cdtToGlobal(cdt.vertices().size(), -1);
+    QHash<QPair<qint64, qint64>, int> globalOfCoord;
+    auto addVertex = [&](const QPointF &xy) {
+        const auto key = coordKey(xy);
+        const auto it = globalOfCoord.constFind(key);
+        if (it != globalOfCoord.constEnd()) return it.value();
         MeshVertex v;
-        v.xy.setX(out.pointlist[2 * i + 0]);
-        v.xy.setY(out.pointlist[2 * i + 1]);
-        v.marker = out.pointmarkerlist ? out.pointmarkerlist[i] : 0;
-        if (v.marker == kQuadRingMarker) v.marker = 0;   // quad ring vertex: untagged
-        v.tag    = m_vertexTagByMarker.value(v.marker);
+        v.xy = xy;
+        v.marker = markerOf.value(key, 0);
+        v.tag = m_vertexTagByMarker.value(v.marker);
+        const int id = result.vertices.size();
         result.vertices.append(v);
-    }
-
-    // Validate every vertex index Triangle hands back ONCE, here at the
-    // source. Downstream consumers (reorderMeshHilbert, the DEM-coverage CSR
-    // fill) index vertex arrays with these values without further checks; on
-    // a degenerate PSLG a corrupt index would turn into an out-of-bounds
-    // write there, not a clean failure.
-    const int nOutPts = out.numberofpoints;
-    auto badOutput = [&]() {
-        result.vertices.clear();
-        result.triangles.clear();
-        result.boundaryEdges.clear();
-        result.errorMsg = QStringLiteral(
-            "MeshGenerator: Triangle returned a vertex index outside its own "
-            "point list — output is corrupt (degenerate PSLG?).");
-        return false;
+        globalOfCoord.insert(key, id);
+        return id;
     };
-    auto validIdx = [nOutPts](int v) { return v >= 0 && v < nOutPts; };
+    for (int v = 0; v < cdt.vertices().size(); ++v)
+        if (!cdt.isSuperVertex(v)) cdtToGlobal[v] = addVertex(cdt.vertices()[v]);
 
-    bool outputOk = true;
-    QVector<int> regionIdOfTriangle;   // Free quad regions: attribute per output triangle
-    if (anyFree) regionIdOfTriangle.reserve(out.numberoftriangles);
-    result.triangles.reserve(out.numberoftriangles);
-    for (int i = 0; i < out.numberoftriangles; ++i)
+    // Core cells.
+    QVector<int> coreCellStart(cores.size());
+    for (int j = 0; j < cores.size(); ++j)
     {
+        const QuadtreeMesh &core = cores[j];
+        QVector<int> map(core.vertices.size(), -1);
+        coreCellStart[j] = result.triangles.size();
+        for (const QuadtreeCell &cell : core.cells)
+        {
+            MeshTriangle t;
+            const int v[4] = {cell.v0, cell.v1, cell.v2, cell.v3};
+            int g[4] = {-1, -1, -1, -1};
+            for (int k = 0; k < 4; ++k)
+            {
+                if (v[k] < 0) continue;
+                if (map[v[k]] < 0) map[v[k]] = addVertex(core.vertices[v[k]]);
+                g[k] = map[v[k]];
+            }
+            t.v0 = g[0]; t.v1 = g[1]; t.v2 = g[2]; t.v3 = g[3];
+            if (jobs[j].regionIndex >= 0) t.tag = m_quadRegions[jobs[j].regionIndex].tag;
+            result.triangles.append(t);
+        }
+    }
+    // Fringe triangles.
+    const int fringeCellStart = result.triangles.size();
+    for (const auto &T : cdt.triangles())
+    {
+        if (!T.alive) continue;
         MeshTriangle t;
-        t.v0 = out.trianglelist[3 * i + 0];
-        t.v1 = out.trianglelist[3 * i + 1];
-        t.v2 = out.trianglelist[3 * i + 2];
-        if (!validIdx(t.v0) || !validIdx(t.v1) || !validIdx(t.v2))
-        {
-            outputOk = badOutput();
-            break;
-        }
-        if (out.triangleattributelist && out.numberoftriangleattributes > 0)
-        {
-            const int regionId = static_cast<int>(out.triangleattributelist[i]);
-            t.tag = m_triangleTagByRegionId.value(regionId);
-            if (anyFree) regionIdOfTriangle.append(regionId);
-        }
+        t.v0 = cdtToGlobal[T.v[0]]; t.v1 = cdtToGlobal[T.v[1]]; t.v2 = cdtToGlobal[T.v[2]];
+        if (t.v0 < 0 || t.v1 < 0 || t.v2 < 0) continue;
         result.triangles.append(t);
     }
-
-    if (outputOk && out.segmentlist && out.numberofsegments > 0)
+    // Boundary edges (every constraint sub-edge, with its marker and tag).
+    QSet<EdgeKey> lockedGlobal;
+    for (const Poly &p : polys)
     {
-        result.boundaryEdges.reserve(out.numberofsegments);
-        for (int i = 0; i < out.numberofsegments; ++i)
+        const int n = p.pts.size();
+        const int edges = p.closed ? n : n - 1;
+        for (int k = 0; k < edges; ++k)
         {
-            MeshEdge e;
-            e.v0     = out.segmentlist[2 * i + 0];
-            e.v1     = out.segmentlist[2 * i + 1];
-            if (!validIdx(e.v0) || !validIdx(e.v1))
+            const int ca = p.cdtIds[k], cb = p.cdtIds[(k + 1) % n];
+            if (ca == cb) continue;
+            // A vertex lying on the segment (a constraint endpoint on the
+            // boundary, say) split it: list every piece as a mesh edge.
+            const QVector<int> chain = cdt.constrainedChain(ca, cb);
+            for (int c = 0; c + 1 < chain.size(); ++c)
             {
-                outputOk = badOutput();
-                break;
-            }
-            e.marker = out.segmentmarkerlist ? out.segmentmarkerlist[i] : 0;
-            if (e.marker == kQuadRingMarker) e.marker = 0;   // quad ring edge: locked, untagged
-            e.tag    = m_edgeTagByMarker.value(e.marker);
-            result.boundaryEdges.append(e);
-        }
-    }
-
-    // ── Free quad regions: pair, clean up, smooth (plan §4.4f–h) ──────────
-    // Runs on the bare Triangle output, before patches are stitched and
-    // before any vertex- or cell-indexed side table exists, so the cell
-    // reorder of pairing and the vertex compaction of cleanup have nothing
-    // to invalidate except the per-region id lists kept here. Pairing runs
-    // for every region first (each call reorders cells; the remaining
-    // regions' cell ids follow oldToNew), then cleanup + smoothing per
-    // region (each call may compact vertices; the remaining regions' movable
-    // sets follow vertexOldToNew).
-    if (outputOk && anyFree && regionIdOfTriangle.size() == result.triangles.size())
-    {
-        QHash<int, int> slotOfIndex;   // m_quadRegions index → qregs slot
-        for (int s = 0; s < qregs.size(); ++s) slotOfIndex.insert(qregs[s].index, s);
-        QVector<QVector<int>> cellIds(qregs.size());
-        for (int t = 0; t < regionIdOfTriangle.size(); ++t)
-        {
-            const int id = regionIdOfTriangle[t];
-            if (id >= 0) continue;
-            const int slot = slotOfIndex.value(-id - 1, -1);
-            if (slot >= 0 && qregs[slot].mode == QuadRegionMode::Free) cellIds[slot].append(t);
-        }
-
-        QSet<QPair<int, int>> locked;
-        locked.reserve(result.boundaryEdges.size());
-        for (const MeshEdge &e : std::as_const(result.boundaryEdges))
-            locked.insert(edgeKey(e.v0, e.v1));
-
-        for (int s = 0; s < qregs.size(); ++s)
-        {
-            const PreparedQuadRegion &q = qregs[s];
-            if (q.mode != QuadRegionMode::Free || cellIds[s].isEmpty()) continue;
-            QuadPairingOptions po;
-            po.bounds = q.bounds;
-            QVector<int> oldToNew;
-            const QuadPairingStats ps = pairTrianglesIntoQuads(result, cellIds[s], q.templates,
-                                                               locked, po, &oldToNew);
-            QuadRegionReport &rep = m_quadReports[q.index];
-            rep.templateQuads = ps.templateQuads;
-            rep.gapQuads      = ps.gapQuads;
-            for (int j = s + 1; j < qregs.size(); ++j)
-                for (int &c : cellIds[j]) c = oldToNew[c];
-        }
-
-        for (int s = 0; s < qregs.size(); ++s)
-        {
-            const PreparedQuadRegion &q = qregs[s];
-            if (q.mode != QuadRegionMode::Free || q.movable.isEmpty()) continue;
-            // Triangle can split a constraint at a generated lattice point.
-            // That point is no longer free to move or disappear in cleanup.
-            QSet<int> movable = q.movable;
-            for (const MeshEdge &e : std::as_const(result.boundaryEdges))
-            {
-                movable.remove(e.v0);
-                movable.remove(e.v1);
-            }
-            QVector<int> vOldToNew;
-            QuadCleanupOptions cleanup = m_opts.quadCleanup;
-            cleanup.bounds = q.bounds;
-            const QuadCleanupStats cs = cleanupAndSmoothQuads(result, movable,
-                                                              cleanup, &vOldToNew);
-            QuadRegionReport &rep = m_quadReports[q.index];
-            rep.doubletsRemoved = cs.doubletsRemoved;
-            rep.diagonalSwaps   = cs.diagonalSwaps;
-            rep.verticesMoved   = cs.verticesMoved;
-            for (int j = s + 1; j < qregs.size(); ++j)
-            {
-                QSet<int> remapped;
-                for (int v : qregs[j].movable)
-                    if (v >= 0 && v < vOldToNew.size() && vOldToNew[v] >= 0) remapped.insert(vOldToNew[v]);
-                qregs[j].movable = remapped;
+                const int a = cdtToGlobal[chain[c]], b = cdtToGlobal[chain[c + 1]];
+                if (a < 0 || b < 0 || a == b) continue;
+                MeshEdge e;
+                e.v0 = a; e.v1 = b; e.marker = p.marker; e.tag = p.tag.isEmpty() ? m_edgeTagByMarker.value(p.marker) : p.tag;
+                result.boundaryEdges.append(e);
+                lockedGlobal.insert(edgeKey(a, b));
             }
         }
     }
 
-    // ── Stitch structured patches (G3) ────────────────────────────────────
-    // Patch boundary vertices were PSLG input points, so Triangle hands them
-    // back with the exact (quantised) coordinates pushPoint() stored: match
-    // by the same key. Interior patch vertices are new. Quads go AFTER every
-    // triangle — the engine's cell order.
-    if (outputOk && !patches.isEmpty())
+    if (result.triangles.isEmpty())
+        return fail(QStringLiteral("MeshGenerator: no cells were produced — the domain may be smaller than the cell size."));
+
+    // ── Region tags: flood fill bounded by constraint edges ──────────────
+    // Angle-bearing regions flood too: their own core cells carry the tag
+    // already (assembly tags them per CoreJob), but the CDT fringe between
+    // that core and the region ring does not — the flood fills exactly that
+    // remainder (it only writes empty tags) and the ring's constraint edges
+    // bound it the same as for a frameless region.
+    if (!m_regions.isEmpty() || std::any_of(m_quadRegions.begin(), m_quadRegions.end(), [](const QuadRegion &q) { return !q.tag.isEmpty(); }))
     {
-        const double eps = m_opts.patchSnapEps;
-        auto keyOf = [&](const QPointF &p) {
-            const double sx = (eps > 0.0) ? (p.x() - quantOrigin.x()) / eps
-                                          : (p.x() - quantOrigin.x()) * 1e7;
-            const double sy = (eps > 0.0) ? (p.y() - quantOrigin.y()) / eps
-                                          : (p.y() - quantOrigin.y()) * 1e7;
-            return PointKey(qRound64(sx), qRound64(sy));
+        QHash<EdgeKey, QVector<int>> cellsOfEdge;
+        cellsOfEdge.reserve(result.triangles.size() * 2);
+        for (int c = 0; c < result.triangles.size(); ++c)
+        {
+            const MeshTriangle &t = result.triangles[c];
+            const int n = t.vertexCount();
+            for (int e = 0; e < n; ++e) cellsOfEdge[edgeKey(t.vertex(e), t.vertex((e + 1) % n))].append(c);
+        }
+        auto cellContaining = [&](const QPointF &p) {
+            for (int j = 0; j < cores.size(); ++j)
+            {
+                const int c = cores[j].cellAt(p);
+                if (c >= 0) return coreCellStart[j] + c;
+            }
+            const int t = cdt.locate(p);
+            if (t < 0) return -1;
+            // Map the CDT triangle to its result cell by vertex triple.
+            const auto &T = cdt.triangles()[t];
+            const int a = cdtToGlobal[T.v[0]], b = cdtToGlobal[T.v[1]];
+            for (int c : cellsOfEdge.value(edgeKey(a, b)))
+                if (c >= fringeCellStart) { const MeshTriangle &mt = result.triangles[c];
+                    const int cc = cdtToGlobal[T.v[2]];
+                    if ((mt.v0 == cc || mt.v1 == cc || mt.v2 == cc)) return c; }
+            return -1;
         };
-        // A tiny or non-finite snap tolerance must never reach qRound64
-        // with infinity or a value outside its integer range.
-        const auto validSnapKey = [&](const QPointF &point) {
-            const double x = eps > 0 ? (point.x() - quantOrigin.x()) / eps
-                                     : (point.x() - quantOrigin.x()) * 1e7;
-            const double y = eps > 0 ? (point.y() - quantOrigin.y()) / eps
-                                     : (point.y() - quantOrigin.y()) * 1e7;
+        // One visited set across ALL floods. The locked edges are fixed, so a
+        // flood fills its whole constraint-bounded component; a later flood
+        // starting in an already-visited component could only write tags into
+        // cells the earlier flood already tagged, i.e. nothing. Skipping it is
+        // exact, and keeps many seeds in one component (713 unbounded
+        // subcatchment seeds on Bellinge) at O(cells) instead of O(seeds·cells).
+        QVector<bool> seen(result.triangles.size(), false);
+        auto flood = [&](int start, const QString &tag) {
+            if (start < 0 || tag.isEmpty() || seen[start]) return;
+            QVector<int> stack{start};
+            seen[start] = true;
+            while (!stack.isEmpty())
+            {
+                const int c = stack.takeLast();
+                if (result.triangles[c].tag.isEmpty()) result.triangles[c].tag = tag;
+                const MeshTriangle &t = result.triangles[c];
+                const int n = t.vertexCount();
+                for (int e = 0; e < n; ++e)
+                {
+                    const EdgeKey k = edgeKey(t.vertex(e), t.vertex((e + 1) % n));
+                    if (lockedGlobal.contains(k)) continue;
+                    for (int o : cellsOfEdge.value(k))
+                        if (!seen[o]) { seen[o] = true; stack.append(o); }
+                }
+            }
+        };
+        for (const RegionMarker &rm : m_regions)
+            flood(cellContaining(rm.xy), rm.tag.isEmpty() ? m_triangleTagByRegionId.value(int(rm.attribute)) : rm.tag);
+        for (int i = 0; i < m_quadRegions.size(); ++i)
+        {
+            const QuadRegion &qr = m_quadRegions[i];
+            if (qr.tag.isEmpty() || regionRings[i].size() < 3) continue;
+            const QPointF seed = EditGeometry::interiorPoint(regionRings[i]);
+            flood(cellContaining(seed), qr.tag);
+        }
+    }
+
+    // ── Fringe pairing and smoothing ─────────────────────────────────────
+    {
+        QVector<int> fringeCells;
+        for (int c = fringeCellStart; c < result.triangles.size(); ++c) fringeCells.append(c);
+        QSet<int> movable;
+        for (int v = 0; v < cdt.vertices().size(); ++v)
+            if (v >= cdtPoints.size() && !cdt.isSuperVertex(v) && cdtToGlobal[v] >= 0) movable.insert(cdtToGlobal[v]);
+        if (!fringeCells.isEmpty())
+        {
+            // Core front edges are locked too: a pair may never straddle the core.
+            QSet<EdgeKey> locked = lockedGlobal;
+            for (int j = 0; j < cores.size(); ++j)
+                for (const auto &e : cores[j].frontEdges)
+                    locked.insert(edgeKey(cdtToGlobal[pointVertex[coreFrontPointIds[j][e.first]]],
+                                          cdtToGlobal[pointVertex[coreFrontPointIds[j][e.second]]]));
+            QuadQualityBounds bounds;
+            bounds.minAngleDeg = 45.0; bounds.maxAngleDeg = 135.0; bounds.minScaledJacobian = 0.5; bounds.maxAspect = 3.0;
+            if (!m_opts.trianglesOnly)
+            {
+                QuadPairingOptions po;
+                po.bounds = bounds;
+                QVector<int> oldToNew;
+                pairTrianglesIntoQuads(result, fringeCells, {}, locked, po, &oldToNew);
+            }
+            if (!movable.isEmpty())
+            {
+                QuadCleanupOptions co;
+                co.bounds = bounds;
+                co.removeDoublets = false;
+                co.diagonalSwaps = false;
+                co.smoothingIterations = 5;
+                QVector<int> vOldToNew;
+                cleanupAndSmoothQuads(result, movable, co, &vOldToNew);
+            }
+        }
+    }
+    if (cancelled()) return fail(QStringLiteral("Cancelled."));
+
+    // ── Structured patches, stitched by coordinate ───────────────────────
+    // Patch boundary vertices entered the CDT unresampled, so they come
+    // back with their exact coordinates; interior patch vertices are new.
+    if (!m_patches.isEmpty())
+    {
+        const double eps = m_opts.patchSnapEps > 0.0 ? m_opts.patchSnapEps : 1e-7;
+        const QPointF origin = bbox.center();
+        auto keyOf = [&](const QPointF &p) {
+            return QPair<qint64, qint64>(qRound64((p.x() - origin.x()) / eps), qRound64((p.y() - origin.y()) / eps));
+        };
+        // A tiny snap tolerance must never push qRound64 out of range.
+        const auto validSnapKey = [&](const QPointF &p) {
+            const double x = (p.x() - origin.x()) / eps, y = (p.y() - origin.y()) / eps;
             const double limit = std::ldexp(1.0, 63);
             return std::isfinite(x) && std::isfinite(y) && std::abs(x) < limit && std::abs(y) < limit;
         };
-        outputOk = std::isfinite(eps) && eps >= 0;
-        for (const MeshVertex &vertex : std::as_const(result.vertices))
-            if (outputOk && !validSnapKey(vertex.xy)) outputOk = false;
-        for (const PatchMesh &patch : patches)
-            for (const QPointF &point : patch.xy)
-                if (outputOk && !validSnapKey(point)) outputOk = false;
-        if (!outputOk)
-            result.errorMsg = QStringLiteral("MeshGenerator: patch snap tolerance is invalid or too small for the coordinate span.");
-        if (outputOk) {
-            QHash<PointKey, int> outIndex;
-            outIndex.reserve(result.vertices.size());
-            for (int i = 0; i < result.vertices.size(); ++i)
-                outIndex.insert(keyOf(result.vertices[i].xy), i);
+        for (const MeshVertex &v : std::as_const(result.vertices))
+            if (!validSnapKey(v.xy))
+                return fail(QStringLiteral("MeshGenerator: patch snap tolerance is invalid or too small for the coordinate span."));
+        for (const PatchMesh &pm : m_patches)
+            for (const QPointF &p : pm.xy)
+                if (!validSnapKey(p))
+                    return fail(QStringLiteral("MeshGenerator: patch snap tolerance is invalid or too small for the coordinate span."));
 
-            QHash<QPair<int, int>, int> patchEdgeIncidence;
-            for (const PatchMesh &pm : patches)
-            {
-                if (pm.quads.isEmpty()) continue;
-                QVector<int> localToGlobal(pm.xy.size(), -1);
-                for (int k = 0; k < pm.xy.size(); ++k)
-                {
-                    const PointKey key = keyOf(pm.xy[k]);
-                    const auto it = outIndex.constFind(key);
-                    if (it != outIndex.constEnd()) { localToGlobal[k] = it.value(); continue; }
-                    MeshVertex v;
-                    v.xy = pm.xy[k];
-                    localToGlobal[k] = result.vertices.size();
-                    result.vertices.append(v);
-                    outIndex.insert(key, localToGlobal[k]);
-                }
-                // Welding changes coordinates and can collapse vertices when
-                // an explicit snap tolerance is too coarse. Validate the actual
-                // geometry before adding any of this patch's cells.
-                PatchMesh welded = pm;
-                for (int k = 0; k < welded.xy.size(); ++k)
-                    welded.xy[k] = result.vertices[localToGlobal[k]].xy;
-                // The carved cavity uses mandatory PSLG boundary points.
-                // A custom tolerance may match interiors, but must not move
-                // those points away from their actual quantised input positions.
-                for (const auto &edge : pm.boundarySegments) {
-                    for (int k : {edge.first, edge.second}) {
-                        const QPointF original = pm.xy[k] - quantOrigin;
-                        const QPointF expected(quantOrigin.x() + qRound64(original.x() * 1e7) / 1e7,
-                                               quantOrigin.y() + qRound64(original.y() * 1e7) / 1e7);
-                        if (welded.xy[k].x() == expected.x() && welded.xy[k].y() == expected.y()) continue;
-                        outputOk = false;
-                        result.errorMsg = QStringLiteral("MeshGenerator: patch snap tolerance moves a structured patch boundary away from its carved cavity. "
-                                                          "Reduce the patch snap tolerance.");
-                        break;
-                    }
-                    if (!outputOk) break;
-                }
-                if (!outputOk) break;
-                const QString error = validate(welded);
-                if (!error.isEmpty()) {
-                    outputOk = false;
-                    result.errorMsg = QStringLiteral("MeshGenerator: structured patch '%1' is invalid after vertex welding: %2 "
-                                                      "Reduce the patch snap tolerance or revise its spacing.").arg(pm.tag, error);
-                    break;
-                }
-                for (const auto &edge : pm.boundarySegments)
-                    patchEdgeIncidence.insert(edgeKey(localToGlobal[edge.first], localToGlobal[edge.second]), 0);
-                for (const MeshTriangle &q : pm.quads)
-                {
-                    MeshTriangle c = q;
-                    c.v0 = localToGlobal[q.v0];
-                    c.v1 = localToGlobal[q.v1];
-                    c.v2 = localToGlobal[q.v2];
-                    c.v3 = localToGlobal[q.v3];
-                    if (c.tag.isEmpty()) c.tag = pm.tag;
-                    result.triangles.append(c);
-                }
-            }
-            if (outputOk) {
-                // An internal patch interface must have two incident cells.
-                // Checking exact edge identities rejects unmatched subdivisions
-                // and T-junctions rather than accepting coincident-looking seams.
-                for (const MeshTriangle &cell : std::as_const(result.triangles)) {
-                    const int count = cell.isQuad() ? 4 : 3;
-                    for (int k = 0; k < count; ++k) {
-                        auto found = patchEdgeIncidence.find(edgeKey(cell.vertex(k), cell.vertex((k + 1) % count)));
-                        if (found != patchEdgeIncidence.end()) ++found.value();
-                    }
-                }
-                QVector<QPolygonF> outlines = patchExclusionBoundaries;
-                for (const QPolygonF &domain : m_domains)
-                    outlines.append(patchRelativeRing(domain, quantOrigin));
-                // pushPoint quantises the supplied boundary coordinates to 1e-7.
-                // This tolerance accounts only for that rounding, never for an
-                // arbitrarily large user-selected patchSnapEps.
-                for (auto it = patchEdgeIncidence.cbegin(); it != patchEdgeIncidence.cend(); ++it) {
-                    if (it.value() == 2) continue;
-                    const QPointF a = result.vertices[it.key().first].xy - quantOrigin;
-                    const QPointF b = result.vertices[it.key().second].xy - quantOrigin;
-                    if (it.value() == 1 && patchEdgeOnOutline(a, b, outlines, 2e-7)) continue;
-                    outputOk = false;
-                    result.errorMsg = QStringLiteral("MeshGenerator: structured patch boundary has %1 incident cells instead of a conforming interface. "
-                                                      "Match subdivisions on touching patches and domain boundaries, or separate the patches.").arg(it.value());
-                    break;
-                }
-            }
-        }
-    }
-
-    result.ok = outputOk && (out.numberoftriangles > 0);
-    if (!result.ok && result.errorMsg.isEmpty())
-        result.errorMsg = QStringLiteral(
-            "Triangle produced 0 triangles — domain may be self-intersecting "
-            "or constraint segments may cross.");
-
-    // ── Tri-pair merge (G2) — last step ───────────────────────────────────
-    // Every constrained segment (domain boundary, holes, breaklines, patch
-    // boundaries) is a locked edge: a quad never straddles one.
-    if (result.ok && m_opts.mergeTrianglePairs)
-    {
-        QSet<QPair<int, int>> locked;
-        locked.reserve(result.boundaryEdges.size());
-        for (const MeshEdge &e : std::as_const(result.boundaryEdges))
-            locked.insert(edgeKey(e.v0, e.v1));
-        locked.unite(quadRegionMergeLocks(result));
-        mergeTrianglePairs(result, m_opts.quadMerge, locked, nullptr);
-    }
-
-    // ── Quad region reports: cells inside each ring on exit ───────────────
-    // Every ring is a constraint loop (or a patch boundary), so a cell is
-    // wholly inside or outside and its centroid decides membership.
-    if (result.ok && !qregs.isEmpty())
-    {
-        QVector<QVector<double>> rect(qregs.size());
-        for (const MeshTriangle &c : std::as_const(result.triangles))
+        QHash<QPair<qint64, qint64>, int> outIndex;
+        outIndex.reserve(result.vertices.size());
+        for (int i = 0; i < result.vertices.size(); ++i) outIndex.insert(keyOf(result.vertices[i].xy), i);
+        QHash<EdgeKey, int> patchEdgeIncidence;
+        for (const PatchMesh &pm : m_patches)
         {
-            const QPointF cen = cellGeom(result.vertices, c).centroid;
-            for (int s = 0; s < qregs.size(); ++s)
+            if (pm.quads.isEmpty()) continue;
+            QVector<int> localToGlobal(pm.xy.size(), -1);
+            for (int k = 0; k < pm.xy.size(); ++k)
             {
-                if (!inQuadRing(qregs[s], cen)) continue;
-                QuadRegionReport &rep = m_quadReports[qregs[s].index];
-                if (c.isQuad())
-                {
-                    ++rep.quads;
-                    const QuadQuality qq = quadQuality(result.vertices, c);
-                    rep.minScaledJacobian = std::min(rep.minScaledJacobian, qq.scaledJacobian);
-                    rect[s].append(qq.rectangularity);
-                }
-                else ++rep.triangles;
-                break;
+                const auto it = outIndex.constFind(keyOf(pm.xy[k]));
+                if (it != outIndex.constEnd()) { localToGlobal[k] = it.value(); continue; }
+                MeshVertex v;
+                v.xy = pm.xy[k];
+                localToGlobal[k] = result.vertices.size();
+                result.vertices.append(v);
+                outIndex.insert(keyOf(pm.xy[k]), localToGlobal[k]);
+            }
+            // Welding changes coordinates and can collapse vertices when the
+            // snap tolerance is too coarse: check the welded geometry first.
+            PatchMesh welded = pm;
+            for (int k = 0; k < welded.xy.size(); ++k) welded.xy[k] = result.vertices[localToGlobal[k]].xy;
+            for (const auto &edge : pm.boundarySegments)
+                for (int k : {edge.first, edge.second})
+                    if (welded.xy[k] != pm.xy[k])
+                        return fail(QStringLiteral("MeshGenerator: patch snap tolerance moves a structured patch boundary away "
+                                                   "from its carved cavity. Reduce the patch snap tolerance."));
+            const QString error = validate(welded);
+            if (!error.isEmpty())
+                return fail(QStringLiteral("MeshGenerator: structured patch '%1' is invalid after vertex welding: %2 "
+                                           "Reduce the patch snap tolerance or revise its spacing.").arg(pm.tag, error));
+            for (const auto &edge : pm.boundarySegments)
+                patchEdgeIncidence.insert(edgeKey(localToGlobal[edge.first], localToGlobal[edge.second]), 0);
+            for (const MeshTriangle &q : pm.quads)
+            {
+                MeshTriangle c = q;
+                c.v0 = localToGlobal[q.v0]; c.v1 = localToGlobal[q.v1];
+                c.v2 = localToGlobal[q.v2]; c.v3 = localToGlobal[q.v3];
+                if (c.tag.isEmpty()) c.tag = pm.tag;
+                result.triangles.append(c);
             }
         }
-        for (int s = 0; s < qregs.size(); ++s)
+        // Every patch boundary edge needs two incident cells (one when it
+        // lies on the domain or a hole outline): exact edge identity rejects
+        // unmatched subdivisions and T-junctions.
+        for (const MeshTriangle &cell : std::as_const(result.triangles))
         {
-            QuadRegionReport &rep = m_quadReports[qregs[s].index];
-            if (rep.quads == 0) { rep.minScaledJacobian = 0.0; continue; }
-            QVector<double> &r = rect[s];
-            std::sort(r.begin(), r.end());
-            const int mid = r.size() / 2;
-            rep.medianRectangularity = (r.size() % 2 == 1) ? r[mid] : 0.5 * (r[mid - 1] + r[mid]);
+            const int n = cell.isQuad() ? 4 : 3;
+            for (int k = 0; k < n; ++k)
+            {
+                auto found = patchEdgeIncidence.find(edgeKey(cell.vertex(k), cell.vertex((k + 1) % n)));
+                if (found != patchEdgeIncidence.end()) ++found.value();
+            }
+        }
+        QVector<QPolygonF> outlines = patchExclusionBoundaries;
+        for (const QPolygonF &domain : m_domains) outlines.append(patchRelativeRing(domain, patchOrigin));
+        const double outlineTol = std::max(1e-9, std::max(bbox.width(), bbox.height()) * 16 * std::numeric_limits<double>::epsilon());
+        for (auto it = patchEdgeIncidence.cbegin(); it != patchEdgeIncidence.cend(); ++it)
+        {
+            if (it.value() == 2) continue;
+            const QPointF a = result.vertices[it.key().first].xy - patchOrigin;
+            const QPointF b = result.vertices[it.key().second].xy - patchOrigin;
+            if (it.value() == 1 && patchEdgeOnOutline(a, b, outlines, outlineTol)) continue;
+            return fail(QStringLiteral("MeshGenerator: structured patch boundary has %1 incident cells instead of a conforming "
+                                       "interface. Match subdivisions on touching patches and domain boundaries, or separate "
+                                       "the patches.").arg(it.value()));
         }
     }
 
-    // ── Cleanup ───────────────────────────────────────────────────────────
-    std::free(in.pointlist);
-    std::free(in.pointmarkerlist);
-    std::free(in.segmentlist);
-    std::free(in.segmentmarkerlist);
-    std::free(in.holelist);
-    std::free(in.regionlist);
-    freeOutput(out);
+    // Triangles first, quads after (engine order).
+    reorderTrianglesFirst(result);
 
+    // ── Reports ──────────────────────────────────────────────────────────
+    m_quadReports.resize(m_quadRegions.size());
+    for (int i = 0; i < m_quadRegions.size(); ++i)
+    {
+        QuadRegionReport &r = m_quadReports[i];
+        r.index = i;
+        r.requested = m_quadRegions[i].mode;
+        r.resolved = m_opts.trianglesOnly ? QuadRegionMode::TrianglesOnly : QuadRegionMode::Free;
+        r.accepted = regionRings[i].size() >= 3;
+        r.spacing = m_quadRegions[i].spacing;
+        if (!r.accepted) r.message = QStringLiteral("region ring has fewer than 3 vertices");
+    }
+
+    result.ok = !result.triangles.isEmpty();
     return result;
 }
 

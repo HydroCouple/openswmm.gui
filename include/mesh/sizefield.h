@@ -36,7 +36,7 @@
  * Euclidean distance by about 8.24%; this is not a bound for segment stamping,
  * bilinear interpolation, or the complete sizing pipeline. Overestimating d
  * increases h and its permitted area, producing a COARSER target, not a
- * conservative refinement guarantee. Terrain-density limits and the area
+ * conservative refinement guarantee. The terrain-error term and the area
  * floor further affect the final target. Computation is serial and
  * deterministic for fixed input.
  */
@@ -74,43 +74,18 @@ struct SizeFieldOptions
      *  which only softens the grading, never breaks it. */
     qint64 maxGridCells = 4'000'000;
 
-    /*! Also bound the size by the accepted terrain samples passed to build()
-     *  (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.4).
-     *
-     *  WHY.  Terrain complexity normally reaches the mesh by the thinner's
-     *  points simply BEING vertices: it puts them densely where the ground is
-     *  complex.  A quad region replaces them with its lattice (redesign D5), so
-     *  under a whole-domain quad mesh that density would be lost unless it is
-     *  re-expressed as a size. The existing areal-density estimate is
-     *  h_terrain = pitch / sqrt(points in the cell), propagated outward under
-     *  the same slope and combined as
-     *  h = min(nearSize + gradation·d, h_terrain).
-     *  This estimate depends on grid pitch and does not guarantee along-line
-     *  spacing, corridor width or terrain reconstruction error. Those require
-     *  separate feature/error constraints (GUI robustness plan M1).
-     *
-     *  Off by default: it only matters when something drops those points. */
-    bool   terrainDensity = false;
-};
-
-/*! Bounded terrain-size handoff from the generation worker. Count only the
- *  terrain samples that survive reprojection and candidate filtering, in mesh
- *  coordinates. Storage scales with the size-field grid, not the point cloud.
- *  Auxiliary/tagged inputs remain separate. */
-class TerrainSizeInput
-{
-public:
-    bool prepare(const QRectF &bbox, const SizeFieldOptions &opt);
-    void addAcceptedPoint(const QPointF &point);
-    [[nodiscard]] qint64 sampleCount() const { return m_samples; }
-    [[nodiscard]] qsizetype cellCount() const { return m_count.size(); }
-
-private:
-    friend class SizeField;
-    QVector<quint32> m_count;
-    int m_cols = 0, m_rows = 0;
-    double m_pitch = 0.0, m_x0 = 0.0, m_y0 = 0.0;
-    qint64 m_samples = 0;
+    // ── Overhaul additions (MESH_OVERHAUL_PLAN_2026-09-29.md §3 Stage 2) ──
+    /*! Upper clamp on the size (h_max, map units); 0 = unbounded. The
+     *  dialog derives it as "coarsen away from features up to" × nearSize. */
+    double maxSize = 0.0;
+    /*! Terrain-error size bound in mesh units at a mesh coordinate
+     *  (mesh::TerrainSizeField through the worker's mesh→DEM transform).
+     *  <= 0 or non-finite = no bound at that point. Sampled once per grid
+     *  cell centre. Null = no terrain term. */
+    std::function<double(double, double)> terrainSizeAt;
+    /*! Polygon overrides: inside \c ring the size is min'd with \c h. */
+    struct Region { QPolygonF ring; double h = 0.0; };
+    QVector<Region> regions;
 };
 
 /*!
@@ -131,22 +106,23 @@ public:
      * \p segs   constraint segments (conduits, aux lines) — every edge seeds.
      * \p rings  additional ring paths to seed (valid hole rings).
      * \p pts    Steiner points; only tagged ones (marker != 0) seed.
-     * \p terrain Optional distinct accepted-terrain accumulator, prepared
-     *              with this bbox/options. When supplied, marker-zero points
-     *              in pts never contribute terrain density. Without it the
-     *              legacy marker-zero density input remains supported.
      */
     bool build(const QRectF &bbox,
                const QVector<ConstraintSegment>  &segs,
                const QVector<QVector<QPointF>>   &rings,
                const QVector<SteinerPoint>       &pts,
-               const SizeFieldOptions &opt,
-               const TerrainSizeInput *terrain = nullptr);
+               const SizeFieldOptions &opt);
 
     /*! Maximum permitted triangle area at (x, y) — the RefineHook contract.
      *  Never returns <= 0 on a valid field (the near-size area is the lower
      *  bound), so a graded field always constrains. */
     [[nodiscard]] double targetAreaAt(double x, double y) const;
+    /*! Target edge length h(x, y) in map units: min over the feature-distance
+     *  term, the terrain term and region overrides, clamped to
+     *  [size of areaFloor, maxSize] and gradation-limited so that
+     *  h(p) <= h(q) + gradation·|p − q| on the grid metric. Bilinear over
+     *  cell centres. 0 on an invalid field. */
+    [[nodiscard]] double sizeAt(double x, double y) const;
 
     [[nodiscard]] bool   isValid() const { return m_cols > 0 && m_rows > 0; }
     [[nodiscard]] double pitch()   const { return m_pitch; }
@@ -157,19 +133,15 @@ public:
      *  Exposed for tests and diagnostics. */
     [[nodiscard]] double distanceAt(double x, double y) const;
 
-    /*! Terrain-density size bound at (x, y), or 0 when
-     *  SizeFieldOptions::terrainDensity was off / no untagged point was given.
-     *  Exposed for tests and diagnostics. */
-    [[nodiscard]] double terrainSizeAt(double x, double y) const;
-
 private:
     [[nodiscard]] double cellDist(int cx, int cy) const;
-    [[nodiscard]] double cellTerrain(int cx, int cy) const;
+    [[nodiscard]] double cellSize(int cx, int cy) const;
+    void buildSizeGrid(const SizeFieldOptions &opt);
     void stampSeedPoint(const QPointF &p);
     void stampSeedSegment(const QPointF &a, const QPointF &b);
 
     QVector<float> m_dist;      ///< row-major distance at cell centres
-    QVector<float> m_hTerrain;  ///< row-major terrain size bound; empty = unused
+    QVector<float> m_h;         ///< row-major final size h at cell centres (gradation-limited)
     int    m_cols = 0, m_rows = 0;
     double m_x0 = 0.0, m_y0 = 0.0;   ///< centre of cell (0, 0)
     double m_pitch = 0.0;

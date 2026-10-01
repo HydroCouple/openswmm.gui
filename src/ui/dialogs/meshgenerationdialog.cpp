@@ -29,10 +29,9 @@
 #include "mesh/meshgenerator.h"
 #include "mesh/meshnodemapper.h"
 #include "mesh/meshpatch.h"
-#include "mesh/meshquadmerge.h"
 #include "mesh/meshresult.h"
 #include "mesh/channelburnselector.h"
-#include "mesh/dtmthinner.h"
+#include "mesh/dtmraster.h"
 #include "mesh/inpmeshwriter.h"
 #include "mesh/inpmeshreader.h"
 #include "mesh/naturalnbinterpolator.h"
@@ -40,9 +39,8 @@
 #include "mesh/meshstagecache.h"
 #include "project/generatedmeshartifacts.h"
 #include "mesh/pslgprep.h"
-#include "mesh/pslgminsize.h"
 #include "mesh/sizefield.h"
-#include "mesh/meshminsizecleanup.h"
+#include "mesh/terrainsizefield.h"
 
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_links.h>
@@ -108,9 +106,7 @@
 // the using-declarations keep every unqualified call site below unchanged.
 // ---------------------------------------------------------------------------
 
-using mesh::pslg::simplifyPolyline;
-using mesh::pslg::simplifyRing;
-using mesh::pslg::densifyRing;
+using mesh::pslg::trimByStraightness;
 using mesh::pslg::distSqToSegment;
 using mesh::pslg::snapAndDedupe;
 
@@ -131,11 +127,11 @@ using mesh::pslg::snapAndDedupe;
  * OGR leaves HUGE_VAL in a slot it could not transform. Canonicalising to NaN
  * matters for two reasons:
  *
- *  - NaN is already the pipeline's "no value" sentinel (DTMSampler,
- *    DTMThinner, NaturalNeighbourInterpolator all use it), so downstream
+ *  - NaN is already the pipeline's "no value" sentinel (DTMRaster,
+ *    NaturalNeighbourInterpolator both use it), so downstream
  *    finiteness checks catch it uniformly.
  *  - HUGE_VAL passes as an ordinary large coordinate. It survives a bbox
- *    comparison, gets averaged into a centroid, and reaches Triangle intact.
+ *    comparison, gets averaged into a centroid, and reaches the generator intact.
  *
  * Failures are real: PROJ rejects points outside a projection's domain of
  * validity (a UTM zone transform far from its meridian), points needing a
@@ -177,37 +173,6 @@ static bool transformCheckedPt(OGRCoordinateTransformation *ct,
 // ---------------------------------------------------------------------------
 
 /*! \brief Log / attribute spelling of a mesh::QuadRegionMode. */
-static const char *quadRegionModeName(mesh::QuadRegionMode m)
-{
-    switch (m)
-    {
-    case mesh::QuadRegionMode::Auto:          return "auto";
-    case mesh::QuadRegionMode::Mapped:        return "mapped";
-    case mesh::QuadRegionMode::Submapped:     return "submapped";
-    case mesh::QuadRegionMode::Free:          return "free";
-    case mesh::QuadRegionMode::TrianglesOnly: return "triangles";
-    }
-    return "?";
-}
-
-/*! \brief Parse a `quad_mode` attribute value (case-insensitive). Returns
- *         false and leaves \p out untouched on an unknown spelling. */
-static bool parseQuadRegionMode(const QString &s, mesh::QuadRegionMode *out)
-{
-    const QString t = s.trimmed().toLower();
-    if      (t == QLatin1String("auto"))      *out = mesh::QuadRegionMode::Auto;
-    else if (t == QLatin1String("mapped"))    *out = mesh::QuadRegionMode::Mapped;
-    else if (t == QLatin1String("submapped")) *out = mesh::QuadRegionMode::Submapped;
-    else if (t == QLatin1String("free"))      *out = mesh::QuadRegionMode::Free;
-    else if (t == QLatin1String("triangles")) *out = mesh::QuadRegionMode::TrianglesOnly;
-    else return false;
-    return true;
-}
-
-// ---------------------------------------------------------------------------
-// Worker function — runs on QtConcurrent thread, NO widget access allowed.
-// ---------------------------------------------------------------------------
-
 static void
 runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                     MeshGenerationDialog::PipelineInputs            in)
@@ -286,14 +251,13 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
             subHash = QCryptographicHash::hash(blob, QCryptographicHash::Sha256);
         }
-        // minCellSize participates in the key: the cached payload is the
-        // PREPARED (and, from 2026-08-17, conditioned) rings, so reusing an
-        // entry built at a different minimum size would silently mesh the
-        // wrong geometry.
+        // The trimming parameters participate in the key: the cached
+        // payload is the PREPARED rings, so an entry built with different
+        // trimming would silently mesh the wrong geometry.
         boundaryCacheKey = mesh::MeshStageCache::boundaryKey(
             srcId, subHash, in.boundaryLayerName, in.boundaryCRSWkt,
-            in.meshCRSWkt, in.pslgSimplifyEps, in.maxBoundaryEdgeLen,
-            in.minSizePolicy.minCellSize, in.minSizeEnforce);
+            in.meshCRSWkt, in.trimTurnDeg, in.trimDeviation,
+            in.minCellSize, false);
 
         QElapsedTimer cacheClock;
         cacheClock.start();
@@ -390,7 +354,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // the unsimplified ring — GEOS/OGR output is valid by
             // construction; only RDP can break it.
             const QVector<QPointF> rawExt = ringToMesh(ext);
-            QVector<QPointF> simpExt = simplifyRing(rawExt, in.pslgSimplifyEps);
+            QVector<QPointF> simpExt = trimByStraightness(rawExt, in.trimTurnDeg, in.trimDeviation, {}, true);
             {
                 EditGeometry::RingPolygon check;
                 check.exterior = simpExt;
@@ -398,8 +362,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                     != EditGeometry::RingValidity::Ok)
                     simpExt = rawExt;
             }
-            in.domains.append(QPolygonF(
-                densifyRing(simpExt, in.maxBoundaryEdgeLen)));
+            in.domains.append(QPolygonF(simpExt));
             for (int h = 0; h < poly->getNumInteriorRings(); ++h)
             {
                 const OGRLinearRing *hole = poly->getInteriorRing(h);
@@ -629,15 +592,10 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // Demoted nodes stay in couplingNodes, so the post-generation
             // mapper couples them via their containing CELL instead.
             //
-            // Under V2 enforcement the separation is at least h: two pinned
-            // nodes closer than the minimum cell size are exactly what the
-            // conditioner downstream would otherwise be asked to fix, and
-            // demotion here is the cheaper, already-proven answer.
-            const double effNodeSep =
-                (in.minSizeEnforce && in.minSizePolicy.enabled())
-                    ? std::max(in.nodeMinSeparation,
-                               in.minSizePolicy.minCellSize)
-                    : in.nodeMinSeparation;
+            // The separation is at least the minimum cell size (the coupling
+            // policy of MESH_OVERHAUL_PLAN_2026-09-29.md §3): two pinned
+            // nodes closer than h_min share a cell instead of forcing one.
+            const double effNodeSep = std::max(in.nodeMinSeparation, in.minCellSize);
             const QVector<bool> keepNode =
                 mesh::pslg::greedyMinSeparation(nodeXY, effNodeSep);
 
@@ -675,11 +633,13 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         {
             for (const auto &link : std::as_const(in.candidateLinks))
             {
-                // Dedupe then simplify — RDP removes nearly-collinear
-                // intermediate vertices from GIS-digitised alignments.
-                QVector<QPointF> path = simplifyPolyline(
+                // Dedupe, then drop intermediate vertices closer than the
+                // minimum cell size (deviation-capped, endpoints kept): the
+                // alignment keeps its shape and coupling identity, and no
+                // conduit vertex pair can demand a sub-floor cell.
+                QVector<QPointF> path = mesh::pslg::resampleMinLength(
                     clipIntermediateToDomain(dedupeSegPath(link.second)),
-                    in.pslgSimplifyEps);
+                    in.minCellSize, 0.1 * in.minCellSize);
                 if (path.size() < 2) continue;
                 // Both endpoints must be inside the domain polygon — a link
                 // crossing the boundary without a vertex at the crossing
@@ -720,9 +680,9 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                     in.featureZSeedXY.append(al.path[j]);
                     in.featureZSeedZ.append(al.z[j]);
                 }
-            QVector<QPointF> path = simplifyPolyline(
+            QVector<QPointF> path = trimByStraightness(
                 clipIntermediateToDomain(dedupeSegPath(al.path)),
-                in.pslgSimplifyEps);
+                in.trimTurnDeg, in.trimDeviation);
             if (path.size() < 2) continue;
             // Same planar-graph rule: both endpoints inside the domain.
             if (inDomain(path.first()) && inDomain(path.last()))
@@ -743,99 +703,10 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         }
 
         // Merge near-coincident untagged Steiner points from different
-        // sources; tagged SWMM points (marker != 0) are never merged.
-        snapAndDedupe(in.steinerPoints, in.pslgSnapEps);
+        // sources (automatic tolerance, a hundredth of the floor size);
+        // tagged SWMM points (marker != 0) are never merged.
+        snapAndDedupe(in.steinerPoints, 0.01 * in.minCellSize);
         stageMark("candidate filtering + markers");
-    }
-
-    // ── Minimum cell size conditioning ──────────────────────────────
-    // MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17 §4.  Runs HERE, after markers
-    // exist (so tagged identity can be honoured as weld priority) and before
-    // hole-ring prep (so prepareHoleRings' own validation independently
-    // re-checks conditioned rings).  Terrain Steiner sampling happens later
-    // and its near-constraint filter reads the conditioned geometry, so DTM
-    // points are automatically kept clear of the conditioned features.
-    //
-    // Diagnostics run whenever a size is set, even if conditioning is
-    // subsequently abandoned: knowing WHERE the input cannot hold cells of
-    // size h is the actionable part.
-    if (in.minSizePolicy.enabled())
-    {
-        progress(12, QObject::tr("Conditioning geometry for minimum cell size…"));
-        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-
-        const double h = in.minSizePolicy.minCellSize;
-        {
-            const QVector<mesh::pslg::Violation> before =
-                mesh::pslg::analyseLocalFeatureSize(
-                    in.domains, in.holeRings, in.constraintSegs,
-                    in.steinerPoints, h, 20);
-            qCInfo(lcMeshPerf) << "[Mesh][minsize] h =" << h
-                               << "| worst input feature scale"
-                               << (before.isEmpty() ? h : before.first().lfs)
-                               << "|" << before.size() << "violation(s) sampled";
-            for (const mesh::pslg::Violation &v : before)
-                qCDebug(lcMeshPerf) << "[Mesh][minsize]  input"
-                                    << mesh::pslg::violationCauseName(v.cause)
-                                    << v.lfs << "at" << v.xy
-                                    << v.tagA << v.tagB;
-        }
-
-        // On a boundary-cache HIT the rings are already prepared (and were
-        // conditioned by the run that stored them, since minCellSize is part
-        // of the cache key).  Their seeds and validity flags were computed
-        // against those exact vertices, so the rings must stay byte-identical
-        // here — they take part as proximity context only.
-        mesh::pslg::MinSizePolicy pol = in.minSizePolicy;
-        pol.ringsReadOnly = bprepReady;
-
-        mesh::pslg::ConditionReport crep;
-        const bool ok = mesh::pslg::conditionMinSize(
-            &in.domains, &in.holeRings, &in.constraintSegs, &in.steinerPoints,
-            pol, &crep, [&promise] { return promise.isCanceled(); });
-
-        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-
-        if (ok)
-        {
-            qCInfo(lcMeshPerf) << "[Mesh][minsize]" << crep.summary();
-            if (crep.holesDropped > 0)
-                qWarning() << "[Mesh][minsize] dropped" << crep.holesDropped
-                           << "sub-scale hole ring(s) — the mesh now COVERS "
-                              "those regions.";
-            if (crep.duplicateSegments > 0)
-                qWarning() << "[Mesh][minsize]" << crep.duplicateSegments
-                           << "constrained segment(s) were welded onto geometry "
-                              "another alignment already occupied — Triangle "
-                              "keeps one, so that many edges lose their marker "
-                              "and the conduit tag it carried.";
-            if (crep.domainAreaBefore != crep.domainAreaAfter)
-                qCInfo(lcMeshPerf) << "[Mesh][minsize] domain area"
-                                   << crep.domainAreaBefore << "->"
-                                   << crep.domainAreaAfter
-                                   << "(boundary vertices moved by up to"
-                                   << crep.maxDisplacement << ")";
-            progress(13, QObject::tr("Geometry conditioned (%1 merged, "
-                                     "%2 split, %3 corner(s) trimmed)")
-                             .arg(crep.verticesWelded)
-                             .arg(crep.segmentsSplit)
-                             .arg(crep.cornersTrimmed));
-        }
-        else
-        {
-            // Fail-safe: the PSLG was restored untouched.  A slow correct mesh
-            // beats a Triangle abort, so carry on unconditioned and say so.
-            qWarning() << "[Mesh][minsize] conditioning abandoned —"
-                       << crep.summary()
-                       << "- generating with the original geometry.";
-            progress(13, QObject::tr("Minimum-size conditioning skipped "
-                                     "(geometry could not be conditioned safely)"));
-        }
-        for (const mesh::pslg::Violation &v : std::as_const(crep.residuals))
-            qCDebug(lcMeshPerf) << "[Mesh][minsize]  residual"
-                                << mesh::pslg::violationCauseName(v.cause)
-                                << v.lfs << "at" << v.xy << v.tagA << v.tagB;
-        stageMark("minimum cell size conditioning");
     }
 
     // ── Domain + holes ──────────────────────────────────────────────
@@ -856,7 +727,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         QVector<mesh::pslg::PreparedRing> prepared;
         int skippedRings = 0;
         const bool holesDone = mesh::pslg::prepareHoleRings(
-            in.holeRings, in.pslgSimplifyEps, in.maxBoundaryEdgeLen, &prepared,
+            in.holeRings, 0.0, 0.0, &prepared,
             [&promise] { return promise.isCanceled(); },
             [&](int done, int total) {
                 promise.setProgressValueAndText(
@@ -864,7 +735,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                     QObject::tr("Preparing hole rings… (%1 / %2)")
                         .arg(done).arg(total));
             },
-            &skippedRings);
+            &skippedRings, in.trimTurnDeg, in.trimDeviation);
         if (!holesDone) { fail(QObject::tr("Cancelled.")); return; }
 
         bprep.domains = in.domains;
@@ -919,11 +790,9 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
     // ══ Channel burn-in — B2..B5 (CHANNEL_BURN_IN_PLAN_2026-09-21.md §5) ══
     // Placement is load-bearing. The burned raster must exist and dtmPath must
-    // point at it BEFORE the DTM is opened below, because MeshStageCache's
-    // terrain key is the DEM's file identity — so a re-burn invalidates cached
-    // terrain for free — and because DTMThinner::generatePoints() is
-    // normal-deviation decimation, which only densifies along the banks if the
-    // channel is already in the surface it thins.
+    // point at it BEFORE the DTM is opened below, because the terrain error
+    // field (mesh::TerrainSizeField) only densifies along the banks if the
+    // channel is already in the surface it measures.
     QVector<QPolygonF> burnCorridorRings;
     QStringList        burnWarnings = in.burnWarnings;
     QString            burnedDemPath, burnReportPath;
@@ -1156,13 +1025,13 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     for (const auto &cs : std::as_const(in.constraintSegs))
         g.addConstraintSegment(cs);
 
-    // ── PSLG quad regions (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3) ──
-    // Layer regions are read HERE with a fresh GDAL handle, exactly as the
-    // boundary layer is (handles must not cross threads); subcatchment
-    // regions arrive resolved from collectInputs and are appended after
-    // them.  Geometry only — the generator validates, classifies Auto, drops
-    // terrain Steiners inside Free rings and pairs / cleans / smooths
-    // (g.addQuadRegion below).
+    // ── Quad regions (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ──────────
+    // A region is a polygon with an optional size (field "h" or
+    // "quad_spacing"), an optional grid angle ("angle" or "quad_angle",
+    // degrees from +x CCW — the region then gets its own quadtree frame)
+    // and an optional "tag". Layer regions are read HERE with a fresh GDAL
+    // handle (handles must not cross threads); subcatchment regions arrive
+    // resolved from collectInputs and are appended after them.
     QVector<mesh::QuadRegion> quadRegions;
     if (!in.quadRegionLayers.isEmpty())
     {
@@ -1172,309 +1041,104 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         for (const auto &spec : std::as_const(in.quadRegionLayers))
         {
             OGRCoordinateTransformation *regionCT = nullptr;  // region layer → mesh CRS
-            bool directionalCRSValid = false;
             if (!spec.crsWkt.isEmpty() && !in.meshCRSWkt.isEmpty())
             {
                 OGRSpatialReference rSRS, mSRS;
+                rSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                mSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                 if (rSRS.importFromWkt(spec.crsWkt.toUtf8().constData()) == OGRERR_NONE
-                    && mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData()) == OGRERR_NONE)
-                {
-                    rSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-                    mSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-                    directionalCRSValid = (mSRS.IsProjected() || mSRS.IsLocal())
-                        && std::isfinite(mSRS.GetLinearUnits()) && mSRS.GetLinearUnits() > 0;
-                    if (!mSRS.IsSame(&rSRS))
-                    {
-                        regionCT = OGRCreateCoordinateTransformation(&rSRS, &mSRS);
-                        directionalCRSValid = directionalCRSValid && regionCT;
-                    }
-                }
+                    && mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData()) == OGRERR_NONE
+                    && !rSRS.IsSame(&mSRS))
+                    regionCT = OGRCreateCoordinateTransformation(&rSRS, &mSRS);
             }
-
-            GDALDataset *ds = GDALDataset::Open(
-                spec.path.toUtf8().constData(),
-                GDAL_OF_VECTOR | GDAL_OF_READONLY);
+            GDALDataset *ds = static_cast<GDALDataset *>(GDALOpenEx(
+                spec.path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                nullptr, nullptr, nullptr));
             if (!ds)
             {
                 if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
-                fail(QObject::tr("Could not open requested quad region source: %1").arg(spec.path));
-                return;
+                qWarning() << "[Mesh][quad] region layer could not be opened:" << spec.path;
+                continue;
             }
-            OGRLayer *ol = spec.layerName.isEmpty()
-                               ? ds->GetLayer(0)
-                               : ds->GetLayerByName(spec.layerName.toUtf8().constData());
-            if (!ol)
+            OGRLayer *layer = spec.layerName.isEmpty() ? ds->GetLayer(0)
+                                                       : ds->GetLayerByName(spec.layerName.toUtf8().constData());
+            if (!layer)
             {
                 GDALClose(ds);
                 if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
-                fail(QObject::tr("Requested quad region layer '%1' was not found in %2.").arg(spec.layerName, spec.path));
-                return;
+                qWarning() << "[Mesh][quad] region layer not found:" << spec.layerName;
+                continue;
             }
-
-            // Exterior ring only → mesh CRS → RDP with the same simplifier the
-            // domain rings use → QuadRegion carrying the dialog defaults, then
-            // the optional per-feature attribute overrides (case-insensitive
-            // field names; OGR's GetFieldIndex already ignores case).
-            QString regionReadError;
-            const auto hasDirectionalFields = [](const OGRFeature *f) {
-                for (const char *name : {"quad_h_along", "quad_h_across", "quad_axis"}) {
-                    const int index = f->GetFieldIndex(name);
-                    if (index >= 0 && f->IsFieldSetAndNotNull(index)) return true;
-                }
-                return false;
-            };
-            auto pushRegion = [&](const OGRPolygon *poly, const OGRFeature *f) {
-                if (!regionReadError.isEmpty()) return;
-                mesh::QuadRegion r = in.quadRegionDefaults;
-                auto fieldIdx = [f](const char *name) -> int {
-                    const int i = f->GetFieldIndex(name);
-                    return (i >= 0 && f->IsFieldSetAndNotNull(i)) ? i : -1;
-                };
-                const auto badDirectional = [&](const QString &why) {
-                    regionReadError = QObject::tr("Quad region source '%1', feature %2: %3")
-                        .arg(spec.layerName).arg(qint64(f->GetFID())).arg(why);
-                };
-                if (hasDirectionalFields(f)) {
-                    r.directionalSpacing = true;
-                    const char *names[] = {"quad_h_along", "quad_h_across", "quad_axis"};
-                    double *values[] = {&r.hAlong, &r.hAcross, &r.mappedAlongAngleDeg};
-                    for (int k = 0; k < 3; ++k) {
-                        const int index = fieldIdx(names[k]);
-                        if (index < 0) {
-                            badDirectional(QObject::tr("set all three directional fields: quad_h_along, quad_h_across and quad_axis; null or missing values are not allowed in a partial override."));
-                            return;
-                        }
-                        const auto type = f->GetDefnRef()->GetFieldDefn(index)->GetType();
-                        const double value = f->GetFieldAsDouble(index);
-                        if ((type != OFTReal && type != OFTInteger && type != OFTInteger64)
-                            || !std::isfinite(value) || (k < 2 && !(value > 0))) {
-                            badDirectional(QObject::tr("%1 must be numeric and finite; directional spacings must be greater than zero.").arg(QString::fromLatin1(names[k])));
-                            return;
-                        }
-                        *values[k] = value;
-                    }
-                }
-                if (r.directionalSpacing && (!directionalCRSValid || !poly || poly->getNumInteriorRings() > 0)) {
-                    badDirectional(QObject::tr("directional Mapped regions require known source and planar mesh CRSs, a valid transformation and a polygon without holes."));
-                    return;
-                }
-                if (!poly) return;
-                const OGRLinearRing *ext = poly->getExteriorRing();
-                if (!ext || ext->getNumPoints() < 3) {
-                    if (r.directionalSpacing) badDirectional(QObject::tr("the requested polygon has no usable exterior ring."));
-                    return;
-                }
-                const int n = ext->getNumPoints();
-                QVector<double> xs(n), ys(n);
-                for (int i = 0; i < n; ++i) { xs[i] = ext->getX(i); ys[i] = ext->getY(i); }
-                if (regionCT)
-                    nRegionXformFailed += transformChecked(regionCT, n, xs.data(), ys.data());
-                QVector<QPointF> pts;
-                pts.reserve(n);
-                for (int i = 0; i < n; ++i)
-                    if (std::isfinite(xs[i]) && std::isfinite(ys[i]))
-                        pts.append(QPointF(xs[i], ys[i]));
-                if (r.directionalSpacing && pts.size() != n) {
-                    badDirectional(QObject::tr("all polygon vertices must be finite and transform to the mesh CRS."));
-                    return;
-                }
-                if (pts.size() < 3) return;
-                r.ring = QPolygonF(r.directionalSpacing ? pts : simplifyRing(pts, in.pslgSimplifyEps));
-                if (const int i = fieldIdx("quad_mode"); i >= 0)
-                {
-                    const QString s = QString::fromUtf8(f->GetFieldAsString(i));
-                    if (!parseQuadRegionMode(s, &r.mode))
-                    {
-                        if (r.directionalSpacing) {
-                            badDirectional(QObject::tr("unknown quad_mode '%1' for a directional request.").arg(s));
-                            return;
-                        }
-                        qWarning() << "[Mesh][quad] unknown quad_mode" << s
-                                   << "on feature" << qint64(f->GetFID())
-                                   << "— using the dialog default";
-                    }
-                }
-                if (const int i = fieldIdx("quad_spacing"); i >= 0) r.spacing   = f->GetFieldAsDouble(i);
-                if (const int i = fieldIdx("quad_aspect"); i >= 0)
-                {
-                    bool ok = false;
-                    const double aspect = QString::fromUtf8(f->GetFieldAsString(i)).toDouble(&ok);
-                    if (ok && std::isfinite(aspect) && !(aspect > 0.0 && aspect < 1.0))
-                        r.aspectMax = aspect;
-                    else
-                        qWarning() << "[Mesh][quad] invalid quad_aspect on feature"
-                                   << qint64(f->GetFID()) << "— using the dialog default";
-                }
-                if (const int i = fieldIdx("quad_angle");   i >= 0)
-                {
-                    r.hasAlignAngle = true;
-                    r.alignAngleDeg = f->GetFieldAsDouble(i);
-                }
-                if      (const int i = fieldIdx("tag");  i >= 0) r.tag = QString::fromUtf8(f->GetFieldAsString(i));
-                else if (const int j = fieldIdx("name"); j >= 0) r.tag = QString::fromUtf8(f->GetFieldAsString(j));
-                quadRegions.append(std::move(r));
-            };
-
-            ol->ResetReading();
-            OGRFeature *f = nullptr;
-            bool cancelled = false;
-            const qsizetype regionsBeforeLayer = quadRegions.size();
-            while (true)
+            layer->ResetReading();
+            while (OGRFeature *f = layer->GetNextFeature())
             {
-                CPLErrorReset();
-                f = ol->GetNextFeature();
-                if (CPLGetLastErrorType() >= CE_Failure) {
-                    regionReadError = QObject::tr("Could not completely read quad region source '%1': %2")
-                        .arg(spec.path, QString::fromUtf8(CPLGetLastErrorMsg()));
-                    if (f) OGRFeature::DestroyFeature(f);
-                    break;
-                }
-                if (!f) break;
+                auto fieldIdx = [&](const char *name) { return f->GetFieldIndex(name); };
+                auto readRing = [&](const OGRPolygon *poly) {
+                    mesh::QuadRegion r;
+                    const OGRLinearRing *ext = poly ? poly->getExteriorRing() : nullptr;
+                    if (!ext || ext->getNumPoints() < 3) return;
+                    const int n = ext->getNumPoints();
+                    QVector<double> xs(n), ys(n);
+                    for (int i = 0; i < n; ++i) { xs[i] = ext->getX(i); ys[i] = ext->getY(i); }
+                    if (regionCT) nRegionXformFailed += transformChecked(regionCT, n, xs.data(), ys.data());
+                    QVector<QPointF> pts;
+                    pts.reserve(n);
+                    for (int i = 0; i < n; ++i)
+                        if (std::isfinite(xs[i]) && std::isfinite(ys[i])) pts.append(QPointF(xs[i], ys[i]));
+                    if (pts.size() < 3) return;
+                    r.ring = QPolygonF(trimByStraightness(pts, in.trimTurnDeg, in.trimDeviation, {}, true));
+                    for (const char *name : {"h", "quad_spacing"})
+                        if (const int i = fieldIdx(name); i >= 0 && f->IsFieldSetAndNotNull(i))
+                        { r.spacing = f->GetFieldAsDouble(i); break; }
+                    for (const char *name : {"angle", "quad_angle"})
+                        if (const int i = fieldIdx(name); i >= 0 && f->IsFieldSetAndNotNull(i))
+                        { r.hasAlignAngle = true; r.alignAngleDeg = f->GetFieldAsDouble(i); break; }
+                    if (const int i = fieldIdx("tag"); i >= 0 && f->IsFieldSetAndNotNull(i))
+                        r.tag = QString::fromUtf8(f->GetFieldAsString(i));
+                    if (!(r.spacing > 0.0) || !std::isfinite(r.spacing)) r.spacing = 0.0;
+                    quadRegions.append(std::move(r));
+                };
                 if (const OGRGeometry *geom = f->GetGeometryRef())
                 {
-                    const auto gt = wkbFlatten(geom->getGeometryType());
-                    if (geom->IsEmpty() && (in.quadRegionDefaults.directionalSpacing || hasDirectionalFields(f)))
-                        regionReadError = QObject::tr("Directional quad region feature %1 has empty geometry.").arg(qint64(f->GetFID()));
-                    else if (gt == wkbPolygon)
-                        pushRegion(geom->toPolygon(), f);
-                    else if (gt == wkbMultiPolygon)
-                    {
-                        const auto *mp = geom->toMultiPolygon();
-                        for (int i = 0; i < mp->getNumGeometries(); ++i)
-                            pushRegion(mp->getGeometryRef(i)->toPolygon(), f);
-                    }
-                    else if (in.quadRegionDefaults.directionalSpacing || hasDirectionalFields(f))
-                        regionReadError = QObject::tr("Directional quad region feature %1 must be a Polygon or MultiPolygon.").arg(qint64(f->GetFID()));
+                    const OGRwkbGeometryType t = wkbFlatten(geom->getGeometryType());
+                    if (t == wkbPolygon) readRing(geom->toPolygon());
+                    else if (t == wkbMultiPolygon)
+                        for (const auto *poly : *geom->toMultiPolygon()) readRing(poly);
                 }
-                else if (in.quadRegionDefaults.directionalSpacing || hasDirectionalFields(f))
-                    regionReadError = QObject::tr("Directional quad region feature %1 has no geometry.").arg(qint64(f->GetFID()));
                 OGRFeature::DestroyFeature(f);
-                if (!regionReadError.isEmpty()) break;
-                if (promise.isCanceled()) { cancelled = true; break; }
             }
             GDALClose(ds);
             if (regionCT) OGRCoordinateTransformation::DestroyCT(regionCT);
-            if (!regionReadError.isEmpty()) { fail(regionReadError); return; }
-            if (cancelled) { fail(QObject::tr("Cancelled.")); return; }
-            if (in.quadRegionDefaults.directionalSpacing && quadRegions.size() == regionsBeforeLayer) {
-                fail(QObject::tr("Requested directional quad region layer '%1' contains no usable regions.").arg(spec.layerName));
-                return;
-            }
         }
         if (nRegionXformFailed > 0)
-        {
-            // Same rule as the boundary: a ring with dropped vertices is a
-            // different region from the one the user drew.
-            fail(QObject::tr(
-                "%1 quad region vertices could not be reprojected from the "
-                "region layer's CRS to the mesh CRS, so generation was "
-                "stopped.").arg(nRegionXformFailed));
-            return;
-        }
+            qWarning() << "[Mesh][quad]" << nRegionXformFailed << "region vertex(es) failed reprojection and were dropped";
         stageMark("quad region layer read");
     }
     const int nLayerQuadRegions = quadRegions.size();
-    // Subcatchment regions, after the layer ones; same RDP pass (plan §3.2).
     for (const mesh::QuadRegion &src : std::as_const(in.quadRegions))
     {
         mesh::QuadRegion r = src;
-        r.ring = r.directionalSpacing ? src.ring : QPolygonF(simplifyRing(src.ring, in.pslgSimplifyEps));
+        r.ring = QPolygonF(trimByStraightness(src.ring, in.trimTurnDeg, in.trimDeviation, {}, true));
         quadRegions.append(std::move(r));
     }
-    // ── Quads everywhere (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.1) ──────
-    // The toggle needs no polygon: each domain ring becomes a BACKGROUND
-    // region covering everything the explicit regions did not claim. Holes
-    // are the domain's own hole rings plus every explicit region's ring, so
-    // an explicit region keeps its own mode/spacing and the background fills
-    // around it. Only the worker can build this — the generator is given
-    // hole SEED POINTS, never hole rings.
-    const int nExplicitQuadRegions = quadRegions.size();
-    if (in.quadEverywhere)
-    {
-        QVector<QPolygonF> explicitRings;
-        explicitRings.reserve(quadRegions.size());
-        for (const mesh::QuadRegion &r : std::as_const(quadRegions))
-            explicitRings.append(r.ring);
-
-        for (const QPolygonF &dom : std::as_const(in.domains))
-        {
-            if (dom.size() < 3) continue;
-            mesh::QuadRegion bg;
-            bg.ring         = dom;
-            bg.isBackground = true;
-            bg.mode         = mesh::QuadRegionMode::Free;
-            bg.spacing      = in.quadEverywhereSpacing;   // 0 = follow the size field
-            bg.aspectMax    = in.quadRegionDefaults.aspectMax;
-            for (const auto &hr : std::as_const(in.holeRings))
-            {
-                const QPolygonF h(hr);
-                if (h.size() >= 3 && mesh::pointInRing(dom, h.first())) bg.holes.append(h);
-            }
-            for (const QPolygonF &er : std::as_const(explicitRings))
-                if (er.size() >= 3 && mesh::pointInRing(dom, er.first())) bg.holes.append(er);
-            // A channel corridor is a structured patch whose interior is
-            // already a PSLG hole. Without subtracting it here the background
-            // lattice would still place points inside that hole.
-            for (const QPolygonF &cr : std::as_const(burnCorridorRings))
-                if (cr.size() >= 3 && mesh::pointInRing(dom, cr.first())) bg.holes.append(cr);
-            for (const QPolygonF &cr : std::as_const(featureCorridorRings))
-                if (cr.size() >= 3 && mesh::pointInRing(dom, cr.first())) bg.holes.append(cr);
-            quadRegions.append(std::move(bg));
-        }
-    }
-
     if (!quadRegions.isEmpty())
         qCInfo(lcMeshPerf).nospace()
             << "[Mesh][quad] " << quadRegions.size() << " regions ("
             << nLayerQuadRegions << " from layers, " << in.quadRegions.size()
-            << " from subcatchments, "
-            << (quadRegions.size() - nExplicitQuadRegions) << " background; default mode "
-            << quadRegionModeName(in.quadRegionDefaults.mode)
-            << ", spacing " << in.quadRegionDefaults.spacing
-            << ", Free aspect cap (0 = off) "
-            << mesh::quadRegionQualityBounds(in.quadRegionDefaults, in.quadBounds).maxAspect << ")";
+            << " from subcatchments)";
 
-    // Per-region area bounds are clamped to the refinement floor.
-    //
-    // This matters more than it looks.  Triangle honours regionlist area
-    // bounds only when its `vararea` flag is set, and that flag is set only by
-    // a BARE `a` switch — so today, with a numeric `a<maxArea>` emitted,
-    // RegionMarker::maxArea is silently inert.  Installing the size-function
-    // hook below drops the numeric switch and therefore switches region bounds
-    // ON for the first time.  Without this clamp a region could ask for cells
-    // below the floor the user just set.
-    const double areaFloor = in.minSizePolicy.enabled()
-                                 ? in.minSizePolicy.minTriangleArea()
+    // Refinement floor (area of the equilateral triangle of the minimum
+    // cell size); region area bounds may not go below it.
+    const double areaFloor = in.minCellSize > 0.0
+                                 ? 0.4330127018922193 * in.minCellSize * in.minCellSize
                                  : 0.0;
-    int nRegionClamped = 0;
     for (const auto &rm : std::as_const(in.regionMarkers))
     {
         mesh::RegionMarker r = rm;
-        if (areaFloor > 0.0 && r.maxArea > 0.0 && r.maxArea < areaFloor)
-        {
-            r.maxArea = areaFloor;
-            ++nRegionClamped;
-        }
+        if (areaFloor > 0.0 && r.maxArea > 0.0 && r.maxArea < areaFloor) r.maxArea = areaFloor;
         g.addRegion(r);
     }
-    if (nRegionClamped > 0)
-        qCInfo(lcMeshPerf) << "[Mesh][minsize] clamped" << nRegionClamped
-                           << "region area bound(s) up to the floor" << areaFloor;
-    {
-        // The G2 tri-pair merge runs in this worker after the elevation fill
-        // (its bed-planarity test needs sampled z), not inside generate().
-        mesh::GenerationOptions go = in.genOpts;
-        go.mergeTrianglePairs = false;
-        // Quad regions: acceptance bounds from the dialog; a Free region with
-        // spacing 0 and no size function takes the side of the equilateral
-        // triangle of maxArea (0 = none → the generator skips the region
-        // with a report line).  quadCleanup keeps its defaults (no UI).
-        go.quadRegionBounds = in.quadBounds;
-        go.quadRegionDefaultSpacing = (in.genOpts.maxArea > 0.0)
-            ? std::sqrt(4.0 * in.genOpts.maxArea / std::sqrt(3.0))
-            : 0.0;
-        g.setOptions(go);
-    }
+    g.setOptions(in.genOpts);
     // G3 structured patches: boundary → PSLG constraints, interior → hole,
     // quads appended after the triangles by generate().
     for (const mesh::PatchMesh &pm : std::as_const(in.patches))
@@ -1487,7 +1151,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // ── DTM (optional) — open once, shared for all elevation sampling ──
     // The DEM drives three steps: feature z-interpolation, terrain
     // thinning / grid sampling, and post-Triangle vertex elevation fill.
-    // A single DTMThinner instance covers all three so the file is only
+    // A single DTMRaster instance covers all three so the file is only
     // opened once and the same bilinear sampler is used throughout.
     //
     // When no DTM is provided, vertex z is filled by inverse-distance
@@ -1495,7 +1159,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // node Steiner points (invert + maxDepth, set in collectInputs).
     const bool useDTM = !in.dtmPath.isEmpty();
 
-    mesh::DTMThinner thinner;
+    mesh::DTMRaster thinner;
     OGRCoordinateTransformation *meshToDTM = nullptr;
     OGRCoordinateTransformation *dtmToMesh = nullptr;
 
@@ -1648,7 +1312,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         if (!fxs.isEmpty())
         {
             // A point PROJ cannot convert becomes NaN, which sampleMany()
-            // rejects (dtmthinner.cpp:450) and answers with a NaN z. That is
+            // rejects and answers with a NaN z. That is
             // already handled: the consumer below only accepts a finite z.
             // Log the count so a systematically bad CRS pairing is visible
             // rather than looking like a DEM with no coverage.
@@ -1690,11 +1354,11 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         g.addSteinerPoint(sp);
     }
 
-    // ── Step 2: DTM terrain points — thinning or full-grid sampling ──
-    // Domain bounding box in mesh CRS → transform corners to DTM CRS.
-    // Skipped entirely when no DTM is supplied; in that mode the only
-    // vertices added to the PSLG come from steiner features + Triangle's
-    // own refinement, and z is filled later via IDW from seedXY/seedZ.
+    // ── Step 2: terrain fidelity as a size (overhaul Stage 2) ────────
+    // Domain bounding box in mesh CRS → transform corners to DTM CRS. No
+    // terrain vertices are generated: the DEM's roughness bounds the size
+    // field instead (mesh/terrainsizefield.h). Without a DTM, z is filled
+    // later via IDW from seedXY/seedZ.
     double bx0 = std::numeric_limits<double>::max(),  by0 = bx0;
     double bx1 = std::numeric_limits<double>::lowest(), by1 = bx1;
     for (const auto &dom : std::as_const(in.domains))
@@ -1704,18 +1368,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             if (p.y() < by0) by0 = p.y(); if (p.y() > by1) by1 = p.y();
         }
 
-    // Keep accepted DEM density separate from the auxiliary/node input vector.
-    // Accumulate on a bounded size-field grid, not a second terrain cloud.
+    // Size field inputs (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 2): the
+    // cell size at features, the slope from the neighbour ratio, the floor
+    // and the coarsening cap. Built after the DTM block so the terrain
+    // term can be sampled.
     mesh::SizeFieldOptions sizeOptions;
-    sizeOptions.nearSize = in.genOpts.maxArea > 0.0
-        ? std::sqrt(4.0 * in.genOpts.maxArea / std::sqrt(3.0)) : 0.0;
-    sizeOptions.gradation = in.sizeGradation;
+    sizeOptions.nearSize  = in.cellSize;
+    sizeOptions.gradation = std::max(in.sizeRatio - 1.0, 0.0);
     sizeOptions.areaFloor = areaFloor;
-    sizeOptions.terrainDensity = in.quadEverywhere;
-    mesh::TerrainSizeInput terrainSizeInput;
-    if (sizeOptions.terrainDensity)
-        terrainSizeInput.prepare(QRectF(QPointF(bx0, by0), QPointF(bx1, by1)),
-                                 sizeOptions);
+    sizeOptions.maxSize   = in.coarsenFactor > 1.0 ? in.cellSize * in.coarsenFactor : in.cellSize;
+    // Terrain-error size term (Stage 2). Lives here so the size field built
+    // after the DTM block can still sample it.
+    mesh::TerrainSizeField terrainField;
+    const bool useTerrainField = useDTM && in.terrainTolerance > 0.0;
 
     qCDebug(lcMeshPerf) << "[Mesh] domain bbox (mesh CRS):"
              << bx0 << by0 << "--" << bx1 << by1;
@@ -1752,616 +1417,66 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
         qCDebug(lcMeshPerf) << "[Mesh] DTM bbox (DTM CRS):" << dx0 << dy0 << "--" << dx1 << dy1;
 
-        const double gStep = (in.thinnerOpts.gridSpacing > 0.0)
-                              ? in.thinnerOpts.gridSpacing
-                              : thinner.pixelSize();
-        if (gStep <= 0.0)
+        if (useTerrainField)
         {
-            if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
-            if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
-            fail(QObject::tr("DTM pixel size is invalid (%1).").arg(gStep));
-            return;
-        }
-
-        qCDebug(lcMeshPerf) << "[Mesh] gStep:" << gStep << "| doThinning:" << in.doThinning;
-
-        // 2026-07-19c — gStep is a DTM-CRS quantity (degrees for a geographic
-        // raster), but every consumer below — the Poisson filter and the
-        // boundary buffer — measures distances in MESH CRS units (metres for
-        // a projected mesh). Using gStep directly made bufferDist 0.14 mm for
-        // a 1-arc-second DTM, so the segment chunker below tried to cut the
-        // ~205 km of subcatchment boundary into ~1.5e9 chunks and generation
-        // hung. Convert one grid step at the domain centre into mesh units.
-        const double gStepMesh = [&]() -> double {
-            if (!dtmToMesh) return gStep;      // same CRS: already mesh units
-            const double cx = (dx0 + dx1) * 0.5, cy = (dy0 + dy1) * 0.5;
-            double xs[3] = {cx, cx + gStep, cx};
-            double ys[3] = {cy, cy,         cy + gStep};
-            if (!dtmToMesh->Transform(3, xs, ys)) return gStep;
-            const double ex = std::hypot(xs[1] - xs[0], ys[1] - ys[0]);
-            const double ey = std::hypot(xs[2] - xs[0], ys[2] - ys[0]);
-            // Mean of the two axis steps: a geographic pixel is anisotropic
-            // once projected (17.6 m E-W vs 30.9 m N-S at Bellinge's
-            // latitude), and the consumers want one scalar "spacing".
-            const double s = 0.5 * (ex + ey);
-            return (std::isfinite(s) && s > 0.0) ? s : gStep;
-        }();
-
-        // Effective terrain point spacing IN MESH CRS UNITS, shared by the
-        // boundary-buffer auto formula and the Poisson filter so both agree
-        // on "how far apart terrain points end up". minSpacing comes from the
-        // UI already in model units, so it is used as-is.
-        const double effSpacing = in.thinnerOpts.useMinSpacing
-            ? ((in.thinnerOpts.minSpacing > 0.0) ? in.thinnerOpts.minSpacing
-                                                 : gStepMesh * 2.0)
-            : gStepMesh;
-
-        qCDebug(lcMeshPerf) << "[Mesh] gStep (DTM CRS):" << gStep
-                 << "-> gStepMesh (mesh CRS):" << gStepMesh
-                 << "| effSpacing:" << effSpacing;
-
-        // Probe the DTM at the centre of the domain to verify sampleAt works.
-        {
-            const double cx = (dx0 + dx1) * 0.5, cy = (dy0 + dy1) * 0.5;
-            const double zc = thinner.sampleAt(cx, cy);
-            qCDebug(lcMeshPerf) << "[Mesh] centre probe at (" << cx << "," << cy
-                     << ") -> z =" << zc
-                     << (std::isfinite(zc) ? "(OK)" : "(NaN — DTM may not cover domain)");
-        }
-
-        QVector<QPointF> candidates;
-        QVector<double>  candidateZ;
-
-        // ── Stage-B cache: terrain candidates (DTM CRS, pre-filter) ────
-        // A hit skips the iterative thinning / bulk pixel read entirely.
-        // Reprojection, Poisson, and the boundary filter below rerun on
-        // both paths (cheap), so their parameters are not in the key.
-        QByteArray terrainCacheKey;
-        bool terrainHit = false;
-        if (cache.isUsable() && !burnRan)
-        {
-            const QFileInfo dfi(in.dtmPath);
-            mesh::MeshStageCache::FileIdentity demId;
-            demId.absPath   = dfi.absoluteFilePath();
-            demId.mtimeMs   = dfi.lastModified().toMSecsSinceEpoch();
-            demId.sizeBytes = dfi.size();
-            terrainCacheKey = mesh::MeshStageCache::terrainKey(
-                demId, /*band*/ 1, in.thinnerOpts, in.doThinning,
-                QRectF(QPointF(dx0, dy0), QPointF(dx1, dy1)));
-
-            mesh::MeshStageCache::TerrainPoints tp;
-            QElapsedTimer cacheClock;
-            cacheClock.start();
-            if (cache.loadTerrain(terrainCacheKey, &tp))
-            {
-                candidates = std::move(tp.xyDtm);
-                candidateZ = std::move(tp.z);
-                terrainHit = true;
-                qCInfo(lcMeshPerf) << "[Mesh][cache] terrain points HIT"
-                                   << terrainCacheKey.left(12).constData()
-                                   << "-" << candidates.size() << "pts in"
-                                   << cacheClock.elapsed() << "ms";
-                progress(36, QObject::tr("Loaded %1 cached terrain points…")
-                             .arg(candidates.size()));
-            }
-            else
-            {
-                qCInfo(lcMeshPerf) << "[Mesh][cache] terrain points miss"
-                                   << terrainCacheKey.left(12).constData();
-            }
-        }
-
-        if (!terrainHit && in.doThinning)
-        {
-            progress(30, QObject::tr("Terrain-adaptive thinning…"));
+            progress(30, QObject::tr("Measuring terrain roughness…"));
             if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-
-            const MapExtent dtmBbox(dx0, dy0, dx1, dy1);
+            // DEM linear unit → mesh unit, from the transform's local scale
+            // at the domain centre (1 when the CRSs match).
+            double unitScale = 1.0;
+            if (dtmToMesh)
+            {
+                const double cx = (dx0 + dx1) * 0.5, cy = (dy0 + dy1) * 0.5;
+                const double step = thinner.pixelSize();
+                double xs[2] = {cx, cx + step}, ys[2] = {cy, cy};
+                if (dtmToMesh->Transform(2, xs, ys) && step > 0.0)
+                {
+                    const double d = std::hypot(xs[1] - xs[0], ys[1] - ys[0]);
+                    if (std::isfinite(d) && d > 0.0) unitScale = d / step;
+                }
+            }
+            mesh::TerrainSizeOptions tso;
+            // The DEM's vertical unit: the z factor maps DEM z → mesh z.
+            tso.tolerance = in.zConversionFactor > 0.0
+                ? in.terrainTolerance / in.zConversionFactor : in.terrainTolerance;
+            // Output cells near the size-field pitch (>= nearSize/2).
+            const double pitchDem = sizeOptions.nearSize > 0.0 && unitScale > 0.0
+                ? 0.5 * sizeOptions.nearSize / unitScale : 0.0;
+            tso.outLevel = (pitchDem > 0.0 && thinner.pixelSize() > 0.0)
+                ? qBound(1, int(std::floor(std::log2(pitchDem / thinner.pixelSize()))), 6) : 1;
             stageClock.restart();
-            // Banded thinning streams huge DEMs; the callback maps its
-            // fraction into the 30→36% progress window and doubles as the
-            // cancellation poll (Stop was dead for the whole stage before).
-            candidates = thinner.generatePoints(
-                dtmBbox, in.thinnerOpts, &candidateZ,
+            const bool built = terrainField.buildFromFile(
+                in.dtmPath, 1, dx0, dy0, dx1, dy1, tso,
                 [&promise](double f) -> bool {
                     promise.setProgressValueAndText(
                         30 + qBound(0, int(f * 6.0), 6),
-                        QObject::tr("Terrain-adaptive thinning… %1%")
-                            .arg(int(f * 100.0)));
+                        QObject::tr("Measuring terrain roughness… %1%").arg(int(f * 100.0)));
                     return !promise.isCanceled();
                 });
-            stageMark("thinning (generatePoints)");
-            // Cancel check FIRST: a cancelled run also lands here with an
-            // empty result + "cancelled" errorMsg, and should read as
-            // "Cancelled.", not as a thinning failure.
+            stageMark("terrain size field");
             if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-            // The thinner's safety guards (per-band working-set ceiling,
-            // retained-points ceiling, RasterIO failures) return an EMPTY
-            // result with the reason in errorMsg().  Silently meshing on with
-            // zero terrain points buries that message — fail loudly instead
-            // so the user can fix spacing/extent.
-            if (candidates.isEmpty() && !thinner.errorMsg().isEmpty())
+            if (!built)
             {
-                fail(QObject::tr("Terrain thinning failed: %1")
-                         .arg(thinner.errorMsg()));
+                fail(QObject::tr("Terrain size field failed: %1").arg(terrainField.errorMsg()));
                 return;
             }
-            qCDebug(lcMeshPerf) << "[Mesh] thinning retained" << candidates.size() << "points";
-            progress(36, QObject::tr("Thinning retained %1 terrain points…")
-                         .arg(candidates.size()));
+            qCInfo(lcMeshPerf) << "[Mesh][terrain] size field" << terrainField.outCols()
+                               << "x" << terrainField.outRows() << "| levels" << terrainField.levelsUsed()
+                               << "| tolerance (DEM units)" << tso.tolerance << "| unit scale" << unitScale;
+            sizeOptions.terrainSizeAt = [&terrainField, meshToDTM, unitScale](double x, double y) {
+                double gx = x, gy = y;
+                if (meshToDTM && !meshToDTM->Transform(1, &gx, &gy)) return 0.0;
+                return terrainField.sizeAtGeo(gx, gy) * unitScale;
+            };
         }
-        else if (!terrainHit)
-        {
-            // No thinning: read every raster pixel that overlaps the domain bbox
-            // in a single bulk RasterIO call.  Pixel centres are returned in
-            // DTM CRS; the common loop below transforms them to mesh CRS.
-            progress(30, QObject::tr("Sampling DTM terrain points…"));
-            if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-
-            const MapExtent dtmBbox(dx0, dy0, dx1, dy1);
-            stageClock.restart();
-            thinner.readPixels(dtmBbox, candidates, candidateZ);
-            stageMark("bulk readPixels");
-            // readPixels refuses pathologically large outputs (see its budget
-            // guard) and reports why via errorMsg() — surface it instead of
-            // meshing on with zero terrain points.
-            if (candidates.isEmpty() && !thinner.errorMsg().isEmpty())
-            {
-                fail(QObject::tr("DTM sampling failed: %1")
-                         .arg(thinner.errorMsg()));
-                return;
-            }
-
-            qCDebug(lcMeshPerf) << "[Mesh] bulk readPixels returned" << candidates.size() << "points";
-            progress(36, QObject::tr("Sampled %1 DTM grid points…")
-                         .arg(candidates.size()));
-        }
-
-        if (!terrainHit && !terrainCacheKey.isEmpty())
-        {
-            // Skip pathological payloads (an uncapped readPixels over a huge
-            // bbox can reach GBs) so the sidecar stays reasonable.
-            constexpr qint64 kMaxTerrainCacheBytes = qint64(512) * 1024 * 1024;
-            const qint64 payloadBytes =
-                qint64(candidates.size()) * qint64(sizeof(QPointF) + sizeof(double));
-            if (payloadBytes <= kMaxTerrainCacheBytes)
-            {
-                QElapsedTimer storeClock;
-                storeClock.start();
-                if (cache.storeTerrain(terrainCacheKey, {candidates, candidateZ}))
-                    qCInfo(lcMeshPerf) << "[Mesh][cache] terrain points stored"
-                                       << terrainCacheKey.left(12).constData()
-                                       << "in" << storeClock.elapsed() << "ms";
-            }
-            else
-            {
-                qCInfo(lcMeshPerf) << "[Mesh][cache] terrain payload too large to cache:"
-                                   << payloadBytes << "bytes";
-            }
-        }
-
-        // Reproject all candidates from DTM CRS → mesh CRS.
-        progress(36, QObject::tr("Reprojecting %1 terrain points…")
-                     .arg(candidates.size()));
-        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-        stageClock.restart();
-        QVector<QPointF> candidatesMesh;
-        if (dtmToMesh && !candidates.isEmpty())
-        {
-            // One batched PROJ call; per-point results are identical to
-            // Transform(1,…) in a loop, without the per-call overhead.
-            candidatesMesh.reserve(candidates.size());
-            QVector<double> txs(candidates.size()), tys(candidates.size());
-            for (qsizetype ci = 0; ci < candidates.size(); ++ci)
-            {
-                txs[ci] = candidates[ci].x();
-                tys[ci] = candidates[ci].y();
-            }
-            // This is the path that used to leak non-finite coordinates into
-            // the PSLG: a failed point kept OGR's HUGE_VAL, passed the
-            // in-domain bbox test by accident, and became a Steiner vertex.
-            // Terrain candidates are optional refinement points, so drop the
-            // failures — but keep candidateZ in step, since the two arrays are
-            // paired positionally by index further down.
-            const qsizetype nFail = transformChecked(dtmToMesh, txs.size(),
-                                                     txs.data(), tys.data());
-            if (nFail == 0)
-            {
-                for (qsizetype ci = 0; ci < candidates.size(); ++ci)
-                    candidatesMesh.append(QPointF(txs[ci], tys[ci]));
-            }
-            else
-            {
-                // candidateZ is indexed by the candidatesMesh position from
-                // here on (the Poisson filter and the Steiner loop both do
-                // candidateZ[ci]), so it has to shrink in lockstep.
-                const bool zPaired = (candidateZ.size() == candidates.size());
-                QVector<double> keptZ;
-                keptZ.reserve(candidateZ.size());
-                for (qsizetype ci = 0; ci < candidates.size(); ++ci)
-                {
-                    if (!std::isfinite(txs[ci]) || !std::isfinite(tys[ci]))
-                        continue;
-                    candidatesMesh.append(QPointF(txs[ci], tys[ci]));
-                    if (zPaired) keptZ.append(candidateZ[ci]);
-                }
-                if (zPaired) candidateZ = std::move(keptZ);
-                qCWarning(lcMeshPerf)
-                    << "[Mesh]" << nFail << "of" << candidates.size()
-                    << "terrain points failed DTM->mesh reprojection and were"
-                    << "dropped;" << candidatesMesh.size() << "retained";
-            }
-        }
-        else
-        {
-            // Same CRS — implicit-sharing assignment, no per-point copy and
-            // no second 16 B/point buffer (matters at tens of millions of
-            // candidates from a large DEM).
-            candidatesMesh = candidates;
-        }
-        // The DTM-CRS array is not read past this point. Release it now: the
-        // reprojected path drops its duplicate immediately, and the shared
-        // same-CRS copy returns to refcount 1 so the non-const operator[]
-        // reads below never trigger a detach deep-copy.
-        candidates = QVector<QPointF>();
-        stageMark("reproject candidates DTM->mesh CRS");
-
-        // ── Option A: Poisson-disk minimum spacing filter (mesh CRS) ────────
-        // Iterates candidates in order; accepts a point only if no already-
-        // accepted point is within minSpacing.  Uses a spatial hash grid of
-        // cell size = minSpacing for O(N) average complexity.
-        if (in.thinnerOpts.useMinSpacing)
-        {
-            // 2026-07-19 — `spacing` hoisted to effSpacing above (shared
-            // with the boundary-buffer auto formula); value is identical.
-            const double spacing   = effSpacing;
-            const double spacing2  = spacing * spacing;
-            const double invCell   = 1.0 / spacing;
-
-            progress(36, QObject::tr("Poisson-disk filter over %1 points…")
-                         .arg(candidatesMesh.size()));
-            if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-            stageClock.restart();
-
-            // Flat chained-index grid: cellHead maps a cell to its most
-            // recently accepted candidate, nextInCell links the rest of that
-            // cell's accepted candidates intrusively.  Replaces the previous
-            // QHash<CellKey, QVector<int>> (one heap-allocated QVector per
-            // occupied cell, ~50–100 B/point) with one flat 4 B/point array
-            // plus an int-valued hash — an order of magnitude less overhead
-            // at tens of millions of candidates.  Accept/reject decisions are
-            // identical: chain order differs from append order, but tooClose
-            // is an OR over the same neighbour set.
-            using CellKey = QPair<qint32, qint32>;
-            QHash<CellKey, int> cellHead;
-            QVector<qint32> nextInCell(candidatesMesh.size(), -1);
-
-            QVector<bool> kept(candidatesMesh.size(), false);
-            qsizetype nKept = 0;
-            for (int ci = 0; ci < candidatesMesh.size(); ++ci)
-            {
-                const double px = candidatesMesh[ci].x();
-                const double py = candidatesMesh[ci].y();
-                const qint32 cx = qint32(std::floor(px * invCell));
-                const qint32 cy = qint32(std::floor(py * invCell));
-
-                bool tooClose = false;
-                for (qint32 dy = -1; dy <= 1 && !tooClose; ++dy)
-                    for (qint32 dx = -1; dx <= 1 && !tooClose; ++dx)
-                    {
-                        auto it = cellHead.constFind(qMakePair(cx+dx, cy+dy));
-                        if (it == cellHead.constEnd()) continue;
-                        for (int j = it.value(); j != -1; j = nextInCell[j])
-                        {
-                            const double ddx = candidatesMesh[j].x() - px;
-                            const double ddy = candidatesMesh[j].y() - py;
-                            if (ddx*ddx + ddy*ddy < spacing2) { tooClose = true; break; }
-                        }
-                    }
-
-                if (!tooClose)
-                {
-                    kept[ci] = true;
-                    ++nKept;
-                    auto it = cellHead.find(qMakePair(cx, cy));
-                    if (it == cellHead.end())
-                        cellHead.insert(qMakePair(cx, cy), ci);
-                    else { nextInCell[ci] = it.value(); it.value() = ci; }
-                }
-            }
-
-            // Compact: remove rejected candidates.  Reserve the exact
-            // survivor count — a full-N reserve here doubled the peak for
-            // no benefit when the filter rejects most points.
-            QVector<QPointF> filtMesh;
-            QVector<double>  filtZ;
-            filtMesh.reserve(nKept);
-            filtZ.reserve(nKept);
-            for (int ci = 0; ci < candidatesMesh.size(); ++ci)
-                if (kept[ci]) { filtMesh.append(candidatesMesh[ci]); filtZ.append(candidateZ[ci]); }
-
-            stageMark("Poisson-disk filter");
-            qCDebug(lcMeshPerf) << "[Mesh] Poisson-disk:" << candidatesMesh.size()
-                     << "->" << filtMesh.size() << "points (spacing" << spacing
-                     << "| cells" << cellHead.size() << ")";
-            progress(37, QObject::tr("Poisson-disk filter: %1 → %2 points…")
-                         .arg(candidatesMesh.size()).arg(filtMesh.size()));
-
-            candidatesMesh = std::move(filtMesh);
-            candidateZ     = std::move(filtZ);
-        }
-
-        // ── 2026-07-19 — boundary-aware terrain filter ──────────────────────
-        // Terrain candidates were sampled over the domain BOUNDING BOX with
-        // no awareness of the PSLG: a pixel centre landing millimetres from
-        // a constrained boundary/hole/conduit segment (or a mandatory SWMM
-        // node vertex) forces a sliver triangle, which the -q quality pass
-        // then splits into clusters of tiny cells hugging the boundary.
-        // Reject candidates that are (a) outside the domain rings, (b)
-        // inside a hole ring (unmeshed interior), (c) closer than bufferDist
-        // to any constrained segment, or (d) closer than bufferDist to any
-        // mandatory Steiner vertex. Triangle fills the resulting buffer band
-        // with properly-sized boundary triangles on its own.
-        const double bufferDist = (in.terrainBoundaryBuffer > 0.0)
-                                  ? in.terrainBoundaryBuffer
-                                  : 0.5 * effSpacing;
-        // Auto = 0.5 × effective terrain spacing: keeps terrain points
-        // outside the diametral circles of comparable-length boundary
-        // segments and never closer to the boundary than to their nearest
-        // terrain neighbour, so boundary-adjacent triangles land in the same
-        // size class as interior ones. maxArea is deliberately not factored
-        // in — when it implies smaller edges than the terrain spacing the
-        // refinement is globally fine-grained anyway, and a max() would
-        // carve an oversized terrain-free band on coarse-area runs.
-        const double bufferDist2 = bufferDist * bufferDist;
-        const double invBufCell  = 1.0 / bufferDist;
-        using CellKey = QPair<qint32, qint32>;
-
-        // Inside-domain test — semantics identical to collectInputs'
-        // inDomain: inside any domain ring AND not inside any hole ring.
-        //
-        // 2026-07-19b — STALL FIX (part 2): the first cut looped
-        // QPolygonF::containsPoint over every ring per candidate, i.e.
-        // O(total ring vertices) × O(candidates) — a second slow path on
-        // dense dissolved subcatchment boundaries. Replaced with one
-        // odd-even crossing count over ALL rings (domains + holes share
-        // the parity, so "in domain minus holes" falls out directly for
-        // the disjoint rings UnaryUnion produces), with edges bucketed by
-        // y-band so each query only visits edges near its scanline.
-        progress(37, QObject::tr("Boundary filter: indexing domain rings…"));
-        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-        stageClock.restart();
-
-        mesh::pslg::PointInRingsIndex pipIdx;
-        pipIdx.build(in.domains, in.holeRings);
-        stageMark("boundary filter: point-in-polygon band index");
-        auto insideDomain = [&pipIdx](const QPointF &p) -> bool {
-            return pipIdx.contains(p);
-        };
-
-        // Constrained-segment spatial hash (same idiom as the Poisson grid
-        // above / flatGrid in Step 1): every edge of every domain ring, hole
-        // ring, and constraint-segment path, binned into every cell its
-        // bufferDist-inflated bbox overlaps.
-        //
-        // 2026-07-19b — STALL FIX: segments are chunked to <= bufferDist
-        // length BEFORE binning. Binning a whole segment rasterised its
-        // inflated bounding box at cell size = bufferDist, which is
-        // O((len/buffer)²) cells for a diagonal segment — a few hundred
-        // metres of subcatchment boundary against a half-pixel buffer
-        // exploded into millions of hash insertions per segment and the
-        // generation appeared to hang at ~37%. The union of chunks equals
-        // the segment (min distance over chunks == distance to segment),
-        // each chunk touches a handful of cells, and the total insertion
-        // count becomes O(len/buffer). The 3×3 query below is unchanged.
-        progress(37, QObject::tr("Boundary filter: indexing constraint segments…"));
-        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-        stageClock.restart();
-
-        // 2026-07-19c — hard ceiling on total chunks. The chunk count is
-        // O(totalBoundaryLength / bufferDist), so any future unit slip in
-        // bufferDist (see the gStepMesh conversion above — a DTM-CRS value
-        // leaking in made this 1.5e9) silently turns into an unbounded loop.
-        // Bail loudly instead of hanging: the filter is a quality refinement,
-        // and skipping it costs sliver triangles, not a wrong mesh.
-        constexpr qint64 kMaxSegChunks = 20'000'000;
-        qint64 nChunkTotal = 0;
-        bool   chunkOverflow = false;
-
-        QVector<QPair<QPointF, QPointF>> csegs;
-        QHash<CellKey, QVector<int>>     segGrid;
-        auto addSegPath = [&](const QVector<QPointF> &path, bool closeRing) {
-            if (chunkOverflow) return;
-            const int n = path.size();
-            if (n < 2) return;
-            const bool alreadyClosed = (path.first() == path.last());
-            const int  segCount = (closeRing && !alreadyClosed) ? n : n - 1;
-            for (int i = 0; i < segCount; ++i)
-            {
-                const QPointF &a = path[i];
-                const QPointF &b = path[(i + 1) % n];
-                if (a == b) continue;
-                const double segLen = std::hypot(b.x() - a.x(), b.y() - a.y());
-                if (!std::isfinite(segLen)) continue;   // garbage coords guard
-
-                // Count in double/qint64: segLen/bufferDist overflows int
-                // outright once bufferDist is wrong by a few orders.
-                const double chunkReal = std::ceil(segLen / bufferDist);
-                if (!std::isfinite(chunkReal)
-                    || nChunkTotal + qint64(std::min(chunkReal, 1e18))
-                           > kMaxSegChunks)
-                {
-                    chunkOverflow = true;
-                    return;
-                }
-                const int nChunks = std::max(1, static_cast<int>(chunkReal));
-                nChunkTotal += nChunks;
-                for (int c = 0; c < nChunks; ++c)
-                {
-                    const double t0 = static_cast<double>(c)     / nChunks;
-                    const double t1 = static_cast<double>(c + 1) / nChunks;
-                    const QPointF ca(a.x() + t0 * (b.x() - a.x()),
-                                     a.y() + t0 * (b.y() - a.y()));
-                    const QPointF cb(a.x() + t1 * (b.x() - a.x()),
-                                     a.y() + t1 * (b.y() - a.y()));
-                    const int segIdx = csegs.size();
-                    csegs.append(qMakePair(ca, cb));
-                    const qint32 cx0 = qint32(std::floor((std::min(ca.x(), cb.x()) - bufferDist) * invBufCell));
-                    const qint32 cx1 = qint32(std::floor((std::max(ca.x(), cb.x()) + bufferDist) * invBufCell));
-                    const qint32 cy0 = qint32(std::floor((std::min(ca.y(), cb.y()) - bufferDist) * invBufCell));
-                    const qint32 cy1 = qint32(std::floor((std::max(ca.y(), cb.y()) + bufferDist) * invBufCell));
-                    for (qint32 gy = cy0; gy <= cy1; ++gy)
-                        for (qint32 gx = cx0; gx <= cx1; ++gx)
-                            segGrid[qMakePair(gx, gy)].append(segIdx);
-                }
-            }
-        };
-        for (const auto &dom : std::as_const(in.domains))
-            addSegPath(dom, /*closeRing=*/true);
-        for (const auto &hr : std::as_const(in.holeRings))
-            addSegPath(hr, /*closeRing=*/true);
-        for (const auto &cs : std::as_const(in.constraintSegs))
-            addSegPath(cs.path, /*closeRing=*/false);
-        stageMark("boundary filter: constraint-segment hash");
-        if (chunkOverflow)
-        {
-            // Abandon the segment index rather than grind: keep the cheap
-            // inside-domain and mandatory-vertex rejections, drop only the
-            // near-segment one.
-            csegs.clear();
-            segGrid.clear();
-            qWarning() << "[Mesh] boundary filter: segment index exceeded"
-                       << kMaxSegChunks
-                       << "chunks at bufferDist" << bufferDist
-                       << "— skipping the near-segment rejection. Set an "
-                          "explicit Boundary buffer if slivers appear.";
-        }
-        {
-            qint64 nIns = 0;
-            for (auto it = segGrid.constBegin(); it != segGrid.constEnd(); ++it)
-                nIns += it.value().size();
-            qCDebug(lcMeshPerf) << "[Mesh] seg hash: bufferDist" << bufferDist
-                     << "| chunks" << csegs.size()
-                     << "| cells" << segGrid.size()
-                     << "| insertions" << nIns
-                     << "| overflow" << chunkOverflow;
-        }
-
-        auto nearConstraint = [&](double px, double py) -> bool {
-            const QPointF p(px, py);
-            const qint32 cx = qint32(std::floor(px * invBufCell));
-            const qint32 cy = qint32(std::floor(py * invBufCell));
-            for (qint32 dy = -1; dy <= 1; ++dy)
-                for (qint32 dx = -1; dx <= 1; ++dx)
-                {
-                    auto it = segGrid.constFind(qMakePair(cx + dx, cy + dy));
-                    if (it == segGrid.constEnd()) continue;
-                    for (const int si : *it)
-                        if (distSqToSegment(p, csegs[si].first, csegs[si].second)
-                                < bufferDist2)
-                            return true;
-                }
-            return false;
-        };
-
-        // Mandatory-vertex hash: ALL Step-1 Steiner points (SWMM nodes, 3D
-        // feature vertices, …) are vertices Triangle must keep — a terrain
-        // point centimetres from a junction makes the same sliver at exactly
-        // the coupling locations. Rim-flatten only conditions z, not xy.
-        QHash<CellKey, QVector<QPointF>> vertGrid;
-        stageClock.restart();
-        for (const auto &sp0 : std::as_const(in.steinerPoints))
-        {
-            const qint32 gx = qint32(std::floor(sp0.xy.x() * invBufCell));
-            const qint32 gy = qint32(std::floor(sp0.xy.y() * invBufCell));
-            vertGrid[qMakePair(gx, gy)].append(sp0.xy);
-        }
-        auto nearMandatoryVertex = [&](double px, double py) -> bool {
-            const qint32 cx = qint32(std::floor(px * invBufCell));
-            const qint32 cy = qint32(std::floor(py * invBufCell));
-            for (qint32 dy = -1; dy <= 1; ++dy)
-                for (qint32 dx = -1; dx <= 1; ++dx)
-                {
-                    auto it = vertGrid.constFind(qMakePair(cx + dx, cy + dy));
-                    if (it == vertGrid.constEnd()) continue;
-                    for (const QPointF &v : *it)
-                    {
-                        const double ddx = v.x() - px, ddy = v.y() - py;
-                        if (ddx * ddx + ddy * ddy < bufferDist2) return true;
-                    }
-                }
-            return false;
-        };
-
-        // Add surviving terrain candidates as PSLG Steiner vertices.
-        // Candidates within a rim node's flatten radius are forced to that
-        // node's rim z (model units); the rest keep their raster-unit DTM z.
-        stageMark("boundary filter: mandatory-vertex hash");
-
-        int nOutside = 0, nNearSeg = 0, nNearNode = 0, nAdded = 0;
-        progress(37, QObject::tr("Boundary filter: testing %1 terrain points…")
-                     .arg(candidatesMesh.size()));
-        stageClock.restart();
-        // No up-front hash reserve: sizing elevCache for every PRE-filter
-        // candidate commits multi-GB before a single point survives the
-        // boundary filter.  Geometric growth tracks the actual survivor count
-        // instead.  The Steiner VECTOR gets a capped reserve — a plain array,
-        // bounded to ~192 MB, most candidates survive the filter — which
-        // avoids the transient ~2x growth peak without the unbounded-commit
-        // hazard the hash reserve had.
-        g.reserveSteinerPoints(std::min<qsizetype>(candidatesMesh.size(),
-                                                   qsizetype(4) * 1024 * 1024));
-        for (int ci = 0; ci < candidatesMesh.size(); ++ci)
-        {
-            // Cancel check every 64k candidates: this loop is the longest
-            // uninterruptible stretch in the band and "Stop" was dead here.
-            if ((ci & 0xFFFF) == 0 && promise.isCanceled())
-            { fail(QObject::tr("Cancelled.")); return; }
-
-            const double cx = candidatesMesh[ci].x(), cy = candidatesMesh[ci].y();
-
-            // 2026-07-19 — boundary-aware rejection (see block comment above).
-            if (!insideDomain(QPointF(cx, cy))) { ++nOutside;  continue; }
-            if (nearConstraint(cx, cy))         { ++nNearSeg;  continue; }
-            if (nearMandatoryVertex(cx, cy))    { ++nNearNode; continue; }
-
-            double z = candidateZ[ci];
-            const double fz = flattenZ(cx, cy);
-            const bool flattened = std::isfinite(fz);
-            if (flattened) z = fz;
-
-            mesh::SteinerPoint sp;
-            sp.xy   = QPointF(cx, cy);
-            sp.z    = z;
-            sp.hasZ = true;
-            g.addSteinerPoint(sp);
-            terrainSizeInput.addAcceptedPoint(sp.xy);
-            ++nAdded;
-
-            const auto k = keyOf(cx, cy);
-            elevCache.insert(k, z);
-            if (flattened) modelUnitKeys.insert(k);
-        }
-
-        stageMark("boundary filter: candidate rejection loop");
-        qCDebug(lcMeshPerf) << "[Mesh] boundary filter:" << candidatesMesh.size()
-                 << "->" << nAdded
-                 << "(outside" << nOutside
-                 << "| near-segment" << nNearSeg
-                 << "| near-node" << nNearNode
-                 << "| buffer" << bufferDist << ")";
-        progress(38, QObject::tr("%1 DTM Steiner points added to PSLG "
-                                 "(%2 dropped by boundary filter)")
-                     .arg(nAdded)
-                     .arg(candidatesMesh.size() - nAdded));
     }
     else if (useDTM)
     {
-        qCDebug(lcMeshPerf) << "[Mesh] domain bbox invalid — skipping DTM sampling";
+        qCDebug(lcMeshPerf) << "[Mesh] domain bbox invalid — skipping the terrain size field";
     }
 
-    // ── Run Triangle ────────────────────────────────────────────────
-    progress(40, QObject::tr("Running Triangle…"));
+    // ── Generate ────────────────────────────────────────────────────
+    progress(40, QObject::tr("Generating mesh…"));
     if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
     // Graded size field (V2 plan Track B).  Keeps the uniform cap AT the
@@ -2373,7 +1488,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // candidate triangle.
     mesh::SizeField sizeField;
     bool useGrading = false;
-    if (in.sizeGradation > 0.0 && in.genOpts.maxArea > 0.0)
+    if (sizeOptions.nearSize > 0.0 && sizeOptions.gradation > 0.0)
     {
         QRectF bbox;
         for (const QPolygonF &d : std::as_const(in.domains))
@@ -2411,89 +1526,43 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
         }
 
-        // Retain the existing global-quad/positive-gradation policy. The
-        // accepted DEM cloud supplies a density hint when lattice generation
-        // replaces terrain vertices; linear-feature/error constraints remain
-        // separate work (GUI robustness plan M1/M2).
-        const mesh::SizeFieldOptions &sfo = sizeOptions;
         useGrading = sizeField.build(bbox, in.constraintSegs, ringSeeds,
-                                     in.steinerPoints, sfo,
-                                     sfo.terrainDensity ? &terrainSizeInput : nullptr);
+                                     in.steinerPoints, sizeOptions);
         if (useGrading)
         {
             qCInfo(lcMeshPerf) << "[Mesh][grading] size field"
                                << sizeField.cols() << "x" << sizeField.rows()
                                << "at pitch" << sizeField.pitch()
-                               << "| near size" << sfo.nearSize
-                               << "| gradation" << sfo.gradation
-                               << "| terrain samples" << terrainSizeInput.sampleCount();
-            // Installing a size function switches Triangle to the bare `a`
-            // switch, which ACTIVATES per-region area bounds that a numeric
-            // `a<maxArea>` leaves inert (trirefinehook.h).  The clamp above
-            // bounds them to the refinement floor when one exists; either way
-            // a mesh that gains cells needs a traceable cause in the log.
-            if (!in.regionMarkers.isEmpty())
-                qCInfo(lcMeshPerf)
-                    << "[Mesh][grading]" << in.regionMarkers.size()
-                    << "region area bound(s) are ACTIVE under graded sizing "
-                       "(they are inert under a uniform cap)";
+                               << "| near size" << sizeOptions.nearSize
+                               << "| gradation" << sizeOptions.gradation
+                               << "| max size" << sizeOptions.maxSize
+                               << "| terrain" << (useTerrainField ? "on" : "off");
         }
         else
             qWarning() << "[Mesh][grading] size field could not be built "
                           "(no seed features?) — falling back to the uniform "
                           "area cap.";
     }
-    // The propagated field now owns the bound; drop the count grid before
-    // Triangle/quad generation reaches its own peak allocation.
-    terrainSizeInput = {};
-
-    // Triangle's refinement pass is otherwise uninterruptible — the Stop button
-    // is dead for its entire duration, which on a large PSLG can be minutes.
-    // The `-u` user-test hook is the only place Triangle calls back into us
-    // during refinement, so cancellation and progress both ride on it.
+    // Cancellation and progress ride on the hook; the graded field is the
+    // size function (it folds in the floor and the coarsening cap).
     {
         mesh::RefineHook hook;
         hook.isCancelled = [&promise] { return promise.isCanceled(); };
-        hook.onProgress  = [&progress](qint64 tests) {
-            progress(45, QObject::tr("Refining mesh… (%1 M triangle tests)")
-                             .arg(tests / 1000000));
+        hook.onProgress  = [&progress](qint64 cells) {
+            progress(45, QObject::tr("Building cells… (%1 so far)").arg(cells));
         };
-        // Refinement floor.  Read trirefinehook.h before touching this: the
-        // hook returns the MAXIMUM permitted area and Triangle splits anything
-        // larger, so the only thing expressible here is "do not let the
-        // uniform cap drive subdivision below the floor the user asked for" —
-        // i.e. raise a too-small cap up to the floor.  Returning the floor
-        // when there is no cap would instead order the WHOLE domain refined to
-        // the minimum size, which is a vertex-count explosion and the exact
-        // opposite of the intent; <= 0 means unconstrained, so that is what an
-        // absent cap must return.
-        //
-        // Triangle never coarsens, so this cannot enlarge a cell the input
-        // demanded — that is the conditioning pass's job, not this one.
         if (useGrading)
         {
-            // The graded field already folds in the floor (SizeFieldOptions::
-            // areaFloor) and the near-feature cap, so it replaces both the
-            // uniform `-a` switch and the constant-floor lambda below.
             hook.targetAreaAt = [&sizeField](double x, double y) {
                 return sizeField.targetAreaAt(x, y);
             };
-        }
-        else if (areaFloor > 0.0)
-        {
-            // Constant across the domain, so resolve it once rather than per
-            // triangle test.  MinSizePolicy::refinementAreaCap owns the rule
-            // (and its regression test).
-            const double capped =
-                in.minSizePolicy.refinementAreaCap(in.genOpts.maxArea);
-            hook.targetAreaAt = [capped](double, double) { return capped; };
         }
         g.setRefineHook(hook);
     }
 
     stageClock.restart();
     mesh::MeshResult result = g.generate();
-    stageMark("Triangle generate()");
+    stageMark("generate()");
     if (promise.isCanceled())
     {
         if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
@@ -2504,114 +1573,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     {
         if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
         if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
-        fail(QObject::tr("Triangle: %1").arg(result.errorMsg)); return;
+        fail(QObject::tr("Mesh generation: %1").arg(result.errorMsg)); return;
     }
 
-    // ── Quad region reports (one line per addQuadRegion call) ────────
-    // Skipped regions are surfaced the way skipped hole rings are (the
-    // qWarning "[Mesh] Skipped" channel) so a silently-triangulated region
-    // is never mistaken for a quad one.
-    int nQuadRegionQuads = 0;
+    // ── Quad region reports ──────────────────────────────────────────
     QStringList alignmentWarnings;
     for (const mesh::QuadRegionReport &rep : g.quadRegionReports())
     {
-        nQuadRegionQuads += rep.quads;
-        if (!rep.alignmentWarning.isEmpty())
-        {
-            const QString note = QObject::tr("Quad region %1: %2").arg(rep.index + 1).arg(rep.alignmentWarning);
-            alignmentWarnings.append(note);
-            qWarning().noquote() << "[Mesh][alignment]" << note;
-        }
-        qCInfo(lcMeshPerf).nospace()
-            << "[Mesh][quad] region " << rep.index << ": "
-            << quadRegionModeName(rep.requested) << " -> "
-            << quadRegionModeName(rep.resolved)
-            << " | h " << rep.spacing
-            << (rep.resolved == mesh::QuadRegionMode::Free
-                    ? (rep.maxAspect > 0.0 ? QStringLiteral(" | aspect <= %1").arg(rep.maxAspect)
-                                           : QStringLiteral(" | aspect unlimited"))
-                    : QString())
-            << " | " << rep.quads << " quads + " << rep.triangles << " tris"
-            << " (" << rep.templateQuads << " template, " << rep.gapQuads << " gap)"
-            << " | points " << rep.generatedPoints << " generated, "
-            << rep.droppedSteiners << " terrain dropped"
-            << (rep.fieldSweeps > 0
-                    ? QStringLiteral(" | alignment sweeps %1, last update %2")
-                          .arg(rep.fieldSweeps).arg(rep.fieldFinalDelta, 0, 'g', 4)
-                    : QString())
-            << " | min SJ " << rep.minScaledJacobian
-            << " | median rect " << rep.medianRectangularity
-            << (rep.message.isEmpty() ? QString() : QStringLiteral(" | ") + rep.message);
-        if (rep.message.startsWith(QLatin1String("skipped:")))
-            qWarning() << "[Mesh] Skipped quad region" << rep.index << "—"
-                       << rep.message.mid(int(qstrlen("skipped:"))).trimmed();
-    }
-
-    // ── Sub-scale cell cleanup ───────────────────────────────────────
-    // MIN_CELL_SIZE_ENFORCEMENT_PLAN §6 Phase 5.  Removes the slivers Triangle
-    // inserted on its own; it cannot remove ones the input demanded, because
-    // every constrained edge and every tagged/coupled vertex is protected.
-    // Runs BEFORE the Hilbert reorder so the reorder's locality is not wasted.
-    if (in.minSizeCleanup && in.minSizePolicy.enabled())
-    {
-        progress(52, QObject::tr("Removing sub-scale cells…"));
-        mesh::CleanupPolicy cpol;
-        cpol.minCellSize = in.minSizePolicy.minCellSize;
-        // V2 enforcement (plan Track A): let cleanup absorb slivers into a
-        // single identity vertex and collapse interior constrained edges.
-        // Distinct identities still never merge and a lost coupling still
-        // aborts the pass — those two rules are cleanup's own, not ours.
-        if (in.minSizeEnforce)
-        {
-            cpol.allowIdentityCollapse = true;
-            cpol.beta                  = 0.45;
-        }
-        mesh::CleanupReport crep;
-        const bool ok = mesh::collapseSubScaleCells(&result, cpol, &crep);
-        qCInfo(lcMeshPerf) << "[Mesh][minsize] cleanup:" << crep.summary();
-        if (!ok)
-            qWarning() << "[Mesh][minsize] sliver cleanup abandoned a pass — "
-                          "mesh restored to its pre-pass state.";
-        if (crep.skippedProtected > 0)
-            qCInfo(lcMeshPerf) << "[Mesh][minsize]" << crep.skippedProtected
-                               << "sub-scale cell(s) are bounded by constrained "
-                                  "or coupled geometry and cannot be collapsed — "
-                                  "these need a larger minimum cell size or "
-                                  "simpler input geometry.";
-        for (const QPointF &p : std::as_const(crep.unfixable))
-            qCDebug(lcMeshPerf) << "[Mesh][minsize]  protected sliver at" << p;
-        stageMark("sub-scale cell cleanup");
-    }
-
-    // Enforcement contract (V2 plan Track A): say plainly what was achieved
-    // against what was requested — "enforced" must never be a silent miss.
-    if (in.minSizePolicy.enabled() && !result.triangles.isEmpty())
-    {
-        double minArea = std::numeric_limits<double>::max();
-        for (const mesh::MeshTriangle &t : std::as_const(result.triangles))
-        {
-            if (t.v0 < 0 || t.v1 < 0 || t.v2 < 0) continue;
-            const QPointF &a = result.vertices[t.v0].xy;
-            const QPointF &b = result.vertices[t.v1].xy;
-            const QPointF &c = result.vertices[t.v2].xy;
-            const double ar = 0.5 * std::abs(
-                (b.x() - a.x()) * (c.y() - a.y())
-                - (c.x() - a.x()) * (b.y() - a.y()));
-            if (ar < minArea) minArea = ar;
-        }
-        // Side of the equilateral triangle of the smallest cell — comparable
-        // to the requested h.
-        const double side = std::sqrt(4.0 * minArea / std::sqrt(3.0));
-        qCInfo(lcMeshPerf).nospace()
-            << "[Mesh][minsize] requested h = "
-            << in.minSizePolicy.minCellSize
-            << (in.minSizeEnforce ? " (enforce)" : " (advisory)")
-            << " | achieved min cell side ~ " << side
-            << " (area " << minArea << ")";
-        if (side < 0.5 * in.minSizePolicy.minCellSize)
-            qWarning() << "[Mesh][minsize] the smallest cell is well below the"
-                       << "requested minimum — check the residual list above"
-                       << "for the features that could not be conditioned.";
+        qCInfo(lcMeshPerf).nospace() << "[Mesh][quad] region " << rep.index
+                                     << (rep.accepted ? " accepted" : " skipped")
+                                     << " | h " << rep.spacing
+                                     << (rep.message.isEmpty() ? QString() : QStringLiteral(" | ") + rep.message);
+        if (!rep.accepted)
+            qWarning() << "[Mesh] Skipped quad region" << rep.index << "—" << rep.message;
     }
 
     // ── Hilbert renumbering — locality for the engine's explicit marcher ──
@@ -3094,43 +2068,9 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // untouched — mesh generation authors no per-cell infiltration at all.
     result.infilDefaults = in.infilDefaults;
 
-    // ── Tri-pair merge into quads (G2) ───────────────────────────────
-    // Last geometry step: runs on sampled elevations and seeded attributes
-    // so the planarity and attribute-equality rules see final values.
-    // Every constrained segment (domain outline, hole rings, breaklines,
-    // patch boundaries) is a locked edge — no quad straddles one.
-    const int nPatchQuads = result.quadCount();
-    int nMergedQuads = 0;
-    if (in.genOpts.mergeTrianglePairs)
-    {
-        progress(84, QObject::tr("Merging triangle pairs into quads…"));
-        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-        QSet<QPair<int, int>> locked;
-        locked.reserve(result.boundaryEdges.size());
-        for (const mesh::MeshEdge &e : std::as_const(result.boundaryEdges))
-            locked.insert(mesh::edgeKey(e.v0, e.v1));
-        // The generator has already applied region-specific acceptance
-        // limits. Preserve its leftover triangles and TrianglesOnly regions.
-        locked.unite(g.quadRegionMergeLocks(result));
-        QVector<int> oldToNew;
-        nMergedQuads = mesh::mergeTrianglePairs(result, in.genOpts.quadMerge,
-                                                locked, &oldToNew);
-        if (nMergedQuads > 0 && !coupling.triangleToNode.isEmpty())
-        {
-            QHash<int, QString> remapped;
-            for (auto it = coupling.triangleToNode.cbegin();
-                 it != coupling.triangleToNode.cend(); ++it)
-                remapped.insert(oldToNew.value(it.key(), it.key()), it.value());
-            coupling.triangleToNode = std::move(remapped);
-        }
-        stageMark("tri-pair merge");
-    }
     qCInfo(lcMeshPerf).nospace()
         << "[Mesh] cells: " << (result.triangles.size() - result.quadCount())
-        << " triangles + " << result.quadCount() << " quads ("
-        << nQuadRegionQuads << " from quad regions, "
-        << (nPatchQuads - nQuadRegionQuads) << " from structured patches, "
-        << nMergedQuads << " merged from triangle pairs)";
+        << " triangles + " << result.quadCount() << " quads";
 
     // ══ B6 plan — what the 1D surgery will do (CHANNEL_BURN_IN_PLAN §6) ══
     // Planned HERE because the outfall invert has to come from the MESHED bed
@@ -3712,849 +2652,164 @@ void MeshGenerationDialog::buildUi()
                  tr("S&ources"));
 
     // ================================================================
-    // Tab 2 — Quality
-    // "How to triangulate": Triangle knobs, PSLG opts, terrain thinning
+    // Tab 2 — Quality (MESH_OVERHAUL_PLAN_2026-09-29.md §3)
+    // Eleven controls in three groups, every one in a physical unit:
+    // Resolution (size field), Shape (cell type, orientation, regions,
+    // corridors) and Boundaries (straightness trimming).
     // ================================================================
-    // MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07 §2 — the eight
-    // groups below totalled 37 form rows plus a table (~1700 px) in one
-    // column, so the page only fit because addTab wraps it in a scroll area.
-    // They are now split across four inner tabs in pipeline order: size the
-    // triangles, enforce a floor, thin the terrain, decide on quads. Each
-    // group is moved WHOLE — no widget is renamed and no group is split, so
-    // test_meshmincelldialog (which finds "Minimum Cell Size" by title and
-    // asserts its 2-spin / 4-checkbox census) is unaffected.
-    //
-    // Every group is still constructed with `qualityPage` as its ctor parent;
-    // QLayout::addWidget reparents it to the inner page that owns the layout,
-    // which keeps this a minimal diff against the uncommitted quad work.
     auto *qualityPage = new QWidget;
-    auto *qualityOuter = new QVBoxLayout(qualityPage);
-    qualityOuter->setContentsMargins(0, 0, 0, 0);
+    auto *qualityVBox = new QVBoxLayout(qualityPage);
+    qualityVBox->setContentsMargins(8, 8, 8, 8);
 
-    auto *qualityTabs = new QTabWidget(qualityPage);
-    qualityTabs->setObjectName(QStringLiteral("meshQualityTabs"));
-    qualityOuter->addWidget(qualityTabs);
-
-    // Inner page + layout per tab. Named for the group they receive so the
-    // addWidget lines below read as their own documentation.
-    auto *sizingPage  = new QWidget(qualityTabs);
-    auto *sizingVBox  = new QVBoxLayout(sizingPage);
-    sizingVBox->setContentsMargins(8, 8, 8, 8);
-
-    auto *cellSizePage = new QWidget(qualityTabs);
-    auto *cellSizeVBox = new QVBoxLayout(cellSizePage);
-    cellSizeVBox->setContentsMargins(8, 8, 8, 8);
-
-    auto *terrainPage = new QWidget(qualityTabs);
-    auto *terrainVBox = new QVBoxLayout(terrainPage);
-    terrainVBox->setContentsMargins(8, 8, 8, 8);
-
-    auto *quadsPage   = new QWidget(qualityTabs);
-    auto *quadsVBox   = new QVBoxLayout(quadsPage);
-    quadsVBox->setContentsMargins(8, 8, 8, 8);
-
-    // Triangle quality group
+    // Resolution
     {
-        auto *g = new QGroupBox(tr("Triangle quality"), qualityPage);
+        auto *g = new QGroupBox(tr("Resolution"), qualityPage);
         auto *f = new QFormLayout(g);
         f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
 
-        m_maxAreaSpin = new QDoubleSpinBox(g);
-        m_maxAreaSpin->setRange(0.0, 1e12);
-        m_maxAreaSpin->setDecimals(2);
-        m_maxAreaSpin->setSpecialValueText(tr("(no cap)"));
-        // tooltip updated by updateUnitDisplay()
-        f->addRow(tr("Max trian&gle area:"), m_maxAreaSpin);
+        m_cellSizeSpin = new QDoubleSpinBox(g);
+        m_cellSizeSpin->setObjectName(QStringLiteral("meshCellSizeSpin"));
+        m_cellSizeSpin->setRange(0.0, 1e9);
+        m_cellSizeSpin->setDecimals(3);
+        m_cellSizeSpin->setSpecialValueText(tr("(from extent)"));
+        m_cellSizeSpin->setToolTip(tr(
+            "Target cell edge length at features (conduits, nodes, boundaries, "
+            "breaklines, region rings). 0 derives one from the model extent."));
+        f->addRow(tr("Cell si&ze at features:"), m_cellSizeSpin);
 
-        m_minAngleSpin = new QDoubleSpinBox(g);
-        m_minAngleSpin->setRange(0.0, 33.0);
-        m_minAngleSpin->setDecimals(1);
-        m_minAngleSpin->setSuffix(QStringLiteral(" °"));
-        m_minAngleSpin->setToolTip(tr("Minimum triangle angle (0–33° reliable; above 33° may not terminate)."));
-        f->addRow(tr("Min angle:"), m_minAngleSpin);
+        m_coarsenSpin = new QDoubleSpinBox(g);
+        m_coarsenSpin->setRange(1.0, 1000.0);
+        m_coarsenSpin->setDecimals(1);
+        m_coarsenSpin->setSingleStep(0.5);
+        m_coarsenSpin->setPrefix(QStringLiteral("× "));
+        m_coarsenSpin->setToolTip(tr(
+            "Cells may grow to this multiple of the cell size away from "
+            "features. 1 = uniform mesh."));
+        f->addRow(tr("Coarsen away from features up to:"), m_coarsenSpin);
 
-        // V2 graded sizing (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN).
-        m_gradationSpin = new QDoubleSpinBox(g);
-        m_gradationSpin->setRange(0.0, 2.0);
-        m_gradationSpin->setDecimals(2);
-        m_gradationSpin->setSingleStep(0.05);
-        m_gradationSpin->setSpecialValueText(tr("(uniform)"));
-        m_gradationSpin->setToolTip(tr(
-            "How fast cells may grow with distance from constrained features "
-            "(conduits, hole edges, SWMM nodes).\n\n"
-            "0 = uniform: the max-area cap applies EVERYWHERE, however far a "
-            "cell is from anything that needs resolution.\n\n"
-            "> 0 = graded: cells at the features keep exactly the max-area "
-            "cap; away from them the permitted size grows at this slope, so "
-            "the mesh stays fine where it matters and coarsens smoothly "
-            "elsewhere — typically far fewer cells for the same feature "
-            "resolution.  0.25 is a good starting value.\n\n"
-            "Requires a max triangle area cap."));
-        f->addRow(tr("Size gradation:"), m_gradationSpin);
-
-        auto syncGradation = [this] {
-            if (m_gradationSpin && m_maxAreaSpin)
-                m_gradationSpin->setEnabled(m_maxAreaSpin->value() > 0.0);
-        };
-        connect(m_maxAreaSpin, &QDoubleSpinBox::valueChanged, this, syncGradation);
-        syncGradation();
-
-        m_maxSteinerSpin = new QSpinBox(g);
-        m_maxSteinerSpin->setRange(-1, 10'000'000);
-        m_maxSteinerSpin->setSpecialValueText(tr("(unlimited)"));
-        f->addRow(tr("Max Steiner points:"), m_maxSteinerSpin);
-
-        m_allowSteiner = new QCheckBox(tr("Allow Steiner refinement on boundary"), g);
-        f->addRow(QString(), m_allowSteiner);
-
-        sizingVBox->addWidget(g);   // Triangle quality
-    }
-
-    // PSLG optimisation group
-    {
-        auto *g = new QGroupBox(tr("PSLG Optimisation"), qualityPage);
-        auto *f = new QFormLayout(g);
-        f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
-
-        m_simplifyEpsSpin = new QDoubleSpinBox(g);
-        m_simplifyEpsSpin->setRange(0.0, 1000.0);
-        m_simplifyEpsSpin->setDecimals(3);
-        m_simplifyEpsSpin->setSingleStep(0.1);
-        // suffix set by updateUnitDisplay()
-        m_simplifyEpsSpin->setSpecialValueText(tr("(off)"));
-        m_simplifyEpsSpin->setToolTip(tr(
-            "Ramer-Douglas-Peucker tolerance applied to every polygon ring and "
-            "polyline path before it enters Triangle.\n\n"
-            "Points that deviate less than this distance from a straight line "
-            "between their neighbours are removed.  0 = disabled.\n"
-            "Typical: 0.1 m (tight) – 1.0 m (coarse).\n\n"
-            "Increase ε when the boundary's vertices are much denser than the "
-            "terrain point spacing — short constrained boundary segments seed "
-            "small cells along the perimeter."));
-        f->addRow(tr("Geometry simplification &ε:"), m_simplifyEpsSpin);
-
-        m_snapEpsSpin = new QDoubleSpinBox(g);
-        m_snapEpsSpin->setRange(0.0, 100.0);
-        m_snapEpsSpin->setDecimals(4);
-        m_snapEpsSpin->setSingleStep(0.01);
-        // suffix set by updateUnitDisplay()
-        m_snapEpsSpin->setSpecialValueText(tr("(off)"));
-        m_snapEpsSpin->setToolTip(tr(
-            "Radius within which near-coincident untagged Steiner points are "
-            "merged into one.  SWMM-tagged points are never merged.\n"
-            "0 = disabled.  Typical: 0.01–0.5 m."));
-        f->addRow(tr("Steiner snap radius:"), m_snapEpsSpin);
-
-        // 2026-07-19 — optional boundary densification. Splits domain/hole
-        // ring edges longer than this into equal parts AFTER RDP
-        // simplification (pure vertex insertion, geometry unchanged) so the
-        // perimeter cell size can match the interior terrain spacing instead
-        // of Triangle spanning long constrained edges with oversized fans.
-        m_maxBoundaryEdgeBox = new QCheckBox(tr("Max boundary edge length:"), g);
-        m_maxBoundaryEdgeBox->setToolTip(tr(
-            "When checked, boundary and hole ring edges longer than this are "
-            "split into equal parts after RDP simplification.\n\n"
-            "Pure vertex insertion — the boundary geometry is unchanged.  "
-            "Use to make perimeter cell size follow the interior target "
-            "spacing on coarse boundaries."));
-        m_maxBoundaryEdgeSpin = new QDoubleSpinBox(g);
-        m_maxBoundaryEdgeSpin->setRange(0.0, 1e9);
-        m_maxBoundaryEdgeSpin->setDecimals(2);
-        m_maxBoundaryEdgeSpin->setSingleStep(5.0);
-        // suffix set by updateUnitDisplay()
-        m_maxBoundaryEdgeSpin->setSpecialValueText(tr("(off)"));
-        f->addRow(m_maxBoundaryEdgeBox, m_maxBoundaryEdgeSpin);
-        connect(m_maxBoundaryEdgeBox, &QCheckBox::toggled,
-                m_maxBoundaryEdgeSpin, &QWidget::setEnabled);
-
-        sizingVBox->addWidget(g);   // PSLG Optimisation
-    }
-
-    // Minimum cell size group — MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17.
-    {
-        auto *g = new QGroupBox(tr("Minimum Cell Size"), qualityPage);
-        auto *f = new QFormLayout(g);
-        f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+        m_sizeRatioSpin = new QDoubleSpinBox(g);
+        m_sizeRatioSpin->setObjectName(QStringLiteral("meshSizeRatioSpin"));
+        m_sizeRatioSpin->setRange(1.05, 2.0);
+        m_sizeRatioSpin->setDecimals(2);
+        m_sizeRatioSpin->setSingleStep(0.05);
+        m_sizeRatioSpin->setToolTip(tr(
+            "Largest permitted edge-length ratio between neighbouring cells. "
+            "Smaller values give smoother transitions and more cells."));
+        f->addRow(tr("Size &ratio between neighbours:"), m_sizeRatioSpin);
 
         m_minCellSizeSpin = new QDoubleSpinBox(g);
-        m_minCellSizeSpin->setRange(0.0, 1e6);
+        m_minCellSizeSpin->setRange(0.0, 1e9);
         m_minCellSizeSpin->setDecimals(3);
-        m_minCellSizeSpin->setSingleStep(0.5);
-        // suffix set by updateUnitDisplay()
-        m_minCellSizeSpin->setSpecialValueText(tr("(off)"));
+        m_minCellSizeSpin->setSpecialValueText(tr("(cell size / 4)"));
         m_minCellSizeSpin->setToolTip(tr(
-            "Smallest cell the mesh should contain, as a length.\n\n"
-            "Triangle cannot produce cells much smaller OR much larger than the "
-            "input geometry asks for: constrained polylines with vertices a few "
-            "centimetres apart, two alignments passing within a hair, or conduits "
-            "meeting at a sharp angle all force cells at that scale, and on the "
-            "2D solver a single sliver sets the timestep for the whole domain.\n\n"
-            "Setting a minimum therefore CHANGES THE INPUT GEOMETRY slightly: "
-            "vertices closer together than this are merged, short segments are "
-            "resampled away, dangling endpoints are welded onto the line they "
-            "nearly touch, and sharp corners are blunted.  Tagged SWMM nodes are "
-            "never moved and never merged with each other.\n\n"
-            "0 = off (no geometry changes; existing behaviour)."));
-        f->addRow(tr("Minimum cell si&ze:"), m_minCellSizeSpin);
+            "Floor on the cell size: no cell is smaller, terrain and features "
+            "cannot demand one, and nodes closer than this share a cell."));
+        f->addRow(tr("&Minimum cell size:"), m_minCellSizeSpin);
 
-        m_minCellSuggestBtn = new QPushButton(tr("Suggest"), g);
-        m_minCellSuggestBtn->setToolTip(tr(
-            "Set the minimum to roughly a third of the side length implied by "
-            "Max triangle area."));
-        f->addRow(QString(), m_minCellSuggestBtn);
-        connect(m_minCellSuggestBtn, &QPushButton::clicked, this, [this] {
-            const double a = m_maxAreaSpin ? m_maxAreaSpin->value() : 0.0;
-            if (a <= 0.0 || !m_minCellSizeSpin) return;
-            // Side of the equilateral triangle with that area, then a third.
-            const double side = std::sqrt(4.0 * a / std::sqrt(3.0));
-            m_minCellSizeSpin->setValue(side / 3.0);
-        });
+        m_terrainTolSpin = new QDoubleSpinBox(g);
+        m_terrainTolSpin->setObjectName(QStringLiteral("meshTerrainTolSpin"));
+        m_terrainTolSpin->setRange(0.0, 1e6);
+        m_terrainTolSpin->setDecimals(3);
+        m_terrainTolSpin->setSpecialValueText(tr("(off)"));
+        m_terrainTolSpin->setToolTip(tr(
+            "Vertical tolerance for terrain fidelity: cells are refined "
+            "wherever the DEM deviates from a cell-sized plane by more than "
+            "this. Needs a DTM. 0 ignores terrain roughness."));
+        f->addRow(tr("&Terrain tolerance:"), m_terrainTolSpin);
 
-        // V2 enforcement mode (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN
-        // Track A).  Measured on real SWMM models, the default (advisory)
-        // conditioning is nearly inert: the crowded vertices are almost all
-        // coupling identities it is forbidden to touch.
-        m_minSizeEnforceBox = new QCheckBox(
-            tr("Enforce — may move or merge SWMM coupling points"), g);
-        m_minSizeEnforceBox->setToolTip(tr(
-            "Off (advisory): tagged SWMM nodes and conduit endpoints never "
-            "move and never merge.  On real models nearly every crowded "
-            "vertex IS such an identity, so the minimum is rarely achieved.\n\n"
-            "On (enforce): two coupling identities closer than the minimum "
-            "cell size may merge into one mesh vertex, nodes closer than the "
-            "minimum are not pinned as vertices at all, and the post-mesh "
-            "cleanup may absorb slivers into an identity vertex.  No coupling "
-            "is ever LOST — a merged or demoted node couples to the 2D mesh "
-            "via its containing cell instead of a dedicated vertex (a "
-            "different exchange stencil, reported in the log).  No point "
-            "moves further than the weld radius shown below."));
-        f->addRow(QString(), m_minSizeEnforceBox);
-
-        m_trimAngleSpin = new QDoubleSpinBox(g);
-        m_trimAngleSpin->setRange(0.0, 60.0);
-        m_trimAngleSpin->setDecimals(1);
-        m_trimAngleSpin->setSuffix(QStringLiteral(" °"));
-        m_trimAngleSpin->setSpecialValueText(tr("(off)"));
-        m_trimAngleSpin->setToolTip(tr(
-            "Corners where two constraints meet more sharply than this are "
-            "blunted — the apex is cut back and bridged by a short segment.\n\n"
-            "Sharp input angles are the one cause of small cells that merging "
-            "cannot fix, because the two legs legitimately share their vertex; "
-            "the cells at such an apex shrink geometrically toward it.\n\n"
-            "Corners at tagged SWMM nodes are left alone (see below)."));
-        f->addRow(tr("Trim corners sharper than:"), m_trimAngleSpin);
-
-        m_trimAtNodesBox = new QCheckBox(tr("Also trim corners at SWMM nodes"), g);
-        m_trimAtNodesBox->setToolTip(tr(
-            "Off by default.  A manhole where two conduits meet at a sharp angle "
-            "is exactly where fine resolution is usually wanted, and the node is "
-            "a coupling location that must not move.\n\n"
-            "Turn on when the simulation timestep matters more than resolution at "
-            "the node."));
-        f->addRow(QString(), m_trimAtNodesBox);
-
-        m_dropSubScaleHolesBox =
-            new QCheckBox(tr("Drop holes smaller than one cell"), g);
-        m_dropSubScaleHolesBox->setToolTip(tr(
-            "Hole rings narrower than the minimum cell size cannot be meshed "
-            "around.  When checked they are removed, which means THE MESH COVERS "
-            "THEM — a modelling change, reported in the generation log."));
-        f->addRow(QString(), m_dropSubScaleHolesBox);
-
-        m_cleanupBox = new QCheckBox(tr("Collapse leftover slivers after meshing"), g);
-        m_cleanupBox->setToolTip(tr(
-            "A second, post-meshing pass that collapses very short edges "
-            "Triangle inserted on its own.\n\n"
-            "Constrained edges, the domain outline, and any vertex carrying a tag "
-            "or a coupled node are never touched, so this cannot fix a sliver the "
-            "input demanded — those are reported in the log instead."));
-        f->addRow(QString(), m_cleanupBox);
-
-        m_minCellDerivedLabel = new QLabel(g);
-        m_minCellDerivedLabel->setWordWrap(true);
-        m_minCellDerivedLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
-        f->addRow(QString(), m_minCellDerivedLabel);
-
-        auto syncMinCell = [this] {
-            const bool on = m_minCellSizeSpin && m_minCellSizeSpin->value() > 0.0;
-            if (m_minSizeEnforceBox)    m_minSizeEnforceBox->setEnabled(on);
-            if (m_trimAngleSpin)        m_trimAngleSpin->setEnabled(on);
-            if (m_trimAtNodesBox)       m_trimAtNodesBox->setEnabled(on);
-            if (m_dropSubScaleHolesBox) m_dropSubScaleHolesBox->setEnabled(on);
-            if (m_cleanupBox)           m_cleanupBox->setEnabled(on);
-            updateMinCellDerivedLabel();
-        };
-        connect(m_minSizeEnforceBox, &QCheckBox::toggled, this,
-                [this] { updateMinCellDerivedLabel(); });
-        connect(m_minCellSizeSpin, &QDoubleSpinBox::valueChanged, this, syncMinCell);
-        connect(m_minAngleSpin,    &QDoubleSpinBox::valueChanged, this,
-                [this] { updateMinCellDerivedLabel(); });
-        syncMinCell();
-
-        cellSizeVBox->addWidget(g);   // Minimum Cell Size
+        qualityVBox->addWidget(g);
     }
 
-    // Terrain-adaptive thinning group
+    // Shape
     {
-        auto *g = new QGroupBox(tr("Terrain-Adaptive Thinning"), qualityPage);
+        auto *g = new QGroupBox(tr("Shape"), qualityPage);
         auto *f = new QFormLayout(g);
         f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
 
-        m_thinningBox = new QCheckBox(tr("Enable normal-deviation terrain simplification"), g);
-        m_thinningBox->setToolTip(tr(
-            "When checked: uses the normal-deviation algorithm to SELECT which "
-            "DTM pixels to keep — only terrain-significant points (ridges, "
-            "valleys, slope breaks) become Steiner vertices, flat areas are "
-            "thinned away.\n\n"
-            "When unchecked: every DTM pixel in the domain at the configured "
-            "grid spacing becomes a Steiner vertex (no filtering).\n\n"
-            "Either way, the selected DTM points are always added to the PSLG "
-            "when a DTM raster is configured.  Each point carries its exact DEM "
-            "elevation and is not re-sampled after triangulation.\n\n"
-            "Very large DEMs are processed in memory-bounded row bands, so any "
-            "raster size works at any spacing."));
-        f->addRow(QString(), m_thinningBox);
+        m_cellShapeCombo = new QComboBox(g);
+        m_cellShapeCombo->setObjectName(QStringLiteral("meshCellShapeCombo"));
+        m_cellShapeCombo->addItem(tr("Quads where possible"));
+        m_cellShapeCombo->addItem(tr("Triangles"));
+        m_cellShapeCombo->setToolTip(tr(
+            "Quads where possible: square cells in the interior, triangles "
+            "and paired quads where the geometry demands them. Triangles: "
+            "every cell a triangle."));
+        f->addRow(tr("Cell &shape:"), m_cellShapeCombo);
 
-        m_thinningToleranceSpin = new QDoubleSpinBox(g);
-        m_thinningToleranceSpin->setObjectName(QStringLiteral("meshThinningTolSpin"));
-        m_thinningToleranceSpin->setRange(-1.0, 1.0);
-        m_thinningToleranceSpin->setDecimals(8);
-        m_thinningToleranceSpin->setSingleStep(0.001);
-        m_thinningToleranceSpin->setToolTip(tr(
-            "Removal threshold: a vertex is removed when the minimum dot "
-            "product of its vertex-normal with every surrounding face-normal "
-            "is ≥ this value (smooth surface).\n\n"
-            "score < threshold → terrain feature (ridge/valley/slope break) "
-            "→ vertex is KEPT.\n"
-            "score ≥ threshold → flat or uniform-slope area → vertex is "
-            "REMOVED.\n\n"
-            "0.99 → keep bends > ~8° (fine detail)\n"
-            "0.95 → keep bends > ~18° (channels, levees, ridges)\n"
-            "0.90 → keep bends > ~26° (coarse — prominent breaks only)\n"
-            "0.75 → keep bends > ~41° (default — major breaks only)"));
-        f->addRow(tr("Normal dot threshold:"), m_thinningToleranceSpin);
-
-        m_thinningIterationsSpin = new QSpinBox(g);
-        m_thinningIterationsSpin->setObjectName(QStringLiteral("meshThinningPassesSpin"));
-        m_thinningIterationsSpin->setRange(0, std::numeric_limits<int>::max());
-        m_thinningIterationsSpin->setSpecialValueText(tr("(unlimited)"));
-        m_thinningIterationsSpin->setToolTip(tr(
-            "Number of normal-deviation thinning passes.  "
-            "0 (unlimited) runs until no further vertices qualify for removal.\n\n"
-            "Very large DEMs are processed in memory-bounded bands; results are "
-            "identical to a whole-grid run for pass counts up to 64.  "
-            "\"(unlimited)\" is capped at 64 passes per band in that mode."));
-        f->addRow(tr("Thinning passes:"), m_thinningIterationsSpin);
-
-        m_thinningMaxPointsSpin = new QSpinBox(g);
-        m_thinningMaxPointsSpin->setRange(0, 500000);
-        m_thinningMaxPointsSpin->setSpecialValueText(tr("(unlimited)"));
-        m_thinningMaxPointsSpin->setSingleStep(5000);
-        f->addRow(tr("Max thinning points:"), m_thinningMaxPointsSpin);
-
-        // ── Option A: Poisson-disk minimum spacing ─────────────────────────
-        m_minSpacingBox = new QCheckBox(tr("Min point spacing (Poisson-disk):"), g);
-        m_minSpacingBox->setObjectName(QStringLiteral("meshMinSpacingBox"));
-        m_minSpacingBox->setToolTip(tr(
-            "Post-thinning pass: enforces a minimum Euclidean distance between "
-            "any two surviving DTM Steiner points.\n\n"
-            "Points are accepted greedily in raster order; any candidate closer "
-            "than this distance to an already-accepted point is dropped.\n\n"
-            "Use to prevent micro-clusters from dominating the mesh even after "
-            "normal-deviation thinning.  0 = auto (2 × pixel size)."));
-        m_minSpacingSpin = new QDoubleSpinBox(g);
-        m_minSpacingSpin->setObjectName(QStringLiteral("meshMinSpacingSpin"));
-        m_minSpacingSpin->setRange(0.0, 1e9);
-        m_minSpacingSpin->setDecimals(3);
-        m_minSpacingSpin->setSingleStep(1.0);
-        // suffix set by updateUnitDisplay()
-        m_minSpacingSpin->setSpecialValueText(tr("(auto)"));
-        f->addRow(m_minSpacingBox, m_minSpacingSpin);
-
-        // 2026-07-19 — boundary buffer for the boundary-aware terrain
-        // filter. Applies to BOTH the thinned and full-grid DTM paths (both
-        // feed the same Steiner add loop), so it is deliberately NOT gated
-        // by syncThinning below.
-        m_boundaryBufferSpin = new QDoubleSpinBox(g);
-        m_boundaryBufferSpin->setRange(0.0, 1e6);
-        m_boundaryBufferSpin->setDecimals(3);
-        m_boundaryBufferSpin->setSingleStep(0.5);
-        // suffix set by updateUnitDisplay()
-        m_boundaryBufferSpin->setSpecialValueText(tr("(auto)"));
-        m_boundaryBufferSpin->setToolTip(tr(
-            "DTM terrain points closer than this to the domain boundary, a "
-            "hole ring, a constraint segment (conduits), or a mandatory "
-            "vertex (SWMM nodes) are dropped, as are points outside the "
-            "domain.  Prevents slivers and clusters of tiny cells along the "
-            "boundary.\n\n"
-            "(auto) = half the effective terrain point spacing."));
-        f->addRow(tr("Boundary buffer:"), m_boundaryBufferSpin);
-
-        terrainVBox->addWidget(g);   // Terrain-Adaptive Thinning
-    }
-
-    auto syncThinning = [this]() {
-        const bool on = m_thinningBox->isChecked();
-        m_thinningToleranceSpin->setEnabled(on);
-        m_thinningIterationsSpin->setEnabled(on);
-        m_thinningMaxPointsSpin->setEnabled(on);
-        m_minSpacingBox->setEnabled(on);
-        m_minSpacingSpin->setEnabled(on && m_minSpacingBox->isChecked());
-    };
-    connect(m_thinningBox,   &QCheckBox::toggled, this, syncThinning);
-    connect(m_minSpacingBox, &QCheckBox::toggled, m_minSpacingSpin, &QWidget::setEnabled);
-    syncThinning();
-
-    // Quad regions — PSLG-defined polygons meshed with quads
-    // (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3.1 sources, §6.3). Sources
-    // are a polygon layer and/or named subcatchments; the defaults below
-    // apply to every region unless a layer feature carries quad_mode /
-    // quad_spacing / quad_aspect / quad_angle / tag attributes.
-    // Quads everywhere — the toggle (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.5).
-    // No polygon required: the domain itself becomes the quad region.
-    {
-        auto *g = new QGroupBox(tr("Quadrilateral cells"), qualityPage);
-        auto *f = new QFormLayout(g);
-        f->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-
-        m_quadEverywhereCheck = new QCheckBox(tr("&Generate quadrilateral cells"), g);
-        m_quadEverywhereCheck->setToolTip(tr(
-            "Quad-mesh the whole domain — no polygon needs to be drawn or "
-            "picked.  Each domain ring is filled with a boundary-aligned quad "
-            "lattice; holes, conduits and breaklines are respected, and cells "
-            "that cannot be paired stay triangles (quad-dominant).\n\n"
-            "The regions below remain optional: each one is subtracted from "
-            "this background and meshed with its own mode and spacing, so use "
-            "them only where a particular area needs different treatment "
-            "(including 'Triangles only' to keep an area triangular)."));
-        f->addRow(m_quadEverywhereCheck);
-
-        m_quadEverywhereSpacingSpin = new QDoubleSpinBox(g);
-        m_quadEverywhereSpacingSpin->setRange(0.0, 1e7);
-        m_quadEverywhereSpacingSpin->setDecimals(3);
-        m_quadEverywhereSpacingSpin->setValue(0.0);
-        m_quadEverywhereSpacingSpin->setSpecialValueText(tr("(follow the size field)"));
-        m_quadEverywhereSpacingSpin->setToolTip(tr(
-            "Target quad edge length for the whole-domain lattice.\n\n"
-            "Leave at 0 — the recommended setting — to follow the graded size "
-            "field, so quads stay fine near conduits, inlets and breaklines and "
-            "coarsen away from them exactly as the triangles do today.  A fixed "
-            "value meshes the entire model at that one spacing, which on a large "
-            "model either loses local refinement or explodes the cell count."));
-        f->addRow(tr("Target quad si&ze:"), m_quadEverywhereSpacingSpin);
-
-        // Enabling is driven by the shared syncQuad() below, which also owns
-        // the quad-quality bounds (they apply to the background lattice too).
-        quadsVBox->addWidget(g);   // Quadrilateral cells
-    }
-    {
-        auto *g = new QGroupBox(tr("Quad regions (PSLG) — optional overrides"), qualityPage);
-        auto *f = new QFormLayout(g);
-        f->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-
-        auto *hint = new QLabel(tr(
-            "Optional.  Closed polygons inside the domain that need different "
-            "treatment from the rest: the ring becomes a constraint loop and the "
-            "interior is filled with its own quad lattice (or a structured grid "
-            "when the outline is rectangular).  With the toggle above off, these "
-            "are the only areas that get quads; with it on, each one is "
-            "subtracted from the whole-domain lattice."), g);
-        hint->setWordWrap(true);
-        hint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
-        f->addRow(hint);
+        m_gridAngleSpin = new QDoubleSpinBox(g);
+        m_gridAngleSpin->setRange(-90.0, 90.0);
+        m_gridAngleSpin->setDecimals(1);
+        m_gridAngleSpin->setSuffix(QStringLiteral("°"));
+        m_gridAngleSpin->setToolTip(tr(
+            "Orientation of the background grid, degrees from the +x axis "
+            "counter-clockwise. A region layer can override it per polygon."));
+        f->addRow(tr("Grid &orientation:"), m_gridAngleSpin);
 
         m_quadRegionLayerCombo = new QComboBox(g);
         m_quadRegionLayerCombo->setToolTip(tr(
-            "Polygon layer whose features become quad regions (exterior rings "
-            "only; read in the worker and reprojected to the mesh CRS).\n\n"
-            "Optional per-feature attributes override the defaults below:\n"
-            "  quad_mode     auto | mapped | submapped | free | triangles\n"
-            "  quad_spacing  target quad edge length (map units)\n"
-            "  quad_h_along / quad_h_across / quad_axis  Mapped spacing and physical axis (all three together)\n"
-            "  quad_aspect   Free-region ratio cap (<0 global, 0 unlimited)\n"
-            "  quad_angle    alignment angle in degrees from +x\n"
-            "  tag / name    cell tag"));
+            "Polygon layer whose features override the size and orientation "
+            "inside them (exterior rings only; read in the worker and "
+            "reprojected to the mesh CRS).\n\n"
+            "Optional per-feature attributes:\n"
+            "  h / quad_spacing   cell size inside the polygon (map units)\n"
+            "  angle / quad_angle grid orientation in degrees from +x\n"
+            "  tag                cell tag"));
         f->addRow(tr("Region &layer:"), m_quadRegionLayerCombo);
 
         m_quadRegionSubcatchEdit = new QLineEdit(g);
         m_quadRegionSubcatchEdit->setPlaceholderText(tr("comma-separated subcatchment IDs"));
         m_quadRegionSubcatchEdit->setToolTip(tr(
-            "Subcatchment polygons to quad-mesh, by ID.  Each becomes one "
-            "region with the defaults below and the tag subcatch_<ID>.  An "
-            "unknown ID stops generation with an error."));
+            "Subcatchment polygons whose rings become cell boundaries, tagged "
+            "subcatch_<ID>. An unknown ID stops generation with an error."));
         f->addRow(tr("Subcatchments:"), m_quadRegionSubcatchEdit);
 
-        m_quadRegionModeCombo = new QComboBox(g);
-        m_quadRegionModeCombo->addItem(tr("Auto"),           int(mesh::QuadRegionMode::Auto));
-        m_quadRegionModeCombo->addItem(tr("Mapped"),         int(mesh::QuadRegionMode::Mapped));
-        m_quadRegionModeCombo->addItem(tr("Submapped"),      int(mesh::QuadRegionMode::Submapped));
-        m_quadRegionModeCombo->addItem(tr("Free"),           int(mesh::QuadRegionMode::Free));
-        m_quadRegionModeCombo->addItem(tr("Triangles only"), int(mesh::QuadRegionMode::TrianglesOnly));
-        m_quadRegionModeCombo->setToolTip(tr(
-            "Auto: four-cornered outlines → Mapped, rectilinear outlines → "
-            "Submapped, anything else → Free.\n"
-            "Mapped / Submapped: structured quadrilateral cells. With scalar "
-            "spacing, an unsupported outline falls back to Free. Directional "
-            "Mapped spacing stops generation instead of falling back.\n"
-            "Free: cross-field aligned lattice, quad-dominant with a few "
-            "leftover triangles.\n"
-            "Triangles only: the ring is still a constraint loop, the "
-            "interior stays triangles."));
-        f->addRow(tr("Default mode:"), m_quadRegionModeCombo);
-
-        m_quadRegionSpacingSpin = new QDoubleSpinBox(g);
-        m_quadRegionSpacingSpin->setRange(0.0, 1e9);
-        m_quadRegionSpacingSpin->setDecimals(3);
-        m_quadRegionSpacingSpin->setSingleStep(1.0);
-        // suffix set by updateUnitDisplay()
-        m_quadRegionSpacingSpin->setSpecialValueText(tr("(from max area)"));
-        m_quadRegionSpacingSpin->setToolTip(tr(
-            "Target quad edge length inside a region.\n"
-            "0 = derive it from the size field at the region centroid, or "
-            "from Max triangle area when no size field is in use."));
-        f->addRow(tr("Default spacing:"), m_quadRegionSpacingSpin);
-
-        m_quadRegionDirectionalCheck = new QCheckBox(tr("&Directional spacing for Mapped regions"), g);
-        m_quadRegionDirectionalCheck->setObjectName(QStringLiteral("mappedDirectionalSpacing"));
-        m_quadRegionDirectionalCheck->setAccessibleName(tr("Directional spacing for Mapped regions"));
-        m_quadRegionDirectionalCheck->setToolTip(tr(
-            "Set independent Along and Across spacing for Mapped regions. Auto must resolve "
-            "to Mapped; other modes cannot use these settings. Distances use mesh CRS units. "
-            "To override a feature, set quad_h_along, quad_h_across and quad_axis together."));
-        m_quadRegionDirectionalCheck->setAccessibleDescription(m_quadRegionDirectionalCheck->toolTip());
-        f->addRow(m_quadRegionDirectionalCheck);
-
-        auto directionalSpacing = [g, f](const QString &label, const QString &name,
-                                               const QString &description) {
-            auto *spin = new QDoubleSpinBox(g);
-            spin->setObjectName(name);
-            spin->setRange(0.0, 1e9);
-            spin->setDecimals(6);
-            spin->setSingleStep(1.0);
-            spin->setAccessibleName(QString(label).remove(QLatin1Char('&')).remove(QLatin1Char(':')));
-            spin->setToolTip(description);
-            spin->setAccessibleDescription(description);
-            f->addRow(label, spin);
-            return spin;
-        };
-        m_quadRegionAlongSpin = directionalSpacing(tr("Mapped &Along spacing (CRS units):"),
-            QStringLiteral("mappedAlongSpacing"), tr(
-                "Target cell spacing along the selected physical Along axis, in mesh CRS units. "
-                "Enter a finite value greater than 0. This is independent of the display-unit preference."));
-        m_quadRegionAcrossSpin = directionalSpacing(tr("Mapped A&cross spacing (CRS units):"),
-            QStringLiteral("mappedAcrossSpacing"), tr(
-                "Target cell spacing across the selected physical Along axis, in mesh CRS units. "
-                "Enter a finite value greater than 0. Different Along and Across values allow elongated cells."));
-        m_quadRegionAxisSpin = new QDoubleSpinBox(g);
-        m_quadRegionAxisSpin->setObjectName(QStringLiteral("mappedAlongAxis"));
-        m_quadRegionAxisSpin->setRange(-360.0, 360.0);
-        m_quadRegionAxisSpin->setDecimals(3);
-        m_quadRegionAxisSpin->setSingleStep(5.0);
-        m_quadRegionAxisSpin->setSuffix(QStringLiteral(" °"));
-        m_quadRegionAxisSpin->setAccessibleName(tr("Mapped Along axis angle"));
-        m_quadRegionAxisSpin->setToolTip(tr(
-            "Physical Along-axis angle, in degrees counter-clockwise from the mesh CRS +x axis "
-            "(0 is horizontal; 90 is vertical). The closest opposite boundary-side pair becomes "
-            "Along, independent of polygon point order. If two directions are equally close, "
-            "choose a clearer axis. Angles 180 degrees apart describe the same axis."));
-        m_quadRegionAxisSpin->setAccessibleDescription(m_quadRegionAxisSpin->toolTip());
-        f->addRow(tr("Mapped Along a&xis:"), m_quadRegionAxisSpin);
-        m_quadRegionModeCombo->setAccessibleName(tr("Default quad-region mode"));
-        auto syncDirectionalSpacing = [this] {
-            const bool on = m_quadRegionDirectionalCheck->isChecked();
-            m_quadRegionAlongSpin->setEnabled(on);
-            m_quadRegionAcrossSpin->setEnabled(on);
-            m_quadRegionAxisSpin->setEnabled(on);
-            m_quadRegionSpacingSpin->setEnabled(!on);
-        };
-        connect(m_quadRegionDirectionalCheck, &QCheckBox::toggled, this, syncDirectionalSpacing);
-        syncDirectionalSpacing();
-
-        m_quadRegionAspectSpin = new QDoubleSpinBox(g);
-        m_quadRegionAspectSpin->setRange(-1.0, 100.0);
-        m_quadRegionAspectSpin->setSpecialValueText(tr("(use global limit)"));
-        m_quadRegionAspectSpin->setDecimals(2);
-        m_quadRegionAspectSpin->setSingleStep(0.25);
-        m_quadRegionAspectSpin->setToolTip(tr(
-            "Free regions: maximum ratio of opposite-side mean lengths, "
-            "enforced during pairing, cleanup and smoothing.\n"
-            "Negative = use global Max aspect ratio; 0 = no limit; "
-            "1 or greater = region limit. A region layer's quad_aspect attribute "
-            "overrides this default. Does not apply to Mapped or Submapped patches."));
-        f->addRow(tr("Default max aspect:"), m_quadRegionAspectSpin);
-
-        m_quadRegionAngleSpin = new QDoubleSpinBox(g);
-        m_quadRegionAngleSpin->setRange(-91.0, 90.0);
-        m_quadRegionAngleSpin->setDecimals(1);
-        m_quadRegionAngleSpin->setSingleStep(5.0);
-        m_quadRegionAngleSpin->setSuffix(QStringLiteral(" °"));
-        m_quadRegionAngleSpin->setSpecialValueText(tr("(from boundary)"));
-        m_quadRegionAngleSpin->setToolTip(tr(
-            "Free regions: constant lattice direction, degrees from +x "
-            "(counter-clockwise).\n"
-            "At the minimum, \"(from boundary)\", the direction field is "
-            "solved from the region's own edges instead."));
-        f->addRow(tr("Default alignment:"), m_quadRegionAngleSpin);
-
-        quadsVBox->addWidget(g);   // Quad regions
-    }
-
-    // Quad quality — bounds shared by the PSLG quad regions above and the
-    // G2 tri-pair merge (TRI_QUAD_MESHING_PLAN §3.1; defaults per
-    // QUAD_MESHING_REDESIGN_PLAN §5: 60°/120°, SJ >= 0.866, aspect <= 2).
-    {
-        auto *g = new QGroupBox(tr("Quad quality"), qualityPage);
-        auto *f = new QFormLayout(g);
-        f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
-
-        m_quadMergeBox = new QCheckBox(
-            tr("Merge triangle pairs into quads (experimental — see tooltip)"), g);
-        m_quadMergeBox->setToolTip(tr(
-            "After triangulation, pair adjacent triangles into convex "
-            "quadrilaterals, best quality first. Unmatched triangles remain "
-            "(mixed mesh). Never merges across the domain outline, hole "
-            "rings, breaklines, patch or region boundaries, across region "
-            "tags, or between cells with different roughness / initial "
-            "depth.\n\n"
-            "Experimental: Triangle's refinement drives triangles toward "
-            "equilateral, and two equilateral triangles form a 60°/120° "
-            "rhombus — so this pass tends to produce diamond-shaped quads, "
-            "not rectangles, and leaves a salt of unmatched triangles.  "
-            "Quad regions (above) place the vertices for rectangular quads "
-            "and are the recommended path."));
-        f->addRow(QString(), m_quadMergeBox);
-
-        m_quadMinAngleSpin = new QDoubleSpinBox(g);
-        m_quadMinAngleSpin->setRange(0.0, 90.0);
-        m_quadMinAngleSpin->setDecimals(1);
-        m_quadMinAngleSpin->setSuffix(QStringLiteral(" °"));
-        m_quadMinAngleSpin->setValue(60.0);
-        m_quadMinAngleSpin->setToolTip(tr(
-            "Reject a quad whose smallest interior angle is below this.  "
-            "Applies to quad regions and to the triangle-pair merge."));
-        f->addRow(tr("Min quad angle:"), m_quadMinAngleSpin);
-
-        m_quadMaxAngleSpin = new QDoubleSpinBox(g);
-        m_quadMaxAngleSpin->setRange(90.0, 180.0);
-        m_quadMaxAngleSpin->setDecimals(1);
-        m_quadMaxAngleSpin->setSuffix(QStringLiteral(" °"));
-        m_quadMaxAngleSpin->setValue(120.0);
-        m_quadMaxAngleSpin->setToolTip(tr(
-            "Reject a quad whose largest interior angle is above this.  "
-            "Applies to quad regions and to the triangle-pair merge."));
-        f->addRow(tr("Max quad angle:"), m_quadMaxAngleSpin);
-
-        m_quadMinSjSpin = new QDoubleSpinBox(g);
-        m_quadMinSjSpin->setRange(0.0, 1.0);
-        m_quadMinSjSpin->setDecimals(3);   // 0.866 must survive the round trip
-        m_quadMinSjSpin->setSingleStep(0.05);
-        m_quadMinSjSpin->setValue(0.866);
-        m_quadMinSjSpin->setToolTip(tr(
-            "Minimum scaled Jacobian = sine of the worst corner (1 for a "
-            "rectangle, 0.866 at 60°/120°, 0 when a corner degenerates).  "
-            "Applies to quad regions and to the triangle-pair merge."));
-        f->addRow(tr("Min scaled Jacobian:"), m_quadMinSjSpin);
-
-        m_quadMaxAspectSpin = new QDoubleSpinBox(g);
-        m_quadMaxAspectSpin->setRange(0.0, 100.0);
-        m_quadMaxAspectSpin->setDecimals(2);
-        m_quadMaxAspectSpin->setSingleStep(0.25);
-        m_quadMaxAspectSpin->setSpecialValueText(tr("(off)"));
-        m_quadMaxAspectSpin->setValue(2.0);
-        m_quadMaxAspectSpin->setToolTip(tr(
-            "Reject a quad longer than this ratio (longest / shortest side, "
-            "opposite-side means).  0 = no limit. Applies to Free quad regions "
-            "unless Default max aspect or the feature's quad_aspect overrides it, "
-            "and to triangle-pair merging outside quad regions."));
-        f->addRow(tr("Max aspect ratio:"), m_quadMaxAspectSpin);
-
-        m_quadPlanaritySpin = new QDoubleSpinBox(g);
-        m_quadPlanaritySpin->setRange(0.0, 1000.0);
-        m_quadPlanaritySpin->setDecimals(3);
-        m_quadPlanaritySpin->setSingleStep(0.05);
-        m_quadPlanaritySpin->setSpecialValueText(tr("(off)"));
-        m_quadPlanaritySpin->setToolTip(tr(
-            "Reject a merged quad whose four bed elevations deviate from a "
-            "plane by more than this, so a quad never hides a crest or "
-            "channel bank that the two triangles resolved. 0 = ignore."));
-        f->addRow(tr("Max bed non-planarity:"), m_quadPlanaritySpin);
-
-        // The four bounds matter whenever anything produces quads: a region
-        // source is selected OR the merge is on.  Planarity is merge-only.
-        auto syncQuad = [this] {
-            const bool merge   = m_quadMergeBox->isChecked();
-            const bool regions =
-                (m_quadRegionLayerCombo
-                 && m_quadRegionLayerCombo->currentData().value<void *>() != nullptr)
-                || (m_quadRegionSubcatchEdit
-                    && !m_quadRegionSubcatchEdit->text().trimmed().isEmpty());
-            const bool everywhere = m_quadEverywhereCheck && m_quadEverywhereCheck->isChecked();
-            const bool on = merge || regions || everywhere;
-            m_quadMinAngleSpin->setEnabled(on);
-            m_quadMaxAngleSpin->setEnabled(on);
-            m_quadMinSjSpin->setEnabled(on);
-            m_quadMaxAspectSpin->setEnabled(on);
-            m_quadPlanaritySpin->setEnabled(merge);
-            if (m_quadEverywhereSpacingSpin) m_quadEverywhereSpacingSpin->setEnabled(everywhere);
-        };
-        connect(m_quadMergeBox, &QCheckBox::toggled, this, syncQuad);
-        if (m_quadEverywhereCheck)
-            connect(m_quadEverywhereCheck, &QCheckBox::toggled, this, syncQuad);
-        connect(m_quadRegionLayerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                this, [syncQuad](int) { syncQuad(); });
-        connect(m_quadRegionSubcatchEdit, &QLineEdit::textChanged,
-                this, [syncQuad](const QString &) { syncQuad(); });
-        syncQuad();
-
-        quadsVBox->addWidget(g);   // Quad quality
+        qualityVBox->addWidget(g);
     }
 
     if (m_pw && !m_pw->corridorRecipeLoadError().isEmpty()) {
         auto *warning = new QLabel(tr("The saved corridor recipe could not be loaded: %1\n"
                                      "Review the source settings. Generating a new mesh can replace this recipe; cancelling preserves it.")
-                                      .arg(m_pw->corridorRecipeLoadError()), quadsPage);
+                                      .arg(m_pw->corridorRecipeLoadError()), qualityPage);
         warning->setWordWrap(true);
         warning->setAccessibleName(tr("Saved corridor recipe needs review"));
-        quadsVBox->addWidget(warning);
+        qualityVBox->addWidget(warning);
     }
-    auto *corridorGroup = new QGroupBox(tr("GIS corridor sources"), quadsPage);
+    auto *corridorGroup = new QGroupBox(tr("Corridors"), qualityPage);
     auto *corridorLayout = new QVBoxLayout(corridorGroup);
     m_corridorSources = new CorridorSourcesWidget(corridorGroup);
     corridorLayout->addWidget(m_corridorSources);
-    quadsVBox->addWidget(corridorGroup);
+    qualityVBox->addWidget(corridorGroup);
 
-    // Structured patches — G3 (TRI_QUAD_MESHING_PLAN §3.2). Coordinates are
-    // typed per row as an advanced alternative to selected GIS centrelines.
+    // Boundaries
     {
-        auto *g   = new QGroupBox(tr("Structured quad patches"), qualityPage);
-        auto *lay = new QVBoxLayout(g);
+        auto *g = new QGroupBox(tr("Boundaries"), qualityPage);
+        auto *f = new QFormLayout(g);
+        f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
 
-        auto *hint = new QLabel(tr(
-            "&Patch definitions: four-corner patches use 4 corners as "
-            "\"x y; x y; x y; x y\" and N × M cells. Swept corridors use a "
-            "centreline as \"x y; x y; …\", Across cells, Along spacing "
-            "(0 keeps the original centreline vertices), and total Width. "
-            "Coordinates, spacing and width use the mesh CRS units. "
-            "Corridor cells follow the supplied centreline direction."), g);
-        hint->setWordWrap(true);
-        lay->addWidget(hint);
+        m_trimTurnSpin = new QDoubleSpinBox(g);
+        m_trimTurnSpin->setRange(0.0, 45.0);
+        m_trimTurnSpin->setDecimals(1);
+        m_trimTurnSpin->setSuffix(QStringLiteral("°"));
+        m_trimTurnSpin->setSpecialValueText(tr("(off)"));
+        m_trimTurnSpin->setToolTip(tr(
+            "Drop a boundary, hole or auxiliary-line vertex where the line "
+            "turns by less than this. Conduit alignments and junctions are "
+            "never trimmed."));
+        f->addRow(tr("Trim boundary &vertices: max turn:"), m_trimTurnSpin);
 
-        m_patchTable = new QTableWidget(0, 6, g);
-        m_patchTable->setAccessibleName(tr("Structured quad patches"));
-        m_patchTable->setAccessibleDescription(tr(
-            "One patch per row. Four-corner patches use integer N and M cell counts. "
-            "Swept corridors use an integer Across cell count, Along spacing, and total width. "
-            "Distances use mesh CRS units, independently of display units. "
-            "Select rows with Shift or Control/Command to remove multiple patches."));
-        m_patchTable->setHorizontalHeaderLabels(
-            {tr("Type"), tr("Points (mesh CRS)"), tr("N / Across cells"),
-             tr("M cells / Along spacing"), tr("Total width (CRS units)"), tr("Tag")});
-        const QStringList descriptions{
-            tr("Patch type. Four-corner and swept corridor patches use different dimensions."),
-            tr("Coordinates in mesh CRS units: x y; x y; … . Four-corner patches need 4 cyclic corners; swept corridors need at least 2 centreline vertices."),
-            tr("Positive integer cell count. N follows corners 1 to 2 for four-corner patches; Across divides the total corridor width."),
-            tr("Four-corner: positive integer M cell count along corners 1 to 4. Swept corridor: finite Along spacing in mesh CRS units, at least 0. Enter 0 to retain the original centreline vertices."),
-            tr("Swept corridor total width in mesh CRS units, greater than 0. The centreline is offset by half this width on each side. Unused for four-corner patches."),
-            tr("Optional region tag assigned to every cell in this patch.")};
-        for (int c = 0; c < descriptions.size(); ++c) {
-            auto *header = m_patchTable->horizontalHeaderItem(c);
-            header->setToolTip(descriptions[c]);
-            header->setData(Qt::AccessibleDescriptionRole, descriptions[c]);
-        }
-        hint->setBuddy(m_patchTable);
-        m_patchTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-        m_patchTable->verticalHeader()->setVisible(false);
-        m_patchTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-        m_patchTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
-        m_patchTable->setMinimumHeight(120);
-        lay->addWidget(m_patchTable);
+        m_trimDeviationSpin = new QDoubleSpinBox(g);
+        m_trimDeviationSpin->setRange(0.0, 1e9);
+        m_trimDeviationSpin->setDecimals(3);
+        m_trimDeviationSpin->setSpecialValueText(tr("(cell size / 10)"));
+        m_trimDeviationSpin->setToolTip(tr(
+            "Trimming may never move a line further than this from its "
+            "original vertices."));
+        f->addRow(tr("Trim boundary vertices: max &deviation:"), m_trimDeviationSpin);
 
-        auto addRow = [this, descriptions](bool swept) {
-            const int r = m_patchTable->rowCount();
-            m_patchTable->insertRow(r);
-            auto *typeItem = new QTableWidgetItem(swept ? tr("Swept corridor") : tr("Four-corner"));
-            // Visible translations are not the parser's type discriminator.
-            typeItem->setData(Qt::UserRole, swept ? QStringLiteral("swept") : QStringLiteral("four-corner"));
-            typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable);
-            m_patchTable->setItem(r, 0, typeItem);
-            m_patchTable->setItem(r, 1, new QTableWidgetItem(QString()));
-            m_patchTable->setItem(r, 2, new QTableWidgetItem(swept ? QStringLiteral("2") : QStringLiteral("4")));
-            m_patchTable->setItem(r, 3, new QTableWidgetItem(swept ? QStringLiteral("0") : QStringLiteral("4")));
-            m_patchTable->setItem(r, 4, new QTableWidgetItem(swept ? QStringLiteral("10") : QString()));
-            m_patchTable->setItem(r, 5, new QTableWidgetItem(QString()));
-            for (int c = 0; c < descriptions.size(); ++c) {
-                QString description = descriptions[c];
-                if (c == 2) description = swept ? tr("Across cells: positive integer number of cells across the total width.")
-                                                : tr("N cells: positive integer number of cells along corners 1 to 2.");
-                if (c == 3) description = swept ? tr("Along spacing in mesh CRS units. Enter a finite number at least 0; 0 keeps the original centreline vertices.")
-                                                : tr("M cells: positive integer number of cells along corners 1 to 4.");
-                auto *item = m_patchTable->item(r, c);
-                item->setToolTip(description);
-                item->setData(Qt::AccessibleDescriptionRole, description);
-            }
-            if (!swept)
-                m_patchTable->item(r, 4)->setFlags(m_patchTable->item(r, 4)->flags() & ~Qt::ItemIsEditable);
-            m_patchTable->setCurrentCell(r, 1);
-            m_patchTable->editItem(m_patchTable->item(r, 1));
-        };
-        auto *btns = new QHBoxLayout;
-        auto *addQuad  = new QPushButton(tr("Add &four-corner patch"), g);
-        auto *addSwept = new QPushButton(tr("Add &swept corridor patch"), g);
-        auto *remove   = new QPushButton(tr("&Remove selected patches"), g);
-        for (auto *button : {addQuad, addSwept, remove}) {
-            button->setAccessibleName(QString(button->text()).remove(QLatin1Char('&')));
-            button->setAutoDefault(false);
-            button->setDefault(false);
-        }
-        addQuad->setToolTip(tr("Add a patch defined by four corners and N × M cells."));
-        addSwept->setToolTip(tr("Add a road, river or other corridor defined by a centreline and total width."));
-        remove->setToolTip(tr("Remove all selected patch rows."));
-        remove->setEnabled(false);
-        connect(addQuad, &QPushButton::clicked, this, [addRow] { addRow(false); });
-        connect(addSwept, &QPushButton::clicked, this, [addRow] { addRow(true); });
-        connect(m_patchTable, &QTableWidget::itemSelectionChanged, remove, [this, remove] {
-            remove->setEnabled(!m_patchTable->selectionModel()->selectedRows().isEmpty());
-        });
-        connect(remove, &QPushButton::clicked, this, [this] {
-            const auto selected = m_patchTable->selectionModel()->selectedRows();
-            QVector<int> rows;
-            for (const auto &index : selected) rows.append(index.row());
-            std::sort(rows.begin(), rows.end(), [](int a, int b) { return a > b; });
-            for (int row : rows) m_patchTable->removeRow(row);
-        });
-        btns->addWidget(addQuad);
-        btns->addWidget(addSwept);
-        btns->addWidget(remove);
-        btns->addStretch();
-        lay->addLayout(btns);
-
-        quadsVBox->addWidget(g);   // Structured quad patches
+        qualityVBox->addWidget(g);
     }
+    qualityVBox->addStretch();
 
-    // Each inner page gets its own stretch so its groups sit at the top
-    // rather than spreading down a tall tab.
-    sizingVBox->addStretch();
-    cellSizeVBox->addStretch();
-    terrainVBox->addStretch();
-    quadsVBox->addStretch();
-
-    // Inner pages are scroll-wrapped individually: with the groups split
-    // four ways only "Quads" (15 rows + the patch table) can still exceed
-    // the dialog's 560 px default, and it degrades to a scroll instead of
-    // forcing the dialog taller. Tab titles are asserted verbatim by
-    // test_meshmincelldialog::qualityTabsStructure.
-    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(sizingPage,   qualityTabs),
-                        tr("Sizing"));
-    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(cellSizePage, qualityTabs),
-                        tr("Cell Size"));
-    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(terrainPage,  qualityTabs),
-                        tr("Terrain"));
-    qualityTabs->addTab(OpenSWMM::Ui::wrapInScrollArea(quadsPage,    qualityTabs),
-                        tr("Quads"));
-
-    // The outer page holds only the tab widget, so it needs no scroll area
-    // of its own — but addTab is kept symmetrical with the other top-level
-    // tabs so the dialog's resize behaviour is unchanged.
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(qualityPage, tabs),
                  tr("Quality"));
 
@@ -4975,79 +3230,14 @@ void MeshGenerationDialog::updateUnitDisplay()
 {
     const UnitSystem *us  = UnitSystem::instance();
     const QString     len = us->lengthLabel();       // "ft" or "m"
-    const QString     len2 = len + QStringLiteral("²"); // "ft²" or "m²"
-    const QString     suf  = QStringLiteral(" ") + len;
+    const QString     suf = QStringLiteral(" ") + len;
 
-    if (m_simplifyEpsSpin) m_simplifyEpsSpin->setSuffix(suf);
-    if (m_snapEpsSpin)     m_snapEpsSpin->setSuffix(suf);
-    if (m_minSpacingSpin)  m_minSpacingSpin->setSuffix(suf);
-    if (m_nodeFlattenSpin) m_nodeFlattenSpin->setSuffix(suf);
-    if (m_nodeMinSepSpin)  m_nodeMinSepSpin->setSuffix(suf);
-    // 2026-07-19 — boundary-aware terrain filter + boundary densification.
-    if (m_boundaryBufferSpin)  m_boundaryBufferSpin->setSuffix(suf);
-    if (m_maxBoundaryEdgeSpin) m_maxBoundaryEdgeSpin->setSuffix(suf);
-
-    if (m_minCellSizeSpin)     m_minCellSizeSpin->setSuffix(suf);
-    if (m_quadPlanaritySpin)   m_quadPlanaritySpin->setSuffix(suf);
-    if (m_quadRegionSpacingSpin) m_quadRegionSpacingSpin->setSuffix(suf);
-
-    if (m_maxAreaSpin)
-        m_maxAreaSpin->setToolTip(
-            tr("Upper bound on triangle area (%1). 0 = no cap.").arg(len2));
-
-    updateMinCellDerivedLabel();
-}
-
-void MeshGenerationDialog::updateMinCellDerivedLabel()
-{
-    if (!m_minCellDerivedLabel) return;
-
-    const double h = m_minCellSizeSpin ? m_minCellSizeSpin->value() : 0.0;
-    if (h <= 0.0)
-    {
-        m_minCellDerivedLabel->setText(
-            tr("Off — the input geometry is used as-is and cell size is bounded "
-               "below only by the geometry itself."));
-        return;
-    }
-
-    const UnitSystem *us   = UnitSystem::instance();
-    const QString     len  = us->lengthLabel();
-    const QString     len2 = len + QStringLiteral("²");
-
-    mesh::pslg::MinSizePolicy p;
-    p.minCellSize = h;
-    p.resolveDefaults();
-
-    const bool enforce =
-        m_minSizeEnforceBox && m_minSizeEnforceBox->isChecked();
-    QString txt = enforce
-        ? tr("Refinement floor ≈ %1 %2 per cell; vertices closer than %3 %4 "
-             "are merged; no vertex moves further than %3 %4. Enforce: SWMM "
-             "coupling points closer than %3 %4 may merge or demote — the "
-             "affected nodes couple via their containing cell.")
-              .arg(p.minTriangleArea(), 0, 'g', 4)
-              .arg(len2)
-              .arg(p.weldRadius, 0, 'g', 4)
-              .arg(len)
-        : tr("Refinement floor ≈ %1 %2 per cell; vertices closer than "
-             "%3 %4 are merged; no vertex moves further than %3 %4. "
-             "Tagged SWMM nodes never move.")
-              .arg(p.minTriangleArea(), 0, 'g', 4)
-              .arg(len2)
-              .arg(p.weldRadius, 0, 'g', 4)
-              .arg(len);
-
-    // The angle bound is a real lever on sliver count near unavoidable sharp
-    // input angles, and 33° costs 2-4x the vertices of 26° for no practical
-    // benefit (see meshgenerator.h).  Worth saying so where it is actionable.
-    if (m_minAngleSpin && m_minAngleSpin->value() > 28.0)
-        txt += QLatin1Char(' ')
-             + tr("Min angle is %1° — consider 26–28° with a minimum cell size, "
-                  "as a high angle bound multiplies cells around sharp features.")
-                   .arg(m_minAngleSpin->value(), 0, 'f', 1);
-
-    m_minCellDerivedLabel->setText(txt);
+    if (m_nodeFlattenSpin)   m_nodeFlattenSpin->setSuffix(suf);
+    if (m_nodeMinSepSpin)    m_nodeMinSepSpin->setSuffix(suf);
+    if (m_cellSizeSpin)      m_cellSizeSpin->setSuffix(suf);
+    if (m_minCellSizeSpin)   m_minCellSizeSpin->setSuffix(suf);
+    if (m_terrainTolSpin)    m_terrainTolSpin->setSuffix(suf);
+    if (m_trimDeviationSpin) m_trimDeviationSpin->setSuffix(suf);
 }
 
 void MeshGenerationDialog::seedDefaults()
@@ -5070,10 +3260,6 @@ void MeshGenerationDialog::seedDefaults()
     m_elevMethodCombo->setCurrentIndex(0);  // IDW
     m_nnVariantCombo->setCurrentIndex(0);   // Sibson
     m_idwPowerSpin->setValue(t.meshIdwPower);
-    m_maxAreaSpin->setValue(t.meshMaxArea);
-    m_minAngleSpin->setValue(t.meshMinAngleDeg);
-    m_maxSteinerSpin->setValue(t.meshMaxSteiner);
-    m_allowSteiner->setChecked(true);
 
     // ── Channel burn-in defaults (CHANNEL_BURN_IN_PLAN §3, §10) ──────
     // Off, so an untouched dialog produces exactly today's mesh (gate V11).
@@ -5111,62 +3297,23 @@ void MeshGenerationDialog::seedDefaults()
     // Scale distance defaults (stored SI-canonical) to the project's
     // length unit.
     const double toUnit = UnitSystem::instance()->isSI() ? 1.0 : 1.0 / 0.3048;
-    m_simplifyEpsSpin->setValue(t.meshSimplifyEpsM * toUnit);
-    m_snapEpsSpin->setValue(    t.meshSnapEpsM     * toUnit);
     m_nodeFlattenSpin->setValue(t.meshNodeFlattenRadM * toUnit);
     m_nodeMinSepBox->setChecked(t.meshMinNodeSepOn);
     m_nodeMinSepSpin->setValue(t.meshMinNodeSepM * toUnit);
-    m_thinningBox->setChecked(t.meshThinningOn);
-    m_thinningToleranceSpin->setValue(t.meshThinningTol);
-    m_thinningIterationsSpin->setValue(t.meshThinningPasses);
-    m_thinningMaxPointsSpin->setValue(0);
-    m_minSpacingBox->setChecked(t.meshMinSpacingOn);
-    // Whole model units (15 m → 15 m, or 49 ft): a fractional spacing would
-    // read as false precision.
-    m_minSpacingSpin->setValue(std::round(t.meshMinSpacingM * toUnit));
-    m_boundaryBufferSpin->setValue(t.meshBoundaryBufferM * toUnit); // 0 = (auto)
-    m_maxBoundaryEdgeBox->setChecked(t.meshMaxBoundaryEdgeOn);
-    m_maxBoundaryEdgeSpin->setValue(t.meshMaxBoundaryEdgeM * toUnit);
-    m_maxBoundaryEdgeSpin->setEnabled(t.meshMaxBoundaryEdgeOn);
-    // Minimum cell size defaults OFF so an existing project reproduces its
-    // current mesh exactly; the rest of the group carries the policy defaults
-    // from MinSizePolicy and only bites once a size is entered.
-    if (m_minCellSizeSpin)      m_minCellSizeSpin->setValue(0.0);
-    if (m_minSizeEnforceBox)    m_minSizeEnforceBox->setChecked(false);
-    // Gradation defaults OFF (uniform cap) for the same regression-safety
-    // reason: an untouched project reproduces its current mesh exactly.
-    // 0.25 is the recommended value once turned on (tooltip).
-    if (m_gradationSpin)        m_gradationSpin->setValue(0.0);
-    if (m_trimAngleSpin)        m_trimAngleSpin->setValue(
-                                    mesh::pslg::MinSizePolicy{}.trimAngleDeg);
-    if (m_trimAtNodesBox)       m_trimAtNodesBox->setChecked(false);
-    if (m_dropSubScaleHolesBox) m_dropSubScaleHolesBox->setChecked(true);
-    if (m_cleanupBox)           m_cleanupBox->setChecked(true);
-    updateMinCellDerivedLabel();
+    // Resolution / shape / boundaries (MESH_OVERHAUL_PLAN_2026-09-29.md §3),
+    // seeded from the 2D Defaults preference page (SI-canonical lengths).
+    m_cellSizeSpin->setValue(t.meshCellSizeM * toUnit);
+    m_coarsenSpin->setValue(t.meshCoarsenFactor);
+    m_sizeRatioSpin->setValue(t.meshSizeRatio);
+    m_minCellSizeSpin->setValue(t.meshMinCellSizeM * toUnit);
+    m_terrainTolSpin->setValue(t.meshTerrainToleranceM * toUnit);
+    m_cellShapeCombo->setCurrentIndex(t.meshTrianglesOnly ? 1 : 0);
+    m_gridAngleSpin->setValue(0.0);
+    m_trimTurnSpin->setValue(t.meshTrimTurnDeg);
+    m_trimDeviationSpin->setValue(t.meshTrimDeviationM * toUnit);
     if (m_corridorSources && m_pw) m_corridorSources->setSources(m_pw->corridorSources());
-    // Quad regions + quad quality (QUAD_MESHING_REDESIGN_PLAN §5 defaults).
-    // No source selected → no regions; merge stays off.  Like the patch /
-    // merge controls before them, these are not persisted anywhere (no
-    // QSettings / preference page) — the plan's §6.3 persistence item is
-    // still open.
     if (m_quadRegionLayerCombo)   m_quadRegionLayerCombo->setCurrentIndex(0);
     if (m_quadRegionSubcatchEdit) m_quadRegionSubcatchEdit->clear();
-    if (m_quadRegionModeCombo)    m_quadRegionModeCombo->setCurrentIndex(0);   // Auto
-    if (m_quadRegionSpacingSpin)  m_quadRegionSpacingSpin->setValue(0.0);      // (from max area)
-    if (m_quadRegionDirectionalCheck) m_quadRegionDirectionalCheck->setChecked(false);
-    if (m_quadRegionAlongSpin)   m_quadRegionAlongSpin->setValue(10.0);
-    if (m_quadRegionAcrossSpin)  m_quadRegionAcrossSpin->setValue(2.0);
-    if (m_quadRegionAxisSpin)    m_quadRegionAxisSpin->setValue(0.0);
-    if (m_quadRegionAspectSpin)   m_quadRegionAspectSpin->setValue(mesh::QuadRegion{}.aspectMax);
-    if (m_quadRegionAngleSpin)    m_quadRegionAngleSpin->setValue(m_quadRegionAngleSpin->minimum());
-    if (m_quadMergeBox)           m_quadMergeBox->setChecked(false);
-    {
-        const mesh::QuadQualityBounds qb;
-        if (m_quadMinAngleSpin)  m_quadMinAngleSpin->setValue(qb.minAngleDeg);
-        if (m_quadMaxAngleSpin)  m_quadMaxAngleSpin->setValue(qb.maxAngleDeg);
-        if (m_quadMinSjSpin)     m_quadMinSjSpin->setValue(qb.minScaledJacobian);
-        if (m_quadMaxAspectSpin) m_quadMaxAspectSpin->setValue(qb.maxAspect);
-    }
     m_manningsValueSpin->setValue(t.meshManningsN);
     m_initDepthSpin->setValue(t.meshInitDepth);
     m_outputExternal->setChecked(t.meshOutputExternal);
@@ -5373,15 +3520,30 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     qsizetype nAuxPointsUnprojectable    = 0;
     qsizetype nAuxLineVertsUnprojectable = 0;
 
-    // ── PSLG optimisation parameters ─────────────────────────────────
-    out->pslgSimplifyEps = m_simplifyEpsSpin->value();
-    out->pslgSnapEps     = m_snapEpsSpin->value();
-    // 2026-07-19 — must be set BEFORE the domain polygons are collected
-    // below: pushOgrPolygon reads maxBoundaryEdgeLen when densifying rings.
-    out->maxBoundaryEdgeLen =
-        (m_maxBoundaryEdgeBox->isChecked() && m_maxBoundaryEdgeSpin->value() > 0.0)
-            ? m_maxBoundaryEdgeSpin->value()
-            : 0.0;
+    // ── Resolution / shape / boundaries (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ──
+    // Set BEFORE the domain polygons are collected: the boundary ingestion
+    // trims rings with these. Distances are map units, as for every other
+    // distance spin in this dialog (no display→SI conversion on collect).
+    out->cellSize      = m_cellSizeSpin->value();
+    out->coarsenFactor = m_coarsenSpin->value();
+    out->sizeRatio     = m_sizeRatioSpin->value();
+    out->minCellSize   = m_minCellSizeSpin->value();
+    if (out->cellSize <= 0.0)
+    {
+        // Derive from the model extent: about 100 cells across the longer side.
+        const MapExtent ext = layer->extent();
+        const double span = ext.isValid() ? std::max(ext.xMax() - ext.xMin(), ext.yMax() - ext.yMin()) : 0.0;
+        out->cellSize = span > 0.0 ? span / 100.0 : 1.0;
+    }
+    if (out->minCellSize <= 0.0) out->minCellSize = 0.25 * out->cellSize;
+    out->terrainTolerance = m_terrainTolSpin->value();
+    out->trimTurnDeg   = m_trimTurnSpin->value();
+    out->trimDeviation = m_trimDeviationSpin->value() > 0.0 ? m_trimDeviationSpin->value()
+                                                            : 0.1 * out->cellSize;
+    out->genOpts.maxArea       = 0.4330127018922193 * out->cellSize * out->cellSize;
+    out->genOpts.minCellSize   = out->minCellSize;
+    out->genOpts.trianglesOnly = m_cellShapeCombo->currentIndex() == 1;
+    out->genOpts.frameAngleDeg = m_gridAngleSpin->value();
 
     // ── Mesh CRS — initialised first so every source can reproject to it ──
     // All PSLG inputs (domain polygons, hole rings, constraint segments,
@@ -5847,98 +4009,8 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // Steiner snap-and-dedupe runs on the worker, after it has assembled
     // steinerPoints from the filtered candidates.
 
-    // ── Quality options ──────────────────────────────────────────────
-    out->genOpts.maxArea          = m_maxAreaSpin->value();
-    out->genOpts.minAngle         = m_minAngleSpin->value();
-    out->genOpts.maxSteinerPoints = m_maxSteinerSpin->value();
-    out->genOpts.allowSteiner     = m_allowSteiner->isChecked();
-    out->genOpts.quiet            = true;
-
-    // ── Quad quality bounds (regions + G2 merge share one set) ───────
-    if (m_quadMinAngleSpin)
-    {
-        out->quadBounds.minAngleDeg       = m_quadMinAngleSpin->value();
-        out->quadBounds.maxAngleDeg       = m_quadMaxAngleSpin->value();
-        out->quadBounds.minScaledJacobian = m_quadMinSjSpin->value();
-        out->quadBounds.maxAspect         = m_quadMaxAspectSpin->value();   // 0 = off
-    }
-    out->genOpts.quadRegionBounds = out->quadBounds;
-
-    // ── Quads everywhere (QUAD_EVERYWHERE_PLAN_2026-09-07.md §3.5) ───
-    out->quadEverywhere = m_quadEverywhereCheck && m_quadEverywhereCheck->isChecked();
-    out->quadEverywhereSpacing =
-        m_quadEverywhereSpacingSpin ? m_quadEverywhereSpacingSpin->value() : 0.0;
-
-    // ── Quad cells (G2 merge) + structured patches (G3) ──────────────
-    out->genOpts.mergeTrianglePairs = m_quadMergeBox && m_quadMergeBox->isChecked();
-    if (m_quadMergeBox)
-    {
-        out->genOpts.quadMerge.minAngleDeg        = out->quadBounds.minAngleDeg;
-        out->genOpts.quadMerge.maxAngleDeg        = out->quadBounds.maxAngleDeg;
-        out->genOpts.quadMerge.minScaledJacobian  = out->quadBounds.minScaledJacobian;
-        out->genOpts.quadMerge.maxAspect          = out->quadBounds.maxAspect;
-        out->genOpts.quadMerge.maxBedNonPlanarity = m_quadPlanaritySpin->value();
-    }
-
-    // ── PSLG quad regions (QUAD_MESHING_REDESIGN_PLAN §3.1 sources) ──
-    // Defaults first (applied to every region the worker builds), then the
-    // layer identity (read on the worker, like the boundary layer), then the
-    // named subcatchments — those rings are already cached in the mesh CRS,
-    // so they are resolved here.  Distances are map units, as for every other
-    // distance spin in this dialog (no display→SI conversion on collect).
-    if (m_quadRegionModeCombo)
-    {
-        out->quadRegionDefaults.mode =
-            mesh::QuadRegionMode(m_quadRegionModeCombo->currentData().toInt());
-        out->quadRegionDefaults.spacing   = m_quadRegionSpacingSpin->value();
-        out->quadRegionDefaults.directionalSpacing = m_quadRegionDirectionalCheck->isChecked();
-        out->quadRegionDefaults.hAlong = 0.0;
-        out->quadRegionDefaults.hAcross = 0.0;
-        out->quadRegionDefaults.mappedAlongAngleDeg = 0.0;
-        if (out->quadRegionDefaults.directionalSpacing) {
-            auto directionalFail = [this, &fail](QWidget *field, const QString &message) {
-                for (QWidget *ancestor = field->parentWidget(); ancestor; ancestor = ancestor->parentWidget())
-                    if (auto *tabs = qobject_cast<QTabWidget *>(ancestor))
-                        for (int i = 0; i < tabs->count(); ++i)
-                            if (tabs->widget(i)->isAncestorOf(field)) tabs->setCurrentIndex(i);
-                for (QWidget *ancestor = field->parentWidget(); ancestor; ancestor = ancestor->parentWidget())
-                    if (auto *scroll = qobject_cast<QScrollArea *>(ancestor)) scroll->ensureWidgetVisible(field);
-                field->setFocus(Qt::OtherFocusReason);
-                return fail(message);
-            };
-            const auto mode = out->quadRegionDefaults.mode;
-            if (mode != mesh::QuadRegionMode::Mapped && mode != mesh::QuadRegionMode::Auto)
-                return directionalFail(m_quadRegionModeCombo, tr(
-                    "Directional spacing requires Mapped mode, or Auto that resolves to Mapped. "
-                    "Choose Mapped or Auto, or turn off directional spacing in Quality → Quads."));
-            const double along = m_quadRegionAlongSpin->value();
-            const double across = m_quadRegionAcrossSpin->value();
-            const double axis = m_quadRegionAxisSpin->value();
-            if (!std::isfinite(along) || along <= 0.0)
-                return directionalFail(m_quadRegionAlongSpin, tr(
-                    "Mapped Along spacing must be a finite value greater than 0 in mesh CRS units."));
-            if (!std::isfinite(across) || across <= 0.0)
-                return directionalFail(m_quadRegionAcrossSpin, tr(
-                    "Mapped Across spacing must be a finite value greater than 0 in mesh CRS units."));
-            if (!std::isfinite(axis))
-                return directionalFail(m_quadRegionAxisSpin, tr("Mapped Along axis must be a finite angle."));
-            out->quadRegionDefaults.hAlong = along;
-            out->quadRegionDefaults.hAcross = across;
-            out->quadRegionDefaults.mappedAlongAngleDeg = axis;
-        }
-        out->quadRegionDefaults.aspectMax = m_quadRegionAspectSpin->value();
-        if (out->quadRegionDefaults.aspectMax > 0.0 && out->quadRegionDefaults.aspectMax < 1.0)
-        {
-            if (errOut) *errOut = tr("Default max aspect must be negative to use the global limit, "
-                                     "0 for no limit, or at least 1. Check Quality → Quads.");
-            return false;
-        }
-        // The special value at the minimum means "no fixed angle".
-        out->quadRegionDefaults.hasAlignAngle =
-            m_quadRegionAngleSpin->value() > m_quadRegionAngleSpin->minimum();
-        out->quadRegionDefaults.alignAngleDeg =
-            out->quadRegionDefaults.hasAlignAngle ? m_quadRegionAngleSpin->value() : 0.0;
-    }
+    // ── Quad regions: layer identity (read on the worker) and named
+    // subcatchments (rings already cached in the mesh CRS) ─────────────
     if (m_quadRegionLayerCombo)
         if (auto *qLayer = static_cast<GISVectorLayer *>(
                 m_quadRegionLayerCombo->currentData().value<void *>()))
@@ -5982,7 +4054,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                 return fail(tr("Quad region: subcatchment '%1' not found").arg(id));
             if (ring.size() < 3)
                 return fail(tr("Quad region: subcatchment '%1' has no polygon").arg(id));
-            mesh::QuadRegion r = out->quadRegionDefaults;
+            mesh::QuadRegion r;
             r.ring = QPolygonF(ring);
             // Same spelling the worker gives RegionMarker tags, so the cells
             // inside match the region-defaults table rows.
@@ -5990,91 +4062,9 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
             out->quadRegions.append(std::move(r));
         }
     }
-    // Patch boundary vertices are matched to the Triangle output by the
-    // same snap radius the Steiner dedupe uses (0 = exact quantised match).
-    out->genOpts.patchSnapEps = m_snapEpsSpin->value();
-    for (int r = 0; m_patchTable && r < m_patchTable->rowCount(); ++r)
-    {
-        auto cell = [this, r](int c) {
-            const QTableWidgetItem *it = m_patchTable->item(r, c);
-            return it ? it->text().trimmed() : QString();
-        };
-        auto patchFail = [this, r, &fail](int column, const QString &message) {
-            // Reveal the authoring tab as well as selecting the invalid cell.
-            // The draft text stays intact for correction after the warning.
-            for (auto *tabs : findChildren<QTabWidget *>())
-                for (int i = 0; i < tabs->count(); ++i)
-                    if (tabs->widget(i)->isAncestorOf(m_patchTable)) tabs->setCurrentIndex(i);
-            m_patchTable->setCurrentCell(r, column);
-            m_patchTable->scrollToItem(m_patchTable->item(r, column));
-            for (QWidget *parent = m_patchTable->parentWidget(); parent; parent = parent->parentWidget())
-                if (auto *scroll = qobject_cast<QScrollArea *>(parent)) scroll->ensureWidgetVisible(m_patchTable);
-            m_patchTable->setFocus(Qt::OtherFocusReason);
-            return fail(tr("Structured patch row %1: %2").arg(r + 1).arg(message));
-        };
-        const auto *typeItem = m_patchTable->item(r, 0);
-        const QString type = typeItem ? typeItem->data(Qt::UserRole).toString() : QString();
-        if (type != QStringLiteral("swept") && type != QStringLiteral("four-corner"))
-            return patchFail(0, tr("Patch type is missing. Remove this row and add the patch again."));
-        const bool swept = type == QStringLiteral("swept");
-        // "x y; x y; …" → finite points in mesh CRS units.
-        QVector<QPointF> pts;
-        bool ptsOk = true;
-        const QStringList pairs = cell(1).split(QLatin1Char(';'), Qt::SkipEmptyParts);
-        for (const QString &pr : pairs)
-        {
-            const QStringList xy = pr.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
-            bool okx = false, oky = false;
-            if (xy.size() == 2) {
-                const double x = xy[0].toDouble(&okx), y = xy[1].toDouble(&oky);
-                if (okx && oky && std::isfinite(x) && std::isfinite(y)) pts.append(QPointF(x, y));
-                else ptsOk = false;
-            } else ptsOk = false;
-            if (!ptsOk) break;
-        }
-        if (!ptsOk || pts.isEmpty())
-            return patchFail(1, tr("Points must be finite coordinates as \"x y; x y; …\" in mesh CRS units."));
-        bool countOk = false;
-        const int n = cell(2).toInt(&countOk);
-        if (!countOk || n < 1)
-            return patchFail(2, swept ? tr("Across cells must be a positive integer within the supported integer range.")
-                                      : tr("N cells must be a positive integer within the supported integer range."));
-        QString perr;
-        mesh::PatchMesh pm;
-        if (swept)
-        {
-            bool alongOk = false, widthOk = false;
-            const double along = cell(3).toDouble(&alongOk);
-            if (!alongOk || !std::isfinite(along) || along < 0.0)
-                return patchFail(3, tr("Along spacing must be a finite number at least 0 in mesh CRS units. Enter 0 to keep the original centreline vertices."));
-            const double width = cell(4).toDouble(&widthOk);
-            if (!widthOk || !std::isfinite(width) || width <= 0.0)
-                return patchFail(4, tr("Total width must be a finite number greater than 0 in mesh CRS units."));
-            mesh::SweptPatch sp;
-            sp.centreline = pts;
-            sp.across     = n;
-            sp.along      = along;
-            sp.width      = width;
-            sp.tag        = cell(5);
-            pm = mesh::makeSweptPatch(sp, &perr);
-        }
-        else
-        {
-            bool mOk = false;
-            const int m = cell(3).toInt(&mOk);
-            if (!mOk || m < 1)
-                return patchFail(3, tr("M cells must be a positive integer within the supported integer range."));
-            mesh::StructuredPatch st;
-            st.corners = pts;
-            st.n       = n;
-            st.m       = m;
-            st.tag     = cell(5);
-            pm = mesh::makeTransfinitePatch(st, &perr);
-        }
-        if (!perr.isEmpty())
-            return patchFail(1, perr);
-        out->patches.append(std::move(pm));
-    }
+    // Patch boundary vertices are matched to the generator output by a
+    // hundredth of the floor size.
+    out->genOpts.patchSnapEps = 0.01 * out->minCellSize;
 
     if (m_corridorSources) {
         QString error;
@@ -6082,44 +4072,6 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         for (auto &source : out->corridorSources)
             if (source.meshCRSWkt.isEmpty()) source.meshCRSWkt = out->meshCRSWkt;
     }
-
-    // ── Minimum cell size ────────────────────────────────────────────
-    out->minSizePolicy = mesh::pslg::MinSizePolicy{};
-    out->minSizePolicy.minCellSize =
-        m_minCellSizeSpin ? m_minCellSizeSpin->value() : 0.0;
-    out->minSizePolicy.trimAngleDeg =
-        m_trimAngleSpin ? m_trimAngleSpin->value() : 0.0;
-    out->minSizePolicy.trimAtTaggedNodes =
-        m_trimAtNodesBox && m_trimAtNodesBox->isChecked();
-    out->minSizePolicy.dropSubScaleHoles =
-        m_dropSubScaleHolesBox && m_dropSubScaleHolesBox->isChecked();
-    // V2 enforcement: identity merges inside the conditioner ride the same
-    // policy the weld stage already consults.
-    out->minSizeEnforce = m_minSizeEnforceBox && m_minSizeEnforceBox->isChecked()
-                          && out->minSizePolicy.minCellSize > 0.0;
-    out->minSizePolicy.allowIdentityMerge = out->minSizeEnforce;
-    out->minSizePolicy.resolveDefaults();
-    out->minSizeCleanup = m_cleanupBox && m_cleanupBox->isChecked();
-
-    // V2 graded sizing; meaningful only with a uniform cap to relax.
-    out->sizeGradation =
-        (m_gradationSpin && m_maxAreaSpin && m_maxAreaSpin->value() > 0.0)
-            ? m_gradationSpin->value()
-            : 0.0;
-
-    // ── Thinning ─────────────────────────────────────────────────────
-    out->doThinning                      = m_thinningBox->isChecked();
-    out->thinnerOpts.normalDotThreshold  = m_thinningToleranceSpin->value();
-    out->thinnerOpts.maxIterations       = m_thinningIterationsSpin->value();
-    out->thinnerOpts.maxPoints           = m_thinningMaxPointsSpin->value();
-    out->thinnerOpts.gridSpacing         = 0.0;
-    out->thinnerOpts.useMinSpacing       = m_minSpacingBox->isChecked();
-    out->thinnerOpts.minSpacing          = m_minSpacingSpin->value();
-    // 2026-07-19 — boundary-aware terrain filter buffer; <= 0 → auto
-    // (0.5 × effective terrain spacing, resolved in the worker).
-    out->terrainBoundaryBuffer           = (m_boundaryBufferSpin->value() > 0.0)
-                                               ? m_boundaryBufferSpin->value()
-                                               : -1.0;
 
     // ── Output ───────────────────────────────────────────────────────
     out->outputMode    = m_outputExternal->isChecked()
@@ -6600,14 +4552,14 @@ bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
     }
 
     out->burnOptions     = burnOptionsFromUi();
-    out->burnMinCellSize = out->minSizePolicy.minCellSize;
+    out->burnMinCellSize = out->minCellSize;
 
     // Probe the DEM once, here: the worker needs the CRS to place the corridor
     // in the raster's frame, and the auto chainage step needs the pixel size
     // BEFORE the profiles are built. A GDAL handle must not cross the thread
     // boundary, so it is opened and closed entirely on this side.
     {
-        mesh::DTMThinner probe;
+        mesh::DTMRaster probe;
         if (!probe.open(out->dtmPath))
         {
             out->burnEnabled = false;

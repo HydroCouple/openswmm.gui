@@ -8,6 +8,8 @@
  */
 #include "mesh/sizefield.h"
 
+#include <QRectF>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -61,52 +63,67 @@ double distSqToSeg(const QPointF &p, const QPointF &a, const QPointF &b)
     return dx * dx + dy * dy;
 }
 
-} // namespace
-
-bool TerrainSizeInput::prepare(const QRectF &bbox, const SizeFieldOptions &opt)
+/*! Two-pass chamfer relaxation: v[i] <= v[j] + w1 (axial) / w2 (diagonal)
+ *  for every neighbour j. Exact for the octile metric with w2 = sqrt2 * w1. */
+void chamferRelax(QVector<float> &v, int cols, int rows, float w1, float w2)
 {
-    m_count.clear();
-    m_samples = 0;
-    m_cols = m_rows = 0;
-    if (!opt.terrainDensity
-        || !gridLayout(bbox, opt, m_cols, m_rows, m_pitch, m_x0, m_y0))
-        return false;
-    m_count.fill(0, m_cols * m_rows);
-    return true;
+    auto relax = [&](int idx, float cand) {
+        if (cand < v[idx]) v[idx] = cand;
+    };
+    for (int r = 0; r < rows; ++r)
+        for (int c = 0; c < cols; ++c)
+        {
+            const int i = r * cols + c;
+            if (c > 0)          relax(i, v[i - 1] + w1);
+            if (r > 0)          relax(i, v[i - cols] + w1);
+            if (r > 0 && c > 0) relax(i, v[i - cols - 1] + w2);
+            if (r > 0 && c + 1 < cols)
+                                relax(i, v[i - cols + 1] + w2);
+        }
+    for (int r = rows - 1; r >= 0; --r)
+        for (int c = cols - 1; c >= 0; --c)
+        {
+            const int i = r * cols + c;
+            if (c + 1 < cols) relax(i, v[i + 1] + w1);
+            if (r + 1 < rows) relax(i, v[i + cols] + w1);
+            if (r + 1 < rows && c + 1 < cols)
+                              relax(i, v[i + cols + 1] + w2);
+            if (r + 1 < rows && c > 0)
+                              relax(i, v[i + cols - 1] + w2);
+        }
 }
 
-void TerrainSizeInput::addAcceptedPoint(const QPointF &point)
+/*! Odd-even point-in-ring on a closed or open ring. */
+bool pointInRing(const QPolygonF &ring, double x, double y)
 {
-    if (m_count.isEmpty()) return;
-    const double c = std::floor((point.x() - m_x0) / m_pitch + 0.5);
-    const double r = std::floor((point.y() - m_y0) / m_pitch + 0.5);
-    // Compare before narrowing: reject NaN/Inf and far-outside points safely.
-    if (!(c >= 0.0 && c < m_cols && r >= 0.0 && r < m_rows)) return;
-    quint32 &count = m_count[int(r) * m_cols + int(c)];
-    if (count < std::numeric_limits<quint32>::max()) {
-        ++count;
-        ++m_samples;
+    bool inside = false;
+    const int n = ring.size();
+    for (int i = 0, j = n - 1; i < n; j = i++)
+    {
+        const QPointF &a = ring[i], &b = ring[j];
+        if ((a.y() > y) != (b.y() > y))
+        {
+            const double xi = a.x() + (y - a.y()) * (b.x() - a.x()) / (b.y() - a.y());
+            if (x < xi) inside = !inside;
+        }
     }
+    return inside;
 }
+
+} // namespace
 
 bool SizeField::build(const QRectF &bbox,
                       const QVector<ConstraintSegment>  &segs,
                       const QVector<QVector<QPointF>>   &rings,
                       const QVector<SteinerPoint>       &pts,
-                      const SizeFieldOptions &opt,
-                      const TerrainSizeInput *terrain)
+                      const SizeFieldOptions &opt)
 {
     m_cols = m_rows = 0;
     m_dist.clear();
-    m_hTerrain.clear();
+    m_h.clear();
 
     int cols = 0, rows = 0;
     if (!gridLayout(bbox, opt, cols, rows, m_pitch, m_x0, m_y0))
-        return false;
-    if (opt.terrainDensity && terrain
-        && (terrain->m_cols != cols || terrain->m_rows != rows
-            || terrain->m_pitch != m_pitch || terrain->m_x0 != m_x0
-            || terrain->m_y0 != m_y0))
         return false;
 
     bool haveSeed = false;
@@ -118,7 +135,12 @@ bool SizeField::build(const QRectF &bbox,
     if (!haveSeed)
         for (const SteinerPoint &sp : pts)
             if (sp.marker != 0) { haveSeed = true; break; }
-    if (!haveSeed && !(opt.terrainDensity && terrain && terrain->m_samples > 0))
+    // A seedless field is still meaningful when a terrain term or region
+    // override exists (plan §1 objective 6: terrain-aware without features):
+    // the feature term is +inf everywhere and buildSizeGrid min's it with
+    // the terrain/region sizes and the maxSize clamp. Only a field with no
+    // size source at all is refused.
+    if (!haveSeed && !opt.terrainSizeAt && opt.regions.isEmpty())
         return false;
 
     m_near  = opt.nearSize;
@@ -141,87 +163,83 @@ bool SizeField::build(const QRectF &bbox,
     for (const SteinerPoint &sp : pts)
         if (sp.marker != 0) stampSeedPoint(sp.xy);
 
-    // ── Two-pass chamfer (axial pitch, diagonal sqrt(2) * pitch) ─────────────────
-    const float w1 = static_cast<float>(m_pitch);
-    const float w2 = static_cast<float>(m_pitch * 1.41421356237309515);
+    // ── Two-pass chamfer (axial pitch, diagonal sqrt(2) * pitch) ─────────
+    chamferRelax(m_dist, m_cols, m_rows,
+                 static_cast<float>(m_pitch),
+                 static_cast<float>(m_pitch * 1.41421356237309515));
 
-    auto relax = [&](int idx, float cand) {
-        if (cand < m_dist[idx]) m_dist[idx] = cand;
-    };
-    // Forward: left-to-right, top-to-bottom.
+    // ── Combined, gradation-limited size grid (overhaul Stage 2) ──────────
+    buildSizeGrid(opt);
+    return true;
+}
+
+void SizeField::buildSizeGrid(const SizeFieldOptions &opt)
+{
+    const int total = m_cols * m_rows;
+    m_h.resize(total);
+    const double hFloor = m_floor > 0.0 ? std::sqrt(m_floor / 0.4330127018922193) : 0.0;
+    const double hMax   = (std::isfinite(opt.maxSize) && opt.maxSize > 0.0)
+                          ? std::max(opt.maxSize, m_near) : 0.0;
+    // Region bounding boxes once; the per-cell test is cheap after that.
+    QVector<QRectF> regionBox;
+    regionBox.reserve(opt.regions.size());
+    for (const SizeFieldOptions::Region &rg : opt.regions)
+        regionBox.append(rg.ring.boundingRect());
+
     for (int r = 0; r < m_rows; ++r)
         for (int c = 0; c < m_cols; ++c)
         {
             const int i = r * m_cols + c;
-            if (c > 0)          relax(i, m_dist[i - 1] + w1);
-            if (r > 0)          relax(i, m_dist[i - m_cols] + w1);
-            if (r > 0 && c > 0) relax(i, m_dist[i - m_cols - 1] + w2);
-            if (r > 0 && c + 1 < m_cols)
-                                relax(i, m_dist[i - m_cols + 1] + w2);
+            double h = m_near + m_g * cellDist(c, r);
+            const double gx = m_x0 + c * m_pitch, gy = m_y0 + r * m_pitch;
+            if (opt.terrainSizeAt)
+            {
+                const double ht = opt.terrainSizeAt(gx, gy);
+                if (std::isfinite(ht) && ht > 0.0) h = std::min(h, ht);
+            }
+            for (int k = 0; k < opt.regions.size(); ++k)
+            {
+                const SizeFieldOptions::Region &rg = opt.regions[k];
+                if (!(rg.h > 0.0) || !regionBox[k].contains(gx, gy)) continue;
+                if (pointInRing(rg.ring, gx, gy)) h = std::min(h, rg.h);
+            }
+            if (hMax > 0.0) h = std::min(h, hMax);
+            if (h < hFloor) h = hFloor;
+            m_h[i] = static_cast<float>(h);
         }
-    // Backward: right-to-left, bottom-to-top.
-    for (int r = m_rows - 1; r >= 0; --r)
-        for (int c = m_cols - 1; c >= 0; --c)
-        {
-            const int i = r * m_cols + c;
-            if (c + 1 < m_cols) relax(i, m_dist[i + 1] + w1);
-            if (r + 1 < m_rows) relax(i, m_dist[i + m_cols] + w1);
-            if (r + 1 < m_rows && c + 1 < m_cols)
-                                relax(i, m_dist[i + m_cols + 1] + w2);
-            if (r + 1 < m_rows && c > 0)
-                                relax(i, m_dist[i + m_cols - 1] + w2);
-        }
+    // Gradation limiting: h(p) <= h(q) + g·|p − q|. The feature term already
+    // satisfies it (it IS near + g·chamfer distance), so with no other source
+    // this leaves the grid unchanged; the terrain and region minima are what
+    // it smooths out.
+    chamferRelax(m_h, m_cols, m_rows,
+                 static_cast<float>(m_g * m_pitch),
+                 static_cast<float>(m_g * m_pitch * 1.41421356237309515));
+    if (hFloor > 0.0)
+        for (float &v : m_h) if (v < hFloor) v = static_cast<float>(hFloor);
+}
 
-    // ── Terrain-density size bound (plan §3.4) ──────────────────────────
-    // This areal-density estimate is a refinement hint, not a guarantee of
-    // line-feature spacing or final terrain error. The worker supplies accepted
-    // terrain independently of auxiliary points, without copying its cloud.
-    if (opt.terrainDensity)
-    {
-        TerrainSizeInput legacy;
-        if (!terrain) {
-            legacy.prepare(bbox, opt);
-            for (const SteinerPoint &sp : pts)
-                if (sp.marker == 0) legacy.addAcceptedPoint(sp.xy);
-            terrain = &legacy;
-        }
-        if (terrain->m_samples > 0)
-        {
-            m_hTerrain.fill(kInf, static_cast<int>(total));
-            for (int i = 0; i < static_cast<int>(total); ++i)
-                if (terrain->m_count[i] > 0)
-                    m_hTerrain[i] = static_cast<float>(m_pitch / std::sqrt(double(terrain->m_count[i])));
+double SizeField::cellSize(int cx, int cy) const
+{
+    cx = std::clamp(cx, 0, m_cols - 1);
+    cy = std::clamp(cy, 0, m_rows - 1);
+    return static_cast<double>(m_h[cy * m_cols + cx]);
+}
 
-            const float g1 = static_cast<float>(m_g * m_pitch);
-            const float g2 = static_cast<float>(m_g * m_pitch * 1.41421356237309515);
-            auto relaxH = [&](int idx, float cand) {
-                if (cand < m_hTerrain[idx]) m_hTerrain[idx] = cand;
-            };
-            for (int r = 0; r < m_rows; ++r)
-                for (int c = 0; c < m_cols; ++c)
-                {
-                    const int i = r * m_cols + c;
-                    if (c > 0)          relaxH(i, m_hTerrain[i - 1] + g1);
-                    if (r > 0)          relaxH(i, m_hTerrain[i - m_cols] + g1);
-                    if (r > 0 && c > 0) relaxH(i, m_hTerrain[i - m_cols - 1] + g2);
-                    if (r > 0 && c + 1 < m_cols)
-                                        relaxH(i, m_hTerrain[i - m_cols + 1] + g2);
-                }
-            for (int r = m_rows - 1; r >= 0; --r)
-                for (int c = m_cols - 1; c >= 0; --c)
-                {
-                    const int i = r * m_cols + c;
-                    if (c + 1 < m_cols) relaxH(i, m_hTerrain[i + 1] + g1);
-                    if (r + 1 < m_rows) relaxH(i, m_hTerrain[i + m_cols] + g1);
-                    if (r + 1 < m_rows && c + 1 < m_cols)
-                                        relaxH(i, m_hTerrain[i + m_cols + 1] + g2);
-                    if (r + 1 < m_rows && c > 0)
-                                        relaxH(i, m_hTerrain[i + m_cols - 1] + g2);
-                }
-        }
-    }
-
-    return true;
+double SizeField::sizeAt(double x, double y) const
+{
+    if (!isValid() || m_h.isEmpty()) return 0.0;
+    const double fx = (x - m_x0) / m_pitch;
+    const double fy = (y - m_y0) / m_pitch;
+    const int cx = static_cast<int>(std::floor(fx));
+    const int cy = static_cast<int>(std::floor(fy));
+    const double tx = std::clamp(fx - cx, 0.0, 1.0);
+    const double ty = std::clamp(fy - cy, 0.0, 1.0);
+    const double h00 = cellSize(cx,     cy);
+    const double h10 = cellSize(cx + 1, cy);
+    const double h01 = cellSize(cx,     cy + 1);
+    const double h11 = cellSize(cx + 1, cy + 1);
+    return (h00 * (1.0 - tx) + h10 * tx) * (1.0 - ty)
+         + (h01 * (1.0 - tx) + h11 * tx) * ty;
 }
 
 void SizeField::stampSeedPoint(const QPointF &p)
@@ -294,47 +312,10 @@ double SizeField::distanceAt(double x, double y) const
          + (d01 * (1.0 - tx) + d11 * tx) * ty;
 }
 
-double SizeField::cellTerrain(int cx, int cy) const
-{
-    cx = std::clamp(cx, 0, m_cols - 1);
-    cy = std::clamp(cy, 0, m_rows - 1);
-    const float h = m_hTerrain[cy * m_cols + cx];
-    return h >= kInf ? 0.0 : static_cast<double>(h);
-}
-
-double SizeField::terrainSizeAt(double x, double y) const
-{
-    if (!isValid() || m_hTerrain.isEmpty()) return 0.0;
-    const double fx = (x - m_x0) / m_pitch;
-    const double fy = (y - m_y0) / m_pitch;
-    const int cx = static_cast<int>(std::floor(fx));
-    const int cy = static_cast<int>(std::floor(fy));
-    const double tx = std::clamp(fx - cx, 0.0, 1.0);
-    const double ty = std::clamp(fy - cy, 0.0, 1.0);
-    const double h00 = cellTerrain(cx,     cy);
-    const double h10 = cellTerrain(cx + 1, cy);
-    const double h01 = cellTerrain(cx,     cy + 1);
-    const double h11 = cellTerrain(cx + 1, cy + 1);
-    // A zero corner means "no terrain constraint here" (the relaxation only
-    // leaves kInf when nothing seeded at all); averaging it in would wrongly
-    // pull the bound to 0, so unconstrained corners are skipped.
-    double s = 0.0, w = 0.0;
-    const double ws[4] = {(1.0 - tx) * (1.0 - ty), tx * (1.0 - ty),
-                          (1.0 - tx) * ty,          tx * ty};
-    const double hs[4] = {h00, h10, h01, h11};
-    for (int k = 0; k < 4; ++k)
-        if (hs[k] > 0.0) { s += hs[k] * ws[k]; w += ws[k]; }
-    return w > 0.0 ? s / w : 0.0;
-}
-
 double SizeField::targetAreaAt(double x, double y) const
 {
     if (!isValid()) return 0.0;
-    double hxy = m_near + m_g * distanceAt(x, y);
-    // Terrain density can only REFINE: it is a second upper bound on the size,
-    // never a licence to coarsen past what the features already demand.
-    const double ht = terrainSizeAt(x, y);
-    if (ht > 0.0) hxy = std::min(hxy, ht);
+    const double hxy = sizeAt(x, y);
     // Area of the equilateral triangle of side h(x).
     double a = 0.4330127018922193 * hxy * hxy;   // √3/4
     if (m_floor > 0.0 && a < m_floor) a = m_floor;

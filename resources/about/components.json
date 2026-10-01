@@ -12,14 +12,14 @@
   },
   {
     "category": "Engine",
-    "name": "Triangle (Shewchuk)",
-    "version": "1.6 (vendored)",
-    "role": "Constrained Delaunay triangulation for 2D mesh generation.",
-    "homepage": "https://www.cs.cmu.edu/~quake/triangle.html",
-    "source":   "https://www.cs.cmu.edu/~quake/triangle.html",
-    "spdx": "Triangle (custom)",
-    "provenance": "vendored under OpenSWMMEngine/src/engine/2d/triangle/",
-    "licenseFile": ":/licenses/triangle.txt"
+    "name": "Robust geometric predicates (Shewchuk)",
+    "version": "1996-05-18 (vendored)",
+    "role": "Exact orientation and in-circle tests backing the mesh generator's constrained Delaunay kernel.",
+    "homepage": "https://www.cs.cmu.edu/~quake/robust.html",
+    "source":   "https://github.com/libigl/libigl-predicates",
+    "spdx": "Public domain",
+    "provenance": "vendored under vendor/predicates/",
+    "licenseFile": ":/licenses/predicates.txt"
   },
   {
     "category": "Frameworks",
