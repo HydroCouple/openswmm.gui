@@ -34,7 +34,56 @@ private slots:
     void smoothConnectedStages();
     void smoothLakeStaysLevelAtDryCorners();
     void smoothDoesNotCrossCrestsOrPointContacts();
+    void thinFilmsAndPartialPoolsAreDistinct();
+    void hiddenFilmCannotChangeNeighbourStage();
 };
+
+void TestCellWaterGeometry::thinFilmsAndPartialPoolsAreDistinct()
+{
+    using namespace CellWaterGeometry;
+    const VisibilityPolicy policy{0.001,false};
+    const auto cell=triangle();
+    for (double datum : {0.0,100000.0}) {
+        const std::vector<double> flat(3,datum);
+        for (double depth : {0.0005,double(float(0.001))}) {
+            const auto surface=reconstruct(cell,depth,flat);
+            QCOMPARE(surface.state,State::Wet); // raw storage is retained
+            QCOMPARE(displayState(cell,surface,flat,policy),DisplayState::ThinFilm);
+            QVERIFY(!visible(DisplayState::ThinFilm,policy));
+            QVERIFY(visible(DisplayState::ThinFilm,{0.001,true}));
+        }
+        const std::vector<double> slope{datum,datum,datum+4};
+        // A small whole-cell mean is a deeper local pool, not a uniform film.
+        const auto pool=reconstruct(cell,0.00001,slope);
+        QCOMPARE(displayState(cell,pool,slope,policy),DisplayState::PartiallyWet);
+        QVERIFY(pool.level>0.001);
+        double lo,hi;
+        QVERIFY(wetInterval(pool.signedDepth(datum),pool.signedDepth(datum+4),0,lo,hi));
+        QVERIFY(std::abs(hi-pool.level/4)<1e-12);
+        QCOMPARE(displayState(cell,reconstruct(cell,0,flat),flat,policy),DisplayState::Dry);
+        QCOMPARE(displayState(cell,reconstruct(cell,0.01,flat),flat,policy),DisplayState::Wet);
+        QCOMPARE(displayState(cell,{},flat,policy),DisplayState::Invalid);
+    }
+    Cell quad; quad.v={0,1,2,3};quad.nSub=2;quad.sub={{{0,1,2},{0,2,3}}};quad.area={1,1};
+    const std::vector<double> slope{0,0,4,4};
+    const auto pool=reconstruct(quad,0.00001,slope);
+    QCOMPARE(displayState(quad,pool,slope,policy),DisplayState::PartiallyWet);
+}
+
+void TestCellWaterGeometry::hiddenFilmCannotChangeNeighbourStage()
+{
+    using namespace CellWaterGeometry;
+    Cell a=triangle(), b=triangle(); b.v={1,3,2,-1}; b.sub[0]={1,3,2};
+    const std::vector<Cell> cells{a,b};
+    const std::vector<double> z(4,0);
+    const std::vector<Surface> surfaces{reconstruct(a,1,z),reconstruct(b,0.0005,z)};
+    std::vector<CornerDepths> depths;
+    smoothCornerDepths(cells,surfaces,z,smoothTopology(cells),depths,{0.001,false});
+    for (int i=0;i<3;++i) { QCOMPARE(depths[0][i],1.0); QVERIFY(std::isnan(depths[1][i])); }
+    smoothCornerDepths(cells,surfaces,z,smoothTopology(cells),depths,{0.001,true});
+    QVERIFY(std::isfinite(depths[1][0]));
+    QVERIFY(depths[0][1]<1.0);
+}
 
 void TestCellWaterGeometry::triangleConservesStorage()
 {
