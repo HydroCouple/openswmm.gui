@@ -121,6 +121,32 @@ void TerrainSizeField::processBand(const float *z, int cols, int bandRows, int b
         }
 }
 
+void TerrainSizeField::dilateMinimum()
+{
+    // A feature on a block boundary is seen only by the blocks whose far
+    // corner touches it, so it refines one side. Taking the minimum over the
+    // 3×3 output neighbourhood makes the refinement symmetric (one output
+    // cell either side); gradation limiting downstream does the rest.
+    if (m_outCols <= 0 || m_outRows <= 0) return;
+    const QVector<float> src = m_h;
+    auto at = [&](int c, int r) { return src[r * m_outCols + c]; };
+    for (int r = 0; r < m_outRows; ++r)
+        for (int c = 0; c < m_outCols; ++c)
+        {
+            float best = at(c, r);
+            if (best <= kNoSize) continue;
+            for (int dr = -1; dr <= 1; ++dr)
+                for (int dc = -1; dc <= 1; ++dc)
+                {
+                    const int cc = c + dc, rr = r + dr;
+                    if (cc < 0 || rr < 0 || cc >= m_outCols || rr >= m_outRows) continue;
+                    const float v = at(cc, rr);
+                    if (v > kNoSize && v < best) best = v;
+                }
+            m_h[r * m_outCols + c] = best;
+        }
+}
+
 bool TerrainSizeField::buildFromGrid(const float *z, int cols, int rows, const TerrainSizeOptions &opt)
 {
     m_h.clear();
@@ -138,7 +164,13 @@ bool TerrainSizeField::buildFromGrid(const float *z, int cols, int rows, const T
     // Whole grid as bands of 2^maxLevel rows so block alignment matches build().
     const int bandH = 1 << m_maxLevel;
     for (int r0 = 0; r0 < rows; r0 += bandH)
-        processBand(z + qint64(r0) * cols, cols, std::min(bandH, rows - r0), r0, opt.tolerance);
+    {
+        const int h = std::min(bandH, rows - r0);
+        if (opt.rowSink)
+            for (int r = 0; r < h; ++r) opt.rowSink(z + qint64(r0 + r) * cols, r0 + r, cols, rows);
+        processBand(z + qint64(r0) * cols, cols, h, r0, opt.tolerance);
+    }
+    dilateMinimum();
     return true;
 }
 
@@ -190,6 +222,8 @@ bool TerrainSizeField::build(GDALDataset *ds, int band, int col0, int row0, int 
             for (qint64 i = 0; i < n; ++i)
                 if (p[i] == ndF) p[i] = std::numeric_limits<float>::quiet_NaN();
         }
+        if (opt.rowSink)
+            for (int r = 0; r < h; ++r) opt.rowSink(buf.constData() + qint64(r) * cols, r0 + r, cols, rows);
         processBand(buf.constData(), cols, h, r0, opt.tolerance);
         if (progress && !progress(double(r0 + h) / rows))
         {
@@ -198,6 +232,7 @@ bool TerrainSizeField::build(GDALDataset *ds, int band, int col0, int row0, int 
             return false;
         }
     }
+    dilateMinimum();
     return true;
 }
 
@@ -249,6 +284,13 @@ double TerrainSizeField::sizeAtGeo(double x, double y) const
     double px = 0.0, py = 0.0;
     GDALApplyGeoTransform(const_cast<double *>(m_invGeo), x, y, &px, &py);
     return sizePixelsAt(px, py) * m_pixelSize;
+}
+
+QPointF TerrainSizeField::windowPixelToGeo(double px, double py) const
+{
+    double gx = 0.0, gy = 0.0;
+    GDALApplyGeoTransform(const_cast<double *>(m_geo), m_col0 + px, m_row0 + py, &gx, &gy);
+    return QPointF(gx, gy);
 }
 
 double TerrainSizeField::sizePixelsAt(double px, double py) const

@@ -94,6 +94,24 @@ namespace pslg {
 [[nodiscard]] double polylineLength(const QVector<QPointF> &pts);
 
 /*!
+ * \brief Undo two digitising faults in a link alignment that fold it back
+ *        on itself (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md, Bellinge).
+ *
+ * A vertex list stored from the to-node to the from-node runs the path out
+ * to the far end and back; when the interior vertices in reverse order give
+ * a shorter path, they are reversed. Then any interior vertex where the path
+ * turns back by more than \p maxTurnDeg (a stray or out-of-order vertex) is
+ * dropped, sharpest first, until none is left. A pipe never doubles back,
+ * and a folded line leaves a sliver band the mesh cannot fill with good
+ * cells. The end points are always kept.
+ *
+ * \param changedOut  optional; set true when the path was altered.
+ */
+[[nodiscard]] QVector<QPointF> unfoldPolyline(const QVector<QPointF> &pts,
+                                              double maxTurnDeg = 150.0,
+                                              bool *changedOut = nullptr);
+
+/*!
  * \brief Length-based decimation — the inverse of densifyRing().
  *
  * Drops intermediate vertices so that every retained chord is at least

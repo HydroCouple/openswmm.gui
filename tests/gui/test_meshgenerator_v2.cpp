@@ -4,10 +4,10 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * End-to-end generator on the quadtree + fringe pipeline
- * (MESH_OVERHAUL_PLAN_2026-09-29.md Stages 3–5): conformity to every
- * constraint, holes, junction vertices, region tags, grading and shape
- * gates, quads vs triangles mode, determinism.
+ * End-to-end generator on the triangle engine
+ * (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md): conformity to every
+ * constraint, holes, junction vertices, region tags, the angle bound,
+ * grading, coarseness, four-sided quad regions, determinism, speed.
  */
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshcellstats.h"
@@ -122,35 +122,72 @@ private slots:
         for (const mesh::MeshTriangle &c : m.triangles) (c.tag == QStringLiteral("S1") ? tagged : untagged)++;
         QVERIFY(tagged > 0);
         QVERIFY(untagged > 0);
-        // Gates.
+        // Gates: every triangle >= 30° (no input angle here is below 60°),
+        // neighbours within 2x, no quads (none were asked for).
         const mesh::GradingStats gs = mesh::computeGradingStats(m);
-        QVERIFY2(gs.ratioMax <= 2.1, qPrintable(QStringLiteral("ratio %1").arg(gs.ratioMax)));
-        QVERIFY2(gs.minAngleDeg >= 20.0, qPrintable(QStringLiteral("min angle %1").arg(gs.minAngleDeg)));
+        QVERIFY2(gs.ratioMax <= 2.0 + 1e-9, qPrintable(QStringLiteral("ratio %1").arg(gs.ratioMax)));
+        QVERIFY2(gs.minAngleDeg >= 30.0 - 1e-6, qPrintable(QStringLiteral("min angle %1").arg(gs.minAngleDeg)));
         QCOMPARE(gs.cellsBelow10Deg, 0);
-        QVERIFY(gs.quads > gs.triangles);   // quad-dominant
-        const mesh::QuadStats qs = mesh::computeQuadStats(m);
-        QCOMPARE(qs.nonConvex, 0);
-        QVERIFY2(qs.minScaledJacobian >= 0.5, qPrintable(QStringLiteral("min SJ %1").arg(qs.minScaledJacobian)));
-        // Engine order: triangles first.
-        bool seenQuad = false;
-        for (const mesh::MeshTriangle &c : m.triangles) { if (c.isQuad()) seenQuad = true; else QVERIFY(!seenQuad); }
+        QCOMPARE(gs.quads, 0);
     }
 
-    void trianglesModeGivesNoQuadsAndTheSameArea()
+    void minimumAngleOptionIsHonoured()
     {
+        auto build = [](double theta) {
+            MeshGenerator g;
+            g.setDomain(rect(0, 0, 100, 60));
+            ConstraintSegment c; c.path = {QPointF(5, 5), QPointF(95, 40)}; c.marker = 2;
+            g.addConstraintSegment(c);
+            GenerationOptions o;
+            o.maxArea = 0.4330127018922193 * 5.0 * 5.0;
+            o.minAngleDeg = theta;
+            g.setOptions(o);
+            return g.generate();
+        };
+        for (double theta : {20.0, 30.0, 33.0})
+        {
+            const MeshResult m = build(theta);
+            QVERIFY2(m.ok, qPrintable(m.errorMsg));
+            for (const mesh::MeshTriangle &c : m.triangles) QVERIFY(!c.isQuad());
+            QVERIFY(std::abs(totalArea(m) - 6000.0) < 1e-6);
+            QCOMPARE(missingConstraintEdges(m), 0);
+            const mesh::GradingStats gs = mesh::computeGradingStats(m);
+            QVERIFY2(gs.minAngleDeg >= theta - 1e-6, qPrintable(QStringLiteral("%1: %2").arg(theta).arg(gs.minAngleDeg)));
+        }
+    }
+
+    void openGroundThinsOutToTheCap()
+    {
+        // One short conduit in a 2 km square; h grows at 0.5 per metre from
+        // 5 m to a 200 m cap. Cells far away must reach the cap.
         MeshGenerator g;
-        g.setDomain(rect(0, 0, 100, 60));
+        g.setDomain(rect(0, 0, 2000, 2000));
+        ConstraintSegment c; c.path = {QPointF(950, 1000), QPointF(1050, 1000)}; c.marker = 7;
+        g.addConstraintSegment(c);
+        mesh::RefineHook hook;
+        hook.targetAreaAt = [](double x, double y) {
+            const double dx = x < 950 ? 950 - x : (x > 1050 ? x - 1050 : 0.0);
+            const double h = std::min(5.0 + 0.5 * std::hypot(dx, y - 1000.0), 200.0);
+            return 0.4330127018922193 * h * h;
+        };
+        g.setRefineHook(hook);
         GenerationOptions o;
-        o.maxArea = 0.4330127018922193 * 5.0 * 5.0;
-        o.trianglesOnly = true;
+        o.minCellSize = 1.0;
         g.setOptions(o);
         const MeshResult m = g.generate();
         QVERIFY2(m.ok, qPrintable(m.errorMsg));
-        for (const mesh::MeshTriangle &c : m.triangles) QVERIFY(!c.isQuad());
-        QVERIFY(std::abs(totalArea(m) - 6000.0) < 1e-6);
-        QCOMPARE(missingConstraintEdges(m), 0);
+        double longest = 0.0;
+        for (const mesh::MeshTriangle &t : m.triangles)
+            for (int k = 0; k < 3; ++k)
+                longest = std::max(longest, std::hypot(m.vertices[t.vertex(k)].xy.x() - m.vertices[t.vertex((k + 1) % 3)].xy.x(),
+                                                       m.vertices[t.vertex(k)].xy.y() - m.vertices[t.vertex((k + 1) % 3)].xy.y()));
         const mesh::GradingStats gs = mesh::computeGradingStats(m);
-        QVERIFY(gs.minAngleDeg >= 20.0);
+        qInfo("open ground: %d cells, longest edge %.1f, ratio p50 %.2f max %.2f",
+              (int)m.triangles.size(), longest, gs.ratioP50, gs.ratioMax);
+        QVERIFY2(longest >= 140.0, qPrintable(QString::number(longest)));
+        QVERIFY(m.triangles.size() < 6000);
+        QVERIFY(gs.ratioMax <= 2.0 + 1e-9);
+        QVERIFY(gs.minAngleDeg >= 30.0 - 1e-6);
     }
 
     void gradedSizeFunctionIsFollowed()
@@ -168,13 +205,13 @@ private slots:
         g.setOptions(o);
         const MeshResult m = g.generate();
         QVERIFY2(m.ok, qPrintable(m.errorMsg));
-        // Core adjacencies are bounded at 2 by construction; the one-to-three
-        // layer Delaunay fringe may overshoot by a few percent.
+        // With every angle >= 30° two neighbours' longest edges differ by at
+        // most 1/sin 30° = 2; the graded field keeps the median near 1:1.
         const mesh::GradingStats gs = mesh::computeGradingStats(m);
-        QVERIFY2(gs.ratioMax <= 2.1, qPrintable(QStringLiteral("ratio %1").arg(gs.ratioMax)));
-        // A dyadic tree changes level every ~2 cells at this slope, so the
-        // 2:1 faces are common; the median face is still 1:1.
-        QVERIFY2(gs.ratioP50 <= 1.5, qPrintable(QStringLiteral("p50 %1 p95 %2").arg(gs.ratioP50).arg(gs.ratioP95)));
+        qInfo("graded: ratio p50 %.3f p95 %.3f max %.3f, min angle %.2f", gs.ratioP50, gs.ratioP95, gs.ratioMax, gs.minAngleDeg);
+        QVERIFY2(gs.ratioMax <= 2.0 + 1e-9, qPrintable(QStringLiteral("ratio %1").arg(gs.ratioMax)));
+        QVERIFY2(gs.ratioP50 <= 1.3, qPrintable(QStringLiteral("p50 %1 p95 %2").arg(gs.ratioP50).arg(gs.ratioP95)));
+        QVERIFY(gs.minAngleDeg >= 30.0 - 1e-6);
         QCOMPARE(gs.cellsBelow10Deg, 0);
         // Cells near the centre are small, near the edge large.
         double nearMin = 1e9, farMax = 0.0;
@@ -189,27 +226,66 @@ private slots:
         QVERIFY(farMax > 30.0);
     }
 
-    void rotatedFrameAndOwnRegionFrame()
+    void fourSidedRegionGetsAlignedQuads()
     {
+        // A rectangle rotated 30° gets quads along its sides; an L-shaped
+        // region stays triangles and says why.
         MeshGenerator g;
         g.setDomain(rect(0, 0, 200, 200));
+        auto rotated = [](QPointF c, double w, double h, double deg) {
+            const double a = deg * M_PI / 180.0, ca = std::cos(a), sa = std::sin(a);
+            QPolygonF r;
+            for (const QPointF &p : {QPointF(-w / 2, -h / 2), QPointF(w / 2, -h / 2), QPointF(w / 2, h / 2), QPointF(-w / 2, h / 2)})
+                r.append(c + QPointF(ca * p.x() - sa * p.y(), sa * p.x() + ca * p.y()));
+            r.append(r.first());
+            return r;
+        };
         mesh::QuadRegion qr;
-        qr.ring = rect(50, 50, 80, 60);
-        qr.hasAlignAngle = true; qr.alignAngleDeg = 30.0; qr.spacing = 4.0; qr.tag = QStringLiteral("R");
+        qr.ring = rotated(QPointF(70, 70), 80, 40, 30.0);
+        qr.spacing = 4.0; qr.tag = QStringLiteral("R");
         g.addQuadRegion(qr);
+        mesh::QuadRegion ell;
+        ell.ring = QPolygonF({QPointF(130, 130), QPointF(180, 130), QPointF(180, 150), QPointF(150, 150),
+                              QPointF(150, 180), QPointF(130, 180), QPointF(130, 130)});
+        ell.tag = QStringLiteral("L");
+        g.addQuadRegion(ell);
         GenerationOptions o;
         o.maxArea = 0.4330127018922193 * 10.0 * 10.0;
-        o.frameAngleDeg = 15.0;
         g.setOptions(o);
         const MeshResult m = g.generate();
         QVERIFY2(m.ok, qPrintable(m.errorMsg));
         QCOMPARE(missingConstraintEdges(m), 0);
         QVERIFY(std::abs(totalArea(m) - 40000.0) < 1e-6);
-        int regionQuads = 0;
-        for (const mesh::MeshTriangle &c : m.triangles) if (c.tag == QStringLiteral("R") && c.isQuad()) ++regionQuads;
-        QVERIFY(regionQuads > 100);   // 80x60 at h = 4 → up to 300 squares
-        QCOMPARE(g.quadRegionReports().size(), 1);
-        QVERIFY(g.quadRegionReports()[0].accepted);
+        int regionQuads = 0, otherQuads = 0, ellCells = 0;
+        for (const mesh::MeshTriangle &c : m.triangles)
+        {
+            if (c.tag == QStringLiteral("L")) { ++ellCells; QVERIFY(!c.isQuad()); }
+            if (!c.isQuad()) continue;
+            if (c.tag != QStringLiteral("R")) { ++otherQuads; continue; }
+            ++regionQuads;
+            // Every quad edge runs along 30° or 120°.
+            for (int k = 0; k < 4; ++k)
+            {
+                const QPointF d = m.vertices[c.vertex((k + 1) % 4)].xy - m.vertices[c.vertex(k)].xy;
+                double ang = std::fmod(std::atan2(d.y(), d.x()) * 180.0 / M_PI + 360.0, 90.0);
+                QVERIFY2(std::abs(ang - 30.0) < 0.5, qPrintable(QString::number(ang)));
+            }
+        }
+        QCOMPARE(regionQuads, 200);   // 80 / 4 × 40 / 4
+        QCOMPARE(otherQuads, 0);
+        QVERIFY(ellCells > 0);
+        QCOMPARE(g.quadRegionReports().size(), 2);
+        QCOMPARE(g.quadRegionReports()[0].resolved, mesh::QuadRegionMode::Mapped);
+        QCOMPARE(g.quadRegionReports()[1].resolved, mesh::QuadRegionMode::TrianglesOnly);
+        QVERIFY(g.quadRegionReports()[1].message.contains(QStringLiteral("four-sided")));
+        QCOMPARE(g.stats().regionPatches, 1);
+        const mesh::QuadStats qs = mesh::computeQuadStats(m);
+        QCOMPARE(qs.nonConvex, 0);
+        // Triangles meet the bound except where they rest on the quads'
+        // fixed edges.
+        const mesh::GradingStats gs = mesh::computeGradingStats(m);
+        qInfo("region: min angle %.2f, ratio max %.2f, %d triangles below 10°", gs.minAngleDeg, gs.ratioMax, gs.cellsBelow10Deg);
+        QCOMPARE(gs.cellsBelow10Deg, 0);
     }
 
     void identicalInputsBuildIdenticalMeshes()
@@ -235,25 +311,53 @@ private slots:
         }
     }
 
-    void crossingConstraintsAreReported()
+    void crossingConstraintsShareAVertex()
     {
+        // Pipes that cross in plan (Bellinge): each crossing becomes one
+        // vertex on both lines, so both are recovered edge for edge. Three
+        // lines through one point give one vertex, not a cluster.
         MeshGenerator g;
         g.setDomain(rect(0, 0, 100, 100));
-        ConstraintSegment a; a.path = {QPointF(10, 10), QPointF(90, 90)};
-        ConstraintSegment b; b.path = {QPointF(10, 90), QPointF(90, 10)};
+        ConstraintSegment a; a.path = {QPointF(10, 10), QPointF(90, 90)}; a.marker = 11;
+        ConstraintSegment b; b.path = {QPointF(10, 90), QPointF(90, 10)}; b.marker = 12;
+        ConstraintSegment c; c.path = {QPointF(50, 5), QPointF(50, 95)};  c.marker = 13;
+        ConstraintSegment d; d.path = {QPointF(5, 30), QPointF(95, 35)};  d.marker = 14;
         g.addConstraintSegment(a); g.addConstraintSegment(b);
+        g.addConstraintSegment(c); g.addConstraintSegment(d);
         GenerationOptions o; o.maxArea = 0.4330127018922193 * 5.0 * 5.0;
         g.setOptions(o);
         const MeshResult m = g.generate();
-        QVERIFY(!m.ok);
-        QVERIFY(m.errorMsg.contains(QStringLiteral("cross")));
+        QVERIFY2(m.ok, qPrintable(m.errorMsg));
+        QCOMPARE(missingConstraintEdges(m), 0);
+        QVERIFY(std::abs(totalArea(m) - 10000.0) < 1e-6);
+        // Within 1e-6 of the centre: exactly one vertex, on all three lines.
+        int centre = -1, near = 0;
+        for (int i = 0; i < m.vertices.size(); ++i)
+            if (QLineF(m.vertices[i].xy, QPointF(50, 50)).length() < 1e-6) { centre = i; ++near; }
+        QCOMPARE(near, 1);
+        for (int marker : {11, 12, 13, 14})
+        {
+            double length = 0.0;
+            bool throughCentre = false;
+            for (const mesh::MeshEdge &e : m.boundaryEdges)
+                if (e.marker == marker)
+                {
+                    length += QLineF(m.vertices[e.v0].xy, m.vertices[e.v1].xy).length();
+                    throughCentre = throughCentre || e.v0 == centre || e.v1 == centre;
+                }
+            const double expected = marker == 11 || marker == 12 ? 80.0 * std::sqrt(2.0)
+                                  : marker == 13 ? 90.0 : std::hypot(90.0, 5.0);
+            QVERIFY2(std::abs(length - expected) < 1e-6, qPrintable(QStringLiteral("marker %1: %2 vs %3").arg(marker).arg(length).arg(expected)));
+            QCOMPARE(throughCentre, marker != 14);
+        }
     }
 
     /*! Many region seeds with nothing between them (the worker's subcatchment
      *  seeds when no boundaries are constrained — 713 on Bellinge). Every
      *  flood fills the same component, so tagging is first-seed-wins, and it
      *  must cost O(cells), not O(seeds·cells): the per-flood full-mesh visit
-     *  took run C from 1.6 s to 213 s in Phase 7. */
+     *  took run C from 1.6 s to 213 s in Phase 7. (Written by the Phase 7
+     *  session for the quadtree generator; carried over.) */
     void manyUnboundedRegionSeedsTagFirstWinsInLinearTime()
     {
         MeshGenerator g;
@@ -267,7 +371,7 @@ private slots:
             g.addRegion(rm);
         }
         GenerationOptions o;
-        o.maxArea = 0.4330127018922193;   // h = 1 → ~160k cells
+        o.maxArea = 0.4330127018922193;   // h = 1 → ~390k cells
         g.setOptions(o);
         QElapsedTimer t; t.start();
         const MeshResult m = g.generate();
@@ -277,6 +381,51 @@ private slots:
             QCOMPARE(c.tag, QStringLiteral("S0"));
         // Unshared quadratic flood is ~1000 full-mesh walks; linear is one.
         QVERIFY2(t.elapsed() < 20000, qPrintable(QString::number(t.elapsed())));
+    }
+
+    void nearlyTouchingInputsAreJoined()
+    {
+        // Real networks: a line ending 5 cm short of another, a node 10 cm
+        // beside its pipe. Closer than the refinement floor, they would leave
+        // slivers no refinement can fix; joined, every angle meets the bound.
+        auto build = [](MeshGenerator *g) {
+            g->setDomain(rect(0, 0, 100, 100));
+            ConstraintSegment a; a.path = {QPointF(10, 50), QPointF(90, 50)};   a.marker = 21;
+            ConstraintSegment b; b.path = {QPointF(50, 90), QPointF(50, 50.05)}; b.marker = 22;
+            ConstraintSegment c; c.path = {QPointF(20, 20), QPointF(80, 21)};   c.marker = 23;
+            g->addConstraintSegment(a); g->addConstraintSegment(b); g->addConstraintSegment(c);
+            SteinerPoint pin; pin.xy = QPointF(50, 20.6); pin.marker = 7; pin.tag = QStringLiteral("N7");
+            g->addSteinerPoint(pin);
+            GenerationOptions o; o.maxArea = 0.4330127018922193 * 5.0 * 5.0;
+            g->setOptions(o);
+            return g->generate();
+        };
+        MeshGenerator g;
+        const MeshResult m = build(&g);
+        QVERIFY2(m.ok, qPrintable(m.errorMsg));
+        QCOMPARE(missingConstraintEdges(m), 0);
+        QVERIFY(std::abs(totalArea(m) - 10000.0) < 1e-6);
+        const mesh::GradingStats gs = mesh::computeGradingStats(m);
+        qInfo("joined: min angle %.2f, ratio max %.3f, below the bound %d", gs.minAngleDeg, gs.ratioMax, g.stats().trianglesBelowAngle);
+        QVERIFY(gs.minAngleDeg >= 30.0 - 1e-6);
+        QCOMPARE(g.stats().trianglesBelowAngle, 0);
+        // B's end and the pin are vertices of the lines beside them.
+        int bEnd = -1, pin = -1;
+        for (int i = 0; i < m.vertices.size(); ++i)
+        {
+            if (m.vertices[i].xy == QPointF(50, 50.05)) bEnd = i;
+            if (m.vertices[i].xy == QPointF(50, 20.6)) pin = i;
+        }
+        QVERIFY(bEnd >= 0 && pin >= 0);
+        QCOMPARE(m.vertices[pin].marker, 7);
+        bool onA = false, onC = false;
+        for (const mesh::MeshEdge &e : m.boundaryEdges)
+        {
+            onA = onA || (e.marker == 21 && (e.v0 == bEnd || e.v1 == bEnd));
+            onC = onC || (e.marker == 23 && (e.v0 == pin || e.v1 == pin));
+        }
+        QVERIFY(onA);
+        QVERIFY(onC);
     }
 
     void oneMillionCellsInReasonableTime()

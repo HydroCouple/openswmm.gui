@@ -148,7 +148,7 @@ public:
 
         // ── Resolution (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ──────────
         double cellSize      = 0.0;   ///< Target cell size at features (map units).
-        double coarsenFactor = 4.0;   ///< h_max = cellSize × this away from features.
+        double coarsenFactor = 20.0;  ///< h_max = cellSize × this away from features.
         double sizeRatio     = 1.5;   ///< Allowed size ratio between neighbouring cells.
         double minCellSize   = 0.0;   ///< Floor h_min (map units); 0 = cellSize / 4.
         /*! Terrain tolerance (mesh vertical units): > 0 bounds the size field
@@ -158,7 +158,10 @@ public:
         // ── Boundaries ──────────────────────────────────────────────
         double trimTurnDeg   = 0.0;   ///< Straightness trimming: max turn (deg); 0 = off.
         double trimDeviation = 0.0;   ///< Straightness trimming: max deviation (map units).
-        // Mesh-quality knobs (cellSize → maxArea, minCellSize, cell shape, frame angle)
+        /*! Conduit quad strip width (map units); 0 = conduits are plain
+         *  constrained edges (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D12.4). */
+        double conduitStripWidth = 0.0;
+        // Mesh-quality knobs (cellSize → maxArea, minCellSize, minimum angle, street quads)
         mesh::GenerationOptions genOpts;
 
         // ── Mixed tri-quad output (TRI_QUAD_MESHING_PLAN §3, G2/G3) ──────
@@ -175,13 +178,13 @@ public:
         // Regions the GUI thread could resolve itself (named subcatchments —
         // rings come from SWMMModelLayer's cache, mesh CRS). The worker
         // appends these AFTER the layer regions below and hands every region
-        // to MeshGenerator::addQuadRegion (ring = constraint, spacing = size
-        // override, alignAngleDeg = own grid frame, tag).
+        // to MeshGenerator::addQuadRegion (four-sided → aligned quads, else a
+        // constraint ring with triangles inside; spacing = size, tag).
         QVector<mesh::QuadRegion> quadRegions;
         // Polygon layers the WORKER reads with OGR (a GDAL handle must not
         // cross threads). One mesh::QuadRegion per feature exterior ring,
         // reprojected to the mesh CRS when crsWkt differs from meshCRSWkt;
-        // fields "h"/"quad_spacing", "angle"/"quad_angle" and "tag".
+        // fields "h"/"quad_spacing" and "tag".
         struct QuadRegionLayerSpec { QString path, layerName, crsWkt; };
         QVector<QuadRegionLayerSpec> quadRegionLayers;
         // Vertical unit conversion: multiply all DTM-sampled Z values by this
@@ -296,6 +299,7 @@ public:
         QString           errorMsg;
         QStringList       alignmentWarnings; ///< Visible completion notes for degraded quad alignment.
         mesh::MeshResult  meshResult;
+        mesh::GenerationStats generationStats; ///< Strips placed/dropped, triangles under the angle bound.
         mesh::CouplingMap coupling;
         QString           meshPath;
         bool              meshUnitsSI = false; ///< Units of the pending generated mesh.
@@ -437,7 +441,7 @@ private:
     QComboBox      *m_nnVariantCombo  = nullptr;  // Sibson | Laplace
     QDoubleSpinBox *m_idwPowerSpin    = nullptr;  // Shepard exponent
 
-    // ── Quality (MESH_OVERHAUL_PLAN_2026-09-29.md §3: eleven controls) ──
+    // ── Quality (MESH_OVERHAUL_PLAN_2026-09-29.md §3, MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5) ──
     // Resolution
     QDoubleSpinBox *m_cellSizeSpin     = nullptr;  ///< cell size at features (map units)
     QDoubleSpinBox *m_coarsenSpin      = nullptr;  ///< coarsen away from features up to ×
@@ -445,8 +449,9 @@ private:
     QDoubleSpinBox *m_minCellSizeSpin  = nullptr;  ///< floor (map units); (cell size / 4) at 0
     QDoubleSpinBox *m_terrainTolSpin   = nullptr;  ///< terrain tolerance (vertical units); (off) at 0
     // Shape
-    QComboBox      *m_cellShapeCombo   = nullptr;  ///< Quads where possible | Triangles
-    QDoubleSpinBox *m_gridAngleSpin    = nullptr;  ///< grid orientation (deg from +x, CCW)
+    QDoubleSpinBox *m_minAngleSpin     = nullptr;  ///< minimum triangle angle (deg)
+    QCheckBox      *m_streetQuadsBox   = nullptr;  ///< quads between facing break lines
+    QDoubleSpinBox *m_conduitStripSpin = nullptr;  ///< conduit quad strip width (map units); (off) at 0
     QComboBox      *m_quadRegionLayerCombo   = nullptr; ///< "(none)" + polygon GISVectorLayers (fields h, angle, tag)
     QLineEdit      *m_quadRegionSubcatchEdit = nullptr; ///< comma-separated subcatchment IDs
     CorridorSourcesWidget *m_corridorSources = nullptr;

@@ -2033,13 +2033,14 @@ add_swmmvis_gui_test(test_layerreprojection
 target_include_directories(test_layerreprojection PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_layerreprojection PRIVATE GDAL::GDAL)
 
-# Mesh generation (MESH_OVERHAUL_PLAN_2026-09-29.md): the quadtree core +
-# constrained-Delaunay fringe generator, linking the public-domain predicates.
+# Mesh generation (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md): constrained
+# Delaunay refinement with aligned quad strips, linking the public-domain
+# predicates.
 add_swmmvis_gui_test(test_meshgenerator
     test_meshgenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadtree.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
     ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
@@ -2053,12 +2054,12 @@ add_swmmvis_gui_test(test_meshgenerator
 target_link_libraries(test_meshgenerator PRIVATE Qt6::Concurrent predicates_lib)
 
 # End-to-end generator gates: conformity, holes, junctions, region tags,
-# grading and shape metrics, triangles mode, frames, determinism, timing.
+# the angle bound, grading, coarseness, four-sided regions, determinism, timing.
 add_swmmvis_gui_test(test_meshgenerator_v2
     test_meshgenerator_v2.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadtree.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
     ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
@@ -2072,7 +2073,8 @@ add_swmmvis_gui_test(test_meshgenerator_v2
 target_link_libraries(test_meshgenerator_v2 PRIVATE Qt6::Concurrent predicates_lib)
 
 # Constrained Delaunay kernel: Delaunay property by brute force, constraint
-# recovery, vertices on constraints, regions, cocircular input, refinement.
+# recovery, vertices on constraints, regions, cocircular input, and quality
+# refinement (angle and size bounds, small input angles, fixed segments).
 add_swmmvis_gui_test(test_meshcdt
     test_meshcdt.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
@@ -2084,7 +2086,7 @@ add_swmmvis_gui_test(test_meshpatch
     test_meshpatch.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadtree.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
     ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
@@ -2180,17 +2182,6 @@ add_swmmvis_gui_test(test_pslgtrim
 )
 target_link_libraries(test_pslgtrim PRIVATE Qt6::Concurrent)
 
-# Quadtree core (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 3): sizing, 2:1
-# balance, templates, frames, holes/constraints, Triangles mode, timing.
-add_swmmvis_gui_test(test_meshquadtree
-    test_meshquadtree.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadtree.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadtree.h
-)
-target_link_libraries(test_meshquadtree PRIVATE Qt6::Concurrent)
-
 # Size field v2 (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 2): terrain-error
 # blocks, combined sources, clamps and gradation limiting. Built in the
 # container harness during Phases 0-6; registered here in Phase 7.
@@ -2211,6 +2202,61 @@ add_swmmvis_gui_test(test_meshsizefield
     ${CMAKE_SOURCE_DIR}/src/mesh/sizefield.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/sizefield.h
 )
+
+# Terrain break-line extraction (MESH_OVERHAUL_PHASE6B_FEATURE_CAPTURE §2.1):
+# steps, creases, building loops, a synthetic street, nodata, noise.
+add_swmmvis_gui_test(test_terrainbreaklines
+    test_terrainbreaklines.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/terrainbreaklines.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/terrainbreaklines.h
+)
+
+# Phase 6b + 8 end to end: street and city DEMs through extraction, the
+# terrain size field and the generator (lines as mesh edges, streets as quad
+# strips, the angle bound, grading). Writes review CSVs under
+# tests/output/mesh_triangle_engine_2026-09-30.
+add_swmmvis_gui_test(test_meshfeaturecapture
+    test_meshfeaturecapture.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellstats.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/sizefield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/terrainsizefield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/terrainbreaklines.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
+)
+target_link_libraries(test_meshfeaturecapture PRIVATE Qt6::Concurrent predicates_lib GDAL::GDAL)
+target_compile_definitions(test_meshfeaturecapture PRIVATE
+    SWMMVIS_MESH_FEATURE_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/mesh_triangle_engine_2026-09-30/feature_capture")
+# The 1 km² city case takes a few seconds: lift the 30 s per-function guard.
+set_tests_properties(test_meshfeaturecapture PROPERTIES
+    TIMEOUT 600
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};QTEST_FUNCTION_TIMEOUT=300000")
+
+# Aligned quad strips (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D12): facing
+# break-line pairs, streets between curbs, conduit strips, crowded strips.
+add_swmmvis_gui_test(test_meshstrips
+    test_meshstrips.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellstats.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/breaklinestrips.h
+)
+target_link_libraries(test_meshstrips PRIVATE Qt6::Concurrent predicates_lib)
 
 # Hilbert renumbering: permutation validity, locality gain, idempotence.
 add_swmmvis_gui_test(test_meshreorder
@@ -3640,7 +3686,7 @@ add_swmmvis_gui_test(test_meshpatchplacement
     test_meshpatchplacement.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadtree.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
     ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp

@@ -227,7 +227,8 @@ private:
     QDoubleSpinBox *m_twoDMeshSizeRatioSpin   = nullptr;
     QDoubleSpinBox *m_twoDMeshMinCellSizeSpin = nullptr;
     QDoubleSpinBox *m_twoDMeshTerrainTolSpin  = nullptr;
-    QCheckBox      *m_twoDMeshTrianglesBox    = nullptr;
+    QDoubleSpinBox *m_twoDMeshMinAngleSpin    = nullptr;
+    QCheckBox      *m_twoDMeshStreetQuadsBox  = nullptr;
     QDoubleSpinBox *m_twoDMeshTrimTurnSpin    = nullptr;
     QDoubleSpinBox *m_twoDMeshTrimDeviationSpin = nullptr;
     QDoubleSpinBox *m_twoDMeshIdwPowerSpin    = nullptr;

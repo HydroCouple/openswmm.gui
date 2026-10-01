@@ -66,6 +66,15 @@ struct BankPairPatch
     QString tag;
 };
 
+/*! \brief A polyline through a patch's vertices that must be reported as
+ *  mesh edges with a marker — a conduit running along a strip's middle row. */
+struct PatchLine
+{
+    QVector<int> path;     ///< Local vertex indices, consecutive ones joined by quad edges.
+    int          marker = 0;
+    QString      tag;
+};
+
 /*! \brief A generated patch in local indices. Quads are emitted CCW. */
 struct PatchMesh
 {
@@ -73,6 +82,9 @@ struct PatchMesh
     QVector<MeshTriangle>   quads;             ///< v3 >= 0, local indices.
     QVector<QPair<int,int>> boundarySegments;  ///< Local index pairs around the patch.
     QString                 tag;
+    /*! Interior lines emitted as MeshResult::boundaryEdges with their marker
+     *  and tag, and bounding region tags like any constraint. */
+    QVector<PatchLine>      lines;
 };
 
 /*! \brief Input checks. Empty string = valid. */

@@ -24,8 +24,7 @@ mesh::PatchMesh rectangle(double x0, double y0, double x1, double y1, const QStr
 }
 void options(mesh::MeshGenerator &generator) {
     mesh::GenerationOptions opts;
-    opts.maxArea = 200;
-    opts.trianglesOnly = true;   // patches supply the only quads
+    opts.maxArea = 200;   // triangles everywhere: patches supply the only quads
     generator.setOptions(opts);
 }
 }
@@ -100,7 +99,6 @@ private slots:
         generator.setDomain(squareDomain());
         mesh::GenerationOptions opts;
         opts.maxArea = 200;
-        opts.trianglesOnly = true;
         opts.patchSnapEps = snapCollapse ? 20 : 0;
         generator.setOptions(opts);
         generator.addPatch(rectangle(20, 40, 40, 60, "first"));

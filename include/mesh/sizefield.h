@@ -86,6 +86,15 @@ struct SizeFieldOptions
     /*! Polygon overrides: inside \c ring the size is min'd with \c h. */
     struct Region { QPolygonF ring; double h = 0.0; };
     QVector<Region> regions;
+    /*! Terrain break lines (mesh coordinates) that the generator lays mesh
+     *  edges along (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D13). A step
+     *  makes the terrain term fine in a cone around it — a block that holds
+     *  the step never fits a plane — but cells that never straddle the step
+     *  need no such refinement. Within that cone (a terrain size of at least
+     *  half the distance to the nearest step, less a pitch) the terrain term
+     *  is ignored; the gradation sweep refills it from ground that really is
+     *  rough. */
+    QVector<QVector<QPointF>> steps;
 };
 
 /*!
@@ -100,8 +109,11 @@ class SizeField
 public:
     /*!
      * \brief Build the field.  Returns false (and leaves the field invalid)
-     *        when there is nothing to build from — degenerate bbox, no seeds,
-     *        or nonsensical options.  Callers fall back to the uniform cap.
+     *        when there is nothing to build from — degenerate bbox, no seeds
+     *        and neither a terrain term nor a region, or nonsensical options.
+     *        Callers fall back to the uniform cap. Without seeds every cell
+     *        starts from maxSize (nearSize when unbounded) and only the
+     *        terrain and region terms refine it.
      *
      * \p segs   constraint segments (conduits, aux lines) — every edge seeds.
      * \p rings  additional ring paths to seed (valid hole rings).
@@ -123,7 +135,6 @@ public:
      *  h(p) <= h(q) + gradation·|p − q| on the grid metric. Bilinear over
      *  cell centres. 0 on an invalid field. */
     [[nodiscard]] double sizeAt(double x, double y) const;
-
     [[nodiscard]] bool   isValid() const { return m_cols > 0 && m_rows > 0; }
     [[nodiscard]] double pitch()   const { return m_pitch; }
     [[nodiscard]] int    cols()    const { return m_cols; }
@@ -136,9 +147,9 @@ public:
 private:
     [[nodiscard]] double cellDist(int cx, int cy) const;
     [[nodiscard]] double cellSize(int cx, int cy) const;
-    void buildSizeGrid(const SizeFieldOptions &opt);
-    void stampSeedPoint(const QPointF &p);
-    void stampSeedSegment(const QPointF &a, const QPointF &b);
+    void buildSizeGrid(const SizeFieldOptions &opt, const QVector<float> &stepDist);
+    void stampSeedPoint(const QPointF &p, QVector<float> &into);
+    void stampSeedSegment(const QPointF &a, const QPointF &b, QVector<float> &into);
 
     QVector<float> m_dist;      ///< row-major distance at cell centres
     QVector<float> m_h;         ///< row-major final size h at cell centres (gradation-limited)

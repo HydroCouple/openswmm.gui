@@ -715,8 +715,7 @@ private slots:
         g.addPatch(pm);
 
         GenerationOptions o;
-        o.maxArea = 200.0;
-        o.trianglesOnly = true;   // so the patch supplies the only quads
+        o.maxArea = 200.0;   // triangles everywhere: the patch supplies the only quads
         g.setOptions(o);
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));

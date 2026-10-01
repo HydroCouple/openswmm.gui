@@ -20,6 +20,26 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Added
 
+- **Terrain break lines: curbs, building walls and banks become mesh edges** (`Model → Generate
+  Mesh`, terrain tolerance > 0 with a DTM). The terrain pass now also traces the lines along which
+  the DEM bends by more than the terrain tolerance — the principal curvature of largest magnitude,
+  thinned across the line, grown by hysteresis and chained, each point placed on the sub-pixel
+  peak so a step lands on the boundary between its two pixels (`mesh::TerrainBreaklineExtractor`,
+  read in the same streamed pass as the terrain size field). The generator lays a constrained edge
+  along each line where it keeps clear of every other constraint: lines are cut back from the
+  domain and hole rings, conduits and breaklines, structured patches, node vertices and each
+  other (longest first), simplified within a quarter of the minimum cell size (or ¾ pixel), split
+  where they fold back, and dropped when shorter than four minimum cells. They are alignment
+  only: they do not refine the size field, never bound holes or region tags, and are not boundary
+  edges for BC editing. One tolerance keeps one meaning — how far the ground may depart from a
+  plane before the mesh has to follow it — and it should sit above the DEM noise (3–4 σ). A window
+  over 512 M pixels skips the tracing with a logged warning.
+- **Cell shape "Quads on open ground, triangles at terrain features"** — the new default (dialog and
+  2D Defaults preference `MeshCellShape`, migrated from `MeshTrianglesOnly`). Quadtree cells where
+  the terrain asks for cells finer than twice the minimum cell size are split into triangles,
+  fringe cells touching a terrain break line are left as triangles, and open ground stays quads.
+  Without a DTM or terrain tolerance it meshes exactly like "Quads where possible".
+
 - **Channel burn-in — open-channel bathymetry enforced in the DEM before meshing**
   (`Model → Generate Mesh → Channel Burn-in`). A DTM rarely resolves a channel: an aerial
   survey sees the water surface rather than the bed, and a 1 m raster cannot hold a 3 m ditch
@@ -88,6 +108,22 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- **Mesh generation on a triangle engine with a guaranteed minimum angle; quads only along
+  features** (`workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md`). This supersedes the quadtree
+  core and the quad-heavy cell shapes described below. The whole domain is a constrained Delaunay
+  triangulation refined by Ruppert/Shewchuk rules in our own kernel (no Triangle library): every
+  triangle has a minimum angle at or above the new **Minimum angle** setting (default 30°, 20–33°)
+  except where two inputs meet at a small angle, and neighbouring triangles' longest edges differ by
+  at most 1/sin θ (2 at 30°). Cells grade smoothly from the feature size out to the coarsening cap,
+  whose default rises from 4 to **20** × the cell size, so open ground is really coarse (a 1 km²
+  city block set: 36 k cells instead of 1.1 M). Quads appear only where they line up with a feature:
+  four-sided quad regions, corridors (line layers with a width), streets and ditches between facing
+  DEM break lines (**Quads between facing break lines**, on by default) and an optional **Conduit
+  quad strip width** that lays a strip along each conduit with the conduit on its middle row.
+  Constraint lines that cross (pipes crossing in plan) or come closer than the refinement floor share
+  vertices instead of failing or leaving slivers, and conduit alignments stored backwards or with a
+  stray vertex are unfolded first. Inside the cone of a DEM step that becomes a mesh edge, the
+  terrain tolerance no longer forces fine cells.
 - **Mesh generation rebuilt on a quadtree core with a constrained-Delaunay fringe**
   (`workplans/MESH_OVERHAUL_PLAN_2026-09-29.md`). The size field is now one graded function
   h(x) = clamp(min(cell size + (ratio − 1)·d, terrain-error size, region size), min cell,
@@ -107,6 +143,20 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   the matching 2D Defaults preferences migrate the old MeshMaxArea / MeshThinningOn /
   MeshSimplifyEpsM values. Cell shape is a single choice: quads (the quadtree plus paired
   fringe triangles) or triangles everywhere.
+- **Terrain alone now grades the mesh** — the size field used to need a vector feature (a conduit, a
+  hole, a node) before it would build, so a DTM-only domain meshed at the uniform cell size and
+  ignored the terrain tolerance. Without features every cell now starts at the coarsening cap and
+  the terrain term refines it. The terrain size field also takes the minimum over each 3×3
+  neighbourhood of its output, so a step lying exactly on a block boundary refines both sides of
+  itself instead of one.
+- **Smoother fringe grading around constraints** — constraints are resampled at the smallest size
+  within one size of each point (as the core sizes its cells), core cells near a constraint are at
+  most twice its spacing, fringe refinement keeps clear of core fronts (no slivers against them),
+  constraint vertices carry the same grading hint as core fronts, and fringe triangles are graded
+  against their neighbours (2×). On a 1 km² block grid of 0.16 m curbs (1.2 M cells in ≈ 6 s) the
+  longest-edge ratio is 1:1 at the median and above 2.1 on 0.003 % of faces (max 2.33); minimum
+  angle 24°. The quadtree now tests constraints before resampling (same geometry, far fewer
+  segments), which halves generation time in line-heavy scenes.
 - **Polygon boundaries can be trimmed by straightness** — `mesh::trimByStraightness` drops a
   vertex when the turn there is below the trim angle and the chord stays within the trim
   deviation of the original line, on domain rings, hole rings and auxiliary breaklines; the
@@ -353,6 +403,9 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Removed
 
+- **Cell shape and grid orientation mesh options and the quadtree core** (`mesh/meshquadtree`
+  and its test). The triangle engine above has no background quad grid to shape or rotate; the
+  `MeshCellShape` preference is no longer read.
 - **The Triangle library, the DTM thinner and the quad-region option set** — `vendor/triangle`,
   `mesh/dtmthinner`, `mesh/pslgminsize`, `mesh/meshminsizecleanup`, `mesh/meshcrossfield`,
   `mesh/meshquadpoints`, `mesh/meshquadmerge`, `mesh/meshsubmap` and `mesh/trirefinehook`,

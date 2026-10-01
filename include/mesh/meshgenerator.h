@@ -4,11 +4,13 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * 2D mesh generator (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md): a
- * balanced quadtree core sized by the caller's size function, conformed to
- * every constraint by a constrained-Delaunay fringe (mesh/meshquadtree.h,
- * mesh/meshcdt.h). Tags propagate from input → output through point and
- * segment markers and region seeds, as they did with Triangle.
+ * 2D mesh generator (workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md): a
+ * constrained Delaunay triangulation of every constraint, refined to the
+ * caller's size function and a guaranteed minimum angle (mesh/meshcdt.h),
+ * with aligned quad strips only where features ask for them — four-sided
+ * quad regions, corridors, streets between facing break lines, conduits.
+ * Tags propagate from input → output through point and segment markers and
+ * region seeds, as they did with Triangle.
  *
  * The MeshGenerator deals only in geometry. Mapping SWMM 1D objects
  * (junctions, conduits, subcatchments) onto inputs is the caller's
@@ -38,9 +40,15 @@ namespace mesh {
 /*! \brief A polyline that must appear as constrained edges in the mesh. */
 struct ConstraintSegment
 {
-    QVector<QPointF> path;     ///< >= 2 points; consecutive pairs become Triangle segments.
-    int              marker = 0; ///< Triangle marker value; preserved on output edges.
+    QVector<QPointF> path;     ///< >= 2 points; consecutive pairs become constrained edges.
+    int              marker = 0; ///< Preserved on output edges.
     QString          tag;      ///< Resolved later via the marker→tag lookup the caller maintains.
+    /*! > 0: a swept quad strip this wide follows the (open) line — a conduit
+     *  — with the line along its middle row, cut back one width from each end
+     *  so strips never meet at a junction. The line keeps its marker on every
+     *  edge, inside the strip or not. A strip that does not fit is dropped
+     *  (MeshGenerator::stats()) and the line stays a plain constraint. */
+    double           stripWidth = 0.0;
 };
 
 /*! \brief A point that must appear as a vertex in the output mesh. */
@@ -79,6 +87,12 @@ struct RefineHook
     std::function<double(double x, double y)> targetAreaAt;
     /*! Called every so often with a running cell count. Purely advisory. */
     std::function<void(qint64 count)> onProgress;
+    /*! Ground elevation at a mesh coordinate (NaN = unknown), for
+     *  GenerationOptions::quadsBetweenBreaklines: two facing break lines
+     *  become a quad strip only where the ground between them is lower than
+     *  outside both (a street between curbs, a ditch between its banks).
+     *  Null = no strips from break lines. */
+    std::function<double(double x, double y)> elevationAt;
 };
 
 /*! \brief Quality knobs surfaced to the user dialog. */
@@ -90,15 +104,19 @@ struct GenerationOptions
                                   ///< The target edge length is the equilateral side.
 
     // ── Overhaul (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ───────────────────
-    /*! Floor cell size h_min (map units) = the finest quadtree leaf and the
-     *  lower clamp of the size function. 0 = a quarter of the smallest size
-     *  sampled over the inputs. */
+    /*! Floor cell size h_min (map units): the lower clamp of the size
+     *  function. 0 = a quarter of the smallest size sampled over the inputs. */
     double minCellSize = 0.0;
-    /*! Cell shape: false = quads where possible (core squares + paired
-     *  fringe), true = triangles everywhere. */
-    bool   trianglesOnly = false;
-    /*! Orientation of the background grid, degrees from +x counter-clockwise. */
-    double frameAngleDeg = 0.0;
+    /*! Every triangle's smallest angle reaches this (degrees), except in the
+     *  wedge of two constraints meeting at a smaller angle and next to quad
+     *  strip edges (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D10). The
+     *  dialog offers 20–33; above 30 an awkward input may stop refining at
+     *  the cascade floor (a quarter of the minimum cell size) with a few
+     *  triangles under the bound (GenerationStats::trianglesBelowAngle). */
+    double minAngleDeg = 30.0;
+    /*! Two terrain break lines that face each other with lower ground between
+     *  them become a bank-pair quad strip (needs RefineHook::elevationAt). */
+    bool   quadsBetweenBreaklines = false;
 
     /*! Snap radius (map units) used to match patch vertices against the
      *  output vertices. 0 = 1e-7. */
@@ -110,10 +128,25 @@ struct QuadRegionReport
 {
     int            index = -1;
     QuadRegionMode requested = QuadRegionMode::Auto;
-    QuadRegionMode resolved  = QuadRegionMode::Free;   ///< Free = its own or the background grid; TrianglesOnly in triangles mode.
+    QuadRegionMode resolved  = QuadRegionMode::TrianglesOnly;   ///< Mapped = aligned quads; TrianglesOnly = triangles inside the ring.
     bool    accepted = false;                         ///< Region was included in generation, not skipped.
     double  spacing = 0.0;                            ///< Size override inside the ring (0 = none).
-    QString message;                                  ///< Validation error; empty when clean.
+    QString message;                                  ///< Why the region has no quads, or a validation error; empty when clean.
+};
+
+/*! \brief What the last generate() built (MeshGenerator::stats()). */
+struct GenerationStats
+{
+    int  regionPatches = 0;     ///< Quad regions meshed with aligned quads.
+    int  conduitStrips = 0;     ///< Conduit quad strips placed.
+    int  breaklineStrips = 0;   ///< Quad strips between facing break lines.
+    int  stripsDropped = 0;     ///< Strips that did not fit (logged; the feature stays triangles).
+    int  refineInserted = 0;    ///< Vertices the quality refinement added.
+    /*! Triangles under the minimum angle that the small-input-angle
+     *  exemption does not explain: they rest on fixed quad strip edges or on
+     *  inputs closer together than a quarter of the minimum cell size. */
+    int  trianglesBelowAngle = 0;
+    bool refineCapped = false;  ///< Refinement stopped at its safety cap.
 };
 
 /*! \brief Generate a 2D triangular mesh.
@@ -136,8 +169,8 @@ public:
     void setDomain(const QPolygonF &outerBoundary);
 
     /*! \brief Replace the domain with multiple disjoint closed polygons.
-     *  Each polygon becomes its own boundary ring; Triangle meshes the
-     *  interior of every ring and leaves the gaps unmeshed. Useful when
+     *  Each polygon becomes its own boundary ring; the interior of every
+     *  ring is meshed and the gaps are left unmeshed. Useful when
      *  the meshing region is a multi-catchment area or a layer
      *  containing several non-overlapping polygons. */
     void setDomains(const QVector<QPolygonF> &outerBoundaries);
@@ -155,22 +188,50 @@ public:
     void addHole(const QPointF &interiorPointInsideHole);
     void addRegion(const RegionMarker &region);
     /*! \brief Stitch a structured quad patch (mesh/meshpatch.h) into the
-     *  domain. Its boundary segments become PSLG constraints, its interior
-     *  a hole (seed = the first quad's centroid), and after Triangle runs
-     *  its quads are appended after every triangle with vertices merged by
-     *  coordinate against the Triangle output (GenerationOptions::patchSnapEps).
+     *  domain. Its boundary segments become fixed constraints (refinement
+     *  never splits them), its interior a hole (seed = the first quad's
+     *  centroid), and its quads are appended after every triangle with
+     *  vertices merged by coordinate (GenerationOptions::patchSnapEps).
      *  Patch vertices receive whatever elevation fill the caller applies to
-     *  MeshResult::vertices afterwards — same path as Triangle's own. */
+     *  MeshResult::vertices afterwards. */
     void addPatch(const PatchMesh &patch);
-    /*! \brief Register a quad region (mesh/meshquadregion.h): its ring becomes
-     *  a constraint loop, its spacing (when > 0) a size override inside the
-     *  ring, and — when hasAlignAngle — the region gets its own quadtree
-     *  frame at alignAngleDeg. Cells inside carry the region's tag. */
+    /*! \brief Register a quad region (mesh/meshquadregion.h). A ring that
+     *  classifyQuadRegion() finds four-sided is meshed with aligned
+     *  (transfinite) quads at the region's spacing — or directional spacing —
+     *  and the local size otherwise; any other ring, or one in
+     *  TrianglesOnly mode, stays a constraint loop with triangles inside and
+     *  its spacing (when > 0) as a size override. Cells inside carry the
+     *  region's tag. quadRegionReports() says which happened and why. */
     void addQuadRegion(const QuadRegion &region);
+    /*! \brief Terrain break lines (mesh/terrainbreaklines.h): DENSE
+     *  polylines in mesh coordinates (vertex spacing about one DEM pixel; the
+     *  cut-back distance grows with a line's spacing); a closed loop repeats
+     *  its first point. They become non-coupling constraints so a mesh edge
+     *  lies on each curb, wall or bank — but only where they keep clear of
+     *  everything else: generate() cuts every line back from the domain and
+     *  closed hole rings, other constraints, patches, Steiner points and
+     *  previously accepted lines (longest first), simplifies what remains
+     *  within max(floor/4, 0.75 · spacing), splits it where it folds back, and
+     *  drops pieces shorter than four floor sizes. They do not seed sizing,
+     *  never bound holes or region tags, and are not listed in
+     *  MeshResult::boundaryEdges. */
+    void setTerrainBreaklines(const QVector<QVector<QPointF>> &lines);
+    /*! \brief Break lines kept by the last generate() (after cutting and
+     *  simplification). */
+    [[nodiscard]] const QVector<QVector<QPointF>> &acceptedTerrainBreaklines() const { return m_acceptedTerrainLines; }
+    /*! \brief The break lines generate() would keep before any quad strip is
+     *  placed (the same cut-back and simplification against the inputs set
+     *  so far) — the steps a size field may treat as captured by mesh edges
+     *  (SizeFieldOptions::steps). Lines near later strips can still be cut
+     *  back. Needs GenerationOptions::minCellSize > 0; otherwise the lines
+     *  as set. */
+    [[nodiscard]] QVector<QVector<QPointF>> previewTerrainBreaklines() const;
     /*! \brief One report per addQuadRegion() call, filled by generate(). */
     [[nodiscard]] const QVector<QuadRegionReport> &quadRegionReports() const { return m_quadReports; }
-    /*! \brief Retained for API compatibility: always empty (core cells are
-     *  never triangle pairs). */
+    /*! \brief Counts from the last generate(). */
+    [[nodiscard]] const GenerationStats &stats() const { return m_stats; }
+    /*! \brief Retained for API compatibility: always empty (the generator
+     *  never pairs triangles). */
     [[nodiscard]] QSet<QPair<int, int>> quadRegionMergeLocks(const MeshResult &mesh) const;
     void setOptions(const GenerationOptions &opts);
 
@@ -198,7 +259,10 @@ private:
     QVector<RegionMarker>      m_regions;
     QVector<PatchMesh>         m_patches;
     QVector<QuadRegion>        m_quadRegions;
+    QVector<QVector<QPointF>>  m_terrainLines;
+    mutable QVector<QVector<QPointF>> m_acceptedTerrainLines;
     mutable QVector<QuadRegionReport> m_quadReports;
+    mutable GenerationStats           m_stats;
     GenerationOptions          m_opts;
     RefineHook                 m_refineHook;
 

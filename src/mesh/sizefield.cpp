@@ -136,10 +136,10 @@ bool SizeField::build(const QRectF &bbox,
         for (const SteinerPoint &sp : pts)
             if (sp.marker != 0) { haveSeed = true; break; }
     // A seedless field is still meaningful when a terrain term or region
-    // override exists (plan §1 objective 6: terrain-aware without features):
-    // the feature term is +inf everywhere and buildSizeGrid min's it with
-    // the terrain/region sizes and the maxSize clamp. Only a field with no
-    // size source at all is refused.
+    // override exists (plan §1 objective 6; Phase 6b §2.3: the terrain
+    // decides, the coarsening cap only bounds it): unseeded cells start at
+    // maxSize in buildSizeGrid and are min'd with the terrain/region sizes.
+    // Only a field with no size source at all is refused.
     if (!haveSeed && !opt.terrainSizeAt && opt.regions.isEmpty())
         return false;
 
@@ -156,24 +156,37 @@ bool SizeField::build(const QRectF &bbox,
     // ── Seed exact distances around every feature ───────────────────────
     for (const ConstraintSegment &cs : segs)
         for (int i = 0; i + 1 < cs.path.size(); ++i)
-            stampSeedSegment(cs.path[i], cs.path[i + 1]);
+            stampSeedSegment(cs.path[i], cs.path[i + 1], m_dist);
     for (const QVector<QPointF> &r : rings)
         for (int i = 0; i + 1 < r.size(); ++i)
-            stampSeedSegment(r[i], r[i + 1]);
+            stampSeedSegment(r[i], r[i + 1], m_dist);
     for (const SteinerPoint &sp : pts)
-        if (sp.marker != 0) stampSeedPoint(sp.xy);
+        if (sp.marker != 0) stampSeedPoint(sp.xy, m_dist);
 
     // ── Two-pass chamfer (axial pitch, diagonal sqrt(2) * pitch) ─────────
     chamferRelax(m_dist, m_cols, m_rows,
                  static_cast<float>(m_pitch),
                  static_cast<float>(m_pitch * 1.41421356237309515));
 
+    // Distance to the nearest terrain step, the same way.
+    QVector<float> stepDist;
+    if (!opt.steps.isEmpty())
+    {
+        stepDist.fill(kInf, total);
+        for (const QVector<QPointF> &l : opt.steps)
+            for (int i = 0; i + 1 < l.size(); ++i)
+                stampSeedSegment(l[i], l[i + 1], stepDist);
+        chamferRelax(stepDist, m_cols, m_rows,
+                     static_cast<float>(m_pitch),
+                     static_cast<float>(m_pitch * 1.41421356237309515));
+    }
+
     // ── Combined, gradation-limited size grid (overhaul Stage 2) ──────────
-    buildSizeGrid(opt);
+    buildSizeGrid(opt, stepDist);
     return true;
 }
 
-void SizeField::buildSizeGrid(const SizeFieldOptions &opt)
+void SizeField::buildSizeGrid(const SizeFieldOptions &opt, const QVector<float> &stepDist)
 {
     const int total = m_cols * m_rows;
     m_h.resize(total);
@@ -190,13 +203,10 @@ void SizeField::buildSizeGrid(const SizeFieldOptions &opt)
         for (int c = 0; c < m_cols; ++c)
         {
             const int i = r * m_cols + c;
-            double h = m_near + m_g * cellDist(c, r);
+            // Unseeded cell (no vector feature at all): start from the cap.
+            double h = m_dist[i] >= kInf ? (hMax > 0.0 ? hMax : m_near)
+                                         : m_near + m_g * cellDist(c, r);
             const double gx = m_x0 + c * m_pitch, gy = m_y0 + r * m_pitch;
-            if (opt.terrainSizeAt)
-            {
-                const double ht = opt.terrainSizeAt(gx, gy);
-                if (std::isfinite(ht) && ht > 0.0) h = std::min(h, ht);
-            }
             for (int k = 0; k < opt.regions.size(); ++k)
             {
                 const SizeFieldOptions::Region &rg = opt.regions[k];
@@ -204,6 +214,15 @@ void SizeField::buildSizeGrid(const SizeFieldOptions &opt)
                 if (pointInRing(rg.ring, gx, gy)) h = std::min(h, rg.h);
             }
             if (hMax > 0.0) h = std::min(h, hMax);
+            if (opt.terrainSizeAt)
+            {
+                const double ht = opt.terrainSizeAt(gx, gy);
+                // Inside a step's cone the size is the step's, not the
+                // ground's (see SizeFieldOptions::steps).
+                const bool stepCone = !stepDist.isEmpty() && stepDist[i] < kInf
+                                      && ht >= 0.5 * double(stepDist[i]) - m_pitch;
+                if (std::isfinite(ht) && ht > 0.0 && !stepCone) h = std::min(h, ht);
+            }
             if (h < hFloor) h = hFloor;
             m_h[i] = static_cast<float>(h);
         }
@@ -242,7 +261,7 @@ double SizeField::sizeAt(double x, double y) const
          + (h01 * (1.0 - tx) + h11 * tx) * ty;
 }
 
-void SizeField::stampSeedPoint(const QPointF &p)
+void SizeField::stampSeedPoint(const QPointF &p, QVector<float> &into)
 {
     const int cx = static_cast<int>(std::floor((p.x() - m_x0) / m_pitch + 0.5));
     const int cy = static_cast<int>(std::floor((p.y() - m_y0) / m_pitch + 0.5));
@@ -254,15 +273,15 @@ void SizeField::stampSeedPoint(const QPointF &p)
             const double gx = m_x0 + c * m_pitch, gy = m_y0 + r * m_pitch;
             const float d = static_cast<float>(
                 std::hypot(gx - p.x(), gy - p.y()));
-            float &cell = m_dist[r * m_cols + c];
+            float &cell = into[r * m_cols + c];
             if (d < cell) cell = d;
         }
 }
 
-void SizeField::stampSeedSegment(const QPointF &a, const QPointF &b)
+void SizeField::stampSeedSegment(const QPointF &a, const QPointF &b, QVector<float> &into)
 {
     const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
-    if (len <= 0.0) { stampSeedPoint(a); return; }
+    if (len <= 0.0) { stampSeedPoint(a, into); return; }
     // Walk the segment at half-pitch steps stamping a 3×3 neighbourhood with
     // the EXACT distance to the segment, so the chamfer starts from truth.
     const int steps = std::max(1, static_cast<int>(std::ceil(len / (m_pitch * 0.5))));
@@ -281,7 +300,7 @@ void SizeField::stampSeedSegment(const QPointF &a, const QPointF &b)
                 const QPointF g(m_x0 + c * m_pitch, m_y0 + r * m_pitch);
                 const float d = static_cast<float>(
                     std::sqrt(distSqToSeg(g, a, b)));
-                float &cell = m_dist[r * m_cols + c];
+                float &cell = into[r * m_cols + c];
                 if (d < cell) cell = d;
             }
     }

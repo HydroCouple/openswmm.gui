@@ -6,8 +6,8 @@
  *
  * Constrained Delaunay triangulation kernel
  * (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md Stage 4). Replaces Triangle
- * for the fringe between the quadtree core and the constraints, and for the
- * natural-neighbour interpolator's Delaunay.
+ * for the mesh generator and for the natural-neighbour interpolator's
+ * Delaunay.
  *
  *  - Incremental insertion in Morton order with walking point location;
  *    Lawson flips restore the Delaunay property. Orientation and in-circle
@@ -19,10 +19,13 @@
  *    constrained edges; removeExterior() drops the component touching the
  *    bounding super-triangle, removeRegionAt() drops the one containing a
  *    point (a hole seed, a core cell centre).
- *  - refine() inserts circumcentres of triangles that are too large for the
- *    local size or too thin, subject to a caller predicate that keeps the
- *    new point clear of constraints; bounded by a hard insertion cap so it
- *    always terminates.
+ *  - refineQuality() is Delaunay refinement with Ruppert's and Shewchuk's
+ *    rules (workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §4): encroached
+ *    subsegments are split (concentric shells at acute input corners), bad
+ *    triangles receive an off-centre or circumcentre, and a point that would
+ *    encroach a subsegment splits the subsegment instead. Every triangle ends
+ *    with a minimum angle >= the bound except in the wedge of two segments
+ *    meeting at a small input angle and next to fixed (unsplittable) edges.
  *
  * Duplicate input points (bit-identical coordinates) map to one vertex.
  * Vertex ids are stable: input point i is vertex i (after dedup mapping).
@@ -33,10 +36,12 @@
 #include <QHash>
 #include <QPair>
 #include <QPointF>
+#include <QSet>
 #include <QString>
 #include <QVector>
 
 #include <functional>
+#include <limits>
 
 namespace mesh {
 
@@ -74,21 +79,52 @@ public:
     /*! \brief Drop the region (constraint-bounded component) containing \p p. */
     void removeRegionAt(const QPointF &p);
 
-    /*! \brief Size-and-quality refinement. A live triangle is split at its
-     *  circumcentre when its circumradius exceeds hAt(centre) or its
-     *  smallest angle is under \p minAngleDeg, provided \p allowed(centre)
-     *  holds (the caller keeps points clear of constraints) and the centre
-     *  falls in a live triangle. Stops after \p maxInsertions.
-     *  Returns the number of vertices inserted. */
-    int refine(const std::function<double(double, double)> &hAt,
-               double minAngleDeg,
-               const std::function<bool(const QPointF &)> &allowed,
-               int maxInsertions,
-               const QVector<double> *sizeHint = nullptr);
-    /*! \p sizeHint (optional, indexed by vertex id, 0 = none): a triangle is
-     *  also split when its longest edge exceeds 1.9× the smallest hint among
-     *  its vertices — how the fringe stays within the grading bound of the
-     *  core cells it touches. */
+    /*! \brief Options for refineQuality(). */
+    struct QualityOptions
+    {
+        /*! Target edge length h at (x, y): a triangle is split when its area
+         *  exceeds the equilateral triangle of side h(centroid). Null, or
+         *  <= 0 at a point, = no size bound there. */
+        std::function<double(double, double)> hAt;
+        /*! Smallest angle every triangle must reach (degrees); 0 = size only.
+         *  Refinement terminates up to about 34 degrees. */
+        double minAngleDeg = 30.0;
+        /*! Safety cap on inserted vertices (segment splits included). */
+        int    maxInsertions = std::numeric_limits<int>::max();
+        /*! Floor against refinement cascades (an angle bound near the limit
+         *  on an awkward input can otherwise shrink edges towards rounding
+         *  error): a triangle whose shortest edge is below this is not split
+         *  for its angle, and a subsegment shorter than twice this is not
+         *  split. 0 = none. */
+        double minEdge = 0.0;
+        /*! Polled every 4096 insertions; returning true stops refinement. */
+        std::function<bool()> cancelled;
+    };
+    struct QualityReport
+    {
+        int  inserted = 0;        ///< Vertices added, segment splits included.
+        int  segmentSplits = 0;
+        int  blockedByFixed = 0;  ///< Bad triangles left because their point would encroach a fixed edge.
+        bool capped = false;      ///< Stopped at maxInsertions.
+        bool cancelled = false;
+    };
+    /*! \brief Delaunay refinement to the size and angle bounds (see the file
+     *  comment). Call after the constraints are inserted and the exterior,
+     *  holes and any other removed regions are dead; only live triangles are
+     *  refined and new vertices never enter a dead region. */
+    QualityReport refineQuality(const QualityOptions &opt);
+    /*! \brief Mark the input segment (a, b), already inserted with
+     *  insertConstraint(), as unsplittable: refineQuality() never puts a
+     *  vertex on it (a structured patch edge that must keep its stations). */
+    void setFixedConstraint(int a, int b);
+    /*! \brief True when live triangle \p t is below the angle bound only
+     *  because of a small input angle (Shewchuk's exemption: its shortest
+     *  edge joins two segment vertices equidistant from the input vertex
+     *  their segments share). For reporting and tests. */
+    [[nodiscard]] bool smallAngleExempt(int t) const;
+    /*! \brief True when a vertex of live triangle \p t lies on a fixed
+     *  segment (see setFixedConstraint). For reporting and tests. */
+    [[nodiscard]] bool touchesFixed(int t) const;
 
     // ── Read-out ───────────────────────────────────────────────────────
     [[nodiscard]] const QVector<QPointF> &vertices() const { return m_pts; }
@@ -99,8 +135,9 @@ public:
     /*! \brief True when the (min,max) vertex pair is a constrained edge. */
     [[nodiscard]] bool isConstrained(int a, int b) const;
     /*! \brief The vertices from a to b along the constrained edges that
-     *  realise the constraint (a, b) — {a, b} when it is one edge, more when
-     *  vertices lying on the segment split it. Empty when no such chain. */
+     *  realise the input constraint (a, b) — {a, b} when it is one edge, more
+     *  when vertices lying on the segment or refinement split it. Empty when
+     *  no such chain. */
     [[nodiscard]] QVector<int> constrainedChain(int a, int b) const;
     [[nodiscard]] bool isSuperVertex(int v) const { return v >= m_superBase && v < m_superBase + 3; }
     [[nodiscard]] QString errorMsg() const { return m_errorMsg; }
@@ -119,6 +156,11 @@ private:
     int    edgeIndex(int t, int v) const;
     void   trianglesAround(int v, QVector<int> *out) const;
     void   markConstrained(int a, int b);
+    bool   insertConstraintImpl(int a, int b, quint64 origin);
+    int    splitSubsegment(int a, int b);
+    bool   subsegmentEncroached(int a, int b) const;
+    bool   isFixedSub(int a, int b) const;
+    bool   exemptShortestEdge(int u, int v) const;
 
     QVector<QPointF>  m_pts;
     QVector<Triangle> m_tris;
@@ -126,6 +168,11 @@ private:
     int               m_superBase = 0;
     int               m_lastLocate = 0;
     QString           m_errorMsg;
+    QHash<quint64, quint64> m_segOrigin;   ///< constrained subsegment → the input segment it came from (edge keys)
+    QMultiHash<quint64, quint64> m_segOriginExtra; ///< further input segments sharing that subsegment (overlaps)
+    QHash<quint64, quint64> m_segPiece;    ///< constrained subsegment → the edge it was inserted as (input piece)
+    QHash<int, quint64>     m_vertexSeg;   ///< vertex added on a segment by refinement → its input piece
+    QSet<quint64>           m_fixedSub;    ///< subsegments refinement may not split
 };
 
 } // namespace mesh
