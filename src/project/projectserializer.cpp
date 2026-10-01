@@ -1,3 +1,8 @@
+#include "output/outputstatsregistry.h"
+#include "output/traceanalysisstore.h"
+#include "output/tracecontroller.h"
+#include "layers/traceanalysislayer.h"
+#include "ui/dialogs/traceanalysisdialog.h"
 /*!
  * \file   projectserializer.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -339,6 +344,40 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         store->serialize(QFileInfo(oswpFile).absolutePath(), history);
         if (!history.isEmpty()) obj[QStringLiteral("groundwaterAssignmentHistory")] = history;
     }
+
+    QJsonArray traceRuns = pw->statsRegistry()->saveRuns(QFileInfo(oswpFile).absolutePath());
+    QHash<QString, QString> tracePaths;
+    for (int i = 0; i < traceRuns.size(); ++i) {
+        auto run = traceRuns[i].toObject();
+        const auto original = pw->statsRegistry()->run(run.value("id").toString());
+        QString package = original.packagePath;
+        if (package.contains("/analysis/" + original.id + "/")) {
+            package = QDir(QFileInfo(oswpFile).absolutePath()).filePath(
+                "analysis/" + original.id + "/" + QFileInfo(package).fileName());
+            run["package"] = toRelativePath(package, oswpFile);
+            if (!original.retainedPath.isEmpty())
+                run["retained"] = toRelativePath(QDir(QFileInfo(package).absolutePath()).filePath(QFileInfo(original.retainedPath).fileName()), oswpFile);
+            traceRuns[i] = run;
+        }
+        tracePaths.insert(original.id, package);
+    }
+    if (!traceRuns.isEmpty()) obj["analysisRuns"] = traceRuns;
+    if (auto *dialog = pw->findChild<openswmmvis::trace::TraceAnalysisDialog*>())
+        obj["tracePanel"] = dialog->state();
+    else obj["tracePanel"] = pw->property("tracePanelState").toJsonObject();
+    obj["traceKeepPreviousRaw"] = !pw->property("traceKeepPreviousRaw").isValid()
+        || pw->property("traceKeepPreviousRaw").toBool();
+    QJsonArray traces;
+    if (pw->canvas()) for (auto *mapLayer : pw->canvas()->layers()) {
+        auto *trace = qobject_cast<openswmmvis::trace::TraceAnalysisLayer*>(mapLayer);
+        if (!trace || !trace->result()->saved) continue;
+        const auto result = trace->result();
+        traces.append(QJsonObject{{"id", result->id}, {"runId", result->dataset->runId},
+            {"package", toRelativePath(tracePaths.value(result->dataset->runId, result->dataset->packagePath), oswpFile)},
+            {"name", trace->name()}, {"visible", trace->isVisible()}, {"opacity", trace->opacity()},
+            {"style", trace->savedStyle()}});
+    }
+    if (!traces.isEmpty()) obj["traceLayers"] = traces;
 
     obj[kInpPath]       = toRelativePath(layer->modelFilePath(), oswpFile);
     obj[kEngineVersion] = pw->engineVersion();
@@ -715,6 +754,10 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
 {
     if (!pw) return false;
 
+    pw->statsRegistry()->restoreRuns(sessionObj.value("analysisRuns").toArray(),
+        QFileInfo(oswpFile).absolutePath());
+    pw->setProperty("tracePanelState", sessionObj.value("tracePanel").toObject());
+    pw->setProperty("traceKeepPreviousRaw", sessionObj.value("traceKeepPreviousRaw").toBool(true));
     pw->setMeshGenerationOptions(sessionObj.value(QStringLiteral("meshGenerationOptions")).toObject());
 
     {
@@ -970,6 +1013,24 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         }
     }
 
+    for (auto value : sessionObj.value("traceLayers").toArray()) {
+        const auto row = value.toObject();
+        QString error;
+        auto result = openswmmvis::trace::AnalysisStore::read(
+            resolveStoredPath(row.value("package").toString(), oswpFile), row.value("id").toString(), &error);
+        if (!result || result->dataset->runId != row.value("runId").toString()) {
+            if (warningsOut) warningsOut->append(QObject::tr("Cannot restore analysis %1: %2")
+                .arg(row.value("name").toString(), error.isEmpty() ? QObject::tr("Run identity mismatch") : error));
+            continue;
+        }
+        result->style = row.value("style").toObject();
+        auto *trace = new openswmmvis::trace::TraceAnalysisLayer(result, layer->workspace());
+        trace->setName(row.value("name").toString(result->title()));
+        trace->setVisible(row.value("visible").toBool(true));
+        trace->setOpacity(row.value("opacity").toDouble(1));
+        pw->canvas()->addLayer(trace, false);
+    }
+
     // Terrain editing state.
     if (sessionObj.contains(kTerrain)) {
         const QJsonObject t = sessionObj.value(kTerrain).toObject();
@@ -1118,6 +1179,65 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
     { setErr(QObject::tr("No project windows to serialize")); return false; }
     for (auto *pw : windows) {
         if (!pw) continue;
+        if (auto *controller = openswmmvis::trace::TraceController::forProject(pw, false)) {
+            if (controller->busy()) {
+                setErr(QObject::tr("Wait for the analysis write to finish, or cancel it before saving the project."));
+                return false;
+            }
+        }
+        for (auto *mapLayer : pw->canvas()->layers()) {
+            auto *trace = qobject_cast<openswmmvis::trace::TraceAnalysisLayer*>(mapLayer);
+            if (trace && !trace->result()->saved) {
+                setErr(QObject::tr("An analysis is computed but not saved. Retry its save before saving the project."));
+                return false;
+            }
+        }
+        // Managed analysis assets travel with Save As. Explicit external
+        // destinations remain references; existing destinations are never overwritten.
+        for (const auto &run : pw->statsRegistry()->runs()) {
+            if (!run.packagePath.contains("/analysis/" + run.id + "/")) continue;
+            QDir source(QFileInfo(run.packagePath).absolutePath());
+            QDir destination(QDir(QFileInfo(oswpPath).absolutePath()).filePath("analysis/" + run.id));
+            if (source.absolutePath() == destination.absolutePath()) continue;
+            if (!QDir().mkpath(destination.absolutePath())) {
+                setErr(QObject::tr("Cannot create saved analysis folder %1").arg(destination.absolutePath()));
+                return false;
+            }
+            for (const auto &name : source.entryList(QDir::Files)) {
+                const QString target = destination.filePath(name);
+                if (QFileInfo::exists(target)) {
+                    bool matching = false;
+                    if (name == QFileInfo(run.packagePath).fileName()) {
+                        QString error;
+                        const auto data = openswmmvis::trace::AnalysisStore::readDataset(target, &error);
+                        matching = data && data->runId == run.id && data->fingerprint == run.fingerprint;
+                    } else {
+                        QFile left(source.filePath(name)), right(target);
+                        if (left.open(QIODevice::ReadOnly) && right.open(QIODevice::ReadOnly)) {
+                            matching = left.size() == right.size();
+                            while (matching && !left.atEnd()) matching = left.read(1024*1024) == right.read(1024*1024);
+                        }
+                        if (matching) continue;
+                    }
+                    if (!matching) {
+                        setErr(QObject::tr("Analysis asset already exists: %1. Choose a new project folder.").arg(target));
+                        return false;
+                    }
+                }
+                QFile input(source.filePath(name)); QSaveFile copy(target);
+                if (!input.open(QIODevice::ReadOnly) || !copy.open(QIODevice::WriteOnly)) {
+                    setErr(QObject::tr("Cannot copy analysis asset to %1").arg(target)); return false;
+                }
+                while (!input.atEnd()) {
+                    const auto bytes = input.read(1024*1024);
+                    if (input.error() != QFile::NoError || copy.write(bytes) != bytes.size()) {
+                        setErr(QObject::tr("Cannot copy analysis asset to %1").arg(target)); return false;
+                    }
+                }
+                if (!copy.commit()) {setErr(QObject::tr("Cannot finish analysis copy %1").arg(target));return false;}
+
+            }
+        }
         if (auto *store = ProfileSectionStore::forOwner(pw, false)) {
             QJsonArray sections;
             QString error;
