@@ -40,6 +40,8 @@
 #include <QSGGeometryNode>
 #include <QGraphicsScene>
 #include <QPainter>
+#include <QQuickWindow>
+#include <QSurfaceFormat>
 
 #include <QDateTime>
 #include <QObject>
@@ -220,6 +222,44 @@ public:
     }
 };
 
+// Shallow sheet flowing down ten sloping triangles. Horizontal per-cell VFR
+// leaves disconnected low-corner wedges despite flow across every cell edge.
+class FlowingSlopeSource : public IMesh2DSource {
+public:
+    bool fluxEnabled=true;
+    std::vector<float> frames{0.04f,0.08f,0.12f};
+    int vertexCount() const override { return 12; }
+    int triangleCount() const override { return 10; }
+    int timeCount() const override { return int(frames.size()); }
+    bool readMeshGeometry(std::vector<double>& x,std::vector<double>& y,
+        std::vector<double>& z,std::vector<std::array<int,3>>& tris) override {
+        x.clear();y.clear();z.clear();tris.clear();
+        for(int j=0;j<=5;++j) for(int k=0;k<2;++k) {
+            x.push_back(10*j);y.push_back(10*k);z.push_back(27-0.7*j);
+        }
+        for(int j=0;j<5;++j) {
+            tris.push_back({2*j,2*j+2,2*j+3}); tris.push_back({2*j,2*j+3,2*j+1});
+        }
+        return true;
+    }
+    bool readDepthsAt(int t,std::vector<float>& d) override {
+        if(t<0 || t>=timeCount())return false;
+        d.assign(10,frames[size_t(t)]);return true;
+    }
+    bool readEdgeFluxAt(int t,std::vector<float>& q) override {
+        if(!fluxEnabled || t<0 || t>=timeCount())return false;
+        q.assign(40,0);
+        for(int c=0;c<10;c+=2) {
+            q[4*c]=1;q[4*c+1]=-1;
+            q[4*(c+1)+1]=-1;q[4*(c+1)+2]=1;
+        }
+        return true;
+    }
+    QDateTime simTimeAt(int t) const override {
+        return QDateTime(QDate(2026,1,1),QTime(0,0)).addSecs(t);
+    }
+};
+
 } // namespace
 
 class Test2DResultsVizFixes : public QObject
@@ -251,7 +291,189 @@ private slots:
     void thinFilmSettingsRoundTrip();
     void thinFilmVisibilityCpuQsgAndPendingFrames();
     void thinFilmSavedAndLiveParity();
+    void flowingSlopeProfilesContoursAndHistory();
+    void bellingeNeighborhoodSavedLiveAndRendering();
 };
+
+void Test2DResultsVizFixes::bellingeNeighborhoodSavedLiveAndRendering()
+{
+    const QString path=qEnvironmentVariable("VFR_TEST_BELLINGE");
+    if(path.isEmpty())QSKIP("Set VFR_TEST_BELLINGE to the preserved partial output");
+    const QString dir=qEnvironmentVariable("VFR_TEST_ARTIFACTS");
+    auto file=std::make_unique<HDF5Mesh2DSource>();QVERIFY(file->open(path));
+    std::vector<double> x,y,z;std::vector<std::array<int,4>> cells;
+    QVERIFY(file->readCells(x,y,z,cells));QVERIFY(cells.size()>40000);
+    const int last=file->timeCount()-1;QVERIFY(last>=11);
+    std::vector<float> depths,flux;
+    QVERIFY(file->readDepthsAt(last,depths));QVERIFY(file->readEdgeFluxAt(last,flux));
+    auto live=std::make_unique<EngineMesh2DSource>(x,y,z,cells);
+    live->pushDepths(depths,file->simTimeAt(last),0);live->pushFlux(flux,file->simTimeAt(last),0);
+    SWMM2DResultsLayer saved,stream;
+    saved.setSource(std::move(file));stream.setSource(std::move(live));
+    for(auto* layer:{&saved,&stream})layer->setDryDepth(0.0001);
+    saved.setCurrentTimeIndex(last);stream.setCurrentTimeIndex(0);
+    const auto reference=saved.m_sceneTris;
+    QCOMPARE(reference.size(),stream.m_sceneTris.size());
+    for(int i=0;i<reference.size();++i) {
+        const auto& a=reference[i];const auto& b=stream.m_sceneTris[i];
+        for(auto pair:{std::pair{a.dv0,b.dv0},std::pair{a.dv1,b.dv1},std::pair{a.dv2,b.dv2}})
+            QVERIFY((std::isnan(pair.first)&&std::isnan(pair.second)) || pair.first==pair.second);
+    }
+    // Return to the same frame after reverse seeking: no accumulated smoothing.
+    for(int frame:{3,last,8,last})saved.setCurrentTimeIndex(frame);
+    for(int i=0;i<reference.size();++i) {
+        const auto& a=reference[i];const auto& b=saved.m_sceneTris[i];
+        for(auto pair:{std::pair{a.dv0,b.dv0},std::pair{a.dv1,b.dv1},std::pair{a.dv2,b.dv2}})
+            QVERIFY((std::isnan(pair.first)&&std::isnan(pair.second)) || pair.first==pair.second);
+    }
+    std::vector<float> after;QVERIFY(saved.source()->readDepthsAt(last,after));QCOMPARE(after,depths);
+    // A triangle's scene depths are the same shared signed field used by queries
+    // and profiles. Compare both traces of every visible interior edge.
+    std::vector<VertexDepthReconstruct::CellSplit> splits(cells.size());
+    for(size_t c=0;c<cells.size();++c)splits[c].v=cells[c];
+    const auto topology=CellWaterGeometry::smoothTopology(splits);
+    auto corner=[&](int c) {
+        const auto& t=reference[c/4];return c%4==0?t.dv0:(c%4==1?t.dv1:t.dv2);
+    };
+    int shared=0;
+    for(const auto& e:topology.edges) {
+        if(!std::isfinite(corner(e.a0)) || !std::isfinite(corner(e.a1)))continue;
+        QCOMPARE(corner(e.a0),corner(e.a1));QCOMPARE(corner(e.b0),corner(e.b1));++shared;
+    }
+    qInfo()<<"Matching visible Bellinge shared edges:"<<shared;
+    QVERIFY(shared>1000);
+    const MapExtent extent(583950,6132800,584550,6133150);
+    const QRectF sourceRect(583950,-6133150,600,350);
+    const QVector<QPointF> section{{583970,-6132980},{584530,-6132980}};
+    auto profile=MeshProfileSampler::buildMeshProfile(nullptr,&saved,section,100);
+    QVERIFY(profile.samples.size()>20);
+    for(const auto& s:profile.samples) {
+        if(s.displayTriIdx<0)continue; // off-mesh end markers have no surface
+        double q=saved.signedDepthAtDisplayTriangle(s.displayTriIdx,s.scenePt);
+        if(!std::isfinite(q))q=saved.signedDepthAtDisplayTriangle(s.boundaryTriIdx,s.scenePt);
+        q*=saved.depthToMeshUnits();
+        QVERIFY((std::isnan(q)&&std::isnan(s.signedDepthNow)) || std::abs(q-s.signedDepthNow)<1e-10);
+    }
+    if(dir.isEmpty())return;
+    saved.setVisible(true);
+    for(auto* sub:saved.sublayers())sub->setVisible(false);
+    auto* band=saved.contourBandSublayer();band->setVisible(true);band->setOpacity(0.6);
+    QGraphicsScene scene;saved.populateScene(&scene,extent,nullptr);
+    MeshProfilePlotOptions options;options.setShowTimeLabel(false);
+    MeshProfilePlotWidget plot;plot.setOptions(&options);plot.resize(1200,450);
+    for(bool smooth:{true,false}) {
+        band->bandStyle()->setSmoothBands(smooth);
+        for(int frame:{3,8,last}) {
+            saved.setCurrentTimeIndex(frame);
+            QImage map(1200,700,QImage::Format_ARGB32_Premultiplied);map.fill(Qt::white);
+            QPainter painter(&map);scene.render(&painter,QRectF(0,0,1200,700),sourceRect);painter.end();
+            const QString stem=QString("/bellinge-%1-%2").arg(smooth?"smooth":"bands").arg(frame);
+            QVERIFY(map.save(dir+stem+"-cpu.png"));
+            if(smooth) {
+                plot.setProfile(MeshProfileSampler::buildMeshProfile(nullptr,&saved,section,100));
+                QImage image(plot.size(),QImage::Format_ARGB32_Premultiplied);image.fill(Qt::white);plot.render(&image);
+                QVERIFY(image.save(dir+stem+"-profile.png"));
+            }
+            if(qEnvironmentVariableIntValue("VFR_TEST_GPU")==1) {
+                QQuickWindow window;QSurfaceFormat format=window.format();format.setSamples(4);window.setFormat(format);
+                window.setColor(Qt::white);window.resize(1200,700);
+                auto* renderer=new SWMM2DResultsQSGRenderer(window.contentItem());
+                renderer->setSize(QSizeF(1200,700));renderer->setLayer(&saved);renderer->setMapExtent(extent);
+                window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));
+                QTRY_COMPARE_WITH_TIMEOUT(renderer->displayedFrameRevision(),saved.frameRevision(),10000);
+                const auto image=window.grabWindow();QVERIFY(!image.isNull());
+                QVERIFY(image.save(dir+stem+"-gpu.png"));
+                if(smooth && frame==last) {
+                    // The full mesh exercises multiple GPU geometry chunks;
+                    // a small region cannot expose large-buffer raster defects.
+                    const auto box=saved.m_sceneBBox;
+                    QSignalSpy swapped(&window,&QQuickWindow::frameSwapped);
+                    renderer->setMapExtent(MapExtent(box.left(),-box.bottom(),box.right(),-box.top()));
+                    QTRY_VERIFY_WITH_TIMEOUT(swapped.count()>0,10000);
+                    const auto whole=window.grabWindow();QVERIFY(!whole.isNull());
+                    QVERIFY(whole.save(dir+"/bellinge-whole-gpu.png"));
+                    QImage cpu(1200,700,QImage::Format_ARGB32_Premultiplied);cpu.fill(Qt::white);
+                    QPainter full(&cpu);scene.render(&full,QRectF(0,0,1200,700),box,Qt::IgnoreAspectRatio);full.end();
+                    QVERIFY(cpu.save(dir+"/bellinge-whole-cpu.png"));
+                }
+                window.close();
+            }
+        }
+    }
+}
+
+void Test2DResultsVizFixes::flowingSlopeProfilesContoursAndHistory()
+{
+    const QString dir=qEnvironmentVariable("VFR_TEST_ARTIFACTS");
+    for(double scale:{1.0,0.3048}) {
+        SWMM2DResultsLayer layer;
+        layer.setFallbackCoordinateScale(scale);
+        auto source=std::make_unique<FlowingSlopeSource>();auto *raw=source.get();
+        const auto stored=raw->frames;
+        layer.setSource(std::move(source));layer.setDryDepth(0.001);
+        const double factor=layer.depthToMeshUnits();
+        for(int frame:{1,0,2,1}) {
+            layer.setCurrentTimeIndex(frame);
+            const auto profile=MeshProfileSampler::buildMeshProfile(nullptr,&layer,
+                {{0,-5*factor},{50*factor,-5*factor}},100);
+            QVERIFY(profile.samples.size()>=20);
+            for(const auto& s:profile.samples) {
+                QVERIFY(std::abs(s.signedDepthNow-double(stored[size_t(frame)])*factor)<1e-6);
+                QVERIFY(std::abs(s.signedMaxDepth-double(stored.back())*factor)<1e-6);
+                QVERIFY(std::abs(s.signedDepthNow-layer.signedDepthAtDisplayTriangle(s.displayTriIdx,s.scenePt)*factor)<1e-9);
+            }
+            // These are the exact corner attributes fed to CPU and GPU contours.
+            for(const auto& tri:layer.m_sceneTris) for(float d:{tri.dv0,tri.dv1,tri.dv2})
+                QVERIFY(std::abs(d-stored[size_t(frame)])<1e-6);
+            if(scale==1 && frame==1 && !dir.isEmpty()) {
+                MeshProfilePlotOptions options;options.setShowTimeLabel(false);
+                MeshProfilePlotWidget plot;plot.setOptions(&options);plot.resize(1100,400);plot.setProfile(profile);
+                QImage image(plot.size(),QImage::Format_ARGB32_Premultiplied);image.fill(Qt::white);plot.render(&image);
+                QVERIFY(image.save(dir+"/flowing-slope-after.png"));
+            }
+        }
+        QCOMPARE(raw->frames,stored);
+        // Same-time flux loss must not reuse a previous moving surface.
+        raw->fluxEnabled=false;layer.refreshCurrentFrame();
+        QVERIFY(std::abs(layer.m_sceneTris[0].dv0-stored[1])>0.01);
+        raw->fluxEnabled=true;layer.refreshCurrentFrame();
+        QVERIFY(std::abs(layer.m_sceneTris[0].dv0-stored[1])<1e-6);
+        raw->frames.back()=0.09f;
+        const auto reduced=layer.maxSurfaceDepths();
+        for(const auto& cell:reduced) for(int k=0;k<3;++k) QVERIFY(std::abs(cell[k]-0.09)<1e-6);
+        layer.setThinFilmDepth(0.1); // classify inclined sheet BEFORE corner projection
+        for(int c=0;c<layer.cellCount();++c) {
+            QCOMPARE(layer.cellWaterDisplayState(c),CellWaterGeometry::DisplayState::ThinFilm);
+            QVERIFY(!layer.cellHasSurface(c));
+        }
+        layer.setShowThinFilms(true);
+        for(int c=0;c<layer.cellCount();++c) QVERIFY(layer.cellHasSurface(c));
+    }
+    if(!dir.isEmpty()) {
+        SWMM2DResultsLayer before;
+        auto legacy=std::make_unique<FlowingSlopeSource>();legacy->fluxEnabled=false;
+        before.setSource(std::move(legacy));before.setCurrentTimeIndex(1);
+        MeshProfilePlotOptions options;options.setShowTimeLabel(false);
+        MeshProfilePlotWidget plot;plot.setOptions(&options);plot.resize(1100,400);
+        plot.setProfile(MeshProfileSampler::buildMeshProfile(nullptr,&before,{{0,-5},{50,-5}},100));
+        QImage image(plot.size(),QImage::Format_ARGB32_Premultiplied);image.fill(Qt::white);plot.render(&image);
+        QVERIFY(image.save(dir+"/flowing-slope-before.png"));
+    }
+    FlowingSlopeSource fixture;
+    std::vector<double> x,y,z;std::vector<std::array<int,3>> tris;
+    fixture.readMeshGeometry(x,y,z,tris);
+    auto live=std::make_unique<EngineMesh2DSource>(x,y,z,tris);
+    for(int t=0;t<fixture.timeCount();++t) {
+        std::vector<float> depth,flux;fixture.readDepthsAt(t,depth);fixture.readEdgeFluxAt(t,flux);
+        live->pushDepths(depth,fixture.simTimeAt(t),t);live->pushFlux(flux,fixture.simTimeAt(t),t);
+    }
+    SWMM2DResultsLayer stream;stream.setSource(std::move(live));
+    for(int t:{2,0,1}) {
+        stream.setCurrentTimeIndex(t);
+        for(const auto& tri:stream.m_sceneTris) for(float depth:{tri.dv0,tri.dv1,tri.dv2})
+            QVERIFY(std::abs(depth-fixture.frames[size_t(t)])<1e-6);
+    }
+}
 
 void Test2DResultsVizFixes::thinFilmPolicyPreservesRawWaterAndPartialPools()
 {
@@ -413,6 +635,8 @@ void Test2DResultsVizFixes::thinFilmSavedAndLiveParity()
     std::vector<float> depths;QVERIFY(file->readDepthsAt(70,depths));
     auto live=std::make_unique<EngineMesh2DSource>(x,y,z,cells);
     live->pushDepths(depths,file->simTimeAt(70),0);
+    std::vector<float> flux;
+    if(file->readEdgeFluxAt(70,flux)) live->pushFlux(flux,file->simTimeAt(70),0);
     SWMM2DResultsLayer saved,stream;
     saved.setSource(std::move(file)); saved.setCurrentTimeIndex(70);
     stream.setSource(std::move(live));stream.setCurrentTimeIndex(0);
