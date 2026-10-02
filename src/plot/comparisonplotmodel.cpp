@@ -260,7 +260,9 @@ void ComparisonPlotModel::deriveRows_()
     QVector<AttributeRow> rows;
     // Y2b-2: rows key on (attribute, species) — every species gets its
     // own chart row, and a species key can never collide with a fixed
-    // attribute's (species specs carry attribute == Unknown).
+    // attribute's (species specs carry attribute == Unknown). 2D catalog
+    // variables key the same way, prefixed so a variable key cannot
+    // collide with a species name.
     QHash<QPair<int, QString>, int> rowIndexByKey;
 
     for (int s = 0; s < m_specs.size(); ++s) {
@@ -269,7 +271,9 @@ void ComparisonPlotModel::deriveRows_()
             continue;
 
         const QPair<int, QString> key(static_cast<int>(spec.attribute),
-                                      spec.species);
+                                      spec.variableKey.isEmpty()
+                                          ? spec.species
+                                          : QStringLiteral("\x1Fvar:") + spec.variableKey);
         int r;
         if (rowIndexByKey.contains(key)) {
             r = rowIndexByKey.value(key);
@@ -277,6 +281,9 @@ void ComparisonPlotModel::deriveRows_()
             AttributeRow row;
             row.attribute = spec.attribute;
             row.species   = spec.species;
+            row.variableKey   = spec.variableKey;
+            row.variableLabel = spec.variableLabel;
+            row.variableUnits = spec.variableUnits;
             row.unitSystem = (spec.runIndex >= 0 && spec.runIndex < m_runs.size() &&
                               m_runs[spec.runIndex].layer)
                               ? m_runs[spec.runIndex].layer->unitSystem()

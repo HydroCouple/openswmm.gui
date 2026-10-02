@@ -111,6 +111,12 @@ public:
                        const QVector<int>& triIdxList,
                        const QVector<openswmmvis::plot::PlotAttribute>& attributes);
 
+    /*! \brief Per-cell series for any descriptor — fixed attributes and the
+     *  2D source's catalog variables (groundwater, infiltration, species). */
+    int addCellDescriptorSeries(int runIndex,
+                                const QVector<int>& triIdxList,
+                                const QVector<openswmmvis::plot::ResultDescriptor>& descriptors);
+
     /*! \brief Slice AT.2 — programmatically set the Add-from-Map toolbar
      *  action's checked state. Used by SWMMVis when the user cancels the
      *  pick tool via Escape (so the toolbar button un-toggles). */
