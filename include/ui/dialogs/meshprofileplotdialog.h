@@ -24,7 +24,6 @@
 #include <QDialog>
 #include <QPointer>
 #include <QPointF>
-#include <QTimer>
 #include <QVector>
 
 class QVBoxLayout;
@@ -74,6 +73,9 @@ private:
     void exportSectionImage();
     void exportSectionTable();
     void rebuildProfile();          // full resample (geometry + envelope)
+    void requestEnvelope();         // ask the layer for the temporal maximum
+    void applyEnvelope();           // sample that maximum onto the profile
+    void changeEvent(QEvent *event) override;
     void refreshCurrentDepths();    // per-frame depth-column update
     void openDisplayOptions();
 
@@ -85,10 +87,6 @@ private:
 
     QPointer<SWMM2DMeshLayer>     m_mesh;
     QPointer<SWMM2DResultsLayer>  m_results;
-    // Live-run throttle for the full resample: at most one rebuildProfile()
-    // per second (leading edge, pending ticks folded into the next one).
-    QTimer                        m_liveRebuild;
-    bool                          m_liveRebuildPending = false;
     QPointer<AnimationController> m_anim;
     QPointer<SWMMVisProjectWindow> m_projectWindow;
     QVector<QPointF>              m_scenePolyline;
@@ -110,6 +108,8 @@ private:
     QDateTime m_requestedTime;
     bool m_loadingDefinition = false;
     bool m_settingTimeFromAnimation = false;
+    bool m_rebuildingProfile = false;
+    bool m_seriesRefreshed = false;   // set by refreshSectionSeries()
     bool m_contextValid = true;
     double m_verticalScale = 1.0;
     double m_mapUnitsPerMetre = 1.0;

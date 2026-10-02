@@ -37,6 +37,10 @@
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/scalarfillsublayer.h"
+#include "render/contourjob.h"
+#include <QElapsedTimer>
+#include <QFile>
+#include <QTextStream>
 #include <QSGGeometryNode>
 #include <QGraphicsScene>
 #include <QPainter>
@@ -293,6 +297,12 @@ private slots:
     void thinFilmSavedAndLiveParity();
     void flowingSlopeProfilesContoursAndHistory();
     void bellingeNeighborhoodSavedLiveAndRendering();
+    void bellingePerfBaseline();
+    void surfaceWorkerMatchesSynchronousFit();
+    void surfaceWorkerPublishesInRequestOrder();
+    void surfaceWorkerEnvelopeAndStations();
+    void surfaceWorkerLimitsLiveFits();
+    void bellingeWorkerEqualityAndLatency();
 };
 
 void Test2DResultsVizFixes::bellingeNeighborhoodSavedLiveAndRendering()
@@ -400,6 +410,310 @@ void Test2DResultsVizFixes::bellingeNeighborhoodSavedLiveAndRendering()
             }
         }
     }
+}
+
+// Layer-level timing on the preserved Bellinge output. Self-skips unless both
+// VFR_TEST_BELLINGE (fixture) and VFR_PERF_OUT (a reviewable output directory)
+// are set. See workplans/2D_VFR_PERF_RECOVERY_PLAN_2026-10-02.md (M2).
+void Test2DResultsVizFixes::bellingePerfBaseline()
+{
+    const QString path=qEnvironmentVariable("VFR_TEST_BELLINGE"),out=qEnvironmentVariable("VFR_PERF_OUT");
+    if(path.isEmpty() || out.isEmpty())QSKIP("Set VFR_TEST_BELLINGE and VFR_PERF_OUT");
+    QFile csv(out+"/layer-perf.csv");QVERIFY(csv.open(QIODevice::WriteOnly|QIODevice::Text));
+    QTextStream row(&csv);row<<"metric,value_ms,count\n";
+    QElapsedTimer timer;
+    auto ms=[&timer]{return double(timer.nsecsElapsed())/1e6;};
+    {
+        // What opening a profile pays on a fresh layer.
+        auto file=std::make_unique<HDF5Mesh2DSource>();QVERIFY(file->open(path));
+        SWMM2DResultsLayer layer;layer.setSource(std::move(file));layer.setDryDepth(0.0001);
+        const int last=layer.source()->timeCount()-1;layer.setCurrentTimeIndex(last);
+        timer.start();const auto cold=layer.maxSurfaceDepths();const double coldMs=ms();
+        timer.start();const auto warm=layer.maxSurfaceDepths();const double warmMs=ms();
+        QCOMPARE(cold.size(),warm.size());
+        row<<"envelope_cold,"<<coldMs<<","<<last+1<<"\n"<<"envelope_warm,"<<warmMs<<",1\n";
+        const auto box=layer.m_sceneBBox;const double cx=box.center().x(),cy=box.center().y();
+        const QVector<QPointF> sections[2]={{{583970,-6132980},{584530,-6132980}},
+            {{std::max(box.left(),cx-1000),cy},{std::min(box.right(),cx+1000),cy}}};
+        const char* names[2]={"profile_560m","profile_2km"};
+        for(int i=0;i<2;++i) {
+            timer.start();const auto profile=MeshProfileSampler::buildMeshProfile(nullptr,&layer,sections[i],100);
+            const double buildMs=ms();
+            timer.start();double sum=0;
+            for(const auto& s:profile.samples) {
+                if(s.displayTriIdx<0)continue;
+                const double q=MeshProfileSampler::signedWaterDepth(&layer,s.displayTriIdx,s.boundaryTriIdx,s.scenePt);
+                if(std::isfinite(q))sum+=q;
+            }
+            const double refreshMs=ms();Q_UNUSED(sum)
+            row<<names[i]<<"_build,"<<buildMs<<","<<profile.samples.size()<<"\n"
+               <<names[i]<<"_station_refresh,"<<refreshMs<<","<<profile.samples.size()<<"\n";
+        }
+        // Whole-mesh contour march of the current frame, as the scene-graph
+        // sync pays it for meshes below the background-marching threshold.
+        const auto& tris=layer.m_sceneTris;
+        auto positions=std::make_shared<std::vector<OpenSWMM::Render::ContourJobInput::TriPos>>(size_t(tris.size()));
+        auto scalars=std::make_shared<std::vector<std::array<float,3>>>(size_t(tris.size()));
+        for(int i=0;i<tris.size();++i) {
+            const auto& t=tris[i];
+            (*positions)[size_t(i)]={float(t.a.x()-box.left()),float(t.a.y()-box.top()),float(t.b.x()-box.left()),
+                float(t.b.y()-box.top()),float(t.c.x()-box.left()),float(t.c.y()-box.top())};
+            (*scalars)[size_t(i)]={t.dv0,t.dv1,t.dv2};
+        }
+        OpenSWMM::Render::ContourJobInput input;input.positions=positions;input.scalars=scalars;
+        input.minimumVisibleValue=0.0;
+        const double maxDepth=std::max(layer.maxDepth(),1e-9);
+        const auto& scheme=layer.contourBandSublayer()->bandStyle()->scheme();
+        const auto edges=scheme.levelEdges(0.0,maxDepth,layer.depthClassificationSamples(scheme));
+        input.bandLevels.assign(edges.cbegin(),edges.cend());
+        timer.start();const auto bands=OpenSWMM::Render::computeContourJob(input);const double bandMs=ms();
+        input.bandLevels.clear();input.isoLevels=OpenSWMM::Contour::evenlySpacedLevels(0.0,maxDepth,8);
+        timer.start();const auto lines=OpenSWMM::Render::computeContourJob(input);const double isoMs=ms();
+        row<<"contour_bands,"<<bandMs<<","<<bands.bands.size()<<"\n"
+           <<"contour_isolines,"<<isoMs<<","<<lines.segs.size()<<"\n";
+    }
+    // GUI-thread cost of one frame change, with the source reads it contains.
+    auto file=std::make_unique<HDF5Mesh2DSource>();QVERIFY(file->open(path));
+    SWMM2DResultsLayer layer;layer.setSource(std::move(file));layer.setDryDepth(0.0001);
+    const int count=layer.source()->timeCount();
+    std::vector<float> depths,flux;
+    for(int f=0;f<count;++f) {
+        if(layer.currentTimeIndex()==f)layer.setCurrentTimeIndex((f+1)%count);
+        timer.start();QVERIFY(layer.source()->readDepthsAt(f,depths));const double depthMs=ms();
+        timer.start();layer.source()->readEdgeFluxAt(f,flux);const double fluxMs=ms();
+        timer.start();layer.setCurrentTimeIndex(f);const double frameMs=ms();
+        QCOMPARE(layer.currentTimeIndex(),f);
+        row<<"frame_"<<f<<"_read_depths,"<<depthMs<<",1\n"<<"frame_"<<f<<"_read_flux,"<<fluxMs<<",1\n"
+           <<"frame_"<<f<<"_set_time_index,"<<frameMs<<",1\n";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fitted-surface worker (workplans/2D_VFR_PERF_RECOVERY_PLAN_2026-10-02.md).
+// The worker must show exactly what the synchronous path shows.
+// ---------------------------------------------------------------------------
+namespace {
+bool sameFloat(float a,float b) { return (std::isnan(a) && std::isnan(b)) || a==b; }
+bool sameSceneCorners(const SWMM2DResultsLayer& a,const SWMM2DResultsLayer& b)
+{
+    if(a.m_sceneTris.size()!=b.m_sceneTris.size())return false;
+    for(int i=0;i<a.m_sceneTris.size();++i) {
+        const auto &p=a.m_sceneTris[i],&q=b.m_sceneTris[i];
+        if(!sameFloat(p.dv0,q.dv0) || !sameFloat(p.dv1,q.dv1) || !sameFloat(p.dv2,q.dv2)
+           || !sameFloat(p.depth,q.depth))return false;
+    }
+    return true;
+}
+bool sameField(const std::vector<CellWaterGeometry::CornerDepths>& a,
+               const std::vector<CellWaterGeometry::CornerDepths>& b)
+{
+    if(a.size()!=b.size())return false;
+    for(size_t c=0;c<a.size();++c)for(int k=0;k<4;++k)
+        if(!((std::isnan(a[c][k]) && std::isnan(b[c][k])) || a[c][k]==b[c][k]))return false;
+    return true;
+}
+bool sameMaximum(const MeshProfileSampler::MeshProfile& a,const MeshProfileSampler::MeshProfile& b)
+{
+    if(a.samples.size()!=b.samples.size())return false;
+    for(int i=0;i<a.samples.size();++i) {
+        const auto &p=a.samples[i],&q=b.samples[i];
+        const bool sameSigned=(std::isnan(p.signedMaxDepth) && std::isnan(q.signedMaxDepth))
+            || p.signedMaxDepth==q.signedMaxDepth;
+        if(!sameSigned || p.maxDepth!=q.maxDepth || p.chainage!=q.chainage
+           || p.displayTriIdx!=q.displayTriIdx || p.boundaryTriIdx!=q.boundaryTriIdx)return false;
+    }
+    return true;
+}
+std::unique_ptr<SWMM2DResultsLayer> flowingLayer(bool async)
+{
+    auto layer=std::make_unique<SWMM2DResultsLayer>();
+    auto source=std::make_unique<FlowingSlopeSource>();
+    source->frames={0.04f,0.08f,0.12f,0.06f,0.10f};
+    layer->setAsyncSurface(async);
+    layer->setSource(std::move(source));layer->setDryDepth(0.001);
+    return layer;
+}
+} // namespace
+
+void Test2DResultsVizFixes::surfaceWorkerMatchesSynchronousFit()
+{
+    for(size_t cacheBytes:{size_t(64)<<20,size_t(0)}) {
+        auto sync=flowingLayer(false),async=flowingLayer(true);
+        async->setSurfaceCacheBytes(cacheBytes);
+        for(int frame:{3,1,4,1,0,3}) {
+            sync->setCurrentTimeIndex(frame);
+            async->setCurrentTimeIndex(frame);
+            QCOMPARE(async->requestedTimeIndex(),frame);
+            QTRY_COMPARE_WITH_TIMEOUT(async->currentTimeIndex(),frame,10000);
+            QVERIFY(sameSceneCorners(*sync,*async));
+            for(int cell=0;cell<sync->cellCount();++cell)
+                QCOMPARE(async->cellWaterDisplayState(cell),sync->cellWaterDisplayState(cell));
+            const QPointF point(12,-4);
+            const double expected=sync->depthAtSceneInterp(point),actual=async->depthAtSceneInterp(point);
+            QVERIFY(sameFloat(float(expected),float(actual)));
+        }
+        QTRY_VERIFY_WITH_TIMEOUT(!async->surfaceBusy(),10000);
+        if(cacheBytes==0)continue;
+        // A fitted frame is shown again at once, without another fit.
+        const int fits=async->surfaceFitCount();
+        async->setCurrentTimeIndex(1);
+        QCOMPARE(async->currentTimeIndex(),1);
+        QCOMPARE(async->surfaceFitCount(),fits);
+        sync->setCurrentTimeIndex(1);
+        QVERIFY(sameSceneCorners(*sync,*async));
+    }
+}
+
+void Test2DResultsVizFixes::surfaceWorkerPublishesInRequestOrder()
+{
+    auto layer=flowingLayer(true);
+    layer->setCurrentTimeIndex(0);
+    QTRY_VERIFY_WITH_TIMEOUT(!layer->surfaceBusy() && layer->currentTimeIndex()==0,10000);
+    QSignalSpy shown(layer.get(),&SWMM2DResultsLayer::currentTimeChanged);
+    const quint64 revision=layer->frameRevision();
+    const int fits=layer->surfaceFitCount();
+    for(int frame:{1,2,3})layer->setCurrentTimeIndex(frame);
+    QCOMPARE(layer->requestedTimeIndex(),3);
+    // The previous fitted frame stays on display until a new one is ready.
+    QCOMPARE(layer->currentTimeIndex(),0);
+    QCOMPARE(layer->frameRevision(),revision);
+    QTRY_COMPARE_WITH_TIMEOUT(layer->currentTimeIndex(),3,10000);
+    QTRY_VERIFY_WITH_TIMEOUT(!layer->surfaceBusy(),10000);
+    int previous=0;
+    for(const auto& arguments:shown) {
+        const int frame=arguments.at(0).toInt();
+        QVERIFY(frame>previous);previous=frame;
+    }
+    QCOMPARE(previous,3);
+    // Only the latest waiting request is kept: frame 2 was never fitted.
+    QCOMPARE(layer->surfaceFitCount()-fits,2);
+    // Returning to the displayed frame withdraws a newer request in flight.
+    // Frame 2 has no fitted surface yet, so asking for it starts a fit.
+    shown.clear();
+    layer->setCurrentTimeIndex(2);layer->setCurrentTimeIndex(3);
+    QCOMPARE(layer->requestedTimeIndex(),3);
+    QTRY_VERIFY_WITH_TIMEOUT(!layer->surfaceBusy(),10000);
+    QCOMPARE(layer->currentTimeIndex(),3);
+    QCOMPARE(shown.count(),0);
+}
+
+void Test2DResultsVizFixes::surfaceWorkerEnvelopeAndStations()
+{
+    auto sync=flowingLayer(false),async=flowingLayer(true);
+    sync->setCurrentTimeIndex(2);async->setCurrentTimeIndex(2);
+    QTRY_VERIFY_WITH_TIMEOUT(!async->surfaceBusy() && async->currentTimeIndex()==2,10000);
+    const QVector<QPointF> path{{0,-5},{50,-5}};
+    // Stations alone never reconstruct a historical frame.
+    const int fits=async->surfaceFitCount();
+    auto stations=MeshProfileSampler::buildMeshProfile(nullptr,async.get(),path,100,false);
+    QCOMPARE(async->surfaceFitCount(),fits);
+    QVERIFY(stations.samples.size()>=20);
+    for(const auto& s:stations.samples)QVERIFY(std::isnan(s.signedMaxDepth));
+    QVERIFY(!async->envelopeComplete());
+    QSignalSpy ready(async.get(),&SWMM2DResultsLayer::envelopeReady);
+    async->requestEnvelope();
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,20000);
+    QVERIFY(async->envelopeComplete());
+    QVERIFY(sameField(async->maxSurfaceDepths(),sync->maxSurfaceDepths()));
+    MeshProfileSampler::applyMaximum(stations,async.get());
+    QVERIFY(sameMaximum(stations,MeshProfileSampler::buildMeshProfile(nullptr,sync.get(),path,100)));
+    // A complete envelope answers at once and fits nothing.
+    const int complete=async->surfaceFitCount();
+    ready.clear();async->requestEnvelope();
+    QCOMPARE(ready.count(),1);
+    QCOMPARE(async->surfaceFitCount(),complete);
+    // A visibility change invalidates the history; it is rebuilt to the same result.
+    sync->setThinFilmDepth(0.05);async->setThinFilmDepth(0.05);
+    QTRY_VERIFY_WITH_TIMEOUT(!async->surfaceBusy(),10000);
+    QVERIFY(sameSceneCorners(*sync,*async));
+    ready.clear();async->requestEnvelope();
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,20000);
+    QVERIFY(sameField(async->maxSurfaceDepths(),sync->maxSurfaceDepths()));
+}
+
+void Test2DResultsVizFixes::surfaceWorkerLimitsLiveFits()
+{
+    FlowingSlopeSource shape;
+    std::vector<double> x,y,z;std::vector<std::array<int,3>> tris;
+    QVERIFY(shape.readMeshGeometry(x,y,z,tris));
+    std::vector<std::array<int,4>> cells;
+    for(const auto& t:tris)cells.push_back({t[0],t[1],t[2],-1});
+    std::vector<float> flux;QVERIFY(shape.readEdgeFluxAt(0,flux));
+    auto live=std::make_unique<EngineMesh2DSource>(x,y,z,cells);auto* raw=live.get();
+    const QDateTime start(QDate(2026,1,1),QTime(0,0));
+    raw->pushDepths(std::vector<float>(10,0.04f),start,0);raw->pushFlux(flux,start,0);
+    SWMM2DResultsLayer layer;
+    layer.setAsyncSurface(true);layer.setLiveMinFitIntervalMs(400);
+    layer.setSource(std::move(live));layer.setDryDepth(0.001);
+    layer.refreshTimeRange();
+    QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy() && layer.currentTimeIndex()==0,10000);
+    const int fits=layer.surfaceFitCount();
+    for(int tick=1;tick<=5;++tick) {
+        raw->pushDepths(std::vector<float>(10,0.04f+0.01f*float(tick)),start.addSecs(tick),tick);
+        raw->pushFlux(flux,start.addSecs(tick),tick);
+        layer.refreshTimeRange();
+        QTest::qWait(5);
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(layer.currentTimeIndex(),5,10000);
+    QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(),10000);
+    // Five ticks inside one interval: the first one and the latest one.
+    QVERIFY2(layer.surfaceFitCount()-fits<=3,qPrintable(QString::number(layer.surfaceFitCount()-fits)));
+    for(const auto& tri:layer.m_sceneTris)for(float d:{tri.dv0,tri.dv1,tri.dv2})
+        QVERIFY(std::abs(d-0.09f)<1e-6f);
+}
+
+// Worker equality and latency on the preserved Bellinge output. Self-skips
+// without VFR_TEST_BELLINGE; writes worker-latency.csv when VFR_PERF_OUT is set.
+void Test2DResultsVizFixes::bellingeWorkerEqualityAndLatency()
+{
+    const QString path=qEnvironmentVariable("VFR_TEST_BELLINGE"),out=qEnvironmentVariable("VFR_PERF_OUT");
+    if(path.isEmpty())QSKIP("Set VFR_TEST_BELLINGE to the preserved partial output");
+    SWMM2DResultsLayer sync,async;
+    async.setAsyncSurface(true);
+    for(auto* layer:{&sync,&async}) {
+        auto file=std::make_unique<HDF5Mesh2DSource>();QVERIFY(file->open(path));
+        layer->setSource(std::move(file));layer->setDryDepth(0.0001);
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(!async.surfaceBusy(),120000);
+    const int count=sync.source()->timeCount(),last=count-1;
+    QFile csv(out+"/worker-latency.csv");
+    if(!out.isEmpty())QVERIFY(csv.open(QIODevice::WriteOnly|QIODevice::Text));
+    QTextStream row(&csv);row<<"metric,value_ms,count\n";
+    QElapsedTimer timer;
+    auto ms=[&timer]{return double(timer.nsecsElapsed())/1e6;};
+    for(int frame=0;frame<count;++frame) {
+        sync.setCurrentTimeIndex(frame);
+        timer.start();async.setCurrentTimeIndex(frame);const double callMs=ms();
+        QTRY_COMPARE_WITH_TIMEOUT(async.currentTimeIndex(),frame,120000);const double shownMs=ms();
+        QVERIFY(sameSceneCorners(sync,async));
+        row<<"frame_"<<frame<<"_request_call,"<<callMs<<",1\n"<<"frame_"<<frame<<"_request_to_shown,"<<shownMs<<",1\n";
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(!async.surfaceBusy(),120000);
+    // Every frame is fitted now: seeking is immediate and identical.
+    const int fits=async.surfaceFitCount();
+    for(int frame:{3,last,8,last,0}) {
+        timer.start();async.setCurrentTimeIndex(frame);const double seekMs=ms();
+        QCOMPARE(async.currentTimeIndex(),frame);
+        sync.setCurrentTimeIndex(frame);
+        QVERIFY(sameSceneCorners(sync,async));
+        row<<"seek_cached_frame_"<<frame<<","<<seekMs<<",1\n";
+    }
+    QCOMPARE(async.surfaceFitCount(),fits);
+    // Envelope from the fitted frames equals the synchronous fold.
+    QSignalSpy ready(&async,&SWMM2DResultsLayer::envelopeReady);
+    timer.start();async.requestEnvelope();const double requestMs=ms();
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,240000);
+    timer.start();const auto maximum=async.maxSurfaceDepths();const double readMs=ms();
+    QVERIFY(sameField(maximum,sync.maxSurfaceDepths()));
+    row<<"envelope_request_call,"<<requestMs<<","<<count<<"\n"<<"envelope_read,"<<readMs<<",1\n";
+    // Stations without the maximum, then the maximum applied: same section.
+    const QVector<QPointF> section{{583970,-6132980},{584530,-6132980}};
+    timer.start();
+    auto profile=MeshProfileSampler::buildMeshProfile(nullptr,&async,section,100,false);const double stationMs=ms();
+    timer.start();MeshProfileSampler::applyMaximum(profile,&async);const double applyMs=ms();
+    QVERIFY(sameMaximum(profile,MeshProfileSampler::buildMeshProfile(nullptr,&sync,section,100)));
+    row<<"profile_560m_stations,"<<stationMs<<","<<profile.samples.size()<<"\n"
+       <<"profile_560m_apply_maximum,"<<applyMs<<","<<profile.samples.size()<<"\n";
 }
 
 void Test2DResultsVizFixes::flowingSlopeProfilesContoursAndHistory()
