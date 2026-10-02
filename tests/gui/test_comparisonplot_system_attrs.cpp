@@ -5,10 +5,14 @@
  * \license GPL-3.0-or-later
  *
  * Slice AT.2 — pins the AT.2 system-attribute additions:
- *   - 14 PlotAttribute::System* enumerators carry sensible labels + units.
+ *   - 15 plottable PlotAttribute::System* enumerators carry labels + units.
  *   - ObjectRef::Kind::System is valid without a name; forSystem() factory.
- *   - SwmmOutRunLayer::variableCodeFor() maps each System* to the matching
- *     engine SWMM_OUT_SYS_* code 1:1.
+ *   - SwmmOutRunLayer::variableCodeFor() maps each System* to the slot the
+ *     engine's .out writer fills (DefaultOutputPlugin, legacy SysResults
+ *     order). Literal slot numbers, not enum names: the enum once disagreed
+ *     with the writer and every system plot from slot 3 on read the wrong
+ *     column (fixed 2026-10-02).
+ *   - Subcatchment groundwater attributes map to SWMM_OUT_SUBCATCH_GW_*.
  *
  * Self-contained: links plotattribute.cpp + the engine's output header only
  * (no .out fixture, no SWMMResultsLayer — we exercise the pure mapping).
@@ -22,6 +26,8 @@
 #include <QObject>
 #include <QTest>
 
+#include <iterator>
+
 using namespace openswmmvis::plot;
 
 class TestComparisonPlotSystemAttrs : public QObject
@@ -30,32 +36,35 @@ class TestComparisonPlotSystemAttrs : public QObject
 private slots:
     void objectRef_forSystem_isValid();
     void objectRef_forSystem_equality();
-    void isSystemAttribute_classifiesAllFourteen();
+    void isSystemAttribute_classifiesAll();
     void isSystemAttribute_rejectsNonSystemKinds();
     void labelFor_isPopulatedForAllSystemAttrs();
     void unitsFor_followsUnitSystemAndAttribute();
     void variableCode_mapsToEngineSwmmOutSysConstants();
     void variableCode_rejectsNonSystemKindForSystemAttr();
     void variableCode_rejectsSystemKindForNonSystemAttr();
+    void variableCode_retiredEvapTotalHasNoSlot();
+    void subcatchGroundwater_mapsToEngineSlots();
 };
 
 // Convenience list — keep in lockstep with PlotAttribute::System*.
 namespace {
 const std::pair<PlotAttribute, int> kSystemMap[] = {
-    {PlotAttribute::SystemTemperature, SWMM_OUT_SYS_TEMPERATURE},
-    {PlotAttribute::SystemRainfall,    SWMM_OUT_SYS_RAINFALL},
-    {PlotAttribute::SystemSnowDepth,   SWMM_OUT_SYS_SNOW_DEPTH},
-    {PlotAttribute::SystemEvap,        SWMM_OUT_SYS_EVAP},
-    {PlotAttribute::SystemInfil,       SWMM_OUT_SYS_INFIL},
-    {PlotAttribute::SystemRunoff,      SWMM_OUT_SYS_RUNOFF},
-    {PlotAttribute::SystemDwInflow,    SWMM_OUT_SYS_DW_INFLOW},
-    {PlotAttribute::SystemGwInflow,    SWMM_OUT_SYS_GW_INFLOW},
-    {PlotAttribute::SystemLatInflow,   SWMM_OUT_SYS_LAT_INFLOW},
-    {PlotAttribute::SystemFlooding,    SWMM_OUT_SYS_FLOODING},
-    {PlotAttribute::SystemOutflow,     SWMM_OUT_SYS_OUTFLOW},
-    {PlotAttribute::SystemStorage,     SWMM_OUT_SYS_STORAGE},
-    {PlotAttribute::SystemEvapTotal,   SWMM_OUT_SYS_EVAP_TOTAL},
-    {PlotAttribute::SystemPET,         SWMM_OUT_SYS_PET},
+    {PlotAttribute::SystemTemperature,  0},
+    {PlotAttribute::SystemRainfall,     1},
+    {PlotAttribute::SystemSnowDepth,    2},
+    {PlotAttribute::SystemInfil,        3},
+    {PlotAttribute::SystemRunoff,       4},
+    {PlotAttribute::SystemDwInflow,     5},
+    {PlotAttribute::SystemGwInflow,     6},
+    {PlotAttribute::SystemRdiiInflow,   7},
+    {PlotAttribute::SystemExtInflow,    8},
+    {PlotAttribute::SystemLatInflow,    9},   // total lateral inflow
+    {PlotAttribute::SystemFlooding,    10},
+    {PlotAttribute::SystemOutflow,     11},
+    {PlotAttribute::SystemStorage,     12},
+    {PlotAttribute::SystemEvap,        13},
+    {PlotAttribute::SystemPET,         14},
 };
 } // namespace
 
@@ -74,7 +83,7 @@ void TestComparisonPlotSystemAttrs::objectRef_forSystem_equality()
     QVERIFY(ObjectRef::forSystem() != ObjectRef::forNode("J1"));
 }
 
-void TestComparisonPlotSystemAttrs::isSystemAttribute_classifiesAllFourteen()
+void TestComparisonPlotSystemAttrs::isSystemAttribute_classifiesAll()
 {
     for (const auto& [attr, _] : kSystemMap) {
         QVERIFY2(isSystemAttribute(attr),
@@ -136,7 +145,7 @@ void TestComparisonPlotSystemAttrs::unitsFor_followsUnitSystemAndAttribute()
     // Evaporation daily rate — mm/d vs in/d.
     QCOMPARE(unitsFor(PlotAttribute::SystemPET,      UnitSystem::SI),
              QStringLiteral("mm/d"));
-    QCOMPARE(unitsFor(PlotAttribute::SystemEvapTotal, UnitSystem::US),
+    QCOMPARE(unitsFor(PlotAttribute::SystemEvap, UnitSystem::US),
              QStringLiteral("in/d"));
 
     // Temperature — °C vs °F.
@@ -177,6 +186,27 @@ void TestComparisonPlotSystemAttrs::variableCode_rejectsSystemKindForNonSystemAt
                  PlotAttribute::LinkFlow,  ObjectRef::Kind::System), -1);
     QCOMPARE(SwmmOutRunLayer::variableCodeFor(
                  PlotAttribute::SubcatchRunoff, ObjectRef::Kind::System), -1);
+}
+
+void TestComparisonPlotSystemAttrs::variableCode_retiredEvapTotalHasNoSlot()
+{
+    QCOMPARE(SwmmOutRunLayer::variableCodeFor(
+                 PlotAttribute::SystemEvapTotal, ObjectRef::Kind::System), -1);
+    QVERIFY(!systemPlotAttributes().contains(PlotAttribute::SystemEvapTotal));
+    QCOMPARE(systemPlotAttributes().size(), int(std::size(kSystemMap)));
+}
+
+void TestComparisonPlotSystemAttrs::subcatchGroundwater_mapsToEngineSlots()
+{
+    using K = ObjectRef::Kind;
+    QCOMPARE(SwmmOutRunLayer::variableCodeFor(PlotAttribute::SubcatchGwFlow, K::Subcatch), 5);
+    QCOMPARE(SwmmOutRunLayer::variableCodeFor(PlotAttribute::SubcatchGwElev, K::Subcatch), 6);
+    QCOMPARE(SwmmOutRunLayer::variableCodeFor(PlotAttribute::SubcatchSoilMoisture, K::Subcatch), 7);
+    QCOMPARE(SwmmOutRunLayer::variableCodeFor(PlotAttribute::SubcatchGwFlow, K::Node), -1);
+    QVERIFY(subcatchPlotAttributes().contains(PlotAttribute::SubcatchGwElev));
+    QCOMPARE(unitsFor(PlotAttribute::SubcatchGwElev, UnitSystem::SI), QStringLiteral("m"));
+    QCOMPARE(unitsFor(PlotAttribute::SubcatchGwFlow, UnitSystem::US), QStringLiteral("ft³/s"));
+    QVERIFY(unitsFor(PlotAttribute::SubcatchSoilMoisture, UnitSystem::SI).isEmpty());
 }
 
 QTEST_MAIN(TestComparisonPlotSystemAttrs)

@@ -111,8 +111,8 @@ void TestPlotVariablePickerDialog::attributeListsPinned()
 {
     QCOMPARE(nodePlotAttributes().size(),     6);
     QCOMPARE(linkPlotAttributes().size(),     5);
-    QCOMPARE(subcatchPlotAttributes().size(), 5);
-    QCOMPARE(systemPlotAttributes().size(),  14);
+    QCOMPARE(subcatchPlotAttributes().size(), 8);
+    QCOMPARE(systemPlotAttributes().size(),  15);
 
     // No duplicates within any list, and every system entry really is one.
     for (const auto *list : {&nodePlotAttributes(), &linkPlotAttributes(),
@@ -150,7 +150,7 @@ void TestPlotVariablePickerDialog::systemOnlyWhenNoFeatures()
     PlotVariablePickerDialog dlg({}, nullptr, UnitSystem::SI);
     QTreeWidget *tree = treeOf(dlg);
     QCOMPARE(tree->topLevelItemCount(), 1);
-    QCOMPARE(tree->topLevelItem(0)->childCount(), 14);
+    QCOMPARE(tree->topLevelItem(0)->childCount(), 15);
     QVERIFY(dlg.checkedEntries().isEmpty());
     QVERIFY(!okButtonOf(dlg)->isEnabled());
 }
@@ -165,10 +165,10 @@ void TestPlotVariablePickerDialog::groupsPerSelectedFeature()
     PlotVariablePickerDialog dlg(features, nullptr, UnitSystem::US);
     QTreeWidget *tree = treeOf(dlg);
     QCOMPARE(tree->topLevelItemCount(), 4);          // System + 3 features
-    QCOMPARE(tree->topLevelItem(0)->childCount(), 14);
+    QCOMPARE(tree->topLevelItem(0)->childCount(), 15);
     QCOMPARE(tree->topLevelItem(1)->childCount(), 6);   // Node J1
     QCOMPARE(tree->topLevelItem(2)->childCount(), 5);   // Link C1
-    QCOMPARE(tree->topLevelItem(3)->childCount(), 5);   // Subcatchment S1
+    QCOMPARE(tree->topLevelItem(3)->childCount(), 8);   // Subcatchment S1
     QVERIFY(tree->topLevelItem(1)->text(0).contains(QStringLiteral("J1")));
 }
 
@@ -240,7 +240,7 @@ void TestPlotVariablePickerDialog::selectAllSkipsDisabled()
     all->click();
 
     const auto entries = dlg.checkedEntries();
-    QCOMPARE(entries.size(), 14 + 5 - 2);   // minus SystemPET + LinkVolume
+    QCOMPARE(entries.size(), 15 + 5 - 2);   // minus SystemPET + LinkVolume
     for (const auto &e : entries) {
         QVERIFY(e.attribute != PlotAttribute::SystemPET);
         QVERIFY(e.attribute != PlotAttribute::LinkVolume);
@@ -264,7 +264,7 @@ void TestPlotVariablePickerDialog::invertFlipsCheckedState()
     invert->click();
 
     const auto entries = dlg.checkedEntries();
-    QCOMPARE(entries.size(), 13);   // everything except the one that was checked
+    QCOMPARE(entries.size(), 14);   // everything except the one that was checked
     for (const auto &e : entries)
         QVERIFY(e.attribute != systemPlotAttributes().first());
 }
@@ -287,7 +287,7 @@ void TestPlotVariablePickerDialog::filterHidesNonMatchingLeaves()
     visible = 0;
     for (int i = 0; i < sys->childCount(); ++i)
         if (!sys->child(i)->isHidden()) ++visible;
-    QCOMPARE(visible, 14);
+    QCOMPARE(visible, 15);
 }
 
 void TestPlotVariablePickerDialog::nullAvailabilityEnablesEverything()
