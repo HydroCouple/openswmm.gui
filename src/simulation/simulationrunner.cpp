@@ -36,8 +36,54 @@
 #include <QProcess>
 #include <QJsonDocument>
 #include <QJsonObject>
+#ifdef Q_OS_UNIX
+#include <sys/file.h>
+#include <cerrno>
+#include <cstring>
+#elif defined(Q_OS_WIN)
+#include <qt_windows.h>
+#endif
 
 namespace {
+
+// H5Fcreate(TRUNC) can truncate an existing output before discovering that
+// another app still has its HDF5 lock. Probe without creating/truncating the
+// file, AFTER the GUI has released its own result readers and BEFORE any
+// report/output writer starts. This also catches a locked zero-byte output
+// left by an earlier failed attempt. The engine still owns the run-time lock.
+bool twoDOutputAvailable(const QString& path, QString& error)
+{
+    if (path.isEmpty() || !QFileInfo::exists(path)) return true;
+    bool busy=false;
+    QString detail;
+#ifdef Q_OS_UNIX
+    QFile file(path);
+    if (!file.open(QIODevice::ReadWrite | QIODevice::ExistingOnly)) {
+        detail=file.errorString();
+    } else {
+        int result;
+        do { result=::flock(file.handle(),LOCK_EX|LOCK_NB); } while(result<0 && errno==EINTR);
+        if (result==0) return true; // QFile destruction releases the probe lock
+        busy=errno==EWOULDBLOCK || errno==EAGAIN;
+        detail=QString::fromLocal8Bit(std::strerror(errno));
+    }
+#elif defined(Q_OS_WIN)
+    const QString native=QDir::toNativeSeparators(path);
+    HANDLE file=CreateFileW(reinterpret_cast<LPCWSTR>(native.utf16()),GENERIC_WRITE,
+                            0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if (file!=INVALID_HANDLE_VALUE) { CloseHandle(file); return true; }
+    const DWORD code=GetLastError();
+    busy=code==ERROR_SHARING_VIOLATION || code==ERROR_LOCK_VIOLATION;
+    detail=QString::number(code);
+#else
+    return true;
+#endif
+    error=busy
+        ? SimulationRunner::tr("2D results file is in use by another simulation or results window:\n%1\n"
+                               "Close that results view (including other app instances), or wait for its simulation to finish, then retry.").arg(path)
+        : SimulationRunner::tr("Cannot access the 2D results file for writing:\n%1\n%2").arg(path,detail);
+    return false;
+}
 
 // Append-only per-run log beside the report (<rpt stem>.runlog.txt): the
 // phases the worker passed through, the outcome and the timing. Flushed per
@@ -523,6 +569,13 @@ void SimulationRunner::start()
         QMetaObject::invokeMethod(this, [this, pathError] {
             emit finished(m_jobId, false, SWMM_ERR_BADPARAM, pathError, 0, 0, qQNaN());
         }, Qt::QueuedConnection);
+        return;
+    }
+    if (!m_engineVersion.startsWith(QLatin1String("5."))
+        && !twoDOutputAvailable(parseTwoDOutputFile(m_inpPath),pathError)) {
+        QMetaObject::invokeMethod(this, [this,pathError] {
+            emit finished(m_jobId,false,SWMM_ERR_IO,pathError,0,0,qQNaN());
+        },Qt::QueuedConnection);
         return;
     }
 

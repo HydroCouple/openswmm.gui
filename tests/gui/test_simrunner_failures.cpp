@@ -19,6 +19,9 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <filesystem>
+#ifdef Q_OS_UNIX
+#include <sys/file.h>
+#endif
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -276,6 +279,51 @@ private slots:
         QVERIFY2(firstDone.first()[1].toBool(), qPrintable(firstDone.first()[3].toString()));
         QVERIFY2(secondDone.first()[1].toBool(), qPrintable(secondDone.first()[3].toString()));
         QCOMPARE(duringFirst, originalDirectory); QCOMPARE(duringBoth, originalDirectory); QCOMPARE(after, originalDirectory);
+    }
+
+    void busyHdfOutputIsRefusedBeforeAnyOutputIsWritten_data()
+    {
+        QTest::addColumn<bool>("empty");
+        QTest::addColumn<bool>("writer");
+        QTest::newRow("reader") << false << false;
+        QTest::newRow("writer") << false << true;
+        QTest::newRow("empty-locked-file") << true << false;
+    }
+
+    void busyHdfOutputIsRefusedBeforeAnyOutputIsWritten()
+    {
+        QFETCH(bool,empty);QFETCH(bool,writer);
+        const QDir dir(QDir(outputDir()).absoluteFilePath("busy_hdf"));
+        QVERIFY(QDir().mkpath(dir.path()));
+        const QString inp=dir.filePath("model.inp"),rpt=dir.filePath("run.rpt"),out=dir.filePath("run.out");
+        const QString h5=dir.filePath("results.h5"),log=dir.filePath("run.runlog.txt");
+        const QByteArray deck=QByteArray(kMinimal1D)+"\n[2D_OPTIONS]\nOUTPUT_FILE results.h5\n";
+        const QByteArray saved="previous results must survive a refused run\n";
+        for(const auto& path:{inp,rpt,out,h5,log}) {
+            QFile file(path);QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(path==inp ? deck : path==h5 && empty ? QByteArray() : saved);
+        }
+        QFile holder(h5);QVERIFY(holder.open(QIODevice::ReadWrite));
+#ifdef Q_OS_UNIX
+        QVERIFY(::flock(holder.handle(),(writer ? LOCK_EX : LOCK_SH)|LOCK_NB)==0);
+#else
+        Q_UNUSED(writer)
+#endif
+        SimulationRunner blocked(105,"busy_hdf",inp,rpt,out);
+        QSignalSpy refused(&blocked,&SimulationRunner::finished);
+        blocked.start();QVERIFY(refused.count() || refused.wait(15000));
+        QVERIFY(!refused.first()[1].toBool());
+        const QString message=refused.first()[3].toString();
+        QVERIFY2(message.contains("in use") && message.contains("results.h5"),qPrintable(message));
+        for(const auto& path:{inp,rpt,out,h5,log}) {
+            QFile file(path);QVERIFY(file.open(QIODevice::ReadOnly));
+            QCOMPARE(file.readAll(),path==inp ? deck : path==h5 && empty ? QByteArray() : saved);
+        }
+        holder.close();
+        SimulationRunner available(106,"released_hdf",inp,rpt,out);
+        QSignalSpy finished(&available,&SimulationRunner::finished);
+        available.start();QVERIFY(finished.count() || finished.wait(15000));
+        QVERIFY2(finished.first()[1].toBool(),qPrintable(finished.first()[3].toString()));
     }
 
     void outputAliasesNeverModifyInputs_data()
