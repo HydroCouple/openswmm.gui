@@ -79,11 +79,11 @@ enum class PlotAttribute {
     SystemRunoff      = 27, ///< m³/s / ft³/s — SYS_RUNOFF    (total)
     SystemDwInflow    = 28, ///< m³/s / ft³/s — SYS_DW_INFLOW (total)
     SystemGwInflow    = 29, ///< m³/s / ft³/s — SYS_GW_INFLOW (total)
-    SystemLatInflow   = 30, ///< m³/s / ft³/s — SYS_LAT_INFLOW(total)
+    SystemLatInflow   = 30, ///< m³/s / ft³/s — SYS_TOTAL_INFLOW (total lateral inflow)
     SystemFlooding    = 31, ///< m³/s / ft³/s — SYS_FLOODING  (total)
     SystemOutflow     = 32, ///< m³/s / ft³/s — SYS_OUTFLOW   (total)
     SystemStorage     = 33, ///< m³ / ft³  — SYS_STORAGE     (total volume)
-    SystemEvapTotal   = 34, ///< mm/d / in/d — SYS_EVAP_TOTAL (total rate)
+    SystemEvapTotal   = 34, ///< retired: the .out has no such slot; kept so saved plots load
     SystemPET         = 35, ///< mm/d / in/d — SYS_PET        (potential ET)
 
     // ----- 2D mesh-edge variables ------------------------------------------
@@ -99,6 +99,15 @@ enum class PlotAttribute {
     // report instants (invisible to the instantaneous Mesh2DRainfall) shows.
     Mesh2DRainfallAvg = 40, ///< mm/hr / in/hr — mean intensity over the preceding report interval
     Mesh2DRainDepth   = 41, ///< mm / in — cumulative rainfall depth applied to the cell
+
+    // ----- 1D subcatchment groundwater (engine SWMM_OUT_SUBCATCH_GW_*) -----
+    SubcatchGwFlow       = 42, ///< m³/s / ft³/s — lateral groundwater outflow
+    SubcatchGwElev       = 43, ///< m / ft — water table elevation
+    SubcatchSoilMoisture = 44, ///< fraction — upper-zone moisture content
+
+    // ----- More system-wide inflows (engine SWMM_OUT_SYS_*) ----------------
+    SystemRdiiInflow  = 45, ///< m³/s / ft³/s — SYS_RDII_INFLOW (total)
+    SystemExtInflow   = 46, ///< m³/s / ft³/s — SYS_EXT_INFLOW  (total)
 };
 
 /*! \brief Short human label, e.g. "Depth", "Flow", "Velocity |V|". */
@@ -127,10 +136,11 @@ const QVector<PlotAttribute> &nodePlotAttributes();
 /*! \brief The 5 per-link attributes, presentation order. */
 const QVector<PlotAttribute> &linkPlotAttributes();
 
-/*! \brief The 5 per-subcatchment attributes, presentation order. */
+/*! \brief The 8 per-subcatchment attributes (5 hydrology + 3 groundwater),
+ *  presentation order. */
 const QVector<PlotAttribute> &subcatchPlotAttributes();
 
-/*! \brief The 14 system-wide attributes, presentation order (matches the
+/*! \brief The 15 system-wide attributes, presentation order (matches the
  *  long-standing system picker menu: Rainfall first, Temperature last). */
 const QVector<PlotAttribute> &systemPlotAttributes();
 
@@ -170,6 +180,8 @@ inline bool isSystemAttribute(PlotAttribute a) noexcept
            a == PlotAttribute::SystemRunoff      ||
            a == PlotAttribute::SystemDwInflow    ||
            a == PlotAttribute::SystemGwInflow    ||
+           a == PlotAttribute::SystemRdiiInflow  ||
+           a == PlotAttribute::SystemExtInflow   ||
            a == PlotAttribute::SystemLatInflow   ||
            a == PlotAttribute::SystemFlooding    ||
            a == PlotAttribute::SystemOutflow     ||

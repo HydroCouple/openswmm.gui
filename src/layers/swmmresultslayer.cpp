@@ -133,6 +133,10 @@ int subcatchVar(SWMMResultVariable v)
     case SWMMResultVariable::SubcatchInfiltration: return SWMM_OUT_SUBCATCH_INFIL;
     case SWMMResultVariable::SubcatchEvaporation:  return SWMM_OUT_SUBCATCH_EVAP;
     case SWMMResultVariable::SubcatchSnowDepth:    return SWMM_OUT_SUBCATCH_SNOW_DEPTH;
+    case SWMMResultVariable::SubcatchRainfall:     return SWMM_OUT_SUBCATCH_RAINFALL;
+    case SWMMResultVariable::SubcatchGwFlow:       return SWMM_OUT_SUBCATCH_GW_FLOW;
+    case SWMMResultVariable::SubcatchGwElevation:  return SWMM_OUT_SUBCATCH_GW_ELEV;
+    case SWMMResultVariable::SubcatchSoilMoisture: return SWMM_OUT_SUBCATCH_SOIL_MOIST;
     default:                                       return -1;
     }
 }
@@ -240,10 +244,18 @@ int subcatchOutCodeForAttribute(const QString &attr)
         { QStringLiteral("infiltration"),         SWMM_OUT_SUBCATCH_INFIL },
         { QStringLiteral("evaporation"),          SWMM_OUT_SUBCATCH_EVAP },
         { QStringLiteral("snowDepth"),            SWMM_OUT_SUBCATCH_SNOW_DEPTH },
+        { QStringLiteral("rainfall"),             SWMM_OUT_SUBCATCH_RAINFALL },
+        { QStringLiteral("gwFlow"),               SWMM_OUT_SUBCATCH_GW_FLOW },
+        { QStringLiteral("gwElevation"),          SWMM_OUT_SUBCATCH_GW_ELEV },
+        { QStringLiteral("soilMoisture"),         SWMM_OUT_SUBCATCH_SOIL_MOIST },
         { QStringLiteral("SubcatchRunoff"),       SWMM_OUT_SUBCATCH_RUNOFF },
         { QStringLiteral("SubcatchInfiltration"), SWMM_OUT_SUBCATCH_INFIL },
         { QStringLiteral("SubcatchEvaporation"),  SWMM_OUT_SUBCATCH_EVAP },
         { QStringLiteral("SubcatchSnowDepth"),    SWMM_OUT_SUBCATCH_SNOW_DEPTH },
+        { QStringLiteral("SubcatchRainfall"),     SWMM_OUT_SUBCATCH_RAINFALL },
+        { QStringLiteral("SubcatchGwFlow"),       SWMM_OUT_SUBCATCH_GW_FLOW },
+        { QStringLiteral("SubcatchGwElevation"),  SWMM_OUT_SUBCATCH_GW_ELEV },
+        { QStringLiteral("SubcatchSoilMoisture"), SWMM_OUT_SUBCATCH_SOIL_MOIST },
     };
     return kMap.value(attr, -1);
 }
@@ -2474,6 +2486,10 @@ SWMMResultsLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
         out.append(make("infiltration", "infiltration (m/s)",   "m/s"));
         out.append(make("evaporation",  "evaporation (m/s)",    "m/s"));
         out.append(make("snowDepth",    "snow depth (m)",       "m"));
+        out.append(make("rainfall",     "rainfall (mm/hr)",     "mm/hr"));
+        out.append(make("gwFlow",       "groundwater flow (m³/s)", "m³/s"));
+        out.append(make("gwElevation",  "groundwater elevation (m)", "m"));
+        out.append(make("soilMoisture", "soil moisture",        ""));
         break;
     case L::CatRainGages:
         // Rain gages don't carry per-feature engine output today.
@@ -2798,6 +2814,10 @@ QString variableEnumName(SWMMResultVariable v)
     case SWMMResultVariable::SubcatchInfiltration: return QStringLiteral("SubcatchInfiltration");
     case SWMMResultVariable::SubcatchEvaporation:  return QStringLiteral("SubcatchEvaporation");
     case SWMMResultVariable::SubcatchSnowDepth:    return QStringLiteral("SubcatchSnowDepth");
+    case SWMMResultVariable::SubcatchRainfall:     return QStringLiteral("SubcatchRainfall");
+    case SWMMResultVariable::SubcatchGwFlow:       return QStringLiteral("SubcatchGwFlow");
+    case SWMMResultVariable::SubcatchGwElevation:  return QStringLiteral("SubcatchGwElevation");
+    case SWMMResultVariable::SubcatchSoilMoisture: return QStringLiteral("SubcatchSoilMoisture");
     }
     return QString();
 }

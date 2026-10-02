@@ -137,6 +137,9 @@ void TabularResultsDialog::onModeChanged()
             m_varOrObjCombo->addItem(tr("Evap"),        SWMM_OUT_SUBCATCH_EVAP);
             m_varOrObjCombo->addItem(tr("Infiltration"),SWMM_OUT_SUBCATCH_INFIL);
             m_varOrObjCombo->addItem(tr("Runoff"),      SWMM_OUT_SUBCATCH_RUNOFF);
+            m_varOrObjCombo->addItem(tr("Groundwater flow"),      SWMM_OUT_SUBCATCH_GW_FLOW);
+            m_varOrObjCombo->addItem(tr("Groundwater elevation"), SWMM_OUT_SUBCATCH_GW_ELEV);
+            m_varOrObjCombo->addItem(tr("Soil moisture"),         SWMM_OUT_SUBCATCH_SOIL_MOIST);
             break;
         }
         rebuildByObject();
@@ -253,7 +256,10 @@ void TabularResultsDialog::rebuildByVariable()
                 {tr("Snow"), SWMM_OUT_SUBCATCH_SNOW_DEPTH},
                 {tr("Evap"), SWMM_OUT_SUBCATCH_EVAP},
                 {tr("Infil"), SWMM_OUT_SUBCATCH_INFIL},
-                {tr("Runoff"), SWMM_OUT_SUBCATCH_RUNOFF}};
+                {tr("Runoff"), SWMM_OUT_SUBCATCH_RUNOFF},
+                {tr("GW flow"), SWMM_OUT_SUBCATCH_GW_FLOW},
+                {tr("GW elev"), SWMM_OUT_SUBCATCH_GW_ELEV},
+                {tr("Soil moist"), SWMM_OUT_SUBCATCH_SOIL_MOIST}};
         break;
     }
 

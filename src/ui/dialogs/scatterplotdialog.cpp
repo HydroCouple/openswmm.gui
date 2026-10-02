@@ -59,6 +59,9 @@ void varsForKind(int kind, QComboBox *combo)
         combo->addItem("Evap",         SWMM_OUT_SUBCATCH_EVAP);
         combo->addItem("Infiltration", SWMM_OUT_SUBCATCH_INFIL);
         combo->addItem("Runoff",       SWMM_OUT_SUBCATCH_RUNOFF);
+        combo->addItem("Groundwater flow",      SWMM_OUT_SUBCATCH_GW_FLOW);
+        combo->addItem("Groundwater elevation", SWMM_OUT_SUBCATCH_GW_ELEV);
+        combo->addItem("Soil moisture",         SWMM_OUT_SUBCATCH_SOIL_MOIST);
         break;
     }
 }
