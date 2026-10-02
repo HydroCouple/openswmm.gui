@@ -1,0 +1,328 @@
+Internal ctest changing into directory: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification
+UpdateCTestConfiguration  from :/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/DartConfiguration.tcl
+UpdateCTestConfiguration  from :/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/DartConfiguration.tcl
+Test project /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 63
+    Start  63: test_contourjob
+
+63: Test command: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/vfr-flow-testing/test_contourjob
+63: Working Directory: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/unit/data
+63: Environment variable modifications:
+63:  PROJ_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+63:  PROJ_LIB=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+63:  GDAL_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/gdal
+63: Test timeout computed to be: 10000000
+63: Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.17.0-0c449efaff.clean/googletest/src/gtest_main.cc
+63: [==========] Running 3 tests from 1 test suite.
+63: [----------] Global test environment set-up.
+63: [----------] 3 tests from ContourJobTest
+63: [ RUN      ] ContourJobTest.MatchesDirectMarchingOnSameSnapshot
+63: [       OK ] ContourJobTest.MatchesDirectMarchingOnSameSnapshot (0 ms)
+63: [ RUN      ] ContourJobTest.EmptyLevelSetsSkipPasses
+63: [       OK ] ContourJobTest.EmptyLevelSetsSkipPasses (0 ms)
+63: [ RUN      ] ContourJobTest.DegenerateSnapshotsAreSafe
+63: [       OK ] ContourJobTest.DegenerateSnapshotsAreSafe (0 ms)
+63: [----------] 3 tests from ContourJobTest (0 ms total)
+63:
+63: [----------] Global test environment tear-down
+63: [==========] 3 tests from 1 test suite ran. (0 ms total)
+63: [  PASSED  ] 3 tests.
+1/7 Test  #63: test_contourjob .....................   Passed    0.13 sec
+test 85
+    Start  85: test_meshprofile_shoreline_render
+
+85: Test command: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/vfr-flow-testing/test_meshprofile_shoreline_render
+85: Working Directory: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/tests/gui
+85: Environment variables:
+85:  QT_QPA_PLATFORM=offscreen
+85:  SWMMVIS_GUI_TEST_DATA=/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/gui/data
+85:  QTEST_FUNCTION_TIMEOUT=30000
+85: Environment variable modifications:
+85:  PROJ_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+85:  PROJ_LIB=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+85:  GDAL_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/gdal
+85: Test timeout computed to be: 10000000
+85: ********* Start testing of TestMeshProfileShorelineRender *********
+85: Config: Using QtTest library 6.9.3, Qt 6.9.3 (arm64-little_endian-lp64 shared (dynamic) release build; by Apple LLVM 16.0.0 (clang-1600.0.26.3)), macos 27.0.1
+85: PASS   : TestMeshProfileShorelineRender::initTestCase()
+85: QWARN  : TestMeshProfileShorelineRender::coarseSamplingPaintsTheSameShorelineAsDense() qt.qpa.fonts: Populating font family aliases took 48 ms. Replace uses of missing font family "Sans Serif" with one that exists to avoid this cost.
+85: PASS   : TestMeshProfileShorelineRender::coarseSamplingPaintsTheSameShorelineAsDense()
+85: PASS   : TestMeshProfileShorelineRender::exactIntervalPaintsAnalyticShoreline()
+85: PASS   : TestMeshProfileShorelineRender::exactProfileDoesNotBridgeDryGap()
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass0-alpha120-dpr1)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass0-alpha120-dpr1.5)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass0-alpha120-dpr2)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass0-alpha255-dpr1)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass0-alpha255-dpr1.5)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass0-alpha255-dpr2)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass1-alpha120-dpr1)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass1-alpha120-dpr1.5)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass1-alpha120-dpr2)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass1-alpha255-dpr1)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass1-alpha255-dpr1.5)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass1-alpha255-dpr2)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass2-alpha120-dpr1)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass2-alpha120-dpr1.5)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass2-alpha120-dpr2)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass2-alpha255-dpr1)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass2-alpha255-dpr1.5)
+85: PASS   : TestMeshProfileShorelineRender::exactFillHasNoCellSeams(pass2-alpha255-dpr2)
+85: PASS   : TestMeshProfileShorelineRender::cleanupTestCase()
+85: Totals: 23 passed, 0 failed, 0 skipped, 0 blacklisted, 320ms
+85: ********* Finished testing of TestMeshProfileShorelineRender *********
+2/7 Test  #85: test_meshprofile_shoreline_render ...   Passed    0.57 sec
+test 88
+    Start  88: test_cellwatergeometry
+
+88: Test command: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/vfr-flow-testing/test_cellwatergeometry
+88: Working Directory: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/tests/gui
+88: Environment variables:
+88:  QT_QPA_PLATFORM=offscreen
+88:  SWMMVIS_GUI_TEST_DATA=/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/gui/data
+88:  QTEST_FUNCTION_TIMEOUT=30000
+88: Environment variable modifications:
+88:  PROJ_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+88:  PROJ_LIB=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+88:  GDAL_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/gdal
+88: Test timeout computed to be: 10000000
+88: ********* Start testing of TestCellWaterGeometry *********
+88: Config: Using QtTest library 6.9.3, Qt 6.9.3 (arm64-little_endian-lp64 shared (dynamic) release build; by Apple LLVM 16.0.0 (clang-1600.0.26.3)), macos 27.0.1
+88: PASS   : TestCellWaterGeometry::initTestCase()
+88: PASS   : TestCellWaterGeometry::triangleConservesStorage()
+88: PASS   : TestCellWaterGeometry::quadUsesOneStage()
+88: PASS   : TestCellWaterGeometry::datumDoesNotChangeDepth()
+88: PASS   : TestCellWaterGeometry::wetIntervalsAndTerrainCrossings()
+88: PASS   : TestCellWaterGeometry::invalidAndDryNeverPaint()
+88: PASS   : TestCellWaterGeometry::equilibriumAndIndependentPools()
+88: PASS   : TestCellWaterGeometry::smoothConnectedStages()
+88: PASS   : TestCellWaterGeometry::smoothLakeStaysLevelAtDryCorners()
+88: PASS   : TestCellWaterGeometry::smoothDoesNotCrossCrestsOrPointContacts()
+88: PASS   : TestCellWaterGeometry::thinFilmsAndPartialPoolsAreDistinct()
+88: PASS   : TestCellWaterGeometry::hiddenFilmCannotChangeNeighbourStage()
+88: PASS   : TestCellWaterGeometry::inclinedSurfaceConservesStorage()
+88: PASS   : TestCellWaterGeometry::flowingSlopeHasNoCellStacks()
+88: PASS   : TestCellWaterGeometry::flowReconstructionPreservesPoolsAndDryCells()
+88: PASS   : TestCellWaterGeometry::flowingSurfaceDepthsStayBounded()
+88: PASS   : TestCellWaterGeometry::flowingPatchHasNoCornerPockets()
+88: PASS   : TestCellWaterGeometry::clippedStorageDerivativeMatchesGeometry()
+88: PASS   : TestCellWaterGeometry::irregularMovingSheetStaysContinuous()
+88: PASS   : TestCellWaterGeometry::neighborhoodClosesVolumeWithoutCrossingDryGap()
+88: PASS   : TestCellWaterGeometry::cleanupTestCase()
+88: Totals: 21 passed, 0 failed, 0 skipped, 0 blacklisted, 6ms
+88: ********* Finished testing of TestCellWaterGeometry *********
+3/7 Test  #88: test_cellwatergeometry ..............   Passed    0.05 sec
+test 90
+    Start  90: test_profileplot_axis_edges
+
+90: Test command: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/vfr-flow-testing/test_profileplot_axis_edges
+90: Working Directory: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/tests/gui
+90: Environment variables:
+90:  QT_QPA_PLATFORM=offscreen
+90:  SWMMVIS_GUI_TEST_DATA=/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/gui/data
+90:  QTEST_FUNCTION_TIMEOUT=30000
+90: Environment variable modifications:
+90:  PROJ_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+90:  PROJ_LIB=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+90:  GDAL_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/gdal
+90: Test timeout computed to be: 10000000
+90: ********* Start testing of TestProfilePlotAxisEdges *********
+90: Config: Using QtTest library 6.9.3, Qt 6.9.3 (arm64-little_endian-lp64 shared (dynamic) release build; by Apple LLVM 16.0.0 (clang-1600.0.26.3)), macos 27.0.1
+90: PASS   : TestProfilePlotAxisEdges::initTestCase()
+90: PASS   : TestProfilePlotAxisEdges::profilePlotHitTestsAndSetsEdges()
+90: PASS   : TestProfilePlotAxisEdges::meshProfilePlotHitTestsAndSetsEdges()
+90: QWARN  : TestProfilePlotAxisEdges::inundationClipsToAnalyticShoreline() qt.qpa.fonts: Populating font family aliases took 34 ms. Replace uses of missing font family "Sans Serif" with one that exists to avoid this cost.
+90: PASS   : TestProfilePlotAxisEdges::inundationClipsToAnalyticShoreline()
+90: PASS   : TestProfilePlotAxisEdges::inundationRespectsGroundKnotsAndDryGaps()
+90: PASS   : TestProfilePlotAxisEdges::cleanupTestCase()
+90: Totals: 6 passed, 0 failed, 0 skipped, 0 blacklisted, 136ms
+90: ********* Finished testing of TestProfilePlotAxisEdges *********
+4/7 Test  #90: test_profileplot_axis_edges .........   Passed    0.26 sec
+test 214
+    Start 214: test_marchingtriangles
+
+214: Test command: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/vfr-flow-testing/test_marchingtriangles
+214: Working Directory: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/tests/gui
+214: Environment variables:
+214:  QT_QPA_PLATFORM=offscreen
+214:  SWMMVIS_GUI_TEST_DATA=/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/gui/data
+214:  QTEST_FUNCTION_TIMEOUT=30000
+214: Environment variable modifications:
+214:  PROJ_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+214:  PROJ_LIB=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+214:  GDAL_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/gdal
+214: Test timeout computed to be: 10000000
+214: ********* Start testing of TestMarchingTriangles *********
+214: Config: Using QtTest library 6.9.3, Qt 6.9.3 (arm64-little_endian-lp64 shared (dynamic) release build; by Apple LLVM 16.0.0 (clang-1600.0.26.3)), macos 27.0.1
+214: PASS   : TestMarchingTriangles::initTestCase()
+214: PASS   : TestMarchingTriangles::singleCrossing_oneBelow()
+214: PASS   : TestMarchingTriangles::singleCrossing_twoBelow()
+214: PASS   : TestMarchingTriangles::noCrossing_allBelow()
+214: PASS   : TestMarchingTriangles::noCrossing_allAbove()
+214: PASS   : TestMarchingTriangles::degenerateFlatTriangle_skipped()
+214: PASS   : TestMarchingTriangles::multipleLevels_oneTriangle()
+214: PASS   : TestMarchingTriangles::levelOutsideRange_skipped()
+214: PASS   : TestMarchingTriangles::twoTriangles_independent()
+214: PASS   : TestMarchingTriangles::evenlySpacedLevels_basic()
+214: PASS   : TestMarchingTriangles::evenlySpacedLevels_zeroCount_empty()
+214: PASS   : TestMarchingTriangles::evenlySpacedLevels_degenerateRange_empty()
+214: PASS   : TestMarchingTriangles::evenlySpacedLevelsInclusive_basic()
+214: PASS   : TestMarchingTriangles::evenlySpacedLevelsInclusive_endpointGuard()
+214: PASS   : TestMarchingTriangles::evenlySpacedLevelsInclusive_degenerate_empty()
+214: PASS   : TestMarchingTriangles::isobands_singleBand_coversFullTriangle()
+214: PASS   : TestMarchingTriangles::isobands_singleBand_aboveRange_saturates()
+214: PASS   : TestMarchingTriangles::isobands_singleBand_partialCoverage()
+214: PASS   : TestMarchingTriangles::isobands_multipleBands_tile()
+214: PASS   : TestMarchingTriangles::isobands_uniformTriangle_fullFill()
+214: PASS   : TestMarchingTriangles::isobands_uniformTriangle_clampsToEndBands()
+214: PASS   : TestMarchingTriangles::isobands_uniformOutsideRange_canSkip()
+214: PASS   : TestMarchingTriangles::isobands_saturateWithoutMovingInteriorCrossings()
+214: PASS   : TestMarchingTriangles::isobands_areaConserved_noGaps()
+214: PASS   : TestMarchingTriangles::isobands_singleLevel_empty()
+214: PASS   : TestMarchingTriangles::isobands_bandIndexAssigned()
+214: PASS   : TestMarchingTriangles::quadFan_uniformCellValue_fillsWholeQuad()
+214: PASS   : TestMarchingTriangles::quadFan_linearField_isolinesContinuousAcrossDiagonal()
+214: PASS   : TestMarchingTriangles::cleanupTestCase()
+214: Totals: 29 passed, 0 failed, 0 skipped, 0 blacklisted, 1ms
+214: ********* Finished testing of TestMarchingTriangles *********
+5/7 Test #214: test_marchingtriangles ..............   Passed    0.05 sec
+test 227
+    Start 227: test_simrunner_failures
+
+227: Test command: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/vfr-flow-testing/test_simrunner_failures
+227: Working Directory: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/tests/gui
+227: Environment variables:
+227:  QT_QPA_PLATFORM=offscreen
+227:  SWMMVIS_GUI_TEST_DATA=/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/gui/data
+227:  QTEST_FUNCTION_TIMEOUT=30000
+227: Environment variable modifications:
+227:  PROJ_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+227:  PROJ_LIB=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+227:  GDAL_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/gdal
+227: Test timeout computed to be: 10000000
+227: ********* Start testing of TestSimRunnerFailures *********
+227: Config: Using QtTest library 6.9.3, Qt 6.9.3 (arm64-little_endian-lp64 shared (dynamic) release build; by Apple LLVM 16.0.0 (clang-1600.0.26.3)), macos 27.0.1
+227: PASS   : TestSimRunnerFailures::initTestCase()
+227: PASS   : TestSimRunnerFailures::quotedLastOutputOption(quoted-space-comment)
+227: PASS   : TestSimRunnerFailures::quotedLastOutputOption(quoted-semicolon)
+227: PASS   : TestSimRunnerFailures::quotedLastOutputOption(last-assignment)
+227: PASS   : TestSimRunnerFailures::quotedLastOutputOption(csv)
+227: PASS   : TestSimRunnerFailures::quotedLastOutputOption(embedded-comma)
+227: PASS   : TestSimRunnerFailures::quotedLastOutputOption(trailing-comma)
+227: PASS   : TestSimRunnerFailures::declaredResourcesAreProtected(series)
+227: PASS   : TestSimRunnerFailures::declaredResourcesAreProtected(series-column)
+227: PASS   : TestSimRunnerFailures::declaredResourcesAreProtected(rain)
+227: PASS   : TestSimRunnerFailures::declaredResourcesAreProtected(hotstart-input)
+227: PASS   : TestSimRunnerFailures::declaredResourcesAreProtected(climate)
+227: PASS   : TestSimRunnerFailures::declaredResourcesAreProtected(mesh)
+227: PASS   : TestSimRunnerFailures::declaredResourcesAreProtected(mesh-unquoted-space)
+227: PASS   : TestSimRunnerFailures::declaredResourcesAreProtected(groundwater-quality)
+227: PASS   : TestSimRunnerFailures::declaredResourcesAreProtected(plugin-library)
+227: PASS   : TestSimRunnerFailures::declaredResourcesAreProtected(component-config)
+227: PASS   : TestSimRunnerFailures::additionalAndActiveOutputsAreGuarded()
+227: QDEBUG : TestSimRunnerFailures::duplicateStartRunsOnce() [sim-dates] startOA= 46023  endOA= 46023  span(days)= 0.0416667  → QDateTime(2026-01-01 00:00:00.000 UTC Qt::UTC) QDateTime(2026-01-01 01:00:00.000 UTC Qt::UTC)
+227: PASS   : TestSimRunnerFailures::duplicateStartRunsOnce()
+227: PASS   : TestSimRunnerFailures::ownerDestructionStopsPausedWorker()
+227: QDEBUG : TestSimRunnerFailures::parallelRelativeFilesLeaveProcessDirectoryAlone() [sim-dates] startOA= 46023  endOA= 46023  span(days)= 0.0416667  → QDateTime(2026-01-01 00:00:00.000 UTC Qt::UTC) QDateTime(2026-01-01 01:00:00.000 UTC Qt::UTC)
+227: QDEBUG : TestSimRunnerFailures::parallelRelativeFilesLeaveProcessDirectoryAlone() [sim-dates] startOA= 46023  endOA= 46023  span(days)= 0.0416667  → QDateTime(2026-01-01 00:00:00.000 UTC Qt::UTC) QDateTime(2026-01-01 01:00:00.000 UTC Qt::UTC)
+227: PASS   : TestSimRunnerFailures::parallelRelativeFilesLeaveProcessDirectoryAlone()
+227: QDEBUG : TestSimRunnerFailures::busyHdfOutputIsRefusedBeforeAnyOutputIsWritten(reader) [sim-dates] startOA= 46023  endOA= 46023  span(days)= 0.0416667  → QDateTime(2026-01-01 00:00:00.000 UTC Qt::UTC) QDateTime(2026-01-01 01:00:00.000 UTC Qt::UTC)
+227: PASS   : TestSimRunnerFailures::busyHdfOutputIsRefusedBeforeAnyOutputIsWritten(reader)
+227: QDEBUG : TestSimRunnerFailures::busyHdfOutputIsRefusedBeforeAnyOutputIsWritten(writer) [sim-dates] startOA= 46023  endOA= 46023  span(days)= 0.0416667  → QDateTime(2026-01-01 00:00:00.000 UTC Qt::UTC) QDateTime(2026-01-01 01:00:00.000 UTC Qt::UTC)
+227: PASS   : TestSimRunnerFailures::busyHdfOutputIsRefusedBeforeAnyOutputIsWritten(writer)
+227: QDEBUG : TestSimRunnerFailures::busyHdfOutputIsRefusedBeforeAnyOutputIsWritten(empty-locked-file) [sim-dates] startOA= 46023  endOA= 46023  span(days)= 0.0416667  → QDateTime(2026-01-01 00:00:00.000 UTC Qt::UTC) QDateTime(2026-01-01 01:00:00.000 UTC Qt::UTC)
+227: PASS   : TestSimRunnerFailures::busyHdfOutputIsRefusedBeforeAnyOutputIsWritten(empty-locked-file)
+227: PASS   : TestSimRunnerFailures::outputAliasesNeverModifyInputs(report-input)
+227: PASS   : TestSimRunnerFailures::outputAliasesNeverModifyInputs(output-input)
+227: PASS   : TestSimRunnerFailures::outputAliasesNeverModifyInputs(report-output)
+227: PASS   : TestSimRunnerFailures::outputAliasesNeverModifyInputs(log-input)
+227: PASS   : TestSimRunnerFailures::outputAliasesNeverModifyInputs(h5-input)
+227: PASS   : TestSimRunnerFailures::outputAliasesNeverModifyInputs(h5-report)
+227: PASS   : TestSimRunnerFailures::outputAliasesNeverModifyInputs(quoted-h5-input)
+227: PASS   : TestSimRunnerFailures::outputAliasesNeverModifyInputs(last-h5-input)
+227: PASS   : TestSimRunnerFailures::outputAliasesNeverModifyInputs(symlink-input)
+227: PASS   : TestSimRunnerFailures::outputAliasesNeverModifyInputs(hardlink-input)
+227: PASS   : TestSimRunnerFailures::openFailureNamesThePhaseAndWritesTheRunLog()
+227: QDEBUG : TestSimRunnerFailures::workerExceptionBecomesAFailedRun() [sim-dates] startOA= 46023  endOA= 46023  span(days)= 0.0416667  → QDateTime(2026-01-01 00:00:00.000 UTC Qt::UTC) QDateTime(2026-01-01 01:00:00.000 UTC Qt::UTC)
+227: PASS   : TestSimRunnerFailures::workerExceptionBecomesAFailedRun()
+227: QDEBUG : TestSimRunnerFailures::numericalAbortIsWordedAsDivergenceAtASimTime() [sim-dates] startOA= 46023  endOA= 46023  span(days)= 0.0416667  → QDateTime(2026-01-01 00:00:00.000 UTC Qt::UTC) QDateTime(2026-01-01 01:00:00.000 UTC Qt::UTC)
+227: PASS   : TestSimRunnerFailures::numericalAbortIsWordedAsDivergenceAtASimTime()
+227: PASS   : TestSimRunnerFailures::cleanupTestCase()
+227: Totals: 38 passed, 0 failed, 0 skipped, 0 blacklisted, 381ms
+227: ********* Finished testing of TestSimRunnerFailures *********
+6/7 Test #227: test_simrunner_failures .............   Passed    0.47 sec
+test 239
+    Start 239: test_2dresults_vizfixes
+
+239: Test command: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/vfr-flow-testing/test_2dresults_vizfixes
+239: Working Directory: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/animation-verification/tests/gui
+239: Environment variables:
+239:  QT_QPA_PLATFORM=offscreen
+239:  SWMMVIS_GUI_TEST_DATA=/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/gui/data
+239:  QTEST_FUNCTION_TIMEOUT=30000
+239: Environment variable modifications:
+239:  PROJ_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+239:  PROJ_LIB=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/proj
+239:  GDAL_DATA=set:/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/build/vcpkg_installed/arm64-osx/share/gdal
+239: Test timeout computed to be: 10000000
+239: ********* Start testing of Test2DResultsVizFixes *********
+239: Config: Using QtTest library 6.9.3, Qt 6.9.3 (arm64-little_endian-lp64 shared (dynamic) release build; by Apple LLVM 16.0.0 (clang-1600.0.26.3)), macos 27.0.1
+239: PASS   : Test2DResultsVizFixes::initTestCase()
+239: PASS   : Test2DResultsVizFixes::cellVfrKeepsDryNeighborsDry()
+239: QWARN  : Test2DResultsVizFixes::smoothProfilesAndContoursShareOneSurface() qt.qpa.fonts: Populating font family aliases took 45 ms. Replace uses of missing font family "Sans Serif" with one that exists to avoid this cost.
+239: PASS   : Test2DResultsVizFixes::smoothProfilesAndContoursShareOneSurface()
+239: PASS   : Test2DResultsVizFixes::smoothMaximumContainsEveryFrame()
+239: PASS   : Test2DResultsVizFixes::mapFillsStopAtExactShoreline()
+239: PASS   : Test2DResultsVizFixes::contourAnimationPublishesCompleteFrames()
+239: PASS   : Test2DResultsVizFixes::depthClassificationRemainsStableDuringPlayback()
+239: PASS   : Test2DResultsVizFixes::cpuContoursStopAtExactShoreline()
+239: PASS   : Test2DResultsVizFixes::exactProfileIgnoresStationSpacing()
+239: PASS   : Test2DResultsVizFixes::boundaryProfileKeepsWetSideAcrossFrames()
+239: PASS   : Test2DResultsVizFixes::contourRangesSaturateCpuAndQsg()
+239: PASS   : Test2DResultsVizFixes::latestFrameReplacementCanReduceEnvelope()
+239: PASS   : Test2DResultsVizFixes::edgesAreDeduplicated()
+239: PASS   : Test2DResultsVizFixes::liveScrubHoldsFrame()
+239: PASS   : Test2DResultsVizFixes::liveSeekToLastReArmsFollow()
+239: PASS   : Test2DResultsVizFixes::maxDepthMatchesAnimatedAtPeak()
+239: PASS   : Test2DResultsVizFixes::velocityFalseWithoutFlux()
+239: PASS   : Test2DResultsVizFixes::declaredMetreFactorScalesToModelUnits()
+239: PASS   : Test2DResultsVizFixes::metricModelIsUnscaled()
+239: QWARN  : Test2DResultsVizFixes::undeclaredSourceUsesCallerFallback() [2D-render] 2D Results: 2D result source declares no /crs variable; assuming engine SI metres and dividing by 0.3048000000 m per model unit. Re-run with OpenSWMM Engine 6.0+ for an exact, self-describing factor.
+239: PASS   : Test2DResultsVizFixes::undeclaredSourceUsesCallerFallback()
+239: PASS   : Test2DResultsVizFixes::undeclaredSourceDefaultsToNoScaling()
+239: PASS   : Test2DResultsVizFixes::mixedMeshQuadRendersAsFanOfItsCell()
+239: QWARN  : Test2DResultsVizFixes::thinFilmPolicyPreservesRawWaterAndPartialPools() [2D-render] 2D Results: 2D result source declares no /crs variable; assuming engine SI metres and dividing by 0.3048000000 m per model unit. Re-run with OpenSWMM Engine 6.0+ for an exact, self-describing factor.
+239: PASS   : Test2DResultsVizFixes::thinFilmPolicyPreservesRawWaterAndPartialPools()
+239: PASS   : Test2DResultsVizFixes::thinFilmSettingsRoundTrip()
+239: PASS   : Test2DResultsVizFixes::thinFilmVisibilityCpuQsgAndPendingFrames()
+239: PASS   : Test2DResultsVizFixes::thinFilmSavedAndLiveParity()
+239: QWARN  : Test2DResultsVizFixes::flowingSlopeProfilesContoursAndHistory() [2D-render] 2D Results: 2D result source declares no /crs variable; assuming engine SI metres and dividing by 0.3048000000 m per model unit. Re-run with OpenSWMM Engine 6.0+ for an exact, self-describing factor.
+239: PASS   : Test2DResultsVizFixes::flowingSlopeProfilesContoursAndHistory()
+239: QINFO  : Test2DResultsVizFixes::bellingeNeighborhoodSavedLiveAndRendering() Matching visible Bellinge shared edges: 36888
+239: PASS   : Test2DResultsVizFixes::bellingeNeighborhoodSavedLiveAndRendering()
+239: PASS   : Test2DResultsVizFixes::cleanupTestCase()
+239: Totals: 29 passed, 0 failed, 0 skipped, 0 blacklisted, 11838ms
+239: ********* Finished testing of Test2DResultsVizFixes *********
+7/7 Test #239: test_2dresults_vizfixes .............   Passed   12.19 sec
+
+The following tests passed:
+	test_contourjob
+	test_meshprofile_shoreline_render
+	test_cellwatergeometry
+	test_profileplot_axis_edges
+	test_marchingtriangles
+	test_simrunner_failures
+	test_2dresults_vizfixes
+
+100% tests passed, 0 tests failed out of 7
+
+Label Time Summary:
+gui     =  13.59 sec*proc (6 tests)
+unit    =   0.13 sec*proc (1 test)
+
+Total Test time (real) =  13.75 sec

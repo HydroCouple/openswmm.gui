@@ -64,17 +64,12 @@ struct VisibilityPolicy {
     bool showThinFilms = false;
 };
 
-inline DisplayState displayState(const VertexDepthReconstruct::CellSplit& cell,
-                                const Surface& surface, const std::vector<double>& z,
+inline DisplayState displayState(const CornerDepths& depths, int count,
                                 const VisibilityPolicy& policy)
 {
-    if (surface.state == State::Invalid) return DisplayState::Invalid;
-    if (surface.state == State::Dry) return DisplayState::Dry;
     double deepest = 0.0, shallowest = std::numeric_limits<double>::infinity();
-    for (int k = 0; k < cell.vertexCount(); ++k) {
-        const int v = cell.v[k];
-        if (v < 0 || size_t(v) >= z.size()) return DisplayState::Invalid;
-        const double depth = surface.signedDepth(z[size_t(v)]);
+    for (int k = 0; k < count; ++k) {
+        const double depth = depths[k];
         if (!std::isfinite(depth)) return DisplayState::Invalid;
         deepest = std::max(deepest, depth);
         shallowest = std::min(shallowest, depth);
@@ -85,6 +80,21 @@ inline DisplayState displayState(const VertexDepthReconstruct::CellSplit& cell,
                            * std::max(deepest, policy.filmDepth);
     if (deepest <= policy.filmDepth + tolerance) return DisplayState::ThinFilm;
     return shallowest < 0.0 ? DisplayState::PartiallyWet : DisplayState::Wet;
+}
+
+inline DisplayState displayState(const VertexDepthReconstruct::CellSplit& cell,
+                                const Surface& surface, const std::vector<double>& z,
+                                const VisibilityPolicy& policy)
+{
+    if (surface.state == State::Invalid) return DisplayState::Invalid;
+    if (surface.state == State::Dry) return DisplayState::Dry;
+    CornerDepths depths{};
+    for (int k=0;k<cell.vertexCount();++k) {
+        const int v=cell.v[k];
+        if (v<0 || size_t(v)>=z.size()) return DisplayState::Invalid;
+        depths[k]=surface.signedDepth(z[size_t(v)]);
+    }
+    return displayState(depths,cell.vertexCount(),policy);
 }
 
 inline bool visible(DisplayState state, const VisibilityPolicy& policy)
@@ -128,6 +138,47 @@ inline SmoothTopology smoothTopology(const std::vector<VertexDepthReconstruct::C
     return out;
 }
 
+// Volume closure for an inclined surface. The prescribed height offsets are
+// relative to the area centroid; subtracting them from the bed reuses VFR,
+// including the original storage diagonal of a quad. Return signed depths.
+inline CornerDepths inclinedCorners(const VertexDepthReconstruct::CellSplit& cell,
+                                    double meanDepth, const std::vector<double>& z,
+                                    const CornerDepths& offsets, double& level)
+{
+    double bed[4]{};
+    for (int k=0;k<cell.vertexCount();++k)
+        bed[k]=(z[size_t(cell.v[k])]-z[size_t(cell.v[0])])-offsets[k];
+    if (cell.nSub==1) {
+        level=VertexDepthReconstruct::cellEtaFromMeanDepth(meanDepth,bed[0],bed[1],bed[2]);
+    } else {
+        double zs[6];
+        for (int s=0;s<2;++s)
+            for (int k=0;k<3;++k) {
+                const auto it=std::find(cell.v.begin(),cell.v.end(),cell.sub[s][k]);
+                zs[3*s+k]=bed[size_t(it-cell.v.begin())];
+            }
+        level=VertexDepthReconstruct::quadEtaFromMeanDepth(zs,cell.area[0],cell.area[1],meanDepth);
+    }
+    CornerDepths out{};
+    for (int k=0;k<cell.vertexCount();++k) out[k]=level-bed[k];
+    return out;
+}
+
+// Fit shared signed depths over hydraulically connected neighborhoods.
+// The helper is included here because it consumes the geometry types above.
+#include "layers/neighborhoodwaterfit.h"
+
+inline std::vector<CornerDepths> flowingCornerDepths(
+    const std::vector<VertexDepthReconstruct::CellSplit>& cells,
+    const std::vector<Surface>& surfaces, const std::vector<double>& x,
+    const std::vector<double>& y, const std::vector<double>& z,
+    const SmoothTopology& topology, const std::vector<float>& depths,
+    const std::vector<float>& flux, VisibilityPolicy policy = {})
+{
+    if (x.size()!=z.size() || y.size()!=z.size()) return {};
+    return NeighborhoodFit::reconstruct(cells,surfaces,z,topology,depths,flux,policy);
+}
+
 // Continuous, bounded display projection of VFR stages on each connected
 // wet vertex fan. Include signed values at HIGH/DRY corners too: dropping
 // those and later extrapolating a maximum stage creates the uphill artifact.
@@ -139,9 +190,21 @@ inline void smoothCornerDepths(const std::vector<VertexDepthReconstruct::CellSpl
                                const std::vector<double>& z,
                                const SmoothTopology& topology,
                                std::vector<CornerDepths>& out,
-                               VisibilityPolicy policy = {})
+                               VisibilityPolicy policy = {},
+                               const std::vector<CornerDepths>& reconstructed = {})
 {
     const double nan=std::numeric_limits<double>::quiet_NaN();
+    if (reconstructed.size()==cells.size()) {
+        // The neighborhood fit already owns the shared corner values and
+        // closes its total volume. Averaging it again could change that volume
+        // and join a crest which the hydraulic neighborhood deliberately split.
+        out=reconstructed;
+        for (size_t c=0;c<cells.size();++c)
+            if (!visible(displayState(cells[c],surfaces[c],z,policy),policy)
+                || !visible(displayState(out[c],cells[c].vertexCount(),policy),policy))
+                out[c]={nan,nan,nan,nan};
+        return;
+    }
     out.assign(cells.size(),CornerDepths{nan,nan,nan,nan});
     std::vector<int> parent(cells.size()*4,-1);
     std::vector<double> weight(cells.size()*4,0.0);
@@ -179,12 +242,20 @@ inline void smoothCornerDepths(const std::vector<VertexDepthReconstruct::CellSpl
     for (const auto& e:topology.edges) {
         if (parent[size_t(e.a0)]<0 || parent[size_t(e.a1)]<0
             || parent[size_t(e.b0)]<0 || parent[size_t(e.b1)]<0) continue;
-        const int c=e.a0/4, other=e.a1/4;
-        const double low=std::min(z[size_t(cells[size_t(c)].v[e.a0%4])],
-                                  z[size_t(cells[size_t(c)].v[e.b0%4])]);
-        // Both VFR surfaces must wet a positive length of the common edge.
-        if (!(surfaces[size_t(c)].signedDepth(low)>0)
-            || !(surfaces[size_t(other)].signedDepth(low)>0)) continue;
+        // Use the unprojected traces: earlier unions must not change whether
+        // a later edge connects.
+        auto raw=[&](int corner) {
+            const size_t c=size_t(corner/4); const int k=corner%4;
+            return surfaces[c].signedDepth(z[size_t(cells[c].v[k])]);
+        };
+        double lo=0,hi=1;
+        auto intersect=[&](double a,double b) {
+            if (!(std::max(a,b)>0)) return false;
+            if (a<0) lo=std::max(lo,a/(a-b));
+            if (b<0) hi=std::min(hi,a/(a-b));
+            return hi>lo;
+        };
+        if (!intersect(raw(e.a0),raw(e.b0)) || !intersect(raw(e.a1),raw(e.b1))) continue;
         join(e.a0,e.a1); join(e.b0,e.b1);
     }
     for (int i=0;i<int(parent.size());++i)

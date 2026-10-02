@@ -1,0 +1,8 @@
+********* Start testing of Test2DResultsVizFixes *********
+Config: Using QtTest library 6.9.3, Qt 6.9.3 (arm64-little_endian-lp64 shared (dynamic) release build; by Apple LLVM 16.0.0 (clang-1600.0.26.3)), macos 27.0.1
+PASS   : Test2DResultsVizFixes::initTestCase()
+QINFO  : Test2DResultsVizFixes::bellingeNeighborhoodSavedLiveAndRendering() Matching visible Bellinge shared edges: 36888
+PASS   : Test2DResultsVizFixes::bellingeNeighborhoodSavedLiveAndRendering()
+PASS   : Test2DResultsVizFixes::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 7796ms
+********* Finished testing of Test2DResultsVizFixes *********
