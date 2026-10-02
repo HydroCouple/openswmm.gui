@@ -120,8 +120,9 @@ the inlet temperature:
 in `[INFLOWS]` is how you give age or temperature a *time-varying* boundary
 condition — the component config files only take constants.
 
-The same fields appear as rows in the Properties panel and as columns in the
-attribute table, so a pollutant can also be edited without opening the dialog.
+The same fields appear as rows in the Properties panel, and as columns of the
+attribute table's `◇ Data: Pollutants` table (one row per pollutant), so a
+pollutant can also be edited without opening the dialog.
 
 \fig{t07_pollutant_editor.png, The Pollutants dialog with TRACER selected}
 

@@ -17,6 +17,7 @@ tables.
 | **Analysis → Tabular View** (`Ctrl+Shift+A`) | Raises the dock and focuses it |
 | **View → Panels → Attribute Table** (`Ctrl+Alt+4`) | Toggles the dock |
 | Layer tree → right-click a layer → **Open Attribute Table** | Jumps straight to that layer's table |
+| Object Browser → right-click a *Pollutants*, *Land Uses*, *Aquifers*, *Streets* or *Inlets* category → **Open in Attribute Table** | Jumps to that data-object table |
 
 The dock binds to the active project tab and re-binds on every tab switch.
 
@@ -29,10 +30,13 @@ The **Category:** combo at the top is the source picker. It lists, in order:
 1. the eleven SWMM object categories — `Junctions`, `Outfalls`,
    `Storage Units`, `Dividers`, `Conduits`, `Pumps`, `Orifices`, `Weirs`,
    `Outlets`, `Subcatchments`, `Rain Gages`;
-2. after a separator, any loaded delimited-text layer as
+2. after a separator, the data objects that have simple per-object fields —
+   `◇ Data: Pollutants`, `Land Uses`, `Aquifers`, `Streets`, `Inlets`
+   (each listed only when the model has at least one);
+3. after a separator, any loaded delimited-text layer as
    `▾ Table: <name> (<rows>)`;
-3. any imported GIS feature layer as `◆ Features: <name> (<features>)`;
-4. three entries per loaded 2D mesh —
+4. any imported GIS feature layer as `◆ Features: <name> (<features>)`;
+5. three entries per loaded 2D mesh —
    `△ Mesh <name> — Vertices (n)`, `— Edges (n)`, `— Cells (n)`.
 
 Mesh entries appear immediately on a progressively loaded mesh but stay greyed
@@ -405,6 +409,33 @@ does not accept in this release are shown disabled — the same two rules the
 attribute table and the region-defaults table follow.
 
 \figtodo{11_assign_infiltration_dialog.png, The Assign Infiltration to Selection dialog with Green-Ampt parameters and the region-tag option}
+
+### Data-object tables
+
+Pollutants, land uses, aquifers, streets and inlets each get a table with one
+row per object, so you can set a value on many of them at once — for example,
+the decay coefficient of every pollutant, or the road roughness of every street
+section — with **Applying one value to many rows** above.
+
+- The table edits the same objects as the dedicated editor dialogs. An edit in
+  either one shows up in the other straight away, and each cell edit is one
+  **Edit → Undo** step.
+- The **Name** column is read-only. Rename an object in its editor or the
+  Object Browser, because a rename also updates every object that refers to it.
+- Reference columns (a pollutant's *Co-Pollutant*, an aquifer's *Upper Evap.
+  Pattern*, an inlet's *Capture Curve*) are drop-downs listing the objects that
+  exist, plus `(none)`.
+- On an inlet row, fields the inlet's type does not use show `—` and cannot be
+  edited (for example, curb fields on a GRATE inlet).
+- Right-click a row → **Edit "<name>" in <Editor>…** opens the full editor on
+  that object.
+- Selecting rows selects those objects, so the Properties panel follows along.
+  These objects have no map location, so **Zoom to selected**, **Change Type**
+  and **Delete** do not apply here.
+
+Curves, time series, patterns, unit hydrographs, transects, control rules,
+snowpacks and LID controls are lists of values rather than single records, so
+they are edited only in their own editors (\ref manual_data_objects).
 
 ### GIS feature layers
 

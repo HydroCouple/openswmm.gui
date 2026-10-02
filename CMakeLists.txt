@@ -684,6 +684,7 @@ set(
         include/ui/panels/layertreecategories.h
         include/ui/panels/layertreetargets.h
         include/ui/panels/objectbrowserpanel.h
+        include/ui/panels/dataobjectattributetablemodel.h
         include/ui/panels/meshattributetablemodel.h
         include/ui/panels/swmmattributetablemodel.h
         include/ui/panels/swmmobjecttreemodel.h
@@ -1440,6 +1441,7 @@ set(
         src/ui/panels/layertreetargets.cpp
         src/ui/panels/objectbrowserpanel.cpp
         src/ui/panels/overviewmappanel.cpp
+        src/ui/panels/dataobjectattributetablemodel.cpp
         src/ui/panels/meshattributetablemodel.cpp
         src/ui/panels/swmmattributetablemodel.cpp
         src/ui/panels/swmmobjecttreemodel.cpp

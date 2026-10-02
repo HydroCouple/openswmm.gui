@@ -67,6 +67,10 @@ public:
 
     void invokeNew();
 
+    /*! \brief Modeless open-for-edit: shows the dialog and selects \p name.
+     *  Used by the Object Browser, Properties panel and Attribute Table. */
+    void openForLidControl(const QString &name);
+
 private slots:
     void onListSelectionChanged_();
     void onAddClicked_();

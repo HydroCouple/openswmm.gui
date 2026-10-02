@@ -107,6 +107,10 @@ public:
     QLineEdit       *nameEdit()   const noexcept { return m_nameEdit; }
 
     void invokeNew();
+
+    /*! \brief Modeless open-for-edit: shows the dialog and selects \p name.
+     *  Used by the Object Browser, Properties panel and Attribute Table. */
+    void openForStreet(const QString &name);
     void deleteCurrentSilently();
     bool renameCurrent(const QString &newName);
 
