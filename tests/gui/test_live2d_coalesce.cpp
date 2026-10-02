@@ -27,6 +27,7 @@
 #include <QFile>
 #include <QScopeGuard>
 #include <QTextStream>
+#include <QTimer>
 
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
@@ -834,6 +835,173 @@ private slots:
             OGRFeature::DestroyFeature(f);
         }
         GDALClose(ds);
+    }
+
+    /// End to end: a REAL run feeding a visible results layer wired as SWMMVis
+    /// wires it, once with the synchronous surface fit and once with the
+    /// worker (workplans/2D_VFR_PERF_RECOVERY_PLAN_2026-10-02.md, M4). Records
+    /// each arm's wall time, the longest main-thread stall and the runner's
+    /// skipped 2D ticks. Self-skips unless VFR_PERF_OUT names a reviewable
+    /// output directory. VFR_LIVE_GRID = squares per side (default 48; 150 is
+    /// about Bellinge-sized), VFR_LIVE_HOURS = simulated hours (default 2),
+    /// VFR_LIVE_TICK_MS = runner tick (default 100).
+    void liveRunMainThreadStall()
+    {
+        const QString outDir = qEnvironmentVariable("VFR_PERF_OUT");
+        if (outDir.isEmpty()) QSKIP("Set VFR_PERF_OUT to record live-run stall times");
+        int n = qEnvironmentVariableIntValue("VFR_LIVE_GRID");
+        if (n < 8) n = 48;
+        int hours = qEnvironmentVariableIntValue("VFR_LIVE_HOURS");
+        if (hours < 1 || hours > 23) hours = 2;
+        int tickMs = qEnvironmentVariableIntValue("VFR_LIVE_TICK_MS");
+        if (tickMs < 50) tickMs = 100;
+        const QString dir = QDir(outDir).absoluteFilePath(QStringLiteral("live_run_stall"));
+        QVERIFY(QDir().mkpath(dir));
+
+        auto *prefs = PreferencesManager::instance();
+        const int tickBefore = prefs->progressTickMs();
+        prefs->setProgressTickMs(tickMs);
+        const auto restoreTick = qScopeGuard([prefs, tickBefore] {
+            prefs->setProgressTickMs(tickBefore);
+        });
+        qputenv("OPENSWMM_2D_BACKEND", "cpu");
+
+        QFile csv(QDir(outDir).filePath(QStringLiteral("live-run-stall.csv")));
+        QVERIFY(csv.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream row(&csv);
+        row << "arm,triangles,sim_hours,tick_ms,wall_s,ticks,frames_shown,"
+               "max_main_thread_stall_ms,skipped_2d_ticks\n";
+
+        for (const bool async : {false, true}) {
+            const QString stem = async ? QStringLiteral("worker") : QStringLiteral("synchronous");
+            const QString inp = QDir(dir).filePath(stem + QStringLiteral(".inp"));
+            const QString rpt = QDir(dir).filePath(stem + QStringLiteral(".rpt"));
+            const QString out = QDir(dir).filePath(stem + QStringLiteral(".out"));
+            const QString runlog = QDir(dir).filePath(stem + QStringLiteral(".runlog.txt"));
+            QFile::remove(QDir(dir).filePath(stem + QStringLiteral(".2d.h5")));
+            QFile::remove(runlog);
+            {
+                // The 16x16 deck of the export test, scaled: n x n squares of
+                // 5 m on a gentle +x slope, inflow in proportion to the area.
+                QFile f(inp);
+                QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+                QTextStream ts(&f);
+                const double scale = double(n) * n / 256.0;
+                const QString end = QStringLiteral("%1:00:00").arg(hours, 2, 10, QLatin1Char('0'));
+                ts << "[OPTIONS]\nFLOW_UNITS CMS\nINFILTRATION HORTON\nFLOW_ROUTING DYNWAVE\n"
+                      "START_DATE 01/01/2026\nSTART_TIME 00:00:00\nEND_DATE 01/01/2026\n"
+                      "END_TIME " << end << "\nREPORT_STEP 0:05:00\nROUTING_STEP 5\n\n"
+                      "[JUNCTIONS]\nJ1 10 1 0 0 0\n\n[OUTFALLS]\nO1 9 FREE NO\n\n"
+                      "[CONDUITS]\nC1 J1 O1 100 0.013 0 0 0\n\n"
+                      "[XSECTIONS]\nC1 CIRCULAR 0.3 0 0 0 1\n\n"
+                      "[INFLOWS]\nJ1 FLOW TS1 FLOW 1.0 " << scale << "\n\n"
+                      "[TIMESERIES]\nTS1 0:00 0.2\nTS1 " << hours << ":00 0.2\n\n"
+                      "[2D_OPTIONS]\nMAX_TIMESTEP 2\nDRY_DEPTH 0.002\nCOUPLING_CD 0.7\n"
+                      "REPORT_2D YES\nOUTPUT_FILE " << stem << ".2d.h5\n\n"
+                      "[2D_VERTICES]\n";
+                for (int j = 0; j <= n; ++j)
+                    for (int i = 0; i <= n; ++i)
+                        ts << (5.0 * i) << ' ' << (5.0 * j) << ' ' << (11.0 - 0.02 * i) << '\n';
+                ts << "\n[2D_TRIANGLES]\n";
+                auto vid = [n](int i, int j) { return j * (n + 1) + i; };
+                for (int j = 0; j < n; ++j)
+                    for (int i = 0; i < n; ++i) {
+                        ts << vid(i, j) << ' ' << vid(i + 1, j) << ' ' << vid(i + 1, j + 1) << " 0.03\n";
+                        ts << vid(i, j) << ' ' << vid(i + 1, j + 1) << ' ' << vid(i, j + 1) << " 0.03\n";
+                    }
+                ts << "\n[2D_VERTEX_NODE_MAP]\n" << vid(n / 2, n / 2) << " J1 0.7 2.5\n";
+            }
+
+            // Parented like the export test's runner: it outlives its worker.
+            auto &runner = *new SimulationRunner(async ? 9 : 8, stem + QStringLiteral(".inp"),
+                                                 inp, rpt, out, QStringLiteral("6.0.0"), this);
+            SWMM2DResultsLayer layer;
+            layer.setAsyncSurface(async);
+            layer.setLiveMinFitIntervalMs(tickMs);
+            layer.setVisible(true);
+            EngineMesh2DSource *src = nullptr;
+            int ticks = 0, shown = 0;
+            connect(&layer, &SWMM2DResultsLayer::currentTimeChanged, this, [&](int) { ++shown; });
+            connect(&runner, &SimulationRunner::twoDInitialized, this,
+                    [&](int, QString, QVector<double> vx, QVector<double> vy,
+                        QVector<double> vz, QVector<int> cellFlat) {
+                        std::vector<std::array<int, 4>> cells(size_t(cellFlat.size() / 4));
+                        for (size_t c = 0; c < cells.size(); ++c)
+                            cells[c] = { cellFlat[int(c) * 4], cellFlat[int(c) * 4 + 1],
+                                         cellFlat[int(c) * 4 + 2], cellFlat[int(c) * 4 + 3] };
+                        auto source = std::make_unique<EngineMesh2DSource>(
+                            std::vector<double>(vx.begin(), vx.end()),
+                            std::vector<double>(vy.begin(), vy.end()),
+                            std::vector<double>(vz.begin(), vz.end()), std::move(cells));
+                        source->setDryDepth(0.002);
+                        src = source.get();
+                        layer.setSource(std::move(source));
+                        layer.setDryDepth(0.002);
+                    });
+            connect(&runner, &SimulationRunner::twoDEdgeGeometryAvailable, this,
+                    [&](int, QVector<float> len, QVector<float> nx, QVector<float> ny) {
+                        if (!src) return;
+                        src->setEdgeGeometry(std::vector<float>(len.begin(), len.end()),
+                                             std::vector<float>(nx.begin(), nx.end()),
+                                             std::vector<float>(ny.begin(), ny.end()));
+                        layer.refreshCurrentFrame();
+                    });
+            connect(&runner, &SimulationRunner::twoDDepthsAvailable, this,
+                    [&](int, QVector<float> d, QDateTime t, double e) {
+                        if (!src) return;
+                        src->pushDepths(std::vector<float>(d.begin(), d.end()), t, e);
+                        ++ticks;
+                        layer.refreshTimeRange();
+                    });
+            connect(&runner, &SimulationRunner::twoDFluxAvailable, this,
+                    [&](int, QVector<float> q, QDateTime t, double e) {
+                        if (!src) return;
+                        src->pushFlux(std::vector<float>(q.begin(), q.end()), t, e);
+                        layer.refreshTimeRange();
+                        layer.refreshCurrentFrame();
+                    });
+            connect(&runner, &SimulationRunner::finished, this,
+                    [&](int, bool, int, QString, double, double) { if (src) src->markFinished(); });
+
+            // Longest gap between 5 ms beats of a main-thread timer.
+            QElapsedTimer gap;
+            qint64 worst = 0;
+            QTimer beat;
+            beat.setInterval(5);
+            connect(&beat, &QTimer::timeout, this, [&] {
+                if (gap.isValid()) worst = std::max(worst, gap.elapsed());
+                gap.start();
+            });
+            QSignalSpy finishedSpy(&runner, &SimulationRunner::finished);
+            QElapsedTimer wall;
+            wall.start();
+            beat.start();
+            runner.start();
+            QTRY_VERIFY_WITH_TIMEOUT(finishedSpy.count() == 1, 1800000);
+            const double wallSeconds = double(wall.elapsed()) / 1000.0;
+            beat.stop();
+            QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
+            QVERIFY2(ticks > 0 && shown > 0,
+                     qPrintable(QStringLiteral("%1: ticks %2, frames shown %3").arg(stem).arg(ticks).arg(shown)));
+
+            int skipped = 0;
+            QFile log(runlog);
+            if (log.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                const QString marker = QStringLiteral("2D ticks skipped (GUI busy): ");
+                QTextStream lines(&log);
+                while (!lines.atEnd()) {
+                    const QString line = lines.readLine();
+                    const int at = line.indexOf(marker);
+                    if (at >= 0) skipped = line.mid(at + marker.size()).trimmed().toInt();
+                }
+            }
+            row << stem << ',' << 2 * n * n << ',' << hours << ',' << tickMs << ','
+                << wallSeconds << ',' << ticks << ',' << shown << ',' << worst << ','
+                << skipped << '\n';
+            row.flush();
+            // The slots above capture this iteration's locals.
+            disconnect(&runner, nullptr, this, nullptr);
+        }
     }
 };
 

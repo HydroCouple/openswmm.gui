@@ -53,11 +53,22 @@ inline constexpr int kMaxSamples = ProfileSection::kMaxSamples;
  * \param scenePolyline  Traced vertices in scene coords (sx = mapX, sy = -mapY).
  * \param stepHint Optional fixed arc-length step (scene units). When ≤ 0 a
  *                 characteristic cell size is derived from the mesh extent.
+ * \param withMaximum  Sample the temporal maximum of an exact results
+ *                 section as well. Callers that only need stations, or that
+ *                 apply the maximum later with applyMaximum(), pass false so
+ *                 no historical frame is reconstructed here.
  */
 [[nodiscard]] MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
                                            SWMM2DResultsLayer *results,
                                            const QVector<QPointF> &scenePolyline,
-                                           double stepHint = 0.0);
+                                           double stepHint = 0.0,
+                                           bool withMaximum = true);
+
+/*! Fill the maximum of every exact-interval sample from the results layer's
+ *  temporal envelope. \p verticalScale is the caller's extra axis factor
+ *  applied after the mesh-unit scaling (1 = profile mesh units). */
+void applyMaximum(MeshProfile &profile, SWMM2DResultsLayer *results,
+                  double verticalScale = 1.0);
 
 /*! Signed current surface at an exact interval station. On a shared edge,
  *  a dry owner must not hide water on the other side. Never extrapolates

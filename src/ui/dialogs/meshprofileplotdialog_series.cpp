@@ -112,6 +112,7 @@ void MeshProfilePlotDialog::refreshSourceChoices()
 void MeshProfilePlotDialog::refreshSectionSeries()
 {
     if(!m_plot || !m_samplesModel)return;
+    m_seriesRefreshed=true;
     QDateTime requested=m_requestedTime;
     if(!requested.isValid() && m_results && m_results->source() && m_results->currentTimeIndex()>=0)requested=m_results->source()->simTimeAt(m_results->currentTimeIndex());
     QVector<SourceBinding> bindings;
@@ -124,7 +125,7 @@ void MeshProfilePlotDialog::refreshSectionSeries()
         const auto cached=m_seriesStations.constFind(binding.sourceId);
         if(cached!=m_seriesStations.cend() && cached->first==layer->geomRevision())binding.stations=cached->second;
         else {
-            const auto independent=MeshProfileSampler::buildMeshProfile(nullptr,layer,m_scenePolyline);
+            const auto independent=MeshProfileSampler::buildMeshProfile(nullptr,layer,m_scenePolyline,0.0,false);
             for(const auto &sample:independent.samples)binding.stations.append({sample.chainage,sample.scenePt,sample.triIdx,sample.breakBefore});
             m_seriesStations.insert(binding.sourceId,{layer->geomRevision(),binding.stations});
         }

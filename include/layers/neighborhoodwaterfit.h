@@ -60,6 +60,14 @@ inline double storage(const Cell& cell,const std::vector<double>& field,
     return mean;
 }
 
+// Optional iteration counters for benchmarks. Null in production; counting
+// never changes the arithmetic.
+struct Stats {
+    int gaussNewton=0, cgRhs=0, cgMass=0, lineSearch=0, bracket=0, bisection=0;
+    bool fallback=false;
+    size_t rows=0, variables=0, groups=0;
+};
+
 // Small matrix-free Gauss-Newton fit. One variable belongs to one connected
 // vertex fan, shared by BOTH traces of every supported edge. Storage rows use
 // original volumes and the original quad diagonal. A weak neighborhood prior
@@ -68,7 +76,7 @@ inline std::vector<CornerDepths> reconstruct(
     const std::vector<VertexDepthReconstruct::CellSplit>& cells,
     const std::vector<Surface>& surfaces,const std::vector<double>& z,
     const SmoothTopology& topology,const std::vector<float>& depths,
-    const std::vector<float>& flux,VisibilityPolicy policy)
+    const std::vector<float>& flux,VisibilityPolicy policy,Stats* stats=nullptr)
 {
     const size_t n=cells.size();
     if(depths.size()!=n || surfaces.size()!=n || flux.size()!=4*n)return {};
@@ -185,21 +193,19 @@ inline std::vector<CornerDepths> reconstruct(
         const double moving=total>0?pondCost[v]/total:0;
         reference[v]=pond[v]+moving*(flow[v]-pond[v]);
     }
-    auto cost=[&](const std::vector<double>& field) {
-        double sum=0;std::array<double,4> derivative;
-        for(const auto& row:rows){const double r=storage(row,field,derivative)-row.depth;sum+=row.weight*r*r;}
-        for(size_t v=0;v<field.size();++v)sum+=prior[v]*(field[v]-reference[v])*(field[v]-reference[v]);
-        return sum;
-    };
     std::vector<double> field=reference;
     std::vector<std::array<double,4>> jacobian(rows.size());
     const size_t nv=field.size();
+    if(stats){stats->rows=rows.size();stats->variables=nv;stats->groups=size_t(groups);}
     std::vector<double> rhs(nv),diagonal(nv),delta(nv),r(nv),p(nv),product(nv),preconditioned(nv);
     std::vector<double> massGradient(nv),massDirection(nv),massResidual(size_t(groups),0);
+    std::vector<double> numerator(size_t(groups),0),denominator(size_t(groups),0),candidate(nv);
+    std::vector<double> meritResidual(size_t(groups),0);
     auto dot=[](const std::vector<double>& a,const std::vector<double>& b) {
         double sum=0;for(size_t i=0;i<a.size();++i)sum+=a[i]*b[i];return sum;
     };
     for(int iteration=0;iteration<6;++iteration) {
+        if(stats)++stats->gaussNewton;
         diagonal=prior;
         std::fill(massGradient.begin(),massGradient.end(),0);
         for(int g=0;g<groups;++g)massResidual[size_t(g)]=-target[size_t(g)];
@@ -221,11 +227,12 @@ inline std::vector<CornerDepths> reconstruct(
                 for(int k=0;k<row.count;++k)b[size_t(row.variable[k])]+=row.weight*jacobian[i][k]*s;
             }
         };
-        auto solve=[&](const std::vector<double>& source,std::vector<double>& solution) {
+        auto solve=[&](const std::vector<double>& source,std::vector<double>& solution,int* count) {
             std::fill(solution.begin(),solution.end(),0);r=source;
             for(size_t v=0;v<nv;++v)preconditioned[v]=r[v]/diagonal[v];
             p=preconditioned;double residual=dot(r,preconditioned),initial=residual;
             for(int cg=0;cg<40 && residual>initial*1e-12 && residual>1e-24;++cg) {
+                if(count)++*count;
                 multiply(p,product);const double denom=dot(p,product);if(!(denom>0))break;
                 const double alpha=residual/denom;
                 for(size_t v=0;v<nv;++v){solution[v]+=alpha*p[v];r[v]-=alpha*product[v];preconditioned[v]=r[v]/diagonal[v];}
@@ -235,8 +242,9 @@ inline std::vector<CornerDepths> reconstruct(
         };
         // Enforce the linearized component volume with a Lagrange multiplier.
         // A post-fit global offset alone would inundate shallow neighbours.
-        solve(rhs,delta);solve(massGradient,massDirection);
-        std::vector<double> numerator=massResidual,denominator(size_t(groups),0);
+        solve(rhs,delta,stats?&stats->cgRhs:nullptr);
+        solve(massGradient,massDirection,stats?&stats->cgMass:nullptr);
+        numerator=massResidual;std::fill(denominator.begin(),denominator.end(),0);
         for(size_t v=0;v<nv;++v) {
             const size_t g=size_t(variableGroup[v]);
             numerator[g]+=massGradient[v]*delta[v];denominator[g]+=massGradient[v]*massDirection[v];
@@ -247,25 +255,32 @@ inline std::vector<CornerDepths> reconstruct(
         }
         // Include conservation in the line search: a necessary volume repair
         // can temporarily increase the unconstrained storage residual.
-        auto merit=[&](const std::vector<double>& candidate) {
-            double value=cost(candidate);std::vector<double> residual(size_t(groups),0);
+        // One storage pass gives the weighted residual and each component's
+        // volume residual. Every sum keeps its original order of terms.
+        auto merit=[&](const std::vector<double>& trial) {
+            double value=0;std::array<double,4> derivative;
+            std::fill(meritResidual.begin(),meritResidual.end(),0);
             for(const auto& row:rows) {
-                std::array<double,4> derivative;
-                residual[size_t(row.component)]+=row.area*(storage(row,candidate,derivative)-row.depth);
+                const double r=storage(row,trial,derivative)-row.depth;
+                value+=row.weight*r*r;
+                meritResidual[size_t(row.component)]+=row.area*r;
             }
+            for(size_t v=0;v<trial.size();++v)value+=prior[v]*(trial[v]-reference[v])*(trial[v]-reference[v]);
             for(int g=0;g<groups;++g)if(denominator[size_t(g)]>0) {
-                const double m=residual[size_t(g)],d=denominator[size_t(g)];
+                const double m=meritResidual[size_t(g)],d=denominator[size_t(g)];
                 value+=(2*std::abs(numerator[size_t(g)]*m)+m*m)/d;
             }
             return value;
         };
-        const double previous=merit(field);bool accepted=false;
+        const double previous=merit(field);bool accepted=false;double acceptedMerit=previous;
         for(double step=1;step>=1.0/128;step*=0.5) {
-            std::vector<double> candidate(nv);
+            if(stats)++stats->lineSearch;
             for(size_t v=0;v<nv;++v)candidate[v]=std::min(bound,field[v]+step*delta[v]);
-            if(merit(candidate)<previous){field.swap(candidate);accepted=true;break;}
+            acceptedMerit=merit(candidate);
+            if(acceptedMerit<previous){field.swap(candidate);accepted=true;break;}
         }
-        if(!accepted || previous-merit(field)<1e-10*std::max(previous,1e-10))break;
+        // The accepted trial's merit is the merit of the new field.
+        if(!accepted || previous-acceptedMerit<1e-10*std::max(previous,1e-10))break;
     }
 
     // Close total stored volume per neighborhood. Scale its positive depth
@@ -289,6 +304,7 @@ inline std::vector<CornerDepths> reconstruct(
     };
     std::vector<double> lo(size_t(groups),0),hi(size_t(groups),1),scale(size_t(groups),1),mass(size_t(groups),0);
     for(int iteration=0;iteration<40;++iteration) {
+        if(stats)++stats->bracket;
         massFor(hi,mass);bool bracketed=true;
         for(int g=0;g<groups;++g)if(mass[size_t(g)]<target[size_t(g)]) {
             hi[size_t(g)]*=2;bracketed=false;
@@ -301,7 +317,9 @@ inline std::vector<CornerDepths> reconstruct(
         const size_t g=size_t(variableGroup[v]);
         if(mass[g]<target[g]){field[v]=flow[v];hi[g]=1;fallback=true;}
     }
+    if(stats)stats->fallback=fallback;
     if(fallback)for(int iteration=0;iteration<40;++iteration) {
+        if(stats)++stats->bracket;
         massFor(hi,mass);bool bracketed=true;
         for(int g=0;g<groups;++g)if(mass[size_t(g)]<target[size_t(g)]) {
             hi[size_t(g)]*=2;bracketed=false;
@@ -309,6 +327,7 @@ inline std::vector<CornerDepths> reconstruct(
         if(bracketed)break;
     }
     for(int iteration=0;iteration<40;++iteration) {
+        if(stats)++stats->bisection;
         for(int g=0;g<groups;++g)scale[size_t(g)]=(lo[size_t(g)]+hi[size_t(g)])/2;
         massFor(scale,mass);
         for(int g=0;g<groups;++g) {

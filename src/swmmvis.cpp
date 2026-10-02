@@ -6467,6 +6467,7 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
                 IMesh2DSource* srcRaw = h5Src.get();
                 auto *resLayer = new SWMM2DResultsLayer(
                     QStringLiteral("2D Results"), nullptr);
+                resLayer->setAsyncSurface(true);   // fit frames off the GUI thread
                 // Tag with the backing .h5 so a later live run REUSES this
                 // layer instead of stacking a duplicate (one results layer
                 // per file — see the twoDInitialized handler).
@@ -9514,10 +9515,11 @@ void SWMMVis::onRunSimulation()
                     if (lpCanon == h5Canon) { layer = r2d; break; }
                 }
                 const bool freshlyCreated = (layer == nullptr);
-                if (freshlyCreated)
+                if (freshlyCreated) {
                     layer = new SWMM2DResultsLayer(
                         QStringLiteral("2D Results (live)"), nullptr);
-                else
+                    layer->setAsyncSurface(true);   // fit frames off the GUI thread
+                } else
                     layer->setName(QStringLiteral("2D Results (live)"));
                 // Issue #155 — the live engine source hands over the solver's
                 // SI metres and has no metadata channel to say so; set the

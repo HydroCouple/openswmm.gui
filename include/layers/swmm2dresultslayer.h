@@ -32,6 +32,8 @@
 #include <ogr_spatialref.h>          // OGRCoordinateTransformation (issue #155)
 
 #include <QDateTime>
+#include <QElapsedTimer>
+#include <QFuture>
 #include <QLineF>
 #include <QPointF>
 #include <QPolygonF>
@@ -39,6 +41,7 @@
 #include <QSet>
 #include <QTimer>
 #include <QString>
+#include <QThreadPool>
 #include <QVector>
 
 #include <array>
@@ -183,6 +186,10 @@ public:
     { values.clear(); status.clear(); return false; }
 
     virtual int historyGeneration() const { return 0; }
+    /*! Bumped when the depths or flux stored at \p timeIdx are replaced while
+     *  the index stays the same (a live tick completed by a later push), so a
+     *  cached reconstruction of that frame is recognised as stale. */
+    virtual int frameContentRevision(int timeIdx) const { (void)timeIdx; return 0; }
     // Generic variable content can arrive after a hydraulic tick. This revision
     // invalidates value/catalog caches without changing pinned frame indexes.
     virtual int resultGeneration() const { return historyGeneration(); }
@@ -434,6 +441,11 @@ public:
     void markFinished() { finished_ = true; }
     bool readDepthAt(int timeIdx, int cell, float& out) override;
     int  historyGeneration() const override { return generation_; }
+    int  frameContentRevision(int timeIdx) const override
+    {
+        return timeIdx >= 0 && size_t(timeIdx) < history_.size()
+            ? history_[size_t(timeIdx)].revision : 0;
+    }
     int  resultGeneration() const override { return generation_ + variable_generation_; }
 
     /*! \brief Cap on retained frames (default 2000). Past the cap the OLDER
@@ -497,6 +509,7 @@ private:
         openswmmvis::io::Mesh2DLiveVariablesPtr variables;
         QDateTime          sim_time;
         double             elapsed_sec = 0.0;
+        int                revision = 0;   ///< see frameContentRevision
     };
     std::vector<Tick> history_;
     QVector<openswmmvis::io::Mesh2DResultVariable> live_variables_;
@@ -902,6 +915,27 @@ public:
     [[nodiscard]] QVector<float> maxDepthPerCell() const;
     [[nodiscard]] quint64 frameRevision() const noexcept { return frame_revision_; }
 
+    /*! Fitted-surface worker. Off by default: a frame load fits the water
+     *  surface synchronously on the caller's thread. When on, the fit runs on
+     *  one worker thread; the previous fitted frame stays displayed until the
+     *  new one is installed, and currentTimeChanged() is emitted at that
+     *  point. Completed frames are kept in a byte-bounded cache. */
+    void setAsyncSurface(bool on);
+    [[nodiscard]] bool asyncSurface() const noexcept { return async_surface_; }
+    /*! Latest frame asked for; equals currentTimeIndex() once it is shown. */
+    [[nodiscard]] int requestedTimeIndex() const noexcept { return requested_time_idx_; }
+    void setSurfaceCacheBytes(size_t bytes);
+    /*! Fits run by the async path (worker and bootstrap), for tests. */
+    [[nodiscard]] int surfaceFitCount() const noexcept { return surface_fit_count_; }
+    /*! A fit is running or waiting on the worker. */
+    [[nodiscard]] bool surfaceBusy() const noexcept { return surface_busy_ || pending_surface_; }
+    /*! Minimum spacing between worker fits started by live ticks. */
+    void setLiveMinFitIntervalMs(int ms) noexcept { live_min_fit_interval_ms_ = ms; }
+    /*! Ask for the temporal maximum; envelopeReady() follows once every
+     *  frame is fitted (at once when it already is, or in sync mode). */
+    void requestEnvelope();
+    [[nodiscard]] bool envelopeComplete() const;
+
     /*! \brief Barycentrically-interpolated scene-space velocity (m/s) at
      *  \p scenePt, from the per-vertex velocity field reconstructed in
      *  applyCurrentFlux_ (V1, Issue 5). Writes \p outVx,\p outVy and returns
@@ -1044,6 +1078,9 @@ signals:
      */
     void currentDateTimeChanged(const QDateTime &dt);
 
+    /*! The maximum asked for through requestEnvelope() is complete. */
+    void envelopeReady();
+
     /*! CF.3 — emitted on plot↔canvas hover sync. */
     void cellHovered(int triIdx);
 
@@ -1121,6 +1158,55 @@ private:
     mutable const IMesh2DSource* surfaceMaxSource_ = nullptr;
     mutable int surfaceMaxGeneration_ = -1;
     quint64 frame_revision_ = 0;
+
+    // Fitted-surface worker (async mode): one worker thread, one pending
+    // request, one publish point on the GUI thread. The worker reads only the
+    // per-geometry members above and its own copies of the frame inputs.
+    struct SurfaceKey {
+        quint64 sourceRev = 0, geomRev = 0, policyRev = 0;
+        int generation = 0, frame = -1, tickRev = 0;
+        bool operator==(const SurfaceKey&) const = default;
+    };
+    struct SurfaceJob {
+        SurfaceKey key;
+        quint64 seq = 0, epoch = 0;   // request order; cancellation epoch
+        bool forEnvelope = false, live = false;
+        CellWaterGeometry::VisibilityPolicy policy;
+        std::vector<float> depths, flux;                            // inputs
+        std::vector<CellWaterGeometry::CornerDepths> flow, smooth;  // outputs
+    };
+    [[nodiscard]] SurfaceKey surfaceKey_(int frame) const;
+    void readSurfaceInputs_(int frame, std::vector<float>& depths, std::vector<float>& flux);
+    void fitSurfaceFields_(const std::vector<float>& depths, const std::vector<float>& flux,
+        CellWaterGeometry::VisibilityPolicy policy,
+        std::vector<CellWaterGeometry::Surface>& surfaces,
+        std::vector<CellWaterGeometry::CornerDepths>& flow,
+        std::vector<CellWaterGeometry::CornerDepths>& smooth) const;
+    void fitSurface_(SurfaceJob& job) const;
+    void fillSceneCorners_();
+    void publishSurface_(const SurfaceJob& job, quint64 seq);
+    void scheduleFit_();
+    void onSurfaceFinished_(const std::shared_ptr<SurfaceJob>& job);
+    void cancelSurfaceJobs_();
+    [[nodiscard]] std::shared_ptr<const SurfaceJob> cachedSurface_(const SurfaceKey& key) const;
+    void cacheSurface_(const std::shared_ptr<const SurfaceJob>& job);
+    [[nodiscard]] std::shared_ptr<SurfaceJob> nextEnvelopeJob_();
+    void resetEnvelopeIfStale_() const;
+    void advanceEnvelope_() const;
+    [[nodiscard]] const std::vector<CellWaterGeometry::CornerDepths>* newestSurface_(int frame) const;
+
+    std::vector<std::shared_ptr<const SurfaceJob>> surface_cache_;   // oldest first
+    size_t surface_cache_bytes_ = 0, max_surface_cache_bytes_ = size_t(128) << 20;
+    std::shared_ptr<SurfaceJob> pending_surface_;        // latest request not yet fitted
+    std::shared_ptr<const SurfaceJob> envelope_newest_;  // newest frame; never frozen
+    SurfaceKey published_key_, requested_key_;
+    quint64 policy_revision_ = 0, request_seq_ = 0, published_seq_ = 0, surface_epoch_ = 0;
+    int requested_time_idx_ = -1, surface_fit_count_ = 0, live_min_fit_interval_ms_ = 1000;
+    bool async_surface_ = false, surface_busy_ = false, envelope_wanted_ = false;
+    bool policy_signal_pending_ = false, loading_live_ = false, live_fit_timer_armed_ = false;
+    QElapsedTimer live_fit_clock_;
+    QThreadPool surface_pool_;
+    QFuture<void> surface_future_;
 
     // V1 (Issue 5) — per-vertex velocity field, reconstructed each frame in
     // applyCurrentFlux_ as the depth-weighted average of incident cell vectors.

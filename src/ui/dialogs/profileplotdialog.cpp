@@ -1667,7 +1667,7 @@ void ProfilePlotDialog::rebuildSurface2DStations()
     });
     // Sample once, then map geometric distance back to authored link length.
     // This also avoids recomputing/copying the maximum field per path segment.
-    const auto section = MeshProfileSampler::buildMeshProfile(nullptr,results,scenePath);
+    const auto section = MeshProfileSampler::buildMeshProfile(nullptr,results,scenePath,0.0,false);
     int interval = 1;
     for (const auto &sample : section.samples) {
         while (interval+1 < sceneChain.size() && sample.chainage > sceneChain[interval]) ++interval;
@@ -1739,7 +1739,8 @@ void ProfilePlotDialog::onAnimationTimeChanged(const QDateTime &dt)
     // Advance the 2D layer ourselves: the canvas only steps VISIBLE 2D
     // layers, so a hidden layer's overlay would otherwise freeze. No-op
     // when already on that frame; currentTimeChanged → refreshSurface2DDepths.
-    if (m_surface2DLayer)
+    // A minimized dialog does not drive it; showEvent catches up on restore.
+    if (m_surface2DLayer && !isMinimized())
         m_surface2DLayer->setCurrentSimTimeAsOf(dt);
 }
 
@@ -1959,6 +1960,8 @@ void ProfilePlotDialog::ensureTracksPaneExpanded()
 void ProfilePlotDialog::showEvent(QShowEvent *event)
 {
     QDialog::showEvent(event);
+    if (m_surface2DLayer && m_anim)
+        m_surface2DLayer->setCurrentSimTimeAsOf(m_anim->currentDateTime());
     // DialogLayoutWatcher restores the named splitter's state synchronously
     // during this same Show — possibly a zero-height tracks pane persisted
     // by an older session that could still drag-collapse it. The toggle is

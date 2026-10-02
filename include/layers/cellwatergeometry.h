@@ -173,10 +173,11 @@ inline std::vector<CornerDepths> flowingCornerDepths(
     const std::vector<Surface>& surfaces, const std::vector<double>& x,
     const std::vector<double>& y, const std::vector<double>& z,
     const SmoothTopology& topology, const std::vector<float>& depths,
-    const std::vector<float>& flux, VisibilityPolicy policy = {})
+    const std::vector<float>& flux, VisibilityPolicy policy = {},
+    NeighborhoodFit::Stats* stats = nullptr)
 {
     if (x.size()!=z.size() || y.size()!=z.size()) return {};
-    return NeighborhoodFit::reconstruct(cells,surfaces,z,topology,depths,flux,policy);
+    return NeighborhoodFit::reconstruct(cells,surfaces,z,topology,depths,flux,policy,stats);
 }
 
 // Continuous, bounded display projection of VFR stages on each connected
