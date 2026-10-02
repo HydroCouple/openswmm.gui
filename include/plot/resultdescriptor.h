@@ -35,7 +35,11 @@
 
 namespace openswmmvis::plot {
 
-/*! \brief One plottable result: a fixed attribute OR a species by name. */
+/*! \brief One plottable result: a fixed attribute, a species by name, OR a
+ *  2D face variable from the source's own catalog (`IMesh2DSource::
+ *  faceVariables`) keyed by `Mesh2DResultVariable::key()` — groundwater
+ *  terms, infiltration, 2D species concentrations. Its label and units come
+ *  from the results file's metadata, so they travel with the descriptor. */
 struct ResultDescriptor {
     /*! Fixed attribute; `Unknown` when this descriptor is a species. */
     PlotAttribute attr = PlotAttribute::Unknown;
@@ -44,11 +48,21 @@ struct ResultDescriptor {
      *  empty for a fixed attribute. The NAME is the identity (D-G1). */
     QString species;
 
+    /*! 2D face variable key (`Mesh2DResultVariable::key()`) when this
+     *  descriptor is a 2D catalog variable; empty otherwise. The key is the
+     *  identity; label and units are display metadata. */
+    QString variableKey;
+    QString variableLabel;
+    QString variableUnits;
+
     [[nodiscard]] bool isSpecies() const noexcept
     { return attr == PlotAttribute::Unknown && !species.isEmpty(); }
 
+    [[nodiscard]] bool isMeshVariable() const noexcept
+    { return attr == PlotAttribute::Unknown && species.isEmpty() && !variableKey.isEmpty(); }
+
     [[nodiscard]] bool isValid() const noexcept
-    { return attr != PlotAttribute::Unknown || !species.isEmpty(); }
+    { return attr != PlotAttribute::Unknown || !species.isEmpty() || !variableKey.isEmpty(); }
 
     /*! \brief Picker label: `labelFor(attr)` for a fixed attribute;
      *  the species display label (friendly text for the reserved pair,
@@ -68,8 +82,16 @@ struct ResultDescriptor {
     static ResultDescriptor forSpecies(const QString &name)
     { ResultDescriptor d; d.species = name; return d; }
 
+    static ResultDescriptor forMeshVariable(const QString &key, const QString &label,
+                                            const QString &units)
+    {
+        ResultDescriptor d;
+        d.variableKey = key; d.variableLabel = label; d.variableUnits = units;
+        return d;
+    }
+
     bool operator==(const ResultDescriptor &o) const noexcept
-    { return attr == o.attr && species == o.species; }
+    { return attr == o.attr && species == o.species && variableKey == o.variableKey; }
     bool operator!=(const ResultDescriptor &o) const noexcept
     { return !(*this == o); }
 };

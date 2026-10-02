@@ -15,6 +15,8 @@ QString ResultDescriptor::label() const
 {
     if (isSpecies())
         return OpenSWMMVis::Species::speciesDisplayLabel(species);
+    if (isMeshVariable())
+        return variableLabel.isEmpty() ? variableKey : variableLabel;
     return labelFor(attr);
 }
 
@@ -24,6 +26,8 @@ QString ResultDescriptor::unitLabel(UnitSystem u,
     if (isSpecies())
         return OpenSWMMVis::Species::speciesUnitLabel(species,
                                                       concentrationUnit);
+    if (isMeshVariable())
+        return variableUnits;
     return unitsFor(attr, u);
 }
 

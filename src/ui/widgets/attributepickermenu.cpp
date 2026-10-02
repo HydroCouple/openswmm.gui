@@ -7,6 +7,7 @@
 #include "ui/widgets/attributepickermenu.h"
 
 #include <QAction>
+#include <QHash>
 #include <QMenu>
 #include <QObject>
 #include <QVariant>
@@ -86,7 +87,7 @@ QMenu *AttributePickerMenu::createForObjectKind(ObjectRef::Kind kind,
     return menu;
 }
 
-QVector<PlotAttribute> AttributePickerMenu::execForMeshKind(
+QVector<ResultDescriptor> AttributePickerMenu::execForMeshKind(
     ObjectRef::Kind kind,
     const QPoint &globalPos,
     const IRunLayer *availability,
@@ -96,22 +97,54 @@ QVector<PlotAttribute> AttributePickerMenu::execForMeshKind(
     QMenu *menu = createForObjectKind(kind, UnitSystem::SI);
     if (!menu) return {};
 
-    QVector<PlotAttribute> enabled;
+    QHash<QAction *, ResultDescriptor> picks;
+    QAction *allAction = nullptr;
     for (QAction *act : menu->actions()) {
+        if (act->isSeparator()) continue;
         const PlotAttribute a = attributeFrom(act);
-        if (a == PlotAttribute::Unknown) continue;    // separator / "All"
+        if (a == PlotAttribute::Unknown) { allAction = act; continue; }   // "All"
         const bool ok = !availability || availability->supportsAttribute(a);
         act->setEnabled(ok);
-        if (ok) enabled.push_back(a);
+        if (ok) picks.insert(act, ResultDescriptor::forAttribute(a));
         else if (!unavailableTip.isEmpty()) act->setToolTip(unavailableTip);
+    }
+
+    // The source's own catalog: groundwater terms, infiltration, 2D species.
+    if (availability) {
+        QVector<ResultDescriptor> surface, groundwater;
+        for (const ResultDescriptor &d : availability->resultDescriptorsForKind(kind)) {
+            if (!d.isMeshVariable()) continue;
+            (d.variableKey.startsWith(QStringLiteral("groundwater:")) ? groundwater : surface).append(d);
+        }
+        const auto addSection = [&](const QString &title, const QVector<ResultDescriptor> &list) {
+            if (list.isEmpty()) return;
+            QAction *header = menu->insertSection(allAction, title);
+            Q_UNUSED(header);
+            for (const ResultDescriptor &d : list) {
+                const QString units = d.unitLabel(UnitSystem::SI);
+                auto *act = new QAction(units.isEmpty() ? d.label()
+                                                        : QStringLiteral("%1 (%2)").arg(d.label(), units),
+                                        menu);
+                menu->insertAction(allAction, act);
+                picks.insert(act, d);
+            }
+        };
+        addSection(QObject::tr("Surface results"), surface);
+        addSection(QObject::tr("Groundwater results"), groundwater);
+        if (allAction && (!surface.isEmpty() || !groundwater.isEmpty()))
+            menu->insertSeparator(allAction);
     }
     menu->setToolTipsVisible(true);
 
-    QVector<PlotAttribute> chosen;
+    QVector<ResultDescriptor> chosen;
     if (QAction *picked = menu->exec(globalPos)) {
-        const PlotAttribute a = attributeFrom(picked);
-        if (a == PlotAttribute::Unknown) chosen = enabled;   // "All attributes"
-        else                             chosen.push_back(a);
+        if (picked == allAction) {
+            // Menu order, so "All" plots read top to bottom like the menu.
+            for (QAction *act : menu->actions())
+                if (picks.contains(act)) chosen.push_back(picks.value(act));
+        } else if (picks.contains(picked)) {
+            chosen.push_back(picks.value(picked));
+        }
     }
     delete menu;
     return chosen;

@@ -857,8 +857,7 @@ int ComparisonPlotDialog::addSeries(int runIndex,
     SeriesSpec spec;
     spec.runIndex  = runIndex;
     spec.objectRef = ref;
-    spec.attribute = descriptor.attr;
-    spec.species   = descriptor.species;
+    spec.setDescriptor(descriptor);
     return m_model->addSeries(std::move(spec));
 }
 
@@ -899,6 +898,17 @@ int ComparisonPlotDialog::addCellSeries(int runIndex,
     return addSeriesBatch(runIndex, items);
 }
 
+int ComparisonPlotDialog::addCellDescriptorSeries(int runIndex,
+                                                  const QVector<int>& triIdxList,
+                                                  const QVector<ResultDescriptor>& descriptors)
+{
+    QVector<QPair<ObjectRef, ResultDescriptor>> items;
+    for (int triIdx : triIdxList)
+        for (const ResultDescriptor& d : descriptors)
+            items.append({ObjectRef::forMesh2DCell(triIdx), d});
+    return addSeriesBatch(runIndex, items);
+}
+
 int ComparisonPlotDialog::addSeriesBatch(int runIndex,
                                          const QVector<QPair<ObjectRef, ResultDescriptor>>& items)
 {
@@ -912,8 +922,7 @@ int ComparisonPlotDialog::addSeriesBatch(int runIndex,
         SeriesSpec spec;
         spec.runIndex  = runIndex;
         spec.objectRef = ref;
-        spec.attribute = descriptor.attr;
-        spec.species   = descriptor.species;
+        spec.setDescriptor(descriptor);
         specs.append(std::move(spec));
     }
     return m_model->addSeriesBatch(std::move(specs));
@@ -1075,7 +1084,7 @@ void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
         const auto &targetSpec = m_model->spec(seriesIdx);
         int rowSiblingCount = 0;
         for (const auto &row : m_model->rows()) {
-            if (row.attribute == targetSpec.attribute) {
+            if (row.descriptor() == targetSpec.descriptor()) {
                 rowSiblingCount = row.seriesIndices.size();
                 break;
             }
@@ -1095,7 +1104,7 @@ void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
             const auto &rows = m_model->rows();
             const auto &targetSpec = m_model->spec(seriesIdx);
             for (const auto &row : rows) {
-                if (row.attribute != targetSpec.attribute) continue;
+                if (row.descriptor() != targetSpec.descriptor()) continue;
                 for (int sIdx : row.seriesIndices) {
                     auto style = m_model->spec(sIdx).style;
                     const bool show = (sIdx == seriesIdx);
@@ -1517,7 +1526,12 @@ void ComparisonPlotDialog::rebuildCharts()
 
         RowWidgets rw;
         rw.chart = new QChart;
-        rw.chart->setTitle(labelWithUnits(row.attribute, row.unitSystem));
+        const ResultDescriptor rowDesc = row.descriptor();
+        const QString rowUnits = rowDesc.unitLabel(row.unitSystem);
+        const QString rowTitle = rowUnits.isEmpty()
+            ? rowDesc.label()
+            : QStringLiteral("%1 (%2)").arg(rowDesc.label(), rowUnits);
+        rw.chart->setTitle(rowTitle);
         rw.chart->legend()->setVisible(true);
 
         rw.xAxis = new openswmmvis::plot::UtcTimeAxis;
@@ -1697,7 +1711,7 @@ void ComparisonPlotDialog::rebuildCharts()
                     if (cp.xSeriesIndex < 0 || cp.xSeriesIndex >= m_model->seriesCount() ||
                         cp.ySeriesIndex < 0 || cp.ySeriesIndex >= m_model->seriesCount())
                         continue;
-                    if (m_model->spec(cp.xSeriesIndex).attribute != row.attribute)
+                    if (m_model->spec(cp.xSeriesIndex).descriptor() != rowDesc)
                         continue;   // belongs to another row
 
                     const SeriesData& xData = resolved[cp.xSeriesIndex];
@@ -1849,7 +1863,7 @@ void ComparisonPlotDialog::rebuildCharts()
             }
 
             // Title: include fit metrics if we have any.
-            QString scatterTitle = labelFor(row.attribute);
+            QString scatterTitle = rowDesc.label();
             if (haveAnyFit) {
                 scatterTitle += QStringLiteral("  (NSE=%1  R²=%2  RMSE=%3  PBIAS=%4%)")
                     .arg(bestFit.nse,   0, 'f', 2)
@@ -1861,7 +1875,7 @@ void ComparisonPlotDialog::rebuildCharts()
 
             // Also include fit metrics in the time-series chart title.
             if (haveAnyFit) {
-                rw.chart->setTitle(labelWithUnits(row.attribute, row.unitSystem) +
+                rw.chart->setTitle(rowTitle +
                     QStringLiteral("  (NSE=%1)").arg(bestFit.nse, 0, 'f', 2));
             }
 

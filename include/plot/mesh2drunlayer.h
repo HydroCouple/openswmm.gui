@@ -89,6 +89,17 @@ public:
     void getSeriesAt(const ObjectRef& ref,
                      PlotAttribute attr,
                      SeriesData& out) const override;
+    /*! Fixed attributes as before; a 2D catalog variable resolves through
+     *  the batch path (cache, worker deferral and live tails included). */
+    void getSeriesAt(const ObjectRef& ref,
+                     const ResultDescriptor& descriptor,
+                     SeriesData& out) const override;
+
+    /*! Mesh2DCell: the fixed cell attributes plus every time-varying face
+     *  variable the source's catalog carries (groundwater terms,
+     *  infiltration, coupling flux, 2D species) that no fixed attribute
+     *  already covers. Other kinds: the fixed list. */
+    QVector<ResultDescriptor> resultDescriptorsForKind(ObjectRef::Kind kind) const override;
 
     bool supportsAttribute(PlotAttribute attr) const override;
     void getSeriesBatch(const QVector<SeriesRequest>& requests,
@@ -114,7 +125,13 @@ public:
     bool hasCancelled() const { return !m_cancelled.empty(); }
 
 private:
-    using SeriesKey = std::pair<int, int>;   ///< (cell, PlotAttribute)
+    /*! (cell, token): the token is the PlotAttribute number for a fixed
+     *  attribute, or "v:" + variable key for a 2D catalog variable. */
+    using SeriesKey = std::pair<int, QString>;
+    static QString seriesToken_(const ResultDescriptor& d);
+    /*! Descriptor for each catalog-variable token seen, so a queued key can
+     *  be turned back into a request (takeExtractionJob). */
+    mutable std::map<QString, ResultDescriptor> m_variableDescs;
     void getSeriesAtUncached(const ObjectRef& ref, PlotAttribute attr, SeriesData& out) const;
     void validateSourceCache_() const;
     bool m_deferFileReads = false;
@@ -124,7 +141,7 @@ private:
     mutable std::set<SeriesKey> m_cancelled;
     mutable quint64 m_sourceRevision = ~quint64(0);
     mutable QString m_fileRevision;
-    mutable std::map<std::pair<int, int>, SeriesData> m_seriesCache;
+    mutable std::map<SeriesKey, SeriesData> m_seriesCache;
     mutable std::size_t m_cacheBytes = 0;
     /*! \brief Cached bed elevation per triangle = mean of vertex z's, and
      *  planimetric cell area (m², shoelace over the cell's SI vertices). */

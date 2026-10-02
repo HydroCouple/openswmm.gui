@@ -231,11 +231,13 @@ public:
                              const ResultDescriptor& descriptor,
                              SeriesData& out) const
     {
-        if (descriptor.isSpecies()) {
+        if (descriptor.isSpecies() || descriptor.isMeshVariable()) {
             out.ok = false;
             out.errorMessage =
-                QStringLiteral("Source '%1' carries no species results")
-                    .arg(scenarioName());
+                QStringLiteral("Source '%1' carries no %2 results")
+                    .arg(scenarioName(), descriptor.isSpecies()
+                                             ? QStringLiteral("species")
+                                             : QStringLiteral("2D variable"));
             return;
         }
         getSeriesAt(ref, descriptor.attr, out);

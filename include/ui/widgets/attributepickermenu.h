@@ -52,13 +52,15 @@ public:
                                           QStringList());
 
     /*! \brief Pop a "Plot time series" context menu for a 2D mesh kind at
-     *  \p globalPos and return the attributes the user picked — one entry,
-     *  or every enabled entry when "All attributes" was chosen. Entries
+     *  \p globalPos and return what the user picked — one entry, or every
+     *  enabled entry when "All attributes" was chosen. Entries
      *  \p availability can't serve (`supportsAttribute` false) are greyed
      *  out with \p unavailableTip as tooltip; pass nullptr to enable all.
-     *  Empty on cancel. Blocks in `QMenu::exec` — call it from a mouse
-     *  RELEASE handler, never while a button is still down. */
-    static QVector<openswmmvis::plot::PlotAttribute> execForMeshKind(
+     *  With an \p availability layer, the 2D catalog variables it lists
+     *  (`resultDescriptorsForKind`) follow under Surface / Groundwater
+     *  sections. Empty on cancel. Blocks in `QMenu::exec` — call it from a
+     *  mouse RELEASE handler, never while a button is still down. */
+    static QVector<openswmmvis::plot::ResultDescriptor> execForMeshKind(
         openswmmvis::plot::ObjectRef::Kind kind,
         const QPoint &globalPos,
         const openswmmvis::plot::IRunLayer *availability,

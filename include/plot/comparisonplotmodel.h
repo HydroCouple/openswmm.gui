@@ -58,6 +58,11 @@ struct SeriesSpec {
      *  happens at fetch time, never here. attribute stays Unknown for a
      *  species series. */
     QString        species;
+    /*! 2D catalog variable (key + display label/units) when this series
+     *  plots a `ResultDescriptor::isMeshVariable()` result; empty otherwise. */
+    QString        variableKey;
+    QString        variableLabel;
+    QString        variableUnits;
     SeriesStyle    style;
     QString        legendOverride;   ///< Empty = auto-generate from (run, ref, attr).
 
@@ -65,14 +70,24 @@ struct SeriesSpec {
      *  row-keying paths consume. */
     ResultDescriptor descriptor() const
     {
+        if (!variableKey.isEmpty())
+            return ResultDescriptor::forMeshVariable(variableKey, variableLabel, variableUnits);
         return species.isEmpty() ? ResultDescriptor::forAttribute(attribute)
                                  : ResultDescriptor::forSpecies(species);
     }
 
+    void setDescriptor(const ResultDescriptor &d)
+    {
+        attribute     = d.attr;
+        species       = d.species;
+        variableKey   = d.variableKey;
+        variableLabel = d.variableLabel;
+        variableUnits = d.variableUnits;
+    }
+
     bool isValid() const noexcept
     {
-        return runIndex >= 0 && objectRef.isValid() &&
-               (attribute != PlotAttribute::Unknown || !species.isEmpty());
+        return runIndex >= 0 && objectRef.isValid() && descriptor().isValid();
     }
 };
 
@@ -84,11 +99,24 @@ struct AttributeRow {
      *  Each species gets its own chart row — TSS and Lead share units
      *  but are different quantities, exactly like the Mesh2D split. */
     QString           species;
+    /*! 2D catalog variable rows: one row per variable key. */
+    QString           variableKey;
+    QString           variableLabel;
+    QString           variableUnits;
     QVector<int>      seriesIndices;   ///< Indices into ComparisonPlotModel::specs() that target this attr.
     double            ymin = 0.0;
     double            ymax = 1.0;
     UnitSystem        unitSystem = UnitSystem::US;
     QString           unitsLabel;      ///< e.g. "ft", "m/s".
+
+    /*! What this row plots (chart title, tab caption, row matching). */
+    ResultDescriptor descriptor() const
+    {
+        if (!variableKey.isEmpty())
+            return ResultDescriptor::forMeshVariable(variableKey, variableLabel, variableUnits);
+        return species.isEmpty() ? ResultDescriptor::forAttribute(attribute)
+                                 : ResultDescriptor::forSpecies(species);
+    }
 };
 
 /*! \brief One user-configured 1v1 comparison: X-series vs Y-series

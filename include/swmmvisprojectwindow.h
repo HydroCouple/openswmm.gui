@@ -25,6 +25,7 @@
 #include <functional>
 
 #include "plot/plotattribute.h"   // PlotAttribute (edge flow vs flux relay)
+#include "plot/resultdescriptor.h"
 #include "layers/swmmmodellayer.h"  // SWMMModelLayer::NewProjectSpec (nested)
 
 class OpenSWMMVisWorkspace;
@@ -495,7 +496,7 @@ signals:
      *  main window so it can open the Comparison Plot Dialog. */
     void pick2DCellsPicked(class SWMM2DResultsLayer *layer,
                             const QVector<int> &triIdxList,
-                            const QVector<openswmmvis::plot::PlotAttribute> &attrs);
+                            const QVector<openswmmvis::plot::ResultDescriptor> &attrs);
 
     /*! Forwards MapToolMeshProfile::profilePathTraced up to the main window
      *  so it can open the MeshProfilePlotDialog. The polyline is in scene

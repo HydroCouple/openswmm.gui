@@ -157,7 +157,7 @@ void MapToolPick2DCells::requestPlotAt_(const QPoint &pixel, const QPoint &globa
     // greyed out via Mesh2DRunLayer::supportsAttribute.
     using namespace openswmmvis;
     const plot::Mesh2DRunLayer availability(layer);
-    const QVector<plot::PlotAttribute> attrs =
+    const QVector<plot::ResultDescriptor> attrs =
         ui::AttributePickerMenu::execForMeshKind(
             plot::ObjectRef::Kind::Mesh2DCell, globalPos, &availability,
             tr("Not present in this run's 2D results — re-run with the "

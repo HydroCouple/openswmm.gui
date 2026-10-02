@@ -12,6 +12,7 @@
 
 #include <QDateTime>
 #include <QFileInfo>
+#include <QSet>
 
 #include <algorithm>
 #include <array>
@@ -273,6 +274,43 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref, PlotAttribute attr, Serie
     out = std::move(result[0]);
 }
 
+QString Mesh2DRunLayer::seriesToken_(const ResultDescriptor& d)
+{
+    return d.isMeshVariable() ? QStringLiteral("v:") + d.variableKey
+                              : QString::number(int(d.attr));
+}
+
+void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref, const ResultDescriptor& descriptor,
+                                 SeriesData& out) const
+{
+    if (!descriptor.isMeshVariable()) {
+        IRunLayer::getSeriesAt(ref, descriptor, out);
+        return;
+    }
+    QVector<SeriesData> result;
+    getSeriesBatch({{ref, descriptor, out.firstPeriod}}, result);
+    out = std::move(result[0]);
+}
+
+QVector<ResultDescriptor> Mesh2DRunLayer::resultDescriptorsForKind(ObjectRef::Kind kind) const
+{
+    QVector<ResultDescriptor> out = plot::resultDescriptorsForKind(kind, QStringList());
+    if (kind != ObjectRef::Kind::Mesh2DCell || !m_layer) return out;
+    // Datasets a fixed attribute already plots (depth, HGL, velocity, rain).
+    static const QSet<QString> kCovered{
+        QStringLiteral("Mesh2_face_depth"), QStringLiteral("Mesh2_face_head"),
+        QStringLiteral("Mesh2_face_vx"), QStringLiteral("Mesh2_face_vy"),
+        QStringLiteral("Mesh2_face_rainfall"), QStringLiteral("Mesh2_face_rain_cum")};
+    using V = io::Mesh2DResultVariable;
+    for (const V& v : m_layer->resultVariables()) {
+        if (v.frameCount <= 0 || kCovered.contains(v.dataset)) continue;
+        if (v.temporal != V::Temporal::Reported && v.temporal != V::Temporal::Held) continue;
+        out.append(ResultDescriptor::forMeshVariable(v.key(), v.label,
+                                                     v.unitsKnown ? v.units : QString()));
+    }
+    return out;
+}
+
 void Mesh2DRunLayer::getSeriesBatch(const QVector<SeriesRequest>& requests,
                                    QVector<SeriesData>& out) const
 {
@@ -295,17 +333,27 @@ void Mesh2DRunLayer::getSeriesBatch(const QVector<SeriesRequest>& requests,
             data.errorMessage = QStringLiteral("2D mesh source carries no species results");
             continue;
         }
+        const bool variable = r.descriptor.isMeshVariable();
+        if (variable && (!src || nT <= 0 || r.ref.kind != ObjectRef::Kind::Mesh2DCell ||
+                         r.ref.triIdx < 0 || r.ref.triIdx >= src->triangleCount())) {
+            data.errorMessage = !src || nT <= 0
+                ? QStringLiteral("No time steps available yet")
+                : QStringLiteral("2D variables are plotted per cell");
+            continue;
+        }
         // Keep the established vertex/edge interpolation and error handling.
-        if (!src || nT <= 0 || r.ref.kind != ObjectRef::Kind::Mesh2DCell ||
+        if (!variable && (!src || nT <= 0 || r.ref.kind != ObjectRef::Kind::Mesh2DCell ||
             r.ref.triIdx < 0 || r.ref.triIdx >= src->triangleCount() ||
             !(attr == PlotAttribute::Mesh2DDepth || attr == PlotAttribute::Mesh2DHGL ||
               attr == PlotAttribute::Mesh2DRainfall || attr == PlotAttribute::Mesh2DRainVolume ||
               attr == PlotAttribute::Mesh2DRainDepth || attr == PlotAttribute::Mesh2DRainfallAvg ||
-              velocity)) {
+              velocity))) {
             getSeriesAtUncached(r.ref, attr, data);
             continue;
         }
-        const SeriesKey key{r.ref.triIdx, int(attr)};
+        const QString token = seriesToken_(r.descriptor);
+        if (variable) m_variableDescs[token] = r.descriptor;
+        const SeriesKey key{r.ref.triIdx, token};
         auto cached = m_seriesCache.find(key);
         if (r.firstPeriod == 0 && cached != m_seriesCache.end()) {
             data = cached->second;
@@ -349,7 +397,7 @@ void Mesh2DRunLayer::getSeriesBatch(const QVector<SeriesRequest>& requests,
     if (m_cacheBytes + addedBytes > budget) { m_seriesCache.clear(); m_cacheBytes = 0; }
     for (int k : pending) {
         if (requests[k].firstPeriod != 0 || !out[k].ok) continue;
-        const SeriesKey key{requests[k].ref.triIdx, int(requests[k].descriptor.attr)};
+        const SeriesKey key{requests[k].ref.triIdx, seriesToken_(requests[k].descriptor)};
         if (m_seriesCache.find(key) != m_seriesCache.end()) continue;
         m_seriesCache.emplace(key, out[k]);
         m_cacheBytes += (out[k].timesJulian.size() + out[k].values.size()) * sizeof(double);
@@ -410,6 +458,29 @@ bool Mesh2DRunLayer::extractCellFrames_(IMesh2DSource& src,
     }
     std::vector<float> depths, flux, rain, rainVolume;
     const double nan = std::numeric_limits<double>::quiet_NaN();
+    // 2D catalog variables: resolve each key against this source's catalog
+    // once, then read each variable's frame once per time step.
+    std::map<QString, io::Mesh2DResultVariable> variables;
+    for (int k : pending)
+        if (requests[k].descriptor.isMeshVariable())
+            variables.emplace(requests[k].descriptor.variableKey, io::Mesh2DResultVariable{});
+    if (!variables.empty()) {
+        for (const auto& v : src.faceVariables())
+            if (auto it = variables.find(v.key()); it != variables.end() && it->second.dataset.isEmpty())
+                it->second = v;
+        QVector<int> kept;
+        for (int k : pending) {
+            const auto& d = requests[k].descriptor;
+            if (d.isMeshVariable() && variables[d.variableKey].dataset.isEmpty())
+                out[k].errorMessage = QStringLiteral("'%1' is not in this run's 2D results").arg(d.label());
+            else
+                kept.append(k);
+        }
+        pending.swap(kept);
+        if (pending.isEmpty()) return true;
+    }
+    struct VariableFrame { std::vector<float> values; std::vector<io::Mesh2DValueStatus> status; bool ok = false; };
+    std::map<QString, VariableFrame> variableFrames;
     // Interval mean: each request's last readable cumulative sample. A frame
     // that cannot be read widens the interval instead of reporting zero.
     QVector<std::pair<QDateTime, double>> prevCum(requests.size());
@@ -426,6 +497,10 @@ bool Mesh2DRunLayer::extractCellFrames_(IMesh2DSource& src,
         const bool fluxOk = needFlux && haveGeometry && src.readEdgeFluxAt(t, flux);
         const bool rainOk = needRain && src.readFaceFieldAt("Mesh2_face_rainfall", t, rain);
         const bool volumeOk = needRainVolume && src.readFaceFieldAt("Mesh2_face_rain_cum", t, rainVolume);
+        for (auto& [key, variable] : variables) {
+            auto& f = variableFrames[key];
+            f.ok = src.readFaceVariableAt(variable, t, f.values, f.status);
+        }
         std::map<int, std::pair<double, double>> velocities;
         for (int k : pending) {
             const auto& r = requests[k];
@@ -435,7 +510,14 @@ bool Mesh2DRunLayer::extractCellFrames_(IMesh2DSource& src,
             // skipped (no sample), so a missing dataset still reports "No
             // valid samples"; a readable dry-cell velocity is a NaN gap.
             double value = nan;
-            if (attr == PlotAttribute::Mesh2DRainfallAvg) {
+            if (r.descriptor.isMeshVariable()) {
+                if (t < from[k]) continue;
+                const auto& f = variableFrames[r.descriptor.variableKey];
+                if (!f.ok || c >= int(f.values.size())) continue;
+                // Missing / waterless / not-applicable cells are gaps, never zero.
+                if (c < int(f.status.size()) && f.status[c] == io::Mesh2DValueStatus::Valid)
+                    value = f.values[c];
+            } else if (attr == PlotAttribute::Mesh2DRainfallAvg) {
                 const double area = c < int(cellArea.size()) ? cellArea[c] : 0.0;
                 if (!volumeOk || c >= int(rainVolume.size()) || !(area > 0.0)) continue;
                 const auto prev = std::exchange(prevCum[k], {time, double(rainVolume[c])});
@@ -520,8 +602,13 @@ Mesh2DExtractionJob Mesh2DRunLayer::takeExtractionJob()
         return job;
     }
     bool needBed = false, needArea = false, needNv = false;
-    for (const auto& [cell, attr] : m_deferred) {
-        const auto a = static_cast<PlotAttribute>(attr);
+    for (const auto& [cell, token] : m_deferred) {
+        const auto d = m_variableDescs.find(token);
+        if (d != m_variableDescs.end()) {
+            job.requests.append({ObjectRef::forMesh2DCell(cell), d->second, 0});
+            continue;
+        }
+        const auto a = static_cast<PlotAttribute>(token.toInt());
         job.requests.append({ObjectRef::forMesh2DCell(cell), ResultDescriptor::forAttribute(a), 0});
         needBed |= a == PlotAttribute::Mesh2DHGL;
         needArea |= a == PlotAttribute::Mesh2DRainDepth || a == PlotAttribute::Mesh2DRainfallAvg;
@@ -553,7 +640,7 @@ bool Mesh2DRunLayer::acceptExtraction(const Mesh2DExtractionJob& job,
     // missing dataset stays missing and must not queue another job. Nothing
     // is evicted here — evicting a displayed series would only queue it again.
     for (int k = 0; k < job.requests.size(); ++k) {
-        const SeriesKey key{job.requests[k].ref.triIdx, int(job.requests[k].descriptor.attr)};
+        const SeriesKey key{job.requests[k].ref.triIdx, seriesToken_(job.requests[k].descriptor)};
         m_inFlight.erase(key);
         if (m_seriesCache.count(key)) continue;
         m_seriesCache.emplace(key, results[k]);
@@ -567,7 +654,7 @@ void Mesh2DRunLayer::cancelExtraction(const Mesh2DExtractionJob& job)
     validateSourceCache_();
     if (job.fileRevision != m_fileRevision || job.sourceRevision != m_sourceRevision) return;
     for (const auto& r : job.requests) {
-        const SeriesKey key{r.ref.triIdx, int(r.descriptor.attr)};
+        const SeriesKey key{r.ref.triIdx, seriesToken_(r.descriptor)};
         if (m_inFlight.erase(key)) m_cancelled.insert(key);
     }
 }

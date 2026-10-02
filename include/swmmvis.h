@@ -637,7 +637,7 @@ private slots:
      *  layer. \p attrs comes from MapToolPick2DCells' context menu. */
     void openComparisonPlotForCells(class SWMM2DResultsLayer *layer,
                                     const QVector<int> &triIdxList,
-                                    const QVector<openswmmvis::plot::PlotAttribute> &attrs);
+                                    const QVector<openswmmvis::plot::ResultDescriptor> &attrs);
 
     /*! Slice AT.2 — toggle the MapToolPlotPick on/off in response to
      *  the dialog's "Add from Map…" action. Saves the previously active

@@ -241,8 +241,8 @@ void MapToolMeshSelectEdge::mousePressEvent(QMouseEvent *event)
         const auto attrs = openswmmvis::ui::AttributePickerMenu::execForMeshKind(
             openswmmvis::plot::ObjectRef::Kind::Mesh2DEdge,
             event->globalPosition().toPoint(), nullptr);
-        for (const auto attr : attrs)
-            emit plotEdgeFluxRequested(m_target, tri, eLocal, attr);
+        for (const auto &d : attrs)
+            emit plotEdgeFluxRequested(m_target, tri, eLocal, d.attr);
         return;
     }
 
