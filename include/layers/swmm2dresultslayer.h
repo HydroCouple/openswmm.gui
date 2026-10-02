@@ -1113,6 +1113,7 @@ private:
     std::vector<float>             current_depths_;             ///< per CELL
 
     std::vector<CellWaterGeometry::Surface> cellSurfaces_;
+    std::vector<CellWaterGeometry::CornerDepths> cellFlowDepths_; // before shared-corner projection
     CellWaterGeometry::SmoothTopology surfaceTopology_;
     std::vector<CellWaterGeometry::CornerDepths> surfaceDepths_;
     mutable std::vector<CellWaterGeometry::CornerDepths> surfaceMaxCache_;

@@ -2130,6 +2130,7 @@ void SWMM2DResultsLayer::closeSource()
     cellMaxCache_.clear();
     current_depths_.clear();
     current_flux_.clear();
+    cellFlowDepths_.clear();
     // Per-tri animated state is cleared on next setSource via
     // rebuildSceneGeometry_(); for the moment, just blank the canvas.
     for (auto &t : m_sceneTris) {
@@ -2704,8 +2705,12 @@ CellWaterGeometry::DisplayState SWMM2DResultsLayer::cellWaterDisplayState(int ce
 {
     if (cell < 0 || size_t(cell) >= cellSurfaces_.size() || size_t(cell) >= cellSplit_.size())
         return CellWaterGeometry::DisplayState::Invalid;
-    return CellWaterGeometry::displayState(cellSplit_[size_t(cell)],
+    const auto raw=CellWaterGeometry::displayState(cellSplit_[size_t(cell)],
         cellSurfaces_[size_t(cell)],vz_,waterVisibilityPolicy());
+    if (!CellWaterGeometry::visible(raw,waterVisibilityPolicy()) || size_t(cell)>=cellFlowDepths_.size())
+        return raw;
+    return CellWaterGeometry::displayState(cellFlowDepths_[size_t(cell)],
+        cellSplit_[size_t(cell)].vertexCount(),waterVisibilityPolicy());
 }
 
 SWMM2DResultsLayer::VelocityField SWMM2DResultsLayer::captureVelocityField() const
@@ -2836,14 +2841,17 @@ std::vector<CellWaterGeometry::CornerDepths> SWMM2DResultsLayer::maxSurfaceDepth
         surfaceMaxFramesDone_=0;
         surfaceMaxSource_=source_.get(); surfaceMaxGeneration_=generation;
     }
-    std::vector<float> depths;
+    std::vector<float> depths, flux;
     std::vector<CellWaterGeometry::Surface> surfaces(cells_.size());
     std::vector<CellWaterGeometry::CornerDepths> field;
     auto fold=[&](int frame,auto& maximum) {
         if (!source_->readDepthsAt(frame,depths) || depths.size()!=cells_.size()) return false;
         for (size_t c=0;c<cells_.size();++c) surfaces[c]=surfaceForDepth(int(c),depths[c]);
+        if (!source_->readEdgeFluxAt(frame,flux)) flux.clear();
+        const auto reconstructed=CellWaterGeometry::flowingCornerDepths(
+            cellSplit_,surfaces,vx_,vy_,vz_,surfaceTopology_,depths,flux,waterVisibilityPolicy());
         CellWaterGeometry::smoothCornerDepths(cellSplit_,surfaces,vz_,surfaceTopology_,field,
-                                             waterVisibilityPolicy());
+                                             waterVisibilityPolicy(),reconstructed);
         for (size_t c=0;c<field.size();++c)
             for (int k=0;k<4;++k)
                 if (std::isfinite(field[c][k])
@@ -3077,6 +3085,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     // contour on this fan; every per-face value is looked up through triCell_.
     buildDisplayFan(vx_, vy_, vz_, cells_, tris_, triCell_, cellTri0_, &cellSplit_);
     surfaceTopology_=CellWaterGeometry::smoothTopology(cellSplit_);
+    cellFlowDepths_.clear();
 
     m_sceneTris.resize(static_cast<int>(tris_.size()));
     int badTris = 0;
@@ -3208,8 +3217,11 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
     cellSurfaces_.resize(cells_.size());
     for (size_t c = 0; c < cells_.size(); ++c)
         cellSurfaces_[c] = surfaceForDepth(int(c),current_depths_[c]);
+    cellFlowDepths_=CellWaterGeometry::flowingCornerDepths(
+        cellSplit_,cellSurfaces_,vx_,vy_,vz_,surfaceTopology_,current_depths_,current_flux_,
+        waterVisibilityPolicy());
     CellWaterGeometry::smoothCornerDepths(cellSplit_,cellSurfaces_,vz_,surfaceTopology_,surfaceDepths_,
-                                         waterVisibilityPolicy());
+                                         waterVisibilityPolicy(),cellFlowDepths_);
     for (int i = 0; i < m_sceneTris.size(); ++i) {
         const auto& ids = tris_[size_t(i)];
         const int cell = triCell_[size_t(i)];
