@@ -422,7 +422,18 @@ commit stops there. Because values are written through the same model, any other
 view of them refreshes: user-flag columns in the Attribute Table update
 immediately.
 
-\figtodo{03_user_flag_values.png, The User Flag Values dialog for a selected junction with one boolean and one real flag}
+\fig{03_user_flag_values.png, J1 user flags: Inspected is YES and priority is -5; the real and string flags are unset}
+
+The portable `tutorials/models/user_flags_example.inp` loads four definitions
+and typed values. Open a copy and use **Model → User Flags…** to inspect the
+schema. Open J1's **User Flags** property to inspect its boolean and integer
+values. C_MAIN instead holds `ROUGHNESS_ADJ = 1e-6` and `ASSET_ID = AM 00341`.
+These values demonstrate parsing and display, not recommended maintenance
+priorities or roughness changes. Flags are metadata; the real flag does not
+automatically alter the conduit roughness. Captures of loaded values do not
+establish that newly edited values survive saving and reopening.
+
+\fig{03_user_flag_link_values.png, C_MAIN user flags: ROUGHNESS_ADJ is 1e-6 and ASSET_ID is AM 00341; boolean and integer flags are unset}
 
 ### Printing, exporting an image, and combining projects
 

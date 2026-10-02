@@ -66,6 +66,7 @@ struct FigureSpec {
     QStringList show;               //!< show and raise named widgets for this capture layout
     QString    type;                //!< text to type into the target's first editable field
     QString    typeInto;            //!< which field: objectName, or part of its placeholder
+    QString    afterTypeClick;      //!< inline button to press after typing (does not open a dialog)
     QString    select;              //!< item to select in the target's list ("first", or its text)
     QString    activate;            //!< select an item and emit its view's clicked signal
     QStringList check;              //!< check named rows before pressing a dialog button

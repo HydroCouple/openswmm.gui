@@ -43,7 +43,17 @@ toggles between sessions.
 every series in the project on the left, the point grid in the middle, and an
 interactive chart on the right.
 
-\fig{17_timeseries_editor.png, The Time Series editor — series list; point grid and chart}
+\fig{17_timeseries_editor.png, Inline QEXT series with three dated flow values; the grid and status line give the complete time range}
+
+The portable `tutorials/models/node_editor_example.inp` provides this example.
+Open a copy, then select **QEXT** in the Time Series editor: its values are
+0.1, 0.3 and 0.1 cfs at midnight, noon and 23:59 on January 1, 2020.
+The rightmost chart date label is clipped in this capture; read the complete
+endpoint in the grid or status line. The same model includes **HOURLY**, a
+24-factor weekday pattern assigned to J1's dry-weather flow. Its factors sum
+to 23.8, with mean 0.9917; they have not been normalized to an exact mean of
+one. See \ref manual_hydraulics for the populated node assignments and the
+example's simulation limitations.
 
 **List pane.** A filter box narrows the list by case-insensitive substring.
 **New**, **Delete** and **Rename** act on the selection; renaming is also
@@ -151,6 +161,12 @@ axis titles follow the curve type.
 
 \fig{17_curve_editor.png, The Curve editor with a rating curve — note the Head and Flow headers the type selects}
 
+For a reproducible curve example, open a copy of
+`tutorials/models/data_objects_example.inp` and select **RATING**. Its four
+(head in feet, flow in cfs) pairs are (0, 0), (1, 2), (2, 6) and (3, 12).
+The curve is supplied for editor inspection and is not assigned to a link.
+The chart's head ticks are rounded; use the point grid for exact values.
+
 | Type | X | Y |
 | --- | --- | --- |
 | **Storage** | Depth | Surface Area |
@@ -190,7 +206,14 @@ the points.
 **Model → Data Objects → Time Patterns…** opens the pattern editor: list,
 factor table, and a step-line preview.
 
-\fig{17_pattern_editor.png, The Time Pattern editor with an hourly pattern and its step-line preview}
+\fig{17_pattern_editor.png, The Time Pattern editor with twelve MONTHLY factors and their step-line preview}
+
+The same `data_objects_example.inp` contains **MONTHLY**. Its twelve factors
+sum to 12 and average 1.0; it is not assigned to the model's dry-weather flow.
+The separately supplied **HOURLY** pattern is assigned to J1. A reference run
+of this uncalibrated editor example completed with routing continuity
+−0.097 percent. It contains no pollutant treatment and does not validate the
+water-quality behavior of the node-editor example described above.
 
 | Type | Factors | Row labels |
 | --- | --- | --- |

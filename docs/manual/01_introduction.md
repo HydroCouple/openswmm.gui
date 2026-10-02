@@ -379,7 +379,7 @@ are not prompted. See \ref manual_crs.
 it is not connected to anything in this build and does nothing. Use the Welcome
 page's **User Manual** link instead.
 
-\fig{01_about_dialog.png, The About dialog listing shipped components with the licence text for the selected entry}
+\fig{01_about_dialog.png, The About dialog listing bundled components with the Qt 6 notice selected}
 
 ## Tips and gotchas
 

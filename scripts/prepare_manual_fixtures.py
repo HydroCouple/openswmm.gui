@@ -12,6 +12,10 @@ import subprocess
 ROOT = Path(__file__).resolve().parent.parent
 MODEL_DIR = 'docs/manual/tutorials/models/'
 CASES = {
+    'dataobjects': [MODEL_DIR + 'data_objects_example.inp'],
+    'flags': [MODEL_DIR + 'user_flags_example.inp'],
+    'node': [MODEL_DIR + 'node_editor_example.inp'],
+    'hydrology': [MODEL_DIR + 'hydrology_editor_example.inp'],
     'site': ['examples/site_drainage/site_drainage_model.inp'],
     'street': [MODEL_DIR + 'street_inlet_junction.inp'],
     'twod': [MODEL_DIR + '2d_complete_example.inp'],

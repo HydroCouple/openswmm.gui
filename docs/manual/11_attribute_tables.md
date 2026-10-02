@@ -108,7 +108,7 @@ integrals use the report step as `dt`. Expect small disagreements with the
 between two report times is invisible, so the count is a lower bound. Shorten
 `REPORT_STEP` for an exact one.
 
-\figtodo{11_dynamics_columns.png, The right-hand dynamics block of the Conduits table after a run}
+\fig{11_dynamics_columns.png, The right-hand dynamics block of the Conduits table after a run}
 
 ### Sorting
 
@@ -142,8 +142,17 @@ Boundary = 'Yes' AND Length > 12
 | `IN` | Match any of a list — `Type IN ('Junction','Outfall')` |
 | Combining | `AND`, `OR`, `NOT`, grouped with `( )` |
 
-A malformed clause is reported in the status label with the offending column,
-and the filter is left off.
+A malformed clause is reported in the status label with the error position,
+and the new clause is not applied. Any previous valid filter and selection
+remain in place. Correct the clause and press **Apply**, or use **Clear** to
+remove the previous filter.
+
+\fig{11_query_error.png, Name LIKE without a string is rejected while the previous three matching conduits remain visible}
+
+A syntactically valid clause using an unknown column can instead return zero
+matches without a syntax error. For example, `MissingColumn > 5` does so in
+the Conduits table. Check the actual column header when an unexpected query
+returns no rows.
 
 The query bar works on every source, including the read-only ones — the
 predicate evaluator runs over rows, not over the engine.
@@ -172,7 +181,15 @@ the query:
 The selection ops always run against the full population of the category; the
 "show selected only" filter does not narrow them.
 
-\figtodo{11_query_and_selection.png, A WHERE clause matching 47 of 1205 rows with the Replace radio armed}
+\fig{11_query_and_selection.png, Name LIKE 'C1%' matches C1; C10 and C11 in the eleven-conduit drainage example; Replace selects the three matches}
+
+To reproduce this example, open a copy of the T1 drainage model, choose
+**Conduits**, select **Replace**, enter
+\htmlonly<code>Name LIKE 'C1%'</code>\endhtmlonly and press **Apply**.
+The status reads **3 of 11 matched** and those three rows become selected.
+The percent sign includes the unsuffixed C1 as well as C10 and C11. Use
+**Clear** to remove the table filter; clearing the filter does not clear the
+selection.
 
 ### Editing cells
 

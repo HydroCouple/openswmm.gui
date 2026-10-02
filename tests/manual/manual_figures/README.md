@@ -9,7 +9,7 @@ cover native controls and map interactions that need an interactive session.
 ## Reproducible automated batches
 
 Use an explicit application binary and a **new** output directory for each
-batch. First prepare working copies of the five portable examples:
+batch. First prepare working copies of the portable examples:
 
 ```sh
 python3 scripts/prepare_manual_fixtures.py \
@@ -81,6 +81,10 @@ also activates the selected view row so the report body scrolls. For example,
 highlight in the navigator.
 
 Use `sortColumn` with the exact visible table header for an ascending sort.
+For an explicit query, set `type` and `typeInto`, then use
+`afterTypeClick: "Apply"` to press the inline button after entering the text.
+Unlike `click`, this step does not expect a new dialog. Check the matched-row
+count and selected rows; typing a clause alone does not apply it.
 Use `column` separately to scroll a wide table to the fields in the caption.
 For a Plot Variables picker, `check` is a list of exact row paths, for example
 `["Node J11 > Depth (node) (ft)", "Link C11 > Flow (ft³/s)"]`.
@@ -303,3 +307,20 @@ recipes, unfinished figures/videos or absent/stale visual reviews. The ordinary
 audit remains suitable for incremental chapter batches. Build with `doxygen
 Doxyfile` from `docs/`, then inspect the HTML images, captions and numbered
 orientation guide at desktop and narrow reading widths.
+
+## Populated hydrology editors
+
+Prepare the tracked synthetic example with `prepare_manual_fixtures.py --case
+hydrology`. Select its copied `hydrology_editor_example.inp` for the `13_` LID,
+snowpack, aquifer, groundwater, initial-loadings and unit-hydrograph recipes.
+Use a native batch and inspect every value against the source input. The LID
+Control editor is an explicit exception: imported layer values show defaults,
+so capture its warning without editing it. Use the wider recipe for its diagram
+and the Aquifer editor so callouts remain readable. The Initial Abstraction
+capture shows the first decay columns; its remaining recovery/snow columns are
+reached by horizontal scrolling.
+
+The example is uncalibrated. Snowmelt is disabled and exponential RDII decay
+runs without temperature data, producing the expected T_ref warning. Review
+runoff, groundwater and routing continuity separately. A successful run is not
+validation of snowmelt, design parameters, or edit/save persistence.

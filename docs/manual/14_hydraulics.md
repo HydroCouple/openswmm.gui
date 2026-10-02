@@ -194,9 +194,12 @@ first two parameters are the **full** axes, not semi-axes.
 
 ### Node compound editors — Inflows; DWF; RDII; Treatment
 
-The four compound rows open one modal dialog on the matching page. Every page is
-a table of existing entries with **Remove Selected**, plus an add/update form
-below; edits go straight to the engine and the cell summary refreshes.
+The four compound rows open one modal dialog showing the form matching the
+row you opened. There are no tabs to switch between them: close the dialog
+and open another compound row. Inflows, DWF and RDII have an existing-entry
+table with **Remove Selected** and an add/update form below. Treatment is
+an inline expression table. Changes apply immediately; closing does not undo
+them. The property summary refreshes when the dialog closes.
 
 **External Inflows** (`[INFLOWS]`)
 
@@ -221,11 +224,15 @@ Form: **Constituent**, **Average Value**, and four pattern pickers —
 Pattern** — each with a "…" button into the Pattern editor. Table columns:
 *Constituent*; *Average*; *Monthly*; *Daily*; *Hourly*; *Weekend*.
 
+\fig{14_node_dwf_page.png, J1 dry-weather flow assignments; FLOW is 0.2 cfs with the HOURLY pattern and TSS is 20 mg/L}
+
 **RDII** (`[RDII]`)
 
 Form: **UH Group Name** (picker whose "…" button opens the Unit Hydrograph
 editor — see \ref manual_hydrology) and **Sewer Area**. Table columns:
 *UH Group*; *Sewer Area*.
+
+\fig{14_node_rdii_page.png, J1 RDII assignment to UH1 over a five-acre sewer area}
 
 **Pollutant Treatment** (`[TREATMENT]`)
 
@@ -243,7 +250,26 @@ without ever mis-validating.
 
 \fig{14_node_inflows_page.png, The External Inflows page of the node compound editor}
 
-\figtodo{14_treatment_page.png, The Pollutant Treatment page with a validated expression}
+\fig{14_treatment_page.png, J1 loaded TSS treatment expression R = 0.25}
+
+**Reproducing the populated editors.** Open a disposable copy of
+`tutorials/models/node_editor_example.inp`. Select J1 in the Junctions
+attribute table, then open **Dry Weather Flow**, **RDII** or **Pollutant
+Treatment** through that property cell's **Edit…** button. The assignment
+tables show the stored values; the lower add-entry forms initially show
+defaults. Select an existing assignment row to load its values into the form
+before using **Add / Update**. For the matching data, open **Model → Data
+Objects → Time Series…** and select QEXT, or **Time Patterns…** and select
+HOURLY. The Initial Quality dialog contains J1 and C1 TSS rows (see
+\ref manual_water_quality).
+
+This synthetic CFS model is uncalibrated and is supplied to demonstrate loaded
+editor state. Its reference engine run completed with routing continuity
+−0.091 percent and RDII continuity 0.000 percent, but quality routing
+continuity was **22.434 percent**. That imbalance remains unresolved: do not
+use this example to validate treatment removal, pollutant mass balance or
+initial-quality behavior. The captures verify displayed assignments; editing,
+saving and reopening these assignments still require separate verification.
 
 \videotodo{Adding a time-series inflow and a dry-weather-flow pattern to a junction}
 

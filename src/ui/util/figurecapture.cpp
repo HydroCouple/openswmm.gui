@@ -372,6 +372,7 @@ bool FigureCapture::loadManifest(QString *error)
             spec.show.append(name.toString());
         spec.type        = o.value(QStringLiteral("type")).toString();
         spec.typeInto    = o.value(QStringLiteral("typeInto")).toString();
+        spec.afterTypeClick = o.value(QStringLiteral("afterTypeClick")).toString();
         spec.select      = o.value(QStringLiteral("select")).toString();
         spec.activate    = o.value(QStringLiteral("activate")).toString();
         spec.sortColumn  = o.value(QStringLiteral("sortColumn")).toString();
@@ -972,6 +973,28 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
             finishSpec(r);
             return;
         }
+    }
+
+    if (!spec.afterTypeClick.isEmpty()) {
+        QAbstractButton *button = nullptr;
+        for (auto *candidate : target->findChildren<QAbstractButton *>()) {
+            if (candidate->isVisibleTo(target) && candidate->isEnabled()
+                && stripMnemonic_(candidate->text()).compare(
+                       spec.afterTypeClick, Qt::CaseInsensitive) == 0) {
+                button = candidate;
+                break;
+            }
+        }
+        if (!button) {
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("no inline button labelled '%1' after typing")
+                           .arg(spec.afterTypeClick);
+            dismissOpenedBy(spec);
+            finishSpec(r);
+            return;
+        }
+        button->click();
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
     }
 
     if (!spec.select.isEmpty() && !selectItem(target, spec.select)) {

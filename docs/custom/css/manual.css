@@ -3,6 +3,13 @@
    are emitted by the \fig, \figtodo, \video and \videotodo aliases in
    docs/Doxyfile. */
 
+/* The source logo is 512 px square; keep the documentation header compact. */
+#projectlogo img {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+}
+
 figure.manual-figure,
 figure.manual-video {
     margin: 1.5em 0;
@@ -15,6 +22,10 @@ figure.manual-figure img {
     height: auto;
     border: 1px solid var(--separator-color, #ddd);
     border-radius: var(--border-radius-medium, 6px);
+}
+
+.manual-figure-fullsize {
+    cursor: zoom-in;
 }
 
 figure.manual-figure figcaption,

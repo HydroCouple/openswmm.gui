@@ -120,10 +120,10 @@
     "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
   },
   "17_timeseries_editor.png": {
-    "reviewedAt": "2026-10-01T18:44:47.175862+00:00",
-    "sha256": "9940a70790d72649f503bbb2330c996538e34b682e0a0b1537ad4fd0691d7d3c",
-    "baseline": "core-site",
-    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+    "reviewedAt": "2026-10-02T00:35:17.013472+00:00",
+    "sha256": "96f3339ab3b7a56087c6f944f424ab285cef7493e7faf44c36eb40dafe6f7e12",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim. Last chart date label clips; complete endpoint is readable in grid/status."
   },
   "16_landuse_editor.png": {
     "reviewedAt": "2026-10-01T18:44:47.176179+00:00",
@@ -658,5 +658,155 @@
     "sha256": "cfeec1216f3acfa81e6a12c8349a1dedf59e1dbe701359f9d9b37d508567230a",
     "baseline": "round2-street-headless",
     "notes": "Three named street flow series with statistics. Dominant ST_A masks small ST_B/ST_C values at this scale; caption and instructions explain hiding ST_A to inspect bypass. Last x-axis tick clips at the right edge; full range is visible below. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "13_snowpack_editor.png": {
+    "reviewedAt": "2026-10-01T21:15:05.070454+00:00",
+    "sha256": "0e11e130117317b4bc65b90f3dc32c6dc3191d9668021a286cc800a9acf5040d",
+    "baseline": "round3-hydrology",
+    "notes": "Native capture inspected at full size against caption and populated fixture. Loaded values visible. Does not establish every edit/save workflow."
+  },
+  "13_unit_hydrograph_editor.png": {
+    "reviewedAt": "2026-10-01T21:15:05.070911+00:00",
+    "sha256": "e6c01e50f232d7c262121286b931466a21b0d3170b1d7454a2813323fb37b4a4",
+    "baseline": "round3-hydrology",
+    "notes": "Native capture inspected at full size against caption and populated fixture. Loaded values visible. Does not establish every edit/save workflow."
+  },
+  "13_rdii_decay_tab.png": {
+    "reviewedAt": "2026-10-01T21:15:05.071223+00:00",
+    "sha256": "95d39905f27467e1fe525ab2d6c57043eca19e58f4b86eaa69731c6d508962bf",
+    "baseline": "round3-hydrology",
+    "notes": "Native capture reviewed. Loaded linear IA and first active decay columns match fixture; horizontal scrolling needed for recovery/snow columns, explicitly stated in caption/prose."
+  },
+  "13_groundwater_exchange.png": {
+    "reviewedAt": "2026-10-01T21:15:05.071593+00:00",
+    "sha256": "86743ebbc310725b46a4202943566edb8528fec9c350f7c47cc04e8d0422b147",
+    "baseline": "round3-hydrology",
+    "notes": "Native capture inspected at full size against caption and populated fixture. Loaded values visible. Does not establish every edit/save workflow."
+  },
+  "13_subcatch_lid_usage_page.png": {
+    "reviewedAt": "2026-10-01T21:15:05.071906+00:00",
+    "sha256": "d751e2ff048be519f58f156f54162201dd75bfc118c1e881b301272140fe84b7",
+    "baseline": "round3-hydrology",
+    "notes": "Native capture inspected at full size against caption and populated fixture. Loaded values visible. Does not establish every edit/save workflow."
+  },
+  "13_lid_control_editor.png": {
+    "reviewedAt": "2026-10-01T21:15:05.072217+00:00",
+    "sha256": "849f897dca1d73f588a1cc53e50723dd637eb383ac762de833834134dcc93f3a",
+    "baseline": "round3-hydrology-wide",
+    "notes": "Native wide capture reviewed at full size. Imported BC1 displays zeros/defaults; read-back warning and diagram labels visible. Does not verify imported LID parameters or editing persistence."
+  },
+  "13_aquifer_editor.png": {
+    "reviewedAt": "2026-10-01T21:15:05.072527+00:00",
+    "sha256": "63308ca37eb1f52a8cd1ed775393a6e689e924d8ac04a3a2910f5fe48ed1b289",
+    "baseline": "round3-hydrology-wide",
+    "notes": "Native wide capture reviewed; loaded AQ1 values match fixture, and full diagram labels are readable. Replaces older unreviewed figure."
+  },
+  "13_initial_loadings.png": {
+    "reviewedAt": "2026-10-01T21:15:05.072677+00:00",
+    "sha256": "924658ff8247a15028878908f8b7e050cab88b84d7596a3c2d589d442d6fe0af",
+    "baseline": "round3-loadings",
+    "notes": "Native capture reviewed. TSS initial buildup 1 matches fixture [LOADINGS]; not a save/edit persistence test."
+  },
+  "16_initial_quality.png": {
+    "reviewedAt": "2026-10-02T00:35:17.014061+00:00",
+    "sha256": "3509b7e776b3cafbd407ec9811e88747c3bdcd61e2afc649f37cc6a6c0003b19",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim."
+  },
+  "14_node_dwf_page.png": {
+    "reviewedAt": "2026-10-02T00:35:17.014392+00:00",
+    "sha256": "836fbc9a01a12bbd368aa5f5819d205eac6586d15288efa697559e95fa406623",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim."
+  },
+  "14_node_rdii_page.png": {
+    "reviewedAt": "2026-10-02T00:35:17.014761+00:00",
+    "sha256": "a5a10d7a60830a6f378e0e662daebf38027d2244c927b5356f27a036ea26991d",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim."
+  },
+  "14_treatment_page.png": {
+    "reviewedAt": "2026-10-02T00:35:17.015037+00:00",
+    "sha256": "6175d4efb1f0a267f2b3b62f30c66449ca0645f5553aa12d6ef513a862828cdc",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim. Intentional reuse of the same editor in hydraulics and quality chapters; no validation banner is asserted."
+  },
+  "16_treatment_editor.png": {
+    "reviewedAt": "2026-10-02T00:35:17.015284+00:00",
+    "sha256": "6175d4efb1f0a267f2b3b62f30c66449ca0645f5553aa12d6ef513a862828cdc",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim. Intentional reuse of the same editor in hydraulics and quality chapters; no validation banner is asserted."
+  },
+  "11_dynamics_columns.png": {
+    "reviewedAt": "2026-10-02T00:37:46.109659+00:00",
+    "sha256": "ca143ddd4703c8e614e8edc1339ea751b625650aba9b4872accec072b7ac35bc",
+    "baseline": "round4-reopened-site",
+    "notes": "Native reopened-site capture; intentional reuse of t01_tabular_results capture. Right-hand results/units readable, object names scrolled out of view. Not a CSV export test."
+  },
+  "11_query_and_selection.png": {
+    "reviewedAt": "2026-10-02T00:55:28.263607+00:00",
+    "sha256": "7ae548e8fbc3733adffa06b987201c24008c192396b58348434c19c9891876e2",
+    "baseline": "round5-query-syntax",
+    "notes": "Native applied-query capture: C1, C10, C11 selected. Missing string after LIKE reports error col 10 and leaves previous filter/selection in place. No export/persistence claim."
+  },
+  "11_query_error.png": {
+    "reviewedAt": "2026-10-02T00:55:28.263932+00:00",
+    "sha256": "ef1c543383237a5937a331fbfdd6994ed50eea9a4c43548b96ffd942574aedba",
+    "baseline": "round5-query-syntax",
+    "notes": "Native applied-query capture: C1, C10, C11 selected. Missing string after LIKE reports error col 10 and leaves previous filter/selection in place. No export/persistence claim."
+  },
+  "17_pattern_editor.png": {
+    "reviewedAt": "2026-10-02T00:55:28.264580+00:00",
+    "sha256": "ba4ae021b90aa996ab209b535c84ecbe0775f754d34198d791f7fff1ebb41cbe",
+    "baseline": "round5-data-editors",
+    "notes": "Loaded native editor state matches unassigned MONTHLY/RATING data. Monthly sum 12, mean 1, twelve factors. Rating exact pairs in grid; horizontal ticks round to integers. No edit/save persistence claim."
+  },
+  "17_curve_editor.png": {
+    "reviewedAt": "2026-10-02T00:55:28.264800+00:00",
+    "sha256": "947069f8f216fb8ce35efd38a263ee26459b0758f9421313bb4f87df966fdde8",
+    "baseline": "round5-data-editors",
+    "notes": "Loaded native editor state matches unassigned MONTHLY/RATING data. Monthly sum 12, mean 1, twelve factors. Rating exact pairs in grid; horizontal ticks round to integers. No edit/save persistence claim."
+  },
+  "03_user_flags_dialog.png": {
+    "reviewedAt": "2026-10-02T00:55:28.265519+00:00",
+    "sha256": "2bf9b9dde60962ad4787651f0b4429aa82e08a8072acf2f88355f0d4a9c1a724",
+    "baseline": "round5-flags-final",
+    "notes": "Native schema and typed values match portable fixture. J1 boolean/integer, C_MAIN real/string. Empty cells mean unset. No new edit or save/reopen validation claim."
+  },
+  "03_user_flag_values.png": {
+    "reviewedAt": "2026-10-02T00:55:28.265776+00:00",
+    "sha256": "be07d460a5f05325cd28cbac923cafd0101c4317e6c5746609a0f69b57edb7e0",
+    "baseline": "round5-flags-final",
+    "notes": "Native schema and typed values match portable fixture. J1 boolean/integer, C_MAIN real/string. Empty cells mean unset. No new edit or save/reopen validation claim."
+  },
+  "03_user_flag_link_values.png": {
+    "reviewedAt": "2026-10-02T00:55:28.266019+00:00",
+    "sha256": "1d3a87473934b4b95c2af83016b4508fcd40cd9f8c153f7d3b9fd987bf3b8685",
+    "baseline": "round5-flags-final",
+    "notes": "Native schema and typed values match portable fixture. J1 boolean/integer, C_MAIN real/string. Empty cells mean unset. No new edit or save/reopen validation claim."
+  },
+  "01_about_dialog.png": {
+    "reviewedAt": "2026-10-02T01:00:21.025910+00:00",
+    "sha256": "2129b3e76ee15dc9128025cd43e5e0707f412ed58ddbe597956b29374187c450",
+    "baseline": "round5-orientation-final",
+    "notes": "Native current-build screenshot, visually reviewed against caption. No custom binding, action execution or environment-copy workflow claim. Intentional reuse. Qt component selected; static 6.10.x differs from runtime 6.11.1. Bundled notice contains packaging placeholder; described in A6."
+  },
+  "a06_about_dialog.png": {
+    "reviewedAt": "2026-10-02T01:00:21.026379+00:00",
+    "sha256": "2129b3e76ee15dc9128025cd43e5e0707f412ed58ddbe597956b29374187c450",
+    "baseline": "round5-orientation-final",
+    "notes": "Native current-build screenshot, visually reviewed against caption. No custom binding, action execution or environment-copy workflow claim. Intentional reuse. Qt component selected; static 6.10.x differs from runtime 6.11.1. Bundled notice contains packaging placeholder; described in A6."
+  },
+  "a01_shortcut_editor.png": {
+    "reviewedAt": "2026-10-02T01:00:21.026712+00:00",
+    "sha256": "59dac12ca723158fba2d4f6586a2536368d18096a64c641fb82105d037a77cac",
+    "baseline": "round5-orientation-final",
+    "notes": "Native current-build screenshot, visually reviewed against caption. No custom binding, action execution or environment-copy workflow claim. Zoom Extent current/default shortcut selected; no new binding recorded or applied."
+  },
+  "a01_command_palette.png": {
+    "reviewedAt": "2026-10-02T01:00:21.026986+00:00",
+    "sha256": "ed7f7839e8d54b8d8e881f3e3e36fc0043f66f4fec3c1dd5ba3a723a1f1bb805",
+    "baseline": "round5-orientation-final",
+    "notes": "Native current-build screenshot, visually reviewed against caption. No custom binding, action execution or environment-copy workflow claim. First category label Window has a clipped leading edge; Map labels and shortcuts are readable."
   }
 }
