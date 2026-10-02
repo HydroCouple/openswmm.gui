@@ -269,6 +269,53 @@ private slots:
         QVERIFY(!reopened.section().hasResults);
         for(const auto &series:reopened.section().series)QVERIFY(!series.error.isEmpty());
     }
+    // The section dialog on a layer whose surface is fitted by the worker
+    // (as the application configures it) must show the same current depths
+    // and the same maximum as the dialog on a synchronous layer.
+    void workerLayerFeedsTheSectionDialog()
+    {
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(OpenSWMMVisWorkspace::newInstance({},nullptr));
+        QVERIFY(workspace);
+        SWMMVisProjectWindow window(workspace.get(),inp_);
+        QList<QString> warnings,errors;
+        QVERIFY2(window.loadModel(warnings,errors),qPrintable(errors.join("; ")));
+        QVERIFY(window.canvas());
+        QVERIFY(window.canvas()->setCanvasSRSByCode("EPSG",32618));
+        SWMM2DResultsLayer *layers[2]={nullptr,nullptr};
+        for(int i=0;i<2;++i) {
+            auto *layer=new SWMM2DResultsLayer(i ? "Section worker" : "Section synchronous",workspace.get());
+            layer->setSRS(new SpatialReferenceSystem("EPSG",32618),true);
+            layer->setAsyncSurface(i==1);
+            auto source=std::make_unique<HDF5Mesh2DSource>(); QVERIFY(source->open(h5_));
+            layer->setSource(std::move(source));
+            window.canvas()->addLayer(layer,false);
+            layers[i]=layer;
+        }
+        auto *sync=layers[0],*async=layers[1];
+        const int last=sync->source()->timeCount()-1; QVERIFY(last>=1);
+        const QVector<QPointF> path={{500001,-4500005},{500009,-4500005}};
+        MeshProfilePlotDialog reference(nullptr,sync,nullptr,path,&window,&window);
+        MeshProfilePlotDialog dialog(nullptr,async,nullptr,path,&window,&window);
+        auto same=[](double a,double b) { return (std::isnan(a) && std::isnan(b)) || a==b; };
+        for(int frame:{0,last,0}) {
+            sync->setCurrentTimeIndex(frame);async->setCurrentTimeIndex(frame);
+            QTRY_VERIFY_WITH_TIMEOUT(!async->surfaceBusy() && async->currentTimeIndex()==frame
+                                     && async->envelopeComplete(),10000);
+            const auto &actual=dialog.section(),&expected=reference.section();
+            QVERIFY(expected.samples.size()>=4);
+            QCOMPARE(actual.samples.size(),expected.samples.size());
+            bool wet=false;
+            for(int i=0;i<actual.samples.size();++i) {
+                const auto &a=actual.samples[i],&e=expected.samples[i];
+                QVERIFY2(same(a.signedDepthNow,e.signedDepthNow) && same(a.signedMaxDepth,e.signedMaxDepth)
+                         && a.depthNow==e.depthNow && a.maxDepth==e.maxDepth && a.cellHasSurface==e.cellHasSurface,
+                         qPrintable(QString("frame %1 sample %2: now %3 / %4, max %5 / %6").arg(frame).arg(i)
+                             .arg(a.signedDepthNow).arg(e.signedDepthNow).arg(a.signedMaxDepth).arg(e.signedMaxDepth)));
+                wet=wet || e.signedMaxDepth>0;
+            }
+            QVERIFY(wet);   // the maximum really reached the worker dialog
+        }
+    }
 };
 QTEST_MAIN(TestPhase35SectionJourney)
 #include "test_phase35_sectionjourney.moc"

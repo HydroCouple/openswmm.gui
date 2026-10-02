@@ -41,13 +41,12 @@ double characteristicCellSize(SWMM2DMeshLayer *mesh)
 // Every interval is owned by one storage triangle. A boundary-aligned path
 // retains both adjacent sides so a dry owner cannot hide the wet edge.
 MeshProfile buildResultProfile(SWMM2DResultsLayer* results,
-                               const QVector<QPointF>& path)
+                               const QVector<QPointF>& path, bool withMaximum)
 {
     MeshProfile out;
     out.hasResults = true;
     out.exactWaterGeometry = true;
     out.geometryRevision = results->geomRevision();
-    const auto maxima = results->maxSurfaceDepths();
     const double scale = results->depthToMeshUnits();
     const auto& tris = results->m_sceneTris;
     const auto& owners = results->triCellMap();
@@ -101,14 +100,7 @@ MeshProfile buildResultProfile(SWMM2DResultsLayer* results,
                 const double ground = results->groundAtDisplayTriangle(tri,s.scenePt);
                 s.ground = ground*scale;
                 s.signedDepthNow = signedWaterDepth(results,tri,s.boundaryTriIdx,s.scenePt)*scale;
-                s.signedMaxDepth = results->signedDepthAtDisplayTriangle(tri,s.scenePt,maxima)*scale;
-                const double boundaryMax = results->signedDepthAtDisplayTriangle(
-                    s.boundaryTriIdx,s.scenePt,maxima)*scale;
-                if (std::isfinite(boundaryMax)
-                    && (!std::isfinite(s.signedMaxDepth) || boundaryMax > s.signedMaxDepth))
-                    s.signedMaxDepth = boundaryMax;
                 s.depthNow = std::max(0.0,s.signedDepthNow);
-                s.maxDepth = std::max(0.0,s.signedMaxDepth);
                 s.cellHasSurface = std::isfinite(s.signedDepthNow);
                 out.samples.push_back(s);
                 if (end == 0 && std::isfinite(s.ground))
@@ -129,6 +121,7 @@ MeshProfile buildResultProfile(SWMM2DResultsLayer* results,
         s.scenePt = path.last(); s.breakBefore = true;
         out.samples.push_back(s);
     }
+    if (withMaximum) applyMaximum(out,results);
     return out;
 }
 
@@ -142,10 +135,28 @@ double signedWaterDepth(SWMM2DResultsLayer *results, int displayTri,
         : results->signedDepthAtDisplayTriangle(boundaryTri,scenePoint);
 }
 
+void applyMaximum(MeshProfile &profile, SWMM2DResultsLayer *results, double verticalScale)
+{
+    if (!results || !profile.exactWaterGeometry) return;
+    const auto maxima = results->maxSurfaceDepths();
+    const double scale = results->depthToMeshUnits();
+    for (auto &s : profile.samples) {
+        if (s.displayTriIdx < 0) continue;   // off-mesh end markers carry no surface
+        s.signedMaxDepth = results->signedDepthAtDisplayTriangle(s.displayTriIdx,s.scenePt,maxima)*scale;
+        const double boundaryMax = results->signedDepthAtDisplayTriangle(
+            s.boundaryTriIdx,s.scenePt,maxima)*scale;
+        if (std::isfinite(boundaryMax)
+            && (!std::isfinite(s.signedMaxDepth) || boundaryMax > s.signedMaxDepth))
+            s.signedMaxDepth = boundaryMax;
+        s.signedMaxDepth *= verticalScale;
+        s.maxDepth = std::max(0.0,s.signedMaxDepth);
+    }
+}
+
 MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
                              SWMM2DResultsLayer *results,
                              const QVector<QPointF> &scenePolyline,
-                             double stepHint)
+                             double stepHint, bool withMaximum)
 {
     MeshProfile out;
     if ((!mesh && !results) || scenePolyline.size() < 2)
@@ -154,7 +165,7 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
     out.hasResults = results && results->source()
                      && results->source()->timeCount() > 0;
     if (out.hasResults && !results->m_sceneTris.isEmpty())
-        return buildResultProfile(results,scenePolyline);
+        return buildResultProfile(results,scenePolyline,withMaximum);
     if (!mesh) return out;
 
     // Total polyline length (scene units == map units; scene is a pure Y-flip).

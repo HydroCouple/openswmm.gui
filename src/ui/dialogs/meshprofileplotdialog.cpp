@@ -19,6 +19,7 @@
 #include "plot/meshprofiletrackswidget.h"
 #include "plot/meshprofileserieseditor.h"
 #include "map/spatialreferencesystem.h"
+#include <QEvent>
 #include <QUuid>
 #include <QScrollArea>
 #include <QSplitter>
@@ -97,36 +98,28 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
     if (m_results) {
         connect(m_results, &SWMM2DResultsLayer::currentDateTimeChanged,
                 this, [this](const QDateTime &dt) { m_plot->setCurrentDateTime(dt); });
-        // Recompute the max-depth envelope when more frames stream in (live) —
-        // throttled to one full resample per second: buildMeshProfile walks
-        // ~2000 samples through three spatial lookups each, and a 1 Hz run
-        // used to trigger it on every tick (twice, before the layer coalesced
-        // its refreshes). Leading edge, so the first new frame shows at once;
-        // ticks arriving while the timer runs fold into one rebuild at expiry.
-        m_liveRebuild.setSingleShot(true);
-        m_liveRebuild.setInterval(1000);
-        connect(&m_liveRebuild, &QTimer::timeout, this, [this]() {
-            if (!m_liveRebuildPending) return;
-            m_liveRebuildPending = false;
-            rebuildProfile();
-            m_liveRebuild.start();
+        // The temporal maximum is fitted by the layer, in the background when
+        // its worker is on. Ask for it whenever frames arrive or change and
+        // apply it when the layer reports it complete.
+        connect(m_results, &SWMM2DResultsLayer::envelopeReady,
+                this, &MeshProfilePlotDialog::applyEnvelope);
+        connect(m_results, &SWMM2DResultsLayer::timeRangeChanged, this, [this] {
+            // A replaced or lost source changes the stations themselves; new
+            // frames on the same geometry only extend the maximum.
+            if (m_results && m_profile.geometryRevision != m_results->geomRevision())
+                rebuildProfile();
+            else
+                requestEnvelope();
         });
-        const auto refreshEnvelope = [this]() {
-            if (m_liveRebuild.isActive()) { m_liveRebuildPending = true; return; }
-            rebuildProfile();
-            m_liveRebuild.start();
-        };
-        connect(m_results, &SWMM2DResultsLayer::timeRangeChanged,
-                this, refreshEnvelope);
         connect(m_results, &SWMM2DResultsLayer::waterDisplayPolicyChanged,
                 this, &MeshProfilePlotDialog::rebuildProfile);
         connect(m_results, &SWMM2DResultsLayer::currentTimeChanged,
-                this, [this, refreshEnvelope](int index) {
+                this, [this](int index) {
             if (!m_settingTimeFromAnimation && m_results && m_results->source()) m_requestedTime = m_results->source()->simTimeAt(index);
             refreshCurrentDepths();
             // A replacement live frame may reduce the maximum without
             // extending the time range. Refresh that envelope as well.
-            if (m_results->source() && m_results->source()->isLive()) refreshEnvelope();
+            if (m_results->source() && m_results->source()->isLive()) requestEnvelope();
         });
 
         // Drive our own layer from the global animation clock so the profile
@@ -139,10 +132,13 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
             connect(m_anim, &AnimationController::currentTimeChanged,
                     this, [this](const QDateTime &dt) {
                 m_requestedTime = dt;
+                if (isMinimized()) return;   // caught up in changeEvent on restore
                 m_settingTimeFromAnimation = true;
+                m_seriesRefreshed = false;
                 if (m_results) m_results->setCurrentSimTimeAsOf(dt);
                 m_settingTimeFromAnimation = false;
-                refreshSectionSeries();
+                // A frame change above has refreshed the series already.
+                if (!m_seriesRefreshed) refreshSectionSeries();
             });
         }
 
@@ -160,7 +156,6 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
             if (m_anim)    disconnect(m_anim.data(),    nullptr, this, nullptr);
             if (m_results) disconnect(m_results.data(), nullptr, this, nullptr);
             m_contextValid = false;
-            m_liveRebuild.stop(); m_liveRebuildPending = false;
             for (const auto &source : m_sectionSources) if (source) disconnect(source.data(),nullptr,this,nullptr);
             m_sectionSources.clear(); m_results.clear(); m_mesh.clear();
             removeOverlay();   // detach from the scene before it's torn down
@@ -278,7 +273,7 @@ void MeshProfilePlotDialog::rebuildProfile()
 {
     if (!m_mesh && !m_results) { m_profile = {}; m_plot->setProfile(m_profile); refreshSectionSeries(); return; }
     m_profile = MeshProfileSampler::buildMeshProfile(
-        m_mesh.data(), m_results.data(), m_scenePolyline);
+        m_mesh.data(), m_results.data(), m_scenePolyline, 0.0, false);
     const double toMap = m_results ? m_results->depthToMeshUnits() : m_mapUnitsPerMetre;
     const double toAxis = m_definition.elevationUnits == QLatin1String("ft") ? 1.0/0.3048 : 1.0;
     m_verticalScale = toMap > 0 ? toAxis/toMap : 1.0;
@@ -287,7 +282,40 @@ void MeshProfilePlotDialog::rebuildProfile()
         sample.signedDepthNow *= m_verticalScale; sample.signedMaxDepth *= m_verticalScale;
     }
     for (auto &crossing : m_profile.crossings) crossing.ground *= m_verticalScale;
+    m_rebuildingProfile = true;
+    requestEnvelope();   // applied right here when it is already complete
+    m_rebuildingProfile = false;
     refreshSectionSeries();
+}
+
+void MeshProfilePlotDialog::requestEnvelope()
+{
+    if (!m_results || !m_profile.exactWaterGeometry) return;
+    // Complete already (always so without the worker): sample it now.
+    // Otherwise the layer builds it and envelopeReady() applies it.
+    if (m_results->envelopeComplete()) applyEnvelope();
+    else m_results->requestEnvelope();
+}
+
+void MeshProfilePlotDialog::applyEnvelope()
+{
+    if (!m_results || !m_profile.exactWaterGeometry
+        || m_profile.geometryRevision != m_results->geomRevision()) return;
+    MeshProfileSampler::applyMaximum(m_profile, m_results.data(), m_verticalScale);
+    if (!m_rebuildingProfile) refreshSectionSeries();
+}
+
+void MeshProfilePlotDialog::changeEvent(QEvent *event)
+{
+    QDialog::changeEvent(event);
+    // Animation ticks are ignored while minimized; show the requested time.
+    if (event->type() == QEvent::WindowStateChange && !isMinimized()
+        && m_results && m_requestedTime.isValid()) {
+        m_settingTimeFromAnimation = true;
+        m_results->setCurrentSimTimeAsOf(m_requestedTime);
+        m_settingTimeFromAnimation = false;
+        refreshSectionSeries();
+    }
 }
 
 void MeshProfilePlotDialog::refreshCurrentDepths()
