@@ -72,6 +72,10 @@ enum class SWMMResultVariable
     SubcatchInfiltration = 21,
     SubcatchEvaporation = 22,
     SubcatchSnowDepth   = 23,
+    SubcatchRainfall    = 24,
+    SubcatchGwFlow      = 25,
+    SubcatchGwElevation = 26,
+    SubcatchSoilMoisture = 27,
 };
 
 /*!

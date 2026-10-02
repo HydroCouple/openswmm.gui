@@ -74,6 +74,10 @@ void PerAttributeThemingWidget::populateCombos()
     m_subCombo->addItem(tr("Infiltration"), static_cast<int>(SWMMResultVariable::SubcatchInfiltration));
     m_subCombo->addItem(tr("Evaporation"),  static_cast<int>(SWMMResultVariable::SubcatchEvaporation));
     m_subCombo->addItem(tr("Snow Depth"),   static_cast<int>(SWMMResultVariable::SubcatchSnowDepth));
+    m_subCombo->addItem(tr("Rainfall"),     static_cast<int>(SWMMResultVariable::SubcatchRainfall));
+    m_subCombo->addItem(tr("Groundwater Flow"),      static_cast<int>(SWMMResultVariable::SubcatchGwFlow));
+    m_subCombo->addItem(tr("Groundwater Elevation"), static_cast<int>(SWMMResultVariable::SubcatchGwElevation));
+    m_subCombo->addItem(tr("Soil Moisture"),         static_cast<int>(SWMMResultVariable::SubcatchSoilMoisture));
     m_suppress = false;
 }
 

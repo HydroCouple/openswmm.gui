@@ -49,6 +49,9 @@ int SwmmOutRunLayer::variableCodeFor(PlotAttribute attr, ObjectRef::Kind kind)
         case PlotAttribute::SubcatchEvap:      return SWMM_OUT_SUBCATCH_EVAP;
         case PlotAttribute::SubcatchInfil:     return SWMM_OUT_SUBCATCH_INFIL;
         case PlotAttribute::SubcatchRunoff:    return SWMM_OUT_SUBCATCH_RUNOFF;
+        case PlotAttribute::SubcatchGwFlow:    return SWMM_OUT_SUBCATCH_GW_FLOW;
+        case PlotAttribute::SubcatchGwElev:    return SWMM_OUT_SUBCATCH_GW_ELEV;
+        case PlotAttribute::SubcatchSoilMoisture: return SWMM_OUT_SUBCATCH_SOIL_MOIST;
         default: return -1;
         }
     }
@@ -63,11 +66,12 @@ int SwmmOutRunLayer::variableCodeFor(PlotAttribute attr, ObjectRef::Kind kind)
         case PlotAttribute::SystemRunoff:      return SWMM_OUT_SYS_RUNOFF;
         case PlotAttribute::SystemDwInflow:    return SWMM_OUT_SYS_DW_INFLOW;
         case PlotAttribute::SystemGwInflow:    return SWMM_OUT_SYS_GW_INFLOW;
-        case PlotAttribute::SystemLatInflow:   return SWMM_OUT_SYS_LAT_INFLOW;
+        case PlotAttribute::SystemRdiiInflow:  return SWMM_OUT_SYS_RDII_INFLOW;
+        case PlotAttribute::SystemExtInflow:   return SWMM_OUT_SYS_EXT_INFLOW;
+        case PlotAttribute::SystemLatInflow:   return SWMM_OUT_SYS_TOTAL_INFLOW;
         case PlotAttribute::SystemFlooding:    return SWMM_OUT_SYS_FLOODING;
         case PlotAttribute::SystemOutflow:     return SWMM_OUT_SYS_OUTFLOW;
         case PlotAttribute::SystemStorage:     return SWMM_OUT_SYS_STORAGE;
-        case PlotAttribute::SystemEvapTotal:   return SWMM_OUT_SYS_EVAP_TOTAL;
         case PlotAttribute::SystemPET:         return SWMM_OUT_SYS_PET;
         default: return -1;
         }

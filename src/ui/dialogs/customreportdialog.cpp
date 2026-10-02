@@ -176,6 +176,9 @@ void CustomReportDialog::onAddClauseClicked()
     var->addItem(tr("Flow"),     2);
     var->addItem(tr("Velocity"), 3);
     var->addItem(tr("Runoff"),   4);
+    var->addItem(tr("Groundwater flow"),      5);
+    var->addItem(tr("Groundwater elevation"), 6);
+    var->addItem(tr("Soil moisture"),         7);
     m_clauseTable->setCellWidget(r, 3, var);
 
     auto *agg = new QComboBox(m_clauseTable);
@@ -235,6 +238,9 @@ void CustomReportDialog::evaluate()
         default: // subcatch
             switch (comboIdx) {
             case 4: return SWMM_OUT_SUBCATCH_RUNOFF;
+            case 5: return SWMM_OUT_SUBCATCH_GW_FLOW;
+            case 6: return SWMM_OUT_SUBCATCH_GW_ELEV;
+            case 7: return SWMM_OUT_SUBCATCH_SOIL_MOIST;
             default: return SWMM_OUT_SUBCATCH_RUNOFF;
             }
         }

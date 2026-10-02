@@ -90,7 +90,9 @@ QStringList resultsLayerNumeric(int kindOrdinal)
                 QStringLiteral("LinkFlow"),     QStringLiteral("LinkDepth"),
                 QStringLiteral("LinkVelocity"), QStringLiteral("LinkCapacity"),
                 QStringLiteral("SubcatchRunoff"), QStringLiteral("SubcatchInfiltration"),
-                QStringLiteral("SubcatchEvaporation"), QStringLiteral("SubcatchSnowDepth")};
+                QStringLiteral("SubcatchEvaporation"), QStringLiteral("SubcatchSnowDepth"),
+                QStringLiteral("SubcatchRainfall"), QStringLiteral("SubcatchGwFlow"),
+                QStringLiteral("SubcatchGwElevation"), QStringLiteral("SubcatchSoilMoisture")};
     }
     const auto cat = static_cast<SWMMModelLayer::Category>(kindOrdinal);
     switch (cat) {
@@ -110,7 +112,9 @@ QStringList resultsLayerNumeric(int kindOrdinal)
                 QStringLiteral("LinkVelocity"), QStringLiteral("LinkCapacity")};
     case SWMMModelLayer::CatSubcatchments:
         return {QStringLiteral("SubcatchRunoff"), QStringLiteral("SubcatchInfiltration"),
-                QStringLiteral("SubcatchEvaporation"), QStringLiteral("SubcatchSnowDepth")};
+                QStringLiteral("SubcatchEvaporation"), QStringLiteral("SubcatchSnowDepth"),
+                QStringLiteral("SubcatchRainfall"), QStringLiteral("SubcatchGwFlow"),
+                QStringLiteral("SubcatchGwElevation"), QStringLiteral("SubcatchSoilMoisture")};
     case SWMMModelLayer::CatRainGages:
     case SWMMModelLayer::NumCategories:
         return {};

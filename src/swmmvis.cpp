@@ -2659,6 +2659,9 @@ void SWMMVis::onPlotTimeSeriesFromOutputLayer(SWMMResultsLayer *layer)
             varCombo->addItem(tr("Evaporation"),  int(PA::SubcatchEvap));
             varCombo->addItem(tr("Infiltration"), int(PA::SubcatchInfil));
             varCombo->addItem(tr("Runoff"),       int(PA::SubcatchRunoff));
+            varCombo->addItem(tr("Groundwater flow"),      int(PA::SubcatchGwFlow));
+            varCombo->addItem(tr("Groundwater elevation"), int(PA::SubcatchGwElev));
+            varCombo->addItem(tr("Soil moisture"),         int(PA::SubcatchSoilMoisture));
             break;
         default: break;
         }

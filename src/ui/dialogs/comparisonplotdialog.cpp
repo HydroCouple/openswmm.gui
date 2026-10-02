@@ -1216,6 +1216,8 @@ void ComparisonPlotDialog::onLoadObservedClicked()
         { PlotAttribute::LinkVelocity,      tr("Velocity (link)") },
         { PlotAttribute::SubcatchRainfall,  tr("Rainfall") },
         { PlotAttribute::SubcatchRunoff,    tr("Runoff") },
+        { PlotAttribute::SubcatchGwFlow,    tr("Groundwater flow") },
+        { PlotAttribute::SubcatchGwElev,    tr("Groundwater elevation") },
     };
     QStringList items;
     for (const auto &p : kAttrs) items << p.second;
@@ -1307,6 +1309,7 @@ void ComparisonPlotDialog::onAddSeriesClicked()
             PlotAttribute::NodeOverflow,
             PlotAttribute::LinkFlow, PlotAttribute::LinkDepth, PlotAttribute::LinkVelocity,
             PlotAttribute::SubcatchRainfall, PlotAttribute::SubcatchRunoff,
+            PlotAttribute::SubcatchGwFlow, PlotAttribute::SubcatchGwElev,
         };
         for (PlotAttribute a : attrs) {
             if (!layer->supportsAttribute(a)) continue;
@@ -1315,7 +1318,7 @@ void ComparisonPlotDialog::onAddSeriesClicked()
             act->setData(QVariantList{ r, static_cast<int>(a) });
         }
 
-        // Slice AT.2 — (System) pseudo-object submenu listing all 14 system
+        // Slice AT.2 — (System) pseudo-object submenu listing all 15 system
         // attrs, in the shared canonical order.
         if (layer->supportsAttribute(PlotAttribute::SystemRunoff)) {
             runMenu->addSeparator();
@@ -1368,6 +1371,9 @@ void ComparisonPlotDialog::onAddSeriesClicked()
     case PlotAttribute::SubcatchEvap:
     case PlotAttribute::SubcatchInfil:
     case PlotAttribute::SubcatchRunoff:
+    case PlotAttribute::SubcatchGwFlow:
+    case PlotAttribute::SubcatchGwElev:
+    case PlotAttribute::SubcatchSoilMoisture:
         kind = ObjectRef::Kind::Subcatch;
         break;
     default:
