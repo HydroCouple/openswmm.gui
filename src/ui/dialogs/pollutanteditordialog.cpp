@@ -83,6 +83,15 @@ void PollutantEditorDialog::invalidateContext()
     reject();
 }
 
+void PollutantEditorDialog::openForPollutant(const QString &name)
+{
+    show();
+    raise();
+    activateWindow();
+    if (!m_registry || name.isEmpty()) return;
+    if (auto *p = m_registry->findByName(name)) selectProviderInList_(p);
+}
+
 PollutantProvider *PollutantEditorDialog::currentProvider() const noexcept
 {
     return m_current.data();

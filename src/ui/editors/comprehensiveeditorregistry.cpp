@@ -468,6 +468,196 @@ void openControlsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *paren
     sRulesEditor->activateWindow();
 }
 
+// ── Open-for-object launches ───────────────────────────────────────────────
+// One modeless window per editor kind, reused across the Object Browser
+// (leaf Edit… / double-click), the Properties panel "Open in…" button and
+// the Attribute Table row "Edit in…" action. Moved here from
+// ObjectBrowserPanel::openComprehensiveEditorFor so every surface reads the
+// same table that answers hasEditor().
+
+void openHydrographForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/,
+                             const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    if (!sHydrographEditor)
+        sHydrographEditor = new HydrographGroupEditor(layer, parent);
+    sHydrographEditor->openForGroup(name);
+}
+
+void openCurveForObject(SWMMModelLayer *layer, QUndoStack *stack,
+                        const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<CurveRegistry *>(layer->ensureCurveRegistry());
+    if (!reg) return;
+    static QPointer<CurveEditorDialog> editor;
+    if (!editor) editor = new CurveEditorDialog(reg, stack, parent);
+    editor->openForCurve(name);
+}
+
+void openPatternForObject(SWMMModelLayer *layer, QUndoStack *stack,
+                          const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<PatternRegistry *>(layer->ensurePatternRegistry());
+    if (!reg) return;
+    static QPointer<PatternEditorDialog> editor;
+    if (!editor) editor = new PatternEditorDialog(reg, stack, parent);
+    editor->openForPattern(name);
+}
+
+void openTransectForObject(SWMMModelLayer *layer, QUndoStack *stack,
+                           const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<TransectRegistry *>(layer->ensureTransectRegistry());
+    if (!reg) return;
+    static QPointer<TransectEditorDialog> editor;
+    if (!editor) editor = new TransectEditorDialog(reg, layer, stack, parent);
+    editor->openForTransect(name);
+}
+
+void openInletForObject(SWMMModelLayer *layer, QUndoStack *stack,
+                        const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<InletRegistry *>(layer->ensureInletRegistry());
+    if (!reg) return;
+    static QPointer<InletEditorDialog> editor;
+    if (!editor) editor = new InletEditorDialog(reg, layer, stack, parent);
+    editor->openForInlet(name);
+}
+
+void openControlForObject(SWMMModelLayer *layer, QUndoStack *stack,
+                          const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    if (!sRulesEditor) {
+        sRulesEditor = new RulesEditorDialog(layer, stack, parent);
+        sRulesEditor->setAttribute(Qt::WA_DeleteOnClose);
+    }
+    sRulesEditor->openForRule(name);
+}
+
+void openTimeseriesForObject(SWMMModelLayer *layer, QUndoStack *stack,
+                             const QString &name, QWidget *parent)
+{
+    using openswmmvis::timeseries::TimeseriesProvider;
+    if (!layer) return;
+    auto *reg = qobject_cast<TimeseriesRegistry *>(layer->ensureTimeseriesRegistry());
+    if (!reg) return;
+    TimeseriesProvider *p = reg->findByName(name);
+    if (!p) {
+        // Engine has it but registry didn't load — recreate empty so the
+        // editor at least opens and the user can see the rejection state.
+        p = reg->create(name);
+        if (!p) return;
+    }
+    auto *dlg = new TimeseriesEditorDialog(reg, stack, p, parent);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<TimeseriesRegistry> regPtr(reg);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr]() {
+        if (regPtr) regPtr->saveToEngine();
+    });
+    dlg->show();
+}
+
+/*! Shared body for the registry-backed list editors (pollutant, land use,
+ *  aquifer, snowpack, LID control, street). Reuses one window per kind while
+ *  it is bound to the same registry; a project switch (new registry) closes
+ *  the stale window first. The engine flush on close mirrors openXxxBrowse. */
+template <class Dlg, class Reg>
+void openRegistryEditorFor(QPointer<Dlg> &slot, QPointer<Reg> &slotReg,
+                           Reg *reg, SWMMModelLayer *layer, QWidget *parent,
+                           void (Dlg::*openFn)(const QString &),
+                           const QString &name)
+{
+    if (!reg) return;
+    if (slot && slotReg != reg) {
+        slot->close();
+        slot = nullptr;
+    }
+    if (!slot) {
+        slot = new Dlg(reg, layer, parent);
+        slot->setAttribute(Qt::WA_DeleteOnClose);
+        slotReg = reg;
+        QPointer<Reg>            regPtr(reg);
+        QPointer<SWMMModelLayer> layerPtr(layer);
+        QObject::connect(slot.data(), &QDialog::finished, slot.data(),
+                         [regPtr, layerPtr]() {
+            if (regPtr && layerPtr)
+                regPtr->saveToEngine(layerPtr->engine());
+        });
+    }
+    (slot.data()->*openFn)(name);
+}
+
+void openPollutantForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/,
+                            const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    static QPointer<PollutantEditorDialog> editor;
+    static QPointer<PollutantRegistry> editorReg;
+    openRegistryEditorFor(editor, editorReg,
+                          qobject_cast<PollutantRegistry *>(layer->ensurePollutantRegistry()),
+                          layer, parent, &PollutantEditorDialog::openForPollutant, name);
+}
+
+void openLandUseForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/,
+                          const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    static QPointer<LandUseEditorDialog> editor;
+    static QPointer<LandUseRegistry> editorReg;
+    openRegistryEditorFor(editor, editorReg,
+                          qobject_cast<LandUseRegistry *>(layer->ensureLandUseRegistry()),
+                          layer, parent, &LandUseEditorDialog::openForLandUse, name);
+}
+
+void openAquiferForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/,
+                          const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    static QPointer<AquiferEditorDialog> editor;
+    static QPointer<AquiferRegistry> editorReg;
+    openRegistryEditorFor(editor, editorReg,
+                          qobject_cast<AquiferRegistry *>(layer->ensureAquiferRegistry()),
+                          layer, parent, &AquiferEditorDialog::openForAquifer, name);
+}
+
+void openSnowpackForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/,
+                           const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    static QPointer<SnowpackEditorDialog> editor;
+    static QPointer<SnowpackRegistry> editorReg;
+    openRegistryEditorFor(editor, editorReg,
+                          qobject_cast<SnowpackRegistry *>(layer->ensureSnowpackRegistry()),
+                          layer, parent, &SnowpackEditorDialog::openForSnowpack, name);
+}
+
+void openLidControlForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/,
+                             const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    static QPointer<LidControlEditorDialog> editor;
+    static QPointer<LidControlRegistry> editorReg;
+    openRegistryEditorFor(editor, editorReg,
+                          qobject_cast<LidControlRegistry *>(layer->ensureLidControlRegistry()),
+                          layer, parent, &LidControlEditorDialog::openForLidControl, name);
+}
+
+void openStreetForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/,
+                         const QString &name, QWidget *parent)
+{
+    if (!layer) return;
+    static QPointer<StreetEditorDialog> editor;
+    static QPointer<StreetRegistry> editorReg;
+    openRegistryEditorFor(editor, editorReg,
+                          qobject_cast<StreetRegistry *>(layer->ensureStreetRegistry()),
+                          layer, parent, &StreetEditorDialog::openForStreet, name);
+}
+
 /*! Populates the registry with every non-spatial category in
  *  `SWMMModelLayer::DataCategory`. Shipped categories get a non-null
  *  `openCreateNew`; gap categories carry only a `gapSliceLabel` so the
@@ -481,27 +671,32 @@ void populateOnce(ComprehensiveEditorRegistry &reg)
     reg.registerEditor(DC::DataTimeSeries,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Time Series Editor"),
-              QString(), &openTimeseriesCreateNew, &openTimeseriesBrowse});
+              QString(), &openTimeseriesCreateNew, &openTimeseriesBrowse,
+              &openTimeseriesForObject});
 
     reg.registerEditor(DC::DataHydrographs,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Hydrograph Group Editor"),
-              QString(), &openHydrographsCreateNew, &openHydrographsBrowse});
+              QString(), &openHydrographsCreateNew, &openHydrographsBrowse,
+              &openHydrographForObject});
 
     reg.registerEditor(DC::DataPatterns,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Pattern Editor"),
-              QString(), &openPatternsCreateNew, &openPatternsBrowse});
+              QString(), &openPatternsCreateNew, &openPatternsBrowse,
+              &openPatternForObject});
 
     reg.registerEditor(DC::DataCurves,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Curve Editor"),
-              QString(), &openCurvesCreateNew, &openCurvesBrowse});
+              QString(), &openCurvesCreateNew, &openCurvesBrowse,
+              &openCurveForObject});
 
     reg.registerEditor(DC::DataControls,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Rules Editor"),
-              QString(), &openControlsCreateNew, &openControlsBrowse});
+              QString(), &openControlsCreateNew, &openControlsBrowse,
+              &openControlForObject});
 
     // Every non-spatial data category now ships a comprehensive editor — no
     // gap placeholders remain. (gapTooltip()/gapSliceLabel stay in the API for
@@ -509,35 +704,43 @@ void populateOnce(ComprehensiveEditorRegistry &reg)
     reg.registerEditor(DC::DataTransects,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Transect Editor"),
-              QString(), &openTransectsCreateNew, &openTransectsBrowse});
+              QString(), &openTransectsCreateNew, &openTransectsBrowse,
+              &openTransectForObject});
     reg.registerEditor(DC::DataLIDControls,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "LID Control Editor"),
-              QString(), &openLidControlsCreateNew, &openLidControlsBrowse});
+              QString(), &openLidControlsCreateNew, &openLidControlsBrowse,
+              &openLidControlForObject});
     reg.registerEditor(DC::DataPollutants,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Pollutant Editor"),
-              QString(), &openPollutantsCreateNew, &openPollutantsBrowse});
+              QString(), &openPollutantsCreateNew, &openPollutantsBrowse,
+              &openPollutantForObject});
     reg.registerEditor(DC::DataLandUses,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Land Use Editor"),
-              QString(), &openLandUsesCreateNew, &openLandUsesBrowse});
+              QString(), &openLandUsesCreateNew, &openLandUsesBrowse,
+              &openLandUseForObject});
     reg.registerEditor(DC::DataAquifers,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Aquifer Editor"),
-              QString(), &openAquifersCreateNew, &openAquifersBrowse});
+              QString(), &openAquifersCreateNew, &openAquifersBrowse,
+              &openAquiferForObject});
     reg.registerEditor(DC::DataSnowpacks,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Snowpack Editor"),
-              QString(), &openSnowpacksCreateNew, &openSnowpacksBrowse});
+              QString(), &openSnowpacksCreateNew, &openSnowpacksBrowse,
+              &openSnowpackForObject});
     reg.registerEditor(DC::DataStreets,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Street Editor"),
-              QString(), &openStreetsCreateNew, &openStreetsBrowse});
+              QString(), &openStreetsCreateNew, &openStreetsBrowse,
+              &openStreetForObject});
     reg.registerEditor(DC::DataInlets,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Inlet Editor"),
-              QString(), &openInletsCreateNew, &openInletsBrowse});
+              QString(), &openInletsCreateNew, &openInletsBrowse,
+              &openInletForObject});
 }
 
 } // anonymous namespace
@@ -584,4 +787,16 @@ QString ComprehensiveEditorRegistry::editorTitle(SWMMModelLayer::DataCategory ca
 {
     const Entry *e = find(cat);
     return e ? e->editorTitle : QString();
+}
+
+bool ComprehensiveEditorRegistry::openForObject(SWMMModelLayer::DataCategory cat,
+                                                SWMMModelLayer *layer,
+                                                QUndoStack     *undoStack,
+                                                const QString  &name,
+                                                QWidget        *parent) const
+{
+    const Entry *e = find(cat);
+    if (!e || !e->openForObject || !layer || name.isEmpty()) return false;
+    e->openForObject(layer, undoStack, name, parent);
+    return true;
 }

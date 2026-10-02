@@ -81,6 +81,10 @@ public:
 
     void invokeNew();
 
+    /*! \brief Modeless open-for-edit: shows the dialog and selects \p name.
+     *  Used by the Object Browser, Properties panel and Attribute Table. */
+    void openForLandUse(const QString &name);
+
     /*! Follow \a registry so the Buildup/Washoff rows re-dimension live as
      *  pollutants are added/removed/renamed (wired by the launch site). */
     void trackPollutantRegistry(

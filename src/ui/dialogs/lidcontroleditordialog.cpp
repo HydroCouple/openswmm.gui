@@ -71,6 +71,15 @@ LidControlEditorDialog::LidControlEditorDialog(LidControlRegistry *registry,
 
 LidControlEditorDialog::~LidControlEditorDialog() = default;
 
+void LidControlEditorDialog::openForLidControl(const QString &name)
+{
+    show();
+    raise();
+    activateWindow();
+    if (!m_registry || name.isEmpty()) return;
+    if (auto *p = m_registry->findByName(name)) selectProviderInList_(p);
+}
+
 LidControlProvider *LidControlEditorDialog::currentProvider() const noexcept
 {
     return m_current.data();

@@ -146,6 +146,15 @@ AquiferEditorDialog::AquiferEditorDialog(AquiferRegistry *registry,
 
 AquiferEditorDialog::~AquiferEditorDialog() = default;
 
+void AquiferEditorDialog::openForAquifer(const QString &name)
+{
+    show();
+    raise();
+    activateWindow();
+    if (!m_registry || name.isEmpty()) return;
+    if (auto *p = m_registry->findByName(name)) selectProviderInList_(p);
+}
+
 AquiferProvider *AquiferEditorDialog::currentProvider() const noexcept
 {
     return m_current.data();

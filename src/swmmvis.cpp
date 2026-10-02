@@ -2870,6 +2870,14 @@ void SWMMVis::initializeObjectBrowserDockWidget()
     // toggle the rest on.
     connect(mObjectBrowserPanel, &ObjectBrowserPanel::rainfallVisualizationRequested,
             this, &SWMMVis::openRainfallVisualizationFor);
+    // Right-click "Open in Attribute Table" on a data category header —
+    // raise the dock and switch it to that category's bulk-edit table.
+    connect(mObjectBrowserPanel, &ObjectBrowserPanel::openDataAttributeTableRequested,
+            this, [this](SWMMModelLayer::DataCategory category) {
+                if (!mAttributeTablePanel) return;
+                onTabularView();   // show + raise the dock, focus the table
+                mAttributeTablePanel->showDataCategory(category);
+            });
 
     // Slice S — per-object visibility no longer goes through the panel's
     // signals. The virtualised SWMMObjectTreeModel's setData() calls the

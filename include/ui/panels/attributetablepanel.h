@@ -42,6 +42,7 @@ class GISVectorLayer;
 class GISVectorAttributeTableModel;   // read-only OGR-feature source (defined in the .cpp)
 class MapCanvas;
 class MeshAttributeTableModel;        // 2D mesh vertices / edges / cells source
+class DataObjectAttributeTableModel;  // pollutants / land uses / aquifers / streets / inlets
 class SWMM2DMeshLayer;
 class SWMMResultsLayer;
 
@@ -96,6 +97,12 @@ public:
     /*! Show mesh \p mesh's vertices (0), edges (1) or cells (2) table —
      *  MeshAttributeTableModel::Kind order. */
     void showMeshTable(SWMM2DMeshLayer *mesh, int meshKind);
+
+    /*! Show the data-object table for \p dataCategory (a
+     *  SWMMModelLayer::DataCategory). No-op for categories
+     *  DataObjectAttributeTableModel does not support. Called from the
+     *  Object Browser's category "Open in Attribute Table" action. */
+    void showDataCategory(int dataCategory);
 
     /*! The current selection rendered as TSV: a header line plus one
      *  line per selected row, in the view's current sort and column
@@ -276,6 +283,14 @@ private:
     void gisSelectionToBus();
     void gisSelectionFromBus(const QSet<SWMMObjectRef> &current);
 
+    /*! The same trio for the data-object source ("data:<DataCategory>"):
+     *  rows are keyed by object name on the bus, like the SWMM source. */
+    [[nodiscard]] bool dataSourceActive() const;
+    void bindDataSource(int dataCategory);
+    QSet<SWMMObjectRef> dataRefs(bool applyQuery) const;
+    void dataSelectionToBus();
+    void dataSelectionFromBus(const QSet<SWMMObjectRef> &current);
+
     /*! Slice Z.3 — collect the SWMMObjectRefs of all source rows
      *  whose identify map satisfies the current query predicate.
      *  Ignores the "show selected only" filter so the selection
@@ -310,6 +325,7 @@ private:
     TabularDataTableModel   *m_tabularModel  = nullptr;  ///< Z.4.3 — alt source
     GISVectorAttributeTableModel *m_gisModel = nullptr;  ///< external OGR feature-layer source
     MeshAttributeTableModel *m_meshModel     = nullptr;  ///< 2D mesh elements source
+    DataObjectAttributeTableModel *m_dataModel = nullptr; ///< non-spatial data-object source
     QSortFilterProxyModel   *m_proxy         = nullptr;
 
     // Slice Z.2 — Query bar

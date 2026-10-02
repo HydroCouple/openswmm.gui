@@ -83,7 +83,6 @@
 // browser's open-for-edit dispatch so all three surfaces (browser
 // double-click, browser right-click "Edit…", attribute-panel header
 // button) share one editor instance.
-#include "ui/panels/objectbrowserpanel.h"
 
 #include <QAction>
 #include <QApplication>
@@ -1192,11 +1191,9 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
 // 2026-05-29 — Header "Open in <Editor>…" button click
 // ---------------------------------------------------------------------------
 //
-// Maps the active data-category back to the SWMMObjectRef::ObjectType the
-// object-browser helper expects, then dispatches through the shared static
-// `ObjectBrowserPanel::openComprehensiveEditorFor`. The file-scope QPointer
-// statics in the helper guarantee a single editor instance is reused across
-// browser double-click, browser right-click "Edit…", and this button.
+// Dispatches through `ComprehensiveEditorRegistry::openForObject`, the same
+// table the object browser's double-click and right-click "Edit…" use, so a
+// single editor instance is reused across all three surfaces.
 
 void PropertiesPanel::onOpenInEditorClicked()
 {
@@ -1206,25 +1203,12 @@ void PropertiesPanel::onOpenInEditorClicked()
     if (!ComprehensiveEditorRegistry::instance().hasEditor(m_dataObjectCategory))
         return;
 
-    using DC = SWMMModelLayer;
-    using K  = SWMMObjectRef::ObjectType;
-    K kind = K::Unknown;
-    switch (m_dataObjectCategory) {
-    case DC::DataTimeSeries:  kind = K::TimeSeries;  break;
-    case DC::DataCurves:      kind = K::Curve;       break;
-    case DC::DataPatterns:    kind = K::TimePattern; break;
-    case DC::DataHydrographs: kind = K::Hydrograph;  break;
-    case DC::DataTransects:   kind = K::Transect;    break;
-    case DC::DataControls:    kind = K::Control;     break;
-    default: return; // Gap category — registry.hasEditor was lying; bail.
-    }
-
-    const SWMMObjectRef ref{kind, m_dataAdapter->name()};
     // Undo stack is owned by the canvas; the attribute panel doesn't see it
     // directly. Passing null is fine — the editors all accept a null stack
     // and fall back to their own undo behaviour.
-    ObjectBrowserPanel::openComprehensiveEditorFor(
-        m_swmmLayer, /*undoStack=*/nullptr, ref, this);
+    ComprehensiveEditorRegistry::instance().openForObject(
+        m_dataObjectCategory, m_swmmLayer, /*undoStack=*/nullptr,
+        m_dataAdapter->name(), this);
 }
 
 // ---------------------------------------------------------------------------

@@ -101,6 +101,15 @@ SnowpackEditorDialog::SnowpackEditorDialog(SnowpackRegistry *registry,
 
 SnowpackEditorDialog::~SnowpackEditorDialog() = default;
 
+void SnowpackEditorDialog::openForSnowpack(const QString &name)
+{
+    show();
+    raise();
+    activateWindow();
+    if (!m_registry || name.isEmpty()) return;
+    if (auto *p = m_registry->findByName(name)) selectProviderInList_(p);
+}
+
 SnowpackProvider *SnowpackEditorDialog::currentProvider() const noexcept
 {
     return m_current.data();

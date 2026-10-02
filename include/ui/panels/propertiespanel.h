@@ -176,8 +176,8 @@ private slots:
     void onTreeContextMenu(const QPoint &pos);
 
     /*! 2026-05-29 — Header "Open in <Editor>…" button click. Routes the
-     *  active data adapter's category through the shared object-browser
-     *  open-for-edit dispatch (`ObjectBrowserPanel::openComprehensiveEditorFor`)
+     *  active data adapter's category through the shared open-for-edit
+     *  dispatch (`ComprehensiveEditorRegistry::openForObject`)
      *  so the attribute-panel button and the object-browser leaf
      *  double-click/right-click share one editor instance. No-op when
      *  no data adapter is bound or its category has no shipped editor. */

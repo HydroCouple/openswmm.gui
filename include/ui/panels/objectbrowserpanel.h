@@ -100,6 +100,10 @@ signals:
      *  is carried for a future pre-highlight. */
     void rainfallVisualizationRequested(const SWMMObjectRef &object);
 
+    /*! \brief Emitted when the user picks "Open in Attribute Table" on a data
+     *  category header (pollutants, land uses, aquifers, streets, inlets). */
+    void openDataAttributeTableRequested(SWMMModelLayer::DataCategory category);
+
 public:
     /*! Slice BM.0-Add-New (2026-05-24) — does this data category have a
      *  complex MVC editor wired into Add-New today? Returns true only for
@@ -131,19 +135,19 @@ public:
      *  double-click, the object-browser leaf right-click "Edit…" menu,
      *  and the attribute-panel header "Open in <Editor>…" button.
      *
-     *  Static so the attribute panel can dispatch without needing an
-     *  object-browser instance; the dialogs are reused across calls via
-     *  file-scope `QPointer` statics inside the implementation, so a
-     *  single editor window is shared no matter which surface launched
-     *  it. No-op for non-data refs (Node/Link/Subcatchment/Unknown) and
-     *  for data kinds whose editor hasn't shipped.
+     *  Static so other panels can dispatch without needing an
+     *  object-browser instance. Delegates to
+     *  `ComprehensiveEditorRegistry::openForObject`, which reuses one
+     *  editor window per kind. Returns false (no-op) for non-data refs
+     *  (Node/Link/Subcatchment/Unknown) and for data kinds whose editor
+     *  hasn't shipped.
      *
      *  \param layer      Active project's model layer; no-op when null.
      *  \param undoStack  Canvas undo stack to feed dialogs that take one;
      *                    null is acceptable (editors work without undo).
      *  \param ref        Object to open. Must carry a non-empty name.
      *  \param parent     QWidget parent for the spawned dialog. */
-    static void openComprehensiveEditorFor(SWMMModelLayer    *layer,
+    static bool openComprehensiveEditorFor(SWMMModelLayer    *layer,
                                             QUndoStack        *undoStack,
                                             const SWMMObjectRef &ref,
                                             QWidget           *parent);

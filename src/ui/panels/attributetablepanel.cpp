@@ -6,6 +6,7 @@
 
 #include "ui/panels/attributetablepanel.h"
 #include "ui/panels/attributedelegates.h"
+#include "ui/panels/dataobjectattributetablemodel.h"
 #include "ui/models/userflagsmodel.h"
 #include "ui/panels/meshattributetablemodel.h"
 #include "ui/panels/swmmattributetablemodel.h"
@@ -606,6 +607,34 @@ bool parseMeshSourceKey(const QString &key, QString *layerId,
     return true;
 }
 
+// Data-object source keys — "data:<DataCategory>" for the non-spatial
+// categories DataObjectAttributeTableModel lists. A string payload so it never
+// collides with the int SWMM Category payloads.
+const QLatin1String kDataPrefix("data:");
+
+QString dataSourceKey(int dataCategory)
+{
+    return QStringLiteral("data:%1").arg(dataCategory);
+}
+
+/*! Column-width settings key for a data-object table. */
+QString dataWidthsKey(int dataCategory)
+{
+    return QStringLiteral("data-%1").arg(dataCategory);
+}
+
+const char *dataCategoryLabel(SWMMModelLayer::DataCategory dc)
+{
+    switch (dc) {
+    case SWMMModelLayer::DataPollutants: return "Pollutants";
+    case SWMMModelLayer::DataLandUses:   return "Land Uses";
+    case SWMMModelLayer::DataAquifers:   return "Aquifers";
+    case SWMMModelLayer::DataStreets:    return "Streets";
+    case SWMMModelLayer::DataInlets:     return "Inlets";
+    default:                             return "Data";
+    }
+}
+
 const char *categoryLabel(SWMMModelLayer::Category cat)
 {
     switch (cat) {
@@ -668,6 +697,8 @@ AttributeTablePanel::~AttributeTablePanel()
     // last time so the next session opens with the same layout.
     if (meshSourceActive())
         saveColumnWidths(meshWidthsKey(m_meshModel->kind()));
+    else if (dataSourceActive())
+        saveColumnWidths(dataWidthsKey(m_dataModel->category()));
     else if (m_model)
         saveColumnWidths(m_model->category());
 }
@@ -841,6 +872,7 @@ void AttributeTablePanel::buildUi()
     m_tabularModel = new TabularDataTableModel(this);
     m_gisModel     = new GISVectorAttributeTableModel(this);
     m_meshModel    = new MeshAttributeTableModel(this);
+    m_dataModel    = new DataObjectAttributeTableModel(this);
     m_proxy        = new FilteringProxy(this);
     m_proxy->setSourceModel(m_model);
 
@@ -850,6 +882,10 @@ void AttributeTablePanel::buildUi()
     connect(m_meshModel, &MeshAttributeTableModel::objectEdited,
             this, [this](const QString &refName) {
                 if (!m_suppressEditForward) emit objectEdited(refName);
+            });
+    connect(m_dataModel, &DataObjectAttributeTableModel::objectEdited,
+            this, [this](const QString &name) {
+                if (!m_suppressEditForward) emit objectEdited(name);
             });
 
     // Round-4 follow-up 2026-05-12 — when the flow-units system
@@ -1020,6 +1056,8 @@ void AttributeTablePanel::setProject(SWMMModelLayer *layer,
     // edits in a single user-visible stack.
     if (m_model)
         m_model->setUndoStack(m_canvas ? m_canvas->undoStack() : nullptr);
+    if (m_dataModel)
+        m_dataModel->setUndoStack(m_canvas ? m_canvas->undoStack() : nullptr);
     // The mesh model pushes through mesh::push*ParamEdit, which take the
     // canvas and find the stack themselves. The model layer supplies the
     // candidate lists behind the coupled-node / time-series / curve pickers.
@@ -1097,6 +1135,22 @@ void AttributeTablePanel::refresh()
             m_categoryCombo->addItem(
                 QStringLiteral("%1 (%2)").arg(categoryLabel(cat)).arg(n),
                 static_cast<int>(cat));
+        }
+        // Non-spatial data objects that support bulk editing. Payload is
+        // "data:<DataCategory>".
+        bool addedSeparator = false;
+        for (int dc = 0; dc < SWMMModelLayer::NumDataCategories; ++dc) {
+            const auto cat = static_cast<SWMMModelLayer::DataCategory>(dc);
+            if (!DataObjectAttributeTableModel::supportsCategory(cat)) continue;
+            const int n = m_layer->dataObjectCount(cat);
+            if (n <= 0) continue;
+            if (!addedSeparator && m_categoryCombo->count() > 0) {
+                m_categoryCombo->insertSeparator(m_categoryCombo->count());
+                addedSeparator = true;
+            }
+            m_categoryCombo->addItem(
+                QStringLiteral("◇ Data: %1 (%2)").arg(tr(dataCategoryLabel(cat))).arg(n),
+                dataSourceKey(dc));
         }
     }
     // Z.4.3 — list TabularDataLayer entries from the canvas.
@@ -1231,6 +1285,8 @@ void AttributeTablePanel::refresh()
             bindGisSource(gis);
         } else if (data.toString().startsWith(kMeshPrefix)) {
             bindMeshSource(data.toString());
+        } else if (data.toString().startsWith(kDataPrefix)) {
+            bindDataSource(data.toString().mid(kDataPrefix.size()).toInt());
         }
     }
 
@@ -1314,6 +1370,21 @@ void AttributeTablePanel::showMeshTable(SWMM2DMeshLayer *mesh, int meshKind)
         m_categoryCombo->setCurrentIndex(idx);   // fires onCategoryChanged
 }
 
+void AttributeTablePanel::showDataCategory(int dataCategory)
+{
+    if (!DataObjectAttributeTableModel::supportsCategory(
+            static_cast<SWMMModelLayer::DataCategory>(dataCategory)))
+        return;
+    const QString key = dataSourceKey(dataCategory);
+    int idx = m_categoryCombo->findData(key);
+    if (idx < 0) {
+        refresh();   // objects added since the combo was last rebuilt
+        idx = m_categoryCombo->findData(key);
+    }
+    if (idx >= 0)
+        m_categoryCombo->setCurrentIndex(idx);   // fires onCategoryChanged
+}
+
 void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
 {
     if (m_categoryCombo->currentIndex() < 0) return;
@@ -1325,6 +1396,8 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
         saveColumnWidths(previous);
     } else if (meshSourceActive()) {
         saveColumnWidths(meshWidthsKey(m_meshModel->kind()));
+    } else if (dataSourceActive()) {
+        saveColumnWidths(dataWidthsKey(m_dataModel->category()));
     }
 
     const QVariant data = m_categoryCombo->currentData();
@@ -1367,6 +1440,8 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
         bindGisSource(gis);   // also installs the column delegates
     } else if (data.toString().startsWith(kMeshPrefix)) {
         bindMeshSource(data.toString());
+    } else if (data.toString().startsWith(kDataPrefix)) {
+        bindDataSource(data.toString().mid(kDataPrefix.size()).toInt());
     }
 
     // Z.2 — clear the query bar when the source changes because
@@ -1754,11 +1829,96 @@ void AttributeTablePanel::gisSelectionFromBus(const QSet<SWMMObjectRef> &current
     m_applyingFromBus = false;
 }
 
+// ---------------------------------------------------------------------------
+// Data-object source — pollutants / land uses / aquifers / streets / inlets
+//
+// Rows are keyed by object name on the selection bus, exactly like the SWMM
+// source, so picking a row shows the object in the Properties panel. There is
+// no map geometry, so the zoom / flash paths do not apply.
+// ---------------------------------------------------------------------------
+
+bool AttributeTablePanel::dataSourceActive() const
+{
+    return m_proxy && m_dataModel && m_proxy->sourceModel() == m_dataModel;
+}
+
+void AttributeTablePanel::bindDataSource(int dataCategory)
+{
+    if (!m_dataModel || !m_proxy) return;
+    m_dataModel->setUndoStack(m_canvas ? m_canvas->undoStack() : nullptr);
+    m_dataModel->setSource(m_layer,
+                           static_cast<SWMMModelLayer::DataCategory>(dataCategory));
+    m_proxy->setSourceModel(m_dataModel);
+    installColumnDelegates(m_dataModel->columnSpecs(), m_dataModel->columnCount());
+    restoreColumnWidths(dataWidthsKey(dataCategory));
+}
+
+QSet<SWMMObjectRef> AttributeTablePanel::dataRefs(bool applyQuery) const
+{
+    QSet<SWMMObjectRef> out;
+    if (!dataSourceActive()) return out;
+
+    openswmmvis::QueryPredicate pred;
+    if (applyQuery && m_queryEdit) {
+        const QString text = m_queryEdit->text().trimmed();
+        pred = openswmmvis::parseQuery(text);
+        if (!text.isEmpty() && !pred.isValid()) return out;
+    }
+    RowPredicate rp;
+    rp.bind(m_dataModel, pred);
+    const auto type = m_dataModel->objectType();
+    const int nRow = m_dataModel->rowCount();
+    for (int row = 0; row < nRow; ++row) {
+        if (!rp.accepts(row)) continue;
+        const QString name = m_dataModel->objectNameAt(row);
+        if (!name.isEmpty()) out.insert(SWMMObjectRef(type, name));
+    }
+    return out;
+}
+
+void AttributeTablePanel::dataSelectionToBus()
+{
+    if (!m_selMgr || !dataSourceActive() || !m_view) return;
+    auto *sel = m_view->selectionModel();
+    if (!sel) return;
+    const auto type = m_dataModel->objectType();
+    QSet<SWMMObjectRef> refs;
+    for (const QModelIndex &proxyIdx : sel->selectedRows()) {
+        const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
+        const QString name = m_dataModel->objectNameAt(srcIdx.row());
+        if (!name.isEmpty()) refs.insert(SWMMObjectRef(type, name));
+    }
+    m_selMgr->select(refs, SelectionManager::Replace);
+}
+
+void AttributeTablePanel::dataSelectionFromBus(const QSet<SWMMObjectRef> &current)
+{
+    if (!dataSourceActive() || !m_view) return;
+    auto *sel = m_view->selectionModel();
+    if (!sel) return;
+
+    m_applyingFromBus = true;
+    const auto type = m_dataModel->objectType();
+    QSet<QString> names;
+    QList<int> rows;
+    for (const auto &ref : current) {
+        if (ref.objectType != type) continue;
+        names.insert(ref.name);
+        const int row = m_dataModel->rowForName(ref.name);
+        if (row >= 0) rows << row;
+    }
+    static_cast<FilteringProxy *>(m_proxy)->setNameFilter(
+        m_showSelectedOnly ? names : QSet<QString>{}, m_showSelectedOnly);
+    selectSourceRows(sel, m_proxy, m_dataModel, rows);
+    m_applyingFromBus = false;
+}
+
 void AttributeTablePanel::onTableSelectionChanged()
 {
     if (m_applyingFromBus || !m_selMgr || !m_view || !m_proxy) return;
     if (meshSourceActive()) { meshSelectionToBus(); return; }
     if (gisSourceActive())  { gisSelectionToBus();  return; }
+    if (dataSourceActive()) { dataSelectionToBus(); return; }
     if (!m_model) return;
     // Z.4.3 — only the SWMM model carries object refs; tabular
     // source has no canvas-linked selection.
@@ -1789,6 +1949,7 @@ void AttributeTablePanel::onSelectionManagerChanged(
     if (!m_view || !m_proxy) return;
     if (meshSourceActive()) { meshSelectionFromBus(current); return; }
     if (gisSourceActive())  { gisSelectionFromBus(current);  return; }
+    if (dataSourceActive()) { dataSelectionFromBus(current); return; }
     if (!m_layer || !m_model) return;
     // Z.4.3 — when a tabular source is active, the bus selection
     // doesn't apply (no SWMMObjectRef → row mapping).
@@ -1856,6 +2017,7 @@ void AttributeTablePanel::onRowHeaderDoubleClicked(int row)
 void AttributeTablePanel::onZoomToSelectedClicked()
 {
     if (!m_canvas || !m_selMgr || m_selMgr->isEmpty()) return;
+    if (dataSourceActive()) return;   // data objects have no map geometry
 
     // The extent is accumulated in the SOURCE layer's own CRS, then projected
     // once — so the mesh branch resolves against the mesh layer, not the model.
@@ -2116,6 +2278,57 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
         return;
     }
 
+    // Data-object source: Copy + open the row's dedicated editor + bulk
+    // apply. No Change Type / Delete / Zoom — those are map-object actions.
+    if (dataSourceActive()) {
+        QMenu dataMenu(this);
+        QAction *copy = dataMenu.addAction(tr("Copy (Ctrl+C)"));
+        connect(copy, &QAction::triggered,
+                this, &AttributeTablePanel::copySelectionToClipboard);
+        dataMenu.addSeparator();
+
+        const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
+        const QString name = m_dataModel->objectNameAt(srcIdx.row());
+        const auto dc = m_dataModel->category();
+        const auto &reg = ComprehensiveEditorRegistry::instance();
+        const QString title = reg.editorTitle(dc);
+        QAction *edit = dataMenu.addAction(
+            tr("Edit \"%1\" in %2…").arg(name, title.isEmpty() ? tr("Editor") : title));
+        edit->setEnabled(!name.isEmpty() && reg.hasEditor(dc));
+        connect(edit, &QAction::triggered, this, [this, dc, name]() {
+            ComprehensiveEditorRegistry::instance().openForObject(
+                dc, m_layer, m_canvas ? m_canvas->undoStack() : nullptr, name, this);
+        });
+
+        const QVariant cellValue = srcIdx.data(Qt::EditRole);
+        const int col = srcIdx.column();
+        const QList<openswmmvis::ColumnSpec> specs = m_dataModel->columnSpecs();
+        const QList<int> selRows = selectedSourceRows();
+        if ((m_dataModel->flags(srcIdx) & Qt::ItemIsEditable)
+            && col >= 1 && col < specs.size() && selRows.size() >= 2) {
+            const openswmmvis::ColumnSpec &spec = specs[col];
+            dataMenu.addSeparator();
+            QAction *copyVal = dataMenu.addAction(
+                tr("Apply this \"%1\" value to %2 selected rows")
+                    .arg(spec.label).arg(selRows.size()));
+            connect(copyVal, &QAction::triggered, this,
+                    [this, col, selRows, cellValue]() {
+                        applyValueToSelectedRows(col, selRows, cellValue);
+                    });
+            QAction *promptVal = dataMenu.addAction(
+                tr("Apply \"%1\" value to %2 selected rows…")
+                    .arg(spec.label).arg(selRows.size()));
+            connect(promptVal, &QAction::triggered, this,
+                    [this, col, selRows, cellValue]() {
+                        bool ok = false;
+                        const QVariant v = promptBulkValue(col, cellValue, &ok);
+                        if (ok) applyValueToSelectedRows(col, selRows, v);
+                    });
+        }
+        dataMenu.exec(m_view->viewport()->mapToGlobal(pos));
+        return;
+    }
+
     if (!m_model || !m_layer) return;
 
     QMenu menu(this);
@@ -2370,18 +2583,21 @@ void AttributeTablePanel::applyValueToSelectedRows(int column,
                                                    const QVariant &value)
 {
     if (column < 0 || sourceRows.isEmpty()) return;
-    // Whichever source is bound — SWMM objects or mesh elements — the writes
-    // go through that model's setData, which pushes onto the same undo stack.
+    // Whichever source is bound — SWMM objects, mesh elements or data
+    // objects — the writes go through that model's setData, which pushes onto
+    // the same undo stack.
     QAbstractItemModel *model = meshSourceActive()
         ? static_cast<QAbstractItemModel *>(m_meshModel)
-        : static_cast<QAbstractItemModel *>(m_model);
+        : dataSourceActive() ? static_cast<QAbstractItemModel *>(m_dataModel)
+                             : static_cast<QAbstractItemModel *>(m_model);
     if (!model) return;
 
     // Collapse the whole batch into one undo step when a stack is attached
     // (each setData pushes its own AttributeEditCommand inside the macro).
     QUndoStack *undo = meshSourceActive()
         ? (m_canvas ? static_cast<QUndoStack *>(m_canvas->undoStack()) : nullptr)
-        : (m_model ? m_model->undoStack() : nullptr);
+        : dataSourceActive() ? m_dataModel->undoStack()
+                             : (m_model ? m_model->undoStack() : nullptr);
     if (undo)
         undo->beginMacro(tr("Apply value to %1 rows").arg(sourceRows.size()));
     for (int row : sourceRows) {
@@ -2402,8 +2618,9 @@ QVariant AttributeTablePanel::promptBulkValue(int column,
     if (ok) *ok = false;
     const QList<openswmmvis::ColumnSpec> specs =
         meshSourceActive() ? m_meshModel->columnSpecs()
-                           : (m_model ? m_model->columnSpecs()
-                                      : QList<openswmmvis::ColumnSpec>{});
+        : dataSourceActive() ? m_dataModel->columnSpecs()
+                             : (m_model ? m_model->columnSpecs()
+                                        : QList<openswmmvis::ColumnSpec>{});
     if (column < 0 || column >= specs.size()) return {};
     using openswmmvis::EditorKind;
     const openswmmvis::ColumnSpec &spec = specs[column];
@@ -2438,7 +2655,11 @@ QVariant AttributeTablePanel::promptBulkValue(int column,
             const QVariantList pair = pv.toList();
             if (pair.size() != 2) continue;
             labels << pair[0].toString();
-            if (pair[1].toInt() == current.toInt()) curIdx = labels.size() - 1;
+            // Name-valued enums (data-object references) carry QString data;
+            // every other enum carries an int.
+            const bool same = pair[1].userType() == QMetaType::QString
+                ? pair[1] == current : pair[1].toInt() == current.toInt();
+            if (same) curIdx = labels.size() - 1;
         }
         if (labels.isEmpty()) return {};
         bool got = false;
@@ -2449,7 +2670,8 @@ QVariant AttributeTablePanel::promptBulkValue(int column,
             const QVariantList pair = pv.toList();
             if (pair.size() == 2 && pair[0].toString() == chosen) {
                 if (ok) *ok = true;
-                return pair[1].toInt();
+                return pair[1].userType() == QMetaType::QString
+                    ? pair[1] : QVariant(pair[1].toInt());
             }
         }
         return {};
@@ -2543,6 +2765,7 @@ QSet<SWMMObjectRef> AttributeTablePanel::matchedRefs() const
 {
     QSet<SWMMObjectRef> out;
     if (meshSourceActive()) return meshRefs(/*applyQuery=*/true);
+    if (dataSourceActive()) return dataRefs(/*applyQuery=*/true);
     if (!m_model || !m_queryEdit) return out;
     // Z.4.3 — selection ops require a SWMM model source; tabular
     // sources have no SWMMObjectRefs.
@@ -2596,6 +2819,7 @@ QSet<SWMMObjectRef> AttributeTablePanel::allCategoryRefs() const
 {
     QSet<SWMMObjectRef> out;
     if (meshSourceActive()) return meshRefs(/*applyQuery=*/false);
+    if (dataSourceActive()) return dataRefs(/*applyQuery=*/false);
     if (!m_model) return out;
     if (m_proxy && m_proxy->sourceModel() != m_model) return out;
     const SWMMObjectRef::ObjectType type =

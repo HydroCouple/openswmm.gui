@@ -85,6 +85,10 @@ public:
 
     void invokeNew();
 
+    /*! \brief Modeless open-for-edit: shows the dialog and selects \p name.
+     *  Used by the Object Browser, Properties panel and Attribute Table. */
+    void openForPollutant(const QString &name);
+
 public slots:
     void invalidateContext();
 
