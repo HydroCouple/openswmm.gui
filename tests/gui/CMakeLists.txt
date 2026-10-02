@@ -3257,6 +3257,17 @@ add_swmmvis_gui_test(test_attributetableschema
 )
 swmmvis_link_full_app_deps(test_attributetableschema)
 
+# Data objects (pollutants / land uses / aquifers / streets / inlets) as
+# Attribute Table sources, and the registry's open-for-object dispatch behind
+# Object Browser "Edit…" / double-click
+# (workplans/DATA_OBJECT_EDIT_AND_ATTRIBUTE_TABLE_PLAN_2026-10-02.md).
+add_swmmvis_gui_test(test_dataobjectattributetable
+    test_dataobjectattributetable.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_dataobjectattributetable)
+
 # Rain-gage file / column / format coupling — review follow-ups R3 (a path edit
 # reconciles the column and undoes as one step) and A-2 (the file format is
 # explicitly settable, which is the only way back out of USER_CSV).

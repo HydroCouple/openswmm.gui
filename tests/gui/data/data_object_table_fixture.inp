@@ -1,0 +1,81 @@
+;; Fixture for tests/gui/test_dataobjectattributetable.cpp
+;;
+;; Two of each data object the Attribute Table can bulk-edit — pollutants,
+;; land uses, aquifers, streets, inlets — plus the pattern and curve the
+;; name-reference columns (aquifer evap pattern, inlet capture curve) pick
+;; from. Built on tests/data/inlets/street_inlet.inp.
+
+[TITLE]
+Data-object attribute table fixture
+
+[OPTIONS]
+FLOW_UNITS           CFS
+FLOW_ROUTING         DYNWAVE
+LINK_OFFSETS         DEPTH
+START_DATE           01/01/2026
+END_DATE             01/01/2026
+REPORT_STEP          00:05:00
+ROUTING_STEP         0:00:05
+
+[JUNCTIONS]
+;;Name  Elev   MaxDepth  InitDepth  SurDepth  Aponded
+J1      100.0  1.0       0          0         0
+J2       99.0  1.0       0          0         0
+SEWER    90.0  6.0       0          0         0
+
+[OUTFALLS]
+;;Name  Elev   Type   Stage  Gated
+OUT1     88.0  FREE          NO
+
+[CONDUITS]
+;;Name  From   To     Length  Roughness  InOffset  OutOffset
+C1      J1     J2     400.0   0.016      0         0
+D1      SEWER  OUT1   200.0   0.013      0         0
+
+[XSECTIONS]
+;;Link  Shape     Geom1  Geom2  Geom3  Geom4  Barrels
+C1      STREET    ST1    0      0      0      1
+D1      CIRCULAR  1.5    0      0      0      1
+
+[STREETS]
+;;Name  Tcrown  Hcurb  Sx  nRoad  a  W  Sides  Tback  Sback  nBack
+ST1     20.0    0.5    4   0.016  0  0  1      0      0      0
+ST2     30.0    0.5    2   0.016  2  2  2      5      8      0.02
+
+[INLETS]
+;;Name   Type   Params
+GRATE1   GRATE  2.0  2.0  P_BAR-50
+CURB1    CURB   3.0  0.5  VERTICAL
+
+[POLLUTANTS]
+;;Name  Units  Crain  Cgw  Crdii  Kdecay  SnowOnly  CoPollut  CoFrac  Cdwf  Cinit
+TSS     MG/L   0      0    0      0       NO        *         0       0     0
+Lead    UG/L   0      0    0      0       NO        TSS       0.2     0     0
+
+[LANDUSES]
+;;Name        SweepInterval  Availability  LastSwept
+Residential   0              0             0
+Commercial    7              0.5           0
+
+[AQUIFERS]
+;;Name  Por   WP    FC    Ksat  Kslope  Tslope  ETu   ETs  Seep   Ebot  Egw  Umc   ETupat
+AQ1     0.5   0.15  0.30  0.1   12      15      0.35  14   0.002  0     3.5  0.40
+AQ2     0.45  0.1   0.25  0.05  10      15      0.35  14   0.002  0     3.0  0.30  EvapPat
+
+[PATTERNS]
+;;Name    Type     Multipliers
+EvapPat   MONTHLY  1.0  1.0  1.0  1.0  1.0  1.0  1.0  1.0  1.0  1.0  1.0  1.0
+
+[COORDINATES]
+;;Node  X       Y
+J1        0.0     0.0
+J2      400.0     0.0
+SEWER   200.0  -100.0
+OUT1    400.0  -100.0
+
+[REPORT]
+INPUT      NO
+CONTROLS   NO
+SUBCATCHMENTS ALL
+NODES ALL
+LINKS ALL

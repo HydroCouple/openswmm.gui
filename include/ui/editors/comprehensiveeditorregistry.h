@@ -54,6 +54,14 @@ public:
                                             QUndoStack    *undoStack,
                                             QWidget       *parent)>;
 
+    /*! Invoked to open the editor with the object named \p name selected
+     *  (Object Browser leaf Edit… / double-click, Properties "Open in…",
+     *  Attribute Table row "Edit in…"). */
+    using OpenForObjectFn = std::function<void(SWMMModelLayer *layer,
+                                               QUndoStack    *undoStack,
+                                               const QString &name,
+                                               QWidget       *parent)>;
+
     struct Entry {
         QString      editorTitle;     ///< User-visible name, e.g. "Curve Editor".
         QString      gapSliceLabel;   ///< Populated only when openCreateNew is null.
@@ -63,6 +71,9 @@ public:
          *  Add/New button. Same signature as `openCreateNew`. Null iff the
          *  editor is not yet shipped. */
         OpenCreateFn openBrowse;
+        /*! Opens the editor on an existing object. Null iff the editor is
+         *  not yet shipped. */
+        OpenForObjectFn openForObject;
     };
 
     static ComprehensiveEditorRegistry &instance();
@@ -82,6 +93,14 @@ public:
 
     /*! User-visible editor title, or empty when unregistered. */
     [[nodiscard]] QString editorTitle(SWMMModelLayer::DataCategory cat) const;
+
+    /*! Opens the \p cat editor with \p name selected. Returns false (and
+     *  does nothing) when \p cat has no `openForObject` or \p name is empty. */
+    bool openForObject(SWMMModelLayer::DataCategory cat,
+                       SWMMModelLayer *layer,
+                       QUndoStack     *undoStack,
+                       const QString  &name,
+                       QWidget        *parent) const;
 
 private:
     ComprehensiveEditorRegistry() = default;
