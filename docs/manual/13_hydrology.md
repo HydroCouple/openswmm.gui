@@ -309,7 +309,7 @@ is modeless and stays disabled until an aquifer is assigned.
 |---|---|---|
 | **Receiving node** | **Receiving Node** — the node that receives lateral groundwater flow | `[GROUNDWATER]` |
 | | **Surface Elevation** — ground surface for the subcatchment | `[GROUNDWATER]` |
-| **Standard lateral flow** | **A1 (GW coeff.)**; **B1 (GW expon.)**; **A2 (Surf. coeff.)**; **B2 (Surf. expon.)**; **A3 (interaction)**; **Threshold Twgr**; **Hstar** | `[GROUNDWATER]` |
+| **Standard lateral flow** | **A1 (GW coeff.)**; **B1 (GW expon.)**; **A2 (Surf. coeff.)**; **B2 (Surf. expon.)**; **A3 (interaction)**; **Fixed surface-water depth (Dsw)** (0 = the node's computed depth); **Threshold water-table elev. (Egwt)** with **Use receiving node invert** (`*` in the file; a typed value such as -99 is a literal elevation) | `[GROUNDWATER]` |
 | **Custom expressions ([GWF])** | **LATERAL** — *added to* the standard lateral flow | `[GWF]` |
 | | **DEEP** — *replaces* the standard deep percolation | `[GWF]` |
 

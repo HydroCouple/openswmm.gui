@@ -16,6 +16,7 @@
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -450,6 +451,92 @@ private slots:
         QCOMPARE(gwfExpr(e, s, SWMM_GWF_LATERAL), beforeLateral);
         QCOMPARE(gwfExpr(e, s, SWMM_GWF_DEEP), beforeDeep);
         swmm_engine_close(e);
+        swmm_engine_destroy(e);
+    }
+
+    // [GROUNDWATER] Egwt `*` is the engine's MISSING (-1e10): "use the
+    // receiving node's invert". The editor shows it as a checked option, not a
+    // -10000000000 ft elevation, and keeps it through an unrelated Apply.
+    void egwtStarShowsAsNodeInvertAndSurvivesApply()
+    {
+        SWMM_Engine e = openFixture();
+        QVERIFY(e);
+        const int s = swmm_subcatch_index(e, "S1");
+        auto p = gwParams(e, s);
+        QCOMPARE(swmm_subcatch_set_gw_params(e, s, p[0], p[1], p[2], p[3], p[4],
+            p[5], p[6], -1.0e10), SWMM_OK);
+        GroundwaterExchangeDialog dlg(makeRef(e, QStringLiteral("S1")));
+        auto *useInvert = dlg.findChild<QCheckBox *>(QStringLiteral("gwEgwtUseInvert"));
+        auto *egwt = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("gwHstar"));
+        QVERIFY(useInvert && egwt);
+        QVERIFY(useInvert->isChecked());
+        QVERIFY(!egwt->isEnabled());
+        QVERIFY(!egwt->text().contains(QStringLiteral("10000000000")));
+        dlg.findChild<QDoubleSpinBox *>(QStringLiteral("gwA2"))->setValue(0.25);
+        dlg.findChild<QPushButton *>(QStringLiteral("gwApply"))->click();
+        QCOMPARE(gwParams(e, s)[3], 0.25);
+        QCOMPARE(gwParams(e, s)[7], -1.0e10);
+        QVERIFY(useInvert->isChecked());
+        swmm_engine_destroy(e);
+    }
+
+    void egwtToggleWritesLiteralThenInvertDefault()
+    {
+        SWMM_Engine e = openFixture();
+        QVERIFY(e);
+        const int s = swmm_subcatch_index(e, "S1");
+        auto p = gwParams(e, s);
+        QCOMPARE(swmm_subcatch_set_gw_params(e, s, p[0], p[1], p[2], p[3], p[4],
+            p[5], p[6], -1.0e10), SWMM_OK);
+        GroundwaterExchangeDialog dlg(makeRef(e, QStringLiteral("S1")));
+        auto *useInvert = dlg.findChild<QCheckBox *>(QStringLiteral("gwEgwtUseInvert"));
+        auto *egwt = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("gwHstar"));
+        auto *apply = dlg.findChild<QPushButton *>(QStringLiteral("gwApply"));
+        useInvert->setChecked(false);
+        QVERIFY(egwt->isEnabled());
+        egwt->setValue(95.0);
+        apply->click();
+        QCOMPARE(gwParams(e, s)[7], 95.0);
+        useInvert->setChecked(true);
+        QVERIFY(!egwt->isEnabled());
+        apply->click();
+        QCOMPARE(gwParams(e, s)[7], -1.0e10);
+        swmm_engine_destroy(e);
+    }
+
+    // -99 is an elevation, not "use the invert", in legacy SWMM and in the
+    // engine; the editor must not present it as the default.
+    void egwtMinus99IsALiteralElevation()
+    {
+        SWMM_Engine e = openFixture();
+        QVERIFY(e);
+        const int s = swmm_subcatch_index(e, "S1");
+        auto p = gwParams(e, s);
+        QCOMPARE(swmm_subcatch_set_gw_params(e, s, p[0], p[1], p[2], p[3], p[4],
+            p[5], p[6], -99.0), SWMM_OK);
+        GroundwaterExchangeDialog dlg(makeRef(e, QStringLiteral("S1")));
+        QVERIFY(!dlg.findChild<QCheckBox *>(QStringLiteral("gwEgwtUseInvert"))->isChecked());
+        auto *egwt = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("gwHstar"));
+        QVERIFY(egwt->isEnabled());
+        QCOMPARE(egwt->value(), -99.0);
+        swmm_engine_destroy(e);
+    }
+
+    // tok[9] is legacy's fixedDepth (Dsw) and tok[10] its nodeElev (Egwt); the
+    // rows used to be labelled "Threshold Twgr" and "Hstar".
+    void fieldLabelsNameDswAndEgwt()
+    {
+        SWMM_Engine e = openFixture();
+        QVERIFY(e);
+        GroundwaterExchangeDialog dlg(makeRef(e, QStringLiteral("S1")));
+        auto labelFor = [&](const char *name) {
+            QWidget *field = dlg.findChild<QWidget *>(QString::fromLatin1(name));
+            for (auto *label : dlg.findChildren<QLabel *>())
+                if (label->buddy() == field) return label->text();
+            return QString();
+        };
+        QVERIFY(labelFor("gwTw").contains(QStringLiteral("Dsw")));
+        QVERIFY(labelFor("gwHstar").contains(QStringLiteral("Egwt")));
         swmm_engine_destroy(e);
     }
 
