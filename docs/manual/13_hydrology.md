@@ -26,6 +26,36 @@ opens the same editor already in create mode (see \ref manual_object_browser).
 
 \figtodo{13_model_data_objects_menu.png, The Model → Data Objects submenu with the hydrology editors}
 
+### A populated example for these editors
+
+Open a working copy of
+`docs/manual/tutorials/models/hydrology_editor_example.inp` from the source
+checkout.
+It defines S1, RG1, aquifer AQ1, bioretention control BC1, snowpack SP1 and
+hydrograph group UH1, with groundwater and RDII assigned to J1. The figures
+below use this synthetic, uncalibrated CFS example. It is an editor demonstration,
+not a design recommendation or a snowmelt validation case.
+
+1. Open S1’s **LID Usage**, **Groundwater** and **Initial Loadings** rows in
+   turn. Compare the loaded table values with `[LID_USAGE]`, `[GROUNDWATER]`,
+   `[GWF]` and `[LOADINGS]` in the input.
+2. Browse **Aquifers**, **Snowpacks** and **Unit Hydrographs** from
+   **Model → Data Objects**. Select AQ1, SP1 or UH1 in the editor’s left list.
+   In UH1 compare both **RTK** and **Initial Abstraction**, including the
+   horizontally scrollable decay table.
+3. Browse BC1 in **LID Controls** to see the layer diagram and the read-back
+   warning. Its displayed defaults do not reproduce the input parameters;
+   opening this editor is not verification of stored LID values.
+4. Execute the copied input and inspect the report. A reference run with the
+   bundled 6.0.0 engine reports runoff continuity −0.901 %, groundwater
+   continuity 0.012 % and routing continuity −0.025 %. Groundwater flow is
+   1.954 acre-feet, RDII production is 0.065 acre-feet, and the LID performance
+   summary contains nonzero BC1 drainage. Snowmelt remains disabled.
+5. To check persistence after an edit, save and close the copied project,
+   reopen its `.oswp`, compare the relevant input sections and rerun it.
+   Preserve the original report before changing parameters. The figures
+   demonstrate loaded controls; they do not establish every edit/save workflow.
+
 ## Step-by-step
 
 ### Rain gages
@@ -155,13 +185,16 @@ its destinations are *Lost*, *Subcatchment Aquifer* and *2D Aquifer*. See
 ### The subcatchment compound editor
 
 The **Land Uses**, **LID Usage** and **Initial Loadings** rows open one shared
-dialog, on the page matching the row you clicked. Edits apply to the engine as
+dialog, showing only the form matching the row you clicked. There are no tabs
+for switching between these forms; close it and open the other property row.
+Edits apply to the engine as
 you make them (there is no separate Save step), and the cell summary refreshes on
 close. The **Groundwater** row is the exception — it opens its own dialog (below).
 
 - **Land Use page** — one row per defined land use with an editable
-  **Coverage (%)** column and a live sum in the footer, which warns when the
-  coverages do not add to 100 %. Writes `[COVERAGES]`.
+  **Coverage (%)** column. The heading reports the number of assigned land uses;
+  the dialog does not display a total or a 100 % warning. Add the percentages
+  yourself before closing. Writes `[COVERAGES]`.
 - **LID Usage page** — a table of the LID controls already on this subcatchment
   (*LID Control*; *#*; *Area*; *Width*; *Init.Sat*; *%Imperv*) with **Remove
   Selected**, plus an **Add LID Usage** form: **LID Control**, **Number of
@@ -170,7 +203,18 @@ close. The **Groundwater** row is the exception — it opens its own dialog (bel
 - **Loadings page** — one row per pollutant with an **Initial Buildup
   (mass/area)** column. Writes `[LOADINGS]`.
 
-\figtodo{13_subcatch_lid_usage_page.png, The LID Usage page of the subcatchment compound editor}
+\fig{13_subcatch_lid_usage_page.png, S1 has two BC1 units of 1000 ft² each; the lower form adds another usage row}
+
+In this CFS example the usage area is in square feet and top width is in feet.
+The two units occupy 2000 ft² of a five-acre subcatchment; **% From Impervious**
+is 50 and initial saturation is zero. Values in the lower Add form do not
+represent the selected existing row. The upper table is read-only. To change an existing assignment, select its
+row and use **Remove Selected**, then enter the replacement in the lower form
+and press **Add**. Both operations apply immediately. Preserve any additional
+`[LID_USAGE]` fields from an imported input: this form does not expose every
+usage parameter, including the return-to-pervious flag.
+
+\fig{13_initial_loadings.png, Initial TSS buildup for S1 is 1 mass unit per unit area in the synthetic example}
 
 ### LID Control editor
 
@@ -203,7 +247,7 @@ round-tripping someone else's model.
 Assigning a control to a subcatchment is done on the **LID Usage** page above,
 which writes `[LID_USAGE]`.
 
-\figtodo{13_lid_control_editor.png, The LID Control editor with the layer-stack diagram}
+\fig{13_lid_control_editor.png, Imported BC1 with its layer stack; displayed zero defaults are not the stored LID parameters}
 
 \figtodo{13_lid_types.png, The LID type list showing all eight control types}
 
@@ -227,7 +271,7 @@ done in the `.inp`. The global snowmelt settings (dividing temperature, ATI
 weight, negative melt ratio, elevation, latitude, longitude correction) and the
 areal depletion curves live in the Climatology dialog — see \ref manual_climate.
 
-\figtodo{13_snowpack_editor.png, The Snow Pack editor showing the four parameter groups}
+\fig{13_snowpack_editor.png, SP1 with all four parameter groups; snowmelt is disabled in this editor example}
 
 ### Aquifer editor
 
@@ -253,7 +297,7 @@ All of this writes `[AQUIFERS]`. Assign an aquifer to a subcatchment on the
 subcatchment's **Aquifer** property row; clearing the pick removes the
 subcatchment from `[GROUNDWATER]`.
 
-\fig{13_aquifer_editor.png, The Aquifer editor with the two-zone illustration}
+\fig{13_aquifer_editor.png, AQ1 with its two-zone illustration; bottom elevation is 90 ft and initial water table is 100 ft}
 
 ### Groundwater Exchange editor
 
@@ -308,7 +352,7 @@ listing the subcatchments that discharge groundwater to it (`from S1, S3`); its
 **Edit…** button opens this same dialog for the chosen subcatchment. Deleting
 such a node warns that those subcatchments lose their receiving node.
 
-\figtodo{13_groundwater_exchange.png, The Groundwater Exchange dialog with a validated LATERAL expression}
+\fig{13_groundwater_exchange.png, The Groundwater Exchange dialog with a validated LATERAL expression}
 
 \videotodo{Defining an aquifer and wiring a subcatchment's groundwater exchange with a custom GWF expression}
 
@@ -361,9 +405,16 @@ Selected**, and an **Add / Update RDII Assignment** form with a **UH Group Name*
 picker (whose "…" button opens this editor) and a **Sewer Area** value. That page
 writes `[RDII]`.
 
-\figtodo{13_unit_hydrograph_editor.png, The Unit Hydrograph editor with the RTK tab and the preview plot}
+\fig{13_unit_hydrograph_editor.png, The Unit Hydrograph editor with the RTK tab and the preview plot}
 
-\figtodo{13_rdii_decay_tab.png, The Initial Abstraction tab showing linear IA and the exponential decay table}
+\fig{13_rdii_decay_tab.png, UH1 initial abstraction and three active decay rows; scroll the lower table for recovery and snow columns}
+
+Use the lower table’s horizontal scrollbar to reach **theta_rec**,
+**T_freeze**, **Snow**, **snow_T** and **snow_ddf**. The synthetic example has
+all three decay rows active and snow disabled. Its report warns that there is
+no temperature source: recovery is evaluated at **T_ref** throughout the run.
+Add climate temperature data before using this case to investigate temperature
+or seasonal recovery.
 
 ## Tips and gotchas
 

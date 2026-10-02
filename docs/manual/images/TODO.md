@@ -10,7 +10,7 @@ publish it with `python3 scripts/manual_figures.py flip --chapter NN`
 `\fig`). Videos are swapped by hand: `\videotodo{caption}` →
 `\video{YOUTUBE_ID, caption}`.
 
-Remaining: 180 figures, 35 videos. Published so far: 152.
+Remaining: 174 figures, 35 videos. Published so far: 159.
 
 ## 01_introduction.md
 
@@ -100,15 +100,9 @@ Remaining: 180 figures, 35 videos. Published so far: 152.
 ## 13_hydrology.md
 
 - [ ] `13_model_data_objects_menu.png` (line 27) — The Model → Data Objects submenu with the hydrology editors
-- [ ] `13_raingage_properties.png` (line 69) — Rain gage properties with a file data source
-- [ ] `13_assign_rain_gages.png` (line 94) — The Assign Rain Gages dialog previewing an interpolated plan
-- [ ] `13_subcatch_lid_usage_page.png` (line 173) — The LID Usage page of the subcatchment compound editor
-- [ ] `13_lid_control_editor.png` (line 206) — The LID Control editor with the layer-stack diagram
-- [ ] `13_lid_types.png` (line 208) — The LID type list showing all eight control types
-- [ ] `13_snowpack_editor.png` (line 230) — The Snow Pack editor showing the four parameter groups
-- [ ] `13_groundwater_exchange.png` (line 311) — The Groundwater Exchange dialog with a validated LATERAL expression
-- [ ] `13_unit_hydrograph_editor.png` (line 364) — The Unit Hydrograph editor with the RTK tab and the preview plot
-- [ ] `13_rdii_decay_tab.png` (line 366) — The Initial Abstraction tab showing linear IA and the exponential decay table
+- [ ] `13_raingage_properties.png` (line 98) — Rain gage properties with a file data source
+- [ ] `13_assign_rain_gages.png` (line 123) — The Assign Rain Gages dialog previewing an interpolated plan
+- [ ] `13_lid_types.png` (line 247) — The LID type list showing all eight control types
 
 ## 14_hydraulics.md
 

@@ -236,7 +236,7 @@ only in the time-series and curve editors.
 
 **Help → Keyboard Shortcuts…** opens Preferences on the **Keyboard** page.
 
-\fig{a01_shortcut_editor.png, The Keyboard page of Preferences with a command selected and a new sequence being recorded}
+\fig{a01_shortcut_editor.png, Keyboard preferences filtered to Zoom Extent; its current and default shortcut are shown without recording a new binding}
 
 | Control | What it does |
 |---|---|
@@ -305,7 +305,7 @@ form — which makes the palette the fastest way to *discover* a shortcut as wel
 as to run something without one. Disabled commands are greyed and cannot be
 triggered.
 
-\fig{a01_command_palette.png, The command palette filtered to a few commands showing category chips and shortcuts}
+\fig{a01_command_palette.png, The command palette filtered to zoom commands with category labels and available shortcuts}
 
 ## Tips and gotchas
 

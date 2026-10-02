@@ -8,7 +8,7 @@
     "widget (objectName), window (grab the main window), page (sidebar/tab text),",
     "tab (sub-tab after page), size (WxH), lane (offscreen|live|human), settleMs.",
     "",
-    "lane:'live' rows need a real display — scene-graph content reads back blank",
+    "lane:'live' rows need a real display \u2014 scene-graph content reads back blank",
     "under the offscreen platform. lane:'human' rows are native menus/pickers the",
     "engine refuses to drive; they are listed in tests/manual/manual_figures/."
   ],
@@ -196,8 +196,12 @@
       "name": "a01_shortcut_editor.png",
       "action": "app.preferences",
       "page": "Keyboard",
-      "size": "1360x820",
-      "lane": "offscreen"
+      "size": "1100x450",
+      "lane": "live",
+      "type": "Extent",
+      "typeInto": "Filter commands",
+      "select": "Zoom Extent",
+      "_note": "Inspect current/default shortcuts only; do not record or apply a new binding."
     },
     {
       "name": "12_object_defaults_page.png",
@@ -224,27 +228,33 @@
     {
       "name": "a01_command_palette.png",
       "action": "app.commandPalette",
-      "type": "mesh",
+      "type": "zoom",
       "size": "760x520",
-      "lane": "offscreen"
+      "lane": "live"
     },
     {
       "name": "03_user_flags_dialog.png",
       "action": "model.userFlags",
-      "size": "760x560",
-      "lane": "offscreen"
+      "size": "1400x350",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/user_flags_example.inp",
+      "_note": "Four existing typed flag definitions, not a new-definition or persistence test."
     },
     {
       "name": "a06_about_dialog.png",
       "action": "app.about",
-      "size": "900x640",
-      "lane": "offscreen"
+      "size": "1200x760",
+      "lane": "live",
+      "select": "Qt 6  (6.10.x)",
+      "_note": "Select Qt 6 component; header runtime and static component versions may differ."
     },
     {
       "name": "01_about_dialog.png",
       "action": "app.about",
-      "size": "900x640",
-      "lane": "offscreen"
+      "size": "1200x760",
+      "lane": "live",
+      "select": "Qt 6  (6.10.x)",
+      "_note": "Select Qt 6 component; header runtime and static component versions may differ."
     },
     {
       "name": "02_window_regions.png",
@@ -423,60 +433,64 @@
     {
       "name": "13_lid_control_editor.png",
       "action": "data.newLidControl",
-      "size": "1000x760",
-      "_note": "BLOCKED: no model defines [LID_CONTROLS]; the editor opens with an empty list.",
-      "lane": "offscreen"
+      "size": "2000x1000",
+      "lane": "live",
+      "select": "first",
+      "_model": "docs/manual/tutorials/models/hydrology_editor_example.inp",
+      "_note": "Loaded BC1 displays editor defaults; do not edit. Caption must explicitly state the getters limitation.",
+      "maxWidth": 1600
     },
     {
       "name": "13_snowpack_editor.png",
       "action": "data.newSnowpack",
-      "size": "1000x760",
-      "_note": "BLOCKED: no model defines [SNOWPACKS]; the editor opens with an empty list.",
-      "lane": "offscreen"
+      "size": "1400x1050",
+      "lane": "live",
+      "select": "first",
+      "_model": "docs/manual/tutorials/models/hydrology_editor_example.inp"
     },
     {
       "name": "13_aquifer_editor.png",
       "action": "data.newAquifer",
-      "size": "1500x860",
+      "size": "2000x1000",
       "select": "first",
-      "_model": "tests/gui/data/aquifer_editor/diagram.inp",
-      "lane": "offscreen"
+      "_model": "docs/manual/tutorials/models/hydrology_editor_example.inp",
+      "lane": "live",
+      "maxWidth": 1600
     },
     {
       "name": "13_unit_hydrograph_editor.png",
       "action": "data.newUnitHydrograph",
-      "size": "1100x780",
+      "size": "1500x850",
       "select": "first",
       "lane": "live",
-      "_note": "BLOCKED: no model defines [HYDROGRAPHS], so every RTK cell is blank and the preview plot is flat.",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_model": "docs/manual/tutorials/models/hydrology_editor_example.inp"
     },
     {
       "name": "17_timeseries_editor.png",
       "action": "data.newTimeSeries",
-      "size": "1200x780",
-      "select": "first",
+      "size": "1500x850",
+      "select": "QEXT",
       "lane": "live",
-      "_note": "Contains a chart. QtCharts paints its axes offscreen but not the series, so the plot area comes back empty — region-blank, which the blankness score cannot see.",
-      "_model": "examples/site_drainage/site_drainage_model.inp"
+      "_note": "Populated node-editor fixture; verify the chart and table against input before publishing.",
+      "_model": "docs/manual/tutorials/models/node_editor_example.inp"
     },
     {
       "name": "17_pattern_editor.png",
       "action": "data.newPattern",
-      "size": "1700x780",
-      "select": "kurve1",
+      "size": "1800x850",
+      "select": "MONTHLY",
       "lane": "live",
-      "_note": "Needs a pattern with real diurnal variation; the small fixtures are all factors of 1.0, which draws a flat line.",
-      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp"
+      "_note": "Twelve loaded monthly factors; accept only if chart tick labels are readable.",
+      "_model": "docs/manual/tutorials/models/data_objects_example.inp"
     },
     {
       "name": "17_curve_editor.png",
       "action": "data.newCurve",
-      "size": "1100x760",
-      "select": "first",
+      "size": "1800x850",
+      "select": "RATING",
       "lane": "live",
-      "_note": "Contains a chart. QtCharts paints its axes offscreen but not the series, so the plot area comes back empty — region-blank, which the blankness score cannot see.",
-      "_model": "docs/manual/tutorials/models/2d_complete_example.inp"
+      "_note": "Four loaded rating-curve points. Curve is not assigned to the hydraulic network.",
+      "_model": "docs/manual/tutorials/models/data_objects_example.inp"
     },
     {
       "name": "15_climatology_tabs.png",
@@ -592,10 +606,10 @@
     {
       "name": "16_initial_quality.png",
       "action": "actionEditInitialQuality",
-      "size": "1100x700",
-      "_model": "docs/manual/tutorials/models/transport_demo.inp",
-      "_note": "Not in the ActionCatalog; reached by the QAction objectName.",
-      "lane": "offscreen"
+      "size": "1100x560",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/node_editor_example.inp",
+      "_note": "Copied node fixture has inline initial TSS values for J1 and C1. Capture without pressing OK or editing."
     },
     {
       "name": "16_water_age_sources.png",
@@ -659,7 +673,7 @@
       "action": "actionAddWMSData",
       "size": "1100x720",
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "Caption says 'after Connect' — that needs the network; review before publishing.",
+      "_note": "Caption says 'after Connect' \u2014 that needs the network; review before publishing.",
       "lane": "offscreen"
     },
     {
@@ -719,7 +733,7 @@
       "action": "actionSetStyle",
       "hostSelect": "BellingeSWMM_v021_nopervious.out",
       "page": "Symbology",
-      "click": "…",
+      "click": "\u2026",
       "size": "900x620",
       "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
       "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
@@ -731,7 +745,7 @@
       "action": "actionSetStyle",
       "hostSelect": "site_drainage_model",
       "page": "Source",
-      "click": "Change…",
+      "click": "Change\u2026",
       "type": "UTM zone 17",
       "size": "1000x700",
       "_model": "examples/site_drainage/site_drainage_model.inp",
@@ -759,7 +773,7 @@
       "action": "data.newTransect",
       "size": "1200x800",
       "_model": "tests/parity/inlets/Example7-Inlets.inp",
-      "_note": "BLOCKED: tests/parity/inlets/Example7-Inlets.inp is the only deck with [TRANSECTS], and the editor loads its roughness but reports 0 stations — swmm_transect_get_station_count returns 0, so the chart is empty.",
+      "_note": "BLOCKED: tests/parity/inlets/Example7-Inlets.inp is the only deck with [TRANSECTS], and the editor loads its roughness but reports 0 stations \u2014 swmm_transect_get_station_count returns 0, so the chart is empty.",
       "select": "first",
       "lane": "offscreen"
     },
@@ -832,7 +846,7 @@
       "size": "1200x780",
       "grab": "QToolBar",
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path.",
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path.",
       "lane": "human"
     },
     {
@@ -966,7 +980,7 @@
       "size": "420x900",
       "maxWidth": 760,
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "The manual said 'compound Edit buttons'. CompoundEditDelegate renders an '%1 - Edit...' affordance, but no compound row in the Properties panel shows it — on nodes, links or subcatchments. Caption aligned to the rows themselves; worth checking whether that affordance regressed.",
+      "_note": "The manual said 'compound Edit buttons'. CompoundEditDelegate renders an '%1 - Edit...' affordance, but no compound row in the Properties panel shows it \u2014 on nodes, links or subcatchments. Caption aligned to the rows themselves; worth checking whether that affordance regressed.",
       "lane": "offscreen"
     },
     {
@@ -979,7 +993,7 @@
       "_model": "docs/manual/tutorials/models/transport_demo.inp",
       "_note": "transport_demo is the only model with [INFLOWS]; site_drainage's table came up empty.",
       "editCell": "External Inflows",
-      "click": "Edit…",
+      "click": "Edit\u2026",
       "hostSelect": "J1",
       "hostSelectIn": "AttributeTablePanel",
       "lane": "offscreen"
@@ -992,7 +1006,7 @@
       "hostSelect": "J1",
       "hostSelectIn": "AttributeTablePanel",
       "editCell": "External Inflows",
-      "click": "Edit…",
+      "click": "Edit\u2026",
       "size": "1100x760",
       "hostSize": "2000x1000",
       "_model": "docs/manual/tutorials/models/transport_demo.inp",
@@ -1007,7 +1021,7 @@
       "hostSelect": "ST_A",
       "hostSelectIn": "AttributeTablePanel",
       "editCell": "Inlet Usage",
-      "click": "Edit…",
+      "click": "Edit\u2026",
       "size": "1100x380",
       "hostSize": "2000x1000",
       "_model": "docs/manual/tutorials/models/street_inlet_junction.inp",
@@ -1021,7 +1035,7 @@
       "hostSelect": "C1",
       "hostSelectIn": "AttributeTablePanel",
       "editCell": "Cross Section",
-      "click": "Edit…",
+      "click": "Edit\u2026",
       "size": "1100x760",
       "hostSize": "2000x1000",
       "_model": "examples/site_drainage/site_drainage_model.inp",
@@ -1036,7 +1050,7 @@
       "hostSelect": "C1",
       "hostSelectIn": "AttributeTablePanel",
       "editCell": "Cross Section",
-      "click": "Edit…",
+      "click": "Edit\u2026",
       "size": "1100x760",
       "hostSize": "2000x1000",
       "_model": "examples/site_drainage/site_drainage_model.inp",
@@ -1103,117 +1117,117 @@
     {
       "name": "01_install_macos_dmg.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "02_menu_model_expanded.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "03_file_menu.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "03_save_as_dialog.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "05_hover_tooltip.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "05_canvas_context_menu.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "05_export_map_dialog.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "07_layer_context_menu.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "10_browser_context_menu.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "10_convert_to_menu.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "11_apply_value_to_rows.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "13_model_data_objects_menu.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "16_quality_overview.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "17_data_objects_menu.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "21_add_results_dialogs.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "22_series_tree_context_menu.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "22_load_observed.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "25_pick_2d_cells_menu.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "a02_oswp_structure.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "a02_export_filters.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "a04_redraw_log.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "t02_rule_violation.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "t03_add_2d_results.png",
       "lane": "human",
-      "_note": "lane:human — see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
     },
     {
       "name": "25_flow_balance_result.png",
@@ -1270,7 +1284,7 @@
     {
       "name": "05_zoom_rubber_band.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "09_selection_overview.png",
@@ -1299,7 +1313,7 @@
     {
       "name": "09_select_by_polygon.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "09_select_upstream.png",
@@ -1329,27 +1343,27 @@
     {
       "name": "09_mesh_edge_selection.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "09_confirm_bulk_delete.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "12_inline_vertex_edit.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "12_add_node_terrain.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "12_add_conduit_snap.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "23_profile_overview.png",
@@ -1368,7 +1382,7 @@
     {
       "name": "23_profile_path_picker.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "23_profile_anatomy.png",
@@ -1417,17 +1431,17 @@
     {
       "name": "23_profile_attribute_tracks.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "23_2d_mesh_profile.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "23_terrain_profile.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "t01_profile_plot.png",
@@ -1437,22 +1451,22 @@
     {
       "name": "t03_2d_profile.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "t04_profile_2d_overlay.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "t05_profile_across_embankment.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "t08_profile_pumped_branch.png",
       "lane": "human",
-      "_note": "lane:human — pointer on the canvas; see tests/manual/manual_figures/README.md §2.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
     },
     {
       "name": "01_first_model_open.png",
@@ -1714,7 +1728,7 @@
       "hostSelect": "ST_A",
       "hostSelectIn": "AttributeTablePanel",
       "editCell": "Inlet Usage",
-      "click": "Edit…",
+      "click": "Edit\u2026",
       "size": "1100x380",
       "hostSize": "2000x1000",
       "_model": "docs/manual/tutorials/models/street_inlet_junction.inp",
@@ -1792,8 +1806,8 @@
       "action": "actionSetStyle",
       "hostSelect": "site_drainage_model",
       "page": "Source",
-      "click": "Change…",
-      "select": "Local — feet (no transform)",
+      "click": "Change\u2026",
+      "select": "Local \u2014 feet (no transform)",
       "size": "1100x700",
       "_model": "examples/site_drainage/site_drainage_model.inp",
       "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication."
@@ -1889,7 +1903,7 @@
       "hostSelectIn": "ObjectBrowserPanel",
       "check": [
         "Node J11 > Depth (node) (ft)",
-        "Link C11 > Flow (ft³/s)"
+        "Link C11 > Flow (ft\u00b3/s)"
       ],
       "size": "780x600",
       "_model": "examples/site_drainage/site_drainage_model.inp",
@@ -1906,7 +1920,7 @@
       "hostSelectIn": "ObjectBrowserPanel",
       "check": [
         "Node J11 > Depth (node) (ft)",
-        "Link C11 > Flow (ft³/s)"
+        "Link C11 > Flow (ft\u00b3/s)"
       ],
       "size": "1500x950",
       "click": "OK",
@@ -1972,9 +1986,9 @@
       ],
       "hostSelectIn": "ObjectBrowserPanel",
       "check": [
-        "Link ST_A > Flow (ft³/s)",
-        "Link ST_B > Flow (ft³/s)",
-        "Link ST_C > Flow (ft³/s)"
+        "Link ST_A > Flow (ft\u00b3/s)",
+        "Link ST_B > Flow (ft\u00b3/s)",
+        "Link ST_C > Flow (ft\u00b3/s)"
       ],
       "click": "OK",
       "size": "1500x950",
@@ -2014,6 +2028,193 @@
       "name": "t02_new_inlet_junction.png",
       "lane": "human",
       "_note": "Open a disposable street example. Activate Model > Add Node > Add Inlet Junction, click a STREET conduit, and choose a compatible inlet design and existing ordinary capture node. Capture the New Inlet Junction panel with both fields populated and OK enabled; cancel without splitting for the figure-only run."
+    },
+    {
+      "name": "13_rdii_decay_tab.png",
+      "action": "data.newUnitHydrograph",
+      "select": "first",
+      "tab": "Initial Abstraction",
+      "size": "1500x850",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/hydrology_editor_example.inp",
+      "_note": "Capture a copied hydrology fixture; review loaded values and visible state before publishing."
+    },
+    {
+      "name": "13_groundwater_exchange.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Subcatchments",
+      "hostSelect": "S1",
+      "hostSelectIn": "AttributeTablePanel",
+      "editCell": "Groundwater",
+      "click": "Edit",
+      "size": "1000x900",
+      "hostSize": "1800x1000",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/hydrology_editor_example.inp",
+      "_note": "Capture a copied hydrology fixture; review loaded values and visible state before publishing."
+    },
+    {
+      "name": "13_subcatch_lid_usage_page.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Subcatchments",
+      "hostSelect": "S1",
+      "hostSelectIn": "AttributeTablePanel",
+      "editCell": "LID Usage",
+      "click": "Edit",
+      "size": "1000x600",
+      "hostSize": "1800x1000",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/hydrology_editor_example.inp",
+      "_note": "Capture a copied hydrology fixture; review loaded values and visible state before publishing."
+    },
+    {
+      "name": "13_initial_loadings.png",
+      "lane": "live",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Subcatchments",
+      "hostSelect": "S1",
+      "hostSelectIn": "AttributeTablePanel",
+      "editCell": "Initial Loadings",
+      "click": "Edit",
+      "size": "900x340",
+      "hostSize": "1800x1000",
+      "_model": "docs/manual/tutorials/models/hydrology_editor_example.inp",
+      "_note": "Compare loaded TSS value with [LOADINGS]; use a disposable fixture."
+    },
+    {
+      "name": "14_node_dwf_page.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Junctions",
+      "hostSelect": "J1",
+      "hostSelectIn": "AttributeTablePanel",
+      "editCell": "Dry Weather Flow",
+      "click": "Edit",
+      "size": "1100x660",
+      "hostSize": "1800x1000",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/node_editor_example.inp",
+      "_note": "Use a copied node-editor fixture. Compare loaded parameters with the input; this is not edit/save workflow verification."
+    },
+    {
+      "name": "14_node_rdii_page.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Junctions",
+      "hostSelect": "J1",
+      "hostSelectIn": "AttributeTablePanel",
+      "editCell": "RDII",
+      "click": "Edit",
+      "size": "1100x660",
+      "hostSize": "1800x1000",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/node_editor_example.inp",
+      "_note": "Use a copied node-editor fixture. Compare loaded parameters with the input; this is not edit/save workflow verification."
+    },
+    {
+      "name": "14_treatment_page.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Junctions",
+      "hostSelect": "J1",
+      "hostSelectIn": "AttributeTablePanel",
+      "editCell": "Pollutant Treatment",
+      "click": "Edit",
+      "size": "1000x400",
+      "hostSize": "1800x1000",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/node_editor_example.inp",
+      "_note": "Use a copied node-editor fixture. Compare loaded parameters with the input; this is not edit/save workflow verification."
+    },
+    {
+      "name": "16_treatment_editor.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Junctions",
+      "hostSelect": "J1",
+      "hostSelectIn": "AttributeTablePanel",
+      "editCell": "Pollutant Treatment",
+      "click": "Edit",
+      "size": "1000x400",
+      "hostSize": "1800x1000",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/node_editor_example.inp",
+      "_note": "Use a copied node-editor fixture. Compare loaded parameters with the input; this is not edit/save workflow verification."
+    },
+    {
+      "name": "11_dynamics_columns.png",
+      "lane": "live",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Conduits",
+      "column": "Max Flow (Sim.) (CFS)",
+      "size": "1500x500",
+      "hostSize": "1800x1000",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Capture the saved site project with results; right-hand CFS, ft/s, ft\u00b3 and hours columns. Names are scrolled out of view.",
+      "floatDock": true
+    },
+    {
+      "name": "11_query_and_selection.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Conduits",
+      "type": "Name LIKE 'C1%'",
+      "typeInto": "Name LIKE",
+      "afterTypeClick": "Apply",
+      "size": "1500x320",
+      "hostSize": "1800x1000",
+      "floatDock": true,
+      "lane": "live",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Press Apply after typing; verify C1, C10 and C11 are the three matched/selected rows."
+    },
+    {
+      "name": "03_user_flag_values.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Junctions",
+      "hostSelect": "J1",
+      "hostSelectIn": "AttributeTablePanel",
+      "editCell": "User Flags",
+      "click": "Edit",
+      "size": "1100x300",
+      "hostSize": "1600x1000",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/user_flags_example.inp",
+      "_note": "J1 stored inspected=YES and priority=-5; other defined flags unset."
+    },
+    {
+      "name": "11_query_error.png",
+      "widget": "AttributeTablePanel",
+      "page": "Conduits",
+      "type": "Name LIKE",
+      "typeInto": "Name LIKE",
+      "afterTypeClick": "Apply",
+      "size": "1500x320",
+      "hostSize": "1800x1000",
+      "floatDock": true,
+      "lane": "live",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "After valid C1 query, apply missing-string syntax; verify error and prior three-row filter remain."
+    },
+    {
+      "name": "03_user_flag_link_values.png",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Conduits",
+      "hostSelect": "C_MAIN",
+      "hostSelectIn": "AttributeTablePanel",
+      "editCell": "User Flags",
+      "click": "Edit",
+      "size": "1100x300",
+      "hostSize": "1600x1000",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/user_flags_example.inp",
+      "_note": "C_MAIN stored real flag 1e-6 and string AM 00341; boolean/integer unset."
     }
   ]
 }

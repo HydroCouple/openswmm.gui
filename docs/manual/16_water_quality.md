@@ -137,7 +137,7 @@ Treatment is a per-(node, pollutant) removal expression, edited from the node's
 **Treatment** column of the node attribute table. The dialog shows one row per
 pollutant with an expression cell; clearing a cell removes the expression.
 
-\figtodo{16_treatment_editor.png, The Treatment page of the node compound editor with a validated expression}
+\fig{16_treatment_editor.png, J1 loaded TSS treatment expression R = 0.25}
 
 Expressions are of the form `R = …` (removal fraction) or `C = …` (outlet
 concentration). The editor highlights the grammar and completes identifiers as
@@ -154,7 +154,12 @@ rejects is not written.
 **Model → Initial Quality…** opens a single add/remove table of per-element
 starting concentrations, applied at the start of the run.
 
-\figtodo{16_initial_quality.png, The Initial Quality dialog with node and link rows}
+\fig{16_initial_quality.png, Inline initial TSS concentrations of 5 mg/L at J1 and 2 mg/L in C1}
+
+These rows are loaded from `tutorials/models/node_editor_example.inp`.
+The file is an editor demonstration with an unresolved quality continuity
+error; its initial concentrations and treatment expression are not validated
+water-quality results. See \ref manual_hydraulics for the example's limits.
 
 | Column | What it does |
 | --- | --- |

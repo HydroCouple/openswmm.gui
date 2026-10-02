@@ -37,8 +37,7 @@ class DoxygenAwesomeFragmentCopyButton extends HTMLElement {
     static successIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>`
     static successDuration = 980
     static init() {
-        $(function() {
-            $(document).ready(function() {
+        document.addEventListener('DOMContentLoaded', function() {
                 if(navigator.clipboard) {
                     const fragments = document.getElementsByClassName("fragment")
                     for(const fragment of fragments) {
@@ -54,7 +53,6 @@ class DoxygenAwesomeFragmentCopyButton extends HTMLElement {
             
                     }
                 }
-            })
         })
     }
 
