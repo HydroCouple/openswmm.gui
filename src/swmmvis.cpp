@@ -3267,7 +3267,7 @@ void SWMMVis::onAddFromMapToggled(bool active)
 
 void SWMMVis::openComparisonPlotForCells(SWMM2DResultsLayer *layer,
                                           const QVector<int> &triIdxList,
-                                          const QVector<openswmmvis::plot::PlotAttribute> &attrs)
+                                          const QVector<openswmmvis::plot::ResultDescriptor> &attrs)
 {
     if (!layer || triIdxList.isEmpty() || attrs.isEmpty())
         return;
@@ -3295,7 +3295,7 @@ void SWMMVis::openComparisonPlotForCells(SWMM2DResultsLayer *layer,
         if (choice != QMessageBox::Yes) return;
     }
 
-    dlg->addCellSeries(runIdx, triIdxList, attrs);
+    dlg->addCellDescriptorSeries(runIdx, triIdxList, attrs);
     dlg->show();
     dlg->raise();
     dlg->activateWindow();
@@ -7232,8 +7232,8 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     // signal is emitted from inside the canvas tool's mouse handler, and
     // openComparisonPlotForCells may exec() a "many series" QMessageBox —
     // the hop lets the press/release pair finish first.
-    qRegisterMetaType<QVector<openswmmvis::plot::PlotAttribute>>(
-        "QVector<openswmmvis::plot::PlotAttribute>");
+    qRegisterMetaType<QVector<openswmmvis::plot::ResultDescriptor>>(
+        "QVector<openswmmvis::plot::ResultDescriptor>");
     connect(pw, &SWMMVisProjectWindow::pick2DCellsPicked,
             this, &SWMMVis::openComparisonPlotForCells,
             static_cast<Qt::ConnectionType>(Qt::QueuedConnection |

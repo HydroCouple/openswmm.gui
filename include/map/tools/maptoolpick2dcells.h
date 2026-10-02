@@ -27,6 +27,7 @@
 
 #include "map/tools/maptool.h"
 #include "plot/plotattribute.h"
+#include "plot/resultdescriptor.h"
 
 #include <QPoint>
 #include <QPolygon>
@@ -77,9 +78,10 @@ signals:
      *  "plot" context menu.
      *  \param layer       The active 2D results layer (non-owning).
      *  \param triIdxList  Selected triangle indices (never empty).
-     *  \param attrs       Attributes chosen from the menu (never empty). */
+     *  \param attrs       Results chosen from the menu (never empty): fixed
+     *                     attributes and/or 2D catalog variables. */
     void cellsPicked(SWMM2DResultsLayer *layer, const QVector<int> &triIdxList,
-                     const QVector<openswmmvis::plot::PlotAttribute> &attrs);
+                     const QVector<openswmmvis::plot::ResultDescriptor> &attrs);
 
 private:
     /*! \brief Find the first SWMM2DResultsLayer on the active canvas. */

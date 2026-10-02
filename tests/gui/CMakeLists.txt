@@ -2901,6 +2901,15 @@ add_swmmvis_gui_test(test_plot_batch_counts
 )
 swmmvis_link_full_app_deps(test_plot_batch_counts)
 
+# 2D catalog variables (groundwater terms, infiltration, 2D species) as cell
+# time series (PLOTTABLE_RESULT_SERIES_PLAN_2026-10-02.md, Phase C).
+add_swmmvis_gui_test(test_mesh2d_variable_series
+    test_mesh2d_variable_series.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_mesh2d_variable_series)
+
 # The mesh-generation dialog's Quality tab (MESH_OVERHAUL_PLAN_2026-09-29.md
 # §3): three groups, eleven controls, seeded from the 2D Defaults page. Needs
 # the full app: the dialog takes a live SWMMVisProjectWindow.
