@@ -20,6 +20,7 @@
 #include <openswmm/engine/openswmm_subcatchments.h>
 
 #include <QAction>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -37,6 +38,9 @@ using openswmmvis::ui::GwfExpressionEdit;
 
 namespace {
 constexpr double kBig = 1e12;
+// The engine's MISSING value. In [GROUNDWATER] it is Egwt `*`: use the
+// receiving node's invert as the lateral-flow threshold.
+constexpr double kMissing = -1.0e10;
 }
 
 GroundwaterExchangeDialog::GroundwaterExchangeDialog(SubcatchCompoundEditRef ref,
@@ -132,7 +136,8 @@ void GroundwaterExchangeDialog::buildUi_()
     formula->setTextFormat(Qt::RichText);
     formula->setToolTip(tr("HGW: water table height above aquifer bottom; "
                            "HSW: receiving-node water depth above aquifer "
-                           "bottom; H*: Hstar."));
+                           "bottom; H*: Egwt (or the receiving node's invert) "
+                           "above aquifer bottom."));
     stdLay->addWidget(formula);
     auto *stdForm = new QFormLayout;
     auto mkSpin = [stdGrp](const char *name) {
@@ -156,17 +161,37 @@ void GroundwaterExchangeDialog::buildUi_()
     m_a2->setToolTip(tr("Surface-water flow coefficient."));
     m_b2->setToolTip(tr("Surface-water flow exponent."));
     m_a3->setToolTip(tr("Surface-water / groundwater interaction coefficient."));
-    m_tw->setToolTip(tr("Threshold groundwater table elevation (Twgr): no "
-                        "lateral flow while the water table is below it."));
-    m_hstar->setToolTip(tr("Elevation of the receiving channel bottom "
-                           "(Hstar); lateral flow ceases at this water table."));
+    m_tw->setToolTip(tr("Fixed depth of surface water at the receiving node "
+                        "(Dsw). 0 uses the node's computed water depth."));
+    m_hstar->setToolTip(tr("Water-table elevation below which there is no "
+                           "lateral flow (Egwt). Any value entered here, "
+                           "including -99, is an elevation."));
+    // `*` in the .inp: the threshold follows the receiving node's invert.
+    m_hstar->setSpecialValueText(tr("(node invert)"));
+    m_egwtUseInvert = new QCheckBox(tr("Use receiving node &invert"), stdGrp);
+    m_egwtUseInvert->setObjectName(QStringLiteral("gwEgwtUseInvert"));
+    m_egwtUseInvert->setToolTip(tr("Leave Egwt unset ('*' in the input file) so "
+                                   "the receiving node's invert elevation is the "
+                                   "threshold."));
+    connect(m_egwtUseInvert, &QCheckBox::toggled, this, [this](bool useInvert) {
+        m_hstar->setEnabled(!useInvert);
+        if (useInvert)
+            m_hstar->setValue(m_hstar->minimum());   // shows the special text
+        else if (m_hstar->value() == m_hstar->minimum())
+            m_hstar->setValue(0.0);
+    });
+    auto *egwtRow = new QHBoxLayout;
+    egwtRow->addWidget(m_hstar, 1);
+    egwtRow->addWidget(m_egwtUseInvert);
     stdForm->addRow(tr("A1 (&GW coeff.)"),    m_a1);
     stdForm->addRow(tr("B1 (GW &expon.)"),    m_b1);
     stdForm->addRow(tr("A2 (Surf. c&oeff.)"), m_a2);
     stdForm->addRow(tr("B2 (Surf. e&xpon.)"), m_b2);
     stdForm->addRow(tr("A3 (interaction)"),   m_a3);
-    stdForm->addRow(tr("Threshold Twgr"),     m_tw);
-    stdForm->addRow(tr("Hstar"),              m_hstar);
+    stdForm->addRow(tr("Fixed surface-water depth (Dsw)"), m_tw);
+    stdForm->addRow(tr("Threshold water-table elev. (Egwt)"), egwtRow);
+    if (auto *label = qobject_cast<QLabel *>(stdForm->labelForField(egwtRow)))
+        label->setBuddy(m_hstar);
     stdLay->addLayout(stdForm);
     formLay->addWidget(stdGrp);
 
@@ -313,15 +338,25 @@ void GroundwaterExchangeDialog::loadFromEngine_()
     if (m_loadedOk) {
         m_node->setCurrentIndex(m_loaded.node >= 0
             ? m_node->findText(m_loaded.nodeName) : 0);
-        const std::array<QDoubleSpinBox *, 8> spins{m_surfEl, m_a1, m_b1, m_a2, m_b2, m_a3, m_tw, m_hstar};
-        for (size_t i = 0; i < spins.size(); ++i)
-            OpenSWMM::Ui::setHydratedValue(spins[i], m_loaded.values[i]);
+        hydrateParams_(m_loaded.values);
         m_lateral->setExpression(m_loaded.lateral);
         m_deep->setExpression(m_loaded.deep);
     } else {
         reportWriteError(tr("Groundwater values could not be loaded completely. Close and reopen the editor."));
     }
     updateApplyState_();
+}
+
+void GroundwaterExchangeDialog::hydrateParams_(const std::array<double, 8> &values)
+{
+    const std::array<QDoubleSpinBox *, 8> spins{m_surfEl, m_a1, m_b1, m_a2, m_b2, m_a3, m_tw, m_hstar};
+    for (size_t i = 0; i + 1 < spins.size(); ++i)
+        OpenSWMM::Ui::setHydratedValue(spins[i], values[i]);
+    const bool useInvert = values[7] == kMissing;
+    if (!useInvert) OpenSWMM::Ui::setHydratedValue(m_hstar, values[7]);
+    m_egwtUseInvert->setChecked(useInvert);
+    m_hstar->setEnabled(!useInvert);
+    if (useInvert) m_hstar->setValue(m_hstar->minimum());
 }
 
 bool GroundwaterExchangeDialog::readSnapshot(Snapshot &state) const
@@ -422,7 +457,8 @@ void GroundwaterExchangeDialog::apply_()
     const std::array<QDoubleSpinBox *, 8> spins{m_surfEl, m_a1, m_b1, m_a2, m_b2, m_a3, m_tw, m_hstar};
     auto values = m_loaded.values;
     for (size_t i = 0; i < spins.size(); ++i) {
-        values[i] = OpenSWMM::Ui::preciseValue(spins[i]);
+        values[i] = (spins[i] == m_hstar && m_egwtUseInvert->isChecked())
+            ? kMissing : OpenSWMM::Ui::preciseValue(spins[i]);
         if (!std::isfinite(values[i])) {
             reportWriteError(tr("Enter a finite groundwater value."), spins[i]);
             return;
@@ -465,7 +501,6 @@ void GroundwaterExchangeDialog::apply_()
     m_loaded.values = values;
     m_loaded.lateral = lateral;
     m_loaded.deep = deep;
-    for (size_t i = 0; i < spins.size(); ++i)
-        OpenSWMM::Ui::setHydratedValue(spins[i], values[i]);
+    hydrateParams_(values);
     notifyEdited();
 }

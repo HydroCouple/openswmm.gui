@@ -5,7 +5,7 @@
  * \license GPL-3.0-or-later
  * \brief  Groundwater Exchange editor for one subcatchment: the
  *         [GROUNDWATER] receiving node + surface elevation + standard
- *         lateral-flow coefficients (A1 B1 A2 B2 A3 Twgr Hstar) and the two
+ *         lateral-flow coefficients (A1 B1 A2 B2 A3 Dsw Egwt) and the two
  *         [GWF] custom expressions (LATERAL / DEEP) with live engine
  *         validation. Replaces the Groundwater page that used to live in
  *         SubcatchCompoundEditDialog (AQUIFER_GROUNDWATER_EXCHANGE_GUI_PLAN
@@ -26,6 +26,7 @@
 
 #include "ui/properties/subcatchcompoundeditref.h"
 
+class QCheckBox;
 class QComboBox;
 class QDialogButtonBox;
 class QDoubleSpinBox;
@@ -64,6 +65,7 @@ private:
     void loadFromEngine_();
     void apply_();
     void updateApplyState_();
+    void hydrateParams_(const std::array<double, 8> &values);
     void bindExpression_(openswmmvis::ui::GwfExpressionEdit *edit,
                          QLabel *status, bool *okFlag);
 
@@ -96,8 +98,9 @@ private:
     QDoubleSpinBox *m_a2     = nullptr;
     QDoubleSpinBox *m_b2     = nullptr;
     QDoubleSpinBox *m_a3     = nullptr;
-    QDoubleSpinBox *m_tw     = nullptr;
-    QDoubleSpinBox *m_hstar  = nullptr;
+    QDoubleSpinBox *m_tw     = nullptr;   ///< [GROUNDWATER] Dsw (fixed surface-water depth)
+    QDoubleSpinBox *m_hstar  = nullptr;   ///< [GROUNDWATER] Egwt (threshold water-table elevation)
+    QCheckBox      *m_egwtUseInvert = nullptr;  ///< Egwt `*`: receiving node invert
 
     openswmmvis::ui::GwfExpressionEdit *m_lateral = nullptr;
     openswmmvis::ui::GwfExpressionEdit *m_deep    = nullptr;
