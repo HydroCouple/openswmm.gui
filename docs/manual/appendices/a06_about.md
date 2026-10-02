@@ -2,9 +2,8 @@
 
 ## What you'll do
 
-Find the version and build information for a bug report, read the licence of
-any library SWMMVis ships, and understand the licence agreement shown at first
-launch.
+Find the version and build information for a bug report, inspect bundled
+component notices, and understand the licence agreement shown at first launch.
 
 ## Where to find it
 
@@ -20,7 +19,7 @@ Window title **About SWMMVis**. A header strip across the top, a filterable
 master list of components on the left, and licence text plus metadata on the
 right.
 
-\fig{a06_about_dialog.png, The About dialog with a component selected and its licence in the right pane}
+\fig{a06_about_dialog.png, The About dialog with Qt 6 selected and its bundled licence notice in the right pane}
 
 The header strip shows, and the **Copy environment** button copies:
 
@@ -51,18 +50,19 @@ view its license and metadata.*
 
 Selecting a component shows **Version**, **Role**, **License** (SPDX
 identifier), **Source** (provenance — `vcpkg`, `in-tree`, `vendored`, `system`)
-and a **Homepage** link, with the verbatim licence text beneath. A component
+and a **Homepage** link, with the bundled licence text or notice beneath. A component
 whose manifest names a missing file shows *(license file not found: …)*; one
 with no licence declared shows *(no license file declared in the manifest)*.
 
 ### Components shipped
 
-The list is data-driven, so it reflects the build you are running. As shipped:
+The list comes from an embedded component manifest. Version and provenance
+labels can be stale; these are the current manifest entries:
 
 | Category | Component | Licence | Provenance |
 |---|---|---|---|
-| Engine | Open-Source SWMM Engine | MIT | in-tree subdirectory |
-| Engine | Triangle (Shewchuk) | Triangle (custom) | vendored in the engine's 2D module |
+| Engine | Open-Source SWMM Engine | Apache-2.0 | in-tree subdirectory |
+| Engine | Robust geometric predicates (Shewchuk) | public domain | vendored under `vendor/predicates/` |
 | Frameworks | Qt 6 | LGPL-3.0-only | system or vendor install |
 | Frameworks | QPropertyModel | MIT | vendored sibling project |
 | Geospatial | GDAL / OGR | MIT | vcpkg |
@@ -95,9 +95,17 @@ back.
 
 ### Licensing summary
 
-**SWMMVis itself is GPL-3.0-or-later**, © 2026 HydroCouple. The SWMMVis engine
-is MIT-licensed and can be used independently of the GUI. Qt 6 is used under
+**SWMMVis itself is GPL-3.0-or-later**, © 2026 HydroCouple. The current engine
+repository's `LICENSE` and the About component manifest identify Apache-2.0;
+the engine can be used independently of the GUI. Qt 6 is listed under
 LGPL-3.0.
+
+Some bundled notices are incomplete or stale. The captured Qt entry includes
+a packaging placeholder for the full licence text. The engine's bundled
+notice still says MIT, contrary to its current repository licence and manifest.
+Use the dependency's actual licence files for the complete text; the About
+notice is not a complete licence archive. Its header reports Qt runtime
+6.11.1 in this build, while the static component entry says 6.10.x.
 
 The bundled licence texts are currently a mix of canonical text and pointers to
 the upstream `LICENSE` file, and the pointers are clearly marked as such. The
@@ -108,7 +116,8 @@ a version in a compliance report.
 
 ### Adding a dependency to the dialog
 
-The dialog is data-driven, so most updates need no recompile:
+The dialog reads embedded resources. Updating an entry requires rebuilding
+the application resources:
 
 1. Put the upstream licence text in `resources/licenses/<name>.txt`.
 2. Add a row to `resources/about/components.json`:

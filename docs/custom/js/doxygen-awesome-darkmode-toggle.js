@@ -56,8 +56,7 @@ class DoxygenAwesomeDarkModeToggle extends HTMLElement {
     }()
 
     static init() {
-        $(function() {
-            $(document).ready(function() {
+        document.addEventListener('DOMContentLoaded', function() {
                 const toggleButton = document.createElement('doxygen-awesome-dark-mode-toggle')
                 toggleButton.title = DoxygenAwesomeDarkModeToggle.title
                 toggleButton.updateIcon()
@@ -71,13 +70,12 @@ class DoxygenAwesomeDarkModeToggle extends HTMLElement {
                     }
                 });
 
-                $(document).ready(function(){
-                    document.getElementById("MSearchBox").parentNode.appendChild(toggleButton)
-                })
-                $(window).resize(function(){
-                    document.getElementById("MSearchBox").parentNode.appendChild(toggleButton)
-                })
-            })
+                const attachToggle = function() {
+                    const searchBox = document.getElementById("MSearchBox")
+                    if (searchBox) searchBox.parentNode.appendChild(toggleButton)
+                }
+                attachToggle()
+                window.addEventListener('resize', attachToggle)
         })
     }
 
