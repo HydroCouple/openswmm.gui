@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "mesh/terrainerrorfield.h"
+#include "mesh/terrainlocalcopy.h"
 #include "mesh/meshcdt.h"
 #include <QTest>
 #include <QElapsedTimer>
@@ -256,6 +257,102 @@ private slots:
         TerrainErrorField truncated;
         QVERIFY(truncated.open(path,{},domain.adjusted(0,0,-100,0),.3048,64,{},index));
         QVERIFY(!truncated.indexLoaded());
+    }
+    // prefetch() is a warm-up: queries after it give exactly the answers
+    // they give reading tile by tile, with a cache too small for the window
+    // and with reprojection (the mesh boxes go through the inverse transform).
+    void prefetchedQueriesMatchOnDemandReads() {
+        GDALAllRegister();
+        const QString folder=QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA","."))
+            .absoluteFilePath("../../output/mesh_speed_2026-10/prefetch");
+        QVERIFY(QDir().mkpath(folder));
+        const QString path=folder+"/terrain.tif";
+        constexpr int cols=900,rows=700;
+        auto *ds=GetGDALDriverManager()->GetDriverByName("GTiff")->Create(path.toUtf8().constData(),cols,rows,1,GDT_Float32,nullptr);
+        QVERIFY(ds);
+        double gt[6]={500000,2,0,6000000,0,-2}; ds->SetGeoTransform(gt);
+        OGRSpatialReference src,dst; src.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER); dst.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        QVERIFY(src.SetFromUserInput("EPSG:25832")==OGRERR_NONE); QVERIFY(dst.SetFromUserInput("EPSG:25833")==OGRERR_NONE);
+        char *wkt=nullptr; src.exportToWkt(&wkt); ds->SetProjection(wkt); CPLFree(wkt);
+        QVector<float> z(cols*rows);
+        for(int r=0;r<rows;++r) for(int c=0;c<cols;++c) z[r*cols+c]=float(4*std::sin(c*.03)+2*std::cos(r*.05)+.01*((c*7+r*13)%11));
+        QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Write,0,0,cols,rows,z.data(),cols,rows,GDT_Float32,0,0),CE_None);
+        GDALClose(ds);
+        for (bool reproject:{false,true}) {
+            auto *ct=reproject?OGRCreateCoordinateTransformation(&src,&dst):nullptr;
+            auto toMesh=[&](double x,double y) { if(ct) ct->Transform(1,&x,&y); return QPointF(x,y); };
+            TerrainErrorField plain,warm;
+            const QString crs=reproject?"EPSG:25833":"EPSG:25832";
+            QVERIFY2(plain.open(path,crs,{},1.,1),qPrintable(plain.errorMsg()));
+            QVERIFY2(warm.open(path,crs,{},1.,1),qPrintable(warm.errorMsg()));
+            unsigned seed=7;
+            auto next=[&] { seed=seed*1664525u+1013904223u; return double(seed>>8)/double(1u<<24); };
+            for(int k=0;k<200;++k) {
+                QPointF p[3];
+                const double cx=gt[0]+(40+next()*820)*gt[1], cy=gt[3]+(40+next()*620)*gt[5];
+                for(auto &v:p) v=toMesh(cx+(next()-.5)*160,cy+(next()-.5)*160);
+                double zz[3]; for(int i=0;i<3;++i) zz[i]=plain.sampleAt(p[i].x(),p[i].y());
+                QRectF box(p[0],QSizeF(0,0)); for(const auto &v:p) box=box.united(QRectF(v,QSizeF(0,0)));
+                warm.prefetch({box});
+                const auto a=plain.queryTriangle(p,zz,.05),b=warm.queryTriangle(p,zz,.05);
+                QCOMPARE(b.valid,a.valid); QCOMPARE(b.maxError,a.maxError); QCOMPARE(b.upperBound,a.upperBound);
+                QCOMPARE(b.point,a.point); QCOMPARE(b.samples,a.samples); QCOMPARE(b.noDataSamples,a.noDataSamples);
+            }
+            if(ct) OGRCoordinateTransformation::DestroyCT(ct);
+        }
+    }
+    // The local float32 window: same grid offset to the window, values
+    // rounded to float, an out-of-range Float64 NoData converted as GDAL
+    // converts its pixels and still read as NoData, the margin clamped at the raster edge, and a
+    // second call reusing the file.
+    void localTerrainCopyKeepsTheGridAndNoData() {
+        GDALAllRegister();
+        const QString folder=QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA","."))
+            .absoluteFilePath("../../output/mesh_speed_2026-10/local_copy");
+        QVERIFY(QDir(folder).removeRecursively() || !QDir(folder).exists());
+        QVERIFY(QDir().mkpath(folder));
+        const QString path=folder+"/source.tif", cacheDir=folder+"/cache";
+        constexpr int cols=600,rows=500;
+        constexpr double nd=1.79e308;
+        auto *ds=GetGDALDriverManager()->GetDriverByName("GTiff")->Create(path.toUtf8().constData(),cols,rows,1,GDT_Float64,nullptr);
+        QVERIFY(ds);
+        double gt[6]={1000,2,0,9000,0,-2}; ds->SetGeoTransform(gt);
+        ds->GetRasterBand(1)->SetNoDataValue(nd);
+        QVector<double> z(cols*rows);
+        for(int r=0;r<rows;++r) for(int c=0;c<cols;++c) z[r*cols+c]=(c>300 && c<310 && r>200 && r<210)?nd:100.123456789+.01*c-.003*r;
+        QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Write,0,0,cols,rows,z.data(),cols,rows,GDT_Float64,0,0),CE_None);
+        GDALClose(ds);
+        // Domain columns 100..499, rows 50..449; the margin is 64 px (clamped).
+        const QRectF domain(QPointF(gt[0]+100*gt[1],gt[3]+449*gt[5]),QPointF(gt[0]+500*gt[1],gt[3]+50*gt[5]));
+        const auto first=mesh::prepareLocalTerrain(path,{},domain,cacheDir);
+        QVERIFY2(!first.path.isEmpty(),qPrintable(first.note));
+        QVERIFY(!first.reused);
+        auto *copy=static_cast<GDALDataset *>(GDALOpen(first.path.toUtf8().constData(),GA_ReadOnly));
+        QVERIFY(copy);
+        double cgt[6]; copy->GetGeoTransform(cgt);
+        const int c0=int(std::lround((cgt[0]-gt[0])/gt[1])), r0=int(std::lround((cgt[3]-gt[3])/gt[5]));
+        QCOMPARE(c0,36); QCOMPARE(r0,0);   // 100-64; 50-64 clamps to 0
+        QCOMPARE(copy->GetRasterXSize(),500+64-36); QCOMPARE(copy->GetRasterYSize(),rows);   // both row margins clamp
+        QCOMPARE(cgt[1],gt[1]); QCOMPARE(cgt[5],gt[5]);
+        auto *b=copy->GetRasterBand(1);
+        QCOMPARE(b->GetRasterDataType(),GDT_Float32);
+        int hasNd=0; const double cnd=b->GetNoDataValue(&hasNd);
+        float converted=0; GDALCopyWords64(&nd,GDT_Float64,0,&converted,GDT_Float32,0,1);
+        QVERIFY(hasNd); QCOMPARE(cnd,double(converted));
+        QVector<float> v(copy->GetRasterXSize()*copy->GetRasterYSize());
+        QCOMPARE(b->RasterIO(GF_Read,0,0,copy->GetRasterXSize(),copy->GetRasterYSize(),v.data(),copy->GetRasterXSize(),copy->GetRasterYSize(),GDT_Float32,0,0),CE_None);
+        int mismatched=0,noData=0;
+        for(int r=0;r<copy->GetRasterYSize();++r) for(int c=0;c<copy->GetRasterXSize();++c) {
+            const double src=z[(r+r0)*cols+c+c0], got=v[r*copy->GetRasterXSize()+c];
+            if(src==nd) { noData+=got==cnd; continue; }
+            mismatched+=got!=float(src);
+        }
+        GDALClose(copy);
+        QCOMPARE(mismatched,0);
+        QCOMPARE(noData,81);
+        const auto second=mesh::prepareLocalTerrain(path,{},domain,cacheDir);
+        QCOMPARE(second.path,first.path);
+        QVERIFY(second.reused);
     }
     void capsAndCancellationAreReported() {
         ConstrainedDelaunay cdt; QVector<int> ids;

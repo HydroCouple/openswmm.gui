@@ -9,6 +9,7 @@
  */
 #include "mesh/burnedrasterwriter.h"
 
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
@@ -123,6 +124,48 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
         }
         return TRUE;
     };
+    const bool overlay = !req.overlayTilesPath.isEmpty() && !req.overlayTilesName.isEmpty()
+                         && src->GetRasterCount() == 1;
+    GDALDataset *dst = nullptr;
+    const auto closeDestination = qScopeGuard([&] { if (dst) GDALClose(dst); });
+    GDALRasterBand *band = nullptr;       // written
+    GDALRasterBand *readBand = nullptr;   // read: the source in overlay mode
+    int hasNd = 0;
+    double noData = 0.0;
+    double tilesNoData = 0.0;
+    bool tilesClaimed = false;
+    const auto removeTiles = qScopeGuard([&] {
+        if (tilesClaimed && !complete) QFile::remove(req.overlayTilesPath);
+    });
+    if (overlay) {
+        // Only the changed tiles are written; everything else is read
+        // through from the source DEM by the VRT. No copy of the raster.
+        const QFileInfo tilesInfo(req.overlayTilesPath);
+        if (tilesInfo.isSymLink() || (tilesInfo.exists() && (!tilesInfo.isFile() || tilesInfo.size() != 0)))
+            return fail(QStringLiteral("burn: use a new job-owned output stage; refusing existing output %1")
+                            .arg(req.overlayTilesPath));
+        readBand = src->GetRasterBand(req.band);
+        noData = readBand->GetNoDataValue(&hasNd);
+        tilesNoData = hasNd ? noData : std::numeric_limits<double>::lowest();
+        char **options = nullptr;
+        options = CSLSetNameValue(options, "TILED", "YES");
+        options = CSLSetNameValue(options, "BLOCKXSIZE", "256");
+        options = CSLSetNameValue(options, "BLOCKYSIZE", "256");
+        options = CSLSetNameValue(options, "COMPRESS", "DEFLATE");
+        options = CSLSetNameValue(options, "PREDICTOR", "3");
+        options = CSLSetNameValue(options, "SPARSE_OK", "TRUE");
+        options = CSLSetNameValue(options, "BIGTIFF", "IF_SAFER");
+        tilesClaimed = true;
+        QFile::remove(req.overlayTilesPath);   // the empty claimed stage
+        dst = drv->Create(req.overlayTilesPath.toUtf8().constData(), w, h, 1, GDT_Float64, options);
+        CSLDestroy(options);
+        if (!dst) return fail(QStringLiteral("burn: cannot write %1").arg(req.overlayTilesPath));
+        dst->SetGeoTransform(gt);
+        if (const char *wkt = src->GetProjectionRef(); wkt && *wkt) dst->SetProjection(wkt);
+        band = dst->GetRasterBand(1);
+        band->SetNoDataValue(tilesNoData);
+        outputClaimed = true;
+    } else {
     outputClaimed = true;
     char *translateArgs[] = {const_cast<char *>("-of"),const_cast<char *>("GTiff"),
         const_cast<char *>("-ot"),const_cast<char *>("Float64"),
@@ -148,14 +191,14 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
     if (sourceClose != CE_None || copyFlush != CE_None || copyClose != CE_None)
         return fail(QStringLiteral("burn: cannot flush or close the DEM copy %1").arg(req.outputPath));
 
-    GDALDataset *dst = static_cast<GDALDataset *>(
+    dst = static_cast<GDALDataset *>(
         GDALOpen(req.outputPath.toUtf8().constData(), GA_Update));
     if (!dst) return fail(QStringLiteral("burn: cannot reopen %1 for update").arg(req.outputPath));
-    const auto closeDestination = qScopeGuard([&] { if (dst) GDALClose(dst); });
 
-    GDALRasterBand *band = dst->GetRasterBand(req.band);
-    int hasNd = 0;
-    const double noData = band->GetNoDataValue(&hasNd);
+    band = dst->GetRasterBand(req.band);
+    readBand = band;
+    noData = band->GetNoDataValue(&hasNd);
+    }
 
     BurnRasterStats st;
     st.perConduit.resize(req.profiles.size());
@@ -195,8 +238,8 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
     for (quint64 key:tiles) {
         const int c0=int(quint32(key))*256,rs=int(key>>32)*256;
         const int wW=std::min(256,w-c0),rows=std::min(256,h-rs);
-        if (band->RasterIO(GF_Read, c0, rs, wW, rows, buf.data(), wW, rows,
-                           GDT_Float64, 0, 0) != CE_None)
+        if (readBand->RasterIO(GF_Read, c0, rs, wW, rows, buf.data(), wW, rows,
+                               GDT_Float64, 0, 0) != CE_None)
         {
             return fail(QStringLiteral("burn: raster read failed at row %1").arg(rs));
         }
@@ -282,6 +325,50 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
     if (bandFlush != CE_None || datasetFlush != CE_None || datasetClose != CE_None)
         return fail(QStringLiteral("burn: cannot flush or close the burned DEM %1").arg(req.outputPath));
 
+    if (overlay) {
+        // The VRT: the source band, then the changed tiles painted over it
+        // where they hold data. Same grid, so both rectangles are the full
+        // raster and every pixel resolves exactly to one or the other.
+        const QString rect = QStringLiteral("<SrcRect xOff=\"0\" yOff=\"0\" xSize=\"%1\" ySize=\"%2\"/>"
+                                            "<DstRect xOff=\"0\" yOff=\"0\" xSize=\"%1\" ySize=\"%2\"/>").arg(w).arg(h);
+        const auto number = [](double v) { return QString::number(v, 'g', 17); };
+        const auto escape = [](QString v) { return v.toHtmlEscaped(); };
+        QString xml;
+        QTextStream vrt(&xml);
+        vrt << "<VRTDataset rasterXSize=\"" << w << "\" rasterYSize=\"" << h << "\">\n";
+        if (const char *wkt = src->GetProjectionRef(); wkt && *wkt)
+            vrt << "  <SRS>" << escape(QString::fromUtf8(wkt)) << "</SRS>\n";
+        vrt << "  <GeoTransform>" << number(gt[0]) << ", " << number(gt[1]) << ", " << number(gt[2]) << ", "
+            << number(gt[3]) << ", " << number(gt[4]) << ", " << number(gt[5]) << "</GeoTransform>\n";
+        vrt << "  <VRTRasterBand dataType=\"Float64\" band=\"1\">\n";
+        if (hasNd) vrt << "    <NoDataValue>" << number(noData) << "</NoDataValue>\n";
+        vrt << "    <SimpleSource><SourceFilename relativeToVRT=\"0\">"
+            << escape(QFileInfo(req.sourcePath).absoluteFilePath()) << "</SourceFilename><SourceBand>"
+            << req.band << "</SourceBand>" << rect << "</SimpleSource>\n";
+        vrt << "    <ComplexSource><SourceFilename relativeToVRT=\"1\">" << escape(req.overlayTilesName)
+            << "</SourceFilename><SourceBand>1</SourceBand>" << rect << "<NODATA>" << number(tilesNoData)
+            << "</NODATA></ComplexSource>\n";
+        vrt << "  </VRTRasterBand>\n</VRTDataset>\n";
+        vrt.flush();
+        QSaveFile out(req.outputPath);
+        out.setDirectWriteFallback(false);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Text) || out.write(xml.toUtf8()) != xml.toUtf8().size() || !out.commit())
+            return fail(QStringLiteral("burn: cannot write %1").arg(req.outputPath));
+        // The staged VRT resolves its tiles by name beside itself; verify it
+        // opens to the source grid when the stage uses the published name.
+        if (QFileInfo(req.outputPath).dir() == QFileInfo(req.overlayTilesPath).dir()
+            && QFileInfo(req.overlayTilesPath).fileName() == req.overlayTilesName) {
+            GDALDataset *verified = static_cast<GDALDataset *>(
+                GDALOpen(req.outputPath.toUtf8().constData(), GA_ReadOnly));
+            const bool ok = verified && verified->GetRasterXSize() == w && verified->GetRasterYSize() == h;
+            if (verified) GDALClose(verified);
+            if (!ok) return fail(QStringLiteral("burn: cannot reopen the completed DEM %1").arg(req.outputPath));
+        }
+        complete = true;
+        if (stats) *stats = st;
+        return true;
+    }
+
     // The job publishes one self-contained GeoTIFF. A PAM/overview/mask sidecar
     // cannot be silently omitted from that payload; the owner cleans the job
     // directory (including such companions) when this check refuses it.
@@ -328,6 +415,9 @@ bool writeBurnReport(const QString &path, const BurnRasterRequest &req,
         ts << "# replacement," << QString(note).replace(',', ';').replace('\n',' ') << '\n';
     ts << "# source DEM," << req.sourcePath << "\n";
     ts << "# burned DEM," << (req.logicalOutputPath.isEmpty() ? req.outputPath : req.logicalOutputPath) << "\n";
+    if (!req.overlayTilesName.isEmpty())
+        ts << "# burned DEM layout,VRT over the source DEM with the changed tiles in " << req.overlayTilesName
+           << "; keep the source DEM at its path and the tiles beside the VRT\n";
     ts << "# units," << unitsLine << "\n";
     ts << "# forceHalfWidth (mesh horizontal units)," << req.rule.forceHalfWidth << "\n";
     ts << "# maxIncision (mesh vertical units)," << req.rule.maxIncision << "\n";

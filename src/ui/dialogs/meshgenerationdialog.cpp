@@ -48,6 +48,7 @@
 #include "mesh/terrainbreaklines.h"
 #include "mesh/terrainsizefield.h"
 #include "mesh/terrainerrorfield.h"
+#include "mesh/terrainlocalcopy.h"
 #include "project/meshcorridorrecipe.h"
 
 #include <openswmm/engine/openswmm_inflows.h>
@@ -597,6 +598,34 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     burnDomain.rings=in.domains;
     for(const auto &hole:in.holeRings) burnDomain.holes.append(QPolygonF(hole));
     burnDomain.buildIndex();
+
+    // Read the DEM window once into the mesh cache as float32
+    // (MESH_SPEED_DEM_IO_PLAN_2026-10-03.md): break line ranking, vertex
+    // elevations and the final check each read the terrain again, and from a
+    // large uncompressed DEM on a slow volume every pass was bound by that
+    // volume. Later runs reuse the copy. The burn keeps the source DEM as its
+    // source and as the reference of its output.
+    const QString sourceDemPath = in.dtmPath;
+    if (!in.dtmPath.isEmpty() && cache.isUsable()) {
+        QRectF domainBox;
+        for (const auto &ring : std::as_const(in.domains)) domainBox = domainBox.united(ring.boundingRect());
+        stageClock.restart();
+        progress(14, QObject::tr("Caching the terrain window…"));
+        const auto local = mesh::prepareLocalTerrain(in.dtmPath, in.meshCRSWkt, domainBox, cache.dir(), [&](double) {
+            return !promise.isCanceled();
+        });
+        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+        if (!local.path.isEmpty()) {
+            qCInfo(lcMeshPerf).noquote() << QStringLiteral("[Mesh][terrain] local copy %1 (%2 MB): %3")
+                .arg(local.reused ? QStringLiteral("reused") : QStringLiteral("written"))
+                .arg(local.bytes / 1e6, 0, 'f', 0).arg(local.path);
+            in.dtmPath = local.path;
+            cache.prune();
+        } else {
+            qCInfo(lcMeshPerf).noquote() << "[Mesh][terrain] no local copy:" << local.note;
+        }
+        stageMark("local terrain copy");
+    }
     mesh::BurnReplacementPlan burnPlan;
     QSet<QString> retiringNodes, channelNodes;
     if (in.burnEnabled) {
@@ -1095,7 +1124,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         terrainReference.setQueryOverride(channelIndex.bounds(),channelValue,
             [&](const QRectF &bounds){return channelSurface.intersects(bounds);});
         mesh::BurnRasterRequest req;
-        req.sourcePath=in.dtmPath;
+        req.sourcePath=sourceDemPath;
         req.rule=channelRule;
         req.profiles=in.burnProfiles;
         req.rasterToProfileZ=in.zConversionFactor;
@@ -1131,9 +1160,13 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         }
         else
         {
-            const QFileInfo demInfo(in.dtmPath);
+            const QFileInfo demInfo(sourceDemPath);
             const QDir outDir(in.burnOutputDir.isEmpty() ? demInfo.absolutePath() : in.burnOutputDir);
-            burnedDemPath = outDir.absoluteFilePath(QStringLiteral("%1_burned_%2.tif")
+            // A VRT over the source DEM plus the changed tiles only: copying a
+            // multi-gigabyte DEM for every generation dominated the run.
+            burnedDemPath = outDir.absoluteFilePath(QStringLiteral("%1_burned_%2.vrt")
+                .arg(demInfo.completeBaseName(), in.burnFingerprint));
+            const QString burnedTilesPath = outDir.absoluteFilePath(QStringLiteral("%1_burned_%2_tiles.tif")
                 .arg(demInfo.completeBaseName(), in.burnFingerprint));
             burnReportPath = outDir.absoluteFilePath(QStringLiteral("%1_burned_%2_burn_report.csv")
                 .arg(demInfo.completeBaseName(), in.burnFingerprint));
@@ -1154,9 +1187,18 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 if (!generatedArtifacts->requireAbsent(burnedDemPath + suffix, &artifactError)) {
                     fail(artifactError); return;
                 }
-            req.outputPath = generatedArtifacts->reserve(burnedDemPath, QStringLiteral("burned.tif"), &artifactError);
+            for (const auto &suffix : {QStringLiteral(".aux.xml"), QStringLiteral(".ovr"), QStringLiteral(".msk")})
+                if (!generatedArtifacts->requireAbsent(burnedTilesPath + suffix, &artifactError)) {
+                    fail(artifactError); return;
+                }
+            // Staged under the published names: the VRT finds its tiles by
+            // name beside itself, in the stage and after Save alike.
+            req.outputPath = generatedArtifacts->reserve(burnedDemPath, QFileInfo(burnedDemPath).fileName(), &artifactError);
+            req.overlayTilesPath = req.outputPath.isEmpty() ? QString()
+                : generatedArtifacts->reserve(burnedTilesPath, QFileInfo(burnedTilesPath).fileName(), &artifactError);
+            req.overlayTilesName = QFileInfo(burnedTilesPath).fileName();
             const QString reportStage = generatedArtifacts->reserve(burnReportPath, QStringLiteral("burn_report.csv"), &artifactError);
-            if (req.outputPath.isEmpty() || reportStage.isEmpty()) { fail(artifactError); return; }
+            if (req.outputPath.isEmpty() || req.overlayTilesPath.isEmpty() || reportStage.isEmpty()) { fail(artifactError); return; }
             req.logicalOutputPath = burnedDemPath;
             req.progress = [&](int pct, const QString &msg) {
                 progress(15 + (pct * 3) / 100, msg);
@@ -1826,7 +1868,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 double stats[3] = {};
                 QElapsedTimer rankClock; rankClock.start();
                 auto kept = mesh::rankBreaklinesByStep(all, [&](double x, double y) { return terrainReference.sampleAt(x, y); },
-                                                       in.minCellSize, in.maxTerrainBreaklines, stats);
+                                                       in.minCellSize, in.maxTerrainBreaklines, stats,
+                                                       [&](const QVector<QRectF> &boxes) { terrainReference.prefetch(boxes); });
                 qCInfo(lcMeshPerf).noquote() << QStringLiteral("[Mesh][terrain] break lines ranked: kept %1 of %2 (smallest integrated step %3) in %4 ms")
                     .arg(stats[1]).arg(stats[0]).arg(stats[2]).arg(rankClock.elapsed());
                 return kept;
@@ -2016,6 +2059,10 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             hook.terrainTolerance = useAdaptiveTerrain?in.terrainTolerance:channelTolerance;
             // Adaptive terrain spends the cell budget worst error first.
             hook.terrainWorstFirst = useAdaptiveTerrain;
+            // The final terrain verification below measures every cell of the
+            // assembled mesh; a second exact pass inside refinement read the
+            // whole DEM again for statistics it then overwrites.
+            hook.terrainFinalCheck = !useAdaptiveTerrain;
             hook.terrainElevationAt = [&](double x,double y) {
                 const auto key=keyOf(x,y);
                 const double terrainZ=channelValue(x,y,terrainReference.sampleAt(x,y));
@@ -2539,18 +2586,18 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
     if(in.burnEnabled) {
         // Constraint joining may put a bank vertex up to its tolerance outside
-        // the corridor; it still belongs to the channel surface.
+        // the corridor; it still belongs to the channel surface. No domain
+        // test: every vertex is in the mesh domain, and one on a ring (where a
+        // corridor is cut) can test outside it by rounding and would fall back
+        // to the terrain beside a bank.
         const double nearRadius=1.01*0.1*in.genOpts.channelSpacing;
         for(auto &v:result.vertices) {
             const auto exact=channelSurface.sample(v.xy);
             const auto hit=exact.profile>=0?exact:channelSurface.sampleNear(v.xy,nearRadius);
-            if(hit.profile>=0 && burnDomain.contains(v.xy)) {
-                double elevation=channelElevation(v.xy);
-                if(exact.profile<0) {
-                    const double terrain=terrainReference.sampleAt(v.xy.x(),v.xy.y());
-                    elevation=terrain;
-                    mesh::burnPixel(terrain,!std::isfinite(terrain),hit.z,hit.offset,channelRule,&elevation);
-                }
+            if(hit.profile>=0) {
+                const double terrain=terrainReference.sampleAt(v.xy.x(),v.xy.y());
+                double elevation=terrain;
+                mesh::burnPixel(terrain,!std::isfinite(terrain),hit.z,hit.offset,channelRule,&elevation);
                 if(!std::isfinite(elevation)) {
                     if(in.burnOptions.removeBurnedFrom1D) {fail(QObject::tr("Channel replacement stopped: missing elevation coverage at a channel vertex."));return;}
                     continue;
@@ -2642,10 +2689,27 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         generationStats.maxTerrainError=0;
         QStringList exceptions;
         int elevationOffsetOnly=0;
+        // Cells are in Hilbert order: read each chunk's DEM tiles in parallel
+        // first, so the exact checks below hit the cache instead of reading
+        // the raster tile by tile (USB-attached DEMs were I/O bound).
+        constexpr int kVerifyChunk=8192;
         for (int i=0;i<result.triangles.size();++i) {
-            if ((i & 4095)==0) {
+            if ((i % kVerifyChunk)==0) {
                 if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
                 progress(85,QObject::tr("Checking final terrain accuracy…"));
+                QVector<QRectF> boxes;
+                boxes.reserve(kVerifyChunk);
+                for (int j=i;j<std::min<qsizetype>(i+kVerifyChunk,result.triangles.size());++j) {
+                    const auto &c=result.triangles[j];
+                    QRectF b(result.vertices[c.v0].xy,QSizeF(0,0));
+                    for (int k=1;k<c.vertexCount();++k) {
+                        const QPointF &q=result.vertices[c.vertex(k)].xy;
+                        b.setLeft(std::min(b.left(),q.x())); b.setRight(std::max(b.right(),q.x()));
+                        b.setTop(std::min(b.top(),q.y())); b.setBottom(std::max(b.bottom(),q.y()));
+                    }
+                    boxes.append(b);
+                }
+                terrainReference.prefetch(boxes);
             }
             const auto &cell=result.triangles[i];
             // Same 0-2 diagonal used by mesh profile interpolation for quads.

@@ -61,6 +61,14 @@ struct BurnRasterRequest
     QString sourcePath;
     QString outputPath;         ///< Job-owned physical stage; absent or an empty regular file.
     QString logicalOutputPath;  ///< Final DEM path for report metadata; empty uses outputPath.
+    /*! Overlay mode (single-band sources): outputPath becomes a VRT that
+     *  paints a sparse tiles GeoTIFF over the source DEM, and only the tiles
+     *  the burn changes are written, here (job-owned, absent or empty). The
+     *  VRT names it by overlayTilesName relative to itself, so both must be
+     *  published side by side; the source DEM is referenced by absolute path.
+     *  Empty = copy the whole source (the previous behaviour). */
+    QString overlayTilesPath;
+    QString overlayTilesName;
     int     band = 1;
     QVector<BurnProfile> profiles;
     BurnRule             rule;

@@ -100,6 +100,10 @@ struct RefineHook
      *  (ConstrainedDelaunay::QualityOptions::terrainWorstFirst), so the cell
      *  budget goes where the surface error is largest. */
     bool terrainWorstFirst = false;
+    /*! Measure every final triangle's terrain error at the end of refinement
+     *  (QualityOptions::terrainFinalCheck). false when the caller verifies the
+     *  finished mesh itself: the pass is a full exact read of the DEM. */
+    bool terrainFinalCheck = true;
 };
 
 /*! \brief Quality knobs surfaced to the user dialog. */

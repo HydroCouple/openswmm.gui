@@ -2036,6 +2036,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         qo.terrainElevationAt = m_refineHook.terrainElevationAt;
         qo.terrainTolerance = m_refineHook.terrainTolerance;
         qo.terrainWorstFirst = m_refineHook.terrainWorstFirst;
+        qo.terrainFinalCheck = m_refineHook.terrainFinalCheck;
         qo.smoothingPasses = m_opts.smoothingPasses;
         qo.terrainMinSpacing = qo.minEdge;
         // Terrain may require far more cells than the coarse size estimate.
@@ -2098,9 +2099,37 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         globalOfCoord.insert(key, id);
         return id;
     };
+    // Vertex elevations in space-filling-curve order, not insertion order:
+    // the hook reads a DEM tile cache, and refinement order touches tiles at
+    // random across the raster (on a large DEM every lookup was a disk read).
+    // The hook is a function of position, so the values are unchanged.
+    QVector<double> vertexZ(cdt.vertices().size(), std::numeric_limits<double>::quiet_NaN());
+    for (int v = 0; v < cdt.terrainElevations().size() && v < vertexZ.size(); ++v) vertexZ[v] = cdt.terrainElevations()[v];
+    if (m_refineHook.terrainElevationAt) {
+        QVector<int> pending;
+        QRectF span;
+        for (int v = 0; v < cdt.vertices().size(); ++v) {
+            if (cdt.isSuperVertex(v) || std::isfinite(vertexZ[v])) continue;
+            pending.append(v);
+            const QRectF p(cdt.vertices()[v], QSizeF(0, 0));
+            span = span.isNull() ? p : span.united(p);
+        }
+        if (span.width() > 0 && span.height() > 0) {
+            QVector<quint64> code(cdt.vertices().size(), 0);
+            for (int v : std::as_const(pending)) {
+                const QPointF &q = cdt.vertices()[v];
+                const auto cell = [](double t) { return quint32(std::clamp(t, 0.0, 1.0) * 65535.0); };
+                const quint32 x = cell((q.x() - span.left()) / span.width()), y = cell((q.y() - span.top()) / span.height());
+                quint64 m = 0;
+                for (int bit = 0; bit < 16; ++bit) m |= quint64((x >> bit) & 1u) << (2 * bit) | quint64((y >> bit) & 1u) << (2 * bit + 1);
+                code[v] = m;
+            }
+            std::stable_sort(pending.begin(), pending.end(), [&](int a, int b) { return code[a] < code[b]; });
+        }
+        for (int v : std::as_const(pending)) vertexZ[v] = m_refineHook.terrainElevationAt(cdt.vertices()[v].x(), cdt.vertices()[v].y());
+    }
     for (int v = 0; v < cdt.vertices().size(); ++v)
-        if (!cdt.isSuperVertex(v)) cdtToGlobal[v] = addVertex(cdt.vertices()[v],
-            v < cdt.terrainElevations().size() ? cdt.terrainElevations()[v] : std::numeric_limits<double>::quiet_NaN());
+        if (!cdt.isSuperVertex(v)) cdtToGlobal[v] = addVertex(cdt.vertices()[v], vertexZ[v]);
 
     QVector<int> cellOfCdtTriangle(cdt.triangles().size(), -1);
     for (int ti = 0; ti < cdt.triangles().size(); ++ti)

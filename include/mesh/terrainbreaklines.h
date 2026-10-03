@@ -48,6 +48,7 @@
 #define OPENSWMMVIS_MESH_TERRAINBREAKLINES_H
 
 #include <QPointF>
+#include <QRectF>
 #include <QVector>
 #include <QString>
 #include <functional>
@@ -125,10 +126,15 @@ private:
  * \param zAt elevation at a point; NaN where unknown.
  * \param stats optional: [0] lines measured, [1] kept, [2] smallest kept
  *        significance.
+ * \param prefetch optional warm-up for \p zAt: called with the sampled
+ *        bounds of each spatially compact batch of lines before that batch is
+ *        measured (lines are measured in space-filling-curve order; the
+ *        result does not depend on the order).
  */
 QVector<QVector<QPointF>> rankBreaklinesByStep(const QVector<QVector<QPointF>> &lines,
                                                const std::function<double(double, double)> &zAt,
-                                               double offset, int maxKeep, double *stats = nullptr);
+                                               double offset, int maxKeep, double *stats = nullptr,
+                                               const std::function<void(const QVector<QRectF> &)> &prefetch = {});
 
 } // namespace mesh
 

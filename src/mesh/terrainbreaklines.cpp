@@ -390,7 +390,8 @@ QVector<QVector<QPointF>> TerrainBreaklineExtractor::extractFromGrid(const float
 
 QVector<QVector<QPointF>> rankBreaklinesByStep(const QVector<QVector<QPointF>> &lines,
                                                const std::function<double(double, double)> &zAt,
-                                               double offset, int maxKeep, double *stats)
+                                               double offset, int maxKeep, double *stats,
+                                               const std::function<void(const QVector<QRectF> &)> &prefetch)
 {
     if (maxKeep <= 0 || lines.size() <= maxKeep || !(offset > 0.0) || !zAt) {
         if (stats) { stats[0] = lines.size(); stats[1] = lines.size(); stats[2] = 0.0; }
@@ -411,9 +412,43 @@ QVector<QVector<QPointF>> rankBreaklinesByStep(const QVector<QVector<QPointF>> &
         measure.fill(0);
         for (int k = 0; k < 4 * maxKeep; ++k) measure[byLength[k]] = 1;
     }
-    QVector<double> score(lines.size(), 0.0);
+    // Measure in Morton order of the line centres, a batch at a time, so a
+    // caller's prefetch reads each batch's DEM tiles together instead of the
+    // sampler reading them one by one across the whole raster. Scores are
+    // per line, so the order changes nothing.
+    QVector<int> todo;
+    QVector<QRectF> bounds(lines.size());
+    QRectF all;
     for (int i = 0; i < lines.size(); ++i) {
-        if (!measure[i]) continue;
+        if (!measure[i] || lines[i].isEmpty()) continue;
+        QRectF b(lines[i].first(), QSizeF(0, 0));
+        for (const QPointF &q : lines[i]) b = b.united(QRectF(q, QSizeF(0, 0)));
+        bounds[i] = b.adjusted(-offset, -offset, offset, offset);
+        all = all.isNull() ? bounds[i] : all.united(bounds[i]);
+        todo.append(i);
+    }
+    if (prefetch && all.width() > 0 && all.height() > 0) {
+        const auto morton = [&](int i) {
+            const QPointF c = bounds[i].center();
+            const auto cell = [](double v) { return quint32(std::clamp(v, 0.0, 1.0) * 65535.0); };
+            quint32 x = cell((c.x() - all.left()) / all.width()), y = cell((c.y() - all.top()) / all.height());
+            quint64 m = 0;
+            for (int bit = 0; bit < 16; ++bit) m |= quint64((x >> bit) & 1u) << (2 * bit) | quint64((y >> bit) & 1u) << (2 * bit + 1);
+            return m;
+        };
+        QVector<quint64> key(lines.size(), 0);
+        for (int i : std::as_const(todo)) key[i] = morton(i);
+        std::stable_sort(todo.begin(), todo.end(), [&](int a, int b) { return key[a] < key[b]; });
+    }
+    constexpr int kBatch = 512;
+    QVector<double> score(lines.size(), 0.0);
+    for (int n = 0; n < todo.size(); ++n) {
+        if (prefetch && n % kBatch == 0) {
+            QVector<QRectF> batch;
+            for (int m = n; m < std::min<qsizetype>(n + kBatch, todo.size()); ++m) batch.append(bounds[todo[m]]);
+            prefetch(batch);
+        }
+        const int i = todo[n];
         const QVector<QPointF> &l = lines[i];
         double sum = 0.0;
         for (int k = 1; k < l.size(); ++k) {
