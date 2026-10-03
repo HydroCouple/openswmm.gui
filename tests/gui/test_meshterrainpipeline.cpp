@@ -20,6 +20,7 @@
 #include "map/spatialreferencesystem.h"
 #include "layers/featurelayer.h"
 #include <QApplication>
+#include <QSpinBox>
 #include <QTextStream>
 #include <QDoubleSpinBox>
 #include <QCryptographicHash>
@@ -619,7 +620,7 @@ NODE C interior
     // collection: SWMMVIS_REPRO_INP, SWMMVIS_REPRO_DEM, SWMMVIS_REPRO_BOUNDARY
     // (vector file), SWMMVIS_REPRO_OUT (review folder). Optional:
     // SWMMVIS_REPRO_CELL / _MINCELL (model length units), _COARSEN, _BURN=0,
-    // _QUADCORRIDOR=0|1.
+    // _QUADCORRIDOR=0|1, _MAXCELLS (cell budget).
     // Writes mesh.2dm, report.txt and the burned DEM under _OUT.
     void projectReproduction()
     {
@@ -656,6 +657,12 @@ NODE C interior
         spin("meshCellSizeSpin","SWMMVIS_REPRO_CELL");
         spin("meshMinCellSizeSpin","SWMMVIS_REPRO_MINCELL");
         spin("meshCoarsenSpin","SWMMVIS_REPRO_COARSEN");
+        if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_CONDUITS"))
+            if(auto *conduits=dialog.findChild<QCheckBox *>(QStringLiteral("meshConduitsBox")))
+                conduits->setChecked(qEnvironmentVariable("SWMMVIS_REPRO_CONDUITS")!="0");
+        if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_MAXCELLS"))
+            if(auto *cap=dialog.findChild<QSpinBox *>(QStringLiteral("meshMaxCellsSpin")))
+                cap->setValue(qEnvironmentVariableIntValue("SWMMVIS_REPRO_MAXCELLS"));
         if(auto *burn=dialog.findChild<QCheckBox *>(QStringLiteral("meshBurnEnabledBox")))
             burn->setChecked(qEnvironmentVariable("SWMMVIS_REPRO_BURN")!="0");
         if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_QUADCORRIDOR"))

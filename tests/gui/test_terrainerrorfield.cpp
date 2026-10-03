@@ -125,6 +125,44 @@ private slots:
         QCOMPARE(rep.terrainUnresolved,0);
         QVERIFY(cdt.liveTriangleCount()<1500);
     }
+    void worstFirstSpendsACappedBudgetOnTheWorstError() {
+        // Two mounds of different height on a plane and a tolerance no cap
+        // can reach: worst-first must end with a lower maximum error than
+        // queue order for the same budget, and meet the tolerance uncapped.
+        const int n=161; QVector<float> z(n*n);
+        for(int r=0;r<n;++r) for(int c=0;c<n;++c)
+            z[r*n+c]=float(6*std::exp(-((c-40.)*(c-40.)+(r-50.)*(r-50.))/120)
+                          +2*std::exp(-((c-120.)*(c-120.)+(r-110.)*(r-110.))/300)+.01*c);
+        TerrainErrorField f; QVERIFY(f.buildFromGrid(z.data(),n,n));
+        auto run=[&](bool worstFirst,int cap,double tol,int *cells) {
+            ConstrainedDelaunay cdt; QVector<int> ids;
+            cdt.build({{.5,.5},{n-.5,.5},{n-.5,n-.5},{.5,n-.5}},&ids);
+            for(int i=0;i<4;++i) cdt.insertConstraint(ids[i],ids[(i+1)%4]);
+            cdt.removeExterior();
+            ConstrainedDelaunay::QualityOptions o;
+            o.minAngleDeg=28; o.terrainTolerance=tol; o.minEdge=.5; o.maxTriangles=cap;
+            o.terrainWorstFirst=worstFirst;
+            o.terrainElevationAt=[&](double x,double y){ return f.sampleAt(x,y); };
+            o.terrainError=[&](const QPointF *p,const double *v,QPointF *out){
+                auto q=f.queryWorst(p,v,o.terrainTolerance); *out=q.point; return q.valid?q.maxError:std::numeric_limits<double>::quiet_NaN();
+            };
+            cdt.refineQuality(o);
+            double worst=0; int live=0;
+            for(const auto &t:cdt.triangles()) if(t.alive) {
+                ++live; QPointF p[3]; double zz[3];
+                for(int k=0;k<3;++k) { p[k]=cdt.vertices()[t.v[k]]; zz[k]=f.sampleAt(p[k].x(),p[k].y()); }
+                worst=std::max(worst,f.queryTriangle(p,zz,tol,true).maxError);
+            }
+            if(cells) *cells=live;
+            return worst;
+        };
+        int inlineCells=0, worstCells=0;
+        const double inlineErr=run(false,600,.01,&inlineCells), worstErr=run(true,600,.01,&worstCells);
+        qInfo("capped at 600: inline max error %g (%d cells), worst-first %g (%d cells)",inlineErr,inlineCells,worstErr,worstCells);
+        QVERIFY2(worstErr<inlineErr,qPrintable(QString("worst-first %1 vs inline %2").arg(worstErr).arg(inlineErr)));
+        int uncapped=0;
+        QVERIFY(run(true,1000000,.15,&uncapped)<=.1500001);
+    }
     void cancellationDuringBuild() {
         QVector<float> z(1024*1024,0); TerrainErrorField f; int calls=0;
         QVERIFY(!f.buildFromGrid(z.data(),1024,1024,[&](double){ return ++calls<3; }));
@@ -318,6 +356,13 @@ private slots:
         }
         QVERIFY2(f.open(path,meshCrs,meshDomain,1.,cacheMiB>0?cacheMiB:64),qPrintable(f.errorMsg()));
         const qint64 indexMs=clock.restart();
+        if(qEnvironmentVariableIsSet("SWMMVIS_MESH_LARGEDEM_INDEX_ONLY")) {
+            qInfo("largedem index: %s %lld px in %lld ms; leaf residual P10 %g P50 %g P90 %g P99 %g; vertical quantum %g",
+                  qPrintable(QFileInfo(path).fileName()),(long long)f.referenceSamples(),(long long)indexMs,
+                  f.leafResidualQuantile(.1),f.leafResidualQuantile(.5),f.leafResidualQuantile(.9),
+                  f.leafResidualQuantile(.99),f.verticalQuantum());
+            return;
+        }
         const double inset=std::abs(gt[1]);
         const QRectF d=meshDomain.adjusted(inset,inset,-inset,-inset);
         ConstrainedDelaunay cdt; QVector<int> ids;

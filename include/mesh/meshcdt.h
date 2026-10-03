@@ -77,7 +77,7 @@ public:
      *  leaving the convex hull of the input (unconstrained use). */
     void removeSuperTriangles();
     /*! \brief Drop the region (constraint-bounded component) containing \p p. */
-    void removeRegionAt(const QPointF &p);
+    int removeRegionAt(const QPointF &p);   ///< Returns how many triangles it removed.
 
     /*! \brief Options for refineQuality(). */
     struct QualityOptions
@@ -93,6 +93,18 @@ public:
         std::function<double(double, double)> terrainElevationAt;
         double terrainTolerance = 0.0;
         double terrainMinSpacing = 0.0;
+        /*! Refine size and angle first, then insert terrain points worst
+         *  error first until the tolerance or maxTriangles is reached, so a
+         *  capped run spends its budget where the surface error is largest.
+         *  false = terrain is checked inline with size and angle (default). */
+        bool terrainWorstFirst = false;
+        /*! Passes of non-degrading smoothing after size and angle refinement:
+         *  each free vertex (inserted after build(), on no constraint) moves
+         *  to the area-weighted centroid of its star when that raises the
+         *  star's worst angle, then the star is made Delaunay again. Runs
+         *  before terrain points are placed (with terrainWorstFirst, or
+         *  without terrain). 0 = off. */
+        int smoothingPasses = 0;
         bool prioritizeQuality = true;
         int maxTriangles = std::numeric_limits<int>::max();
         /*! Smallest angle every triangle must reach (degrees); 0 = size only.

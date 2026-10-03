@@ -17,6 +17,7 @@
  *     the result is made valid if that introduced a defect.
  *
  * Buffers use mitred joins, so right-angled building corners stay square.
+ * Large regions are conditioned as parallel tiles with a 3-gap margin.
  */
 #ifndef OPENSWMMVIS_MESH_BOUNDARYCONDITIONING_H
 #define OPENSWMMVIS_MESH_BOUNDARYCONDITIONING_H
@@ -35,8 +36,7 @@ struct BoundaryConditionReport
     double areaIn = 0.0, areaOut = 0.0;
     qint64 shortEdgesIn = 0, shortEdgesOut = 0;   ///< Ring edges shorter than the gap.
     qint64 milliseconds = 0;
-    qint64 buffersMs = 0, collapseMs = 0;   ///< Cumulative stage marks.
-    bool   repaired = false;                ///< Collapse needed MakeValid.
+    int    tiles = 1;   ///< Parallel tiles used (1 = conditioned whole).
 };
 
 /*! \brief Close, open and simplify \p region at gap \p gap.

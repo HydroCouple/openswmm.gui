@@ -96,6 +96,10 @@ struct RefineHook
     std::function<double(const QPointF *, const double *, QPointF *)> terrainError;
     std::function<double(double, double)> terrainElevationAt;
     double terrainTolerance = 0.0;
+    /*! Insert terrain points worst error first once size and angle are met
+     *  (ConstrainedDelaunay::QualityOptions::terrainWorstFirst), so the cell
+     *  budget goes where the surface error is largest. */
+    bool terrainWorstFirst = false;
 };
 
 /*! \brief Quality knobs surfaced to the user dialog. */
@@ -119,6 +123,14 @@ struct GenerationOptions
     double minAngleDeg = 30.0;
     bool prioritizeQuality = true; ///< Worst angle buckets before ordinary size/error work.
     int maxCells = 20'000'000;       ///< Resource ceiling; reported if reached.
+    /*! Seed free vertices on hexagonal lattices graded by the size field
+     *  before refinement, so open areas come out near-equilateral
+     *  (MESH_REGIONAL_TRIQUAD_PLAN D-R6). false = refinement places every
+     *  point (the previous behaviour, bit-identical). */
+    bool latticeSeeding = false;
+    /*! Passes of non-degrading smoothing on free vertices after refinement
+     *  (ConstrainedDelaunay::QualityOptions::smoothingPasses). 0 = off. */
+    int smoothingPasses = 0;
     /*! Two terrain break lines that face each other with lower ground between
      *  them become a bank-pair quad strip (needs RefineHook::elevationAt). */
     bool   quadsBetweenBreaklines = false;
@@ -250,6 +262,9 @@ public:
     void setRefineHook(const RefineHook &hook);
 
     /*! \brief Generate the mesh. Returns a result with ok=false + errorMsg on failure. */
+    /*! Generates; a structured patch whose interior removal leaks (its ring
+     *  is not watertight) is excluded and generation retried, so it falls
+     *  back to triangles and is counted as dropped instead of failing. */
     [[nodiscard]] MeshResult generate() const;
 
     /*! \brief Translate an output point's marker back to a tag string.
@@ -271,6 +286,8 @@ private:
     mutable QVector<QVector<QPointF>> m_acceptedTerrainLines;
     mutable QVector<QuadRegionReport> m_quadReports;
     mutable GenerationStats           m_stats;
+    mutable QSet<QPair<qint64, qint64>> m_leakedPatches;   ///< Patch centroid keys excluded on retry.
+    [[nodiscard]] MeshResult generateOnce(QPair<qint64, qint64> *leaked) const;
     GenerationOptions          m_opts;
     RefineHook                 m_refineHook;
 

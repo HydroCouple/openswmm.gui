@@ -82,6 +82,9 @@ QByteArray MeshStageCache::boundaryKey(const FileIdentity &src,
         // 2026-09-01 — enforcement mode changes what conditioning may do to
         // the rings, so it is part of the identity too.
         s << minCellSize << minSizeEnforce;
+        // Conditioned rings depend on the conditioning algorithm; its own
+        // version keeps unconditioned keys (and the other stages) intact.
+        if (minSizeEnforce) s << quint16(kConditioningVersion);
     }
     return QCryptographicHash::hash(blob, QCryptographicHash::Sha256).toHex();
 }
@@ -164,7 +167,8 @@ QString MeshStageCache::terrainIndexPath(const QByteArray &key) const
 
 QByteArray MeshStageCache::breaklineKey(const FileIdentity &dem, const QString &meshCRSWkt,
                                         const QRectF &demWindow, double tolerance,
-                                        double lowRatio, int minPixels, qint64 maxPixels)
+                                        double lowRatio, int minPixels, qint64 maxPixels,
+                                        int decimation)
 {
     QByteArray blob;
     {
@@ -174,6 +178,7 @@ QByteArray MeshStageCache::breaklineKey(const FileIdentity &dem, const QString &
         s << dem.absPath << dem.mtimeMs << dem.sizeBytes << meshCRSWkt;
         s << demWindow.x() << demWindow.y() << demWindow.width() << demWindow.height();
         s << tolerance << lowRatio << qint32(minPixels) << maxPixels;
+        if (decimation != 1) s << qint32(decimation);   // 1 keeps earlier keys
     }
     return QCryptographicHash::hash(blob, QCryptographicHash::Sha256).toHex();
 }
