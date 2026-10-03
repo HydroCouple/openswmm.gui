@@ -89,6 +89,12 @@ public:
     struct Error { double maximum=0; QPointF point; bool touched=false; };
     void build(const QVector<BurnLattice> &lattices);
     Hit sample(const QPointF &p) const;
+    /*! sample(), or when \p p misses every face but lies within \p radius
+     *  of one, the lowest such face's value at its closest point to \p p
+     *  (a vertex constraint joining pulled a hair outside the corridor). */
+    Hit sampleNear(const QPointF &p, double radius) const;
+    /*! Every face covering \p p (sample() keeps only the lowest). */
+    QVector<Hit> hitsAt(const QPointF &p) const;
     bool intersects(const QRectF &bounds) const;
     Error error(const QPointF *xy, const double *z,
                 const std::function<bool(const QPointF &)> &inside) const;
