@@ -131,6 +131,12 @@ struct GenerationOptions
     /*! Passes of non-degrading smoothing on free vertices after refinement
      *  (ConstrainedDelaunay::QualityOptions::smoothingPasses). 0 = off. */
     int smoothingPasses = 0;
+    /*! Smallest spacing between distinct channel corridor vertices (lattice
+     *  offsets and stations). Constraint joining stays below a tenth of it so
+     *  a narrow bank crest is never welded to its toe. 0 = derive it from the
+     *  shortest "channel:" edge (clip fragments then shrink it for the whole
+     *  mesh). */
+    double channelSpacing = 0.0;
     /*! Two terrain break lines that face each other with lower ground between
      *  them become a bank-pair quad strip (needs RefineHook::elevationAt). */
     bool   quadsBetweenBreaklines = false;

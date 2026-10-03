@@ -1455,7 +1455,8 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         double tol = kRefineFloor * hMin;
         // Channel section edges carry prescribed elevation breaks. Generic
         // proximity cleanup must not weld a narrow bank crest to its toe.
-        for(const auto &poly:polys) if(poly.tag.startsWith(QLatin1String("channel:")))
+        if (m_opts.channelSpacing > 0.0) tol = std::min(tol, 0.1 * m_opts.channelSpacing);
+        else for(const auto &poly:polys) if(poly.tag.startsWith(QLatin1String("channel:")))
             for(int i=1;i<poly.pts.size();++i) {
                 const double length=QLineF(poly.pts[i-1],poly.pts[i]).length();
                 if(length>0) tol=std::min(tol,length*0.1);
@@ -1901,10 +1902,11 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
                     for (int m = 0; m < oEdges && crossedBy.isEmpty(); ++m) {
                         if (j == i && std::abs(m - k) <= 1) continue;
                         const QPointF qa = o.pts[m], qb = o.pts[(m + 1) % on];
-                        const auto side = [](QPointF u, QPointF v, QPointF w) {
-                            return (v.x() - u.x()) * (w.y() - u.y()) - (v.y() - u.y()) * (w.x() - u.x());
+                        const auto opposite = [](QPointF u, QPointF v, QPointF c, QPointF d) {
+                            const double oc = ConstrainedDelaunay::orientExact(u, v, c), od = ConstrainedDelaunay::orientExact(u, v, d);
+                            return (oc > 0.0 && od < 0.0) || (oc < 0.0 && od > 0.0);
                         };
-                        if (side(pa, pb, qa) * side(pa, pb, qb) < 0 && side(qa, qb, pa) * side(qa, qb, pb) < 0)
+                        if (opposite(pa, pb, qa, qb) && opposite(qa, qb, pa, pb))
                             crossedBy = QStringLiteral("; crosses %1%2 edge %8 of %9 (%3, %4)-(%5, %6), marker %7").arg(kindOf(o))
                                 .arg(o.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(o.tag))
                                 .arg(qa.x(), 0, 'f', 2).arg(qa.y(), 0, 'f', 2).arg(qb.x(), 0, 'f', 2).arg(qb.y(), 0, 'f', 2)
