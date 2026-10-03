@@ -686,6 +686,11 @@ NODE C interior
 #endif
         report << QStringLiteral("worker: %1 s, ok %2, peak RSS %3 GB%4").arg(workerSeconds).arg(result.ok)
             .arg(rss/1e9,0,'f',2).arg(result.ok?QString():QStringLiteral(", error: ")+result.errorMsg);
+        if(!result.burnWarnings.isEmpty()) {
+            QFile warnings(out.filePath("burn_warnings.txt"));
+            QVERIFY(warnings.open(QIODevice::WriteOnly|QIODevice::Text));
+            warnings.write(result.burnWarnings.join('\n').toUtf8()+'\n');
+        }
         if(result.ok) {
             const auto &m=result.meshResult;
             int quads=0,tris=0,below20=0,below10=0; double minEdge=1e300,maxEdge=0,minAngle=180;

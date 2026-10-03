@@ -128,6 +128,11 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
         const_cast<char *>("-ot"),const_cast<char *>("Float64"),
         const_cast<char *>("-co"),const_cast<char *>("TILED=YES"),
         const_cast<char *>("-co"),const_cast<char *>("COMPRESS=DEFLATE"),
+        // Compress tiles on every core with the floating-point predictor: a
+        // multi-gigabyte DEM copy is otherwise bound by single-threaded
+        // DEFLATE, not by disk.
+        const_cast<char *>("-co"),const_cast<char *>("PREDICTOR=3"),
+        const_cast<char *>("-co"),const_cast<char *>("NUM_THREADS=ALL_CPUS"),
         const_cast<char *>("-co"),const_cast<char *>("BIGTIFF=IF_SAFER"),nullptr};
     auto *translateOptions=GDALTranslateOptionsNew(translateArgs,nullptr);
     GDALTranslateOptionsSetProgress(translateOptions,copyTick,&copyProgress);
@@ -209,12 +214,14 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
                                     gt[3] + px * gt[4] + py * gt[5]);
                 if (req.toProfileFrame && !req.toProfileFrame(&world))
                     return fail(QStringLiteral("burn: raster-to-model coordinate transformation failed"));
-                if (req.inDomain && !req.inDomain(world)) continue;
-
+                // Corridor first: it rejects most pixels of an active tile
+                // cheaply; the domain test (rings and holes) only runs on
+                // the pixels a section actually covers.
                 BurnProjection pr;
                 double zSec = 0.0;
                 if (!(req.sectionAt ? req.sectionAt(world,&pr,&zSec)
                                     : bestBurnAt(index, req.profiles, world, &pr, &zSec))) continue;
+                if (req.inDomain && !req.inDomain(world)) continue;
 
                 double      &cell   = buf[size_t(j) * size_t(wW) + size_t(i)];
                 const double zDem   = cell;

@@ -592,6 +592,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     mesh::BurnDomain burnDomain;
     burnDomain.rings=in.domains;
     for(const auto &hole:in.holeRings) burnDomain.holes.append(QPolygonF(hole));
+    burnDomain.buildIndex();
     mesh::BurnReplacementPlan burnPlan;
     QSet<QString> retiringNodes, channelNodes;
     if (in.burnEnabled) {

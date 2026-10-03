@@ -126,9 +126,65 @@ bool BurnDomain::contains(const QPointF &p) const
     for (const QPolygonF &r : rings)
         if (r.size() >= 3 && (pointInRing(r, p) || pointOnRing(r,p))) { inside = true; break; }
     if (!inside) return false;
-    for (const QPolygonF &h : holes)
-        if (h.size() >= 3 && pointInRing(h, p) && !pointOnRing(h,p)) return false;
+    const auto inHole = [&](int k) {
+        const QPolygonF &h = holes[k];
+        return h.size() >= 3 && pointInRing(h, p) && !pointOnRing(h,p);
+    };
+    if (m_gx == 0) {
+        for (int k = 0; k < holes.size(); ++k)
+            if (inHole(k)) return false;
+        return true;
+    }
+    if (!m_extent.contains(p)) return true;
+    const int cx = std::clamp(int((p.x() - m_extent.left()) / m_extent.width() * m_gx), 0, m_gx - 1);
+    const int cy = std::clamp(int((p.y() - m_extent.top()) / m_extent.height() * m_gy), 0, m_gy - 1);
+    const int cell = cy * m_gx + cx;
+    for (int i = m_cellStart[cell]; i < m_cellStart[cell + 1]; ++i) {
+        const int k = m_cellItems[i];
+        if (m_holeBox[k].contains(p) && inHole(k)) return false;
+    }
     return true;
+}
+
+void BurnDomain::buildIndex()
+{
+    m_holeBox.clear(); m_cellStart.clear(); m_cellItems.clear();
+    m_gx = m_gy = 0;
+    if (holes.size() < 64) return;
+    m_holeBox.reserve(holes.size());
+    QRectF extent;
+    for (const QPolygonF &h : holes) {
+        QRectF b = h.boundingRect();
+        // pointInRing/pointOnRing never answer "inside" beyond the ring's own
+        // bounds; the pad covers edge-touching points and rounding.
+        const double pad = 1e-6 * std::max({1.0, b.width(), b.height()});
+        b.adjust(-pad, -pad, pad, pad);
+        m_holeBox.append(b);
+        extent = extent.isNull() ? b : extent.united(b);
+    }
+    if (!(extent.width() > 0) || !(extent.height() > 0)) { m_holeBox.clear(); return; }
+    const double side = std::sqrt(extent.width() * extent.height() / double(holes.size()));
+    m_gx = std::clamp(int(std::ceil(extent.width() / side)), 1, 4096);
+    m_gy = std::clamp(int(std::ceil(extent.height() / side)), 1, 4096);
+    m_extent = extent;
+    const auto range = [&](const QRectF &b, int *x0, int *x1, int *y0, int *y1) {
+        *x0 = std::clamp(int((b.left() - extent.left()) / extent.width() * m_gx), 0, m_gx - 1);
+        *x1 = std::clamp(int((b.right() - extent.left()) / extent.width() * m_gx), 0, m_gx - 1);
+        *y0 = std::clamp(int((b.top() - extent.top()) / extent.height() * m_gy), 0, m_gy - 1);
+        *y1 = std::clamp(int((b.bottom() - extent.top()) / extent.height() * m_gy), 0, m_gy - 1);
+    };
+    m_cellStart.fill(0, m_gx * m_gy + 1);
+    for (const QRectF &b : m_holeBox) {
+        int x0, x1, y0, y1; range(b, &x0, &x1, &y0, &y1);
+        for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x) ++m_cellStart[y * m_gx + x + 1];
+    }
+    for (int c = 0; c < m_gx * m_gy; ++c) m_cellStart[c + 1] += m_cellStart[c];
+    m_cellItems.resize(m_cellStart.last());
+    QVector<int> fill(m_cellStart.begin(), m_cellStart.end() - 1);
+    for (int k = 0; k < m_holeBox.size(); ++k) {
+        int x0, x1, y0, y1; range(m_holeBox[k], &x0, &x1, &y0, &y1);
+        for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x) m_cellItems[fill[y * m_gx + x]++] = k;
+    }
 }
 
 QVector<BoundaryCrossing> boundaryCrossings(const QVector<QPointF> &path,

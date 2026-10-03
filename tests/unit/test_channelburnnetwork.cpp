@@ -231,6 +231,46 @@ TEST(ChannelBurnBoundary, AHoleCountsAsOutsideTheDomain)
     EXPECT_NEAR(runs[1].first().x(), 2.0, 1e-9);
 }
 
+TEST(ChannelBurnBoundary, HoleIndexGivesTheSameAnswerAsTheLinearScan)
+{
+    BurnDomain linear;
+    QPolygonF outer;
+    outer << QPointF(0, 0) << QPointF(1000, 0) << QPointF(1000, 1000) << QPointF(0, 1000);
+    linear.rings.append(outer);
+    // A 20x20 lattice of small square and triangular holes, some sharing
+    // edges with their neighbours.
+    for (int j = 0; j < 20; ++j)
+        for (int i = 0; i < 20; ++i) {
+            const double x = 25 + 48 * i, y = 25 + 48 * j, s = (i + j) % 3 == 0 ? 24 : 15;
+            QPolygonF h;
+            if ((i * 7 + j) % 2) h << QPointF(x, y) << QPointF(x + s, y) << QPointF(x + s, y + s) << QPointF(x, y + s);
+            else h << QPointF(x, y) << QPointF(x + s, y) << QPointF(x, y + s);
+            linear.holes.append(h);
+        }
+    BurnDomain indexed = linear;
+    indexed.buildIndex();
+
+    unsigned seed = 12345;
+    const auto next = [&] { seed = seed * 1664525u + 1013904223u; return double(seed >> 8) / double(1u << 24); };
+    int disagreements = 0, inHoles = 0;
+    for (int k = 0; k < 20000; ++k) {
+        // Half the probes land on hole vertices and edges, where the
+        // on-ring tolerance decides.
+        QPointF p(next() * 1100 - 50, next() * 1100 - 50);
+        if (k % 2) {
+            const QPolygonF &h = linear.holes[int(next() * linear.holes.size()) % linear.holes.size()];
+            const int e = int(next() * h.size()) % h.size();
+            const double t = (k % 4 == 1) ? 0.0 : next();
+            p = h[e] + (h[(e + 1) % h.size()] - h[e]) * t;
+        }
+        const bool a = linear.contains(p), b = indexed.contains(p);
+        disagreements += a != b;
+        inHoles += !a;
+    }
+    EXPECT_EQ(disagreements, 0);
+    EXPECT_GT(inHoles, 1000);
+}
+
 TEST(ChannelBurnBoundary, TouchingARingWithoutLeavingIsNotACrossing)
 {
     // Up to the right edge and back. The segment MEETS the ring — an
