@@ -255,7 +255,7 @@ add_swmmvis_unit_test(test_boundaryconditioning
     ${PROJECT_SOURCE_DIR}/include/mesh/boundaryconditioning.h
     ${PROJECT_SOURCE_DIR}/src/mesh/boundaryconditioning.cpp
 )
-target_link_libraries(test_boundaryconditioning PRIVATE GDAL::GDAL)
+target_link_libraries(test_boundaryconditioning PRIVATE GDAL::GDAL Qt6::Concurrent)
 
 # Channel burn-in, phases P2/P3: the corridor lattice and its mesh products.
 # Gates V5 (conformal lattice, exact z), V6 (all-quad corridor) and V7 (the

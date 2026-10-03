@@ -202,14 +202,23 @@ bool TerrainSizeField::build(GDALDataset *ds, int band, int col0, int row0, int 
     if (!opt.rowsOnly) m_h.fill(kNoSize, qsizetype(m_outCols) * m_outRows);
     else m_outCols=m_outRows=0;
 
-    const int bandH = opt.rowsOnly ? int(std::min<qint64>(256,std::max<qint64>(1,opt.maxBandBytes/(qint64(cols)*sizeof(float))))) : 1 << m_maxLevel;
+    // Rows-only streams may read a block-averaged grid d times coarser.
+    const int d = opt.rowsOnly ? std::max(1, opt.decimation) : 1;
+    m_decimation = d;
+    const int outC = (cols + d - 1) / d, outR = (rows + d - 1) / d;
+    const int bandH = opt.rowsOnly ? int(std::min<qint64>(256,std::max<qint64>(1,opt.maxBandBytes/(qint64(outC)*sizeof(float))))) : 1 << m_maxLevel;
     QVector<float> buf;
-    buf.resize(qint64(cols) * bandH);
-    for (int r0 = 0; r0 < rows; r0 += bandH)
+    buf.resize(qint64(outC) * bandH);
+    GDALRasterIOExtraArg extra;
+    INIT_RASTERIO_EXTRA_ARG(extra);
+    if (d > 1) extra.eResampleAlg = GRIORA_Average;
+    for (int r0 = 0; r0 < outR; r0 += bandH)
     {
-        const int h = std::min(bandH, rows - r0);
-        if (b->RasterIO(GF_Read, col0, row0 + r0, cols, h, buf.data(), cols, h,
-                        GDT_Float32, 0, 0) != CE_None)
+        const int h = std::min(bandH, outR - r0);
+        // Source rows for these output rows; the last block may be partial.
+        const int srcRow = r0 * d, srcH = std::min(h * d, rows - srcRow);
+        if (b->RasterIO(GF_Read, col0, row0 + srcRow, cols, srcH, buf.data(), outC, h,
+                        GDT_Float32, 0, 0, &extra) != CE_None)
         {
             m_errorMsg = QStringLiteral("terrain size field: RasterIO failed at row %1").arg(row0 + r0);
             m_h.clear(); m_outCols = m_outRows = 0;
@@ -219,14 +228,14 @@ bool TerrainSizeField::build(GDALDataset *ds, int band, int col0, int row0, int 
         {
             const float ndF = float(nd);
             float *p = buf.data();
-            const qint64 n = qint64(cols) * h;
+            const qint64 n = qint64(outC) * h;
             for (qint64 i = 0; i < n; ++i)
                 if (p[i] == ndF) p[i] = std::numeric_limits<float>::quiet_NaN();
         }
         if (opt.rowSink)
-            for (int r = 0; r < h; ++r) opt.rowSink(buf.constData() + qint64(r) * cols, r0 + r, cols, rows);
+            for (int r = 0; r < h; ++r) opt.rowSink(buf.constData() + qint64(r) * outC, r0 + r, outC, outR);
         if (!opt.rowsOnly) processBand(buf.constData(), cols, h, r0, opt.tolerance);
-        if (progress && !progress(double(r0 + h) / rows))
+        if (progress && !progress(double(r0 + h) / outR))
         {
             m_errorMsg = QStringLiteral("terrain size field: cancelled");
             m_h.clear(); m_outCols = m_outRows = 0;
@@ -290,7 +299,7 @@ double TerrainSizeField::sizeAtGeo(double x, double y) const
 QPointF TerrainSizeField::windowPixelToGeo(double px, double py) const
 {
     double gx = 0.0, gy = 0.0;
-    GDALApplyGeoTransform(const_cast<double *>(m_geo), m_col0 + px, m_row0 + py, &gx, &gy);
+    GDALApplyGeoTransform(const_cast<double *>(m_geo), m_col0 + px * m_decimation, m_row0 + py * m_decimation, &gx, &gy);
     return QPointF(gx, gy);
 }
 

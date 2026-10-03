@@ -391,7 +391,11 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // the unsimplified ring — GEOS/OGR output is valid by
             // construction; only RDP can break it.
             const QVector<QPointF> rawExt = ringToMesh(ext);
-            QVector<QPointF> simpExt = trimByStraightness(rawExt, in.trimTurnDeg, in.trimDeviation, {}, true);
+            // A conditioned boundary is already simplified with its holes in
+            // view; trimming the exterior alone could cut through a building
+            // merged into it as a notch.
+            QVector<QPointF> simpExt = in.conditionBoundary && in.minCellSize > 0.0
+                ? rawExt : trimByStraightness(rawExt, in.trimTurnDeg, in.trimDeviation, {}, true);
             {
                 EditGeometry::RingPolygon check;
                 check.exterior = simpExt;
@@ -854,6 +858,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     {
         QVector<mesh::pslg::PreparedRing> prepared;
         int skippedRings = 0;
+        // Conditioned rings are already simplified together; trim no further.
+        const bool conditioned = in.conditionBoundary && in.minCellSize > 0.0;
         const bool holesDone = mesh::pslg::prepareHoleRings(
             in.holeRings, 0.0, 0.0, &prepared,
             [&promise] { return promise.isCanceled(); },
@@ -863,7 +869,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                     QObject::tr("Preparing hole rings… (%1 / %2)")
                         .arg(done).arg(total));
             },
-            &skippedRings, in.trimTurnDeg, in.trimDeviation);
+            &skippedRings,
+            conditioned ? 0.0 : in.trimTurnDeg, conditioned ? 0.0 : in.trimDeviation);
         if (!holesDone) { fail(QObject::tr("Cancelled.")); return; }
 
         bprep.domains = in.domains;
@@ -1657,7 +1664,11 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         if (in.terrainAutoTolerance) {
             // Quantized elevation data cannot justify sub-quantum precision.
             // The 0.1 m baseline is converted to the mesh's vertical unit.
-            in.terrainTolerance = std::max(.1/in.verticalUnitToSI,3.0*terrainReference.verticalQuantum());
+            // Nor can detail below the DEM's own micro-relief: the median
+            // residual of its 16-pixel planes floors the automatic value.
+            const double microRelief = terrainReference.leafResidualQuantile(.5);
+            in.terrainTolerance = std::max({.1/in.verticalUnitToSI,3.0*terrainReference.verticalQuantum(),
+                                            std::isfinite(microRelief)?microRelief:0.0});
         }
         qCInfo(lcMeshPerf) << "[Mesh][terrain] leaf residual (16 px planes) P50" << terrainReference.leafResidualQuantile(.5)
                            << "P90" << terrainReference.leafResidualQuantile(.9) << "P99" << terrainReference.leafResidualQuantile(.99);
@@ -1734,6 +1745,11 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             if (useAdaptiveTerrain) {
                 tso.rowsOnly = true;
                 tso.maxBandBytes = qint64(in.terrainCacheMiB)*1024*1024;
+                // Breaklines are detected on a grid about one minimum cell
+                // wide (block-averaged, from overviews when present): major
+                // features only, and far less DEM to read (D-R4).
+                if (in.minCellSize > 0.0 && unitScale > 0.0 && thinner.pixelSize() > 0.0)
+                    tso.decimation = std::max(1, int(std::floor(in.minCellSize / (unitScale * thinner.pixelSize()))));
             }
             // Terrain break lines (Phase 6b §2.1) ride the same row pass:
             // one tolerance, one meaning — where the surface departs from a
@@ -1749,7 +1765,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // drops a line the generator would keep.
             if (in.minCellSize > 0.0 && unitScale > 0.0 && thinner.pixelSize() > 0.0)
                 blo.minPixels = std::max(blo.minPixels,
-                    int(std::floor(4.0 * in.minCellSize / (std::sqrt(2.0) * unitScale * thinner.pixelSize()))));
+                    int(std::floor(4.0 * in.minCellSize / (std::sqrt(2.0) * unitScale * thinner.pixelSize() * tso.decimation))));
             blo.cancelled = [&promise] { return promise.isCanceled(); };
             if (in.terrainBreaklines) tso.rowSink = [&breaklines, &blo](const float *row, int r, int cols, int rows) {
                 if (r == 0) breaklines.begin(cols, rows, blo);
@@ -1760,7 +1776,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             const bool cacheBreaklines = useAdaptiveTerrain && in.terrainBreaklines && cache.isUsable();
             const QByteArray breaklineKey = cacheBreaklines
                 ? mesh::MeshStageCache::breaklineKey(mesh::MeshStageCache::identityOf(in.dtmPath), in.meshCRSWkt,
-                      QRectF(QPointF(dx0,dy0),QPointF(dx1,dy1)), blo.tolerance, blo.lowRatio, blo.minPixels, blo.maxPixels)
+                      QRectF(QPointF(dx0,dy0),QPointF(dx1,dy1)), blo.tolerance, blo.lowRatio, blo.minPixels, blo.maxPixels,
+                      tso.decimation)
                 : QByteArray();
             mesh::MeshStageCache::Breaklines cachedLines;
             const bool breaklinesCached = cacheBreaklines && cache.loadBreaklines(breaklineKey, &cachedLines);
@@ -1946,6 +1963,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         if (useAdaptiveTerrain || in.burnEnabled)
         {
             hook.terrainTolerance = useAdaptiveTerrain?in.terrainTolerance:channelTolerance;
+            // Adaptive terrain spends the cell budget worst error first.
+            hook.terrainWorstFirst = useAdaptiveTerrain;
             hook.terrainElevationAt = [&](double x,double y) {
                 const auto key=keyOf(x,y);
                 const double terrainZ=channelValue(x,y,terrainReference.sampleAt(x,y));
@@ -4354,6 +4373,10 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                                                             : 0.1 * out->cellSize;
     out->genOpts.maxArea       = 0.4330127018922193 * out->cellSize * out->cellSize;
     out->genOpts.minCellSize   = out->minCellSize;
+    // Near-equilateral triangles (MESH_REGIONAL_TRIQUAD_PLAN D-R6): graded
+    // lattice seeding plus non-degrading smoothing.
+    out->genOpts.latticeSeeding  = true;
+    out->genOpts.smoothingPasses = 3;
     out->genOpts.minAngleDeg   = m_minAngleSpin->value();
     out->genOpts.prioritizeQuality=m_qualityOrderBox->isChecked();
     out->genOpts.maxCells=m_maxCellsSpin->value();

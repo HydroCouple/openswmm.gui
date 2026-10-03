@@ -1262,6 +1262,20 @@ QVector<QVector<QPointF>> MeshGenerator::previewTerrainBreaklines() const
 
 MeshResult MeshGenerator::generate() const
 {
+    m_leakedPatches.clear();
+    for (int attempt = 0;; ++attempt)
+    {
+        QPair<qint64, qint64> leaked{std::numeric_limits<qint64>::min(), 0};
+        MeshResult r = generateOnce(&leaked);
+        if (leaked.first == std::numeric_limits<qint64>::min() || attempt >= 64) return r;
+        m_leakedPatches.insert(leaked);
+        qInfo().noquote() << QStringLiteral("[Mesh] a structured patch's ring is not watertight; regenerating with it "
+                                            "as triangles (%1 excluded so far)").arg(m_leakedPatches.size());
+    }
+}
+
+MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
+{
     MeshResult result;
     m_acceptedTerrainLines.clear();
     m_vertexTagByMarker.clear();
@@ -1373,6 +1387,13 @@ MeshResult MeshGenerator::generate() const
         const double h = hAt(x, y);
         return h > 0.0 ? std::max(h, hMin) : h;
     };
+    // Identity of a patch across regeneration attempts: its outline centroid.
+    auto patchKey = [&](const QPolygonF &outline) {
+        double cx = 0, cy = 0;
+        for (const QPointF &q : outline) { cx += q.x(); cy += q.y(); }
+        const double n = std::max<qsizetype>(1, outline.size()), quantum = std::max(1e-9, 1e-6 * std::max(hMin, 1e-6));
+        return qMakePair(qint64(std::llround(cx / n / quantum)), qint64(std::llround(cy / n / quantum)));
+    };
     // Lines that cross or come closer than the refinement floor share
     // vertices from here on (pipes crossing in plan, a node beside its pipe,
     // two alignments through one manhole digitised apart).
@@ -1393,6 +1414,49 @@ MeshResult MeshGenerator::generate() const
             qInfo().noquote() << QStringLiteral("[Mesh] constraint lines joined within %1: %2 vertices merged, %3 put on a "
                                                 "line beside them, %4 crossings split")
                                      .arg(tol).arg(jr.merged).arg(jr.snapped).arg(jr.crossings);
+    }
+    // Joining can move a small hole's ring past its seed, and a seed outside
+    // its ring would flood-remove the surrounding mesh. Re-seat every seed
+    // that no hole ring contains inside the nearest hole ring.
+    QVector<QPointF> holeSeeds = m_holes;
+    {
+        QVector<const QVector<QPointF> *> holeRingPtrs;
+        for (const Poly &p : std::as_const(polys))
+            if (p.isHole && !p.dropped && p.pts.size() >= 3) holeRingPtrs.append(&p.pts);
+        const RingIndex holeIndex(holeRingPtrs);
+        int reseated = 0;
+        for (QPointF &seed : holeSeeds) {
+            if (holeIndex.anyContains(seed)) continue;
+            const QVector<QPointF> *nearest = nullptr; double best = std::numeric_limits<double>::infinity();
+            for (const QVector<QPointF> *ring : std::as_const(holeRingPtrs)) {
+                const int n = ring->size();
+                for (int k = 0; k < n; ++k) {
+                    const double d = std::sqrt(pslg::distSqToSegment(seed, (*ring)[k], (*ring)[(k + 1) % n]));
+                    if (d < best) { best = d; nearest = ring; }
+                }
+            }
+            if (!nearest || best > 4.0 * kRefineFloor * hMin + 1e-9) continue;
+            // Centroid of an ear: convex and empty of other ring vertices.
+            const QVector<QPointF> &r = *nearest;
+            const int n = r.size();
+            double area2 = 0;
+            for (int k = 0; k < n; ++k) area2 += r[k].x() * r[(k + 1) % n].y() - r[(k + 1) % n].x() * r[k].y();
+            for (int k = 0; k < n; ++k) {
+                const QPointF &a = r[(k + n - 1) % n], &b = r[k], &c = r[(k + 1) % n];
+                const double turn = (b.x() - a.x()) * (c.y() - b.y()) - (b.y() - a.y()) * (c.x() - b.x());
+                if (!(turn * area2 > 0)) continue;
+                const QPolygonF ear({a, b, c});
+                bool empty = true;
+                for (int j = 0; j < n && empty; ++j)
+                    if (j != k && j != (k + 1) % n && j != (k + n - 1) % n && ear.containsPoint(r[j], Qt::OddEvenFill)) empty = false;
+                if (!empty) continue;
+                seed = (a + b + c) / 3.0;
+                ++reseated;
+                break;
+            }
+        }
+        if (reseated)
+            qInfo().noquote() << QStringLiteral("[Mesh] %1 hole seed(s) re-seated inside their ring after joining").arg(reseated);
     }
     // A strip cannot turn a sharp corner (its inner side folds into slivers):
     // a line with a strip width is cut into runs where it turns by more than
@@ -1526,6 +1590,7 @@ MeshResult MeshGenerator::generate() const
             ++m_stats.stripsDropped;
             continue;
         }
+        if (m_leakedPatches.contains(patchKey(outline))) { rep.message = QStringLiteral("ring not watertight"); ++m_stats.stripsDropped; continue; }
         polys[pi].dropped = true;
         appendPatchBoundary(pm, true, &polys);
         checker.addRing(outline);
@@ -1580,6 +1645,7 @@ MeshResult MeshGenerator::generate() const
                     { err = QStringLiteral("its end bends back across the strip"); break; }
             if (err.isEmpty()) { cut = c; break; }
         }
+        if (err.isEmpty() && m_leakedPatches.contains(patchKey(outline))) err = QStringLiteral("ring not watertight");
         if (!err.isEmpty())
         {
             qInfo().noquote() << QStringLiteral("[Mesh] conduit strip%1 dropped: %2")
@@ -1694,6 +1760,7 @@ MeshResult MeshGenerator::generate() const
                 QPolygonF outline;
                 if (err.isEmpty()) outline = orderedPatchBoundary(pm, &err);
                 if (err.isEmpty()) err = checker.misfit(outline, std::numeric_limits<int>::min());
+                if (err.isEmpty() && m_leakedPatches.contains(patchKey(outline))) err = QStringLiteral("ring not watertight");
                 if (!err.isEmpty()) { ++m_stats.stripsDropped; continue; }
                 appendPatchBoundary(pm, false, &polys);
                 checker.addRing(outline);
@@ -1768,9 +1835,17 @@ MeshResult MeshGenerator::generate() const
             const int a = p.cdtIds[k], b = p.cdtIds[(k + 1) % n];
             if (a == b) continue;
             if (!cdt.insertConstraint(a, b))
+            {
+                const QPointF pa = p.pts[k], pb = p.pts[(k + 1) % n];
+                const QString kind = p.isDomain ? QStringLiteral("domain ring") : p.isHole ? QStringLiteral("hole ring")
+                                   : p.closed ? QStringLiteral("closed ring") : QStringLiteral("line");
                 return fail(QStringLiteral("MeshGenerator: constraint%1 could not be recovered — %2. "
-                                           "Constraints cross each other or the domain boundary.")
-                                .arg(p.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(p.tag), cdt.errorMsg()));
+                                           "Constraints cross each other or the domain boundary. "
+                                           "(%3 edge (%4, %5)-(%6, %7), marker %8)")
+                                .arg(p.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(p.tag), cdt.errorMsg(), kind)
+                                .arg(pa.x(), 0, 'f', 2).arg(pa.y(), 0, 'f', 2).arg(pb.x(), 0, 'f', 2).arg(pb.y(), 0, 'f', 2)
+                                .arg(p.marker));
+            }
         }
     }
     // Fixed after every constraint is in, so a later constraint's vertex on a
@@ -1785,14 +1860,76 @@ MeshResult MeshGenerator::generate() const
     if (cancelled()) return fail(QStringLiteral("Cancelled."));
 
     cdt.removeExterior();
-    for (const QPointF &seed : m_holes) cdt.removeRegionAt(seed);
-    for (const PatchMesh &pm : std::as_const(patches))
-        if (!pm.quads.isEmpty())
+    {
+        int bigHoles = 0;
+        for (const QPointF &seed : std::as_const(holeSeeds)) {
+            const int removed = cdt.removeRegionAt(seed);
+            // A building hole holds only its ring vertices; thousands of
+            // removed triangles mean its seed or ring let the flood out.
+            if (removed > 5000 && ++bigHoles <= 10)
+                qInfo().noquote() << QStringLiteral("[Mesh][hole-diag] seed (%1, %2) removed %3 triangles")
+                                         .arg(seed.x(),0,'f',2).arg(seed.y(),0,'f',2).arg(removed);
+        }
+        if (bigHoles) qInfo().noquote() << QStringLiteral("[Mesh][hole-diag] %1 hole removals were unexpectedly large").arg(bigHoles);
+    }
+    for (int pi = 0; pi < patches.size(); ++pi)
+        if (const PatchMesh &pm = patches[pi]; !pm.quads.isEmpty())
         {
             const MeshTriangle &q = pm.quads.first();
             const QPointF c = 0.25 * (pm.xy[q.v0] + pm.xy[q.v1] + pm.xy[q.v2] + pm.xy[q.v3]);
-            cdt.removeRegionAt(c);
+            // A patch interior holds only its ring vertices: about ring - 2
+            // triangles. Removing far more means its ring leaked into the
+            // surrounding mesh; regenerate with this patch as triangles.
+            const int removed = cdt.removeRegionAt(c);
+            if (leaked && pi < patchRings.size() && removed > 2 * patchRings[pi].size() + 8)
+            {
+                *leaked = patchKey(patchRings[pi]);
+                return fail(QStringLiteral("MeshGenerator: structured patch ring is not watertight (removal took %1 triangles)").arg(removed));
+            }
         }
+    if (cancelled()) return fail(QStringLiteral("Cancelled."));
+
+    // ── Lattice seeding (D-R6) ───────────────────────────────────────────
+    // One hexagonal lattice per size band [s, 2s), s = kMeanEdge·hMin·2^k:
+    // a point is kept where the local target edge falls in its band, inside
+    // the domain and holes, and at least half a spacing from every
+    // constraint. Refinement then only fills band transitions and the
+    // neighbourhood of constraints, so open areas stay near-equilateral.
+    if (m_opts.latticeSeeding && hMin > 0.0)
+    {
+        QRectF bbox;
+        for (const auto &r : domainRings) bbox = bbox.isValid() ? bbox.united(QPolygonF(r).boundingRect()) : QPolygonF(r).boundingRect();
+        const RingIndex inDomain(ringPointers(domainRings)), inHole(ringPointers(holeRings));
+        SegmentGrid near;
+        near.build({}, 4.0 * kMeanEdge * hMin);
+        for (const Poly &p : polys) {
+            if (p.dropped || p.pts.size() < 2) continue;
+            const int n = p.pts.size(), edges = p.closed ? n : n - 1;
+            for (int k = 0; k < edges; ++k) near.addSplit(p.pts[k], p.pts[(k + 1) % n]);
+        }
+        for (const SteinerPoint &sp : m_steiners) near.addSplit(sp.xy, sp.xy);
+        qint64 seeded = 0;
+        const double s0 = kMeanEdge * hMin;
+        for (double s = s0; s < 2.0 * std::max(bbox.width(), bbox.height()); s *= 2.0)
+        {
+            const double dy = s * std::sqrt(3.0) / 2.0;
+            int row = 0;
+            for (double y = bbox.top() + 0.5 * dy; y < bbox.bottom(); y += dy, ++row)
+            {
+                if (cancelled()) return fail(QStringLiteral("Cancelled."));
+                for (double x = bbox.left() + ((row & 1) ? 0.5 * s : 0.0) + 0.25 * s; x < bbox.right(); x += s)
+                {
+                    const double h = kMeanEdge * hClamped(x, y);
+                    if (!(h >= s) || (h >= 2.0 * s)) continue;
+                    const QPointF q(x, y);
+                    if (!inDomain.anyContains(q) || inHole.anyContains(q)) continue;
+                    if (near.segmentNear(q, q, 0.5 * s)) continue;
+                    if (cdt.insertPoint(q) >= 0) ++seeded;
+                }
+            }
+        }
+        qInfo().noquote() << QStringLiteral("[Mesh] lattice seeding: %1 vertices").arg(seeded);
+    }
     if (cancelled()) return fail(QStringLiteral("Cancelled."));
 
     // ── Quality refinement ───────────────────────────────────────────────
@@ -1824,6 +1961,8 @@ MeshResult MeshGenerator::generate() const
         qo.terrainError = m_refineHook.terrainError;
         qo.terrainElevationAt = m_refineHook.terrainElevationAt;
         qo.terrainTolerance = m_refineHook.terrainTolerance;
+        qo.terrainWorstFirst = m_refineHook.terrainWorstFirst;
+        qo.smoothingPasses = m_opts.smoothingPasses;
         qo.terrainMinSpacing = qo.minEdge;
         // Terrain may require far more cells than the coarse size estimate.
         // The explicit cell budget remains the hard resource limit.
@@ -2034,9 +2173,49 @@ MeshResult MeshGenerator::generate() const
             const QPointF a = result.vertices[it.key().first].xy - patchOrigin;
             const QPointF b = result.vertices[it.key().second].xy - patchOrigin;
             if (it.value() == 1 && patchEdgeOnOutline(a, b, outlines, outlineTol)) continue;
+            const QPointF at = 0.5 * (a + b) + patchOrigin;
+            // Diagnose: a vertex on the edge means a T-junction; none means
+            // the neighbouring cell was removed (a leaking region removal).
+            QString cause = QStringLiteral("the neighbouring cell is missing");
+            const QPointF d = b - a; const double len2 = d.x() * d.x() + d.y() * d.y();
+            for (int vi = 0; vi < result.vertices.size() && len2 > 0; ++vi) {
+                if (vi == it.key().first || vi == it.key().second) continue;
+                const QPointF q = result.vertices[vi].xy - patchOrigin;
+                const double t = ((q.x() - a.x()) * d.x() + (q.y() - a.y()) * d.y()) / len2;
+                if (t <= 1e-9 || t >= 1 - 1e-9) continue;
+                const QPointF foot = a + d * t;
+                if (std::hypot(q.x() - foot.x(), q.y() - foot.y()) < 1e-6 * std::sqrt(len2)) {
+                    cause = QStringLiteral("T-junction at vertex (%1, %2)").arg(q.x() + patchOrigin.x(),0,'f',2).arg(q.y() + patchOrigin.y(),0,'f',2);
+                    break;
+                }
+            }
+            // Diagnostics: the cells around the edge's two ends.
+            for (int ci = 0; ci < result.triangles.size(); ++ci) {
+                const MeshTriangle &cell = result.triangles[ci];
+                const int nv = cell.vertexCount();
+                bool touches = false;
+                for (int k = 0; k < nv; ++k) touches = touches || cell.vertex(k) == it.key().first || cell.vertex(k) == it.key().second;
+                if (!touches) continue;
+                QStringList pts;
+                for (int k = 0; k < nv; ++k) pts << QStringLiteral("%1:%2 %3").arg(cell.vertex(k))
+                    .arg(result.vertices[cell.vertex(k)].xy.x(),0,'f',3).arg(result.vertices[cell.vertex(k)].xy.y(),0,'f',3);
+                qInfo().noquote() << QStringLiteral("[Mesh][patch-diag] cell %1 (%2): %3").arg(ci).arg(nv == 4 ? "quad" : "tri").arg(pts.join(", "));
+            }
+            qInfo().noquote() << QStringLiteral("[Mesh][patch-diag] edge %1-%2").arg(it.key().first).arg(it.key().second);
+            // Diagnostics: every constraint with a vertex within 40 units.
+            for (const Poly &pp : std::as_const(polys)) {
+                bool nearHere = false;
+                for (const QPointF &q : pp.pts) if (std::hypot(q.x() - at.x(), q.y() - at.y()) < 40.0) { nearHere = true; break; }
+                if (!nearHere) continue;
+                QStringList pts;
+                for (const QPointF &q : pp.pts) pts << QStringLiteral("%1 %2").arg(q.x(),0,'f',2).arg(q.y(),0,'f',2);
+                qInfo().noquote() << QStringLiteral("[Mesh][patch-diag] %1%2%3%4%5 marker %6 tag '%7': %8")
+                    .arg(pp.isDomain ? "domain " : "").arg(pp.isHole ? "hole " : "").arg(pp.isTerrain ? "terrain " : "")
+                    .arg(pp.fixed ? "fixed " : "").arg(pp.dropped ? "dropped " : "").arg(pp.marker).arg(pp.tag).arg(pts.join(", "));
+            }
             return fail(QStringLiteral("MeshGenerator: structured patch boundary has %1 incident cells instead of a conforming "
-                                       "interface. Match subdivisions on touching patches and domain boundaries, or separate "
-                                       "the patches.").arg(it.value()));
+                                       "interface near (%2, %3): %4. Match subdivisions on touching patches and domain "
+                                       "boundaries, or separate the patches.").arg(it.value()).arg(at.x(),0,'f',2).arg(at.y(),0,'f',2).arg(cause));
         }
     }
     if (result.triangles.isEmpty())

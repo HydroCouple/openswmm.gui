@@ -106,7 +106,8 @@ public:
     };
     static QByteArray breaklineKey(const FileIdentity &dem, const QString &meshCRSWkt,
                                    const QRectF &demWindow, double tolerance,
-                                   double lowRatio, int minPixels, qint64 maxPixels);
+                                   double lowRatio, int minPixels, qint64 maxPixels,
+                                   int decimation = 1);
     bool loadBreaklines(const QByteArray &key, Breaklines *out) const;
     bool storeBreaklines(const QByteArray &key, const Breaklines &v) const;
 
@@ -124,6 +125,8 @@ private:
     // trimmed by straightness instead of RDP+densify; the terrain stage
     // (B) no longer exists.
     static constexpr quint16 kFormatVersion = 3;
+    // Bump when mesh::conditionMeshRegion changes its output (stage A only).
+    static constexpr quint16 kConditioningVersion = 4;
 
     [[nodiscard]] QString entryPath(char stage, const QByteArray &key) const;
 
