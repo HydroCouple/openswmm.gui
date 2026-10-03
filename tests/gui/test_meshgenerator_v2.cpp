@@ -505,6 +505,67 @@ private slots:
         QVERIFY(t.elapsed() < 60000);
     }
 
+    // D-R6: lattice seeding makes open-area triangles near-equilateral.
+    void latticeSeedingMakesTrianglesNearEquilateral()
+    {
+        auto stats = [](const MeshResult &m, double *nearEq, double *meanMin, double *worst) {
+            int n = 0, good = 0; double sum = 0, lo = 180;
+            for (const auto &c : m.triangles) {
+                if (c.isQuad()) continue;
+                const QPointF p[3] = {m.vertices[c.v0].xy, m.vertices[c.v1].xy, m.vertices[c.v2].xy};
+                double mn = 180, mx = 0;
+                for (int k = 0; k < 3; ++k) {
+                    const QPointF u = p[(k + 1) % 3] - p[k], v = p[(k + 2) % 3] - p[k];
+                    const double a = std::acos(std::clamp((u.x() * v.x() + u.y() * v.y())
+                        / (std::hypot(u.x(), u.y()) * std::hypot(v.x(), v.y())), -1.0, 1.0)) * 180 / M_PI;
+                    mn = std::min(mn, a); mx = std::max(mx, a);
+                }
+                ++n; sum += mn; lo = std::min(lo, mn);
+                if (mn >= 45 && mx <= 75) ++good;
+            }
+            *nearEq = double(good) / std::max(n, 1); *meanMin = sum / std::max(n, 1); *worst = lo;
+        };
+        auto mesh = [](bool seeding, int smoothing = 0) {
+            MeshGenerator g;
+            g.setDomain(rect(0, 0, 1000, 800));
+            ConstraintSegment hole;
+            hole.path = {QPointF(300, 300), QPointF(420, 300), QPointF(420, 380), QPointF(300, 380), QPointF(300, 300)};
+            g.addConstraintSegment(hole);
+            g.addHole(QPointF(360, 340));
+            ConstraintSegment line;
+            line.path = {QPointF(50, 650), QPointF(950, 600)};
+            line.marker = 7;
+            g.addConstraintSegment(line);
+            GenerationOptions o;
+            o.minCellSize = 8.0;
+            o.maxArea = 0.4330127018922193 * 40.0 * 40.0;   // h = 40 away from features
+            o.latticeSeeding = seeding;
+            o.smoothingPasses = smoothing;
+            g.setOptions(o);
+            return g.generate();
+        };
+        const MeshResult off = mesh(false), on = mesh(true);
+        QVERIFY2(off.ok && on.ok, qPrintable(off.errorMsg + on.errorMsg));
+        double eqOff, meanOff, worstOff, eqOn, meanOn, worstOn;
+        stats(off, &eqOff, &meanOff, &worstOff);
+        stats(on, &eqOn, &meanOn, &worstOn);
+        qInfo("near-equilateral (all angles 45-75): off %.1f%% / on %.1f%%; mean min angle off %.1f / on %.1f; worst off %.1f / on %.1f; cells off %d / on %d",
+              100 * eqOff, 100 * eqOn, meanOff, meanOn, worstOff, worstOn, int(off.triangles.size()), int(on.triangles.size()));
+        QVERIFY(eqOn > eqOff);
+        QVERIFY(meanOn > meanOff);
+        QVERIFY(worstOn >= 29.0);   // the 30-degree floor still holds
+        QCOMPARE(missingConstraintEdges(on), 0);
+        const MeshResult smooth = mesh(true, 3);
+        QVERIFY(smooth.ok);
+        double eqS, meanS, worstS;
+        stats(smooth, &eqS, &meanS, &worstS);
+        qInfo("with 3 smoothing passes: near-equilateral %.1f%%, mean min angle %.1f, worst %.1f, cells %d",
+              100 * eqS, meanS, worstS, int(smooth.triangles.size()));
+        QVERIFY(eqS >= eqOn);
+        QVERIFY(worstS >= worstOn - 1e-9);
+        QCOMPARE(missingConstraintEdges(smooth), 0);
+    }
+
     // Many holes plus terrain break lines: seed-to-ring assignment and the
     // break-line hole test must not scan every ring. 600 holes always run;
     // SWMMVIS_MANY_HOLES=<n> times a larger case. Prints an exact mesh hash

@@ -60,6 +60,10 @@ struct TerrainSizeOptions
      *  pass so the DEM is read once. */
     std::function<void(const float *, int, int, int)> rowSink;
     bool rowsOnly = false; ///< Stream rows without allocating or computing a size grid.
+    /*! rowsOnly only: stream a grid d times coarser (block-averaged, served
+     *  from overviews when present), for feature detection that does not
+     *  need full resolution. windowPixelToGeo() maps the coarse grid. */
+    int decimation = 1;
 };
 
 class TerrainSizeField
@@ -121,6 +125,7 @@ private:
     int    m_outCols = 0, m_outRows = 0;
     int    m_outLevel = 2, m_maxLevel = 10;
     int    m_col0 = 0, m_row0 = 0, m_cols = 0, m_rows = 0;
+    int    m_decimation = 1;   ///< Coarse grid factor of the last rows-only stream.
     double m_geo[6] = {0, 1, 0, 0, 0, 1};   ///< GDAL geotransform (buildFromFile).
     double m_invGeo[6] = {0, 1, 0, 0, 0, 1};
     double m_pixelSize = 0.0;

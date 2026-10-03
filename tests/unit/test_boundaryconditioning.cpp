@@ -12,6 +12,7 @@
 
 #include <QElapsedTimer>
 #include <QString>
+#include <QStringList>
 #include <gdal_priv.h>
 #include <ogr_geometry.h>
 #include <ogrsf_frmts.h>
@@ -141,8 +142,7 @@ TEST(BoundaryConditioning, RealBoundaryTiming)
     BoundaryConditionReport r;
     auto out = condition(dissolved.get(), gap, &r);
     ASSERT_TRUE(out);
-    std::printf("buffers+simplify %lld ms, +collapse %lld ms, repaired %d\n",
-                (long long)r.buffersMs, (long long)r.collapseMs, int(r.repaired));
+    std::printf("tiles %d\n", r.tiles);
     std::printf("union %lld ms; conditioning %lld ms at gap %g: polygons %d -> %d, holes %d -> %d, "
                 "vertices %lld -> %lld, edges < gap %lld -> %lld, area %.1f -> %.1f\n",
                 (long long)unionMs, (long long)r.milliseconds, gap, r.polygonsIn, r.polygonsOut,
@@ -150,4 +150,49 @@ TEST(BoundaryConditioning, RealBoundaryTiming)
                 (long long)r.shortEdgesIn, (long long)r.shortEdgesOut, r.areaIn, r.areaOut);
     EXPECT_TRUE(out->IsValid());
     EXPECT_LE(r.holesOut, r.holesIn);
+    // Optional probe: SWMMVIS_BOUNDARY_CONDITION_PROBE="x,y,radius" prints
+    // every conditioned ring vertex near a point (diagnostics).
+    // SWMMVIS_BOUNDARY_CONDITION_SEEDS="x1,y1;x2,y2": which ring holds each point.
+    for (const QString &pt : qEnvironmentVariable("SWMMVIS_BOUNDARY_CONDITION_SEEDS").split(';', Qt::SkipEmptyParts)) {
+        const QStringList xy = pt.split(',');
+        OGRPoint q(xy[0].toDouble(), xy[1].toDouble());
+        OGRMultiPolygon polys;
+        if (wkbFlatten(out->getGeometryType()) == wkbPolygon) polys.addGeometry(out.get());
+        else for (const OGRPolygon *p : *out->toMultiPolygon()) polys.addGeometry(p);
+        QString where = QStringLiteral("outside every polygon");
+        int pi = 0;
+        for (const OGRPolygon *poly : polys) {
+            OGRPolygon shell; shell.addRing(poly->getExteriorRing());
+            if (shell.Contains(&q)) {
+                where = QStringLiteral("inside polygon %1 (meshed area)").arg(pi);
+                for (int h = 0; h < poly->getNumInteriorRings(); ++h) {
+                    OGRPolygon hole; hole.addRing(poly->getInteriorRing(h));
+                    if (hole.Contains(&q)) {
+                        where = QStringLiteral("inside polygon %1 hole %2 (%3 vertices, area %4)").arg(pi).arg(h)
+                                    .arg(poly->getInteriorRing(h)->getNumPoints()).arg(hole.get_Area(), 0, 'f', 0);
+                        break;
+                    }
+                }
+            }
+            ++pi;
+        }
+        std::printf("seed %s: %s\n", qPrintable(pt), qPrintable(where));
+    }
+    const QStringList probe = qEnvironmentVariable("SWMMVIS_BOUNDARY_CONDITION_PROBE").split(',');
+    if (probe.size() == 3) {
+        const double px = probe[0].toDouble(), py = probe[1].toDouble(), pr = probe[2].toDouble();
+        OGRMultiPolygon polys;
+        if (wkbFlatten(out->getGeometryType()) == wkbPolygon) polys.addGeometry(out.get());
+        else for (const OGRPolygon *p : *out->toMultiPolygon()) polys.addGeometry(p);
+        int pi = 0;
+        for (const OGRPolygon *poly : polys) {
+            for (int ri = -1; ri < poly->getNumInteriorRings(); ++ri) {
+                const OGRLinearRing *ring = ri < 0 ? poly->getExteriorRing() : poly->getInteriorRing(ri);
+                for (int i = 0; i < ring->getNumPoints(); ++i)
+                    if (std::hypot(ring->getX(i) - px, ring->getY(i) - py) < pr)
+                        std::printf("poly %d ring %d vertex %d: %.4f %.4f\n", pi, ri, i, ring->getX(i), ring->getY(i));
+            }
+            ++pi;
+        }
+    }
 }

@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <queue>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -672,12 +673,13 @@ void ConstrainedDelaunay::removeSuperTriangles()
             T.alive = false;
 }
 
-void ConstrainedDelaunay::removeRegionAt(const QPointF &p)
+int ConstrainedDelaunay::removeRegionAt(const QPointF &p)
 {
     const int t0 = locate(p);
-    if (t0 < 0) return;
+    if (t0 < 0) return 0;
     QVector<int> stack{t0};
     m_tris[t0].alive = false;
+    int removed = 1;
     while (!stack.isEmpty())
     {
         const int t = stack.takeLast();
@@ -686,9 +688,11 @@ void ConstrainedDelaunay::removeRegionAt(const QPointF &p)
             const int n = m_tris[t].adj[i];
             if (n < 0 || !m_tris[n].alive || m_tris[t].constrained[i]) continue;
             m_tris[n].alive = false;
+            ++removed;
             stack.append(n);
         }
     }
+    return removed;
 }
 
 // ── Quality refinement ──────────────────────────────────────────────────
@@ -918,7 +922,7 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
             const double sinA = cross / std::sqrt(l[(s + 1) % 3] * l[(s + 2) % 3]);   // angle opposite the shortest edge
             if (sinA < sinMin && !exemptShortestEdge(T.v[(s + 1) % 3], T.v[(s + 2) % 3])) { bad = true; reason = 2; }
         }
-        if (!bad && terrain) {
+        if (!bad && terrain && !opt.terrainWorstFirst) {
             const double e = measure(t,out);
             if (std::isfinite(e) && e > opt.terrainTolerance) {
                 const double clearance = std::max(opt.terrainMinSpacing,opt.minEdge);
@@ -1043,6 +1047,9 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
         return -1;
     };
     m_triangleChanged = enqueue;
+    // The cell budget counts live triangles: removed regions (exterior,
+    // holes, patch interiors) leave dead slots that are never refilled.
+    const qsizetype deadAtStart = m_tris.size() - liveTriangleCount();
     const auto clearObserver = qScopeGuard([&] { m_triangleChanged = {}; });
     auto queueEncroachedOf = [&](int t) {
         const Triangle &T = m_tris[t];
@@ -1059,7 +1066,7 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
         QVector<int> star;
         trianglesAround(v, &star);
         for (int t : std::as_const(star)) if (m_tris[t].alive) { enqueue(t); queueEncroachedOf(t); }
-        if (rep.inserted >= opt.maxInsertions || m_tris.size() >= opt.maxTriangles) { rep.capped = true; stop = true; }
+        if (rep.inserted >= opt.maxInsertions || m_tris.size() - deadAtStart >= opt.maxTriangles) { rep.capped = true; stop = true; }
         if ((rep.inserted & 4095) == 0 && opt.cancelled && opt.cancelled()) { rep.cancelled = true; stop = true; }
     };
     auto drainSegments = [&]() {
@@ -1077,24 +1084,19 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
 
     for (int i = 0; i < m_tris.size(); ++i)
         if (m_tris[i].alive) { enqueue(i); queueEncroachedOf(i); }
-    if (m_tris.size() >= opt.maxTriangles) { rep.capped = true; stop = true; }
+    if (m_tris.size() - deadAtStart >= opt.maxTriangles) { rep.capped = true; stop = true; }
     drainSegments();
 
     QVector<quint64> enc;
-    int examined = 0;
-    while (!stop)
-    {
-        const int t = dequeue();
-        if (t < 0) break;
-        if ((++examined & 4095) == 0 && opt.cancelled && opt.cancelled()) { rep.cancelled = true; break; }
-        QPointF p;
-        if (!badPoint(t, &p)) continue;
+    // Insert p for bad triangle t (reason already set), or split the
+    // subsegments p would encroach. Returns false when nothing changed.
+    auto tryInsert = [&](int t, const QPointF &p) {
         enc.clear();
         int blockT = -1, blockE = -1;
         const int c = walkTo(t, p, &blockT, &blockE);
         if (c < 0)
         {
-            if (blockT < 0) continue;   // lost the point: leave the triangle
+            if (blockT < 0) return false;   // lost the point: leave the triangle
             enc.append(edgeKey64(m_tris[blockT].v[(blockE + 1) % 3], m_tris[blockT].v[(blockE + 2) % 3]));
         }
         else cavityEncroached(c, p, &enc);
@@ -1113,20 +1115,125 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
                 split = true;
                 afterInsert(v);
             }
-            if (!split) { ++rep.blockedByFixed; continue; }
+            if (!split) { ++rep.blockedByFixed; return false; }
             enqueue(t);   // retried with the subsegments split
             drainSegments();
-            continue;
+            return true;
         }
         m_lastLocate = c;
         const int before = m_pts.size();
         const int v = insertPoint(p);
-        if (v < 0 || v < before) continue;   // outside or coincident
+        if (v < 0 || v < before) return false;   // outside or coincident
         if (reason == 1) ++rep.sizeInsertions;
         else if (reason == 2) ++rep.qualityInsertions;
         else if (reason == 3) ++rep.terrainInsertions;
         afterInsert(v);
         drainSegments();
+        return true;
+    };
+    int examined = 0;
+    auto drainQueue = [&]() {
+        while (!stop)
+        {
+            const int t = dequeue();
+            if (t < 0) break;
+            if ((++examined & 4095) == 0 && opt.cancelled && opt.cancelled()) { rep.cancelled = true; break; }
+            QPointF p;
+            if (!badPoint(t, &p)) continue;
+            tryInsert(t, p);
+        }
+    };
+    drainQueue();
+
+    // Non-degrading smoothing (MESH_REGIONAL_TRIQUAD_PLAN D-R6): before any
+    // terrain point is placed, so no sampled height is moved off its spot.
+    if (opt.smoothingPasses > 0 && (!terrain || opt.terrainWorstFirst) && !stop && !rep.cancelled)
+    {
+        auto minAngleOf = [&](int t) {
+            const auto &T = m_tris[t];
+            const QPointF &a = m_pts[T.v[0]], &b = m_pts[T.v[1]], &c = m_pts[T.v[2]];
+            const double l[3] = {dist2(b, c), dist2(c, a), dist2(a, b)};
+            const double cross = std::abs((b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x()));
+            // sin of the angle opposite the shortest edge
+            const int s = (l[0] <= l[1] && l[0] <= l[2]) ? 0 : (l[1] <= l[2] ? 1 : 2);
+            return cross / std::sqrt(l[(s + 1) % 3] * l[(s + 2) % 3]);
+        };
+        auto positive = [&](int t) {
+            const auto &T = m_tris[t];
+            const QPointF &a = m_pts[T.v[0]], &b = m_pts[T.v[1]], &c = m_pts[T.v[2]];
+            return (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x()) > 0.0;
+        };
+        const int firstFree = m_superBase + 3;
+        QVector<int> star;
+        for (int pass = 0; pass < opt.smoothingPasses; ++pass)
+        {
+            for (int v = firstFree; v < m_pts.size(); ++v)
+            {
+                star.clear();
+                trianglesAround(v, &star);
+                if (star.size() < 3) continue;
+                bool fixed = false; double wsum = 0, cx = 0, cy = 0, before = 1e300;
+                for (int t : std::as_const(star))
+                {
+                    const auto &T = m_tris[t];
+                    const int i = edgeIndex(t, v);
+                    if (!T.alive || i < 0 || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2])
+                        || T.constrained[(i + 1) % 3] || T.constrained[(i + 2) % 3]
+                        || T.adj[(i + 1) % 3] < 0 || T.adj[(i + 2) % 3] < 0) { fixed = true; break; }
+                    const QPointF &a = m_pts[T.v[0]], &b = m_pts[T.v[1]], &c = m_pts[T.v[2]];
+                    const double area = 0.5 * std::abs((b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x()));
+                    cx += area * (a.x() + b.x() + c.x()) / 3.0; cy += area * (a.y() + b.y() + c.y()) / 3.0; wsum += area;
+                    before = std::min(before, minAngleOf(t));
+                }
+                if (fixed || !(wsum > 0.0)) continue;
+                const QPointF old = m_pts[v];
+                m_pts[v] = QPointF(cx / wsum, cy / wsum);
+                double after = 1e300; bool valid = true;
+                for (int t : std::as_const(star)) { if (!positive(t)) { valid = false; break; } after = std::min(after, minAngleOf(t)); }
+                if (!valid || !(after > before * (1.0 + 1e-9))) { m_pts[v] = old; continue; }
+                for (int t : std::as_const(star))
+                    if (m_tris[t].alive) { const int i = edgeIndex(t, v); if (i >= 0) legalize(t, i); }
+            }
+        }
+    }
+
+    // Worst-first terrain refinement: with size and angle met, spend the
+    // remaining cell budget where the surface error is largest, so a capped
+    // run still has even fidelity. Each insertion restores quality locally,
+    // then only the triangles it changed are measured again.
+    if (terrain && opt.terrainWorstFirst && !stop && !rep.cancelled)
+    {
+        struct Candidate { double e; int t; int v[3]; QPointF p; };
+        auto worse = [](const Candidate &a, const Candidate &b) { return a.e < b.e; };
+        std::priority_queue<Candidate, std::vector<Candidate>, decltype(worse)> heap(worse);
+        auto consider = [&](int t) {
+            const Triangle &T = m_tris[t];
+            if (!T.alive || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2])) return;
+            const QPointF &A = m_pts[T.v[0]], &B = m_pts[T.v[1]], &C = m_pts[T.v[2]];
+            if (!((B.x() - A.x()) * (C.y() - A.y()) - (B.y() - A.y()) * (C.x() - A.x()) > 0.0)) return;
+            QPointF p;
+            const double e = measure(t, &p);
+            if (!std::isfinite(e) || e <= opt.terrainTolerance) return;
+            const double clearance = std::max(opt.terrainMinSpacing, opt.minEdge);
+            if (std::min({dist2(p, A), dist2(p, B), dist2(p, C)}) <= clearance * clearance) return;
+            heap.push({e, t, {T.v[0], T.v[1], T.v[2]}, p});
+        };
+        for (int t = 0; t < m_tris.size(); ++t) consider(t);
+        QVector<int> changed;
+        m_triangleChanged = [&](int t) { enqueue(t); changed.append(t); };
+        while (!heap.empty() && !stop)
+        {
+            const Candidate c = heap.top(); heap.pop();
+            const Triangle &T = m_tris[c.t];
+            if (!T.alive || T.v[0] != c.v[0] || T.v[1] != c.v[1] || T.v[2] != c.v[2]) continue;
+            if ((++examined & 4095) == 0 && opt.cancelled && opt.cancelled()) { rep.cancelled = true; break; }
+            changed.clear();
+            reason = 3;
+            if (!tryInsert(c.t, c.p)) continue;
+            drainQueue();
+            for (int t : std::as_const(changed)) consider(t);
+        }
+        m_triangleChanged = enqueue;
     }
     // Independent pass over the final geometry: every live triangle is checked,
     // so a missed edge flip or a blocked terrain candidate cannot go unnoticed.
