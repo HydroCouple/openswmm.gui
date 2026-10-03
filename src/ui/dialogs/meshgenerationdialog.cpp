@@ -1252,7 +1252,34 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 for(int k=0;k<lat.nAcross;++k) cs.path.append(lat.xy[lat.at(row,k)]);
                 strings.append(cs);
             }
-            for(const auto &cs:strings) for(const auto &path:mesh::clipPolylineToDomain(cs.path,burnDomain)) {
+            // Strings meeting at a corner that sits on a ring are clipped one by
+            // one, so each gets its own crossing point a hair from the
+            // others' (or from the corner an unclipped string keeps); pinned
+            // as Steiner points they never join, and the inward edges cross.
+            // A clip end that close to a lattice vertex or an earlier clip
+            // end of the same corridor takes that point.
+            const double endSnap=0.1*std::min(lat.minAlongSpacing,lat.minAcrossSpacing);
+            QHash<QPair<qint64,qint64>,QVector<QPointF>> snapGrid;
+            const auto cellOf=[&](const QPointF &q) {
+                return qMakePair(qint64(std::floor(q.x()/endSnap)),qint64(std::floor(q.y()/endSnap)));
+            };
+            if(endSnap>0.0) for(const QPointF &q:std::as_const(lat.xy)) snapGrid[cellOf(q)].append(q);
+            const auto shareEnd=[&](QPointF &end) {
+                const auto c=cellOf(end);
+                for(qint64 dy=-1;dy<=1;++dy) for(qint64 dx=-1;dx<=1;++dx) {
+                    const auto it=snapGrid.constFind({c.first+dx,c.second+dy});
+                    if(it==snapGrid.constEnd()) continue;
+                    for(const QPointF &q:it.value()) if(QLineF(q,end).length()<endSnap) { end=q; return; }
+                }
+                snapGrid[c].append(end);
+            };
+            for(const auto &cs:strings) for(auto path:mesh::clipPolylineToDomain(cs.path,burnDomain)) {
+                if(path!=cs.path && endSnap>0.0) {
+                    if(path.first()!=cs.path.first()) shareEnd(path.first());
+                    if(path.last()!=cs.path.last()) shareEnd(path.last());
+                    path.erase(std::unique(path.begin(),path.end()),path.end());
+                    if(path.size()<2) continue;
+                }
                 mesh::ConstraintSegment clipped=cs; clipped.path=path; clipped.marker=burnMarker++;
                 clipped.tag=QStringLiteral("channel:%1").arg(p.conduitId);
                 g.addConstraintSegment(clipped);
@@ -1402,6 +1429,12 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         mesh::RegionMarker r = rm;
         if (areaFloor > 0.0 && r.maxArea > 0.0 && r.maxArea < areaFloor) r.maxArea = areaFloor;
         g.addRegion(r);
+    }
+    // Corridor spacing, not the shortest clipped fragment, bounds joining.
+    for (const auto &lat : std::as_const(channelLattices)) {
+        const double spacing = std::min(lat.minAlongSpacing, lat.minAcrossSpacing);
+        if (spacing > 0.0 && std::isfinite(spacing))
+            in.genOpts.channelSpacing = in.genOpts.channelSpacing > 0.0 ? std::min(in.genOpts.channelSpacing, spacing) : spacing;
     }
     g.setOptions(in.genOpts);
     // G3 structured patches: boundary → PSLG constraints, interior → hole,
