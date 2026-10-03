@@ -234,7 +234,7 @@ See \ref manual_selection and \ref manual_map_editing.
 | **Add Rain Gauge** | Places a rain gage | \ref manual_hydrology |
 | **Climate ▸** | Temperature · Evaporation · Wind · Snow · Solar Radiation — all five open the tabbed Climatology dialog on the matching tab (Solar Radiation opens the Evaporation tab, since solar feeds Hargreaves ET) | \ref manual_climate |
 | **Add Text** | Places a text annotation | \ref manual_map_editing |
-| **Assign Rain Gages…** | Binds gages to subcatchments spatially — Thiessen area majority or natural-neighbour weights — previewed first and applied as one undo step | \ref manual_hydrology |
+| **Assign Rain Gages…** | Binds gages to subcatchments and RDII inflows spatially — Thiessen area majority or natural-neighbour weights — previewed first and applied as one undo step | \ref manual_hydrology |
 | **Data Objects ▸** | See the sub-table below | \ref manual_data_objects |
 | **Import Feature Layer…** | Converts GIS features into SWMM objects with column mapping and update/skip handling | \ref manual_map_editing |
 | **Simulation Options…** | The paged `[OPTIONS]` editor | \ref manual_simulation_options |

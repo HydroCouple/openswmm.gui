@@ -96,9 +96,9 @@ public:
 
 private:
     /*! \brief Shared core of interpolate() and weightsAt(): the raw, UNNORMALISED
-     *         natural-neighbour weights at a normalised query point, in QHash
-     *         iteration order (which interpolate() relies on to keep its
-     *         summation order — and therefore its rounding — unchanged).
+     *         natural-neighbour weights at a normalised query point, in the
+     *         order the neighbours are first met while walking the cavity —
+     *         deterministic for a given triangulation and query.
      *  \param out (Delaunay vertex index, weight) pairs; cleared first.
      *  \returns false where interpolate() would return NaN. */
     bool computeWeights(double qx, double qy,
@@ -126,6 +126,24 @@ private:
     int                 m_numTri = 0;
 
     mutable int         m_lastTri = 0;         // jump-and-walk start hint
+
+    // ── computeWeights() scratch, reused across queries ─────────────────
+    // A query used to allocate three QHashes; at a few hundred samples per
+    // subcatchment that allocation dominated rain-gage interpolation. Stamped
+    // arrays make membership tests O(1) without clearing between queries.
+    struct NbSlot {
+        int v = -1;
+        std::vector<QPointF> ncs;   // new circumcenters (incident boundary edges)
+        std::vector<QPointF> ocs;   // old circumcenters (incident cavity triangles)
+    };
+    mutable std::vector<int>    m_triStamp;    // per triangle: == m_stamp ⇒ in cavity
+    mutable std::vector<int>    m_vertStamp;   // per vertex: == m_stamp ⇒ m_vertSlot valid
+    mutable std::vector<int>    m_vertSlot;
+    mutable std::vector<NbSlot> m_slots;
+    mutable int                 m_nSlots = 0;
+    mutable int                 m_stamp  = 0;
+    mutable std::vector<int>    m_cavity, m_stack;
+    mutable std::vector<QPointF> m_ring;
 };
 
 } // namespace mesh

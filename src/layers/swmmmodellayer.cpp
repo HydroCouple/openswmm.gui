@@ -66,6 +66,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <utility>
 #include <algorithm>
 #include <limits>
 #include <string>
@@ -5913,6 +5914,9 @@ bool SWMMModelLayer::rollbackTailGageAdd(const QString &name)
     if (swmm_gage_delete(m_engine, idx, nullptr) != 0) return false;
 
     m_gages.removeLast();
+    // Same bulk contract as applyGageDelete: endBulkEdit rebuilds the cache.
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
+
     compactGageSceneEntry(idx);
     rebuildCategoryIndex();
     m_needsRebuild = true;
@@ -6093,6 +6097,7 @@ void SWMMModelLayer::beginBulkEdit()
 {
     if (m_bulkDepth++ > 0) return;      // nested; outermost owns the state
     m_bulkDirty = false;
+    m_bulkAttrsEdited = m_bulkHydroEdited = false;
     // Two mechanisms on purpose. The early-returns in applyXxxAdd/Delete
     // skip the WORK; blockSignals guarantees no signal escapes even from a
     // mutator that was never edited — applySetVirtual in particular, which
@@ -6127,6 +6132,11 @@ void SWMMModelLayer::endBulkEdit()
     if (m_batchedItem) m_batchedItem->refreshBoundingRect();
     emit repaintRequested();
     emit geometryChanged();
+    // Attribute / hydrograph edits made inside the scope announce here, once.
+    if (std::exchange(m_bulkHydroEdited, false))
+        emit hydrographChanged(QString());
+    if (std::exchange(m_bulkAttrsEdited, false))
+        emit modelEdited();
     qCInfo(lcBulkDelLayer) << "endBulkEdit: endpoint_sync" << syncMs
                            << "ms, geometry_cache" << geomMs
                            << "ms, total" << bulkCloseTimer.elapsed() << "ms";
@@ -6457,9 +6467,22 @@ bool SWMMModelLayer::applySubcatchSetGage(int idx, const QString &gageName)
     if (swmm_subcatch_set_gage(m_engine, idx, g) != SWMM_OK)
         return false;
 
+    // In a bulk scope endBulkEdit announces once (geometryChanged + modelEdited);
+    // per-row attributeChanged/modelEdited would be blocked anyway.
+    if (bulkEditActive()) { m_bulkDirty = m_bulkAttrsEdited = true; return true; }
     emit attributeChanged(m_catchments[idx].name);
     emit modelEdited();
     return true;
+}
+
+void SWMMModelLayer::markHydrographsEdited()
+{
+    if (bulkEditActive()) {
+        m_bulkDirty = m_bulkAttrsEdited = m_bulkHydroEdited = true;
+        return;
+    }
+    emit hydrographChanged(QString());
+    emit modelEdited();
 }
 
 bool SWMMModelLayer::applyHydrographSetGage(const QString &name,
