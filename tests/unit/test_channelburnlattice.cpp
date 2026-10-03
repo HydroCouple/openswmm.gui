@@ -487,3 +487,33 @@ TEST(ChannelBurnLattice, DenseSectionOffsetsAreThinnedWithinTolerance)
         }
     }
 }
+
+// A vertical wall authored as two stations 1e-5 apart (common in surveyed
+// transects): no mesh cell can resolve it, so the lattice merges the pair
+// and keeps the banks and the thalweg.
+TEST(ChannelBurnLattice, NearDuplicateOffsetsMergeKeepingBanksAndThalweg)
+{
+    SectionGeometry wall;
+    wall.station   = {0.0, 3.0, 3.00001, 10.0, 17.0, 17.00001, 20.0};
+    wall.elevation = {4.0, 4.0, 0.5,     0.0,  0.5,  4.0,      4.0};
+    ChannelInput in;
+    in.conduitId  = QStringLiteral("WALL");
+    in.centerline = {QPointF(0, 0), QPointF(60, 0)};
+    in.zUp = 10.0; in.zDn = 9.4;
+    in.section = wall;
+    BurnOptions o = options();
+    o.maxHalfWidth = 30.0;
+    const BurnProfile p = buildBurnProfile(in, o);
+    ASSERT_TRUE(p.isValid());
+
+    const BurnLattice lat = buildCorridorLattice(p, 5.0, 2.0);
+    ASSERT_TRUE(lat.isValid());
+    EXPECT_LT(lat.nAcross, p.offsets.size());
+    EXPECT_EQ(lat.offsets.first(), p.offsets.first());
+    EXPECT_EQ(lat.offsets.last(), p.offsets.last());
+    EXPECT_TRUE(std::any_of(lat.offsets.cbegin(), lat.offsets.cend(), [](double s) { return std::abs(s) <= 1e-9; }));
+    for (int k = 1; k < lat.nAcross; ++k) EXPECT_GE(lat.offsets[k] - lat.offsets[k - 1], 0.05 * 2.0);
+    EXPECT_GE(lat.minAcrossSpacing, 0.05 * 2.0);
+    // Without a mesh floor the section is used exactly as authored.
+    EXPECT_EQ(buildCorridorLattice(p, 5.0, 0.0).nAcross, p.offsets.size());
+}

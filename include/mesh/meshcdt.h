@@ -56,6 +56,10 @@ public:
         bool alive;
     };
 
+    /*! \brief Exact orientation of \p c against the line \p a->\p b:
+     *  positive left, negative right, exactly zero when collinear. */
+    [[nodiscard]] static double orientExact(const QPointF &a, const QPointF &b, const QPointF &c);
+
     /*! \brief Triangulate \p points. \p vertexOfPoint receives, per input
      *  point, its vertex id (duplicates share one). Returns false on fewer
      *  than 3 distinct non-collinear points. */

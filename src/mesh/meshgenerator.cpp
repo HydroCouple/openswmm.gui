@@ -1181,6 +1181,14 @@ JoinReport joinConstraints(QVector<Poly> &polys, const QVector<QPointF> &anchors
                     const QPointF r = A.b - A.a, q = B.b - B.a;
                     const double den = cross(r, q);
                     if (den == 0.0) continue;
+                    // Decide the crossing exactly: two collinear pieces of
+                    // one straight line have a rounding-noise den, and t, u
+                    // can then land inside (0, 1) for segments metres apart.
+                    const auto straddles = [](const QPointF &a, const QPointF &b, const QPointF &c, const QPointF &d) {
+                        const double oc = ConstrainedDelaunay::orientExact(a, b, c), od = ConstrainedDelaunay::orientExact(a, b, d);
+                        return (oc > 0.0 && od < 0.0) || (oc < 0.0 && od > 0.0);
+                    };
+                    if (!straddles(A.a, A.b, B.a, B.b) || !straddles(B.a, B.b, A.a, A.b)) continue;
                     const double t = cross(B.a - A.a, q) / den, u = cross(B.a - A.a, r) / den;
                     // Proper crossings only: shared ends and touches are not split.
                     if (!(t > 1e-9 && t < 1.0 - 1e-9 && u > 1e-9 && u < 1.0 - 1e-9)) continue;
@@ -1897,18 +1905,18 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
                             return (v.x() - u.x()) * (w.y() - u.y()) - (v.y() - u.y()) * (w.x() - u.x());
                         };
                         if (side(pa, pb, qa) * side(pa, pb, qb) < 0 && side(qa, qb, pa) * side(qa, qb, pb) < 0)
-                            crossedBy = QStringLiteral("; crosses %1%2 edge (%3, %4)-(%5, %6), marker %7").arg(kindOf(o))
+                            crossedBy = QStringLiteral("; crosses %1%2 edge %8 of %9 (%3, %4)-(%5, %6), marker %7").arg(kindOf(o))
                                 .arg(o.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(o.tag))
                                 .arg(qa.x(), 0, 'f', 2).arg(qa.y(), 0, 'f', 2).arg(qb.x(), 0, 'f', 2).arg(qb.y(), 0, 'f', 2)
-                                .arg(o.marker);
+                                .arg(o.marker).arg(m).arg(oEdges);
                     }
                 }
                 return fail(QStringLiteral("MeshGenerator: constraint%1 could not be recovered — %2. "
                                            "Constraints cross each other or the domain boundary. "
-                                           "(%3 edge (%4, %5)-(%6, %7), marker %8%9)")
+                                           "(%3 edge %10 of %11 (%4, %5)-(%6, %7), marker %8%9)")
                                 .arg(p.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(p.tag), cdt.errorMsg(), kindOf(p))
                                 .arg(pa.x(), 0, 'f', 2).arg(pa.y(), 0, 'f', 2).arg(pb.x(), 0, 'f', 2).arg(pb.y(), 0, 'f', 2)
-                                .arg(p.marker).arg(crossedBy));
+                                .arg(p.marker).arg(crossedBy).arg(k).arg(edges));
             }
         }
     }
