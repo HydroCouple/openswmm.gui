@@ -2608,6 +2608,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         // Scan every cell so the report names how widespread the problem is
         // and the worst cell, not only the first one met.
         qsizetype violations=0; double worst=0; QPointF worstAt; QString worstCell;
+        QHash<QString,int> violationsByChannel;
         if(in.burnOptions.removeBurnedFrom1D) for(const auto &cell:result.triangles) {
             for(int half=0;half<(cell.isQuad()?2:1);++half) {
                 const int ids[3]={cell.v0,half?cell.v2:cell.v1,half?cell.v3:cell.v2};
@@ -2618,6 +2619,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 const auto error=channelSurface.error(xy,z,[&](const QPointF &p){return burnDomain.contains(p);},0.1*in.genOpts.channelSpacing);
                 if(!(error.maximum>channelTolerance+1e-8)) continue;
                 ++violations;
+                const auto at=channelSurface.sample(error.point);
+                if(at.profile>=0 && at.profile<in.burnProfiles.size()) ++violationsByChannel[in.burnProfiles[at.profile].conduitId];
                 if(error.maximum>worst) {
                     worst=error.maximum; worstAt=error.point;
                     QStringList corners;
@@ -2636,9 +2639,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             for(const auto &h:channelSurface.hitsAt(worstAt))
                 if(h.profile>=0 && h.profile<in.burnProfiles.size())
                     surfaces << QStringLiteral("%1 z %2 offset %3").arg(in.burnProfiles[h.profile].conduitId).arg(h.z,0,'f',2).arg(h.offset,0,'f',2);
-            fail(QObject::tr("Channel replacement stopped: %1 cell(s) exceed the channel tolerance %2; worst error %3 on channel %4 near (%5, %6), cell %7; channel surfaces there: %8. Reduce the minimum cell size or channel spacing.")
+            // A warning, not a stop: a few cells missing the tolerance must
+            // not discard the whole mesh. The report names where to look.
+            QVector<QPair<int,QString>> ranked;
+            for(auto it=violationsByChannel.cbegin();it!=violationsByChannel.cend();++it) ranked.append({it.value(),it.key()});
+            std::sort(ranked.begin(),ranked.end(),[](const auto &a,const auto &b){return a.first!=b.first?a.first>b.first:a.second<b.second;});
+            QStringList channels;
+            for(int k=0;k<std::min<int>(10,ranked.size());++k) channels << QStringLiteral("%1 (%2)").arg(ranked[k].second).arg(ranked[k].first);
+            if(ranked.size()>10) channels << QObject::tr("and %1 more").arg(ranked.size()-10);
+            burnWarnings << QObject::tr("Channel accuracy: %1 cell(s) exceed the channel elevation tolerance %2; worst error %3 on channel %4 near (%5, %6), cell %7; channel surfaces there: %8. Channels with cells over the tolerance: %9. "
+                                        "Raise the channel elevation tolerance, reduce the minimum cell size, or leave these channels out of the burn.")
                  .arg(violations).arg(channelTolerance).arg(worst).arg(conduit).arg(worstAt.x(),0,'f',2).arg(worstAt.y(),0,'f',2).arg(worstCell)
-                 .arg(surfaces.isEmpty()?QObject::tr("none"):surfaces.join(QStringLiteral("; ")))); return;
+                 .arg(surfaces.isEmpty()?QObject::tr("none"):surfaces.join(QStringLiteral("; "))).arg(channels.join(QStringLiteral(", ")));
+            qCWarning(lcMeshPerf).noquote() << "[Mesh][burn]" << burnWarnings.last();
         }
     }
 
@@ -2780,7 +2793,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // couplings pass verification. Application belongs on the GUI thread.
     MeshGenerationDialog::PipelineResult::BurnSurgery surgery;
     if(in.burnEnabled && burnRan && in.burnOptions.removeBurnedFrom1D && !in.burnNetwork.nodes.isEmpty()) {
-        if(generationStats.refineCapped) { fail(QObject::tr("Channel replacement stopped: refinement reached its resource limit.")); return; }
+        // A capped refinement is already reported; channel accuracy was
+        // measured cell by cell above, so the cap alone does not stop it.
         surgery.splits=burnPlan.splits;
         surgery.burnedConduits=mesh::burnedLinksToRemove(burnPlan.network,burnPlan.replacedIds);
         surgery.nodePlans=burnPlan.nodes;
@@ -3164,7 +3178,7 @@ void MeshGenerationDialog::buildUi()
         auto *lay = new QVBoxLayout(g);
 
         auto *boundaryRow = new QHBoxLayout;
-        boundaryRow->addWidget(new QLabel(tr("&Boundary polygon:"), g));
+        boundaryRow->addWidget(new QLabel(tr("Boundary polygon:"), g));
         m_boundaryLayerCombo = new QComboBox(g);
         m_boundaryLayerCombo->setObjectName(QStringLiteral("meshBoundaryLayerCombo"));
         m_boundaryLayerCombo->setToolTip(tr(
@@ -3184,7 +3198,7 @@ void MeshGenerationDialog::buildUi()
             "slow the simulation; the log reports what changed."));
         lay->addWidget(m_conditionBoundaryBox);
 
-        lay->addWidget(new QLabel(tr("Constraining &points (check to include):"), g));
+        lay->addWidget(new QLabel(tr("Constraining points (check to include):"), g));
         m_pointLayersList = new QListWidget(g);
         m_pointLayersList->setObjectName(QStringLiteral("meshPointLayersList"));
         m_pointLayersList->setToolTip(tr("Every feature in each checked layer is added as a Steiner point."));
@@ -3192,7 +3206,7 @@ void MeshGenerationDialog::buildUi()
         m_pointLayersList->setSelectionMode(QAbstractItemView::NoSelection);
         lay->addWidget(m_pointLayersList);
 
-        lay->addWidget(new QLabel(tr("Constraining &lines (check to include):"), g));
+        lay->addWidget(new QLabel(tr("Constraining lines (check to include):"), g));
         m_lineLayersList = new QListWidget(g);
         m_lineLayersList->setObjectName(QStringLiteral("meshLineLayersList"));
         m_lineLayersList->setToolTip(tr("Every feature in each checked layer becomes a constraint segment."));
