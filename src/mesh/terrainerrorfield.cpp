@@ -7,7 +7,9 @@
 #include <QFileInfo>
 #include <QSaveFile>
 #include <QStorageInfo>
+#include <QMap>
 #include <QMutex>
+#include <QSet>
 #include <QThread>
 #include <QtConcurrent/QtConcurrentMap>
 #include <QVector>
@@ -22,6 +24,7 @@ namespace mesh {
 namespace {
 constexpr int kTile = 256, kLeaf = 16;
 constexpr double nan = std::numeric_limits<double>::quiet_NaN();
+constexpr double inf = std::numeric_limits<double>::infinity();
 struct Node {
     double x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     double a = 0, b = 0, c = 0, error = 0;
@@ -270,6 +273,51 @@ struct TerrainErrorField::Impl {
             GDALClose(src);
         });
     }
+    void prefetchBoxes(const QVector<QRectF> &boxes) const {
+        if (path.isEmpty() || boxes.isEmpty()) return;
+        const int bytesPerTile = kTile*kTile*((floatTiles ? 4 : 8) + (toMesh ? 16 : 0));
+        const qint64 budget = cache.maxCost()/2/std::max(1,bytesPerTile);
+        QSet<quint64> keys;
+        for (const QRectF &b : boxes) {
+            double xs[4] = {b.left(),b.right(),b.left(),b.right()}, ys[4] = {b.top(),b.top(),b.bottom(),b.bottom()};
+            if (toDEM && !toDEM->Transform(4,xs,ys)) continue;
+            double cMin = inf, cMax = -inf, rMin = inf, rMax = -inf;
+            for (int k = 0; k < 4; ++k) {
+                const double c = inv[0]+xs[k]*inv[1]+ys[k]*inv[2], r = inv[3]+xs[k]*inv[4]+ys[k]*inv[5];
+                cMin = std::min(cMin,c); cMax = std::max(cMax,c); rMin = std::min(rMin,r); rMax = std::max(rMax,r);
+            }
+            if (!(cMax >= c0 && rMax >= r0 && cMin < c0+cols && rMin < r0+rows)) continue;
+            const int tc0 = std::max(c0,int(std::floor(cMin))-1)/kTile, tc1 = std::min(c0+cols-1,int(std::ceil(cMax))+1)/kTile;
+            const int tr0 = std::max(r0,int(std::floor(rMin))-1)/kTile, tr1 = std::min(r0+rows-1,int(std::ceil(rMax))+1)/kTile;
+            for (int tr = tr0; tr <= tr1; ++tr) for (int tc = tc0; tc <= tc1; ++tc)
+                keys.insert((quint64(quint32(tr)) << 32) | quint32(tc));
+        }
+        QMap<int,QVector<int>> byRow;   // row-major, as the file is laid out
+        qint64 n = 0;
+        for (const quint64 key : std::as_const(keys)) {
+            if (cache.contains(key)) continue;
+            byRow[int(key >> 32)].append(int(quint32(key)));
+            if (++n >= budget) break;
+        }
+        if (byRow.isEmpty()) return;
+        QVector<QPair<int,QVector<int>>> rows;
+        for (auto it = byRow.begin(); it != byRow.end(); ++it) { std::sort(it->begin(),it->end()); rows.append({it.key(),*it}); }
+        QtConcurrent::blockingMap(rows,[&](const QPair<int,QVector<int>> &row) {
+            GDALDataset *src = static_cast<GDALDataset *>(GDALOpen(path.toUtf8().constData(),GA_ReadOnly));
+            if (!src) return;
+            OGRCoordinateTransformation *ct = toMesh ? toMesh->Clone() : nullptr;
+            QString err;
+            for (int tc : row.second) {
+                if (toMesh && !ct) break;
+                auto t = std::make_unique<Tile>();
+                if (!readTile(src,ct,tc,row.first,*t,err)) break;
+                QMutexLocker lock(&cacheMutex);
+                insertTile(std::move(t));
+            }
+            if (ct) OGRCoordinateTransformation::DestroyCT(ct);
+            GDALClose(src);
+        });
+    }
     bool build(const std::function<bool(double)> &progress) {
         if (progress && !progress(0)) { error = QStringLiteral("Cancelled."); return false; }
         Level leaf; leaf.cols = (cols+kLeaf-1)/kLeaf; leaf.rows = (rows+kLeaf-1)/kLeaf;
@@ -443,6 +491,11 @@ bool TerrainErrorField::buildFromGrid(const float *z,int cols,int rows,const std
     d->floatTiles=true;
     if (d->ds->GetRasterBand(1)->RasterIO(GF_Write,0,0,cols,rows,const_cast<float *>(z),cols,rows,GDT_Float32,0,0)!=CE_None) return false;
     return d->build(progress);
+}
+
+void TerrainErrorField::prefetch(const QVector<QRectF> &meshBoxes) const
+{
+    if (d->ds) d->prefetchBoxes(meshBoxes);
 }
 
 double TerrainErrorField::sampleAt(double x,double y) const

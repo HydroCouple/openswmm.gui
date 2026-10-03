@@ -218,9 +218,9 @@ void MeshStageCache::prune(int keepPerStage) const
 {
     if (m_dir.isEmpty()) return;
     QDir d(m_dir);
-    for (const char *pattern : {"A-*.bin", "B-*.bin", "L-*.bin", "T-*.bin"})
+    for (const char *pattern : {"A-*.bin", "B-*.bin", "L-*.bin", "T-*.bin", "D-*.tif"})
     {
-        const int keep = pattern[0] == 'T' ? std::min(keepPerStage, 2) : keepPerStage;
+        const int keep = (pattern[0] == 'T' || pattern[0] == 'D') ? std::min(keepPerStage, 2) : keepPerStage;
         QFileInfoList entries = d.entryInfoList(
             {QString::fromLatin1(pattern)}, QDir::Files, QDir::Time);
         for (qsizetype i = keep; i < entries.size(); ++i)

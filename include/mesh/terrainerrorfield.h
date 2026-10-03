@@ -45,6 +45,12 @@ public:
     bool buildFromGrid(const float *z, int cols, int rows,
                        const std::function<bool(double)> &progress = {});
     double sampleAt(double x, double y) const;
+    /*! Read the tiles under \p meshBoxes (mesh coordinates) that are not
+     *  cached yet, in parallel with one reader per worker, so the queries
+     *  that follow hit the cache instead of reading tile by tile. A warm-up
+     *  only: results are unchanged; at most half the cache is filled. Not to
+     *  be called while another thread queries this field. */
+    void prefetch(const QVector<QRectF> &meshBoxes) const;
     Query queryTriangle(const QPointF *xy, const double *z, double tolerance,
                         bool exhaustive = false) const;
     /*! Refinement query: the same maxError, point and validity as

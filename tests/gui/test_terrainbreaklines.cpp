@@ -66,6 +66,32 @@ class TestTerrainBreaklines : public QObject
 private slots:
     // D-R4: only the most significant lines survive a cap; significance is
     // the step across the line integrated along it.
+    // The prefetch hook only reorders measurement into spatial batches: the
+    // kept lines are exactly those chosen without it.
+    void rankingWithPrefetchKeepsTheSameLines()
+    {
+        unsigned seed = 11;
+        auto next = [&] { seed = seed * 1664525u + 1013904223u; return double(seed >> 8) / double(1u << 24); };
+        QVector<QVector<QPointF>> lines;
+        for (int i = 0; i < 3000; ++i) {
+            QVector<QPointF> l;
+            const QPointF a(next() * 5000, next() * 5000);
+            const double ang = next() * 6.283, len = 5 + next() * 200;
+            for (int k = 0; k <= 4; ++k) l.append(a + QPointF(std::cos(ang), std::sin(ang)) * (len * k / 4));
+            lines.append(l);
+        }
+        const auto zAt = [](double x, double y) { return std::sin(x * .01) * 3 + std::floor(y / 300) * 2 + x * 1e-4; };
+        double s0[3], s1[3];
+        const auto plain = mesh::rankBreaklinesByStep(lines, zAt, 2.0, 200, s0);
+        int calls = 0, boxes = 0;
+        const auto warm = mesh::rankBreaklinesByStep(lines, zAt, 2.0, 200, s1,
+            [&](const QVector<QRectF> &b) { ++calls; boxes += b.size(); });
+        QCOMPARE(warm, plain);
+        QCOMPARE(s1[1], s0[1]); QCOMPARE(s1[2], s0[2]);
+        QVERIFY(calls >= 2);
+        QCOMPARE(boxes, 800);   // the 4 x maxKeep longest lines are measured
+    }
+
     void rankingKeepsLongHighStepsFirst()
     {
         // Terrain with a 2 m step at x = 50 for y in [0, 100] and a 0.2 m
