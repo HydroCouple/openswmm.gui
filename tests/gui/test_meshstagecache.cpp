@@ -176,6 +176,62 @@ private slots:
         QCOMPARE(entries.size(), 8);   // storeBoundary prunes after each store
     }
 
+    // Stage L/T entries are written under tests/output so they can be inspected.
+    static QString reviewDir(const QString &name)
+    {
+        const QString d = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+            .absoluteFilePath("../../output/mesh_largedem_perf_2026-10/stagecache/" + name);
+        QDir(d).removeRecursively();
+        QDir().mkpath(d);
+        return d;
+    }
+
+    void breaklinesRoundTrip_bitExact()
+    {
+        MeshStageCache cache(reviewDir("breaklines") + "/model.inp");
+        QVERIFY(cache.isUsable());
+        const auto dem = ident("/dem.tif", 5, 6);
+        const QRectF window(1, 2, 300, 400);
+        const QByteArray key = MeshStageCache::breaklineKey(dem, "M", window, .5, .7, 5, 1000);
+        MeshStageCache::Breaklines v;
+        v.lines = {{{0.1, 0.2}, {1.0 / 3.0, 2.5}}, {{7, 8}, {9, 10}, {11, 12.000000000000002}}};
+        v.medianLength = 3; v.dropped = 2; v.skipped = true;
+        MeshStageCache::Breaklines got;
+        QVERIFY(!cache.loadBreaklines(key, &got));
+        QVERIFY(cache.storeBreaklines(key, v));
+        QVERIFY(cache.loadBreaklines(key, &got));
+        QCOMPARE(got.lines, v.lines);
+        QCOMPARE(got.medianLength, 3); QCOMPARE(got.dropped, qint64(2)); QVERIFY(got.skipped);
+        // Every extraction input is part of the identity.
+        QVERIFY(key != MeshStageCache::breaklineKey(ident("/dem.tif", 7, 6), "M", window, .5, .7, 5, 1000));
+        QVERIFY(key != MeshStageCache::breaklineKey(dem, "M2", window, .5, .7, 5, 1000));
+        QVERIFY(key != MeshStageCache::breaklineKey(dem, "M", window.adjusted(0, 0, 1, 0), .5, .7, 5, 1000));
+        QVERIFY(key != MeshStageCache::breaklineKey(dem, "M", window, .6, .7, 5, 1000));
+        QVERIFY(key != MeshStageCache::breaklineKey(dem, "M", window, .5, .8, 5, 1000));
+        QVERIFY(key != MeshStageCache::breaklineKey(dem, "M", window, .5, .7, 6, 1000));
+        QVERIFY(key != MeshStageCache::breaklineKey(dem, "M", window, .5, .7, 5, 1001));
+    }
+
+    void terrainIndexKeysAndPrune()
+    {
+        MeshStageCache cache(reviewDir("terrainindex") + "/model.inp");
+        const auto dem = ident("/dem.tif", 5, 6);
+        const QByteArray key = MeshStageCache::terrainIndexKey(dem, "M", QRectF(0, 0, 10, 10), 1.0);
+        QVERIFY(key != MeshStageCache::terrainIndexKey(dem, "M", QRectF(0, 0, 10, 11), 1.0));
+        QVERIFY(key != MeshStageCache::terrainIndexKey(dem, "M", QRectF(0, 0, 10, 10), .3048));
+        QVERIFY(key != MeshStageCache::terrainIndexKey(dem, "M2", QRectF(0, 0, 10, 10), 1.0));
+        QVERIFY(key != MeshStageCache::terrainIndexKey(ident("/dem.tif", 5, 7), "M", QRectF(0, 0, 10, 10), 1.0));
+        QVERIFY(cache.terrainIndexPath(key).endsWith("T-" + QString::fromLatin1(key) + ".bin"));
+        // Terrain indexes can be gigabytes: prune keeps two.
+        for (int i = 0; i < 4; ++i) {
+            QFile f(cache.terrainIndexPath(MeshStageCache::terrainIndexKey(dem, "M", QRectF(0, 0, 10, i + 1), 1.0)));
+            QVERIFY(f.open(QIODevice::WriteOnly)); f.write("x");
+        }
+        cache.prune();
+        QCOMPARE(QDir(cache.dir()).entryList({QStringLiteral("T-*.bin")}, QDir::Files).size(), 2);
+        QVERIFY(MeshStageCache{QString()}.terrainIndexPath(key).isEmpty());
+    }
+
     void unusableDir_degradesGracefully()
     {
         MeshStageCache empty{QString()};

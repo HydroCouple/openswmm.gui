@@ -174,8 +174,7 @@ bool bestBurnAt(const BurnCorridorIndex &index, const QVector<BurnProfile> &prof
  * \brief Eight hex characters over {source DEM identity, options, resolved
  *        conduits and their geometry} — the burned raster's filename stem.
  *
- * Identical inputs give an identical name, so a re-run is a no-op and
- * `MeshStageCache`'s DEM file-identity key does the right thing for free;
+ * Identical inputs give an identical name, so a re-run is a no-op;
  * different inputs cannot collide onto one file.
  */
 [[nodiscard]] QString burnFingerprint(const QString &demIdentity, const BurnOptions &opt,

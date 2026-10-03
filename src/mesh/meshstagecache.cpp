@@ -7,6 +7,7 @@
 #include "mesh/meshstagecache.h"
 
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDataStream>
 #include <QDir>
 #include <QFile>
@@ -136,15 +137,88 @@ bool MeshStageCache::storeBoundary(const QByteArray &key, const BoundaryPrep &v)
     return ok;
 }
 
+MeshStageCache::FileIdentity MeshStageCache::identityOf(const QString &path)
+{
+    const QFileInfo fi(path);
+    return {fi.absoluteFilePath(), fi.lastModified().toMSecsSinceEpoch(), fi.size()};
+}
+
+QByteArray MeshStageCache::terrainIndexKey(const FileIdentity &dem, const QString &meshCRSWkt,
+                                           const QRectF &domain, double zScale)
+{
+    QByteArray blob;
+    {
+        QDataStream s(&blob, QIODevice::WriteOnly);
+        configureStream(s);
+        s << kFormatVersion << quint8('T');
+        s << dem.absPath << dem.mtimeMs << dem.sizeBytes << meshCRSWkt;
+        s << domain.x() << domain.y() << domain.width() << domain.height() << zScale;
+    }
+    return QCryptographicHash::hash(blob, QCryptographicHash::Sha256).toHex();
+}
+
+QString MeshStageCache::terrainIndexPath(const QByteArray &key) const
+{
+    return m_dir.isEmpty() ? QString() : entryPath('T', key);
+}
+
+QByteArray MeshStageCache::breaklineKey(const FileIdentity &dem, const QString &meshCRSWkt,
+                                        const QRectF &demWindow, double tolerance,
+                                        double lowRatio, int minPixels, qint64 maxPixels)
+{
+    QByteArray blob;
+    {
+        QDataStream s(&blob, QIODevice::WriteOnly);
+        configureStream(s);
+        s << kFormatVersion << quint8('L');
+        s << dem.absPath << dem.mtimeMs << dem.sizeBytes << meshCRSWkt;
+        s << demWindow.x() << demWindow.y() << demWindow.width() << demWindow.height();
+        s << tolerance << lowRatio << qint32(minPixels) << maxPixels;
+    }
+    return QCryptographicHash::hash(blob, QCryptographicHash::Sha256).toHex();
+}
+
+bool MeshStageCache::loadBreaklines(const QByteArray &key, Breaklines *out) const
+{
+    if (!out || m_dir.isEmpty()) return false;
+    QFile f(entryPath('L', key));
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    QDataStream s(&f);
+    configureStream(s);
+    if (!readHeader(s, 'L', kMagic, kFormatVersion)) return false;
+    Breaklines v;
+    s >> v.lines >> v.medianLength >> v.dropped >> v.skipped;
+    if (s.status() != QDataStream::Ok || !s.atEnd()) return false;
+    *out = std::move(v);
+    return true;
+}
+
+bool MeshStageCache::storeBreaklines(const QByteArray &key, const Breaklines &v) const
+{
+    if (m_dir.isEmpty()) return false;
+    QSaveFile f(entryPath('L', key));
+    if (!f.open(QIODevice::WriteOnly)) return false;
+    {
+        QDataStream s(&f);
+        configureStream(s);
+        s << kMagic << kFormatVersion << quint8('L');
+        s << v.lines << v.medianLength << v.dropped << v.skipped;
+    }
+    const bool ok = f.commit();
+    if (ok) prune();
+    return ok;
+}
+
 void MeshStageCache::prune(int keepPerStage) const
 {
     if (m_dir.isEmpty()) return;
     QDir d(m_dir);
-    for (const char *pattern : {"A-*.bin", "B-*.bin"})
+    for (const char *pattern : {"A-*.bin", "B-*.bin", "L-*.bin", "T-*.bin"})
     {
+        const int keep = pattern[0] == 'T' ? std::min(keepPerStage, 2) : keepPerStage;
         QFileInfoList entries = d.entryInfoList(
             {QString::fromLatin1(pattern)}, QDir::Files, QDir::Time);
-        for (qsizetype i = keepPerStage; i < entries.size(); ++i)
+        for (qsizetype i = keep; i < entries.size(); ++i)
             QFile::remove(entries[i].absoluteFilePath());
     }
 }

@@ -276,10 +276,10 @@ public:
         // mesh CRS and model vertical units, plus the 1D topology as plain
         // data so the worker can classify nodes without a layer.
         //
-        // The worker converts the profiles into the raster's frame, writes the
-        // burned DEM and redirects dtmPath to it BEFORE the DTM is opened, so
-        // MeshStageCache's terrain key is computed on the burned file and a
-        // re-burn invalidates the cached terrain for free.
+        // The worker converts the profiles into the raster's frame and writes
+        // the burned DEM as an inspection/export artifact. Meshing reads the
+        // source dtmPath plus the exact channel surface, so the terrain index
+        // and break-line caches stay keyed on the source DEM.
         bool                       burnEnabled = false;
         mesh::BurnOptions          burnOptions;
         QVector<mesh::BurnProfile> burnProfiles;

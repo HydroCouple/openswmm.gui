@@ -312,7 +312,7 @@ TEST_F(BurnEndToEnd, TheFingerprintTracksTheInputsThatChangeTheResult)
     EXPECT_NE(base, burnFingerprint(QStringLiteral("dem|9|2"), opt, profiles));
 
     // …and the same everything is the same file, which is what makes a re-run
-    // a no-op and keeps MeshStageCache's terrain key honest.
+    // a no-op.
     EXPECT_EQ(base, burnFingerprint(id, opt, buildProfiles()));
 }
 

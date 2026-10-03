@@ -106,6 +106,13 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#if defined(Q_OS_WIN)
+#include <windows.h>
+#elif defined(Q_OS_MACOS)
+#include <sys/sysctl.h>
+#else
+#include <unistd.h>
+#endif
 
 // lcMeshPerf ("openswmm.mesh.perf") is defined in mesh/meshstagecache.cpp
 // and declared by its header, included above.
@@ -118,6 +125,26 @@
 using mesh::pslg::trimByStraightness;
 using mesh::pslg::distSqToSegment;
 using mesh::pslg::snapAndDedupe;
+
+/*! Terrain cache MiB for the dialog's "Automatic" (0) setting: one eighth of
+ *  physical memory, between 256 MiB and 8 GiB. Cache size bounds residency
+ *  only; it never changes the generated mesh. */
+static int resolvedTerrainCacheMiB(int requested)
+{
+    if (requested > 0) return requested;
+    qint64 bytes = 0;
+#if defined(Q_OS_WIN)
+    MEMORYSTATUSEX status{}; status.dwLength = sizeof(status);
+    if (GlobalMemoryStatusEx(&status)) bytes = qint64(status.ullTotalPhys);
+#elif defined(Q_OS_MACOS)
+    int64_t mem = 0; size_t len = sizeof(mem);
+    if (sysctlbyname("hw.memsize", &mem, &len, nullptr, 0) == 0) bytes = mem;
+#else
+    const long pages = sysconf(_SC_PHYS_PAGES), page = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && page > 0) bytes = qint64(pages) * page;
+#endif
+    return int(std::clamp<qint64>(bytes / 8 / (1024 * 1024), 256, 8192));
+}
 
 // ---------------------------------------------------------------------------
 // Checked coordinate transform
@@ -1532,13 +1559,21 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     if (useAdaptiveTerrain)
     {
         stageClock.restart();
-        if (!terrainReferenceOpen && !terrainReference.open(in.dtmPath, in.meshCRSWkt, QRectF(bx0,by0,bx1-bx0,by1-by0),
+        // Stage T: re-runs on the same DEM and bbox reload the summaries.
+        const QRectF referenceBox(bx0,by0,bx1-bx0,by1-by0);
+        const QString indexFile = cache.isUsable()
+            ? cache.terrainIndexPath(mesh::MeshStageCache::terrainIndexKey(
+                  mesh::MeshStageCache::identityOf(in.dtmPath), in.meshCRSWkt, referenceBox, in.zConversionFactor))
+            : QString();
+        if (!terrainReferenceOpen && !terrainReference.open(in.dtmPath, in.meshCRSWkt, referenceBox,
                 in.zConversionFactor,in.terrainCacheMiB,[&](double f) {
                     progress(30+int(5*f),QObject::tr("Indexing terrain for elevation-error refinement…"));
                     return !promise.isCanceled();
-                })) {
+                }, indexFile)) {
             fail(QObject::tr("Terrain error index failed: %1").arg(terrainReference.errorMsg())); return;
         }
+        if (terrainReference.indexLoaded()) qCInfo(lcMeshPerf) << "[Mesh][cache] terrain index HIT";
+        else if (terrainReference.indexSaved()) { qCInfo(lcMeshPerf) << "[Mesh][cache] terrain index stored"; cache.prune(); }
         terrainReference.setCancellation([&] { return promise.isCanceled(); });
         if (in.terrainAutoTolerance) {
             // Quantized elevation data cannot justify sub-quantum precision.
@@ -1631,6 +1666,24 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 if (r == 0) breaklines.begin(cols, rows, blo);
                 breaklines.pushRow(row);
             };
+            // Stage L: adaptive mode streams the DEM only for break lines, so a
+            // cached result for the same DEM window and parameters skips it.
+            const bool cacheBreaklines = useAdaptiveTerrain && in.terrainBreaklines && cache.isUsable();
+            const QByteArray breaklineKey = cacheBreaklines
+                ? mesh::MeshStageCache::breaklineKey(mesh::MeshStageCache::identityOf(in.dtmPath), in.meshCRSWkt,
+                      QRectF(QPointF(dx0,dy0),QPointF(dx1,dy1)), blo.tolerance, blo.lowRatio, blo.minPixels, blo.maxPixels)
+                : QByteArray();
+            mesh::MeshStageCache::Breaklines cachedLines;
+            const bool breaklinesCached = cacheBreaklines && cache.loadBreaklines(breaklineKey, &cachedLines);
+            if (breaklinesCached) {
+                g.setTerrainBreaklines(cachedLines.lines);
+                sizeOptions.steps = g.previewTerrainBreaklines();
+                qCInfo(lcMeshPerf) << "[Mesh][cache] terrain break lines HIT:" << cachedLines.lines.size()
+                                   << "| median length (px)" << cachedLines.medianLength
+                                   << "| dropped (reprojection)" << cachedLines.dropped
+                                   << (cachedLines.skipped ? "| SKIPPED: DEM window over the pixel cap" : "");
+                stageMark("terrain size field");
+            } else {
             stageClock.restart();
             const bool built = terrainField.buildFromFile(
                 in.dtmPath, 1, dx0, dy0, dx1, dy1, tso,
@@ -1686,12 +1739,16 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                                    << "| median length (px)" << medianLength
                                    << "| dropped (reprojection)" << dropped
                                    << (breaklines.skipped() ? "| SKIPPED: DEM window over the pixel cap" : "");
+                if (cacheBreaklines && !promise.isCanceled()
+                    && cache.storeBreaklines(breaklineKey, {lines, medianLength, dropped, breaklines.skipped()}))
+                    qCInfo(lcMeshPerf) << "[Mesh][cache] terrain break lines stored";
                 // Many short chains = the tolerance is inside the DEM's noise
                 // (SRTM stores whole metres: anything under ~3 m traces noise).
                 if (lines.size() > 500 && medianLength < 10)
                     qWarning() << "[Mesh][terrain]" << lines.size() << "short break lines (median"
                                << medianLength << "px): the terrain tolerance" << in.terrainTolerance
                                << "looks smaller than the DEM's noise — the mesh will follow noise.";
+            }
             }
             if (!useAdaptiveTerrain) sizeOptions.terrainSizeAt = [&terrainField, meshToDTM, unitScale](double x, double y) {
                 double gx = x, gy = y;
@@ -1813,7 +1870,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 return std::isfinite(flat)?flat:terrainZ;
             };
             hook.terrainError = [&](const QPointF *xy,const double *z,QPointF *out) {
-                auto q=useAdaptiveTerrain?terrainReference.queryTriangle(xy,z,in.terrainTolerance):mesh::TerrainErrorField::Query{};
+                auto q=useAdaptiveTerrain?terrainReference.queryWorst(xy,z,in.terrainTolerance):mesh::TerrainErrorField::Query{};
                 double error=q.valid?q.maxError:0;
                 *out=q.point;
                 if(in.burnEnabled && in.burnOptions.removeBurnedFrom1D) {
@@ -3282,9 +3339,10 @@ void MeshGenerationDialog::buildUi()
         f->addRow(tr("Cell budget:"),m_maxCellsSpin);
         m_terrainCacheSpin=new QSpinBox(g);
         m_terrainCacheSpin->setObjectName(QStringLiteral("meshTerrainCacheSpin"));
-        m_terrainCacheSpin->setRange(8,1024); m_terrainCacheSpin->setValue(64);
+        m_terrainCacheSpin->setRange(0,65536); m_terrainCacheSpin->setValue(0);
+        m_terrainCacheSpin->setSpecialValueText(tr("Automatic"));
         m_terrainCacheSpin->setSuffix(tr(" MiB"));
-        m_terrainCacheSpin->setToolTip(tr("Memory per terrain cache (DEM tiles and feature mask). Large feature masks spill to disk. The mesh, feature chains and terrain summaries use additional memory."));
+        m_terrainCacheSpin->setToolTip(tr("Memory per terrain cache (DEM tiles and feature mask). Automatic uses one eighth of physical memory, from 256 MiB to 8 GiB. A larger cache is faster on large DEMs and does not change the mesh. Large feature masks spill to disk. The mesh, feature chains and terrain summaries use additional memory."));
         f->addRow(tr("Terrain cache:"),m_terrainCacheSpin);
         qualityVBox->insertWidget(2,g);
     }
@@ -4191,7 +4249,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     if (m_terrainModeCombo->currentIndex()==2) out->terrainTolerance=0;
     out->terrainBreaklines=m_terrainBreaklinesBox->isChecked();
     out->refineAtFeatures=m_refineFeaturesBox->isChecked();
-    out->terrainCacheMiB=m_terrainCacheSpin->value();
+    out->terrainCacheMiB=resolvedTerrainCacheMiB(m_terrainCacheSpin->value());
     out->trimTurnDeg   = m_trimTurnSpin->value();
     out->trimDeviation = m_trimDeviationSpin->value() > 0.0 ? m_trimDeviationSpin->value()
                                                             : 0.1 * out->cellSize;
