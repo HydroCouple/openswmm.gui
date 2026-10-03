@@ -224,50 +224,54 @@ void DTMRaster::sampleMany(const QVector<QPointF> &xy,
     }
     if (nInRange == 0) return;
 
-    // Strip layout: each strip owns `stride` anchor rows and its read window
-    // extends one extra row so every 2×2 bilinear window anchored inside the
-    // strip resolves from the strip's own buffer.
-    const int    nCols    = colMax - colMin + 1;
-    const qint64 rowBytes = qint64(nCols) * qint64(sizeof(double));
-    const int rowsPerStrip = static_cast<int>(std::max<qint64>(
-        2, std::min<qint64>(maxBufBytes / std::max<qint64>(rowBytes, 1),
-                            qint64(rowMax - rowMin + 1) + 1)));
-    const int stride  = rowsPerStrip - 1;
-    const int nStrips = (rowMax - rowMin) / stride + 1;
-
-    // Counting sort of in-range query indices by strip.
-    QVector<qsizetype> stripStart(nStrips + 1, 0);
+    // Tile layout: queries are binned by the tile holding their anchor
+    // (r0, c0) and only tiles that hold a query are read. Each read extends
+    // one row and one column past the tile so every 2x2 bilinear window
+    // anchored inside it resolves from its own buffer. Scattered queries over
+    // a large DEM (footprint vertices, mesh vertices with holes between them)
+    // then decode only the blocks they touch instead of every row strip.
+    const int tile = static_cast<int>(std::clamp<qint64>(
+        qint64(std::sqrt(double(std::max<qint64>(maxBufBytes, 32)) / double(sizeof(double)))) - 1, 1, 512));
+    const int tilesX = colMax / tile - colMin / tile + 1;
+    const int tx0 = colMin / tile, ty0 = rowMin / tile;
+    QVector<qint64> tileOf(n, -1);
     for (qsizetype i = 0; i < n; ++i)
-        if (rowAnchor[i] >= 0)
-            ++stripStart[(rowAnchor[i] - rowMin) / stride + 1];
-    for (int s = 0; s < nStrips; ++s)
-        stripStart[s + 1] += stripStart[s];
-    QVector<qsizetype> order(nInRange);
     {
-        QVector<qsizetype> cursor = stripStart;
-        for (qsizetype i = 0; i < n; ++i)
-            if (rowAnchor[i] >= 0)
-                order[cursor[(rowAnchor[i] - rowMin) / stride]++] = i;
+        if (rowAnchor[i] < 0) continue;
+        Anchor a;
+        if (!anchorFor(xy[i].x(), xy[i].y(), &a)) { (*outZ)[i] = kNaN; rowAnchor[i] = -1; continue; }
+        tileOf[i] = qint64(a.r0 / tile - ty0) * tilesX + (a.c0 / tile - tx0);
     }
+    QVector<qsizetype> order;
+    order.reserve(nInRange);
+    for (qsizetype i = 0; i < n; ++i)
+        if (tileOf[i] >= 0) order.append(i);
+    std::stable_sort(order.begin(), order.end(),
+                     [&](qsizetype l, qsizetype r) { return tileOf[l] < tileOf[r]; });
 
     QVector<double> buf;
-    buf.resize(qsizetype(nCols) * rowsPerStrip);
+    buf.resize(qsizetype(tile + 1) * (tile + 1));
     GDALRasterBand *b = m_ds->GetRasterBand(m_band);
 
-    for (int s = 0; s < nStrips; ++s)
+    for (qsizetype from = 0; from < order.size();)
     {
-        const qsizetype from = stripStart[s], to = stripStart[s + 1];
-        if (from == to) continue;
+        const qint64 key = tileOf[order[from]];
+        qsizetype to = from + 1;
+        while (to < order.size() && tileOf[order[to]] == key) ++to;
 
-        const int readLo = rowMin + s * stride;
-        const int readHi = std::min(readLo + stride, rowMax);  // overlap row
+        const int readLo = int(key / tilesX + ty0) * tile;
+        const int colLo  = int(key % tilesX + tx0) * tile;
+        const int readHi = std::min(readLo + tile, m_h - 1);
+        const int colHi  = std::min(colLo + tile, m_w - 1);
         const int readH  = readHi - readLo + 1;
+        const int nCols  = colHi - colLo + 1;
 
-        if (b->RasterIO(GF_Read, colMin, readLo, nCols, readH,
+        if (b->RasterIO(GF_Read, colLo, readLo, nCols, readH,
                         buf.data(), nCols, readH, GDT_Float64, 0, 0) != CE_None)
         {
             for (qsizetype k = from; k < to; ++k)
                 (*outZ)[order[k]] = kNaN;
+            from = to;
             continue;
         }
 
@@ -275,15 +279,14 @@ void DTMRaster::sampleMany(const QVector<QPointF> &xy,
         {
             const qsizetype i = order[k];
             Anchor a;
-            // Pass 1 already found this point in range, but the range test
-            // sits at a floor() boundary where FP contraction may evaluate
-            // the two inline expansions of anchorFor() differently by 1 ULP
-            // (points exactly on the raster edge). If the verdict flips, a
-            // would be left default-initialised — never index the strip
-            // buffer with it.
+            // The anchor was found in range above, but the range test sits at
+            // a floor() boundary where FP contraction may evaluate the two
+            // inline expansions of anchorFor() differently by 1 ULP (points
+            // exactly on the raster edge). If the verdict flips, never index
+            // the buffer with a default-initialised anchor.
             if (!anchorFor(xy[i].x(), xy[i].y(), &a)
                 || a.r0 < readLo || a.r1 > readHi
-                || a.c0 < colMin || a.c1 > colMax)
+                || a.c0 < colLo || a.c1 > colHi)
             {
                 (*outZ)[i] = kNaN;
                 continue;
@@ -291,10 +294,10 @@ void DTMRaster::sampleMany(const QVector<QPointF> &xy,
 
             const double *r0Row = buf.constData() + qsizetype(a.r0 - readLo) * nCols;
             const double *r1Row = buf.constData() + qsizetype(a.r1 - readLo) * nCols;
-            const double w0 = r0Row[a.c0 - colMin];
-            const double w1 = r0Row[a.c1 - colMin];
-            const double w2 = r1Row[a.c0 - colMin];
-            const double w3 = r1Row[a.c1 - colMin];
+            const double w0 = r0Row[a.c0 - colLo];
+            const double w1 = r0Row[a.c1 - colLo];
+            const double w2 = r1Row[a.c0 - colLo];
+            const double w3 = r1Row[a.c1 - colLo];
 
             if (m_hasNoData
                 && (std::isnan(w0) || w0 == m_noData
@@ -309,6 +312,7 @@ void DTMRaster::sampleMany(const QVector<QPointF> &xy,
             (*outZ)[i] = (w0 * (1 - a.dx) + w1 * a.dx) * (1 - a.dy)
                        + (w2 * (1 - a.dx) + w3 * a.dx) * a.dy;
         }
+        from = to;
     }
 }
 

@@ -67,6 +67,9 @@ struct BurnDomain
      *  whose bounds cover the point. Call after the rings are final; the
      *  answer is unchanged. */
     void buildIndex();
+    /*! \brief Indices, ascending, of the holes whose bounds may meet \p box
+     *  (every hole when no index is built). */
+    [[nodiscard]] QVector<int> holesNear(const QRectF &box) const;
 
 private:
     QVector<QRectF> m_holeBox;

@@ -6,7 +6,7 @@
  *
  * DEM raster access for mesh generation: open a raster, report its CRS and
  * pixel size, sample elevations bilinearly one point at a time (sampleAt)
- * or in row-strip batches (sampleMany, one RasterIO per strip, results
+ * or in tile batches (sampleMany, one RasterIO per occupied tile, results
  * bit-identical to sampleAt). This is the sampler half of the former
  * DTMThinner; its terrain decimation is retired
  * (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md — terrain fidelity is a size
@@ -55,11 +55,12 @@ public:
      *
      * \p outZ is resized to \p xy.size(); each entry equals what sampleAt()
      * would return for that point (NaN when out-of-range, NoData in the 2×2
-     * window, or on read failure).  Queries are binned into raster row-strips
-     * sized to \p maxBufBytes and each strip is read with ONE RasterIO call
-     * (with a 1-row overlap so bilinear windows spanning a strip boundary
-     * resolve), instead of one RasterIO per point.  Results are bit-identical
-     * to per-point sampleAt().  \p maxBufBytes is exposed for tests.
+     * window, or on read failure).  Queries are binned into square raster
+     * tiles sized to \p maxBufBytes (at most 512 px) and only tiles holding a
+     * query are read, each with ONE RasterIO call (with a 1-row/1-column
+     * overlap so bilinear windows spanning a tile edge resolve), instead of
+     * one RasterIO per point.  Results are bit-identical to per-point
+     * sampleAt().  \p maxBufBytes is exposed for tests.
      */
     void sampleMany(const QVector<QPointF> &xy,
                     QVector<double>        *outZ,

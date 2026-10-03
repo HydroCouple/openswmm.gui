@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <QCryptographicHash>
 
 namespace mesh {
@@ -106,7 +107,9 @@ QVector<double> candidateChainages(const QVector<QPointF> &path, const QVector<d
     {
         if (!(chain[i + 1] > chain[i])) continue;
         for (const QPolygonF &r : domain.rings) segmentRingHits(path, chain, i, r, &hits);
-        for (const QPolygonF &h : domain.holes) segmentRingHits(path, chain, i, h, &hits);
+        // A segment can only meet a hole whose bounds it touches.
+        const QRectF box = QRectF(path[i], path[i + 1]).normalized();
+        for (const int k : domain.holesNear(box)) segmentRingHits(path, chain, i, domain.holes[k], &hits);
     }
     std::sort(hits.begin(), hits.end());
 
@@ -144,6 +147,38 @@ bool BurnDomain::contains(const QPointF &p) const
         if (m_holeBox[k].contains(p) && inHole(k)) return false;
     }
     return true;
+}
+
+QVector<int> BurnDomain::holesNear(const QRectF &box) const
+{
+    QVector<int> out;
+    if (m_gx == 0) {
+        out.resize(holes.size());
+        std::iota(out.begin(), out.end(), 0);
+        return out;
+    }
+    // QRectF::intersects is false for a zero-width box; compare edges.
+    const auto meets = [&](const QRectF &b) {
+        return b.left() <= box.right() && box.left() <= b.right()
+            && b.top() <= box.bottom() && box.top() <= b.bottom();
+    };
+    if (!meets(m_extent)) return out;
+    const auto cellOf = [&](double v, double lo, double span, int n) {
+        return std::clamp(int((v - lo) / span * n), 0, n - 1);
+    };
+    const int x0 = cellOf(box.left(), m_extent.left(), m_extent.width(), m_gx);
+    const int x1 = cellOf(box.right(), m_extent.left(), m_extent.width(), m_gx);
+    const int y0 = cellOf(box.top(), m_extent.top(), m_extent.height(), m_gy);
+    const int y1 = cellOf(box.bottom(), m_extent.top(), m_extent.height(), m_gy);
+    for (int y = y0; y <= y1; ++y)
+        for (int x = x0; x <= x1; ++x) {
+            const int cell = y * m_gx + x;
+            for (int i = m_cellStart[cell]; i < m_cellStart[cell + 1]; ++i)
+                if (meets(m_holeBox[m_cellItems[i]])) out.append(m_cellItems[i]);
+        }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
 }
 
 void BurnDomain::buildIndex()
