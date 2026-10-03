@@ -218,8 +218,12 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
     // Adds a failure result and marks the promise done.
     // Callers `return` immediately after calling this.
+    // Burn warnings gathered before a failure still explain it (which
+    // channels stayed 1D); set once the list exists below.
+    const QStringList *failWarnings = nullptr;
     auto fail = [&](const QString &msg) {
         PResult r; r.ok = false; r.errorMsg = msg;
+        if (failWarnings) r.burnWarnings = *failWarnings;
         promise.addResult(r);
     };
 
@@ -930,6 +934,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // entirely between its pixel centres.
     QVector<QPolygonF> burnCorridorRings;
     QStringList        burnWarnings = in.burnWarnings;
+    failWarnings = &burnWarnings;
     QString            burnedDemPath, burnReportPath;
     std::shared_ptr<GeneratedMeshArtifacts> generatedArtifacts;
     mesh::BurnRasterStats burnStats;
@@ -1235,7 +1240,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 auto patch=mesh::corridorPatch(lat,p,in.burnOptions,&error);
                 bool conflict=false;
                 for(const auto &cs:in.constraintSegs) for(const auto &point:cs.path)
-                    if(rings[pi].containsPoint(point,Qt::OddEvenFill)) {conflict=true;break;}
+                    if(ringBounds[pi].contains(point) && rings[pi].containsPoint(point,Qt::OddEvenFill)) {conflict=true;break;}
                 if(!patch.quads.isEmpty() && !conflict) {
                     in.patches.append(std::move(patch)); burnCorridorRings.append(rings[pi]); continue;
                 }

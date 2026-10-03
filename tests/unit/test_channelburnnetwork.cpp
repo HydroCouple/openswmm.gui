@@ -269,6 +269,21 @@ TEST(ChannelBurnBoundary, HoleIndexGivesTheSameAnswerAsTheLinearScan)
     }
     EXPECT_EQ(disagreements, 0);
     EXPECT_GT(inHoles, 1000);
+
+    // Clipping through the lattice: diagonal, axis-aligned along hole edges
+    // (touching, so one run), and a long many-vertex path.
+    QVector<QVector<QPointF>> paths = {{QPointF(-10, -10), QPointF(1010, 1010)},
+                                       {QPointF(-10, 25), QPointF(1010, 25)},
+                                       {QPointF(49, -10), QPointF(49, 1010)}};
+    QVector<QPointF> zigzag;
+    for (int k = 0; k <= 200; ++k) zigzag.append(QPointF(5 * k, 500 + 300 * std::sin(0.13 * k)));
+    paths.append(zigzag);
+    for (int p = 0; p < paths.size(); ++p) {
+        const auto a = clipPolylineToDomain(paths[p], linear), b = clipPolylineToDomain(paths[p], indexed);
+        ASSERT_EQ(a.size(), b.size());
+        if (p == 0 || p == 3) EXPECT_GT(a.size(), 3);
+        for (int r = 0; r < a.size(); ++r) EXPECT_EQ(a[r], b[r]);
+    }
 }
 
 TEST(ChannelBurnBoundary, TouchingARingWithoutLeavingIsNotACrossing)

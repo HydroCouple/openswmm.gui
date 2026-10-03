@@ -164,11 +164,50 @@ QString validatePatchPlacement(const QVector<PatchMesh> &patches,
         closedPaths.append(patchRingPath(closedRings.last()));
         closedAreas.append(patchPathArea(closedPaths.last()));
     }
+    // Bucket closed rings by bounds: with tens of thousands of footprint
+    // rings, testing every seed against every ring is quadratic.
+    QVector<QRectF> closedBounds;
+    closedBounds.reserve(closedPaths.size());
+    for (const QPainterPath &path : std::as_const(closedPaths)) closedBounds.append(path.controlPointRect());
+    QRectF closedExtent;
+    for (const QRectF &b : std::as_const(closedBounds)) closedExtent = closedExtent.isNull() ? b : closedExtent.united(b);
+    const int gridSide = closedPaths.isEmpty() || !(closedExtent.width() > 0) || !(closedExtent.height() > 0)
+        ? 1 : std::clamp(int(std::sqrt(double(closedPaths.size()))), 1, 1024);
+    const auto gridCell = [&](double v, double lo, double span) {
+        return span > 0 ? std::clamp(int((v - lo) / span * gridSide), 0, gridSide - 1) : 0;
+    };
+    QVector<QVector<int>> grid(gridSide * gridSide);
+    for (int i = 0; i < closedBounds.size(); ++i) {
+        const QRectF &b = closedBounds[i];
+        for (int y = gridCell(b.top(), closedExtent.top(), closedExtent.height());
+             y <= gridCell(b.bottom(), closedExtent.top(), closedExtent.height()); ++y)
+            for (int x = gridCell(b.left(), closedExtent.left(), closedExtent.width());
+                 x <= gridCell(b.right(), closedExtent.left(), closedExtent.width()); ++x)
+                grid[y * gridSide + x].append(i);
+    }
+    // Rings whose bounds meet \p box, ascending (the order of a full scan).
+    const auto ringsNear = [&](const QRectF &box) {
+        QVector<int> out;
+        if (closedPaths.isEmpty() || box.right() < closedExtent.left() || box.left() > closedExtent.right()
+            || box.bottom() < closedExtent.top() || box.top() > closedExtent.bottom()) return out;
+        for (int y = gridCell(box.top(), closedExtent.top(), closedExtent.height());
+             y <= gridCell(box.bottom(), closedExtent.top(), closedExtent.height()); ++y)
+            for (int x = gridCell(box.left(), closedExtent.left(), closedExtent.width());
+                 x <= gridCell(box.right(), closedExtent.left(), closedExtent.width()); ++x)
+                for (int i : grid[y * gridSide + x]) {
+                    const QRectF &b = closedBounds[i];
+                    if (b.left() <= box.right() && box.left() <= b.right() && b.top() <= box.bottom() && box.top() <= b.bottom())
+                        out.append(i);
+                }
+        std::sort(out.begin(), out.end());
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+        return out;
+    };
     QSet<int> holeRings;
     for (const QPointF &hole : holes) {
         QVector<int> enclosing;
         int innermost = -1;
-        for (int i = 0; i < closedPaths.size(); ++i) {
+        for (int i : ringsNear(QRectF(hole - origin, QSizeF(0, 0)))) {
             if (!closedPaths[i].contains(hole - origin)) continue;
             enclosing.append(i);
             if (innermost < 0 || closedAreas[i] < closedAreas[innermost]) innermost = i;
@@ -181,10 +220,11 @@ QString validatePatchPlacement(const QVector<PatchMesh> &patches,
                                       "use one unambiguous closed hole boundary before adding structured patches.");
         holeRings.insert(innermost);
     }
-    for (int index : holeRings) {
-        exclusionBoundaries->append(closedRings[index]);
-        domain = domain.subtracted(closedPaths[index]);
-    }
+    // Holes are not subtracted from one global domain path (quadratic in
+    // the number of footprints); each patch below checks only the hole
+    // rings near it, which is the same set relation:
+    // patch - (domain - holes) = (patch - domain) + (patch within a hole).
+    for (int index : holeRings) exclusionBoundaries->append(closedRings[index]);
     QVector<QPainterPath> priorPaths;
     for (int i = 0; i < patches.size(); ++i) {
         const auto fail = [&](const QString &reason) {
@@ -199,7 +239,10 @@ QString validatePatchPlacement(const QVector<PatchMesh> &patches,
         const QPolygonF ring = patchRelativeRing(ordered, origin);
         const QPainterPath path = patchRingPath(ring);
         const double areaTolerance = std::max(1e-24, patchPathArea(path) * 64 * std::numeric_limits<double>::epsilon());
-        if (patchPathArea(path.subtracted(domain)) > areaTolerance)
+        QPainterPath outside = path.subtracted(domain);
+        for (int index : ringsNear(path.controlPointRect()))
+            if (holeRings.contains(index)) outside = outside.united(path.intersected(closedPaths[index]));
+        if (patchPathArea(outside) > areaTolerance)
             return fail(QStringLiteral("extends outside the meshing domain; clip or resize it before generating."));
         for (int j = 0; j < priorPaths.size(); ++j)
             if (patchPathArea(path.intersected(priorPaths[j])) > areaTolerance)
@@ -1837,14 +1880,35 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
             if (!cdt.insertConstraint(a, b))
             {
                 const QPointF pa = p.pts[k], pb = p.pts[(k + 1) % n];
-                const QString kind = p.isDomain ? QStringLiteral("domain ring") : p.isHole ? QStringLiteral("hole ring")
-                                   : p.closed ? QStringLiteral("closed ring") : QStringLiteral("line");
+                const auto kindOf = [](const Poly &q) {
+                    return q.isDomain ? QStringLiteral("domain ring") : q.isHole ? QStringLiteral("hole ring")
+                         : q.closed ? QStringLiteral("closed ring") : QStringLiteral("line");
+                };
+                // Name the already inserted constraint this edge crosses.
+                QString crossedBy;
+                for (int j = 0; j <= i && crossedBy.isEmpty(); ++j) {
+                    const Poly &o = polys[j];
+                    if (o.dropped) continue;
+                    const int on = o.pts.size(), oEdges = o.closed ? on : on - 1;
+                    for (int m = 0; m < oEdges && crossedBy.isEmpty(); ++m) {
+                        if (j == i && std::abs(m - k) <= 1) continue;
+                        const QPointF qa = o.pts[m], qb = o.pts[(m + 1) % on];
+                        const auto side = [](QPointF u, QPointF v, QPointF w) {
+                            return (v.x() - u.x()) * (w.y() - u.y()) - (v.y() - u.y()) * (w.x() - u.x());
+                        };
+                        if (side(pa, pb, qa) * side(pa, pb, qb) < 0 && side(qa, qb, pa) * side(qa, qb, pb) < 0)
+                            crossedBy = QStringLiteral("; crosses %1%2 edge (%3, %4)-(%5, %6), marker %7").arg(kindOf(o))
+                                .arg(o.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(o.tag))
+                                .arg(qa.x(), 0, 'f', 2).arg(qa.y(), 0, 'f', 2).arg(qb.x(), 0, 'f', 2).arg(qb.y(), 0, 'f', 2)
+                                .arg(o.marker);
+                    }
+                }
                 return fail(QStringLiteral("MeshGenerator: constraint%1 could not be recovered — %2. "
                                            "Constraints cross each other or the domain boundary. "
-                                           "(%3 edge (%4, %5)-(%6, %7), marker %8)")
-                                .arg(p.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(p.tag), cdt.errorMsg(), kind)
+                                           "(%3 edge (%4, %5)-(%6, %7), marker %8%9)")
+                                .arg(p.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(p.tag), cdt.errorMsg(), kindOf(p))
                                 .arg(pa.x(), 0, 'f', 2).arg(pa.y(), 0, 'f', 2).arg(pb.x(), 0, 'f', 2).arg(pb.y(), 0, 'f', 2)
-                                .arg(p.marker));
+                                .arg(p.marker).arg(crossedBy));
             }
         }
     }
