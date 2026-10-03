@@ -40,6 +40,7 @@
 #include "mesh/inpmeshreader.h"
 #include "mesh/naturalnbinterpolator.h"
 #include "mesh/meshreorder.h"
+#include "mesh/boundaryconditioning.h"
 #include "mesh/meshstagecache.h"
 #include "project/generatedmeshartifacts.h"
 #include "mesh/pslgprep.h"
@@ -293,7 +294,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         boundaryCacheKey = mesh::MeshStageCache::boundaryKey(
             srcId, subHash, in.boundaryLayerName, in.boundaryCRSWkt,
             in.meshCRSWkt, in.trimTurnDeg, in.trimDeviation,
-            in.minCellSize, false);
+            in.minCellSize, in.conditionBoundary);
 
         QElapsedTimer cacheClock;
         cacheClock.start();
@@ -421,6 +422,27 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
         };
 
+        // Footprint conditioning (MESH_REGIONAL_TRIQUAD_PLAN D-R3): close,
+        // open and simplify the dissolved region at the minimum cell size so
+        // building detail that adds no shape cannot force tiny cells.
+        auto conditionRegion = [&](OGRGeometry *&region) {
+            if (!in.conditionBoundary || !(in.minCellSize > 0.0)) return;
+            mesh::BoundaryConditionReport rep;
+            OGRGeometry *conditioned = mesh::conditionMeshRegion(
+                region, in.minCellSize, 0.25 * in.minCellSize, &rep);
+            if (!conditioned) {
+                qCWarning(lcMeshPerf) << "[Mesh][boundary] conditioning failed; meshing the boundary as drawn";
+                return;
+            }
+            OGRGeometryFactory::destroyGeometry(region);
+            region = conditioned;
+            qCInfo(lcMeshPerf).noquote() << QStringLiteral(
+                "[Mesh][boundary] conditioned at %1: polygons %2 -> %3, holes %4 -> %5, vertices %6 -> %7, area %8 -> %9 (%10 ms)")
+                .arg(in.minCellSize).arg(rep.polygonsIn).arg(rep.polygonsOut).arg(rep.holesIn).arg(rep.holesOut)
+                .arg(rep.verticesIn).arg(rep.verticesOut).arg(rep.areaIn,0,'f',1).arg(rep.areaOut,0,'f',1).arg(rep.milliseconds);
+            stageMark("boundary: conditioning");
+        };
+
         bool cancelled = false;
         if (in.boundaryKind == BoundaryKind::Subcatchments)
         {
@@ -440,6 +462,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
             OGRGeometry *unioned = mp.UnaryUnion();
             stageMark("boundary: UnaryUnion (subcatchments)");
+            if (unioned) conditionRegion(unioned);
             if (unioned)
             {
                 walkOgrGeom(unioned);
@@ -507,6 +530,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                         // Stop takes effect at the next check.
                         OGRGeometry *dissolved = mp.UnaryUnion();
                         stageMark("boundary: UnaryUnion");
+                        if (dissolved) conditionRegion(dissolved);
                         if (dissolved)
                         {
                             walkOgrGeom(dissolved);
@@ -908,24 +932,97 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     }
     mesh::TerrainErrorField terrainReference;
     bool terrainReferenceOpen=false;
-    mesh::BurnCorridorIndex channelIndex;
-    channelIndex.build(in.burnProfiles);
     QVector<mesh::BurnLattice> channelLattices;
     qint64 channelVertexCount=0;
-    for(const auto &profile:in.burnProfiles) {
+    // A conduit whose corridor cannot be built (e.g. it folds at a tight
+    // bend) is left unburned and stays a 1D conduit, with a warning, rather
+    // than failing every other channel and the whole mesh. Profiles and
+    // lattices stay index-aligned: later stages look one up by the other.
+    QVector<mesh::BurnProfile> buildableProfiles;
+    buildableProfiles.reserve(in.burnProfiles.size());
+    for(const auto &profile:std::as_const(in.burnProfiles)) {
         if(promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
         double spacing=in.burnOptions.channelCellSize;
         if(!(spacing>0)) spacing=in.burnOptions.chainageStep;
         if(!(spacing>0)) spacing=in.cellSize;
         QString error;
-        auto lat=mesh::buildCorridorLattice(profile,spacing,in.burnMinCellSize,&burnWarnings,&error);
-        if(!lat.isValid()) { fail(error); return; }
+        // Half the channel accuracy tolerance thins dense surveyed sections;
+        // the other half is left for the mesh surface.
+        auto lat=mesh::buildCorridorLattice(profile,spacing,in.burnMinCellSize,&burnWarnings,&error,
+                                            0.5*in.burnOptions.geometryTolerance/in.verticalUnitToSI);
+        if(!lat.isValid()) {
+            burnWarnings.append(QObject::tr("%1 — not burned; it remains a 1D conduit.").arg(error));
+            continue;
+        }
+        buildableProfiles.append(profile);
         channelVertexCount+=lat.xy.size();
         if(channelVertexCount>std::min<qint64>(in.burnOptions.maxCorridorVertices,std::max(4,in.genOpts.maxCells))) {
-            fail(QObject::tr("Channel corridors exceed the vertex/cell budget. Increase channel spacing.")); return;
+            // Name the densest corridors so the spacing that matters is clear.
+            QVector<const mesh::BurnLattice *> worst;
+            for(const auto &l:std::as_const(channelLattices)) worst.append(&l);
+            worst.append(&lat);
+            std::sort(worst.begin(),worst.end(),[](const auto *a,const auto *b){return a->xy.size()>b->xy.size();});
+            QStringList top;
+            for(int k=0;k<std::min<int>(3,worst.size());++k)
+                top << QObject::tr("%1 (%2 along x %3 across)").arg(worst[k]->conduitId).arg(worst[k]->nAlong).arg(worst[k]->nAcross);
+            fail(QObject::tr("Channel corridors exceed the vertex/cell budget (%1 vertices after %2 of %3 channels, spacing %4). "
+                             "Densest: %5. Increase channel spacing.")
+                 .arg(channelVertexCount).arg(buildableProfiles.size()).arg(in.burnProfiles.size()).arg(spacing).arg(top.join(", ")));
+            return;
         }
         channelLattices.append(std::move(lat));
     }
+    if(buildableProfiles.size()!=in.burnProfiles.size()) {
+        qCInfo(lcMeshPerf) << "[Mesh][burn]" << in.burnProfiles.size()-buildableProfiles.size()
+                           << "of" << in.burnProfiles.size() << "conduit(s) left unburned (corridor could not be built)";
+        in.burnProfiles=std::move(buildableProfiles);
+    }
+    const double channelTolerance=in.burnOptions.geometryTolerance/in.verticalUnitToSI;
+    if(in.burnOptions.removeBurnedFrom1D && channelLattices.size()>1) {
+        // Overlapping sections must agree before a raster is exported or
+        // refinement starts: incompatible planes cannot be fixed by adding
+        // cells. Channels are accepted in order; one that disagrees with an
+        // already accepted overlapping channel stays unburned (a 1D conduit)
+        // with a warning instead of failing every channel.
+        QVector<QRectF> latBounds;
+        latBounds.reserve(channelLattices.size());
+        for(const auto &lat:std::as_const(channelLattices)) {
+            QRectF b;
+            for(const QPointF &q:lat.xy) b=b.isNull()?QRectF(q,QSizeF(1e-9,1e-9)):b.united(QRectF(q,QSizeF(1e-9,1e-9)));
+            latBounds.append(b);
+        }
+        QVector<int> accepted;
+        for(int c=0;c<channelLattices.size();++c) {
+            if(promise.isCanceled()) {fail(QObject::tr("Cancelled."));return;}
+            QVector<mesh::BurnLattice> neighbours;
+            for(int a:std::as_const(accepted)) if(latBounds[a].intersects(latBounds[c])) neighbours.append(channelLattices[a]);
+            bool compatible=true; QPointF where;
+            if(!neighbours.isEmpty()) {
+                mesh::BurnSurface near; near.build(neighbours);
+                const auto &lat=channelLattices[c];
+                for(int row=0;row+1<lat.nAlong && compatible;++row)
+                    for(int col=0;col+1<lat.nAcross && compatible;++col) for(int half=0;half<2 && compatible;++half) {
+                        const int ids[3]={lat.at(row,col),half?lat.at(row+1,col+1):lat.at(row+1,col),
+                                          half?lat.at(row,col+1):lat.at(row+1,col+1)};
+                        QPointF xy[3];double z[3];for(int k=0;k<3;++k){xy[k]=lat.xy[ids[k]];z[k]=lat.z[ids[k]];}
+                        const auto e=near.error(xy,z,[&](const QPointF &q){return burnDomain.contains(q);});
+                        if(e.maximum>channelTolerance) {compatible=false;where=e.point;}
+                    }
+            }
+            if(compatible) accepted.append(c);
+            else burnWarnings.append(QObject::tr("Channel %1 overlaps an incompatible section near (%2, %3) — not burned; it remains a 1D conduit.")
+                                     .arg(channelLattices[c].conduitId).arg(where.x(),0,'g',12).arg(where.y(),0,'g',12));
+        }
+        if(accepted.size()!=channelLattices.size()) {
+            qCInfo(lcMeshPerf) << "[Mesh][burn]" << channelLattices.size()-accepted.size()
+                               << "conduit(s) left unburned (incompatible overlapping sections)";
+            QVector<mesh::BurnLattice> keptLattices; QVector<mesh::BurnProfile> keptProfiles;
+            for(int a:std::as_const(accepted)) { keptLattices.append(channelLattices[a]); keptProfiles.append(in.burnProfiles[a]); }
+            channelLattices=std::move(keptLattices); in.burnProfiles=std::move(keptProfiles);
+        }
+    }
+    mesh::BurnCorridorIndex channelIndex;
+    channelIndex.build(in.burnProfiles);
     mesh::BurnSurface channelSurface;
     channelSurface.build(channelLattices);
     auto sectionAt = [&](const QPointF &p,mesh::BurnProjection *pr,double *z) {
@@ -933,24 +1030,6 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         if(hit.profile<0) return false;
         *z=hit.z; pr->profile=hit.profile;pr->offset=hit.offset; return true;
     };
-    const double channelTolerance=in.burnOptions.geometryTolerance/in.verticalUnitToSI;
-    if(in.burnOptions.removeBurnedFrom1D && channelLattices.size()>1) {
-        // Verify overlapping sections before exporting a raster or attempting
-        // refinement: incompatible planes cannot be fixed by adding cells.
-        for(const auto &lat:channelLattices) for(int row=0;row+1<lat.nAlong;++row) {
-            if(promise.isCanceled()) {fail(QObject::tr("Cancelled."));return;}
-            for(int col=0;col+1<lat.nAcross;++col) for(int half=0;half<2;++half) {
-                const int ids[3]={lat.at(row,col),half?lat.at(row+1,col+1):lat.at(row+1,col),
-                                  half?lat.at(row,col+1):lat.at(row+1,col+1)};
-                QPointF xy[3];double z[3];for(int k=0;k<3;++k){xy[k]=lat.xy[ids[k]];z[k]=lat.z[ids[k]];}
-                const auto error=channelSurface.error(xy,z,[&](const QPointF &p){return burnDomain.contains(p);});
-                if(error.maximum>channelTolerance) {
-                    fail(QObject::tr("Channel %1 overlaps an incompatible section near (%2, %3). Resolve the junction geometry before replacement.")
-                        .arg(lat.conduitId).arg(error.point.x(),0,'g',12).arg(error.point.y(),0,'g',12));return;
-                }
-            }
-        }
-    }
     mesh::BurnRule channelRule{in.burnOptions.forceHalfWidth,in.burnOptions.maxIncision};
     // Replacement must represent the complete authored section. Terrain-only
     // mode retains the optional lowering-only shoulder rule.
@@ -1580,6 +1659,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // The 0.1 m baseline is converted to the mesh's vertical unit.
             in.terrainTolerance = std::max(.1/in.verticalUnitToSI,3.0*terrainReference.verticalQuantum());
         }
+        qCInfo(lcMeshPerf) << "[Mesh][terrain] leaf residual (16 px planes) P50" << terrainReference.leafResidualQuantile(.5)
+                           << "P90" << terrainReference.leafResidualQuantile(.9) << "P99" << terrainReference.leafResidualQuantile(.99);
         qCInfo(lcMeshPerf) << "[Mesh][terrain] adaptive reference samples" << terrainReference.referenceSamples()
                          << "| summary bytes" << terrainReference.summaryBytes() << "| tolerance" << in.terrainTolerance;
         stageMark("terrain error index");
@@ -1661,6 +1742,14 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             mesh::TerrainBreaklineOptions blo;
             blo.tolerance = tso.tolerance;
             blo.cacheMiB = in.terrainCacheMiB;
+            // Major features only (MESH_REGIONAL_TRIQUAD_PLAN D-R4): the
+            // generator keeps no line shorter than 4 x the minimum cell, so do
+            // not trace them. On fine lidar this drops millions of chains. A
+            // chain point advances at most sqrt(2) pixels, so this count never
+            // drops a line the generator would keep.
+            if (in.minCellSize > 0.0 && unitScale > 0.0 && thinner.pixelSize() > 0.0)
+                blo.minPixels = std::max(blo.minPixels,
+                    int(std::floor(4.0 * in.minCellSize / (std::sqrt(2.0) * unitScale * thinner.pixelSize()))));
             blo.cancelled = [&promise] { return promise.isCanceled(); };
             if (in.terrainBreaklines) tso.rowSink = [&breaklines, &blo](const float *row, int r, int cols, int rows) {
                 if (r == 0) breaklines.begin(cols, rows, blo);
@@ -2919,6 +3008,15 @@ void MeshGenerationDialog::buildUi()
             "domain falls back to the SWMM model bounding rectangle + 5%."));
         boundaryRow->addWidget(m_boundaryLayerCombo, 1);
         lay->addLayout(boundaryRow);
+        m_conditionBoundaryBox = new QCheckBox(tr("Simplify footprints to the minimum cell size"), g);
+        m_conditionBoundaryBox->setObjectName(QStringLiteral("meshConditionBoundaryBox"));
+        m_conditionBoundaryBox->setChecked(true);
+        m_conditionBoundaryBox->setToolTip(tr(
+            "Before meshing, fill holes narrower than the minimum cell size, cut back building "
+            "detail thinner than it, close gaps narrower than it between buildings or the boundary, "
+            "and drop vertices that add no shape. Corners stay square. Prevents tiny cells that "
+            "slow the simulation; the log reports what changed."));
+        lay->addWidget(m_conditionBoundaryBox);
 
         lay->addWidget(new QLabel(tr("Constraining &points (check to include):"), g));
         m_pointLayersList = new QListWidget(g);
@@ -4235,6 +4333,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->coarsenFactor = m_coarsenSpin->value();
     out->sizeRatio     = m_sizeRatioSpin->value();
     out->minCellSize   = m_minCellSizeSpin->value();
+    out->conditionBoundary = m_conditionBoundaryBox && m_conditionBoundaryBox->isChecked();
     if (out->cellSize <= 0.0)
     {
         // Derive from the model extent: about 100 cells across the longer side.

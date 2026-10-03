@@ -106,6 +106,11 @@ public:
         QString boundaryPath;        ///< VectorFile: datasource path
         QString boundaryLayerName;   ///< VectorFile: OGR layer name ("" = first)
         QString boundaryCRSWkt;      ///< VectorFile: source SRS WKT ("" = mesh CRS)
+        /*! Close, open and simplify the dissolved boundary at minCellSize
+         *  (building holes and gaps narrower than a cell; redundant
+         *  vertices). Off here so other callers keep their geometry; the
+         *  dialog turns it on by default. */
+        bool conditionBoundary = false;
         QVector<QVector<QPointF>> subcatchPolys;  ///< Subcatchments: raw rings (mesh CRS)
         MapExtent modelExtent;       ///< AutoBBox fallback frame
 
@@ -418,6 +423,7 @@ private:
 
     // ── Auxiliary feature-layer constraints (all optional) ──────────
     QComboBox     *m_boundaryLayerCombo = nullptr;
+    QCheckBox     *m_conditionBoundaryBox = nullptr;  // footprint conditioning (D-R3)
     QListWidget   *m_pointLayersList    = nullptr;
     QListWidget   *m_lineLayersList     = nullptr;
 

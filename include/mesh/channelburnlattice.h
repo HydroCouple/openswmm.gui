@@ -114,11 +114,21 @@ private:
  * \param minCellSize Mesh minimum cell size, for the densification guard
  *                    (§4.6): a lattice finer than the mesh floor is reported,
  *                    not silently emitted. 0 = no check.
+ * \param acrossTolerance > 0 drops section offsets whose removal changes no
+ *                    station's cross-section by more than this (vertical,
+ *                    profile units): dense surveyed or lidar sections keep
+ *                    their shape without hundreds of offsets. The first and
+ *                    last offsets and the one nearest the centreline stay,
+ *                    and no lateral gap grows beyond the along spacing.
+ *                    Applies only to sections denser than \p minCellSize
+ *                    (more offsets than width / minCellSize + 1).
+ *                    0 = keep every offset.
  */
 [[nodiscard]] BurnLattice buildCorridorLattice(const BurnProfile &p,
                                                double alongStep, double minCellSize,
                                                QStringList *warnings = nullptr,
-                                               QString *err = nullptr);
+                                               QString *err = nullptr,
+                                               double acrossTolerance = 0.0);
 
 /*!
  * \brief The corridor as quads — the P3 deliverable.

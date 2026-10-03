@@ -436,3 +436,54 @@ TEST(ChannelBurnLattice, ConflictingOverlapCannotHideAnInteriorRidge)
     for(auto p:xy) EXPECT_DOUBLE_EQ(surface.sample(p).z,0);
     EXPECT_GE(surface.error(xy,z,{}).maximum,.5);
 }
+
+// Dense surveyed/lidar sections: offsets whose removal changes no station's
+// cross-section by more than the tolerance are dropped, the shape is kept,
+// and a zero tolerance keeps every offset.
+TEST(ChannelBurnLattice, DenseSectionOffsetsAreThinnedWithinTolerance)
+{
+    SectionGeometry dense;
+    for (int i = 0; i <= 200; ++i) {
+        const double x = 0.2 * i;                       // 0 .. 40
+        const double v = std::max(0.0, std::abs(x - 20.0) - 4.0) * 0.5;   // 8 wide bed, 2H:1V
+        dense.station.append(x);
+        dense.elevation.append(v + 0.002 * std::sin(i * 1.7));           // sub-tolerance noise
+    }
+    ChannelInput in;
+    in.conduitId  = QStringLiteral("DENSE");
+    in.centerline = {QPointF(0, 0), QPointF(60, 0)};
+    in.zUp = 10.0; in.zDn = 9.4;
+    in.section = dense;
+    BurnOptions o = options();
+    o.maxHalfWidth = 30.0;
+    const BurnProfile p = buildBurnProfile(in, o);
+    ASSERT_TRUE(p.isValid());
+    ASSERT_GT(p.offsets.size(), 100);
+
+    const BurnLattice all = buildCorridorLattice(p, 5.0, 1.0);
+    ASSERT_TRUE(all.isValid());
+    EXPECT_EQ(all.nAcross, p.offsets.size());
+
+    const double tol = 0.01;
+    const BurnLattice thin = buildCorridorLattice(p, 5.0, 1.0, nullptr, nullptr, tol);
+    ASSERT_TRUE(thin.isValid());
+    EXPECT_LT(thin.nAcross, 20);
+    EXPECT_EQ(thin.offsets.first(), p.offsets.first());
+    EXPECT_EQ(thin.offsets.last(), p.offsets.last());
+    for (int k = 1; k < thin.nAcross; ++k) EXPECT_LE(thin.offsets[k] - thin.offsets[k - 1], 5.0 + 1e-9);
+    // A section no denser than the mesh floor is left exactly as authored.
+    EXPECT_EQ(buildCorridorLattice(p, 5.0, 0.1, nullptr, nullptr, tol).nAcross, p.offsets.size());
+    // Piecewise-linear across the kept offsets reproduces every original
+    // offset's elevation within the tolerance, at every lattice row.
+    for (int i = 0; i < thin.nAlong; ++i) {
+        const double t = thin.chainage[i];
+        int j = 0;
+        for (const double s : p.offsets) {
+            while (j + 2 < thin.nAcross && thin.offsets[j + 1] < s) ++j;
+            const double s0 = thin.offsets[j], s1 = thin.offsets[j + 1];
+            const double z0 = thin.z[thin.at(i, j)], z1 = thin.z[thin.at(i, j + 1)];
+            const double interp = z0 + (z1 - z0) * (s - s0) / (s1 - s0);
+            EXPECT_NEAR(interp, sectionZAt(p, t, s), tol + 1e-9) << "offset " << s << " row " << i;
+        }
+    }
+}
