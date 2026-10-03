@@ -517,3 +517,26 @@ TEST(ChannelBurnLattice, NearDuplicateOffsetsMergeKeepingBanksAndThalweg)
     // Without a mesh floor the section is used exactly as authored.
     EXPECT_EQ(buildCorridorLattice(p, 5.0, 0.0).nAcross, p.offsets.size());
 }
+
+// Constraint joining can leave a bank vertex a hair outside the corridor; it
+// must still take the channel surface, not the terrain beyond the bank.
+TEST(ChannelBurnLattice, SampleNearReachesABankVertexJustOutside)
+{
+    const BurnProfile p = straight();
+    const BurnLattice lat = buildCorridorLattice(p, 2.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+    BurnSurface surface;
+    surface.build({lat});
+    // The right bank of a corridor running +x is at y = offsets.first().
+    const double bankY = std::min(lat.xy[lat.at(3, 0)].y(), lat.xy[lat.at(3, lat.nAcross - 1)].y());
+    const QPointF onBank(lat.xy[lat.at(3, 0)].x(), bankY);
+    const QPointF outside(onBank.x(), bankY - 0.01);
+    EXPECT_LT(surface.sample(outside).profile, 0);
+    const auto near = surface.sampleNear(outside, 0.05);
+    ASSERT_EQ(near.profile, 0);
+    EXPECT_NEAR(near.z, surface.sample(onBank).z, 1e-9);
+    EXPECT_LT(surface.sampleNear(outside, 0.005).profile, 0);
+    // A point inside is the plain sample.
+    const QPointF inside(onBank.x(), bankY + 0.5);
+    EXPECT_DOUBLE_EQ(surface.sampleNear(inside, 0.05).z, surface.sample(inside).z);
+}
