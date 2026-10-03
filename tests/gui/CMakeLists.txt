@@ -3482,6 +3482,15 @@ add_swmmvis_gui_test(test_capture_node_pick
 )
 swmmvis_link_full_app_deps(test_capture_node_pick)
 
+# A plain click on a link selects only that link (not its end nodes or a
+# same-named node). Click log: tests/output/link_click_selection/.
+add_swmmvis_gui_test(test_link_click_selection
+    test_link_click_selection.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_link_click_selection)
+
 # Offset mode / link direction round-trip — Open -> Save must keep the
 # authored LINK_OFFSETS convention (elevations stay elevations) and the
 # authored From/To of adverse-slope conduits, which the engine normalises at

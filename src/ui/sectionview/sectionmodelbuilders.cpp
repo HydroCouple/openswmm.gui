@@ -123,6 +123,95 @@ void addSectionGeometry(SectionDiagramModel &m, const XsectSampler &sampler,
     }
 }
 
+/*!
+ * \brief Draw an IRREGULAR section from its transect's own station/elevation
+ *        points, as the engine builds it: stations × the station multiplier,
+ *        depth above the lowest point (so the elevation offset cancels), and
+ *        vertical end walls up to the highest point at the outer stations.
+ *
+ * A width-at-depth outline cannot show an off-centre thalweg, two low
+ * channels or one-sided overbanks, so the transect is drawn as surveyed.
+ * The thalweg sits at x = 0 so the invert/crown leaders point at it.
+ * \returns the full depth, or 0 when the transect cannot be drawn.
+ */
+double addTransectGeometry(SectionDiagramModel &m, SWMM_Engine engine, int tIdx,
+                           const DiagramUnits &units)
+{
+    if (tIdx < 0 || tIdx >= swmm_transect_count(engine)) return 0.0;
+    const int n = swmm_transect_get_station_count(engine, tIdx);
+    if (n < 2) return 0.0;
+    double xFactor = 1.0, yOffset = 0.0, meander = 1.0;
+    swmm_transect_get_modifiers(engine, tIdx, &xFactor, &yOffset, &meander);
+    if (!(xFactor > 0.0)) xFactor = 1.0;   // the engine's 0 → 1 default
+
+    QVector<QPointF> gr;
+    gr.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        double st = 0.0, el = 0.0;
+        if (swmm_transect_get_station(engine, tIdx, i, &st, &el) != SWMM_OK) return 0.0;
+        if (!std::isfinite(st) || !std::isfinite(el)) return 0.0;
+        gr << QPointF(st * xFactor, el);
+    }
+    double yMin = gr.first().y(), yMax = yMin;
+    int low = 0;
+    for (int i = 1; i < n; ++i) {
+        if (gr[i].y() < yMin) { yMin = gr[i].y(); low = i; }
+        yMax = std::max(yMax, gr[i].y());
+    }
+    const double yFull = yMax - yMin;
+    if (!(yFull > 0.0)) return 0.0;
+    const double x0 = gr[low].x();
+
+    // Ring: left wall top, the profile, right wall top. The open-top painter
+    // leaves out the ring edge between points n/2-1 and n/2, so rotate the
+    // ring until the edge joining the two wall tops sits there.
+    QVector<QPointF> ring;
+    ring.reserve(n + 2);
+    ring << QPointF(gr.first().x() - x0, yFull);
+    for (const QPointF &q : std::as_const(gr)) ring << QPointF(q.x() - x0, q.y() - yMin);
+    ring << QPointF(gr.last().x() - x0, yFull);
+    const int count = ring.size();
+    const int shift = count - count / 2;
+    DiagramPoly body;
+    body.role    = DiagramRole::Conduit;
+    body.openTop = true;
+    for (int i = 0; i < count; ++i) body.pts << ring[(i + shift) % count];
+    m.polys << body;
+
+    const double left = gr.first().x() - x0, right = gr.last().x() - x0;
+    DiagramDim depth;
+    depth.from        = QPointF(right, 0.0);
+    depth.to          = QPointF(right, yFull);
+    depth.text        = tr_("Depth %1").arg(lenText(yFull, units));
+    depth.pixelOffset = 34.0;
+    m.dims << depth;
+    DiagramDim width;
+    width.from        = QPointF(left, yFull);
+    width.to          = QPointF(right, yFull);
+    width.text        = tr_("Width %1").arg(lenText(right - left, units));
+    width.pixelOffset = -26.0;
+    m.dims << width;
+
+    // Bank stations separate the channel from the overbanks (they choose
+    // which Manning's n applies), scaled like the stations.
+    double bankL = 0.0, bankR = 0.0;
+    if (swmm_transect_get_bank_stations(engine, tIdx, &bankL, &bankR) == SWMM_OK) {
+        const auto bank = [&](double station, const QString &label) {
+            const double x = station * xFactor - x0;
+            if (!(x > left) || !(x < right)) return;
+            DiagramPolyline line;
+            line.pts    = QPolygonF({QPointF(x, 0.0), QPointF(x, yFull)});
+            line.role   = DiagramRole::Muted;
+            line.dashed = true;
+            line.label  = label;
+            m.polylines << line;
+        };
+        bank(bankL, tr_("Left bank"));
+        bank(bankR, tr_("Right bank"));
+    }
+    return yFull;
+}
+
 QString sectionFooter(const XsectFullProps &fp, const DiagramUnits &u,
                       int barrels)
 {
@@ -399,7 +488,18 @@ SectionDiagramModel buildLinkSection(SWMM_Engine engine, int linkIdx,
 
     const XsectSampler sampler =
         samplerForLink(engine, linkIdx, shape, g1, g2, g3, g4, units.si);
-    if (!sampler.isValid()) {
+
+    // IRREGULAR: draw the surveyed transect itself, which also works before
+    // the engine has built its tables.
+    double transectDepth = 0.0;
+    if (shape == SWMM_XSECT_IRREGULAR) {
+        const int tIdx = static_cast<int>(std::lround(g1));
+        transectDepth = addTransectGeometry(m, engine, tIdx, units);
+        if (transectDepth > 0.0)
+            m.subtitle = tr_("IRREGULAR — %1").arg(idOf(swmm_transect_id(engine, tIdx)));
+    }
+
+    if (transectDepth <= 0.0 && !sampler.isValid()) {
         if (shape == SWMM_XSECT_CUSTOM || shape == SWMM_XSECT_IRREGULAR) {
             m.emptyText = tr_("%1 geometry comes from a table the engine only "
                               "resolves when the model is validated or run. "
@@ -414,13 +514,16 @@ SectionDiagramModel buildLinkSection(SWMM_Engine engine, int linkIdx,
         return m;
     }
 
-    addSectionGeometry(m, sampler, units, /*highlightOrdinal=*/0);
+    if (transectDepth <= 0.0)
+        addSectionGeometry(m, sampler, units, /*highlightOrdinal=*/0);
     if (m.polys.isEmpty()) {
         m.emptyText = tr_("Cross-section geometry is degenerate.");
         return m;
     }
 
-    const XsectFullProps fp = sampler.fullProps();
+    XsectFullProps fp;
+    if (sampler.isValid()) fp = sampler.fullProps();
+    if (transectDepth > 0.0) fp.yFull = transectDepth;
 
     // Invert / crown elevations, taken from each end node + its offset so the
     // numbers match what the profile view and the property grid report. The
@@ -459,9 +562,11 @@ SectionDiagramModel buildLinkSection(SWMM_Engine engine, int linkIdx,
             QPointF(-70.0, -30.0) };
     }
 
-    int barrels = 1;
-    swmm_link_get_barrels(engine, linkIdx, &barrels);
-    m.footer = sectionFooter(fp, units, barrels);
+    if (sampler.isValid()) {
+        int barrels = 1;
+        swmm_link_get_barrels(engine, linkIdx, &barrels);
+        m.footer = sectionFooter(fp, units, barrels);
+    }
 
     return m;
 }

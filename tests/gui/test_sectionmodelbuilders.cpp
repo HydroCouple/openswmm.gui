@@ -26,15 +26,21 @@
  * `test_linkpropertyadapter.cpp`.
  */
 
+#include "ui/sectionview/sectiondiagram.h"
 #include "ui/sectionview/sectionmodelbuilders.h"
 #include "ui/sectionview/xsectsampler.h"
 
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
+#include <QDir>
+#include <QImage>
 #include <QObject>
+#include <QPainter>
+#include <QPalette>
 #include <QTest>
 
 #include <openswmm/engine/openswmm_spatial.h>
@@ -151,6 +157,7 @@ class TestSectionModelBuilders : public QObject
 private slots:
     void linkSectionReportsBothEndsWhenSloping();
     void linkSectionCollapsesToOneValueWhenFlat();
+    void irregularSectionDrawsTheTransectAsSurveyed();
     void linkProfileCrownsAreTrueBarrelEnds();
     void nodeProfileCrownsOnlyForRealSections();
     void storageShellIsWiderAndBrownerThanAJunction();
@@ -179,6 +186,61 @@ void TestSectionModelBuilders::linkSectionReportsBothEndsWhenSloping()
     QCOMPARE(leaderStarting(m, QStringLiteral("Crown El.")),
              QStringLiteral("Crown El. 101.00 / 99.00 ft"));
 
+    swmm_engine_destroy(e);
+}
+
+void TestSectionModelBuilders::irregularSectionDrawsTheTransectAsSurveyed()
+{
+    SWMM_Engine e = buildConduitFixture(100.0, 99.0);
+    QVERIFY(e);
+    // Off-centre thalweg at station 15, wide right overbank, ×2 stations.
+    QCOMPARE(swmm_transect_add(e, "T1"), SWMM_OK);
+    const int t = swmm_transect_count(e) - 1;
+    swmm_transect_set_roughness(e, t, 0.05, 0.05, 0.03);
+    const double gr[][2] = {{0, 10}, {10, 6}, {15, 2}, {20, 5}, {60, 6}, {100, 9}};
+    for (const auto &p : gr) QCOMPARE(swmm_transect_add_station(e, t, p[0], p[1]), SWMM_OK);
+    swmm_transect_set_bank_stations(e, t, 10.0, 60.0);
+    swmm_transect_set_modifiers(e, t, 2.0, 0.0, 1.0);
+    const int c1 = swmm_link_index(e, "C1");
+    QCOMPARE(swmm_link_set_xsect(e, c1, SWMM_XSECT_IRREGULAR, double(t), 0, 0, 0), SWMM_OK);
+
+    const SectionDiagramModel m = buildLinkSection(e, c1, kUnits);
+    QVERIFY2(m.emptyText.isEmpty(), qPrintable(m.emptyText));
+    QVERIFY(m.subtitle.contains(QStringLiteral("T1")));
+    QCOMPARE(countPolys(m, DiagramRole::Conduit), 1);
+    const DiagramPoly &body = m.polys.first();
+    QVERIFY(body.openTop);
+    double xMin = 1e9, xMax = -1e9, yMax = -1e9;
+    bool thalweg = false;
+    for (const QPointF &pt : body.pts) {
+        xMin = std::min(xMin, pt.x()); xMax = std::max(xMax, pt.x()); yMax = std::max(yMax, pt.y());
+        if (pt == QPointF(0.0, 0.0)) thalweg = true;
+    }
+    QVERIFY(thalweg);                       // lowest point at x = 0, depth 0
+    QCOMPARE(xMin, -30.0);                  // (0 - 15) × 2
+    QCOMPARE(xMax, 170.0);                  // (100 - 15) × 2: not mirrored
+    QCOMPARE(yMax, 8.0);                    // 10 - 2, end walls to the top
+    // The open top is the seam between the two wall tops.
+    const int mid = body.pts.size() / 2;
+    QCOMPARE(body.pts[mid - 1].y(), 8.0);
+    QCOMPARE(body.pts[mid].y(), 8.0);
+    QVERIFY(std::abs(body.pts[mid - 1].x() - body.pts[mid].x()) == 200.0);
+    // Bank stations, scaled and relative to the thalweg.
+    QCOMPARE(m.polylines.size(), 2);
+    QCOMPARE(m.polylines[0].pts.first().x(), -10.0);
+    QCOMPARE(m.polylines[1].pts.first().x(), 90.0);
+    // Rendered for review: tests/output/section_view_irregular/irregular.png
+    {
+        const QString dir = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
+            .absoluteFilePath(QStringLiteral("../../output/section_view_irregular"));
+        QDir().mkpath(dir);
+        QImage img(900, 500, QImage::Format_ARGB32);
+        img.fill(Qt::white);
+        QPainter painter(&img);
+        paintSectionDiagram(painter, QRectF(0, 0, 900, 500), m, QPalette());
+        painter.end();
+        QVERIFY(img.save(dir + QStringLiteral("/irregular.png")));
+    }
     swmm_engine_destroy(e);
 }
 
