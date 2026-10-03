@@ -106,20 +106,19 @@ double engineDepth(const QVector<SeriesPoint> &points,
     return boxDepth(toBoxes(s));
 }
 
-BlendResult blend(const QVector<SourceGage> &sources, const QVector<double> &weights)
+PreparedSources prepare(const QVector<SourceGage> &sources)
 {
-    BlendResult r;
+    PreparedSources p;
 
     const int n = static_cast<int>(sources.size());
-    if (n == 0 || weights.size() != n)
+    if (n == 0)
     {
-        r.error = QStringLiteral("No contributing gages.");
-        return r;
+        p.error = QStringLiteral("No contributing gages.");
+        return p;
     }
 
     // ── Validate, expand to boxes ───────────────────────────────────────
-    QVector<QVector<Box>> boxes;
-    boxes.reserve(n);
+    p.boxes.reserve(n);
     qint64 pitch = 0;
     qint64 spanLo = 0, spanHi = 0;
     bool haveSpan = false;
@@ -134,19 +133,19 @@ BlendResult blend(const QVector<SourceGage> &sources, const QVector<double> &wei
         {
             // The INP writer stores the interval as h:mm, so anything that is
             // not a whole number of minutes is destroyed on round-trip.
-            r.error = QStringLiteral(
+            p.error = QStringLiteral(
                           "%1 has a recording interval of %2 s. Only whole "
                           "minutes up to 24 hours can be written to an INP file.")
                           .arg(who)
                           .arg(s.intervalSec);
-            return r;
+            return p;
         }
 
         const QVector<Box> b = toBoxes(s);
         if (b.isEmpty())
         {
-            r.error = QStringLiteral("%1 has no usable rainfall data.").arg(who);
-            return r;
+            p.error = QStringLiteral("%1 has no usable rainfall data.").arg(who);
+            return p;
         }
 
         const qint64 lo = b.first().t0;
@@ -157,12 +156,12 @@ BlendResult blend(const QVector<SourceGage> &sources, const QVector<double> &wei
             // series (epoch ~1899-12-30) mixed with absolute-dated ones.
             if (lo - spanHi > kMaxSpanGapSec || spanLo - hi > kMaxSpanGapSec)
             {
-                r.error = QStringLiteral(
+                p.error = QStringLiteral(
                               "%1 covers a period disjoint from the other gages "
                               "by more than a year — the series are on different "
                               "time bases and cannot be combined.")
                               .arg(who);
-                return r;
+                return p;
             }
             spanLo = std::min(spanLo, lo);
             spanHi = std::max(spanHi, hi);
@@ -175,19 +174,19 @@ BlendResult blend(const QVector<SourceGage> &sources, const QVector<double> &wei
         }
 
         pitch = (pitch == 0) ? s.intervalSec : gcd64(pitch, s.intervalSec);
-        boxes.append(b);
+        p.boxes.append(b);
     }
 
     if (pitch <= 0 || spanHi <= spanLo)
     {
-        r.error = QStringLiteral("The contributing gages span no time.");
-        return r;
+        p.error = QStringLiteral("The contributing gages span no time.");
+        return p;
     }
 
     const qint64 cellCount = (spanHi - spanLo + pitch - 1) / pitch;
     if (cellCount > kMaxGridCells)
     {
-        r.error = QStringLiteral(
+        p.error = QStringLiteral(
                       "Combining these gages needs %1 intervals of %2 s "
                       "(their recording intervals have a common divisor of only "
                       "%2 s over %3 days). The limit is %4.")
@@ -195,8 +194,54 @@ BlendResult blend(const QVector<SourceGage> &sources, const QVector<double> &wei
                       .arg(pitch)
                       .arg((spanHi - spanLo) / 86400)
                       .arg(kMaxGridCells);
+        return p;
+    }
+
+    p.pitch     = pitch;
+    p.spanLo    = spanLo;
+    p.cellCount = cellCount;
+    p.depth.reserve(n);
+    p.peak.reserve(n);
+    for (const QVector<Box> &b : std::as_const(p.boxes))
+    {
+        p.depth.append(boxDepth(b));
+        double peak = 0.0;
+        for (const Box &x : b)
+            peak = std::max(peak, x.intensity);
+        p.peak.append(peak);
+    }
+    return p;
+}
+
+BlendResult blend(const QVector<SourceGage> &sources, const QVector<double> &weights)
+{
+    if (sources.isEmpty() || weights.size() != sources.size())
+    {
+        BlendResult r;
+        r.error = QStringLiteral("No contributing gages.");
         return r;
     }
+    return blendPrepared(prepare(sources), weights);
+}
+
+BlendResult blendPrepared(const PreparedSources &prepared, const QVector<double> &weights)
+{
+    BlendResult r;
+    const int n = static_cast<int>(prepared.boxes.size());
+    if (!prepared.error.isEmpty())
+    {
+        r.error = prepared.error;
+        return r;
+    }
+    if (n == 0 || weights.size() != n)
+    {
+        r.error = QStringLiteral("No contributing gages.");
+        return r;
+    }
+
+    const qint64 pitch = prepared.pitch;
+    const qint64 spanLo = prepared.spanLo;
+    const qint64 cellCount = prepared.cellCount;
 
     // ── Exact-integral rebin ────────────────────────────────────────────
     // Every box is distributed over the grid cells it overlaps, weighted by the
@@ -210,7 +255,7 @@ BlendResult blend(const QVector<SourceGage> &sources, const QVector<double> &wei
         const double w = weights[i];
         if (!std::isfinite(w) || w == 0.0)
             continue;
-        for (const Box &b : boxes[i])
+        for (const Box &b : prepared.boxes[i])
         {
             const qint64 first = (b.t0 - spanLo) / pitch;
             const qint64 last  = (b.t1 - 1 - spanLo) / pitch;
@@ -263,12 +308,8 @@ BlendResult blend(const QVector<SourceGage> &sources, const QVector<double> &wei
         const double w = weights[i];
         if (!std::isfinite(w))
             continue;
-        r.referenceDepth += w * boxDepth(boxes[i]);
-
-        double peak = 0.0;
-        for (const Box &b : boxes[i])
-            peak = std::max(peak, b.intensity);
-        r.peakReference += w * peak;
+        r.referenceDepth += w * prepared.depth[i];
+        r.peakReference  += w * prepared.peak[i];
     }
 
     r.blendedDepth = engineDepth(r.points, pitch);

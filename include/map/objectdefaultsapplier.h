@@ -38,6 +38,19 @@ namespace ObjectDefaultsApplier
 
     //! Rain gage defaults (format, interval, snow catch factor).
     void applyGageDefaults(SWMM_Engine engine, int idx);
+
+    //! While at least one BatchScope is alive, the defaults are read from
+    //! PreferencesManager once and reused. Each read is ~50 QSettings lookups,
+    //! which dominated batch creation (one per generated rain gage). Opened by
+    //! BulkEditCommand; preferences cannot change mid-batch.
+    class BatchScope
+    {
+    public:
+        BatchScope();
+        ~BatchScope();
+        BatchScope(const BatchScope &) = delete;
+        BatchScope &operator=(const BatchScope &) = delete;
+    };
 }
 
 #endif // OBJECTDEFAULTSAPPLIER_H

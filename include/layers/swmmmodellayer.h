@@ -1787,6 +1787,14 @@ public:
     bool applySubcatchSetGage(int idx, const QString &gageName);
 
     /*!
+     * \brief Announce unit-hydrograph / RDII edits made straight through the
+     *        engine (rain-gage assignment). Emits hydrographChanged("") and
+     *        modelEdited(), or — inside a bulk scope — defers both to
+     *        endBulkEdit so a batch announces once.
+     */
+    void markHydrographsEdited();
+
+    /*!
      * \brief Add a new node: engine + cache. Engine must be OPENED.
      * \param name      Unique null-terminated node identifier.
      * \param nodeType  0=Junction, 1=Outfall, 2=Storage, 3=Divider
@@ -2412,6 +2420,8 @@ private:
     // spurious geometryChanged().
     int  m_bulkDepth = 0;
     bool m_bulkDirty = false;
+    bool m_bulkAttrsEdited = false;   ///< endBulkEdit also emits modelEdited
+    bool m_bulkHydroEdited = false;   ///< endBulkEdit also emits hydrographChanged("")
 
     // See crsAssigned(). Set by srsChanged after load; the load path resets
     // it to whether the .inp itself carried a CRS.

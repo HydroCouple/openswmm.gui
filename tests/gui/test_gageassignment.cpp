@@ -335,6 +335,100 @@ private slots:
         QCOMPARE(w.size(), 3);
         QCOMPARE(w[0], 0.0);
     }
+
+    // ── ThiessenIndex ≡ thiessenAreaShares ──────────────────────────────
+
+    void index_matchesReference_data()
+    {
+        QTest::addColumn<int>("seed");
+        QTest::addColumn<int>("nGages");
+        QTest::addColumn<QString>("layout");
+        for (int seed = 1; seed <= 6; ++seed)
+            for (int g : {1, 2, 3, 5, 12, 40})
+                QTest::newRow(qPrintable(QStringLiteral("random-s%1-g%2").arg(seed).arg(g)))
+                    << seed << g << QStringLiteral("random");
+        QTest::newRow("collinear")  << 7 << 6 << QStringLiteral("collinear");
+        QTest::newRow("coincident") << 8 << 9 << QStringLiteral("coincident");
+        QTest::newRow("far-gage")   << 9 << 8 << QStringLiteral("far");
+        QTest::newRow("cocircular") << 10 << 8 << QStringLiteral("cocircular");
+    }
+
+    void index_matchesReference()
+    {
+        QFETCH(int, seed);
+        QFETCH(int, nGages);
+        QFETCH(QString, layout);
+
+        // Projected-CRS magnitudes, so conditioning is exercised too.
+        const double ox = 512000.0, oy = 4180000.0, span = 5000.0;
+        quint64 st = quint64(seed) * 0x9E3779B97F4A7C15ULL;
+        auto rnd = [&st]() {
+            st = st * 6364136223846793005ULL + 1442695040888963407ULL;
+            return double(st >> 11) / double(1ULL << 53);
+        };
+
+        QVector<QPointF> gages;
+        for (int i = 0; i < nGages; ++i) {
+            if (layout == QLatin1String("collinear"))
+                gages.append({ox + span * i / double(nGages), oy + 0.3 * span});
+            else if (layout == QLatin1String("cocircular"))
+                gages.append({ox + 0.5 * span + 0.4 * span * std::cos(2 * M_PI * i / nGages),
+                              oy + 0.5 * span + 0.4 * span * std::sin(2 * M_PI * i / nGages)});
+            else
+                gages.append({ox + rnd() * span, oy + rnd() * span});
+        }
+        if (layout == QLatin1String("coincident")) {
+            gages[3] = gages[1];             // exact duplicate
+            gages[6] = gages[2] + QPointF(1e-9, 0);   // within tolerance
+        }
+        if (layout == QLatin1String("far"))
+            gages.append({ox + 50.0 * span, oy - 40.0 * span});
+
+        QVector<QVector<QPointF>> rings;
+        QRectF extent;
+        for (int r = 0; r < 60; ++r) {
+            const QPointF c(ox + rnd() * span, oy + rnd() * span);
+            const double rad = span * (0.02 + 0.2 * rnd());
+            const int nv = 5 + int(rnd() * 9);
+            QVector<QPointF> ring;
+            for (int v = 0; v < nv; ++v) {
+                // Alternate radii → concave star-shaped rings.
+                const double rr = rad * ((v % 2) ? 0.45 + 0.5 * rnd() : 1.0);
+                const double a = 2 * M_PI * v / nv;
+                ring.append(c + QPointF(rr * std::cos(a), rr * std::sin(a)));
+            }
+            rings.append(ring);
+            for (const QPointF &p : ring)
+                extent = extent.isNull() ? QRectF(p, QSizeF(1e-9, 1e-9))
+                                         : extent.united(QRectF(p, QSizeF(1e-9, 1e-9)));
+        }
+
+        ThiessenIndex idx;
+        idx.build(gages, extent);
+        if (layout == QLatin1String("random") && nGages >= 3)
+            QVERIFY(idx.usesDelaunay());
+
+        for (const QVector<QPointF> &ring : std::as_const(rings)) {
+            const QVector<double> ref = thiessenAreaShares(ring, gages);
+            const QVector<double> got = idx.areaShares(ring);
+            QCOMPARE(got.size(), ref.size());
+            const double area = std::abs(EditGeometry::signedRingArea(ring));
+            for (int i = 0; i < ref.size(); ++i)
+                QVERIFY2(std::abs(got[i] - ref[i]) <= 1e-9 * area,
+                         qPrintable(QStringLiteral("gage %1: %2 vs %3")
+                                        .arg(i).arg(got[i], 0, 'g', 17).arg(ref[i], 0, 'g', 17)));
+            QCOMPARE(areaMajorityGage(got), areaMajorityGage(ref));
+        }
+    }
+
+    void index_nearestSiteSkipsShadowedAndTiesLow()
+    {
+        ThiessenIndex idx;
+        idx.build({{0, 0}, {0, 0}, {2, 0}}, QRectF(-1, -1, 4, 2));
+        QCOMPARE(idx.nearestSite({0.1, 0}), 0);   // the shadowed copy never wins
+        QCOMPARE(idx.nearestSite({1, 0}), 0);     // equidistant → lowest index
+        QCOMPARE(idx.nearestSite({1.5, 0}), 2);
+    }
 };
 
 QTEST_MAIN(TestGageAssignment)

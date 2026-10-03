@@ -4,47 +4,50 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * Bind rain gages to subcatchments spatially, in one undoable step.
+ * Bind rain gages to subcatchments and RDII inflows spatially, in one undoable
+ * step.
  *
  * Two methods:
  *
  *   Proximity — assign the gage whose Thiessen (Voronoi) cell covers the
- *     largest share of the subcatchment's area. Uses the real watershed
- *     boundary rather than a representative point, which matters as soon as a
- *     subcatchment is large relative to the gage spacing.
+ *     largest share of the subcatchment's area (an RDII node, being a point,
+ *     takes its nearest gage). Uses the real watershed boundary rather than a
+ *     representative point.
  *
  *   Interpolated — area-average natural-neighbour weights over the gage
- *     network for each subcatchment, group subcatchments whose weight vectors
- *     agree, and materialise each group as a generated gage backed by a
- *     generated series. SWMM binds exactly one gage per subcatchment, so an
+ *     network, group objects whose weight vectors agree, and materialise each
+ *     group as a generated gage backed by a generated series. SWMM binds
+ *     exactly one gage per subcatchment / unit-hydrograph group, so an
  *     interpolated field cannot be expressed any other way.
  *
- * Everything is computed before any mutation: the volume-conservation gate can
- * therefore abort with nothing written. The whole assignment is one undo macro.
- *
- * Complements the per-object gage field in the Properties panel and the
- * attribute table — those set one subcatchment at a time.
+ * The dialog is a front end over assignment/raingageassignment.h: inputs are
+ * snapshotted on the GUI thread, the plan is computed on a worker (progress +
+ * Cancel), and a computed plan is reused by Apply until the model or an option
+ * changes. Everything is computed before any mutation, so the volume gate can
+ * abort with nothing written; the whole assignment is one undo step.
  */
 
 #ifndef OPENSWMMVIS_UI_DIALOGS_ASSIGNRAINGAGESDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_ASSIGNRAINGAGESDIALOG_H
 
-#include "core/gageblend.h"
+#include "assignment/raingageassignment.h"
 
 #include <QDialog>
-#include <QPointF>
+#include <QFutureWatcher>
 #include <QPointer>
-#include <QStringList>
-#include <QVector>
+
+#include <memory>
 
 class MapCanvas;
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
+class QProgressBar;
 class QPushButton;
 class QRadioButton;
 class QTableWidget;
+class QTimer;
 class SelectionManager;
 class SWMMModelLayer;
 
@@ -59,85 +62,28 @@ public:
                           MapCanvas        *canvas,
                           SelectionManager *selection,
                           QWidget          *parent = nullptr);
+    ~AssignRainGagesDialog() override;
+
+    /*! \brief True while a plan is being computed. Tests and the perf harness
+     *         wait on this after clicking Preview / Apply. */
+    [[nodiscard]] bool busy() const;
 
 private slots:
     void onMethodChanged();
     void onPreview();
     void onApply();
+    void onComputeFinished();
+    void onCancelClicked();
+    void invalidatePlan();
 
 private:
-    /*! \brief A rain gage that is usable as an interpolation site. */
-    struct GageSite
-    {
-        int     index = -1;   ///< Engine gage index.
-        QString name;
-        QPointF pos;          ///< Engine coordinate, never the display cache.
-    };
-
-    /*! \brief One subcatchment's outcome. */
-    struct RowPlan
-    {
-        QString subcatch;
-        QString oldGage;
-        QString newGage;
-        QString detail;            ///< Area share, or the weight vector.
-        bool    changed = false;
-    };
-
-    /*! \brief One synthesised gage + series, shared by a cluster. */
-    struct GeneratedGage
-    {
-        QString                          gageName;
-        QString                          seriesName;
-        QString                          key;          ///< Canonical weight key.
-        QVector<GageBlend::SeriesPoint>  points;
-        qint64                           intervalSec = 0;
-        double                           snowFactor  = 1.0;
-        double                           relError    = 0.0;
-        QStringList                      members;      ///< Subcatchment names.
-        bool                             isNew    = false;
-        bool                             isUpdate = false;
-    };
-
-    /*! \brief The complete, still-unapplied outcome of one computation. */
-    struct Plan
-    {
-        QVector<RowPlan>       rows;
-        QVector<GeneratedGage> generated;
-        QStringList            staleGages;   ///< Generated gages now unused.
-        QStringList            warnings;
-        QString                error;        ///< Non-empty aborts everything.
-        int                    scanned   = 0;
-        int                    skipped   = 0;
-        int                    changed   = 0;
-    };
-
     void buildUi();
     void updateButtons();
 
-    /*! \brief Gages with a real `[SYMBOLS]` coordinate, coincidences removed. */
-    [[nodiscard]] QVector<GageSite> eligibleGages(QStringList *warnings,
-                                                  QStringList *unlocated) const;
-
-    /*! \brief Subcatchment indices in scope (all, or the current selection). */
-    [[nodiscard]] QVector<int> scopeSubcatchments() const;
-
-    [[nodiscard]] Plan buildPlan();
-    [[nodiscard]] Plan buildProximityPlan(const QVector<GageSite> &gages,
-                                          const QVector<int> &scope,
-                                          QStringList warnings);
-    [[nodiscard]] Plan buildInterpolatedPlan(const QVector<GageSite> &gages,
-                                             const QVector<int> &scope,
-                                             QStringList warnings,
-                                             const QStringList &unlocated);
-
-    /*! \brief Read a gage's series from the ENGINE (authoritative — every
-     *         editor flushes to it immediately after mutating). */
-    [[nodiscard]] bool readSourceGage(const GageSite &site,
-                                      GageBlend::SourceGage *out,
-                                      QString *error) const;
-
-    void showPlan(const Plan &plan, bool applied);
+    [[nodiscard]] assignment::raingage::Options currentOptions() const;
+    void startCompute(bool applyWhenDone);
+    void applyPlan(const assignment::raingage::Plan &plan);
+    void showPlan(const assignment::raingage::Plan &plan, bool applied);
 
     QPointer<SWMMModelLayer>   m_layer;
     QPointer<MapCanvas>        m_canvas;
@@ -147,13 +93,28 @@ private:
     QRadioButton   *m_methodInterp    = nullptr;
     QComboBox      *m_variantCombo    = nullptr;
     QDoubleSpinBox *m_tolSpin         = nullptr;
+    QCheckBox      *m_targetSubcatch  = nullptr;
+    QCheckBox      *m_targetRdii      = nullptr;
     QRadioButton   *m_scopeAll        = nullptr;
     QRadioButton   *m_scopeSelected   = nullptr;
     QLabel         *m_gageCountLbl    = nullptr;
     QTableWidget   *m_preview         = nullptr;
     QLabel         *m_statusLbl       = nullptr;
+    QProgressBar   *m_progressBar     = nullptr;
     QPushButton    *m_previewBtn      = nullptr;
     QPushButton    *m_applyBtn        = nullptr;
+    QPushButton    *m_cancelBtn       = nullptr;
+
+    // ── Background compute + plan cache ─────────────────────────────────
+    QFutureWatcher<assignment::raingage::Plan> m_watcher;
+    std::shared_ptr<assignment::raingage::Progress> m_progress;
+    QTimer *m_progressTimer = nullptr;
+    bool    m_applyWhenDone = false;
+    bool    m_computing     = false;   ///< Until onComputeFinished() has run.
+    bool    m_havePlan      = false;   ///< m_plan matches the current model + options.
+    quint64 m_generation    = 0;       ///< Bumped by every invalidating change.
+    quint64 m_computeGeneration = 0;
+    assignment::raingage::Plan m_plan;
 };
 
 } // namespace openswmmvis::ui

@@ -14,10 +14,22 @@ namespace {
 
 using OD = PreferencesManager::ObjectDefaults;
 
+// BatchScope state (GUI thread only, like every caller).
+int  g_batchDepth = 0;
+bool g_haveCached[2] = {false, false};
+OD   g_cached[2];
+
 OD activeDefaults()
 {
-    return PreferencesManager::instance()
-        ->objectDefaults(UnitSystem::instance()->isSI());
+    const bool si = UnitSystem::instance()->isSI();
+    if (g_batchDepth > 0) {
+        if (!g_haveCached[si]) {
+            g_cached[si] = PreferencesManager::instance()->objectDefaults(si);
+            g_haveCached[si] = true;
+        }
+        return g_cached[si];
+    }
+    return PreferencesManager::instance()->objectDefaults(si);
 }
 
 //! Keyword → engine code maps. Unknown keywords fall back to the first
@@ -212,6 +224,17 @@ void applyGageDefaults(SWMM_Engine engine, int idx)
     swmm_gage_set_rain_type(engine, idx, fmt);
     swmm_gage_set_rain_interval(engine, idx, d.gageIntervalMin * 60.0);
     swmm_gage_set_snow_factor(engine, idx, d.gageSnowCatch);
+}
+
+BatchScope::BatchScope()
+{
+    ++g_batchDepth;
+}
+
+BatchScope::~BatchScope()
+{
+    if (--g_batchDepth == 0)
+        g_haveCached[0] = g_haveCached[1] = false;
 }
 
 } // namespace ObjectDefaultsApplier

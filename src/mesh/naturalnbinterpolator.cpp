@@ -12,7 +12,7 @@
 
 #include "mesh/meshcdt.h"
 
-#include <QHash>
+#include <QHash>   // build() snap-dedupe
 
 #include <algorithm>
 #include <cmath>
@@ -226,42 +226,76 @@ bool NaturalNeighbourInterpolator::computeWeights(
         return det > kInCircEps;   // CCW triangles → >0 means strictly inside
     };
 
-    // ── (1) Delaunay cavity: triangles whose circumcircle contains Q ─────
-    std::vector<int> cavity;
-    std::vector<int> stack(1, t0);
-    QHash<int, char> inCav;     // triangle index → 1
-    inCav.insert(t0, 1);
-    cavity.push_back(t0);
-    while (!stack.empty())
+    // Scratch sizing (first query after build()) and a fresh stamp.
+    const int nVert = static_cast<int>(m_px.size());
+    if (static_cast<int>(m_triStamp.size()) != m_numTri)
+        m_triStamp.assign(static_cast<size_t>(m_numTri), 0);
+    if (static_cast<int>(m_vertStamp.size()) != nVert)
     {
-        const int t = stack.back(); stack.pop_back();
+        m_vertStamp.assign(static_cast<size_t>(nVert), 0);
+        m_vertSlot.assign(static_cast<size_t>(nVert), -1);
+    }
+    if (++m_stamp == std::numeric_limits<int>::max())
+    {
+        std::fill(m_triStamp.begin(), m_triStamp.end(), 0);
+        std::fill(m_vertStamp.begin(), m_vertStamp.end(), 0);
+        m_stamp = 1;
+    }
+    m_nSlots = 0;
+    const auto slotOf = [&](int v) -> NbSlot & {
+        if (m_vertStamp[v] != m_stamp)
+        {
+            m_vertStamp[v] = m_stamp;
+            if (m_nSlots == static_cast<int>(m_slots.size()))
+                m_slots.emplace_back();
+            NbSlot &s = m_slots[static_cast<size_t>(m_nSlots)];
+            s.v = v;
+            s.ncs.clear();
+            s.ocs.clear();
+            m_vertSlot[v] = m_nSlots++;
+        }
+        return m_slots[static_cast<size_t>(m_vertSlot[v])];
+    };
+
+    // ── (1) Delaunay cavity: triangles whose circumcircle contains Q ─────
+    m_cavity.clear();
+    m_stack.clear();
+    m_stack.push_back(t0);
+    m_triStamp[t0] = m_stamp;
+    m_cavity.push_back(t0);
+    while (!m_stack.empty())
+    {
+        const int t = m_stack.back(); m_stack.pop_back();
         for (int k = 0; k < 3; ++k)
         {
             const int nb = m_nbrs[3 * t + k];
-            if (nb < 0 || inCav.contains(nb)) continue;
-            if (inCircle(nb)) { inCav.insert(nb, 1); cavity.push_back(nb); stack.push_back(nb); }
+            if (nb < 0 || m_triStamp[nb] == m_stamp) continue;
+            if (inCircle(nb))
+            {
+                m_triStamp[nb] = m_stamp;
+                m_cavity.push_back(nb);
+                m_stack.push_back(nb);
+            }
         }
     }
 
     // ── (2) Boundary edges → natural neighbours; new circumcenters ───────
     // For each natural-neighbour vertex collect old circumcenters (incident
     // cavity triangles) and new circumcenters (incident boundary edges).
-    QHash<int, std::vector<QPointF>> oldCC;  // vertex → cavity-triangle circumcenters
-    QHash<int, std::vector<QPointF>> newCC;  // vertex → new circumcenters (2 expected)
-
-    for (const int t : cavity)
+    bool anyNew = false;
+    for (const int t : m_cavity)
     {
         // old circumcenter contributes to all three vertices of t
         if (!std::isfinite(m_ccx[t])) return false;   // degenerate triangle in cavity
         const QPointF cc(m_ccx[t], m_ccy[t]);
         for (int k = 0; k < 3; ++k)
-            oldCC[m_tris[3 * t + k]].push_back(cc);
+            slotOf(m_tris[3 * t + k]).ocs.push_back(cc);
 
         for (int k = 0; k < 3; ++k)
         {
             const int nb = m_nbrs[3 * t + k];
-            if (nb >= 0 && inCav.contains(nb)) continue;   // interior cavity edge
-            if (nb < 0) return false;                      // cavity touches the hull
+            if (nb >= 0 && m_triStamp[nb] == m_stamp) continue;   // interior cavity edge
+            if (nb < 0) return false;                             // cavity touches the hull
 
             // Boundary edge = the two vertices other than the one opposite nb.
             const int pa = m_tris[3 * t + (k + 1) % 3];
@@ -270,22 +304,24 @@ bool NaturalNeighbourInterpolator::computeWeights(
             if (!circumcenter(m_px[pa], m_py[pa], m_px[pb], m_py[pb], qx, qy, &cx, &cy))
                 return false;
             const QPointF nc(cx, cy);
-            newCC[pa].push_back(nc);
-            newCC[pb].push_back(nc);
+            slotOf(pa).ncs.push_back(nc);
+            slotOf(pb).ncs.push_back(nc);
+            anyNew = true;
         }
     }
 
-    if (newCC.isEmpty()) return false;
+    if (!anyNew) return false;
 
     // ── (3) Per-neighbour weights ────────────────────────────────────────
-    // Emitted in QHash iteration order. interpolate() accumulates in exactly
-    // this order, so its rounding is unchanged by the extraction; weightsAt()
-    // sorts a copy afterwards for reproducibility.
-    out.reserve(static_cast<size_t>(newCC.size()));
-    for (auto it = newCC.constBegin(); it != newCC.constEnd(); ++it)
+    // Emitted in first-met order (deterministic); weightsAt() sorts a copy by
+    // seed index for its callers.
+    out.reserve(static_cast<size_t>(m_nSlots));
+    for (int si = 0; si < m_nSlots; ++si)
     {
-        const int pi = it.key();
-        const std::vector<QPointF> &ncs = it.value();
+        const NbSlot &slot = m_slots[static_cast<size_t>(si)];
+        if (slot.ncs.empty()) continue;   // not a natural neighbour
+        const int pi = slot.v;
+        const std::vector<QPointF> &ncs = slot.ncs;
 
         // Exact coincidence with a seed → that seed takes the whole weight,
         // which makes the normalised interpolant reduce to its z exactly.
@@ -311,24 +347,22 @@ bool NaturalNeighbourInterpolator::computeWeights(
         {
             // Ring = new circumcenters (incident boundary edges) +
             //        old circumcenters (incident cavity triangles).
-            std::vector<QPointF> ring = ncs;
-            const auto oit = oldCC.constFind(pi);
-            if (oit != oldCC.constEnd())
-                ring.insert(ring.end(), oit->begin(), oit->end());
-            if (ring.size() < 3) return false;
+            m_ring.assign(ncs.begin(), ncs.end());
+            m_ring.insert(m_ring.end(), slot.ocs.begin(), slot.ocs.end());
+            if (m_ring.size() < 3) return false;
 
             // Angular sort around pi, then shoelace.
             const double cxp = m_px[pi], cyp = m_py[pi];
-            std::sort(ring.begin(), ring.end(),
+            std::sort(m_ring.begin(), m_ring.end(),
                       [cxp, cyp](const QPointF &a, const QPointF &b) {
                           return std::atan2(a.y() - cyp, a.x() - cxp)
                                < std::atan2(b.y() - cyp, b.x() - cxp);
                       });
             double area2 = 0.0;
-            for (size_t r = 0; r < ring.size(); ++r)
+            for (size_t r = 0; r < m_ring.size(); ++r)
             {
-                const QPointF &p = ring[r];
-                const QPointF &q = ring[(r + 1) % ring.size()];
+                const QPointF &p = m_ring[r];
+                const QPointF &q = m_ring[(r + 1) % m_ring.size()];
                 area2 += p.x() * q.y() - q.x() * p.y();
             }
             w = std::fabs(area2) * 0.5;
