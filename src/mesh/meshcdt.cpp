@@ -69,6 +69,12 @@ constexpr double kEquilateralArea = 0.4330127018922193;   // √3/4
 
 // ── Predicates ───────────────────────────────────────────────────────────
 
+double ConstrainedDelaunay::orientExact(const QPointF &a, const QPointF &b, const QPointF &c)
+{
+    std::call_once(gPredicatesInit, [] { exactinit(); });
+    return orientPts(a, b, c);
+}
+
 double ConstrainedDelaunay::orient(int a, int b, int c) const
 {
     const double pa[2] = {m_pts[a].x(), m_pts[a].y()};

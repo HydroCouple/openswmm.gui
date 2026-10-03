@@ -570,6 +570,37 @@ private slots:
     // break-line hole test must not scan every ring. 600 holes always run;
     // SWMMVIS_MANY_HOLES=<n> times a larger case. Prints an exact mesh hash
     // so results can be compared across builds.
+    // Corridor strings repeat the same step along a straight reach, so two
+    // of their segments can be exact translates. Their cross product is then
+    // exactly zero, but a contracted (FMA) a*b - c*d returns the rounding
+    // error of one product instead. Constraint joining used to accept the
+    // resulting t, u in (0, 1) as a crossing between pieces metres apart,
+    // splice the point into the far piece, and leave a string that doubles
+    // back (Boston channel 1202640004_IM). Positions here are exact (30-bit
+    // fractional steps) while the step products round. The large domain makes
+    // the joining grid coarse enough for such pieces to be tested together.
+    void collinearStringPiecesAreNotJoinedAsCrossings()
+    {
+        const double frac = 1.0 / 1073741824.0;   // 2^-30
+        const QPointF base(744878.0 + 301989888.0 * frac, 2931512.0 + 805306368.0 * frac);
+        const QPointF step(-(5.0 + 12345678.0 * frac), -(2.0 + 76962127.0 * frac));   // segments 0 and 3: t = u = 0.27 under FMA
+        const QPointF n(step.y(), -step.x());
+        MeshGenerator g;
+        g.setDomain(rect(base.x() - 5e5, base.y() - 5e5, 1e6, 1e6));
+        for (int k = 0; k <= 16; ++k) {
+            ConstraintSegment cs;
+            const QPointF start = base + n * (double(k - 8) / 8.0);   // exact: k-8 over a power of two
+            for (int i = 0; i <= 70; ++i) cs.path.append(start + step * double(i));
+            cs.tag = QStringLiteral("channel:T");
+            cs.marker = 100 + k;
+            g.addConstraintSegment(cs);
+        }
+        GenerationOptions o; o.maxArea = 0.4330127018922193 * 1e8;
+        g.setOptions(o);
+        const MeshResult m = g.generate();
+        QVERIFY2(m.ok, qPrintable(m.errorMsg));
+    }
+
     void manyHolesWithBreaklines()
     {
         const int n = std::max(600, qEnvironmentVariableIntValue("SWMMVIS_MANY_HOLES"));
