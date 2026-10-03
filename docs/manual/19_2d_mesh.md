@@ -169,7 +169,7 @@ measurements.
 | **Conduit quad strip width / region layer / corridors** | Explicit local alignment and spacing requirements | No conduit strip; no region override |
 | **Trim boundary vertices: max turn / max deviation** | Simplify boundary, hole and auxiliary-line geometry within the requested deviation | 5° / reference size ÷ 10 |
 | **Cell budget** | Stop refinement and report the unmet requirements at the resource limit | 20,000,000 |
-| **Terrain cache** | Budget per DEM-tile or feature-mask cache. Large feature masks spill to disk; mesh arrays, summaries and feature chains use additional memory | 64 MiB |
+| **Terrain cache** | Budget per DEM-tile or feature-mask cache. **Automatic** uses one eighth of physical memory, from 256 MiB to 8 GiB. A larger cache speeds up large DEMs and never changes the mesh. Large feature masks spill to disk; mesh arrays, summaries and feature chains use additional memory | Automatic |
 
 Final verification uses the exported geometry and elevations. Fixed strips,
 minimum spacing, missing DEM data or prescribed rim elevations may prevent the

@@ -14,6 +14,7 @@
 #include "mesh/meshgenerator.h"
 #include "mesh/meshquadquality.h"
 
+#include <QCryptographicHash>
 #include <QElapsedTimer>
 #include <QSet>
 #include <QTest>
@@ -502,6 +503,67 @@ private slots:
               (int)m.triangles.size(), (int)m.vertices.size(), (long long)t.elapsed());
         QVERIFY(m.triangles.size() > 900000);
         QVERIFY(t.elapsed() < 60000);
+    }
+
+    // Many holes plus terrain break lines: seed-to-ring assignment and the
+    // break-line hole test must not scan every ring. 600 holes always run;
+    // SWMMVIS_MANY_HOLES=<n> times a larger case. Prints an exact mesh hash
+    // so results can be compared across builds.
+    void manyHolesWithBreaklines()
+    {
+        const int n = std::max(600, qEnvironmentVariableIntValue("SWMMVIS_MANY_HOLES"));
+        const int side = int(std::ceil(std::sqrt(double(n))));
+        const double pitch = 10.0, extent = side * pitch;
+        MeshGenerator g;
+        g.setDomain(rect(0, 0, extent, extent));
+        QVector<QVector<QPointF>> holes;
+        for (int k = 0; k < n; ++k) {
+            const double cx = (k % side + .5) * pitch + ((k * 7) % 5 - 2) * .3;
+            const double cy = (k / side + .5) * pitch + ((k * 11) % 5 - 2) * .3;
+            const double r = 1.5 + (k % 4) * .5;
+            ConstraintSegment ring;
+            for (int i = 0; i <= 8; ++i) {
+                const double a = (i % 8) * M_PI / 4 + k * .1;
+                ring.path.append(QPointF(cx + r * std::cos(a), cy + r * std::sin(a)));
+            }
+            holes.append(ring.path);
+            g.addConstraintSegment(ring);
+            g.addHole(QPointF(cx, cy));
+        }
+        // Gently curving break lines between hole rows, densely sampled.
+        QVector<QVector<QPointF>> lines;
+        for (int row = 1; row < side; ++row) {
+            QVector<QPointF> line;
+            for (double x = pitch * .25; x < extent - pitch * .25; x += .5)
+                line.append(QPointF(x, row * pitch + .6 * std::sin(x * .05)));
+            lines.append(line);
+        }
+        g.setTerrainBreaklines(lines);
+        GenerationOptions o; o.maxArea = 0.4330127018922193 * 16.0;   // h = 4
+        g.setOptions(o);
+        QElapsedTimer t; t.start();
+        const MeshResult m = g.generate();
+        const qint64 ms = t.elapsed();
+        QVERIFY2(m.ok, qPrintable(m.errorMsg));
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        for (const auto &v : m.vertices) {
+            const double xy[2] = {v.xy.x(), v.xy.y()};
+            hash.addData(QByteArrayView(reinterpret_cast<const char *>(xy), sizeof xy));
+        }
+        for (const auto &c : m.triangles) {
+            const int ids[4] = {c.v0, c.v1, c.v2, c.v3};
+            hash.addData(QByteArrayView(reinterpret_cast<const char *>(ids), sizeof ids));
+        }
+        qInfo("many holes: %d holes, %d lines -> %d cells in %lld ms, sha256 %s", n, int(lines.size()),
+              int(m.triangles.size()), (long long)ms, hash.result().toHex().left(16).constData());
+        // No cell lies inside a hole.
+        for (const auto &c : m.triangles) {
+            const QPointF centroid = (m.vertices[c.v0].xy + m.vertices[c.v1].xy + m.vertices[c.v2].xy) / 3.0;
+            const int k = int(centroid.y() / pitch) * side + int(centroid.x() / pitch);
+            if (k >= 0 && k < holes.size())
+                QVERIFY(!QPolygonF(holes[k]).containsPoint(centroid, Qt::OddEvenFill));
+        }
+        QVERIFY(m.triangles.size() > n * 4);
     }
 };
 

@@ -2211,7 +2211,7 @@ add_swmmvis_gui_test(test_terrainerrorfield
     ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
 )
 target_include_directories(test_terrainerrorfield PRIVATE ${GDAL_INCLUDE_DIRS})
-target_link_libraries(test_terrainerrorfield PRIVATE GDAL::GDAL predicates_lib)
+target_link_libraries(test_terrainerrorfield PRIVATE GDAL::GDAL Qt6::Concurrent predicates_lib)
 
 # Graded size field: near-feature cap parity, Lipschitz growth bound, floor
 # rule, determinism, budget coarsening.

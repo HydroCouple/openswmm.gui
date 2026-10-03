@@ -344,6 +344,83 @@ bool pointInRing(const QVector<QPointF> &ring, const QPointF &p)
     return inside;
 }
 
+/*! Uniform grid over ring bounding boxes, so point-in-ring queries against
+ *  thousands of holes test only rings whose box holds the point. Boxes are
+ *  widened by a rounding margin: a point outside one is never inside the
+ *  ring by pointInRing(), so filtering cannot change any answer. Candidates
+ *  are visited in ascending ring index, as a full scan would visit them. */
+class RingIndex
+{
+public:
+    explicit RingIndex(const QVector<const QVector<QPointF> *> &rings)
+        : m_rings(rings), m_boxes(rings.size())
+    {
+        QRectF all;
+        for (int i = 0; i < rings.size(); ++i) {
+            if (!rings[i] || rings[i]->size() < 3) continue;
+            double x0 = rings[i]->first().x(), x1 = x0, y0 = rings[i]->first().y(), y1 = y0;
+            for (const QPointF &q : *rings[i]) {
+                x0 = std::min(x0, q.x()); x1 = std::max(x1, q.x());
+                y0 = std::min(y0, q.y()); y1 = std::max(y1, q.y());
+            }
+            const double m = 1e-9 * (1.0 + std::max({std::abs(x0), std::abs(x1), std::abs(y0), std::abs(y1)}));
+            m_boxes[i] = QRectF(QPointF(x0 - m, y0 - m), QPointF(x1 + m, y1 + m));
+            all = all.isNull() ? m_boxes[i] : all.united(m_boxes[i]);
+        }
+        if (all.isNull()) return;
+        m_origin = all.topLeft();
+        m_n = std::clamp(int(std::sqrt(double(rings.size()))), 1, 1024);
+        m_cw = std::max(all.width() / m_n, 1e-12); m_ch = std::max(all.height() / m_n, 1e-12);
+        m_cells.resize(qsizetype(m_n) * m_n);
+        for (int i = 0; i < rings.size(); ++i) {
+            if (m_boxes[i].isNull()) continue;
+            const int c0 = cx(m_boxes[i].left()), c1 = cx(m_boxes[i].right());
+            const int r0 = cy(m_boxes[i].top()), r1 = cy(m_boxes[i].bottom());
+            if (qint64(c1 - c0 + 1) * (r1 - r0 + 1) > 64) { m_large.append(i); continue; }
+            for (int r = r0; r <= r1; ++r) for (int c = c0; c <= c1; ++c) m_cells[r * m_n + c].append(i);
+        }
+    }
+    /*! Calls \p fn(index) for each ring containing \p p, in ascending index
+     *  order, until \p fn returns false. */
+    template <class Fn> void visitContaining(const QPointF &p, Fn &&fn) const
+    {
+        if (m_cells.isEmpty()) return;
+        static const QVector<int> none;
+        const bool inGrid = p.x() >= m_origin.x() && p.y() >= m_origin.y()
+            && p.x() <= m_origin.x() + m_cw * m_n && p.y() <= m_origin.y() + m_ch * m_n;
+        const QVector<int> &cell = inGrid ? m_cells[cy(p.y()) * m_n + cx(p.x())] : none;
+        qsizetype a = 0, b = 0;
+        while (a < cell.size() || b < m_large.size()) {
+            const int i = (b >= m_large.size() || (a < cell.size() && cell[a] < m_large[b])) ? cell[a++] : m_large[b++];
+            if (m_boxes[i].contains(p) && pointInRing(*m_rings[i], p) && !fn(i)) return;
+        }
+    }
+    [[nodiscard]] bool anyContains(const QPointF &p) const
+    {
+        bool found = false;
+        visitContaining(p, [&](int) { found = true; return false; });
+        return found;
+    }
+private:
+    int cx(double x) const { return std::clamp(int((x - m_origin.x()) / m_cw), 0, m_n - 1); }
+    int cy(double y) const { return std::clamp(int((y - m_origin.y()) / m_ch), 0, m_n - 1); }
+    QVector<const QVector<QPointF> *> m_rings;
+    QVector<QRectF> m_boxes;
+    QVector<QVector<int>> m_cells;
+    QVector<int> m_large;
+    QPointF m_origin;
+    double m_cw = 1, m_ch = 1;
+    int m_n = 0;
+};
+
+QVector<const QVector<QPointF> *> ringPointers(const QVector<QVector<QPointF>> &rings)
+{
+    QVector<const QVector<QPointF> *> out;
+    out.reserve(rings.size());
+    for (const auto &r : rings) out.append(&r);
+    return out;
+}
+
 /*! Uniform grid over segments for "is anything within r of p" queries. */
 class SegmentGrid
 {
@@ -601,12 +678,9 @@ QVector<Poly> prepareTerrainLines(const QVector<QVector<QPointF>> &lines,
             && strips.withinOwnClearance(q, stripMax, [&](int owner) { return stripEdges[owner].clear; });
     };
 
+    const RingIndex domainIndex(ringPointers(domainRings)), excludedIndex(ringPointers(excludedRings));
     auto insideDomain = [&](const QPointF &q) {
-        bool in = false;
-        for (const auto &r : domainRings) if (pointInRing(r, q)) { in = true; break; }
-        if (!in) return false;
-        for (const auto &r : excludedRings) if (pointInRing(r, q)) return false;
-        return true;
+        return domainIndex.anyContains(q) && !excludedIndex.anyContains(q);
     };
 
     QVector<int> order(lines.size());
@@ -781,7 +855,8 @@ class StripChecker
 public:
     StripChecker(const QVector<QVector<QPointF>> &domainRings, const QVector<QVector<QPointF>> &holeRings,
                  const QVector<SteinerPoint> &steiners, double clear)
-        : m_domains(domainRings), m_holes(holeRings), m_steiners(steiners), m_clear(clear)
+        : m_domainIndex(ringPointers(domainRings)), m_holeIndex(ringPointers(holeRings)),
+          m_steiners(steiners), m_clear(clear)
     {
         m_grid.build({}, std::max(4.0 * clear, 1e-9));
     }
@@ -800,9 +875,7 @@ public:
     {
         for (const QPointF &q : ring)
         {
-            bool in = false;
-            for (const auto &r : m_domains) if (pointInRing(r, q)) { in = true; break; }
-            for (const auto &r : m_holes) if (pointInRing(r, q)) { in = false; break; }
+            const bool in = m_domainIndex.anyContains(q) && !m_holeIndex.anyContains(q);
             if (!in) return QStringLiteral("it reaches the edge of the meshing domain or a hole (keep it inside, "
                                            "a minimum cell size away)");
         }
@@ -828,7 +901,7 @@ public:
         return {};
     }
 private:
-    const QVector<QVector<QPointF>> &m_domains, &m_holes;
+    RingIndex m_domainIndex, m_holeIndex;
     const QVector<SteinerPoint> &m_steiners;
     double m_clear;
     SegmentGrid m_grid;
@@ -1131,19 +1204,27 @@ bool buildConstraintPolys(const QVector<QPolygonF> &domains, const QVector<Const
         polys->append(p);
     }
     for (const PatchMesh &pm : patches) appendPatchBoundary(pm, true, polys);
-    for (const QPointF &seed : holes)
+    QVector<const QVector<QPointF> *> closedRings(polys->size(), nullptr);
+    for (int i = 0; i < polys->size(); ++i)
+        if (polys->at(i).closed && !polys->at(i).isDomain) closedRings[i] = &polys->at(i).pts;
+    QVector<int> holePolys;
     {
-        int best = -1;
-        double bestArea = std::numeric_limits<double>::infinity();
-        for (int i = 0; i < polys->size(); ++i)
+        const QVector<Poly> &all = *polys;
+        const RingIndex closedIndex(closedRings);
+        for (const QPointF &seed : holes)
         {
-            const Poly &p = (*polys)[i];
-            if (!p.closed || p.isDomain || !pointInRing(p.pts, seed)) continue;
-            const double a = std::abs(ringArea(p.pts));
-            if (a < bestArea) { bestArea = a; best = i; }
+            int best = -1;
+            double bestArea = std::numeric_limits<double>::infinity();
+            closedIndex.visitContaining(seed, [&](int i) {
+                const double a = std::abs(ringArea(all[i].pts));
+                if (a < bestArea) { bestArea = a; best = i; }
+                return true;
+            });
+            if (best >= 0) holePolys.append(best);
         }
-        if (best >= 0) (*polys)[best].isHole = true;
     }
+    // Marked after the index is gone: it points into *polys.
+    for (int i : std::as_const(holePolys)) (*polys)[i].isHole = true;
     for (const Poly &p : std::as_const(*polys)) if (p.isHole) holeRings->append(p.pts);
     return true;
 }
