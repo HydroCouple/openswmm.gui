@@ -253,6 +253,37 @@ static QVector<double> thinOffsets(const BurnProfile &p, double tol, double maxG
     return out;
 }
 
+/*! Fraction of the mesh minimum cell below which lattice offsets or
+ *  stations merge. */
+constexpr double kMergeFraction = 0.05;
+
+/*! Drop values of the ascending \p v closer than \p gap to the previous kept
+ *  one. The first and last always stay; with \p keepNearestZero so does the
+ *  value nearest zero (the thalweg), and a dropped neighbour yields to it. */
+static QVector<double> mergeCloseValues(const QVector<double> &v, double gap, bool keepNearestZero)
+{
+    const int n = int(v.size());
+    if (n < 3 || !(gap > 0.0)) return v;
+    int centre = -1;
+    if (keepNearestZero) {
+        centre = 0;
+        for (int k = 1; k < n; ++k) if (std::abs(v[k]) < std::abs(v[centre])) centre = k;
+    }
+    const auto pinned = [&](int k) { return k == 0 || k == n - 1 || k == centre; };
+    QVector<int> kept{0};
+    for (int k = 1; k < n; ++k) {
+        if (v[k] - v[kept.last()] >= gap) { kept.append(k); continue; }
+        if (!pinned(k)) continue;
+        // A pinned value always stays and displaces unpinned ones crowding it.
+        while (!pinned(kept.last()) && v[k] - v[kept.last()] < gap) kept.removeLast();
+        kept.append(k);
+    }
+    QVector<double> out;
+    out.reserve(kept.size());
+    for (int k : kept) out.append(v[k]);
+    return out;
+}
+
 BurnLattice buildCorridorLattice(const BurnProfile &p,
                                  double alongStep, double minCellSize,
                                  QStringList *warnings, QString *err,
@@ -272,6 +303,13 @@ BurnLattice buildCorridorLattice(const BurnProfile &p,
                        && p.offsets.size() > width / minCellSize + 1.0;
     lat.offsets = dense ? thinOffsets(p, acrossTolerance, alongStep > 0.0 ? alongStep : 4.0 * minCellSize)
                         : p.offsets;
+    // Offsets closer than a small fraction of the mesh floor (a transect's
+    // vertical wall is authored as two stations 1e-5 apart) cannot be told
+    // apart by any cell, and the slivers they leave shrink the constraint
+    // join tolerance for the whole mesh. Merge them, keeping the banks and
+    // the thalweg.
+    if (minCellSize > 0.0)
+        lat.offsets = mergeCloseValues(lat.offsets, kMergeFraction * minCellSize, true);
     lat.nAcross   = int(lat.offsets.size());
     if (lat.nAcross < 2)
     {
@@ -300,6 +338,9 @@ BurnLattice buildCorridorLattice(const BurnProfile &p,
     {
         lat.chainage = p.chainage;
     }
+    // Section-change stations a hair from a bend vertex: same reasoning.
+    if (minCellSize > 0.0)
+        lat.chainage = mergeCloseValues(lat.chainage, kMergeFraction * minCellSize, false);
     lat.nAlong = int(lat.chainage.size());
     if (qint64(lat.nAlong)*lat.nAcross > 2000000) {
         if(err) *err=QStringLiteral("corridor exceeds the preparation vertex budget");
