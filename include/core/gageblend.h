@@ -164,6 +164,32 @@ struct BlendResult
 [[nodiscard]] BlendResult blend(const QVector<SourceGage> &sources,
                                 const QVector<double> &weights);
 
+/*!
+ * \brief Sources validated and expanded once, for many blends.
+ * \details Everything blend() derives from the sources alone — the boxes, the
+ *          common grid, and each source's depth and peak — computed a single
+ *          time. Blending C clusters then costs O(grid + weighted boxes) each
+ *          instead of re-expanding all G sources C times. Results are
+ *          bit-identical to blend(sources, weights).
+ */
+struct PreparedSources
+{
+    QVector<QVector<Box>> boxes;
+    QVector<double>       depth;      ///< boxDepth() per source.
+    QVector<double>       peak;       ///< Max box intensity per source.
+    qint64                pitch     = 0;
+    qint64                spanLo    = 0;
+    qint64                cellCount = 0;
+    QString               error;      ///< Same refusals as blend().
+};
+
+/*! \brief Validate + expand \p sources once. */
+[[nodiscard]] PreparedSources prepare(const QVector<SourceGage> &sources);
+
+/*! \brief blend() against prepared sources; \p weights index-aligned. */
+[[nodiscard]] BlendResult blendPrepared(const PreparedSources &prepared,
+                                        const QVector<double> &weights);
+
 } // namespace GageBlend
 
 #endif // OPENSWMMVIS_CORE_GAGEBLEND_H

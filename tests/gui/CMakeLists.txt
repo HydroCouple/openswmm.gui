@@ -2027,9 +2027,11 @@ add_swmmvis_gui_test(test_gageassignment
     test_gageassignment.cpp
     ${CMAKE_SOURCE_DIR}/src/core/gageassignment.cpp
     ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
     ${CMAKE_SOURCE_DIR}/include/core/gageassignment.h
     ${CMAKE_SOURCE_DIR}/include/core/editgeometry.h
 )
+target_link_libraries(test_gageassignment PRIVATE predicates_lib)
 
 # Smoke test for the reprojection primitive every layer uses when rendering
 # in a canvas CRS different from the layer's own CRS. Links GDAL directly.
@@ -2950,6 +2952,38 @@ add_swmmvis_gui_test(test_gageassignintegration
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_gageassignintegration)
+
+# Assign Rain Gages performance harness
+# (workplans/RAINGAGE_ASSIGNMENT_PERF_AND_RDII_PLAN_2026-10-02.md). Drives the
+# real dialog on a synthetic deck; small cases by default, the 10k cases with
+# SWMMVIS_GAGE_PERF_SCALE=full. Timings append to tests/output/gageassign_perf.
+add_swmmvis_gui_test(test_gageassignperf
+    test_gageassignperf.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gageassignperf)
+set_tests_properties(test_gageassignperf PROPERTIES
+    TIMEOUT 7200
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};SWMMVIS_GAGE_PERF_OUT=${CMAKE_SOURCE_DIR}/tests/output/gageassign_perf;QTEST_FUNCTION_TIMEOUT=7200000")
+
+# Assign Rain Gages apply path — one undo step / one refresh, generated series
+# keep source timestamps, undo leaves no orphan gages or tables.
+add_swmmvis_gui_test(test_gageassignapply
+    test_gageassignapply.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gageassignapply)
+
+# RDII rain-gage assignment — unit-hydrograph group splits, idempotent re-run,
+# exact undo/redo, partial runs never move out-of-scope nodes.
+add_swmmvis_gui_test(test_gageassignrdii
+    test_gageassignrdii.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gageassignrdii)
 
 # identifyByName / nodeIndex / linkIndex became hash lookups instead of linear
 # scans (a 13 KB .oswp restore cost 22 s on a 122k-link model). The hashes must

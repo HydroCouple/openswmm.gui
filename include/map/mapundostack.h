@@ -20,6 +20,7 @@
 #include <QUndoStack>
 #include <QVector>
 #include "map/mapextent.h"
+#include "map/objectdefaultsapplier.h"
 #include "layers/swmmmodellayer.h"   // SWMMModelLayer::Category used by ReorderCategoriesCommand below
 #include "selection/selectionmanager.h"   // SWMMObjectRef used by DeleteDataObjectCommand below
 
@@ -761,12 +762,14 @@ public:
     void redo() override
     {
         SWMMModelLayer::BulkEdit guard(m_layer);
+        ObjectDefaultsApplier::BatchScope defaults;
         QUndoCommand::redo();
     }
 
     void undo() override
     {
         SWMMModelLayer::BulkEdit guard(m_layer);
+        ObjectDefaultsApplier::BatchScope defaults;
         QUndoCommand::undo();
     }
 

@@ -33,14 +33,15 @@ TimeseriesRegistry *registryOf(void *handle)
     return qobject_cast<TimeseriesRegistry *>(layer->ensureTimeseriesRegistry());
 }
 
-/*! Flush inline providers to the engine — the convention every editor follows
- *  immediately after mutating the registry. */
-void flush(void *handle)
+/*! Flush the one provider a command changed to the engine — the convention
+ *  every editor follows immediately after mutating the registry. Only that
+ *  series is rewritten, so a macro of N series commands stays O(N). */
+void flush(void *handle, TimeseriesProvider *p)
 {
     SWMMModelLayer *layer = asLayer(handle);
     TimeseriesRegistry *reg = registryOf(handle);
-    if (reg && layer)
-        reg->saveToEngine(layer->engine());
+    if (reg && layer && p)
+        reg->saveProviderToEngine(p, layer->engine());
 }
 
 /*! Drop the engine's own table for \p name.
@@ -98,7 +99,7 @@ void AddTimeseriesCommand::redo()
     p->setUnitsLabel(m_unitsLabel);
     p->setDescription(m_description);
     p->setAllPoints(m_points);
-    flush(m_layer);
+    flush(m_layer, p);
 }
 
 void AddTimeseriesCommand::undo()
@@ -140,7 +141,7 @@ void SetTimeseriesPointsCommand::apply(const QVector<TimeseriesPoint> &pts,
         return;   // series gone (e.g. an undone add) — clean no-op
     p->setDescription(desc);
     p->setAllPoints(pts);
-    flush(m_layer);
+    flush(m_layer, p);
 }
 
 void SetTimeseriesPointsCommand::redo()
@@ -210,7 +211,7 @@ void DeleteTimeseriesCommand::undo()
     p->setUnitsLabel(m_unitsLabel);
     p->setDescription(m_description);
     p->setAllPoints(m_points);
-    flush(m_layer);
+    flush(m_layer, p);
 }
 
 } // namespace openswmmvis::timeseries

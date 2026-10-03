@@ -30,6 +30,7 @@
 
 #include <QPair>
 #include <QPointF>
+#include <QRectF>
 #include <QString>
 #include <QVector>
 
@@ -90,6 +91,55 @@ constexpr int kDefaultSampleTarget = 200;
  */
 [[nodiscard]] int areaMajorityGage(const QVector<double> &shares,
                                    double *fractionOut = nullptr);
+
+/*!
+ * \brief Reusable Thiessen geometry for one gage network.
+ * \details Same result as thiessenAreaShares(), built once per network:
+ *
+ *          - A gage's Voronoi cell is the intersection of the half-planes
+ *            against its DELAUNAY neighbours only (about six), not against all
+ *            G-1 other gages. Neighbours come from a Delaunay triangulation of
+ *            the sites (mesh::ConstrainedDelaunay). If that fails — fewer than
+ *            three distinct sites, or all collinear — every other site is a
+ *            neighbour, which is the original all-pairs rule.
+ *          - Each cell is also materialised once, clipped to \p extent, so its
+ *            bounding box can reject gages whose cell cannot touch a ring.
+ *          - Fast path: when every ring vertex has the same nearest gage, the
+ *            ring lies inside that (convex) cell and takes its whole area there.
+ *
+ *          Shares agree with thiessenAreaShares() to rounding (the half-planes
+ *          are applied in a different order). Coincident sites are resolved the
+ *          same way: the lowest index owns the cell, later ones get zero.
+ *
+ *          Thread-safe for concurrent queries once built.
+ */
+class ThiessenIndex
+{
+public:
+    /*! \param extent  Must contain every ring that will be queried. The sites
+     *                 are added to it automatically. */
+    void build(const QVector<QPointF> &sites, const QRectF &extent);
+
+    [[nodiscard]] int siteCount() const { return int(m_sites.size()); }
+
+    /*! \brief Same contract as thiessenAreaShares(ring, sites). */
+    [[nodiscard]] QVector<double> areaShares(const QVector<QPointF> &ring) const;
+
+    /*! \brief Index of the site nearest \p p (ties toward the lowest index;
+     *         a shadowed coincident site never wins). -1 when empty. */
+    [[nodiscard]] int nearestSite(const QPointF &p) const;
+
+    /*! \brief True when the Delaunay neighbour lists were used (false means
+     *         the all-pairs fallback). For tests and diagnostics. */
+    [[nodiscard]] bool usesDelaunay() const { return m_delaunay; }
+
+private:
+    QVector<QPointF>      m_sites;
+    QVector<bool>         m_shadowed;  ///< Coincident with a lower index.
+    QVector<QVector<int>> m_nbrs;      ///< Half-planes that bound each cell.
+    QVector<QRectF>       m_cellBox;   ///< Null when the cell is empty.
+    bool                  m_delaunay = false;
+};
 
 // ===========================================================================
 // Interpolation support

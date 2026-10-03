@@ -7,7 +7,10 @@
 #include "core/gageassignment.h"
 
 #include "core/editgeometry.h"
+#include "mesh/meshcdt.h"
 
+#include <QHash>
+#include <QSet>
 #include <QStringList>
 
 #include <algorithm>
@@ -122,6 +125,261 @@ QVector<double> thiessenAreaShares(const QVector<QPointF> &ring,
         }
         if (cell.size() >= 3)
             shares[i] = std::abs(EditGeometry::signedRingArea(cell));
+    }
+    return shares;
+}
+
+// ===========================================================================
+// ThiessenIndex
+// ===========================================================================
+
+namespace
+{
+// clipHalfPlane() into a caller-owned buffer, so a ring clipped against a
+// handful of half-planes allocates nothing after the first query on a thread.
+void clipInto(const std::vector<QPointF> &ring, const QPointF &keep,
+              const QPointF &drop, std::vector<QPointF> &out)
+{
+    out.clear();
+    const int n = static_cast<int>(ring.size());
+    if (n < 3)
+        return;
+    const double nx = drop.x() - keep.x();
+    const double ny = drop.y() - keep.y();
+    const double mx = 0.5 * (keep.x() + drop.x());
+    const double my = 0.5 * (keep.y() + drop.y());
+    const auto side = [&](const QPointF &p) {
+        return nx * (p.x() - mx) + ny * (p.y() - my);
+    };
+    for (int i = 0; i < n; ++i)
+    {
+        const QPointF &cur = ring[i];
+        const QPointF &nxt = ring[(i + 1) % n];
+        const double fCur = side(cur);
+        const double fNxt = side(nxt);
+        if (fCur <= 0.0)
+            out.push_back(cur);
+        if ((fCur < 0.0 && fNxt > 0.0) || (fCur > 0.0 && fNxt < 0.0))
+        {
+            const double denom = fCur - fNxt;
+            if (denom != 0.0)
+            {
+                const double t = fCur / denom;
+                out.push_back(QPointF(cur.x() + t * (nxt.x() - cur.x()),
+                                      cur.y() + t * (nxt.y() - cur.y())));
+            }
+        }
+    }
+}
+
+double ringArea(const std::vector<QPointF> &r)
+{
+    double a2 = 0.0;
+    const size_t n = r.size();
+    for (size_t i = 0; i < n; ++i)
+    {
+        const QPointF &p = r[i];
+        const QPointF &q = r[(i + 1) % n];
+        a2 += p.x() * q.y() - q.x() * p.y();
+    }
+    return std::abs(0.5 * a2);
+}
+} // namespace
+
+void ThiessenIndex::build(const QVector<QPointF> &sites, const QRectF &extent)
+{
+    const int g = static_cast<int>(sites.size());
+    m_sites = sites;
+    m_shadowed = QVector<bool>(g, false);
+    m_nbrs = QVector<QVector<int>>(g);
+    m_cellBox = QVector<QRectF>(g);
+    m_delaunay = false;
+    if (g == 0)
+        return;
+
+    // Same coincidence rule as thiessenAreaShares(): a later site within the
+    // tolerance of an earlier one owns no cell.
+    QVector<int> live;
+    for (int i = 0; i < g; ++i)
+    {
+        for (int j : std::as_const(live))
+            if (dist2(sites[i], sites[j]) <= kSiteCoincidenceTol2)
+            {
+                m_shadowed[i] = true;
+                break;
+            }
+        if (!m_shadowed[i])
+            live.append(i);
+    }
+
+    // Delaunay neighbours, triangulated in a normalised frame for conditioning
+    // (the same treatment NaturalNeighbourInterpolator gives its seeds).
+    if (live.size() >= 3)
+    {
+        double minX = sites[live[0]].x(), maxX = minX;
+        double minY = sites[live[0]].y(), maxY = minY;
+        for (int i : std::as_const(live))
+        {
+            minX = std::min(minX, sites[i].x()); maxX = std::max(maxX, sites[i].x());
+            minY = std::min(minY, sites[i].y()); maxY = std::max(maxY, sites[i].y());
+        }
+        const double scale = std::max(maxX - minX, maxY - minY);
+        if (scale > 0.0)
+        {
+            QVector<QPointF> norm;
+            norm.reserve(live.size());
+            for (int i : std::as_const(live))
+                norm.append(QPointF((sites[i].x() - minX) / scale,
+                                    (sites[i].y() - minY) / scale));
+            mesh::ConstrainedDelaunay cdt;
+            QVector<int> vertexOf;
+            if (cdt.build(norm, &vertexOf))
+            {
+                cdt.removeSuperTriangles();
+                // Vertex id -> original site index (duplicates after
+                // normalisation collapse onto their first occurrence).
+                QHash<int, int> siteOfVertex;
+                for (int k = 0; k < live.size(); ++k)
+                    if (!siteOfVertex.contains(vertexOf[k]))
+                        siteOfVertex.insert(vertexOf[k], live[k]);
+                QVector<QSet<int>> nb(g);
+                bool any = false;
+                for (const auto &t : cdt.triangles())
+                {
+                    if (!t.alive)
+                        continue;
+                    for (int e = 0; e < 3; ++e)
+                    {
+                        const int a = siteOfVertex.value(t.v[e], -1);
+                        const int b = siteOfVertex.value(t.v[(e + 1) % 3], -1);
+                        if (a < 0 || b < 0 || a == b)
+                            continue;
+                        nb[a].insert(b);
+                        nb[b].insert(a);
+                        any = true;
+                    }
+                }
+                if (any)
+                {
+                    m_delaunay = true;
+                    for (int i : std::as_const(live))
+                    {
+                        QVector<int> v(nb[i].begin(), nb[i].end());
+                        std::sort(v.begin(), v.end());
+                        m_nbrs[i] = v;
+                    }
+                }
+            }
+        }
+    }
+    if (!m_delaunay)
+        for (int i : std::as_const(live))
+            for (int j : std::as_const(live))
+                if (j != i)
+                    m_nbrs[i].append(j);
+
+    // Materialise each cell inside the padded extent, for its bounding box.
+    // Bounds by hand: QRectF::united() ignores zero-size rectangles, so it
+    // cannot fold in points (or a degenerate extent).
+    const QRectF e = extent.normalized();
+    double bx0 = e.left(), bx1 = e.right(), by0 = e.top(), by1 = e.bottom();
+    const bool haveExtent = !e.isNull();
+    bool first = !haveExtent;
+    for (int i : std::as_const(live))
+    {
+        const QPointF &p = sites[i];
+        if (first) { bx0 = bx1 = p.x(); by0 = by1 = p.y(); first = false; }
+        bx0 = std::min(bx0, p.x()); bx1 = std::max(bx1, p.x());
+        by0 = std::min(by0, p.y()); by1 = std::max(by1, p.y());
+    }
+    const double pad = std::max(1.0, 0.01 * std::max(bx1 - bx0, by1 - by0));
+    const QRectF box(QPointF(bx0 - pad, by0 - pad), QPointF(bx1 + pad, by1 + pad));
+    std::vector<QPointF> cell, tmp;
+    for (int i : std::as_const(live))
+    {
+        cell = {box.topLeft(), box.topRight(), box.bottomRight(), box.bottomLeft()};
+        for (int j : std::as_const(m_nbrs[i]))
+        {
+            clipInto(cell, sites[i], sites[j], tmp);
+            cell.swap(tmp);
+            if (cell.size() < 3)
+                break;
+        }
+        if (cell.size() < 3)
+            continue;
+        double x0 = cell[0].x(), x1 = x0, y0 = cell[0].y(), y1 = y0;
+        for (const QPointF &p : cell)
+        {
+            x0 = std::min(x0, p.x()); x1 = std::max(x1, p.x());
+            y0 = std::min(y0, p.y()); y1 = std::max(y1, p.y());
+        }
+        m_cellBox[i] = QRectF(QPointF(x0, y0), QPointF(x1, y1));
+    }
+}
+
+int ThiessenIndex::nearestSite(const QPointF &p) const
+{
+    int best = -1;
+    double bestD = 0.0;
+    for (int i = 0; i < m_sites.size(); ++i)
+    {
+        if (m_shadowed[i])
+            continue;
+        const double d = dist2(p, m_sites[i]);
+        if (best < 0 || d < bestD)   // strict — ties keep the lowest index
+        {
+            best = i;
+            bestD = d;
+        }
+    }
+    return best;
+}
+
+QVector<double> ThiessenIndex::areaShares(const QVector<QPointF> &ring) const
+{
+    const int g = static_cast<int>(m_sites.size());
+    QVector<double> shares(g, 0.0);
+    if (g == 0 || ring.size() < 3)
+        return shares;
+
+    // Fast path: one nearest site for every vertex ⇒ the ring is inside that
+    // site's convex cell.
+    const int first = nearestSite(ring[0]);
+    bool oneCell = first >= 0;
+    for (int k = 1; k < ring.size() && oneCell; ++k)
+        oneCell = nearestSite(ring[k]) == first;
+
+    thread_local std::vector<QPointF> cell, tmp, src;
+    src.assign(ring.begin(), ring.end());
+    if (oneCell)
+    {
+        shares[first] = ringArea(src);
+        return shares;
+    }
+
+    double x0 = ring[0].x(), x1 = x0, y0 = ring[0].y(), y1 = y0;
+    for (const QPointF &p : ring)
+    {
+        x0 = std::min(x0, p.x()); x1 = std::max(x1, p.x());
+        y0 = std::min(y0, p.y()); y1 = std::max(y1, p.y());
+    }
+    for (int i = 0; i < g; ++i)
+    {
+        if (m_shadowed[i] || m_cellBox[i].isNull())
+            continue;
+        const QRectF &b = m_cellBox[i];
+        if (b.right() < x0 || b.left() > x1 || b.bottom() < y0 || b.top() > y1)
+            continue;   // this cell cannot reach the ring
+        cell = src;
+        for (int j : m_nbrs[i])
+        {
+            clipInto(cell, m_sites[i], m_sites[j], tmp);
+            cell.swap(tmp);
+            if (cell.size() < 3)
+                break;
+        }
+        if (cell.size() >= 3)
+            shares[i] = ringArea(cell);
     }
     return shares;
 }

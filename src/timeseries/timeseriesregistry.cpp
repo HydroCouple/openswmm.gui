@@ -196,94 +196,108 @@ int TimeseriesRegistry::saveToEngine(void *engineHandle)
     m_engineHandle = engineHandle;  // remember for future no-arg flushes
     int written = 0;
 
-    for (TimeseriesProvider *p : std::as_const(m_providers)) {
-        if (!p) continue;
-        // B4 — ExternalFile providers with a linked path persist as engine
-        // FILE timeseries ("path:col" token) below. Pathless ExternalFile
-        // and GeopackageObserved providers keep their previous skip.
-        const bool fileBacked =
-            p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile
-            && !p->filePath().isEmpty();
-        if (p->sourceMode() != TimeseriesProvider::SourceMode::Inline
-            && !fileBacked) continue;
-
-        const QByteArray idUtf8 = p->name().toUtf8();
-        int idx = swmm_table_index(eng, idUtf8.constData());
-        if (idx < 0) {
-            // Create a new timeseries in the engine. Requires BUILDING state.
-            if (swmm_timeseries_add(eng, idUtf8.constData()) != SWMM_OK) continue;
-            idx = swmm_table_index(eng, idUtf8.constData());
-            if (idx < 0) continue;
-        } else if (!fileBacked) {
-            // Existing — wipe before re-add so deleted points don't linger.
-            swmm_table_clear(eng, idx);
-        }
-
-        // Read the slot's current token so an unchanged reference is left
-        // verbatim (keeps a relative .inp token relative across saves).
-        char absBuf[1024]  = {};
-        char origBuf[1024] = {};
-        const bool haveSlot =
-            swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA,
-                               idUtf8.constData(), absBuf, int(sizeof(absBuf)),
-                               origBuf, int(sizeof(origBuf))) == SWMM_OK;
-
-        if (fileBacked) {
-            // Compose "path:col" — the GUI owns the colon convention; the
-            // user never types it (spec §4 task 5). InpWriter then emits
-            // `name FILE "path:col"` whenever the slot is non-empty.
-            const std::string wantPath = p->filePath().toStdString();
-            const std::string wantCol  = p->columnSelector().toStdString();
-            bool same = false;
-            if (haveSlot && origBuf[0] != '\0') {
-                std::string oPath, oCol, aPath, aCol;
-                openswmmvis::ui::extcol::splitPathColumn(origBuf, oPath, oCol);
-                openswmmvis::ui::extcol::splitPathColumn(absBuf,  aPath, aCol);
-                same = (oCol == wantCol && oPath == wantPath)
-                    || (aCol == wantCol && aPath == wantPath);
-            }
-            if (same
-                || swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA,
-                                      idUtf8.constData(),
-                                      openswmmvis::ui::extcol::composePathColumn(
-                                          wantPath, wantCol).c_str()) == SWMM_OK)
-                ++written;
-            continue;
-        }
-
-        // Inline — clear any stale FILE token first (a series Detached to
-        // Inline would otherwise still write as FILE and drop its points).
-        if (haveSlot && origBuf[0] != '\0')
-            swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA,
-                               idUtf8.constData(), "");
-
-        bool allOk = true;
-        for (const TimeseriesPoint& pt : p->points()) {
-            const double x = openswmmvis::core::qDateTimeToSwmmDateTime(pt.time);
-            if (swmm_table_add_point(eng, idx, x, pt.value) != SWMM_OK) {
-                allOk = false;
-                break;
-            }
-        }
-        if (allOk) {
-            // Re-declare the time-only prefix AFTER the clear + re-add above
-            // (swmm_table_clear resets it). NaN guard: an invalid anchor
-            // would serialize as NaN and poison the writer's elapsed-time
-            // subtraction, so such a series downgrades to Absolute — not
-            // reachable through the UI, which requires a valid simulation
-            // start to enter Relative mode.
-            int    nRel     = p->relativeCount();
-            double anchorOA = 0.0;
-            if (nRel > 0 && p->relativeAnchor().isValid())
-                anchorOA = openswmmvis::core::qDateTimeToSwmmDateTime(
-                    p->relativeAnchor());
-            else
-                nRel = 0;
-            swmm_timeseries_set_relative_info(eng, idx, nRel, anchorOA);
+    for (TimeseriesProvider *p : std::as_const(m_providers))
+        if (p && writeProvider(eng, p))
             ++written;
+    return written;
+}
+
+bool TimeseriesRegistry::saveProviderToEngine(TimeseriesProvider *p, void *engineHandle)
+{
+    if (!engineHandle) engineHandle = m_engineHandle;
+    if (!engineHandle || !p || !m_providers.contains(p)) return false;
+    m_engineHandle = engineHandle;
+    return writeProvider(static_cast<SWMM_Engine>(engineHandle), p);
+}
+
+bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p)
+{
+    auto *eng = static_cast<SWMM_Engine>(engineHandle);
+    // B4 — ExternalFile providers with a linked path persist as engine
+    // FILE timeseries ("path:col" token) below. Pathless ExternalFile
+    // and GeopackageObserved providers keep their previous skip.
+    const bool fileBacked =
+        p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile
+        && !p->filePath().isEmpty();
+    if (p->sourceMode() != TimeseriesProvider::SourceMode::Inline
+        && !fileBacked) return false;
+
+    const QByteArray idUtf8 = p->name().toUtf8();
+    int idx = swmm_table_index(eng, idUtf8.constData());
+    if (idx < 0) {
+        // Create a new timeseries in the engine. Requires BUILDING state.
+        if (swmm_timeseries_add(eng, idUtf8.constData()) != SWMM_OK) return false;
+        idx = swmm_table_index(eng, idUtf8.constData());
+        if (idx < 0) return false;
+    } else if (!fileBacked) {
+        // Existing — wipe before re-add so deleted points don't linger.
+        swmm_table_clear(eng, idx);
+    }
+
+    // Read the slot's current token so an unchanged reference is left
+    // verbatim (keeps a relative .inp token relative across saves).
+    char absBuf[1024]  = {};
+    char origBuf[1024] = {};
+    const bool haveSlot =
+        swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA,
+                           idUtf8.constData(), absBuf, int(sizeof(absBuf)),
+                           origBuf, int(sizeof(origBuf))) == SWMM_OK;
+
+    if (fileBacked) {
+        // Compose "path:col" — the GUI owns the colon convention; the
+        // user never types it (spec §4 task 5). InpWriter then emits
+        // `name FILE "path:col"` whenever the slot is non-empty.
+        const std::string wantPath = p->filePath().toStdString();
+        const std::string wantCol  = p->columnSelector().toStdString();
+        bool same = false;
+        if (haveSlot && origBuf[0] != '\0') {
+            std::string oPath, oCol, aPath, aCol;
+            openswmmvis::ui::extcol::splitPathColumn(origBuf, oPath, oCol);
+            openswmmvis::ui::extcol::splitPathColumn(absBuf,  aPath, aCol);
+            same = (oCol == wantCol && oPath == wantPath)
+                || (aCol == wantCol && aPath == wantPath);
+        }
+        if (same
+            || swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA,
+                                  idUtf8.constData(),
+                                  openswmmvis::ui::extcol::composePathColumn(
+                                      wantPath, wantCol).c_str()) == SWMM_OK)
+            return true;
+        return false;
+    }
+
+    // Inline — clear any stale FILE token first (a series Detached to
+    // Inline would otherwise still write as FILE and drop its points).
+    if (haveSlot && origBuf[0] != '\0')
+        swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA,
+                           idUtf8.constData(), "");
+
+    bool allOk = true;
+    for (const TimeseriesPoint& pt : p->points()) {
+        const double x = openswmmvis::core::qDateTimeToSwmmDateTime(pt.time);
+        if (swmm_table_add_point(eng, idx, x, pt.value) != SWMM_OK) {
+            allOk = false;
+            break;
         }
     }
-    return written;
+    if (allOk) {
+        // Re-declare the time-only prefix AFTER the clear + re-add above
+        // (swmm_table_clear resets it). NaN guard: an invalid anchor
+        // would serialize as NaN and poison the writer's elapsed-time
+        // subtraction, so such a series downgrades to Absolute — not
+        // reachable through the UI, which requires a valid simulation
+        // start to enter Relative mode.
+        int    nRel     = p->relativeCount();
+        double anchorOA = 0.0;
+        if (nRel > 0 && p->relativeAnchor().isValid())
+            anchorOA = openswmmvis::core::qDateTimeToSwmmDateTime(
+                p->relativeAnchor());
+        else
+            nRel = 0;
+        swmm_timeseries_set_relative_info(eng, idx, nRel, anchorOA);
+        return true;
+    }
+    return false;
 }
 
 } // namespace openswmmvis::timeseries

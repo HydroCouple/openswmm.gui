@@ -98,21 +98,22 @@ gage property editor's **Plot Rainfall…** button; it is documented in
 
 \figtodo{13_raingage_properties.png, Rain gage properties with a file data source}
 
-### Assign Rain Gages to Subcatchments
+### Assign Rain Gages
 
-**Model → Assign Rain Gages** binds gages to subcatchments spatially in one
-undoable step. Nothing is written until you press **Apply**; **Preview** shows
-the full plan first.
+**Model → Assign Rain Gages** binds gages to subcatchments and to RDII inflows
+spatially, in one undoable step. Nothing is written until you press **Apply**;
+**Preview** shows the full plan first.
 
 | Control | What it does |
 |---|---|
-| **Nearest gage (Thiessen area majority)** | Assigns the gage whose Thiessen (Voronoi) cell covers the largest share of the subcatchment's *polygon* — not of a representative point |
-| **Natural-neighbour interpolation (creates gages)** | Area-averages natural-neighbour weights over the gage network per subcatchment; clusters subcatchments whose weight vectors agree and materialises one generated gage plus a generated time series per cluster |
+| **Nearest gage (Thiessen area majority)** | Assigns the gage whose Thiessen (Voronoi) cell covers the largest share of the subcatchment's *polygon* — not of a representative point. An RDII node, being a point, takes its nearest gage |
+| **Natural-neighbour interpolation (creates gages)** | Area-averages natural-neighbour weights over the gage network per subcatchment (and takes the weights at the node for RDII); clusters objects whose weight vectors agree and materialises one generated gage plus a generated time series per cluster |
 | **Weighting** | *Sibson (area stealing)* or *Laplace (Voronoi facet)* — interpolated method only |
 | **Group weights within** | Percent tolerance for treating two weight vectors as the same cluster |
-| **All subcatchments** / **Selected subcatchments (N)** | Scope of the assignment |
-| **Preview** | Computes the plan and fills the table: *Subcatchment*; *Current gage*; *New gage*; *Detail* (area share or weight vector) |
-| **Apply** | Commits the whole plan as a single undo macro |
+| **Subcatchments** / **RDII inflows** | What to assign. RDII is checked by default when the model has `[RDII]` entries |
+| **All objects** / **Selected subcatchments and nodes (N)** | Scope of the assignment |
+| **Preview** | Computes the plan in the background (with a progress bar and **Cancel**) and fills the table: *Object*; *Type*; *Current gage*; *New gage*; *Detail* (area share, weight vector, or unit hydrograph change) |
+| **Apply** | Commits the whole plan as a single undo step. A preview of the current model and options is reused, not recomputed |
 
 SWMM binds exactly one gage per subcatchment, which is why an interpolated
 rainfall field has to be expressed as generated gages. The dialog reports how
@@ -120,6 +121,16 @@ many generated gages were created, reused or removed, warns when gages have no
 map location or share a location, and warns when snow catch factors differ
 across the sources. A volume-conservation check runs before anything is written,
 so a failed check aborts with the model untouched.
+
+**RDII and unit hydrograph groups.** In SWMM the rain gage belongs to the unit
+hydrograph group in `[HYDROGRAPHS]`, not to the node in `[RDII]`, and several
+nodes can share one group. When a group's nodes fall under different gages the
+group is *split*: it keeps the gage that carries the most sewer area, and a copy
+named `<group>_<gage>` — same R/T/K, initial-abstraction and decay rows — takes
+each other gage, with its nodes moved onto the copy. Running the tool again
+reuses those copies, so a second run changes nothing. With **Selected** scope,
+a group that also serves an unselected node keeps its gage; only the selected
+nodes move to a copy.
 
 \figtodo{13_assign_rain_gages.png, The Assign Rain Gages dialog previewing an interpolated plan}
 

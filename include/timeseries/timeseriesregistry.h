@@ -117,6 +117,14 @@ public:
      */
     int saveToEngine(void *engineHandle);
 
+    /*! \brief Write ONE provider to the engine — the same per-provider step
+     *  saveToEngine() runs for each. Used by the undo commands, which change a
+     *  single series: flushing every series instead made a batch of N new
+     *  series cost O(N × all series points). \p engineHandle defaults to the
+     *  bound handle. Returns false when \p p is not in this registry, is not
+     *  persisted (pathless external / observed), or the write failed. */
+    bool saveProviderToEngine(TimeseriesProvider *p, void *engineHandle = nullptr);
+
     /*! \brief Convenience overload — flush to the cached engine handle set by
      *  the most recent `loadFromEngine` / `saveToEngine(handle)` call. No-op
      *  (returns 0) if no handle has been bound yet. Used by auto-flush hooks
@@ -170,6 +178,8 @@ signals:
                          const QString& prevName, const QString& newName);
 
 private:
+    /*! Per-provider body of saveToEngine(). */
+    bool writeProvider(void *engineHandle, TimeseriesProvider *p);
     QVector<TimeseriesProvider *>  m_providers;            ///< Insertion order; we own each via Qt parenting.
     QHash<QString, TimeseriesProvider *> m_byLowerName;    ///< Case-insensitive index.
     void                          *m_engineHandle = nullptr; ///< Cached for the no-arg saveToEngine().

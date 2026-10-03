@@ -355,6 +355,7 @@ set(
         include/ui/dialogs/groundwaterassigndialog.h
         include/project/groundwaterrecipestore.h
         include/assignment/groundwaterassignment.h
+        include/assignment/raingageassignment.h
         include/assignment/meshassignmentsampling.h
         include/project/profilesectionstore.h
         include/plot/profilesectionseries.h
@@ -1113,6 +1114,7 @@ set(
         src/ui/dialogs/groundwaterassigndialog.cpp
         src/project/groundwaterrecipestore.cpp
         src/assignment/groundwaterassignment.cpp
+        src/assignment/raingageassignment.cpp
         src/assignment/meshassignmentsampling.cpp
         src/project/profilesectionstore.cpp
         src/plot/profilesectionseries.cpp
