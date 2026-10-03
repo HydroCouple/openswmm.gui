@@ -111,6 +111,9 @@ public:
          *  vertices). Off here so other callers keep their geometry; the
          *  dialog turns it on by default. */
         bool conditionBoundary = false;
+        /*! Adaptive terrain: keep only this many terrain break lines, ranked
+         *  by integrated step (mesh::rankBreaklinesByStep). 0 = keep all. */
+        int maxTerrainBreaklines = 0;
         QVector<QVector<QPointF>> subcatchPolys;  ///< Subcatchments: raw rings (mesh CRS)
         MapExtent modelExtent;       ///< AutoBBox fallback frame
 

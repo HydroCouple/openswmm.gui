@@ -64,6 +64,39 @@ class TestTerrainBreaklines : public QObject
     Q_OBJECT
 
 private slots:
+    // D-R4: only the most significant lines survive a cap; significance is
+    // the step across the line integrated along it.
+    void rankingKeepsLongHighStepsFirst()
+    {
+        // Terrain with a 2 m step at x = 50 for y in [0, 100] and a 0.2 m
+        // step at x = 150 for y in [0, 100], flat elsewhere.
+        auto zAt = [](double x, double y) {
+            double z = 0.0;
+            if (y >= 0 && y <= 100 && x > 50) z += 2.0;
+            if (y >= 0 && y <= 100 && x > 150) z += 0.2;
+            return z;
+        };
+        const QVector<QVector<QPointF>> lines = {
+            {{50, 0}, {50, 100}},      // long, high: 2 x 100 = 200
+            {{50, 40}, {50, 50}},      // short, high: 2 x 10 = 20
+            {{150, 0}, {150, 100}},    // long, faint: 0.2 x 100 = 20
+            {{300, 0}, {300, 100}},    // flat ground: 0, dropped
+        };
+        double stats[3] = {};
+        const auto kept = mesh::rankBreaklinesByStep(lines, zAt, 2.0, 2, stats);
+        QCOMPARE(kept.size(), 2);
+        QCOMPARE(kept.first(), lines[0]);      // the long high step always survives
+        QVERIFY(!kept.contains(lines[3]));
+        QCOMPARE(stats[0], 4.0); QCOMPARE(stats[1], 2.0);
+        // Uncapped returns everything unchanged; a cap above the count too.
+        QCOMPARE(mesh::rankBreaklinesByStep(lines, zAt, 2.0, 0).size(), 4);
+        QCOMPARE(mesh::rankBreaklinesByStep(lines, zAt, 2.0, 10).size(), 4);
+        // Kept lines keep their input order.
+        const auto three = mesh::rankBreaklinesByStep(lines, zAt, 2.0, 3);
+        QCOMPARE(three.size(), 3);
+        QCOMPARE(three[0], lines[0]); QCOMPARE(three[1], lines[1]); QCOMPARE(three[2], lines[2]);
+    }
+
     void boundedCacheMatchesWholeMask()
     {
         Grid g(2057,1537);

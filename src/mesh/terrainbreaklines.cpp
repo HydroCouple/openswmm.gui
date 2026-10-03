@@ -9,6 +9,7 @@
 #include "mesh/terrainbreaklines.h"
 
 #include <algorithm>
+#include <numeric>
 #include <cmath>
 #include <QDir>
 #include <QHash>
@@ -385,6 +386,70 @@ QVector<QVector<QPointF>> TerrainBreaklineExtractor::extractFromGrid(const float
     if (z)
         for (int r = 0; r < rows; ++r) e.pushRow(z + qsizetype(r) * cols);
     return e.finish();
+}
+
+QVector<QVector<QPointF>> rankBreaklinesByStep(const QVector<QVector<QPointF>> &lines,
+                                               const std::function<double(double, double)> &zAt,
+                                               double offset, int maxKeep, double *stats)
+{
+    if (maxKeep <= 0 || lines.size() <= maxKeep || !(offset > 0.0) || !zAt) {
+        if (stats) { stats[0] = lines.size(); stats[1] = lines.size(); stats[2] = 0.0; }
+        return lines;
+    }
+    // Integrated step grows with length, so a short line can rarely make the
+    // cut: measure only the 4 x maxKeep longest (sampling the DEM at every
+    // line is the expensive part on very large rasters).
+    QVector<double> length(lines.size(), 0.0);
+    for (int i = 0; i < lines.size(); ++i)
+        for (int k = 1; k < lines[i].size(); ++k)
+            length[i] += std::hypot(lines[i][k].x() - lines[i][k - 1].x(), lines[i][k].y() - lines[i][k - 1].y());
+    QVector<char> measure(lines.size(), 1);
+    if (lines.size() > 4 * qsizetype(maxKeep)) {
+        QVector<int> byLength(lines.size());
+        std::iota(byLength.begin(), byLength.end(), 0);
+        std::stable_sort(byLength.begin(), byLength.end(), [&](int a, int b) { return length[a] > length[b]; });
+        measure.fill(0);
+        for (int k = 0; k < 4 * maxKeep; ++k) measure[byLength[k]] = 1;
+    }
+    QVector<double> score(lines.size(), 0.0);
+    for (int i = 0; i < lines.size(); ++i) {
+        if (!measure[i]) continue;
+        const QVector<QPointF> &l = lines[i];
+        double sum = 0.0;
+        for (int k = 1; k < l.size(); ++k) {
+            const QPointF a = l[k - 1], b = l[k];
+            const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
+            if (!(len > 0.0)) continue;
+            const QPointF nrm(-(b.y() - a.y()) / len, (b.x() - a.x()) / len);
+            const int samples = std::max(1, int(std::ceil(len / offset)));
+            for (int j = 0; j < samples; ++j) {
+                const QPointF c = a + (b - a) * ((j + 0.5) / samples);
+                const double zl = zAt(c.x() + offset * nrm.x(), c.y() + offset * nrm.y());
+                const double zr = zAt(c.x() - offset * nrm.x(), c.y() - offset * nrm.y());
+                if (std::isfinite(zl) && std::isfinite(zr)) sum += std::abs(zl - zr) * (len / samples);
+            }
+        }
+        score[i] = sum;
+    }
+    QVector<int> order(lines.size());
+    std::iota(order.begin(), order.end(), 0);
+    std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return score[a] > score[b]; });
+    QVector<int> keep;
+    for (int i : std::as_const(order)) {
+        if (keep.size() >= maxKeep || !(score[i] > 0.0)) break;
+        keep.append(i);
+    }
+    std::sort(keep.begin(), keep.end());   // input order, for determinism downstream
+    QVector<QVector<QPointF>> out;
+    out.reserve(keep.size());
+    for (int i : std::as_const(keep)) out.append(lines[i]);
+    if (stats) {
+        stats[0] = lines.size(); stats[1] = out.size();
+        double lo = 0.0;
+        for (int i : std::as_const(keep)) lo = (lo == 0.0) ? score[i] : std::min(lo, score[i]);
+        stats[2] = lo;
+    }
+    return out;
 }
 
 } // namespace mesh

@@ -1780,9 +1780,21 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                       tso.decimation)
                 : QByteArray();
             mesh::MeshStageCache::Breaklines cachedLines;
+            // Keep the most significant lines only, ranked on the terrain
+            // reference after the cache (so the cap can change cheaply).
+            auto rankLines = [&](const QVector<QVector<QPointF>> &all) {
+                if (!useAdaptiveTerrain || in.maxTerrainBreaklines <= 0 || !(in.minCellSize > 0.0)) return all;
+                double stats[3] = {};
+                QElapsedTimer rankClock; rankClock.start();
+                auto kept = mesh::rankBreaklinesByStep(all, [&](double x, double y) { return terrainReference.sampleAt(x, y); },
+                                                       in.minCellSize, in.maxTerrainBreaklines, stats);
+                qCInfo(lcMeshPerf).noquote() << QStringLiteral("[Mesh][terrain] break lines ranked: kept %1 of %2 (smallest integrated step %3) in %4 ms")
+                    .arg(stats[1]).arg(stats[0]).arg(stats[2]).arg(rankClock.elapsed());
+                return kept;
+            };
             const bool breaklinesCached = cacheBreaklines && cache.loadBreaklines(breaklineKey, &cachedLines);
             if (breaklinesCached) {
-                g.setTerrainBreaklines(cachedLines.lines);
+                g.setTerrainBreaklines(rankLines(cachedLines.lines));
                 sizeOptions.steps = g.previewTerrainBreaklines();
                 qCInfo(lcMeshPerf) << "[Mesh][cache] terrain break lines HIT:" << cachedLines.lines.size()
                                    << "| median length (px)" << cachedLines.medianLength
@@ -1831,7 +1843,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                     for (int k = 0; k < chain.size(); ++k) line[k] = QPointF(xs[k], ys[k]);
                     lines.append(std::move(line));
                 }
-                g.setTerrainBreaklines(lines);
+                g.setTerrainBreaklines(rankLines(lines));
                 // The lines the generator will keep become mesh edges: the size
                 // field must not refine around their steps
                 // (MESH_TRIANGLE_ENGINE_PLAN D13). Lines it drops keep theirs.
@@ -4353,6 +4365,8 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->sizeRatio     = m_sizeRatioSpin->value();
     out->minCellSize   = m_minCellSizeSpin->value();
     out->conditionBoundary = m_conditionBoundaryBox && m_conditionBoundaryBox->isChecked();
+    // Major features only (D-R4): about one break line per 200 budgeted cells.
+    out->maxTerrainBreaklines = std::max(1, m_maxCellsSpin->value() / 200);
     if (out->cellSize <= 0.0)
     {
         // Derive from the model extent: about 100 cells across the longer side.

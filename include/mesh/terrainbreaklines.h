@@ -114,6 +114,22 @@ private:
     bool  m_skipped = false;
 };
 
+/*!
+ * \brief Keep the \p maxKeep most significant break lines (MESH_REGIONAL_
+ *        TRIQUAD_PLAN D-R4): significance is the integrated step, the
+ *        elevation difference \p offset to either side of the line summed
+ *        over its length at about \p offset spacing, so long high curbs and
+ *        walls outrank short faint traces. Only the 4 x maxKeep longest lines
+ *        are measured (the DEM sampling is the cost). Ties keep input order; lines with
+ *        no measurable step are dropped. \p maxKeep <= 0 keeps every line.
+ * \param zAt elevation at a point; NaN where unknown.
+ * \param stats optional: [0] lines measured, [1] kept, [2] smallest kept
+ *        significance.
+ */
+QVector<QVector<QPointF>> rankBreaklinesByStep(const QVector<QVector<QPointF>> &lines,
+                                               const std::function<double(double, double)> &zAt,
+                                               double offset, int maxKeep, double *stats = nullptr);
+
 } // namespace mesh
 
 #endif // OPENSWMMVIS_MESH_TERRAINBREAKLINES_H
