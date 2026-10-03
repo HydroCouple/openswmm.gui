@@ -96,8 +96,12 @@ public:
     /*! Every face covering \p p (sample() keeps only the lowest). */
     QVector<Hit> hitsAt(const QPointF &p) const;
     bool intersects(const QRectF &bounds) const;
+    /*! Largest |triangle - face| over every face overlapping the triangle.
+     *  \p minWidth > 0 skips overlaps thinner than that (2 x area /
+     *  perimeter): slivers where a cell only touches a corridor edge that
+     *  constraint joining moved by less than its tolerance. */
     Error error(const QPointF *xy, const double *z,
-                const std::function<bool(const QPointF &)> &inside) const;
+                const std::function<bool(const QPointF &)> &inside, double minWidth = 0.0) const;
 private:
     struct Face { QPointF p[3]; double z[3],offset[3]; int profile; QRectF bounds; };
     QVector<Face> faces;

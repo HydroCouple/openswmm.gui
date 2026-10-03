@@ -540,3 +540,28 @@ TEST(ChannelBurnLattice, SampleNearReachesABankVertexJustOutside)
     const QPointF inside(onBank.x(), bankY + 0.5);
     EXPECT_DOUBLE_EQ(surface.sampleNear(inside, 0.05).z, surface.sample(inside).z);
 }
+
+// A cell outside the corridor whose edge crosses the bank by a hair (constraint
+// joining moves bank vertices by up to its tolerance) overlaps a sliver; with a
+// minimum width it is not an error, but a real overlap still is.
+TEST(ChannelBurnLattice, SliversThinnerThanTheJoinToleranceAreNotChannelErrors)
+{
+    const BurnProfile p = straight();
+    const BurnLattice lat = buildCorridorLattice(p, 2.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+    BurnSurface surface;
+    surface.build({lat});
+    const double bankY = std::min(lat.xy[lat.at(3, 0)].y(), lat.xy[lat.at(3, lat.nAcross - 1)].y());
+    const double x = lat.xy[lat.at(3, 0)].x();
+    // Two corners 0.01 inside the bank carry the bank elevation, the third is
+    // far outside on low terrain.
+    const QPointF xy[3] = {QPointF(x - 1.0, bankY + 0.01), QPointF(x + 1.0, bankY + 0.01), QPointF(x, bankY - 3.0)};
+    const double zBank = surface.sample(QPointF(x, bankY + 0.01)).z;
+    const double z[3] = {zBank, zBank, zBank - 8.0};
+    const auto any = [](const QPointF &) { return true; };
+    EXPECT_GT(surface.error(xy, z, any).maximum, 0.01);
+    EXPECT_EQ(surface.error(xy, z, any, 0.05).maximum, 0.0);
+    // The same cell pushed a metre into the corridor is a real overlap.
+    const QPointF deep[3] = {QPointF(x - 1.0, bankY + 1.0), QPointF(x + 1.0, bankY + 1.0), QPointF(x, bankY - 3.0)};
+    EXPECT_GT(surface.error(deep, z, any, 0.05).maximum, 0.1);
+}

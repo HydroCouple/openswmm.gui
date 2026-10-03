@@ -152,7 +152,7 @@ BurnSurface::Hit BurnSurface::sampleNear(const QPointF &p, double radius) const
 }
 
 BurnSurface::Error BurnSurface::error(const QPointF *xy,const double *z,
-                                     const std::function<bool(const QPointF &)> &inside) const
+                                     const std::function<bool(const QPointF &)> &inside,double minWidth) const
 {
     Error out;
     const double orientation=cross(xy[1]-xy[0],xy[2]-xy[0])>=0?1:-1;
@@ -170,6 +170,14 @@ BurnSurface::Error BurnSurface::error(const QPointF *xy,const double *z,
             }
             poly=std::move(next);
         }
+        if(minWidth>0 && poly.size()>=3) {
+            double area=0,perimeter=0;
+            for(int j=0;j<poly.size();++j) {
+                const QPointF &a=poly[j],&b=poly[(j+1)%poly.size()];
+                area+=cross(a,b); perimeter+=std::hypot(b.x()-a.x(),b.y()-a.y());
+            }
+            if(perimeter>0 && std::abs(area)/perimeter<minWidth) continue;   // |area|/2 x 2 / perimeter
+        } else if(minWidth>0) continue;
         for(const auto &p:poly) {
             if(inside && !inside(p)) continue;
             double u=0,v=0; if(!barycentric(xy,p,&u,&v)) continue;

@@ -2080,7 +2080,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 double error=q.valid?q.maxError:0;
                 *out=q.point;
                 if(in.burnEnabled && in.burnOptions.removeBurnedFrom1D) {
-                    const auto channel=channelSurface.error(xy,z,[&](const QPointF &p){return burnDomain.contains(p);});
+                    const auto channel=channelSurface.error(xy,z,[&](const QPointF &p){return burnDomain.contains(p);},0.1*in.genOpts.channelSpacing);
                     const double scaled=channel.maximum*(useAdaptiveTerrain?in.terrainTolerance/channelTolerance:1.0);
                     if(scaled>error) {error=scaled;*out=channel.point;}
                 }
@@ -2613,14 +2613,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 const int ids[3]={cell.v0,half?cell.v2:cell.v1,half?cell.v3:cell.v2};
                 QPointF xy[3]; double z[3];
                 for(int k=0;k<3;++k){xy[k]=result.vertices[ids[k]].xy;z[k]=result.vertices[ids[k]].z;}
-                const auto error=channelSurface.error(xy,z,[&](const QPointF &p){return burnDomain.contains(p);});
+                // Overlaps thinner than the constraint-join tolerance are a
+                // cell touching a corridor edge joining moved by a hair.
+                const auto error=channelSurface.error(xy,z,[&](const QPointF &p){return burnDomain.contains(p);},0.1*in.genOpts.channelSpacing);
                 if(!(error.maximum>channelTolerance+1e-8)) continue;
                 ++violations;
                 if(error.maximum>worst) {
                     worst=error.maximum; worstAt=error.point;
                     QStringList corners;
-                    for(int k=0;k<3;++k) corners << QStringLiteral("(%1, %2, z %3)").arg(xy[k].x(),0,'f',2).arg(xy[k].y(),0,'f',2).arg(z[k],0,'f',2);
-                    worstCell=corners.join(QStringLiteral(" "));
+                    for(int k=0;k<cell.vertexCount();++k) {
+                        const auto &v=result.vertices[cell.vertex(k)];
+                        corners << QStringLiteral("(%1, %2, z %3)").arg(v.xy.x(),0,'f',2).arg(v.xy.y(),0,'f',2).arg(v.z,0,'f',2);
+                    }
+                    worstCell=(cell.isQuad()?QStringLiteral("quad "):QString())+corners.join(QStringLiteral(" "));
                 }
             }
         }
