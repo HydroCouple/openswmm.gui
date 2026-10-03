@@ -879,6 +879,21 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
         }
         return opt.terrainError(xy,z,p);
     };
+    // The terrain error is a pure function of a triangle's ordered vertices
+    // (heights never change once set), so the final pass may reuse the last
+    // finite value measured for the same triple in the same slot.
+    struct Measured { int v[3] = {-1,-1,-1}; double e = 0; };
+    QVector<Measured> measured;
+    auto measure = [&](int t, QPointF *p) {
+        const double e = terrainError(t,p);
+        if (std::isfinite(e)) {
+            if (measured.size() <= t) measured.resize(std::max<qsizetype>(t+1,measured.size()*3/2));
+            Measured &m = measured[t];
+            for (int k = 0; k < 3; ++k) m.v[k] = m_tris[t].v[k];
+            m.e = e;
+        }
+        return e;
+    };
     int reason = 0; // 1 size, 2 angle, 3 terrain; count successful inserts only.
 
     // Point for a bad triangle; false when it meets both bounds.
@@ -904,7 +919,7 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
             if (sinA < sinMin && !exemptShortestEdge(T.v[(s + 1) % 3], T.v[(s + 2) % 3])) { bad = true; reason = 2; }
         }
         if (!bad && terrain) {
-            const double e = terrainError(t,out);
+            const double e = measure(t,out);
             if (std::isfinite(e) && e > opt.terrainTolerance) {
                 const double clearance = std::max(opt.terrainMinSpacing,opt.minEdge);
                 // A protected elevation or minimum spacing may make the
@@ -1113,13 +1128,17 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
         afterInsert(v);
         drainSegments();
     }
-    // Independent pass over the final geometry: no cached triangle certificate
-    // can survive a missed edge flip or a blocked terrain candidate unnoticed.
+    // Independent pass over the final geometry: every live triangle is checked,
+    // so a missed edge flip or a blocked terrain candidate cannot go unnoticed.
+    // A value is reused only for the identical ordered vertex triple.
     if (terrain && !rep.cancelled) for (int t=0;t<m_tris.size();++t) {
         const auto &T=m_tris[t];
         if (!T.alive || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2])) continue;
         if ((t & 4095)==0 && opt.cancelled && opt.cancelled()) { rep.cancelled=true; break; }
-        QPointF p; const double e=terrainError(t,&p);
+        double e;
+        if (t<measured.size() && measured[t].v[0]==T.v[0] && measured[t].v[1]==T.v[1] && measured[t].v[2]==T.v[2])
+            e=measured[t].e;
+        else { QPointF p; e=terrainError(t,&p); }
         if (!std::isfinite(e)) ++rep.terrainUnknown;
         else { rep.maxTerrainError=std::max(rep.maxTerrainError,e); if (e>opt.terrainTolerance) ++rep.terrainUnresolved; }
     }

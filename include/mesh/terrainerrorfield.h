@@ -31,15 +31,27 @@ public:
     TerrainErrorField(const TerrainErrorField &) = delete;
     TerrainErrorField &operator=(const TerrainErrorField &) = delete;
 
+    /*! \p indexFile, when set, persists the summary hierarchy: a valid file
+     *  for the same raster window, origin and scale is loaded instead of
+     *  rebuilding; otherwise the built index is saved there (best effort,
+     *  skipped when the volume lacks twice its size). */
     bool open(const QString &path, const QString &meshCRS, const QRectF &domain,
               double zScale = 1.0, int cacheMiB = 64,
-              const std::function<bool(double)> &progress = {});
+              const std::function<bool(double)> &progress = {},
+              const QString &indexFile = {});
+    bool indexLoaded() const;   ///< open() reused a saved index.
+    bool indexSaved() const;    ///< open() wrote a new index file.
     // Test seam; coordinates are pixel centres (col+.5,row+.5).
     bool buildFromGrid(const float *z, int cols, int rows,
                        const std::function<bool(double)> &progress = {});
     double sampleAt(double x, double y) const;
     Query queryTriangle(const QPointF *xy, const double *z, double tolerance,
                         bool exhaustive = false) const;
+    /*! Refinement query: the same maxError, point and validity as
+     *  queryTriangle(xy, z, tolerance), found by best-first branch and bound
+     *  so blocks that cannot hold the worst residual are not scanned.
+     *  upperBound, samples and noDataSamples are not computed. */
+    Query queryWorst(const QPointF *xy, const double *z, double tolerance) const;
     QString errorMsg() const;
     quint64 referenceSamples() const;
     qint64 summaryBytes() const;

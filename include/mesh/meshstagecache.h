@@ -12,6 +12,12 @@
  *             rings/seeds.  Keyed by the boundary source identity (path +
  *             mtime + size + layer name, or a hash of the subcatchment
  *             vertices), both CRS WKTs, and the ring-trimming parameters.
+ *   Stage T — adaptive terrain error index (TerrainErrorField summaries).
+ *             Keyed by the DEM identity, mesh CRS, meshing bbox and z scale;
+ *             the file header is re-validated against the opened raster.
+ *   Stage L — terrain break lines in mesh coordinates (adaptive mode).
+ *             Keyed by the DEM identity, DEM window, mesh CRS and the
+ *             extraction parameters.
  *
  * Entries live in <project dir>/.meshcache/ (sidecar convention, like .ovr
  * and .oswp), one file per entry, written atomically via QSaveFile.  Any
@@ -82,7 +88,30 @@ public:
     bool loadBoundary(const QByteArray &key, BoundaryPrep *out) const;
     bool storeBoundary(const QByteArray &key, const BoundaryPrep &v) const;
 
-    /*! Keep only the newest \p keepPerStage entries per stage (by mtime). */
+    static FileIdentity identityOf(const QString &path);
+
+    // ── Stage T: terrain error index (file written by TerrainErrorField) ──
+    static QByteArray terrainIndexKey(const FileIdentity &dem, const QString &meshCRSWkt,
+                                      const QRectF &domain, double zScale);
+    /*! Entry path for \p key; empty when the cache is unusable. */
+    [[nodiscard]] QString terrainIndexPath(const QByteArray &key) const;
+
+    // ── Stage L: terrain break lines (mesh CRS) ─────────────────────
+    struct Breaklines
+    {
+        QVector<QVector<QPointF>> lines;
+        qint32 medianLength = 0;
+        qint64 dropped = 0;
+        bool   skipped = false;
+    };
+    static QByteArray breaklineKey(const FileIdentity &dem, const QString &meshCRSWkt,
+                                   const QRectF &demWindow, double tolerance,
+                                   double lowRatio, int minPixels, qint64 maxPixels);
+    bool loadBreaklines(const QByteArray &key, Breaklines *out) const;
+    bool storeBreaklines(const QByteArray &key, const Breaklines &v) const;
+
+    /*! Keep only the newest \p keepPerStage entries per stage (by mtime);
+     *  terrain indexes (stage T), which can reach gigabytes, keep two. */
     void prune(int keepPerStage = 8) const;
 
     [[nodiscard]] QString dir() const { return m_dir; }

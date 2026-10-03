@@ -73,7 +73,7 @@ class TerrainBreaklineExtractor::Mask {
 public:
     QString error;
     Mask(qint64 n,const TerrainBreaklineOptions &opt) : count(n) {
-        const qint64 budget=qint64(std::clamp(opt.cacheMiB,1,1024))*1024*1024;
+        const qint64 budget=qint64(std::clamp(opt.cacheMiB,1,65536))*1024*1024;
         if (n<=budget) { dense.fill(0,n); return; }
         file.setFileTemplate(QDir(opt.cacheDirectory.isEmpty()?QDir::tempPath():opt.cacheDirectory)
             .filePath(QStringLiteral("openswmm-terrain-mask-XXXXXX")));

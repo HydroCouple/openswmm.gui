@@ -118,7 +118,8 @@ private slots:
         QCOMPARE(tol->value(), 0.0);        // automatic terrain tolerance
         QCOMPARE(seam<QComboBox>(&dlg,"meshTerrainModeCombo")->currentIndex(),0);
         QVERIFY(tol->specialValueText().contains("automatic"));
-        QCOMPARE(seam<QSpinBox>(&dlg,"meshTerrainCacheSpin")->value(),64);
+        QCOMPARE(seam<QSpinBox>(&dlg,"meshTerrainCacheSpin")->value(),0);   // automatic
+        QCOMPARE(seam<QSpinBox>(&dlg,"meshTerrainCacheSpin")->specialValueText(),QStringLiteral("Automatic"));
         QCOMPARE(seam<QSpinBox>(&dlg,"meshMaxCellsSpin")->value(),20'000'000);
         // Triangle engine: a 30° bound, quads in streets, no conduit strips.
         QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshMinAngleSpin")->value(), 30.0);

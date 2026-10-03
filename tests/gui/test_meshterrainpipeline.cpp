@@ -586,6 +586,74 @@ NODE C interior
         QVERIFY(!result.generationStats.refineCapped);
         QVERIFY(result.meshResult.triangles.size()>target*.85);
     }
+    // Opt-in whole-worker timing on a real DEM (SWMMVIS_MESH_LARGEDEM=<GeoTIFF>)
+    // over its full extent. Run with QT_LOGGING_RULES="openswmm.mesh.perf=true"
+    // for per-stage times. Optional: _TOL (m, default .5), _CACHE_MIB (default 1024),
+    // _CELL (max cell size, default extent/64), _BREAKLINES=0.
+    void largeDemPipelineBenchmark()
+    {
+        const QString dem=qEnvironmentVariable("SWMMVIS_MESH_LARGEDEM");
+        if(dem.isEmpty()) QSKIP("Opt-in large-DEM worker benchmark.");
+        const QString root=qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT");
+        QVERIFY(!root.isEmpty());
+        const QDir dir(root+"/largedem-"+QFileInfo(dem).completeBaseName());
+        QVERIFY(QDir().mkpath(dir.path()));
+        GDALAllRegister();
+        auto *ds=static_cast<GDALDataset *>(GDALOpen(dem.toUtf8().constData(),GA_ReadOnly));
+        QVERIFY(ds);
+        double gt[6]; QCOMPARE(ds->GetGeoTransform(gt),CE_None);
+        const QRectF extent=QRectF(QPointF(gt[0],gt[3]),
+            QPointF(gt[0]+ds->GetRasterXSize()*gt[1],gt[3]+ds->GetRasterYSize()*gt[5])).normalized();
+        const QString crs=QString::fromUtf8(ds->GetProjectionRef());
+        const qint64 samples=qint64(ds->GetRasterXSize())*ds->GetRasterYSize();
+        GDALClose(ds);
+        const double pixel=std::abs(gt[1]);
+        const QRectF d=extent.adjusted(pixel,pixel,-pixel,-pixel);
+        Inputs inputs; inputs.inpPath=dir.filePath("model.inp");
+        QVERIFY(writeBytes(inputs.inpPath,"[TITLE]\nLarge DEM benchmark\n[OPTIONS]\nFLOW_UNITS CMS\n"));
+        inputs.dtmPath=dem;
+        inputs.meshCRSWkt=crs;
+        inputs.modelExtent=MapExtent(d.left(),d.top(),d.right(),d.bottom());
+        inputs.domains={QPolygonF(d)};
+        inputs.meshLinearUnitName="metre";
+        const double cell=qEnvironmentVariableIsSet("SWMMVIS_MESH_LARGEDEM_CELL")
+            ? qEnvironmentVariable("SWMMVIS_MESH_LARGEDEM_CELL").toDouble() : std::max(d.width(),d.height())/64;
+        inputs.cellSize=cell; inputs.coarsenFactor=1; inputs.minCellSize=2*pixel;
+        inputs.genOpts.minCellSize=inputs.minCellSize;
+        inputs.genOpts.maxArea=.4330127018922193*cell*cell;
+        inputs.genOpts.maxCells=20'000'000;
+        inputs.terrainTolerance=qEnvironmentVariableIsSet("SWMMVIS_MESH_LARGEDEM_TOL")
+            ? qEnvironmentVariable("SWMMVIS_MESH_LARGEDEM_TOL").toDouble() : .5;
+        inputs.terrainAdaptive=true;
+        inputs.terrainCacheMiB=qEnvironmentVariableIsSet("SWMMVIS_MESH_LARGEDEM_CACHE_MIB")
+            ? qEnvironmentVariableIntValue("SWMMVIS_MESH_LARGEDEM_CACHE_MIB") : 1024;
+        inputs.terrainBreaklines=qEnvironmentVariable("SWMMVIS_MESH_LARGEDEM_BREAKLINES")!="0";
+        inputs.mapNodesAfterGen=false;
+        QElapsedTimer timer; timer.start();
+        const auto result=run(inputs); const qint64 ms=timer.elapsed();
+        QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        qint64 rss=0;
+#ifdef Q_OS_UNIX
+        struct rusage usage{}; getrusage(RUSAGE_SELF,&usage); rss=usage.ru_maxrss;
+#ifndef Q_OS_MACOS
+        rss*=1024;
+#endif
+#endif
+        // Exact mesh fingerprint, so cached and uncached runs can be compared.
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        for(const auto &v:result.meshResult.vertices) {
+            const double xyz[3]={v.xy.x(),v.xy.y(),v.z};
+            hash.addData(QByteArrayView(reinterpret_cast<const char *>(xyz),sizeof xyz));
+        }
+        for(const auto &t:result.meshResult.triangles) {
+            const int ids[4]={t.v0,t.v1,t.v2,t.v3};
+            hash.addData(QByteArrayView(reinterpret_cast<const char *>(ids),sizeof ids));
+        }
+        qInfo("largedem pipeline: dem=%s samples=%lld cells=%lld terrainInserted=%d ms=%lld peakRSS=%lld cache=%d sha256=%s",
+            qPrintable(QFileInfo(dem).fileName()),(long long)samples,(long long)result.meshResult.triangles.size(),
+            result.generationStats.terrainInserted,(long long)ms,(long long)rss,inputs.terrainCacheMiB,
+            hash.result().toHex().left(16).constData());
+    }
 
     void bankPairReachesWorker_data()
     {
