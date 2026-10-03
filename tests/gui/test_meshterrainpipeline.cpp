@@ -20,6 +20,8 @@
 #include "map/spatialreferencesystem.h"
 #include "layers/featurelayer.h"
 #include <QApplication>
+#include <QTextStream>
+#include <QDoubleSpinBox>
 #include <QCryptographicHash>
 #include <QMessageBox>
 #include <QCheckBox>
@@ -213,6 +215,8 @@ private slots:
         QVERIFY(in.burnEnabled);QCOMPARE(in.burnOptions.geometryTolerance,.05);
         QCOMPARE(in.burnProfiles.size(),3); // XY is eligible, but wholly outside.
         auto result=run(in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        for(const auto &w:result.burnWarnings) qInfo("burn warning: %s",qPrintable(w));
+        for(const auto &w:result.alignmentWarnings) qInfo("alignment warning: %s",qPrintable(w));
         QVERIFY(result.burnRan);QCOMPARE(result.burnSurgery.splits.size(),1);
         QCOMPARE(result.burnSurgery.burnedConduits.size(),2);
         QVERIFY(!result.burnSurgery.burnedConduits.contains("XY"));
@@ -273,6 +277,31 @@ private slots:
         for(auto it=originals.cbegin();it!=originals.cend();++it) {
             QFile file(source.filePath(it.key()));QVERIFY(file.open(QIODevice::ReadOnly));QCOMPARE(file.readAll(),it.value());
         }
+    }
+
+    // One channel whose corridor folds at a hairpin must not fail the mesh or
+    // the other channels: it stays unburned (a 1D conduit) with a warning.
+    void foldingChannelIsLeftUnburnedNotFatal()
+    {
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/folding_channel");
+        Inputs in; QVERIFY(prepareBurnFixture(dir,in,false));
+        mesh::ChannelInput hairpin;
+        hairpin.conduitId="HAIRPIN";
+        hairpin.centerline={{6,24},{26,26},{6,28}};
+        hairpin.zUp=8.0; hairpin.zDn=7.5;
+        hairpin.section=mesh::sectionFromWidths({0.0,1.0,2.0},{4.0,6.0,8.0});
+        const auto profile=mesh::buildBurnProfile(hairpin,in.burnOptions);
+        QVERIFY(profile.isValid());
+        QString err;
+        QVERIFY2(!mesh::buildCorridorLattice(profile,in.burnOptions.chainageStep,0.0,nullptr,&err).isValid(),
+                 "fixture must fold");
+        in.burnProfiles.append(profile);
+        const auto result=run(in);
+        QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        QVERIFY(result.burnRan);
+        bool warned=false;
+        for(const auto &w:result.burnWarnings) warned=warned || (w.contains("HAIRPIN") && w.contains("not burned"));
+        QVERIFY2(warned,qPrintable(result.burnWarnings.join('\n')));
     }
 
     void geographicDemUsesPhysicalChannelSpacing()
@@ -585,6 +614,114 @@ NODE C interior
         QCOMPARE(result.generationStats.terrainUnknown,0);
         QVERIFY(!result.generationStats.refineCapped);
         QVERIFY(result.meshResult.triangles.size()>target*.85);
+    }
+    // Opt-in reproduction of a real project through the dialog's own input
+    // collection: SWMMVIS_REPRO_INP, SWMMVIS_REPRO_DEM, SWMMVIS_REPRO_BOUNDARY
+    // (vector file), SWMMVIS_REPRO_OUT (review folder). Optional:
+    // SWMMVIS_REPRO_CELL / _MINCELL (model length units), _COARSEN, _BURN=0,
+    // _QUADCORRIDOR=0|1.
+    // Writes mesh.2dm, report.txt and the burned DEM under _OUT.
+    void projectReproduction()
+    {
+        const QString inp=qEnvironmentVariable("SWMMVIS_REPRO_INP");
+        if(inp.isEmpty()) QSKIP("Opt-in project reproduction.");
+        const QString demPath=qEnvironmentVariable("SWMMVIS_REPRO_DEM");
+        const QString boundaryPath=qEnvironmentVariable("SWMMVIS_REPRO_BOUNDARY");
+        const QDir out(qEnvironmentVariable("SWMMVIS_REPRO_OUT"));
+        QVERIFY(!demPath.isEmpty() && !boundaryPath.isEmpty() && !out.path().isEmpty());
+        QVERIFY(QDir().mkpath(out.path()));
+        QStringList report;
+        QElapsedTimer clock; clock.start();
+        auto workspace=std::unique_ptr<OpenSWMMVisWorkspace>(OpenSWMMVisWorkspace::newInstance(QString(),nullptr));
+        auto window=std::make_unique<SWMMVisProjectWindow>(workspace.get(),inp,nullptr);
+        QList<QString> warnings,errors; QString error;
+        QVERIFY2(window->loadModel(warnings,errors),qPrintable(errors.join('\n')));
+        report << QStringLiteral("model load: %1 s").arg(clock.restart()/1000.0);
+        const auto restoreUnits=qScopeGuard([previous=UnitSystem::activeProject()]{UnitSystem::setActiveProject(previous);});
+        UnitSystem::setActiveProject(window->unitSystem());
+        auto *dem=new GISRasterLayer(demPath);
+        auto *boundary=new GISVectorLayer(boundaryPath,QFileInfo(boundaryPath).completeBaseName());
+        window->canvas()->addLayer(dem,false);
+        window->canvas()->addLayer(boundary,false);
+        MeshGenerationDialog dialog(window.get(),nullptr);
+        const int demIndex=dialog.m_dtmCombo->findData(QVariant::fromValue<void *>(dem));
+        QVERIFY(demIndex>=0); dialog.m_dtmCombo->setCurrentIndex(demIndex);
+        const int bIndex=dialog.m_boundaryLayerCombo->findData(QVariant::fromValue<void *>(boundary));
+        QVERIFY(bIndex>=0); dialog.m_boundaryLayerCombo->setCurrentIndex(bIndex);
+        auto spin=[&](const char *name,const char *env){
+            if(!qEnvironmentVariableIsSet(env)) return;
+            auto *w=dialog.findChild<QDoubleSpinBox *>(QString::fromLatin1(name)); QVERIFY(w);
+            w->setValue(qEnvironmentVariable(env).toDouble());
+        };
+        spin("meshCellSizeSpin","SWMMVIS_REPRO_CELL");
+        spin("meshMinCellSizeSpin","SWMMVIS_REPRO_MINCELL");
+        spin("meshCoarsenSpin","SWMMVIS_REPRO_COARSEN");
+        if(auto *burn=dialog.findChild<QCheckBox *>(QStringLiteral("meshBurnEnabledBox")))
+            burn->setChecked(qEnvironmentVariable("SWMMVIS_REPRO_BURN")!="0");
+        if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_QUADCORRIDOR"))
+            if(auto *quads=dialog.findChild<QCheckBox *>(QStringLiteral("meshBurnQuadCorridorBox")))
+                quads->setChecked(qEnvironmentVariable("SWMMVIS_REPRO_QUADCORRIDOR")!="0");
+        Inputs in; QVERIFY2(dialog.collectInputs(&in,&error),qPrintable(error));
+        in.burnOutputDir=out.filePath("terrain");
+        report << QStringLiteral("inputs: cell %1, min cell %2, coarsen %3, terrain tol %4 (auto %5, adaptive %6), breaklines %7, burn %8 (%9 profiles), cache %10 MiB")
+            .arg(in.cellSize).arg(in.minCellSize).arg(in.coarsenFactor).arg(in.terrainTolerance)
+            .arg(in.terrainAutoTolerance).arg(in.terrainAdaptive).arg(in.terrainBreaklines)
+            .arg(in.burnEnabled).arg(in.burnProfiles.size()).arg(in.terrainCacheMiB);
+        report << QStringLiteral("collect inputs: %1 s").arg(clock.restart()/1000.0);
+        const auto result=run(in);
+        const double workerSeconds=clock.restart()/1000.0;
+        qint64 rss=0;
+#ifdef Q_OS_UNIX
+        struct rusage usage{}; getrusage(RUSAGE_SELF,&usage); rss=usage.ru_maxrss;
+#ifndef Q_OS_MACOS
+        rss*=1024;
+#endif
+#endif
+        report << QStringLiteral("worker: %1 s, ok %2, peak RSS %3 GB%4").arg(workerSeconds).arg(result.ok)
+            .arg(rss/1e9,0,'f',2).arg(result.ok?QString():QStringLiteral(", error: ")+result.errorMsg);
+        if(result.ok) {
+            const auto &m=result.meshResult;
+            int quads=0,tris=0,below20=0,below10=0; double minEdge=1e300,maxEdge=0,minAngle=180;
+            for(const auto &c:m.triangles) {
+                const int nv=c.vertexCount(); (nv==4?quads:tris)++;
+                double cellMin=180;
+                for(int k=0;k<nv;++k) {
+                    const QPointF a=m.vertices[c.vertex(k)].xy,b=m.vertices[c.vertex((k+1)%nv)].xy,
+                                  p=m.vertices[c.vertex((k+nv-1)%nv)].xy;
+                    const double e=QLineF(a,b).length(); minEdge=std::min(minEdge,e); maxEdge=std::max(maxEdge,e);
+                    const QPointF u=b-a,v=p-a; const double lu=std::hypot(u.x(),u.y()),lv=std::hypot(v.x(),v.y());
+                    if(lu>0 && lv>0) cellMin=std::min(cellMin,std::acos(std::clamp((u.x()*v.x()+u.y()*v.y())/(lu*lv),-1.0,1.0))*180/M_PI);
+                }
+                minAngle=std::min(minAngle,cellMin); if(cellMin<20) ++below20; if(cellMin<10) ++below10;
+            }
+            const auto &g=result.generationStats;
+            report << QStringLiteral("mesh: %1 cells (%2 tri, %3 quad), %4 vertices; edge %5..%6; min angle %7 deg; cells <20 deg %8, <10 deg %9")
+                .arg(m.triangles.size()).arg(tris).arg(quads).arg(m.vertices.size()).arg(minEdge).arg(maxEdge)
+                .arg(minAngle).arg(below20).arg(below10);
+            report << QStringLiteral("generation: strips %1 conduit / %2 breakline / %3 region, dropped %4; inserted size %5 quality %6 terrain %7 splits %8; below-angle %9; capped %10; terrain unresolved %11 unknown %12")
+                .arg(g.conduitStrips).arg(g.breaklineStrips).arg(g.regionPatches).arg(g.stripsDropped)
+                .arg(g.sizeInserted).arg(g.qualityInserted).arg(g.terrainInserted).arg(g.segmentSplits)
+                .arg(g.trianglesBelowAngle).arg(g.refineCapped).arg(g.terrainUnresolved).arg(g.terrainUnknown);
+            report << QStringLiteral("burn: ran %1, conduits burned %2, warnings %3").arg(result.burnRan)
+                .arg(result.burnSurgery.burnedConduits.size()).arg(result.burnWarnings.size());
+            for(const auto &w:result.burnWarnings.mid(0,20)) report << QStringLiteral("  burn warning: ")+w;
+            QFile mesh(out.filePath("mesh.2dm"));
+            QVERIFY(mesh.open(QIODevice::WriteOnly|QIODevice::Text));
+            QTextStream ts(&mesh); ts.setRealNumberPrecision(12);
+            ts << "MESH2D\n";
+            for(int i=0;i<m.triangles.size();++i) {
+                const auto &c=m.triangles[i];
+                if(c.isQuad()) ts << "E4Q " << i+1 << ' ' << c.v0+1 << ' ' << c.v1+1 << ' ' << c.v2+1 << ' ' << c.v3+1 << " 1\n";
+                else ts << "E3T " << i+1 << ' ' << c.v0+1 << ' ' << c.v1+1 << ' ' << c.v2+1 << " 1\n";
+            }
+            for(int i=0;i<m.vertices.size();++i)
+                ts << "ND " << i+1 << ' ' << m.vertices[i].xy.x() << ' ' << m.vertices[i].xy.y() << ' ' << m.vertices[i].z << '\n';
+        }
+        QFile f(out.filePath("report.txt"));
+        QVERIFY(f.open(QIODevice::WriteOnly|QIODevice::Text));
+        f.write(report.join('\n').toUtf8()+'\n');
+        qInfo("%s",qPrintable(report.join('\n')));
+        QVERIFY2(result.ok,qPrintable(result.errorMsg));
     }
     // Opt-in whole-worker timing on a real DEM (SWMMVIS_MESH_LARGEDEM=<GeoTIFF>)
     // over its full extent. Run with QT_LOGGING_RULES="openswmm.mesh.perf=true"

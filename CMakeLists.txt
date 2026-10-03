@@ -630,6 +630,7 @@ set(
         include/mesh/meshinfil.h
         include/mesh/meshreorder.h
         include/mesh/meshstagecache.h
+        include/mesh/boundaryconditioning.h
         include/mesh/pslgprep.h
         include/mesh/sizefield.h
         include/mesh/terrainsizefield.h
@@ -1393,6 +1394,7 @@ set(
         src/mesh/meshstagecache.cpp
         src/mesh/dtmraster.cpp
         src/mesh/meshcdt.cpp
+        src/mesh/boundaryconditioning.cpp
         src/mesh/pslgprep.cpp
         src/mesh/sizefield.cpp
         src/mesh/terrainsizefield.cpp

@@ -204,9 +204,59 @@ void roughnessFor(const NormalizedSection &s, double m, double *n, QString *suff
 
 } // namespace
 
+// Douglas-Peucker over the section offsets, measured at every station at
+// once: offset k between kept a and b may go only if the straight line from
+// a to b stays within tol of relZ[i][k] at every station i.
+static QVector<double> thinOffsets(const BurnProfile &p, double tol, double maxGap)
+{
+    const int n = int(p.offsets.size());
+    QVector<char> keep(n, 0);
+    keep[0] = keep[n - 1] = 1;
+    int centre = 0;
+    for (int k = 1; k < n; ++k)
+        if (std::abs(p.offsets[k]) < std::abs(p.offsets[centre])) centre = k;
+    keep[centre] = 1;
+    QVector<QPair<int, int>> stack{{0, centre}, {centre, n - 1}};
+    while (!stack.isEmpty()) {
+        const auto [a, b] = stack.takeLast();
+        if (b - a < 2) continue;
+        double worst = 0; int at = -1;
+        const double sa = p.offsets[a], sb = p.offsets[b];
+        for (int k = a + 1; k < b; ++k) {
+            const double t = (p.offsets[k] - sa) / (sb - sa);
+            for (const auto &rel : p.relZ) {
+                const double e = std::abs(rel[k] - (rel[a] + t * (rel[b] - rel[a])));
+                if (e > worst) { worst = e; at = k; }
+            }
+        }
+        if (at >= 0 && worst > tol) { keep[at] = 1; stack.append({a, at}); stack.append({at, b}); }
+    }
+    // Keep lateral resolution: no kept gap may exceed maxGap, so structural
+    // offset strings (collinear by design) survive where they are spaced out.
+    if (maxGap > 0.0) {
+        int last = 0;
+        for (int k = 1; k < n; ++k) {
+            if (!keep[k]) continue;
+            int prev = last;
+            while (p.offsets[k] - p.offsets[prev] > maxGap) {
+                int pick = -1;
+                for (int j = prev + 1; j < k; ++j)
+                    if (p.offsets[j] - p.offsets[prev] <= maxGap) pick = j;
+                if (pick < 0) break;
+                keep[pick] = 1; prev = pick;
+            }
+            last = k;
+        }
+    }
+    QVector<double> out;
+    for (int k = 0; k < n; ++k) if (keep[k]) out.append(p.offsets[k]);
+    return out;
+}
+
 BurnLattice buildCorridorLattice(const BurnProfile &p,
                                  double alongStep, double minCellSize,
-                                 QStringList *warnings, QString *err)
+                                 QStringList *warnings, QString *err,
+                                 double acrossTolerance)
 {
     BurnLattice lat;
     if (!p.isValid())
@@ -215,8 +265,14 @@ BurnLattice buildCorridorLattice(const BurnProfile &p,
         return lat;
     }
     lat.conduitId = p.conduitId;
-    lat.offsets   = p.offsets;
-    lat.nAcross   = int(p.offsets.size());
+    // Thin only sections whose offsets are denser than the mesh floor (dense
+    // survey or lidar sections); authored analytic sections stay as built.
+    const double width = p.offsets.last() - p.offsets.first();
+    const bool dense = acrossTolerance > 0.0 && minCellSize > 0.0 && p.offsets.size() > 2
+                       && p.offsets.size() > width / minCellSize + 1.0;
+    lat.offsets = dense ? thinOffsets(p, acrossTolerance, alongStep > 0.0 ? alongStep : 4.0 * minCellSize)
+                        : p.offsets;
+    lat.nAcross   = int(lat.offsets.size());
     if (lat.nAcross < 2)
     {
         if (err) *err = QStringLiteral("conduit '%1': corridor has fewer than 2 offsets")

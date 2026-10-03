@@ -248,6 +248,15 @@ target_link_libraries(test_burnedrasterwriter PRIVATE GDAL::GDAL)
 target_compile_definitions(test_burnedrasterwriter
     PRIVATE CHANNELBURN_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data/channelburn_artifacts")
 
+# Footprint conditioning (MESH_REGIONAL_TRIQUAD_PLAN D-R3): close/open/
+# simplify the meshing region at the minimum cell size.
+add_swmmvis_unit_test(test_boundaryconditioning
+    test_boundaryconditioning.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/boundaryconditioning.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/boundaryconditioning.cpp
+)
+target_link_libraries(test_boundaryconditioning PRIVATE GDAL::GDAL)
+
 # Channel burn-in, phases P2/P3: the corridor lattice and its mesh products.
 # Gates V5 (conformal lattice, exact z), V6 (all-quad corridor) and V7 (the
 # densification guard). Needs Qt6::Gui for QPolygonF, and meshpatch/
