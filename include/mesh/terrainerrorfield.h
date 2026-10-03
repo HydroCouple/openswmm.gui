@@ -56,6 +56,9 @@ public:
     quint64 referenceSamples() const;
     qint64 summaryBytes() const;
     double verticalQuantum() const; ///< Whole-unit quantization, in output z units; 0 if unproven.
+    /*! Quantile \p q (0..1) of the 16 x 16-pixel leaf plane residuals, in
+     *  output z units: the DEM's local micro-relief and noise. NaN if empty. */
+    double leafResidualQuantile(double q) const;
     void setCancellation(std::function<bool()> cancelled);
     // Composite references (e.g. authored channel bathymetry) override pixel
     // elevations only inside the supplied bounds. Ordinary terrain keeps its

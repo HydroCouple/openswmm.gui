@@ -624,6 +624,17 @@ QString TerrainErrorField::errorMsg() const { return d->error; }
 quint64 TerrainErrorField::referenceSamples() const { return d->levels.isEmpty()?0:d->levels.last().nodes[0].count; }
 qint64 TerrainErrorField::summaryBytes() const { qint64 n=0; for(const auto &l:d->levels) n+=l.nodes.size()*qint64(sizeof(Node)); return n; }
 double TerrainErrorField::verticalQuantum() const { return d->wholeUnits && d->maxZ-d->minZ>=d->scale ? d->scale : 0; }
+double TerrainErrorField::leafResidualQuantile(double q) const
+{
+    if(d->levels.isEmpty()) return nan;
+    std::vector<double> e;
+    e.reserve(d->levels.first().nodes.size());
+    for(const Node &n:d->levels.first().nodes) if(n.count>=16 && !n.missing) e.push_back(n.error);
+    if(e.empty()) return nan;
+    const size_t k=std::min(e.size()-1,size_t(std::clamp(q,0.0,1.0)*double(e.size()-1)));
+    std::nth_element(e.begin(),e.begin()+qsizetype(k),e.end());
+    return e[k];
+}
 void TerrainErrorField::setCancellation(std::function<bool()> cancelled) { d->cancelled=std::move(cancelled); }
 void TerrainErrorField::setQueryOverride(const QRectF &bounds,std::function<double(double,double,double)> value,
                                         std::function<bool(const QRectF &)> intersects)
