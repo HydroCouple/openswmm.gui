@@ -2538,10 +2538,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     }
 
     if(in.burnEnabled) {
+        // Constraint joining may put a bank vertex up to its tolerance outside
+        // the corridor; it still belongs to the channel surface.
+        const double nearRadius=1.01*0.1*in.genOpts.channelSpacing;
         for(auto &v:result.vertices) {
-            const auto hit=channelSurface.sample(v.xy);
+            const auto exact=channelSurface.sample(v.xy);
+            const auto hit=exact.profile>=0?exact:channelSurface.sampleNear(v.xy,nearRadius);
             if(hit.profile>=0 && burnDomain.contains(v.xy)) {
-                const double elevation=channelElevation(v.xy);
+                double elevation=channelElevation(v.xy);
+                if(exact.profile<0) {
+                    const double terrain=terrainReference.sampleAt(v.xy.x(),v.xy.y());
+                    elevation=terrain;
+                    mesh::burnPixel(terrain,!std::isfinite(terrain),hit.z,hit.offset,channelRule,&elevation);
+                }
                 if(!std::isfinite(elevation)) {
                     if(in.burnOptions.removeBurnedFrom1D) {fail(QObject::tr("Channel replacement stopped: missing elevation coverage at a channel vertex."));return;}
                     continue;
@@ -2549,17 +2558,35 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 v.z=elevation;
             }
         }
-        for(const auto &cell:result.triangles) {
+        // Scan every cell so the report names how widespread the problem is
+        // and the worst cell, not only the first one met.
+        qsizetype violations=0; double worst=0; QPointF worstAt; QString worstCell;
+        if(in.burnOptions.removeBurnedFrom1D) for(const auto &cell:result.triangles) {
             for(int half=0;half<(cell.isQuad()?2:1);++half) {
                 const int ids[3]={cell.v0,half?cell.v2:cell.v1,half?cell.v3:cell.v2};
                 QPointF xy[3]; double z[3];
                 for(int k=0;k<3;++k){xy[k]=result.vertices[ids[k]].xy;z[k]=result.vertices[ids[k]].z;}
                 const auto error=channelSurface.error(xy,z,[&](const QPointF &p){return burnDomain.contains(p);});
-                if(error.maximum>channelTolerance+1e-8 && in.burnOptions.removeBurnedFrom1D) {
-                    fail(QObject::tr("Channel replacement stopped: mesh error %1 exceeds channel tolerance %2 near (%3, %4). Reduce the minimum cell size or channel spacing.")
-                         .arg(error.maximum).arg(channelTolerance).arg(error.point.x()).arg(error.point.y())); return;
+                if(!(error.maximum>channelTolerance+1e-8)) continue;
+                ++violations;
+                if(error.maximum>worst) {
+                    worst=error.maximum; worstAt=error.point;
+                    QStringList corners;
+                    for(int k=0;k<3;++k) corners << QStringLiteral("(%1, %2, z %3)").arg(xy[k].x(),0,'f',2).arg(xy[k].y(),0,'f',2).arg(z[k],0,'f',2);
+                    worstCell=corners.join(QStringLiteral(" "));
                 }
             }
+        }
+        if(violations>0) {
+            const auto hit=channelSurface.sample(worstAt);
+            const QString conduit=hit.profile>=0 && hit.profile<in.burnProfiles.size() ? in.burnProfiles[hit.profile].conduitId : QString();
+            QStringList surfaces;
+            for(const auto &h:channelSurface.hitsAt(worstAt))
+                if(h.profile>=0 && h.profile<in.burnProfiles.size())
+                    surfaces << QStringLiteral("%1 z %2 offset %3").arg(in.burnProfiles[h.profile].conduitId).arg(h.z,0,'f',2).arg(h.offset,0,'f',2);
+            fail(QObject::tr("Channel replacement stopped: %1 cell(s) exceed the channel tolerance %2; worst error %3 on channel %4 near (%5, %6), cell %7; channel surfaces there: %8. Reduce the minimum cell size or channel spacing.")
+                 .arg(violations).arg(channelTolerance).arg(worst).arg(conduit).arg(worstAt.x(),0,'f',2).arg(worstAt.y(),0,'f',2).arg(worstCell)
+                 .arg(surfaces.isEmpty()?QObject::tr("none"):surfaces.join(QStringLiteral("; ")))); return;
         }
     }
 

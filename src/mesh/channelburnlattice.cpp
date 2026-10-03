@@ -113,6 +113,44 @@ BurnSurface::Hit BurnSurface::sample(const QPointF &p) const
     return hit;
 }
 
+QVector<BurnSurface::Hit> BurnSurface::hitsAt(const QPointF &p) const
+{
+    QVector<Hit> out;
+    if(faces.isEmpty() || !surfaceBounds.contains(p)) return out;
+    const auto it=grid.constFind({int(std::floor((p.x()-origin.x())/pitch)),int(std::floor((p.y()-origin.y())/pitch))});
+    if(it==grid.cend()) return out;
+    for(int id:*it) {
+        const auto &f=faces[id]; double u=0,v=0;
+        if(!barycentric(f.p,p,&u,&v)) continue;
+        out.append({f.z[0]+u*(f.z[1]-f.z[0])+v*(f.z[2]-f.z[0]),f.profile,f.offset[0]+u*(f.offset[1]-f.offset[0])+v*(f.offset[2]-f.offset[0])});
+    }
+    return out;
+}
+
+BurnSurface::Hit BurnSurface::sampleNear(const QPointF &p, double radius) const
+{
+    Hit hit = sample(p);
+    if (hit.profile >= 0 || !(radius > 0.0)) return hit;
+    double best = radius * radius;
+    for (int id : candidates(QRectF(p.x() - radius, p.y() - radius, 2 * radius, 2 * radius))) {
+        const auto &f = faces[id];
+        // Closest point on the triangle: the nearest point of its three edges
+        // (p is outside it, or sample() would have hit).
+        for (int e = 0; e < 3; ++e) {
+            const QPointF a = f.p[e], d = f.p[(e + 1) % 3] - a;
+            const double len2 = QPointF::dotProduct(d, d);
+            const double t = len2 > 0 ? std::clamp(QPointF::dotProduct(p - a, d) / len2, 0.0, 1.0) : 0.0;
+            const QPointF q = a + d * t;
+            const double dist2 = QPointF::dotProduct(p - q, p - q);
+            if (dist2 > best) continue;
+            const double z = f.z[e] + t * (f.z[(e + 1) % 3] - f.z[e]);
+            const double off = f.offset[e] + t * (f.offset[(e + 1) % 3] - f.offset[e]);
+            if (dist2 < best || !std::isfinite(hit.z) || z < hit.z) { best = dist2; hit = {z, f.profile, off}; }
+        }
+    }
+    return hit;
+}
+
 BurnSurface::Error BurnSurface::error(const QPointF *xy,const double *z,
                                      const std::function<bool(const QPointF &)> &inside) const
 {
