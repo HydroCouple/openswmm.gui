@@ -30,6 +30,7 @@
 
 #include <QPointF>
 #include <QPolygonF>
+#include <QRectF>
 #include <QString>
 #include <QVector>
 #include "mesh/channelburnprofile.h"
@@ -62,6 +63,16 @@ struct BurnDomain
     [[nodiscard]] bool isEmpty() const noexcept { return rings.isEmpty(); }
     /*! \brief Inside some ring and outside every hole. */
     [[nodiscard]] bool contains(const QPointF &p) const;
+    /*! \brief Bucket the holes on a grid so contains() tests only the holes
+     *  whose bounds cover the point. Call after the rings are final; the
+     *  answer is unchanged. */
+    void buildIndex();
+
+private:
+    QVector<QRectF> m_holeBox;
+    QRectF m_extent;
+    int m_gx = 0, m_gy = 0;
+    QVector<int> m_cellStart, m_cellItems;
 };
 
 struct BurnSplit
