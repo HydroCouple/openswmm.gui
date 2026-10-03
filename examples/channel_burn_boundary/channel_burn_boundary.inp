@@ -38,6 +38,12 @@ XY TRAPEZOIDAL 2 2 1 1 1
 [LOSSES]
 BC .1 .2 .3 NO .002
 
+[REPORT]
+;;Reporting Options
+SUBCATCHMENTS        ALL
+NODES                ALL
+LINKS                ALL
+
 [COORDINATES]
 A -10 16
 B -2 16
