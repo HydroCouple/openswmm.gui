@@ -2208,6 +2208,7 @@ target_link_libraries(test_sizefield_v2 PRIVATE GDAL::GDAL)
 add_swmmvis_gui_test(test_terrainerrorfield
     test_terrainerrorfield.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/terrainerrorfield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/terrainlocalcopy.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
 )
 target_include_directories(test_terrainerrorfield PRIVATE ${GDAL_INCLUDE_DIRS})

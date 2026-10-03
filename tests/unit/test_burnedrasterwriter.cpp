@@ -517,3 +517,45 @@ TEST(BurnedRasterWriter, FinalRasterFlushFailureDoesNotReportSuccess)
     GTEST_SKIP() << "OS file-size failure injection requires POSIX rlimits";
 #endif
 }
+
+// Overlay mode writes only the tiles the burn changes and a VRT that paints
+// them over the source: pixel for pixel the same DEM as the full copy,
+// including NoData the burn fills and NoData it keeps.
+TEST(BurnedRasterWriter, OverlayMatchesTheFullCopyAndWritesOnlyChangedTiles)
+{
+    const QString src = outPath(QStringLiteral("overlay_dem.tif"));
+    const QString copy = outPath(QStringLiteral("overlay_dem_copy.tif"));
+    const QString vrt = outPath(QStringLiteral("overlay_dem_burned.vrt"));
+    const QString tiles = outPath(QStringLiteral("overlay_dem_burned_tiles.tif"));
+    for (const auto &f : {copy, vrt, tiles}) QFile::remove(f);
+    ASSERT_TRUE(makeFlatDem(src, 9.0, 700, 520));   // 3 x 3 tiles of 256
+
+    QString err;
+    BurnRasterStats a, b;
+    ASSERT_TRUE(writeBurnedRaster(request(src, copy), &a, &err)) << err.toStdString();
+    BurnRasterRequest req = request(src, vrt);
+    req.overlayTilesPath = tiles;
+    req.overlayTilesName = QFileInfo(tiles).fileName();
+    ASSERT_TRUE(writeBurnedRaster(req, &b, &err)) << err.toStdString();
+
+    EXPECT_EQ(b.pixelsReplaced, a.pixelsReplaced);
+    EXPECT_EQ(b.pixelsLowered, a.pixelsLowered);
+    EXPECT_EQ(b.maxIncision, a.maxIncision);
+    int w = 0, h = 0;
+    const QVector<double> full = readAll(copy, &w, &h);
+    const QVector<double> over = readAll(vrt);
+    ASSERT_EQ(over.size(), full.size());
+    qsizetype differ = 0;
+    for (qsizetype k = 0; k < full.size(); ++k) differ += over[k] != full[k];
+    EXPECT_EQ(differ, 0);
+
+    // The channel lies in the first tile column (x 0..50 of -10..690): the
+    // far tiles were never written.
+    GDALDataset *t = static_cast<GDALDataset *>(GDALOpen(tiles.toUtf8().constData(), GA_ReadOnly));
+    ASSERT_TRUE(t);
+    const char *near = t->GetRasterBand(1)->GetMetadataItem("BLOCK_OFFSET_0_0", "TIFF");
+    const char *far = t->GetRasterBand(1)->GetMetadataItem("BLOCK_OFFSET_2_0", "TIFF");
+    EXPECT_TRUE(near && *near);
+    EXPECT_FALSE(far && *far);
+    GDALClose(t);
+}

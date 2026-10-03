@@ -102,6 +102,11 @@ public:
          *  capped run spends its budget where the surface error is largest.
          *  false = terrain is checked inline with size and angle (default). */
         bool terrainWorstFirst = false;
+        /*! After refinement, measure every live triangle's terrain error for
+         *  Report::terrainUnresolved / terrainUnknown / maxTerrainError. A
+         *  full exact read of the DEM; false leaves those counts at zero for a
+         *  caller that verifies the finished mesh itself. */
+        bool terrainFinalCheck = true;
         /*! Passes of non-degrading smoothing after size and angle refinement:
          *  each free vertex (inserted after build(), on no constraint) moves
          *  to the area-weighted centroid of its star when that raises the

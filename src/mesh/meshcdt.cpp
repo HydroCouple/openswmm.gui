@@ -1244,7 +1244,7 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     // Independent pass over the final geometry: every live triangle is checked,
     // so a missed edge flip or a blocked terrain candidate cannot go unnoticed.
     // A value is reused only for the identical ordered vertex triple.
-    if (terrain && !rep.cancelled) for (int t=0;t<m_tris.size();++t) {
+    if (terrain && opt.terrainFinalCheck && !rep.cancelled) for (int t=0;t<m_tris.size();++t) {
         const auto &T=m_tris[t];
         if (!T.alive || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2])) continue;
         if ((t & 4095)==0 && opt.cancelled && opt.cancelled()) { rep.cancelled=true; break; }

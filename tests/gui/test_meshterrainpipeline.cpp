@@ -1110,7 +1110,8 @@ NODE C interior
             identity+='|';for(const auto &p:ring)identity+=QByteArray::number(p.x(),'g',17)+','+QByteArray::number(p.y(),'g',17)+';';
         }
         const QString digest=QString::fromLatin1(QCryptographicHash::hash(identity,QCryptographicHash::Sha256).toHex().left(16));
-        const QString finalDem = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+".tif");
+        const QString finalDem = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+".vrt");
+        const QString finalTiles = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+"_tiles.tif");
         const QString finalReport = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+"_burn_report.csv");
         if(existing) {
             QVERIFY(writeBytes(finalDem,"saved DEM sentinel\n"));
@@ -1147,6 +1148,7 @@ NODE C interior
             QCOMPARE(report.readAll(), QByteArray("saved report sentinel\n"));
         } else {
             QVERIFY2(!QFileInfo::exists(finalDem), "Burn published a DEM before project Save");
+            QVERIFY2(!QFileInfo::exists(finalTiles), "Burn published DEM tiles before project Save");
             QVERIFY2(!QFileInfo::exists(finalReport), "Burn published a report before project Save");
             QVERIFY2(!QFileInfo::exists(inputs.burnOutputDir), "Burn created the final terrain directory before Save");
         }
@@ -1157,19 +1159,23 @@ NODE C interior
             QVERIFY(generated.generatedArtifacts);
             const QString jobDirectory = generated.generatedArtifacts->directoryPath();
             QVERIFY(QFileInfo(jobDirectory).isDir());
-            QCOMPARE(generated.generatedArtifacts->entries().size(), 2);
-            QString physicalDem, physicalReport;
+            QCOMPARE(generated.generatedArtifacts->entries().size(), 3);
+            QString physicalDem, physicalTiles, physicalReport;
             for (const auto &entry : generated.generatedArtifacts->entries()) {
                 QVERIFY(QFileInfo(entry.stagedPath).isFile());
                 QVERIFY(QFileInfo(entry.stagedPath).size() > 0);
                 QCOMPARE(QFileInfo(entry.stagedPath).absolutePath(), jobDirectory);
                 QVERIFY(entry.finalPath != entry.stagedPath);
                 if (entry.finalPath == finalDem) physicalDem = entry.stagedPath;
+                else if (entry.finalPath == finalTiles) physicalTiles = entry.stagedPath;
                 else if (entry.finalPath == finalReport) physicalReport = entry.stagedPath;
                 else QFAIL("Unexpected generated artifact destination");
             }
             QVERIFY(!physicalDem.isEmpty());
+            QVERIFY(!physicalTiles.isEmpty());
             QVERIFY(!physicalReport.isEmpty());
+            // The VRT resolves its tiles by name beside itself.
+            QCOMPARE(QFileInfo(physicalTiles).fileName(), QFileInfo(finalTiles).fileName());
             QFile report(physicalReport);
             QVERIFY(report.open(QIODevice::ReadOnly));
             const auto reportBytes = report.readAll();
@@ -1188,9 +1194,11 @@ NODE C interior
 
             // Keep review copies outside the final terrain destination while
             // deliberately testing deletion of the private generation job.
-            const QString reviewDem = dir.filePath("generated_dem_for_review.tif");
-            if (QFileInfo::exists(reviewDem)) QVERIFY(QFile::remove(reviewDem));
+            const QString reviewDem = dir.filePath(QFileInfo(finalDem).fileName());
+            const QString reviewTiles = dir.filePath(QFileInfo(finalTiles).fileName());
+            for (const auto &f : {reviewDem, reviewTiles}) if (QFileInfo::exists(f)) QVERIFY(QFile::remove(f));
             QVERIFY(QFile::copy(physicalDem, reviewDem));
+            QVERIFY(QFile::copy(physicalTiles, reviewTiles));
             QVERIFY(writeBytes(dir.filePath("generated_report_for_review.csv"), reportBytes));
             std::weak_ptr<GeneratedMeshArtifacts> observer = generated.generatedArtifacts;
             Result queuedCopy = generated;
@@ -1230,7 +1238,8 @@ NODE C interior
             identity+='|';for(const auto &p:ring)identity+=QByteArray::number(p.x(),'g',17)+','+QByteArray::number(p.y(),'g',17)+';';
         }
         const QString digest=QString::fromLatin1(QCryptographicHash::hash(identity,QCryptographicHash::Sha256).toHex().left(16));
-        const QString finalDem = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+".tif");
+        const QString finalDem = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+".vrt");
+        const QString finalTiles = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+"_tiles.tif");
         const QString finalReport = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+"_burn_report.csv");
         if(existing) {
             QVERIFY(writeBytes(finalDem,"saved DEM sentinel\n"));
