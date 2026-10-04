@@ -12,6 +12,7 @@
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshcellstats.h"
 #include "mesh/meshgenerator.h"
+#include "mesh/quadblocks.h"
 #include "mesh/meshquadquality.h"
 
 #include <QCryptographicHash>
@@ -21,6 +22,12 @@
 
 #include <cmath>
 
+using mesh::QuadBlockGrid;
+using mesh::QuadBlockOptions;
+using mesh::QuadRegion;
+using mesh::QuadRegionMode;
+using mesh::placeQuadBlocks;
+using mesh::quadBlockGridFromMesh;
 using mesh::ConstraintSegment;
 using mesh::GenerationOptions;
 using mesh::MeshGenerator;
@@ -599,6 +606,88 @@ private slots:
         g.setOptions(o);
         const MeshResult m = g.generate();
         QVERIFY2(m.ok, qPrintable(m.errorMsg));
+    }
+
+    // Open-block placement: rectangles only over usable, near-uniform cells,
+    // one spacing clear of anything unusable, at least four quads a side.
+    void quadBlocksStayClearAndUniform()
+    {
+        QuadBlockGrid g;
+        g.origin = QPointF(0, 0); g.pitch = 5.0; g.cols = 200; g.rows = 120;
+        g.h.fill(10.0f, qsizetype(g.cols) * g.rows);
+        for (int r = 0; r < g.rows; ++r) for (int c = 95; c < 100; ++c) g.h[r * g.cols + c] = std::numeric_limits<float>::quiet_NaN();
+        for (int r = 0; r < 40; ++r) for (int c = 120; c < 200; ++c) g.h[r * g.cols + c] = 30.0f;   // a coarser area
+        QuadBlockOptions o; o.minSpacing = 1.0;
+        const auto blocks = placeQuadBlocks(g, o);
+        QVERIFY(blocks.size() >= 2);
+        for (const auto &b : blocks) {
+            const QRectF r = b.ring.boundingRect();
+            QCOMPARE(b.mode, QuadRegionMode::Mapped);
+            QVERIFY(r.width() >= 4 * b.spacing - 1e-9 && r.height() >= 4 * b.spacing - 1e-9);
+            // Clear of the blocked stripe x in [475, 500) by a spacing.
+            QVERIFY(r.right() <= 475 - b.spacing + 1e-9 || r.left() >= 500 + b.spacing - 1e-9);
+            // Whole quads along each side.
+            QVERIFY(std::abs(r.width() / b.spacing - std::round(r.width() / b.spacing)) < 1e-6);
+        }
+        QCOMPARE(placeQuadBlocks(g, o).size(), blocks.size());   // deterministic
+    }
+
+    // Two passes: triangles, then open blocks placed from the cells they made
+    // and embedded as mapped regions; the result keeps conforming seams.
+    void openBlocksEmbedSeamlessly()
+    {
+        const auto build = [](const QVector<QuadRegion> &blocks) {
+            MeshGenerator g;
+            g.setDomain(rect(0, 0, 400, 300));
+            for (int k = 0; k < 6; ++k) {   // a cluster of buildings on the left
+                ConstraintSegment ring;
+                const double x = 20 + (k % 3) * 30, y = 40 + (k / 3) * 60;
+                ring.path = {QPointF(x, y), QPointF(x + 15, y), QPointF(x + 15, y + 20), QPointF(x, y + 20), QPointF(x, y)};
+                g.addConstraintSegment(ring);
+                g.addHole(QPointF(x + 7, y + 10));
+            }
+            for (const auto &b : blocks) g.addQuadRegion(b);
+            GenerationOptions o; o.maxArea = 0.4330127018922193 * 100.0; o.latticeSeeding = true;
+            g.setOptions(o);
+            return g.generate();
+        };
+        const MeshResult first = build({});
+        QVERIFY2(first.ok, qPrintable(first.errorMsg));
+        QVector<QVector<QPointF>> blockers;
+        blockers.append({QPointF(0, 0), QPointF(400, 0), QPointF(400, 300), QPointF(0, 300), QPointF(0, 0)});
+        const QuadBlockGrid grid = quadBlockGridFromMesh(first, 5.0, blockers);
+        QVERIFY(grid.isValid());
+        QuadBlockOptions o; o.minSpacing = 1.0;
+        const auto blocks = placeQuadBlocks(grid, o);
+        QVERIFY(!blocks.isEmpty());
+        // Never over a building, nor within a spacing of one.
+        for (const auto &b : blocks)
+            for (int k = 0; k < 6; ++k) {
+                const double x = 20 + (k % 3) * 30, y = 40 + (k / 3) * 60;
+                const QRectF building = QRectF(x, y, 15, 20).adjusted(-b.spacing, -b.spacing, b.spacing, b.spacing);
+                QVERIFY(!b.ring.boundingRect().intersects(building));
+            }
+        const MeshResult second = build(blocks);
+        QVERIFY2(second.ok, qPrintable(second.errorMsg));
+        QVERIFY(second.quadCount() > 50);
+        // Every quad edge is shared with a neighbour or lies on the domain.
+        QHash<QPair<int, int>, int> uses;
+        for (const auto &c : second.triangles) for (int k = 0; k < c.vertexCount(); ++k) {
+            const int a = c.vertex(k), b = c.vertex((k + 1) % c.vertexCount());
+            ++uses[qMakePair(std::min(a, b), std::max(a, b))];
+        }
+        int open = 0;
+        for (const auto &c : second.triangles) {
+            if (!c.isQuad()) continue;
+            for (int k = 0; k < 4; ++k) {
+                const int a = c.vertex(k), b = c.vertex((k + 1) % 4);
+                if (uses.value(qMakePair(std::min(a, b), std::max(a, b))) == 2) continue;
+                const QPointF p = second.vertices[a].xy, q = second.vertices[b].xy;
+                const bool onDomain = (p.x() == 0 && q.x() == 0) || (p.x() == 400 && q.x() == 400) || (p.y() == 0 && q.y() == 0) || (p.y() == 300 && q.y() == 300);
+                open += !onDomain;
+            }
+        }
+        QCOMPARE(open, 0);
     }
 
     void manyHolesWithBreaklines()

@@ -557,6 +557,42 @@ NODE C interior
         for(const auto &v:result.meshResult.vertices) QVERIFY(std::isfinite(v.z));
     }
 
+    // "Use node rim elevation": a rim lowers the ground to the node where the
+    // terrain stands above it; where the terrain is at or below the rim the
+    // node keeps the terrain. The rim never raises the ground.
+    void nodeRimOnlyLowersTerrain()
+    {
+        const QString root=qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT",QDir::current().filePath("terrain_pipeline_output"));
+        const QDir dir(root+"/node_rim_lowers_only");
+        QVERIFY(QDir().mkpath(dir.path()));
+        Inputs in; in.inpPath=dir.filePath("model.inp");
+        QVERIFY(writeBytes(in.inpPath,"[TITLE]\nRim rule\n[OPTIONS]\nFLOW_UNITS CMS\n"));
+        in.dtmPath=dir.filePath("flat.tif");
+        GDALAllRegister();
+        auto *ds=GetGDALDriverManager()->GetDriverByName("GTiff")->Create(in.dtmPath.toUtf8().constData(),110,110,1,GDT_Float32,nullptr);
+        QVERIFY(ds); double gt[6]={-5,1,0,105,0,-1}; QCOMPARE(ds->SetGeoTransform(gt),CE_None);
+        QVector<float> z(110*110,10.f);
+        QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Write,0,0,110,110,z.data(),110,110,GDT_Float32,0,0),CE_None);
+        GDALClose(ds);
+        in.modelExtent=MapExtent(0,0,100,100);
+        in.domains={QPolygonF(QVector<QPointF>{{0,0},{100,0},{100,100},{0,100}})};
+        in.meshLinearUnitName="metre";
+        in.cellSize=10; in.minCellSize=2.5; in.coarsenFactor=1;
+        in.genOpts.minCellSize=in.minCellSize; in.genOpts.maxArea=.4330127018922193*100;
+        in.terrainAdaptive=false; in.terrainBreaklines=false; in.mapNodesAfterGen=false;
+        in.includeJunctions=true; in.nodesUseRim=true;
+        in.candidateNodes={{"LOW",{30,50},8,true},{"HIGH",{70,50},12,true}};
+        const auto r=run(in);
+        QVERIFY2(r.ok,qPrintable(r.errorMsg));
+        const auto zAt=[&](QPointF p) {
+            double best=1e30,zz=qQNaN();
+            for(const auto &v:r.meshResult.vertices) { const double d=QLineF(v.xy,p).length(); if(d<best) {best=d;zz=v.z;} }
+            return best<1e-6?zz:qQNaN();
+        };
+        QCOMPARE(zAt({30,50}),8.0);    // terrain 10 above the rim: lowered to it
+        QCOMPARE(zAt({70,50}),10.0);   // terrain 10 below the rim 12: terrain kept
+    }
+
     void largeTerrainPipelineBenchmark()
     {
         const int target=qEnvironmentVariableIntValue("SWMMVIS_TERRAIN_SCALE_CELLS");
@@ -658,6 +694,9 @@ NODE C interior
         spin("meshMinCellSizeSpin","SWMMVIS_REPRO_MINCELL");
         spin("meshCoarsenSpin","SWMMVIS_REPRO_COARSEN");
         spin("meshTerrainTolSpin","SWMMVIS_REPRO_TERRAINTOL");
+        if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_QUADMODE"))
+            if(auto *mode=dialog.findChild<QComboBox *>(QStringLiteral("meshQuadModeCombo")))
+                mode->setCurrentIndex(qEnvironmentVariableIntValue("SWMMVIS_REPRO_QUADMODE"));
         if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_TERRAINREF"))
             if(auto *ref=dialog.findChild<QComboBox *>(QStringLiteral("meshTerrainReferenceCombo")))
                 ref->setCurrentIndex(qEnvironmentVariableIntValue("SWMMVIS_REPRO_TERRAINREF"));
