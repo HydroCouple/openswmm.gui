@@ -210,10 +210,33 @@ public:
         for (Role role : {Component, Mesh, Auxiliary, Settings, Model}) {
             for (const auto &entry : entries_) {
                 if (entry.role != role) continue;
+                // Three distinct failures, reported distinctly: one message for
+                // all of them hid an unreadable destination (fingerprint's own
+                // error was overwritten) behind "changed", sending users to look
+                // for an edit that never happened.
                 QString current;
-                if (resolved(entry.finalPath) != entry.physicalPath ||
-                    !fingerprint(entry.finalPath, current) || current != entry.oldHash) {
-                    error_ = QStringLiteral("Destination changed while Save was being prepared: %1").arg(entry.finalPath);
+                const QString nowResolved = resolved(entry.finalPath);
+                if (nowResolved != entry.physicalPath) {
+                    error_ = nowResolved.isEmpty()
+                        ? QStringLiteral("Destination path could not be resolved when Save was "
+                                         "published (it resolved to %1 when Save began): %2")
+                              .arg(entry.physicalPath, entry.finalPath)
+                        : QStringLiteral("Destination changed while Save was being prepared — it "
+                                         "now resolves to %1 instead of %2: %3")
+                              .arg(nowResolved, entry.physicalPath, entry.finalPath);
+                    cleanupData();
+                    return false;
+                }
+                if (!fingerprint(entry.finalPath, current)) {
+                    error_ = QStringLiteral("Destination could not be re-read before publishing "
+                                            "(%1): %2").arg(error_, entry.finalPath);
+                    cleanupData();
+                    return false;
+                }
+                if (current != entry.oldHash) {
+                    error_ = QStringLiteral("Destination changed while Save was being prepared "
+                                            "(its contents differ from when Save began): %1")
+                                 .arg(entry.finalPath);
                     cleanupData();
                     return false;
                 }
