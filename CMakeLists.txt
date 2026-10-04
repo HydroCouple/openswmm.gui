@@ -636,6 +636,7 @@ set(
         include/mesh/terrainsizefield.h
         include/mesh/terrainerrorfield.h
         include/mesh/terrainlocalcopy.h
+        include/mesh/quadblocks.h
         include/mesh/terrainbreaklines.h
         include/mesh/breaklinestrips.h
         include/mesh/sms2dmreader.h
@@ -1401,6 +1402,7 @@ set(
         src/mesh/terrainsizefield.cpp
         src/mesh/terrainerrorfield.cpp
         src/mesh/terrainlocalcopy.cpp
+        src/mesh/quadblocks.cpp
         src/mesh/terrainbreaklines.cpp
         src/mesh/breaklinestrips.cpp
         src/mesh/sms2dmreader.cpp

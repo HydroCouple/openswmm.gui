@@ -49,6 +49,7 @@
 #include "mesh/terrainsizefield.h"
 #include "mesh/terrainerrorfield.h"
 #include "mesh/terrainlocalcopy.h"
+#include "mesh/quadblocks.h"
 #include "project/meshcorridorrecipe.h"
 
 #include <openswmm/engine/openswmm_inflows.h>
@@ -222,6 +223,9 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // Burn warnings gathered before a failure still explain it (which
     // channels stayed 1D); set once the list exists below.
     const QStringList *failWarnings = nullptr;
+    // Node vertices pinned to their rim (invert + max depth) where a DTM can
+    // still lower them: the rim applies only where the terrain is higher.
+    QSet<int> rimPinnedMarkers;
     auto fail = [&](const QString &msg) {
         PResult r; r.ok = false; r.errorMsg = msg;
         if (failWarnings) r.burnWarnings = *failWarnings;
@@ -774,6 +778,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 {
                     in.nodeRimXY.append(cand.xy);
                     in.nodeRimZ.append(cand.rimZ);
+                    if (haveDTM) rimPinnedMarkers.insert(nextMarker);
                 }
                 in.steinerPoints.append(sp);
                 in.nodeMarkerToTag.insert(nextMarker, cand.name);
@@ -1683,6 +1688,16 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             const double z = featureZ[featureZPos++];
             if (std::isfinite(z)) { sp.z = z; sp.hasZ = true; }
         }
+        // A rim lowers the ground to the node; it never raises it: where the
+        // terrain is at or below the rim, the node keeps the terrain.
+        if (wasPreset && useDTM && rimPinnedMarkers.contains(sp.marker))
+        {
+            double gx = sp.xy.x(), gy = sp.xy.y();
+            if (!meshToDTM || meshToDTM->Transform(1, &gx, &gy)) {
+                const double terrain = thinner.sampleAt(gx, gy) * in.zConversionFactor;
+                if (std::isfinite(terrain) && terrain <= sp.z) sp.z = terrain;
+            }
+        }
         if (sp.hasZ)
         {
             const auto k = keyOf(sp.xy.x(), sp.xy.y());
@@ -2072,8 +2087,9 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 if (!std::isfinite(terrainZ)) missingTerrainVertices.insert(key);
                 const auto it=elevCache.constFind(key);
                 if (it!=elevCache.constEnd()) return modelUnitKeys.contains(key)?*it:*it*in.zConversionFactor;
+                // The flatten radius lowers terrain to a nearby rim, never raises it.
                 const double flat=flattenZ(x,y);
-                return std::isfinite(flat)?flat:terrainZ;
+                return std::isfinite(flat) && (!std::isfinite(terrainZ) || terrainZ>flat)?flat:terrainZ;
             };
             hook.terrainError = [&](const QPointF *xy,const double *z,QPointF *out) {
                 auto q=useAdaptiveTerrain?terrainReference.queryWorst(xy,z,in.terrainTolerance):mesh::TerrainErrorField::Query{};
@@ -2094,6 +2110,47 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     mesh::MeshResult result = g.generate();
     mesh::GenerationStats generationStats = g.stats();
     stageMark("generate()");
+    // Open-area quad blocks (MESH_REGIONAL_TRIQUAD_PLAN phases 2-3): placed
+    // where the cells just generated are nearly uniform and no feature runs,
+    // then embedded as mapped quad regions in a second pass. The generator
+    // checks every block; one that does not fit stays triangles, and a failed
+    // second pass keeps the triangle mesh.
+    int openBlocks = 0, openBlockQuads = 0;
+    if (result.ok && in.quadMode == 2 && !promise.isCanceled()) {
+        progress(70, QObject::tr("Placing open-area quad blocks…"));
+        QVector<QVector<QPointF>> blockers;
+        for (const auto &ring : std::as_const(in.domains)) { QVector<QPointF> r(ring.begin(), ring.end()); if (!r.isEmpty()) r.append(r.first()); blockers.append(r); }
+        for (const auto &ring : std::as_const(bprep.holeRings)) { QVector<QPointF> r(ring); if (!r.isEmpty()) r.append(r.first()); blockers.append(r); }
+        for (const auto &cs : std::as_const(in.constraintSegs)) blockers.append(cs.path);
+        for (const auto &line : g.acceptedTerrainBreaklines()) blockers.append(line);
+        for (const auto &sp : std::as_const(in.steinerPoints)) blockers.append({sp.xy, sp.xy});
+        QRectF extent;
+        for (const auto &ring : std::as_const(in.domains)) extent = extent.united(ring.boundingRect());
+        const double minCell = in.minCellSize > 0.0 ? in.minCellSize : 0.25 * in.cellSize;
+        const double pitch = std::max(4.0 * minCell, std::max(extent.width(), extent.height()) / 3000.0);
+        const mesh::QuadBlockGrid grid = mesh::quadBlockGridFromMesh(result, pitch, blockers);
+        mesh::QuadBlockOptions blockOptions;
+        blockOptions.minSpacing = 2.0 * minCell;
+        const auto blocks = mesh::placeQuadBlocks(grid, blockOptions);
+        stageMark("open quad block placement");
+        if (!blocks.isEmpty()) {
+            const int quadsBefore = result.quadCount();
+            for (const auto &b : blocks) g.addQuadRegion(b);
+            mesh::MeshResult withBlocks = g.generate();
+            stageMark("generate() with open blocks");
+            if (withBlocks.ok && !promise.isCanceled()) {
+                result = std::move(withBlocks);
+                generationStats = g.stats();
+                openBlockQuads = result.quadCount() - quadsBefore;
+                for (int i = quadRegions.size(); i < g.quadRegionReports().size(); ++i)
+                    openBlocks += g.quadRegionReports()[i].resolved == mesh::QuadRegionMode::Mapped;
+            } else if (!withBlocks.ok) {
+                qCWarning(lcMeshPerf).noquote() << "[Mesh][quad] open blocks dropped:" << withBlocks.errorMsg;
+            }
+        }
+        qCInfo(lcMeshPerf).noquote() << QStringLiteral("[Mesh][quad] open blocks: %1 placed, %2 embedded, %3 quads (grid %4 x %5 at %6)")
+            .arg(blocks.size()).arg(openBlocks).arg(openBlockQuads).arg(grid.cols).arg(grid.rows).arg(pitch);
+    }
     if (!g.acceptedTerrainBreaklines().isEmpty())
         qCInfo(lcMeshPerf) << "[Mesh][terrain] break lines kept as mesh edges"
                            << g.acceptedTerrainBreaklines().size();
@@ -2125,6 +2182,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     QStringList alignmentWarnings;
     for (const mesh::QuadRegionReport &rep : g.quadRegionReports())
     {
+        if (rep.index >= quadRegions.size()) break;   // open blocks are summarised above
         qCInfo(lcMeshPerf).nospace() << "[Mesh][quad] region " << rep.index
                                      << (rep.accepted ? " accepted" : " skipped")
                                      << (rep.resolved == mesh::QuadRegionMode::Mapped ? " | quads" : " | triangles")
@@ -2238,7 +2296,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 // Refinement vertices near a rim node flatten to its rim z.
                 const double fz = flattenZ(result.vertices[i].xy.x(),
                                            result.vertices[i].xy.y());
-                if (std::isfinite(fz))
+                // Only where the terrain stands above the rim (model units).
+                if (std::isfinite(fz) && (!std::isfinite(zs[k]) || zs[k] * in.zConversionFactor > fz))
                 {
                     result.vertices[i].z = fz;
                     zInModelUnits[i] = true;
@@ -3246,8 +3305,10 @@ void MeshGenerationDialog::buildUi()
             tr("Use node rim elevation (invert + max depth) instead of terrain"), g);
         m_nodesUseRim->setObjectName(QStringLiteral("meshNodesUseRimBox"));
         m_nodesUseRim->setToolTip(tr(
-            "Checked (default): node vertices are pinned to the rim elevation\n"
-            "(invert + maximum depth) read from the SWMM model.\n"
+            "Checked (default): where the terrain is higher than a node's rim\n"
+            "(invert + maximum depth from the SWMM model), the node vertex is\n"
+            "lowered to the rim; where the terrain is at or below the rim, the\n"
+            "terrain is kept. The rim never raises the ground.\n"
             "Unchecked: node vertices are interpolated from the DTM, like\n"
             "every other vertex.\n\n"
             "When no DTM is selected, nodes always use rim elevation and\n"
@@ -3270,10 +3331,10 @@ void MeshGenerationDialog::buildUi()
         m_nodeFlattenSpin->setSpecialValueText(tr("(off)"));
         // suffix set by updateUnitDisplay()
         m_nodeFlattenSpin->setToolTip(tr(
-            "Radius around each rim node within which all DTM terrain points\n"
-            "are forced to that node's rim elevation.  Prevents unnecessarily\n"
-            "small triangles where the terrain and rim elevations disagree.\n"
-            "0 = off.  Applies only when nodes use rim elevation."));
+            "Radius around each rim node within which terrain higher than the\n"
+            "node's rim is lowered to the rim (lower terrain is kept).  Prevents\n"
+            "unnecessarily small triangles where the terrain and rim elevations\n"
+            "disagree.  0 = off.  Applies only when nodes use rim elevation."));
         flatRow->addWidget(m_nodeFlattenSpin);
         flatRow->addStretch();
         lay->addLayout(flatRow);
@@ -3557,6 +3618,18 @@ void MeshGenerationDialog::buildUi()
             "two lines that meet at a smaller angle and triangles resting on "
             "the edge of a quad strip."));
         f->addRow(tr("Minimum &angle:"), m_minAngleSpin);
+        m_quadModeCombo = new QComboBox(g);
+        m_quadModeCombo->setObjectName(QStringLiteral("meshQuadModeCombo"));
+        m_quadModeCombo->addItems({tr("Off (triangles only)"), tr("Corridors and strips"), tr("Corridors, strips and open blocks")});
+        m_quadModeCombo->setCurrentIndex(2);
+        m_quadModeCombo->setToolTip(tr(
+            "Where the mesh uses quads; triangles fill everywhere else and every join is exact. "
+            "Corridors and strips: burned channels and streets or ditches between facing break "
+            "lines (each with its own option). Open blocks: after a first pass, rectangles are "
+            "placed where the cells are nearly uniform and no feature runs — water, parks, "
+            "yards, wide lots — and meshed as square quads in a second pass (more time). "
+            "Quad regions you list are used in every mode except Off."));
+        f->addRow(tr("&Quads:"), m_quadModeCombo);
         m_qualityOrderBox = new QCheckBox(tr("Prioritize worst triangle angles"),g);
         m_qualityOrderBox->setObjectName(QStringLiteral("meshQualityOrderBox"));
         m_qualityOrderBox->setChecked(true);
@@ -4605,10 +4678,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->genOpts.latticeSeeding  = m_latticeSeedingBox ? m_latticeSeedingBox->isChecked() : true;
     out->genOpts.smoothingPasses = m_smoothingSpin ? m_smoothingSpin->value() : 3;
     out->terrainReference = m_terrainReferenceCombo ? m_terrainReferenceCombo->currentIndex() : 0;
+    out->quadMode = m_quadModeCombo ? m_quadModeCombo->currentIndex() : 2;
     out->genOpts.minAngleDeg   = m_minAngleSpin->value();
     out->genOpts.prioritizeQuality=m_qualityOrderBox->isChecked();
     out->genOpts.maxCells=m_maxCellsSpin->value();
-    out->genOpts.quadsBetweenBreaklines = m_streetQuadsBox->isChecked();
+    out->genOpts.quadsBetweenBreaklines = m_streetQuadsBox->isChecked() && out->quadMode != 0;
     out->conduitStripWidth     = m_conduitStripSpin->value();
 
     // ── Mesh CRS — initialised first so every source can reproject to it ──
@@ -5633,6 +5707,7 @@ bool MeshGenerationDialog::collectBurnInputs(PipelineInputs *out) const
     }
 
     out->burnOptions     = burnOptionsFromUi();
+    if (out->quadMode == 0) out->burnOptions.quadCorridor = false;   // Quads: off
     out->burnMinCellSize = out->minCellSize;
 
     // Probe metadata only; raster pixels never determine physical channel

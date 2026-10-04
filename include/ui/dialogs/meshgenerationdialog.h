@@ -118,6 +118,9 @@ public:
          *  the minimum cell size (local copy), 1 = full resolution (local
          *  copy), 2 = full resolution read from the DEM itself. */
         int terrainReference = 0;
+        /*! 0 = triangles only, 1 = quads in corridors and strips only,
+         *  2 = also automatic open-area quad blocks. */
+        int quadMode = 2;
         QVector<QVector<QPointF>> subcatchPolys;  ///< Subcatchments: raw rings (mesh CRS)
         MapExtent modelExtent;       ///< AutoBBox fallback frame
 
@@ -475,6 +478,7 @@ private:
     QCheckBox      *m_refineFeaturesBox = nullptr;
     QCheckBox      *m_qualityOrderBox = nullptr;
     QComboBox      *m_terrainReferenceCombo = nullptr;
+    QComboBox      *m_quadModeCombo = nullptr;
     QLabel         *m_coarsenLengthLabel = nullptr;
     QCheckBox      *m_latticeSeedingBox = nullptr;
     QSpinBox       *m_smoothingSpin = nullptr;

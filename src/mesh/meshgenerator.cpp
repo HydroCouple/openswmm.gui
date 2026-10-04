@@ -1379,12 +1379,32 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         return fail(QStringLiteral("MeshGenerator: no cell size — set maxArea or install a size function."));
 
     QVector<QPair<QVector<QPointF>, double>> spacingOverrides;   // quad regions with a spacing
+    QVector<QRectF> spacingOverrideBounds;                         // quick reject for hAt
     QVector<QVector<QPointF>> regionRings(m_quadRegions.size());
     for (int i = 0; i < m_quadRegions.size(); ++i)
     {
         regionRings[i] = openRing(QVector<QPointF>(m_quadRegions[i].ring.begin(), m_quadRegions[i].ring.end()));
-        if (m_quadRegions[i].spacing > 0.0 && regionRings[i].size() >= 3)
+        if (m_quadRegions[i].spacing > 0.0 && regionRings[i].size() >= 3) {
             spacingOverrides.append(qMakePair(regionRings[i], m_quadRegions[i].spacing));
+            spacingOverrideBounds.append(QPolygonF(regionRings[i]).boundingRect());
+        }
+    }
+    // Bucket the override boxes so a size query (millions during seeding and
+    // refinement) tests only the few regions near it, not all of them.
+    QRectF overrideExtent;
+    for (const QRectF &b : std::as_const(spacingOverrideBounds)) overrideExtent = overrideExtent.isNull() ? b : overrideExtent.united(b);
+    const int overrideSide = spacingOverrides.isEmpty() ? 0 : std::clamp(int(std::sqrt(double(spacingOverrides.size())) * 2), 1, 512);
+    QVector<QVector<int>> overrideGrid(overrideSide * overrideSide);
+    const auto overrideCell = [&](double v, double lo, double span) {
+        return span > 0 ? std::clamp(int((v - lo) / span * overrideSide), 0, overrideSide - 1) : 0;
+    };
+    for (int k = 0; k < spacingOverrideBounds.size(); ++k) {
+        const QRectF &b = spacingOverrideBounds[k];
+        for (int y = overrideCell(b.top(), overrideExtent.top(), overrideExtent.height());
+             y <= overrideCell(b.bottom(), overrideExtent.top(), overrideExtent.height()); ++y)
+            for (int x = overrideCell(b.left(), overrideExtent.left(), overrideExtent.width());
+                 x <= overrideCell(b.right(), overrideExtent.left(), overrideExtent.width()); ++x)
+                overrideGrid[y * overrideSide + x].append(k);
     }
     const std::function<double(double, double)> hAt = [&](double x, double y) {
         double h = hUniform;
@@ -1393,8 +1413,15 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
             const double a = m_refineHook.targetAreaAt(x, y);
             if (std::isfinite(a) && a > 0.0) h = std::sqrt(a / kEquilateral);
         }
-        for (const auto &ov : spacingOverrides)
+        if (overrideSide == 0 || x < overrideExtent.left() || x > overrideExtent.right()
+            || y < overrideExtent.top() || y > overrideExtent.bottom()) return h;
+        for (const int k : overrideGrid[overrideCell(y, overrideExtent.top(), overrideExtent.height()) * overrideSide
+                                        + overrideCell(x, overrideExtent.left(), overrideExtent.width())]) {
+            const QRectF &b = spacingOverrideBounds[k];
+            if (x < b.left() || x > b.right() || y < b.top() || y > b.bottom()) continue;
+            const auto &ov = spacingOverrides[k];
             if (pointInRing(ov.first, QPointF(x, y))) h = (h > 0.0) ? std::min(h, ov.second) : ov.second;
+        }
         return h;
     };
 

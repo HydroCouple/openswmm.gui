@@ -77,7 +77,7 @@ private slots:
         QGroupBox *bnd = groupTitled(m_dlg, QStringLiteral("Boundaries"));
         QVERIFY2(res && shape && bnd, "Resolution / Shape / Boundaries groups are missing");
         QCOMPARE(res->findChildren<QDoubleSpinBox *>().size(), 5);   // size, coarsen, ratio, floor, terrain
-        QCOMPARE(shape->findChildren<QComboBox *>().size(), 1);      // region layer
+        QCOMPARE(shape->findChildren<QComboBox *>().size(), 2);      // region layer, quads mode
         QCOMPARE(shape->findChildren<QDoubleSpinBox *>().size(), 2); // minimum angle, conduit strip width
         QCOMPARE(shape->findChildren<QCheckBox *>().size(), 3);      // worst angles first, lattice seeding, quads between facing break lines
         QCOMPARE(shape->findChildren<QSpinBox *>().size(), 1);       // smoothing passes

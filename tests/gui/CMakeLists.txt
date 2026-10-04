@@ -2068,6 +2068,7 @@ target_link_libraries(test_meshgenerator PRIVATE Qt6::Concurrent predicates_lib)
 add_swmmvis_gui_test(test_meshgenerator_v2
     test_meshgenerator_v2.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/quadblocks.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
