@@ -1,3 +1,4 @@
+#include <openswmm/engine/openswmm_infrastructure.h>
 /*!
  * \file   mapundostack.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -522,6 +523,16 @@ void AddNodeCommand::redo()
     // Creation defaults first; the more specific terrain-derived invert
     // below wins (see workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md).
     ObjectDefaultsApplier::applyNodeDefaults(eng, idx, m_nodeType);
+    if (!m_lidControl.isEmpty()) {
+        const int control = swmm_lid_index(eng, m_lidControl.toUtf8().constData());
+        if (swmm_node_set_lid(eng, idx, control, 0.0) != SWMM_OK || control < 0) {
+            m_layer->rollbackTailNodeAdd(m_name);
+            m_present = false;
+            return;
+        }
+        m_layer->markEdited();
+    }
+
 
     if (m_invertElev != 0.0 && idx >= 0)
         swmm_node_set_invert_elev(eng, idx, m_invertElev);
@@ -678,6 +689,13 @@ void AddLinkCommand::redo()
         if (m_offsetUp != 0.0) swmm_link_set_offset_up(eng, m_linkIdx, m_offsetUp);
         if (m_offsetDn != 0.0) swmm_link_set_offset_dn(eng, m_linkIdx, m_offsetDn);
     }
+    if (m_present && m_linkIdx >= 0 && m_lidLayer > 0) {
+        if (swmm_lid_node_outlet_set(m_layer->engine(), m_linkIdx, m_lidLayer, m_lidTop) != SWMM_OK) {
+            m_layer->rollbackTailLinkAdd(m_name);
+            m_present = false;
+        } else m_layer->markEdited();
+    }
+
 }
 
 void AddLinkCommand::undo()

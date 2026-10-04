@@ -187,6 +187,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionAddOutfall",            QT_TR_NOOP("Outfall")},
         {"actionAddFlowDivider",        QT_TR_NOOP("Flow\nDivider")},
         {"actionAddStorage",            QT_TR_NOOP("Storage")},
+        {"actionAddLidNode",            QT_TR_NOOP("LID Node")},
         {"actionAddPipe",               QT_TR_NOOP("Pipe")},
         {"actionAddPump",               QT_TR_NOOP("Pump")},
         {"actionAddOrifice",            QT_TR_NOOP("Orifice")},
@@ -295,7 +296,7 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarModel, tr("Nodes"),
              {"actionAddJunction", "actionAddJunctionSplit",
               "actionAddVirtualJunction", "actionAddInletJunction",
-              "actionAddOutfall", "actionAddFlowDivider", "actionAddStorage"});
+              "actionAddOutfall", "actionAddFlowDivider", "actionAddStorage", "actionAddLidNode"});
     addGroup(mToolBarModel, tr("Links"),
              {"actionAddPipe", "actionAddPump", "actionAddOrifice",
               "actionAddWeir", "actionAddOutlet"});

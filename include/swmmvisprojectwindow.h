@@ -335,6 +335,7 @@ public:
     void activateAddInletJunctionTool();
     void activateAddOutfallTool();
     void activateAddStorageTool();
+    void activateAddLidTool();
     void activateAddDividerTool();
     void activateAddConduitTool();
     void activateAddPumpTool();
@@ -603,6 +604,7 @@ private:
     class OpenSWMMVisMapToolAddInletNode *mAddInletJunctionTool = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddOutfallTool    = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddStorageTool    = nullptr;
+    OpenSWMMVisMapToolAddNode     *mAddLidTool        = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddDividerTool    = nullptr;
     OpenSWMMVisMapToolAddLink     *mAddConduitTool    = nullptr;
     OpenSWMMVisMapToolAddLink     *mAddPumpTool       = nullptr;

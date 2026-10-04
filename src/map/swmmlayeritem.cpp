@@ -1,3 +1,4 @@
+#include <openswmm/engine/openswmm_infrastructure.h>
 /*!
  * \file   swmmlayeritem.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -1004,6 +1005,27 @@ void SWMMLayerItem::paint(QPainter *painter,
             }
         }
         painter->restore();   // back to scene transform
+    }
+
+    // A leaf badge identifies LID storage without introducing a node type.
+    if (m_layer->m_showNodes && m_layer->engine()) {
+        const auto transform = painter->transform();
+        painter->save(); painter->resetTransform();
+        painter->setPen(QPen(QColor("#176b35"), 1.0));
+        painter->setBrush(QColor("#66ba69"));
+        for (int i = 0; i < m_layer->m_nodes.size(); ++i) {
+            if (m_layer->m_nodes[i].nodeType != 2 || i >= m_layer->m_nodeScenePts.size() ||
+                (size_t(i) < nodeHid.size() && nodeHid[i])) continue;
+            int control = -1; double saturation = 0.0;
+            swmm_node_get_lid(m_layer->engine(), i, &control, &saturation);
+            if (control < 0) continue;
+            const auto scene = m_layer->m_nodeScenePts[i];
+            if (!exposed.isNull() && !exposed.adjusted(-16 * invViewScale, -16 * invViewScale, 16 * invViewScale, 16 * invViewScale).contains(scene)) continue;
+            const auto center = transform.map(scene) + QPointF(6, -6);
+            painter->drawEllipse(QRectF(center.x() - 3, center.y() - 5, 6, 10));
+            painter->drawLine(center + QPointF(0, -3), center + QPointF(0, 4));
+        }
+        painter->restore();
     }
 
     // ---------------------------------------------------------------- Rain gages

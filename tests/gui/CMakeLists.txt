@@ -4027,3 +4027,10 @@ target_compile_definitions(test_traceanalysisjourney PRIVATE
 
 # Keep the full-app acceptance harness quick to compile; production retains its configured optimization.
 target_compile_options(test_traceanalysisjourney PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O0>)
+
+add_swmmvis_gui_test(test_lid_node_layers
+    test_lid_node_layers.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/models/lidnodelayermodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/lidlayerdiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectiondiagram.cpp
+)

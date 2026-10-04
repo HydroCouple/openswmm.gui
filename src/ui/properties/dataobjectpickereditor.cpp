@@ -166,6 +166,15 @@ void DataObjectPickerEditor::repopulate()
                     if (*id) items << QString::fromUtf8(id);
             break;
         }
+        case DataObjectRef::LidControl: {
+            for (int i = 0; i < swmm_lid_count(m_ref.engine); ++i) {
+                int type = -1;
+                swmm_lid_get_type(m_ref.engine, i, &type);
+                if (type == 8 || type == 0 || type == 1 || type == 3 || type == 4)
+                    if (const char* id = swmm_lid_id(m_ref.engine, i)) items << QString::fromUtf8(id);
+            }
+            break;
+        }
         case DataObjectRef::Aquifer: {
             // [AQUIFERS] live in their own engine array (no table type).
             const int n = swmm_aquifer_count(m_ref.engine);
@@ -325,6 +334,7 @@ void DataObjectPickerEditor::onPickerClicked()
     case DataObjectRef::SubcatchOutlet: /* handled above */                   break;
     case DataObjectRef::Node:           /* handled above */                   break;
     case DataObjectRef::Subcatchment:   /* handled above */                   break;
+    case DataObjectRef::LidControl:     dc = SWMMModelLayer::DataLIDControls; break;
     case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
     case DataObjectRef::Inlet:          /* handled above */                   break;
     case DataObjectRef::CaptureNode:    /* handled above */                   break;

@@ -68,6 +68,7 @@ struct DataObjectRef
                              ///  InletEditorDialog::pickInlet, filtered by
                              ///  the host's cross-section shape (`typeLock`
                              ///  carries the SWMM_XSectShape id, -1 = any).
+        LidControl     = 14,  ///< NODE, BC, RG, IT or PP controls for storage-node LIDs.
         CaptureNode    = 13, ///< Receiving (underdrain) node of an inlet.
                              ///  Every node EXCEPT virtual / inlet junctions
                              ///  (engine rule 627). Selection only — nodes

@@ -90,6 +90,7 @@ public:
      *         every kind but OUTFALL. */
     [[nodiscard]] bool kindCanSplitConduit() const;
 
+    void setLidControl(QString control) { m_lidControl = std::move(control); }
     [[nodiscard]] int nodeType() const { return m_nodeType; }
 
 signals:
@@ -119,6 +120,7 @@ private:
 
     int                m_nodeType;
     QString            m_elementKind;
+    QString            m_lidControl;
     SnapEngine::Result m_snap;
     ConduitSplitPick::ConduitHit m_hover;   ///< conduit under the cursor, if any
     bool               m_armed = false;

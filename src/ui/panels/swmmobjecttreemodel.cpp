@@ -1,3 +1,5 @@
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_nodes.h>
 /*!
  * \file   swmmobjecttreemodel.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -449,7 +451,14 @@ QVariant SWMMObjectTreeModel::data(const QModelIndex &index, int role) const
         if (row < 0 || row >= m_layer->categoryCount(cat)) return {};
         const QString name = m_layer->objectNameAt(cat, row);
         switch (role) {
-        case Qt::DisplayRole: return name;
+        case Qt::DisplayRole: {
+            if (cat == SWMMModelLayer::CatStorage) {
+                int control = -1; double saturation = 0.0;
+                swmm_node_get_lid(m_layer->engine(), swmm_node_index(m_layer->engine(), name.toUtf8().constData()), &control, &saturation);
+                if (control >= 0) return tr("%1 [LID]").arg(name);
+            }
+            return name;
+        }
         case Qt::DecorationRole:
             return iconForObjectType(refTypeForCategory(cat));
         case Qt::CheckStateRole:

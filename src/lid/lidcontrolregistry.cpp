@@ -1,3 +1,4 @@
+#include <openswmm/engine/openswmm_edit.h>
 /*!
  * \file   lidcontrolregistry.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -94,9 +95,36 @@ int LidControlRegistry::loadFromEngine(void *engineHandle)
         if (!cid || !*cid) continue;
         const QString id = QString::fromUtf8(cid);
         if (hasName(id)) continue;
-        // No layer getters — recover the name only; leave defaults, not dirty.
+        // Load authored parameters without marking the provider dirty.
         LidControlProvider *p = create(id);
-        if (p) { p->clearDirty(); ++added; }
+        if (p) {
+            int type = 0;
+            swmm_lid_get_type(eng, i, &type);
+            p->setType(type);
+            if (type == 8) {
+                QVector<SWMM_LidNodeLayer> rows;
+                for (int j = 0; j < swmm_lid_node_layer_count(eng, i); ++j) {
+                    SWMM_LidNodeLayer row{};
+                    if (swmm_lid_node_layer_get(eng, i, j, &row) == SWMM_OK) rows.append(row);
+                }
+                p->setNodeLayers(rows);
+            } else {
+                double a, b, c, d, e, f;
+                if (swmm_lid_get_surface(eng, i, &a, &b, &c) == SWMM_OK) {
+                    p->setSurfStorage(a); p->setSurfRoughness(b); p->setSurfSlope(c);
+                }
+                if (swmm_lid_get_soil(eng, i, &a, &b, &c, &d, &e, &f) == SWMM_OK) {
+                    p->setSoilThick(a); p->setSoilPorosity(b); p->setSoilFc(c); p->setSoilWp(d); p->setSoilKsat(e); p->setSoilKslope(f);
+                }
+                if (swmm_lid_get_storage(eng, i, &a, &b, &c) == SWMM_OK) {
+                    p->setStorThick(a); p->setStorVoidFrac(b); p->setStorKsat(c);
+                }
+                if (swmm_lid_get_drain(eng, i, &a, &b, &c) == SWMM_OK) {
+                    p->setDrainCoeff(a); p->setDrainExpon(b); p->setDrainOffset(c);
+                }
+            }
+            p->clearDirty(); ++added;
+        }
     }
     return added;
 }
@@ -124,6 +152,15 @@ int LidControlRegistry::saveToEngine(void *engineHandle)
             if (idx < 0) continue;
         } else if (!p->dirty()) {
             continue;  // existing + untouched — don't clobber
+        }
+        if (p->type() == 8) {
+            const auto& rows = p->nodeLayers();
+            if (swmm_lid_node_layers_set(eng, idx, rows.constData(), rows.size()) == SWMM_OK) {
+                p->clearDirty(); ++written;
+            } else if (isNew) {
+                swmm_lid_delete(eng, idx, nullptr);
+            }
+            continue;
         }
         swmm_lid_set_surface(eng, idx, p->surfStorage(), p->surfRoughness(),
                              p->surfSlope());

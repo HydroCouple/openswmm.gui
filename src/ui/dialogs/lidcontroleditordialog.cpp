@@ -1,3 +1,4 @@
+#include <openswmm/engine/openswmm_edit.h>
 /*!
  * \file   lidcontroleditordialog.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -16,6 +17,9 @@
 #include "ui/sectionview/sectionpreviewwidget.h"
 #include "ui/theme/iconfactory.h"
 
+#include "ui/models/lidnodelayermodel.h"
+#include <QTableView>
+#include <QHeaderView>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -127,7 +131,7 @@ void LidControlEditorDialog::buildUi_()
     for (const char *t : { "Bio-Retention Cell", "Rain Garden", "Green Roof",
                             "Infiltration Trench", "Permeable Pavement",
                             "Rain Barrel", "Rooftop Disconnection",
-                            "Vegetative Swale" })
+                            "Vegetative Swale", "Storage Node (ordered layers)" })
         m_typeCombo->addItem(QString::fromLatin1(t));
     headForm->addRow(tr("T&ype"), m_typeCombo);
     rightLay->addLayout(headForm);
@@ -181,11 +185,61 @@ void LidControlEditorDialog::buildUi_()
     drainForm->addRow(tr("Offset"),      m_drainOffset);
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(drain, tabs), tr("&Drain"));
 
+    m_nodeLayerPage = new QWidget(tabs);
+    auto *stackLayout = new QVBoxLayout(m_nodeLayerPage);
+    auto *units = new QLabel(tr("Top to bottom. Thickness and suction: mm (SI) or in (US). Conductivity: mm/hr or in/hr. BOTTOM is the native-soil boundary."));
+    units->setWordWrap(true); stackLayout->addWidget(units);
+    m_nodeLayerModel = new LidNodeLayerModel(this);
+    m_nodeLayerTable = new QTableView(m_nodeLayerPage);
+    m_nodeLayerTable->setObjectName(QStringLiteral("lidNodeLayers"));
+    m_nodeLayerTable->setModel(m_nodeLayerModel);
+    m_nodeLayerTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_nodeLayerTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    stackLayout->addWidget(m_nodeLayerTable);
+    auto *rowActions = new QHBoxLayout;
+    for (int kind = 0; kind < 4; ++kind) {
+        auto *add = new QPushButton(tr("Add %1").arg(QStringList{"SURFACE", "MEDIA", "AGGREGATE", "BOTTOM"}[kind]));
+        rowActions->addWidget(add);
+        connect(add, &QPushButton::clicked, this, [this, kind] { m_nodeLayerModel->append(kind, UnitSystem::instance() && UnitSystem::instance()->isSI()); refreshLayerDiagram_(); });
+    }
+    stackLayout->addLayout(rowActions);
+    auto *editActions = new QHBoxLayout;
+    auto *remove = new QPushButton(tr("Remove"));
+    auto *up = new QPushButton(tr("Move up")); auto *down = new QPushButton(tr("Move down"));
+    auto *apply = new QPushButton(tr("Apply layers"));
+    for (auto *b : {remove, up, down, apply}) editActions->addWidget(b);
+    stackLayout->addLayout(editActions);
+    connect(remove, &QPushButton::clicked, this, [this] { m_nodeLayerModel->remove(m_nodeLayerTable->currentIndex().row()); refreshLayerDiagram_(); });
+    for (auto pair : {qMakePair(up, -1), qMakePair(down, 1)})
+        connect(pair.first, &QPushButton::clicked, this, [this, delta=pair.second] {
+            const int r = m_nodeLayerTable->currentIndex().row(); m_nodeLayerModel->move(r, delta);
+            m_nodeLayerTable->selectRow(qBound(0, r + delta, m_nodeLayerModel->rowCount() - 1)); refreshLayerDiagram_();
+        });
+    connect(m_nodeLayerModel, &QAbstractItemModel::dataChanged, this, [this] { refreshLayerDiagram_(); });
+    connect(apply, &QPushButton::clicked, this, [this] {
+        if (!m_current || !m_registry) return;
+        auto eng = static_cast<SWMM_Engine>(m_registry->engineHandle());
+        if (!eng) return;
+        int idx = swmm_lid_index(eng, m_current->name().toUtf8().constData());
+        const bool created = idx < 0;
+        if (idx < 0) {
+            if (swmm_lid_add(eng, m_current->name().toUtf8().constData(), 8) != SWMM_OK) return;
+            idx = swmm_lid_index(eng, m_current->name().toUtf8().constData());
+        }
+        const auto& rows = m_nodeLayerModel->layers;
+        if (swmm_lid_node_layers_set(eng, idx, rows.constData(), rows.size()) != SWMM_OK) {
+            if (created) swmm_lid_delete(eng, idx, nullptr);
+            QMessageBox::warning(this, tr("Invalid layer stack"), tr("Check layer parameters and order: optional SURFACE first, one or more MEDIA/AGGREGATE layers, optional BOTTOM last. Existing outlet anchors must remain valid."));
+            return;
+        }
+        m_current->setNodeLayers(rows); m_current->clearDirty();
+        if (m_layer) m_layer->markEdited();
+    });
+    tabs->addTab(m_nodeLayerPage, tr("Ordered layers"));
     rightLay->addWidget(tabs, 1);
 
     auto *note = new QLabel(
-        tr("The engine cannot read back existing LID layer values; loaded "
-           "controls show defaults. Editing overwrites all layers."),
+        tr("NODE controls use the ordered layer table. Apply layers updates every assigned storage node and its anchored outlets."),
         rightPane);
     note->setWordWrap(true);
     note->setEnabled(false);
@@ -259,7 +313,7 @@ void LidControlEditorDialog::bindProvider_(LidControlProvider *p)
 
     if (p) {
         m_nameEdit->setText(p->name());
-        m_typeCombo->setCurrentIndex(p->type() >= 0 && p->type() <= 7 ? p->type() : 0);
+        m_typeCombo->setCurrentIndex(p->type() >= 0 && p->type() <= 8 ? p->type() : 0);
         m_surfStorage->setValue(p->surfStorage());
         m_surfRough->setValue(p->surfRoughness());
         m_surfSlope->setValue(p->surfSlope());
@@ -279,6 +333,14 @@ void LidControlEditorDialog::bindProvider_(LidControlProvider *p)
         m_nameEdit->clear();
     }
 
+    m_nodeLayerModel->setLayers(p ? p->nodeLayers() : QVector<SWMM_LidNodeLayer>{});
+    const bool node = p && p->type() == 8;
+    for (int i = 0; i < 4; ++i) m_tabs->setTabVisible(i, !node);
+    m_tabs->setTabVisible(4, node);
+    if (node) m_tabs->setCurrentIndex(4);
+    // Existing controls keep their type; create a new control for a new type.
+    const auto eng = m_registry ? static_cast<SWMM_Engine>(m_registry->engineHandle()) : nullptr;
+    m_typeCombo->setEnabled(p && (!eng || swmm_lid_index(eng, p->name().toUtf8().constData()) < 0));
     m_suppressFieldSync = prev;
     refreshLayerDiagram_();
     // Binding a different control is a new subject; field edits keep the view.
@@ -353,6 +415,10 @@ void LidControlEditorDialog::onFieldEdited_()
 {
     if (m_suppressFieldSync || !m_current) return;
     m_current->setType(m_typeCombo->currentIndex());
+    const bool node = m_current->type() == 8;
+    for (int i = 0; i < 4; ++i) m_tabs->setTabVisible(i, !node);
+    m_tabs->setTabVisible(4, node);
+    if (node) { m_tabs->setCurrentIndex(4); refreshLayerDiagram_(); return; }
     m_current->setSurfStorage(m_surfStorage->value());
     m_current->setSurfRoughness(m_surfRough->value());
     m_current->setSurfSlope(m_surfSlope->value());
@@ -387,8 +453,18 @@ void LidControlEditorDialog::refreshLayerDiagram_()
     sv::LidDiagramInput in;
     in.name = m_nameEdit ? m_nameEdit->text() : QString();
     in.type = static_cast<sv::LidType>(
-        m_typeCombo ? qBound(0, m_typeCombo->currentIndex(), 7) : 0);
+        m_typeCombo ? qBound(0, m_typeCombo->currentIndex(), 8) : 0);
 
+    if (in.type == sv::LidType::Node) {
+        for (const auto& row : m_nodeLayerModel->layers) {
+            if (row.kind == 3) continue;
+            const auto layer = row.kind == 0 ? sv::LidLayer::Surface : row.kind == 1 ? sv::LidLayer::Soil : sv::LidLayer::Storage;
+            in.orderedLayers.append({layer, row.params[0], row.kind == 0 ? 1.0 - row.params[1] : row.params[1], row.kind == 1 ? row.params[4] : row.kind == 2 ? row.params[2] : 0.0});
+        }
+        in.lengthLabel = UnitSystem::instance() && UnitSystem::instance()->isSI() ? QStringLiteral("mm") : QStringLiteral("in");
+        m_diagram->setModel(sv::buildLidLayerDiagram(in));
+        return;
+    }
     in.surfaceStorage   = m_surfStorage->value();
     in.surfaceRoughness = m_surfRough->value();
     in.surfaceSlope     = m_surfSlope->value();

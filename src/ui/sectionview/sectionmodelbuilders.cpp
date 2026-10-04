@@ -1,3 +1,4 @@
+#include <openswmm/engine/openswmm_infrastructure.h>
 /*!
  * \file   sectionmodelbuilders.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -1131,6 +1132,27 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
     voidSpace.role = DiagramRole::Conduit;
     voidSpace.pts  = ring(invert, rim, 0.0);
     m.polys << voidSpace;
+
+    int lidControl = -1; double initialSaturation = 0.0;
+    swmm_node_get_lid(engine, nodeIdx, &lidControl, &initialSaturation);
+    if (lidControl >= 0) {
+        double top = rim;
+        int numbered = 0;
+        for (int row = 0; row < swmm_lid_node_layer_count(engine, lidControl); ++row) {
+            SWMM_LidNodeLayer layer{};
+            if (swmm_lid_node_layer_get(engine, lidControl, row, &layer) != SWMM_OK || layer.kind == 3) continue;
+            const double bottom = top - layer.params[0] / (units.si ? 1000.0 : 12.0);
+            DiagramPoly band;
+            band.pts = ring(bottom, top, 0.0);
+            band.role = layer.kind == 0 ? DiagramRole::Vegetation : layer.kind == 1 ? DiagramRole::Media : DiagramRole::Gravel;
+            band.texture = layer.kind == 1 ? DiagramTexture::Stipple : layer.kind == 2 ? DiagramTexture::Gravel : DiagramTexture::None;
+            band.insetLabel = tr_("Layer %1").arg(++numbered);
+            m.polys << band;
+            top = bottom;
+        }
+        m.title = tr_("%1 — LID Storage Profile").arg(nodeName);
+    }
+
 
     if (style.cover)
         m.symbols << DiagramSymbol{ QPointF(0.0, rim),

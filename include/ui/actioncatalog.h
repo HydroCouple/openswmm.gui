@@ -101,6 +101,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"model.addInletJunction", "actionAddInletJunction", "Model", "",  "InletJunction", "model", "Model/Add Node", RequiresProject},
     {"model.addOutfall",      "actionAddOutfall",       "Model", "",  "Outfall", "model", "Model/Add Node", RequiresProject},
     {"model.addFlowDivider",  "actionAddFlowDivider",   "Model", "",  "Divider", "model", "Model/Add Node", RequiresProject},
+    {"model.addLidNode", "actionAddLidNode", "Model", "", "LID Node", "model", "Model/Add Node", RequiresProject},
     {"model.addStorage",      "actionAddStorage",       "Model", "",  "Storage", "model", "Model/Add Node", RequiresProject},
     {"model.addPipe",         "actionAddPipe",          "Model", "",  "Polyline", "model", "Model/Add Link", RequiresProject},
     {"model.addPump",         "actionAddPump",          "Model", "",  "Pump", "model", "Model/Add Link", RequiresProject},

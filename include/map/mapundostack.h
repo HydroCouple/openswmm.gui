@@ -537,6 +537,7 @@ public:
                    double invertElev = 0.0,
                    QUndoCommand *parent = nullptr);
 
+    void setLidControl(QString control) { m_lidControl = std::move(control); }
     void undo() override;
     void redo() override;
 
@@ -545,6 +546,7 @@ public:
 private:
     SWMMModelLayer *m_layer      = nullptr;
     QString         m_name;
+    QString         m_lidControl;
     int             m_nodeType   = 0;
     double          m_x          = 0.0;
     double          m_y          = 0.0;
@@ -578,6 +580,7 @@ public:
                    double            offsetDn = 0.0,
                    QUndoCommand     *parent = nullptr);
 
+    void setLidAnchor(int layer, bool top) { m_lidLayer = layer; m_lidTop = top; }
     void undo() override;
     void redo() override;
     int  id()   const override { return 13; }
@@ -592,6 +595,8 @@ private:
     double           m_offsetUp = 0.0;
     double           m_offsetDn = 0.0;
     bool             m_present  = false;
+    int              m_lidLayer = 0;
+    bool             m_lidTop = false;
     int              m_linkIdx  = -1; // engine index, used for auto-length
 };
 

@@ -19,6 +19,8 @@
 
 #include <QObject>
 #include <QString>
+#include <QVector>
+#include <openswmm/engine/openswmm_infrastructure.h>
 
 namespace openswmmvis::lid {
 
@@ -32,6 +34,9 @@ public:
 
     QString name() const noexcept { return m_name; }
     int     type() const noexcept { return m_type; }   ///< 0..7
+
+    const QVector<SWMM_LidNodeLayer>& nodeLayers() const { return m_nodeLayers; }
+    void setNodeLayers(QVector<SWMM_LidNodeLayer> layers);
 
     // Surface layer.
     double surfStorage()   const noexcept { return m_surfStorage; }
@@ -89,6 +94,7 @@ private:
     double m_storThick = 0.0, m_storVoidFrac = 0.0, m_storKsat = 0.0;
     double m_drainCoeff = 0.0, m_drainExpon = 0.0, m_drainOffset = 0.0;
 
+    QVector<SWMM_LidNodeLayer> m_nodeLayers;
     bool m_dirty = false;
 };
 

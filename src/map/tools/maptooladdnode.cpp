@@ -39,11 +39,12 @@ QCursor OpenSWMMVisMapToolAddNode::cursor() const
 
 bool OpenSWMMVisMapToolAddNode::kindCanSplitConduit() const
 {
-    return m_nodeType != kNodeOutfall;
+    return m_nodeType != kNodeOutfall && m_lidControl.isEmpty();
 }
 
 QString OpenSWMMVisMapToolAddNode::kindLabel() const
 {
+    if (!m_lidControl.isEmpty()) return tr("LID storage node");
     switch (m_nodeType) {
     case kNodeOutfall: return tr("outfall");
     case kNodeStorage: return tr("storage node");
@@ -58,7 +59,9 @@ void OpenSWMMVisMapToolAddNode::activate()
     m_hover = {};
     m_armed = false;
     OpenSWMMVisMapTool::activate();
-    if (kindCanSplitConduit())
+    if (!m_lidControl.isEmpty())
+        emit statusMessageChanged(tr("Click a free location to place a LID storage node. Connect orifices or weirs and set their LID outlet layer in Properties."));
+    else if (kindCanSplitConduit())
         emit statusMessageChanged(
             tr("Click to place a %1, or click a conduit to split it and insert "
                "the %1 there.").arg(kindLabel()));
@@ -147,8 +150,7 @@ void OpenSWMMVisMapToolAddNode::mouseReleaseEvent(QMouseEvent *event)
     if (hit.valid()) {
         if (!kindCanSplitConduit()) {
             emit statusMessageChanged(
-                tr("An outfall must end the network, so it cannot be inserted on "
-                   "\"%1\" — click a free location instead.").arg(hit.name));
+                tr("This tool requires a free location; select another point away from %1.").arg(hit.name));
             return;   // no edit; the hover marker keeps showing the refusal
         }
         commitSplit(hit);
@@ -196,6 +198,7 @@ void OpenSWMMVisMapToolAddNode::commitFreePlacement(SWMMModelLayer *layer,
 
     auto *cmd = new AddNodeCommand(layer, name, m_nodeType, px, py,
                                    m_canvas, invertElev);
+    cmd->setLidControl(m_lidControl);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
     else

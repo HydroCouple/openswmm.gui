@@ -1,3 +1,9 @@
+#include "map/mapundostack.h"
+#include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_nodes.h>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <openswmm/engine/openswmm_infrastructure.h>
 #include "layers/traceanalysislayer.h"
 /*!
  * \file   swmmvisprojectwindow.cpp
@@ -392,6 +398,41 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     mAddInletJunctionTool   = new OpenSWMMVisMapToolAddInletNode(mCanvas, this);
     mAddOutfallTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 1, QStringLiteral("outfall"),      this);
     mAddStorageTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 2, QStringLiteral("storage"),      this);
+    mAddLidTool = new OpenSWMMVisMapToolAddNode(mCanvas, 2, QStringLiteral("storage"), this);
+    connect(mAddLidTool, &OpenSWMMVisMapToolAddNode::nodeAdded, this,
+            [this](const QString& name, int, double, double) {
+        if (!mModelLayer || !mModelLayer->engine() || !mCanvas->undoStack()) return;
+        const auto eng = mModelLayer->engine();
+        const int node = swmm_node_index(eng, name.toUtf8().constData());
+        int control = -1; double saturation = 0.0;
+        if (swmm_node_get_lid(eng, node, &control, &saturation) != SWMM_OK || control < 0) return;
+        QStringList destinations{tr("Do not add")};
+        for (int i = 0; i < swmm_node_count(eng); ++i) {
+            int otherControl = -1; double sat = 0;
+            swmm_node_get_lid(eng, i, &otherControl, &sat);
+            if (i != node && otherControl < 0) destinations.append(QString::fromUtf8(swmm_node_id(eng, i)));
+        }
+        if (destinations.size() < 2) return;
+        int numbered = 0; SWMM_LidNodeLayer first{};
+        swmm_lid_node_layer_get(eng, control, 0, &first);
+        for (int i = 0; i < swmm_lid_node_layer_count(eng, control); ++i) {
+            SWMM_LidNodeLayer row{};
+            swmm_lid_node_layer_get(eng, control, i, &row);
+            numbered += row.kind != 3;
+        }
+        for (int kind : {2, 3}) {
+            bool ok = false;
+            const auto target = QInputDialog::getItem(this, tr("LID outlet"),
+                kind == 2 ? tr("Underdrain orifice destination") : tr("Overflow weir destination"), destinations, 0, false, &ok);
+            if (!ok || target == destinations.first()) continue;
+            const QString prefix = name + (kind == 2 ? QStringLiteral("_underdrain") : QStringLiteral("_overflow"));
+            QString id = prefix;
+            for (int suffix = 2; swmm_link_index(eng, id.toUtf8().constData()) >= 0; ++suffix) id = prefix + QString::number(suffix);
+            auto* command = new AddLinkCommand(mModelLayer, id, kind, name, target, {}, mCanvas);
+            command->setLidAnchor(kind == 2 ? numbered : 1, kind == 3 && first.kind != 0);
+            mCanvas->undoStack()->push(command);
+        }
+    });
     mAddDividerTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 3, QStringLiteral("divider"),      this);
     // SWMM_LINK: 0=Conduit, 1=Pump, 2=Orifice, 3=Weir, 4=Outlet
     mAddConduitTool   = new OpenSWMMVisMapToolAddLink(mCanvas, 0, QStringLiteral("conduit"),      this);
@@ -442,7 +483,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                 mCanvas->setTerrainUnit(mUnits->depthLabel());
                 // Re-propagate updated factor to map tools.
                 for (auto *t : { mAddJunctionTool, mAddOutfallTool,
-                                  mAddStorageTool,  mAddDividerTool })
+                                  mAddStorageTool, mAddLidTool, mAddDividerTool })
                     if (t) t->setTerrain(mActiveTerrain, mTerrainNodeOffset,
                                          mTerrainVertFactor);
                 for (auto *t : { mAddConduitTool, mAddPumpTool,
@@ -2518,6 +2559,7 @@ QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() cons
         { mAddInletJunctionTool,   QStringLiteral("actionAddInletJunction")   },
         { mAddOutfallTool,     QStringLiteral("actionAddOutfall")     },
         { mAddStorageTool,     QStringLiteral("actionAddStorage")     },
+        { mAddLidTool,         QStringLiteral("actionAddLidNode")     },
         { mAddDividerTool,     QStringLiteral("actionAddFlowDivider") },
         { mAddConduitTool,     QStringLiteral("actionAddPipe")        },
         { mAddPumpTool,        QStringLiteral("actionAddPump")        },
@@ -2649,7 +2691,7 @@ void SWMMVisProjectWindow::setActiveTerrain(GISRasterLayer *layer, bool markDirt
 
     // Propagate to every add-node and add-link tool (include vertical factor).
     const auto nodeTools = { mAddJunctionTool, mAddOutfallTool,
-                              mAddStorageTool,  mAddDividerTool };
+                              mAddStorageTool, mAddLidTool, mAddDividerTool };
     for (auto *t : nodeTools)
         if (t) t->setTerrain(layer, mTerrainNodeOffset, mTerrainVertFactor);
 
@@ -2672,7 +2714,7 @@ void SWMMVisProjectWindow::setTerrainNodeOffset(double offset)
     mTerrainNodeOffset = offset;
 
     const auto nodeTools = { mAddJunctionTool, mAddOutfallTool,
-                              mAddStorageTool,  mAddDividerTool };
+                              mAddStorageTool, mAddLidTool, mAddDividerTool };
     for (auto *t : nodeTools)
         if (t) t->setTerrain(mActiveTerrain, offset, mTerrainVertFactor);
 
@@ -2719,7 +2761,7 @@ void SWMMVisProjectWindow::setTerrainVerticalUnit(const QString &unit, bool mark
     // Propagate the new factor to map tools (offset stays in model units;
     // the raw Z is multiplied by this factor before adding the offset).
     const auto nodeTools = { mAddJunctionTool, mAddOutfallTool,
-                              mAddStorageTool,  mAddDividerTool };
+                              mAddStorageTool, mAddLidTool, mAddDividerTool };
     for (auto *t : nodeTools)
         if (t) t->setTerrain(mActiveTerrain, mTerrainNodeOffset, mTerrainVertFactor);
 
@@ -2761,4 +2803,25 @@ void SWMMVisProjectWindow::restoreTerrainState(const QString &absoluteLayerPath,
                              ? (found ? found->detectVerticalUnit() : QStringLiteral("m"))
                              : vertUnit;
     setTerrainVerticalUnit(unit, false);
+}
+
+void SWMMVisProjectWindow::activateAddLidTool()
+{
+    if (!mModelLayer || !mModelLayer->engine()) return;
+    auto eng = mModelLayer->engine();
+    QStringList controls;
+    for (int i = 0; i < swmm_lid_count(eng); ++i) {
+        int type = -1; swmm_lid_get_type(eng, i, &type);
+        if (type == 0 || type == 1 || type == 3 || type == 4 || type == 8)
+            controls.append(QString::fromUtf8(swmm_lid_id(eng, i)));
+    }
+    if (controls.isEmpty()) {
+        QMessageBox::information(this, tr("Add LID Node"), tr("Create an LID control in the LID Controls editor first. Choose Storage Node to define any number of ordered layers."));
+        return;
+    }
+    bool ok = false;
+    const auto control = QInputDialog::getItem(this, tr("Add LID Node"), tr("LID control"), controls, 0, false, &ok);
+    if (!ok) return;
+    mAddLidTool->setLidControl(control);
+    mCanvas->setActiveTool(mAddLidTool);
 }

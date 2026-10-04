@@ -2964,6 +2964,21 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMMModelLayer::legendSymbolItems() co
             out.append(item);
         }
     }
+    if (m_engine) {
+        for (int i = 0; i < swmm_node_count(m_engine); ++i) {
+            int control = -1; double saturation = 0.0;
+            swmm_node_get_lid(m_engine, i, &control, &saturation);
+            if (control < 0) continue;
+            OpenSWMM::Render::LegendSymbolItem item;
+            item.label = tr("LID storage (green leaf badge)");
+            auto symbol = m_storageSym;
+            symbol.fillColor = QColor("#66ba69");
+            symbol.outlineColor = QColor("#176b35");
+            item.symbol = styleFromElementSymbol(symbol, CatStorage);
+            out.append(item);
+            break;
+        }
+    }
     return out;
 }
 

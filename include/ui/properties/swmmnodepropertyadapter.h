@@ -239,6 +239,10 @@ public:
      *  i.e. the gutter the inlet sits in. Empty when not resolvable. */
     [[nodiscard]] QString       approachStreet()  const;
 
+    [[nodiscard]] DataObjectRef lidControlRef() const;
+    [[nodiscard]] double lidInitialSaturation() const;
+    void setLidControlRef(const DataObjectRef&);
+    void setLidInitialSaturation(double);
     [[nodiscard]] StorageShape   storageShape()      const;
     [[nodiscard]] DataObjectRef  storageCurveRef()   const;
     [[nodiscard]] double         storageCoeffA()     const;
@@ -599,6 +603,8 @@ public:
 class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
 {
     Q_OBJECT
+    Q_PROPERTY(DataObjectRef lidControl READ lidControlRef WRITE setLidControlRef NOTIFY changed)
+    Q_PROPERTY(double lidInitialSaturation READ lidInitialSaturation WRITE setLidInitialSaturation NOTIFY changed)
     Q_PROPERTY(double maxDepth        READ maxDepth        WRITE setMaxDepth        NOTIFY changed)
     Q_PROPERTY(double initialDepth    READ initialDepth    WRITE setInitialDepth    NOTIFY changed)
     Q_PROPERTY(double surchargeDepth  READ surchargeDepth  WRITE setSurchargeDepth  NOTIFY changed)
