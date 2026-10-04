@@ -28,6 +28,7 @@
 #ifndef OPENSWMMVIS_MESH_CHANNELBURNBOUNDARY_H
 #define OPENSWMMVIS_MESH_CHANNELBURNBOUNDARY_H
 
+#include <QHash>
 #include <QPointF>
 #include <QPolygonF>
 #include <QRectF>
@@ -93,6 +94,7 @@ struct BurnReplacementPlan
     QVector<BurnSplit> splits;     ///< Apply in this order.
     QSet<QString> replacedIds;
     QSet<QString> originalIds;
+    QHash<QString, QString> intervalSource; ///< Burned interval id -> the selected conduit it comes from.
     QVector<BurnNodePlan> nodes;
     QStringList notes;
     QString error;

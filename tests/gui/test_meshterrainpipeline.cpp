@@ -297,12 +297,18 @@ private slots:
         QVERIFY2(!mesh::buildCorridorLattice(profile,in.burnOptions.chainageStep,0.0,nullptr,&err).isValid(),
                  "fixture must fold");
         in.burnProfiles.append(profile);
+        // The hairpin is a 1D link too: being unburnable, it must stay in 1D.
+        const int h0=in.burnNetwork.nodes.size();
+        in.burnNetwork.nodes.append({"H0"}); in.burnNetwork.nodes.append({"H1"});
+        in.burnNetwork.links.append({"HAIRPIN",h0,h0+1});
         const auto result=run(in);
         QVERIFY2(result.ok,qPrintable(result.errorMsg));
         QVERIFY(result.burnRan);
         bool warned=false;
         for(const auto &w:result.burnWarnings) warned=warned || (w.contains("HAIRPIN") && w.contains("not burned"));
         QVERIFY2(warned,qPrintable(result.burnWarnings.join('\n')));
+        QVERIFY(!result.burnSurgery.burnedConduits.contains("HAIRPIN"));
+        for(const auto &node:result.burnSurgery.nodePlans) QVERIFY(node.nodeId!="H0" && node.nodeId!="H1");
     }
 
     void geographicDemUsesPhysicalChannelSpacing()
@@ -391,6 +397,47 @@ private slots:
             }
             QVERIFY(bedFound);
         }
+    }
+
+    // No dangling outfalls: a headwater with an inflow whose only link would
+    // be burned keeps that link in 1D; the next node down becomes the coupled
+    // interface outfall with exactly one 1D link.
+    void headwaterWithInflowNeverBecomesALinklessOutfall()
+    {
+        Inputs in;
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/channel_replacement/headwater_inflow");
+        QVERIFY(prepareBurnFixture(dir,in,false));
+        in.cellSize=2;in.minCellSize=.05;in.genOpts.maxArea=2;
+        in.terrainAdaptive=true;in.terrainTolerance=.1;
+        in.burnProfiles.clear();in.burnOptions.chainageStep=0;
+        in.burnOptions.quadCorridor=false;in.burnOptions.channelCellSize=2;
+        in.burnNetwork.nodes={{"A"},{"B"},{"C"}};
+        in.burnNetwork.nodes[0].hasExternalInflow=true;   // runoff arrives at the headwater
+        auto add=[&](QString id,QPointF a,QPointF b,int from,int to) {
+            mesh::ChannelInput c;c.conduitId=id;c.centerline={a,b};c.zUp=c.zDn=8;
+            c.section=mesh::sectionFromWidths({0,1,2},{2,3,4});
+            in.burnProfiles.append(mesh::buildBurnProfile(c,in.burnOptions));
+            in.burnNetwork.links.append({id,from,to});
+        };
+        add("AB",{8,16},{16,16},0,1);add("BC",{16,16},{24,16},1,2);
+        in.includeJunctions=true;in.nodesUseRim=true;in.includeConduits=true;
+        in.candidateNodes={{"A",{8,16},10,true},{"B",{16,16},10,true},{"C",{24,16},10,true}};
+        in.couplingNodes={{"A",{8,16}},{"B",{16,16}},{"C",{24,16}}};
+        in.candidateLinks={{"AB",{{8,16},{16,16}}},{"BC",{{16,16},{24,16}}}};
+        const auto result=run(in);
+        QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        QVERIFY(result.burnRan);
+        QCOMPARE(result.burnSurgery.burnedConduits,QStringList{"BC"});
+        bool bIsOutfall=false;
+        for(const auto &node:result.burnSurgery.nodePlans) {
+            if(node.role==mesh::BurnNodeRole::Outfall) QCOMPARE(node.survivingLinks,1);
+            if(node.nodeId=="B") bIsOutfall=node.role==mesh::BurnNodeRole::Outfall;
+            QVERIFY(node.nodeId!="A");   // the headwater is untouched
+        }
+        QVERIFY(bIsOutfall);
+        bool warned=false;
+        for(const auto &w:result.burnWarnings) warned=warned||(w.contains("AB")&&w.contains("no link"));
+        QVERIFY2(warned,qPrintable(result.burnWarnings.join('\n')));
     }
 
     void channelAdoptionRestoresNetworkAndPreviousMesh_data()
