@@ -34,6 +34,8 @@
 #include <QScrollArea>
 #include <QStandardItemModel>
 #include <QTableWidget>
+#include <QScopeGuard>
+#include "ui/util/numerictablewidgetitem.h"
 #include <QVBoxLayout>
 #include <QUuid>
 #include <QtConcurrent/QtConcurrentRun>
@@ -114,7 +116,7 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer*model,SWMM2DMesh
  m_flowSeries=new QComboBox(m_sourceControls);m_flowSeries->setObjectName("gwAssignmentFlowSeries");m_flowSeries->addItem(tr("Constant value"),QString());GroundwaterTransportSnapshot catalog;
  if(readGroundwaterTransportSnapshot(m_engine,&catalog,&speciesError))for(auto it=catalog.timeSeries.cbegin();it!=catalog.timeSeries.cend();++it)m_flowSeries->addItem(it.key(),it.key());sourceForm->addRow(tr("Flow time series:"),m_flowSeries);
  auto*explanation=new QLabel(tr("Each application adds new named sources alongside existing forcing. Undo removes that batch. Flow is signed m³/s: positive injects; negative extracts at in-situ concentration. CONC uses the species' native concentration units; MASS uses native mass/s. Region totals split flow and MASS by cell area; CONC is unchanged. LAYER seeds and hydraulic boundary chemistry are unavailable. Raster/feature values are per-cell rates, not flux density."),m_sourceControls);explanation->setWordWrap(true);sourceForm->addRow(explanation);
- m_terms=new QTableWidget(0,5,m_sourceControls);m_terms->setObjectName("gwAssignmentTerms");m_terms->setHorizontalHeaderLabels({tr("Species"),tr("Term"),tr("Constant"),tr("Time series"),tr("Native units")});m_terms->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);m_terms->setMaximumHeight(135);sourceForm->addRow(m_terms);
+ m_terms=new QTableWidget(0,5,m_sourceControls);m_terms->setObjectName("gwAssignmentTerms");m_terms->setHorizontalHeaderLabels({tr("Species"),tr("Term"),tr("Constant"),tr("Time series"),tr("Native units")});m_terms->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);m_terms->setMaximumHeight(135);sourceForm->addRow(m_terms);
  auto*termButtons=new QWidget(m_sourceControls);auto*termLayout=new QHBoxLayout(termButtons);termLayout->setContentsMargins(0,0,0,0);auto*addTerm=new QPushButton(tr("Add species term"),termButtons);auto*removeTerm=new QPushButton(tr("Remove selected term"),termButtons);termLayout->addWidget(addTerm);termLayout->addWidget(removeTerm);sourceForm->addRow(termButtons);form->addRow(m_sourceControls);
  addTerm->setAutoDefault(false);removeTerm->setAutoDefault(false);
  m_terms->setAccessibleName(tr("Groundwater source species terms"));m_terms->setAccessibleDescription(tr("Each row adds one species concentration or mass-rate term. Native units are shown in the last column."));
@@ -133,7 +135,7 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer*model,SWMM2DMesh
  m_offset=new QDoubleSpinBox(this);m_offset->setDecimals(12);m_offset->setRange(-1e15,1e15);form->addRow(tr("Source offset:"),m_offset);
  m_skip=new QCheckBox(tr("Preserve cells with NoData / no coverage (otherwise refuse the batch)"),this);form->addRow(m_skip);
  m_status=new QLabel(tr("Choose a target and scope, then Preview. No model values change during preview."),this);m_status->setObjectName("gwAssignmentStatus");m_status->setWordWrap(true);m_status->setTextFormat(Qt::PlainText);outer->addWidget(m_status);
- m_table=new QTableWidget(0,3,this);m_table->setObjectName("gwAssignmentPreview");m_table->setHorizontalHeaderLabels({tr("Cell"),tr("Old effective value"),tr("New value")});m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);outer->addWidget(m_table,1);
+ m_table=new QTableWidget(0,3,this);m_table->setObjectName("gwAssignmentPreview");m_table->horizontalHeader()->setSortIndicator(-1,Qt::AscendingOrder);m_table->setSortingEnabled(true);m_table->setHorizontalHeaderLabels({tr("Cell"),tr("Old effective value"),tr("New value")});m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);outer->addWidget(m_table,1);
  m_table->setAccessibleName(tr("Reviewed groundwater assignments"));m_table->setAccessibleDescription(tr("Preview of affected cell numbers and reviewed values. Apply reviewed values commits this batch."));
  auto*buttons=new QDialogButtonBox(QDialogButtonBox::Close,this);m_preview=buttons->addButton(tr("Preview"),QDialogButtonBox::ActionRole);m_preview->setObjectName("gwAssignmentPreviewButton");m_apply=buttons->addButton(tr("Apply reviewed values"),QDialogButtonBox::ApplyRole);m_apply->setObjectName("gwAssignmentApplyButton");m_apply->setEnabled(false);outer->addWidget(buttons);
  connect(m_preview,&QPushButton::clicked,this,&GroundwaterAssignDialog::preview);connect(m_apply,&QPushButton::clicked,this,&GroundwaterAssignDialog::apply);connect(buttons,&QDialogButtonBox::rejected,this,&GroundwaterAssignDialog::reject);
@@ -280,18 +282,20 @@ void GroundwaterAssignDialog::finishPreview(){
  QString error;if(!currentContext(&error)){m_status->setText(error);return;}
  const QString previewError=result.isTransport?result.transport.error:result.preview.error;
  if(!result.error.isEmpty()||!previewError.isEmpty()){m_status->setText(result.error.isEmpty()?previewError:result.error);return;}
+ m_table->setSortingEnabled(false);
+ const auto restoreSorting=qScopeGuard([this]{m_table->setSortingEnabled(true);});
  if(result.isTransport){m_reviewed=result;m_havePreview=true;const auto&p=result.transport;m_table->setRowCount(std::min(qsizetype(500),p.cells.size()));
   m_table->setHorizontalHeaderLabels({tr("Cell"),tr("Previous records"),tr("Reviewed value / series")});
   QHash<int,QString> sourceValues;
   if(p.target==GroundwaterTransportTarget::Source)for(int i=p.before.sources.size();i<p.after.sources.size();++i){const auto&r=p.after.sources[i];sourceValues.insert(r.cell,(r.series.isEmpty()?QString::number(r.flow,'g',17):r.series)+tr(" × %1").arg(r.scale,0,'g',17));}
   for(int i=0;i<m_table->rowCount();++i){const int cell=p.cells[i];const int at=int(std::lower_bound(m_scope.begin(),m_scope.end(),cell)-m_scope.begin());QString value=at<result.values.size()?QString::number(result.values[at],'g',17):QString();
    if(p.target==GroundwaterTransportTarget::Source)value=sourceValues.value(cell);
-   m_table->setItem(i,0,new QTableWidgetItem(QString::number(cell+1)));m_table->setItem(i,1,new QTableWidgetItem(tr("Preserved / checked upsert")));m_table->setItem(i,2,new QTableWidgetItem(value));}
+   m_table->setItem(i,0,new openswmmvis::ui::NumericTableWidgetItem(QString::number(cell+1)));m_table->setItem(i,1,new openswmmvis::ui::NumericTableWidgetItem(tr("Preserved / checked upsert")));m_table->setItem(i,2,new openswmmvis::ui::NumericTableWidgetItem(value));}
   QString totals;if(p.target==GroundwaterTransportTarget::Source){double flow=0;bool series=false;for(int i=p.before.sources.size();i<p.after.sources.size();++i){const auto&r=p.after.sources[i];flow+=r.flow*r.scale;series|=!r.series.isEmpty();}totals=series?tr(" Flow series and area scales are preserved; no single instantaneous total is implied."):tr(" Total authored constant flow: %1 m³/s.").arg(flow,0,'g',17);}
   m_status->setText(tr("Preview: %1 cells; %2 NoData cells preserved. Existing unrelated transport records are retained.%3").arg(p.cells.size()).arg(p.skippedCells.size()).arg(totals));m_apply->setEnabled(p.before!=p.after);return;}
  m_table->setHorizontalHeaderLabels({tr("Cell"),tr("Old effective value"),tr("New value")});
  m_reviewed=result;m_havePreview=true;m_table->setRowCount(std::min(qsizetype(500),result.preview.cells.size()));
- for(int i=0;i<m_table->rowCount();++i){m_table->setItem(i,0,new QTableWidgetItem(QString::number(result.preview.cells[i]+1)));m_table->setItem(i,1,new QTableWidgetItem(QString::number(result.preview.oldValues[i],'g',17)));m_table->setItem(i,2,new QTableWidgetItem(QString::number(result.preview.newValues[i],'g',17)));}
+ for(int i=0;i<m_table->rowCount();++i){m_table->setItem(i,0,new openswmmvis::ui::NumericTableWidgetItem(QString::number(result.preview.cells[i]+1)));m_table->setItem(i,1,new openswmmvis::ui::NumericTableWidgetItem(QString::number(result.preview.oldValues[i],'g',17)));m_table->setItem(i,2,new openswmmvis::ui::NumericTableWidgetItem(QString::number(result.preview.newValues[i],'g',17)));}
  m_status->setText(tr("Preview: %1 changed cells; %2 cells preserved for NoData / no coverage. Original aquifer rows and mesh tags are retained. The table shows up to 500 changed cells. This property/initial-state assignment adds no sustained water or mass rate.").arg(result.preview.cells.size()).arg(result.preview.skippedCells.size()));
  m_apply->setEnabled(!result.preview.appended.isEmpty());
 }

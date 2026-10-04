@@ -168,7 +168,7 @@ QWidget *RasterSymbologyPanel::buildPalettedPage()
     m_palTable->setObjectName(QStringLiteral("rasterPalettedTable"));
     m_palTable->setModel(m_palModel);
     m_palTable->setItemDelegateForColumn(kColColor, new ColorCellDelegate(m_palTable));
-    m_palTable->horizontalHeader()->setStretchLastSection(true);
+    m_palTable->horizontalHeader()->setStretchLastSection(false);
     m_palTable->verticalHeader()->setVisible(false);
     m_palTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_palTable->setMinimumHeight(160);

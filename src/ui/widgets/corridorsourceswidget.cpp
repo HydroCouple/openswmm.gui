@@ -112,7 +112,7 @@ CorridorSourcesWidget::CorridorSourcesWidget(QWidget *parent) : QWidget(parent)
     }
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_table->setMinimumHeight(140);
     layout->addWidget(m_table);
     m_remove = new QPushButton(tr("&Remove selected sources"), this);

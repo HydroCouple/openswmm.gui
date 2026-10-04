@@ -429,7 +429,7 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
     table->setAccessibleName(tr("Selected cell result")); table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setHorizontalHeaderLabels({tr("Cell"),tr("Status"),tr("Raw value"),tr("Units")});
     table->setToolTip(tr("Select a mesh cell on the map to inspect this variable. Missing and waterless values are not physical zeros."));
-    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents); form->addRow(table);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive); form->addRow(table);
     auto *exportButton=new QPushButton(tr("Export current variable to CSV…"),page);
     exportButton->setObjectName("additionalResultExport");
     exportButton->setToolTip(tr("Exports all cells for this variable at the current report frame, with native units and availability status."));

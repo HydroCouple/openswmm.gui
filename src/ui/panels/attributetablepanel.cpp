@@ -58,9 +58,13 @@
 #include <QClipboard>
 #include <QComboBox>
 #include <QCryptographicHash>
+#include <QCompleter>
+#include <QAbstractItemView>
+#include <QStringListModel>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QScopeGuard>
+#include <QScrollBar>
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
@@ -84,6 +88,7 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QShortcut>
+#include <QSignalBlocker>
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
 #include <QTableView>
@@ -107,6 +112,68 @@ Q_LOGGING_CATEGORY(lcAttrTbl, "openswmm.attr-table")
 // lcTsLoad* idiom): same category NAME as swmmvis.cpp's lcLoadGui, local
 // symbol to avoid a cross-TU export for a log category.
 Q_LOGGING_CATEGORY(lcLoadGuiAtp, "openswmm.load.gui")
+
+// Completes only the token at the cursor; quoted literals and the suffix stay intact.
+class QueryLineEdit final : public QLineEdit
+{
+public:
+    explicit QueryLineEdit(QWidget *parent) : QLineEdit(parent) {
+        m_completer = new QCompleter(this);
+        m_candidates = new QStringListModel(this);
+        m_completer->setModel(m_candidates);
+        m_completer->setWidget(this);
+        m_completer->setCompletionMode(QCompleter::PopupCompletion);
+        m_completer->setCaseSensitivity(Qt::CaseInsensitive);
+        connect(this, &QLineEdit::textEdited, this, [this] { showSuggestions(); });
+        connect(m_completer, qOverload<const QString &>(&QCompleter::activated), this,
+                [this](const QString &candidate) {
+            const auto suggestions = openswmmvis::suggestQuery(text(), cursorPosition(), m_fields);
+            const int cursor = cursorPosition();
+            QString updated = text();
+            updated.replace(suggestions.start, cursor - suggestions.start, candidate);
+            setText(updated);
+            setCursorPosition(suggestions.start + candidate.size());
+        });
+    }
+    void setFields(const QStringList &fields) {
+        m_fields = fields;
+        m_completer->popup()->hide();
+    }
+protected:
+    void keyPressEvent(QKeyEvent *event) override {
+        if (event->key() == Qt::Key_Space && event->modifiers().testFlag(Qt::ControlModifier)) {
+            showSuggestions(true);
+            event->accept();
+            return;
+        }
+        QLineEdit::keyPressEvent(event);
+    }
+private:
+    void showSuggestions(bool explicitRequest = false) {
+        const auto suggestions = openswmmvis::suggestQuery(text(), cursorPosition(), m_fields);
+        // A finished value should still allow Return to apply the query.
+        if (!explicitRequest && suggestions.start == cursorPosition()
+            && !text().left(cursorPosition()).endsWith(' ')) {
+            m_completer->popup()->hide();
+            return;
+        }
+        if (!explicitRequest && suggestions.candidates.size() == 1
+            && suggestions.candidates.first().compare(text().mid(suggestions.start, cursorPosition() - suggestions.start), Qt::CaseInsensitive) == 0) {
+            m_completer->popup()->hide();
+            return;
+        }
+        m_candidates->setStringList(suggestions.candidates);
+        m_completer->setCompletionPrefix(QString());
+        if (suggestions.candidates.isEmpty()) { m_completer->popup()->hide(); return; }
+        QRect rectangle = cursorRect();
+        rectangle.setWidth(qMax(240, m_completer->popup()->sizeHintForColumn(0)
+                               + m_completer->popup()->verticalScrollBar()->sizeHint().width()));
+        m_completer->complete(rectangle);
+    }
+    QStringList m_fields;
+    QCompleter *m_completer = nullptr;
+    QStringListModel *m_candidates = nullptr;
+};
 
 // ---------------------------------------------------------------------------
 // GISVectorAttributeTableModel — read-only QAbstractTableModel over an
@@ -337,6 +404,7 @@ public:
         m_src  = src;
         m_pred = p;
         m_cols.clear();
+        m_missing.clear();
         if (!src || !p.isValid()) return;
 
         const auto specs = specsFor(src);
@@ -373,8 +441,11 @@ public:
             // name: lookupField returns an invalid QVariant and every
             // comparison against it is false.
             if (hit >= 0) m_cols.append({hit, field});
+            else m_missing.append(field);
         }
     }
+
+    QStringList missingFields() const { return m_missing; }
 
     [[nodiscard]] bool accepts(int srcRow, const QModelIndex &parent = {}) const
     {
@@ -393,6 +464,7 @@ public:
 private:
     QAbstractItemModel          *m_src = nullptr;
     openswmmvis::QueryPredicate  m_pred;
+    QStringList m_missing;
     QVector<QPair<int, QString>> m_cols;   // (source column, field as typed)
 };
 
@@ -816,7 +888,8 @@ void AttributeTablePanel::buildUi()
     auto *queryRow = new QHBoxLayout();
     queryRow->setContentsMargins(4, 0, 4, 2);
     queryRow->addWidget(new QLabel(tr("Query:"), this));
-    m_queryEdit = new QLineEdit(this);
+    m_queryEdit = new QueryLineEdit(this);
+    m_queryEdit->setObjectName(QStringLiteral("attributeQuery"));
     m_queryEdit->setPlaceholderText(
         tr("e.g.  \"Max depth\" > 5   •   Name LIKE 'J%'   •   Type IN ('Junction','Outfall')"));
     m_queryEdit->setToolTip(tr(
@@ -831,7 +904,7 @@ void AttributeTablePanel::buildUi()
         "• Numbers: 100, 3.14, -2\n"
         "• Strings: single-quoted — 'Junction'\n"
         "\n"
-        "Comparison: = != < <= > >=\n"
+        "Comparison: = != <> < <= > >=\n"
         "\n"
         "LIKE — case-insensitive pattern match on a string column:\n"
         "    Name LIKE 'J%'      — names starting with J\n"
@@ -843,7 +916,17 @@ void AttributeTablePanel::buildUi()
         "IN — match any of a list of values:\n"
         "    Type IN ('Junction','Outfall')\n"
         "\n"
-        "Combine with AND / OR / NOT, group with ( )."));
+        "NOT — negate a condition or a group:\n"
+        "    NOT (Name LIKE 'J%' OR Name = 'OUT')\n"
+        "    Name NOT IN ('J1', 'J2')\n"
+        "    Name NOT LIKE 'OUT%'\n"
+        "BETWEEN includes both endpoints; NOT BETWEEN excludes that range.\n"
+        "IS NULL / IS NOT NULL test missing values.\n"
+        "TRUE / FALSE are boolean literals; numbers also accept 1e-3 and .5.\n"
+        "Escape a quote by doubling it: 'O''Brien'.\n"
+        "Combine with AND / OR / NOT, group with ( ). NOT binds before AND, then OR.\n"
+        "Optional leading WHERE. Use this table's fields and displayed units.\n"
+        "Suggestions appear as you type; Ctrl+Space opens them at the cursor."));
     m_queryEdit->setClearButtonEnabled(true);
     queryRow->addWidget(m_queryEdit, 1);
     m_queryApply = new QPushButton(tr("Apply"), this);
@@ -915,10 +998,12 @@ void AttributeTablePanel::buildUi()
     m_view = new QTableView(this);
     m_view->setModel(m_proxy);
     m_view->setSortingEnabled(true);
+    connect(m_proxy, &QAbstractItemModel::modelReset, this, &AttributeTablePanel::updateQueryFields);
+    updateQueryFields();
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_view->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_view->setAlternatingRowColors(true);
-    m_view->horizontalHeader()->setStretchLastSection(true);
+    m_view->horizontalHeader()->setStretchLastSection(false);
     m_view->verticalHeader()->setDefaultSectionSize(
         m_view->verticalHeader()->minimumSectionSize());
 
@@ -1447,6 +1532,7 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
     // Z.2 — clear the query bar when the source changes because
     // the column-name set is different.
     onQueryClearClicked();
+    updateQueryFields();
 
     if (m_showSelectedOnly && m_selMgr)
         onSelectionManagerChanged(m_selMgr->selection(), {}, {});
@@ -1765,6 +1851,24 @@ bool AttributeTablePanel::gisSourceActive() const
 {
     return m_proxy && m_gisModel && m_proxy->sourceModel() == m_gisModel
            && m_gisModel->layer();
+}
+
+QSet<SWMMObjectRef> AttributeTablePanel::gisRefs(bool applyQuery) const
+{
+    QSet<SWMMObjectRef> refs;
+    if (!gisSourceActive()) return refs;
+    const auto pred = applyQuery ? openswmmvis::parseQuery(m_queryEdit->text().trimmed())
+                                : openswmmvis::QueryPredicate{};
+    if (!pred.error.isEmpty()) return refs;
+    RowPredicate predicate;
+    predicate.bind(m_gisModel, pred);
+    if (!predicate.missingFields().isEmpty()) return refs;
+    for (int row = 0; row < m_gisModel->rowCount(); ++row) {
+        const auto fid = m_gisModel->fidForRow(row);
+        if (fid >= 0 && predicate.accepts(row))
+            refs.insert(GisObjectRef::feature(m_gisModel->layer()->layerId(), fid));
+    }
+    return refs;
 }
 
 void AttributeTablePanel::gisSelectionToBus()
@@ -2693,6 +2797,25 @@ QVariant AttributeTablePanel::promptBulkValue(int column,
 // Slice Z.2 — query bar handlers
 // ---------------------------------------------------------------------------
 
+void AttributeTablePanel::updateQueryFields()
+{
+    if (!m_queryEdit || !m_proxy || !m_proxy->sourceModel()) return;
+    auto *source = m_proxy->sourceModel();
+    const auto specs = specsFor(source);
+    QStringList fields;
+    for (int column = 0; column < source->columnCount(); ++column) {
+        if (column < specs.size() && specs[column].editor == openswmmvis::EditorKind::Compound) continue;
+        fields.append(source->headerData(column, Qt::Horizontal).toString());
+        if (column < specs.size()) {
+            fields.append(specs[column].key);
+            fields.append(specs[column].label);
+        }
+    }
+    fields.removeAll(QString());
+    fields.removeDuplicates();
+    static_cast<QueryLineEdit *>(m_queryEdit)->setFields(fields);
+}
+
 void AttributeTablePanel::onQueryApplyClicked()
 {
     if (!m_queryEdit || !m_proxy || !m_queryStatus) return;
@@ -2702,7 +2825,15 @@ void AttributeTablePanel::onQueryApplyClicked()
     const QString text = m_queryEdit->text().trimmed();
     auto pred = openswmmvis::parseQuery(text);
 
-    if (!text.isEmpty() && !pred.isValid()) {
+    if (pred.error.isEmpty()) {
+        RowPredicate validator;
+        validator.bind(m_proxy->sourceModel(), pred);
+        if (!validator.missingFields().isEmpty()) {
+            pred.error = tr("Unknown or non-queryable column: %1").arg(validator.missingFields().join(", "));
+            pred.errorPos = 1;
+        }
+    }
+    if (!pred.error.isEmpty()) {
         // Parser error — colour the line edit + show the message.
         m_queryEdit->setStyleSheet(
             QStringLiteral("background-color: #FFD6D6;"));
@@ -2716,9 +2847,12 @@ void AttributeTablePanel::onQueryApplyClicked()
     // QT_LOGGING_RULES="openswmm.attr-table.debug=true".
     QElapsedTimer legTimer;
     legTimer.start();
+    // Filtering can remove selected view rows. That is not a user pick:
+    // preserve the bus so Add/Subtract/Intersect see the original selection.
+    QSignalBlocker selectionBlocker(m_view->selectionModel());
     fp->setQueryPredicate(pred, text);
-
     const int matched = m_proxy->rowCount();
+    selectionBlocker.unblock();
     const qint64 filterMs = legTimer.restart();
     const int total   = m_proxy->sourceModel() ? m_proxy->sourceModel()->rowCount() : 0;
     if (text.isEmpty())
@@ -2767,6 +2901,7 @@ QSet<SWMMObjectRef> AttributeTablePanel::matchedRefs() const
     QSet<SWMMObjectRef> out;
     if (meshSourceActive()) return meshRefs(/*applyQuery=*/true);
     if (dataSourceActive()) return dataRefs(/*applyQuery=*/true);
+    if (gisSourceActive()) return gisRefs(/*applyQuery=*/true);
     if (!m_model || !m_queryEdit) return out;
     // Z.4.3 — selection ops require a SWMM model source; tabular
     // sources have no SWMMObjectRefs.
@@ -2821,6 +2956,7 @@ QSet<SWMMObjectRef> AttributeTablePanel::allCategoryRefs() const
     QSet<SWMMObjectRef> out;
     if (meshSourceActive()) return meshRefs(/*applyQuery=*/false);
     if (dataSourceActive()) return dataRefs(/*applyQuery=*/false);
+    if (gisSourceActive()) return gisRefs(/*applyQuery=*/false);
     if (!m_model) return out;
     if (m_proxy && m_proxy->sourceModel() != m_model) return out;
     const SWMMObjectRef::ObjectType type =
@@ -2836,6 +2972,8 @@ QSet<SWMMObjectRef> AttributeTablePanel::allCategoryRefs() const
 void AttributeTablePanel::onSelectionApplyClicked()
 {
     if (!m_selMgr || !m_selGroup) return;
+    // Tabular sources can be filtered but do not have map selection identities.
+    if (m_proxy->sourceModel() == m_tabularModel) return;
     const int mode = m_selGroup->checkedId();
     if (mode < 0) return;
 

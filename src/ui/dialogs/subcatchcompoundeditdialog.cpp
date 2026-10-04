@@ -118,7 +118,7 @@ void SubcatchCompoundEditDialog::buildLandUsePage()
     m_luTable = new QTableWidget(0, 2, page);
     m_luTable->setAccessibleName(tr("Land use coverage percentages"));
     m_luTable->setHorizontalHeaderLabels({ tr("Land Use"), tr("Coverage (%)") });
-    m_luTable->horizontalHeader()->setStretchLastSection(true);
+    m_luTable->horizontalHeader()->setStretchLastSection(false);
     m_luTable->verticalHeader()->setVisible(false);
     m_luTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_luTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -172,7 +172,7 @@ void SubcatchCompoundEditDialog::buildLoadingsPage()
     m_loadTable->setAccessibleName(tr("Initial pollutant loadings"));
     m_loadTable->setHorizontalHeaderLabels(
         { tr("Pollutant"), tr("Initial Buildup (mass/area)") });
-    m_loadTable->horizontalHeader()->setStretchLastSection(true);
+    m_loadTable->horizontalHeader()->setStretchLastSection(false);
     m_loadTable->verticalHeader()->setVisible(false);
     m_loadTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_loadTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -227,7 +227,7 @@ void SubcatchCompoundEditDialog::buildLidUsagePage()
     m_lidTable->setHorizontalHeaderLabels({
         tr("LID Control"), tr("#"), tr("Area"), tr("Width"),
         tr("Init.Sat"), tr("%Imperv") });
-    m_lidTable->horizontalHeader()->setStretchLastSection(true);
+    m_lidTable->horizontalHeader()->setStretchLastSection(false);
     m_lidTable->verticalHeader()->setVisible(false);
     m_lidTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_lidTable->setSelectionMode(QAbstractItemView::SingleSelection);

@@ -155,7 +155,7 @@ void ImportFeatureLayerDialog::buildUi()
         ImportMappingModel::SourceCol,
         new SourceFieldDelegate(m_mappingModel, m_mappingView));
     m_mappingView->horizontalHeader()->setSectionResizeMode(
-        QHeaderView::Stretch);
+        QHeaderView::Interactive);
     m_mappingView->verticalHeader()->setVisible(false);
     m_mappingView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_mappingView->setEditTriggers(QAbstractItemView::AllEditTriggers);
@@ -229,7 +229,7 @@ void ImportFeatureLayerDialog::buildUi()
     m_previewView = new QTableView(this);
     m_previewView->setModel(m_previewModel);
     m_previewView->horizontalHeader()->setSectionResizeMode(
-        ImportPreviewModel::DetailCol, QHeaderView::Stretch);
+        ImportPreviewModel::DetailCol, QHeaderView::Interactive);
     m_previewView->verticalHeader()->setVisible(false);
     m_previewView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_previewView->setEditTriggers(QAbstractItemView::NoEditTriggers);

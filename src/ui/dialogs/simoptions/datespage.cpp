@@ -244,7 +244,7 @@ void DatesPage::buildUi()
     m_eventsTable = new QTableWidget(0, 2, evGroup);
     m_eventsTable->setHorizontalHeaderLabels(
         {tr("Start (MM/DD/YYYY HH:MM)"), tr("End (MM/DD/YYYY HH:MM)")});
-    m_eventsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_eventsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_eventsTable->verticalHeader()->setVisible(false);
     m_eventsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_eventsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);

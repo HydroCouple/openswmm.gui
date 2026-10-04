@@ -1,3 +1,4 @@
+#include "ui/util/numerictablewidgetitem.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ui/dialogs/traceanalysisdialog.h"
 #include "layers/swmmmodellayer.h"
@@ -704,7 +705,7 @@ void TraceAnalysisDialog::showDetails(TraceSublayer *part, QWidget *parent)
     table->setHorizontalHeaderLabels({tr("Type"), tr("ID"), tr("Flow fraction"),
                                       tr("Mean flow m³/s"), tr("Time min"), tr("Coverage %"),
                                       tr("Status")});
-    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     layout->addWidget(table);
     for (bool node : {true, false})
     {
@@ -725,9 +726,12 @@ void TraceAnalysisDialog::showDetails(TraceSublayer *part, QWidget *parent)
                               number(100 * v.time_coverage),
                               statusText(v.flags)};
             for (int col = 0; col < cells.size(); ++col)
-                table->setItem(row, col, new QTableWidgetItem(cells[col]));
+                table->setItem(row, col, new openswmmvis::ui::NumericTableWidgetItem(cells[col]));
         }
     }
+    table->resizeColumnsToContents();
+    table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+    table->setSortingEnabled(true);
     auto *exportButton = new QPushButton(tr("Export CSV…"));
     layout->addWidget(exportButton);
     QObject::connect(

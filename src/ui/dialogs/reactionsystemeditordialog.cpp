@@ -297,7 +297,7 @@ QWidget *ReactionSystemEditorDialog::buildSpeciesTab()
     m_speciesTable->setHorizontalHeaderLabels(
         {tr("Kind"), tr("Name"), tr("Units"), tr("Atol"), tr("Rtol")});
     m_speciesTable->verticalHeader()->setVisible(false);
-    m_speciesTable->horizontalHeader()->setStretchLastSection(true);
+    m_speciesTable->horizontalHeader()->setStretchLastSection(false);
     m_speciesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     lay->addWidget(m_speciesTable, 1);
 
@@ -338,7 +338,7 @@ QWidget *ReactionSystemEditorDialog::buildCoefficientsTab()
     m_coeffTable->setHorizontalHeaderLabels(
         {tr("Kind"), tr("Name"), tr("Value")});
     m_coeffTable->verticalHeader()->setVisible(false);
-    m_coeffTable->horizontalHeader()->setStretchLastSection(true);
+    m_coeffTable->horizontalHeader()->setStretchLastSection(false);
     m_coeffTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     lay->addWidget(m_coeffTable, 1);
 
@@ -378,7 +378,7 @@ QWidget *ReactionSystemEditorDialog::buildTermsTab()
     m_termTable->setObjectName(QStringLiteral("rx_termTable"));
     m_termTable->setHorizontalHeaderLabels({tr("Name"), tr("Expression")});
     m_termTable->verticalHeader()->setVisible(false);
-    m_termTable->horizontalHeader()->setStretchLastSection(true);
+    m_termTable->horizontalHeader()->setStretchLastSection(false);
     auto *del = new openswmmvis::ui::ReactionExpressionDelegate(
         m_engine, SWMM_RXN_SCOPE_TERM, m_termTable);
     m_termTable->setItemDelegateForColumn(1, del);
@@ -440,7 +440,7 @@ QWidget *ReactionSystemEditorDialog::buildExpressionsTab()
     m_exprTable->setHorizontalHeaderLabels(
         {tr("Species"), tr("Scope"), tr("Form"), tr("Expression")});
     m_exprTable->verticalHeader()->setVisible(false);
-    m_exprTable->horizontalHeader()->setStretchLastSection(true);
+    m_exprTable->horizontalHeader()->setStretchLastSection(false);
     auto *del = new openswmmvis::ui::ReactionExpressionDelegate(
         m_engine, SWMM_RXN_SCOPE_PIPE, m_exprTable);
     m_exprTable->setItemDelegateForColumn(3, del);
@@ -496,7 +496,7 @@ QWidget *ReactionSystemEditorDialog::buildInitialQualityTab()
     m_initGlobalTable->setHorizontalHeaderLabels(
         {tr("Species"), tr("Value")});
     m_initGlobalTable->verticalHeader()->setVisible(false);
-    m_initGlobalTable->horizontalHeader()->setStretchLastSection(true);
+    m_initGlobalTable->horizontalHeader()->setStretchLastSection(false);
     m_initGlobalTable->setSelectionMode(QAbstractItemView::NoSelection);
     lay->addWidget(m_initGlobalTable);
 
@@ -510,7 +510,7 @@ QWidget *ReactionSystemEditorDialog::buildInitialQualityTab()
     m_initOverrideTable->setHorizontalHeaderLabels(
         {tr("Scope"), tr("Element"), tr("Species"), tr("Value")});
     m_initOverrideTable->verticalHeader()->setVisible(false);
-    m_initOverrideTable->horizontalHeader()->setStretchLastSection(true);
+    m_initOverrideTable->horizontalHeader()->setStretchLastSection(false);
     lay->addWidget(m_initOverrideTable, 1);
 
     auto *btnRow = new QHBoxLayout;

@@ -44,8 +44,8 @@ LegendPropertiesDialog::LegendPropertiesDialog(LegendOverlayStyle *style, QWidge
 
     auto *pm = new QPropertyModel(m_style.data(), this);
     m_tree->setModel(pm);
-    m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_tree->header()->setStretchLastSection(true);
+    m_tree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_tree->header()->setStretchLastSection(false);
     m_tree->expandAll();
 
     root->addWidget(m_tree, 1);

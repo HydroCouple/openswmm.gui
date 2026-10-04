@@ -170,7 +170,7 @@ void ComparisonPlotDialog::buildUi()
 
     m_seriesTree = new QTreeWidget(m_leftHost);
     m_seriesTree->setHeaderLabels({tr("Series")});
-    m_seriesTree->header()->setStretchLastSection(true);
+    m_seriesTree->header()->setStretchLastSection(false);
     m_seriesTree->setRootIsDecorated(true);
     // Slice AT.3 — right-click context menu on tree items.
     m_seriesTree->setContextMenuPolicy(Qt::CustomContextMenu);

@@ -381,6 +381,25 @@ use the **Analysis** menu or ribbon for analysis commands. The **Overview Map**
 navigator is not created in this build. See \ref manual_map_navigation for
 the supported navigation tools.
 
+### Working with tables in dialogs
+
+To reveal a long label or make room for more columns, drag the divider between
+two column headers. The last column can be resized too. Double-click a divider
+to fit that column to its contents. Dialogs that remember their layout restore
+your column widths when reopened; those widths remain adjustable.
+
+In sortable tables, click a column header to sort ascending and click it again
+to reverse the order. The header arrow shows the current direction. Numeric
+results sort by value, including statistics and rainfall summaries. Sorting a
+profile-path or GIS-sublayer picker keeps each row attached to its original
+item, so select the desired row and accept as usual.
+
+Tables whose row order defines the input keep that order: curve points,
+time-series entries, pattern factors, transect stations and rule sequences are
+examples. Resize their columns in the same way; use the editor's row controls
+to change the input sequence. For filtering and selecting objects with a
+query, see \ref manual_attribute_tables.
+
 ### Status bar
 
 Left to right, all of these are permanent widgets on the right-hand side of the

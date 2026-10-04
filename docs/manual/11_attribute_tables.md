@@ -86,8 +86,10 @@ Link offset columns follow the `LINK_OFFSETS` mode — **Inlet/Outlet Offset** i
 depth mode, **Upstream/Downstream Elevation** in elevation mode. See
 \ref manual_object_browser.
 
-Column widths are remembered per category (and per mesh element kind) across
-sessions, and every column is at least as wide as its header.
+Drag the divider between column headers to change a width, including the last
+column. Double-click a divider to fit the column to its contents. Column widths
+are remembered per category (and per mesh element kind) across sessions, and
+every column is at least as wide as its header.
 
 #### Dynamics columns
 
@@ -139,12 +141,16 @@ Boundary = 'Yes' AND Length > 12
 | Element | Rules |
 |---|---|
 | Column names | Quote with `"double quotes"` or `[brackets]` when they contain spaces. Lookup is case-insensitive |
-| Numbers | `100`, `3.14`, `-2` |
-| Strings | Single-quoted — `'Junction'` |
-| Comparison | `=` `!=` `<` `<=` `>` `>=` |
+| Numbers | `100`, `3.14`, `-2`, `+.5`, `1e-3` |
+| Strings | Single-quoted — `'Junction'`; double embedded quotes: `'O''Brien'` |
+| Comparison | `=` `!=` `<>` `<` `<=` `>` `>=` |
 | `LIKE` | Case-insensitive pattern match on a string column. `%` matches any sequence including none; `_` matches exactly one character |
 | `IN` | Match any of a list — `Type IN ('Junction','Outfall')` |
-| Combining | `AND`, `OR`, `NOT`, grouped with `( )` |
+| Negation | `NOT (condition)`, `Name NOT LIKE 'OUT%'`, `Name NOT IN ('J1', 'J2')` |
+| Ranges | `Area BETWEEN 0.5 AND 2` includes both endpoints; `Area NOT BETWEEN 0.5 AND 2` excludes the range |
+| Missing values | `Field IS NULL`, `Field IS NOT NULL`; an empty string is a value, not NULL |
+| Booleans | `TRUE`, `FALSE`; enumerations use the displayed labels, for example `'Yes'` |
+| Combining | `AND`, `OR`, `NOT`, grouped with `( )`; precedence is comparison, `NOT`, `AND`, then `OR` |
 
 A malformed clause is reported in the status label with the error position,
 and the new clause is not applied. Any previous valid filter and selection
@@ -153,13 +159,76 @@ remove the previous filter.
 
 \fig{11_query_error.png, Name LIKE without a string is rejected while the previous three matching conduits remain visible}
 
-A syntactically valid clause using an unknown column can instead return zero
-matches without a syntax error. For example, `MissingColumn > 5` does so in
-the Conduits table. Check the actual column header when an unexpected query
-returns no rows.
+Unknown columns and compound editor cells are reported as errors, preserving
+any previous filter and selection. Query scalar fields using a column header,
+label or schema key. Numbers use the table's displayed units. String equality
+is case-sensitive; `LIKE` is case-insensitive. NULL comparisons remain unknown
+even under `NOT`, so use `IS NULL` to find missing values.
+
+Suggestions appear as you type column names and operators. Use **Ctrl+Space**
+to open suggestions at the cursor, arrow keys to choose, and **Enter** to
+insert. Completion replaces the current token and preserves the rest of the
+query. Fields with spaces are quoted automatically. Suggestions update when
+the table source or schema changes. An optional leading `WHERE` is accepted;
+this bar takes a predicate, not a full `SELECT` statement.
 
 The query bar works on every source, including the read-only ones — the
-predicate evaluator runs over rows, not over the engine.
+predicate evaluator runs over rows, not over the engine. SWMM objects, mesh
+vertices/edges/cells, data objects and GIS features support query selection.
+CSV/TSV sources support filtering and export; applying a query there preserves
+the current map selection.
+
+#### Build an exclusion query with suggestions
+
+1. Open **Analysis → Tabular View** and choose **Conduits** in **Category:**.
+   Check the unit in the **Length** header; query numbers use that unit.
+2. Click the query bar and begin typing `Na`. Choose **Name** from the
+   suggestions with the arrow keys and press **Enter** to insert it. You can
+   also press **Ctrl+Space** at the cursor to request suggestions.
+3. Complete the clause below. It excludes names beginning with `TEMP` and
+   includes lengths from 10 through 100, including both endpoints:
+
+   ```sql
+   Name NOT LIKE 'TEMP%' AND Length BETWEEN 10 AND 100
+   ```
+
+4. Choose **Replace** in the **Selection:** controls and press **Apply**.
+   The table shows matching rows, the status reports the match count, and the
+   corresponding conduits are selected. Click **Length** to sort the matches.
+5. Use **Add**, **Subtract** or **Intersect** before applying another query to
+   combine its matches with the current selection. **Clear** restores all table
+   rows and keeps the selection.
+
+**Enter** accepts a highlighted suggestion while the suggestion list is open;
+with the list closed, **Enter** applies the query. To change part of an existing
+clause, place the cursor in that field or keyword and request suggestions;
+accepting one preserves the text after the token.
+
+To exclude several names, use `Name NOT IN ('C1', 'C2')`. To negate a group,
+use `NOT (Name LIKE 'TEMP%' OR Length < 10)`. For a field that can be missing,
+use `Field IS NULL` or `Field IS NOT NULL`, replacing `Field` with a scalar
+column from the chosen source. `NOT (Field = 5)` does not include missing
+values; use `Field IS NULL OR Field != 5` when that is the intended selection.
+
+#### Query another source
+
+Choose the desired source in **Category:** before building the clause.
+Suggestions then show that source's fields. Use the headers in the current
+table; a field from the previous source may not exist in the new one.
+
+| Source | Applying a valid query |
+|---|---|
+| SWMM object categories | Filters rows and updates object selection using the chosen selection mode |
+| Data-object categories | Filters rows and selects the matching data objects |
+| Mesh vertices, edges or cells | Filters rows and selects the matching elements of that mesh |
+| GIS feature layers | Filters rows and selects features in that layer; field names containing spaces are quoted by completion |
+| CSV/TSV tables | Filters rows for inspection, copying and export; the map selection stays in place |
+
+Only sources offered by the picker have attribute queries. Raster pixels and
+rendering-only sublayers do not have a row table here. If **Apply** reports a
+syntax or field error, correct the reported position or choose a field from
+suggestions and apply again. The last valid filter and selection stay in place
+until the corrected clause succeeds or you press **Clear**.
 
 ### Selection
 

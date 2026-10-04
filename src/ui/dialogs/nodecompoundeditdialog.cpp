@@ -299,7 +299,7 @@ void NodeCompoundEditDialog::buildInflowsPage()
     m_inflowsTable->setHorizontalHeaderLabels({
         tr("Constituent"), tr("Type"), tr("Time Series"),
         tr("Baseline"), tr("M-Factor"), tr("S-Factor"), tr("Pattern")});
-    m_inflowsTable->horizontalHeader()->setStretchLastSection(true);
+    m_inflowsTable->horizontalHeader()->setStretchLastSection(false);
     m_inflowsTable->verticalHeader()->setVisible(false);
     m_inflowsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_inflowsTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -478,7 +478,7 @@ void NodeCompoundEditDialog::buildDwfPage()
     m_dwfTable->setHorizontalHeaderLabels({
         tr("Constituent"), tr("Average"),
         tr("Monthly"), tr("Daily"), tr("Hourly"), tr("Weekend")});
-    m_dwfTable->horizontalHeader()->setStretchLastSection(true);
+    m_dwfTable->horizontalHeader()->setStretchLastSection(false);
     m_dwfTable->verticalHeader()->setVisible(false);
     m_dwfTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_dwfTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -620,7 +620,7 @@ void NodeCompoundEditDialog::buildRdiiPage()
     m_rdiiTable = new QTableWidget(0, 2, page);
     m_rdiiTable->setAccessibleName(tr("RDII inflows"));
     m_rdiiTable->setHorizontalHeaderLabels({tr("UH Group"), tr("Sewer Area")});
-    m_rdiiTable->horizontalHeader()->setStretchLastSection(true);
+    m_rdiiTable->horizontalHeader()->setStretchLastSection(false);
     m_rdiiTable->verticalHeader()->setVisible(false);
     m_rdiiTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_rdiiTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -750,7 +750,7 @@ void NodeCompoundEditDialog::buildTreatmentPage()
     m_treatmentTable->setAccessibleName(tr("Pollutant treatment expressions"));
     m_treatmentTable->setHorizontalHeaderLabels(
         {tr("Pollutant"), tr("Expression")});
-    m_treatmentTable->horizontalHeader()->setStretchLastSection(true);
+    m_treatmentTable->horizontalHeader()->setStretchLastSection(false);
     m_treatmentTable->verticalHeader()->setVisible(false);
     m_treatmentTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     vlay->addWidget(m_treatmentTable, 1);

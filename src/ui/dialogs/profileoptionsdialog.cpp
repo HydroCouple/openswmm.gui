@@ -207,16 +207,18 @@ void ProfileOptionsDialog::buildSourcesTab()
         { tr("Visible"), tr("Colour"), tr("Scenario"), tr("File"), tr("Project") });
     m_sourcesView->setModel(m_sourcesModel);
     m_sourcesView->setRootIsDecorated(false);
+    m_sourcesView->header()->setSortIndicator(-1, Qt::AscendingOrder);
+    m_sourcesView->setSortingEnabled(true);
     m_sourcesView->setAlternatingRowColors(true);
     m_sourcesView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_sourcesView->setEditTriggers(QAbstractItemView::DoubleClicked
                                    | QAbstractItemView::EditKeyPressed);
     m_sourcesView->header()->setStretchLastSection(false);
-    m_sourcesView->header()->setSectionResizeMode(ColName,    QHeaderView::Stretch);
-    m_sourcesView->header()->setSectionResizeMode(ColFile,    QHeaderView::Stretch);
-    m_sourcesView->header()->setSectionResizeMode(ColProject, QHeaderView::ResizeToContents);
-    m_sourcesView->header()->setSectionResizeMode(ColVisible, QHeaderView::ResizeToContents);
-    m_sourcesView->header()->setSectionResizeMode(ColColor,   QHeaderView::ResizeToContents);
+    m_sourcesView->header()->setSectionResizeMode(ColName,    QHeaderView::Interactive);
+    m_sourcesView->header()->setSectionResizeMode(ColFile,    QHeaderView::Interactive);
+    m_sourcesView->header()->setSectionResizeMode(ColProject, QHeaderView::Interactive);
+    m_sourcesView->header()->setSectionResizeMode(ColVisible, QHeaderView::Interactive);
+    m_sourcesView->header()->setSectionResizeMode(ColColor,   QHeaderView::Interactive);
     splitter->addWidget(m_sourcesView);
 
     // ── Right: per-source style editor (QPropertyModel-backed) ───────────

@@ -64,7 +64,7 @@ UserFlagsDialog::UserFlagsDialog(UserFlagsModel *model, QWidget *parent)
     // User-resizable columns; Description absorbs leftover width but can
     // still be dragged since only the last section stretches.
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_table->horizontalHeader()->setStretchLastSection(true);
+    m_table->horizontalHeader()->setStretchLastSection(false);
     m_table->setColumnWidth(ColName, 160);
     m_table->setColumnWidth(ColType, 90);
     m_table->verticalHeader()->setVisible(false);

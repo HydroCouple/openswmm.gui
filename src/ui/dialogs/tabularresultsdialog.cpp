@@ -75,7 +75,7 @@ void TabularResultsDialog::buildUi()
     m_table->setModel(m_model);
     m_table->setSortingEnabled(true);
     m_table->setAlternatingRowColors(true);
-    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     root->addWidget(m_table, 1);
 
     // Buttons.

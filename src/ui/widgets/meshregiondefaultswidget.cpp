@@ -205,8 +205,8 @@ MeshRegionDefaultsWidget::MeshRegionDefaultsWidget(QWidget *parent)
                              | QAbstractItemView::AnyKeyPressed);
     m_table->setAlternatingRowColors(true);
     m_table->setItemDelegate(new RegionDefaultsDelegate(m_table));
-    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_table->horizontalHeader()->setSectionResizeMode(ColRegion, QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_table->horizontalHeader()->setSectionResizeMode(ColRegion, QHeaderView::Interactive);
     m_table->setMinimumHeight(140);
     lay->addWidget(m_table, 1);
 

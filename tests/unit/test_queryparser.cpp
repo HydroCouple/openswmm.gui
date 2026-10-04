@@ -207,3 +207,60 @@ TEST(QueryParser, LikeRegexSurvivesPredicateCopy) {
     auto copy = p;
     EXPECT_TRUE(evaluateQuery(copy, row()));
 }
+
+TEST(QueryParser, ExtendedNegatedPredicatesAndWhere) {
+    for (const auto &clause : {
+             "WHERE Name NOT IN ('J2', 'J3')", "Name NOT LIKE 'OUT%'",
+             "[Max depth] NOT BETWEEN 5 AND 10", "NOT (Name = 'OUT' OR [Max depth] < 0)",
+             "Name <> 'J2'", "[Max depth] BETWEEN +.5 AND 4e0"}) {
+        const auto predicate = parseQuery(clause);
+        ASSERT_TRUE(predicate.isValid()) << clause << ": " << predicate.error.toStdString();
+        EXPECT_TRUE(evaluateQuery(predicate, row())) << clause;
+    }
+    EXPECT_FALSE(evaluateQuery(parseQuery("Name NOT IN ('J1', 'J2')"), row()));
+    EXPECT_FALSE(evaluateQuery(parseQuery("[Max depth] NOT BETWEEN 4 AND 10"), row()));
+}
+
+TEST(QueryParser, QuotesBooleansAndNullSemantics) {
+    const QVariantMap values{{"owner", "O'Brien"}, {"enabled", true}, {"missing", QVariant()},
+                             {"quote\"field", "value"}};
+    EXPECT_TRUE(evaluateQuery(parseQuery("owner = 'O''Brien' AND enabled = TRUE"), values));
+    EXPECT_TRUE(evaluateQuery(parseQuery("\"quote\"\"field\" = 'value'"), values));
+    EXPECT_TRUE(evaluateQuery(parseQuery("missing IS NULL AND owner IS NOT NULL"), values));
+    EXPECT_FALSE(evaluateQuery(parseQuery("NOT missing = 0"), values));
+    EXPECT_FALSE(evaluateQuery(parseQuery("missing NOT LIKE '%'"), values));
+    EXPECT_FALSE(evaluateQuery(parseQuery("missing NOT IN (1,2)"), values));
+    EXPECT_TRUE(evaluateQuery(parseQuery("missing = 0 OR enabled = TRUE"), values));
+    EXPECT_FALSE(evaluateQuery(parseQuery("missing = 0 AND enabled = FALSE"), values));
+    EXPECT_EQ(queryFieldNames(parseQuery("owner IS NULL OR enabled BETWEEN 0 AND 1")).size(), 2);
+}
+
+TEST(QueryParser, RejectsMalformedInputWithoutMatchingRows) {
+    for (const auto &clause : {"@", "Name = 'J1' @", "Name = 'J1", "[Name = 1",
+             "Name = 1.2.3", "Name = 1e", "Name = 1e999", "Name ! 1", "Name == 1",
+             "Name IN ()", "Name IN (1 2)", "Name IN (1,)", "Name BETWEEN 1 OR 2",
+             "Name NOT = 1", "Name IS TRUE", "WHERE"}) {
+        const auto predicate = parseQuery(clause);
+        EXPECT_FALSE(predicate.error.isEmpty()) << clause;
+        EXPECT_GT(predicate.errorPos, 0) << clause;
+        EXPECT_FALSE(evaluateQuery(predicate, row())) << clause;
+    }
+}
+
+TEST(QueryParser, SuggestionsFollowFieldsOperatorsAndCursor) {
+    using openswmmvis::suggestQuery;
+    const QStringList fields{"Name", "Max depth", "AND"};
+    auto result = suggestQuery("NOT Ma", 6, fields);
+    EXPECT_EQ(result.start, 4);
+    EXPECT_TRUE(result.candidates.contains("\"Max depth\""));
+    EXPECT_TRUE(suggestQuery("[Ma", 3, fields).candidates.contains("[Max depth]"));
+    EXPECT_TRUE(suggestQuery("\"Max ", 5, fields).candidates.contains("\"Max depth\""));
+    EXPECT_TRUE(suggestQuery("[Max ", 5, fields).candidates.contains("[Max depth]"));
+    EXPECT_TRUE(suggestQuery("Name NOT L", 10, fields).candidates.contains("LIKE"));
+    EXPECT_TRUE(suggestQuery("Name IS N", 9, fields).candidates.contains("NOT NULL"));
+    EXPECT_TRUE(suggestQuery("Name = 'J1' A", 13, fields).candidates.contains("AND"));
+    EXPECT_TRUE(suggestQuery("Name = 'unfinished", 18, fields).candidates.isEmpty());
+    result = suggestQuery("Na = 'J1'", 2, fields);
+    EXPECT_EQ(result.start, 0);
+    EXPECT_TRUE(result.candidates.contains("\"Name\""));
+}

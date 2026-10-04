@@ -294,7 +294,7 @@ void TransectEditorDialog::buildUi_()
         m_table = new QTableView(host);
         m_tableModel = new TransectStationTableModel(this);
         m_table->setModel(m_tableModel);
-        m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
         m_table->setAlternatingRowColors(true);
@@ -952,7 +952,7 @@ void TransectEditorDialog::onChartPropertiesClicked_()
     tree->setRootIsDecorated(false);
     auto *pm = new QPropertyModel(m_chartView, dlg);
     tree->setModel(pm);
-    tree->header()->setStretchLastSection(true);
+    tree->header()->setStretchLastSection(false);
 
     auto *lay = new QVBoxLayout(dlg);
     lay->addWidget(tree);

@@ -130,7 +130,7 @@ void CustomReportDialog::buildUi()
     m_resultTable = new QTableView(bot);
     m_resultTable->setModel(m_resultModel);
     m_resultTable->setSortingEnabled(true);
-    m_resultTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_resultTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     botLayout->addWidget(m_resultTable);
 
     auto *botBtns = new QHBoxLayout;

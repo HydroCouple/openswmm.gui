@@ -227,8 +227,8 @@ QWidget *makeGroupView(QPropertyModel *pm, const QStringList &propNames, QWidget
     proxy->setSourceModel(pm);
     proxy->setAllowedProperties(propNames);
     view->setModel(proxy);
-    view->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    view->header()->setStretchLastSection(true);
+    view->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    view->header()->setStretchLastSection(false);
     view->header()->setMinimumSectionSize(90);  // stop columns collapsing (Issue 1)
     view->expandAll();
     return view;
@@ -255,8 +255,8 @@ QWidget *buildSubjectEditor(QObject *propertyObject, QWidget *parent)
         view->setRootIsDecorated(false);
         view->setItemsExpandable(false);
         view->setModel(pm);
-        view->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-        view->header()->setStretchLastSection(true);
+        view->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+        view->header()->setStretchLastSection(false);
         view->header()->setMinimumSectionSize(90);  // stop columns collapsing (Issue 1)
         view->expandAll();
         return view;
@@ -894,8 +894,8 @@ void LayerStyleDialog::buildMetadataTab()
     m_metadataTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_metadataTable->setSelectionMode(QAbstractItemView::NoSelection);
     m_metadataTable->setWordWrap(true);
-    m_metadataTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_metadataTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_metadataTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_metadataTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_metadataTable->horizontalHeader()->setMinimumSectionSize(90);
     vlay->addWidget(m_metadataTable, 1);
 

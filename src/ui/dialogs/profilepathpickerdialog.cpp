@@ -8,6 +8,7 @@
 
 #include "layers/swmmmodellayer.h"
 #include "render/categoricalpalette.h"
+#include "ui/util/numerictablewidgetitem.h"
 
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -81,7 +82,7 @@ ProfilePathPickerDialog::ProfilePathPickerDialog(
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setMouseTracking(true);
     m_table->verticalHeader()->setVisible(false);
-    m_table->horizontalHeader()->setStretchLastSection(true);
+    m_table->horizontalHeader()->setStretchLastSection(false);
     m_table->setColumnWidth(0, 26);
     layout->addWidget(m_table, /*stretch=*/1);
 
@@ -90,6 +91,8 @@ ProfilePathPickerDialog::ProfilePathPickerDialog(
     layout->addWidget(m_buttons);
 
     populateTable();
+    m_table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+    m_table->setSortingEnabled(true);
 
     connect(m_table, &QTableWidget::currentCellChanged,
             this, [this](int curRow, int curCol, int prevRow, int prevCol) {
@@ -98,11 +101,12 @@ ProfilePathPickerDialog::ProfilePathPickerDialog(
     });
     connect(m_table, &QTableWidget::cellDoubleClicked,
             this, [this](int row, int /*col*/) {
-        if (row >= 0 && row < m_paths.size())
-            emit zoomToPathRequested(row);
+        if (auto *item = m_table->item(row, 0))
+            emit zoomToPathRequested(item->data(Qt::UserRole).toInt());
     });
     connect(m_buttons, &QDialogButtonBox::accepted, this, [this]() {
-        m_selectedIdx = m_table->currentRow();
+        auto *item = m_table->item(m_table->currentRow(), 0);
+        m_selectedIdx = item ? item->data(Qt::UserRole).toInt() : -1;
         if (m_selectedIdx < 0 && !m_paths.isEmpty()) m_selectedIdx = 0;
         accept();
     });
@@ -124,7 +128,8 @@ int ProfilePathPickerDialog::selectedPathIndex() const
 void ProfilePathPickerDialog::onCurrentRowChanged(int currentRow, int previousRow)
 {
     Q_UNUSED(previousRow)
-    emit hoveredPathChanged(currentRow);
+    auto *item = m_table->item(currentRow, 0);
+    emit hoveredPathChanged(item ? item->data(Qt::UserRole).toInt() : -1);
 }
 
 void ProfilePathPickerDialog::populateTable()
@@ -137,13 +142,14 @@ void ProfilePathPickerDialog::populateTable()
         summarizePath(i, lengthFt, conduits, nonConduits, dropFt);
 
         auto *colorItem = new QTableWidgetItem();
+        colorItem->setData(Qt::UserRole, i);
         colorItem->setIcon(QIcon(chip(CategoricalPalette::at(i))));
         m_table->setItem(i, 0, colorItem);
 
-        m_table->setItem(i, 1, new QTableWidgetItem(QString::number(lengthFt, 'f', 1)));
-        m_table->setItem(i, 2, new QTableWidgetItem(QString::number(conduits)));
-        m_table->setItem(i, 3, new QTableWidgetItem(QString::number(nonConduits)));
-        m_table->setItem(i, 4, new QTableWidgetItem(QString::number(dropFt, 'f', 2)));
+        m_table->setItem(i, 1, new openswmmvis::ui::NumericTableWidgetItem(QString::number(lengthFt, 'f', 1)));
+        m_table->setItem(i, 2, new openswmmvis::ui::NumericTableWidgetItem(QString::number(conduits)));
+        m_table->setItem(i, 3, new openswmmvis::ui::NumericTableWidgetItem(QString::number(nonConduits)));
+        m_table->setItem(i, 4, new openswmmvis::ui::NumericTableWidgetItem(QString::number(dropFt, 'f', 2)));
     }
 }
 

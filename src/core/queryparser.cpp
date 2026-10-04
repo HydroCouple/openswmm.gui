@@ -10,6 +10,7 @@
 #include <QRegularExpression>
 
 #include <climits>
+#include <cmath>
 
 namespace openswmmvis {
 
@@ -20,14 +21,14 @@ namespace {
 // ---------------------------------------------------------------------------
 
 enum class TokenKind {
-    End,
+    End, Invalid,
     Ident,
     Number,
     String,
     Op,         ///< < <= = != > >=
     LParen, RParen,
     Comma,
-    KwAnd, KwOr, KwNot, KwLike, KwIn,
+    KwAnd, KwOr, KwNot, KwLike, KwIn, KwBetween, KwIs, KwNull, KwTrue, KwFalse, KwWhere,
 };
 
 struct Token {
@@ -46,43 +47,44 @@ public:
         const int start = m_pos;
         const QChar c = m_in[m_pos];
 
-        // Quoted identifier:  "Invert elev"  or  [Invert elev]
-        if (c == '"' || c == '[') {
-            const QChar close = (c == '"') ? QChar('"') : QChar(']');
+        // SQL quoting: doubled delimiters escape a delimiter inside the token.
+        if (c == '"' || c == '[' || c == '\'') {
+            const QChar close = c == '[' ? QChar(']') : c;
+            const auto kind = c == '\'' ? TokenKind::String : TokenKind::Ident;
             ++m_pos;
-            QString s;
-            while (m_pos < m_in.size() && m_in[m_pos] != close)
-                s += m_in[m_pos++];
-            if (m_pos < m_in.size()) ++m_pos;  // consume closing
-            return {TokenKind::Ident, s, start};
+            QString value;
+            while (m_pos < m_in.size()) {
+                const QChar ch = m_in[m_pos++];
+                if (ch != close) { value += ch; continue; }
+                if (m_pos < m_in.size() && m_in[m_pos] == close) {
+                    value += close;
+                    ++m_pos;
+                    continue;
+                }
+                return {kind, value, start};
+            }
+            return {TokenKind::Invalid, QStringLiteral("Unterminated quoted token"), start};
         }
 
-        // String literal:  'value'
-        if (c == '\'') {
-            ++m_pos;
-            QString s;
-            while (m_pos < m_in.size() && m_in[m_pos] != '\'')
-                s += m_in[m_pos++];
-            if (m_pos < m_in.size()) ++m_pos;
-            return {TokenKind::String, s, start};
-        }
-
-        // Number:  -?\d+(\.\d+)?
-        if (c.isDigit() || (c == '-' && m_pos + 1 < m_in.size()
-                              && m_in[m_pos + 1].isDigit())) {
-            QString s;
-            if (c == '-') s += m_in[m_pos++];
-            while (m_pos < m_in.size()
-                   && (m_in[m_pos].isDigit() || m_in[m_pos] == '.'))
-                s += m_in[m_pos++];
-            return {TokenKind::Number, s, start};
+        // Decimal and scientific notation, including .5 and signed values.
+        if (c.isDigit() || c == '.' || c == '-' || c == '+') {
+            static const QRegularExpression number(
+                QStringLiteral(R"(^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)"));
+            const auto match = number.match(m_in.mid(m_pos));
+            if (match.hasMatch()) {
+                m_pos += match.capturedLength();
+                return {TokenKind::Number, match.captured(), start};
+            }
         }
 
         // Operators
         if (c == '<' || c == '>' || c == '=' || c == '!') {
             QString s; s += m_in[m_pos++];
-            if (m_pos < m_in.size() && m_in[m_pos] == '=')
+            if (m_pos < m_in.size() && (m_in[m_pos] == '='
+                || (c == '<' && m_in[m_pos] == '>')))
                 s += m_in[m_pos++];
+            if (s == "!" || s == "==")
+                return {TokenKind::Invalid, QStringLiteral("Invalid comparison operator"), start};
             return {TokenKind::Op, s, start};
         }
         if (c == '(') { ++m_pos; return {TokenKind::LParen, "(", start}; }
@@ -101,12 +103,18 @@ public:
             if (up == "NOT")  return {TokenKind::KwNot,  s, start};
             if (up == "LIKE") return {TokenKind::KwLike, s, start};
             if (up == "IN")   return {TokenKind::KwIn,   s, start};
+            if (up == "BETWEEN") return {TokenKind::KwBetween, s, start};
+            if (up == "IS") return {TokenKind::KwIs, s, start};
+            if (up == "NULL") return {TokenKind::KwNull, s, start};
+            if (up == "TRUE") return {TokenKind::KwTrue, s, start};
+            if (up == "FALSE") return {TokenKind::KwFalse, s, start};
+            if (up == "WHERE") return {TokenKind::KwWhere, s, start};
             return {TokenKind::Ident, s, start};
         }
 
         // Unrecognised character — let parser surface it.
         ++m_pos;
-        return {TokenKind::End, QString(c), start};
+        return {TokenKind::Invalid, QStringLiteral("Unexpected character: %1").arg(c), start};
     }
 
 private:
@@ -127,12 +135,14 @@ QRegularExpression likeToRegex(const QString &pattern);
 
 class Parser {
 public:
-    explicit Parser(const QString &input) : m_tok(input) { advance(); }
+    explicit Parser(const QString &input) : m_tok(input) { m_cur = m_tok.next(); }
 
     QueryPredicate parse() {
         QueryPredicate result;
         if (m_cur.kind == TokenKind::End) return result;  // empty == match-all
         try {
+            checkToken();
+            if (m_cur.kind == TokenKind::KwWhere) advance();
             result.root = parseOr();
             if (m_cur.kind != TokenKind::End)
                 throwAt(QStringLiteral("Unexpected trailing token"));
@@ -150,7 +160,33 @@ private:
         QString message;
     };
 
-    void advance() { m_cur = m_tok.next(); }
+    void checkToken() {
+        if (m_cur.kind == TokenKind::Invalid) throwAt(m_cur.text);
+    }
+    void advance() { m_cur = m_tok.next(); checkToken(); }
+
+    QVariant parseValue() {
+        QVariant value;
+        if (m_cur.kind == TokenKind::Number) {
+            bool ok = false;
+            const double number = m_cur.text.toDouble(&ok);
+            if (!ok || !std::isfinite(number)) throwAt(QStringLiteral("Invalid number"));
+            value = number;
+        } else if (m_cur.kind == TokenKind::String) value = m_cur.text;
+        else if (m_cur.kind == TokenKind::KwTrue) value = true;
+        else if (m_cur.kind == TokenKind::KwFalse) value = false;
+        else throwAt(QStringLiteral("Expected number, string or boolean"));
+        advance();
+        return value;
+    }
+
+    std::shared_ptr<QueryNode> negate(std::shared_ptr<QueryNode> node, bool negative) {
+        if (!negative) return node;
+        auto outer = std::make_shared<QueryNode>();
+        outer->kind = QueryNode::NotOp;
+        outer->left = node;
+        return outer;
+    }
 
     [[noreturn]] void throwAt(const QString &msg) {
         throw ParseException{m_cur.pos + 1, msg};
@@ -212,6 +248,36 @@ private:
         const QString field = m_cur.text;
         advance();
 
+        if (m_cur.kind == TokenKind::KwIs) {
+            advance();
+            const bool negative = m_cur.kind == TokenKind::KwNot;
+            if (negative) advance();
+            if (m_cur.kind != TokenKind::KwNull) throwAt(QStringLiteral("Expected NULL after IS [NOT]"));
+            advance();
+            auto node = std::make_shared<QueryNode>();
+            node->kind = QueryNode::IsNull;
+            node->fieldName = field;
+            return negate(node, negative);
+        }
+        const bool negative = m_cur.kind == TokenKind::KwNot;
+        if (negative) {
+            advance();
+            if (m_cur.kind != TokenKind::KwLike && m_cur.kind != TokenKind::KwIn
+                && m_cur.kind != TokenKind::KwBetween)
+                throwAt(QStringLiteral("Expected LIKE, IN or BETWEEN after NOT"));
+        }
+        if (m_cur.kind == TokenKind::KwBetween) {
+            advance();
+            auto node = std::make_shared<QueryNode>();
+            node->kind = QueryNode::Between;
+            node->fieldName = field;
+            node->inList.append(parseValue());
+            if (m_cur.kind != TokenKind::KwAnd) throwAt(QStringLiteral("Expected AND in BETWEEN"));
+            advance();
+            node->inList.append(parseValue());
+            return negate(node, negative);
+        }
+
         // LIKE
         if (m_cur.kind == TokenKind::KwLike) {
             advance();
@@ -223,7 +289,7 @@ private:
             n->literal = QVariant(m_cur.text);
             n->likeRegex = likeToRegex(m_cur.text);
             advance();
-            return n;
+            return negate(n, negative);
         }
 
         // IN ( v, v, ... )
@@ -235,20 +301,15 @@ private:
             auto n = std::make_shared<QueryNode>();
             n->kind = QueryNode::In;
             n->fieldName = field;
-            while (m_cur.kind != TokenKind::RParen) {
-                if (m_cur.kind == TokenKind::End)
-                    throwAt(QStringLiteral("Unterminated IN list"));
-                if (m_cur.kind == TokenKind::Number)
-                    n->inList.append(QVariant(m_cur.text.toDouble()));
-                else if (m_cur.kind == TokenKind::String)
-                    n->inList.append(QVariant(m_cur.text));
-                else
-                    throwAt(QStringLiteral("Expected number or string in IN list"));
+            n->inList.append(parseValue());
+            while (m_cur.kind == TokenKind::Comma) {
                 advance();
-                if (m_cur.kind == TokenKind::Comma) advance();
+                n->inList.append(parseValue());
             }
-            advance();  // consume )
-            return n;
+            if (m_cur.kind != TokenKind::RParen)
+                throwAt(QStringLiteral("Expected ',' or ')' in IN list"));
+            advance();
+            return negate(n, negative);
         }
 
         // Comparison: op value
@@ -261,13 +322,7 @@ private:
         n->kind = QueryNode::Compare;
         n->fieldName = field;
         n->op = op;
-        if (m_cur.kind == TokenKind::Number)
-            n->literal = QVariant(m_cur.text.toDouble());
-        else if (m_cur.kind == TokenKind::String)
-            n->literal = QVariant(m_cur.text);
-        else
-            throwAt(QStringLiteral("Expected number or string after operator"));
-        advance();
+        n->literal = parseValue();
         return n;
     }
 
@@ -283,7 +338,7 @@ private:
 // Returns one of {-1, 0, 1, INT_MIN} where INT_MIN means
 // "incomparable" (e.g. row missing the field).
 int cmpVariants(const QVariant &a, const QVariant &b) {
-    if (!a.isValid()) return INT_MIN;
+    if (!a.isValid() || a.isNull() || !b.isValid() || b.isNull()) return INT_MIN;
     bool okA = false, okB = false;
     const double da = a.toDouble(&okA);
     const double db = b.toDouble(&okB);
@@ -338,46 +393,73 @@ void collectFields(const QueryNode &n, QStringList &out) {
     case QueryNode::Compare:
     case QueryNode::Like:
     case QueryNode::In:
+    case QueryNode::Between:
+    case QueryNode::IsNull:
         if (!out.contains(n.fieldName)) out.append(n.fieldName);
         return;
     }
 }
 
-bool eval(const QueryNode &n, const QVariantMap &row) {
+enum class Truth { False, True, Unknown };
+Truth truth(bool value) { return value ? Truth::True : Truth::False; }
+
+Truth eval(const QueryNode &n, const QVariantMap &row) {
     switch (n.kind) {
     case QueryNode::OrOp:
-        return (n.left  && eval(*n.left,  row))
-            || (n.right && eval(*n.right, row));
-    case QueryNode::AndOp:
-        return (n.left  && eval(*n.left,  row))
-            && (n.right && eval(*n.right, row));
-    case QueryNode::NotOp:
-        return !(n.left && eval(*n.left, row));
+    case QueryNode::AndOp: {
+        const auto a = eval(*n.left, row);
+        if (n.kind == QueryNode::OrOp && a == Truth::True) return a;
+        if (n.kind == QueryNode::AndOp && a == Truth::False) return a;
+        const auto b = eval(*n.right, row);
+        if (n.kind == QueryNode::OrOp) {
+            if (a == Truth::True || b == Truth::True) return Truth::True;
+            if (a == Truth::Unknown || b == Truth::Unknown) return Truth::Unknown;
+            return Truth::False;
+        }
+        if (a == Truth::False || b == Truth::False) return Truth::False;
+        if (a == Truth::Unknown || b == Truth::Unknown) return Truth::Unknown;
+        return Truth::True;
+    }
+    case QueryNode::NotOp: {
+        const auto inner = eval(*n.left, row);
+        return inner == Truth::Unknown ? inner : truth(inner == Truth::False);
+    }
+    case QueryNode::IsNull: {
+        const auto value = lookupField(row, n.fieldName);
+        return truth(!value.isValid() || value.isNull());
+    }
     case QueryNode::Compare: {
-        const QVariant lhs = lookupField(row, n.fieldName);
-        const int c = cmpVariants(lhs, n.literal);
-        if (c == INT_MIN) return false;
-        if (n.op == "<")  return c <  0;
-        if (n.op == "<=") return c <= 0;
-        if (n.op == "=")  return c == 0;
-        if (n.op == "!=") return c != 0;
-        if (n.op == ">")  return c >  0;
-        if (n.op == ">=") return c >= 0;
-        return false;
+        const int c = cmpVariants(lookupField(row, n.fieldName), n.literal);
+        if (c == INT_MIN) return Truth::Unknown;
+        if (n.op == "<")  return truth(c <  0);
+        if (n.op == "<=") return truth(c <= 0);
+        if (n.op == "=")  return truth(c == 0);
+        if (n.op == "!=" || n.op == "<>") return truth(c != 0);
+        if (n.op == ">")  return truth(c >  0);
+        if (n.op == ">=") return truth(c >= 0);
+        return Truth::False;
     }
     case QueryNode::Like: {
-        const QVariant lhs = lookupField(row, n.fieldName);
-        if (!lhs.isValid()) return false;
-        return n.likeRegex.match(lhs.toString()).hasMatch();
+        const auto value = lookupField(row, n.fieldName);
+        if (!value.isValid() || value.isNull()) return Truth::Unknown;
+        return truth(n.likeRegex.match(value.toString()).hasMatch());
     }
     case QueryNode::In: {
-        const QVariant lhs = lookupField(row, n.fieldName);
-        for (const QVariant &v : n.inList)
-            if (cmpVariants(lhs, v) == 0) return true;
-        return false;
+        const auto value = lookupField(row, n.fieldName);
+        if (!value.isValid() || value.isNull()) return Truth::Unknown;
+        for (const auto &literal : n.inList)
+            if (cmpVariants(value, literal) == 0) return Truth::True;
+        return Truth::False;
+    }
+    case QueryNode::Between: {
+        const auto value = lookupField(row, n.fieldName);
+        const int lower = cmpVariants(value, n.inList[0]);
+        const int upper = cmpVariants(value, n.inList[1]);
+        if (lower == INT_MIN || upper == INT_MIN) return Truth::Unknown;
+        return truth(lower >= 0 && upper <= 0);
     }
     }
-    return false;
+    return Truth::False;
 }
 
 } // anonymous
@@ -391,9 +473,81 @@ QueryPredicate parseQuery(const QString &whereClause) {
     return p.parse();
 }
 
+QuerySuggestions suggestQuery(const QString &text, int cursor, const QStringList &fields) {
+    cursor = qBound(0, cursor, int(text.size()));
+    const QString prefix = text.left(cursor);
+    Tokenizer tokenizer(prefix);
+    QList<Token> tokens;
+    for (Token token = tokenizer.next(); token.kind != TokenKind::End;
+         token = tokenizer.next()) {
+        tokens.append(token);
+        if (token.kind == TokenKind::Invalid) break;
+    }
+    QuerySuggestions result;
+    result.start = cursor;
+    QString partial;
+    const bool unfinishedQuote = !tokens.isEmpty() && tokens.back().kind == TokenKind::Invalid
+        && tokens.back().text == QStringLiteral("Unterminated quoted token");
+    if (!tokens.isEmpty() && !prefix.isEmpty() && (!prefix.back().isSpace() || unfinishedQuote)) {
+        const auto last = tokens.back();
+        if (last.kind == TokenKind::Ident || last.kind == TokenKind::Invalid
+            || (last.kind >= TokenKind::KwAnd && last.kind <= TokenKind::KwWhere)) {
+            result.start = last.pos;
+            partial = prefix.mid(last.pos);
+            tokens.removeLast();
+        }
+    }
+    const auto last = tokens.isEmpty() ? TokenKind::End : tokens.back().kind;
+    const auto previous = tokens.size() < 2 ? TokenKind::End : tokens[tokens.size()-2].kind;
+    QStringList candidates;
+    const bool postfixNot = last == TokenKind::KwNot && previous == TokenKind::Ident;
+    if (postfixNot) candidates = {QStringLiteral("IN"), QStringLiteral("LIKE"), QStringLiteral("BETWEEN")};
+    else if (last == TokenKind::KwIs)
+        candidates = {QStringLiteral("NULL"), QStringLiteral("NOT NULL")};
+    else if (last == TokenKind::KwNot && previous == TokenKind::KwIs)
+        candidates = {QStringLiteral("NULL")};
+    else if (last == TokenKind::Ident)
+        candidates = {QStringLiteral("="), QStringLiteral("!="), QStringLiteral("<>"),
+                      QStringLiteral("<"), QStringLiteral("<="), QStringLiteral(">"), QStringLiteral(">="),
+                      QStringLiteral("LIKE"), QStringLiteral("NOT LIKE"), QStringLiteral("IN"),
+                      QStringLiteral("NOT IN"), QStringLiteral("BETWEEN"), QStringLiteral("NOT BETWEEN"),
+                      QStringLiteral("IS NULL"), QStringLiteral("IS NOT NULL")};
+    else if ((last == TokenKind::LParen && previous == TokenKind::KwIn) || last == TokenKind::Comma)
+        candidates = {QStringLiteral("TRUE"), QStringLiteral("FALSE")};
+    else if ((last == TokenKind::Number || last == TokenKind::String || last == TokenKind::KwTrue
+              || last == TokenKind::KwFalse) && previous == TokenKind::KwBetween)
+        candidates = {QStringLiteral("AND")};
+    else if (last == TokenKind::End || last == TokenKind::KwWhere || last == TokenKind::KwAnd
+             || last == TokenKind::KwOr || last == TokenKind::KwNot || last == TokenKind::LParen) {
+        for (const QString &field : fields) {
+            QString escaped = field;
+            if (partial.startsWith('[')) {
+                escaped.replace("]", "]]");
+                candidates.append("[" + escaped + "]");
+            } else {
+                escaped.replace("\"", "\"\"");
+                candidates.append("\"" + escaped + "\"");
+                // Unquoted input can still discover fields containing spaces.
+                if (!partial.startsWith('"') && field.startsWith(partial, Qt::CaseInsensitive))
+                    result.candidates.append("\"" + escaped + "\"");
+            }
+        }
+        candidates.append(QStringLiteral("NOT"));
+    } else if (last == TokenKind::Number || last == TokenKind::String || last == TokenKind::RParen
+               || last == TokenKind::KwTrue || last == TokenKind::KwFalse || last == TokenKind::KwNull)
+        candidates = {QStringLiteral("AND"), QStringLiteral("OR")};
+    else if (last == TokenKind::Op || last == TokenKind::KwBetween || last == TokenKind::Comma)
+        candidates = {QStringLiteral("TRUE"), QStringLiteral("FALSE")};
+    for (const QString &candidate : candidates)
+        if (candidate.startsWith(partial, Qt::CaseInsensitive)) result.candidates.append(candidate);
+    result.candidates.removeDuplicates();
+    return result;
+}
+
 bool evaluateQuery(const QueryPredicate &pred, const QVariantMap &row) {
-    if (!pred.root) return true;  // empty / invalid → match-all
-    return eval(*pred.root, row);
+    if (!pred.error.isEmpty()) return false;
+    if (!pred.root) return true;
+    return eval(*pred.root, row) == Truth::True;
 }
 
 QStringList queryFieldNames(const QueryPredicate &pred) {

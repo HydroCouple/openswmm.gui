@@ -81,7 +81,7 @@ FeatureFieldEditor::FeatureFieldEditor(QWidget *parent)
     m_choices = new QTableWidget(0, 2, m_choiceBox);
     m_choices->setObjectName(QStringLiteral("featureFieldChoices"));
     m_choices->setHorizontalHeaderLabels({tr("Value"), tr("Label")});
-    m_choices->horizontalHeader()->setStretchLastSection(true);
+    m_choices->horizontalHeader()->setStretchLastSection(false);
     m_choices->verticalHeader()->setVisible(false);
     m_choices->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_choices->setSelectionMode(QAbstractItemView::SingleSelection);

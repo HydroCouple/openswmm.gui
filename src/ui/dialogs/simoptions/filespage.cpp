@@ -885,7 +885,7 @@ void FilesPage::buildUi()
     {
         auto *hdr = m_pluginsView->horizontalHeader();
         hdr->setSectionResizeMode(QHeaderView::Interactive);
-        hdr->setStretchLastSection(true);
+        hdr->setStretchLastSection(false);
         hdr->setMinimumSectionSize(60);
         hdr->resizeSection(PluginsTableModel::ColPath, 360);
         hdr->resizeSection(PluginsTableModel::ColArgs, 220);
@@ -1006,7 +1006,7 @@ void FilesPage::buildUi()
     {
         auto *hdr = m_componentsView->horizontalHeader();
         hdr->setSectionResizeMode(QHeaderView::Interactive);
-        hdr->setStretchLastSection(true);
+        hdr->setStretchLastSection(false);
         hdr->resizeSection(ProcessComponentsModel::ColId, 300);
         hdr->resizeSection(ProcessComponentsModel::ColConfig, 240);
     }

@@ -20,6 +20,7 @@
 #include <QPushButton>
 #include <QSaveFile>
 #include <QTableView>
+#include <QSortFilterProxyModel>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
@@ -166,10 +167,15 @@ void MeshProfilePlotDialog::buildSectionControls(QVBoxLayout *layout)
     m_seriesEditor=new MeshProfileSeriesEditor(tabs); m_seriesEditor->setDefinition(m_definition);
     tabs->addTab(m_seriesEditor,tr("Series and styles"));
     m_samplesModel=new MeshProfileSamplesModel(this); m_samplesTable=new QTableView(tabs); m_samplesTable->setObjectName("sectionSamples");
-    m_samplesTable->setModel(m_samplesModel); m_samplesTable->setSelectionBehavior(QAbstractItemView::SelectRows); m_samplesTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    auto *samplesProxy = new QSortFilterProxyModel(m_samplesTable);
+    samplesProxy->setSourceModel(m_samplesModel);
+    samplesProxy->setSortRole(Qt::EditRole);
+    m_samplesTable->setModel(samplesProxy);
+    m_samplesTable->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+    m_samplesTable->setSortingEnabled(true); m_samplesTable->setSelectionBehavior(QAbstractItemView::SelectRows); m_samplesTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_samplesTable->setAccessibleName(tr("Section samples, values, units and effective times"));
     m_samplesTable->setAccessibleDescription(tr("Select a row to move the section and map station cursor. Missing and waterless values remain explicitly identified."));
-    m_samplesTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_samplesTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     tabs->addTab(m_samplesTable,tr("Sample table")); tabs->setMaximumHeight(270); layout->addWidget(tabs);
     m_sectionStatus=new QLabel(this); m_sectionStatus->setObjectName("sectionStatus"); m_sectionStatus->setTextFormat(Qt::PlainText); m_sectionStatus->setWordWrap(true); m_sectionStatus->setAccessibleName(tr("Section availability and validation")); layout->addWidget(m_sectionStatus);
     connect(title,&QLineEdit::textEdited,this,[this](const QString &text) { m_definition.title=text; emit definitionChanged(); });

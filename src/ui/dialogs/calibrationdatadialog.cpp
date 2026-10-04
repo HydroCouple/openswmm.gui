@@ -46,7 +46,7 @@ void CalibrationDataDialog::buildUi()
         tr("Observed file"), tr("Column")
     });
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_table->horizontalHeader()->setStretchLastSection(true);
+    m_table->horizontalHeader()->setStretchLastSection(false);
     root->addWidget(m_table, 1);
 
     auto *btnRow = new QHBoxLayout;

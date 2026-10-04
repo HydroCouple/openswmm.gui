@@ -192,7 +192,7 @@ void AssignRainGagesDialog::buildUi()
     m_preview->setColumnCount(5);
     m_preview->setHorizontalHeaderLabels(
         {tr("Object"), tr("Type"), tr("Current gage"), tr("New gage"), tr("Detail")});
-    m_preview->horizontalHeader()->setStretchLastSection(true);
+    m_preview->horizontalHeader()->setStretchLastSection(false);
     m_preview->verticalHeader()->setVisible(false);
     m_preview->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_preview->setSelectionBehavior(QAbstractItemView::SelectRows);

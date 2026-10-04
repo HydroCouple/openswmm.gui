@@ -510,11 +510,8 @@ private slots:
         QCOMPARE(matchCount(header,           "<"), 0);
     }
 
-    //! A field naming no column matches nothing — same as before, when an
-    //! unknown key simply produced an absent QVariant. Compound columns are
-    //! deliberately unresolvable (their value is an edit-ref struct, and
-    //! reading one runs an engine-wide scan), so they land here too.
-    void queryOnUnresolvableFieldMatchesNothing()
+    //! Unknown and compound fields report an error, retaining the valid filter.
+    void queryOnUnresolvableFieldPreservesPreviousFilter()
     {
         auto layer = openLayer();
         QVERIFY(layer);
@@ -523,12 +520,27 @@ private slots:
         panel.refresh();
 
         auto *view = panel.findChild<QTableView *>();
-        auto *edit = panel.findChild<QLineEdit *>();
-        QVERIFY(view && edit);
-
-        edit->setText(QStringLiteral("[No Such Column] = 1"));
+        auto *edit = panel.findChild<QLineEdit *>("attributeQuery");
+        auto *model = panel.findChild<SWMMAttributeTableModel *>();
+        QVERIFY(view && edit && model);
+        QString name = view->model()->index(0, 0).data().toString();
+        name.replace('\'', "''");
+        edit->setText(QString("Name = '%1'").arg(name));
         QTest::keyClick(edit, Qt::Key_Return);
-        QCOMPARE(view->model()->rowCount(), 0);
+        QCOMPARE(view->model()->rowCount(), 1);
+        QVERIFY(edit->styleSheet().isEmpty());
+
+        edit->setText(QStringLiteral("NOT [No Such Column] = 1"));
+        QTest::keyClick(edit, Qt::Key_Return);
+        QCOMPARE(view->model()->rowCount(), 1);
+        QVERIFY(!edit->styleSheet().isEmpty());
+        for (const auto &spec : model->columnSpecs()) {
+            if (spec.editor != EditorKind::Compound) continue;
+            edit->setText(QString("[%1] = 1").arg(spec.key));
+            QTest::keyClick(edit, Qt::Key_Return);
+            QCOMPARE(view->model()->rowCount(), 1);
+            QVERIFY(!edit->styleSheet().isEmpty());
+        }
     }
 
     // =====================================================================

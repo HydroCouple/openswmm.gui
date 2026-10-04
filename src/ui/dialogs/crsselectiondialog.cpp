@@ -96,7 +96,7 @@ void CRSSelectionDialog::setupUi()
     // setStretchLastSection keeps the trailing column filling residual width.
     m_treeView->header()->setSectionsMovable(false);
     m_treeView->header()->setSectionResizeMode(QHeaderView::Interactive);
-    m_treeView->header()->setStretchLastSection(true);
+    m_treeView->header()->setStretchLastSection(false);
     m_treeView->setColumnWidth(0, 480);
     m_treeView->setColumnWidth(1, 140);
     splitter->addWidget(m_treeView);

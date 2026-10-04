@@ -220,8 +220,8 @@ void ClassificationEditor::buildUi()
     m_table = new QTableView(box);
     m_table->setModel(m_tableModel);
     m_table->verticalHeader()->setVisible(false);
-    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_table->horizontalHeader()->setStretchLastSection(true);
+    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_table->horizontalHeader()->setStretchLastSection(false);
     m_table->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setAlternatingRowColors(true);

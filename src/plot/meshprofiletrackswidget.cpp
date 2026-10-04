@@ -41,6 +41,17 @@ QVariant MeshProfileSamplesModel::data(const QModelIndex &index, int role) const
     const auto &point = s.points[row.second];
     if (role == Qt::UserRole) return point.chainage;
     if (role == Qt::ToolTipRole || role == Qt::AccessibleDescriptionRole) return accessibleSeriesSummary(s);
+    if (role == Qt::EditRole) {
+        switch (index.column()) {
+        case 1: return point.chainage;
+        case 2: return point.scenePt.x();
+        case 3: return -point.scenePt.y();
+        case 4: return valid(point) ? QVariant(point.value) : QVariant();
+        case 7: return s.requestedTime;
+        case 8: return s.effectiveTime;
+        default: return data(index, Qt::DisplayRole);
+        }
+    }
     if (role != Qt::DisplayRole && role != Qt::AccessibleTextRole) return {};
     switch (index.column()) {
     case 0: return s.definition.label.isEmpty() ? s.descriptor.label : s.definition.label;

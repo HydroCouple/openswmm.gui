@@ -179,7 +179,7 @@ void StatisticsDashboardDialog::buildUi()
     m_nodeTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_nodeTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_nodeTable->setAlternatingRowColors(true);
-    m_nodeTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_nodeTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_tabs->addTab(m_nodeTable, tr("&Nodes"));
 
     // Link table -------------------------------------------------------------
@@ -196,7 +196,7 @@ void StatisticsDashboardDialog::buildUi()
     m_linkTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_linkTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_linkTable->setAlternatingRowColors(true);
-    m_linkTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_linkTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_tabs->addTab(m_linkTable, tr("&Links"));
 
     // Subcatchment table -----------------------------------------------------
@@ -214,7 +214,7 @@ void StatisticsDashboardDialog::buildUi()
     m_subTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_subTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_subTable->setAlternatingRowColors(true);
-    m_subTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_subTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_tabs->addTab(m_subTable, tr("S&ubcatchments"));
 
     // Histogram view is kept as an off-layout helper so selecting a numeric
