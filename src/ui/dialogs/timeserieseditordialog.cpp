@@ -533,7 +533,7 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     // one edits in the .inp's MM/dd/yyyy HH:mm and preserves any seconds the
     // format doesn't show.
     m_table->setItemDelegateForColumn(0, new DateTimeDelegate(this));
-    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setSectionsClickable(true);
     m_table->horizontalHeader()->setSectionsMovable(false);
 

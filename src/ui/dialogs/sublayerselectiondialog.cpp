@@ -6,6 +6,7 @@
  */
 #include "ui/dialogs/sublayerselectiondialog.h"
 #include "ui/theme/iconfactory.h"
+#include "ui/util/numerictablewidgetitem.h"
 
 #include <QAbstractItemView>
 #include <QDialogButtonBox>
@@ -69,18 +70,21 @@ void SublayerSelectionDialog::buildUi(const QString &sourcePath)
         const GISVectorLayer::OgrSublayerInfo &s = m_sublayers.at(r);
 
         auto *nameItem = new QTableWidgetItem(s.name);
+        nameItem->setData(Qt::UserRole, r);
         nameItem->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
         nameItem->setCheckState(Qt::Checked);   // default: add all
         m_table->setItem(r, 0, nameItem);
 
         m_table->setItem(r, 1, new QTableWidgetItem(s.geometryType));
-        m_table->setItem(r, 2, new QTableWidgetItem(
+        m_table->setItem(r, 2, new openswmmvis::ui::NumericTableWidgetItem(
             s.featureCount < 0 ? tr("?") : QString::number(s.featureCount)));
         m_table->setItem(r, 3, new QTableWidgetItem(
             s.crsDescription.isEmpty() ? tr("(unknown)") : s.crsDescription));
     }
+    m_table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+    m_table->setSortingEnabled(true);
     m_table->resizeColumnsToContents();
-    m_table->horizontalHeader()->setStretchLastSection(true);
+    m_table->horizontalHeader()->setStretchLastSection(false);
     root->addWidget(m_table, 1);
 
     // ── Select all / none / invert ───────────────────────────────────────────
@@ -133,7 +137,7 @@ void SublayerSelectionDialog::applyNameFilter(const QString &text)
 {
     for (int r = 0; r < m_table->rowCount(); ++r) {
         const bool match = text.isEmpty()
-            || m_sublayers.at(r).name.contains(text, Qt::CaseInsensitive);
+            || m_table->item(r, 0)->text().contains(text, Qt::CaseInsensitive);
         m_table->setRowHidden(r, !match);
     }
 }
@@ -144,7 +148,7 @@ QStringList SublayerSelectionDialog::selectedLayerNames() const
     for (int r = 0; r < m_table->rowCount(); ++r)
         if (auto *it = m_table->item(r, 0))
             if (it->checkState() == Qt::Checked)
-                names << m_sublayers.at(r).name;
+                names << m_sublayers.at(it->data(Qt::UserRole).toInt()).name;
     return names;
 }
 
@@ -155,6 +159,6 @@ SublayerSelectionDialog::selectedSublayers() const
     for (int r = 0; r < m_table->rowCount(); ++r)
         if (auto *it = m_table->item(r, 0))
             if (it->checkState() == Qt::Checked)
-                out << m_sublayers.at(r);
+                out << m_sublayers.at(it->data(Qt::UserRole).toInt());
     return out;
 }

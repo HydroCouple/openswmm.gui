@@ -11,6 +11,7 @@
 
 #include <QAction>
 #include <QDialog>
+#include <QHeaderView>
 #include <QLabel>
 #include <QSettings>
 #include <QSignalSpy>
@@ -95,6 +96,7 @@ private slots:
     void geometryRoundTrips();
     void namedSplitterOptInOnly();
     void headerStateRoundTrips();
+    void legacySizingModesBecomeResizable();
     void tabAndPageIndicesBoundsChecked();
     void toggleRestoreFiresToggled();
     void emptyObjectNameIsNoOp();
@@ -182,6 +184,22 @@ void TestDialogLayoutPersistence::headerStateRoundTrips()
     QVERIFY(restoreDialogLayout(&fresh.dialog));
     QCOMPARE(fresh.table->columnWidth(0), 137);
     QCOMPARE(fresh.table->columnWidth(1), 61);
+}
+
+void TestDialogLayoutPersistence::legacySizingModesBecomeResizable()
+{
+    Fixture saved(QStringLiteral("LegacyHeader"));
+    saved.table->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    saved.table->horizontalHeader()->setStretchLastSection(true);
+    saveDialogLayout(&saved.dialog);
+    Fixture fresh(QStringLiteral("LegacyHeader"));
+    QVERIFY(restoreDialogLayout(&fresh.dialog));
+    for (int column = 0; column < fresh.table->columnCount(); ++column) {
+        QCOMPARE(fresh.table->horizontalHeader()->sectionResizeMode(column), QHeaderView::Interactive);
+        fresh.table->setColumnWidth(column, 137 + column);
+        QCOMPARE(fresh.table->columnWidth(column), 137 + column);
+    }
+    QVERIFY(!fresh.table->horizontalHeader()->stretchLastSection());
 }
 
 void TestDialogLayoutPersistence::tabAndPageIndicesBoundsChecked()

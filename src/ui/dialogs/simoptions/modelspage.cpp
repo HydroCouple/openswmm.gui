@@ -192,7 +192,7 @@ void ModelsPage::buildUi()
     }
     m_transportMatrixTable->setSelectionMode(QAbstractItemView::NoSelection);
     m_transportMatrixTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_transportMatrixTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_transportMatrixTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_transportMatrixTable->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_transportMatrixTable->setToolTip(
         tr("Which species classes the engine will carry in each domain for "

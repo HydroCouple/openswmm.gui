@@ -75,8 +75,9 @@ LabelExpressionDialog::LabelExpressionDialog(
     m_fieldTree->setHeaderLabels({tr("Field"), tr("Unit")});
     m_fieldTree->setRootIsDecorated(true);
     m_fieldTree->header()->setStretchLastSection(false);
-    m_fieldTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    m_fieldTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_fieldTree->setSortingEnabled(true);
+    m_fieldTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_fieldTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     fieldLay->addWidget(m_fieldTree);
 
     auto *insertHint = new QLabel(

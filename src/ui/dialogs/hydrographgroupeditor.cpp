@@ -358,7 +358,7 @@ QWidget *HydrographGroupEditor::buildMiddlePane()
         m_rtkView = new QTableView(page);
         m_rtkView->setModel(m_rtkModel);
         m_rtkView->verticalHeader()->setVisible(false);
-        m_rtkView->horizontalHeader()->setStretchLastSection(true);
+        m_rtkView->horizontalHeader()->setStretchLastSection(false);
         m_rtkView->setSelectionBehavior(QAbstractItemView::SelectItems);
         m_rtkView->setAlternatingRowColors(true);
         pv->addWidget(m_rtkView, /*stretch=*/1);
@@ -387,7 +387,7 @@ QWidget *HydrographGroupEditor::buildMiddlePane()
         m_iaView = new QTableView(linGroup);
         m_iaView->setModel(m_iaModel);
         m_iaView->verticalHeader()->setVisible(false);
-        m_iaView->horizontalHeader()->setStretchLastSection(true);
+        m_iaView->horizontalHeader()->setStretchLastSection(false);
         m_iaView->setSelectionBehavior(QAbstractItemView::SelectItems);
         m_iaView->setAlternatingRowColors(true);
         linV->addWidget(m_iaView);
@@ -421,7 +421,7 @@ QWidget *HydrographGroupEditor::buildMiddlePane()
         m_decayView = new QTableView(expGroup);
         m_decayView->setModel(m_decayModel);
         m_decayView->verticalHeader()->setVisible(false);
-        m_decayView->horizontalHeader()->setStretchLastSection(true);
+        m_decayView->horizontalHeader()->setStretchLastSection(false);
         m_decayView->setSelectionBehavior(QAbstractItemView::SelectItems);
         m_decayView->setAlternatingRowColors(true);
         expV->addWidget(m_decayView);

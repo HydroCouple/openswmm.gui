@@ -305,7 +305,7 @@ void PatternEditorDialog::buildUi_()
         m_table = new QTableView(centerHost);
         m_tableModel = new PatternFactorTableModel(this);
         m_table->setModel(m_tableModel);
-        m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         m_table->horizontalHeader()->setSectionsClickable(false);
         m_table->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
         m_table->verticalHeader()->setDefaultSectionSize(22);

@@ -134,7 +134,7 @@ void MeshAttributeAssignDialog::buildTargetGroup(const QString &depthUnitLabel)
         m_targetTable = new QTableWidget(0, 2, m_multiGroup);
         m_targetTable->setHorizontalHeaderLabels(
             {tr("Parameter"), tr("Band / Field")});
-        m_targetTable->horizontalHeader()->setStretchLastSection(true);
+        m_targetTable->horizontalHeader()->setStretchLastSection(false);
         m_targetTable->verticalHeader()->setVisible(false);
         m_targetTable->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_targetTable->setMinimumHeight(110);

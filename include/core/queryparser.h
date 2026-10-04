@@ -9,22 +9,23 @@
  *
  * Grammar (recursive descent, AND binds tighter than OR):
  *
- *   where      := orExpr
+ *   where      := ['WHERE'] orExpr
  *   orExpr     := andExpr { 'OR' andExpr }
  *   andExpr    := notExpr { 'AND' notExpr }
  *   notExpr    := 'NOT' notExpr | primary
  *   primary    := '(' orExpr ')' | comparison
  *   comparison := ident op value
- *                | ident 'LIKE' string
- *                | ident 'IN' '(' value { ',' value } ')'
- *   op         := '<' | '<=' | '=' | '!=' | '>' | '>='
+ *                | ident ['NOT'] 'LIKE' string
+ *                | ident ['NOT'] 'IN' '(' value { ',' value } ')'
+ *                | ident ['NOT'] 'BETWEEN' value 'AND' value
+ *                | ident 'IS' ['NOT'] 'NULL'
+ *   op         := '<' | '<=' | '=' | '!=' | '<>' | '>' | '>='
  *   ident      := bare-identifier | '[' anything-but-]+ ']' | '"' …'"'
- *   value      := number | quoted-string
+ *   value      := number | quoted-string | TRUE | FALSE
  *
- * Keywords AND / OR / NOT / LIKE / IN are case-insensitive.
- * Identifier matching against row keys is **case-sensitive** because
- * the column schema keys are themselves (e.g. "Invert elev" vs
- * "invert_elev").
+ * Keywords and field lookup are case-insensitive (exact field names win).
+ * Optional leading WHERE is accepted. Doubled quote delimiters are escaped.
+ * NULL comparisons are unknown, including under NOT; only TRUE rows match.
  *
  * The evaluator runs against a `QVariantMap` (one row's identify-map),
  * comparing values type-aware: numeric vs string coercion follows
@@ -54,6 +55,8 @@ struct QueryNode {
         Compare,
         Like,
         In,
+        Between,
+        IsNull,
     };
     Kind                       kind = Compare;
     std::shared_ptr<QueryNode> left;
@@ -95,8 +98,16 @@ QueryPredicate parseQuery(const QString &whereClause);
  *  its case-insensitive linear fallback). */
 QStringList queryFieldNames(const QueryPredicate &pred);
 
+/*! Suggestions replace [start, cursor) without changing the rest of a query. */
+struct QuerySuggestions {
+    int start = 0;
+    QStringList candidates;
+};
+QuerySuggestions suggestQuery(const QString &text, int cursor, const QStringList &fields);
+
 /*! Evaluate the predicate against one row.  When `pred.root` is
- *  null, returns true (no filter). */
+ *  null and no error exists, returns true (no filter). Invalid queries
+ *  return false. NULL comparisons use SQL three-valued logic. */
 bool evaluateQuery(const QueryPredicate &pred, const QVariantMap &row);
 
 } // namespace openswmmvis

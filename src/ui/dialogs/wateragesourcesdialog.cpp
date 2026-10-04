@@ -103,7 +103,7 @@ void WaterAgeSourcesDialog::buildUi()
     m_globalTable->setHorizontalHeaderLabels(
         { tr("Source"), tr("Age (hours)") });
     m_globalTable->verticalHeader()->setVisible(false);
-    m_globalTable->horizontalHeader()->setStretchLastSection(true);
+    m_globalTable->horizontalHeader()->setStretchLastSection(false);
     m_globalTable->setSelectionMode(QAbstractItemView::NoSelection);
     for (int r = 0; r < kSourceCount; ++r) {
         auto *nameItem = new QTableWidgetItem(
@@ -133,7 +133,7 @@ void WaterAgeSourcesDialog::buildUi()
     m_overrideTable->setHorizontalHeaderLabels(
         { tr("Source"), tr("Node"), tr("Age (hours)") });
     m_overrideTable->verticalHeader()->setVisible(false);
-    m_overrideTable->horizontalHeader()->setStretchLastSection(true);
+    m_overrideTable->horizontalHeader()->setStretchLastSection(false);
     vlay->addWidget(m_overrideTable);
 
     auto *btnRow = new QHBoxLayout;

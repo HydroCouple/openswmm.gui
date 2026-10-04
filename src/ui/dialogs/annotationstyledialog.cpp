@@ -73,8 +73,8 @@ void AnnotationStyleDialog::buildUi()
         // tree falls back to plain text editors and the user can't drive a
         // colour picker from the row.
         m_tree->setItemDelegate(new QPropertyItemDelegate(this));
-        m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-        m_tree->header()->setStretchLastSection(true);
+        m_tree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+        m_tree->header()->setStretchLastSection(false);
         m_tree->header()->setMinimumSectionSize(90);  // stop columns collapsing on a narrow dialog
         m_tree->expandAll();
     }

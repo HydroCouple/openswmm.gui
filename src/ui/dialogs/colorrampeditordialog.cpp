@@ -187,8 +187,8 @@ void ColorRampEditorDialog::buildUi()
     {
         m_stopTable = new QTableWidget(0, 2, this);
         m_stopTable->setHorizontalHeaderLabels({tr("Position"), tr("Color")});
-        m_stopTable->horizontalHeader()->setSectionResizeMode(kColPos, QHeaderView::Stretch);
-        m_stopTable->horizontalHeader()->setSectionResizeMode(kColColor, QHeaderView::Stretch);
+        m_stopTable->horizontalHeader()->setSectionResizeMode(kColPos, QHeaderView::Interactive);
+        m_stopTable->horizontalHeader()->setSectionResizeMode(kColColor, QHeaderView::Interactive);
         m_stopTable->verticalHeader()->setVisible(false);
         m_stopTable->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_stopTable->setSelectionMode(QAbstractItemView::SingleSelection);

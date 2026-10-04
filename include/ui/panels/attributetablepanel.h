@@ -210,6 +210,7 @@ private:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
     void buildUi();
+    void updateQueryFields();
     SWMMObjectRef::ObjectType objectTypeFor(SWMMModelLayer::Category cat) const;
 
     /*! Persist the current category's column widths to QSettings under
@@ -280,6 +281,7 @@ private:
     /*! SVBC round B — the same pair for the GIS feature-layer source,
      *  keyed by FID through GisObjectRef ("gis::<layerId>#f<fid>"). */
     [[nodiscard]] bool gisSourceActive() const;
+    QSet<SWMMObjectRef> gisRefs(bool applyQuery) const;
     void gisSelectionToBus();
     void gisSelectionFromBus(const QSet<SWMMObjectRef> &current);
 

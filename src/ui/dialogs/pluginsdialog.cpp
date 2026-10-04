@@ -56,11 +56,13 @@ void PluginsDialog::buildUi()
         tr("R/W")
     });
     m_tree->setRootIsDecorated(true);
+    m_tree->header()->setStretchLastSection(false);
+    m_tree->setSortingEnabled(true);
     m_tree->setAlternatingRowColors(true);
     m_tree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_tree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_tree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
-    m_tree->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_tree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
     m_tree->setColumnWidth(0, 240);
     m_tree->setColumnWidth(1, 160);
     m_tree->setColumnWidth(2, 140);

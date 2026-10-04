@@ -38,8 +38,8 @@ BasemapHttpHeadersWidget::BasemapHttpHeadersWidget(QWidget *parent)
 
     m_table = new QTableWidget(0, 2, m_extrasGroup);
     m_table->setHorizontalHeaderLabels({ tr("Header"), tr("Value") });
-    m_table->horizontalHeader()->setStretchLastSection(true);
-    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setStretchLastSection(false);
+    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setMinimumHeight(80);

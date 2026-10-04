@@ -24,11 +24,26 @@
 #include "selection/gisselectionbridge.h"
 #include "selection/selectionmanager.h"
 #include "ui/panels/attributetablepanel.h"
+#include "layers/swmmmodellayer.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "layers/tabulardatalayer.h"
+#include "mesh/meshresult.h"
+#include "ui/dialogs/profilepathpickerdialog.h"
+#include "ui/dialogs/sublayerselectiondialog.h"
 
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
 
+#include <QDialogButtonBox>
 #include <QDir>
+#include <QAction>
+#include <QComboBox>
+#include <QCompleter>
+#include <QFile>
+#include <QHeaderView>
+#include <QLineEdit>
+#include <QRadioButton>
+#include <QTableWidget>
 #include <QSignalSpy>
 #include <QTableView>
 #include <QTest>
@@ -59,6 +74,11 @@ bool buildFixture()
     OGRLayer *layer = ds->CreateLayer("polys", nullptr, wkbPolygon, nullptr);
     if (!layer) { GDALClose(ds); return false; }
 
+    OGRFieldDefn depth("depth value", OFTReal), label("name", OFTString);
+    if (layer->CreateField(&depth) != OGRERR_NONE || layer->CreateField(&label) != OGRERR_NONE) {
+        GDALClose(ds); return false;
+    }
+    int featureNumber = 0;
     const auto add = [&](std::initializer_list<QPointF> pts) {
         OGRLinearRing ring;
         for (const QPointF &p : pts) ring.addPoint(p.x(), p.y());
@@ -67,6 +87,9 @@ bool buildFixture()
         poly.addRing(&ring);
         OGRFeature *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
         f->SetGeometry(&poly);
+        if (featureNumber < 3) f->SetField("depth value", featureNumber == 0 ? 2.0 : featureNumber == 1 ? 10.0 : 30.0);
+        f->SetField("name", featureNumber < 3 ? "Junction" : "O'Brien");
+        ++featureNumber;
         const bool ok = (layer->CreateFeature(f) == OGRERR_NONE);
         OGRFeature::DestroyFeature(f);
         return ok;
@@ -122,6 +145,239 @@ class TestGisSelectionSync : public QObject
 private slots:
 
     void initTestCase() { QVERIFY(buildFixture()); }
+
+    void querySelectsGisRowsAndPreservesOnError()
+    {
+        Rig rig;
+        AttributeTablePanel panel;
+        panel.setProject(nullptr, &rig.sel, &rig.canvas);
+        panel.showLayerSource(rig.layer);
+        auto *view = panel.findChild<QTableView *>();
+        auto *query = panel.findChild<QLineEdit *>("attributeQuery");
+        QVERIFY(query && view);
+        const auto fid = rig.fidAt(0.0);
+        const auto excluded = GisObjectRef::feature(rig.layer->layerId(), fid);
+        query->setText(QString("FID NOT IN (%1)").arg(fid));
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(view->model()->rowCount(), 3);
+        QCOMPARE(rig.sel.size(), 3);
+        QVERIFY(!rig.sel.selection().contains(excluded));
+        QCOMPARE(rig.layer->selectedFeatureIds().size(), 3);
+        const auto validSelection = rig.sel.selection();
+        query->setText("NOT MissingColumn = 1");
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(view->model()->rowCount(), 3);
+        QCOMPARE(rig.sel.selection(), validSelection);
+        query->setText(QString("NOT (FID <> %1)").arg(fid));
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(view->model()->rowCount(), 1);
+        QCOMPARE(rig.sel.selection(), QSet<SWMMObjectRef>{excluded});
+
+        auto chooseMode = [&](const QString &label) {
+            for (auto *button : panel.findChildren<QRadioButton *>())
+                if (button->text() == label) button->setChecked(true);
+        };
+        // Filtering must not erase the pre-query selection before the operation.
+        chooseMode("Add");
+        query->setText(QString("FID NOT IN (%1)").arg(fid));
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(rig.sel.size(), 4);
+        chooseMode("Subtract");
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(rig.sel.selection(), QSet<SWMMObjectRef>{excluded});
+        chooseMode("Intersect");
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(rig.sel.size(), 0);
+        chooseMode("Invert");
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(rig.sel.size(), 4);
+        chooseMode("Replace");
+        query->setText(QString("FID = %1").arg(fid));
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(rig.sel.selection(), QSet<SWMMObjectRef>{excluded});
+
+        // Selected-only must not shrink the population used by query selection.
+        for (auto *action : panel.findChildren<QAction *>())
+            if (action->text() == "Show selected only") action->setChecked(true);
+        query->setText(QString("FID NOT IN (%1)").arg(fid));
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(rig.sel.size(), 3);
+        QVERIFY(!rig.sel.selection().contains(excluded));
+        view->sortByColumn(0, Qt::DescendingOrder);
+        QCOMPARE(rig.sel.selection(), validSelection);
+    }
+
+    void gisAttributesSupportNegationAndNull()
+    {
+        Rig rig;
+        AttributeTablePanel panel;
+        panel.setProject(nullptr, &rig.sel, &rig.canvas);
+        panel.showLayerSource(rig.layer);
+        auto *query = panel.findChild<QLineEdit *>("attributeQuery");
+        auto *view = panel.findChild<QTableView *>();
+        query->setText("[depth value] NOT BETWEEN 3 AND 20");
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(view->model()->rowCount(), 2);
+        QCOMPARE(rig.sel.size(), 2);
+        query->setText("[depth value] IS NULL AND name = 'O''Brien'");
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(view->model()->rowCount(), 1);
+        QCOMPARE(rig.sel.size(), 1);
+        query->setText("name NOT LIKE 'J%'");
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(view->model()->rowCount(), 1);
+    }
+
+    void queriesCoverModelDataMeshAndTabularSources()
+    {
+        // All categories actually selectable in either representative model.
+        for (const QString &fixture : {QString("typed_selection_fixture.inp"),
+                                       QString("data_object_table_fixture.inp")}) {
+            SWMMModelLayer model(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", ".")).filePath(fixture), nullptr);
+            QList<QString> warnings, errors;
+            QVERIFY(model.loadModel(warnings, errors));
+            MapCanvas canvas;
+            SelectionManager selection;
+            AttributeTablePanel panel;
+            panel.setProject(&model, &selection, &canvas);
+            auto *combo = panel.findChild<QComboBox *>();
+            auto *view = panel.findChild<QTableView *>();
+            auto *query = panel.findChild<QLineEdit *>("attributeQuery");
+            QVERIFY(combo && query && view);
+            int checked = 0;
+            for (int category = 0; category < combo->count(); ++category) {
+                combo->setCurrentIndex(category);
+                const int total = view->model()->rowCount();
+                if (!total) continue;
+                QString field = view->model()->headerData(0, Qt::Horizontal).toString();
+                field.replace('"', "\"\"");
+                query->setText(QString("\"%1\" NOT IN ('__no_such_object__')").arg(field));
+                QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+                QCOMPARE(view->model()->rowCount(), total);
+                QCOMPARE(selection.size(), total);
+                query->setText(QString("\"%1\" NOT LIKE '%'").arg(field));
+                QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+                QCOMPARE(view->model()->rowCount(), 0);
+                QCOMPARE(selection.size(), 0);
+                ++checked;
+            }
+            QVERIFY(checked >= 3);
+        }
+        MapCanvas canvas;
+        SelectionManager selection;
+        mesh::MeshResult result;
+        for (const QPointF &point : {QPointF(0,0), QPointF(1,0), QPointF(0,1)}) {
+            mesh::MeshVertex vertex; vertex.xy = point; result.vertices.append(vertex);
+        }
+        mesh::MeshTriangle triangle; triangle.v0 = 0; triangle.v1 = 1; triangle.v2 = 2;
+        result.triangles.append(triangle); result.ok = true;
+        auto *meshLayer = new SWMM2DMeshLayer(result, "query-test.2dm");
+        canvas.addLayer(meshLayer, false);
+        AttributeTablePanel panel;
+        panel.setProject(nullptr, &selection, &canvas);
+        auto *view = panel.findChild<QTableView *>();
+        auto *query = panel.findChild<QLineEdit *>("attributeQuery");
+        for (int kind = 0; kind < 3; ++kind) {
+            panel.showMeshTable(meshLayer, kind);
+            const int count = view->model()->rowCount();
+            QVERIFY(count > 0);
+            const QString field = view->model()->headerData(0, Qt::Horizontal).toString();
+            query->setText(QString("[%1] IS NOT NULL").arg(field));
+            QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+            QCOMPARE(view->model()->rowCount(), count);
+            QCOMPARE(selection.size(), count);
+        }
+        QFile csv("query-table.csv");
+        QVERIFY(csv.open(QIODevice::WriteOnly));
+        csv.write("Name,Value\nA,2\nB,10\n"); csv.close();
+        auto *tabular = new TabularDataLayer("query table");
+        QVERIFY(tabular->loadFromFile(csv.fileName()));
+        canvas.addLayer(tabular, false);
+        panel.showLayerSource(tabular);
+        const auto before = selection.selection();
+        query->setText("Value NOT BETWEEN 0 AND 5");
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        QCOMPARE(view->model()->rowCount(), 1);
+        QCOMPARE(view->model()->index(0, 0).data().toString(), QString("B"));
+        QCOMPARE(selection.selection(), before);
+    }
+
+    void completionPreservesSuffixAndFollowsSource()
+    {
+        Rig rig;
+        AttributeTablePanel panel;
+        panel.setProject(nullptr, &rig.sel, &rig.canvas);
+        panel.showLayerSource(rig.layer);
+        panel.resize(980, 460);
+        panel.show();
+        auto *query = panel.findChild<QLineEdit *>("attributeQuery");
+        auto *completer = query->findChild<QCompleter *>();
+        QVERIFY(completer);
+        query->setFocus();
+        query->setText("FI = 1 OR FID = 2");
+        query->setCursorPosition(2);
+        QTest::keyClick(query, Qt::Key_Space, Qt::ControlModifier);
+        QVERIFY(completer->completionCount() > 0);
+        QVERIFY(completer->popup()->width() >= 240);
+        QVERIFY(panel.grab().save("attribute-query.png"));
+        QVERIFY(completer->popup()->grab().save("query-suggestions.png"));
+        QTest::keyClick(completer->popup(), Qt::Key_Down);
+        QTest::keyClick(completer->popup(), Qt::Key_Return);
+        QCOMPARE(query->text(), QString("\"FID\" = 1 OR FID = 2"));
+        QCOMPARE(query->cursorPosition(), 5);
+        query->clear();
+        QTest::keyClicks(query, "FID = 1");
+        QVERIFY(!completer->popup()->isVisible());
+        QTest::keyClick(query, Qt::Key_Return);
+        QCOMPARE(panel.findChild<QTableView *>()->model()->rowCount(), 1);
+
+        QFile csv("completion-table.csv");
+        QVERIFY(csv.open(QIODevice::WriteOnly));
+        csv.write("Other field\nvalue\n"); csv.close();
+        auto *tabular = new TabularDataLayer("completion source");
+        QVERIFY(tabular->loadFromFile(csv.fileName()));
+        rig.canvas.addLayer(tabular, false);
+        panel.showLayerSource(tabular);
+        query->setText("Ot"); query->setCursorPosition(2);
+        QTest::keyClick(query, Qt::Key_Space, Qt::ControlModifier);
+        QCOMPARE(completer->completionCount(), 1);
+        QCOMPARE(completer->completionModel()->index(0, 0).data().toString(), QString("\"Other field\""));
+    }
+
+    void sortedPickersKeepOriginalIdentity()
+    {
+        QList<GISVectorLayer::OgrSublayerInfo> layers;
+        layers.append({"large", "Polygon", 10, "", 0});
+        layers.append({"small", "Point", 2, "", 1});
+        SublayerSelectionDialog chooser("query.gpkg", layers);
+        auto *table = chooser.findChild<QTableWidget *>();
+        QVERIFY(table->isSortingEnabled());
+        table->sortItems(2, Qt::AscendingOrder);
+        QCOMPARE(table->item(0, 0)->text(), QString("small"));
+        table->item(1, 0)->setCheckState(Qt::Unchecked);
+        QCOMPARE(chooser.selectedLayerNames(), QStringList{"small"});
+        QCOMPARE(chooser.selectedSublayers().first().index, 1);
+        chooser.findChild<QLineEdit *>()->setText("small");
+        QVERIFY(!table->isRowHidden(0));
+        QVERIFY(table->isRowHidden(1));
+
+        QVector<ProfileRouter::Path> paths(2);
+        paths[0].weight = 10; paths[1].weight = 2;
+        ProfilePathPickerDialog picker(nullptr, paths);
+        table = picker.findChild<QTableWidget *>();
+        table->sortItems(1, Qt::AscendingOrder);
+        QCOMPARE(table->item(0, 0)->data(Qt::UserRole).toInt(), 1);
+        QSignalSpy hover(&picker, &ProfilePathPickerDialog::hoveredPathChanged);
+        table->setCurrentCell(0, 0);
+        QVERIFY(!hover.isEmpty());
+        QCOMPARE(hover.last().first().toInt(), 1);
+        auto *buttons = picker.findChild<QDialogButtonBox *>();
+        QVERIFY(QMetaObject::invokeMethod(buttons, "accepted"));
+        QCOMPARE(picker.selectedPathIndex(), 1);
+        for (int column = 0; column < table->columnCount(); ++column)
+            QCOMPARE(table->horizontalHeader()->sectionResizeMode(column), QHeaderView::Interactive);
+        QVERIFY(!table->horizontalHeader()->stretchLastSection());
+    }
 
     void gisObjectRef_roundTrips()
     {

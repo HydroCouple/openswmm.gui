@@ -286,7 +286,7 @@ QWidget *Mesh2DGroundwaterDialog::buildAquiferPage()
     m_aquiferView->setAccessibleDescription(
         tr("Select a row with the arrow keys. Press F2 to edit the current cell."));
     m_aquiferView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_aquiferView->horizontalHeader()->setStretchLastSection(true);
+    m_aquiferView->horizontalHeader()->setStretchLastSection(false);
     m_aquiferView->setItemDelegateForColumn(
         Mesh2DAquiferModel::ColScope,
         new ComboDelegate({tr("All cells"), tr("Tag"), tr("Cell")}, this));
@@ -339,7 +339,7 @@ QWidget *Mesh2DGroundwaterDialog::buildNodeBedPage()
     m_nodeView->setAccessibleDescription(
         tr("Select a row with the arrow keys. Press F2 to edit the current cell."));
     m_nodeView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_nodeView->horizontalHeader()->setStretchLastSection(true);
+    m_nodeView->horizontalHeader()->setStretchLastSection(false);
     v->addWidget(m_nodeView, 1);
 
     auto *row = new QHBoxLayout;

@@ -55,7 +55,7 @@ QTableWidget *makeMonthlyTable(const QString &header)
     QStringList rows;
     for (const char *m : kMonths) rows << QString::fromLatin1(m);
     t->setVerticalHeaderLabels(rows);
-    t->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    t->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     for (int i = 0; i < 12; ++i)
         t->setItem(i, 0, new QTableWidgetItem(QStringLiteral("0")));
     return t;
@@ -463,7 +463,7 @@ void ClimatologyDialog::buildAdcTab(QTabWidget *tabs)
     QStringList ratios;
     for (int i = 0; i < 10; ++i) ratios << QString::number(i * 0.1, 'f', 1);
     m_adc->setVerticalHeaderLabels(ratios);
-    m_adc->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_adc->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     for (int r = 0; r < 10; ++r)
         for (int c = 0; c < 2; ++c)
             m_adc->setItem(r, c, new QTableWidgetItem(QStringLiteral("1")));
@@ -506,7 +506,7 @@ void ClimatologyDialog::buildAdjustmentsTab(QTabWidget *tabs)
     QStringList rows;
     for (const char *m : kMonths) rows << QString::fromLatin1(m);
     m_adjust->setVerticalHeaderLabels(rows);
-    m_adjust->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_adjust->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     for (int r = 0; r < 12; ++r)
         for (int c = 0; c < 4; ++c)
             m_adjust->setItem(r, c, new QTableWidgetItem(

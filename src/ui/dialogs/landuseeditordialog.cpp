@@ -162,8 +162,8 @@ void LandUseEditorDialog::buildUi_()
         view->setModel(model);
         view->setItemDelegate(new EnumComboDelegate(view));
         view->horizontalHeader()->setSectionResizeMode(
-            QHeaderView::ResizeToContents);
-        view->horizontalHeader()->setStretchLastSection(true);
+            QHeaderView::Interactive);
+        view->horizontalHeader()->setStretchLastSection(false);
         view->verticalHeader()->setVisible(false);
         view->setSelectionMode(QAbstractItemView::SingleSelection);
         return view;

@@ -1,3 +1,4 @@
+#include "ui/util/numerictablewidgetitem.h"
 /*!
  * \file   statssummarypanel.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -224,7 +225,7 @@ void StatsSummaryPanel::rebuildTabs()
         table->setColumnCount(columns.size());
         table->setHorizontalHeaderLabels(columns);
         table->verticalHeader()->setVisible(false);
-        table->horizontalHeader()->setStretchLastSection(true);
+        table->horizontalHeader()->setStretchLastSection(false);
         table->setEditTriggers(QAbstractItemView::NoEditTriggers);
         table->setSelectionBehavior(QAbstractItemView::SelectRows);
 
@@ -239,6 +240,8 @@ void StatsSummaryPanel::rebuildTabs()
                 });
 
         populateTab(table, r);
+        table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+        table->setSortingEnabled(true);
         applyColumnVisibility(table);
 
         // Y2b-3: species rows label by the descriptor authority — a
@@ -289,7 +292,7 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
         m_model->resolveSeries(sIdx, data);
         if (!data.ok) {
             table->setItem(outRow, 0,
-                new QTableWidgetItem(QStringLiteral("(unresolved series %1)").arg(sIdx)));
+                new openswmmvis::ui::NumericTableWidgetItem(QStringLiteral("(unresolved series %1)").arg(sIdx)));
             ++outRow;
             continue;
         }
@@ -317,19 +320,19 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
                              : spec.objectRef.name);
 
         int col = 0;
-        table->setItem(outRow, col++, new QTableWidgetItem(legendName));
-        table->setItem(outRow, col++, new QTableWidgetItem(QString::number(stats.count)));
-        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.mean)));
-        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.median)));
-        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.stddev)));
-        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.min)));
-        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.max)));
-        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.p05)));
-        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.p25)));
-        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.p50)));
-        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.p75)));
-        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.p95)));
-        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.sum)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(legendName));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(QString::number(stats.count)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.mean)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.median)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.stddev)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.min)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.max)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p05)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p25)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p50)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p75)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p95)));
+        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.sum)));
 
         if (haveBaseline) {
             // Pair against baseline samples by timestamp (within ½-step).
@@ -366,13 +369,13 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
                 }
             }
             table->setItem(outRow, col++,
-                new QTableWidgetItem(haveFit ? formatValue(fit.nse)   : QStringLiteral("—")));
+                new openswmmvis::ui::NumericTableWidgetItem(haveFit ? formatValue(fit.nse)   : QStringLiteral("—")));
             table->setItem(outRow, col++,
-                new QTableWidgetItem(haveFit ? formatValue(fit.r2)    : QStringLiteral("—")));
+                new openswmmvis::ui::NumericTableWidgetItem(haveFit ? formatValue(fit.r2)    : QStringLiteral("—")));
             table->setItem(outRow, col++,
-                new QTableWidgetItem(haveFit ? formatValue(fit.rmse)  : QStringLiteral("—")));
+                new openswmmvis::ui::NumericTableWidgetItem(haveFit ? formatValue(fit.rmse)  : QStringLiteral("—")));
             table->setItem(outRow, col++,
-                new QTableWidgetItem(haveFit ? formatValue(fit.pbias) : QStringLiteral("—")));
+                new openswmmvis::ui::NumericTableWidgetItem(haveFit ? formatValue(fit.pbias) : QStringLiteral("—")));
         }
         ++outRow;
     }

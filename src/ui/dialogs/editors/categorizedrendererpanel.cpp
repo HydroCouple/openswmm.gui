@@ -309,8 +309,8 @@ public:
         m_table = new QTableView(box);
         m_table->setModel(m_model);
         m_table->verticalHeader()->setVisible(false);
-        m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-        m_table->horizontalHeader()->setStretchLastSection(true);
+        m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+        m_table->horizontalHeader()->setStretchLastSection(false);
         m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_table->setEditTriggers(QAbstractItemView::DoubleClicked
                                   | QAbstractItemView::SelectedClicked);

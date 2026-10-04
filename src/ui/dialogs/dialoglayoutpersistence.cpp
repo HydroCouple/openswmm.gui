@@ -315,6 +315,14 @@ bool restoreDialogLayout(QWidget *root)
     s.endGroup();   // <name>
     s.endGroup();   // Dialogs
 
+    for (QTableView *table : tables) {
+        table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+        table->horizontalHeader()->setStretchLastSection(false);
+    }
+    for (QTreeView *tree : trees) {
+        tree->header()->setSectionResizeMode(QHeaderView::Interactive);
+        tree->header()->setStretchLastSection(false);
+    }
     return restored;
 }
 

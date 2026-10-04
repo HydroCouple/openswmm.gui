@@ -79,7 +79,13 @@ private slots:
   dialog.findChild<QDoubleSpinBox*>("gwAssignmentValue")->setValue(2);
   dialog.findChild<QPushButton*>("gwAssignmentPreviewButton")->click();auto*apply=dialog.findChild<QPushButton*>("gwAssignmentApplyButton");QTRY_VERIFY_WITH_TIMEOUT(apply->isEnabled(),10000);
   AquiferSnapshot now;QVERIFY(readAquiferSnapshot(f.model.engine(),&now,&error));QCOMPARE(now,before);
-  QCOMPARE(dialog.findChild<QTableWidget*>("gwAssignmentPreview")->rowCount(),2);apply->click();QCOMPARE(applied.count(),1);QCOMPARE(recipe.count(),1);QCOMPARE(f.canvas.undoStack()->count(),1);
+  auto*table=dialog.findChild<QTableWidget*>("gwAssignmentPreview");QCOMPARE(table->rowCount(),2);QVERIFY(table->isSortingEnabled());
+  QMap<QString,QString> oldByCell;for(int row=0;row<table->rowCount();++row)oldByCell.insert(table->item(row,0)->text(),table->item(row,1)->text());
+  table->sortItems(0,Qt::DescendingOrder);QCOMPARE(table->item(0,0)->text(),QStringLiteral("2"));
+  dialog.findChild<QDoubleSpinBox*>("gwAssignmentValue")->setValue(3);dialog.findChild<QPushButton*>("gwAssignmentPreviewButton")->click();QTRY_VERIFY_WITH_TIMEOUT(apply->isEnabled(),10000);
+  QCOMPARE(table->rowCount(),2);QCOMPARE(table->item(0,0)->text(),QStringLiteral("2"));
+  for(int row=0;row<table->rowCount();++row){QCOMPARE(table->item(row,1)->text(),oldByCell.value(table->item(row,0)->text()));QCOMPARE(table->item(row,2)->text().toDouble(),3.0);}
+  apply->click();QCOMPARE(applied.count(),1);QCOMPARE(recipe.count(),1);QCOMPARE(f.canvas.undoStack()->count(),1);
   f.canvas.undoStack()->undo();QVERIFY(readAquiferSnapshot(f.model.engine(),&now,&error));QCOMPARE(now,before);f.canvas.undoStack()->redo();QVERIFY(readAquiferSnapshot(f.model.engine(),&now,&error));QCOMPARE(now.rows.size(),3);
  }
  void regionTotalSourcePreviewApplyUndo(){Fixture f;QVERIFY(f.open());f.select();GroundwaterAssignDialog dialog(&f.model,&f.mesh,&f.canvas,&f.selection,&f.units);

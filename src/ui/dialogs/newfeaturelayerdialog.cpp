@@ -198,7 +198,7 @@ void NewFeatureLayerDialog::buildUi()
         m_fieldTable->setObjectName(QStringLiteral("newFeatureFieldTable"));
         m_fieldTable->setHorizontalHeaderLabels(
             {tr("Field"), tr("Type"), tr("Default"), tr("Description")});
-        m_fieldTable->horizontalHeader()->setStretchLastSection(true);
+        m_fieldTable->horizontalHeader()->setStretchLastSection(false);
         m_fieldTable->verticalHeader()->setVisible(false);
         m_fieldTable->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_fieldTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -423,7 +423,7 @@ void NewFeatureLayerDialog::rebuildFieldRows()
             ->setCheckState(c.second ? Qt::Checked : Qt::Unchecked);
     }
     m_fieldTable->resizeColumnsToContents();
-    m_fieldTable->horizontalHeader()->setStretchLastSection(true);
+    m_fieldTable->horizontalHeader()->setStretchLastSection(false);
 }
 
 void NewFeatureLayerDialog::appendFieldRow(const FieldDef &f, bool custom)

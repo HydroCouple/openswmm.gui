@@ -192,7 +192,7 @@ void FeatureLayerPanel::buildUi()
         m_fieldTable = new QTableWidget(0, ColCount, g);
         m_fieldTable->setObjectName(QStringLiteral("featureSchemaTable"));
         m_fieldTable->setHorizontalHeaderLabels({tr("Name"), tr("Type"), tr("Description")});
-        m_fieldTable->horizontalHeader()->setStretchLastSection(true);
+        m_fieldTable->horizontalHeader()->setStretchLastSection(false);
         m_fieldTable->verticalHeader()->setVisible(false);
         m_fieldTable->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_fieldTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -642,7 +642,7 @@ void FeatureLayerPanel::refreshFeatureTable()
     for (const FieldDef &f : schema.fields()) headers << f.name;
     m_featureTable->setColumnCount(headers.size());
     m_featureTable->setHorizontalHeaderLabels(headers);
-    m_featureTable->horizontalHeader()->setStretchLastSection(true);
+    m_featureTable->horizontalHeader()->setStretchLastSection(false);
     installGridDelegates();
 
     const QVector<FeatureId> ids = l->featureIds();
@@ -936,7 +936,7 @@ void FeatureLayerPanel::refreshVertexTable()
         }
     }
     m_vertexTable->setRowCount(row);
-    m_vertexTable->horizontalHeader()->setStretchLastSection(true);
+    m_vertexTable->horizontalHeader()->setStretchLastSection(false);
 
     if (previousId == m_vertexFeatureId) {
         // Same feature, so the rows mean the same thing: put the cursor back.

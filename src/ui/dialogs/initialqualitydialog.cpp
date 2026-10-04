@@ -118,7 +118,7 @@ void InitialQualityDialog::buildUi()
     m_table->setHorizontalHeaderLabels(
         { tr("Scope"), tr("Element"), tr("Constituent"), tr("Value") });
     m_table->verticalHeader()->setVisible(false);
-    m_table->horizontalHeader()->setStretchLastSection(true);
+    m_table->horizontalHeader()->setStretchLastSection(false);
     vlay->addWidget(m_table);
 
     // U2 — the `[INITIAL_QUALITY] FILE <csv>` sidecar. Rows loaded from it

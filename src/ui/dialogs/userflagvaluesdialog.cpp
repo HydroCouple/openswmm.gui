@@ -54,11 +54,11 @@ UserFlagValuesDialog::UserFlagValuesDialog(UserFlagsEditRef ref, QWidget *parent
     m_table = new QTableWidget(0, ColCount, this);
     m_table->setHorizontalHeaderLabels({tr("Flag"), tr("Type"), tr("Value")});
     m_table->horizontalHeader()->setSectionResizeMode(ColFlag,
-                                                      QHeaderView::ResizeToContents);
+                                                      QHeaderView::Interactive);
     m_table->horizontalHeader()->setSectionResizeMode(ColType,
-                                                      QHeaderView::ResizeToContents);
+                                                      QHeaderView::Interactive);
     m_table->horizontalHeader()->setSectionResizeMode(ColValue,
-                                                      QHeaderView::Stretch);
+                                                      QHeaderView::Interactive);
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
 

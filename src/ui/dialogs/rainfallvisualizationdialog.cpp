@@ -1,3 +1,4 @@
+#include "ui/util/numerictablewidgetitem.h"
 /*!
  * \file   rainfallvisualizationdialog.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -251,7 +252,7 @@ void RainfallVisualizationDialog::buildUi_()
         {tr("Gage"), tr("Source"), tr("Total depth"), tr("Peak intensity"),
          tr("Peak time"), tr("Interval"), tr("First"), tr("Last"),
          tr("Gaps"), tr("Longest gap"), tr("Points"), tr("Status")});
-    m_statsTable->horizontalHeader()->setStretchLastSection(true);
+    m_statsTable->horizontalHeader()->setStretchLastSection(false);
     m_statsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_statsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_statsTable->verticalHeader()->setVisible(false);
@@ -462,13 +463,15 @@ void RainfallVisualizationDialog::rebuildStatsTable_()
     // Programmatic check-state writes must not re-enter onStatsItemChanged_.
     const QSignalBlocker blocker(m_statsTable);
 
+    const bool sorted = m_statsTable->isSortingEnabled();
+    m_statsTable->setSortingEnabled(false);
     m_statsTable->setRowCount(gages.size());
     int row = 0;
     for (const auto &g : gages) {
         const RainGageStats st = RainfallSeriesModel::computeStats(g);
 
         auto put = [&](int col, const QString &text) {
-            auto *item = new QTableWidgetItem(text);
+            auto *item = new openswmmvis::ui::NumericTableWidgetItem(text);
             m_statsTable->setItem(row, col, item);
             return item;
         };
@@ -498,8 +501,16 @@ void RainfallVisualizationDialog::rebuildStatsTable_()
         auto *statusItem = put(11, status);
         if (!g.hasData())
             statusItem->setForeground(Qt::red);
+        using Item = openswmmvis::ui::NumericTableWidgetItem;
+        m_statsTable->item(row, 5)->setData(Item::SortKeyRole, g.intervalSec);
+        m_statsTable->item(row, 9)->setData(Item::SortKeyRole, st.longestGapSecs);
+        for (const auto &entry : {qMakePair(4, st.peakTime), qMakePair(6, st.first), qMakePair(7, st.last)})
+            if (entry.second.isValid())
+                m_statsTable->item(row, entry.first)->setData(Item::SortKeyRole, entry.second.toMSecsSinceEpoch());
         ++row;
     }
+    if (!sorted) m_statsTable->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+    m_statsTable->setSortingEnabled(true);
     m_statsTable->resizeColumnsToContents();
 }
 

@@ -168,7 +168,7 @@ void HeatConfigDialog::buildUi()
         m_sourceTable->setHorizontalHeaderLabels(
             { tr("Source"), tr("Set"), tr("Temperature") });
         m_sourceTable->verticalHeader()->setVisible(false);
-        m_sourceTable->horizontalHeader()->setStretchLastSection(true);
+        m_sourceTable->horizontalHeader()->setStretchLastSection(false);
         m_sourceTable->setSelectionMode(QAbstractItemView::NoSelection);
         for (int r = 0; r < kSourceCount; ++r) {
             auto *nameItem = new QTableWidgetItem(
@@ -205,7 +205,7 @@ void HeatConfigDialog::buildUi()
         m_overrideTable->setHorizontalHeaderLabels(
             { tr("Source"), tr("Node"), tr("Temperature") });
         m_overrideTable->verticalHeader()->setVisible(false);
-        m_overrideTable->horizontalHeader()->setStretchLastSection(true);
+        m_overrideTable->horizontalHeader()->setStretchLastSection(false);
         lay->addWidget(m_overrideTable);
 
         auto *btns = new QHBoxLayout;
