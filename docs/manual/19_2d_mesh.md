@@ -346,6 +346,10 @@ mesh the engine actually reads when a project has several — see
 
 ### The Mesh 2D ribbon tab
 
+The **Select** button at the beginning of this tab returns to the same selection
+tool used on Home. Use it to switch back from **Select Vertex**, **Select Edge**
+or **Select 2D Cells** without changing ribbon tabs.
+
 \fig{19_mesh2d_ribbon.png, The Mesh 2D ribbon tab with the Mesh; Vertices; Edges; 2D Results; Profile and Coupling groups}
 
 The Mesh Editing toolbar is organised into captioned groups. Clusters appear

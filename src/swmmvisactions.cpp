@@ -353,6 +353,7 @@ void SWMMVis::initializeCompactToolbar()
 
     mToolBarMesh2D = new QToolBar(tr("Mesh 2D"), this);
     mToolBarMesh2D->setObjectName(QStringLiteral("toolBarMesh2D"));
+    addGroup(mToolBarMesh2D, tr("Select"), {"actionSelect"});
     addGroup(mToolBarMesh2D, tr("Mesh"), {"actionGenerateMesh"});
     addGroup(mToolBarMesh2D, tr("Cell Data"),
              {"actionMeshAssignFromRaster", "actionMeshAssignFromVector"});
