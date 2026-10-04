@@ -6,6 +6,7 @@
  * \license GPL-3.0-or-later
  */
 #include "lid/lidcontrolregistry.h"
+#include <openswmm/engine/openswmm_pollutants.h>
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
@@ -108,6 +109,11 @@ int LidControlRegistry::loadFromEngine(void *engineHandle)
                     if (swmm_lid_node_layer_get(eng, i, j, &row) == SWMM_OK) rows.append(row);
                 }
                 p->setNodeLayers(rows);
+                for(int j=0;j<swmm_lid_node_treatment_count(eng,i);++j) {
+                    SWMM_LidLayerTreatment t{};
+                    if(swmm_lid_node_treatment_get(eng,i,j,&t)==SWMM_OK)
+                        p->treatments.append({t.layer,QString::fromUtf8(swmm_pollutant_id(eng,t.pollutant)),t.removal_percent,t.decay_per_day,QString::fromUtf8(t.expression)});
+                }
             } else {
                 double a, b, c, d, e, f;
                 if (swmm_lid_get_surface(eng, i, &a, &b, &c) == SWMM_OK) {
@@ -155,7 +161,13 @@ int LidControlRegistry::saveToEngine(void *engineHandle)
         }
         if (p->type() == 8) {
             const auto& rows = p->nodeLayers();
-            if (swmm_lid_node_layers_set(eng, idx, rows.constData(), rows.size()) == SWMM_OK) {
+            QVector<QByteArray> expressions;expressions.reserve(p->treatments.size());
+            QVector<SWMM_LidLayerTreatment> rules;
+            for(const auto& t:p->treatments) {
+                expressions.append(t.expression.toUtf8());
+                rules.append({t.layer,swmm_pollutant_index(eng,t.pollutant.toUtf8().constData()),t.removal,t.decay,expressions.back().constData()});
+            }
+            if (swmm_lid_node_configure(eng, idx, rows.constData(), rows.size(),rules.constData(),rules.size()) == SWMM_OK) {
                 p->clearDirty(); ++written;
             } else if (isNew) {
                 swmm_lid_delete(eng, idx, nullptr);

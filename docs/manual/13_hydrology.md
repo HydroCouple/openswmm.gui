@@ -461,3 +461,9 @@ or seasonal recovery.
 - \ref manual_analysis_tools — the Rainfall Visualization dialog
 - \ref manual_simulation_options — the model-wide `INFILTRATION` option
 - \ref tutorial_site_drainage — a worked 1D hydrology model
+
+### Storage-node LIDs
+
+A storage node can reference an ordered layered LID control. The layer editor
+supports arbitrary MEDIA and AGGREGATE layers and per-layer pollutant treatment.
+See \ref tutorial_lid_storage for a runnable example and editor walkthrough.

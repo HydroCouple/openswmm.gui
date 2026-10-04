@@ -808,5 +808,17 @@
     "sha256": "ed7f7839e8d54b8d8e881f3e3e36fc0043f66f4fec3c1dd5ba3a723a1f1bb805",
     "baseline": "round5-orientation-final",
     "notes": "Native current-build screenshot, visually reviewed against caption. No custom binding, action execution or environment-copy workflow claim. First category label Window has a clipped leading edge; Map labels and shortcuts are readable."
+  },
+  "t09_lid_physical.png": {
+    "reviewedAt": "2026-10-04T13:44:30.830065+00:00",
+    "sha256": "89ac1c6e832fe670a956e885acac7a4f91f27dcfd4be314425301c307ac50880",
+    "baseline": "lid-storage-tutorial",
+    "notes": "Real Qt dialog captured by test_lid_treatment_editor using the T9 model. Reviewed selected physical properties and treatment fields; narrow schematic labels are elided by the current UI."
+  },
+  "t09_lid_treatment.png": {
+    "reviewedAt": "2026-10-04T13:44:30.830990+00:00",
+    "sha256": "c044dffd9dec430e53c769d2878b32494d42acfbe220708fc8b6d76fe4701e87",
+    "baseline": "lid-storage-tutorial",
+    "notes": "Real Qt dialog captured by test_lid_treatment_editor using the T9 model. Reviewed selected physical properties and treatment fields; narrow schematic labels are elided by the current UI."
   }
 }

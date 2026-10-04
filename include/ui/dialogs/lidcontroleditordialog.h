@@ -5,14 +5,10 @@
  * \license GPL-3.0-or-later
  * \brief  CRUD editor for SWMM LID controls ([LID_CONTROLS]).
  *
- * List pane + right pane with a type combobox and a QTabWidget of the four
- * LID layers (Surface / Soil / Storage / Drain), matching the engine's
- * swmm_lid_set_surface / _soil / _storage / _drain setters.
- *
- * Engine limitation: no LID getters, so existing layer values cannot be
- * pre-loaded; the registry only writes new or user-edited controls.
- *
- * NOTE (first cut): build-verify with the compiler in the loop.
+ * List pane and property tabs for standard LID controls, with an ordered
+ * layer editor for NODE controls. Physical parameters and per-layer pollutant
+ * rates/expressions share the current control selection and Apply workflow.
+ * Existing definitions are loaded through the registry's engine getters.
  */
 #ifndef OPENSWMMVIS_UI_DIALOGS_LIDCONTROLEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_LIDCONTROLEDITORDIALOG_H
@@ -27,6 +23,10 @@ class QListView;
 class QPushButton;
 class QSplitter;
 class QTabWidget;
+class QSpinBox;
+class QLabel;
+class QFormLayout;
+class QStandardItemModel;
 
 class SWMMModelLayer;
 class QTableView;
@@ -73,6 +73,9 @@ public:
      *  Used by the Object Browser, Properties panel and Attribute Table. */
     void openForLidControl(const QString &name);
 
+protected:
+    void done(int result) override;
+
 private slots:
     void onListSelectionChanged_();
     void onAddClicked_();
@@ -92,6 +95,13 @@ private:
     void refreshLayerDiagram_();
     void selectProviderInList_(openswmmvis::lid::LidControlProvider *p);
     QString suggestUniqueName_() const;
+    void addLayeredControl_();
+    void refreshLayerFields_();
+    void refreshTreatmentRows_();
+    void storeTreatmentRows_();
+    bool applyLayers_();
+    bool finishLayerDraft_();
+    bool m_layerDraftDirty = false;
 
     QPointer<openswmmvis::lid::LidControlRegistry> m_registry;
     QPointer<SWMMModelLayer>                       m_layer;
@@ -99,6 +109,15 @@ private:
     QTableView *m_nodeLayerTable = nullptr;
     LidNodeLayerModel *m_nodeLayerModel = nullptr;
     QWidget *m_nodeLayerPage = nullptr;
+    QSpinBox *m_mediaCount = nullptr;
+    QLabel *m_layerSummary = nullptr;
+    QFormLayout *m_layerFields = nullptr;
+    QDoubleSpinBox *m_layerValues[9]{};
+    bool m_syncLayerFields = false;
+    QTableView *m_treatmentTable = nullptr;
+    QStandardItemModel *m_treatmentModel = nullptr;
+    QLabel *m_treatmentMessage = nullptr;
+    bool m_syncTreatment = false;
     Mode                                           m_mode = Mode::Edit;
 
     QSplitter *m_splitter = nullptr;

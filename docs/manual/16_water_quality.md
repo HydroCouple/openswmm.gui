@@ -445,3 +445,10 @@ and a message appears once per token in the **Message Logs** panel.
 - \ref manual_time_series_plots — plotting concentrations, age and temperature
 - \ref tutorial_site_drainage — a worked build-up / wash-off model
 - \ref tutorial_transport — reaction systems, water age and heat end to end
+
+### Treatment in storage-node LID layers
+
+Layered NODE controls support fixed removal, first-order decay and optional
+treatment expressions for each pollutant and physical layer. Open the control,
+select a layer and use **Pollutant treatment**. See \ref tutorial_lid_storage
+for units, combined-rate behavior, persistence and a worked example.

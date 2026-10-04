@@ -20,6 +20,23 @@ private slots:
         QCOMPARE(model.rowCount(), 61);
         QVERIFY(!model.setData(model.index(0, 1), -1));
     }
+    void countPreservesBoundariesAndTreatmentFollowsLayer() {
+        LidNodeLayerModel model;
+        model.append(0); model.append(1); model.append(2); model.append(3);
+        model.setTreatments({{2, "TSS", 25, 1.5, "R = 0.2"}});
+        model.setMediaCount(80);
+        QCOMPARE(model.mediaCount(), 80);
+        QCOMPARE(model.layers.front().kind, 0);
+        QCOMPARE(model.layers.back().kind, 3);
+        model.move(1, 1);
+        QCOMPARE(model.treatmentRows().front().layer, 3);
+        QCOMPARE(model.treatmentRows().front().expression, QString("R = 0.2"));
+        model.setMediaCount(2);
+        QCOMPARE(model.rowCount(), 4);
+        QCOMPARE(model.treatmentRows().front().layer, 3);
+        model.remove(2);
+        QVERIFY(model.treatmentRows().isEmpty());
+    }
     void defaultsRespectUnits() {
         LidNodeLayerModel si, us;
         si.append(1, true); us.append(1, false);

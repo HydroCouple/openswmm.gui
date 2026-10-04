@@ -5,10 +5,9 @@
  * \license GPL-3.0-or-later
  * \brief  Project-scoped factory + lookup for LidControlProvider instances.
  *
- * Mirrors InletRegistry. Engine has layer setters but no getters, so
- * loadFromEngine recovers names only; saveToEngine writes a control only when
- * it is new or has been edited (dirty), preventing clobber of untouched
- * existing controls.
+ * Loads standard and ordered layer definitions, including pollutant treatment.
+ * Saves only new or edited controls; NODE geometry and treatment are applied
+ * atomically through the engine API.
  */
 #ifndef OPENSWMMVIS_LID_LIDCONTROLREGISTRY_H
 #define OPENSWMMVIS_LID_LIDCONTROLREGISTRY_H
