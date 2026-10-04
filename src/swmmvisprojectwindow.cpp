@@ -321,7 +321,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                 // CRS (Web Mercator by default) so reprojection happens
                 // at the layer→canvas boundary and aspect stays correct.
                 if (layerSrs->isGeographic()) {
-                    mCanvas->zoomToFullExtent();
+                    mCanvas->zoomToFullExtent(/*pushUndo=*/false);
                     return;
                 }
                 mCanvas->setCanvasSRS(
@@ -329,7 +329,8 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                 // setCanvasSRS already fans out onCanvasCRSChanged to all
                 // layers + emits canvasSRSChanged + refreshes the buffer;
                 // refit so the user sees content at the new coordinates.
-                mCanvas->zoomToFullExtent();
+                // Part of the CRS change, not an undo step of its own.
+                mCanvas->zoomToFullExtent(/*pushUndo=*/false);
             });
 
     mCanvas->addLayer(mModelLayer, false);

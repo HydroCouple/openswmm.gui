@@ -102,7 +102,9 @@ public:
 
     void setExtent(const MapExtent &extent, bool pushUndo = true);
 
-    void zoomToFullExtent();
+    /*! \p pushUndo false: refit as part of another change (a CRS switch) that
+     *  owns the undo step. */
+    void zoomToFullExtent(bool pushUndo = true);
     void zoomIn(double factor = 2.0);
     void zoomOut(double factor = 2.0);
     void pan(double dx, double dy);

@@ -327,6 +327,31 @@ OpenSWMMVisGraphicsView *MapCanvas::overlayView() const { return m_overlayView; 
 
 SpatialReferenceSystem *MapCanvas::canvasSRS() const { return m_canvasSRS; }
 
+// The four corners of \p e projected from \p from to \p to, as a bounding
+// box. Invalid when either CRS is missing or the transform fails.
+static MapExtent transformExtentCorners(const MapExtent &e,
+                                       const SpatialReferenceSystem *from,
+                                       const SpatialReferenceSystem *to)
+{
+    if (!e.isValid() || !from || !to || !from->ogrSpatialReference()
+        || !to->ogrSpatialReference())
+        return {};
+    auto *xform = OGRCreateCoordinateTransformation(from->ogrSpatialReference(),
+                                                    to->ogrSpatialReference());
+    if (!xform) return {};
+    double xs[4] = {e.xMin(), e.xMax(), e.xMax(), e.xMin()};
+    double ys[4] = {e.yMin(), e.yMin(), e.yMax(), e.yMax()};
+    const bool ok = xform->Transform(4, xs, ys);
+    OGRCoordinateTransformation::DestroyCT(xform);
+    if (!ok) return {};
+    double x0 = xs[0], x1 = xs[0], y0 = ys[0], y1 = ys[0];
+    for (int i = 1; i < 4; ++i) {
+        x0 = std::min(x0, xs[i]); x1 = std::max(x1, xs[i]);
+        y0 = std::min(y0, ys[i]); y1 = std::max(y1, ys[i]);
+    }
+    return MapExtent(x0, y0, x1, y1);
+}
+
 void MapCanvas::applyCRSInternal(SpatialReferenceSystem *srs, bool ownsSRS)
 {
     if (!srs || srs == m_canvasSRS)
@@ -346,6 +371,11 @@ void MapCanvas::applyCRSInternal(SpatialReferenceSystem *srs, bool ownsSRS)
         return;
     }
 
+    // The current view expressed in the incoming CRS — the fallback framing
+    // when there is no data layer to fit (basemaps only). Computed before the
+    // outgoing CRS object is released.
+    const MapExtent carriedView = transformExtentCorners(m_extent, m_canvasSRS, srs);
+
     if (m_ownsSRS)
         delete m_canvasSRS;
 
@@ -361,7 +391,27 @@ void MapCanvas::applyCRSInternal(SpatialReferenceSystem *srs, bool ownsSRS)
     for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
         layer->onCanvasCRSChanged(m_canvasSRS);
 
+    // The old extent's numbers mean nothing in the new CRS — kept as-is the
+    // map appears to vanish. Frame the data in its new location; with only
+    // basemaps loaded, keep looking at the same place instead of zooming out
+    // to the whole world. Never an undo step of its own: undo/redo of the CRS
+    // change come back through here and refit the same way.
+    bool haveData = false;
+    for (const OpenSWMMVisLayer *layer : std::as_const(m_layers))
+        if (!layer->isBasemapLayer() && layer->isVisible()
+            && layerExtentInCanvasCRS(layer).isValid()) {
+            haveData = true;
+            break;
+        }
+    if (haveData)
+        zoomToFullExtent(/*pushUndo=*/false);
+    else if (carriedView.isValid())
+        setExtent(carriedView, /*pushUndo=*/false);
+
     emit canvasSRSChanged(m_canvasSRS);
+    // Every cached frame (raster composite, CPU scene buffer, QSG frame) was
+    // drawn in the old CRS.
+    invalidate(Raster | Scene | Overlay, QStringLiteral("canvas-crs-changed"));
     refresh();
 }
 
@@ -423,7 +473,7 @@ void MapCanvas::setExtent(const MapExtent &extent, bool pushUndo)
         refresh();
 }
 
-void MapCanvas::zoomToFullExtent()
+void MapCanvas::zoomToFullExtent(bool pushUndo)
 {
     MapExtent fe = fullExtent();
     if (!fe.isValid())
@@ -433,7 +483,7 @@ void MapCanvas::zoomToFullExtent()
     // endpoints, subcatchment outlines) are not visually clipped against the
     // canvas border. 8% on each side matches QGIS's default "Zoom to Layer".
     fe = fe.scaled(1.08);
-    setExtent(fe);
+    setExtent(fe, pushUndo);
 }
 
 void MapCanvas::zoomIn(double factor)
@@ -595,8 +645,8 @@ void MapCanvas::insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo
                 // canvas kept its OLD extent (which was in the layer's
                 // old CRS), making the network appear "to have
                 // vanished" even though it rendered at the new
-                // coordinates.
-                zoomToFullExtent();
+                // coordinates. Part of the CRS change, not an undo step.
+                zoomToFullExtent(/*pushUndo=*/false);
                 invalidate(Raster | Scene | Overlay,
                            QStringLiteral("layer-srs-changed"));
             });
