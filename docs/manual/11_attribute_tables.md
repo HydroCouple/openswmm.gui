@@ -199,10 +199,21 @@ the current map selection.
    combine its matches with the current selection. **Clear** restores all table
    rows and keeps the selection.
 
+In the bundled **Site Drainage** example, the clause above matches C11 and C7.
+Their lengths are 89 and 95 ft. The ascending arrow in **Length (ft)** shows
+the sort direction, and the highlighted rows show the selected matches.
+
+\fig{11_query_exclusion_sorted.png, NOT LIKE and BETWEEN select two of eleven conduits; Length is sorted ascending in feet}
+
 **Enter** accepts a highlighted suggestion while the suggestion list is open;
 with the list closed, **Enter** applies the query. To change part of an existing
 clause, place the cursor in that field or keyword and request suggestions;
 accepting one preserves the text after the token.
+
+\fig{11_query_completion.png, Suggestions after typing Len include the quoted Length header; use arrow keys and Enter to insert a field}
+
+Opening suggestions does not apply the unfinished clause: the previous matches
+stay visible until you press **Apply** or apply a complete query with **Enter**.
 
 To exclude several names, use `Name NOT IN ('C1', 'C2')`. To negate a group,
 use `NOT (Name LIKE 'TEMP%' OR Length < 10)`. For a field that can be missing,

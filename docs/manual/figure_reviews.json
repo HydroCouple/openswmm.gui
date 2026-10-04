@@ -820,5 +820,17 @@
     "sha256": "c044dffd9dec430e53c769d2878b32494d42acfbe220708fc8b6d76fe4701e87",
     "baseline": "lid-storage-tutorial",
     "notes": "Real Qt dialog captured by test_lid_treatment_editor using the T9 model. Reviewed selected physical properties and treatment fields; narrow schematic labels are elided by the current UI."
+  },
+  "11_query_exclusion_sorted.png": {
+    "reviewedAt": "2026-10-04T14:24:10.212209+00:00",
+    "sha256": "afe99929049810a726a77191d4c5b08e6954eb1f229a9ebbab44900f3046abc0",
+    "baseline": "table_queries_2026-10-04",
+    "notes": "Visually checked at full size: real production Qt controls rendered at 2x in light theme. Query selects C11 and C7 at 89 and 95 ft; ascending Length arrow and match count are visible. Completion capture includes the actual popup in its original panel position. No solver or map-rendering claim."
+  },
+  "11_query_completion.png": {
+    "reviewedAt": "2026-10-04T14:24:10.212209+00:00",
+    "sha256": "544305363c1451d4d7731953a7a153c7a3ba2e38f84b10c4580f5293c844e32d",
+    "baseline": "table_queries_2026-10-04",
+    "notes": "Visually checked at full size: real production Qt controls rendered at 2x in light theme. Query selects C11 and C7 at 89 and 95 ft; ascending Length arrow and match count are visible. Completion capture includes the actual popup in its original panel position. No solver or map-rendering claim."
   }
 }

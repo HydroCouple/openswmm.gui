@@ -1,0 +1,40 @@
+{
+  "capturedAt": "2026-10-04T14:22:16.187891+00:00",
+  "guiHead": "5c3499305079a00295f4f285b9aee458018c30a0",
+  "source": "tests/manual/manual_figures/capture_table_queries.cpp",
+  "platform": "Qt offscreen; production widgets; light theme; 2x rendering",
+  "model": "tests/output/manual_figures/table_queries_2026-10-04/fixtures/site/site_drainage_model.inp",
+  "exitCode": 0,
+  "figures": {
+    "11_query_exclusion_sorted.png": {
+      "sha256": "afe99929049810a726a77191d4c5b08e6954eb1f229a9ebbab44900f3046abc0",
+      "bytes": 85737
+    },
+    "11_query_completion.png": {
+      "sha256": "544305363c1451d4d7731953a7a153c7a3ba2e38f84b10c4580f5293c844e32d",
+      "bytes": 77717
+    }
+  },
+  "visualReview": "accepted",
+  "reviewedAt": "2026-10-04T14:24:10.212209+00:00",
+  "captureSource": {
+    "path": "tests/manual/manual_figures/capture_table_queries.cpp",
+    "sha256": "03e43978e3539295724495a9aeca87177c3384666fda65b69a6d70a141ce3dfc"
+  },
+  "captureDriver": {
+    "path": "tests/manual/manual_figures/capture_table_queries.py",
+    "sha256": "71cf2512178d4fa42122b7f76b42c4315a9e3c8b411937421a923196f260bf0f"
+  },
+  "captureBinary": {
+    "path": "tests/output/manual_figures/table_queries_2026-10-04/capture_table_queries",
+    "sha256": "39806e6d67a57be2d3e9d77df9f7fc842bceb40868b0ed6c52b2894ef2b54582"
+  },
+  "applicationBinary": {
+    "path": "build/SWMMVis.app/Contents/MacOS/SWMMVis",
+    "sha256": "b103715f6490e1f6947f53221134a5b9f05a010714aeb110002f1843171cac35"
+  },
+  "modelSource": {
+    "path": "examples/site_drainage/site_drainage_model.inp",
+    "sha256": "7a78aab1315a83a5dac98b902d55a75a3aece121c4c07dfd4a37287cfb4715db"
+  }
+}
