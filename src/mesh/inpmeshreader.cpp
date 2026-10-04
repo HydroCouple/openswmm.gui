@@ -93,6 +93,30 @@ QStringList tokenize(const QString &raw)
     return out;
 }
 
+// File references have different rules from numeric mesh rows: the engine
+// rejoins unquoted path tokens and preserves whitespace/comments inside quotes.
+QString meshFileReference(const QString &raw)
+{
+    QString line = raw;
+    bool quoted = false;
+    for (qsizetype i = 0; i < line.size(); ++i) {
+        if (line[i] == QLatin1Char('"')) quoted = !quoted;
+        else if (line[i] == QLatin1Char(';') && !quoted) {
+            line.truncate(i);
+            break;
+        }
+    }
+    line = line.trimmed();
+    if (line.size() <= 4 || !line.startsWith(QLatin1String("FILE"), Qt::CaseInsensitive)
+        || !line[4].isSpace())
+        return {};
+    const QString path = line.mid(4).trimmed();
+    if (path.size() >= 2 && path.front() == QLatin1Char('"')
+        && path.back() == QLatin1Char('"'))
+        return path.mid(1, path.size() - 2);
+    return path.simplified();
+}
+
 /*! GG0a — parse `METHOD [P1..P5] [DEST]` starting at \p first into \p row.
  *
  *  Mirrors the engine's `parseInfil2DRowTail` (SectionHandlers2D.cpp):
@@ -601,10 +625,9 @@ QString parseSectionsFromText(const QString &text,
             if (meshFileRefOut)
             {
                 for (const QString &raw : body) {
-                    const QStringList tok = tokenize(raw);
-                    if (tok.size() >= 2 &&
-                        tok.first().compare(QLatin1String("FILE"), Qt::CaseInsensitive) == 0) {
-                        *meshFileRefOut = tok.at(1);
+                    const QString path = meshFileReference(raw);
+                    if (!path.isEmpty()) {
+                        *meshFileRefOut = path;
                         break;
                     }
                 }

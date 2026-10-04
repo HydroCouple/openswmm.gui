@@ -379,6 +379,28 @@ private slots:
         QVERIFY(inpText.contains("FILE  project.2dm"));
     }
 
+    void writeExternal_spacesReloadMesh()
+    {
+        ReviewableTestDir dir;
+        QVERIFY(dir.isValid());
+        const QString inpPath = dir.filePath("My Model.inp");
+        QFile inp(inpPath);
+        QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
+        inp.write(sampleInpText().toUtf8());
+        inp.close();
+
+        QString err;
+        QVERIFY2(InpMeshWriter::writeExternal(inpPath, {}, sampleMesh(),
+            sampleCoupling(), 0.035, &err), qPrintable(err));
+        const auto loaded = InpMeshReader::read(inpPath);
+        QVERIFY2(loaded.errorMsg.isEmpty(), qPrintable(loaded.errorMsg));
+        QVERIFY(loaded.hasMesh);
+        QVERIFY(loaded.isExternal);
+        QCOMPARE(QFileInfo(loaded.sourcePath).fileName(), QStringLiteral("My Model.2dm"));
+        QCOMPARE(loaded.mesh.vertices.size(), sampleMesh().vertices.size());
+        QCOMPARE(loaded.mesh.triangles.size(), sampleMesh().triangles.size());
+    }
+
     /*! Re-running external write should fully replace any prior 2D data
      *  + a stale [2D_MESH_FILE] block (idempotent). */
     void writeExternal_replacesPriorBlocks()
