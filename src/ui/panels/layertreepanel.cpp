@@ -1,3 +1,6 @@
+#include "layers/traceanalysislayer.h"
+#include "ui/dialogs/traceanalysisdialog.h"
+#include "swmmvisprojectwindow.h"
 /*!
  * \file   layertreepanel.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -7,6 +10,7 @@
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/layertreecategories.h"   // Slice LTR-2026-05-30 — extracted helpers
 #include "map/mapcanvas.h"
+#include "map/openswmmvisscene.h"
 #include "map/mapundostack.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"   // Slice BI-MK.LT — kind sub-rows
@@ -77,6 +81,20 @@ static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMAnnotation
 static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMFeatureLayer)            == OpenSWMMVisLayer::SWMMFeatureLayer);
 
 namespace {
+
+void removeAnalysisSublayer(MapCanvas *canvas, openswmmvis::trace::TraceSublayer *trace)
+{
+    auto *output = trace ? qobject_cast<SWMMResultsLayer *>(trace->parent()) : nullptr;
+    if (!canvas || !output || !canvas->layers().contains(output) ||
+        !output->sublayers().contains(trace))
+        return;
+    // Its scene items hold a raw pointer to the analysis painter. Clear them
+    // before detaching the child so neither repaint nor deletion can use it.
+    trace->layer()->depopulateScene(canvas->mapScene());
+    output->takeAnalysisSublayer(trace);
+    trace->invalidate(); // Notify the owning project's existing dirty-state connection.
+    trace->deleteLater();
+}
 
 /*! The menu text for a row's export entry (FEATURE_LAYER_ROLES_AND_FIELDS
  *  plan §8.2): what is written, so the entry reads differently per row. */
@@ -1589,6 +1607,12 @@ void LayerTreePanel::setupUi()
 void LayerTreePanel::onRemoveSelectedLayer()
 {
     if (!m_canvas) return;
+    const auto index = toSourceIndex(m_treeView->currentIndex());
+    if (m_model->isSublayerIndex(index)) {
+        removeAnalysisSublayer(m_canvas, dynamic_cast<openswmmvis::trace::TraceSublayer *>(
+                                            m_model->sublayerForIndex(index)));
+        return; // Never resolve a child removal to its entire output layer.
+    }
     OpenSWMMVisLayer *sel = selectedLayer();
     if (!sel)
         return;
@@ -1739,6 +1763,13 @@ void LayerTreePanel::onSelectionChanged()
 
 void LayerTreePanel::onLayerDoubleClicked(const QModelIndex &index)
 {
+    if (index.column() == 0)
+        if (auto *trace = dynamic_cast<openswmmvis::trace::TraceSublayer *>(
+                m_model->sublayerForIndex(toSourceIndex(index)))) {
+            openswmmvis::trace::TraceAnalysisDialog::showProperties(trace, this);
+            return;
+        }
+
     // Slice O: zoom to the layer's extent rather than opening the
     // Properties dialog.  Skip when the user double-clicked the opacity
     // column — they're targeting the cell, not the row.
@@ -1806,6 +1837,26 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     {
         OpenSWMM::Render::ISublayer *sub = m_model->sublayerForIndex(idx);
         if (!sub) return;
+        if (auto *trace = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub)) {
+            QPointer<openswmmvis::trace::TraceSublayer> guard(trace);
+            QMenu menu(this);
+            auto *properties = menu.addAction(
+                QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView),
+                tr("Properties…"));
+            menu.addSeparator();
+            auto *details = menu.addAction(tr("Result details…"));
+            auto *visible = menu.addAction(trace->isVisible() ? tr("Hide") : tr("Show"));
+            menu.addSeparator();
+            auto *remove = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Clear")),
+                                          tr("Remove Layer"));
+            auto *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
+            if (!guard) return;
+            if (picked == properties) openswmmvis::trace::TraceAnalysisDialog::showProperties(trace, this);
+            else if (picked == details) openswmmvis::trace::TraceAnalysisDialog::showDetails(trace, this);
+            else if (picked == visible) trace->setVisible(!trace->isVisible());
+            else if (picked == remove) removeAnalysisSublayer(m_canvas, trace);
+            return;
+        }
         OpenSWMMVisLayer *parentLayer = m_model->sublayerParentLayer(idx);
         auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(parentLayer);
 
@@ -2197,6 +2248,20 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     actUp->setEnabled  (m_canvas && canvasIdx >= 0 && canvasIdx < m_canvas->layerCount() - 1);
     actDown->setEnabled(m_canvas && canvasIdx > 0);
 
+    if (auto *output = qobject_cast<SWMMResultsLayer *>(layer)) {
+        auto *analysis = menu.addMenu(tr("Flow balance / travel time"));
+        for (bool travel : {false, true}) for (bool upstream : {false, true}) {
+            auto *action = analysis->addAction(QStringLiteral("%1 %2…")
+                .arg(travel ? tr("Travel time") : tr("Flow balance"), upstream ? tr("upstream") : tr("downstream")));
+            connect(action, &QAction::triggered, this, [this, output, travel, upstream] {
+                auto *project = m_canvas ? qobject_cast<SWMMVisProjectWindow *>(m_canvas->parent()) : nullptr;
+                if (project) {
+                    project->setActiveResultsLayer(output);
+                    openswmmvis::trace::TraceAnalysisDialog::showFor(project, upstream, travel, {}, output);
+                }
+            });
+        }
+    }
     QAction *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
     if (!picked) return;
     if      (picked == actZoom)        zoomToLayer(layer);

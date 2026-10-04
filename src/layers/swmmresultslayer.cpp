@@ -1,3 +1,4 @@
+#include "layers/traceanalysislayer.h"
 /*!
  * \file   swmmresultslayer.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -411,7 +412,7 @@ QList<OpenSWMM::Render::ISublayer *> SWMMResultsLayer::sublayers() const
     // After Slice GUI-2026-05-30 §2 the user can reorder via the layer tree,
     // so the order is cached in m_sublayerOrder and seeded once with the
     // archetype default below.
-    if (m_sublayerOrder.isEmpty()) {
+    if (m_sublayerOrder.isEmpty() && property("traceStoredRunId").toString().isEmpty()) {
         static const SWMMModelLayer::Category kOrder[] = {
             SWMMModelLayer::CatSubcatchments,
             SWMMModelLayer::CatConduits,
@@ -430,6 +431,34 @@ QList<OpenSWMM::Render::ISublayer *> SWMMResultsLayer::sublayers() const
                 m_sublayerOrder.append(s);
     }
     return m_sublayerOrder;
+}
+
+void SWMMResultsLayer::addAnalysisSublayer(OpenSWMM::Render::ISublayer *sub)
+{
+    (void)sublayers();
+    if (!sub || m_sublayerOrder.contains(sub)) return;
+    sub->setParent(this);
+    m_sublayerOrder.append(sub);
+    connect(this, &OpenSWMMVisLayer::visibilityChanged, sub, [this] {
+        m_sceneDirty = SceneDirty::Structural;
+        emit repaintRequested();
+    });
+    connect(sub, &OpenSWMM::Render::ISublayer::invalidated, this, [this] {
+        m_sceneDirty = SceneDirty::Structural;
+        emit repaintRequested();
+    });
+    m_sceneDirty = SceneDirty::Structural;
+    emit childrenChanged();
+    emit repaintRequested();
+}
+void SWMMResultsLayer::takeAnalysisSublayer(OpenSWMM::Render::ISublayer *sub)
+{
+    if (!m_sublayerOrder.removeOne(sub)) return;
+    disconnect(sub, nullptr, this, nullptr);
+    disconnect(this, nullptr, sub, nullptr);
+    m_sceneDirty = SceneDirty::Structural;
+    emit childrenChanged();
+    emit repaintRequested();
 }
 
 bool SWMMResultsLayer::moveSublayer(int from, int to)
@@ -491,6 +520,10 @@ SWMMResultsLayer::styleSubjects()
             sub->id(),
             archetypeSection(static_cast<SWMMModelLayer::Category>(i))));
     }
+    for (auto *sub : sublayers())
+        if (dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub))
+            out.push_back(std::make_unique<openswmmvis::ui::LayerStyleSubject>(
+                sub->displayName(), sub->style(), sub->id(), tr("Analyses")));
     return out;
 }
 
@@ -2744,7 +2777,11 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::legendSymbolItems()
 {
     // The renderer-driven sublayer walk already aggregates per-kind rows
     // (gap A2.3); it is the single source the legend views should read.
-    return sublayerLegendItems();
+    auto rows = sublayerLegendItems();
+    for (auto *sub : sublayers())
+        if (dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub) && sub->isVisible())
+            rows.append(sub->legendSymbolItems());
+    return rows;
 }
 
 bool SWMMResultsLayer::supportsClassEdit(
@@ -3289,6 +3326,11 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
     if (!isVisible() || !m_modelLayer || opacity() <= 0.0)
         return;
 
+    for (auto *sub : sublayers())
+        if (auto *trace = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub)) {
+            trace->layer()->setLayerZValue(layerZValue() + .5);
+            trace->layer()->populateScene(scene, canvasExtent, canvasSRS);
+        }
     if (!m_handle || m_totalSteps <= 0)
         return;
 
@@ -3774,6 +3816,9 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
 
 void SWMMResultsLayer::depopulateScene(QGraphicsScene *scene)
 {
+    for (auto *sub : sublayers())
+        if (auto *trace = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub))
+            trace->layer()->depopulateScene(scene);
     OpenSWMMVisLayer::depopulateScene(scene);
     // Slice §Y.2 — base class destroyed every item we cached, so the
     // pointers are now dangling. Drop them; the next populateScene

@@ -167,6 +167,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
             [this](OpenSWMMVisLayer *layer) {
         if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer)) {
             mStatsRegistry->registerLayer(rl, rl->resultsFilePath());
+            if (!rl->property("traceStoredRunId").toString().isEmpty()) return;
             auto observe = [this, rl] {
                 mStatsRegistry->contentOpened(rl, rl->resultsFilePath(), rl->isLive());
             };

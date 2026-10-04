@@ -2,9 +2,11 @@
 #pragma once
 #include "layers/openswmmvislayer.h"
 #include "output/tracedata.h"
-#include "render/colorramp.h"
+#include "render/classificationscheme.h"
 #include "render/isublayerhost.h"
+#include "render/labelconfig.h"
 #include <QPainterPath>
+class SWMMResultsLayer;
 
 namespace openswmmvis::trace
 {
@@ -14,33 +16,43 @@ struct Channel
     QString field = QStringLiteral("ratio"), transform = QStringLiteral("linear");
     bool automatic = true;
     double minimum = 0, maximum = 1, minimumSize = 2, maximumSize = 14;
-    int classes = 0;
-    RasterColorRamp ramp = RasterColorRamp::viridis();
+    bool proportional = true; // Link widths only: a shared zero-based linear scale.
+    OpenSWMM::Render::ClassificationScheme colors;
+    Channel();
     QJsonObject toJson() const;
     static Channel fromJson(const QJsonObject &);
+};
+struct TraceLabels
+{
+    OpenSWMM::Render::LabelConfig appearance;
+    bool showId = true, percent = true;
+    int precision = 2;
+    TraceLabels();
+    QJsonObject toJson() const;
+    static TraceLabels fromJson(const QJsonObject &);
 };
 class TraceStyle final : public OpenSWMM::Render::SublayerStyle
 {
     Q_OBJECT
-    Q_PROPERTY(double taper READ taper WRITE setTaper NOTIFY styleChanged)
     Q_PROPERTY(bool arrows READ arrows WRITE setArrows NOTIFY styleChanged)
     Q_PROPERTY(bool labels READ labels WRITE setLabels NOTIFY styleChanged)
   public:
-    explicit TraceStyle(QObject *p = nullptr) : SublayerStyle(p) {}
+    explicit TraceStyle(QObject *p = nullptr) : SublayerStyle(p) { linkWidth.minimumSize = 0; }
     Channel linkColor, linkWidth, nodeColor, nodeSize;
+    TraceLabels linkLabels, nodeLabels;
     double taper() const { return m_taper; }
     void setTaper(double);
     bool arrows() const { return m_arrows; }
     void setArrows(bool);
-    bool labels() const { return m_labels; }
+    bool labels() const { return nodeLabels.appearance.enabled; }
     void setLabels(bool);
     void changed() { setDirty(); }
     QJsonObject toJson() const override;
     void fromJson(const QJsonObject &) override;
 
   private:
-    double m_taper = .3;
-    bool m_arrows = true, m_labels = false;
+    double m_taper = 1;
+    bool m_arrows = true;
 };
 // Pure pixel-space geometry, shared by painting and hit testing. Duplicate
 // vertices are discarded; segment joins are bevelled to avoid miter spikes.
@@ -66,16 +78,58 @@ class TraceAnalysisLayer final : public OpenSWMMVisLayer, public OpenSWMM::Rende
     bool hitTest(QPointF pixel, const QTransform &mapToPixel, const SpatialReferenceSystem *canvas,
                  bool *node, int *index) const;
     void highlight(bool node, int index);
+    double widthReference() const { return widthReference(m_style->linkWidth); }
+    double widthReference(const Channel &) const;
+    QVector<double> linkWidths() const;
+    QVector<double> nodeSizes() const;
+    QVector<double> samples(bool node, const Channel &) const;
+    QVector<QColor> colors(bool node) const;
+    QString labelText(bool node, int index) const;
     QJsonObject savedStyle() const;
     void restoreStyle(const QJsonObject &);
   signals:
     void featurePicked(bool node, int index);
 
   private:
+    QVector<double> colorEdges(bool node, const Channel &) const;
+    struct ColorCache
+    {
+        QString field;
+        quint64 revision = 0;
+        QVector<double> edges;
+    };
+    mutable ColorCache m_nodeColorCache, m_linkColorCache;
     std::shared_ptr<Result> m_result;
     TraceStyle *m_style;
     QList<OpenSWMM::Render::ISublayer *> m_parts;
     bool m_highlightNode = true;
     int m_highlight = -1;
+};
+// A static child of one immutable output run. The output owns both this
+// tree row and its painter; no separate top-level analysis layer is needed.
+class TraceSublayer final : public OpenSWMM::Render::ISublayer
+{
+  public:
+    TraceSublayer(SWMMResultsLayer *, std::shared_ptr<Result>, bool travel);
+    Kind kind() const override { return LineKind; }
+    QString id() const override;
+    QString displayName() const override;
+    bool isVisible() const override { return m_layer->isVisible(); }
+    void setVisible(bool v) override { m_layer->setVisible(v); }
+    qreal opacity() const override { return m_layer->opacity(); }
+    void setOpacity(qreal v) override { m_layer->setOpacity(v); }
+    bool isDynamic() const override { return false; }
+    OpenSWMM::Render::SublayerStyle *style() override { return m_layer->traceStyle(); }
+    QList<OpenSWMM::Render::LegendSymbolItem> legendSymbolItems() const override;
+    QSGNode *buildOrUpdateNode(QSGNode *, const OpenSWMM::Render::SublayerContext &) override
+    {
+        return nullptr;
+    }
+    TraceAnalysisLayer *layer() const { return m_layer; }
+    bool travel() const { return m_travel; }
+
+  private:
+    TraceAnalysisLayer *m_layer;
+    bool m_travel;
 };
 } // namespace openswmmvis::trace
