@@ -589,6 +589,24 @@ QVector<SteinerPoint> corridorPoints(const BurnLattice &lat, int marker)
     return out;
 }
 
+BurnLattice latticeRows(const BurnLattice &lat, int i0, int i1)
+{
+    BurnLattice out;
+    i0 = std::max(i0, 0); i1 = std::min(i1, lat.nAlong - 1);
+    if (!lat.isValid() || i1 - i0 < 1) return out;
+    out.conduitId = lat.conduitId;
+    out.nAlong = i1 - i0 + 1;
+    out.nAcross = lat.nAcross;
+    out.offsets = lat.offsets;
+    out.chainage = lat.chainage.mid(i0, out.nAlong);
+    out.xy = lat.xy.mid(qsizetype(i0) * lat.nAcross, qsizetype(out.nAlong) * lat.nAcross);
+    out.z = lat.z.mid(qsizetype(i0) * lat.nAcross, qsizetype(out.nAlong) * lat.nAcross);
+    out.minAlongSpacing = std::numeric_limits<double>::infinity();
+    for (int i = 1; i < out.nAlong; ++i) out.minAlongSpacing = std::min(out.minAlongSpacing, out.chainage[i] - out.chainage[i - 1]);
+    out.minAcrossSpacing = lat.minAcrossSpacing;
+    return out;
+}
+
 QPolygonF corridorRing(const BurnLattice &lat)
 {
     QPolygonF ring;

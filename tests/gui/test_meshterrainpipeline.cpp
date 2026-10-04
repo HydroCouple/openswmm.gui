@@ -227,8 +227,12 @@ private slots:
         dialog.beginGenerationGuard();
         QPromise<Result> promise;promise.start();promise.addResult(result);promise.finish();
         dialog.m_watcher=new QFutureWatcher<Result>(&dialog);dialog.m_watcher->setFuture(promise.future());
-        QTimer::singleShot(0,[]{for(auto *w:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(w))box->accept();});
-        dialog.onMeshFinished();QCOMPARE(stack->count(),before+1);
+        // Adoption may show more than one note (burn notes, then unresolved
+        // terrain or quality); accept each as it opens.
+        auto *acceptBoxes=new QTimer(&dialog); acceptBoxes->setInterval(50);
+        QObject::connect(acceptBoxes,&QTimer::timeout,[]{for(auto *w:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(w)) if(box->isVisible()) box->accept();});
+        acceptBoxes->start();
+        dialog.onMeshFinished();acceptBoxes->stop();QCOMPARE(stack->count(),before+1);
         const auto engine=window->modelLayer()->engine();
         QVERIFY(outsideSectionIntact(engine));
         QCOMPARE(swmm_link_count(engine),4);QCOMPARE(swmm_node_count(engine),7);

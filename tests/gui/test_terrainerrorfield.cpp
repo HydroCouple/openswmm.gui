@@ -292,7 +292,9 @@ private slots:
                 const double cx=gt[0]+(40+next()*820)*gt[1], cy=gt[3]+(40+next()*620)*gt[5];
                 for(auto &v:p) v=toMesh(cx+(next()-.5)*160,cy+(next()-.5)*160);
                 double zz[3]; for(int i=0;i<3;++i) zz[i]=plain.sampleAt(p[i].x(),p[i].y());
-                QRectF box(p[0],QSizeF(0,0)); for(const auto &v:p) box=box.united(QRectF(v,QSizeF(0,0)));
+                double x0=p[0].x(),x1=x0,y0=p[0].y(),y1=y0;
+                for(const auto &v:p) { x0=std::min(x0,v.x()); x1=std::max(x1,v.x()); y0=std::min(y0,v.y()); y1=std::max(y1,v.y()); }
+                const QRectF box(QPointF(x0,y0),QPointF(x1,y1));
                 warm.prefetch({box});
                 const auto a=plain.queryTriangle(p,zz,.05),b=warm.queryTriangle(p,zz,.05);
                 QCOMPARE(b.valid,a.valid); QCOMPARE(b.maxError,a.maxError); QCOMPARE(b.upperBound,a.upperBound);

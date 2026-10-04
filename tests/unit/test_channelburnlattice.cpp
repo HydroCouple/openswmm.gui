@@ -565,3 +565,28 @@ TEST(ChannelBurnLattice, SliversThinnerThanTheJoinToleranceAreNotChannelErrors)
     const QPointF deep[3] = {QPointF(x - 1.0, bankY + 1.0), QPointF(x + 1.0, bankY + 1.0), QPointF(x, bankY - 3.0)};
     EXPECT_GT(surface.error(deep, z, any, 0.05).maximum, 0.1);
 }
+
+// A run of lattice rows as its own lattice: the same points and elevations,
+// a quad patch of its own, and nothing for fewer than two rows.
+TEST(ChannelBurnLattice, LatticeRowsExtractsARunThatPatchesOnItsOwn)
+{
+    const BurnProfile p = straight();
+    const BurnLattice lat = buildCorridorLattice(p, 2.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+    ASSERT_GT(lat.nAlong, 8);
+    const BurnLattice sub = latticeRows(lat, 3, 7);
+    ASSERT_TRUE(sub.isValid());
+    EXPECT_EQ(sub.nAlong, 5);
+    EXPECT_EQ(sub.nAcross, lat.nAcross);
+    for (int i = 0; i < sub.nAlong; ++i)
+        for (int k = 0; k < sub.nAcross; ++k) {
+            EXPECT_EQ(sub.xy[sub.at(i, k)], lat.xy[lat.at(i + 3, k)]);
+            EXPECT_EQ(sub.z[sub.at(i, k)], lat.z[lat.at(i + 3, k)]);
+        }
+    EXPECT_EQ(sub.chainage.first(), lat.chainage[3]);
+    QString err;
+    const PatchMesh pm = corridorPatch(sub, p, options(), &err);
+    EXPECT_TRUE(err.isEmpty()) << err.toStdString();
+    EXPECT_EQ(pm.quads.size(), (sub.nAlong - 1) * (sub.nAcross - 1));
+    EXPECT_FALSE(latticeRows(lat, 4, 4).isValid());
+}

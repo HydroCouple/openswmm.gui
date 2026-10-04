@@ -254,7 +254,10 @@ QString validatePatchPlacement(const QVector<PatchMesh> &patches,
             if (!polylineIntersectsRect(segment.path, ordered.boundingRect())) continue;
             for (int k = 1; k < segment.path.size(); ++k)
                 if (patchSegmentEntersInterior(segment.path[k - 1] - origin, segment.path[k] - origin, ring, path, tolerance))
-                    return fail(QStringLiteral("crosses or contains a required constraint; align the boundary or split the patch."));
+                    return fail(QStringLiteral("crosses or contains a required constraint%1 (marker %2, edge (%3, %4)-(%5, %6)); align the boundary or split the patch.")
+                                    .arg(segment.tag.isEmpty() ? QString() : QStringLiteral(" '%1'").arg(segment.tag)).arg(segment.marker)
+                                    .arg(segment.path[k - 1].x(), 0, 'f', 2).arg(segment.path[k - 1].y(), 0, 'f', 2)
+                                    .arg(segment.path[k].x(), 0, 'f', 2).arg(segment.path[k].y(), 0, 'f', 2));
         }
         priorPaths.append(path);
     }
@@ -1698,8 +1701,12 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
             const QVector<QPointF> centre = subPolyline(src.pts, c, L - c);
             const QPointF mid = centre[centre.size() / 2];
             const double hMid = std::max(hClamped(mid.x(), mid.y()), 1e-12);
-            // Stations no longer than the room beside the strip either.
-            const double room = clearanceOf(centre, hMid + 0.5 * w, pi, nullptr, kNone, kNone) - 0.5 * w;
+            // Stations no longer than the room beside the strip either. The
+            // spacing below never exceeds 2w / across <= w, so room beyond 2w
+            // changes nothing; searching out to the local size (up to the
+            // largest cell size, kilometres) made every strip scan the whole
+            // neighbourhood.
+            const double room = clearanceOf(centre, std::min(hMid, 2.0 * w) + 0.5 * w, pi, nullptr, kNone, kNone) - 0.5 * w;
             const double hLine = std::max(std::min(minSizeOn(centre, false), std::max(room, hMin)), 1e-12);
             sp = SweptPatch();
             sp.centreline = centre;
@@ -2134,13 +2141,16 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
     for (int v = 0; v < cdt.terrainElevations().size() && v < vertexZ.size(); ++v) vertexZ[v] = cdt.terrainElevations()[v];
     if (m_refineHook.terrainElevationAt) {
         QVector<int> pending;
-        QRectF span;
+        double sx0 = std::numeric_limits<double>::infinity(), sx1 = -sx0, sy0 = sx0, sy1 = -sx0;
         for (int v = 0; v < cdt.vertices().size(); ++v) {
             if (cdt.isSuperVertex(v) || std::isfinite(vertexZ[v])) continue;
             pending.append(v);
-            const QRectF p(cdt.vertices()[v], QSizeF(0, 0));
-            span = span.isNull() ? p : span.united(p);
+            const QPointF &q = cdt.vertices()[v];
+            sx0 = std::min(sx0, q.x()); sx1 = std::max(sx1, q.x());
+            sy0 = std::min(sy0, q.y()); sy1 = std::max(sy1, q.y());
         }
+        // Explicit bounds: QRectF::united() drops zero-size rectangles.
+        const QRectF span = pending.isEmpty() ? QRectF() : QRectF(QPointF(sx0, sy0), QPointF(sx1, sy1));
         if (span.width() > 0 && span.height() > 0) {
             QVector<quint64> code(cdt.vertices().size(), 0);
             for (int v : std::as_const(pending)) {

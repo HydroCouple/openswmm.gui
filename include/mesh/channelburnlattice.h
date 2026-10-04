@@ -176,6 +176,11 @@ private:
  */
 [[nodiscard]] QPolygonF corridorRing(const BurnLattice &lat);
 
+/*! \brief Lattice rows \p i0 .. \p i1 (inclusive) of \p lat as a lattice of
+ *  their own, so a run of rows can become a quad patch while the rest of the
+ *  corridor stays constraint lines. Invalid when fewer than two rows. */
+[[nodiscard]] BurnLattice latticeRows(const BurnLattice &lat, int i0, int i1);
+
 /*!
  * \brief Lattice vertices as (xy, z) pairs for the pipeline's `featureZSeed*`
  *        arrays, which seed `elevCache` by coordinate.

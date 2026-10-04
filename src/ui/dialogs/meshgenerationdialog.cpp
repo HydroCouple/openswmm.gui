@@ -1113,6 +1113,39 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             in.burnProfiles=std::move(kept);
         }
         channelLattices=std::move(screened.lattices);
+        // Where corridors meet (consecutive reaches at a node, a confluence)
+        // each built its own end row; nearly collinear reaches put those rows
+        // microns apart and the band between them became degenerate slivers.
+        // An end-row point within reach of an earlier corridor's end-row point
+        // takes that point, so the corridors share it. The reach stays below
+        // half of either lattice's spacing (no two points of one row merge)
+        // and a twentieth of the minimum cell.
+        {
+            const double minCell=in.burnMinCellSize>0.0?in.burnMinCellSize:in.minCellSize;
+            QHash<QPair<qint64,qint64>,QVector<QPointF>> ends;
+            const double pitch=std::max(1e-6,0.05*minCell);
+            const auto key=[&](const QPointF &q){return qMakePair(qint64(std::floor(q.x()/pitch)),qint64(std::floor(q.y()/pitch)));};
+            int snapped=0;
+            for(auto &lat:channelLattices) {
+                const double tol=std::min(0.05*minCell,0.5*std::min(lat.minAcrossSpacing,lat.minAlongSpacing));
+                QVector<QPointF> mine;
+                for(const int row:{0,lat.nAlong-1})
+                    for(int k=0;k<lat.nAcross;++k) {
+                        QPointF &q=lat.xy[lat.at(row,k)];
+                        const auto c=key(q);
+                        const QPointF *best=nullptr; double bestD=tol;
+                        for(qint64 dy=-1;dy<=1;++dy) for(qint64 dx=-1;dx<=1;++dx) {
+                            const auto it=ends.constFind({c.first+dx,c.second+dy});
+                            if(it==ends.constEnd()) continue;
+                            for(const QPointF &o:it.value()) { const double d=QLineF(o,q).length(); if(d<bestD && d>0.0) {bestD=d;best=&o;} }
+                        }
+                        if(best) { q=*best; ++snapped; }
+                        mine.append(q);
+                    }
+                for(const QPointF &q:std::as_const(mine)) ends[key(q)].append(q);
+            }
+            if(snapped) qCInfo(lcMeshPerf) << "[Mesh][burn]" << snapped << "corridor end point(s) shared with a meeting corridor";
+        }
         for(const auto &lat:std::as_const(channelLattices)) channelVertexCount+=lat.xy.size();
         if(channelVertexCount>std::min<qint64>(in.burnOptions.maxCorridorVertices,std::max(4,in.genOpts.maxCells))) {
             // Name the densest corridors so the spacing that matters is clear.
@@ -1312,27 +1345,72 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
         int burnMarker = 9000;
-        QSet<QString> clippedIntervals;
-        for(const auto &split:burnPlan.splits) {clippedIntervals.insert(split.linkId);clippedIntervals.insert(split.downstreamId);}
         QVector<QPolygonF> rings;
         for(const auto &lat:channelLattices) rings.append(mesh::corridorRing(lat));
         QVector<QRectF> ringBounds;
         QVector<int> order,active;
-        QVector<bool> isolated(rings.size(),true);
+        QVector<QVector<int>> overlapping(rings.size());   // corridors whose outlines meet
         for(int i=0;i<rings.size();++i) {ringBounds.append(rings[i].boundingRect());order.append(i);}
         std::sort(order.begin(),order.end(),[&](int a,int b){return ringBounds[a].left()<ringBounds[b].left();});
         for(int i:order) {
             active.erase(std::remove_if(active.begin(),active.end(),[&](int j){return ringBounds[j].right()<ringBounds[i].left();}),active.end());
-            for(int j:active) if(ringBounds[i].intersects(ringBounds[j]) && !rings[i].intersected(rings[j]).isEmpty())
-                isolated[i]=isolated[j]=false;
+            for(int j:active) if(ringBounds[i].intersects(ringBounds[j]) && !rings[i].intersected(rings[j]).isEmpty()) {
+                overlapping[i].append(j); overlapping[j].append(i);
+            }
             active.append(i);
         }
+        // A constraint line or footprint touching a ring (a vertex inside it,
+        // or an edge crossing its outline) would make the generator refuse a
+        // patch there.
+        const double touchTol=0.01*(in.minCellSize>0.0?in.minCellSize:0.25*in.cellSize);
+        const auto ringIsClear=[&](const QPolygonF &ring) {
+            const QRectF rb=ring.boundingRect().adjusted(-touchTol,-touchTol,touchTol,touchTol);
+            const auto touches=[&](const QVector<QPointF> &path,bool closed) {
+                const int n=path.size(), edges=closed?n:n-1;
+                for(int k=0;k<edges;++k) {
+                    const QPointF a=path[k], b=path[(k+1)%n];
+                    if(std::max(a.x(),b.x())<rb.left() || std::min(a.x(),b.x())>rb.right()
+                       || std::max(a.y(),b.y())<rb.top() || std::min(a.y(),b.y())>rb.bottom()) continue;
+                    if(ring.containsPoint(a,Qt::OddEvenFill) || ring.containsPoint(b,Qt::OddEvenFill)) return true;
+                    for(int j=0;j<ring.size();++j) {
+                        const QPointF c=ring[j], d=ring[(j+1)%ring.size()];
+                        if(QLineF(a,b).intersects(QLineF(c,d),nullptr)==QLineF::BoundedIntersection) return true;
+                        // A line ending on (or grazing) the outline counts: the
+                        // generator checks with a tolerance and would refuse it.
+                        if(std::min({mesh::pslg::distSqToSegment(a,c,d),mesh::pslg::distSqToSegment(b,c,d),
+                                     mesh::pslg::distSqToSegment(c,a,b),mesh::pslg::distSqToSegment(d,a,b)})<=touchTol*touchTol) return true;
+                    }
+                }
+                if(n==1) {
+                    if(!rb.adjusted(-touchTol,-touchTol,touchTol,touchTol).contains(path.first())) return false;
+                    if(ring.containsPoint(path.first(),Qt::OddEvenFill)) return true;
+                    for(int j=0;j<ring.size();++j)
+                        if(mesh::pslg::distSqToSegment(path.first(),ring[j],ring[(j+1)%ring.size()])<=touchTol*touchTol) return true;
+                }
+                return false;
+            };
+            for(const auto &cs:in.constraintSegs) {
+                if(cs.path.isEmpty()) continue;
+                // Explicit bounds: QRectF::united() drops zero-size rectangles.
+                double x0=cs.path.first().x(),x1=x0,y0=cs.path.first().y(),y1=y0;
+                for(const QPointF &q:cs.path) { x0=std::min(x0,q.x()); x1=std::max(x1,q.x()); y0=std::min(y0,q.y()); y1=std::max(y1,q.y()); }
+                if(x1<rb.left() || x0>rb.right() || y1<rb.top() || y0>rb.bottom()) continue;
+                if(touches(cs.path,false)) return false;
+            }
+            for(int h:burnDomain.holesNear(rb))
+                if(touches(QVector<QPointF>(burnDomain.holes[h].begin(),burnDomain.holes[h].end()),true)) return false;
+            for(const auto &sp:std::as_const(in.steinerPoints))
+                if(rb.contains(sp.xy) && touches({sp.xy},false)) return false;
+            return true;
+        };
+        int quadRows=0, lineRows=0;
         for (int pi=0;pi<channelLattices.size();++pi) {
             const auto &p=in.burnProfiles[pi];
             auto lat=channelLattices[pi];
-            bool complete=!clippedIntervals.contains(p.conduitId);
+            QVector<char> inside(lat.xy.size(),0);
             for(int i=0;i<lat.xy.size();++i) {
-                if(!burnDomain.contains(lat.xy[i])) { complete=false; continue; }
+                if(!burnDomain.contains(lat.xy[i])) continue;
+                inside[i]=1;
                 const double resolved=channelElevation(lat.xy[i]);
                 if(!std::isfinite(resolved)) { fail(QObject::tr("Channel %1 has missing elevation coverage.").arg(p.conduitId)); return; }
                 if(in.burnOptions.removeBurnedFrom1D && std::abs(resolved-lat.z[i])>channelTolerance) {
@@ -1341,63 +1419,109 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 lat.z[i]=resolved;
                 in.featureZSeedXY.append(lat.xy[i]); in.featureZSeedZ.append(resolved);
             }
-            // Automatically use conforming triangles at clipped ends/junctions.
-            if(in.burnOptions.quadCorridor && complete && isolated[pi]) {
-                QString error;
-                auto patch=mesh::corridorPatch(lat,p,in.burnOptions,&error);
-                bool conflict=false;
-                for(const auto &cs:in.constraintSegs) for(const auto &point:cs.path)
-                    if(ringBounds[pi].contains(point) && rings[pi].containsPoint(point,Qt::OddEvenFill)) {conflict=true;break;}
-                if(!patch.quads.isEmpty() && !conflict) {
-                    in.patches.append(std::move(patch)); burnCorridorRings.append(rings[pi]); continue;
+            // Quads wherever the corridor can take them: every band of cells
+            // between two lattice rows that lies inside the domain and clear of
+            // other corridors joins a run; each run that no constraint or
+            // footprint touches becomes a quad patch (a touched run is halved
+            // until its pieces fit). Only the rows left over (clipped ends,
+            // junctions, overlaps) are constraint lines with triangles between.
+            const int bands=lat.nAlong-1;
+            QVector<char> covered(bands,0);
+            if(in.burnOptions.quadCorridor) {
+                QVector<char> bandOk(bands,1);
+                for(int i=0;i<bands;++i) {
+                    for(int k=0;k<lat.nAcross && bandOk[i];++k)
+                        if(!inside[lat.at(i,k)] || !inside[lat.at(i+1,k)]) bandOk[i]=0;
+                    if(!bandOk[i] || overlapping[pi].isEmpty()) continue;
+                    QPolygonF band;
+                    band << lat.xy[lat.at(i,0)] << lat.xy[lat.at(i+1,0)] << lat.xy[lat.at(i+1,lat.nAcross-1)] << lat.xy[lat.at(i,lat.nAcross-1)];
+                    const QRectF bb=band.boundingRect();
+                    for(int j:std::as_const(overlapping[pi]))
+                        if(ringBounds[j].intersects(bb) && !band.intersected(rings[j]).isEmpty()) { bandOk[i]=0; break; }
+                }
+                QVector<QPair<int,int>> runs;   // [first band, last band]
+                for(int i=0;i<bands;) {
+                    if(!bandOk[i]) { ++i; continue; }
+                    int j=i; while(j+1<bands && bandOk[j+1]) ++j;
+                    runs.append({i,j}); i=j+1;
+                }
+                while(!runs.isEmpty()) {
+                    const auto run=runs.takeLast();
+                    const auto sub=mesh::latticeRows(lat,run.first,run.second+1);
+                    QString error;
+                    auto patch=sub.isValid()?mesh::corridorPatch(sub,p,in.burnOptions,&error):mesh::PatchMesh{};
+                    if(!patch.quads.isEmpty() && ringIsClear(mesh::corridorRing(sub))) {
+                        in.patches.append(std::move(patch)); burnCorridorRings.append(mesh::corridorRing(sub));
+                        for(int i=run.first;i<=run.second;++i) covered[i]=1;
+                    } else if(run.second>run.first) {
+                        const int mid=(run.first+run.second)/2;
+                        runs.append({run.first,mid}); runs.append({mid+1,run.second});
+                    }
                 }
             }
-            // Clip every string, including both banks, at every boundary/hole.
-            auto strings=mesh::corridorStrings(lat,burnMarker);
-            for(int row=0;row<lat.nAlong;++row) {
-                mesh::ConstraintSegment cs;
-                for(int k=0;k<lat.nAcross;++k) cs.path.append(lat.xy[lat.at(row,k)]);
-                strings.append(cs);
+            // Leftover bands: the corridor's lines over just those rows. A row
+            // shared with a patch is that patch's edge already.
+            QVector<mesh::BurnLattice> pieces;
+            QVector<QPair<bool,bool>> sharedEnds;
+            for(int i=0;i<bands;) {
+                if(covered[i]) { ++quadRows; ++i; continue; }
+                int j=i; while(j+1<bands && !covered[j+1]) ++j;
+                pieces.append(mesh::latticeRows(lat,i,j+1));
+                sharedEnds.append({i>0 && covered[i-1], j+1<bands && covered[j+1]});
+                lineRows+=j-i+1; i=j+1;
             }
-            // Strings meeting at a corner that sits on a ring are clipped one by
-            // one, so each gets its own crossing point a hair from the
-            // others' (or from the corner an unclipped string keeps); pinned
-            // as Steiner points they never join, and the inward edges cross.
-            // A clip end that close to a lattice vertex or an earlier clip
-            // end of the same corridor takes that point.
-            const double endSnap=0.1*std::min(lat.minAlongSpacing,lat.minAcrossSpacing);
-            QHash<QPair<qint64,qint64>,QVector<QPointF>> snapGrid;
-            const auto cellOf=[&](const QPointF &q) {
-                return qMakePair(qint64(std::floor(q.x()/endSnap)),qint64(std::floor(q.y()/endSnap)));
-            };
-            if(endSnap>0.0) for(const QPointF &q:std::as_const(lat.xy)) snapGrid[cellOf(q)].append(q);
-            const auto shareEnd=[&](QPointF &end) {
-                const auto c=cellOf(end);
-                for(qint64 dy=-1;dy<=1;++dy) for(qint64 dx=-1;dx<=1;++dx) {
-                    const auto it=snapGrid.constFind({c.first+dx,c.second+dy});
-                    if(it==snapGrid.constEnd()) continue;
-                    for(const QPointF &q:it.value()) if(QLineF(q,end).length()<endSnap) { end=q; return; }
+            for(int pc=0;pc<pieces.size();++pc) {
+                const auto &piece=pieces[pc];
+                if(!piece.isValid()) continue;
+                auto strings=mesh::corridorStrings(piece,burnMarker);
+                for(int row=0;row<piece.nAlong;++row) {
+                    if((row==0 && sharedEnds[pc].first) || (row==piece.nAlong-1 && sharedEnds[pc].second)) continue;
+                    mesh::ConstraintSegment cs;
+                    for(int k=0;k<piece.nAcross;++k) cs.path.append(piece.xy[piece.at(row,k)]);
+                    strings.append(cs);
                 }
-                snapGrid[c].append(end);
-            };
-            for(const auto &cs:strings) for(auto path:mesh::clipPolylineToDomain(cs.path,burnDomain)) {
-                if(path!=cs.path && endSnap>0.0) {
-                    if(path.first()!=cs.path.first()) shareEnd(path.first());
-                    if(path.last()!=cs.path.last()) shareEnd(path.last());
-                    path.erase(std::unique(path.begin(),path.end()),path.end());
-                    if(path.size()<2) continue;
-                }
-                mesh::ConstraintSegment clipped=cs; clipped.path=path; clipped.marker=burnMarker++;
-                clipped.tag=QStringLiteral("channel:%1").arg(p.conduitId);
-                g.addConstraintSegment(clipped);
-                for(const auto &xy:path) {
-                    const double z=channelElevation(xy);
-                    if(!std::isfinite(z)) continue;
-                    mesh::SteinerPoint sp;sp.xy=xy;sp.z=z;sp.hasZ=true;
-                    in.steinerPoints.append(sp);
+                // Strings meeting at a corner that sits on a ring are clipped one
+                // by one, so each gets its own crossing point a hair from the
+                // others' (or from the corner an unclipped string keeps); pinned
+                // as Steiner points they never join, and the inward edges cross.
+                // A clip end that close to a lattice vertex or an earlier clip
+                // end of the same corridor takes that point.
+                const double endSnap=0.1*std::min(lat.minAlongSpacing,lat.minAcrossSpacing);
+                QHash<QPair<qint64,qint64>,QVector<QPointF>> snapGrid;
+                const auto cellOf=[&](const QPointF &q) {
+                    return qMakePair(qint64(std::floor(q.x()/endSnap)),qint64(std::floor(q.y()/endSnap)));
+                };
+                if(endSnap>0.0) for(const QPointF &q:std::as_const(piece.xy)) snapGrid[cellOf(q)].append(q);
+                const auto shareEnd=[&](QPointF &end) {
+                    const auto c=cellOf(end);
+                    for(qint64 dy=-1;dy<=1;++dy) for(qint64 dx=-1;dx<=1;++dx) {
+                        const auto it=snapGrid.constFind({c.first+dx,c.second+dy});
+                        if(it==snapGrid.constEnd()) continue;
+                        for(const QPointF &q:it.value()) if(QLineF(q,end).length()<endSnap) { end=q; return; }
+                    }
+                    snapGrid[c].append(end);
+                };
+                for(const auto &cs:strings) for(auto path:mesh::clipPolylineToDomain(cs.path,burnDomain)) {
+                    if(path!=cs.path && endSnap>0.0) {
+                        if(path.first()!=cs.path.first()) shareEnd(path.first());
+                        if(path.last()!=cs.path.last()) shareEnd(path.last());
+                        path.erase(std::unique(path.begin(),path.end()),path.end());
+                        if(path.size()<2) continue;
+                    }
+                    mesh::ConstraintSegment clipped=cs; clipped.path=path; clipped.marker=burnMarker++;
+                    clipped.tag=QStringLiteral("channel:%1").arg(p.conduitId);
+                    g.addConstraintSegment(clipped);
+                    for(const auto &xy:path) {
+                        const double z=channelElevation(xy);
+                        if(!std::isfinite(z)) continue;
+                        mesh::SteinerPoint sp;sp.xy=xy;sp.z=z;sp.hasZ=true;
+                        in.steinerPoints.append(sp);
+                    }
                 }
             }
         }
+        qCInfo(lcMeshPerf).noquote() << QStringLiteral("[Mesh][burn] corridor rows: %1 as quads, %2 as lines with triangles")
+            .arg(quadRows).arg(lineRows);
         stageMark("channel burn: corridors");
     }
 
