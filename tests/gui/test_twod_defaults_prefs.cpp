@@ -69,13 +69,13 @@ void TestTwoDDefaultsPrefs::compiledDefaultsPinTheContract()
     QVERIFY(!d.report2D);
 
     // Mesh-generation seeds (MESH_OVERHAUL_PLAN_2026-09-29.md §3,
-    // MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5).
-    QCOMPARE(d.meshCellSizeM, 0.0);
-    QCOMPARE(d.meshCoarsenFactor, 20.0);
-    QCOMPARE(d.meshSizeRatio, 1.5);
-    QCOMPARE(d.meshMinCellSizeM, 0.0);
-    QCOMPARE(d.meshTerrainToleranceM, 0.0);
-    QCOMPARE(d.meshMinAngleDeg, 30.0);
+    // MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5; user defaults 2026-10-03).
+    QCOMPARE(d.meshCellSizeM, 6.096);
+    QCOMPARE(d.meshCoarsenFactor, 1000.0);
+    QCOMPARE(d.meshSizeRatio, 2.0);
+    QCOMPARE(d.meshMinCellSizeM, 6.096);
+    QCOMPARE(d.meshTerrainToleranceM, 6.096);
+    QCOMPARE(d.meshMinAngleDeg, 33.0);
     QVERIFY(d.meshQuadsBetweenBreaklines);
     QCOMPARE(d.meshTrimTurnDeg, 5.0);
     QCOMPARE(d.meshTrimDeviationM, 0.0);

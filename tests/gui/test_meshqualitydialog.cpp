@@ -13,6 +13,7 @@
  * group box by title, then its children in layout order. The structure IS
  * the thing under test.
  */
+#include "core/unitsystem.h"
 #include "core/preferencesmanager.h"
 #include "project/openswmmvisworkspace.h"
 #include "swmmvisprojectwindow.h"
@@ -109,7 +110,8 @@ private slots:
         // Triangle engine (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5).
         QCOMPARE(m_dlg->findChild<QDoubleSpinBox *>(QStringLiteral("meshMinAngleSpin"))->value(), t.meshMinAngleDeg);
         QCOMPARE(m_dlg->findChild<QCheckBox *>(QStringLiteral("meshStreetQuadsBox"))->isChecked(), t.meshQuadsBetweenBreaklines);
-        QCOMPARE(m_dlg->findChild<QDoubleSpinBox *>(QStringLiteral("meshConduitStripSpin"))->value(), 0.0);
+        const double toUnit = UnitSystem::instance()->isSI() ? 1.0 : 1.0 / 0.3048;   // 10 ft strips by default
+        QVERIFY(qAbs(m_dlg->findChild<QDoubleSpinBox *>(QStringLiteral("meshConduitStripSpin"))->value() - 3.048 * toUnit) < 1e-3);
     }
 
 private:

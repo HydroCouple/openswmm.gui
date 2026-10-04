@@ -3645,7 +3645,7 @@ void MeshGenerationDialog::buildUi()
         m_smoothingSpin = new QSpinBox(g);
         m_smoothingSpin->setObjectName(QStringLiteral("meshSmoothingSpin"));
         m_smoothingSpin->setRange(0, 10);
-        m_smoothingSpin->setValue(3);
+        m_smoothingSpin->setValue(4);
         m_smoothingSpin->setSpecialValueText(tr("off"));
         m_smoothingSpin->setToolTip(tr(
             "Passes that move free vertices toward the centre of their neighbours when that "
@@ -4269,7 +4269,7 @@ void MeshGenerationDialog::seedDefaults()
     m_terrainTolSpin->setValue(t.meshTerrainToleranceM * toUnit);
     m_minAngleSpin->setValue(t.meshMinAngleDeg);
     m_streetQuadsBox->setChecked(t.meshQuadsBetweenBreaklines);
-    m_conduitStripSpin->setValue(0.0);
+    m_conduitStripSpin->setValue(3.048 * toUnit);   // 10 ft
     m_trimTurnSpin->setValue(t.meshTrimTurnDeg);
     m_trimDeviationSpin->setValue(t.meshTrimDeviationM * toUnit);
     if (m_corridorSources && m_pw) m_corridorSources->setSources(m_pw->corridorSources());
@@ -4676,7 +4676,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // Near-equilateral triangles (MESH_REGIONAL_TRIQUAD_PLAN D-R6): graded
     // lattice seeding plus non-degrading smoothing.
     out->genOpts.latticeSeeding  = m_latticeSeedingBox ? m_latticeSeedingBox->isChecked() : true;
-    out->genOpts.smoothingPasses = m_smoothingSpin ? m_smoothingSpin->value() : 3;
+    out->genOpts.smoothingPasses = m_smoothingSpin ? m_smoothingSpin->value() : 4;
     out->terrainReference = m_terrainReferenceCombo ? m_terrainReferenceCombo->currentIndex() : 0;
     out->quadMode = m_quadModeCombo ? m_quadModeCombo->currentIndex() : 2;
     out->genOpts.minAngleDeg   = m_minAngleSpin->value();
