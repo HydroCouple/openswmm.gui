@@ -30,8 +30,8 @@ they are not calibrated treatment performance or design recommendations.
 ### 1. Inspect the storage assignment
 
 Select storage **S** in the map or Object Browser and find **LID Control** in
-its properties. The supplied model already references **Stack**. The initial
-saturation sets the starting moisture condition; it is not a pollutant
+its properties. The supplied model already references **Stack**. **LID Initial
+Saturation (%)** sets the starting moisture condition; it is not a pollutant
 removal percentage. The storage remains a normal network node and receives
 water from its connected network and external inflows. Direct rainfall over
 its footprint must be supplied through a contributing subcatchment or inflow.
