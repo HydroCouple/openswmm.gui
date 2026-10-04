@@ -524,14 +524,16 @@ public:
 
         // Mesh-generation seeds (SI canonical; the dialog unit-scales).
         // MESH_OVERHAUL_PLAN_2026-09-29.md §3: the eleven-control surface.
-        double  meshCellSizeM        = 0.0;   ///< 0 = derive from the model extent
-        double  meshCoarsenFactor    = 20.0;  ///< h_max = cell size × this (MESH_TRIANGLE_ENGINE_PLAN D14)
-        double  meshSizeRatio        = 1.5;   ///< neighbour edge-length ratio
-        double  meshMinCellSizeM     = 0.0;   ///< 0 = cell size / 4
-        double  meshTerrainToleranceM = 0.0;  ///< 0 = ignore terrain roughness
+        // Defaults chosen by the user 2026-10-03 (20 ft cells, x1000 largest,
+        // ratio 2, 20 ft vertical error at cell scale, 33 degrees).
+        double  meshCellSizeM        = 6.096; ///< 20 ft; 0 = derive from the model extent
+        double  meshCoarsenFactor    = 1000.0; ///< h_max = cell size × this (MESH_TRIANGLE_ENGINE_PLAN D14)
+        double  meshSizeRatio        = 2.0;   ///< neighbour edge-length ratio
+        double  meshMinCellSizeM     = 6.096; ///< 20 ft; 0 = cell size / 4
+        double  meshTerrainToleranceM = 6.096; ///< 20 ft maximum vertical error; 0 = automatic
         /// Every triangle's smallest angle reaches this (degrees, 20–33;
         /// MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D10).
-        double  meshMinAngleDeg      = 30.0;
+        double  meshMinAngleDeg      = 33.0;
         /// Facing terrain break lines with lower ground between them (streets,
         /// ditches) become aligned quad strips (D12.3).
         bool    meshQuadsBetweenBreaklines = true;

@@ -113,18 +113,23 @@ private slots:
         QVERIFY(sepB->isChecked());
         QVERIFY(sepS->isEnabled());
         QVERIFY(sepS->value() > 0.0);
-        QCOMPARE(cell->value(), 0.0);       // (from extent)
-        QCOMPARE(ratio->value(), 1.5);
-        QCOMPARE(tol->value(), 0.0);        // automatic terrain tolerance
+        // User defaults 2026-10-03: 20 ft cells and vertical error, ratio 2.
+        const double toUnit = UnitSystem::instance()->isSI() ? 1.0 : 1.0 / 0.3048;
+        QVERIFY(qAbs(cell->value() - 6.096 * toUnit) < 1e-3);
+        QCOMPARE(ratio->value(), 2.0);
+        QVERIFY(qAbs(tol->value() - 6.096 * toUnit) < 1e-3);
         QCOMPARE(seam<QComboBox>(&dlg,"meshTerrainModeCombo")->currentIndex(),0);
-        QVERIFY(tol->specialValueText().contains("automatic"));
+        QVERIFY(tol->specialValueText().contains("automatic"));   // still the meaning of 0
         QCOMPARE(seam<QSpinBox>(&dlg,"meshTerrainCacheSpin")->value(),0);   // automatic
         QCOMPARE(seam<QSpinBox>(&dlg,"meshTerrainCacheSpin")->specialValueText(),QStringLiteral("Automatic"));
         QCOMPARE(seam<QSpinBox>(&dlg,"meshMaxCellsSpin")->value(),20'000'000);
-        // Triangle engine: a 30° bound, quads in streets, no conduit strips.
-        QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshMinAngleSpin")->value(), 30.0);
+        // A 33° bound, quads in streets, 10 ft conduit strips, open-block quads,
+        // 4 smoothing passes.
+        QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshMinAngleSpin")->value(), 33.0);
         QVERIFY(seam<QCheckBox>(&dlg, "meshStreetQuadsBox")->isChecked());
-        QCOMPARE(seam<QDoubleSpinBox>(&dlg, "meshConduitStripSpin")->value(), 0.0);
+        QVERIFY(qAbs(seam<QDoubleSpinBox>(&dlg, "meshConduitStripSpin")->value() - 3.048 * toUnit) < 1e-3);
+        QCOMPARE(seam<QComboBox>(&dlg, "meshQuadModeCombo")->currentIndex(), 2);
+        QCOMPARE(seam<QSpinBox>(&dlg, "meshSmoothingSpin")->value(), 4);
     }
 
     void lengthsAreScaledToTheModelUnit()
