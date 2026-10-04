@@ -421,8 +421,13 @@ QVector<QVector<QPointF>> rankBreaklinesByStep(const QVector<QVector<QPointF>> &
     QRectF all;
     for (int i = 0; i < lines.size(); ++i) {
         if (!measure[i] || lines[i].isEmpty()) continue;
-        QRectF b(lines[i].first(), QSizeF(0, 0));
-        for (const QPointF &q : lines[i]) b = b.united(QRectF(q, QSizeF(0, 0)));
+        // Explicit bounds: QRectF::united() drops zero-size rectangles.
+        double x0 = lines[i].first().x(), x1 = x0, y0 = lines[i].first().y(), y1 = y0;
+        for (const QPointF &q : lines[i]) {
+            x0 = std::min(x0, q.x()); x1 = std::max(x1, q.x());
+            y0 = std::min(y0, q.y()); y1 = std::max(y1, q.y());
+        }
+        const QRectF b(QPointF(x0, y0), QPointF(x1, y1));
         bounds[i] = b.adjusted(-offset, -offset, offset, offset);
         all = all.isNull() ? bounds[i] : all.united(bounds[i]);
         todo.append(i);
