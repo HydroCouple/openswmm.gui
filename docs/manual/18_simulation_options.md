@@ -480,7 +480,7 @@ this engine, so there is no solver selector and these settings are always live.
 | **LTS tiers** | Local-timestepping tiers; cells march at power-of-two multiples of the finest step. 1 = a global timestep | `LTS_TIERS` |
 | **Movement threshold** | Cells shallower than this stay in the lazy source-only set — rain over thin films costs nothing until water must move | `H_MOVE` |
 | **Max Froude number** | Froude cap on face discharge — the supercritical guard | `FROUDE_MAX` |
-| **Convective momentum flux (ADVECTION)** | Include the convective momentum flux at interior faces (Stelling–Duinmeijer staggered upwind) | `ADVECTION` |
+| **Convective momentum flux (ADVECTION)** | Local inertial only: optionally include convective momentum flux at interior faces (Stelling–Duinmeijer staggered upwind). Full shallow-water includes it automatically; diffusive wave omits it. The checkbox is replaced by an explanatory message for those equations. | `ADVECTION` |
 
 #### Wetting & Drying
 

@@ -116,6 +116,7 @@ private:
     QComboBox      *m_momentum2DCombo   = nullptr;   ///< MOMENTUM_EQUATION
     QSpinBox       *m_reconOrder2DSpin  = nullptr;   ///< RECONSTRUCTION_ORDER
     QCheckBox      *m_advection2DBox    = nullptr;
+    QLabel         *m_advection2DStatusLabel = nullptr;
     QComboBox      *m_backend2DCombo    = nullptr;   ///< BACKEND
     QCheckBox      *m_couplingAreaAutoBox = nullptr;
     QDoubleSpinBox *m_dryDepthSpin      = nullptr;
