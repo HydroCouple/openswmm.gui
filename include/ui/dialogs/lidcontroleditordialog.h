@@ -29,6 +29,7 @@ class QSplitter;
 class QTabWidget;
 
 class SWMMModelLayer;
+class QTableView;
 
 namespace openswmmvis::lid {
 class LidControlProvider;
@@ -40,6 +41,7 @@ namespace openswmmvis::sectionview { class SectionPreviewWidget; }
 namespace openswmmvis::ui {
 
 class LidControlListModel;
+class LidNodeLayerModel;
 
 class LidControlEditorDialog : public QDialog
 {
@@ -94,6 +96,9 @@ private:
     QPointer<openswmmvis::lid::LidControlRegistry> m_registry;
     QPointer<SWMMModelLayer>                       m_layer;
     QPointer<openswmmvis::lid::LidControlProvider> m_current;
+    QTableView *m_nodeLayerTable = nullptr;
+    LidNodeLayerModel *m_nodeLayerModel = nullptr;
+    QWidget *m_nodeLayerPage = nullptr;
     Mode                                           m_mode = Mode::Edit;
 
     QSplitter *m_splitter = nullptr;

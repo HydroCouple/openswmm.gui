@@ -49,6 +49,8 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     const QString R  = (u && u->isSI()) ? QStringLiteral("mm/hr")
                                         : QStringLiteral("in/hr");
 
+    if (property == QLatin1String("lidControl")) return tr("LID Control");
+    if (property == QLatin1String("lidInitialSaturation")) return tr("LID Initial Saturation (%)");
     // Base — common to every node type.
     if (property == QLatin1String("name"))           return tr("Name");
     if (property == QLatin1String("nodeKind"))       return tr("Node Type");
@@ -1070,4 +1072,28 @@ void SWMMNodePropertyAdapter::setStorageConstC(double v) {
     swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
     if (swmm_node_set_storage_functional(m_engine, idx, a, b, v) == SWMM_OK)
         emit changed();
+}
+
+DataObjectRef SWMMNodePropertyAdapter::lidControlRef() const {
+    DataObjectRef r; r.engine = m_engine; r.layer = m_layer; r.kind = DataObjectRef::LidControl;
+    int control = -1; double sat = 0;
+    if (nodeIdx() >= 0 && swmm_node_get_lid(m_engine, nodeIdx(), &control, &sat) == SWMM_OK && control >= 0)
+        r.currentName = QString::fromUtf8(swmm_lid_id(m_engine, control));
+    return r;
+}
+double SWMMNodePropertyAdapter::lidInitialSaturation() const {
+    int control = -1; double sat = 0;
+    if (nodeIdx() >= 0) swmm_node_get_lid(m_engine, nodeIdx(), &control, &sat);
+    return sat;
+}
+void SWMMNodePropertyAdapter::setLidControlRef(const DataObjectRef& r) {
+    if (nodeIdx() < 0) return;
+    const int c = r.currentName.isEmpty() ? -1 : swmm_lid_index(m_engine, r.currentName.toUtf8().constData());
+    if (!r.currentName.isEmpty() && c < 0) return;
+    if (swmm_node_set_lid(m_engine, nodeIdx(), c, lidInitialSaturation()) == SWMM_OK) emit changed();
+}
+void SWMMNodePropertyAdapter::setLidInitialSaturation(double sat) {
+    if (nodeIdx() < 0) return;
+    int c = -1; double old = 0;
+    if (swmm_node_get_lid(m_engine, nodeIdx(), &c, &old) == SWMM_OK && c >= 0 && swmm_node_set_lid(m_engine, nodeIdx(), c, sat) == SWMM_OK) emit changed();
 }

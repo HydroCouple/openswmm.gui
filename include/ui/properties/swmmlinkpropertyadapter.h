@@ -81,6 +81,15 @@ public:
     Q_ENUM(WeirType)
     Q_ENUM(OutletRatingType)
 
+    enum LidAnchorPosition { LayerBottom = 0, LayerTop = 1 };
+    Q_ENUM(LidAnchorPosition)
+    Q_PROPERTY(int lidOutletLayer READ lidOutletLayer WRITE setLidOutletLayer NOTIFY changed)
+    Q_PROPERTY(LidAnchorPosition lidOutletPosition READ lidOutletPosition WRITE setLidOutletPosition NOTIFY changed)
+    int lidOutletLayer() const;
+    LidAnchorPosition lidOutletPosition() const;
+    void setLidOutletLayer(int layer);
+    void setLidOutletPosition(LidAnchorPosition position);
+
     // Common to every link type.
     Q_PROPERTY(QString  name         READ name  WRITE setName)
     Q_PROPERTY(LinkKind linkKind     READ linkKind)

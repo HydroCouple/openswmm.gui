@@ -586,6 +586,7 @@ set(
         # ── LID control ([LID_CONTROLS]) ─────────────────────────────────────
         include/lid/lidcontrolprovider.h
         include/lid/lidcontrolregistry.h
+        include/ui/models/lidnodelayermodel.h
         include/ui/models/lidcontrollistmodel.h
         include/ui/dialogs/lidcontroleditordialog.h
         # AQUIFER_GROUNDWATER_EXCHANGE G4/G5 — groundwater exchange editor
@@ -1349,6 +1350,7 @@ set(
         # ── LID control ([LID_CONTROLS]) ─────────────────────────────────────
         src/lid/lidcontrolprovider.cpp
         src/lid/lidcontrolregistry.cpp
+        src/ui/models/lidnodelayermodel.cpp
         src/ui/models/lidcontrollistmodel.cpp
         src/ui/dialogs/lidcontroleditordialog.cpp
         # AQUIFER_GROUNDWATER_EXCHANGE G4 — groundwater exchange editor

@@ -31,6 +31,13 @@ void LidControlProvider::setType(int v)
     emit paramsChanged();
 }
 
+void LidControlProvider::setNodeLayers(QVector<SWMM_LidNodeLayer> layers)
+{
+    m_nodeLayers = std::move(layers);
+    m_dirty = true;
+    emit paramsChanged();
+}
+
 // Double-field setters: change-detect, mark dirty, notify.
 #define LID_SET(method, member)                 \
 void LidControlProvider::method(double v) {     \

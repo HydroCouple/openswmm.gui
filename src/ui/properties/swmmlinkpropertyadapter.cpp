@@ -1,3 +1,4 @@
+#include <openswmm/engine/openswmm_infrastructure.h>
 /*!
  * \file   swmmlinkpropertyadapter.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -719,4 +720,21 @@ void SWMMLinkPropertyAdapter::setOrificeOpenCloseRate(double v)
     if (idx < 0) return;
     if (swmm_link_set_orifice_open_close_rate(m_engine, idx, v) == SWMM_OK)
         emit changed();
+}
+
+int SWMMLinkPropertyAdapter::lidOutletLayer() const {
+    int layer = 0, top = 0;
+    swmm_lid_node_outlet_get(m_engine, linkIdx(), &layer, &top);
+    return layer;
+}
+SWMMLinkPropertyAdapter::LidAnchorPosition SWMMLinkPropertyAdapter::lidOutletPosition() const {
+    int layer = 0, top = 0;
+    swmm_lid_node_outlet_get(m_engine, linkIdx(), &layer, &top);
+    return top ? LayerTop : LayerBottom;
+}
+void SWMMLinkPropertyAdapter::setLidOutletLayer(int layer) {
+    if (swmm_lid_node_outlet_set(m_engine, linkIdx(), layer, lidOutletPosition() == LayerTop) == SWMM_OK) emit changed();
+}
+void SWMMLinkPropertyAdapter::setLidOutletPosition(LidAnchorPosition position) {
+    if (swmm_lid_node_outlet_set(m_engine, linkIdx(), lidOutletLayer(), position == LayerTop) == SWMM_OK) emit changed();
 }

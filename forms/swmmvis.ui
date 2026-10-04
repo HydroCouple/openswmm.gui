@@ -649,6 +649,7 @@
      <addaction name="actionAddOutfall"/>
      <addaction name="actionAddFlowDivider"/>
      <addaction name="actionAddStorage"/>
+     <addaction name="actionAddLidNode"/>
     </widget>
     <widget class="QMenu" name="menuAddLink">
      <property name="title">
@@ -1534,6 +1535,21 @@
    </property>
    <property name="toolTip">
     <string>Add Storage</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddLidNode">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Storage</normaloff>:/swmmvis/Storage</iconset>
+   </property>
+   <property name="text">
+    <string>Add LID Node</string>
+   </property>
+   <property name="toolTip">
+    <string>Add LID Node</string>
    </property>
    <property name="menuRole">
     <enum>QAction::TextHeuristicRole</enum>

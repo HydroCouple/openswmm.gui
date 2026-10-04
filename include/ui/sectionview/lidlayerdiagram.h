@@ -41,7 +41,8 @@ enum class LidType {
     PermPavement   = 4,
     RainBarrel     = 5,
     RooftopDisconn = 6,
-    VegSwale       = 7
+    VegSwale       = 7,
+    Node           = 8
 };
 
 /*! Layer stack for \p type, top to bottom. */
@@ -56,6 +57,8 @@ enum class LidType {
 /*! Everything the diagram needs about the control being edited. */
 struct LidDiagramInput
 {
+    struct OrderedLayer { LidLayer kind; double thickness; double porosity; double conductivity; };
+    QVector<OrderedLayer> orderedLayers;
     QString name;
     LidType type = LidType::BioCell;
 

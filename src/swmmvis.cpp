@@ -1011,7 +1011,7 @@ void SWMMVis::applyProjectOpenToActions(bool open)
         QStringLiteral("actionAddVirtualJunction"),
         QStringLiteral("actionAddInletJunction"),
         QStringLiteral("actionAddOutfall"),
-        QStringLiteral("actionAddStorage"),    QStringLiteral("actionAddFlowDivider"),
+        QStringLiteral("actionAddStorage"), QStringLiteral("actionAddLidNode"),    QStringLiteral("actionAddFlowDivider"),
         QStringLiteral("actionAddPipe"),       QStringLiteral("actionAddPump"),
         QStringLiteral("actionAddOrifice"),    QStringLiteral("actionAddWeir"),
         QStringLiteral("actionAddOutlet"),
@@ -1927,7 +1927,7 @@ void SWMMVis::initializeMapTools()
         QStringLiteral("actionAddVirtualJunction"),
         QStringLiteral("actionAddInletJunction"),
         QStringLiteral("actionAddOutfall"),
-        QStringLiteral("actionAddStorage"), QStringLiteral("actionAddFlowDivider"),
+        QStringLiteral("actionAddStorage"), QStringLiteral("actionAddLidNode"), QStringLiteral("actionAddFlowDivider"),
         QStringLiteral("actionAddPipe"),  QStringLiteral("actionAddPump"),
         QStringLiteral("actionAddOrifice"), QStringLiteral("actionAddWeir"),
         QStringLiteral("actionAddOutlet"),
@@ -4695,6 +4695,11 @@ void SWMMVis::initializeMenus()
         ui->menuView->addSeparator();
         ui->menuView->addMenu(appearanceMenu);
     }
+
+    auto *addLid = ui->actionAddLidNode;
+    connect(addLid, &QAction::triggered, this, [this] {
+        if (auto *pw = activeProjectWindow()) pw->activateAddLidTool();
+    });
 
     // Node add tools.
     if (ui->actionAddJunction)

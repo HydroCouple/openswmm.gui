@@ -77,6 +77,7 @@ struct SurfaceCover
 SurfaceCover coverFor(LidType type)
 {
     switch (type) {
+    case LidType::Node: return {};
     case LidType::BioCell:        return { true,  false, 7 };
     case LidType::RainGarden:     return { true,  false, 9 };
     case LidType::GreenRoof:      return { true,  true, 16 };
@@ -144,6 +145,7 @@ void appendTypeOrnaments(SectionDiagramModel &m, const LidDiagramInput &in,
     const double span = stackTop - stackBottom;
 
     switch (in.type) {
+    case LidType::Node: break;
     case LidType::RainBarrel: {
         // A barrel is a vessel standing on the ground, not a soil profile:
         // draw its shell around the storage layer, with a downspout feeding it
@@ -284,6 +286,7 @@ QVector<LidLayer> lidLayersFor(LidType type)
 {
     using L = LidLayer;
     switch (type) {
+    case LidType::Node: return {};
     case LidType::BioCell:        return { L::Surface, L::Soil, L::Storage };
     case LidType::RainGarden:     return { L::Surface, L::Soil };
     case LidType::GreenRoof:      return { L::Surface, L::Soil, L::Drainmat };
@@ -300,6 +303,7 @@ QVector<LidLayer> lidLayersFor(LidType type)
 bool lidHasDrain(LidType type)
 {
     switch (type) {
+    case LidType::Node: return false;
     case LidType::BioCell:
     case LidType::GreenRoof:
     case LidType::InfilTrench:
@@ -335,7 +339,8 @@ SectionDiagramModel buildLidLayerDiagram(const LidDiagramInput &in)
     SectionDiagramModel m;
     m.uniformScale = false;   // layer thicknesses vs a nominal plan width.
 
-    const QVector<LidLayer> layers = lidLayersFor(in.type);
+    QVector<LidLayer> layers = lidLayersFor(in.type);
+    if (in.type == LidType::Node) for (const auto& l : in.orderedLayers) layers.append(l.kind);
     m.title    = in.name.isEmpty() ? tr_("LID Control") : in.name;
     m.subtitle = [t = in.type]() {
         switch (t) {
@@ -347,6 +352,7 @@ SectionDiagramModel buildLidLayerDiagram(const LidDiagramInput &in)
         case LidType::RainBarrel:     return tr_("Rain Barrel");
         case LidType::RooftopDisconn: return tr_("Rooftop Disconnection");
         case LidType::VegSwale:       return tr_("Vegetative Swale");
+        case LidType::Node:           return tr_("Storage Node LID");
         }
         return QString();
     }();
@@ -362,7 +368,10 @@ SectionDiagramModel buildLidLayerDiagram(const LidDiagramInput &in)
     facts.reserve(layers.size());
     double knownTotal = 0.0;
     for (LidLayer l : layers) {
-        facts << factsFor(l, in);
+        if (in.type == LidType::Node) {
+            const auto& row = in.orderedLayers[facts.size()];
+            facts << LayerFacts{row.thickness, tr_("porosity %1 · K %2").arg(num(row.porosity, 3), num(row.conductivity, 2))};
+        } else facts << factsFor(l, in);
         if (facts.last().thickness > 0.0) knownTotal += facts.last().thickness;
     }
     const double refTotal = (knownTotal > 0.0)

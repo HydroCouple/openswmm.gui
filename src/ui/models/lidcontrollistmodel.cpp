@@ -20,8 +20,8 @@ const char *lidTypeName(int t)
     static const char *names[] = {
         "Bio-Retention Cell", "Rain Garden", "Green Roof", "Infiltration Trench",
         "Permeable Pavement", "Rain Barrel", "Rooftop Disconnection",
-        "Vegetative Swale" };
-    return (t >= 0 && t <= 7) ? names[t] : "Unknown";
+        "Vegetative Swale", "Storage Node (ordered layers)" };
+    return (t >= 0 && t <= 8) ? names[t] : "Unknown";
 }
 } // namespace
 
