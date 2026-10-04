@@ -46,7 +46,8 @@ void OutputStatsRegistry::registerLayer(SWMMResultsLayer *layer,
     s.stableId    = QUuid::createUuid();
     s.tooltipPath = QFileInfo(resultsFilePath).absoluteFilePath();
     s.layer       = layer;
-    auto run=latestRun(s.tooltipPath);
+    const auto stored = layer->property("traceStoredRunId").toString();
+    auto run=stored.isEmpty() ? latestRun(s.tooltipPath) : this->run(stored);
     s.runId=run.id.isEmpty()?importRun(s.tooltipPath):run.id;
     // shortLabel will be filled by recomputeLabels() below; leaving it
     // blank here means a midflight observer would never see a partial
@@ -180,7 +181,8 @@ QString OutputStatsRegistry::beginRun(const QString &path, const QJsonObject &sn
             r.completedAt.clear();
         }
     for (auto &s : m_slots)
-        if (s.tooltipPath == QFileInfo(path).absoluteFilePath())
+        if (s.tooltipPath == QFileInfo(path).absoluteFilePath() &&
+            (!s.layer || s.layer->property("traceStoredRunId").toString().isEmpty()))
             s.runId = id;
     recomputeLabels();
     emit identitiesChanged();
@@ -331,8 +333,10 @@ void OutputStatsRegistry::restoreRuns(const QJsonArray &a, const QString &base)
             r.reportPath = dir.absoluteFilePath(p);
         m_runs.append(r);
     }
-    for (auto &s : m_slots)
-        s.runId = latestRun(s.tooltipPath).id;
+    for (auto &s : m_slots) {
+        const auto stored = s.layer ? s.layer->property("traceStoredRunId").toString() : QString();
+        s.runId = stored.isEmpty() ? latestRun(s.tooltipPath).id : stored;
+    }
     recomputeLabels();
     emit identitiesChanged();
     emit runsChanged();

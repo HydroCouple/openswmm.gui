@@ -1652,8 +1652,7 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
                         break;
                     }
                 }
-                auto *dialog = openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, travel, seed);
-                dialog->setSeedNodes({seed});
+                openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, travel, seed);
             });
         }
     }

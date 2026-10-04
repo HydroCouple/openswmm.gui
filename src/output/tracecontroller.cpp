@@ -1,6 +1,11 @@
 #include <QSet>
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "layers/swmmmodellayer.h"
+#include "layers/swmmresultslayer.h"
+#include "layers/traceanalysislayer.h"
+#include "map/mapcanvas.h"
+#include "map/openswmmvisscene.h"
+#include "map/spatialreferencesystem.h"
 #include "output/outputstatsregistry.h"
 #include "output/traceanalysisstore.h"
 #include "output/tracecontroller.h"
@@ -45,6 +50,8 @@ void require(bool ok, const QString &message)
 TraceController::TraceController(SWMMVisProjectWindow *p) : QObject(p), m_project(p)
 {
     setObjectName(QStringLiteral("flowTraceController"));
+    connect(p->statsRegistry(), &OutputStatsRegistry::runsChanged, this,
+            &TraceController::reconcileOutputRuns);
     connect(&m_watcher, &QFutureWatcher<JobReply>::finished, this,
             [this]
             {
@@ -79,6 +86,82 @@ TraceController *TraceController::forProject(SWMMVisProjectWindow *p, bool creat
     auto *c = p->findChild<TraceController *>(QStringLiteral("flowTraceController"),
                                               Qt::FindDirectChildrenOnly);
     return c || !create ? c : new TraceController(p);
+}
+SWMMResultsLayer *TraceController::outputForRun(const QString &id)
+{
+    if (!m_project)
+        return nullptr;
+    auto *registry = m_project->statsRegistry();
+    for (const auto &identity : registry->identities())
+        if (identity.runId == id && identity.layer)
+            return identity.layer;
+    auto run = registry->run(id);
+    if (run.id.isEmpty())
+        return nullptr;
+    auto *output = new SWMMResultsLayer(run.path, m_project->modelLayer(),
+                                        m_project->modelLayer()->workspace());
+    output->setProperty("traceStoredRunId", id);
+    output->setName(tr("%1 · Run %2 · Saved analysis").arg(run.label).arg(run.number));
+    m_project->canvas()->addLayer(output, false);
+    return output;
+}
+TraceSublayer *TraceController::attachResult(std::shared_ptr<Result> result, bool travel)
+{
+    auto *output = outputForRun(result->dataset->runId);
+    if (!output)
+        return nullptr;
+    for (auto *sub : output->sublayers())
+        if (auto *trace = dynamic_cast<TraceSublayer *>(sub))
+            if (trace->layer()->result()->id == result->id && trace->travel() == travel)
+            {
+                trace->setVisible(true);
+                output->setVisible(true);
+                return trace;
+            }
+    auto *trace = new TraceSublayer(output, result, travel);
+    if (!output->outputHandle())
+    {
+        output->setExtent(trace->layer()->extent());
+        if (!result->dataset->snapshot.wkt.isEmpty())
+            output->setSRS(SpatialReferenceSystem::fromWktOrProj(result->dataset->snapshot.wkt),
+                           true);
+    }
+    output->addAnalysisSublayer(trace);
+    connect(trace, &OpenSWMM::Render::ISublayer::invalidated, m_project,
+            [p = m_project]
+            {
+                if (p)
+                    p->setHasChanges(true);
+            });
+    m_project->setHasChanges(true);
+    return trace;
+}
+void TraceController::reconcileOutputRuns()
+{
+    if (!m_project || m_rebinding)
+        return;
+    m_rebinding = true;
+    const auto identities = m_project->statsRegistry()->identities();
+    for (const auto &identity : identities)
+    {
+        auto *output = identity.layer;
+        if (!output)
+            continue;
+        const auto subs = output->sublayers();
+        for (auto *sub : subs)
+        {
+            auto *trace = dynamic_cast<TraceSublayer *>(sub);
+            if (!trace || trace->layer()->result()->dataset->runId == identity.runId)
+                continue;
+            auto *saved = outputForRun(trace->layer()->result()->dataset->runId);
+            if (!saved || saved == output)
+                continue;
+            trace->layer()->depopulateScene(m_project->canvas()->mapScene());
+            output->takeAnalysisSublayer(trace);
+            saved->addAnalysisSublayer(trace);
+        }
+    }
+    m_rebinding = false;
 }
 void TraceController::cancel()
 {
@@ -266,13 +349,32 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                                                .arg(missing.join(QStringLiteral(", "))));
                 require(replaceId.isEmpty() || indices.size() == 1,
                         tr("Update one saved estimate at a time."));
+                // A repeat tool click reopens its saved estimate. Preparing a
+                // different node only solves from averages; the .out is not rescanned.
+                auto saved = AnalysisStore::analyses(path, &error);
+                require(error.isEmpty(), error);
                 for (int seed : indices)
                 {
                     if (cancelFlag->load())
                         break;
+                    if (replaceId.isEmpty())
+                    {
+                        QString cachedId;
+                        for (const auto &row : saved)
+                            if (row.value("seed").toInt(-1) == seed &&
+                                row.value("direction").toInt(-1) == direction)
+                                cachedId = row.value("id").toString();
+                        if (!cachedId.isEmpty())
+                        {
+                            auto cached = AnalysisStore::read(path, cachedId, &error);
+                            require(bool(cached), error);
+                            reply.results.append(cached);
+                            continue;
+                        }
+                    }
                     auto r = std::make_shared<Result>();
                     r->dataset = d;
-                        r->id = replaceId.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces)
+                    r->id = replaceId.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces)
                                                 : replaceId;
                     if (!replaceId.isEmpty())
                     {

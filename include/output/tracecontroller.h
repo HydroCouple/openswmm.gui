@@ -6,8 +6,10 @@
 #include <QPointer>
 #include <atomic>
 class SWMMVisProjectWindow;
+class SWMMResultsLayer;
 namespace openswmmvis::trace
 {
+class TraceSublayer;
 struct JobReply
 {
     QString runId, error;
@@ -26,6 +28,9 @@ class TraceController : public QObject
     void run(const QString &runId, const QStringList &nodes, int direction,
              const QString &destination, const Snapshot &snapshot, const QString &replaceId = {});
     void cancel();
+    SWMMResultsLayer *outputForRun(const QString &runId);
+    TraceSublayer *attachResult(std::shared_ptr<Result>, bool travel);
+    void reconcileOutputRuns();
     bool beforeOverwrite(const QString &outputPath, QString *error);
     QString defaultPackagePath(const QString &runId) const;
   signals:
@@ -41,5 +46,6 @@ class TraceController : public QObject
     QFutureWatcher<JobReply> m_watcher;
     std::shared_ptr<std::atomic_bool> m_cancel;
     QString m_activePath;
+    bool m_rebinding = false;
 };
 } // namespace openswmmvis::trace

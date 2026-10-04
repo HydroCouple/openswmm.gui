@@ -8778,14 +8778,18 @@ void SWMMVis::onSelectDownstream() { onStreamSelect(/*upstream=*/false); }
 
 void SWMMVis::onFlowBalance(bool upstream)
 {
-    if (auto *pw = activeProjectWindow())
-        openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, false);
+    if (auto *pw = activeProjectWindow()) {
+        auto *output = mLayerTreePanel ? qobject_cast<SWMMResultsLayer *>(mLayerTreePanel->selectedLayer()) : nullptr;
+        openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, false, {}, output);
+    }
 }
 
 void SWMMVis::onTravelTime(bool upstream)
 {
-    if (auto *pw = activeProjectWindow())
-        openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, true);
+    if (auto *pw = activeProjectWindow()) {
+        auto *output = mLayerTreePanel ? qobject_cast<SWMMResultsLayer *>(mLayerTreePanel->selectedLayer()) : nullptr;
+        openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, true, {}, output);
+    }
 }
 
 void SWMMVis::onUserFlags()

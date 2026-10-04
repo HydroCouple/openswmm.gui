@@ -369,13 +369,19 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         || pw->property("traceKeepPreviousRaw").toBool();
     QJsonArray traces;
     if (pw->canvas()) for (auto *mapLayer : pw->canvas()->layers()) {
-        auto *trace = qobject_cast<openswmmvis::trace::TraceAnalysisLayer*>(mapLayer);
-        if (!trace || !trace->result()->saved) continue;
-        const auto result = trace->result();
-        traces.append(QJsonObject{{"id", result->id}, {"runId", result->dataset->runId},
-            {"package", toRelativePath(tracePaths.value(result->dataset->runId, result->dataset->packagePath), oswpFile)},
-            {"name", trace->name()}, {"visible", trace->isVisible()}, {"opacity", trace->opacity()},
-            {"style", trace->savedStyle()}});
+        auto *output = qobject_cast<SWMMResultsLayer *>(mapLayer);
+        if (!output) continue;
+        for (auto *sub : output->sublayers()) {
+            auto *part = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub);
+            if (!part || !part->layer()->result()->saved) continue;
+            auto *trace = part->layer();
+            const auto result = trace->result();
+            traces.append(QJsonObject{{"id", result->id}, {"runId", result->dataset->runId},
+                {"package", toRelativePath(tracePaths.value(result->dataset->runId, result->dataset->packagePath), oswpFile)},
+                {"name", part->displayName()}, {"visible", part->isVisible()}, {"opacity", part->opacity()},
+                {"travel", part->travel()}, {"outputVisible", output->isVisible()},
+                {"outputOpacity", output->opacity()}, {"style", trace->savedStyle()}});
+        }
     }
     if (!traces.isEmpty()) obj["traceLayers"] = traces;
 
@@ -567,6 +573,7 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         QJsonObject reportMap;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
             if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
+                if (!rl->property("traceStoredRunId").toString().isEmpty()) continue;
                 const QString rel = toRelativePath(rl->resultsFilePath(), oswpFile);
                 if (!rel.isEmpty()) {
                     resultArr.append(rel);
@@ -1022,11 +1029,16 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             continue;
         }
         result->style = row.value("style").toObject();
-        auto *trace = new openswmmvis::trace::TraceAnalysisLayer(result, layer->workspace());
-        trace->setName(row.value("name").toString(result->title()));
+        auto *controller = openswmmvis::trace::TraceController::forProject(pw);
+        auto *trace = controller->attachResult(result, row.value("travel").toBool(
+            result->style.value("linkColor").toObject().value("field").toString() == "time"));
+        if (!trace) continue;
         trace->setVisible(row.value("visible").toBool(true));
         trace->setOpacity(row.value("opacity").toDouble(1));
-        pw->canvas()->addLayer(trace, false);
+        if (auto *output = qobject_cast<SWMMResultsLayer *>(trace->parent())) {
+            output->setVisible(row.value("outputVisible").toBool(true));
+            output->setOpacity(row.value("outputOpacity").toDouble(1));
+        }
     }
 
     // Terrain editing state.
@@ -1184,10 +1196,14 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
             }
         }
         for (auto *mapLayer : pw->canvas()->layers()) {
-            auto *trace = qobject_cast<openswmmvis::trace::TraceAnalysisLayer*>(mapLayer);
-            if (trace && !trace->result()->saved) {
-                setErr(QObject::tr("An analysis is computed but not saved. Retry its save before saving the project."));
-                return false;
+            auto *output = qobject_cast<SWMMResultsLayer *>(mapLayer);
+            if (!output) continue;
+            for (auto *sub : output->sublayers()) {
+                auto *trace = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub);
+                if (trace && !trace->layer()->result()->saved) {
+                    setErr(QObject::tr("An analysis is not saved. Use its layer details to retry saving."));
+                    return false;
+                }
             }
         }
         // Managed analysis assets travel with Save As. Explicit external

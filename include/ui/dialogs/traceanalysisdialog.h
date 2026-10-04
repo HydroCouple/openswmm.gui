@@ -4,25 +4,25 @@
 #include <QDialog>
 #include <QPointer>
 class SWMMVisProjectWindow;
-class QComboBox;
+class SWMMResultsLayer;
 class QLineEdit;
-class QCheckBox;
 class QLabel;
-class QTabWidget;
-class QPushButton;
-class QTableWidget;
-class QProgressBar;
-class QFormLayout;
+class QProgressDialog;
 namespace openswmmvis::trace
 {
 class TraceController;
-class TraceAnalysisLayer;
+class TraceSublayer;
+// A small node picker used only when a tool has no selected node. Computation
+// and saved data belong to TraceController; appearance belongs to the sublayer.
 class TraceAnalysisDialog final : public QDialog
 {
     Q_OBJECT
   public:
     static TraceAnalysisDialog *showFor(SWMMVisProjectWindow *, bool upstream, bool travel,
-                                        const QString &seed = {});
+                                        const QString &seed = {},
+                                        SWMMResultsLayer *output = nullptr);
+    static void showProperties(TraceSublayer *, QWidget *parent);
+    static void showDetails(TraceSublayer *, QWidget *parent);
     explicit TraceAnalysisDialog(SWMMVisProjectWindow *);
     void setSeedNodes(const QStringList &);
     QJsonObject state() const;
@@ -30,34 +30,16 @@ class TraceAnalysisDialog final : public QDialog
 
   protected:
     bool eventFilter(QObject *, QEvent *) override;
+    void reject() override;
 
   private:
-    void refreshSources();
-    void sourceChanged();
-    void followActive();
-    void refreshSaved();
-    void start(bool prepareOnly = false, bool replace = false);
-    void display(std::shared_ptr<Result>);
-    void loadPackage();
-    void loadOutput();
-    void updateAppearance();
-    void useSelection();
-    void showError(const QString &);
-    void persistState();
+    void start();
     SWMMVisProjectWindow *m_project;
     TraceController *m_controller;
-    QComboBox *m_sources, *m_saved, *m_direction;
-    QLineEdit *m_seeds, *m_destination;
-    QCheckBox *m_follow, *m_keep;
-    QLabel *m_status, *m_flow, *m_time;
-    QTabWidget *m_tabs;
-    QTableWidget *m_nodes, *m_links;
-    QProgressBar *m_progress;
-    QPushButton *m_prepare, *m_estimate, *m_update, *m_cancel, *m_pick;
-    QWidget *m_appearance;
-    QFormLayout *m_appearanceLayout;
-    QPointer<TraceAnalysisLayer> m_layer;
-    std::shared_ptr<Result> m_result;
-    bool m_refreshing = false, m_picking = false, m_inspecting = false;
+    QLineEdit *m_nodes;
+    QLabel *m_prompt;
+    QProgressDialog *m_progress;
+    QString m_runId;
+    bool m_upstream = false, m_travel = false, m_pending = false;
 };
 } // namespace openswmmvis::trace

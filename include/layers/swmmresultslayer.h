@@ -619,6 +619,8 @@ public:
     // The sublayer instances are owned by this layer via QObject parent-
     // child.
     [[nodiscard]] QList<OpenSWMM::Render::ISublayer *> sublayers() const override;
+    void addAnalysisSublayer(OpenSWMM::Render::ISublayer *);
+    void takeAnalysisSublayer(OpenSWMM::Render::ISublayer *);
 
     // 2026-07-19 — animation-tick fast path (slider scrub perf). The base
     // ISublayerHost::dispatchAnimationTick() invalidates every dynamic
