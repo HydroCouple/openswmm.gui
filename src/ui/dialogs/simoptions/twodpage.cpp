@@ -206,11 +206,16 @@ void TwoDPage::buildUi()
     m_advection2DBox = new QCheckBox(
         tr("Convective momentum flux (ADVECTION)"), m_marcherGroup);
     m_advection2DBox->setToolTip(
-        tr("Include the convective momentum flux at interior faces "
+        tr("Local inertial only: include the convective momentum flux at interior faces "
            "(Stelling–Duinmeijer staggered upwind form). Restores velocity "
            "head on transcritical reaches and correct bore states; off "
            "reproduces the established pure local-inertial results."));
     marchForm->addRow(QString(), m_advection2DBox);
+    m_advection2DStatusLabel = new QLabel(m_marcherGroup);
+    m_advection2DStatusLabel->setWordWrap(true);
+    marchForm->addRow(QString(), m_advection2DStatusLabel);
+    connect(m_momentum2DCombo, &QComboBox::currentIndexChanged, this,
+            [this](int) { refreshGates(); });
 
     t2HydLay->addWidget(m_marcherGroup);
 
@@ -874,6 +879,18 @@ void TwoDPage::tagWidgets()
 
 void TwoDPage::refreshGates()
 {
+    const QString momentum = m_momentum2DCombo->currentData().toString();
+    const bool localInertial = (momentum == QLatin1String("LOCAL_INERTIAL"));
+    // Preserve the authored ADVECTION value when changing closures: it only
+    // controls the local-inertial face law, never the full-SWE flux.
+    m_advection2DBox->setEnabled(localInertial);
+    m_advection2DBox->setVisible(localInertial);
+    m_advection2DStatusLabel->setVisible(!localInertial);
+    m_advection2DStatusLabel->setText(
+        momentum == QLatin1String("FULL_SWE")
+            ? tr("Convective momentum flux is included automatically.")
+            : tr("Convective momentum flux is omitted by the diffusive-wave equation."));
+
     if (!m_gw2DGroup) return;
     // Tri-state: only an explicit "On" is a definite yes. Under Automatic the
     // answer depends on whether aquifer rows exist, which this dialog does not
