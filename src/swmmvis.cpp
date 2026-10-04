@@ -10203,7 +10203,9 @@ void SWMMVis::onCRSButtonClicked()
             layer->reloadGeometry();
             c->invalidate(MapCanvas::Raster | MapCanvas::Scene,
                           QStringLiteral("crs-reproject"));
-            c->zoomToFullExtent();
+            // Refit on the reloaded geometry; no separate undo step, so one
+            // Ctrl+Z reverts the CRS change and its framing together.
+            c->zoomToFullExtent(/*pushUndo=*/false);
 
             pw->setHasChanges(true);
             onLogMessage(tr("Reprojected model: %1 nodes, %2 link vertices, "

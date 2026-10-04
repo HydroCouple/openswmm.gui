@@ -2986,6 +2986,15 @@ add_swmmvis_gui_test(test_gageassignrdii
 )
 swmmvis_link_full_app_deps(test_gageassignrdii)
 
+# A canvas CRS change (render-only, reproject, undo/redo) re-frames the view in
+# the new CRS as part of the same undo step.
+add_swmmvis_gui_test(test_crschangeview
+    test_crschangeview.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_crschangeview)
+
 # identifyByName / nodeIndex / linkIndex became hash lookups instead of linear
 # scans (a 13 KB .oswp restore cost 22 s on a 122k-link model). The hashes must
 # reproduce the scans' kind precedence exactly — reusing the existing
