@@ -110,6 +110,9 @@
 #include <limits>
 #include <memory>
 #if defined(Q_OS_WIN)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #elif defined(Q_OS_MACOS)
 #include <sys/sysctl.h>
@@ -669,14 +672,14 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 for(int a:std::as_const(accepted)) if(bounds[a].intersects(bounds[c])) neighbours.append(lattices[a]);
                 bool compatible=true; QPointF where;
                 if(!neighbours.isEmpty()) {
-                    mesh::BurnSurface near; near.build(neighbours);
+                    mesh::BurnSurface nearbySurface; nearbySurface.build(neighbours);
                     const auto &lat=lattices[c];
                     for(int row=0;row+1<lat.nAlong && compatible;++row)
                         for(int col=0;col+1<lat.nAcross && compatible;++col) for(int half=0;half<2 && compatible;++half) {
                             const int ids[3]={lat.at(row,col),half?lat.at(row+1,col+1):lat.at(row+1,col),
                                               half?lat.at(row,col+1):lat.at(row+1,col+1)};
                             QPointF xy[3];double z[3];for(int k=0;k<3;++k){xy[k]=lat.xy[ids[k]];z[k]=lat.z[ids[k]];}
-                            const auto e=near.error(xy,z,[&](const QPointF &q){return burnDomain.contains(q);});
+                            const auto e=nearbySurface.error(xy,z,[&](const QPointF &q){return burnDomain.contains(q);});
                             if(e.maximum>channelTolerance) {compatible=false;where=e.point;}
                         }
                 }

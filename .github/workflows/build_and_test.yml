@@ -893,9 +893,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          DECK="openswmm.engine.v524/tests/data/worker_smoke.inp"
+          # Match SimulationRunner::start(), which makes run paths absolute.
+          # Stock 5.2.4 resolves relative inputs with realpath into a 260-byte
+          # buffer; fortified glibc aborts because that is smaller than PATH_MAX.
+          DECK="$(pwd)/openswmm.engine.v524/tests/data/worker_smoke.inp"
           [ -f "$DECK" ] || { echo "::error::smoke deck missing: $DECK"; exit 1; }
-          OUTDIR="tests/output/ci_worker_524"
+          OUTDIR="$(pwd)/tests/output/ci_worker_524"
           mkdir -p "$OUTDIR"
           rc=0
           "$W524" "$DECK" "$OUTDIR/smoke.rpt" "$OUTDIR/smoke.out" 200 \
