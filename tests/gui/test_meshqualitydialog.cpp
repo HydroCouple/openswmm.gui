@@ -79,7 +79,8 @@ private slots:
         QCOMPARE(res->findChildren<QDoubleSpinBox *>().size(), 5);   // size, coarsen, ratio, floor, terrain
         QCOMPARE(shape->findChildren<QComboBox *>().size(), 1);      // region layer
         QCOMPARE(shape->findChildren<QDoubleSpinBox *>().size(), 2); // minimum angle, conduit strip width
-        QCOMPARE(shape->findChildren<QCheckBox *>().size(), 1);      // quads between facing break lines
+        QCOMPARE(shape->findChildren<QCheckBox *>().size(), 3);      // worst angles first, lattice seeding, quads between facing break lines
+        QCOMPARE(shape->findChildren<QSpinBox *>().size(), 1);       // smoothing passes
         QCOMPARE(bnd->findChildren<QDoubleSpinBox *>().size(), 2);   // turn, deviation
         // The retired groups are gone.
         for (const char *gone : {"Triangle quality", "Minimum Cell Size", "Terrain-Adaptive Thinning",
@@ -98,7 +99,7 @@ private slots:
         QCOMPARE(spins[1]->value(), t.meshCoarsenFactor);
         QCOMPARE(spins[2]->value(), t.meshSizeRatio);
         QCOMPARE(spins[3]->specialValueText(), QStringLiteral("(cell size / 4)"));
-        QCOMPARE(spins[4]->specialValueText(), QStringLiteral("(off)"));
+        QCOMPARE(spins[4]->specialValueText(), QStringLiteral("(automatic from DEM)"));   // adaptive terrain is the default mode
         QVERIFY(spins[2]->minimum() >= 1.0 && spins[2]->maximum() <= 2.0);
         QVERIFY(spins[0]->suffix().trimmed().size() >= 1);   // a length unit
         QGroupBox *bnd = groupTitled(m_dlg, QStringLiteral("Boundaries"));

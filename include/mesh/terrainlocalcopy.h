@@ -26,6 +26,7 @@ struct LocalTerrainResult
     QString path;        ///< The copy, or empty when the source must be used.
     bool    reused = false;
     qint64  bytes = 0;
+    int     decimation = 1;  ///< Source pixels averaged per copy pixel along each axis.
     QString note;        ///< Why no copy was made (diagnostic, not an error).
 };
 
@@ -39,10 +40,15 @@ struct LocalTerrainResult
  * a multi-band source, or too little free space returns an empty path and the
  * caller reads the source as before. \p progress gets 0..1 and returns false
  * to cancel.
+ *
+ * \p averageToCellSize > 0 (mesh units) writes the copy averaged over blocks
+ * of floor(cell / pixel) source pixels (NoData ignored), so the terrain the
+ * mesh is measured against holds only detail a cell can represent.
  */
 LocalTerrainResult prepareLocalTerrain(const QString &sourcePath, const QString &meshCRSWkt,
                                        const QRectF &meshDomain, const QString &cacheDir,
-                                       const std::function<bool(double)> &progress = {});
+                                       const std::function<bool(double)> &progress = {},
+                                       double averageToCellSize = 0.0);
 
 } // namespace mesh
 
