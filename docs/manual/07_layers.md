@@ -167,6 +167,14 @@ colour ramp is auto-stretched to the data and the layer becomes the **active 1D
 results layer** and the animation controller's primary layer. See
 \ref manual_results.
 
+Vector, raster, delimited-text, and 1D/2D results file dialogs accept multiple
+files at once. Use Command-click on macOS (Ctrl-click on Windows/Linux) or
+Shift-click to select a range, then choose **Open**. Files load in selection
+order into the project that opened the dialog. A failed file is reported in the
+Message Log while the remaining selections continue. Each vector datasource
+still offers its own sublayer picker when needed; cancelling that picker skips
+that datasource and continues the batch.
+
 ### Add 2D Results…
 
 **File → Import → Add 2D Results…** loads an OpenSWMM 2D results file (`*.h5`).
