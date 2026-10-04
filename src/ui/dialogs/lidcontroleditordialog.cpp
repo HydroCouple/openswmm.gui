@@ -19,6 +19,15 @@
 
 #include "ui/models/lidnodelayermodel.h"
 #include <QTableView>
+#include <QSpinBox>
+#include <QStandardItemModel>
+#include <QInputDialog>
+#include "ui/widgets/treatmentexpressionedit.h"
+#include <openswmm/engine/openswmm_quality.h>
+#include <openswmm/engine/openswmm_pollutants.h>
+#include <cmath>
+#include <QSignalBlocker>
+#include <limits>
 #include <QHeaderView>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -41,6 +50,27 @@ using openswmmvis::lid::LidControlProvider;
 using openswmmvis::lid::LidControlRegistry;
 
 namespace {
+// Use the same native numeric controls as the physical property forms.
+class TreatmentRateDelegate final : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex& index) const override {
+        auto* spin = new QDoubleSpinBox(parent);
+        spin->setDecimals(8);
+        spin->setRange(0.0, index.column() == 1 ? 100.0 : 1.e12);
+        spin->setSingleStep(index.column() == 1 ? 1.0 : .01);
+        spin->setKeyboardTracking(false);
+        return spin;
+    }
+    void setEditorData(QWidget* editor, const QModelIndex& index) const override {
+        static_cast<QDoubleSpinBox*>(editor)->setValue(index.data(Qt::EditRole).toDouble());
+    }
+    void setModelData(QWidget* editor, QAbstractItemModel* model, const QModelIndex& index) const override {
+        auto* spin = static_cast<QDoubleSpinBox*>(editor);
+        spin->interpretText();
+        model->setData(index, spin->value(), Qt::EditRole);
+    }
+};
 QDoubleSpinBox *makeSpin(QWidget *parent, double minV, double maxV, double step)
 {
     auto *s = new QDoubleSpinBox(parent);
@@ -59,7 +89,7 @@ LidControlEditorDialog::LidControlEditorDialog(LidControlRegistry *registry,
       m_layer(layer)
 {
     setWindowTitle(tr("LID Controls"));
-    resize(680, 480);
+    resize(1180, 760);
     buildUi_();
 
     if (m_registry) {
@@ -118,6 +148,11 @@ void LidControlEditorDialog::buildUi_()
     btnRow->addWidget(m_addBtn);
     btnRow->addWidget(m_delBtn);
     leftLay->addLayout(btnRow);
+    auto *newLayered = new QPushButton(tr("New layered LID"), leftPane);
+    newLayered->setObjectName(QStringLiteral("newLayeredLid"));
+    newLayered->setToolTip(tr("Create a storage-node LID with any number of media and aggregate layers."));
+    leftLay->addWidget(newLayered);
+    connect(newLayered, &QPushButton::clicked, this, &LidControlEditorDialog::addLayeredControl_);
 
     // ── Right pane: name + type + layer tabs ────────────────────────────────
     auto *rightPane = new QWidget(m_splitter);
@@ -187,6 +222,15 @@ void LidControlEditorDialog::buildUi_()
 
     m_nodeLayerPage = new QWidget(tabs);
     auto *stackLayout = new QVBoxLayout(m_nodeLayerPage);
+    auto *countForm = new QFormLayout;
+    m_mediaCount = new QSpinBox(m_nodeLayerPage);
+    m_mediaCount->setObjectName(QStringLiteral("lidMediaLayerCount"));
+    m_mediaCount->setRange(1, std::numeric_limits<int>::max());
+    m_mediaCount->setKeyboardTracking(false);
+    countForm->addRow(tr("Media / aggregate layers"), m_mediaCount);
+    m_layerSummary = new QLabel(m_nodeLayerPage);
+    countForm->addRow(m_layerSummary);
+    stackLayout->addLayout(countForm);
     auto *units = new QLabel(tr("Top to bottom. Thickness and suction: mm (SI) or in (US). Conductivity: mm/hr or in/hr. BOTTOM is the native-soil boundary."));
     units->setWordWrap(true); stackLayout->addWidget(units);
     m_nodeLayerModel = new LidNodeLayerModel(this);
@@ -194,19 +238,102 @@ void LidControlEditorDialog::buildUi_()
     m_nodeLayerTable->setObjectName(QStringLiteral("lidNodeLayers"));
     m_nodeLayerTable->setModel(m_nodeLayerModel);
     m_nodeLayerTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_nodeLayerTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    stackLayout->addWidget(m_nodeLayerTable);
+    m_nodeLayerTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    stackLayout->addWidget(m_nodeLayerTable, 1);
+    auto *details = new QTabWidget(m_nodeLayerPage);
+    auto *physicalPage = new QWidget(details);
+    m_layerFields = new QFormLayout(physicalPage);
+    for (int column = 1; column < 10; ++column) {
+        auto *field = makeSpin(m_nodeLayerPage, 0.0, 1.e12, 0.1);
+        field->setDecimals(6);
+        field->setObjectName(QStringLiteral("lidLayerParameter%1").arg(column));
+        m_layerValues[column - 1] = field;
+        m_layerFields->addRow(m_nodeLayerModel->headerData(column, Qt::Horizontal).toString(), field);
+        connect(field, &QDoubleSpinBox::valueChanged, this, [this, column](double value) {
+            if (!m_syncLayerFields)
+                m_nodeLayerModel->setData(m_nodeLayerModel->index(m_nodeLayerTable->currentIndex().row(), column), value);
+        });
+    }
+    details->addTab(OpenSWMM::Ui::wrapInScrollArea(physicalPage, details), tr("Physical properties"));
+    auto *treatmentPage = new QWidget(details);
+    auto *treatmentLayout = new QVBoxLayout(treatmentPage);
+    auto *treatmentHelp = new QLabel(tr("Treatment for the selected layer. Removal acts on outgoing pollutant mass. Decay is a first-order rate per day. An optional R = or C = expression acts after removal; leave it blank for rates only."), treatmentPage);
+    treatmentHelp->setWordWrap(true); treatmentLayout->addWidget(treatmentHelp);
+    m_treatmentTable = new QTableView(treatmentPage);
+    m_treatmentTable->setObjectName(QStringLiteral("lidLayerTreatment"));
+    m_treatmentModel = new QStandardItemModel(0, 4, this);
+    m_treatmentModel->setHorizontalHeaderLabels({tr("Pollutant"),tr("Removal (%)"),tr("Decay (1/day)"),tr("Expression")});
+    m_treatmentTable->setModel(m_treatmentModel);
+    m_treatmentTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_treatmentTable->setAlternatingRowColors(true);
+    m_treatmentTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
+    auto* rateDelegate = new TreatmentRateDelegate(m_treatmentTable);
+    m_treatmentTable->setItemDelegateForColumn(1, rateDelegate);
+    m_treatmentTable->setItemDelegateForColumn(2, rateDelegate);
+    m_treatmentTable->setToolTip(tr("Double-click a rate or expression to edit. Use Ctrl+Space for expression completion."));
+    m_treatmentTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_treatmentTable->horizontalHeader()->setSectionResizeMode(3,QHeaderView::Interactive);
+    auto *expressionDelegate = new TreatmentExpressionDelegate(m_registry ? m_registry->engineHandle() : nullptr, m_treatmentTable);
+    m_treatmentTable->setItemDelegateForColumn(3, expressionDelegate);
+    treatmentLayout->addWidget(m_treatmentTable);
+    m_treatmentMessage = new QLabel(treatmentPage);
+    m_treatmentMessage->setWordWrap(true); treatmentLayout->addWidget(m_treatmentMessage);
+    connect(expressionDelegate,&TreatmentExpressionDelegate::validationChanged,this,[this](bool valid,const QString& message,int) {
+        m_treatmentMessage->setText(valid ? tr("Expression is valid.") : message);
+    });
+    auto *treatmentButtons = new QHBoxLayout;
+    auto *addTreatment = new QPushButton(tr("Add pollutant"), treatmentPage);
+    auto *removeTreatment = new QPushButton(tr("Remove pollutant"), treatmentPage);
+    treatmentButtons->addWidget(addTreatment);treatmentButtons->addWidget(removeTreatment);treatmentButtons->addStretch();
+    treatmentLayout->addLayout(treatmentButtons);
+    details->addTab(treatmentPage,tr("Pollutant treatment"));
+    stackLayout->addWidget(details,1);
+    connect(m_treatmentModel,&QStandardItemModel::dataChanged,this,[this]{storeTreatmentRows_();});
+    connect(addTreatment,&QPushButton::clicked,this,[this] {
+        const int row=m_nodeLayerTable->currentIndex().row();
+        if(row<0||m_nodeLayerModel->layers[row].kind==3)return;
+        auto eng=m_registry ? static_cast<SWMM_Engine>(m_registry->engineHandle()) : nullptr;
+        QStringList names;
+        if(eng)for(int p=0;p<swmm_pollutant_count(eng);++p) {
+            const QString name=QString::fromUtf8(swmm_pollutant_id(eng,p));
+            bool used=false;for(int j=0;j<m_treatmentModel->rowCount();++j)used|=m_treatmentModel->index(j,0).data().toString()==name;
+            if(!used)names.append(name);
+        }
+        if(names.isEmpty()) {m_treatmentMessage->setText(tr("Define pollutants in Model → Pollutant first, or edit the pollutants already listed."));return;}
+        bool ok=false;const QString name=QInputDialog::getItem(this,tr("Layer treatment"),tr("Pollutant"),names,0,false,&ok);
+        if(!ok)return;
+        auto *id=new QStandardItem(name);id->setEditable(false);
+        m_treatmentModel->appendRow({id,new QStandardItem(QStringLiteral("0")),new QStandardItem(QStringLiteral("0")),new QStandardItem});
+        storeTreatmentRows_();
+    });
+    connect(removeTreatment,&QPushButton::clicked,this,[this] {
+        m_treatmentModel->removeRow(m_treatmentTable->currentIndex().row());storeTreatmentRows_();
+    });
+    connect(m_nodeLayerTable->selectionModel(), &QItemSelectionModel::currentRowChanged,
+            this, [this] { refreshLayerFields_(); refreshTreatmentRows_(); });
+    connect(m_mediaCount, &QSpinBox::valueChanged, this, [this](int count) {
+        if (!m_syncLayerFields) m_nodeLayerModel->setMediaCount(count, UnitSystem::instance() && UnitSystem::instance()->isSI());
+    });
+    auto changedLayers = [this] { if(!m_suppressFieldSync) m_layerDraftDirty=true; refreshLayerFields_(); refreshTreatmentRows_(); refreshLayerDiagram_(); };
+    connect(m_nodeLayerModel, &QAbstractItemModel::rowsInserted, this, changedLayers);
+    connect(m_nodeLayerModel, &QAbstractItemModel::rowsRemoved, this, changedLayers);
+    connect(m_nodeLayerModel, &QAbstractItemModel::rowsMoved, this, changedLayers);
+    connect(m_nodeLayerModel, &QAbstractItemModel::modelReset, this, changedLayers);
     auto *rowActions = new QHBoxLayout;
     for (int kind = 0; kind < 4; ++kind) {
         auto *add = new QPushButton(tr("Add %1").arg(QStringList{"SURFACE", "MEDIA", "AGGREGATE", "BOTTOM"}[kind]));
         rowActions->addWidget(add);
-        connect(add, &QPushButton::clicked, this, [this, kind] { m_nodeLayerModel->append(kind, UnitSystem::instance() && UnitSystem::instance()->isSI()); refreshLayerDiagram_(); });
+        connect(add, &QPushButton::clicked, this, [this, kind] { m_nodeLayerModel->append(kind, UnitSystem::instance() && UnitSystem::instance()->isSI());
+            const auto& rows = m_nodeLayerModel->layers;
+            int selected = kind == 0 ? 0 : rows.size() - 1;
+            if (kind != 3 && kind != 0 && !rows.isEmpty() && rows.back().kind == 3) --selected;
+            m_nodeLayerTable->selectRow(selected); refreshLayerDiagram_(); });
     }
     stackLayout->addLayout(rowActions);
     auto *editActions = new QHBoxLayout;
     auto *remove = new QPushButton(tr("Remove"));
     auto *up = new QPushButton(tr("Move up")); auto *down = new QPushButton(tr("Move down"));
-    auto *apply = new QPushButton(tr("Apply layers"));
+    auto *apply = new QPushButton(tr("Apply layers and treatment"));
     for (auto *b : {remove, up, down, apply}) editActions->addWidget(b);
     stackLayout->addLayout(editActions);
     connect(remove, &QPushButton::clicked, this, [this] { m_nodeLayerModel->remove(m_nodeLayerTable->currentIndex().row()); refreshLayerDiagram_(); });
@@ -215,26 +342,8 @@ void LidControlEditorDialog::buildUi_()
             const int r = m_nodeLayerTable->currentIndex().row(); m_nodeLayerModel->move(r, delta);
             m_nodeLayerTable->selectRow(qBound(0, r + delta, m_nodeLayerModel->rowCount() - 1)); refreshLayerDiagram_();
         });
-    connect(m_nodeLayerModel, &QAbstractItemModel::dataChanged, this, [this] { refreshLayerDiagram_(); });
-    connect(apply, &QPushButton::clicked, this, [this] {
-        if (!m_current || !m_registry) return;
-        auto eng = static_cast<SWMM_Engine>(m_registry->engineHandle());
-        if (!eng) return;
-        int idx = swmm_lid_index(eng, m_current->name().toUtf8().constData());
-        const bool created = idx < 0;
-        if (idx < 0) {
-            if (swmm_lid_add(eng, m_current->name().toUtf8().constData(), 8) != SWMM_OK) return;
-            idx = swmm_lid_index(eng, m_current->name().toUtf8().constData());
-        }
-        const auto& rows = m_nodeLayerModel->layers;
-        if (swmm_lid_node_layers_set(eng, idx, rows.constData(), rows.size()) != SWMM_OK) {
-            if (created) swmm_lid_delete(eng, idx, nullptr);
-            QMessageBox::warning(this, tr("Invalid layer stack"), tr("Check layer parameters and order: optional SURFACE first, one or more MEDIA/AGGREGATE layers, optional BOTTOM last. Existing outlet anchors must remain valid."));
-            return;
-        }
-        m_current->setNodeLayers(rows); m_current->clearDirty();
-        if (m_layer) m_layer->markEdited();
-    });
+    connect(m_nodeLayerModel, &QAbstractItemModel::dataChanged, this, [this] { if(!m_suppressFieldSync)m_layerDraftDirty=true; refreshLayerFields_(); refreshLayerDiagram_(); });
+    connect(apply, &QPushButton::clicked, this, [this] { applyLayers_(); });
     tabs->addTab(m_nodeLayerPage, tr("Ordered layers"));
     rightLay->addWidget(tabs, 1);
 
@@ -259,7 +368,7 @@ void LidControlEditorDialog::buildUi_()
     m_splitter->setStretchFactor(0, 0);
     m_splitter->setStretchFactor(1, 2);
     m_splitter->setStretchFactor(2, 2);
-    m_splitter->setSizes({ 180, 420, 360 });
+    m_splitter->setSizes({ 170, 650, 300 });
 
     outer->addWidget(m_splitter, 1);
 
@@ -293,6 +402,47 @@ void LidControlEditorDialog::buildUi_()
                                 m_storKsat, m_drainCoeff, m_drainExpon, m_drainOffset })
         connect(s, &QDoubleSpinBox::valueChanged,
                 this, &LidControlEditorDialog::onFieldEdited_);
+}
+
+bool LidControlEditorDialog::applyLayers_()
+{
+        if (!m_current || !m_registry) return false;
+        auto eng = static_cast<SWMM_Engine>(m_registry->engineHandle());
+        if (!eng) return false;
+        int idx = swmm_lid_index(eng, m_current->name().toUtf8().constData());
+        const bool created = idx < 0;
+        if (idx < 0) {
+            if (swmm_lid_add(eng, m_current->name().toUtf8().constData(), 8) != SWMM_OK) return false;
+            idx = swmm_lid_index(eng, m_current->name().toUtf8().constData());
+        }
+        const auto& rows = m_nodeLayerModel->layers;
+        const auto treatment = m_nodeLayerModel->treatmentRows();
+        QVector<QByteArray> expressions; expressions.reserve(treatment.size());
+        QVector<SWMM_LidLayerTreatment> rules; rules.reserve(treatment.size());
+        for(const auto& t:treatment) {
+            expressions.append(t.expression.toUtf8());
+            rules.append({t.layer,swmm_pollutant_index(eng,t.pollutant.toUtf8().constData()),t.removal,t.decay,expressions.back().constData()});
+        }
+        if (swmm_lid_node_configure(eng, idx, rows.constData(), rows.size(), rules.constData(), rules.size()) != SWMM_OK) {
+            if (created) swmm_lid_delete(eng, idx, nullptr);
+            QMessageBox::warning(this, tr("Invalid layer stack"), tr("Check layer parameters and order: optional SURFACE first, one or more MEDIA/AGGREGATE layers, optional BOTTOM last. Existing outlet anchors must remain valid. Treatment requires known pollutants, removal from 0 to 100%, nonnegative decay, and valid R = or C = expressions."));
+            return false;
+        }
+        m_current->treatments=treatment; m_current->setNodeLayers(rows); m_current->clearDirty(); m_layerDraftDirty=false;
+        if (m_layer) m_layer->markEdited();
+        return true;
+}
+bool LidControlEditorDialog::finishLayerDraft_()
+{
+    if(!m_layerDraftDirty || !m_current || m_current->type()!=8)return true;
+    const auto answer=QMessageBox::question(this,tr("Unsaved layer changes"),tr("Apply the layer and treatment changes to %1?").arg(m_current->name()),QMessageBox::Apply|QMessageBox::Discard|QMessageBox::Cancel,QMessageBox::Apply);
+    if(answer==QMessageBox::Cancel)return false;
+    if(answer==QMessageBox::Apply)return applyLayers_();
+    m_layerDraftDirty=false;return true;
+}
+void LidControlEditorDialog::done(int result)
+{
+    if(finishLayerDraft_())QDialog::done(result);
 }
 
 void LidControlEditorDialog::bindProvider_(LidControlProvider *p)
@@ -334,14 +484,18 @@ void LidControlEditorDialog::bindProvider_(LidControlProvider *p)
     }
 
     m_nodeLayerModel->setLayers(p ? p->nodeLayers() : QVector<SWMM_LidNodeLayer>{});
+    m_nodeLayerModel->setTreatments(p ? p->treatments : QVector<openswmmvis::lid::LidLayerTreatment>{});
     const bool node = p && p->type() == 8;
     for (int i = 0; i < 4; ++i) m_tabs->setTabVisible(i, !node);
     m_tabs->setTabVisible(4, node);
-    if (node) m_tabs->setCurrentIndex(4);
+    if (node) { m_tabs->setCurrentIndex(4); m_nodeLayerTable->selectRow(0); }
+    m_nodeLayerPage->setEnabled(node);
     // Existing controls keep their type; create a new control for a new type.
     const auto eng = m_registry ? static_cast<SWMM_Engine>(m_registry->engineHandle()) : nullptr;
     m_typeCombo->setEnabled(p && (!eng || swmm_lid_index(eng, p->name().toUtf8().constData()) < 0));
     m_suppressFieldSync = prev;
+    m_layerDraftDirty=false;
+    refreshTreatmentRows_();
     refreshLayerDiagram_();
     // Binding a different control is a new subject; field edits keep the view.
     if (m_diagram) m_diagram->zoomToExtents();
@@ -371,6 +525,10 @@ QString LidControlEditorDialog::suggestUniqueName_() const
 
 void LidControlEditorDialog::onListSelectionChanged_()
 {
+    if(!finishLayerDraft_()) {
+        QSignalBlocker blocker(m_listView->selectionModel());
+        selectProviderInList_(m_current);return;
+    }
     const QModelIndex idx = m_listView->selectionModel()->currentIndex();
     bindProvider_(idx.isValid() ? m_listModel->providerAt(idx.row()) : nullptr);
 }
@@ -380,6 +538,73 @@ void LidControlEditorDialog::onAddClicked_()
     if (!m_registry) return;
     LidControlProvider *p = m_registry->create(suggestUniqueName_());
     if (p) selectProviderInList_(p);
+}
+
+void LidControlEditorDialog::addLayeredControl_()
+{
+    if (!m_registry) return;
+    auto *provider = m_registry->create(suggestUniqueName_());
+    if (!provider) return;
+    provider->setType(8);
+    LidNodeLayerModel defaults;
+    const bool si = UnitSystem::instance() && UnitSystem::instance()->isSI();
+    for (int kind : {0, 1, 2, 3}) defaults.append(kind, si);
+    provider->setNodeLayers(defaults.layers);
+    selectProviderInList_(provider);
+}
+
+void LidControlEditorDialog::refreshLayerFields_()
+{
+    if (!m_mediaCount || !m_layerFields) return;
+    m_syncLayerFields = true;
+    m_mediaCount->setValue(qMax(1, m_nodeLayerModel->mediaCount()));
+    int physical = 0;
+    for (const auto& row : m_nodeLayerModel->layers) if (row.kind != 3) ++physical;
+    m_layerSummary->setText(tr("%1 physical layers · top to bottom. Select a row to edit its parameters below.").arg(physical));
+    const int row = m_nodeLayerTable->currentIndex().row();
+    const bool si = UnitSystem::instance() && UnitSystem::instance()->isSI();
+    for (int column = 1; column < 10; ++column) {
+        const auto index = m_nodeLayerModel->index(row, column);
+        const bool visible = index.isValid() && (m_nodeLayerModel->flags(index) & Qt::ItemIsEditable);
+        auto *field = m_layerValues[column - 1];
+        m_layerFields->setRowVisible(field, visible);
+        if (!visible) continue;
+        QString label = m_nodeLayerModel->headerData(column, Qt::Horizontal).toString();
+        if (column == 1 || column == 7) label += si ? tr(" (mm)") : tr(" (in)");
+        if (column == 5) label += si ? tr(" (mm/hr)") : tr(" (in/hr)");
+        qobject_cast<QLabel *>(m_layerFields->labelForField(field))->setText(label);
+        field->setValue(index.data(Qt::EditRole).toDouble());
+    }
+    m_syncLayerFields = false;
+}
+
+void LidControlEditorDialog::refreshTreatmentRows_()
+{
+    if(!m_treatmentModel)return;
+    m_syncTreatment=true;
+    m_treatmentModel->removeRows(0,m_treatmentModel->rowCount());
+    const int row=m_nodeLayerTable->currentIndex().row();
+    const bool valid=row>=0&&row<m_nodeLayerModel->treatments.size()&&m_nodeLayerModel->layers[row].kind!=3;
+    m_treatmentTable->setEnabled(valid);
+    if(valid)for(const auto& t:m_nodeLayerModel->treatments[row]) {
+        auto *id=new QStandardItem(t.pollutant);id->setEditable(false);
+        m_treatmentModel->appendRow({id,new QStandardItem(QString::number(t.removal,'g',15)),new QStandardItem(QString::number(t.decay,'g',15)),new QStandardItem(t.expression)});
+    }
+    m_treatmentMessage->setText(valid ? tr("Layer %1 — double-click a value to edit. Expressions use the existing treatment syntax and completion.").arg(row+1) : tr("Select a physical layer. BOTTOM is a seepage boundary, not a treatment layer."));
+    m_syncTreatment=false;
+}
+void LidControlEditorDialog::storeTreatmentRows_()
+{
+    if(m_syncTreatment)return;
+    m_layerDraftDirty=true;
+    const int row=m_nodeLayerTable->currentIndex().row();
+    if(row<0||row>=m_nodeLayerModel->treatments.size())return;
+    auto& rules=m_nodeLayerModel->treatments[row];rules.clear();
+    for(int i=0;i<m_treatmentModel->rowCount();++i) {
+        bool r=false,k=false;
+        const double removal=m_treatmentModel->index(i,1).data().toDouble(&r), decay=m_treatmentModel->index(i,2).data().toDouble(&k);
+        rules.append({row+1,m_treatmentModel->index(i,0).data().toString(),r?removal:std::numeric_limits<double>::quiet_NaN(),k?decay:std::numeric_limits<double>::quiet_NaN(),m_treatmentModel->index(i,3).data().toString()});
+    }
 }
 
 void LidControlEditorDialog::onDeleteClicked_()
@@ -416,6 +641,7 @@ void LidControlEditorDialog::onFieldEdited_()
     if (m_suppressFieldSync || !m_current) return;
     m_current->setType(m_typeCombo->currentIndex());
     const bool node = m_current->type() == 8;
+    m_nodeLayerPage->setEnabled(node);
     for (int i = 0; i < 4; ++i) m_tabs->setTabVisible(i, !node);
     m_tabs->setTabVisible(4, node);
     if (node) { m_tabs->setCurrentIndex(4); refreshLayerDiagram_(); return; }

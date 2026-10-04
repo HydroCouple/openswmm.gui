@@ -24,6 +24,12 @@
 
 namespace openswmmvis::lid {
 
+struct LidLayerTreatment {
+    int layer = 1;
+    QString pollutant;
+    double removal = 0.0, decay = 0.0;
+    QString expression;
+};
 class LidControlProvider : public QObject
 {
     Q_OBJECT
@@ -37,6 +43,8 @@ public:
 
     const QVector<SWMM_LidNodeLayer>& nodeLayers() const { return m_nodeLayers; }
     void setNodeLayers(QVector<SWMM_LidNodeLayer> layers);
+    QVector<LidLayerTreatment> treatments;
+
 
     // Surface layer.
     double surfStorage()   const noexcept { return m_surfStorage; }

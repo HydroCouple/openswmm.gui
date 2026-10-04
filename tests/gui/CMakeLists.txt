@@ -4034,3 +4034,9 @@ add_swmmvis_gui_test(test_lid_node_layers
     ${CMAKE_SOURCE_DIR}/src/ui/sectionview/lidlayerdiagram.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectiondiagram.cpp
 )
+
+add_swmmvis_gui_test(test_lid_treatment_editor
+    test_lid_treatment_editor.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_lid_treatment_editor)

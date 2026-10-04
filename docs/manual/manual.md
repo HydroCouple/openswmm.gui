@@ -72,6 +72,7 @@ catchment data and dependent files. Runtime depends on the model and hardware.
 - \subpage tutorial_pure_2d — a stand-alone 2D overland-flow model with system rainfall
 - \subpage tutorial_transport — advection–reaction–dispersion transport, reaction systems, water age and heat
 - \subpage tutorial_bellinge — a real-world catchment: external mesh, DEM, long rain records and basemaps
+- \subpage tutorial_lid_storage — layered storage-node LIDs and pollutant treatment
 
 ## Appendices
 

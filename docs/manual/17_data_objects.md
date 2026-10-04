@@ -317,3 +317,29 @@ involved.
 - \ref manual_time_series_plots — comparison plots, observed data and fit statistics
 - \ref manual_projects — project portability and relative paths
 - \ref manual_file_formats — the file types the editors read
+
+## Layered LID controls
+
+Open **Model → LID Control**, then select **New layered LID** to create a storage-node
+control. **Media / aggregate layers** sets the number of porous layers without a
+fixed limit. Select a row in **Ordered layers** to edit its **Physical properties**
+in project units. Add Surface or Bottom boundaries as needed; move media and
+aggregate rows to define the top-to-bottom order.
+
+Select **Pollutant treatment** for the selected layer and **Add pollutant**. The
+pollutant must already be defined in the model. Double-click a numeric value to
+edit **Removal (%)** or **Decay (1/day)** using the same spin boxes as other
+property editors. Double-click **Expression** to use syntax highlighting,
+completion (Ctrl+Space), and live validation. Leave the expression blank for
+rate-only treatment, or use `R = 0.2` for an additional 20% removal and `C = C * 0.8`
+for an effluent concentration expression. Removal and an expression can be
+combined; removal is applied first. Decay acts on resident water.
+
+**Apply layers and treatment** validates and saves the whole stack. Reordering a
+layer carries its treatment settings with it. Closing or switching controls with
+unapplied changes offers Apply, Discard, or Cancel. The Bottom boundary has no
+pollutant treatment. Layer pollutant routing uses the Legacy quality solver with
+Dynamic Wave hydraulics; check continuity and time-step convergence for transient
+inflows.
+
+For a complete model and illustrated steps, see \ref tutorial_lid_storage.
