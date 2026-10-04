@@ -706,13 +706,21 @@ QList<LegendSymbolItem> TraceAnalysisLayer::legend(bool node) const
             r = {0, widthReference()};
             c.transform = "linear";
         }
+        LegendSymbolItem heading;
+        heading.sublayerId = node ? "nodes" : "links";
+        heading.label = QStringLiteral("%1 · %2")
+                            .arg(size ? (node ? tr("Node area") : tr("Link width"))
+                                      : (node ? tr("Node color") : tr("Link color")),
+                                 fieldLabel(c.field, node));
+        out.append(heading);
         auto add = [&](QString text, QColor color, double pixels)
         {
             LegendSymbolItem item;
             item.sublayerId = node ? "nodes" : "links";
-            item.label = QStringLiteral("%1 · %2: %3")
-                             .arg(size ? (node ? tr("Area") : tr("Width")) : tr("Color"),
-                                  fieldLabel(c.field, node), text);
+            const QString unit = c.field == "flow" || c.field == "gross" ? " m³/s"
+                                 : c.field == "time" || c.field == "local" ? " min"
+                                 : c.field == "volume" ? " m³" : QString();
+            item.label = text + unit;
             SymbolLayer sl;
             sl.kind = node ? SymbolLayerKind::SimpleMarker : SymbolLayerKind::SimpleLine;
             SymbolProps::writeColor(sl.props, node ? "fillColor" : "color", color);
@@ -902,7 +910,10 @@ QString TraceSublayer::displayName() const
 }
 QList<LegendSymbolItem> TraceSublayer::legendSymbolItems() const
 {
-    auto rows = m_layer->legend(false);
+    LegendSymbolItem heading;
+    heading.label = displayName();
+    QList<LegendSymbolItem> rows{heading};
+    rows.append(m_layer->legend(false));
     rows.append(m_layer->legend(true));
     for (auto &row : rows)
         row.sublayerId = id();

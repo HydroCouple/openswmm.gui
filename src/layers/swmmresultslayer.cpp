@@ -91,6 +91,16 @@ Q_LOGGING_CATEGORY(lcLoadResults, "openswmm.load.results")
 
 namespace {
 
+double resultSublayerZ(const SWMMResultsLayer *layer,
+                      OpenSWMM::Render::ISublayer *sub, bool label = false)
+{
+    const auto order = layer->sublayers();
+    // Keep every child (including its labels) inside its parent's stack slot.
+    return layer->layerZValue() +
+           (order.indexOf(sub) + 1. +
+            (label ? .25 : 0.)) / (order.size() + 1.);
+}
+
 // Forward declarations for TU-local helpers defined further down (their
 // definitions live next to the Slice OUT.1 / OUT.2 blocks they belong to).
 bool catIsNodeScope(SWMMModelLayer::Category c);
@@ -3328,7 +3338,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
 
     for (auto *sub : sublayers())
         if (auto *trace = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub)) {
-            trace->layer()->setLayerZValue(layerZValue() + .5);
+            trace->layer()->setLayerZValue(resultSublayerZ(this, trace));
             trace->layer()->populateScene(scene, canvasExtent, canvasSRS);
         }
     if (!m_handle || m_totalSteps <= 0)
@@ -3345,9 +3355,10 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
     // Tag value used by depopulateScene to identify this layer's items.
     const quintptr ownerTag = reinterpret_cast<quintptr>(this);
 
-    auto tag = [ownerTag](QGraphicsItem *item) {
+    double sublayerZ = layerZValue();
+    auto tag = [ownerTag, &sublayerZ](QGraphicsItem *item) {
         item->setData(0, QVariant::fromValue<quintptr>(ownerTag));
-        item->setZValue(10.0); // above the model layer
+        item->setZValue(sublayerZ);
     };
 
     // Slice U-0 — granular per-Category paint dispatch. The legacy
@@ -3802,6 +3813,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
         auto *sub = qobject_cast<FeatureSublayer *>(base);
         if (!sub) continue;
         if (!sub->isVisible() || sub->opacity() <= 0.0) continue;
+        sublayerZ = resultSublayerZ(this, sub);
         switch (sub->archetype()) {
             case FeatureSublayer::Archetype::Point:   paintPoint(sub);   break;
             case FeatureSublayer::Archetype::Line:    paintLine(sub);    break;
@@ -4335,11 +4347,11 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
             if (!lbl) {
                 lbl = new QGraphicsSimpleTextItem();
                 lbl->setData(0, QVariant::fromValue<quintptr>(ownerTag));
-                lbl->setZValue(20.0);   // above markers (z=10)
                 lbl->setFlag(QGraphicsItem::ItemIsSelectable, false);
                 lbl->setAcceptedMouseButtons(Qt::NoButton);
                 scene->addItem(lbl);
             }
+            lbl->setZValue(resultSublayerZ(this, sub, true));
             lbl->setText(text);
             lbl->setFont(font);
             lbl->setBrush(textBrush);

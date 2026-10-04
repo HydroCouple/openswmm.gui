@@ -322,6 +322,10 @@ The analysis **Properties…** dialog has **Links**, **Nodes**, and **Labels** t
 
 Use **Remove Layer** on a Flow Balance or Travel Time child to remove that view from the map and project. Its output, sibling views and saved calculations remain available; the analysis tool can recreate the view from the saved results.
 
+The legend names each quantity above its scale and shows compact values and units beside the samples. Line samples use the corresponding stroke widths; node samples use the corresponding marker sizes. Drag a legend edge or corner to resize it; the chosen size is retained when you release the mouse and when the project is reopened.
+
+An output and its analysis views follow the Layers list: placing the output above the SWMM model keeps results above subcatchment fills. Moving the model above the output lets those fills cover the results. For this mixed rendering order, the map uses its ordered CPU renderer so the GPU overlay cannot cover higher results; large 2D scenes may render more slowly while this ordering is active.
+
 Edits preview on the map. **OK** retains the theme; **Cancel** restores the previous style. Flow Balance and Travel Time keep separate themes without recomputing their shared analysis.
 
 Every rerun receives a new identity. Existing analysis sublayers remain attached to the original run, shown under a saved-output parent when needed. The next run prepares its own averages. Previous raw results and reports are retained when a run already has saved analysis, unless retention was disabled in the saved project. Projects preserve their analysis layers and styles, and reopen them even when the original output is unavailable. Save As carries managed analysis folders; explicitly external packages remain referenced.

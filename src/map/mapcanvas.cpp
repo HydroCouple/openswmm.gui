@@ -8,6 +8,7 @@
 #include "map/mapcanvas.h"
 #include "map/scalebarsettings.h"
 #include "core/preferencesmanager.h"
+#include "layers/swmmresultslayer.h"
 #include "map/openswmmvisscene.h"
 #include "map/openswmmvisgraphicsview.h"
 #include "map/mapextent.h"
@@ -1335,7 +1336,7 @@ void MapCanvas::syncQsgRenderKindsFromPreferences()
     // When the toggle is OFF, the mask is QsgNone — the CPU
     // SWMMLayerItem path draws every kind as before.
     const auto *p = PreferencesManager::instance();
-    const SWMMModelLayer::QsgKinds mask = p->qsgRenderEnabled()
+    const SWMMModelLayer::QsgKinds mask = p->qsgRenderEnabled() && !m_resultsRequireOrderedScene
         ? SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgNodes
                                  | SWMMModelLayer::QsgLinks
                                  | SWMMModelLayer::QsgCatch
@@ -1905,6 +1906,34 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
         }
     }
 
+    // The QSG framebuffer is a single overlay, so it cannot place a CPU
+    // result view above its model. Resolve that ownership BEFORE painting
+    // the scene, including the first frame after a reorder/visibility edit.
+    bool modelBelow = false, resultsAboveModel = false;
+    for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
+        if (!layer->isVisible() || layer->opacity() <= 0.) continue;
+        if (qobject_cast<SWMMModelLayer *>(layer)) modelBelow = true;
+        if (modelBelow && qobject_cast<SWMMResultsLayer *>(layer)) resultsAboveModel = true;
+    }
+    if (resultsAboveModel != m_resultsRequireOrderedScene) {
+        m_resultsRequireOrderedScene = resultsAboveModel;
+        m_qsg1DForced = false;
+        syncQsgRenderKindsFromPreferences();
+        m_sceneDirty = true;
+    }
+    if (m_resultsRequireOrderedScene) {
+        // Keep terrain and 2D results in that same ordered scene; leaving
+        // either in the final GPU overlay would still cover the 1D output.
+        for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
+            if (auto *model = qobject_cast<SWMMModelLayer *>(layer))
+                model->setQsgRenderKinds(SWMMModelLayer::QsgNone);
+            else if (auto *results = qobject_cast<SWMM2DResultsLayer *>(layer))
+                results->setQsgOwnsRendering(false);
+            else if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer))
+                mesh->setQsgOwnsRendering(false);
+        }
+    }
+
     // ---- Layer 2: vector scene items ----------------------------------------
     // The vector scene (2D mesh, GIS vectors, annotations) is expensive to
     // render on a large mesh, so the cost is scoped to *active pan/zoom
@@ -1987,7 +2016,8 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     //   3. grabFramebuffer() reads the FBO → QImage.
     //   4. drawImage() into m_frameBuffer AFTER basemap / DTM / mesh so
     //      the stacking order is deterministic and all layers are visible.
-    if ((m_qsgRenderer || m_qsg2DRenderer || m_qsgMeshRenderer) && m_qsgWidget) {
+    if (!m_resultsRequireOrderedScene &&
+        (m_qsgRenderer || m_qsg2DRenderer || m_qsgMeshRenderer) && m_qsgWidget) {
         SWMMModelLayer *firstSwmm = nullptr;
         for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
             if (!layer->isVisible()) continue;

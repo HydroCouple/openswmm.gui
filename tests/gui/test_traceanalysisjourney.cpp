@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "core/preferencesmanager.h"
 #include "layers/swmmresultslayer.h"
 #include "layers/traceanalysislayer.h"
 #include "map/mapcanvas.h"
+#include "map/legendcontent.h"
 #include "map/openswmmvisscene.h"
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
@@ -11,10 +13,13 @@
 #include "output/tracecontroller.h"
 #include "project/openswmmvisworkspace.h"
 #include "project/projectserializer.h"
+#include "render/legendoverlaystyle.h"
+#include "render/sublayers/feature/featuresublayer.h"
 #include "swmmvisprojectwindow.h"
 #include "ui/dialogs/traceanalysisdialog.h"
 #include "ui/panels/layertreepanel.h"
 #include "ui/widgets/classificationeditor.h"
+#include "ui/widgets/legendoverlay.h"
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCryptographicHash>
@@ -23,12 +28,14 @@
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QGraphicsItem>
+#include <QGraphicsSimpleTextItem>
 #include <QJsonDocument>
 #include <QLineEdit>
 #include <QMenu>
 #include <QPainter>
 #include <QProgressDialog>
 #include <QQmlEngine>
+#include <QResource>
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
 #include <QTabWidget>
@@ -113,6 +120,9 @@ class TestTraceJourney : public QObject
         folder = QStringLiteral(TRACE_JOURNEY_OUTPUT) + "/" +
                  QUuid::createUuid().toString(QUuid::WithoutBraces);
         QVERIFY(QDir().mkpath(folder));
+        const QString resources = qEnvironmentVariable("SWMMVIS_TEST_RESOURCES");
+        if (!resources.isEmpty())
+            QVERIFY(QResource::registerResource(resources));
         qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0, "SWMMLayerQSGRenderer");
         qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DMeshQSGRenderer");
         qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DResultsQSGRenderer");
@@ -194,8 +204,8 @@ class TestTraceJourney : public QObject
         color.colors.setLabelOverride(0, "Low flow");
         QCOMPARE(layer.colors(false)[0], QColor(Qt::red));
         QCOMPARE(layer.colors(false)[1], QColor(Qt::blue));
-        QVERIFY(layer.legend(false)[0].label.contains("Low flow"));
-        QCOMPARE(layer.legend(false)[0].symbol.layers[0].props.value("color").toString(),
+        QVERIFY(layer.legend(false)[1].label.contains("Low flow"));
+        QCOMPARE(layer.legend(false)[1].symbol.layers[0].props.value("color").toString(),
                  QString("#0000ff"));
         style->linkLabels.appearance.enabled = true;
         style->linkLabels.appearance.fieldName = "flow";
@@ -329,6 +339,225 @@ class TestTraceJourney : public QObject
         QTRY_COMPARE_WITH_TIMEOUT(finish.count(), 3, 10000);
         QCOMPARE(finish[2][1].toBool(), true);
         QCOMPARE(AnalysisStore::analyses(package, &error).size(), 1);
+        w.setHasChanges(false);
+    }
+    void resultsFollowLayerOrder()
+    {
+        const auto inp = path("stacking.inp"), out = path("stacking.out");
+        QFile file(inp);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(
+            "[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\n"
+            "START_DATE 10/01/2026\nEND_DATE 10/01/2026\nEND_TIME 00:10:00\n"
+            "REPORT_STEP 00:05:00\nROUTING_STEP 00:00:05\n"
+            "[RAINGAGES]\nRG INTENSITY 1:00 1 TIMESERIES Rain\n"
+            "[TIMESERIES]\nRain 10/01/2026 0:00 0\n"
+            "[SUBCATCHMENTS]\nSC RG S 1 10 100 1 0\n"
+            "[SUBAREAS]\nSC .01 .1 .05 .05 25 OUTLET\n"
+            "[INFILTRATION]\nSC 3 .5 4 7 0\n"
+            "[JUNCTIONS]\nS 10 5\n[OUTFALLS]\nO 0 FREE NO\n"
+            "[CONDUITS]\nSO S O 100 0.013 0 0\n[XSECTIONS]\nSO CIRCULAR 2 0 0 0 1\n"
+            "[DWF]\nS FLOW 1\n[COORDINATES]\nS 0 0\nO 100 0\n"
+            "[POLYGONS]\nSC -20 -120\nSC 280 -120\nSC 280 120\nSC -20 120\n"
+            "[REPORT]\nNODES ALL\nLINKS ALL\nSUBCATCHMENTS ALL\n");
+        file.close();
+        QCOMPARE(swmm_engine_run(inp.toUtf8().constData(), path("stacking.rpt").toUtf8().constData(),
+                                 out.toUtf8().constData(), nullptr), 0);
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow w(workspace.get(), inp);
+        QList<QString> warnings, errors;
+        QVERIFY2(w.loadModel(warnings, errors), qPrintable(errors.join('\n')));
+        auto *model = w.modelLayer();
+        auto symbol = model->subcatchmentSymbol();
+        symbol.fillColor = Qt::green;
+        model->setSubcatchmentSymbol(symbol);
+        auto *output = new SWMMResultsLayer(out, model, workspace.get());
+        QVERIFY(output->openResults(warnings, errors));
+        auto label = output->labelConfig();
+        label.enabled = true;
+        output->setLabelConfig(label);
+        auto *canvas = w.canvas();
+        canvas->addLayer(output, false);
+        auto *registry = w.statsRegistry();
+        auto result = fixture(runIdFor(registry, output), path("stacking.gpkg"));
+        auto *flow = TraceController::forProject(&w)->attachResult(result, false);
+        QCOMPARE(flow->parent(), output);
+        flow->layer()->traceStyle()->linkColor.colors.setRampName({});
+        flow->layer()->traceStyle()->linkColor.colors.setLowColor(Qt::red);
+        flow->layer()->traceStyle()->linkColor.colors.setHighColor(Qt::red);
+        flow->layer()->traceStyle()->changed();
+        w.resize(900, 700);
+        w.show();
+        canvas->setShowScaleBar(false);
+        canvas->setShowCoordinates(false);
+        canvas->setExtent(MapExtent(-30, -130, 290, 130));
+        QTest::qWait(100);
+        canvas->moveLayer(canvas->layers().indexOf(output), canvas->layers().size() - 1, false);
+        output->depopulateScene(canvas->mapScene());
+        output->populateScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        int features = 0, labels = 0;
+        double highestOutputZ = -1, traceZ = -1;
+        for (auto *item : canvas->mapScene()->items())
+        {
+            const auto owner = item->data(0).value<quintptr>();
+            if (owner == reinterpret_cast<quintptr>(output))
+            {
+                QVERIFY(item->zValue() > model->layerZValue());
+                QVERIFY(item->zValue() < output->layerZValue() + 1.);
+                highestOutputZ = std::max(highestOutputZ, item->zValue());
+                if (dynamic_cast<QGraphicsSimpleTextItem *>(item)) ++labels;
+                else ++features;
+            }
+            if (owner == reinterpret_cast<quintptr>(flow->layer())) traceZ = item->zValue();
+        }
+        QVERIFY(features > 0);
+        QVERIFY(labels > 0);
+        QVERIFY(traceZ > highestOutputZ);
+        const bool gpuPreference = PreferencesManager::instance()->qsgRenderEnabled();
+        model->setQsgRenderKinds(SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgCatch |
+                                                       SWMMModelLayer::QsgNodes));
+        const auto above = canvas->grab().toImage();
+        QCOMPARE(model->qsgRenderKinds(), SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgNone));
+        QCOMPARE(PreferencesManager::instance()->qsgRenderEnabled(), gpuPreference);
+        QVERIFY(above.save(path("results-above-subcatchment.png")));
+        auto redPixels = [](const QImage &image)
+        {
+            int n = 0;
+            for (int y = 0; y < image.height(); ++y)
+                for (int x = 0; x < image.width(); ++x)
+                {
+                    auto c = image.pixelColor(x, y);
+                    if (c.red() > 200 && c.green() < 40 && c.blue() < 40) ++n;
+                }
+            return n;
+        };
+        QVERIFY(redPixels(above) > 100);
+        canvas->moveLayer(canvas->layers().indexOf(model), canvas->layers().size() - 1, false);
+        canvas->grab();
+        QCOMPARE(model->qsgRenderKinds() != SWMMModelLayer::QsgNone, gpuPreference);
+        // Offscreen jobs have no bundled QML framebuffer. A native run can
+        // supply the resource pack to verify the inverse stack on GPU too.
+        if (!QFile::exists(":/openswmm/qml/swmmlayer.qml"))
+            model->setQsgRenderKinds(SWMMModelLayer::QsgNone);
+        const auto below = canvas->grab().toImage();
+        QVERIFY(below.save(path("results-below-subcatchment.png")));
+        QVERIFY(redPixels(below) < redPixels(above) / 2);
+        canvas->moveLayer(canvas->layers().indexOf(output), canvas->layers().size() - 1, false);
+        QVERIFY(redPixels(canvas->grab().toImage()) > 100);
+        output->setVisible(false);
+        canvas->grab();
+        QCOMPARE(model->qsgRenderKinds() != SWMMModelLayer::QsgNone, gpuPreference);
+        w.setHasChanges(false);
+    }
+    void legendResizePersists()
+    {
+        MapCanvas canvas;
+        canvas.resize(1200, 900);
+        ui::LegendOverlay legend(&canvas);
+        auto *style = legend.style();
+        style->setTitle("Flow balance legend");
+        style->setShowTitle(true);
+        style->setAnchor(OpenSWMM::Render::LegendOverlayStyle::Anchor::TopLeft);
+        auto drag = [&](QPoint start, QPoint delta)
+        {
+            const QPoint global = legend.mapToGlobal(start);
+            QMouseEvent press(QEvent::MouseButtonPress, start, global, Qt::LeftButton,
+                              Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(&legend, &press);
+            QMouseEvent move(QEvent::MouseMove, start + delta, global + delta, Qt::NoButton,
+                             Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(&legend, &move);
+            const QRect dragged = legend.geometry();
+            QMouseEvent release(QEvent::MouseButtonRelease,
+                                legend.mapFromGlobal(global + delta), global + delta,
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(&legend, &release);
+            return dragged;
+        };
+        const QSize original = legend.size();
+        const QRect enlarged = drag(QPoint(legend.width() - 2, legend.height() - 2), {180, 100});
+        QCOMPARE(enlarged.size(), original + QSize(180, 100));
+        QCOMPARE(legend.geometry(), enlarged);
+        QCOMPARE(style->explicitWidth(), enlarged.width());
+        QCOMPARE(style->explicitHeight(), enlarged.height());
+        // Resize an already free, explicitly sized legend from the opposite corner.
+        const QRect reduced = drag({2, 2}, {30, 20});
+        QCOMPARE(legend.geometry(), reduced);
+        QCOMPARE(reduced.bottomRight(), enlarged.bottomRight());
+        style->setTitle("Changed title must retain the resized geometry");
+        QCOMPARE(legend.geometry(), reduced);
+        OpenSWMM::Render::LegendOverlayStyle restored;
+        restored.fromJson(style->toJson());
+        ui::LegendOverlay reopened(&canvas);
+        reopened.setStyle(&restored);
+        QCOMPARE(reopened.geometry(), reduced);
+    }
+    void legendValuesAndSymbols()
+    {
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow w(workspace.get(), {});
+        QVERIFY(initialize(w));
+        w.canvas()->resize(1200, 1400);
+        const auto run = w.statsRegistry()->beginRun(path("legend.out"), {});
+        w.statsRegistry()->finishRun(run, true, false);
+        auto result = fixture(run, path("legend.gpkg"));
+        auto *flow = TraceController::forProject(&w)->attachResult(result, false);
+        auto *style = flow->layer()->traceStyle();
+        style->linkColor.field = "flow";
+        style->linkColor.colors.setLowColor(Qt::red);
+        style->linkColor.colors.setHighColor(Qt::red);
+        style->linkColor.colors.setRampName({});
+        style->nodeColor = style->linkColor;
+        style->nodeSize.field = "uniform";
+        style->nodeSize.maximumSize = 24;
+        style->changed();
+        const auto linkRows = flow->layer()->legend(false);
+        QCOMPARE(linkRows[1].label, style->linkColor.colors.formatValue(0) + " m³/s");
+        QCOMPARE(linkRows[3].label, style->linkColor.colors.formatValue(6) + " m³/s");
+        QCOMPARE(linkRows[6].label, style->linkWidth.colors.formatValue(.5));
+        QCOMPARE(linkRows[6].symbol.layers[0].props.value("width").toDouble(), 7.);
+        // All display surfaces use the same short numeric labels.
+        auto *output = qobject_cast<SWMMResultsLayer *>(flow->parent());
+        bool found = false;
+        for (const auto &row : map::LegendContent::legendItemsFor(output))
+            found |= row.sublayerId == flow->id() && row.label == linkRows[1].label;
+        QVERIFY(found);
+        ui::LegendOverlay legend(w.canvas());
+        legend.style()->setShowTitle(false);
+        legend.style()->setShowFrame(false);
+        legend.style()->setBackgroundColor(Qt::white);
+        legend.style()->setOpacity(1);
+        legend.style()->setAnchor(OpenSWMM::Render::LegendOverlayStyle::Anchor::TopLeft);
+        const auto shot = legend.grab().toImage();
+        QVERIFY(shot.save(path("legend-numeric-symbols.png")));
+        // The size samples are visibly 7px / 14px strokes and a 24px marker,
+        // not the old identical 14px colored squares. Inspect their center column.
+        const double dpr = shot.devicePixelRatio();
+        const int x = qRound((legend.style()->padding() + 14) * dpr);
+        QVector<double> runs;
+        int length = 0;
+        for (int y = 0; y < shot.height(); ++y)
+        {
+            const QColor c = shot.pixelColor(x, y);
+            const bool sample = qAbs(c.red() - 86) < 20 && qAbs(c.green() - 102) < 20 &&
+                                qAbs(c.blue() - 122) < 20;
+            if (sample) ++length;
+            else if (length) { runs.append(length / dpr); length = 0; }
+        }
+        auto hasSize = [&](double size)
+        {
+            return std::any_of(runs.begin(), runs.end(),
+                               [=](double run) { return qAbs(run - size) <= 1; });
+        };
+        QVERIFY(hasSize(7));
+        QVERIFY(hasSize(14));
+        QVERIFY(hasSize(24));
+        auto *time = TraceController::forProject(&w)->attachResult(result, true);
+        const auto timeRows = time->layer()->legend(false);
+        QVERIFY(timeRows[1].label.endsWith(" min"));
+        QVERIFY(timeRows[1].label.front().isDigit());
         w.setHasChanges(false);
     }
     void analysisMenusAndRemoval()

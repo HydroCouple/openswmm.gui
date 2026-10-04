@@ -581,6 +581,9 @@ private:
     // flood map inside the same QSG frame). Restored from Preferences when
     // the 2D layer goes away.
     bool                         m_qsg1DForced = false;
+    // The single QSG frame is composited above the CPU scene. Use the
+    // ordered scene when a 1D output must appear above the model instead.
+    bool                         m_resultsRequireOrderedScene = false;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(MapCanvas::DirtyChannels)
