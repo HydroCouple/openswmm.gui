@@ -114,6 +114,10 @@ public:
         /*! Adaptive terrain: keep only this many terrain break lines, ranked
          *  by integrated step (mesh::rankBreaklinesByStep). 0 = keep all. */
         int maxTerrainBreaklines = 0;
+        /*! What the terrain is measured against: 0 = the DEM averaged to
+         *  the minimum cell size (local copy), 1 = full resolution (local
+         *  copy), 2 = full resolution read from the DEM itself. */
+        int terrainReference = 0;
         QVector<QVector<QPointF>> subcatchPolys;  ///< Subcatchments: raw rings (mesh CRS)
         MapExtent modelExtent;       ///< AutoBBox fallback frame
 
@@ -470,6 +474,11 @@ private:
     QCheckBox      *m_terrainBreaklinesBox = nullptr;
     QCheckBox      *m_refineFeaturesBox = nullptr;
     QCheckBox      *m_qualityOrderBox = nullptr;
+    QComboBox      *m_terrainReferenceCombo = nullptr;
+    QLabel         *m_coarsenLengthLabel = nullptr;
+    QCheckBox      *m_latticeSeedingBox = nullptr;
+    QSpinBox       *m_smoothingSpin = nullptr;
+    QSpinBox       *m_maxBreaklinesSpin = nullptr;
     QSpinBox       *m_terrainCacheSpin = nullptr;
     QSpinBox       *m_maxCellsSpin = nullptr;
     QLabel        *m_terrainReportLabel = nullptr;

@@ -354,6 +354,52 @@ private slots:
         QCOMPARE(second.path,first.path);
         QVERIFY(second.reused);
     }
+    // Averaged to the cell size: each copy pixel is the mean of a whole
+    // d x d block of source pixels (NoData skipped), on a grid of d x the
+    // source pixel aligned to the source.
+    void localTerrainCopyAveragesToTheCellSize() {
+        GDALAllRegister();
+        const QString folder=QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA","."))
+            .absoluteFilePath("../../output/mesh_speed_2026-10/local_copy_average");
+        QVERIFY(QDir(folder).removeRecursively() || !QDir(folder).exists());
+        QVERIFY(QDir().mkpath(folder));
+        const QString path=folder+"/source.tif", cacheDir=folder+"/cache";
+        constexpr int cols=400,rows=300;
+        constexpr double nd=-9999;
+        auto *ds=GetGDALDriverManager()->GetDriverByName("GTiff")->Create(path.toUtf8().constData(),cols,rows,1,GDT_Float64,nullptr);
+        QVERIFY(ds);
+        double gt[6]={0,1.5,0,600,0,-1.5}; ds->SetGeoTransform(gt);
+        ds->GetRasterBand(1)->SetNoDataValue(nd);
+        QVector<double> z(cols*rows);
+        for(int r=0;r<rows;++r) for(int c=0;c<cols;++c) z[r*cols+c]=(c==200 && r==150)?nd:double((c*7+r*3)%11);
+        QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Write,0,0,cols,rows,z.data(),cols,rows,GDT_Float64,0,0),CE_None);
+        GDALClose(ds);
+        const QRectF domain(QPointF(gt[0]+120*gt[1],gt[3]+220*gt[5]),QPointF(gt[0]+300*gt[1],gt[3]+80*gt[5]));
+        const auto local=mesh::prepareLocalTerrain(path,{},domain,cacheDir,{},6.0);   // 6 / 1.5 = 4 px blocks
+        QVERIFY2(!local.path.isEmpty(),qPrintable(local.note));
+        QCOMPARE(local.decimation,4);
+        auto *copy=static_cast<GDALDataset *>(GDALOpen(local.path.toUtf8().constData(),GA_ReadOnly));
+        QVERIFY(copy);
+        double cgt[6]; copy->GetGeoTransform(cgt);
+        QCOMPARE(cgt[1],4*gt[1]); QCOMPARE(cgt[5],4*gt[5]);
+        const int c0=int(std::lround((cgt[0]-gt[0])/gt[1])), r0=int(std::lround((cgt[3]-gt[3])/gt[5]));
+        const int w=copy->GetRasterXSize(), h=copy->GetRasterYSize();
+        QVector<float> v(w*h);
+        QCOMPARE(copy->GetRasterBand(1)->RasterIO(GF_Read,0,0,w,h,v.data(),w,h,GDT_Float32,0,0),CE_None);
+        GDALClose(copy);
+        int checked=0,off=0;
+        for(int R=0;R<h;++R) for(int C=0;C<w;++C) {
+            double sum=0; int n=0;
+            for(int r=0;r<4;++r) for(int c=0;c<4;++c) { const double s=z[(r0+R*4+r)*cols+c0+C*4+c]; if(s!=nd) { sum+=s; ++n; } }
+            off+=std::abs(v[R*w+C]-sum/n)>1e-5; ++checked;
+        }
+        QCOMPARE(off,0);
+        QVERIFY(checked>1000);
+        // A different averaging is a different copy.
+        const auto full=mesh::prepareLocalTerrain(path,{},domain,cacheDir);
+        QVERIFY(full.path!=local.path);
+        QCOMPARE(full.decimation,1);
+    }
     void capsAndCancellationAreReported() {
         ConstrainedDelaunay cdt; QVector<int> ids;
         QVERIFY(cdt.build({{0,0},{100,0},{100,100},{0,100}},&ids));

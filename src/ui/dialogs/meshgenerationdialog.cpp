@@ -606,19 +606,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // volume. Later runs reuse the copy. The burn keeps the source DEM as its
     // source and as the reference of its output.
     const QString sourceDemPath = in.dtmPath;
-    if (!in.dtmPath.isEmpty() && cache.isUsable()) {
+    if (!in.dtmPath.isEmpty() && cache.isUsable() && in.terrainReference != 2) {
         QRectF domainBox;
         for (const auto &ring : std::as_const(in.domains)) domainBox = domainBox.united(ring.boundingRect());
         stageClock.restart();
         progress(14, QObject::tr("Caching the terrain window…"));
         const auto local = mesh::prepareLocalTerrain(in.dtmPath, in.meshCRSWkt, domainBox, cache.dir(), [&](double) {
             return !promise.isCanceled();
-        });
+        }, in.terrainReference == 0 ? in.minCellSize : 0.0);
         if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
         if (!local.path.isEmpty()) {
-            qCInfo(lcMeshPerf).noquote() << QStringLiteral("[Mesh][terrain] local copy %1 (%2 MB): %3")
+            qCInfo(lcMeshPerf).noquote() << QStringLiteral("[Mesh][terrain] local copy %1 (%2 MB, %3 x %3 pixel average): %4")
                 .arg(local.reused ? QStringLiteral("reused") : QStringLiteral("written"))
-                .arg(local.bytes / 1e6, 0, 'f', 0).arg(local.path);
+                .arg(local.bytes / 1e6, 0, 'f', 0).arg(local.decimation).arg(local.path);
             in.dtmPath = local.path;
             cache.prune();
         } else {
@@ -3429,9 +3429,31 @@ void MeshGenerationDialog::buildUi()
         m_coarsenSpin->setSingleStep(0.5);
         m_coarsenSpin->setPrefix(QStringLiteral("× "));
         m_coarsenSpin->setToolTip(tr(
-            "Cells may grow to this multiple of the cell size away from "
-            "features. 1 = uniform mesh."));
-        f->addRow(tr("Coarsen away from features up to:"), m_coarsenSpin);
+            "The largest cell allowed, as a multiple of the cell size. It applies only "
+            "where nothing else needs smaller cells: footprints, conduits, break lines, "
+            "the minimum angle and terrain error all ask for smaller cells near them. In "
+            "dense urban areas they leave little room, so this mostly shows in open "
+            "areas (water, parks, large lots). 1 = uniform mesh."));
+        {
+            auto *row = new QWidget(g);
+            auto *h = new QHBoxLayout(row);
+            h->setContentsMargins(0, 0, 0, 0);
+            h->addWidget(m_coarsenSpin);
+            m_coarsenLengthLabel = new QLabel(row);
+            m_coarsenLengthLabel->setObjectName(QStringLiteral("coarsenLengthLabel"));
+            h->addWidget(m_coarsenLengthLabel);
+            h->addStretch(1);
+            f->addRow(tr("&Largest cell size:"), row);
+            const auto updateLength = [this] {
+                const double cell = m_cellSizeSpin->value();
+                m_coarsenLengthLabel->setText(cell > 0.0
+                    ? tr("= %1%2").arg(QLocale().toString(cell * m_coarsenSpin->value(), 'f', 0), m_cellSizeSpin->suffix())
+                    : tr("(of the cell size from the extent)"));
+            };
+            connect(m_coarsenSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, updateLength);
+            connect(m_cellSizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, updateLength);
+            updateLength();
+        }
 
         m_sizeRatioSpin = new QDoubleSpinBox(g);
         m_sizeRatioSpin->setObjectName(QStringLiteral("meshSizeRatioSpin"));
@@ -3458,16 +3480,32 @@ void MeshGenerationDialog::buildUi()
         m_terrainTolSpin->setDecimals(3);
         m_terrainTolSpin->setSpecialValueText(tr("(automatic from DEM)"));
         m_terrainTolSpin->setToolTip(tr(
-            "Maximum elevation error at the original DEM samples. In adaptive mode, "
-            "0 selects 0.1 m, or three elevation increments for whole-unit quantized terrain. "
-            "The resolved tolerance is reported during generation. Choose an explicit value "
-            "for your DEM accuracy and important channels or crests; sub-pixel terrain is not certified."));
+            "The largest vertical difference allowed between a triangle's flat surface and the "
+            "terrain reference below it, in elevation units. Refinement splits triangles until "
+            "every point of the reference inside them is within this. Measured against the DEM "
+            "averaged to the minimum cell size (see Terrain reference), features narrower than a "
+            "cell — curbs, walls, pixel noise — do not force refinement. 0 selects it from the DEM "
+            "(0.1 m, three elevation increments for quantized terrain, or the DEM's own "
+            "micro-relief); the resolved value is reported during generation."));
         m_terrainModeCombo = new QComboBox(g);
         m_terrainModeCombo->setObjectName(QStringLiteral("meshTerrainModeCombo"));
         m_terrainModeCombo->addItems({tr("Adaptive elevation error"),tr("Legacy block sizing"),tr("Off")});
         m_terrainModeCombo->setToolTip(tr("Adaptive mode starts coarse and refines where the actual triangles miss the terrain."));
         f->addRow(tr("Terrain refinement:"),m_terrainModeCombo);
-        f->addRow(tr("&Terrain tolerance:"), m_terrainTolSpin);
+        f->addRow(tr("Maximum &vertical error:"), m_terrainTolSpin);
+        m_terrainReferenceCombo = new QComboBox(g);
+        m_terrainReferenceCombo->setObjectName(QStringLiteral("meshTerrainReferenceCombo"));
+        m_terrainReferenceCombo->addItems({tr("DEM averaged to the minimum cell size"),
+                                           tr("Full DEM resolution"),
+                                           tr("Full DEM resolution, read directly")});
+        m_terrainReferenceCombo->setToolTip(tr(
+            "The terrain the mesh is measured against and takes its elevations from. The first "
+            "two keep a compressed float32 copy of the needed window in the project's .meshcache "
+            "folder (made once, reused by later runs). Averaged: detail narrower than a cell is "
+            "smoothed out, so the vertical error controls features a cell can represent. Full "
+            "resolution: every DEM pixel counts, so small errors refine down to the minimum cell "
+            "along curbs and walls. Read directly: no copy; slow for large DEMs on slow drives."));
+        f->addRow(tr("Terrain &reference:"), m_terrainReferenceCombo);
         m_terrainBreaklinesBox = new QCheckBox(tr("Capture terrain breaklines"),g);
         m_terrainBreaklinesBox->setObjectName(QStringLiteral("meshTerrainBreaklinesBox"));
         m_terrainBreaklinesBox->setChecked(true);
@@ -3478,6 +3516,15 @@ void MeshGenerationDialog::buildUi()
         m_refineFeaturesBox->setChecked(false);
         m_refineFeaturesBox->setToolTip(tr("Apply the feature cell size around included nodes and lines. When unchecked, geometry and coupling remain constrained, and terrain and triangle quality determine nearby refinement."));
         f->addRow(m_refineFeaturesBox);
+        m_maxBreaklinesSpin = new QSpinBox(g);
+        m_maxBreaklinesSpin->setObjectName(QStringLiteral("meshMaxBreaklinesSpin"));
+        m_maxBreaklinesSpin->setRange(0, 10'000'000);
+        m_maxBreaklinesSpin->setSingleStep(1000);
+        m_maxBreaklinesSpin->setSpecialValueText(tr("automatic (cell budget ÷ 200)"));
+        m_maxBreaklinesSpin->setToolTip(tr(
+            "How many detected terrain break lines are kept as mesh edges, the most significant "
+            "first (longest, highest step). Every kept line costs cells along it."));
+        f->addRow(tr("Maximum terrain &break lines:"), m_maxBreaklinesSpin);
         m_terrainReportLabel=new QLabel(g);
         m_terrainReportLabel->setWordWrap(true);
         m_terrainReportLabel->setObjectName(QStringLiteral("meshTerrainReportLabel"));
@@ -3515,6 +3562,22 @@ void MeshGenerationDialog::buildUi()
         m_qualityOrderBox->setChecked(true);
         m_qualityOrderBox->setToolTip(tr("Process poor angles first to reduce unnecessary refinement. Uncheck to compare the previous insertion order."));
         f->addRow(m_qualityOrderBox);
+        m_latticeSeedingBox = new QCheckBox(tr("Seed near-equilateral points before refinement"), g);
+        m_latticeSeedingBox->setObjectName(QStringLiteral("meshLatticeSeedingBox"));
+        m_latticeSeedingBox->setChecked(true);
+        m_latticeSeedingBox->setToolTip(tr(
+            "Fill open areas with hexagonal point lattices graded by the size field, so triangles "
+            "start near equilateral instead of being shaped only by refinement."));
+        f->addRow(m_latticeSeedingBox);
+        m_smoothingSpin = new QSpinBox(g);
+        m_smoothingSpin->setObjectName(QStringLiteral("meshSmoothingSpin"));
+        m_smoothingSpin->setRange(0, 10);
+        m_smoothingSpin->setValue(3);
+        m_smoothingSpin->setSpecialValueText(tr("off"));
+        m_smoothingSpin->setToolTip(tr(
+            "Passes that move free vertices toward the centre of their neighbours when that "
+            "improves the worst angle around them. Vertices on constraints never move."));
+        f->addRow(tr("&Smoothing passes:"), m_smoothingSpin);
 
         m_streetQuadsBox = new QCheckBox(tr("Quads between facing break lines (streets, ditches)"), g);
         m_streetQuadsBox->setObjectName(QStringLiteral("meshStreetQuadsBox"));
@@ -4515,7 +4578,8 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->minCellSize   = m_minCellSizeSpin->value();
     out->conditionBoundary = m_conditionBoundaryBox && m_conditionBoundaryBox->isChecked();
     // Major features only (D-R4): about one break line per 200 budgeted cells.
-    out->maxTerrainBreaklines = std::max(1, m_maxCellsSpin->value() / 200);
+    out->maxTerrainBreaklines = m_maxBreaklinesSpin && m_maxBreaklinesSpin->value() > 0
+        ? m_maxBreaklinesSpin->value() : std::max(1, m_maxCellsSpin->value() / 200);
     if (out->cellSize <= 0.0)
     {
         // Derive from the model extent: about 100 cells across the longer side.
@@ -4538,8 +4602,9 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->genOpts.minCellSize   = out->minCellSize;
     // Near-equilateral triangles (MESH_REGIONAL_TRIQUAD_PLAN D-R6): graded
     // lattice seeding plus non-degrading smoothing.
-    out->genOpts.latticeSeeding  = true;
-    out->genOpts.smoothingPasses = 3;
+    out->genOpts.latticeSeeding  = m_latticeSeedingBox ? m_latticeSeedingBox->isChecked() : true;
+    out->genOpts.smoothingPasses = m_smoothingSpin ? m_smoothingSpin->value() : 3;
+    out->terrainReference = m_terrainReferenceCombo ? m_terrainReferenceCombo->currentIndex() : 0;
     out->genOpts.minAngleDeg   = m_minAngleSpin->value();
     out->genOpts.prioritizeQuality=m_qualityOrderBox->isChecked();
     out->genOpts.maxCells=m_maxCellsSpin->value();

@@ -657,6 +657,10 @@ NODE C interior
         spin("meshCellSizeSpin","SWMMVIS_REPRO_CELL");
         spin("meshMinCellSizeSpin","SWMMVIS_REPRO_MINCELL");
         spin("meshCoarsenSpin","SWMMVIS_REPRO_COARSEN");
+        spin("meshTerrainTolSpin","SWMMVIS_REPRO_TERRAINTOL");
+        if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_TERRAINREF"))
+            if(auto *ref=dialog.findChild<QComboBox *>(QStringLiteral("meshTerrainReferenceCombo")))
+                ref->setCurrentIndex(qEnvironmentVariableIntValue("SWMMVIS_REPRO_TERRAINREF"));
         if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_CONDUITS"))
             if(auto *conduits=dialog.findChild<QCheckBox *>(QStringLiteral("meshConduitsBox")))
                 conduits->setChecked(qEnvironmentVariable("SWMMVIS_REPRO_CONDUITS")!="0");
