@@ -36,6 +36,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QResizeEvent>
+#include <cmath>
 
 namespace openswmmvis::ui {
 
@@ -45,6 +46,65 @@ namespace {
 
 constexpr int  kSwatchPadding = 6;
 constexpr int  kLayerSpacing  = 6;
+
+QSize symbolExtent(const OpenSWMM::Render::SymbolStyle &symbol, int fallback)
+{
+    using OpenSWMM::Render::SymbolLayerKind;
+    QSize extent(fallback, fallback);
+    for (const auto &pass : symbol.layers) {
+        if (pass.kind == SymbolLayerKind::SimpleLine) {
+            const int width = qCeil(std::max(0., pass.props.value("width", 1.).toDouble()));
+            extent = extent.expandedTo(QSize(std::max(2 * fallback, 2 * width), width));
+        } else if (pass.kind == SymbolLayerKind::SimpleMarker) {
+            const int diameter = qCeil(std::max(0., pass.props.value("size", fallback).toDouble()));
+            extent = extent.expandedTo(QSize(diameter, diameter));
+        }
+    }
+    return extent;
+}
+
+int symbolColumnWidth(const QList<OpenSWMM::Render::LegendSymbolItem> &rows, int fallback)
+{
+    int width = fallback;
+    for (const auto &row : rows)
+        if (row.visible)
+            width = std::max(width, symbolExtent(row.symbol, fallback).width());
+    return width;
+}
+
+void paintSymbol(QPainter &p, const OpenSWMM::Render::SymbolStyle &symbol,
+                 const QRectF &rect, int fallback)
+{
+    using namespace OpenSWMM::Render;
+    p.save();
+    p.setOpacity(p.opacity() * symbol.opacity);
+    for (const auto &pass : symbol.layers) {
+        const QColor color = SymbolProps::firstColor(SymbolStyle{{pass}}, Qt::gray);
+        if (pass.kind == SymbolLayerKind::SimpleLine) {
+            const double width = pass.props.value("width", 1.).toDouble();
+            // A zero-width sample represents zero flow, not Qt's cosmetic 1px pen.
+            if (width <= 0) continue;
+            p.setPen(QPen(color, width, Qt::SolidLine, Qt::FlatCap));
+            p.drawLine(QPointF(rect.left(), rect.center().y()),
+                       QPointF(rect.right(), rect.center().y()));
+        } else if (pass.kind == SymbolLayerKind::SimpleMarker) {
+            const double diameter = pass.props.value("size", fallback).toDouble();
+            if (diameter <= 0) continue;
+            p.setPen(Qt::NoPen);
+            p.setBrush(color);
+            const QRectF marker(rect.center() - QPointF(diameter / 2, diameter / 2),
+                                QSizeF(diameter, diameter));
+            if (pass.props.value("shape").toString() == "square") p.drawRect(marker);
+            else p.drawEllipse(marker);
+        } else {
+            p.setBrush(color);
+            p.setPen(QPen(color.darker(140), 1.));
+            p.drawRect(QRectF(rect.center() - QPointF(fallback / 2., fallback / 2.),
+                              QSizeF(fallback, fallback)));
+        }
+    }
+    p.restore();
+}
 
 // Gap B1 — both helpers delegate to the canonical LegendContent copy so the
 // on-canvas legend, the dock tree and the per-class edit routing read the
@@ -212,7 +272,6 @@ void LegendOverlay::recomputeLayout()
     const QFontMetrics fm(m_style->itemFont());
     const QFontMetrics hfm(m_style->layerHeaderFont());
     const QFontMetrics tfm(m_style->titleFont());
-    const int rowH = std::max(fm.height(), swatchSize);
 
     int contentW  = 0;
     int contentH  = padding;
@@ -232,6 +291,7 @@ void LegendOverlay::recomputeLayout()
 
         auto rows = legendItemsFor(layer);
         applyItemOverrides(rows, layer, m_style);
+        const int symbolW = symbolColumnWidth(rows, swatchSize);
         if (!first) contentH += kLayerSpacing;
         first = false;
 
@@ -248,8 +308,9 @@ void LegendOverlay::recomputeLayout()
             // text only, no swatch slot.
             const bool hasSwatch = !row.symbol.layers.isEmpty();
             contentW = std::max(contentW,
-                hasSwatch ? swatchSize + kSwatchPadding + labelW : labelW);
-            contentH += rowH + rowSpacing;
+                hasSwatch ? symbolW + kSwatchPadding + labelW : labelW);
+            contentH += std::max(fm.height(), symbolExtent(row.symbol, swatchSize).height())
+                        + rowSpacing;
         }
     }
     contentH += padding;
@@ -366,7 +427,6 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
     const QFontMetrics fm(m_style->itemFont());
     const QFontMetrics hfm(m_style->layerHeaderFont());
     const QFontMetrics tfm(m_style->titleFont());
-    const int rowH = std::max(fm.height(), swatchSize);
 
     int y = padding;
     m_layerBands.clear();
@@ -406,8 +466,10 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
         p.setFont(m_style->itemFont());
         auto paintRows = legendItemsFor(layer);
         applyItemOverrides(paintRows, layer, m_style);
+        const int symbolW = symbolColumnWidth(paintRows, swatchSize);
         for (const auto &row : paintRows) {
             if (!row.visible) continue;
+            const int rowH = std::max(fm.height(), symbolExtent(row.symbol, swatchSize).height());
             const int itemTop = y;
             // Rows with no symbol are sub-headers (kind / section titles).
             // The old behaviour painted them with the gray fallback patch —
@@ -417,16 +479,10 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
             // header that embeds the feature's colour).
             const bool hasSwatch = !row.symbol.layers.isEmpty();
             if (hasSwatch) {
-                const QColor c = firstSymbolColor(row.symbol);
-                const QRect swatchRect(padding,
-                                       y + (rowH - swatchSize) / 2,
-                                       swatchSize, swatchSize);
-                p.setBrush(c);
-                p.setPen(QPen(c.darker(140), 1.0));
-                p.drawRect(swatchRect);
+                paintSymbol(p, row.symbol, QRectF(padding, y, symbolW, rowH), swatchSize);
             }
 
-            const int textX = hasSwatch ? padding + swatchSize + kSwatchPadding
+            const int textX = hasSwatch ? padding + symbolW + kSwatchPadding
                                         : padding;
             const QRect textRect(textX, y, width() - textX - padding, rowH);
             p.setPen(m_style->itemColor());
@@ -551,17 +607,20 @@ void LegendOverlay::mouseMoveEvent(QMouseEvent *event)
 void LegendOverlay::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton && m_resizing) {
-        m_resizing    = false;
-        m_resizeEdges = 0;
         // Commit the size through the style so it persists + syncs the
-        // properties dialog. Switch to Free so the box stays put.
+        // properties dialog. Keep the resize guard until ALL setters finish:
+        // each emits changed(), which otherwise restores the old geometry.
+        const QRect resized = geometry();
         if (m_style) {
             if (m_style->anchor() != Style::Anchor::Free)
                 m_style->setAnchor(Style::Anchor::Free);
-            m_style->setExplicitWidth(width());
-            m_style->setExplicitHeight(height());
-            m_style->setFreePosition(pos());
+            m_style->setExplicitWidth(resized.width());
+            m_style->setExplicitHeight(resized.height());
+            m_style->setFreePosition(resized.topLeft());
         }
+        m_resizing    = false;
+        m_resizeEdges = 0;
+        recomputeLayout();
         updateCursor(edgesAt(event->pos()));
         event->accept();
         return;
