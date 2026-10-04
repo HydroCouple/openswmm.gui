@@ -83,6 +83,8 @@ class TestInpMeshReader : public QObject
 
 private slots:
     void parsesBaseMesh();
+    void externalMeshPath_data();
+    void externalMeshPath();
     void unitsAndCrsHeaders();
     void unitsHeaderIsSI_matchesEngineKeywords();
     void vertexNodeMap_indexForm();
@@ -114,6 +116,42 @@ void TestInpMeshReader::parsesBaseMesh()
     QCOMPARE(r.mesh.triangles.size(), 2);
     QCOMPARE(r.mesh.vertices[0].tag, QStringLiteral("V0"));
     QCOMPARE(r.mesh.vertices[3].z, 13.0);
+}
+
+void TestInpMeshReader::externalMeshPath_data()
+{
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<bool>("quoted");
+    QTest::addColumn<bool>("absolute");
+    QTest::newRow("plain") << QStringLiteral("mesh.2dm") << false << false;
+    QTest::newRow("saved-spaces") << QStringLiteral("My Model.2dm") << false << false;
+    QTest::newRow("quoted") << QStringLiteral("mesh.2dm") << true << false;
+    QTest::newRow("quoted-spaces") << QStringLiteral("My  Model.2dm") << true << false;
+    QTest::newRow("quoted-semicolon") << QStringLiteral("My; Model.2dm") << true << false;
+    QTest::newRow("absolute-spaces") << QStringLiteral("My Model.2dm") << false << true;
+    QTest::newRow("absolute-quoted") << QStringLiteral("My Model.2dm") << true << true;
+}
+
+void TestInpMeshReader::externalMeshPath()
+{
+    QFETCH(QString, name);
+    QFETCH(bool, quoted);
+    QFETCH(bool, absolute);
+    const QString meshPath = writeFixture(name, baseMesh());
+    QVERIFY(!meshPath.isEmpty());
+    QString ref = absolute ? QFileInfo(meshPath).absoluteFilePath() : name;
+    if (quoted) ref = QLatin1Char('"') + ref + QLatin1Char('"');
+    const QString inpPath = writeFixture(QStringLiteral("external.inp"),
+        QStringLiteral("[2D_MESH_FILE]\n; comment\n\n  file\t%1 ; trailing comment\nFILE missing.2dm\n")
+            .arg(ref));
+    QVERIFY(!inpPath.isEmpty());
+    const auto r = mesh::InpMeshReader::read(inpPath);
+    QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+    QVERIFY(r.hasMesh);
+    QVERIFY(r.isExternal);
+    QCOMPARE(QFileInfo(r.sourcePath).absoluteFilePath(), QFileInfo(meshPath).absoluteFilePath());
+    QCOMPARE(r.mesh.vertices.size(), 4);
+    QCOMPARE(r.mesh.triangles.size(), 2);
 }
 
 void TestInpMeshReader::unitsAndCrsHeaders()
