@@ -630,12 +630,122 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         }
         stageMark("local terrain copy");
     }
+    // Which channel intervals can actually be burned: a corridor that folds
+    // or overlaps an already accepted channel with an incompatible section
+    // cannot. Accepted in order; each rejection says why.
+    const double channelTolerance=in.burnOptions.geometryTolerance/in.verticalUnitToSI;
+    struct ChannelScreen { QVector<int> kept; QVector<mesh::BurnLattice> lattices; QStringList rejections; bool cancelled=false; };
+    auto screenChannels=[&](const QVector<mesh::BurnProfile> &profiles,QStringList *notes) {
+        ChannelScreen out;
+        QVector<int> built;
+        QVector<mesh::BurnLattice> lattices;
+        for(int i=0;i<profiles.size();++i) {
+            if(promise.isCanceled()) { out.cancelled=true; return out; }
+            double spacing=in.burnOptions.channelCellSize;
+            if(!(spacing>0)) spacing=in.burnOptions.chainageStep;
+            if(!(spacing>0)) spacing=in.cellSize;
+            QString error;
+            // Half the channel accuracy tolerance thins dense surveyed
+            // sections; the other half is left for the mesh surface.
+            auto lat=mesh::buildCorridorLattice(profiles[i],spacing,in.burnMinCellSize,notes,&error,
+                                                0.5*in.burnOptions.geometryTolerance/in.verticalUnitToSI);
+            if(!lat.isValid()) { out.rejections << QObject::tr("%1 — not burned; it remains a 1D conduit.").arg(error); continue; }
+            built.append(i); lattices.append(std::move(lat));
+        }
+        QVector<int> accepted;
+        if(in.burnOptions.removeBurnedFrom1D && lattices.size()>1) {
+            // Overlapping sections must agree before a raster is exported or
+            // refinement starts: incompatible planes cannot be fixed by
+            // adding cells.
+            QVector<QRectF> bounds;
+            for(const auto &lat:std::as_const(lattices)) {
+                QRectF b;
+                for(const QPointF &q:lat.xy) b=b.isNull()?QRectF(q,QSizeF(1e-9,1e-9)):b.united(QRectF(q,QSizeF(1e-9,1e-9)));
+                bounds.append(b);
+            }
+            for(int c=0;c<lattices.size();++c) {
+                if(promise.isCanceled()) { out.cancelled=true; return out; }
+                QVector<mesh::BurnLattice> neighbours;
+                for(int a:std::as_const(accepted)) if(bounds[a].intersects(bounds[c])) neighbours.append(lattices[a]);
+                bool compatible=true; QPointF where;
+                if(!neighbours.isEmpty()) {
+                    mesh::BurnSurface near; near.build(neighbours);
+                    const auto &lat=lattices[c];
+                    for(int row=0;row+1<lat.nAlong && compatible;++row)
+                        for(int col=0;col+1<lat.nAcross && compatible;++col) for(int half=0;half<2 && compatible;++half) {
+                            const int ids[3]={lat.at(row,col),half?lat.at(row+1,col+1):lat.at(row+1,col),
+                                              half?lat.at(row,col+1):lat.at(row+1,col+1)};
+                            QPointF xy[3];double z[3];for(int k=0;k<3;++k){xy[k]=lat.xy[ids[k]];z[k]=lat.z[ids[k]];}
+                            const auto e=near.error(xy,z,[&](const QPointF &q){return burnDomain.contains(q);});
+                            if(e.maximum>channelTolerance) {compatible=false;where=e.point;}
+                        }
+                }
+                if(compatible) accepted.append(c);
+                else out.rejections << QObject::tr("Channel %1 overlaps an incompatible section near (%2, %3) — not burned; it remains a 1D conduit.")
+                                       .arg(lattices[c].conduitId).arg(where.x(),0,'g',12).arg(where.y(),0,'g',12);
+            }
+        } else {
+            for(int c=0;c<lattices.size();++c) accepted.append(c);
+        }
+        for(int a:std::as_const(accepted)) { out.kept.append(built[a]); out.lattices.append(std::move(lattices[a])); }
+        return out;
+    };
+
     mesh::BurnReplacementPlan burnPlan;
     QSet<QString> retiringNodes, channelNodes;
     if (in.burnEnabled) {
         burnPlan=mesh::planBurnReplacement(in.burnProfiles,
             in.burnOptions.removeBurnedFrom1D?in.burnNetwork:mesh::BurnNetwork{},burnDomain);
         if(!burnPlan.error.isEmpty()) { fail(burnPlan.error); return; }
+        // Only intervals that will be burned may leave the 1D network: a
+        // conduit with an interval the burn would reject stays entirely 1D
+        // (its outside parts were 1D anyway), and the plan is made again
+        // without it, so splits and retired nodes match what is burned.
+        if(in.burnOptions.removeBurnedFrom1D && !burnPlan.profiles.isEmpty()) {
+            const auto screened=screenChannels(burnPlan.profiles,nullptr);
+            if(screened.cancelled) { fail(QObject::tr("Cancelled.")); return; }
+            if(screened.kept.size()!=burnPlan.profiles.size()) {
+                QSet<int> kept(screened.kept.cbegin(),screened.kept.cend());
+                QSet<QString> unburnable;
+                for(int i=0;i<burnPlan.profiles.size();++i)
+                    if(!kept.contains(i)) unburnable.insert(burnPlan.intervalSource.value(burnPlan.profiles[i].conduitId,burnPlan.profiles[i].conduitId));
+                in.burnWarnings += screened.rejections;
+                for(const auto &id:std::as_const(unburnable))
+                    in.burnWarnings << QObject::tr("Conduit %1 stays entirely 1D: part of it inside the mesh cannot be burned.").arg(id);
+                qCInfo(lcMeshPerf) << "[Mesh][burn]" << unburnable.size() << "conduit(s) kept 1D before planning";
+                QVector<mesh::BurnProfile> selected;
+                for(const auto &p:std::as_const(in.burnProfiles)) if(!unburnable.contains(p.conduitId)) selected.append(p);
+                in.burnProfiles=std::move(selected);
+                burnPlan=mesh::planBurnReplacement(in.burnProfiles,in.burnNetwork,burnDomain);
+                if(!burnPlan.error.isEmpty()) { fail(burnPlan.error); return; }
+            }
+        }
+        // No dangling outfalls: an interface outfall must keep exactly one 1D
+        // link. A headwater whose every link would be burned (water still
+        // arrives there) keeps its burned link(s) in 1D instead, so the next
+        // node down becomes the coupled outfall. Repeat until none is left.
+        for(int round=0;round<16 && in.burnOptions.removeBurnedFrom1D && !burnPlan.profiles.isEmpty();++round) {
+            QHash<QString,int> nodeIndex;
+            for(int i=0;i<burnPlan.network.nodes.size();++i) nodeIndex.insert(burnPlan.network.nodes[i].id,i);
+            QSet<QString> keep1D;
+            for(const auto &node:std::as_const(burnPlan.nodes)) {
+                if(node.role!=mesh::BurnNodeRole::Outfall || node.survivingLinks!=0) continue;
+                const int ni=nodeIndex.value(node.nodeId,-1);
+                for(const auto &link:std::as_const(burnPlan.network.links))
+                    if((link.from==ni || link.to==ni) && burnPlan.replacedIds.contains(link.id)) {
+                        const QString source=burnPlan.intervalSource.value(link.id,link.id);
+                        if(!keep1D.contains(source))
+                            in.burnWarnings << QObject::tr("Conduit %1 stays 1D: burning it would leave node %2 an outfall with no link.").arg(source,node.nodeId);
+                        keep1D.insert(source);
+                    }
+            }
+            if(keep1D.isEmpty()) break;
+            QVector<mesh::BurnProfile> selected;
+            for(const auto &p:std::as_const(in.burnProfiles)) if(!keep1D.contains(p.conduitId)) selected.append(p);
+            in.burnProfiles=std::move(selected);
+            burnPlan=mesh::planBurnReplacement(in.burnProfiles,in.burnNetwork,burnDomain);
+            if(!burnPlan.error.isEmpty()) { fail(burnPlan.error); return; }
+        }
         if(!in.burnOptions.convertInterfaceNodes)
             for(auto &node:burnPlan.nodes) if(node.role==mesh::BurnNodeRole::Outfall)
                 node.role=mesh::BurnNodeRole::CoupledJunction;
@@ -985,87 +1095,34 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // bend) is left unburned and stays a 1D conduit, with a warning, rather
     // than failing every other channel and the whole mesh. Profiles and
     // lattices stay index-aligned: later stages look one up by the other.
-    QVector<mesh::BurnProfile> buildableProfiles;
-    buildableProfiles.reserve(in.burnProfiles.size());
-    for(const auto &profile:std::as_const(in.burnProfiles)) {
-        if(promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-        double spacing=in.burnOptions.channelCellSize;
-        if(!(spacing>0)) spacing=in.burnOptions.chainageStep;
-        if(!(spacing>0)) spacing=in.cellSize;
-        QString error;
-        // Half the channel accuracy tolerance thins dense surveyed sections;
-        // the other half is left for the mesh surface.
-        auto lat=mesh::buildCorridorLattice(profile,spacing,in.burnMinCellSize,&burnWarnings,&error,
-                                            0.5*in.burnOptions.geometryTolerance/in.verticalUnitToSI);
-        if(!lat.isValid()) {
-            burnWarnings.append(QObject::tr("%1 — not burned; it remains a 1D conduit.").arg(error));
-            continue;
+    // The same screen the plan was checked with (see screenChannels): with
+    // the plan built from screened channels nothing is rejected here; the
+    // drop below only guards that invariant.
+    {
+        auto screened=screenChannels(in.burnProfiles,&burnWarnings);
+        if(screened.cancelled) { fail(QObject::tr("Cancelled.")); return; }
+        burnWarnings+=screened.rejections;
+        if(screened.kept.size()!=in.burnProfiles.size()) {
+            qCWarning(lcMeshPerf) << "[Mesh][burn]" << in.burnProfiles.size()-screened.kept.size()
+                                  << "planned channel(s) rejected after planning";
+            QVector<mesh::BurnProfile> kept;
+            for(int k:std::as_const(screened.kept)) kept.append(in.burnProfiles[k]);
+            in.burnProfiles=std::move(kept);
         }
-        buildableProfiles.append(profile);
-        channelVertexCount+=lat.xy.size();
+        channelLattices=std::move(screened.lattices);
+        for(const auto &lat:std::as_const(channelLattices)) channelVertexCount+=lat.xy.size();
         if(channelVertexCount>std::min<qint64>(in.burnOptions.maxCorridorVertices,std::max(4,in.genOpts.maxCells))) {
             // Name the densest corridors so the spacing that matters is clear.
             QVector<const mesh::BurnLattice *> worst;
             for(const auto &l:std::as_const(channelLattices)) worst.append(&l);
-            worst.append(&lat);
-            std::sort(worst.begin(),worst.end(),[](const auto *a,const auto *b){return a->xy.size()>b->xy.size();});
+            std::sort(worst.begin(),worst.end(),[](const auto *x,const auto *y){return x->xy.size()>y->xy.size();});
             QStringList top;
             for(int k=0;k<std::min<int>(3,worst.size());++k)
                 top << QObject::tr("%1 (%2 along x %3 across)").arg(worst[k]->conduitId).arg(worst[k]->nAlong).arg(worst[k]->nAcross);
-            fail(QObject::tr("Channel corridors exceed the vertex/cell budget (%1 vertices after %2 of %3 channels, spacing %4). "
-                             "Densest: %5. Increase channel spacing.")
-                 .arg(channelVertexCount).arg(buildableProfiles.size()).arg(in.burnProfiles.size()).arg(spacing).arg(top.join(", ")));
+            fail(QObject::tr("Channel corridors exceed the vertex/cell budget (%1 vertices in %2 channels). "
+                             "Densest: %3. Increase channel spacing.")
+                 .arg(channelVertexCount).arg(channelLattices.size()).arg(top.join(", ")));
             return;
-        }
-        channelLattices.append(std::move(lat));
-    }
-    if(buildableProfiles.size()!=in.burnProfiles.size()) {
-        qCInfo(lcMeshPerf) << "[Mesh][burn]" << in.burnProfiles.size()-buildableProfiles.size()
-                           << "of" << in.burnProfiles.size() << "conduit(s) left unburned (corridor could not be built)";
-        in.burnProfiles=std::move(buildableProfiles);
-    }
-    const double channelTolerance=in.burnOptions.geometryTolerance/in.verticalUnitToSI;
-    if(in.burnOptions.removeBurnedFrom1D && channelLattices.size()>1) {
-        // Overlapping sections must agree before a raster is exported or
-        // refinement starts: incompatible planes cannot be fixed by adding
-        // cells. Channels are accepted in order; one that disagrees with an
-        // already accepted overlapping channel stays unburned (a 1D conduit)
-        // with a warning instead of failing every channel.
-        QVector<QRectF> latBounds;
-        latBounds.reserve(channelLattices.size());
-        for(const auto &lat:std::as_const(channelLattices)) {
-            QRectF b;
-            for(const QPointF &q:lat.xy) b=b.isNull()?QRectF(q,QSizeF(1e-9,1e-9)):b.united(QRectF(q,QSizeF(1e-9,1e-9)));
-            latBounds.append(b);
-        }
-        QVector<int> accepted;
-        for(int c=0;c<channelLattices.size();++c) {
-            if(promise.isCanceled()) {fail(QObject::tr("Cancelled."));return;}
-            QVector<mesh::BurnLattice> neighbours;
-            for(int a:std::as_const(accepted)) if(latBounds[a].intersects(latBounds[c])) neighbours.append(channelLattices[a]);
-            bool compatible=true; QPointF where;
-            if(!neighbours.isEmpty()) {
-                mesh::BurnSurface near; near.build(neighbours);
-                const auto &lat=channelLattices[c];
-                for(int row=0;row+1<lat.nAlong && compatible;++row)
-                    for(int col=0;col+1<lat.nAcross && compatible;++col) for(int half=0;half<2 && compatible;++half) {
-                        const int ids[3]={lat.at(row,col),half?lat.at(row+1,col+1):lat.at(row+1,col),
-                                          half?lat.at(row,col+1):lat.at(row+1,col+1)};
-                        QPointF xy[3];double z[3];for(int k=0;k<3;++k){xy[k]=lat.xy[ids[k]];z[k]=lat.z[ids[k]];}
-                        const auto e=near.error(xy,z,[&](const QPointF &q){return burnDomain.contains(q);});
-                        if(e.maximum>channelTolerance) {compatible=false;where=e.point;}
-                    }
-            }
-            if(compatible) accepted.append(c);
-            else burnWarnings.append(QObject::tr("Channel %1 overlaps an incompatible section near (%2, %3) — not burned; it remains a 1D conduit.")
-                                     .arg(channelLattices[c].conduitId).arg(where.x(),0,'g',12).arg(where.y(),0,'g',12));
-        }
-        if(accepted.size()!=channelLattices.size()) {
-            qCInfo(lcMeshPerf) << "[Mesh][burn]" << channelLattices.size()-accepted.size()
-                               << "conduit(s) left unburned (incompatible overlapping sections)";
-            QVector<mesh::BurnLattice> keptLattices; QVector<mesh::BurnProfile> keptProfiles;
-            for(int a:std::as_const(accepted)) { keptLattices.append(channelLattices[a]); keptProfiles.append(in.burnProfiles[a]); }
-            channelLattices=std::move(keptLattices); in.burnProfiles=std::move(keptProfiles);
         }
     }
     mesh::BurnCorridorIndex channelIndex;

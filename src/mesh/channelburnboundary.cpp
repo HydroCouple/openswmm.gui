@@ -422,6 +422,7 @@ BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
                 }
                 plan.profiles.append(std::move(slice));
                 plan.replacedIds.insert(currentId);
+                plan.intervalSource.insert(currentId, p.conduitId);
             }
             plan.notes << QStringLiteral("%1 [%2, %3]: %4 (%5)").arg(p.conduitId)
                 .arg(bounds[i],0,'g',12).arg(bounds[i+1],0,'g',12)
