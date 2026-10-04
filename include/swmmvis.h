@@ -445,13 +445,13 @@ private slots:
      */
     void onAddWFSLayer();
 
-    /*! \brief Prompt for an OGR vector file and add it as a GISVectorLayer. */
+    /*! \brief Prompt for OGR vector files and add their selected layers. */
     void onAddVectorLayer();
 
-    /*! \brief Prompt for a GDAL raster file and add it as a GISRasterLayer. */
+    /*! \brief Prompt for GDAL raster files and add their layers. */
     void onAddRasterLayer();
 
-    /*! \brief Prompt for a SWMM `.out` file and add it as a SWMMResultsLayer. */
+    /*! \brief Prompt for SWMM `.out` files and add their results layers. */
     void onAddSWMMResultsLayer();
 
     /*! \brief Prompt for an existing SWMMVis 2D mesh (`.2dm`) anywhere on
@@ -459,7 +459,7 @@ private slots:
      *         Delegates to SWMMVisProjectWindow::importMeshFileAsync. */
     void onAddMesh2DLayer();
 
-    /*! \brief Prompt for a SWMMVis 2D results file (`.h5`) anywhere on disk
+    /*! \brief Prompt for SWMMVis 2D results files (`.h5`) anywhere on disk
      *         and add it as a SWMM2DResultsLayer, becoming the active 2D
      *         results layer. Delegates the build to maybeLoad2DResults so an
      *         explicitly added layer is identical to an auto-loaded one. */

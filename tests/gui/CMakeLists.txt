@@ -4040,3 +4040,10 @@ add_swmmvis_gui_test(test_lid_treatment_editor
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_lid_treatment_editor)
+
+# Multiple-file Add actions exercise the actual main-window file dialogs.
+add_swmmvis_gui_test(test_datasetmultiselect
+    test_datasetmultiselect.cpp ${SWMMVIS_TEST_SOURCES} ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_datasetmultiselect)
+set_tests_properties(test_datasetmultiselect PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;SWMMVIS_DATASET_MULTISELECT_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/dataset_multiselect_2026-10-04/fixtures")
