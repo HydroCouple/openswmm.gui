@@ -1,5 +1,26 @@
 # Manual figure capture and review
 
+## Table and query illustrations
+
+After building `SWMMVis`, run:
+
+```sh
+python3 tests/manual/manual_figures/capture_table_queries.py
+```
+
+This helper renders the production Attribute Table controls at 2× in the light
+theme, using a disposable copy of the bundled Site Drainage model. It asserts
+that the exclusion/range query matches and selects C11 and C7, sorted at 89 and
+95 ft. A second capture opens the real completion popup at `Len`; its actual
+widget is rendered at its position over the panel, retaining the query-bar
+context. The helper includes no map capture.
+
+The batch lives under `tests/output/manual_figures/table_queries_2026-10-04/`
+with source compilation logs, fixture, images and `capture-baseline.json`.
+Inspect both PNGs before copying them into `docs/manual/images/` and accepting
+their hashes in `figure_reviews.json`. These two recipes use this dedicated
+helper; the general capture driver sets text without opening completion.
+
 The capture manifest is a work queue, not evidence that a figure is finished.
 Use `python3 scripts/manual_figures.py audit` for current counts and
 `python3 scripts/manual_coverage.py` to refresh the capability ledger under

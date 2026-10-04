@@ -2215,6 +2215,20 @@
       "lane": "live",
       "_model": "docs/manual/tutorials/models/user_flags_example.inp",
       "_note": "C_MAIN stored real flag 1e-6 and string AM 00341; boolean/integer unset."
+    },
+    {
+      "name": "11_query_exclusion_sorted.png",
+      "lane": "human",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_captureCommand": "python3 tests/manual/manual_figures/capture_table_queries.py",
+      "_note": "Use the dedicated offscreen production-widget capture helper documented in tests/manual/manual_figures/README.md; it validates the two matched conduits and includes the actual completion popup. Review both captures before publication."
+    },
+    {
+      "name": "11_query_completion.png",
+      "lane": "human",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_captureCommand": "python3 tests/manual/manual_figures/capture_table_queries.py",
+      "_note": "Use the dedicated offscreen production-widget capture helper documented in tests/manual/manual_figures/README.md; it validates the two matched conduits and includes the actual completion popup. Review both captures before publication."
     }
   ]
 }
