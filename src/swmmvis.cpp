@@ -7438,7 +7438,14 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                         break;
                     }
 
-                    const QVariantMap attrs = layer->identifyByName(first.name);
+                    // Look the ref up by ITS kind: SWMM names are per-type
+                    // namespaces, and a conduit named after its upstream node
+                    // would otherwise identify that node (node wins the
+                    // untyped lookup).
+                    const QVariantMap attrs = layer->identifyByName(
+                        first.name,
+                        SWMMModelLayer::kindMaskForObjectType(
+                            static_cast<int>(first.objectType)));
                     if (!attrs.isEmpty())
                     {
                         IdentifyResult r;
