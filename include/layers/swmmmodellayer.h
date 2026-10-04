@@ -983,6 +983,21 @@ public:
      *  kindHint to applyRename() without re-deriving the same mapping. */
     [[nodiscard]] static quint8 kindBitForCategory(Category c) noexcept;
 
+    /*! Selection-bus object type (SWMMObjectRef::ObjectType value: 1=Node,
+     *  2=Link, 3=Subcatchment, 4=RainGage) → identifyByName() kind mask;
+     *  kKindAll for anything else. A conduit may share its name with a node,
+     *  so a typed ref must pass this or it identifies the node instead. */
+    [[nodiscard]] static constexpr quint8 kindMaskForObjectType(int objectType) noexcept
+    {
+        switch (objectType) {
+        case 1:  return kKindNode;
+        case 2:  return kKindLink;
+        case 3:  return kKindCatch;
+        case 4:  return kKindGage;
+        default: return kKindAll;
+        }
+    }
+
     /*!
      * \brief One selected element: its name plus a bitmask of the kinds
      *        (kKind*) the selection applies to. SWMM names are per-type

@@ -62,6 +62,7 @@ private slots:
     void unknownNameResolvesToNothing();
     void renameMovesOnlyTheRenamedKind();
     void incrementalAddsStayResolvable();
+    void typedRefIdentifiesItsOwnKind();
 };
 
 void TestNameLookupPrecedence::initTestCase()
@@ -190,6 +191,27 @@ void TestNameLookupPrecedence::incrementalAddsStayResolvable()
                  .value(QStringLiteral("Type")).toString(),
              QStringLiteral("Subcatchment"));
     QVERIFY(layer.linkIndex(QStringLiteral("C1")) >= 0);
+}
+
+// A selection ref carries its kind. Looked up with that kind's mask, the
+// conduit X1 must identify as the link — the Properties panel used the untyped
+// lookup and showed the same-named junction for a selected conduit.
+void TestNameLookupPrecedence::typedRefIdentifiesItsOwnKind()
+{
+    SWMMModelLayer layer(fixturePath(), nullptr);
+    QList<QString> warnings, errors;
+    QVERIFY(layer.loadModel(warnings, errors));
+
+    const auto typeOf = [&layer](const char *name, int objectType) {
+        return layer.identifyByName(QString::fromLatin1(name),
+                                    SWMMModelLayer::kindMaskForObjectType(objectType))
+            .value(QStringLiteral("Type")).toString();
+    };
+    QCOMPARE(typeOf("X1", 2), QStringLiteral("Link"));          // SWMMObjectRef::Link
+    QCOMPARE(typeOf("X1", 1), QStringLiteral("Node"));          // SWMMObjectRef::Node
+    QCOMPARE(typeOf("S1", 3), QStringLiteral("Subcatchment"));  // SWMMObjectRef::Subcatchment
+    QCOMPARE(typeOf("S1", 4), QStringLiteral("Rain Gage"));      // SWMMObjectRef::RainGage
+    QCOMPARE(typeOf("X1", 0), QStringLiteral("Node"));          // unknown kind: legacy precedence
 }
 
 QTEST_MAIN(TestNameLookupPrecedence)
