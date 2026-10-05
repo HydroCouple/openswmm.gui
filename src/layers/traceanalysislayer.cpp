@@ -501,6 +501,7 @@ QVector<QColor> TraceAnalysisLayer::colors(bool node) const
     {
         double v = value(node, i, c.field);
         out[i] = !std::isfinite(v) ? QColor("#94999f")
+                 : v < r.first ? QColor(Qt::transparent)
                  : classified
                      ? c.colors.colorForClass(ClassificationScheme::classIndexFor(v, edges),
                                               std::max(1, int(edges.size()) - 1))

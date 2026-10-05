@@ -9,10 +9,8 @@
  *         to GraduatedRenderer on the feature side.  It carries:
  *           - minValue / maxValue — the value range covered by the ramp
  *           - stops               — sorted list of (pos [0..1], QColor)
- *           - clampMin / clampMax — when true, out-of-range values are
- *                                   rendered transparent (matches the
- *                                   existing RasterColorRamp policy on
- *                                   GISRasterLayer)
+ *           - clampMin / clampMax — legacy serialized flags retained for round trips.
+ *                                   Underflow is hidden; overflow saturates.
  *
  *         v1 uses linear interpolation between adjacent stops only.  A
  *         later slice can introduce log / discrete interpolation modes;
@@ -53,9 +51,8 @@ public:
 
     /*!
      * \brief The numeric range covered by the ramp.
-     *        Values outside [minValue, maxValue] are clamped to the
-     *        nearest stop unless clampMin / clampMax are true (in which
-     *        case they render as transparent).
+     *        Values below minValue are transparent; values above maxValue
+     *        use the final stop.
      */
     [[nodiscard]] double minValue() const { return m_minValue; }
     [[nodiscard]] double maxValue() const { return m_maxValue; }
@@ -69,15 +66,13 @@ public:
     void setStops(QList<Stop> stops);
 
     /*!
-     * \brief When true, values strictly below minValue render as transparent
-     *        instead of clamping to the first stop's colour.
+     * \brief Legacy serialized flag; underflow is always transparent.
      */
     [[nodiscard]] bool clampMin() const { return m_clampMin; }
     void setClampMin(bool clamp) { m_clampMin = clamp; }
 
     /*!
-     * \brief When true, values strictly above maxValue render as transparent
-     *        instead of clamping to the last stop's colour.
+     * \brief Legacy serialized flag; overflow always saturates.
      */
     [[nodiscard]] bool clampMax() const { return m_clampMax; }
     void setClampMax(bool clamp) { m_clampMax = clamp; }

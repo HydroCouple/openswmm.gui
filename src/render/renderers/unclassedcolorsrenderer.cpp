@@ -60,10 +60,10 @@ QColor UnclassedColorsRenderer::colorForValue(double v) const
     const double mx = m_ramp.maxValue;
 
     if (v < mn) {
-        return m_belowRange.isValid() ? m_belowRange : m_ramp.colorAt(0.0);
+        return Qt::transparent;
     }
     if (v > mx) {
-        return m_aboveRange.isValid() ? m_aboveRange : m_ramp.colorAt(1.0);
+        return m_ramp.colorAt(1.0);
     }
     // Degenerate range: emit the midpoint colour so we never divide by zero.
     if (qFuzzyCompare(mn + 1.0, mx + 1.0))
@@ -91,6 +91,11 @@ SymbolStyle UnclassedColorsRenderer::symbolFor(const FeatureRef & /*f*/,
     const double v = val.toDouble(&ok);
     if (!ok) {
         overrideColorInPlace(out, m_noData);
+        return out;
+    }
+    if (std::isfinite(v) && v < m_ramp.minValue) {
+        overrideColorInPlace(out, QColor(Qt::transparent));
+        out.opacity = 0.0;
         return out;
     }
     overrideColorInPlace(out, colorForValue(v));

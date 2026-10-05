@@ -39,10 +39,10 @@ class TestUnclassedColorsRenderer : public QObject
 private slots:
     // colorForValue
     void colorForValue_inRangeMatchesRampSampling();
-    void colorForValue_belowMinUsesRampStartByDefault();
-    void colorForValue_belowMinUsesExplicitSentinelWhenSet();
+    void colorForValue_belowMinIsHidden();
+    void colorForValue_legacyBelowSentinelDoesNotShowUnderflow();
     void colorForValue_aboveMaxUsesRampEndByDefault();
-    void colorForValue_aboveMaxUsesExplicitSentinelWhenSet();
+    void colorForValue_legacyAboveSentinelDoesNotChangeSaturation();
     void colorForValue_nanReturnsNoData();
     void colorForValue_degenerateRangeReturnsMidpoint();
     void colorForValue_clampsToZeroOne();
@@ -84,20 +84,20 @@ void TestUnclassedColorsRenderer::colorForValue_inRangeMatchesRampSampling()
     QCOMPARE(midRendered.rgb(), midDirect.rgb());
 }
 
-void TestUnclassedColorsRenderer::colorForValue_belowMinUsesRampStartByDefault()
+void TestUnclassedColorsRenderer::colorForValue_belowMinIsHidden()
 {
     UnclassedColorsRenderer r;
     r.setRange(0.0, 10.0);
     r.setRamp(RasterColorRamp::viridis(0.0, 10.0));
-    QCOMPARE(r.colorForValue(-5.0).rgb(), r.ramp().colorAt(0.0).rgb());
+    QCOMPARE(r.colorForValue(-5.0).alpha(), 0);
 }
 
-void TestUnclassedColorsRenderer::colorForValue_belowMinUsesExplicitSentinelWhenSet()
+void TestUnclassedColorsRenderer::colorForValue_legacyBelowSentinelDoesNotShowUnderflow()
 {
     UnclassedColorsRenderer r;
     r.setRange(0.0, 10.0);
     r.setBelowRangeColor(QColor(Qt::red));
-    QCOMPARE(r.colorForValue(-5.0), QColor(Qt::red));
+    QCOMPARE(r.colorForValue(-5.0), QColor(Qt::transparent));
 }
 
 void TestUnclassedColorsRenderer::colorForValue_aboveMaxUsesRampEndByDefault()
@@ -108,12 +108,12 @@ void TestUnclassedColorsRenderer::colorForValue_aboveMaxUsesRampEndByDefault()
     QCOMPARE(r.colorForValue(100.0).rgb(), r.ramp().colorAt(1.0).rgb());
 }
 
-void TestUnclassedColorsRenderer::colorForValue_aboveMaxUsesExplicitSentinelWhenSet()
+void TestUnclassedColorsRenderer::colorForValue_legacyAboveSentinelDoesNotChangeSaturation()
 {
     UnclassedColorsRenderer r;
     r.setRange(0.0, 10.0);
     r.setAboveRangeColor(QColor(Qt::magenta));
-    QCOMPARE(r.colorForValue(100.0), QColor(Qt::magenta));
+    QCOMPARE(r.colorForValue(100.0), r.ramp().colorAt(1.0));
 }
 
 void TestUnclassedColorsRenderer::colorForValue_nanReturnsNoData()
@@ -160,6 +160,7 @@ void TestUnclassedColorsRenderer::symbolFor_overridesColorPropWhenPresent()
 
     QVariantMap attrs;
     attrs.insert(QStringLiteral("depth"), 5.0);
+    QCOMPARE(r.symbolFor({}, {{QStringLiteral("depth"), -1.0}}).opacity, 0.0);
     SymbolStyle s = r.symbolFor({}, attrs);
     QVERIFY(s.layers.first().props.contains(QStringLiteral("color")));
     // Colour changed from the original black. (X1 — the override writes a

@@ -805,7 +805,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 // legacyElevationRamp() fast path is a terrain palette keyed
                 // to bed elevation and means nothing for Manning's n.
                 const bool schemeDrivesColor =
-                    attrMode || schemeClassified || scheme.invertRamp() || !isDefaultTerrainRamp;
+                    attrMode || schemeClassified || scheme.useCustomRange() || scheme.invertRamp() || !isDefaultTerrainRamp;
+                const auto colorRange = scheme.effectiveRange(cMin, cMax);
                 const QVector<double> classEdges =
                     schemeClassified ? scheme.levelEdges(cMin, cMax, {}) : QVector<double>{};
 
@@ -820,7 +821,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 // Categorical fill never consults the scheme's classes, so it
                 // must not pick up their per-class alpha either.
                 if (schemeClassified && !catMode) {
-                    const int nc = std::max(1, scheme.classCount());
+                    const int nc = std::max(1, int(classEdges.size()) - 1);
                     classAlphas.resize(size_t(nc), 255);
                     for (int ci = 0; ci < nc; ++ci) {
                         classAlphas[size_t(ci)] =
@@ -901,6 +902,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                         }
                     }
 
+                    if (!catMode && cValOk && (!std::isfinite(cVal) || cVal < colorRange.first)) return;
                     quint32 packed = cacheSlot ? *cacheSlot : 0u;
                     if (packed == 0u) {
                         quint8 cr, cg, cb;
@@ -926,7 +928,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                                 ? scheme.colorForClass(
                                       OpenSWMM::Render::ClassificationScheme::classIndexFor(
                                           cVal, classEdges),
-                                      scheme.classCount())
+                                      std::max(1, int(classEdges.size()) - 1))
                                 : scheme.colorForValue(cVal, cMin, cMax);
                             cr = quint8(sc.red());
                             cg = quint8(sc.green());

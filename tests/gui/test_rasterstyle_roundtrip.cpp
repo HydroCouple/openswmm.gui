@@ -464,9 +464,10 @@ private slots:
         QVERIFY(changed.count() >= 1);
 
         auto *clip = panel->findChild<QCheckBox *>(QStringLiteral("rasterClipOutOfRange"));
-        QVERIFY(clip);
-        clip->setChecked(true);
-        QVERIFY(g->clipOutOfRange());
+        QVERIFY(!clip); // Numeric layers use one consistent range policy.
+        QCOMPARE(g->colorForValue(g->effectiveRange().first-1).alpha(), 0);
+        QCOMPARE(g->colorForValue(g->effectiveRange().second+1),
+                 g->colorForValue(g->effectiveRange().second));
 
         // Cancel restores the opening state (renderer + hillshade + band).
         auto *bb = dlg.findChild<QDialogButtonBox *>();

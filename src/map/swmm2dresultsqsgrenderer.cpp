@@ -1078,6 +1078,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 auto emitFlatCells = [&]() {
                     for (int i : visibleCells) {
                         const auto t = frameTri(i);
+                        if (!std::isfinite(t.depth) || t.depth < levels.front()) continue;
                         const auto wet = CellWaterGeometry::clipTriangle(
                             t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
                         if (wet.size < 3) continue;
@@ -1188,7 +1189,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             const qreal op = std::clamp<qreal>(subOpacity, 0.0, 1.0);
             const OpenSWMM::Render::ClassificationColorSampler colors(
                 style->scheme(), vMin, vMax, classified ? bandCount : 0);
-            auto colorAt = [&](float value) -> QColor {
+            auto colorAt = [&](double value) -> QColor {
                 QColor c;
                 if (classified && levels.size() >= 2) {
                     int idx = int(std::upper_bound(levels.begin() + 1,
@@ -1213,15 +1214,43 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                       premul(quint8(c.blue()), a), a);
                 out.push_back(v);
             };
+            std::vector<QPointF> points, clipped, part;
+            std::vector<double> values, clippedValues, partValues;
+            for (auto *buffer : {&points, &clipped, &part}) buffer->reserve(6);
+            for (auto *buffer : {&values, &clippedValues, &partValues}) buffer->reserve(6);
+            auto emitPolygon = [&](const auto &pts, const auto &vals) {
+                for (size_t k = 1; k+1 < pts.size(); ++k)
+                    for (size_t j : {size_t(0),k,k+1})
+                        pushV(pts[j],colorAt(std::max(vals[j],vMin)));
+            };
             for (int i : visibleCells) {
                 const auto t = frameTri(i);
+                if (!perVertex && (!std::isfinite(t.depth) || t.depth < vMin)) continue;
                 const auto wet = CellWaterGeometry::clipTriangle(
                     t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
-                for (int k = 1; k+1 < wet.size; ++k)
-                    for (int j : {0,k,k+1}) {
-                        const auto& v = wet.vertices[j];
-                        pushV(v.point,colorAt(perVertex ? float(v.depth) : t.depth));
-                    }
+                if (!perVertex) {
+                    const QColor color = colorAt(t.depth);
+                    for (int k = 1; k+1 < wet.size; ++k)
+                        for (int j : {0,k,k+1}) pushV(wet.vertices[j].point,color);
+                    continue;
+                }
+                points.clear(); values.clear();
+                for (int j = 0; j < wet.size; ++j) {
+                    points.push_back(wet.vertices[j].point);
+                    values.push_back(wet.vertices[j].depth);
+                }
+                // Clip the scalar field, not its colors: transparent endpoints
+                // bleed below the minimum and saturated endpoints shift the
+                // maximum crossing when the GPU interpolates the triangle.
+                OpenSWMM::Contour::detail::clipHalfplane(points,values,vMin,true,clipped,clippedValues);
+                if (clipped.empty()) continue;
+                const auto bounds = std::minmax_element(clippedValues.begin(),clippedValues.end());
+                if (*bounds.first < vMax && *bounds.second > vMax) {
+                    OpenSWMM::Contour::detail::clipHalfplane(clipped,clippedValues,vMax,false,part,partValues);
+                    emitPolygon(part,partValues);
+                    OpenSWMM::Contour::detail::clipHalfplane(clipped,clippedValues,vMax,true,part,partValues);
+                    emitPolygon(part,partValues);
+                } else emitPolygon(clipped,clippedValues);
             }
         };
 

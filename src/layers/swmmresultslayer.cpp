@@ -2902,6 +2902,7 @@ bool catMatchesVariable(SWMMModelLayer::Category c, SWMMResultVariable v)
 // to the legacy ramp colour.
 QColor extractStyleColor(const OpenSWMM::Render::SymbolStyle &s, QColor fallback)
 {
+    if (s.opacity <= 0) return QColor();
     return OpenSWMM::Render::SymbolProps::firstColor(s, fallback);
 }
 
@@ -3464,6 +3465,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                 const float val = results[outIdx];
                 if (!std::isfinite(val)) continue;
                 col = ramp.colorForValue(static_cast<double>(val));
+                if (col.alpha() == 0) continue;
             }
             if (!col.isValid()) continue;
 
@@ -3583,6 +3585,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                 const float val = results[outIdx];
                 if (!std::isfinite(val)) continue;
                 col = ramp.colorForValue(static_cast<double>(val));
+                if (col.alpha() == 0) continue;
             }
             if (!col.isValid()) continue;
             if (opMul < 1.0)
@@ -3754,6 +3757,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                 const float val = results[outIdx];
                 if (!std::isfinite(val)) continue;
                 col = ramp.colorForValue(static_cast<double>(val));
+                if (col.alpha() == 0) continue;
             }
             if (!col.isValid()) continue;
 
@@ -3959,7 +3963,10 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                     } else {
                         const float val = results[outIdx];
                         if (!std::isfinite(val)) drop = true;
-                        else col = ramp.colorForValue(static_cast<double>(val));
+                        else {
+                            col = ramp.colorForValue(static_cast<double>(val));
+                            drop = col.alpha() == 0;
+                        }
                     }
                 }
                 if (drop || !col.isValid()) {
@@ -4026,7 +4033,10 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                     } else {
                         const float val = results[outIdx];
                         if (!std::isfinite(val)) drop = true;
-                        else col = ramp.colorForValue(static_cast<double>(val));
+                        else {
+                            col = ramp.colorForValue(static_cast<double>(val));
+                            drop = col.alpha() == 0;
+                        }
                     }
                 }
                 if (drop || !col.isValid()) {
@@ -4119,7 +4129,10 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                     } else {
                         const float val = results[outIdx];
                         if (!std::isfinite(val)) drop = true;
-                        else col = ramp.colorForValue(static_cast<double>(val));
+                        else {
+                            col = ramp.colorForValue(static_cast<double>(val));
+                            drop = col.alpha() == 0;
+                        }
                     }
                 }
                 if (drop || !col.isValid()) {

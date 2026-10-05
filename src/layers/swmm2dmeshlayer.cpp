@@ -295,7 +295,7 @@ public:
             || fillRampName.compare(QLatin1String("terrain"),
                                     Qt::CaseInsensitive) == 0;
         const bool fillSchemeDrives =
-            fillClassified || fillScheme.invertRamp() || !fillDefaultRamp;
+            fillClassified || fillScheme.useCustomRange() || fillScheme.invertRamp() || !fillDefaultRamp;
         const QVector<double> fillClassEdges =
             fillClassified ? fillScheme.levelEdges(zMin, zMax, {})
                            : QVector<double>{};
@@ -311,10 +311,10 @@ public:
                         ? fillScheme.colorForClass(
                               OpenSWMM::Render::ClassificationScheme::classIndexFor(
                                   double(t.zAvg), fillClassEdges),
-                              fillScheme.classCount())
+                              std::max(1, int(fillClassEdges.size()) - 1))
                         : fillScheme.colorForValue(double(t.zAvg), zMin, zMax);
                     cr = sc.red(); cg = sc.green(); cb = sc.blue();
-                    if (fillClassified) ca = sc.alpha();
+                    ca = sc.alpha();
                 } else {
                     elevationColorRgb((t.zAvg - zMin) / zRange, cr, cg, cb);
                 }

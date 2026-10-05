@@ -281,6 +281,7 @@ private slots:
     void exactProfileIgnoresStationSpacing();
     void boundaryProfileKeepsWetSideAcrossFrames();
     void contourRangesSaturateCpuAndQsg();
+    void directFillRangesClipAndSaturateQsg();
     void latestFrameReplacementCanReduceEnvelope();
     void edgesAreDeduplicated();
     void liveScrubHoldsFrame();
@@ -1401,6 +1402,54 @@ void Test2DResultsVizFixes::boundaryProfileKeepsWetSideAcrossFrames()
     }
 }
 
+void Test2DResultsVizFixes::directFillRangesClipAndSaturateQsg()
+{
+    class Renderer : public SWMM2DResultsQSGRenderer {
+    public: QSGNode* sync() { return updatePaintNode(nullptr,nullptr); }
+    };
+    SWMM2DResultsLayer layer; layer.setSource(std::make_unique<VfrSource>()); layer.setVisible(true);
+    for (bool smooth : {false,true}) for (double minimum : {0.25,0.75,2.0}) {
+        for (auto *sub:layer.sublayers()) sub->setVisible(false);
+        auto *style=smooth?layer.smoothDepthFillSublayer()->fillStyle():layer.cellDepthFillSublayer()->fillStyle();
+        if (smooth) layer.smoothDepthFillSublayer()->setVisible(true);
+        else layer.cellDepthFillSublayer()->setVisible(true);
+        style->setUseCustomRange(true); style->setRangeMin(minimum); style->setRangeMax(minimum+0.2);
+        style->setColorRampName(QString()); style->setLowColor(Qt::blue); style->setHighColor(Qt::red);
+        Renderer renderer; renderer.setWidth(400); renderer.setHeight(400);
+        renderer.setMapExtent(MapExtent(0,0,1,1)); renderer.setLayer(&layer);
+        std::unique_ptr<QSGNode> root(renderer.sync());
+        double area=0, saturatedArea=0;
+        for(auto *node=root->firstChild();node;node=node->nextSibling()) {
+            if(node->type()!=QSGNode::GeometryNodeType) continue;
+            const auto *g=static_cast<QSGGeometryNode*>(node)->geometry();
+            if(!g || g->attributeCount()!=2) continue;
+            const auto *v=g->vertexDataAsColoredPoint2D();
+            for(int i=0;i+2<g->vertexCount();i+=3) {
+                const double a=std::abs((v[i+1].x-v[i].x)*(v[i+2].y-v[i].y)
+                                     -(v[i+1].y-v[i].y)*(v[i+2].x-v[i].x))*0.5;
+                area+=a;
+                bool saturated=true;
+                for(int j=0;j<3;++j) {
+                    // QSG coordinates are relative to the scene's center.
+                    const double depth=1.5-4*(0.5-v[i+j].y);
+                    if(smooth) QVERIFY(depth>=minimum-1e-6);
+                    if(smooth && depth>=minimum+0.2-1e-6) {
+                        QCOMPARE(v[i+j].g,uchar(0)); QCOMPARE(v[i+j].b,uchar(0));
+                        QCOMPARE(v[i+j].r,v[i+j].a);
+                    } else saturated=false;
+                }
+                if(saturated) saturatedArea+=a;
+            }
+        }
+        const double y=smooth?std::max(0.0,(1.5-minimum)/4):(minimum<=0.4921875?1.5/4:0);
+        QVERIFY(std::abs(area-(y-y*y/2))<1e-6);
+        if(smooth) {
+            const double ymax=std::max(0.0,(1.5-minimum-0.2)/4);
+            QVERIFY(std::abs(saturatedArea-(ymax-ymax*ymax/2))<1e-6);
+        }
+    }
+}
+
 void Test2DResultsVizFixes::contourRangesSaturateCpuAndQsg()
 {
     class Renderer : public SWMM2DResultsQSGRenderer {
@@ -1412,6 +1461,11 @@ void Test2DResultsVizFixes::contourRangesSaturateCpuAndQsg()
     for (auto *sub:layer.sublayers()) sub->setVisible(false);
     auto *bands=layer.contourBandSublayer(); bands->setVisible(true);
     auto *style=bands->bandStyle(); style->setUseCustomRange(true);
+    auto scheme = style->scheme();
+    scheme.setMethod(OpenSWMM::Render::BinMethod::Manual);
+    scheme.setManualBreaks({0.15,0.3,0.6});
+    scheme.setColorOverride(1,QColor(13,87,173));
+    style->setScheme(scheme);
     QGraphicsScene scene; layer.populateScene(&scene,MapExtent(0,0,1,1),nullptr);
     Renderer renderer;
     renderer.setWidth(400); renderer.setHeight(400);
@@ -1420,18 +1474,24 @@ void Test2DResultsVizFixes::contourRangesSaturateCpuAndQsg()
     for (bool smooth : {false,true}) {
         style->setSmoothBands(smooth);
         // Above maximum, below minimum, and a color range wholly below dry cutoff.
-        for (const auto range : {QPointF(0.1,0.2),QPointF(2,3),QPointF(0,0.00001)}) {
+        for (const auto range : {QPointF(0.1,0.2),QPointF(2,3),QPointF(0.25,0.5),QPointF(0,0.00001)}) {
             style->setRangeMin(range.x()); style->setRangeMax(range.y());
             QImage img(400,400,QImage::Format_ARGB32_Premultiplied); img.fill(Qt::transparent);
             QPainter p(&img); scene.render(&p,QRectF(0,0,400,400),QRectF(0,-1,1,1)); p.end();
             const QColor actual=img.pixelColor(100,320); // depth 0.7, above max or below min
-            QVERIFY(actual.alpha()>0);
-            const int count=style->bandCount();
-            const QColor expected=style->colorForBand(range.x()>1.5 ? 0 : count-1,count);
-            QVERIFY(std::abs(actual.red()-expected.red())<=2);
-            QVERIFY(std::abs(actual.green()-expected.green())<=2);
-            QVERIFY(std::abs(actual.blue()-expected.blue())<=2);
-            QVERIFY(img.pixelColor(100,260).alpha()>0); // shallow wet bank
+            const auto edges=style->scheme().levelEdges(0,layer.maxDepth());
+            const int count=edges.size()-1;
+            const double sample=smooth?0.7:0.4921875;
+            const bool hidden=sample<range.x();
+            if (hidden) QCOMPARE(actual.alpha(),0);
+            else {
+                const QColor expected=style->colorForBand(
+                    OpenSWMM::Render::ClassificationScheme::classIndexFor(sample,edges),count);
+                QVERIFY(actual.alpha()>0);
+                QVERIFY(std::abs(actual.red()-expected.red())<=2);
+                QVERIFY(std::abs(actual.green()-expected.green())<=2);
+                QVERIFY(std::abs(actual.blue()-expected.blue())<=2);
+            }
             QCOMPARE(img.pixelColor(100,240).alpha(),0); // physical dry area still hidden
             root.reset(renderer.sync(root.release()));
             double area=0;
@@ -1444,8 +1504,9 @@ void Test2DResultsVizFixes::contourRangesSaturateCpuAndQsg()
                     area+=std::abs((v[i+1].x-v[i].x)*(v[i+2].y-v[i].y)
                                 -(v[i+1].y-v[i].y)*(v[i+2].x-v[i].x))*0.5;
             }
-            const double y=1.5/4.0;
-            QVERIFY2(std::abs(area-(y-y*y/2))<1e-6,"Color limits changed the wet area");
+            const double y=smooth?std::clamp((1.5-range.x())/4.0,0.0,1.5/4.0)
+                                 :(0.4921875<range.x()?0.0:1.5/4.0);
+            QVERIFY2(std::abs(area-(y-y*y/2))<1e-6,"Minimum did not clip the expected scalar area");
             const QString dir=qEnvironmentVariable("SWMMVIS_SHORELINE_ARTIFACT_DIR");
             if (!dir.isEmpty() && range==QPointF(0.1,0.2))
                 QVERIFY(img.save(dir+(smooth?"/contours-saturated-smooth.png":"/contours-saturated-flat.png")));

@@ -72,8 +72,8 @@ struct RasterColorRamp
     double          minValue = 0.0;
     double          maxValue = 1.0;
     QGradientStops  stops;        /*!< Sorted list of (position [0..1], QColor) pairs. */
-    bool            clampMin = false; /*!< When true, values below minValue are transparent. */
-    bool            clampMax = false; /*!< When true, values above maxValue are transparent. */
+    bool            clampMin = false; /*!< Legacy serialized flag; underflow is always transparent. */
+    bool            clampMax = false; /*!< Legacy serialized flag; overflow always uses the maximum color. */
     RampInterp      interp   = RampInterp::Rgb; /*!< Colour-space used between adjacent stops. */
 
     /*! Interpolated colour for a normalised position in [0,1]. */

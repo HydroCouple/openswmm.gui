@@ -16,10 +16,9 @@
  *         Equivalent to QGIS / ArcGIS Pro's "Unclassed Colors" /
  *         "Continuous" symbology.
  *
- *         Below-min values use \ref belowRangeColor (default = the ramp's
- *         start color); above-max values use \ref aboveRangeColor
- *         (default = the ramp's end color). NaN / invalid attribute
- *         values fall back to \ref noDataColor.
+ *         Below-min values are hidden; above-max values use the ramp's
+ *         end color. NaN / invalid attributes use \ref noDataColor.
+ *         Legacy sentinel colors remain serialized for project round trips.
  *
  *         Cross-slice: RENDERING_RULE_MODEL_PLAN.md §5 Renderer roster
  *         (Unclassed Colors entry) + §16 Slice Z.9.
@@ -67,12 +66,11 @@ public:
     [[nodiscard]] const SymbolStyle &baseSymbol() const { return m_baseSymbol; }
     void setBaseSymbol(SymbolStyle s) { m_baseSymbol = std::move(s); }
 
-    /*! Colour for values below minValue. Default: invalid (renderer
-     *  samples the ramp at position 0 — the ramp's start colour). */
+    /*! Legacy serialized below-range color; numeric underflow is hidden. */
     [[nodiscard]] QColor belowRangeColor() const { return m_belowRange; }
     void setBelowRangeColor(QColor c) { m_belowRange = c; }
 
-    /*! Colour for values above maxValue. */
+    /*! Legacy serialized above-range color; numeric overflow saturates. */
     [[nodiscard]] QColor aboveRangeColor() const { return m_aboveRange; }
     void setAboveRangeColor(QColor c) { m_aboveRange = c; }
 
@@ -106,8 +104,8 @@ private:
     QString          m_classifyAttribute;
     RasterColorRamp  m_ramp = RasterColorRamp::viridis(0.0, 1.0);
     SymbolStyle      m_baseSymbol;
-    QColor           m_belowRange;       /*!< Invalid by default → use ramp start. */
-    QColor           m_aboveRange;       /*!< Invalid by default → use ramp end.   */
+    QColor           m_belowRange;       /*!< Legacy metadata; underflow is hidden. */
+    QColor           m_aboveRange;       /*!< Legacy metadata; overflow saturates.   */
     QColor           m_noData = QColor(0, 0, 0, 0);
     int              m_legendLabelCount = 5;
 };

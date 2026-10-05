@@ -142,7 +142,7 @@ TEST(ClassificationScheme, InteriorLevelsDropEndpoints)
 TEST(ClassificationScheme, ClassIndexForClampsAndBuckets)
 {
     const QVector<double> edges = { 0.0, 2.0, 4.0, 6.0, 8.0 };
-    EXPECT_EQ(ClassificationScheme::classIndexFor(-1.0, edges), 0);
+    EXPECT_EQ(ClassificationScheme::classIndexFor(-1.0, edges), -1);
     EXPECT_EQ(ClassificationScheme::classIndexFor(0.5, edges), 0);
     EXPECT_EQ(ClassificationScheme::classIndexFor(2.5, edges), 1);
     EXPECT_EQ(ClassificationScheme::classIndexFor(6.5, edges), 3);
@@ -321,5 +321,31 @@ TEST(ClassificationColors, CustomRampAndDegenerateRangeKeepExactColors)
             for(double v:{-5.0,0.0,.01,3.0,7.3,10.0,12.0})
                 EXPECT_EQ(palette.valueColor(v),scheme.colorForValue(v,0,10));
         }
+    }
+}
+
+TEST(ClassificationColors, MinimumIsInclusiveAndMaximumSaturates)
+{
+    for (bool invert : {false, true}) {
+        ClassificationScheme scheme;
+        scheme.setUseCustomRange(true);
+        scheme.setRangeMin(2); scheme.setRangeMax(8);
+        scheme.setInvertRamp(invert);
+        scheme.setColorOverride(2, QColor(11, 22, 33, 128));
+        OpenSWMM::Render::ClassificationColorSampler colors(scheme, 0, 10, 3);
+        const QVector<double> edges{2, 4, 6, 8};
+        for (double value : {-1.0, 1.999, std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::infinity()}) {
+            EXPECT_EQ(scheme.colorForValue(value, 0, 10).alpha(), 0);
+            EXPECT_EQ(colors.valueColor(value).alpha(), 0);
+            const int index = ClassificationScheme::classIndexFor(value, edges);
+            EXPECT_EQ(index, -1);
+            EXPECT_EQ(scheme.colorForClass(index, 3).alpha(), 0);
+            EXPECT_EQ(colors.classColor(index).alpha(), 0);
+        }
+        EXPECT_EQ(colors.valueColor(2), scheme.colorAtF(0));
+        EXPECT_EQ(colors.valueColor(80), colors.valueColor(8));
+        EXPECT_EQ(colors.classColor(ClassificationScheme::classIndexFor(2, edges)), scheme.colorForClass(0, 3));
+        EXPECT_EQ(colors.classColor(ClassificationScheme::classIndexFor(80, edges)), QColor(11, 22, 33, 128));
     }
 }

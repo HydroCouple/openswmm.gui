@@ -20,9 +20,9 @@
  *                                 scheme + a value sample. Persisted, so a
  *                                 Quantile / Jenks classification reloads
  *                                 from .oswp without re-sampling the raster
- *           - clipOutOfRange    — values outside the effective range render
- *                                 transparent instead of clamping to the end
- *                                 colours (QGIS "clip out of range values")
+ *           - clipOutOfRange    — legacy serialized flag, retained for round trips.
+ *                                 Numeric underflow is always transparent;
+ *                                 overflow always uses the final color.
  *
  *         Hot path: colorForValue() is pure arithmetic over state baked by
  *         rebake() — a 256-entry LUT for Continuous mode (ScalarRampLut
@@ -81,7 +81,7 @@ public:
      *  range when enabled and non-degenerate, otherwise (dataMin, dataMax). */
     [[nodiscard]] QPair<double, double> effectiveRange() const { return { m_lo, m_hi }; }
 
-    // ── Out-of-range policy ────────────────────────────────────────────
+    // ── Legacy serialized policy ────────────────────────────────────────────
     [[nodiscard]] bool clipOutOfRange() const { return m_clipOutOfRange; }
     void setClipOutOfRange(bool on);
 

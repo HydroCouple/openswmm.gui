@@ -162,3 +162,31 @@ TEST(ContourJobTest, EmptyCoverageDoesNotFallBackToWholeMesh)
     const auto result=computeContourJob(input);
     EXPECT_TRUE(result.bands.empty());EXPECT_TRUE(result.segs.empty());
 }
+
+TEST(ContourJobTest, ConfiguredMinimumClipsGeometryAndMaximumSaturates)
+{
+    auto input = makeSquareInput();
+    input.bandLevels = {0.5, 0.75, 1.0};
+    const auto result = computeContourJob(input);
+    double area = 0;
+    bool saturated = false;
+    for (const auto &band : result.bands) {
+        for (const auto &p : band.verts) {
+            EXPECT_GE(p.x() + p.y(), 0.5 - 1e-9);
+            if (p.x() + p.y() > 1.0) {
+                EXPECT_EQ(band.bandIndex, 1);
+                saturated = true;
+            }
+        }
+        for (size_t i = 1; i + 1 < band.verts.size(); ++i) {
+            const auto a = band.verts[i] - band.verts[0];
+            const auto b = band.verts[i+1] - band.verts[0];
+            area += std::abs(a.x()*b.y() - a.y()*b.x())/2;
+        }
+    }
+    EXPECT_NEAR(area, 0.875, 1e-9);
+    EXPECT_TRUE(saturated);
+    input.scalars = std::make_shared<const std::vector<std::array<float, 3>>>(
+        std::vector<std::array<float, 3>>{{0.5f,0.5f,0.5f},{0.25f,0.25f,0.25f}});
+    EXPECT_EQ(computeContourJob(input).bands.size(), 1u);
+}

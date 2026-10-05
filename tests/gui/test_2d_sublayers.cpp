@@ -48,6 +48,20 @@ class Test2DSublayers : public QObject
     Q_OBJECT
 
 private slots:
+    void velocityRangeUsesActualManualClasses()
+    {
+        VelocityVectorStyle style; style.setColorByMagnitude(true);
+        auto scheme=style.scheme(); scheme.setMode(ClassificationScheme::ClassMode::Classified);
+        scheme.setUseCustomRange(true); scheme.setRangeMin(1); scheme.setRangeMax(4);
+        scheme.setMethod(BinMethod::Manual); scheme.setManualBreaks({2}); scheme.setClassCount(8);
+        style.setScheme(scheme);
+        QCOMPARE(style.colorForSpeed(0.9).alpha(),0);
+        QCOMPARE(style.colorForSpeed(1),scheme.colorForClass(0,2));
+        QCOMPARE(style.colorForSpeed(4),scheme.colorForClass(1,2));
+        QCOMPARE(style.colorForSpeed(40),style.colorForSpeed(4));
+        scheme.setColorOverride(1,QColor(11,22,33,128)); style.setScheme(scheme);
+        QCOMPARE(style.colorForSpeed(40),QColor(11,22,33,128));
+    }
     // MeshFill (static)
     void meshFill_identity_static();
     void meshFill_json_roundTrip();

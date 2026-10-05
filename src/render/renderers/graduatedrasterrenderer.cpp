@@ -115,15 +115,15 @@ QColor GraduatedRasterRenderer::colorForValue(double value, bool isNoData) const
 {
     if (isNoData || !std::isfinite(value))
         return QColor(Qt::transparent);
-    if (m_clipOutOfRange && (value < m_lo || value > m_hi))
+    if (value < m_lo)
         return QColor(Qt::transparent);
 
     if (m_scheme.mode() == ClassificationScheme::ClassMode::Continuous
         || m_classColors.isEmpty())   // degenerate range: flat raster
         return QColor::fromRgba(m_lut[size_t(ScalarRampLut::indexFor(value, m_lo, m_hi))]);
 
-    return QColor::fromRgba(
-        m_classColors.at(ClassificationScheme::classIndexFor(value, m_edges)));
+    const int index = ClassificationScheme::classIndexFor(value, m_edges);
+    return index < 0 ? QColor(Qt::transparent) : QColor::fromRgba(m_classColors.at(index));
 }
 
 QList<LegendSymbolItem> GraduatedRasterRenderer::legendSymbolItems() const

@@ -198,7 +198,9 @@ public:
                                                  const QVector<double> &samples = {}) const;
 
     /*! 0-based class index for a value, given edges from levelEdges().
-     *  Clamped to [0, edges.size()-2]; 0 when edges are degenerate. */
+     *  Below-minimum or non-finite values return -1 (hidden).
+     *  Empty edges (a constant field) return 0 for finite values.
+     *  Values above the maximum belong to the final class. */
     [[nodiscard]] static int classIndexFor(double value, const QVector<double> &edges);
 
     /*! Continuous colour at normalised position f in [0,1] (clamped),
@@ -206,7 +208,8 @@ public:
     [[nodiscard]] QColor colorAtF(double f) const;
 
     /*! Discrete class colour: the user override when present, otherwise
-     *  the ramp sampled at the class midpoint (i + 0.5) / count. */
+     *  the ramp sampled at the class midpoint (i + 0.5) / count.
+     *  A negative index returns transparent. */
     [[nodiscard]] QColor colorForClass(int classIndex) const;
     [[nodiscard]] QColor colorForClass(int classIndex, int count) const;
 

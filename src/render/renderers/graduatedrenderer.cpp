@@ -229,8 +229,9 @@ QColor GraduatedRenderer::colorForValue(double v) const
     const int n = m_binner.binCount();
     if (n <= 0)
         return Qt::transparent;
-    if (!std::isfinite(v))
-        return colorForBin(0);
+    if (!std::isfinite(v) || v < m_ramp.minValue)
+        return Qt::transparent;
+    if (v >= m_ramp.maxValue) return colorForBin(n - 1);
     // If the binner has not been classified yet, derive an inline equal-
     // interval bin from the ramp's range.
     if (m_lastBreaks.isEmpty())
@@ -252,13 +253,20 @@ SymbolStyle GraduatedRenderer::symbolFor(const FeatureRef &, const QVariantMap &
     const QVariant v = attrs.value(m_classifyAttribute);
     bool ok = false;
     const double dv = v.toDouble(&ok);
+    if (ok && (!std::isfinite(dv) || dv < m_ramp.minValue)) {
+        overrideColorInPlace(styled, QColor(Qt::transparent));
+        styled.opacity = 0.0;
+        return styled;
+    }
 
     // Compute the bin index once; colour (and the size axes when they
     // follow the classify attribute) key off it.
     const int n = m_binner.binCount();
     int bin = 0;
     if (ok && n > 0) {
-        if (!m_lastBreaks.isEmpty()) {
+        if (dv >= m_ramp.maxValue) {
+            bin = n - 1;
+        } else if (!m_lastBreaks.isEmpty()) {
             bin = m_binner.binFor(dv, m_lastBreaks);
         } else if (m_ramp.maxValue > m_ramp.minValue) {
             const double t = (dv - m_ramp.minValue) / (m_ramp.maxValue - m_ramp.minValue);
