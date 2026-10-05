@@ -102,6 +102,7 @@ public:
      *  same CRS as the mesh vertices) for the Auto-couple action. */
     using NodeLocatorFn = std::function<QVector<QPair<QString, QPointF>>()>;
     void setNodeLocator(NodeLocatorFn fn) { m_nodeLocator = std::move(fn); }
+    void setSurfaceOwnershipReview(std::function<void()> fn) { m_surfaceOwnershipReview=std::move(fn); }
     void refreshBCNameLists();    // re-query listers + repopulate combos
     void refreshNodeList();       // re-query node lister + repopulate the combo
 
@@ -339,6 +340,7 @@ private:
     ListerFn       m_curveLister;
     ListerFn       m_nodeLister;
     NodeLocatorFn  m_nodeLocator;
+    std::function<void()> m_surfaceOwnershipReview;
 };
 
 #endif // OPENSWMMVIS_UI_TOOLBARS_MESHEDITINGTOOLBAR_H

@@ -3978,6 +3978,13 @@ add_swmmvis_gui_test(test_groundwaterrecipestore
     test_groundwaterrecipestore.cpp
     ${CMAKE_SOURCE_DIR}/include/project/groundwaterrecipestore.h
     ${CMAKE_SOURCE_DIR}/src/project/groundwaterrecipestore.cpp)
+add_swmmvis_gui_test(test_surfaceownershipdialog
+    test_surfaceownershipdialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_surfaceownershipdialog)
+set_property(TEST test_surfaceownershipdialog APPEND PROPERTY ENVIRONMENT "SWMMVIS_R4_OUT=${CMAKE_SOURCE_DIR}/tests/verification/surface_r4_2026-10-05/qt")
+
 add_swmmvis_gui_test(test_groundwaterassigndialog
     test_groundwaterassigndialog.cpp
     ${SWMMVIS_TEST_SOURCES}

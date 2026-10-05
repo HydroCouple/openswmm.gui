@@ -1330,6 +1330,12 @@ void MeshEditingToolbar::onAutoCoupleClicked()
 void MeshEditingToolbar::onRemapClicked()
 {
     if (!m_activeMesh) return;
+    if(m_surfaceOwnershipReview){
+        QMessageBox box(this);box.setWindowTitle(tr("Remap 1D↔2D"));box.setText(tr("Choose the mapping to review."));
+        auto* ownership=box.addButton(tr("Review surface ownership"),QMessageBox::ActionRole);
+        auto* hydraulic=box.addButton(tr("Remap hydraulic nodes"),QMessageBox::ActionRole);box.addButton(QMessageBox::Cancel);box.exec();
+        if(box.clickedButton()==ownership){m_surfaceOwnershipReview();return;}if(box.clickedButton()!=hydraulic)return;
+    }
     const QVector<QPair<QString, QPointF>> nodes =
         m_nodeLocator ? m_nodeLocator() : QVector<QPair<QString, QPointF>>{};
     if (nodes.isEmpty()) {

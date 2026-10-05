@@ -56,6 +56,7 @@
 #include <QJsonObject>
 #include <QLocale>
 #include <QPainter>
+#include "assignment/surfaceownership.h"
 #include <QSet>
 #include <QStyleOptionGraphicsItem>
 #include <QtConcurrent/QtConcurrentRun>
@@ -1208,7 +1209,7 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
     m_maxSlope = 0.0f;
 
     if (nVerts == 0 || m_mesh.triangles.isEmpty()) {
-        ++m_geomRevision;
+        ++m_geomRevision;invalidateSurfaceOwnership();
         return;
     }
 
@@ -1275,7 +1276,7 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
     // ── LOD overview for far-zoom rendering ──────────────────────────────────
     rebuildOverview();
 
-    ++m_geomRevision;
+    ++m_geomRevision;invalidateSurfaceOwnership();
     refreshSublayerLegendInputs();
 
     // Notify the graphics item (if any) that its geometry changed.
@@ -1308,7 +1309,7 @@ void SWMM2DMeshLayer::rebuildSceneGeometryLight()
 
     if (nVerts == 0 || m_mesh.triangles.isEmpty()) {
         m_sceneGeomComplete = true;
-        ++m_geomRevision;
+        ++m_geomRevision;invalidateSurfaceOwnership();
         return;
     }
 
@@ -1367,7 +1368,7 @@ void SWMM2DMeshLayer::rebuildSceneGeometryLight()
     // layer draws the coarse levels the moment it joins the canvas.
     rebuildOverview();
 
-    ++m_geomRevision;
+    ++m_geomRevision;invalidateSurfaceOwnership();
     if (m_graphicsItem)
         m_graphicsItem->geometryChanged();
 }
@@ -2197,7 +2198,7 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
     // pre-edit colours: repaintRequested fires, the frame redraws, and the
     // shading does not change. Unconditional (the rebuild branches bump too);
     // a redundant increment costs nothing but a cache miss.
-    ++m_geomRevision;
+    ++m_geomRevision;invalidateSurfaceOwnership();
 
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     emit repaintRequested();
@@ -3071,10 +3072,29 @@ void SWMM2DMeshLayer::setInfiltrationModel(::SWMMModelLayer* model) {
  if(m_infiltrationModel!=model){
   disconnect(m_ownerClosing);disconnect(m_ownerEdited);
   m_infiltrationModel=model;
-  if(model){m_ownerClosing=connect(model,&::SWMMModelLayer::engineAboutToClose,this,[this]{m_mesh.infiltrationOwner.clear();m_mesh.infiltrationConflict.clear();m_mesh.infiltrationSource.clear();emit meshEditsChanged();});
-   m_ownerEdited=connect(model,&::SWMMModelLayer::modelEdited,this,[this]{refreshInfiltrationOwnership();});}
+  if(model){m_ownerClosing=connect(model,&::SWMMModelLayer::engineAboutToClose,this,[this]{m_mesh.infiltrationOwner.clear();m_mesh.infiltrationConflict.clear();m_mesh.infiltrationSource.clear();invalidateSurfaceOwnership();emit meshEditsChanged();});
+   m_ownerEdited=connect(model,&::SWMMModelLayer::modelEdited,this,[this]{refreshInfiltrationOwnership();refreshSurfaceOwnership();});}
  }
- refreshInfiltrationOwnership();
+ refreshInfiltrationOwnership();refreshSurfaceOwnership();
+}
+void SWMM2DMeshLayer::invalidateSurfaceOwnership(){
+ if(m_mesh.surfaceMeshWeatherPercent.isEmpty()&&m_mesh.surfaceSourcePerviousPercent.isEmpty()&&m_mesh.surfaceOwnershipStatus.isEmpty())return;
+ m_mesh.surfaceMeshWeatherPercent.clear();m_mesh.surfaceSourcePerviousPercent.clear();m_mesh.surfaceOwnershipStatus.clear();++m_attrRevision;emit meshEditsChanged();emit repaintRequested();
+}
+void SWMM2DMeshLayer::refreshSurfaceOwnership(){
+ QVector<double> weather,pervious;QVector<int> status;QString error;QVector<int> rows;
+ auto* model=m_infiltrationModel.data();
+ if(model&&openswmmvis::assignment::readSurfaceOwners(model->engine(),&rows,&error)&&!rows.isEmpty()&&
+    openswmmvis::assignment::surfaceOwnershipMeshMatches(model->engine(),this,&error)){
+  const auto p=openswmmvis::assignment::previewSurfaceOwners(model->engine(),rows);
+  if(!p.token.isEmpty()){
+   weather.resize(p.meshWeatherArea.size());pervious.fill(0,p.meshWeatherArea.size());status.fill(p.valid?0:3,p.meshWeatherArea.size());QVector<double> source(p.meshWeatherArea.size(),0);
+   for(const auto& s:p.shares){const auto& o=p.objects[s.subcatch];if(o.reviewed){source[s.cell]+=s.weather_area;if(!o.lumped)pervious[s.cell]+=s.pervious_area+s.native_lid_area;if(p.valid)status[s.cell]=1;}else if(p.valid)status[s.cell]=2;}
+   for(int c=0;c<weather.size();++c){const double area=p.meshWeatherArea[c]+source[c];weather[c]=p.valid?(area>0?100*p.meshWeatherArea[c]/area:0):std::numeric_limits<double>::quiet_NaN();pervious[c]=p.valid?(area>0?100*pervious[c]/area:0):std::numeric_limits<double>::quiet_NaN();}
+  }
+ }
+ if(weather==m_mesh.surfaceMeshWeatherPercent&&pervious==m_mesh.surfaceSourcePerviousPercent&&status==m_mesh.surfaceOwnershipStatus)return;
+ m_mesh.surfaceMeshWeatherPercent=weather;m_mesh.surfaceSourcePerviousPercent=pervious;m_mesh.surfaceOwnershipStatus=status;++m_attrRevision;emit meshEditsChanged();emit repaintRequested();
 }
 void SWMM2DMeshLayer::refreshInfiltrationOwnership() {
  QVector<int> resolvedOwners,resolvedConflicts;QStringList resolvedSources;

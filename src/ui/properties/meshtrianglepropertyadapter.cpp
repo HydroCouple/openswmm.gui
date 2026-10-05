@@ -103,6 +103,9 @@ QString MeshTrianglePropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QStringLiteral("infiltrationOwner")) return tr("Infiltration owner");
     if (property == QStringLiteral("infiltrationSource")) return tr("Ownership source");
     if (property == QStringLiteral("infiltrationConflict")) return tr("Ownership conflict");
+    if(property=="surfaceOwnershipReview")return mesh::cellParamLabel("surface.owner",{});
+    if(property=="remainingMeshWeather")return mesh::cellParamLabel("surface.meshWeather",{});
+    if(property=="spatialSourcePervious")return mesh::cellParamLabel("surface.sourcePervious",{});
     return property;
 }
 
@@ -116,4 +119,17 @@ QString MeshTrianglePropertyAdapter::infiltrationSource() const {
 QString MeshTrianglePropertyAdapter::infiltrationConflict() const {
  const double value=m_layer?mesh::cellParamValue(m_layer->mesh(),m_idx,"infil.conflict"):qQNaN();
  return std::isfinite(value)?mesh::cellParamSpec("infil.conflict")->enumLabels.value(int(value)):tr("Unavailable");
+}
+
+QString MeshTrianglePropertyAdapter::surfaceOwnershipReview() const {
+ const double value=m_layer?mesh::cellParamValue(m_layer->mesh(),m_idx,"surface.owner"):qQNaN();
+ return std::isfinite(value)?mesh::cellParamSpec("surface.owner")->enumLabels.value(int(value)):tr("Unavailable");
+}
+QString MeshTrianglePropertyAdapter::remainingMeshWeather() const {
+ const double value=m_layer?mesh::cellParamValue(m_layer->mesh(),m_idx,"surface.meshWeather"):qQNaN();
+ return std::isfinite(value)?QString::number(value,'g',8)+"%":tr("Unavailable");
+}
+QString MeshTrianglePropertyAdapter::spatialSourcePervious() const {
+ const double value=m_layer?mesh::cellParamValue(m_layer->mesh(),m_idx,"surface.sourcePervious"):qQNaN();
+ return std::isfinite(value)?QString::number(value,'g',8)+"%":tr("Unavailable");
 }

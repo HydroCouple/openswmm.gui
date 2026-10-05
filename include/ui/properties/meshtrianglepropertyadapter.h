@@ -52,6 +52,12 @@ public:
     Q_PROPERTY(QString infiltrationOwner READ infiltrationOwner NOTIFY changed)
     Q_PROPERTY(QString infiltrationSource READ infiltrationSource NOTIFY changed)
     Q_PROPERTY(QString infiltrationConflict READ infiltrationConflict NOTIFY changed)
+    Q_PROPERTY(QString surfaceOwnershipReview READ surfaceOwnershipReview NOTIFY changed)
+    Q_PROPERTY(QString remainingMeshWeather READ remainingMeshWeather NOTIFY changed)
+    Q_PROPERTY(QString spatialSourcePervious READ spatialSourcePervious NOTIFY changed)
+    QString surfaceOwnershipReview() const;
+    QString remainingMeshWeather() const;
+    QString spatialSourcePervious() const;
     QString infiltrationOwner() const;
     QString infiltrationSource() const;
     QString infiltrationConflict() const;

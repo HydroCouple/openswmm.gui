@@ -81,6 +81,7 @@
 #include "project/profilesectionstore.h"
 #include "project/groundwaterrecipestore.h"
 #include "ui/dialogs/groundwaterassigndialog.h"
+#include "ui/dialogs/surfaceownershipdialog.h"
 // Editable feature layers (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §6.2).
 #include "feature/featurestore.h"
 #include "layers/featurelayer.h"
@@ -1208,6 +1209,16 @@ void SWMMVis::initializeMeshEditingToolBar()
             }
             return out;
         });
+    mMeshEditingToolbar->setSurfaceOwnershipReview([this]{
+        auto* pw=activeProjectWindow();auto* mesh=mMeshEditingToolbar?mMeshEditingToolbar->activeMesh():nullptr;
+        if(!pw||!pw->modelLayer()||!mesh||!pw->canvas()->layers().contains(mesh))return;
+        auto* dialog=new openswmmvis::ui::SurfaceOwnershipDialog(pw->modelLayer(),mesh,pw->canvas(),pw->selectionManager(),pw);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        connect(dialog,&openswmmvis::ui::SurfaceOwnershipDialog::applied,pw,[pw]{pw->setHasChanges(true);});
+        connect(dialog,&openswmmvis::ui::SurfaceOwnershipDialog::sourceEditorRequested,pw,[pw](const QString& id){pw->selectionManager()->select({{SWMMObjectRef::Subcatchment,id}},SelectionManager::Replace);});
+        connect(dialog,&openswmmvis::ui::SurfaceOwnershipDialog::groundwaterEditorRequested,pw,[this,dialog]{dialog->close();if(auto* action=findChild<QAction*>("actionAssignGroundwater"))action->trigger();});
+        dialog->show();
+    });
     mMeshEditingToolbar->setCurveLister([this]() -> QStringList {
         auto *pw = activeProjectWindow();
         if (!pw || !pw->modelLayer()) return {};

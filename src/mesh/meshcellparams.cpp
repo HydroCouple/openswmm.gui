@@ -114,6 +114,12 @@ const QVector<CellParamSpec> &cellParamSpecs()
             s.enumLabels=key=="infil.owner"?QStringList{tr("Process disabled"),tr("Surface bank"),tr("Aquifer")}:QStringList{tr("None"),tr("Explicit surface cell method"),tr("Obsolete destination")};
             s.tooltip=tr("Resolved ownership. Capacity is computed by the aquifer on covered cells. Use Assign Groundwater to review conflicts.");v.append(s);
         }
+        for(const auto& key:{QByteArray("surface.meshWeather"),QByteArray("surface.sourcePervious"),QByteArray("surface.owner")}){
+            CellParamSpec s;s.key=key;s.enabled=false;s.min=0;s.max=100;s.decimals=3;
+            s.label=key=="surface.meshWeather"?tr("Remaining mesh weather (%)"):key=="surface.sourcePervious"?tr("Spatial source pervious/LID area (%)"):tr("Surface ownership review");
+            if(key=="surface.owner"){s.kind=CellParamSpec::Kind::Enum;s.max=3;s.enumLabels={tr("Mesh only"),tr("Subcatchment / uniform"),tr("Unreviewed overlap"),tr("Invalid review")};}
+            s.tooltip=tr("Engine-resolved reviewed geometry, not runtime recharge. Unavailable when no review is stored or geometry differs.");v.append(s);
+        }
         // ---- Live: per-cell infiltration (GUI plan §3.5(2), phase GG0b) ----
         // Values resolve through mesh::resolveInfil, so a cell inheriting from
         // its region tag reads back the region's numbers; an edit materialises
@@ -200,6 +206,8 @@ QString cellParamLabel(const QByteArray &key, const QString &depthUnitLabel)
 
 double cellParamValue(const MeshResult &mesh, int tri, const QByteArray &key)
 {
+    if(key=="surface.owner")return tri>=0&&tri<mesh.surfaceOwnershipStatus.size()?mesh.surfaceOwnershipStatus[tri]:std::numeric_limits<double>::quiet_NaN();
+    if(key=="surface.meshWeather"||key=="surface.sourcePervious"){const auto& values=key=="surface.meshWeather"?mesh.surfaceMeshWeatherPercent:mesh.surfaceSourcePerviousPercent;return tri>=0&&tri<values.size()?values[tri]:std::numeric_limits<double>::quiet_NaN();}
     if (key=="infil.owner"||key=="infil.conflict") {
         const auto& values=key=="infil.owner"?mesh.infiltrationOwner:mesh.infiltrationConflict;
         return tri>=0&&tri<values.size()?values[tri]:std::numeric_limits<double>::quiet_NaN();
