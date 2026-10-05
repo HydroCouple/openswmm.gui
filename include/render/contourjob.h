@@ -53,6 +53,11 @@ struct ContourJobInput
      *  frame and shared between the band and isoline jobs of that frame. */
     std::shared_ptr<const std::vector<std::array<float, 3>>> scalars;
 
+    /*! Optional triangle selection from the renderer's coverage index. Null
+     * means the full snapshot; an empty selection means no visible triangles.
+     * Indices outside either array are ignored. */
+    std::shared_ptr<const std::vector<size_t>> triangleIndices;
+
     /*! Class edges for filled bands; empty = skip the band pass. */
     std::vector<double> bandLevels;
 

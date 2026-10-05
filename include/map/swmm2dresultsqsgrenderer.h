@@ -33,8 +33,8 @@
  *     while mesh edges and vertex markers persist.
  *   - A deterministic LOD policy (Qsg2DLodPolicy) gates dense passes:
  *     at Far zoom no wireframe, no vertex markers, no labels, no dense
- *     per-cell velocity glyphs, and contour bands fall back to the flat
- *     per-cell classification (visually identical once cells are subpixel).
+ *     per-cell velocity glyphs. Exact contour bands remain available at
+ *     every zoom level.
  *   - A MeshRenderChunkIndex (keyed by the layer's geomRevision) batches
  *     visibility culling: fully-visible chunks skip per-element bbox tests.
  *   - Content is built for a coverage rect larger than the viewport; pans
@@ -63,6 +63,7 @@
 #include <QFutureWatcher>
 #include <QHash>
 #include <QImage>
+#include <QJsonObject>
 #include <QPointer>
 #include <QQuickItem>
 #include <QRectF>
@@ -160,6 +161,10 @@ private:
     OpenSWMM::Render::MeshRenderChunkIndex m_chunks;
     quint64 m_chunksRev = ~quint64(0);
 
+    // Large meshes use the worker even for their first frame and changed
+    // ranges/settings. Automatic range growth accepts completed intermediate
+    // frames with their own class breaks. Contours cover only the viewport
+    // plus its pan margin; jobs from different coverage cannot publish.
     // Bands and lines are one complete frame, with matching water/velocity
     // inputs. Only one worker is in flight; newer ticks coalesce to the next
     // request while the last complete frame remains available for pan/zoom.
@@ -169,10 +174,18 @@ private:
         double dryDepth = 0, maxDepth = 0;
         bool velocity = false, smoothBands = false;
         std::vector<double> bandLevels, isoLevels;
-        bool compatible(const ContourJobKey& o) const {
+        QJsonObject contourStyle;
+        QRectF coverage;
+        // Automatic breaks may grow during a live run. A completed frame is
+        // still useful if source, geometry, user settings and coverage agree.
+        bool samePresentation(const ContourJobKey& o) const {
             return epoch == o.epoch && dryDepth == o.dryDepth
-                && maxDepth == o.maxDepth && velocity == o.velocity
-                && smoothBands == o.smoothBands
+                && velocity == o.velocity && smoothBands == o.smoothBands
+                && contourStyle == o.contourStyle && coverage == o.coverage;
+        }
+        bool compatible(const ContourJobKey& o) const {
+            return samePresentation(o)
+                && maxDepth == o.maxDepth
                 && bandLevels == o.bandLevels && isoLevels == o.isoLevels;
         }
         bool operator==(const ContourJobKey& o) const {

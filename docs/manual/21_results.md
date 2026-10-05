@@ -190,6 +190,14 @@ colour** and a **High colour**.
 
 \fig{21_2d_style_panel_tabs.png, The 2D results styling panel showing the Depth Isolines tab}
 
+For large meshes, the GPU renderer prepares depth contours in the background,
+including the first frame and changes to the live depth range. It keeps the last
+complete frame visible while preparing the next one; live display may therefore
+trail the simulation. Only one contour job runs at a time, and newer updates
+coalesce to the latest frame. Contours are prepared for the current view plus a
+pan margin; moving outside that region starts a new job. Zooming into an area
+reduces contour work without changing its wet boundaries or contour values.
+
 ### How the 2D surface is reconstructed
 
 Three behaviours are worth knowing because they explain what you see at the
