@@ -3,6 +3,7 @@
         <file alias="components.json">about/components.json</file>
     </qresource>
     <qresource prefix="/licenses">
+        <file alias="openswmmgui.txt">../LICENSE</file>
         <file alias="openswmmengine.txt">licenses/openswmmengine.txt</file>
         <file alias="predicates.txt">licenses/predicates.txt</file>
         <file alias="qt6.txt">licenses/qt6.txt</file>
