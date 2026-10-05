@@ -66,6 +66,12 @@ private:
  QJsonObject m_recipe;
  WorkResult m_reviewed;
  assignment::InfiltrationOwnershipPreview m_ownership;
+ assignment::AquiferProcessPreview m_process;
+ bool m_haveProcess=false;
+ QWidget* m_processControls=nullptr;
+ QComboBox *m_processEt=nullptr,*m_processLink=nullptr;
+ QCheckBox* m_wiltingAuto=nullptr;
+ QDoubleSpinBox* m_wilting=nullptr;
  bool m_haveOwnership=false;
  QCheckBox* m_removeInfilOverrides=nullptr;
  bool m_havePreview=false,m_committing=false;

@@ -156,6 +156,10 @@ private:
     // Transport summary naming the [GW_*] authoring surface (U4).
     QGroupBox   *m_gw2DGroup       = nullptr;
     QComboBox   *m_gw2DEnableCombo = nullptr;
+    QComboBox      *m_gwLinkCombo = nullptr;
+    QCheckBox     *m_gwWiltingAuto = nullptr;
+    QDoubleSpinBox *m_gwWilting = nullptr;
+    QLabel        *m_gwEtAllocation = nullptr;
     QComboBox   *m_gw2DEtCombo     = nullptr;
     QLabel      *m_gw2DStatusLabel = nullptr;
     QPushButton *m_gw2DEditBtn     = nullptr;

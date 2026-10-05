@@ -1,5 +1,6 @@
 #include "assignment/groundwaterassignment.h"
 #include <openswmm/engine/openswmm_gw2d.h>
+#include <openswmm/engine/openswmm_climate.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_2d.h>
 #include <cstring>
@@ -10,7 +11,7 @@
 namespace openswmmvis::assignment {
 namespace {
 const QStringList properties={"PSI_B","LAMBDA","N","L","C_LOSS","HG0","SOIL_CHAR","CLOSURE","M_LAYERS"};
-const QStringList options={"SOIL_CHAR","CLOSURE","M_LAYERS","CAPILLARY_DIFF","C_GW","C_COL","FORCE_CLOSED_FORM","MODE","DUNNE","GW_ET","NODE_ENROLMENT","LINK_SEEPAGE"};
+const QStringList options={"SOIL_CHAR","CLOSURE","M_LAYERS","CAPILLARY_DIFF","C_GW","C_COL","FORCE_CLOSED_FORM","MODE","DUNNE","GW_ET","NODE_ENROLMENT","LINK_SEEPAGE","WILTING_SUCTION","OPTIONS_AUTHORED","CONFIGURED"};
 bool fail(QString *error,const QString &text){if(error)*error=text;return false;}
 bool editable(SWMM_Engine e){int state=0;return e&&swmm_engine_get_state(e,&state)==SWMM_OK&&(state==SWMM_STATE_BUILDING||state==SWMM_STATE_OPENED);}
 double value(const AquiferRow&r,const QString&key){
@@ -90,6 +91,9 @@ bool readAquiferSnapshot(SWMM_Engine e,AquiferSnapshot*out,QString *error){
         if(swmm_gw2d_option_get(e,key.toUtf8().constData(),buffer,sizeof buffer)!=SWMM_OK)return fail(error,"Cannot read groundwater option "+key+".");
         result.options[key]=QString::fromUtf8(buffer);
     }
+    char projectUnits[80]{};if(swmm_options_get(e,"FLOW_UNITS",projectUnits,sizeof projectUnits)!=SWMM_OK)return fail(error,"Cannot read project units.");
+    result.options["PROJECT_FLOW_UNITS"]=QString::fromUtf8(projectUnits);
+    result.options["ET_FORCING_REVIEW"]=groundwaterEtForcingStatus(e);
     *out=std::move(result);return true;
 }
 AquiferPreview previewAquiferAssignment(const AquiferRequest&r){
@@ -202,5 +206,38 @@ bool applyInfiltrationOwnership(SWMM_Engine e,const InfiltrationOwnershipSnapsho
  if(swmm_infil2d_replace_authored_rows(e,desired.rows.constData(),desired.rows.size())!=SWMM_OK){
   swmm_options_set_ext(e,"INFIL_DESTINATION",expected.destination.toUtf8().constData());return fail(error,"Cannot apply reviewed rows; the destination was restored.");
  }return true;
+}
+}
+
+namespace openswmmvis::assignment {
+QString groundwaterEtForcingStatus(SWMM_Engine e,const QString& meshMode){
+ char token[80]{};swmm_options_get_ext(e,"EVAPORATION",token,sizeof token);const QString mode=meshMode.isEmpty()?QString::fromUtf8(token):meshMode;
+ if(mode=="NO")return "Mesh evaporation is Off: atmospheric demand is zero, including prescribed rates.";
+ if(mode!="CLIMATE")return "Mesh evaporation is Forced only: prescribe mesh evaporation rates to generate atmospheric demand.";
+ int type=0;if(swmm_climate_get_evap_type(e,&type)!=SWMM_OK)return "Climate evaporation configuration is unavailable.";
+ if(type==SWMM_EVAP_CONSTANT||type==SWMM_EVAP_MONTHLY){double rates[12]{};if(swmm_climate_get_evap_monthly(e,rates,12)!=SWMM_OK)return "Climate evaporation rates are unavailable.";
+  const double maximum=*std::max_element(rates,rates+12);return maximum>0?QString("Project climate evaporation is configured (maximum authored rate %1 in project evaporation units).").arg(maximum,0,'g',12):QString("No positive climate evaporation is authored: demand is zero unless mesh rates are prescribed.");}
+ if(type==SWMM_EVAP_TIMESERIES){char series[4096]{};swmm_climate_get_evap_timeseries(e,series,sizeof series);return *series?QString("Climate evaporation uses time series %1; verify its coverage and rates.").arg(QString::fromUtf8(series)):QString("No climate evaporation time series is assigned.");}
+ return type==SWMM_EVAP_TEMPERATURE?QString("Climate evaporation derives from temperature; verify temperature forcing coverage."):QString("Climate evaporation uses a climate file; verify file coverage and rates.");
+}
+AquiferProcessPreview previewAquiferProcesses(SWMM_Engine e,const QString& et,const QString& link,const QString& wilting){
+ AquiferProcessPreview p;if(!readAquiferSnapshot(e,&p.before,&p.error))return p;
+ char mode[80]{};if(swmm_options_get_ext(e,"GROUNDWATER",mode,sizeof mode)!=SWMM_OK){p.error="Cannot read groundwater enable.";return p;}p.groundwater=mode;p.forcing=groundwaterEtForcingStatus(e);
+ if(!QStringList{"AUTO","NONE","BOUNDARY_ET","CAPILLARY_RISE","BOTH"}.contains(et)||!QStringList{"DEFAULT","ONE_WAY","NONE","TWO_WAY"}.contains(link)){p.error="Invalid groundwater process choice.";return p;}
+ bool ok=false;const double v=wilting.toDouble(&ok);if(wilting!="AUTO"&&(!ok||!std::isfinite(v)||v<=0)){p.error="Wilting suction must be Automatic or a positive finite project length.";return p;}
+ p.after=p.before;p.after.options["GW_ET"]=et;p.after.options["LINK_SEEPAGE"]=link;p.after.options["WILTING_SUCTION"]=wilting;
+ if(wilting!="AUTO"&&p.before.options.value("WILTING_SUCTION")!="AUTO"&&std::abs(v-p.before.options.value("WILTING_SUCTION").toDouble())<=5e-10)p.after.options["WILTING_SUCTION"]=p.before.options.value("WILTING_SUCTION");
+ p.changed=p.after.options!=p.before.options;
+ if(p.changed){p.after.options["OPTIONS_AUTHORED"]="YES";p.after.options["CONFIGURED"]="YES";}
+ const auto describe=[&](const AquiferSnapshot& s){const bool enabled=p.groundwater!="NO"&&s.options.value("CONFIGURED")=="YES";const bool mesh=s.options.value("MODE")!="PER_SUBCATCH";const QString et=s.options.value("GW_ET"),link=s.options.value("LINK_SEEPAGE"),wilting=s.options.value("WILTING_SUCTION");
+  return QString("ET %1 (%2); seepage %3 (%4); wilting %5").arg(et,enabled?(et=="AUTO"?(mesh?"BOTH":"NONE"):et):"inactive",link,enabled?(link=="DEFAULT"?(mesh?"TWO_WAY":"ONE_WAY"):link):"inactive",wilting=="AUTO"?"Automatic: 150 m":wilting+(QStringList{"CFS","GPM","MGD"}.contains(s.options.value("PROJECT_FLOW_UNITS"))?" ft":" m"));};
+ p.beforeEffective=describe(p.before);p.afterEffective=describe(p.after);return p;
+}
+bool applyAquiferProcesses(SWMM_Engine e,const AquiferSnapshot& expected,const AquiferSnapshot& desired,const QString& groundwater,QString* error){
+ AquiferSnapshot now;char mode[80]{};if(!readAquiferSnapshot(e,&now,error)||swmm_options_get_ext(e,"GROUNDWATER",mode,sizeof mode)!=SWMM_OK)return false;
+ if(now!=expected||QString::fromUtf8(mode)!=groundwater)return fail(error,"Groundwater inputs changed since review. Preview again.");
+ const auto& o=desired.options;
+ if(swmm_gw2d_process_options_set(e,o.value("GW_ET").toUtf8().constData(),o.value("LINK_SEEPAGE").toUtf8().constData(),o.value("WILTING_SUCTION").toUtf8().constData(),o.value("OPTIONS_AUTHORED")=="YES")!=SWMM_OK)return fail(error,"The engine refused the process edit; no values changed.");
+ return true;
 }
 }

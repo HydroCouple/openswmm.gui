@@ -46,6 +46,14 @@ struct AquiferTarget {
     bool minimumExclusive=false,supported=true;
     QString unavailableReason;
 };
+struct AquiferProcessPreview {
+    AquiferSnapshot before,after;
+    QString groundwater,beforeEffective,afterEffective,forcing,error;
+    bool changed=false;
+};
+QString groundwaterEtForcingStatus(SWMM_Engine,const QString& meshMode={});
+AquiferProcessPreview previewAquiferProcesses(SWMM_Engine,const QString& et,const QString& link,const QString& wilting);
+bool applyAquiferProcesses(SWMM_Engine,const AquiferSnapshot& expected,const AquiferSnapshot& desired,const QString& groundwater,QString* error);
 QVector<AquiferTarget> aquiferTargets();
 bool readAquiferSnapshot(SWMM_Engine,AquiferSnapshot *,QString *error);
 struct AquiferRequest {

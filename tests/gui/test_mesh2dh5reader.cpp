@@ -529,6 +529,22 @@ private slots:
         QCOMPARE(values[0],0.f);QCOMPARE(status[0],S::Valid);QVERIFY(std::isnan(values[1]));QCOMPARE(status[1],S::Missing);
     }
 
+    void actualEtResultsExposeTheSharedBudget()
+    {
+        const QString base=qEnvironmentVariable("SWMMVIS_R3_ENGINE_OUTPUT",QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().absoluteFilePath("data/surface_r3_out/results"));
+        using V=openswmmvis::io::Mesh2DResultVariable;
+        for(const char* suffix:{"dry","ponded"}) {
+            Mesh2DH5Reader reader;QVERIFY(reader.open(QDir(base).filePath(QString("et_SIGMA_%1.2d.h5").arg(suffix))));
+            for(const char* name:{"Mesh2_face_et_pending","Mesh2_face_et_potential_cum","Mesh2_face_et_surface_cum","Mesh2_face_et_soil_cum","Mesh2_face_et_unused_cum","Mesh2_face_et_refresh"})QVERIFY(!catalogVariable(reader,name).key().isEmpty());
+            const auto potential=catalogVariable(reader,"Mesh2_face_et_potential");QCOMPARE(potential.units,QString("m s-1"));QCOMPARE(potential.temporal,V::Temporal::Held);
+            const auto stress=catalogVariable(reader,"Mesh2_face_et_stress");QCOMPARE(stress.units,QString("1"));QCOMPARE(stress.temporal,V::Temporal::Held);
+            std::vector<float> p,s,g,u,b;std::vector<double> times;QVERIFY(reader.readTimes(times));QVERIFY(!times.empty());const auto last=times.size()-1;
+            QVERIFY(reader.readFaceFieldAt("Mesh2_face_et_potential_cum",last,p));QVERIFY(reader.readFaceFieldAt("Mesh2_face_et_surface_cum",last,s));QVERIFY(reader.readFaceFieldAt("Mesh2_face_et_soil_cum",last,g));QVERIFY(reader.readFaceFieldAt("Mesh2_face_et_unused_cum",last,u));QVERIFY(reader.readFaceFieldAt("Mesh2_face_et_pending",last,b));
+            QVERIFY(std::abs(p[0]-s[0]-g[0]-u[0]-b[0])<1e-8);QVERIFY(s[0]+g[0]<=p[0]+1e-8);
+            if(QString(suffix)=="ponded"){QCOMPARE(g[0],0.f);QVERIFY(s[0]>0);}else{QCOMPARE(s[0],0.f);QVERIFY(g[0]>0);}
+        }
+    }
+
     void scalarFillValuesAreMissing()
     {
         const QString path = catalogCopy(fixturePath_, "scalar-fill");
