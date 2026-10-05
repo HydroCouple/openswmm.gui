@@ -199,6 +199,16 @@ node, then use **Model → LID Control** to edit its ordered layers. The node
 footprint supplies layer areas; MEDIA has five numerical cells per authored
 layer. Dynamic Wave routes ordinary network links and downstream heads.
 
+Conventional subcatchment LIDs use one underdrain definition, with one
+opening/closing threshold pair and an optional head-based discharge curve.
+A storage-node LID supports any number of network connections at different
+elevations. Configure each link's offset or LID outlet anchor separately;
+use control rules to operate each controllable link independently. Orifices
+used as valves accept settings from 0 (closed) to 1 (fully open), including
+partial openings. The setting specifies opening, not a linear fraction of
+discharge. This supports distinct drawdown, intermediate-release and
+emergency-overflow paths with downstream-head feedback.
+
 For cell geometry G, retained fraction theta and porosity phi, total water
 is the retained sum `sum(theta * G)` plus mobile pore water
 `sum((phi - theta) * G * submerged_fraction)`. Reported node volume includes

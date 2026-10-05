@@ -159,6 +159,21 @@ physical authored-layer exit and is not repeated at every media cell.
 
 ### 3. Inspect the connections and receiving boundary
 
+A conventional subcatchment LID has one underdrain definition with one
+opening/closing threshold pair and an optional head-based discharge curve.
+The storage-node LID instead accepts any number of ordinary network links at
+different elevations. Each controllable link can have its own rules and
+opening setting; an orifice representing a valve accepts settings from 0
+(closed) through partial openings to 1 (fully open). The supplied decks use
+0 and 1. A setting of 0.5 specifies half the opening, not necessarily half
+the discharge, because flow also depends on head and the link geometry.
+
+In SWMMVis, add each connection as a separate link in the map, edit its
+offset or LID outlet layer and position properties, then give that link its own actions in
+**Model → Data Objects → Control Rules…**. A low-level drain and a high-level
+overflow can coexist on the same LID node; additional intermediate outlets
+can be controlled independently.
+
 V_AB is a side orifice with diameter 0.15 ft and coefficient 0.6. Its authored
 orifice offset is 0.05 ft above the A invert. A link between two LID nodes uses explicit offsets rather
 than a single-ended LID anchor. V_BR has diameter 0.10 ft and coefficient 0.6;
