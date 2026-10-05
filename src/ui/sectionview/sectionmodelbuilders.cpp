@@ -1133,6 +1133,7 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
     voidSpace.pts  = ring(invert, rim, 0.0);
     m.polys << voidSpace;
 
+    QString richardsStatistics;
     int lidControl = -1; double initialSaturation = 0.0;
     swmm_node_get_lid(engine, nodeIdx, &lidControl, &initialSaturation);
     if (lidControl >= 0) {
@@ -1151,6 +1152,29 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
             top = bottom;
         }
         m.title = tr_("%1 — LID Storage Profile").arg(nodeName);
+        SWMM_LidRichardsOptions flow{};
+        if (swmm_lid_richards_options_get(engine, lidControl, &flow) == SWMM_OK && flow.model == 1) {
+            m.title = tr_("%1 — Richards 1D profile").arg(nodeName);
+            SWMM_LidRichardsStatistics statistics{};
+            if (swmm_lid_richards_statistics_get(engine, nodeIdx, &statistics) == SWMM_OK)
+                richardsStatistics = tr_("Last interval: %1 steps, %2 retries · balance %3 m³")
+                    .arg(statistics.accepted).arg(statistics.rejected).arg(QString::number(statistics.balance_m3, 'g', 3));
+            const int count = swmm_lid_node_state_count(engine, nodeIdx);
+            for (int cell = 0; cell < count; ++cell) {
+                int layer = 0; double bottom = 0, cellTop = 0, theta = 0;
+                double pressure = 0, totalHead = 0, water = 0;
+                if (swmm_lid_node_state_get(engine, nodeIdx, cell, &layer, &bottom, &cellTop, &theta) != SWMM_OK ||
+                    swmm_lid_richards_state_get(engine, nodeIdx, cell, &pressure, &totalHead, &water) != SWMM_OK) continue;
+                if (cell == 0) continue;
+                DiagramPoly band;
+                band.pts = ring(invert + bottom, invert + cellTop, 0.0);
+                SWMM_LidNodeLayer physical{};
+                swmm_lid_node_layer_get(engine, lidControl, layer - 1, &physical);
+                band.role = physical.kind == 2 ? DiagramRole::Gravel : DiagramRole::Media;
+                band.insetLabel = tr_("θ %1 · h %2 %3").arg(QString::number(theta, 'f', 3), QString::number(pressure, 'g', 3), units.si ? "m" : "ft");
+                m.polys << band;
+            }
+        }
     }
 
 
@@ -1586,6 +1610,7 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
         footer += tr_("   (widths schematic)");
     }
     m.footer = footer;
+    if (!richardsStatistics.isEmpty()) m.footer += QStringLiteral(" · ") + richardsStatistics;
 
     return m;
 }

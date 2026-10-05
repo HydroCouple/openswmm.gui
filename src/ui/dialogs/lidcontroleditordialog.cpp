@@ -18,6 +18,9 @@
 #include "ui/theme/iconfactory.h"
 
 #include "ui/models/lidnodelayermodel.h"
+#include <QPainter>
+#include <QPainterPath>
+#include <cmath>
 #include <QTableView>
 #include <QSpinBox>
 #include <QStandardItemModel>
@@ -25,7 +28,6 @@
 #include "ui/widgets/treatmentexpressionedit.h"
 #include <openswmm/engine/openswmm_quality.h>
 #include <openswmm/engine/openswmm_pollutants.h>
-#include <cmath>
 #include <QSignalBlocker>
 #include <limits>
 #include <QHeaderView>
@@ -33,6 +35,7 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QItemSelectionModel>
 #include <QLabel>
@@ -48,6 +51,38 @@ namespace openswmmvis::ui {
 
 using openswmmvis::lid::LidControlProvider;
 using openswmmvis::lid::LidControlRegistry;
+namespace {
+class RetentionCurves : public QWidget {
+public:
+    explicit RetentionCurves(QWidget* parent) : QWidget(parent) { setMinimumHeight(185); setObjectName("lidRetentionCurves"); }
+    SWMM_LidRichardsMaterial material{}; double porosity = 0;
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this); p.setRenderHint(QPainter::Antialiasing);
+        p.fillRect(rect(), palette().base()); p.setPen(palette().text().color());
+        if (!(material.alpha > 0 && material.n > 1 && porosity > material.theta_r && material.l >= 0)) {
+            p.drawText(rect().adjusted(10, 10, -10, -10), Qt::AlignCenter | Qt::TextWordWrap, tr("Enter retention parameters to preview the moisture and conductivity curves.")); return;
+        }
+        QRectF graph(50, 25, width() - 75, height() - 65);
+        p.drawLine(graph.bottomLeft(), graph.bottomRight()); p.drawLine(graph.bottomLeft(), graph.topLeft());
+        p.drawText(QRectF(0, 0, width(), 22), Qt::AlignCenter, tr("Blue: water content · Orange: relative conductivity"));
+        p.drawText(QRectF(0, height() - 28, width(), 24), Qt::AlignCenter, tr("Suction head (m), logarithmic: 0.001 → 1,000"));
+        p.drawText(QRectF(0, graph.top(), 43, 20), Qt::AlignRight, "1");
+        p.drawText(QRectF(0, graph.bottom() - 20, 43, 20), Qt::AlignRight, "0");
+        for (int curve = 0; curve < 2; ++curve) {
+            QPainterPath path; const double m = 1 - 1 / material.n;
+            for (int i = 0; i <= 200; ++i) {
+                double suction = std::pow(10., -3 + 6. * i / 200);
+                double se = std::pow(1 + std::pow(material.alpha * suction, material.n), -m);
+                double value = curve ? std::pow(se, material.l) * std::pow(1 - std::pow(1 - std::pow(se, 1 / m), m), 2) : material.theta_r + (porosity - material.theta_r) * se;
+                QPointF point(graph.left() + graph.width() * i / 200., graph.bottom() - graph.height() * value);
+                if (i) path.lineTo(point); else path.moveTo(point);
+            }
+            p.setPen(QPen(curve ? QColor("#c87818") : QColor("#287fb8"), 2)); p.drawPath(path);
+        }
+    }
+};
+}
 
 namespace {
 // Use the same native numeric controls as the physical property forms.
@@ -228,9 +263,46 @@ void LidControlEditorDialog::buildUi_()
     m_mediaCount->setRange(1, std::numeric_limits<int>::max());
     m_mediaCount->setKeyboardTracking(false);
     countForm->addRow(tr("Media / aggregate layers"), m_mediaCount);
+    m_flowModel = new QComboBox(m_nodeLayerPage);
+    m_flowModel->setObjectName("lidFlowModel");
+    m_flowModel->addItems({tr("Existing formulation (with backwater)"), tr("Richards 1D")});
+    countForm->addRow(tr("Flow model"), m_flowModel);
+    m_richardsBoundaryNotice = new QLabel(tr("Richards supports sealed bottoms and native soil drainage. Active 2D aquifer beds require the forthcoming bottom-interface coupling."), m_nodeLayerPage);
+    m_richardsBoundaryNotice->setWordWrap(true);
+    m_richardsBoundaryNotice->setVisible(false);
+    countForm->addRow(m_richardsBoundaryNotice);
+    auto* numericsGroup = new QGroupBox(tr("Numerical settings"), m_nodeLayerPage);
+    numericsGroup->setObjectName("lidRichardsNumerics");
+    numericsGroup->setCheckable(true); numericsGroup->setChecked(false);
+    auto* numericsPage = new QWidget(numericsGroup);
+    auto* numericsForm = new QFormLayout(numericsPage);
+    auto* numericsLayout = new QVBoxLayout(numericsGroup); numericsLayout->addWidget(numericsPage);
+    numericsPage->setVisible(false);
+    connect(numericsGroup, &QGroupBox::toggled, numericsPage, &QWidget::setVisible);
+    m_richardsSettings = numericsGroup;
+    m_richardsCells = new QSpinBox(m_nodeLayerPage); m_richardsCells->setRange(1, 256); m_richardsCells->setValue(8);
+    m_richardsCells->setObjectName("lidRichardsCells");
+    numericsForm->addRow(tr("Numerical cells per porous layer"), m_richardsCells);
+    m_richardsAtol = makeSpin(m_nodeLayerPage, 1.e-12, .1, 1.e-7); m_richardsAtol->setDecimals(12); m_richardsAtol->setValue(1.e-7);
+    m_richardsRtol = makeSpin(m_nodeLayerPage, 1.e-12, .1, 1.e-5); m_richardsRtol->setDecimals(12); m_richardsRtol->setValue(1.e-5);
+    m_richardsMaxStep = makeSpin(m_nodeLayerPage, .001, 86400, 1); m_richardsMaxStep->setValue(30);
+    numericsForm->addRow(tr("Absolute water-content tolerance"), m_richardsAtol);
+    numericsForm->addRow(tr("Relative tolerance"), m_richardsRtol);
+    numericsForm->addRow(tr("Maximum internal step (s)"), m_richardsMaxStep);
+    auto flowChanged = [this] {
+        if (!m_suppressFieldSync) m_layerDraftDirty = true;
+        const bool richards = m_flowModel->currentIndex() == 1;
+        m_richardsSettings->setVisible(richards);
+        m_richardsBoundaryNotice->setVisible(richards);
+        if (m_layerDetails) m_layerDetails->setTabVisible(1, richards);
+        for (auto* widget : {static_cast<QWidget*>(m_richardsCells), static_cast<QWidget*>(m_richardsAtol), static_cast<QWidget*>(m_richardsRtol), static_cast<QWidget*>(m_richardsMaxStep)}) widget->setEnabled(richards);
+        for (int col = 10; col < 15; ++col) m_nodeLayerTable->setColumnHidden(col, !richards);
+        refreshLayerFields_();
+    };
     m_layerSummary = new QLabel(m_nodeLayerPage);
     countForm->addRow(m_layerSummary);
     stackLayout->addLayout(countForm);
+    stackLayout->addWidget(numericsGroup);
     auto *units = new QLabel(tr("Top to bottom. Thickness and suction: mm (SI) or in (US). Conductivity: mm/hr or in/hr. BOTTOM is the native-soil boundary."));
     units->setWordWrap(true); stackLayout->addWidget(units);
     m_nodeLayerModel = new LidNodeLayerModel(this);
@@ -241,20 +313,29 @@ void LidControlEditorDialog::buildUi_()
     m_nodeLayerTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     stackLayout->addWidget(m_nodeLayerTable, 1);
     auto *details = new QTabWidget(m_nodeLayerPage);
+    m_layerDetails = details;
+    auto *retentionPage = new QWidget(details);
+    auto *retentionLayout = new QHBoxLayout(retentionPage);
+    m_retentionFields = new QFormLayout;
+    retentionLayout->addLayout(m_retentionFields);
     auto *physicalPage = new QWidget(details);
     m_layerFields = new QFormLayout(physicalPage);
-    for (int column = 1; column < 10; ++column) {
+    for (int column = 1; column < 15; ++column) {
         auto *field = makeSpin(m_nodeLayerPage, 0.0, 1.e12, 0.1);
         field->setDecimals(6);
+        if (column >= 10) field->setDecimals(10);
         field->setObjectName(QStringLiteral("lidLayerParameter%1").arg(column));
         m_layerValues[column - 1] = field;
-        m_layerFields->addRow(m_nodeLayerModel->headerData(column, Qt::Horizontal).toString(), field);
+        (column >= 10 ? m_retentionFields : m_layerFields)->addRow(m_nodeLayerModel->headerData(column, Qt::Horizontal).toString(), field);
         connect(field, &QDoubleSpinBox::valueChanged, this, [this, column](double value) {
             if (!m_syncLayerFields)
                 m_nodeLayerModel->setData(m_nodeLayerModel->index(m_nodeLayerTable->currentIndex().row(), column), value);
         });
     }
+    m_retentionCurves = new RetentionCurves(retentionPage);
+    retentionLayout->addWidget(m_retentionCurves, 1);
     details->addTab(OpenSWMM::Ui::wrapInScrollArea(physicalPage, details), tr("Physical properties"));
+    details->addTab(OpenSWMM::Ui::wrapInScrollArea(retentionPage, details), tr("Retention and conductivity"));
     auto *treatmentPage = new QWidget(details);
     auto *treatmentLayout = new QVBoxLayout(treatmentPage);
     auto *treatmentHelp = new QLabel(tr("Treatment for the selected layer. Removal acts on outgoing pollutant mass. Decay is a first-order rate per day. An optional R = or C = expression acts after removal; leave it blank for rates only."), treatmentPage);
@@ -288,6 +369,10 @@ void LidControlEditorDialog::buildUi_()
     treatmentLayout->addLayout(treatmentButtons);
     details->addTab(treatmentPage,tr("Pollutant treatment"));
     stackLayout->addWidget(details,1);
+    connect(m_flowModel, &QComboBox::currentIndexChanged, this, flowChanged);
+    connect(m_richardsCells, &QSpinBox::valueChanged, this, flowChanged);
+    for (auto* field : {m_richardsAtol, m_richardsRtol, m_richardsMaxStep}) connect(field, &QDoubleSpinBox::valueChanged, this, flowChanged);
+    flowChanged();
     connect(m_treatmentModel,&QStandardItemModel::dataChanged,this,[this]{storeTreatmentRows_();});
     connect(addTreatment,&QPushButton::clicked,this,[this] {
         const int row=m_nodeLayerTable->currentIndex().row();
@@ -423,12 +508,13 @@ bool LidControlEditorDialog::applyLayers_()
             expressions.append(t.expression.toUtf8());
             rules.append({t.layer,swmm_pollutant_index(eng,t.pollutant.toUtf8().constData()),t.removal,t.decay,expressions.back().constData()});
         }
-        if (swmm_lid_node_configure(eng, idx, rows.constData(), rows.size(), rules.constData(), rules.size()) != SWMM_OK) {
+        const SWMM_LidRichardsOptions flow{m_flowModel->currentIndex(), m_richardsCells->value(), m_richardsAtol->value(), m_richardsRtol->value(), m_richardsMaxStep->value()};
+        if (swmm_lid_node_configure_flow(eng, idx, rows.constData(), rows.size(), rules.constData(), rules.size(), &flow, m_nodeLayerModel->retention.constData()) != SWMM_OK) {
             if (created) swmm_lid_delete(eng, idx, nullptr);
-            QMessageBox::warning(this, tr("Invalid layer stack"), tr("Check layer parameters and order: optional SURFACE first, one or more MEDIA/AGGREGATE layers, optional BOTTOM last. Existing outlet anchors must remain valid. Treatment requires known pollutants, removal from 0 to 100%, nonnegative decay, and valid R = or C = expressions."));
+            QMessageBox::warning(this, tr("Invalid layer stack"), tr("Check layer order, parameters and outlet anchors. Richards requires SURFACE first and explicit retention parameters on every porous layer: residual content below porosity (and media wilting point), alpha > 0, n > 1, l ≥ 0, and specific storage > 0. Alpha and specific storage use 1/m in both unit systems. Treatment requires known pollutants and valid rates/expressions."));
             return false;
         }
-        m_current->treatments=treatment; m_current->setNodeLayers(rows); m_current->clearDirty(); m_layerDraftDirty=false;
+        m_current->treatments=treatment; m_current->setNodeLayers(rows); m_current->setNodeFlow(flow, m_nodeLayerModel->retention); m_current->clearDirty(); m_layerDraftDirty=false;
         if (m_layer) m_layer->markEdited();
         return true;
 }
@@ -484,6 +570,11 @@ void LidControlEditorDialog::bindProvider_(LidControlProvider *p)
     }
 
     m_nodeLayerModel->setLayers(p ? p->nodeLayers() : QVector<SWMM_LidNodeLayer>{});
+    if (p && p->retention.size() == m_nodeLayerModel->layers.size()) m_nodeLayerModel->retention = p->retention;
+    const auto flow = p ? p->flowOptions : SWMM_LidRichardsOptions{0, 8, 1.e-7, 1.e-5, 30};
+    m_flowModel->setCurrentIndex(flow.model); m_richardsSettings->setVisible(flow.model == 1); m_richardsBoundaryNotice->setVisible(flow.model == 1); m_layerDetails->setTabVisible(1, flow.model == 1); m_richardsCells->setValue(flow.cells_per_layer);
+    m_richardsAtol->setValue(flow.atol); m_richardsRtol->setValue(flow.rtol); m_richardsMaxStep->setValue(flow.max_step);
+    for (int col = 10; col < 15; ++col) m_nodeLayerTable->setColumnHidden(col, flow.model != 1);
     m_nodeLayerModel->setTreatments(p ? p->treatments : QVector<openswmmvis::lid::LidLayerTreatment>{});
     const bool node = p && p->type() == 8;
     for (int i = 0; i < 4; ++i) m_tabs->setTabVisible(i, !node);
@@ -563,18 +654,26 @@ void LidControlEditorDialog::refreshLayerFields_()
     m_layerSummary->setText(tr("%1 physical layers · top to bottom. Select a row to edit its parameters below.").arg(physical));
     const int row = m_nodeLayerTable->currentIndex().row();
     const bool si = UnitSystem::instance() && UnitSystem::instance()->isSI();
-    for (int column = 1; column < 10; ++column) {
+    const bool richards = m_flowModel && m_flowModel->currentIndex() == 1;
+    for (int column = 1; column < 15; ++column) {
         const auto index = m_nodeLayerModel->index(row, column);
-        const bool visible = index.isValid() && (m_nodeLayerModel->flags(index) & Qt::ItemIsEditable);
+        const bool visible = index.isValid() && (m_nodeLayerModel->flags(index) & Qt::ItemIsEditable) &&
+            (column < 10 || richards) && !(richards && (column == 6 || column == 7));
         auto *field = m_layerValues[column - 1];
-        m_layerFields->setRowVisible(field, visible);
+        auto* form = column >= 10 ? m_retentionFields : m_layerFields;
+        form->setRowVisible(field, visible);
         if (!visible) continue;
         QString label = m_nodeLayerModel->headerData(column, Qt::Horizontal).toString();
+        if (richards && column == 3) label += tr(" (existing model)");
         if (column == 1 || column == 7) label += si ? tr(" (mm)") : tr(" (in)");
         if (column == 5) label += si ? tr(" (mm/hr)") : tr(" (in/hr)");
-        qobject_cast<QLabel *>(m_layerFields->labelForField(field))->setText(label);
+        qobject_cast<QLabel *>(form->labelForField(field))->setText(label);
         field->setValue(index.data(Qt::EditRole).toDouble());
     }
+    auto* curves = static_cast<RetentionCurves*>(m_retentionCurves);
+    const bool porous = row >= 0 && row < m_nodeLayerModel->layers.size() && (m_nodeLayerModel->layers[row].kind == 1 || m_nodeLayerModel->layers[row].kind == 2);
+    curves->setVisible(richards && porous);
+    if (porous && row < m_nodeLayerModel->retention.size()) { curves->material = m_nodeLayerModel->retention[row]; curves->porosity = m_nodeLayerModel->layers[row].params[1]; curves->update(); }
     m_syncLayerFields = false;
 }
 

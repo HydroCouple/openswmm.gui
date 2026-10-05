@@ -2,6 +2,14 @@
 #include "ui/models/lidnodelayermodel.h"
 #include <cmath>
 namespace openswmmvis::ui {
+namespace {
+double* retentionField(SWMM_LidRichardsMaterial& p, int column) {
+    switch (column) {
+    case 10: return &p.theta_r; case 11: return &p.alpha; case 12: return &p.n;
+    case 13: return &p.l; case 14: return &p.specific_storage; default: return nullptr;
+    }
+}
+}
 int LidNodeLayerModel::parameter(int kind, int column) {
     static const int map[4][10] = {
         {-1, 0, -1, -1, -1, -1, -1, -1, 1, -1},
@@ -14,6 +22,11 @@ QVariant LidNodeLayerModel::data(const QModelIndex& i, int role) const {
     if (!i.isValid() || i.row() >= layers.size() || (role != Qt::DisplayRole && role != Qt::EditRole)) return {};
     const auto& l = layers[i.row()];
     if (i.column() == 0) return QStringList{"SURFACE", "MEDIA", "AGGREGATE", "BOTTOM"}.value(l.kind);
+    if (i.column() >= 10) {
+        if ((l.kind != 1 && l.kind != 2) || i.row() >= retention.size()) return {};
+        auto p = retention[i.row()]; auto* field = retentionField(p, i.column());
+        return field ? QVariant(*field) : QVariant{};
+    }
     const int p = parameter(l.kind, i.column());
     return p >= 0 ? QVariant(l.params[p]) : QVariant{};
 }
@@ -21,11 +34,13 @@ QVariant LidNodeLayerModel::headerData(int section, Qt::Orientation o, int role)
     if (role != Qt::DisplayRole) return {};
     if (o == Qt::Vertical) return section + 1;
     return QStringList{tr("Layer"), tr("Thickness"), tr("Porosity"), tr("Field capacity"), tr("Wilting point"),
-        tr("Conductivity / seepage"), tr("Conductivity slope"), tr("Suction"), tr("Vegetation fraction"), tr("Clog factor")}.value(section);
+        tr("Conductivity / seepage"), tr("Conductivity slope"), tr("Suction"), tr("Vegetation fraction"), tr("Clog factor"),
+        tr("Residual water content"), tr("Retention alpha (1/m)"), tr("Retention n"), tr("Pore connectivity l"), tr("Specific storage (1/m)")}.value(section);
 }
 Qt::ItemFlags LidNodeLayerModel::flags(const QModelIndex& i) const {
     auto f = QAbstractTableModel::flags(i);
-    if (i.isValid() && i.row() < layers.size() && (i.column() == 0 || parameter(layers[i.row()].kind, i.column()) >= 0)) f |= Qt::ItemIsEditable;
+    if (i.isValid() && i.row() < layers.size() && (i.column() == 0 || parameter(layers[i.row()].kind, i.column()) >= 0 ||
+        (i.column() >= 10 && i.column() < 15 && (layers[i.row()].kind == 1 || layers[i.row()].kind == 2)))) f |= Qt::ItemIsEditable;
     return f;
 }
 bool LidNodeLayerModel::setData(const QModelIndex& i, const QVariant& v, int role) {
@@ -44,14 +59,20 @@ bool LidNodeLayerModel::setData(const QModelIndex& i, const QVariant& v, int rol
         l.params[4] = kind == 1 ? conductivity : 0;
         l.params[5] = kind == 1 ? 10 : 0;
         l.params[6] = 0;
+    } else if (i.column() >= 10) {
+        if (l.kind != 1 && l.kind != 2) return false;
+        bool ok = false; const double value = v.toDouble(&ok);
+        if (!ok || !std::isfinite(value) || value < 0) return false;
+        retention.resize(layers.size()); auto* field = retentionField(retention[i.row()], i.column());
+        if (!field) return false; *field = value;
     } else {
         const int p = parameter(l.kind, i.column()); bool ok = false; const double value = v.toDouble(&ok);
         if (p < 0 || !ok || !std::isfinite(value) || value < 0) return false;
         l.params[p] = value;
     }
-    emit dataChanged(index(i.row(), 0), index(i.row(), 9)); return true;
+    emit dataChanged(index(i.row(), 0), index(i.row(), 14)); return true;
 }
-void LidNodeLayerModel::setLayers(QVector<SWMM_LidNodeLayer> value) { beginResetModel(); layers = std::move(value); treatments.clear(); treatments.resize(layers.size()); endResetModel(); }
+void LidNodeLayerModel::setLayers(QVector<SWMM_LidNodeLayer> value) { beginResetModel(); layers = std::move(value); retention.clear(); retention.resize(layers.size()); treatments.clear(); treatments.resize(layers.size()); endResetModel(); }
 void LidNodeLayerModel::append(int kind, bool si) {
     if (kind < 0 || kind > 3) return;
     if (kind == 0 || kind == 3)
@@ -68,7 +89,7 @@ void LidNodeLayerModel::append(int kind, bool si) {
         if (kind == 1) { l.params[4] /= 25.4; l.params[6] /= 25.4; }
         if (kind == 2) l.params[2] /= 25.4;
     }
-    layers.insert(r, l); treatments.insert(r, QVector<openswmmvis::lid::LidLayerTreatment>{}); endInsertRows();
+    layers.insert(r, l); retention.insert(r, SWMM_LidRichardsMaterial{}); treatments.insert(r, QVector<openswmmvis::lid::LidLayerTreatment>{}); endInsertRows();
 }
 int LidNodeLayerModel::mediaCount() const {
     int count = 0;
@@ -81,10 +102,10 @@ void LidNodeLayerModel::setMediaCount(int count, bool si) {
     for (int i = layers.size() - 1; i >= 0 && mediaCount() > count; --i)
         if (layers[i].kind == 1 || layers[i].kind == 2) remove(i);
 }
-void LidNodeLayerModel::remove(int row) { if (row < 0 || row >= layers.size()) return; beginRemoveRows({}, row, row); layers.removeAt(row); treatments.removeAt(row); endRemoveRows(); }
+void LidNodeLayerModel::remove(int row) { if (row < 0 || row >= layers.size()) return; beginRemoveRows({}, row, row); layers.removeAt(row); retention.removeAt(row); treatments.removeAt(row); endRemoveRows(); }
 void LidNodeLayerModel::move(int row, int delta) {
     const int to = row + delta; if (row < 0 || row >= layers.size() || to < 0 || to >= layers.size()) return;
-    beginMoveRows({}, row, row, {}, to > row ? to + 1 : to); layers.move(row, to); treatments.move(row, to); endMoveRows();
+    beginMoveRows({}, row, row, {}, to > row ? to + 1 : to); layers.move(row, to); retention.move(row, to); treatments.move(row, to); endMoveRows();
 }
 }
 

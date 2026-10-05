@@ -11,11 +11,12 @@ class LidNodeLayerModel : public QAbstractTableModel {
 public:
     using QAbstractTableModel::QAbstractTableModel;
     QVector<SWMM_LidNodeLayer> layers;
+    QVector<SWMM_LidRichardsMaterial> retention;
     QVector<QVector<openswmmvis::lid::LidLayerTreatment>> treatments;
     QVector<openswmmvis::lid::LidLayerTreatment> treatmentRows() const;
     void setTreatments(const QVector<openswmmvis::lid::LidLayerTreatment>& rows);
     int rowCount(const QModelIndex& p = {}) const override { return p.isValid() ? 0 : layers.size(); }
-    int columnCount(const QModelIndex& p = {}) const override { return p.isValid() ? 0 : 10; }
+    int columnCount(const QModelIndex& p = {}) const override { return p.isValid() ? 0 : 15; }
     QVariant data(const QModelIndex&, int role = Qt::DisplayRole) const override;
     QVariant headerData(int, Qt::Orientation, int role = Qt::DisplayRole) const override;
     Qt::ItemFlags flags(const QModelIndex&) const override;

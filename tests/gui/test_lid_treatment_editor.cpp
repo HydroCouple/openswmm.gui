@@ -5,6 +5,7 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <QApplication>
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QTableView>
@@ -63,9 +64,31 @@ int main(int argc, char** argv) {
         check(swmm_lid_node_treatment_get(engine,0,1,&rule)==SWMM_OK,"Treatment was not applied");
         check(rule.layer==2 && std::abs(rule.decay_per_day-1.25)<1.e-12 && QString::fromUtf8(rule.expression)=="R = 0.35","Rates or expression did not reach engine");
         check(dialog.grab().save(artifacts.filePath("layer-treatment-editor.png")),"Screenshot failed");
+        auto* flow = dialog.findChild<QComboBox*>("lidFlowModel");
+        auto* cells = dialog.findChild<QSpinBox*>("lidRichardsCells");
+        check(flow && cells, "Richards controls missing");
+        check(flow->currentIndex() == 0, "Existing projects changed flow method");
+        flow->setCurrentIndex(1); cells->setValue(4);
+        const double values[] = {.03, 2, 1.6, .5, 1.e-4};
+        for (int row = 1; row < layers->model()->rowCount(); ++row)
+            for (int col = 10; col < 15; ++col)
+                check(layers->model()->setData(layers->model()->index(row, col), values[col - 10]), "Retention edit failed");
+        for (auto* tabs : dialog.findChildren<QTabWidget*>())
+            for (int i = 0; i < tabs->count(); ++i) if (tabs->tabText(i) == "Retention and conductivity") tabs->setCurrentIndex(i);
+        dialog.resize(1180, 920);
+        layers->selectRow(1); app.processEvents();
+        check(dialog.grab().save(artifacts.filePath("richards-editor.png")), "Richards screenshot failed");
+        for (auto* button : dialog.findChildren<QPushButton*>())
+            if (button->text() == "Apply layers and treatment") button->click();
+        app.processEvents();
+        SWMM_LidRichardsOptions options{};
+        check(swmm_lid_richards_options_get(engine, 0, &options) == SWMM_OK && options.model == 1 && options.cells_per_layer == 4, "Richards mode did not reach engine");
+        SWMM_LidRichardsMaterial material{};
+        check(swmm_lid_richards_material_get(engine, 0, 1, &material) == SWMM_OK && material.alpha == 2 && material.specific_storage == 1.e-4, "Retention did not reach engine");
         dialog.close();
         openswmmvis::lid::LidControlRegistry reloaded;
         reloaded.loadFromEngine(engine);
+        check(reloaded.providers().front()->flowOptions.model==1 && reloaded.providers().front()->retention[1].alpha==2,"Richards did not reload");
         check(reloaded.providers().front()->nodeLayers().size()==8,"Applied count did not persist");
         check(reloaded.providers().front()->treatments[1].expression=="R = 0.35","Applied expression did not persist");
     }

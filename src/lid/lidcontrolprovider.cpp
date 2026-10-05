@@ -37,6 +37,11 @@ void LidControlProvider::setNodeLayers(QVector<SWMM_LidNodeLayer> layers)
     m_dirty = true;
     emit paramsChanged();
 }
+void LidControlProvider::setNodeFlow(SWMM_LidRichardsOptions options, QVector<SWMM_LidRichardsMaterial> materials)
+{
+    flowOptions = options; retention = std::move(materials);
+    m_dirty = true; emit paramsChanged();
+}
 
 // Double-field setters: change-detect, mark dirty, notify.
 #define LID_SET(method, member)                 \
