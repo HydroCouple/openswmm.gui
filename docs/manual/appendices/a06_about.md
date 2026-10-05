@@ -34,9 +34,14 @@ Arch:     <CPU architecture>
 That block is the first thing to attach to a bug report — its tooltip says so
 (*Copy the build / OS / Qt summary to the clipboard*).
 
-With nothing selected, the right pane shows the application overview:
-*Open-source Qt6 GUI for the SWMMVis engine. Select a component on the left to
-view its license and metadata.*
+The dialog opens with **Application → SWMMVis GUI** selected. The right pane
+shows the GUI's **GPL-3.0-or-later** identifier and the complete repository
+licence, including the copyright notice. The text wraps to the pane width;
+**Copy License** copies the complete text. Select another component to inspect
+its notice, then select **SWMMVis GUI** to return to the application licence.
+Drag the divider between the component list and licence pane to resize them.
+The component column fills the list width; when a name needs more space,
+use the horizontal scrollbar at the bottom of the list to read it.
 
 | Control | What it does |
 |---|---|
@@ -61,6 +66,7 @@ labels can be stale; these are the current manifest entries:
 
 | Category | Component | Licence | Provenance |
 |---|---|---|---|
+| Application | SWMMVis GUI | GPL-3.0-or-later | HydroCouple — openswmm.gui |
 | Engine | Open-Source SWMM Engine | Apache-2.0 | in-tree subdirectory |
 | Engine | Robust geometric predicates (Shewchuk) | public domain | vendored under `vendor/predicates/` |
 | Frameworks | Qt 6 | LGPL-3.0-only | system or vendor install |

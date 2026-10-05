@@ -25,7 +25,9 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSortFilterProxyModel>
+#include <QShowEvent>
 #include <QSplitter>
+#include <QSplitterHandle>
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QSysInfo>
@@ -80,11 +82,23 @@ AboutDialog::AboutDialog(QWidget *parent)
 
     buildUi();
     loadManifest();
-    populateTree();
     showApplicationOverview();
+    populateTree();
 }
 
 AboutDialog::~AboutDialog() = default;
+
+void AboutDialog::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    // The layout watcher restores interactive columns before Show. This
+    // hidden single-column header must fit names and fill the available pane.
+    auto *header = m_tree->header();
+    header->setStretchLastSection(false);
+    m_tree->resizeColumnToContents(0);
+    header->setMinimumSectionSize(m_tree->columnWidth(0));
+    header->setStretchLastSection(true);
+}
 
 // ---------------------------------------------------------------------------
 // UI construction
@@ -113,6 +127,8 @@ void AboutDialog::buildUi()
     // ── Master / detail splitter ────────────────────────────────────────
     auto *splitter = new QSplitter(Qt::Horizontal, this);
     splitter->setObjectName(QStringLiteral("main"));
+    splitter->setChildrenCollapsible(false);
+    splitter->setHandleWidth(8);
 
     // Left: search + tree
     auto *leftBox  = new QWidget(splitter);
@@ -134,6 +150,8 @@ void AboutDialog::buildUi()
     m_tree->setHeaderHidden(true);
     m_tree->setRootIsDecorated(true);
     m_tree->setAlternatingRowColors(true);
+    m_tree->setAccessibleName(tr("Components and licenses"));
+    m_tree->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
     leftLay->addWidget(m_tree, 1);
 
     splitter->addWidget(leftBox);
@@ -160,7 +178,8 @@ void AboutDialog::buildUi()
 
     m_licenseText = new QPlainTextEdit(rightBox);
     m_licenseText->setReadOnly(true);
-    m_licenseText->setLineWrapMode(QPlainTextEdit::NoWrap);
+    m_licenseText->setAccessibleName(tr("License text"));
+    m_licenseText->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     m_licenseText->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     rightLay->addWidget(m_licenseText, 1);
 
@@ -175,6 +194,7 @@ void AboutDialog::buildUi()
     rightLay->addLayout(btnRow);
 
     splitter->addWidget(rightBox);
+    splitter->handle(1)->setToolTip(tr("Drag to resize the component and license panels"));
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 2);
     root->addWidget(splitter, 1);
@@ -294,6 +314,12 @@ void AboutDialog::populateTree()
                 this, [this](const QModelIndex &, const QModelIndex &) {
                     onSelectionChanged();
                 });
+
+    // The application entry leads the manifest; show its license on opening.
+    const QModelIndex firstCategory = m_treeModel->index(0, 0);
+    const QModelIndex firstComponent = m_treeModel->index(0, 0, firstCategory);
+    if (firstComponent.isValid())
+        m_tree->setCurrentIndex(m_treeProxy->mapFromSource(firstComponent));
 }
 
 // ---------------------------------------------------------------------------

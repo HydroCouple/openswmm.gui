@@ -1986,6 +1986,10 @@ add_swmmvis_gui_test(test_aboutdialog
     test_aboutdialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/aboutdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/aboutdialog.h
+    ${CMAKE_SOURCE_DIR}/resources/about.qrc
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutwatcher.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutwatcher.h
 )
 
 # Slice IO-10 — relative-path picker widget unit test.

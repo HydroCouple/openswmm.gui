@@ -1,5 +1,15 @@
 [
   {
+    "category": "Application",
+    "name": "SWMMVis GUI",
+    "role": "Graphical interface for model editing, simulation and visualization.",
+    "homepage": "https://www.hydrocouple.org/openswmm.gui",
+    "source": "https://github.com/HydroCouple/openswmm.gui",
+    "spdx": "GPL-3.0-or-later",
+    "provenance": "HydroCouple — openswmm.gui",
+    "licenseFile": ":/licenses/openswmmgui.txt"
+  },
+  {
     "category": "Engine",
     "name": "Open-Source SWMM Engine",
     "version": "6.0.0-alpha.4",

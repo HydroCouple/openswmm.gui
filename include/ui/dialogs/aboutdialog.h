@@ -73,6 +73,9 @@ private slots:
     void onOpenHomepage();
     void onOpenSource();
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
 private:
     void buildUi();
     void loadManifest();
