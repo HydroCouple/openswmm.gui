@@ -35,6 +35,18 @@ class TestColorRamp : public QObject
 {
     Q_OBJECT
 private slots:
+    void numericRangeHidesUnderflowAndSaturatesOverflow()
+    {
+        auto ramp = RasterColorRamp::builtin("Viridis");
+        ramp.minValue = 2; ramp.maxValue = 8;
+        for (bool legacyMin : {false,true}) for (bool legacyMax : {false,true}) {
+            ramp.clampMin = legacyMin; ramp.clampMax = legacyMax;
+            QCOMPARE(ramp.colorForValue(1.9).alpha(), 0);
+            QCOMPARE(ramp.colorForValue(2), ramp.colorAt(0));
+            QCOMPARE(ramp.colorForValue(8), ramp.colorAt(1));
+            QCOMPARE(ramp.colorForValue(80), ramp.colorAt(1));
+        }
+    }
 
     // ---- Stops at 0, 0.5, 1 --------------------------------------------------
 

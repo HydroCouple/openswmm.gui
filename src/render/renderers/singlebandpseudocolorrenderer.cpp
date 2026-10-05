@@ -150,11 +150,8 @@ QColor SingleBandPseudoColorRenderer::colorForValue(double value, bool isNoData)
     if (m_stops.isEmpty())
         return Qt::transparent;
 
-    // Out-of-range transparency per clamp policy (matches the legacy
-    // RasterColorRamp::colorForValue gate exactly).
-    if (m_clampMin && value < m_minValue)
-        return Qt::transparent;
-    if (m_clampMax && value > m_maxValue)
+    // Match numeric result layers: hide underflow and saturate overflow.
+    if (value < m_minValue)
         return Qt::transparent;
 
     // Single-stop ramp behaves as a constant.

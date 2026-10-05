@@ -435,8 +435,9 @@ void TestIFeatureRenderer::graduatedRenderer_binPickingClamps()
         QColor(QStringLiteral("#fde725"))   // bin 1: [5, 10]
     });
 
-    // Below range → bin 0.
-    QCOMPARE(r.colorForValue(-5.0), QColor(QStringLiteral("#440154")));
+    // Below range is hidden.
+    QCOMPARE(r.colorForValue(-5.0), QColor(Qt::transparent));
+    QCOMPARE(r.colorForValue(1e300), r.colorForValue(10.0));
     // In bin 0.
     QCOMPARE(r.colorForValue(2.5),  QColor(QStringLiteral("#440154")));
     // In bin 1.
@@ -445,8 +446,8 @@ void TestIFeatureRenderer::graduatedRenderer_binPickingClamps()
     QCOMPARE(r.colorForValue(10.0), QColor(QStringLiteral("#fde725")));
     // Above range → bin N-1.
     QCOMPARE(r.colorForValue(50.0), QColor(QStringLiteral("#fde725")));
-    // NaN → bin 0 (defensive default).
-    QCOMPARE(r.colorForValue(std::nan("1")), QColor(QStringLiteral("#440154")));
+    // Non-finite values are hidden.
+    QCOMPARE(r.colorForValue(std::nan("1")), QColor(Qt::transparent));
 }
 
 void TestIFeatureRenderer::graduatedRenderer_legendItemsMatchBins()
@@ -532,6 +533,7 @@ void TestIFeatureRenderer::graduatedRenderer_symbolForOverridesColorInBaseSymbol
     r.setBaseSymbol(makeMarker(QStringLiteral("#ff00ff"), 12.0));
 
     QVariantMap attrs;
+    QCOMPARE(r.symbolFor({}, {{QStringLiteral("flow"), -1.0}}).opacity, 0.0);
     attrs.insert(QStringLiteral("flow"), 9.0);
     const SymbolStyle s = r.symbolFor({}, attrs);
     // Size from the template is preserved.

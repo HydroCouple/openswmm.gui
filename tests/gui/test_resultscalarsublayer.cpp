@@ -37,6 +37,26 @@ class TestResultScalarSublayer : public QObject
 {
     Q_OBJECT
 private slots:
+    void numericRangeAppliesToGroundwaterAndSpecies()
+    {
+        auto f = frame(); ResultScalarSublayer s({}); bind(s,f);
+        f.minimum=0; f.maximum=10;
+        f.values={1,2,5,8,10,0};
+        f.status={Mesh2DValueStatus::Valid,Mesh2DValueStatus::Valid,Mesh2DValueStatus::Valid,
+                  Mesh2DValueStatus::Valid,Mesh2DValueStatus::Valid,Mesh2DValueStatus::Missing};
+        for (bool classified : {false,true}) {
+            auto scheme=s.fillStyle()->scheme();
+            scheme.setUseCustomRange(true); scheme.setRangeMin(2); scheme.setRangeMax(8);
+            scheme.setInvertRamp(true); scheme.setClassCount(3);
+            scheme.setMode(classified?ClassificationScheme::ClassMode::Classified:ClassificationScheme::ClassMode::Continuous);
+            scheme.setColorOverride(2,QColor(11,22,33,128)); s.fillStyle()->setScheme(scheme);
+            const auto colors=s.cellColors(f);
+            QCOMPARE(colors[0].alpha(),0); QVERIFY(colors[1].alpha()>0);
+            QCOMPARE(colors[3],colors[4]);
+            if (classified) QCOMPARE(colors[4],QColor(11,22,33,128));
+            QCOMPARE(colors[5],s.fillStyle()->missingColor());
+        }
+    }
     void uniqueIdsAndIndependentStyles()
     {
         ResultScalarSublayer a({}), b({}), restored("results2d.variable.saved");

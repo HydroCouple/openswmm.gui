@@ -105,7 +105,6 @@ private:
     QLabel    *m_nodataLabel = nullptr;
 
     ClassificationEditor *m_classEditor = nullptr;
-    QCheckBox            *m_clipCheck   = nullptr;
 
     QComboBox          *m_paletteCombo = nullptr;
     QTableView         *m_palTable     = nullptr;

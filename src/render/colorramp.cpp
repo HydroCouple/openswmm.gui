@@ -114,9 +114,7 @@ QColor RasterColorRamp::colorAt(double t) const
 
 QColor RasterColorRamp::colorForValue(double value) const
 {
-    if (clampMin && value < minValue)
-        return Qt::transparent;
-    if (clampMax && value > maxValue)
+    if (!std::isfinite(value) || value < minValue)
         return Qt::transparent;
 
     const double range = maxValue - minValue;

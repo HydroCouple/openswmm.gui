@@ -340,7 +340,7 @@ private slots:
         const auto clamped = marchingTrianglesIsobands(tris, lv, extract);
         const auto clipped = marchingTrianglesIsobands(
             tris, lv, extract, /*minimumVisibleValue=*/0.1);
-        QCOMPARE(clamped.size(), size_t(1));
+        QCOMPARE(clamped.size(), size_t(0));
         QCOMPARE(clipped.size(), size_t(0));
     }
 
@@ -356,12 +356,12 @@ private slots:
             area += polyArea(b.verts);
             if (b.bandIndex == 1) upper += polyArea(b.verts);
         }
-        QVERIFY(nearlyEqual(area,2.0,1e-9));
+        QVERIFY(nearlyEqual(area,1.53125,1e-9));
         QVERIFY(nearlyEqual(upper,1.125,1e-9));
         const auto wet = marchingTrianglesIsobands(tris,levels,extract,0.1);
         area=0;
         for (const auto &b : wet) area+=polyArea(b.verts);
-        QVERIFY(nearlyEqual(area,1.805,1e-9)); // physical cutoff, not range min
+        QVERIFY(nearlyEqual(area,1.53125,1e-9)); // stricter color minimum
         tris[0].v0=tris[0].v1=tris[0].v2=3;
         const auto above = marchingTrianglesIsobands(tris,levels,extract,0.1);
         QCOMPARE(above.size(),size_t(1));

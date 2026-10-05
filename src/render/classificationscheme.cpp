@@ -376,7 +376,9 @@ QVector<double> ClassificationScheme::interiorLevels(double dataMin, double data
 
 int ClassificationScheme::classIndexFor(double value, const QVector<double> &edges)
 {
-    if (edges.size() < 2 || !std::isfinite(value)) return 0;
+    if (!std::isfinite(value)) return -1;
+    if (edges.size() < 2) return 0; // Constant fields still have one color.
+    if (value < edges.front()) return -1;
     // Interior edges are edges[1..size-2]; the class index is the count of
     // interior edges <= value, clamped to the last class.
     const auto it = std::upper_bound(edges.cbegin() + 1, edges.cend() - 1, value);
@@ -398,6 +400,7 @@ QColor ClassificationScheme::colorForClass(int classIndex) const
 
 QColor ClassificationScheme::colorForClass(int classIndex, int count) const
 {
+    if (classIndex < 0) return QColor(Qt::transparent);
     const QColor override_ = m_colorOverrides.value(classIndex, QColor());
     if (override_.isValid())
         return override_;
@@ -409,6 +412,7 @@ QColor ClassificationScheme::colorForClass(int classIndex, int count) const
 QColor ClassificationScheme::colorForValue(double value, double dataMin, double dataMax) const
 {
     const auto [lo, hi] = effectiveRange(dataMin, dataMax);
+    if (!std::isfinite(value) || value < lo) return QColor(Qt::transparent);
     if (!(hi > lo))
         return colorAtF(0.0);
     return colorAtF((value - lo) / (hi - lo));

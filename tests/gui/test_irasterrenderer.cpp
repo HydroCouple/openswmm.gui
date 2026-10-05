@@ -66,8 +66,8 @@ private slots:
     void colorForValue_nonFiniteReturnsTransparent();
     void colorForValue_emptyStopsReturnsTransparent();
     void colorForValue_clampMinReturnsTransparent();
-    void colorForValue_clampMaxReturnsTransparent();
-    void colorForValue_unclampedBelowReturnsFirstStop();
+    void colorForValue_legacyClampMaxStillSaturates();
+    void colorForValue_belowMinimumIsTransparent();
     void colorForValue_unclampedAboveReturnsLastStop();
     void colorForValue_degenerateRangeReturnsFirstStop();
     void colorForValue_singleStopActsAsConstant();
@@ -145,17 +145,17 @@ void TestIRasterRenderer::colorForValue_clampMinReturnsTransparent()
     QCOMPARE(r.colorForValue(-0.5), QColor(Qt::transparent));
 }
 
-void TestIRasterRenderer::colorForValue_clampMaxReturnsTransparent()
+void TestIRasterRenderer::colorForValue_legacyClampMaxStillSaturates()
 {
     auto r = makeBlackWhite();
     r.setClampMax(true);
-    QCOMPARE(r.colorForValue(2.0), QColor(Qt::transparent));
+    QCOMPARE(r.colorForValue(2.0), QColor(Qt::white));
 }
 
-void TestIRasterRenderer::colorForValue_unclampedBelowReturnsFirstStop()
+void TestIRasterRenderer::colorForValue_belowMinimumIsTransparent()
 {
     const auto r = makeBlackWhite();
-    QCOMPARE(r.colorForValue(-100.0), QColor(Qt::black));
+    QCOMPARE(r.colorForValue(-100.0), QColor(Qt::transparent));
 }
 
 void TestIRasterRenderer::colorForValue_unclampedAboveReturnsLastStop()

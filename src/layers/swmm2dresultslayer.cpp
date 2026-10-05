@@ -346,8 +346,10 @@ public:
                 bandHi = bs->rangeMax();
             }
 
-            const auto levels = evenlySpacedLevelsInclusive(
-                bandLo, bandHi, bandCount + 1);
+            const auto edges = bs ? bs->scheme().levelEdges(dryDepth, maxDepth,
+                layer_->depthClassificationSamples(bs->scheme())) : QVector<double>();
+            const auto levels = bs ? std::vector<double>(edges.cbegin(), edges.cend())
+                : evenlySpacedLevelsInclusive(bandLo, bandHi, bandCount + 1);
             if (levels.size() >= 2) {
                 const double alphaScalar = layer_->filledContoursOpacity();
                 const int    nBands      = int(levels.size()) - 1;
@@ -386,11 +388,11 @@ public:
                     // Flat — classify each cell by its centre depth and fill
                     // the whole triangle with the band colour (the per-cell
                     // "stepped" look raster GIS users expect).
-                    const double span = bandHi - bandLo;
                     for (const auto &t : tris) {
+                        if (!std::isfinite(t.depth) || t.depth < levels.front()) continue;
                         const auto wet = CellWaterGeometry::clipTriangle(
                             t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
-                        if (wet.size < 3 || span <= 0.0) continue;
+                        if (wet.size < 3) continue;
                         const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
                         const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
                         const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
@@ -398,8 +400,8 @@ public:
                         if (!exposed.isNull() &&
                             (maxX < exposed.left()  || minX > exposed.right() ||
                              maxY < exposed.top()   || minY > exposed.bottom())) continue;
-                        const int idx = std::clamp(
-                            int((t.depth - bandLo) / span * double(nBands)),0,nBands-1);
+                        const int idx = int(std::upper_bound(levels.begin()+1,
+                            levels.end()-1, double(t.depth)) - (levels.begin()+1));
                         p->setBrush(bandColor(idx));
                         QPointF pts[4];
                         for (int k = 0; k < wet.size; ++k) pts[k] = wet.vertices[k].point;

@@ -87,7 +87,7 @@ private slots:
     void defaults_continuousGrayscale();
     void continuous_lutMatchesSchemeAtTexels();
     void continuous_invertFlipsEnds();
-    void continuous_outOfRangeClampsUnlessClipped();
+    void continuous_underflowHiddenOverflowSaturates();
     void continuous_customRangeDrivesStretch();
     void classified_equalIntervalEdgesAndColours();
     void classified_quantileUsesSamples();
@@ -158,17 +158,17 @@ void TestGraduatedRasterRenderer::continuous_invertFlipsEnds()
     QCOMPARE(r.colorForValue(1.0), QColor(Qt::black));
 }
 
-void TestGraduatedRasterRenderer::continuous_outOfRangeClampsUnlessClipped()
+void TestGraduatedRasterRenderer::continuous_underflowHiddenOverflowSaturates()
 {
     GraduatedRasterRenderer r;
     r.setDataRange(10.0, 20.0);
-    // Default policy: clamp to the end colours (QGIS default).
-    QCOMPARE(r.colorForValue(-5.0),  QColor(Qt::black));
+    // Minimum is inclusive; underflow is hidden and overflow saturates.
+    QCOMPARE(r.colorForValue(-5.0),  QColor(Qt::transparent));
     QCOMPARE(r.colorForValue(500.0), QColor(Qt::white));
-    // Clip: out-of-range → transparent, in-range unchanged.
+    // Legacy saved clip flags cannot change the shared numeric policy.
     r.setClipOutOfRange(true);
     QCOMPARE(r.colorForValue(-5.0),  QColor(Qt::transparent));
-    QCOMPARE(r.colorForValue(500.0), QColor(Qt::transparent));
+    QCOMPARE(r.colorForValue(500.0), QColor(Qt::white));
     QCOMPARE(r.colorForValue(10.0),  QColor(Qt::black));
     QCOMPARE(r.colorForValue(20.0),  QColor(Qt::white));
 }
@@ -201,8 +201,8 @@ void TestGraduatedRasterRenderer::classified_equalIntervalEdgesAndColours()
     QCOMPARE(px(r.colorForValue(60.0)),  px(colorOfClass(2)));
     QCOMPARE(px(r.colorForValue(90.0)),  px(colorOfClass(3)));
     QCOMPARE(px(r.colorForValue(100.0)), px(colorOfClass(3)));
-    // Out of range clamps to the end classes unless clipped.
-    QCOMPARE(px(r.colorForValue(-1.0)),  px(colorOfClass(0)));
+    // Underflow is transparent; overflow keeps the final class.
+    QCOMPARE(px(r.colorForValue(-1.0)),  px(QColor(Qt::transparent)));
     QCOMPARE(px(r.colorForValue(101.0)), px(colorOfClass(3)));
     // Adjacent classes are distinct colours.
     QVERIFY(px(colorOfClass(0)) != px(colorOfClass(1)));

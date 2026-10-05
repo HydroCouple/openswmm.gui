@@ -133,18 +133,9 @@ QWidget *RasterSymbologyPanel::buildGraduatedPage()
                                              /*ownBinding=*/true, page);
     lay->addWidget(m_classEditor);
 
-    m_clipCheck = new QCheckBox(tr("Clip out-of-range values (render transparent)"), page);
-    m_clipCheck->setObjectName(QStringLiteral("rasterClipOutOfRange"));
-    m_clipCheck->setToolTip(tr("Values below / above the classified range render "
-                               "transparent instead of taking the end colours."));
-    lay->addWidget(m_clipCheck);
-    connect(m_clipCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_suppress || !m_layer) return;
-        if (auto *g = graduated()) {
-            g->setClipOutOfRange(on);
-            m_layer->notifyRasterRendererEdited();
-        }
-    });
+    auto *rangePolicy = new QLabel(tr("Values below the minimum are hidden. Values above the maximum use the maximum color."), page);
+    rangePolicy->setWordWrap(true);
+    lay->addWidget(rangePolicy);
     return page;
 }
 
@@ -482,9 +473,6 @@ void RasterSymbologyPanel::refreshFromModel()
     switch (kind) {
     case Kind::Graduated: {
         m_classEditor->refresh();
-        const QSignalBlocker b(m_clipCheck);
-        if (auto *g = graduated())
-            m_clipCheck->setChecked(g->clipOutOfRange());
         break;
     }
     case Kind::Paletted: {

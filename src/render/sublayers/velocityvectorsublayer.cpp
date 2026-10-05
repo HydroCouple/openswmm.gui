@@ -109,7 +109,7 @@ QColor VelocityVectorStyle::colorForSpeed(double speedMps) const
     if (m_scheme.mode() == ClassificationScheme::ClassMode::Classified) {
         const QVector<double> edges = m_scheme.levelEdges(lo, hi);
         const int idx = ClassificationScheme::classIndexFor(speedMps, edges);
-        return m_scheme.colorForClass(idx, m_scheme.classCount());
+        return m_scheme.colorForClass(idx, std::max(1, int(edges.size()) - 1));
     }
     return m_scheme.colorForValue(speedMps, lo, hi);
 }
