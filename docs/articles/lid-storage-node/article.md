@@ -17,9 +17,17 @@ These questions have motivated the new LID Storage node implementation in Open-S
 
 Conventional SWMM LIDs describe rainfall, infiltration and drainage within a subcatchment. SWMM can also represent treatment trains by routing runoff between dedicated subcatchments; LIDs within one subcatchment are treated in parallel. See the [EPA SWMM 5.2 User's Manual](https://nepis.epa.gov/Exe/ZyPURL.cgi?Dockey=P10145M6.TXT).
 
-**SWMM 5 already provides LID drain controls.** Version **5.1.013 (August 2018)** added separate drain opening and closing water levels and a control curve that adjusts nominal drain discharge as a function of the head above the drain outlet. These controls respond to water levels within the LID; the conventional LID underdrain calculation does not include the receiving node's downstream head. [EPA release notes](https://github.com/USEPA/Stormwater-Management-Model/releases/tag/v5.1.13); [EPA LID underdrain implementation](https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/lidproc.c).
+**SWMM 5 already provides LID drain controls.** Version **5.1.013 (August 2018)** added separate drain opening and closing water levels and a control curve that adjusts nominal drain discharge as a function of the head above the drain outlet. Each conventional LID control has **one underdrain definition, one opening/closing threshold pair and one optional head-based discharge curve**. This represents the combined drain response of a unit, which may contain several physical drain pipes; it does not provide separate hydraulic connections and valve settings at different elevations. These controls respond to water levels within the LID; the conventional LID underdrain calculation does not include the receiving node's downstream head. [EPA release notes](https://github.com/USEPA/Stormwater-Management-Model/releases/tag/v5.1.13); [EPA LID underdrain implementation](https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/lidproc.c).
 
-The new work connects the layered LID directly to SWMM's existing hydraulic network and control rules. **Its outlet flow responds to both the facility's head and the downstream head**, allowing backwater to restrict drainage and, where the link permits it, reverse flow into the facility. Controls can also respond to receiving-water levels. This couples the layered water stores and treatment processes to the surrounding network.
+The new work connects the layered LID directly to SWMM's existing hydraulic network and control rules. **A storage-node LID can have an arbitrary number of hydraulic connections at different elevations**, with separate rules for each controllable link. An orifice used to represent a valve can be closed, partially open or fully open through its setting from 0 to 1. **Link flow responds to both the facility's head and the downstream head**, allowing backwater to restrict drainage and, where the link permits it, reverse flow into the facility. Controls can also respond to receiving-water levels. This couples the layered water stores and treatment processes to the surrounding network.
+
+| Control capability | Conventional SWMM LID | Storage-node LID in Open-Source SWMM 6 |
+|---|---|---|
+| Drain connections | One underdrain definition per LID control | Multiple network connections at independently specified elevations |
+| Operating settings | One opening/closing threshold pair and an optional head-based discharge multiplier curve | Separate rules and partial openings for each controllable link |
+| Hydraulic feedback | Drain discharge depends on internal LID head | Dynamic Wave accounts for head at both ends and permitted flow reversal |
+
+The added flexibility comes from exposing the layered facility to SWMM's existing network links and controls. It supports coordinated operation of several outlets within one facility and across a treatment train.
 
 For the layered facility, this supports questions such as:
 
@@ -34,7 +42,7 @@ Research on water-quality-informed real-time control provides a motivation for a
 
 The implementation attaches a LID control to an ordinary storage node. Storage geometry supplies its footprint. An ordered stack supplies the surface, media and aggregate thicknesses and moisture properties. Ordinary hydraulic links supply connections to other facilities and the receiving water.
 
-A facility can therefore have a low-level drain, an elevated overflow and a controlled connection to a second facility. Dynamic Wave routing represents the effect of downstream head and flow reversal. Layer-relative outlet anchors follow physical stack edits; a link joining two LID nodes uses explicit endpoint offsets.
+For example, a facility can have a low-level drawdown valve, an independently controlled intermediate-level outlet to a second facility, and a high-level emergency overflow. Each connection has its own elevation and hydraulic properties; the two valves can follow different schedules or opening settings. Dynamic Wave routing represents the effect of downstream head and flow reversal. Layer-relative outlet anchors follow physical stack edits; a link joining two LID nodes uses explicit endpoint offsets.
 
 The distinction matters for water quality. Retained pore water carries pollutant mass, while hydraulically connected saturated water uses a shared storage reactor. Layer treatment can specify fixed removal, first-order decay and optional expressions. A surface bypass does not automatically receive all the treatment rules beneath it. The stack is **not a sequence of independent saturated plug-flow reactors**.
 
