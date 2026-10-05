@@ -25,6 +25,9 @@
 #include "ui/dialogs/simulationoptionsdialog.h"
 
 #include <QComboBox>
+#include <QDoubleSpinBox>
+#include <openswmm/engine/openswmm_gw2d.h>
+#include <openswmm/engine/openswmm_model.h>
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QListWidget>
@@ -40,6 +43,7 @@
 #include <QWidget>
 
 #include <memory>
+#include <cmath>
 
 namespace {
 
@@ -80,6 +84,7 @@ const char *const kLoadBearingNames[] = {
     "infil2DMethodCombo", "infil2DDestCombo", "editInfilCellsBtn", "evap2DCombo",
     // 2D › Groundwater
     "gw2DEnableCombo", "gw2DEtCombo", "gw2DStatusLabel", "gw2DEditBtn",
+    "gwLinkSeepageCombo", "gwWiltingAuto", "gwWiltingSuction", "gwEtAllocationLabel",
     // 2D › Output
     "output2DPrecisionCombo", "output2DCompressionSpin", "output2DSizeLabel",
     "report2DStepSameBox", "report2DStepEdit", "report2DVarsList",
@@ -107,6 +112,7 @@ private slots:
     void tabRedirect();
     void noScrollAt1280x800();
     void structure();
+    void aquiferProcessInputsPreserveAutomaticAndConvertUnits();
 };
 
 namespace {
@@ -479,3 +485,21 @@ void TestSimulationOptionsGates::structure()
 
 QTEST_MAIN(TestSimulationOptionsGates)
 #include "test_simulationoptions_gates.moc"
+
+void TestSimulationOptionsGates::aquiferProcessInputsPreserveAutomaticAndConvertUnits()
+{
+    for(const char* units:{"CMS","CFS"}) {
+        auto layer=openLayer(fixture("mini_2d.inp"));QVERIFY(layer);auto e=layer->engine();
+        QVERIFY(swmm_options_set(e,"FLOW_UNITS",units)==SWMM_OK);
+        QVERIFY(swmm_gw2d_process_options_set(e,"AUTO","DEFAULT","AUTO",0)==SWMM_OK);
+        auto option=[&](const char* key){char b[80]{};swmm_gw2d_option_get(e,key,b,sizeof b);return QString::fromUtf8(b);};
+        SimulationOptionsDialog dlg(e,layer.get(),"6.0.0",nullptr,nullptr);
+        auto* et=dlg.findChild<QComboBox*>("gw2DEtCombo");auto* link=dlg.findChild<QComboBox*>("gwLinkSeepageCombo");auto* automatic=dlg.findChild<QCheckBox*>("gwWiltingAuto");auto* value=dlg.findChild<QDoubleSpinBox*>("gwWiltingSuction");QVERIFY(et&&link&&automatic&&value);
+        QCOMPARE(et->currentData().toString(),QString("AUTO"));QCOMPARE(link->currentData().toString(),QString("DEFAULT"));QVERIFY(automatic->isChecked());
+        const bool us=QString(units)=="CFS";QVERIFY(std::abs(value->value()-(us?150/.3048:150))<1e-8);QCOMPARE(value->suffix(),us?QString(" ft"):QString(" m"));
+        const auto authored=option("OPTIONS_AUTHORED");QVERIFY(QMetaObject::invokeMethod(&dlg,"onApply",Qt::DirectConnection));QCOMPARE(option("WILTING_SUCTION"),QString("AUTO"));QCOMPARE(option("OPTIONS_AUTHORED"),authored);
+        et->setCurrentIndex(et->findData("BOTH"));link->setCurrentIndex(link->findData("TWO_WAY"));automatic->setChecked(false);value->setValue(us?30/.3048:30);
+        QVERIFY(QMetaObject::invokeMethod(&dlg,"onApply",Qt::DirectConnection));QVERIFY(std::abs(option("WILTING_SUCTION").toDouble()*(us?.3048:1)-30)<1e-8);QCOMPARE(option("GW_ET"),QString("BOTH"));QCOMPARE(option("LINK_SEEPAGE"),QString("TWO_WAY"));
+        const auto custom=option("WILTING_SUCTION");SimulationOptionsDialog reopened(e,layer.get(),"6.0.0",nullptr,nullptr);QVERIFY(QMetaObject::invokeMethod(&reopened,"onApply",Qt::DirectConnection));QCOMPARE(option("WILTING_SUCTION"),custom);
+    }
+}

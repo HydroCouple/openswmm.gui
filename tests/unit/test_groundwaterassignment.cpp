@@ -19,6 +19,17 @@ private:
     AquiferRequest r;r.before=s;r.cells={0,1};r.cellTags={"A","B"};r.target="KS";r.values={2,3};return r;
  }
 private slots:
+ void processReviewIsAtomicAndRestoresDefaults(){
+  Engine e;auto before=seed(e);auto p=previewAquiferProcesses(e.e,"NONE","ONE_WAY","30");QVERIFY2(p.error.isEmpty(),qPrintable(p.error));QVERIFY(p.changed);QVERIFY(!p.forcing.isEmpty());QVERIFY(p.beforeEffective.contains("BOTH"));QVERIFY(p.afterEffective.contains("NONE"));
+  QString error;AquiferSnapshot now;QVERIFY(readAquiferSnapshot(e.e,&now,&error));QCOMPARE(now,before);QVERIFY(applyAquiferProcesses(e.e,p.before,p.after,p.groundwater,&error));QVERIFY(readAquiferSnapshot(e.e,&now,&error));QCOMPARE(now,p.after);
+  QVERIFY(applyAquiferProcesses(e.e,p.after,p.before,p.groundwater,&error));QVERIFY(readAquiferSnapshot(e.e,&now,&error));QCOMPARE(now,before);QVERIFY(!previewAquiferProcesses(e.e,"BOTH","TWO_WAY","0").error.isEmpty());
+  QCOMPARE(swmm_gw2d_option_set(e.e,"SOIL_CHAR","GARDNER"),SWMM_OK);QVERIFY(!applyAquiferProcesses(e.e,p.before,p.after,p.groundwater,&error));QVERIFY(readAquiferSnapshot(e.e,&now,&error));QCOMPARE(now.options.value("GW_ET"),before.options.value("GW_ET"));
+ }
+ void processReviewRefusesAProjectUnitChange(){
+  Engine e;seed(e);auto p=previewAquiferProcesses(e.e,"BOTH","TWO_WAY","30");QVERIFY(p.error.isEmpty());
+  const auto other=p.before.options.value("PROJECT_FLOW_UNITS")=="CMS"?"CFS":"CMS";QCOMPARE(swmm_options_set(e.e,"FLOW_UNITS",other),SWMM_OK);
+  QString error;QVERIFY(!applyAquiferProcesses(e.e,p.before,p.after,p.groundwater,&error));AquiferSnapshot now;QVERIFY(readAquiferSnapshot(e.e,&now,&error));QCOMPARE(now.options.value("WILTING_SUCTION"),QString("AUTO"));
+ }
  void snapshotAndExactIndependentFields(){
     Engine e;auto s=seed(e);QCOMPARE(s.rows.size(),1);
     auto p=previewAquiferAssignment(request(s));QVERIFY2(p.error.isEmpty(),qPrintable(p.error));

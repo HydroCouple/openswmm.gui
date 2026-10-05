@@ -84,6 +84,13 @@ void installOwnershipRows(SWMM2DMeshLayer* layer,const InfiltrationOwnershipSnap
  for(const auto& row:snapshot.rows)if(row.cell<0)defaults.append({QString::fromUtf8(row.tag),meshRow(row.row)});else overrides[row.cell]=meshRow(row.row);
  layer->replaceInfiltrationRows(defaults,overrides);
 }
+class ProcessUndo final:public QObject,public QUndoCommand {
+ QPointer<SWMMModelLayer> model;QPointer<SWMM2DMeshLayer> mesh;SWMM_Engine engine;quint64 geometry;AquiferProcessPreview preview;bool first=true;
+ void install(bool after){QString error;if(!model||!mesh||model->engine()!=engine||mesh->geomRevision()!=geometry||!applyAquiferProcesses(engine,after?preview.before:preview.after,after?preview.after:preview.before,preview.groundwater,&error)){setObsolete(true);QMessageBox::warning(QApplication::activeWindow(),QObject::tr("Groundwater ET"),error.isEmpty()?QObject::tr("The model changed."):error);return;}model->markEdited();emit model->optionsChanged({"GW_ET","LINK_SEEPAGE","WILTING_SUCTION"});mesh->refreshInfiltrationOwnership();}
+public:
+ ProcessUndo(SWMMModelLayer* m,SWMM2DMeshLayer* l,AquiferProcessPreview p):model(m),mesh(l),engine(m->engine()),geometry(l->geomRevision()),preview(std::move(p)){setText(QObject::tr("Change reviewed groundwater ET and seepage"));}
+ void undo()override{install(false);}void redo()override{if(first){first=false;return;}install(true);}
+};
 class OwnershipUndo final:public QObject,public QUndoCommand {
  QPointer<SWMMModelLayer> model;QPointer<SWMM2DMeshLayer> layer;SWMM_Engine engine;quint64 geometry;
  InfiltrationOwnershipPreview preview;bool first=true;
@@ -129,8 +136,16 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer*model,SWMM2DMesh
  m_target=new QComboBox(this);m_target->setObjectName("gwAssignmentTarget");
  for(const auto&t:aquiferTargets()){if(t.key=="FLOW")continue;m_target->addItem(t.label,t.key);const int i=m_target->count()-1;m_target->setItemData(i,t.unavailableReason,Qt::ToolTipRole);if(!t.supported)static_cast<QStandardItemModel*>(m_target->model())->item(i)->setEnabled(false);}
  m_target->addItem(tr("Review / migrate infiltration ownership"),"INFILTRATION_OWNERSHIP");
+ m_target->addItem(tr("Review ET and seepage defaults"),"ET_POLICY");
  m_target->addItem(tr("Initial species concentration — SAT / UNSAT"),"INITIAL_QUALITY");m_target->addItem(tr("Add injection / extraction sources"),"FLOW");
  form->addRow(tr("&Target:"),m_target);m_units=new QLabel(this);m_units->setWordWrap(true);form->addRow(m_units);
+ m_processControls=new QWidget(this);auto*processForm=new QFormLayout(m_processControls);
+ m_processEt=new QComboBox(m_processControls);m_processEt->setObjectName("gwProcessEt");for(const auto& pair:QList<QPair<QString,QString>>{{tr("Automatic"),"AUTO"},{tr("None"),"NONE"},{tr("Boundary ET"),"BOUNDARY_ET"},{tr("Capillary rise"),"CAPILLARY_RISE"},{tr("Both"),"BOTH"}})m_processEt->addItem(pair.first,pair.second);processForm->addRow(tr("Groundwater ET:"),m_processEt);
+ m_processLink=new QComboBox(m_processControls);m_processLink->setObjectName("gwProcessLink");for(const auto& pair:QList<QPair<QString,QString>>{{tr("Automatic"),"DEFAULT"},{tr("One way"),"ONE_WAY"},{tr("Two way"),"TWO_WAY"},{tr("Off"),"NONE"}})m_processLink->addItem(pair.first,pair.second);processForm->addRow(tr("Link seepage:"),m_processLink);
+ m_wiltingAuto=new QCheckBox(tr("Automatic wilting suction (150 m)"),m_processControls);m_wiltingAuto->setObjectName("gwProcessWiltingAuto");processForm->addRow(m_wiltingAuto);
+ m_wilting=new QDoubleSpinBox(m_processControls);m_wilting->setObjectName("gwProcessWilting");m_wilting->setDecimals(9);m_wilting->setRange(1e-9,1e9);m_wilting->setSuffix(" "+m_length);processForm->addRow(tr("Wilting suction:"),m_wilting);form->addRow(m_processControls);
+ AquiferSnapshot processSnapshot;QString processError;if(readAquiferSnapshot(m_engine,&processSnapshot,&processError)){const auto&o=processSnapshot.options;m_processEt->setCurrentIndex(m_processEt->findData(o.value("GW_ET")));m_processLink->setCurrentIndex(m_processLink->findData(o.value("LINK_SEEPAGE")));m_wiltingAuto->setChecked(o.value("WILTING_SUCTION")=="AUTO");m_wilting->setValue(m_wiltingAuto->isChecked()?(m_length=="ft"?150/.3048:150):o.value("WILTING_SUCTION").toDouble());}m_wilting->setEnabled(!m_wiltingAuto->isChecked());
+ connect(m_processEt,&QComboBox::currentIndexChanged,this,&GroundwaterAssignDialog::invalidatePreview);connect(m_processLink,&QComboBox::currentIndexChanged,this,&GroundwaterAssignDialog::invalidatePreview);connect(m_wilting,&QDoubleSpinBox::valueChanged,this,&GroundwaterAssignDialog::invalidatePreview);connect(m_wiltingAuto,&QCheckBox::toggled,this,[this](bool automatic){m_wilting->setEnabled(!automatic);invalidatePreview();});
  m_scopeChoice=new QComboBox(this);m_scopeChoice->setObjectName("gwAssignmentScope");m_scopeChoice->addItems({tr("Selected mesh cells"),tr("All mesh cells"),tr("Mesh tag"),tr("Cell numbers"),tr("Polygon WKT in mesh CRS")});form->addRow(tr("&Scope:"),m_scopeChoice);
  m_scopeText=new QLineEdit(this);m_scopeText->setObjectName("gwAssignmentScopeText");m_scopeText->setPlaceholderText(tr("Tag, 1-based cell numbers separated by commas, or POLYGON ((x y, ...))"));form->addRow(tr("Scope &details:"),m_scopeText);
  m_route=new QComboBox(this);m_route->setObjectName("gwAssignmentRoute");m_route->addItems({tr("Manual constant"),tr("Feature layer"),tr("Raster")});form->addRow(tr("Input &method:"),m_route);
@@ -165,7 +180,7 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer*model,SWMM2DMesh
  m_skip=new QCheckBox(tr("Preserve cells with NoData / no coverage (otherwise refuse the batch)"),this);form->addRow(m_skip);
  m_removeInfilOverrides=new QCheckBox(tr("Remove the reviewed explicit surface overrides that conflict with aquifer ownership"),this);m_removeInfilOverrides->setObjectName("gwOwnershipRemoveOverrides");m_removeInfilOverrides->setVisible(false);outer->addWidget(m_removeInfilOverrides);
  connect(m_removeInfilOverrides,&QCheckBox::toggled,this,&GroundwaterAssignDialog::invalidatePreview);
- m_status=new QLabel(tr("Choose a target and scope, then Preview. No model values change during preview."),this);m_status->setObjectName("gwAssignmentStatus");m_status->setWordWrap(true);m_status->setTextFormat(Qt::PlainText);outer->addWidget(m_status);
+ m_status=new QLabel(tr("Choose a target and scope, then Preview. No model values change during preview."),this);m_status->setObjectName("gwAssignmentStatus");m_status->setWordWrap(true);m_status->setMinimumHeight(60);m_status->setTextFormat(Qt::PlainText);outer->addWidget(m_status);
  m_table=new QTableWidget(0,3,this);m_table->setObjectName("gwAssignmentPreview");m_table->horizontalHeader()->setSortIndicator(-1,Qt::AscendingOrder);m_table->setSortingEnabled(true);m_table->setHorizontalHeaderLabels({tr("Cell"),tr("Old effective value"),tr("New value")});m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);outer->addWidget(m_table,1);
  m_table->setAccessibleName(tr("Reviewed groundwater assignments"));m_table->setAccessibleDescription(tr("Preview of affected cell numbers and reviewed values. Apply reviewed values commits this batch."));
  auto*buttons=new QDialogButtonBox(QDialogButtonBox::Close,this);m_preview=buttons->addButton(tr("Preview"),QDialogButtonBox::ActionRole);m_preview->setObjectName("gwAssignmentPreviewButton");m_apply=buttons->addButton(tr("Apply reviewed values"),QDialogButtonBox::ApplyRole);m_apply->setObjectName("gwAssignmentApplyButton");m_apply->setEnabled(false);outer->addWidget(buttons);
@@ -195,15 +210,16 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer*model,SWMM2DMesh
 }
 GroundwaterAssignDialog::~GroundwaterAssignDialog(){if(m_watcher)m_watcher->cancel();}
 void GroundwaterAssignDialog::invalidateContext(){m_engine=nullptr;++m_serial;if(m_watcher)m_watcher->cancel();m_havePreview=false;setEnabled(false);QDialog::reject();}
-void GroundwaterAssignDialog::reject(){m_haveOwnership=false;m_apply->setEnabled(false);if(m_watcher){m_watcher->cancel();++m_serial;m_status->setText(tr("Cancelling; the model remains unchanged."));return;}QDialog::reject();}
-void GroundwaterAssignDialog::invalidatePreview(){m_haveOwnership=false;++m_serial;m_havePreview=false;m_apply->setEnabled(false);if(m_watcher)m_watcher->cancel();}
+void GroundwaterAssignDialog::reject(){m_haveProcess=false;m_haveOwnership=false;m_apply->setEnabled(false);if(m_watcher){m_watcher->cancel();++m_serial;m_status->setText(tr("Cancelling; the model remains unchanged."));return;}QDialog::reject();}
+void GroundwaterAssignDialog::invalidatePreview(){m_haveProcess=false;m_haveOwnership=false;++m_serial;m_havePreview=false;m_apply->setEnabled(false);if(m_watcher)m_watcher->cancel();}
 void GroundwaterAssignDialog::updateTarget(){invalidatePreview();const QString key=m_target->currentData().toString();const bool quality=key=="INITIAL_QUALITY",source=key=="FLOW";
- const bool ownership=key=="INFILTRATION_OWNERSHIP";m_removeInfilOverrides->setVisible(ownership);
- if(auto*form=findChild<QFormLayout*>("gwAssignmentForm"))for(int row=2;row<form->rowCount();++row)form->setRowVisible(row,!ownership);
- if(auto*intro=findChild<QLabel*>("gwAssignmentIntro"))intro->setVisible(!ownership);
- if(auto*fields=findChild<QScrollArea*>("gwAssignmentFields"))fields->setMaximumHeight(ownership?130:QWIDGETSIZE_MAX);
+ const bool ownership=key=="INFILTRATION_OWNERSHIP",process=key=="ET_POLICY",review=ownership||process;m_removeInfilOverrides->setVisible(ownership);
+ if(auto*form=findChild<QFormLayout*>("gwAssignmentForm"))for(int row=2;row<form->rowCount();++row)form->setRowVisible(row,row==2?process:!review);
+ if(auto*intro=findChild<QLabel*>("gwAssignmentIntro"))intro->setVisible(!review);
+ if(auto*fields=findChild<QScrollArea*>("gwAssignmentFields"))fields->setMaximumHeight(review?(process?250:130):QWIDGETSIZE_MAX);
  m_scopeChoice->setEnabled(!ownership);m_scopeText->setEnabled(!ownership);m_route->setEnabled(!ownership);m_value->setEnabled(!ownership);
  m_transportControls->setVisible(quality);m_sourceControls->setVisible(source);
+ if(process){m_units->setText(tr("One mesh-area atmospheric demand. Surface evaporation uses it first; soil ET uses the remainder with one stress factor. Capillary rise is internal transfer. Automatic resolves to Both and Two way for an active mesh aquifer. Subcatchment and LID area partitioning requires their own reviewed configuration."));return;}
  if(ownership){m_units->setText(tr("Whole-mesh ownership review. Capacities are computed by the aquifer; no second infiltration rate is assigned. Explicit conflicts block Apply until their removal is reviewed."));return;}
  if(source){m_units->setText(tr("Flow: m³/s, independent of project length units. Series values keep their authored times; preview lists only the currently authored constant or series reference."));}
  else if(quality){QString unit;for(const auto&sp:m_speciesCatalog)if(sp.id==m_species->currentData().toString())unit=sp.nativeConcUnits;m_units->setText(unit.isEmpty()?tr("Species units are unresolved. Initial quality cannot be assigned until a native unit mapping is available."):tr("Initial concentration: %1. SAT and UNSAT only; no sustained water or mass flux.").arg(unit));}
@@ -238,7 +254,7 @@ void GroundwaterAssignDialog::sourceChanged(){invalidatePreview();const bool man
   if(auto*layer=qobject_cast<GISRasterLayer*>(base))m_path->setText(layer->filePath());
  }}
 QVector<int> GroundwaterAssignDialog::scope(QString*error)const{
- if(m_target->currentData()=="INFILTRATION_OWNERSHIP"){QVector<int> cells;if(m_mesh)for(int i=0;i<m_mesh->mesh().triangles.size();++i)cells.append(i);return cells;}
+ if(m_target->currentData()=="INFILTRATION_OWNERSHIP"||m_target->currentData()=="ET_POLICY"){QVector<int> cells;if(m_mesh)for(int i=0;i<m_mesh->mesh().triangles.size();++i)cells.append(i);return cells;}
  QVector<int> cells;if(!m_mesh){*error=tr("No mesh.");return cells;}const auto&m=m_mesh->mesh();const int mode=m_scopeChoice->currentIndex();QSet<int> chosen;
  if(mode==0&&m_selection){const auto key=mesh::MeshObjectRef::layerKey(m_mesh->sourcePath());for(const auto&ref:m_selection->selection()){QString layer;int cell=-1;if(mesh::MeshObjectRef::parseCell(ref,&layer,&cell)&&layer==key)chosen.insert(cell);}}
  else if(mode==1||mode==2){for(int i=0;i<m.triangles.size();++i)if(mode==1||m.triangles[i].tag==m_scopeText->text())chosen.insert(i);}
@@ -259,6 +275,14 @@ bool GroundwaterAssignDialog::currentContext(QString*error)const{
 }
 void GroundwaterAssignDialog::preview(){
  if(m_watcher||!m_model||!m_mesh||!m_engine)return;invalidatePreview();QString error;
+ if(m_target->currentData()=="ET_POLICY"){
+  m_process=previewAquiferProcesses(m_engine,m_processEt->currentData().toString(),m_processLink->currentData().toString(),m_wiltingAuto->isChecked()?QString("AUTO"):QString::number(m_wilting->value(),'g',17));
+  m_geometry=m_mesh->geomRevision();m_attributes=m_mesh->attrRevision();m_scope=scope(&error);m_meshPath=m_mesh->sourcePath();m_meshCrs=m_mesh->srs()?m_mesh->srs()->toWkt():QString();m_haveProcess=true;
+  const bool sorted=m_table->isSortingEnabled();m_table->setSortingEnabled(false);const auto guard=qScopeGuard([this,sorted]{m_table->setSortingEnabled(sorted);});m_table->setColumnCount(3);m_table->setHorizontalHeaderLabels({tr("Cell"),tr("Before: authored / effective"),tr("After: authored / effective")});m_table->setRowCount(std::min(qsizetype(500),m_scope.size()));
+  for(int i=0;i<m_table->rowCount();++i){m_table->setItem(i,0,new NumericTableWidgetItem(QString::number(m_scope[i]+1)));m_table->setItem(i,1,new QTableWidgetItem(m_process.beforeEffective));m_table->setItem(i,2,new QTableWidgetItem(m_process.afterEffective));}
+  m_table->horizontalHeader()->setSectionResizeMode(0,QHeaderView::ResizeToContents);for(int j=1;j<3;++j)m_table->horizontalHeader()->setSectionResizeMode(j,QHeaderView::Stretch);m_table->resizeRowsToContents();
+  m_status->setText(m_process.error.isEmpty()?tr("Reviewed global settings for %1 cells, including implicit whole-mesh coverage. Wilting values use %2. Apply changes one shared configuration; Undo restores authored choices. %3").arg(m_scope.size()).arg(m_length).arg(m_process.forcing):m_process.error);m_apply->setEnabled(m_process.error.isEmpty()&&m_process.changed);return;
+ }
  if(m_target->currentData()=="INFILTRATION_OWNERSHIP"){
   QStringList tags;for(const auto& cell:m_mesh->mesh().triangles)tags.append(cell.tag);
   m_ownership=previewInfiltrationOwnership(m_engine,tags,m_removeInfilOverrides->isChecked());
@@ -351,6 +375,11 @@ void GroundwaterAssignDialog::finishPreview(){
  m_apply->setEnabled(!result.preview.appended.isEmpty());
 }
 void GroundwaterAssignDialog::apply(){
+ if(m_haveProcess){QString error;if(!m_canvas||!m_canvas->undoStack()||!currentContext(&error)||!m_process.error.isEmpty()){m_status->setText(error);return;}
+  m_committing=true;const auto guard=qScopeGuard([this]{m_committing=false;});if(!applyAquiferProcesses(m_engine,m_process.before,m_process.after,m_process.groundwater,&error)){m_status->setText(error);invalidatePreview();return;}
+  m_canvas->undoStack()->push(new ProcessUndo(m_model,m_mesh,m_process));m_model->markEdited();emit m_model->optionsChanged({"GW_ET","LINK_SEEPAGE","WILTING_SUCTION"});m_mesh->refreshInfiltrationOwnership();m_status->setText(tr("Reviewed ET and seepage settings applied as one undoable operation."));m_haveProcess=false;m_apply->setEnabled(false);emit applied();return;
+ }
+
  if(m_haveOwnership){QString error;if(!m_canvas||!m_canvas->undoStack()||!currentContext(&error)||!m_ownership.error.isEmpty()){m_status->setText(error);return;}
   m_committing=true;const auto guard=qScopeGuard([this]{m_committing=false;});
   if(!applyInfiltrationOwnership(m_engine,m_ownership.before,m_ownership.after,&error)){m_status->setText(error);invalidatePreview();return;}

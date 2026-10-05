@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/simoptions/twodpage.h"
+#include "assignment/groundwaterassignment.h"
 
 #ifdef OPENSWMM_HAS_2D
 
@@ -36,6 +37,7 @@
 #include <qcustomeditors.h>
 
 #include <openswmm/engine/openswmm_gw_transport.h>   // U5: [GW_*] row count
+#include <openswmm/engine/openswmm_gw2d.h>
 #include <openswmm/engine/openswmm_infil2d.h>        // U1: INFILTRATION AUTO label
 
 #include <algorithm>
@@ -483,6 +485,7 @@ void TwoDPage::buildUi()
            "1D side uses (Climatology dialog) to every unforced cell. Off "
            "books no evaporation."));
     rainfallForm->addRow(tr("Evaporation:"), m_evap2DCombo);
+    connect(m_evap2DCombo,&QComboBox::currentIndexChanged,this,[this]{if(m_gwEtAllocation)refreshGates();});
 
     // ── Transport (the 2D column of the Models page matrix) ─────────────
     auto *trBox = new QWidget(rainfallGroup);
@@ -537,6 +540,7 @@ void TwoDPage::buildUi()
 
     m_gw2DEtCombo = new QComboBox(m_gw2DGroup);
     m_gw2DEtCombo->setObjectName(QStringLiteral("gw2DEtCombo"));
+    m_gw2DEtCombo->addItem(tr("Automatic (Both with an active mesh aquifer)"),QStringLiteral("AUTO"));
     m_gw2DEtCombo->addItem(tr("None"), QStringLiteral("NONE"));
     m_gw2DEtCombo->addItem(tr("Capillary rise (from the water table)"),
                            QStringLiteral("CAPILLARY_RISE"));
@@ -544,16 +548,15 @@ void TwoDPage::buildUi()
                            QStringLiteral("BOUNDARY_ET"));
     m_gw2DEtCombo->addItem(tr("Both"), QStringLiteral("BOTH"));
     m_gw2DEtCombo->setToolTip(
-        tr("GW_ET: evapotranspiration from the subsurface, at the same "
-           "climate PET the 1D side uses. Separate from the surface "
-           "Evaporation setting above: that removes ponded water, this removes "
-           "soil water, and each books its own ledger row.\n\n"
-           "This is the same setting as Groundwater ET in Mesh 2D > "
-           "Groundwater (2D) > Aquifer Parameters — it is stored once, in "
-           "[2D_AQUIFER_OPTIONS], and editing it in either place changes the "
-           "same value."));
+        tr("One atmospheric demand is shared by each mesh cell: actual surface evaporation spends it first, and soil ET spends the remainder with one moisture-stress factor. Capillary rise transfers water internally. Climate or explicit evaporation forcing supplies demand. This shared setting is stored in [2D_AQUIFER_OPTIONS]."));
     gwForm->addRow(tr("Evapotranspiration:"), m_gw2DEtCombo);
 
+    m_gwLinkCombo=new QComboBox(m_gw2DGroup);m_gwLinkCombo->setObjectName("gwLinkSeepageCombo");m_gwLinkCombo->setProperty("aquiferOptionKey","LINK_SEEPAGE");
+    m_gwLinkCombo->addItem(tr("Automatic (Two way with an active mesh aquifer)"),"DEFAULT");m_gwLinkCombo->addItem(tr("One way"),"ONE_WAY");m_gwLinkCombo->addItem(tr("Two way"),"TWO_WAY");m_gwLinkCombo->addItem(tr("Off"),"NONE");gwForm->addRow(tr("Link seepage:"),m_gwLinkCombo);
+    m_gwWiltingAuto=new QCheckBox(tr("Automatic wilting suction (150 m)"),m_gw2DGroup);m_gwWiltingAuto->setObjectName("gwWiltingAuto");gwForm->addRow(m_gwWiltingAuto);
+    m_gwWilting=new QDoubleSpinBox(m_gw2DGroup);m_gwWilting->setObjectName("gwWiltingSuction");m_gwWilting->setProperty("aquiferOptionKey","WILTING_SUCTION");m_gwWilting->setDecimals(9);m_gwWilting->setRange(1e-9,1e9);m_gwWilting->setToolTip(tr("Positive suction-head magnitude in project length units. Soil ET applies stress once at its extraction location. The automatic 150 m value retains the former bulk threshold; select a custom value for the modeled vegetation."));gwForm->addRow(tr("Wilting suction:"),m_gwWilting);
+    m_gwEtAllocation=new QLabel(m_gw2DGroup);m_gwEtAllocation->setObjectName("gwEtAllocationLabel");m_gwEtAllocation->setWordWrap(true);gwForm->addRow(tr("ET allocation:"),m_gwEtAllocation);
+    connect(m_gw2DEtCombo,&QComboBox::currentIndexChanged,this,[this]{refreshGates();});connect(m_gwWiltingAuto,&QCheckBox::toggled,this,[this]{refreshGates();});
     m_gw2DStatusLabel = new QLabel(m_gw2DGroup);
     m_gw2DStatusLabel->setObjectName(QStringLiteral("gw2DStatusLabel"));
     m_gw2DStatusLabel->setWordWrap(true);
@@ -876,6 +879,8 @@ void TwoDPage::tagWidgets()
     tagOption(m_evap2DCombo, "EVAPORATION");
     tagOption(m_gw2DEnableCombo, "GROUNDWATER");
     tagOption(m_gw2DEtCombo, "GW_ET");
+    tagOption(m_gwLinkCombo, "LINK_SEEPAGE");
+    tagOption(m_gwWilting, "WILTING_SUCTION");
 }
 
 void TwoDPage::refreshGates()
@@ -899,7 +904,10 @@ void TwoDPage::refreshGates()
     // rather than guessing and locking a control the user cannot then change.
     const QString mode = m_gw2DEnableCombo->currentData().toString();
     const bool off = (mode == QLatin1String("NO"));
-    m_gw2DEtCombo->setEnabled(!off);
+    m_gw2DEtCombo->setEnabled(!off);m_gwLinkCombo->setEnabled(!off);
+    const QString et=m_gw2DEtCombo->currentData().toString();const bool boundary=!off&&(et=="AUTO"||et=="BOUNDARY_ET"||et=="BOTH");m_gwWiltingAuto->setEnabled(boundary);m_gwWilting->setEnabled(boundary&&!m_gwWiltingAuto->isChecked());
+    char configured[80]{},effective[80]{};const auto e=ctx_.engine();if(e){swmm_gw2d_option_get(e,"CONFIGURED",configured,sizeof configured);swmm_gw2d_option_get(e,"GW_ET_EFFECTIVE",effective,sizeof effective);}
+    m_gwEtAllocation->setText(tr("Surface evaporation spends one mesh-area demand first; soil ET spends the remainder. Capillary rise is internal water transfer. Climate or explicit evaporation forcing supplies demand. Current saved effective ET: %1. Review changes and Undo in Assign Groundwater → Review ET and seepage defaults. Subcatchment/LID footprint partitioning is configured separately. %2").arg(off?tr("Inactive"):QString::fromUtf8(effective)).arg(openswmmvis::assignment::groundwaterEtForcingStatus(e,m_evap2DCombo->currentData().toString())));
     // Aquifer ownership is resolved from coverage. It is independent of
     // the ordinary bank's destination; never synthesize the obsolete token.
     if (m_infil2DDestCombo) {
@@ -1235,7 +1243,9 @@ void TwoDPage::read()
     // AUTO seeds AUTO and an unedited Apply writes nothing.
     selectComboByData(m_gw2DEnableCombo,
                       getExt("GROUNDWATER", QStringLiteral("AUTO")));
-    selectComboByData(m_gw2DEtCombo, getExt("GW_ET", QStringLiteral("NONE")));
+    selectComboByData(m_gw2DEtCombo, getExt("GW_ET", QStringLiteral("AUTO")));
+    char link[80]{},wilting[80]{},effective[80]{};swmm_gw2d_option_get(ctx_.engine(),"LINK_SEEPAGE",link,sizeof link);swmm_gw2d_option_get(ctx_.engine(),"WILTING_SUCTION",wilting,sizeof wilting);swmm_gw2d_option_get(ctx_.engine(),"WILTING_SUCTION_EFFECTIVE",effective,sizeof effective);
+    selectComboByData(m_gwLinkCombo,QString::fromUtf8(link));m_gwWiltingAuto->setChecked(QString::fromUtf8(wilting)=="AUTO");const QString flow=ctx_.option("FLOW_UNITS");const bool us=QStringList{"CFS","GPM","MGD"}.contains(flow.toUpper());m_gwWilting->setSuffix(us?" ft":" m");m_gwWilting->setValue(QString::fromUtf8(effective).toDouble());
     refreshGates();
 }
 
@@ -1384,7 +1394,13 @@ int TwoDPage::write()
     // [2D_AQUIFER_OPTIONS], so this and the Mesh 2D aquifer editor set the
     // same value.
     writeIfChanged("GROUNDWATER", m_gw2DEnableCombo->currentData().toString());
-    writeIfChanged("GW_ET",       m_gw2DEtCombo->currentData().toString());
+    for(const auto key:{"GW_ET","LINK_SEEPAGE","WILTING_SUCTION"})ctx_.recordWrittenKey(key);
+    char oldEt[80]{},oldLink[80]{},oldWilting[80]{};swmm_gw2d_option_get(e,"GW_ET",oldEt,sizeof oldEt);swmm_gw2d_option_get(e,"LINK_SEEPAGE",oldLink,sizeof oldLink);swmm_gw2d_option_get(e,"WILTING_SUCTION",oldWilting,sizeof oldWilting);
+    const auto et=m_gw2DEtCombo->currentData().toString(),link=m_gwLinkCombo->currentData().toString();QString wilting=m_gwWiltingAuto->isChecked()?QString("AUTO"):QString::number(m_gwWilting->value(),'g',17);
+    if(wilting!="AUTO"&&QString::fromUtf8(oldWilting)!="AUTO"&&std::abs(wilting.toDouble()-QString::fromUtf8(oldWilting).toDouble())<=5e-10)wilting=QString::fromUtf8(oldWilting);
+    if(et!=QString::fromUtf8(oldEt)||link!=QString::fromUtf8(oldLink)||wilting!=QString::fromUtf8(oldWilting)){
+        if(swmm_gw2d_process_options_set(e,et.toUtf8().constData(),link.toUtf8().constData(),wilting.toUtf8().constData(),1)==SWMM_OK){++n;if(ctx_.modelLayer())emit ctx_.modelLayer()->optionsChanged({"GW_ET","LINK_SEEPAGE","WILTING_SUCTION"});}
+    }
     return n;
 }
 
