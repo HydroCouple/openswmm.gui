@@ -168,6 +168,8 @@ opening setting; an orifice representing a valve accepts settings from 0
 0 and 1. A setting of 0.5 specifies half the opening, not necessarily half
 the discharge, because flow also depends on head and the link geometry.
 
+\fig{t10_hydraulic-control-static.png, Analytical fully submerged orifice flow under open and closed valve settings}
+
 In SWMMVis, add each connection as a separate link in the map, edit its
 offset or LID outlet layer and position properties, then give that link its own actions in
 **Model → Data Objects → Control Rules…**. A low-level drain and a high-level

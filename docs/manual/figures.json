@@ -1566,16 +1566,6 @@
       "typeInto": "default: <project>.2dm"
     },
     {
-      "name": "19_channel_burn_tab.png",
-      "lane": "live",
-      "action": "model.generateMesh",
-      "page": "Channel Burn-in",
-      "size": "1500x1050",
-      "maxWidth": 1600,
-      "type": "site_drainage_model.2dm",
-      "typeInto": "default: <project>.2dm"
-    },
-    {
       "name": "15_wind_tab.png",
       "lane": "live",
       "action": "climate.temperature",
