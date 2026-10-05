@@ -320,6 +320,7 @@ int pushEdits(SWMM2DMeshLayer *layer, const QVector<int> &triangles,
         const int    t = triangles[i];
         const double v = values[i];
         if (t < 0 || t >= m.triangles.size() || !std::isfinite(v)) continue;
+        if (key.startsWith("infil.") && !layer->surfaceInfiltrationEditable(t)) continue;
         const double prev = cellParamValue(m, t, key);
         if (std::isfinite(prev) && prev == v) continue;   // already there
         tris.append(t);
@@ -521,7 +522,7 @@ int pushCellInfilEdit(SWMM2DMeshLayer *layer, const QVector<int> &triangles,
     oldProv.reserve(triangles.size());
 
     for (int t : triangles) {
-        if (t < 0 || t >= m.triangles.size()) continue;
+        if (t < 0 || t >= m.triangles.size() || !layer->surfaceInfiltrationEditable(t)) continue;
         // Snapshot the RESOLVED row and where it came from. The provenance is
         // what makes undo faithful: without it an inheriting cell comes back
         // as a materialised override carrying the same numbers.

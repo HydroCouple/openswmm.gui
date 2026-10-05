@@ -27,10 +27,10 @@ constexpr const char *kAttrKeys[] = {
     "infil.method",
     "infil.f0", "infil.fmin", "infil.decay", "infil.dryTime", "infil.Fmax",
     "infil.suction", "infil.Ks", "infil.IMD", "infil.CN", "infil.rate",
-    "gw.Ks", "gw.zs", "gw.thetaS", "gw.hu0", "gw.hg0",
+    "gw.Ks", "gw.zs", "gw.thetaS", "gw.hu0", "gw.hg0", "infil.owner", "infil.conflict",
 };
 constexpr int kAttrKeyCount = int(std::size(kAttrKeys));
-static_assert(kAttrKeyCount == int(MeshFillStyle::CellAttribute::GwHg0) + 1,
+static_assert(kAttrKeyCount == int(MeshFillStyle::CellAttribute::InfilConflict) + 1,
               "kAttrKeys must carry exactly one key per CellAttribute value");
 
 } // namespace

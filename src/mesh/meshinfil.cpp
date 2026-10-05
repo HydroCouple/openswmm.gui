@@ -378,9 +378,7 @@ QString infilDestHint(InfilDest d)
                   "polygon contains the cell. Cells outside every polygon "
                   "stay lost, with a warning at run time.");
     case InfilDest::Aquifer2D:
-        return tr("Recharges the integrated two-zone groundwater kernel. "
-                  "Needs a [2D_AQUIFER] section — without one the run is "
-                  "refused rather than quietly losing the water.");
+        return tr("Obsolete destination. Use Assign Groundwater → Review / migrate infiltration ownership. The aquifer computes capacity on covered cells.");
     case InfilDest::Lost:
         break;
     }

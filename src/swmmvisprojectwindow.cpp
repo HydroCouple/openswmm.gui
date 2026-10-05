@@ -1157,6 +1157,7 @@ void SWMMVisProjectWindow::setHasChanges(bool dirty)
 
 void SWMMVisProjectWindow::attachMeshLayer(SWMM2DMeshLayer *meshLayer, bool pristine)
 {
+    if(meshLayer)meshLayer->setInfiltrationModel(mModelLayer);
     if (!meshLayer)
         return;
     // MapCanvas does not own its layers; undo/deferred geometry can outlive

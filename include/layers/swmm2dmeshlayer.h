@@ -31,6 +31,7 @@
 #include <QColor>
 #include <QLineF>
 #include <QPair>
+#include <QPointer>
 #include <QPointF>
 #include <QPolygonF>
 #include <QRectF>
@@ -46,6 +47,7 @@ class QGraphicsScene;
 class QGraphicsItem;
 class SWMM2DMeshGraphicsItem;
 class GeneratedMeshArtifacts;
+class SWMMModelLayer;
 
 namespace OpenSWMM::Render
 {
@@ -465,6 +467,11 @@ public:
      *  '*' default until the override is cleared. Emits attributeChanged with
      *  the cell ref name. */
     bool applyMeshTriangleInfil(int triIdx, const mesh::InfilRow &row);
+    void setInfiltrationModel(::SWMMModelLayer* model);
+    void refreshInfiltrationOwnership();
+    void replaceInfiltrationRows(const QVector<mesh::InfilDefaultRow>& defaults,
+                                 const QHash<int,mesh::InfilRow>& overrides);
+    bool surfaceInfiltrationEditable(int cell) const;
 
     /*! \brief Erase the per-cell infiltration override, so the cell resolves
      *  through its region tag / the '*' default again.
@@ -833,6 +840,8 @@ signals:
     void rendererChanged();
 
 private:
+    QPointer<::SWMMModelLayer> m_infiltrationModel;
+    QMetaObject::Connection m_ownerClosing, m_ownerEdited;
     void rebuildSceneGeometry();
 
     /*! Index into m_sceneTris of the fan triangle containing (sx,sy), or -1.

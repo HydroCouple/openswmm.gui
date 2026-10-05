@@ -49,6 +49,12 @@ public:
     [[nodiscard]] double  mannings() const;
     [[nodiscard]] double  initDepth() const;
     [[nodiscard]] QString tag()      const;
+    Q_PROPERTY(QString infiltrationOwner READ infiltrationOwner NOTIFY changed)
+    Q_PROPERTY(QString infiltrationSource READ infiltrationSource NOTIFY changed)
+    Q_PROPERTY(QString infiltrationConflict READ infiltrationConflict NOTIFY changed)
+    QString infiltrationOwner() const;
+    QString infiltrationSource() const;
+    QString infiltrationConflict() const;
 
     /*! \brief Same display-label convention as SWMM*PropertyAdapter. Length
      *         properties carry the project's depth unit (see

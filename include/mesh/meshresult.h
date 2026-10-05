@@ -135,6 +135,8 @@ struct MeshResult
      *  inline). They must NOT be appended to [2D_TRIANGLES], whose columns
      *  are positional.
      */
+    QVector<int> infiltrationOwner, infiltrationConflict;
+    QStringList infiltrationSource;
     QVector<InfilDefaultRow> infilDefaults;   ///< Tag rows; '*' = mesh-wide fallback.
     QHash<int, InfilRow>     infilOverrides;  ///< Sparse, keyed by triangle index.
     InfilOptions             infilOptions;    ///< [2D_INFILTRATION_OPTIONS].
