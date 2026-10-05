@@ -24,6 +24,7 @@
 #include <QDateTime>
 #include <QHash>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QVector>
 
@@ -182,6 +183,7 @@ private:
     bool writeProvider(void *engineHandle, TimeseriesProvider *p);
     QVector<TimeseriesProvider *>  m_providers;            ///< Insertion order; we own each via Qt parenting.
     QHash<QString, TimeseriesProvider *> m_byLowerName;    ///< Case-insensitive index.
+    QSet<TimeseriesProvider *> m_failedPointImports;      ///< Preserve engine rows when editor import rejects timestamps.
     void                          *m_engineHandle = nullptr; ///< Cached for the no-arg saveToEngine().
     QString                        m_projectAnchor;          ///< .inp dir for relative display.
     QDateTime                      m_simulationStart;        ///< START_DATE+TIME; anchor for relative series.

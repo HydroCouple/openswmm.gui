@@ -190,6 +190,67 @@ private slots:
                  qPrintable(detail2));
     }
 
+    void binaryInpRejected_data()
+    {
+        QTest::addColumn<QByteArray>("contents");
+        QTest::addColumn<int>("line");
+        QTest::addColumn<QString>("byteDescription");
+        QTest::newRow("utf16") << QByteArray("\xff\xfe[\0", 4) << 1 << QStringLiteral("NUL byte");
+        QTest::newRow("timeseries-name")
+            << QByteArray("[TIMESERIES]\r\nStorm") + QByteArray(1, '\0') + " 0:00 1\r\n" << 2 << QStringLiteral("NUL byte");
+        QTest::newRow("comment")
+            << QByteArray("[TITLE]\n; broken") + QByteArray(1, '\0') + "comment\n" << 2 << QStringLiteral("NUL byte");
+        QTest::newRow("after-read-chunk")
+            << QByteArray("; ") + QByteArray(1024 * 1024, 'x') + "\n"
+                + QByteArray(1, '\0') << 2 << QStringLiteral("NUL byte");
+        QTest::newRow("name-control-character")
+            << QByteArray("[TIMESERIES]\nVS_y1") + QByteArray(1, char(0x1d)) + "41 0:00 1\n"
+            << 2 << QStringLiteral("Control byte 0x1d");
+        QTest::newRow("delete-control-character")
+            << QByteArray("; bad ") + QByteArray(1, char(0x7f)) << 1
+            << QStringLiteral("Control byte 0x7f");
+    }
+
+    void binaryInpRejected()
+    {
+        QFETCH(QByteArray, contents);
+        QFETCH(int, line);
+        QFETCH(QString, byteDescription);
+        const QString path = QDir(dataDir()).filePath(
+            QStringLiteral("binary_%1.inp").arg(QString::fromLatin1(QTest::currentDataTag())));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(contents), qint64(contents.size()));
+        file.close();
+        QString detail;
+        SWMM_Engine eng = SWMMModelLayer::openEngineForPath(path, &detail);
+        const bool opened = eng != nullptr;
+        if (eng) { swmm_engine_close(eng); swmm_engine_destroy(eng); }
+        QVERIFY2(!opened, "binary corruption must fail even with lenient open");
+        QVERIFY2(detail.contains(QStringLiteral("%1 at line %2").arg(byteDescription).arg(line)),
+                 qPrintable(detail));
+        QVERIFY(detail.contains(path));
+    }
+
+    void textCommentsRemainLoadable()
+    {
+        QFile fixture(fixturePath());
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        // Valid UTF-8 and older eight-bit comment text are not binary corruption.
+        const QByteArray contents = QByteArray("; Rivi\xc3\xa8re\n; legacy \xe9 comment\n")
+            + fixture.readAll();
+        const QString path = QDir(dataDir()).filePath(QStringLiteral("text_comments.inp"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(contents), qint64(contents.size()));
+        file.close();
+        QString detail;
+        SWMM_Engine eng = SWMMModelLayer::openEngineForPath(path, &detail);
+        QVERIFY2(eng != nullptr, qPrintable(detail));
+        swmm_engine_close(eng);
+        swmm_engine_destroy(eng);
+    }
+
     // 2. Parse-error diagnostics preserved: a malformed fixture (see
     //    typed_selection_malformed_fixture.inp for why a [DWF] line naming
     //    an undefined node is the reliable failure — unknown section
