@@ -241,7 +241,7 @@ Future articles will explore that connection: distributed recharge and changing 
 
 ## Acknowledgments
 
-I thank Dr. Rob Traver for discussions that helped refine the ideas behind the LID Storage node implementation and for his support of its development and implementation. I also thank Corinne Wiesner-Friedman for reviewing this article.
+I thank Dr. Rob Traver for discussions that helped refine the ideas behind the LID Storage node implementation and for his support of its development and implementation. I also thank Corinne Wiesner-Friedman and Robert Dickinson for reviewing this article.
 
 ## Acknowledgment of AI assistance
 
