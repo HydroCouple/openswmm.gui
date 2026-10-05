@@ -269,12 +269,6 @@
     "baseline": "workflows-site",
     "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
   },
-  "19_channel_burn_tab.png": {
-    "reviewedAt": "2026-10-01T18:44:47.184024+00:00",
-    "sha256": "4228e9a2c1d24ea6b3784c6e6a2e0aaefae97ea71f2ce27a18b79a18d1a1edfd",
-    "baseline": "workflows-site",
-    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
-  },
   "23_profile_overview.png": {
     "reviewedAt": "2026-10-01T18:44:47.184313+00:00",
     "sha256": "a8a6b1c1691f85a90b73a1cde469ab4c7ee1102347475a11bbb6edb3990db52b",
