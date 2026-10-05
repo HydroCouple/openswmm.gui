@@ -211,6 +211,8 @@ public:
     [[nodiscard]] bool qsgOwnsRendering() const noexcept { return m_qsgOwnsRendering; }
     void setQsgOwnsRendering(bool own);
 
+    void copyDisplayStateFrom(const SWMM2DMeshLayer &source);
+
     // ----- Display toggles ------------------------------------------------
     // These remain on the layer so existing UI, JSON, and serialization
     // round-trip the way they always have, but they are now thin shims

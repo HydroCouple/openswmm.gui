@@ -4051,3 +4051,11 @@ add_swmmvis_gui_test(test_datasetmultiselect
 swmmvis_link_full_app_deps(test_datasetmultiselect)
 set_tests_properties(test_datasetmultiselect PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;SWMMVIS_DATASET_MULTISELECT_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/dataset_multiselect_2026-10-04/fixtures")
+
+add_swmmvis_gui_test(test_channelburndialog
+    test_channelburndialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_channelburndialog)
+target_compile_definitions(test_channelburndialog PRIVATE
+    CHANNEL_BURN_FIXTURE="${CMAKE_SOURCE_DIR}/examples/channel_burn_boundary/channel_burn_boundary.inp")

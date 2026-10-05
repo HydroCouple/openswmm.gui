@@ -121,6 +121,11 @@ public:
     {
         QJsonObject o;
         o[QStringLiteral("enabled")] = s.enabled;
+        o[QStringLiteral("exportRaster")] = s.exportRaster;
+        o[QStringLiteral("exportDemPath")] = s.exportDemPath;
+        o[QStringLiteral("exportDirectory")] = s.exportDirectory;
+        o[QStringLiteral("exportRasterZToSI")] = s.exportRasterZToSI;
+        o[QStringLiteral("maxMeshCells")] = s.maxMeshCells;
     
         QJsonObject sel;
         sel[QStringLiteral("mode")] = int(s.selector.mode);
@@ -148,7 +153,8 @@ public:
         op[QStringLiteral("quadCorridor")]    = b.quadCorridor;
         op[QStringLiteral("channelCellSize")] = b.channelCellSize;
         op[QStringLiteral("geometryToleranceM")] = b.geometryTolerance;
-        o[QStringLiteral("version")] = 2;
+        op[QStringLiteral("channelAspectMax")] = b.channelAspectMax;
+        o[QStringLiteral("version")] = 3;
         op[QStringLiteral("roughnessFromTransect")] = b.roughnessFromTransect;
         op[QStringLiteral("removeBurnedFrom1D")]    = b.removeBurnedFrom1D;
         op[QStringLiteral("convertInterfaceNodes")] = b.convertInterfaceNodes;
@@ -161,6 +167,12 @@ public:
     {
         mesh::ChannelBurnSettings s;
         s.enabled = o.value(QStringLiteral("enabled")).toBool(s.enabled);
+        s.exportRaster = o.value(QStringLiteral("exportRaster")).toBool(false);
+        s.exportDemPath = o.value(QStringLiteral("exportDemPath")).toString();
+        s.exportDirectory = o.value(QStringLiteral("exportDirectory")).toString();
+        s.exportRasterZToSI = o.value(QStringLiteral("exportRasterZToSI")).toDouble(1.0);
+        if (!std::isfinite(s.exportRasterZToSI) || s.exportRasterZToSI <= 0) s.exportRasterZToSI = 1.0;
+        s.maxMeshCells = std::max(1, o.value(QStringLiteral("maxMeshCells")).toInt(2000000));
     
         const QJsonObject sel = o.value(QStringLiteral("selector")).toObject();
         const int mode = sel.value(QStringLiteral("mode")).toInt(int(s.selector.mode));
@@ -190,6 +202,8 @@ public:
         b.burnStreets     = op.value(QStringLiteral("burnStreets")).toBool(b.burnStreets);
         b.quadCorridor    = op.value(QStringLiteral("quadCorridor")).toBool(b.quadCorridor);
         b.channelCellSize = op.value(QStringLiteral("channelCellSize")).toDouble(b.channelCellSize);
+        b.channelAspectMax = op.value(QStringLiteral("channelAspectMax")).toDouble(4.0);
+        if (!std::isfinite(b.channelAspectMax) || b.channelAspectMax < 1) b.channelAspectMax = 4.0;
         b.geometryTolerance = op.value(QStringLiteral("geometryToleranceM")).toDouble(b.geometryTolerance);
         if (!std::isfinite(b.geometryTolerance) || b.geometryTolerance<=0) b.geometryTolerance=0.05;
         b.roughnessFromTransect =

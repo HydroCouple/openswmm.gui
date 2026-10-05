@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "project/projectsaveoutputs.h"
+#include "project/generatedmeshartifacts.h"
 #include <QCoreApplication>
 #include <QProcess>
 #include <QTest>
@@ -61,6 +62,50 @@ static bool prepareAuxiliary(ProjectSaveOutputs &outputs, const QString &dir) {
 class TestProjectSaveOutputs : public QObject {
     Q_OBJECT
 private slots:
+    void inheritedOutputsSkipAnAlreadyPublishedParent() {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString model=directory.filePath("model.inp");
+        const QString mesh=directory.filePath("mesh.2dm");
+        const QString terrain=directory.filePath("terrain.tif");
+        const QString report=directory.filePath("new-report.csv");
+        QString why;
+        auto parent=GeneratedMeshArtifacts::create(model,&why);QVERIFY2(parent,qPrintable(why));
+        QVERIFY(put(parent->reserve(mesh,"mesh.2dm",&why,ProjectSaveOutputs::Mesh),"original mesh"));
+        QVERIFY(put(parent->reserve(terrain,"terrain.tif",&why),"original terrain"));
+        QVERIFY(parent->requireAbsent(terrain+".aux.xml",&why));
+        QVERIFY2(parent->seal(&why),qPrintable(why));
+        auto child=GeneratedMeshArtifacts::create(model,&why);QVERIFY(child);
+        QVERIFY2(child->inheritPending(parent,&why),qPrintable(why));
+        QVERIFY(put(child->reserve(report,"new-report.csv",&why),"child report"));
+        QVERIFY2(child->seal(&why),qPrintable(why));
+        { ProjectSaveOutputs outputs;QVERIFY(put(outputs.stage(model,ProjectSaveOutputs::Model),"model"));
+          QVERIFY2(parent->prepareSave(outputs,&why),qPrintable(why));
+          QVERIFY2(outputs.publish(),qPrintable(outputs.error()));parent->markPublished(mesh); }
+        QCOMPARE(child->publishedMeshPath(),mesh);QVERIFY(!child->isPublished());
+        // A published auxiliary is independently editable; the still-pending
+        // child must neither replay it nor recheck its old companion guard.
+        QVERIFY(put(terrain,"edited published terrain"));QVERIFY(put(terrain+".aux.xml","published metadata"));
+        ProjectSaveOutputs outputs;QVERIFY(put(outputs.stage(model,ProjectSaveOutputs::Model),"model"));
+        QVERIFY2(child->prepareSave(outputs,&why),qPrintable(why));
+        const auto pending=outputs.preparedOutputs();QCOMPARE(pending.size(),2);QCOMPARE(pending.last().finalPath,report);
+        QVERIFY2(outputs.publish(),qPrintable(outputs.error()));child->markPublished(mesh);
+        QCOMPARE(read(terrain),QByteArray("edited published terrain"));QCOMPARE(read(report),QByteArray("child report"));
+        QCOMPARE(parent->publishedMeshPath(),mesh);
+    }
+    void inheritedPublicationDoesNotConsumeUnpublishedAuxiliaries() {
+        QTemporaryDir directory;QVERIFY(directory.isValid());QString why;
+        const QString model=directory.filePath("model.inp"),mesh=directory.filePath("mesh.2dm"),report=directory.filePath("report.csv");
+        auto parent=GeneratedMeshArtifacts::create(model,&why);QVERIFY(parent);
+        QVERIFY(put(parent->reserve(mesh,"mesh.2dm",&why,ProjectSaveOutputs::Mesh),"mesh"));QVERIFY(parent->seal(&why));
+        auto child=GeneratedMeshArtifacts::create(model,&why);QVERIFY(child);QVERIFY(child->inheritPending(parent,&why));
+        QVERIFY(put(child->reserve(report,"report.csv",&why),"report"));QVERIFY(child->seal(&why));
+        ProjectSaveOutputs outputs;QVERIFY(put(outputs.stage(model,ProjectSaveOutputs::Model),"model"));
+        QVERIFY2(child->prepareSave(outputs,&why),qPrintable(why));QCOMPARE(outputs.preparedOutputs().size(),3);
+        QVERIFY(!parent->isPublished());QVERIFY(!child->isPublished());
+        QVERIFY2(outputs.publish(),qPrintable(outputs.error()));child->markPublished(mesh);
+        QVERIFY(parent->isPublished());QVERIFY(child->isPublished());QCOMPARE(read(mesh),QByteArray("mesh"));QCOMPARE(read(report),QByteArray("report"));
+    }
     void protectedDirectory_data() {
         QTest::addColumn<QString>("scenario");
         QTest::newRow("nested-output") << QString("nested");

@@ -429,6 +429,7 @@ set(
         include/map/crsmanager.h
         include/map/mapcanvas.h
         include/map/maprenderjob.h
+        include/map/channelmeshadoptioncommand.h
         include/map/mapundostack.h
         # Object-creation defaults applied by the Add*Commands (see
         # workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md).
@@ -614,6 +615,10 @@ set(
         include/mesh/meshedgekey.h
         include/mesh/inpmeshreader.h
         include/mesh/burnedrasterwriter.h
+        include/mesh/channelburnexport.h
+        include/mesh/channelburnmesh.h
+        include/mesh/meshcavity.h
+        include/mesh/meshedgebcremap.h
         include/mesh/channelburn.h
         include/mesh/channelburnboundary.h
         include/mesh/channelburnlattice.h
@@ -842,6 +847,7 @@ set(
         include/ui/dialogs/meshattributeassigndialog.h
         include/ui/dialogs/infilassigntoselectiondialog.h
         include/ui/dialogs/meshgenerationdialog.h
+        include/ui/dialogs/channelburndialog.h
         include/ui/dialogs/nodecompoundeditdialog.h
         include/ui/dialogs/subcatchcompoundeditdialog.h
         include/ui/dialogs/linkcompoundeditdialog.h
@@ -1188,6 +1194,7 @@ set(
         src/map/crsmanager.cpp
         src/map/mapcanvas.cpp
         src/map/maprenderjob.cpp
+        src/map/channelmeshadoptioncommand.cpp
         src/map/mapundostack.cpp
         # Object-creation defaults applied by the Add*Commands (see
         # workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md).
@@ -1372,6 +1379,10 @@ set(
         src/timeseries/timeseriesseriescommands.cpp
         src/timeseries/timeseriesundocommands.cpp
         src/mesh/burnedrasterwriter.cpp
+        src/mesh/meshcavity.cpp
+        src/mesh/channelburnexport.cpp
+        src/mesh/channelburnmesh.cpp
+        src/mesh/meshedgebcremap.cpp
         src/mesh/channelburn.cpp
         src/mesh/channelburnboundary.cpp
         src/mesh/channelburnlattice.cpp
@@ -1539,6 +1550,7 @@ set(
         src/ui/dialogs/meshattributeassigndialog.cpp
         src/ui/dialogs/infilassigntoselectiondialog.cpp
         src/ui/dialogs/meshgenerationdialog.cpp
+        src/ui/dialogs/channelburndialog.cpp
         src/ui/dialogs/nodecompoundeditdialog.cpp
         src/ui/dialogs/subcatchcompoundeditdialog.cpp
         src/ui/dialogs/linkcompoundeditdialog.cpp

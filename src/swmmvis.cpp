@@ -142,6 +142,7 @@
 #include "ui/dialogs/layerstyledialog.h"
 #include "ui/dialogs/import/importfeaturelayerdialog.h"
 #include "ui/dialogs/meshgenerationdialog.h"
+#include "ui/dialogs/channelburndialog.h"
 #include "ui/dialogs/pluginsdialog.h"
 #include "ui/dialogs/preferencesdialog.h"
 // Slice Z.17c — Style Manager dialog.
@@ -4878,6 +4879,18 @@ void SWMMVis::initializeMenus()
                     s.setValue(key, true);
                 }
             }
+        });
+
+    if (ui->actionBurnChannels)
+        connect(ui->actionBurnChannels, &QAction::triggered, this, [this]() {
+            auto *pw = activeProjectWindow();
+            if (!pw) {
+                onLogMessage(tr("Burn Channels: open a SWMM project first."),
+                             OpenSWMMVisLogMessage::LogMessageType::Warning);
+                return;
+            }
+            ChannelBurnDialog dialog(pw, this);
+            dialog.exec();
         });
 
     // FEATURE_LAYER_TO_SWMM_IMPORT — Tools → Import Feature Layer…

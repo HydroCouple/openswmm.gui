@@ -154,6 +154,19 @@ BurnSurface::Hit BurnSurface::sampleNear(const QPointF &p, double radius) const
 BurnSurface::Error BurnSurface::error(const QPointF *xy,const double *z,
                                      const std::function<bool(const QPointF &)> &inside,double minWidth) const
 {
+    return errorImpl(xy,z,inside,minWidth,{});
+}
+
+BurnSurface::Error BurnSurface::sampledTargetError(const QPointF *xy,const double *z,
+                                     const std::function<double(const QPointF &)> &target,double minWidth) const
+{
+    return errorImpl(xy,z,{},minWidth,target);
+}
+
+BurnSurface::Error BurnSurface::errorImpl(const QPointF *xy,const double *z,
+                                     const std::function<bool(const QPointF &)> &inside,double minWidth,
+                                     const std::function<double(const QPointF &)> &target) const
+{
     Error out;
     const double orientation=cross(xy[1]-xy[0],xy[2]-xy[0])>=0?1:-1;
     for(int id:candidates(triangleBounds(xy))) {
@@ -172,20 +185,32 @@ BurnSurface::Error BurnSurface::error(const QPointF *xy,const double *z,
         }
         if(minWidth>0 && poly.size()>=3) {
             double area=0,perimeter=0;
+            const auto origin=poly.first();
             for(int j=0;j<poly.size();++j) {
                 const QPointF &a=poly[j],&b=poly[(j+1)%poly.size()];
-                area+=cross(a,b); perimeter+=std::hypot(b.x()-a.x(),b.y()-a.y());
+                area+=cross(a-origin,b-origin); perimeter+=std::hypot(b.x()-a.x(),b.y()-a.y());
             }
             if(perimeter>0 && std::abs(area)/perimeter<minWidth) continue;   // |area|/2 x 2 / perimeter
         } else if(minWidth>0) continue;
-        for(const auto &p:poly) {
+        QVector<QPointF> samples=poly;
+        if(target&&!poly.isEmpty()) {
+            const auto origin=poly.first();QPointF offset;
+            for(int j=0;j<poly.size();++j) {
+                samples.append(poly[j]+(poly[(j+1)%poly.size()]-poly[j])*0.5);
+                offset+=poly[j]-origin;
+            }
+            const auto centre=origin+offset/poly.size();samples.append(centre);
+            for(const auto &p:poly)samples.append(centre+(p-centre)*0.5);
+        }
+        for(const auto &p:samples) {
             if(inside && !inside(p)) continue;
             double u=0,v=0; if(!barycentric(xy,p,&u,&v)) continue;
             // Check every authored face, including overlaps. Sampling only
             // their lower envelope at polygon corners can hide an interior
             // ridge where two conflicting channel planes intersect.
             double fu=0,fv=0;if(!barycentric(f.p,p,&fu,&fv)) continue;
-            const double reference=f.z[0]+fu*(f.z[1]-f.z[0])+fv*(f.z[2]-f.z[0]);
+            const double reference=target?target(p):f.z[0]+fu*(f.z[1]-f.z[0])+fv*(f.z[2]-f.z[0]);
+            if(!std::isfinite(reference))continue;
             out.touched=true;
             const double delta=std::abs(reference-(z[0]+u*(z[1]-z[0])+v*(z[2]-z[0])));
             if(delta>out.maximum) {out.maximum=delta;out.point=p;}
@@ -333,7 +358,7 @@ static QVector<double> mergeCloseValues(const QVector<double> &v, double gap, bo
 BurnLattice buildCorridorLattice(const BurnProfile &p,
                                  double alongStep, double minCellSize,
                                  QStringList *warnings, QString *err,
-                                 double acrossTolerance)
+                                 double acrossTolerance, double minSpacing)
 {
     BurnLattice lat;
     if (!p.isValid())
@@ -356,6 +381,37 @@ BurnLattice buildCorridorLattice(const BurnProfile &p,
     // the thalweg.
     if (minCellSize > 0.0)
         lat.offsets = mergeCloseValues(lat.offsets, kMergeFraction * minCellSize, true);
+    if (minSpacing > 0 && std::isfinite(minSpacing)) {
+        // Expand close stations symmetrically, including vertical walls at
+        // the extent. Sampling below clamps to the authored section extent.
+        QVector<double> regular;
+        for(int a=0;a<lat.offsets.size();) {
+            int b=a;
+            while(b+1<lat.offsets.size() && lat.offsets[b+1]-lat.offsets[b]<minSpacing) ++b;
+            if(a==b) regular.append(lat.offsets[a]);
+            else {
+                const double centre=0.5*(lat.offsets[a]+lat.offsets[b]);
+                regular.append(centre-0.5*minSpacing);
+                regular.append(centre+0.5*minSpacing);
+            }
+            a=b+1;
+        }
+        // Adjacent expanded clusters can meet. Merge their intervening
+        // stations, then repeat until every gap satisfies the floor.
+        bool changed=true;
+        while(changed && regular.size()>2) {
+            changed=false;
+            for(int i=1;i<regular.size();++i) if(regular[i]-regular[i-1]<minSpacing*(1-1e-10)) {
+                if(i==1) regular.removeAt(i);
+                else if(i==regular.size()-1) regular.removeAt(i-1);
+                else { regular[i-1]=0.5*(regular[i-1]+regular[i]); regular.removeAt(i); }
+                changed=true; break;
+            }
+        }
+        if(warnings && regular!=lat.offsets)
+            warnings->append(QStringLiteral("Channel %1: narrow section details regularized to minimum spacing %2.").arg(p.conduitId).arg(minSpacing));
+        lat.offsets=regular;
+    }
     lat.nAcross   = int(lat.offsets.size());
     if (lat.nAcross < 2)
     {
@@ -387,6 +443,14 @@ BurnLattice buildCorridorLattice(const BurnProfile &p,
     // Section-change stations a hair from a bend vertex: same reasoning.
     if (minCellSize > 0.0)
         lat.chainage = mergeCloseValues(lat.chainage, kMergeFraction * minCellSize, false);
+    if(minSpacing>0) {
+        QVector<double> regular{lat.chainage.first()};
+        for(int i=1;i+1<lat.chainage.size();++i)
+            if(lat.chainage[i]-regular.last()>=minSpacing && L-lat.chainage[i]>=minSpacing)
+                regular.append(lat.chainage[i]);
+        regular.append(L);
+        lat.chainage=regular;
+    }
     lat.nAlong = int(lat.chainage.size());
     if (qint64(lat.nAlong)*lat.nAcross > 2000000) {
         if(err) *err=QStringLiteral("corridor exceeds the preparation vertex budget");
@@ -417,7 +481,7 @@ BurnLattice buildCorridorLattice(const BurnProfile &p,
             const double s = lat.offsets[k];
             lat.xy.append(c + nrm * s);
             bool inExtent = false;
-            double zv = sectionZAt(p, t, s, &inExtent);
+            double zv = sectionZAt(p, t, std::clamp(s,p.offsets.first(),p.offsets.last()), &inExtent);
             if (!std::isfinite(zv))
             {
                 // Only reachable at a clipped extent's own endpoint through

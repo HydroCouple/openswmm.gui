@@ -118,6 +118,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"model.editReactionSystem", "actionEditReactionSystem", "Model", "", "ReactionSystem", "model", "Model", NoTags},
     {"model.editHeatConfig",  "actionEditHeatConfig",   "Model", "",  "HeatConfig", "model", "Model", NoTags},
     {"model.generateMesh",    "actionGenerateMesh",     "Model", "",  "CreateMesh", "mesh2d", "Model", NoTags},
+    {"model.burnChannels",    "actionBurnChannels",     "Mesh 2D", "", "BurnChannels", "mesh2d", "Model/Mesh", Contextual2D},
 
     // ── Feature layers (user-drawn GeoPackage-backed vector layers;
     //    MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §5.1) ─────────────────

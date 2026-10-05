@@ -179,9 +179,14 @@ private slots:
     void optionsSurviveRejectAndProjectReload()
     {
         const auto units=m_window->unitSystem()->flowUnits();
+        auto burnSettings=m_window->channelBurnSettings();
+        burnSettings.options.maxIncision=4.5;
+        burnSettings.options.geometryTolerance=.025;
+        m_window->setChannelBurnSettings(burnSettings);
         m_window->unitSystem()->setFlowUnits(swmm_CMS);
         {
             MeshGenerationDialog dialog(m_window,m_window);
+            QVERIFY(!dialog.findChild<QCheckBox *>("meshBurnEnabledBox"));
             seam<QDoubleSpinBox>(&dialog,"meshCellSizeSpin")->setValue(12.5);
             seam<QDoubleSpinBox>(&dialog,"meshCoarsenSpin")->setValue(40);
             seam<QDoubleSpinBox>(&dialog,"meshTerrainTolSpin")->setValue(.4);
@@ -191,8 +196,6 @@ private slots:
             seam<QCheckBox>(&dialog,"meshConduitsBox")->setChecked(false);
             seam<QSpinBox>(&dialog,"meshTerrainCacheSpin")->setValue(128);
             seam<QSpinBox>(&dialog,"meshMaxCellsSpin")->setValue(10'000'000);
-            seam<QDoubleSpinBox>(&dialog,"meshBurnMaxIncision")->setValue(4.5);
-            seam<QDoubleSpinBox>(&dialog,"meshBurnGeometryTolerance")->setValue(.025);
             auto *regions=dialog.findChild<MeshRegionDefaultsWidget *>(); QVERIFY(regions);
             auto rows=regions->rows(); QVERIFY(!rows.isEmpty());
             rows[0].infil.method=mesh::InfilMethod::Constant; rows[0].infil.p[0]=2.25;
@@ -200,6 +203,8 @@ private slots:
             dialog.reject();
         }
         QVERIFY(!m_window->meshGenerationOptions().isEmpty());
+        QCOMPARE(m_window->channelBurnSettings().options.maxIncision,4.5);
+        QCOMPARE(m_window->channelBurnSettings().options.geometryTolerance,.025);
         auto verify=[](MeshGenerationDialog &dialog) {
             QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshCellSizeSpin")->value(),12.5);
             QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshCoarsenSpin")->value(),40.0);
@@ -210,8 +215,6 @@ private slots:
             QVERIFY(!seam<QCheckBox>(&dialog,"meshConduitsBox")->isChecked());
             QCOMPARE(seam<QSpinBox>(&dialog,"meshTerrainCacheSpin")->value(),128);
             QCOMPARE(seam<QSpinBox>(&dialog,"meshMaxCellsSpin")->value(),10'000'000);
-            QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshBurnMaxIncision")->value(),4.5);
-            QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshBurnGeometryTolerance")->value(),.025);
             auto *regions=dialog.findChild<MeshRegionDefaultsWidget *>(); QVERIFY(regions);
             QCOMPARE(regions->rows()[0].infil.method,mesh::InfilMethod::Constant);
             QCOMPARE(regions->rows()[0].infil.p[0],2.25);

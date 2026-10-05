@@ -81,6 +81,9 @@ public:
      *  leaving the convex hull of the input (unconstrained use). */
     void removeSuperTriangles();
     /*! \brief Drop the region (constraint-bounded component) containing \p p. */
+    int removeRegionLeftOf(int a, int b);
+    [[nodiscard]] int inputVertexCount() const { return m_superBase; }
+
     int removeRegionAt(const QPointF &p);   ///< Returns how many triangles it removed.
 
     /*! \brief Options for refineQuality(). */

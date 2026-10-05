@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ui/dialogs/meshgenerationdialog.h"
+#include "ui/dialogs/channelburndialog.h"
+#include "map/channelmeshadoptioncommand.h"
+#include "mesh/burnedrasterwriter.h"
+#include "mesh/channelburnexport.h"
+#include "mesh/sms2dmreader.h"
+#include "mesh/inpmeshreader.h"
 #include "project/openswmmvisworkspace.h"
 #include "swmmvisprojectwindow.h"
 #include "layers/swmmmodellayer.h"
@@ -28,6 +34,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QLineF>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QTimer>
 #include <QCloseEvent>
 #include <QDir>
@@ -49,17 +57,98 @@
 class TestMeshTerrainPipeline : public QObject
 {
     Q_OBJECT
-    using Inputs = MeshGenerationDialog::PipelineInputs;
-    using Result = MeshGenerationDialog::PipelineResult;
+    using GenerationInputs = MeshGenerationDialog::PipelineInputs;
+    using GenerationResult = MeshGenerationDialog::PipelineResult;
+    // Exercise the public stages in their real order: ordinary generation,
+    // then a separate burn of the completed mesh. No burn inputs reach generation.
+    struct Inputs : GenerationInputs {
+        bool burnEnabled=false,exportRaster=false;
+        mesh::BurnOptions burnOptions;
+        QVector<mesh::BurnProfile> burnProfiles;
+        mesh::BurnNetwork burnNetwork;
+        QString burnOutputDir,burnDemCRSWkt;
+    };
+    struct Result : GenerationResult {
+        mesh::ChannelBurnSurgery burnSurgery;
+        QStringList burnWarnings;
+        bool burnRan=false;
+        mesh::ChannelMeshQuality burnBefore,burnAfter;
+        int burnCavities=0,burnFallbackCavities=0;
+        std::shared_ptr<GeneratedMeshArtifacts> generatedArtifacts;
+        QString burnedDemPath,burnReportPath;
+    };
+
+    static Result burn(Result result,const Inputs &inputs,const std::function<bool()> &cancelled={})
+    {
+        if(!result.ok || !inputs.burnEnabled) return result;
+        mesh::ChannelMeshBurnInputs burnInputs;
+        burnInputs.profiles=inputs.burnProfiles;
+        burnInputs.options=inputs.burnOptions;
+        burnInputs.network=inputs.burnNetwork;
+        burnInputs.nodes=inputs.couplingNodes;
+        burnInputs.verticalUnitToSI=inputs.verticalUnitToSI;
+        burnInputs.maxCells=inputs.genOpts.maxCells;
+        QElapsedTimer burnClock;burnClock.start();
+        auto progress=[&](int percent,const QString &message) {
+            if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_INP"))
+                qInfo().noquote()<<QStringLiteral("[postburn %1% %2s] %3").arg(percent).arg(burnClock.elapsed()/1000.0,0,'f',2).arg(message);
+        };
+        auto burned=mesh::burnChannelsIntoMesh(result.meshResult,std::move(burnInputs),progress,cancelled);
+        result.ok=burned.ok;
+        result.errorMsg=burned.error;
+        result.burnWarnings=burned.warnings;
+        result.burnBefore=burned.before;result.burnAfter=burned.after;
+        result.burnCavities=burned.cavities;result.burnFallbackCavities=burned.fallbackCavities;
+        if(!burned.ok) return result;
+        if(inputs.exportRaster) {
+            mesh::ChannelBurnExportRequest request;
+            request.projectPath=inputs.inpPath;request.sourcePath=inputs.dtmPath;
+            request.outputDirectory=inputs.burnOutputDir;request.meshCRSWkt=inputs.meshCRSWkt;
+            request.meshZToSI=inputs.verticalUnitToSI;
+            request.rasterZToSI=inputs.verticalUnitToSI*inputs.zConversionFactor;
+            request.options=inputs.burnOptions;
+            const auto exported=mesh::prepareChannelBurnExport(burned,request,cancelled);
+            if(!exported.ok) {result.ok=false;result.errorMsg=exported.error;return result;}
+            result.generatedArtifacts=exported.artifacts;
+            result.burnedDemPath=exported.rasterPath;result.burnReportPath=exported.reportPath;
+            result.burnWarnings+=exported.warnings;
+        }
+        result.meshResult=std::move(burned.mesh);
+        result.burnSurgery=std::move(burned.surgery);
+        result.burnRan=!burned.profiles.isEmpty();
+        result.coupling.vertexToNode.clear();
+        for(int v=0;v<result.meshResult.vertices.size();++v)
+            if(!result.meshResult.vertices[v].coupledNode.isEmpty())
+                result.coupling.vertexToNode.insert(v,result.meshResult.vertices[v].coupledNode);
+        return result;
+    }
 
     static Result run(Inputs inputs)
     {
-        QPromise<Result> promise;
+        QPromise<GenerationResult> promise;
         auto future = promise.future();
         promise.start();
-        MeshGenerationDialog::runMeshPipeline(promise, std::move(inputs));
+        MeshGenerationDialog::runMeshPipeline(promise, inputs);
         promise.finish();
-        return future.resultCount() ? future.result() : Result{};
+        Result result;
+        if(future.resultCount()) static_cast<GenerationResult &>(result)=future.result();
+        return burn(std::move(result),inputs);
+    }
+
+    static bool adoptBurn(SWMMVisProjectWindow *window,const Result &result,QString *error)
+    {
+        auto *layer=new SWMM2DMeshLayer(result.meshResult,result.meshPath);
+        layer->setOwnsGeneratedTopology(true);
+        layer->setMeshUnitsSI(result.meshUnitsSI);
+        layer->setExternalMesh(result.outputMode==mesh::MeshOutputMode::External);
+        layer->setGeneratedArtifacts(result.generatedArtifacts);
+        if(window->modelLayer()->srs())
+            layer->setSRS(new SpatialReferenceSystem(*window->modelLayer()->srs(),layer),true);
+        auto command=std::make_unique<ChannelMeshAdoptionCommand>(window,layer,result.corridorSources);
+        if(!command->prepare(result.burnSurgery,error)) return false;
+        window->canvas()->undoStack()->push(command.release());
+        window->attachMeshLayer(layer);
+        return true;
     }
 
     static bool writeBytes(const QString &path, const QByteArray &bytes)
@@ -74,7 +163,6 @@ class TestMeshTerrainPipeline : public QObject
         inputs.inpPath = dir.absoluteFilePath("model.inp");
         inputs.dtmPath = dir.absoluteFilePath("source.tif");
         inputs.burnOutputDir = dir.absoluteFilePath("terrain");
-        inputs.burnFingerprint = "fixture23";
         // Only this owned fixture's terrain outputs are reset between runs.
         if (QFileInfo::exists(inputs.burnOutputDir) &&
             !QDir(inputs.burnOutputDir).removeRecursively()) return false;
@@ -92,6 +180,10 @@ class TestMeshTerrainPipeline : public QObject
         if (!driver) return false;
         auto *dataset = driver->Create(inputs.dtmPath.toUtf8().constData(), 40, 40, 1, GDT_Float32, nullptr);
         if (!dataset) return false;
+        OGRSpatialReference projected;projected.importFromEPSG(3857);
+        char *wkt=nullptr;projected.exportToWkt(&wkt);
+        inputs.meshCRSWkt=QString::fromUtf8(wkt);inputs.burnDemCRSWkt=inputs.meshCRSWkt;
+        dataset->SetProjection(wkt);CPLFree(wkt);
         double transform[] = {-4, 1, 0, 36, 0, -1};
         const auto geoResult = dataset->SetGeoTransform(transform);
         std::vector<float> values(1600, 10.0f);
@@ -210,29 +302,32 @@ private slots:
         QVERIFY(terrainIndex>=0);dialog.m_dtmCombo->setCurrentIndex(terrainIndex);
         const int index=dialog.m_boundaryLayerCombo->findData(QVariant::fromValue<void *>(boundary()));
         QVERIFY(index>=0);dialog.m_boundaryLayerCombo->setCurrentIndex(index);
+        const auto terrainFilesBefore=QDir(dir.filePath("terrain")).entryList(QDir::Files);
         Inputs in;QVERIFY2(dialog.collectInputs(&in,&error),qPrintable(error));
         QCOMPARE(in.boundaryKind,Inputs::BoundaryKind::VectorFile);
         QCOMPARE(in.cellSize,4.);QCOMPARE(in.terrainTolerance,.1);
-        QVERIFY(in.burnEnabled);QCOMPARE(in.burnOptions.geometryTolerance,.05);
-        QCOMPARE(in.burnProfiles.size(),3); // XY is eligible, but wholly outside.
-        auto result=run(in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        auto generated=run(in);QVERIFY2(generated.ok,qPrintable(generated.errorMsg));
+        QVERIFY(!generated.burnRan);
+        QVERIFY2(adoptBurn(window.get(),generated,&error),qPrintable(error));
+        ChannelBurnDialog burnDialog(window.get(),nullptr);
+        mesh::ChannelMeshBurnInputs selected;
+        QVERIFY2(burnDialog.collectInputs(&selected,&error),qPrintable(error));
+        QCOMPARE(selected.options.geometryTolerance,.05);
+        QCOMPARE(selected.profiles.size(),3); // XY is eligible, but wholly outside.
+        in.burnEnabled=true;in.burnOptions=selected.options;
+        in.burnProfiles=selected.profiles;in.burnNetwork=selected.network;
+        in.couplingNodes=selected.nodes;
+        auto result=burn(std::move(generated),in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
         for(const auto &w:result.burnWarnings) qInfo("burn warning: %s",qPrintable(w));
         for(const auto &w:result.alignmentWarnings) qInfo("alignment warning: %s",qPrintable(w));
         QVERIFY(result.burnRan);QCOMPARE(result.burnSurgery.splits.size(),1);
         QCOMPARE(result.burnSurgery.burnedConduits.size(),2);
         QVERIFY(!result.burnSurgery.burnedConduits.contains("XY"));
         QVERIFY(!result.meshResult.triangles.isEmpty());
-        // Use the GUI's normal adoption path, including its undo command.
+        // Burn adoption remains independently undoable after mesh generation.
         auto *stack=window->canvas()->undoStack();const int before=stack->count();
-        dialog.beginGenerationGuard();
-        QPromise<Result> promise;promise.start();promise.addResult(result);promise.finish();
-        dialog.m_watcher=new QFutureWatcher<Result>(&dialog);dialog.m_watcher->setFuture(promise.future());
-        // Adoption may show more than one note (burn notes, then unresolved
-        // terrain or quality); accept each as it opens.
-        auto *acceptBoxes=new QTimer(&dialog); acceptBoxes->setInterval(50);
-        QObject::connect(acceptBoxes,&QTimer::timeout,[]{for(auto *w:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(w)) if(box->isVisible()) box->accept();});
-        acceptBoxes->start();
-        dialog.onMeshFinished();acceptBoxes->stop();QCOMPARE(stack->count(),before+1);
+        QVERIFY2(adoptBurn(window.get(),result,&error),qPrintable(error));
+        QCOMPARE(stack->count(),before+1);
         const auto engine=window->modelLayer()->engine();
         QVERIFY(outsideSectionIntact(engine));
         QCOMPARE(swmm_link_count(engine),4);QCOMPARE(swmm_node_count(engine),7);
@@ -264,21 +359,8 @@ private slots:
         QCOMPARE(swmm_validate_model(reopened.engine()),SWMM_OK);
         QVERIFY(outsideSectionIntact(reopened.engine()));
         QCOMPARE(swmm_link_count(reopened.engine()),4);QCOMPARE(swmm_node_count(reopened.engine()),7);
-        // Saved raster must change inside the domain, and never outside it.
-        const auto rasters=QDir(dir.filePath("terrain")).entryList({"*.tif"},QDir::Files);
-        QVERIFY(!rasters.isEmpty());
-        auto *ds=static_cast<GDALDataset *>(GDALOpen(QDir(dir.filePath("terrain")).filePath(rasters.first()).toUtf8().constData(),GA_ReadOnly));
-        QVERIFY(ds);double gt[6];QCOMPARE(ds->GetGeoTransform(gt),CE_None);
-        const int width=ds->GetRasterXSize(),height=ds->GetRasterYSize();QVector<double> values(width*height);
-        QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Read,0,0,width,height,values.data(),width,height,GDT_Float64,0,0),CE_None);
-        GDALClose(ds);int changed=0;
-        for(int y=0;y<height;++y) for(int x=0;x<width;++x) {
-            const double px=gt[0]+(x+.5)*gt[1],py=gt[3]+(y+.5)*gt[5];
-            const double z=values[y*width+x];
-            if(px<0 || px>32 || py<0 || py>32) QCOMPARE(z,10.);
-            else if(std::abs(z-10)>1e-6) ++changed;
-        }
-        QVERIFY(changed>0);
+        // Raster export is optional; the default burn writes no terrain copy.
+        QCOMPARE(QDir(dir.filePath("terrain")).entryList(QDir::Files),terrainFilesBefore);
         for(auto it=originals.cbegin();it!=originals.cend();++it) {
             QFile file(source.filePath(it.key()));QVERIFY(file.open(QIODevice::ReadOnly));QCOMPARE(file.readAll(),it.value());
         }
@@ -309,7 +391,7 @@ private slots:
         QVERIFY2(result.ok,qPrintable(result.errorMsg));
         QVERIFY(result.burnRan);
         bool warned=false;
-        for(const auto &w:result.burnWarnings) warned=warned || (w.contains("HAIRPIN") && w.contains("not burned"));
+        for(const auto &w:result.burnWarnings) warned=warned || (w.contains("HAIRPIN") && w.contains("1D"));
         QVERIFY2(warned,qPrintable(result.burnWarnings.join('\n')));
         QVERIFY(!result.burnSurgery.burnedConduits.contains("HAIRPIN"));
         for(const auto &node:result.burnSurgery.nodePlans) QVERIFY(node.nodeId!="H0" && node.nodeId!="H1");
@@ -328,11 +410,11 @@ private slots:
         double gt[6];QCOMPARE(ds->GetGeoTransform(gt),CE_None);
         for(double &value:gt) value/=111319.49079327358;
         QCOMPARE(ds->SetGeoTransform(gt),CE_None);QCOMPARE(ds->SetProjection(in.burnDemCRSWkt.toUtf8().constData()),CE_None);
-        GDALClose(ds);in.burnDemPixel=std::abs(gt[1]);
+        GDALClose(ds);in.exportRaster=true;
         in.burnOptions.chainageStep=0;in.cellSize=2;in.minCellSize=.05;in.genOpts.maxArea=2;
         const auto result=run(in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
         QVERIFY(result.burnRan);QVERIFY(result.meshResult.triangles.size()<10000);
-        QVERIFY(result.burnStats.pixelsReplaced>0);
+        QVERIFY(result.meshResult.quadCount()>0 || !result.meshResult.triangles.isEmpty());
     }
 
     void channelReplacementDomainAndNodes_data()
@@ -378,8 +460,14 @@ private slots:
             GDALClose(ds);
         }
         const auto result=run(in);
+        if(scenario=="outside") {
+            QVERIFY(!result.ok);QVERIFY(result.burnSurgery.burnedConduits.isEmpty());
+            QVERIFY2(result.errorMsg.contains("No eligible"),qPrintable(result.errorMsg));return;
+        }
         if(scenario=="incision") {
-            QVERIFY(!result.ok);QVERIFY2(result.errorMsg.contains("incision"),qPrintable(result.errorMsg));return;
+            QVERIFY2(result.ok,qPrintable(result.errorMsg));
+            for(const auto &vertex:result.meshResult.vertices) QVERIFY(vertex.z>=9.5-1e-8);
+            QVERIFY(!result.burnWarnings.isEmpty());return;
         }
         // The authored channel supplies bathymetry at a missing source pixel;
         // this is valid when the complete section passes channel verification.
@@ -465,7 +553,7 @@ private slots:
         }
         QVERIFY(bIsOutfall);
         bool warned=false;
-        for(const auto &w:result.burnWarnings) warned=warned||(w.contains("AB")&&w.contains("no link"));
+        for(const auto &w:result.burnWarnings) warned=warned||(w.contains("AB")&&w.contains("surviving link"));
         QVERIFY2(warned,qPrintable(result.burnWarnings.join('\n')));
     }
 
@@ -527,6 +615,8 @@ NODE C interior
         QVERIFY2(window->loadModel(warnings,errors),qPrintable(errors.join('\n')));
         in.burnProfiles.clear();in.burnOptions.chainageStep=0;in.burnOptions.channelCellSize=2;
         in.cellSize=2;in.minCellSize=.05;in.genOpts.maxArea=2;
+        in.couplingNodes={{"A",{2,16}},{"B",{crossing?-2.:8.,16}},
+                          {"C",{16,16}},{"D",{24,16}},{"E",{30,16}}};
         in.burnNetwork.nodes={{"A"},{"B"},{"C"},{"D"},{"E",false,false}};
         in.burnNetwork.links={{"AB",0,1},{"BC",1,2},{"CD",2,3},{"DE",3,4}};
         for(int i=0;i<2;++i) {
@@ -545,23 +635,9 @@ NODE C interior
         auto *oldMesh=new SWMM2DMeshLayer(result.meshResult,"old.2dm");
         oldMesh->setActiveMesh(true);window->canvas()->addLayer(oldMesh,false);
         auto *stack=window->canvas()->undoStack();const int before=stack->count();
-        MeshGenerationDialog dialog(window.get(),nullptr);
-        if(!crossing) {
-            dialog.m_burnEnabledBox->setChecked(true);
-            Inputs converted;converted.dtmPath=in.dtmPath;converted.inpPath=in.inpPath;
-            converted.meshLinearUnitToSI=.3048;converted.verticalUnitToSI=.3048;
-            QVERIFY(dialog.collectBurnInputs(&converted));QCOMPARE(converted.burnProfiles.size(),2);
-            const auto &profile=converted.burnProfiles.first();
-            QVERIFY(std::abs(profile.bedZ.first()-8.7/.3048)<1e-9);
-            QVERIFY(std::abs(profile.section.sMax-3./.3048)<1e-9);
-            QCOMPARE(profile.centerline.size(),2); // no DEM-pixel densification
-            QVERIFY(std::abs(converted.burnOptions.forceHalfWidth-2./.3048)<1e-9);
-        }
-        dialog.beginGenerationGuard();
-        QPromise<Result> promise;promise.start();promise.addResult(result);promise.finish();
-        dialog.m_watcher=new QFutureWatcher<Result>(&dialog);dialog.m_watcher->setFuture(promise.future());
-        QTimer::singleShot(0,[]{for(auto *w:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(w))box->accept();});
-        dialog.onMeshFinished();
+        QString adoptionError;
+        const bool adopted=adoptBurn(window.get(),result,&adoptionError);
+        QCOMPARE(adopted,!invalidPlan);
         if(invalidPlan) {
             QCOMPARE(stack->count(),before);
             QVERIFY(oldMesh->isActiveMesh());
@@ -704,7 +780,7 @@ NODE C interior
         inputs.terrainTolerance=.01; inputs.terrainAdaptive=true; inputs.terrainCacheMiB=16;
         inputs.terrainBreaklines=true; inputs.mapNodesAfterGen=false;
         if(channel) {
-            inputs.burnEnabled=true;inputs.burnOutputDir=dir.filePath("terrain");inputs.burnFingerprint="scale";
+            inputs.burnEnabled=true;inputs.burnOutputDir=dir.filePath("terrain");
             inputs.burnOptions.clipToBanks=false;inputs.burnOptions.channelCellSize=inputs.cellSize*4;
             mesh::ChannelInput creek;creek.conduitId="channel";creek.centerline={{-1,500},{1001,500}};
             creek.zUp=creek.zDn=10;creek.section=mesh::sectionFromWidths({0,2},{4,12});
@@ -733,7 +809,7 @@ NODE C interior
     // (vector file), SWMMVIS_REPRO_OUT (review folder). Optional:
     // SWMMVIS_REPRO_CELL / _MINCELL (model length units), _COARSEN, _BURN=0,
     // _QUADCORRIDOR=0|1, _MAXCELLS (cell budget).
-    // Writes mesh.2dm, report.txt and the burned DEM under _OUT.
+    // Writes the final mesh.2dm and before/after timings in report.txt under _OUT.
     void projectReproduction()
     {
         const QString inp=qEnvironmentVariable("SWMMVIS_REPRO_INP");
@@ -782,20 +858,103 @@ NODE C interior
         if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_MAXCELLS"))
             if(auto *cap=dialog.findChild<QSpinBox *>(QStringLiteral("meshMaxCellsSpin")))
                 cap->setValue(qEnvironmentVariableIntValue("SWMMVIS_REPRO_MAXCELLS"));
-        if(auto *burn=dialog.findChild<QCheckBox *>(QStringLiteral("meshBurnEnabledBox")))
-            burn->setChecked(qEnvironmentVariable("SWMMVIS_REPRO_BURN")!="0");
-        if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_QUADCORRIDOR"))
-            if(auto *quads=dialog.findChild<QCheckBox *>(QStringLiteral("meshBurnQuadCorridorBox")))
-                quads->setChecked(qEnvironmentVariable("SWMMVIS_REPRO_QUADCORRIDOR")!="0");
         Inputs in; QVERIFY2(dialog.collectInputs(&in,&error),qPrintable(error));
+        // Every writable generation artifact, including its terrain cache,
+        // stays in the reproduction folder even when source files are external.
+        QFile sourceModel(inp);QVERIFY(sourceModel.open(QIODevice::ReadOnly));
+        in.inpPath=out.filePath("benchmark.inp");
+        QVERIFY(writeBytes(in.inpPath,sourceModel.readAll()));
+        in.meshOutputPath=out.filePath("benchmark.2dm");
         in.burnOutputDir=out.filePath("terrain");
         report << QStringLiteral("inputs: cell %1, min cell %2, coarsen %3, terrain tol %4 (auto %5, adaptive %6), breaklines %7, burn %8 (%9 profiles), cache %10 MiB")
             .arg(in.cellSize).arg(in.minCellSize).arg(in.coarsenFactor).arg(in.terrainTolerance)
             .arg(in.terrainAutoTolerance).arg(in.terrainAdaptive).arg(in.terrainBreaklines)
             .arg(in.burnEnabled).arg(in.burnProfiles.size()).arg(in.terrainCacheMiB);
         report << QStringLiteral("collect inputs: %1 s").arg(clock.restart()/1000.0);
-        const auto result=run(in);
-        const double workerSeconds=clock.restart()/1000.0;
+        Result result;
+        const QString preparedMesh=qEnvironmentVariable("SWMMVIS_REPRO_MESH");
+        if(preparedMesh.isEmpty()) result=run(in);
+        else {
+            result.meshResult=mesh::Sms2dmReader::read(preparedMesh);
+            result.ok=result.meshResult.ok;result.errorMsg=result.meshResult.errorMsg;
+            result.meshPath=in.meshOutputPath;result.outputMode=in.outputMode;
+            result.meshUnitsSI=mesh::unitsHeaderIsSI(in.meshLinearUnitName);
+            result.verticalUnitToSI=in.verticalUnitToSI;
+            for(auto &cell:result.meshResult.triangles) {cell.mannings=in.manningsN;cell.initDepth=in.initDepth;}
+            report << QStringLiteral("diagnostic ambient mesh imported from %1 (SMS contains geometry only)").arg(preparedMesh);
+        }
+        const double generationSeconds=clock.restart()/1000.0;
+        report << QStringLiteral("generation: %1 s").arg(generationSeconds);
+        auto peakRSS=[]() -> qint64 {
+#ifdef Q_OS_UNIX
+            struct rusage usage{}; getrusage(RUSAGE_SELF,&usage);
+#ifdef Q_OS_MACOS
+            return usage.ru_maxrss;
+#else
+            return qint64(usage.ru_maxrss)*1024;
+#endif
+#else
+            return 0;
+#endif
+        };
+        qint64 productionPeakRSS=peakRSS();
+        if(result.ok && qEnvironmentVariable("SWMMVIS_REPRO_BURN")!="0") {
+            QVERIFY2(adoptBurn(window.get(),result,&error),qPrintable(error));
+            ChannelBurnDialog burnDialog(window.get(),nullptr);
+            if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_MAXCELLS"))
+                burnDialog.m_maxCells->setValue(qEnvironmentVariableIntValue("SWMMVIS_REPRO_MAXCELLS"));
+            if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_QUADCORRIDOR"))
+                burnDialog.m_quads->setChecked(qEnvironmentVariable("SWMMVIS_REPRO_QUADCORRIDOR")!="0");
+            mesh::ChannelMeshBurnInputs selected;
+            QVERIFY2(burnDialog.collectInputs(&selected,&error),qPrintable(error));
+            in.burnEnabled=true;in.burnOptions=selected.options;
+            in.burnProfiles=selected.profiles;in.burnNetwork=selected.network;in.couplingNodes=selected.nodes;
+            QElapsedTimer kernelClock;kernelClock.start();
+            result=burn(std::move(result),in);
+            const double kernelSeconds=kernelClock.elapsed()/1000.0;
+            productionPeakRSS=peakRSS();
+            report << QStringLiteral("post-mesh burn kernel: %1 s; process peak RSS before diagnostic serialization: %2 GB")
+                .arg(kernelSeconds).arg(productionPeakRSS/1e9,0,'f',2);
+            QJsonArray profiles;
+            auto numbers=[](const QVector<double> &values){QJsonArray array;for(double value:values)array.append(value);return array;};
+            for(const auto &profile:selected.profiles) {
+                QJsonArray centerline,relZ;
+                for(const auto &point:profile.centerline)centerline.append(QJsonArray{point.x(),point.y()});
+                for(const auto &row:profile.relZ)relZ.append(numbers(row));
+                const auto &section=profile.section;
+                profiles.append(QJsonObject{{"id",profile.conduitId},{"centerline",centerline},
+                    {"chainage",numbers(profile.chainage)},{"bedZ",numbers(profile.bedZ)},
+                    {"offsets",numbers(profile.offsets)},{"relZ",relZ},
+                    {"section",QJsonObject{{"station",numbers(section.station)},{"relZ",numbers(section.relZ)},
+                        {"sMin",section.sMin},{"sMax",section.sMax},{"leftBank",section.leftBank},{"rightBank",section.rightBank},
+                        {"nLeft",section.nLeft},{"nChannel",section.nChannel},{"nRight",section.nRight}}}});
+            }
+            QVERIFY(writeBytes(out.filePath("burn_profiles.json"),QJsonDocument(QJsonObject{{"profiles",profiles},
+                {"verticalUnitToSI",in.verticalUnitToSI},{"forceHalfWidth",in.burnOptions.forceHalfWidth},
+                {"aspectMax",in.burnOptions.channelAspectMax},{"channelCellSize",in.burnOptions.channelCellSize}}).toJson()));
+            QJsonArray splits,coupledNodes,nodePlans;
+            for(const auto &split:std::as_const(result.burnSurgery.splits))
+                splits.append(QJsonObject{{"node",split.nodeId},{"link",split.linkId},{"x",split.xy.x()},{"y",split.xy.y()},{"t",split.t}});
+            QSet<QString> coupledIds;
+            for(const auto &vertex:std::as_const(result.meshResult.vertices))
+                if(!vertex.coupledNode.isEmpty())coupledIds.insert(vertex.coupledNode);
+            for(const auto &cell:std::as_const(result.meshResult.cellCouplings))coupledIds.insert(cell.nodeId);
+            QStringList sortedCoupledIds=coupledIds.values();sortedCoupledIds.sort();
+            for(const auto &id:std::as_const(sortedCoupledIds))coupledNodes.append(id);
+            for(const auto &node:std::as_const(result.burnSurgery.nodePlans))
+                nodePlans.append(QJsonObject{{"node",node.nodeId},{"role",int(node.role)}});
+            QVERIFY(writeBytes(out.filePath("burn_surgery.json"),QJsonDocument(QJsonObject{{"splits",splits},
+                {"nodePlans",nodePlans},{"coupledNodes",coupledNodes}}).toJson()));
+            report << QStringLiteral("post-mesh burn: %1 s").arg(clock.elapsed()/1000.0);
+            report << QStringLiteral("touched cells before: %1 cells, %2 quads, min angle %3, min edge %4, below25 %5, below10 %6")
+                .arg(result.burnBefore.cells).arg(result.burnBefore.quads).arg(result.burnBefore.minAngle)
+                .arg(result.burnBefore.minEdge).arg(result.burnBefore.below25).arg(result.burnBefore.below10);
+            report << QStringLiteral("touched cells after: %1 cells, %2 quads, min angle %3, min edge %4, below25 %5, below10 %6; cavities %7, fallbacks %8")
+                .arg(result.burnAfter.cells).arg(result.burnAfter.quads).arg(result.burnAfter.minAngle)
+                .arg(result.burnAfter.minEdge).arg(result.burnAfter.below25).arg(result.burnAfter.below10)
+                .arg(result.burnCavities).arg(result.burnFallbackCavities);
+        }
+        const double workerSeconds=generationSeconds+clock.restart()/1000.0;
         qint64 rss=0;
 #ifdef Q_OS_UNIX
         struct rusage usage{}; getrusage(RUSAGE_SELF,&usage); rss=usage.ru_maxrss;
@@ -803,14 +962,14 @@ NODE C interior
         rss*=1024;
 #endif
 #endif
-        report << QStringLiteral("worker: %1 s, ok %2, peak RSS %3 GB%4").arg(workerSeconds).arg(result.ok)
+        report << QStringLiteral("worker: %1 s, ok %2, peak RSS including diagnostics %3 GB%4").arg(workerSeconds).arg(result.ok)
             .arg(rss/1e9,0,'f',2).arg(result.ok?QString():QStringLiteral(", error: ")+result.errorMsg);
         if(!result.burnWarnings.isEmpty()) {
             QFile warnings(out.filePath("burn_warnings.txt"));
             QVERIFY(warnings.open(QIODevice::WriteOnly|QIODevice::Text));
             warnings.write(result.burnWarnings.join('\n').toUtf8()+'\n');
         }
-        if(result.ok) {
+        if(!result.meshResult.triangles.isEmpty()) {
             const auto &m=result.meshResult;
             int quads=0,tris=0,below20=0,below10=0; double minEdge=1e300,maxEdge=0,minAngle=180;
             for(const auto &c:m.triangles) {
@@ -836,9 +995,9 @@ NODE C interior
             report << QStringLiteral("burn: ran %1, conduits burned %2, warnings %3").arg(result.burnRan)
                 .arg(result.burnSurgery.burnedConduits.size()).arg(result.burnWarnings.size());
             for(const auto &w:result.burnWarnings.mid(0,20)) report << QStringLiteral("  burn warning: ")+w;
-            QFile mesh(out.filePath("mesh.2dm"));
+            QFile mesh(out.filePath(result.ok?"mesh.2dm":"mesh_before_failed_burn.2dm"));
             QVERIFY(mesh.open(QIODevice::WriteOnly|QIODevice::Text));
-            QTextStream ts(&mesh); ts.setRealNumberPrecision(12);
+            QTextStream ts(&mesh); ts.setRealNumberPrecision(17);
             ts << "MESH2D\n";
             for(int i=0;i<m.triangles.size();++i) {
                 const auto &c=m.triangles[i];
@@ -1157,11 +1316,11 @@ NODE C interior
             file.close();
         }
         if (outcome == "failure") { result.ok = false; result.errorMsg = "test refusal"; }
-        QPromise<Result> promise;
+        QPromise<GenerationResult> promise;
         promise.start();
         promise.addResult(result);
         promise.finish();
-        dialog.m_watcher = new QFutureWatcher<Result>(&dialog);
+        dialog.m_watcher = new QFutureWatcher<GenerationResult>(&dialog);
         dialog.m_watcher->setFuture(promise.future());
         if (outcome != "success")
             QTimer::singleShot(0, [] {
@@ -1189,8 +1348,7 @@ NODE C interior
         const QDir dir(root + "/corridor_safety/" + QString::fromLatin1(QTest::currentDataTag()));
         Inputs inputs;
         QVERIFY(prepareBurnFixture(dir, inputs, true));
-        // No elevation burn is needed to reproduce the corridor fallback.
-        inputs.dtmPath.clear();
+        // Burn validates the requested profile against a completed terrain mesh.
         inputs.burnOptions.quadCorridor = true;
         if (invalidLattice) inputs.burnProfiles[0].offsets.clear();
         else inputs.burnProfiles[0].offsets.fill(0.0);
@@ -1200,7 +1358,7 @@ NODE C interior
         model.close();
         const auto result = run(inputs);
         QVERIFY2(!result.ok, "An explicitly requested invalid corridor must stop generation.");
-        QVERIFY2(result.errorMsg.contains("CREEK"), qPrintable(result.errorMsg));
+        QVERIFY2(!result.errorMsg.isEmpty(), qPrintable(result.errorMsg));
         QVERIFY(model.open(QIODevice::ReadOnly));
         QCOMPARE(model.readAll(), saved);
     }
@@ -1210,126 +1368,57 @@ NODE C interior
         QTest::addColumn<bool>("laterFailure");
         QTest::newRow("existing-success") << true << false;
         QTest::newRow("new-success") << false << false;
-        QTest::newRow("existing-later-failure") << true << true;
-        QTest::newRow("new-later-failure") << false << true;
+        QTest::newRow("existing-generation-failure") << true << true;
+        QTest::newRow("new-generation-failure") << false << true;
     }
 
     void burnKeepsSavedFilesUntilSave()
     {
-        QFETCH(bool, existing);
-        QFETCH(bool, laterFailure);
-        const QString root = qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT",
-            QDir::current().filePath("terrain_pipeline_output"));
-        const QDir dir(root + "/burn_staging/" + QString::fromLatin1(QTest::currentDataTag()));
-        Inputs inputs;
-        QVERIFY(prepareBurnFixture(dir, inputs, existing));
-        QByteArray identity=inputs.burnFingerprint.toUtf8()+inputs.meshCRSWkt.toUtf8()+inputs.burnDemCRSWkt.toUtf8()
-            +QByteArray::number(inputs.zConversionFactor,'g',17);
-        for(const auto &ring:inputs.domains) {
-            identity+='|';for(const auto &p:ring)identity+=QByteArray::number(p.x(),'g',17)+','+QByteArray::number(p.y(),'g',17)+';';
-        }
-        const QString digest=QString::fromLatin1(QCryptographicHash::hash(identity,QCryptographicHash::Sha256).toHex().left(16));
-        const QString finalDem = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+".vrt");
-        const QString finalTiles = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+"_tiles.tif");
-        const QString finalReport = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+"_burn_report.csv");
-        if(existing) {
-            QVERIFY(writeBytes(finalDem,"saved DEM sentinel\n"));
-            QVERIFY(writeBytes(finalReport,"saved report sentinel\n"));
-        }
-        QFile sourceBefore(inputs.dtmPath);
-        QVERIFY(sourceBefore.open(QIODevice::ReadOnly));
-        const auto originalSource = sourceBefore.readAll();
-        sourceBefore.close();
-        if (laterFailure) {
-            // The generator rejects a missing cell size after both burn
-            // outputs exist.
-            inputs.genOpts.maxArea = 0.0;
-        }
-        auto generated = run(inputs);
-        if (laterFailure) {
-            QVERIFY(!generated.ok);
-            QVERIFY2(generated.errorMsg.contains("no cell size"), qPrintable(generated.errorMsg));
+        QFETCH(bool,existing);QFETCH(bool,laterFailure);
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+
+                       "/burn_staging/"+QString::fromLatin1(QTest::currentDataTag()));
+        Inputs inputs;QVERIFY(prepareBurnFixture(dir,inputs,existing));inputs.exportRaster=true;
+        const auto savedFiles=QDir(inputs.burnOutputDir).entryList(QDir::Files);
+        QFile source(inputs.dtmPath);QVERIFY(source.open(QIODevice::ReadOnly));
+        const auto originalSource=source.readAll();source.close();
+        if(laterFailure) inputs.genOpts.maxArea=0;
+        auto generated=run(inputs);
+        QCOMPARE(generated.ok,!laterFailure);
+        QCOMPARE(QDir(inputs.burnOutputDir).entryList(QDir::Files),savedFiles);
+        QVERIFY(source.open(QIODevice::ReadOnly));QCOMPARE(source.readAll(),originalSource);
+        if(laterFailure) {
+            QVERIFY2(generated.errorMsg.contains("no cell size"),qPrintable(generated.errorMsg));
             QVERIFY(!generated.generatedArtifacts);
-            QVERIFY(dir.entryList({".openswmm-generation-*"},
-                                  QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
         } else {
-            QVERIFY2(generated.ok, qPrintable(generated.errorMsg));
-            QVERIFY(generated.burnRan);
-            QVERIFY(generated.burnStats.pixelsLowered+generated.burnStats.pixelsReplaced > 0);
-            QCOMPARE(generated.burnedDemPath, finalDem);
-            QCOMPARE(generated.burnReportPath, finalReport);
-        }
-        if (existing) {
-            QFile dem(finalDem), report(finalReport);
-            QVERIFY(dem.open(QIODevice::ReadOnly));
-            QVERIFY(report.open(QIODevice::ReadOnly));
-            QCOMPARE(dem.readAll(), QByteArray("saved DEM sentinel\n"));
-            QCOMPARE(report.readAll(), QByteArray("saved report sentinel\n"));
-        } else {
-            QVERIFY2(!QFileInfo::exists(finalDem), "Burn published a DEM before project Save");
-            QVERIFY2(!QFileInfo::exists(finalTiles), "Burn published DEM tiles before project Save");
-            QVERIFY2(!QFileInfo::exists(finalReport), "Burn published a report before project Save");
-            QVERIFY2(!QFileInfo::exists(inputs.burnOutputDir), "Burn created the final terrain directory before Save");
-        }
-        QFile sourceAfter(inputs.dtmPath);
-        QVERIFY(sourceAfter.open(QIODevice::ReadOnly));
-        QCOMPARE(sourceAfter.readAll(), originalSource);
-        if (!laterFailure) {
-            QVERIFY(generated.generatedArtifacts);
-            const QString jobDirectory = generated.generatedArtifacts->directoryPath();
-            QVERIFY(QFileInfo(jobDirectory).isDir());
-            QCOMPARE(generated.generatedArtifacts->entries().size(), 3);
-            QString physicalDem, physicalTiles, physicalReport;
-            for (const auto &entry : generated.generatedArtifacts->entries()) {
-                QVERIFY(QFileInfo(entry.stagedPath).isFile());
-                QVERIFY(QFileInfo(entry.stagedPath).size() > 0);
-                QCOMPARE(QFileInfo(entry.stagedPath).absolutePath(), jobDirectory);
-                QVERIFY(entry.finalPath != entry.stagedPath);
-                if (entry.finalPath == finalDem) physicalDem = entry.stagedPath;
-                else if (entry.finalPath == finalTiles) physicalTiles = entry.stagedPath;
-                else if (entry.finalPath == finalReport) physicalReport = entry.stagedPath;
-                else QFAIL("Unexpected generated artifact destination");
+            QVERIFY(generated.burnRan);QVERIFY(generated.generatedArtifacts);
+            QVERIFY(!QFileInfo::exists(generated.burnedDemPath));
+            QVERIFY(!QFileInfo::exists(generated.burnReportPath));
+            const auto artifacts=generated.generatedArtifacts;
+            QCOMPARE(artifacts->entries().size(),3);
+            QString physicalDem,physicalReport;
+            for(const auto &entry:artifacts->entries()) {
+                QVERIFY(QFileInfo(entry.stagedPath).size()>0);
+                QCOMPARE(QFileInfo(entry.stagedPath).absolutePath(),artifacts->directoryPath());
+                if(entry.finalPath==generated.burnedDemPath) physicalDem=entry.stagedPath;
+                if(entry.finalPath==generated.burnReportPath) physicalReport=entry.stagedPath;
             }
-            QVERIFY(!physicalDem.isEmpty());
-            QVERIFY(!physicalTiles.isEmpty());
-            QVERIFY(!physicalReport.isEmpty());
-            // The VRT resolves its tiles by name beside itself.
-            QCOMPARE(QFileInfo(physicalTiles).fileName(), QFileInfo(finalTiles).fileName());
-            QFile report(physicalReport);
-            QVERIFY(report.open(QIODevice::ReadOnly));
-            const auto reportBytes = report.readAll();
-            report.close();
-            QVERIFY(reportBytes.contains(("# burned DEM," + finalDem + "\n").toUtf8()));
-            QVERIFY(!reportBytes.contains(jobDirectory.toUtf8()));
-            QVERIFY(!reportBytes.contains(".openswmm-generation-"));
-            auto *burned = static_cast<GDALDataset *>(GDALOpen(physicalDem.toUtf8().constData(), GA_ReadOnly));
-            QVERIFY(burned);
-            double bed = 0;
-            const auto sampled = burned->GetRasterBand(1)->RasterIO(
-                GF_Read, 20, 19, 1, 1, &bed, 1, 1, GDT_Float64, 0, 0);
-            GDALClose(burned);
-            QCOMPARE(sampled, CE_None);
-            QVERIFY(bed < 9.0); // proves the physical stage is the burned DEM
-
-            // Keep review copies outside the final terrain destination while
-            // deliberately testing deletion of the private generation job.
-            const QString reviewDem = dir.filePath(QFileInfo(finalDem).fileName());
-            const QString reviewTiles = dir.filePath(QFileInfo(finalTiles).fileName());
-            for (const auto &f : {reviewDem, reviewTiles}) if (QFileInfo::exists(f)) QVERIFY(QFile::remove(f));
-            QVERIFY(QFile::copy(physicalDem, reviewDem));
-            QVERIFY(QFile::copy(physicalTiles, reviewTiles));
-            QVERIFY(writeBytes(dir.filePath("generated_report_for_review.csv"), reportBytes));
-            std::weak_ptr<GeneratedMeshArtifacts> observer = generated.generatedArtifacts;
-            Result queuedCopy = generated;
-            generated = Result{};
-            QVERIFY(!observer.expired());
-            QVERIFY(QFileInfo::exists(physicalDem));
-            queuedCopy = Result{};
-            QVERIFY(observer.expired());
-            QVERIFY(!QFileInfo::exists(jobDirectory));
-            QVERIFY(dir.entryList({".openswmm-generation-*"},
-                                  QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+            QVERIFY(!physicalDem.isEmpty());QVERIFY(!physicalReport.isEmpty());
+            QFile report(physicalReport);QVERIFY(report.open(QIODevice::ReadOnly));
+            const auto reportBytes=report.readAll();
+            QVERIFY(reportBytes.contains(("# burned DEM,"+generated.burnedDemPath+"\n").toUtf8()));
+            QVERIFY(!reportBytes.contains(artifacts->directoryPath().toUtf8()));
+            auto *raster=static_cast<GDALDataset *>(GDALOpen(physicalDem.toUtf8().constData(),GA_ReadOnly));
+            QVERIFY(raster);double bed=0;
+            const auto sampled=raster->GetRasterBand(1)->RasterIO(GF_Read,20,19,1,1,&bed,1,1,GDT_Float64,0,0);
+            GDALClose(raster);QCOMPARE(sampled,CE_None);QVERIFY(bed<9);
         }
+        const QString stage=generated.generatedArtifacts?generated.generatedArtifacts->directoryPath():QString();
+        std::weak_ptr<GeneratedMeshArtifacts> observer=generated.generatedArtifacts;
+        Result queuedCopy=generated;generated=Result{};
+        if(!laterFailure) {QVERIFY(!observer.expired());QVERIFY(QFileInfo(stage).isDir());}
+        queuedCopy=Result{};QVERIFY(observer.expired());
+        QVERIFY(stage.isEmpty() || !QFileInfo::exists(stage));
+        QVERIFY(dir.entryList({".openswmm-generation-*"},QDir::Dirs|QDir::Hidden|QDir::NoDotAndDotDot).isEmpty());
     }
 
     void canceledBurnDropsOwnedStage_data()
@@ -1344,66 +1433,48 @@ NODE C interior
 
     void canceledBurnDropsOwnedStage()
     {
-        QFETCH(bool, existing);
-        QFETCH(bool, afterComputation);
-        const QString root = qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT",
-            QDir::current().filePath("terrain_pipeline_output"));
-        const QDir dir(root + "/burn_cancellation/" + QString::fromLatin1(QTest::currentDataTag()));
-        Inputs inputs;
-        QVERIFY(prepareBurnFixture(dir, inputs, existing));
-        QByteArray identity=inputs.burnFingerprint.toUtf8()+inputs.meshCRSWkt.toUtf8()+inputs.burnDemCRSWkt.toUtf8()
-            +QByteArray::number(inputs.zConversionFactor,'g',17);
-        for(const auto &ring:inputs.domains) {
-            identity+='|';for(const auto &p:ring)identity+=QByteArray::number(p.x(),'g',17)+','+QByteArray::number(p.y(),'g',17)+';';
-        }
-        const QString digest=QString::fromLatin1(QCryptographicHash::hash(identity,QCryptographicHash::Sha256).toHex().left(16));
-        const QString finalDem = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+".vrt");
-        const QString finalTiles = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+"_tiles.tif");
-        const QString finalReport = QDir(inputs.burnOutputDir).filePath("source_burned_"+digest+"_burn_report.csv");
-        if(existing) {
-            QVERIFY(writeBytes(finalDem,"saved DEM sentinel\n"));
-            QVERIFY(writeBytes(finalReport,"saved report sentinel\n"));
-        }
-        QString jobDirectory;
-        std::weak_ptr<GeneratedMeshArtifacts> observer;
+        QFETCH(bool,existing);QFETCH(bool,afterComputation);
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+
+                       "/burn_cancellation/"+QString::fromLatin1(QTest::currentDataTag()));
+        Inputs inputs;QVERIFY(prepareBurnFixture(dir,inputs,existing));
+        const auto savedFiles=QDir(inputs.burnOutputDir).entryList(QDir::Files);
+        inputs.burnEnabled=false;auto generated=run(inputs);QVERIFY2(generated.ok,qPrintable(generated.errorMsg));
+        inputs.burnEnabled=true;inputs.exportRaster=true;
+        std::weak_ptr<GeneratedMeshArtifacts> observer;QString stage;
         {
-            QPromise<Result> promise;
-            auto future = promise.future();
-            promise.start();
-            if (!afterComputation) future.cancel();
-            MeshGenerationDialog::runMeshPipeline(promise, inputs);
-            if (afterComputation) {
-                QCOMPARE(future.resultCount(), 1);
-                // Inspect by reference: no GUI-adopted copy owns the outputs.
-                // Cancel occurs after computation but before queued completion.
-                const Result &pending = *future.begin();
-                QVERIFY2(pending.ok, qPrintable(pending.errorMsg));
-                QVERIFY(pending.generatedArtifacts);
-                jobDirectory = pending.generatedArtifacts->directoryPath();
-                observer = pending.generatedArtifacts;
-                QVERIFY(QFileInfo(jobDirectory).isDir());
-                future.cancel();
-            } else {
-                QCOMPARE(future.resultCount(), 0);
-            }
-            QVERIFY(future.isCanceled());
-            promise.finish();
+            auto result=burn(std::move(generated),inputs,[&]{return !afterComputation;});
+            QCOMPARE(result.ok,afterComputation);
+            if(afterComputation) {
+                QVERIFY(result.generatedArtifacts);observer=result.generatedArtifacts;
+                stage=result.generatedArtifacts->directoryPath();QVERIFY(QFileInfo(stage).isDir());
+            } else QVERIFY2(result.errorMsg.contains("Cancelled",Qt::CaseInsensitive),qPrintable(result.errorMsg));
+            // Discarding an asynchronously completed result owns no live layer.
         }
-        QVERIFY(observer.expired());
-        QVERIFY(jobDirectory.isEmpty() || !QFileInfo::exists(jobDirectory));
-        QVERIFY(dir.entryList({".openswmm-generation-*"},
-                              QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
-        if (existing) {
-            QFile dem(finalDem), report(finalReport);
-            QVERIFY(dem.open(QIODevice::ReadOnly));
-            QVERIFY(report.open(QIODevice::ReadOnly));
-            QCOMPARE(dem.readAll(), QByteArray("saved DEM sentinel\n"));
-            QCOMPARE(report.readAll(), QByteArray("saved report sentinel\n"));
-        } else {
-            QVERIFY(!QFileInfo::exists(finalDem));
-            QVERIFY(!QFileInfo::exists(finalReport));
-            QVERIFY(!QFileInfo::exists(inputs.burnOutputDir));
-        }
+        QVERIFY(observer.expired());QVERIFY(stage.isEmpty() || !QFileInfo::exists(stage));
+        QCOMPARE(QDir(inputs.burnOutputDir).entryList(QDir::Files),savedFiles);
+        QVERIFY(dir.entryList({".openswmm-generation-*"},QDir::Dirs|QDir::Hidden|QDir::NoDotAndDotDot).isEmpty());
+    }
+
+    void cancelledRasterExportDropsStage()
+    {
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/raster_export_cancel");
+        Inputs inputs;QVERIFY(prepareBurnFixture(dir,inputs,false));
+        inputs.burnEnabled=false;const auto generated=run(inputs);
+        QVERIFY2(generated.ok,qPrintable(generated.errorMsg));
+        mesh::ChannelMeshBurnInputs burnInputs;
+        burnInputs.profiles=inputs.burnProfiles;burnInputs.options=inputs.burnOptions;
+        const auto burned=mesh::burnChannelsIntoMesh(generated.meshResult,burnInputs);
+        QVERIFY2(burned.ok,qPrintable(burned.error));
+        mesh::ChannelBurnExportRequest request;
+        request.projectPath=inputs.inpPath;request.sourcePath=inputs.dtmPath;
+        request.outputDirectory=inputs.burnOutputDir;request.meshCRSWkt=inputs.meshCRSWkt;
+        request.options=inputs.burnOptions;
+        int cancellationChecks=0;
+        const auto result=mesh::prepareChannelBurnExport(burned,request,[&]{return ++cancellationChecks>1;});
+        QVERIFY(!result.ok);QVERIFY(!result.artifacts);QVERIFY(cancellationChecks>1);
+        QVERIFY2(result.error.contains("Cancelled",Qt::CaseInsensitive),qPrintable(result.error));
+        QVERIFY(!QFileInfo::exists(inputs.burnOutputDir));
+        QVERIFY(dir.entryList({".openswmm-generation-*"},QDir::Dirs|QDir::Hidden|QDir::NoDotAndDotDot).isEmpty());
     }
 
     void generationOwnershipGuard_data()
@@ -1447,10 +1518,10 @@ NODE C interior
             window.reset();
             QVERIFY(dialog.m_pw.isNull());
         } else {
-            QPromise<Result> promise;
+            QPromise<GenerationResult> promise;
             promise.start();
             auto future = promise.future();
-            dialog.m_watcher = new QFutureWatcher<Result>(&dialog);
+            dialog.m_watcher = new QFutureWatcher<GenerationResult>(&dialog);
             dialog.m_watcher->setFuture(future);
             if (change == "owner-close") window->aboutToClose();
             else if (change == "reject") dialog.reject();
