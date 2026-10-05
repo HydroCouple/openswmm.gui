@@ -1487,7 +1487,16 @@ HTML_EXTRA_FILES       = custom/js/doxygen-awesome-darkmode-toggle.js \
                          custom/js/doxygen-awesome-fragment-copy-button.js \
                          custom/js/doxygen-awesome-interactive-toc.js \
                          custom/js/doxygen-awesome-paragraph-link.js \
-                         custom/js/doxygen-awesome-tabs.js
+                         custom/js/doxygen-awesome-tabs.js \
+                         manual/tutorials/models/lid_active_chain/01_passive_free.inp \
+                         manual/tutorials/models/lid_active_chain/02_passive_backwater.inp \
+                         manual/tutorials/models/lid_active_chain/03_timed_hold.inp \
+                         manual/tutorials/models/lid_active_chain/04_head_guard.inp \
+                         manual/tutorials/models/lid_active_chain/05_repeat_storm.inp \
+                         manual/tutorials/models/lid_active_chain/06_stuck_closed.inp \
+                         manual/images/t10_network.gif \
+                         manual/images/t10_hydraulic-control.gif \
+                         manual/images/t10_pollutant-fate.gif
 
 # The HTML_COLORSTYLE tag can be used to specify if the generated HTML output
 # should be rendered with a dark or light theme.
