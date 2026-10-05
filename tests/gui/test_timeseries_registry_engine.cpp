@@ -15,6 +15,8 @@
 #include <openswmm/engine/openswmm_tables.h>
 
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QObject>
 #include <QTest>
 
@@ -46,6 +48,91 @@ class TestTimeseriesRegistryEngine : public QObject
     Q_OBJECT
 
 private slots:
+
+    void fileBackedSeries_diskRoundTrip()
+    {
+        const QDir directory(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
+                                 .filePath(QStringLiteral("timeseries_files")));
+        QFile csv(directory.filePath(QStringLiteral("rain_multi.csv")));
+        QVERIFY(csv.open(QIODevice::ReadOnly));
+        const QByteArray originalCsv = csv.readAll();
+        csv.close();
+        const QByteArray input = directory.filePath(QStringLiteral("rain_ts_files.inp")).toUtf8();
+        SWMM_Engine eng = swmm_engine_create();
+        QVERIFY(eng);
+        QCOMPARE(swmm_engine_open(eng, input.constData(), "", "", nullptr), SWMM_OK);
+        TimeseriesRegistry reg;
+        QCOMPARE(reg.loadFromEngine(eng), 3);
+        auto *west = reg.findByName(QStringLiteral("TS_COL"));
+        auto *east = reg.findByName(QStringLiteral("TS_NOCOL"));
+        QVERIFY(west && east);
+        QCOMPARE(west->pointCount(), 4);
+        QCOMPARE(east->pointCount(), 4);
+        QCOMPARE(west->pointAt(1).value, 0.30);
+        QCOMPARE(east->pointAt(1).value, 0.60);
+        QCOMPARE(west->columnSelector(), QStringLiteral("WEST_GAGE"));
+        QCOMPARE(reg.saveToEngine(eng), 3);
+        const QByteArray output = directory.filePath(QStringLiteral("roundtrip.inp")).toUtf8();
+        QCOMPARE(swmm_model_write(eng, output.constData()), SWMM_OK);
+        swmm_engine_close(eng);
+        swmm_engine_destroy(eng);
+        eng = swmm_engine_create();
+        QVERIFY(eng);
+        QCOMPARE(swmm_engine_open(eng, output.constData(), "", "", nullptr), SWMM_OK);
+        TimeseriesRegistry reread;
+        QCOMPARE(reread.loadFromEngine(eng), 3);
+        auto *reopened = reread.findByName(QStringLiteral("TS_COL"));
+        QVERIFY(reopened);
+        QCOMPARE(reopened->sourceMode(), TimeseriesProvider::SourceMode::ExternalFile);
+        QCOMPARE(reopened->columnSelector(), QStringLiteral("WEST_GAGE"));
+        auto *reopenedEast = reread.findByName(QStringLiteral("TS_NOCOL"));
+        QVERIFY(reopenedEast);
+        for (const auto &pair : {qMakePair(reopened, west), qMakePair(reopenedEast, east)}) {
+            QCOMPARE(pair.first->pointCount(), pair.second->pointCount());
+            for (int i = 0; i < pair.first->pointCount(); ++i) {
+                QCOMPARE(pair.first->pointAt(i).time, pair.second->pointAt(i).time);
+                QCOMPARE(pair.first->pointAt(i).value, pair.second->pointAt(i).value);
+            }
+        }
+        QVERIFY(csv.open(QIODevice::ReadOnly));
+        QCOMPARE(csv.readAll(), originalCsv);
+        swmm_engine_close(eng);
+        swmm_engine_destroy(eng);
+    }
+
+    void rejectedSequence_preservedUntilExplicitRepair()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng);
+        addSeries(eng, "BAD_ORDER", {{t(2026, 1, 1, 6), 4.0}, {t(2026, 1, 1, 0), 2.0}});
+        addSeries(eng, "VALID", {{t(2026, 1, 1, 0), 8.0}, {t(2026, 1, 1, 6), 9.0}});
+        TimeseriesRegistry reg;
+        QCOMPARE(reg.loadFromEngine(eng), 2);
+        auto *bad = reg.findByName(QStringLiteral("BAD_ORDER"));
+        QVERIFY(bad);
+        QCOMPARE(bad->pointCount(), 0);
+        // A bulk flush after editing an unrelated series cannot erase rows
+        // rejected by the editor's timestamp validation during import.
+        reg.saveToEngine(eng);
+        const int idx = swmm_table_index(eng, "BAD_ORDER");
+        int count = -1;
+        QCOMPARE(swmm_table_get_point_count(eng, idx, &count), SWMM_OK);
+        QCOMPARE(count, 2);
+        double x = 0.0, y = 0.0;
+        QCOMPARE(swmm_table_get_point(eng, idx, 0, &x, &y), SWMM_OK);
+        QCOMPARE(x, qDateTimeToSwmmDateTime(t(2026, 1, 1, 6)));
+        QCOMPARE(y, 4.0);
+        QVERIFY(!reg.saveProviderToEngine(bad));
+        // A deliberate valid replacement can repair the series. Subsequent
+        // deliberate clearing then behaves like any normally loaded series.
+        QVERIFY(bad->setAllPoints({{t(2026, 1, 1, 0), 2.0}, {t(2026, 1, 1, 6), 4.0}}));
+        QVERIFY(reg.saveProviderToEngine(bad));
+        QVERIFY(bad->setAllPoints({}));
+        QVERIFY(reg.saveProviderToEngine(bad));
+        QCOMPARE(swmm_table_get_point_count(eng, idx, &count), SWMM_OK);
+        QCOMPARE(count, 0);
+        swmm_engine_destroy(eng);
+    }
 
     void loadFromEngine_BuildingState_RoundTrip()
     {

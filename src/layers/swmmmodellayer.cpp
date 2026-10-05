@@ -815,6 +815,36 @@ SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path,
     QElapsedTimer timer;
     timer.start();
 
+    // Lenient engine open accepts malformed rows for editing, but binary
+    // damage must not become garbled object IDs in the GUI's name pickers.
+    if (QFileInfo(path).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) == 0) {
+        QFile input(path);
+        if (!input.open(QIODevice::ReadOnly))
+            return fail(QStringLiteral("Cannot read model file: %1\n%2")
+                            .arg(path, input.errorString()));
+        qint64 line = 1;
+        while (!input.atEnd()) {
+            const QByteArray chunk = input.read(1024 * 1024);
+            if (input.error() != QFileDevice::NoError)
+                return fail(QStringLiteral("Cannot read model file: %1\n%2")
+                                .arg(path, input.errorString()));
+            const auto invalid = std::find_if(chunk.cbegin(), chunk.cend(), [](unsigned char byte) {
+                return (byte < 0x20 && byte != '\t' && byte != '\n' && byte != '\r'
+                        && byte != '\v' && byte != '\f') || byte == 0x7f;
+            });
+            if (invalid != chunk.cend()) {
+                line += std::count(chunk.cbegin(), invalid, '\n');
+                const QString byte = *invalid == '\0' ? QStringLiteral("NUL byte")
+                    : QStringLiteral("Control byte 0x%1").arg(uchar(*invalid), 2, 16, QLatin1Char('0'));
+                return fail(QStringLiteral("Cannot open INP text: %1\n"
+                    "%2 at line %3. The file may be damaged or use an unsupported "
+                    "text encoding. Check the encoding or restore an intact copy; "
+                    "do not save over the original.").arg(path, byte).arg(line));
+            }
+            line += chunk.count('\n');
+        }
+    }
+
     // Open model (read-only: pass empty strings for rpt/out)
     SWMM_Engine eng = swmm_engine_create();
     if (!eng)

@@ -81,6 +81,7 @@ void TimeseriesRegistry::remove(TimeseriesProvider *p)
 
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
+    m_failedPointImports.remove(p);
     p->deleteLater();
 }
 
@@ -163,7 +164,8 @@ int TimeseriesRegistry::loadFromEngine(void *engineHandle)
         // a non-monotone series the rejection surfaces via mutationRejected
         // and we keep the empty provider rather than drop it (so the user
         // can see the problem in the UI).
-        p->setAllPoints(std::move(pts));
+        if (!p->setAllPoints(std::move(pts)))
+            m_failedPointImports.insert(p);
 
         // Time mode: leading rows authored as elapsed-time-from-start (the
         // time-only [TIMESERIES] form). The engine reports how many, plus
@@ -212,6 +214,19 @@ bool TimeseriesRegistry::saveProviderToEngine(TimeseriesProvider *p, void *engin
 
 bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p)
 {
+    // A failed import leaves an empty editor provider, not an intentionally
+    // empty series. Do not let an unrelated editor flush erase engine rows.
+    // A deliberate valid replacement may repair it; later clearing is normal.
+    if (m_failedPointImports.contains(p)) {
+        if (p->pointCount() == 0) {
+            emit p->mutationRejected(tr("Time series %1 could not be loaded because its "
+                "timestamps are out of sequence. Its original engine data has been "
+                "preserved; correct the source or enter a valid replacement before saving it.")
+                .arg(p->name()));
+            return false;
+        }
+        m_failedPointImports.remove(p);
+    }
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     // B4 — ExternalFile providers with a linked path persist as engine
     // FILE timeseries ("path:col" token) below. Pathless ExternalFile
