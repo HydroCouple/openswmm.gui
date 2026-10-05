@@ -9,7 +9,7 @@ DECKS = ROOT / 'docs/manual/tutorials/models/lid_active_chain'
 OUT = Path(__file__).resolve().parents[1] / 'results'
 p = argparse.ArgumentParser()
 p.add_argument('--library', type=Path, required=True)
-p.add_argument('--steps', nargs='+', type=float, default=[.5, .25])
+p.add_argument('--steps', nargs='+', type=float, default=[.1, .05, .025])
 p.add_argument('--cases', nargs='+')
 p.add_argument('--output', type=Path, default=OUT)
 p.add_argument('--append', action='store_true', help='Merge these runs into a same-library summary.')
@@ -71,7 +71,7 @@ for source in sorted(DECKS.glob('*.inp')):
             if warnings: print('WARNINGS', warnings[:5], 'count', len(warnings),flush=True)
             totals={key:get(getters['get_routing_total'],h,code) for key,code in [('inflow_ft3',4),('outflow_ft3',6),('flood_ft3',5),('initial_ft3',9),('final_ft3',10)]}
             entry={'case':source.stem,'step_seconds':dt,'warnings':warnings,'flow_error_percent':100*get(flowerr,h),'reactive_error_percent':100*get(qualerr,h,0),'tracer_error_percent':100*get(qualerr,h,1),**totals}
-            text=rpt.read_text(encoding='latin1'); quality=text.split('Quality Routing Continuity',1)[1].split('Continuity Error',1)[0]
+            text=rpt.read_text(encoding='latin1'); rpt.write_text('\n'.join(line.rstrip() for line in text.splitlines())+'\n',encoding='latin1'); quality=text.split('Quality Routing Continuity',1)[1].split('Continuity Error',1)[0]
             for label2,key in [('External Inflow','mass_in_lbs'),('External Outflow','mass_out_lbs'),('Mass Reacted','mass_reacted_lbs'),('Flooding Loss','mass_flood_lbs'),('Initial Stored Mass','mass_initial_lbs'),('Final Stored Mass','mass_final_lbs')]:
                 m=re.search(re.escape(label2)+r'\s*\.+\s*([\d.Ee+-]+)\s+([\d.Ee+-]+)',quality)
                 entry[key]=[float(m[1]),float(m[2])]
@@ -93,7 +93,7 @@ for source in sorted(DECKS.glob('*.inp')):
             summary=[r for r in summary if (r['case'],r['step_seconds'])!=(entry['case'],entry['step_seconds'])]
             summary.append(entry)
             with (OUT/f'{source.stem}_dt{dt:g}.csv').open('w') as f:
-                w=csv.DictWriter(f,fieldnames=rows[0]); w.writeheader(); w.writerows(rows)
+                w=csv.DictWriter(f,fieldnames=rows[0],lineterminator='\n'); w.writeheader(); w.writerows(rows)
             print(label, 'accepted',entry['accepted'],'errors',*[round(entry[k],4) for k in ['flow_error_percent','reactive_error_percent','tracer_error_percent']],'peak',round(entry['peak_receiving_cfs'],4),'reacted',round(entry['reacted_percent'],2),'backflow',round(entry['reverse_AB_ft3_sampled'],1),round(entry['reverse_BR_ft3_sampled'],1),flush=True)
         finally:
             close(h); destroy(h)

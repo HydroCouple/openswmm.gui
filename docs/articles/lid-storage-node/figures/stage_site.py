@@ -26,7 +26,8 @@ GIFs, static posters and SVG sources live in `../../img/articles/lid-storage-nod
 The LinkedIn article is an identical export of `article.md`; `build.py` keeps
 its Markdown and HTML preview synchronized. The companion post is a separate
 announcement draft. The standalone
-`tutorial.html` documents the same six models in `models/`; `validation.html`
+`tutorial.html` documents the six chain models plus the supplementary
+`models/lid_resaturation.inp` reversal/recession test; `validation.html`
 and `validation.md` record the solver checks and interpretation limits.
 
 The reproducible example generation and figure scripts, sampled CSVs and
@@ -44,8 +45,9 @@ for filename in ['article.md','linkedin-article.md']:
 models=article/'models';models.mkdir(exist_ok=True)
 for f in (GUI/'docs/manual/tutorials/models/lid_active_chain').glob('*.inp'):shutil.copy2(f,models/f.name)
 with zipfile.ZipFile(models/'lid_active_chain.zip','w',zipfile.ZIP_DEFLATED) as z:
- for f in sorted(models.glob('*.inp')):z.write(f,f.name)
- z.writestr('README.txt','Synthetic 24-hour CFS / Dynamic Wave / Legacy-quality tests. Requires the corrected storage-node LID engine. See tutorial.html and validation.html beside this models folder. Bottom boundaries are closed; groundwater is not simulated.\n')
+ for f in sorted((GUI/'docs/manual/tutorials/models/lid_active_chain').glob('*.inp')):z.write(f,f.name)
+ z.writestr('README.txt','Synthetic 24-hour CFS / Dynamic Wave / Legacy-quality tests. Requires the storage-node LID legacy-hydrology adaptation and pollutant corrections. See tutorial.html and validation.html beside this models folder. Bottom boundaries are closed; groundwater is not simulated.\n')
+shutil.copy2(GUI/'docs/manual/tutorials/models/lid_resaturation.inp',models/'lid_resaturation.inp')
 # Load the same renderer for standalone tutorial and validation pages.
 spec=importlib.util.spec_from_file_location('lid_article_builder',SOURCE/'build.py');mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
 def page(title,body):
@@ -56,9 +58,9 @@ def page(title,body):
  return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'+title+'</title><style>body{font:18px/1.65 system-ui,sans-serif;color:#123047;background:#f7fafb;max-width:1000px;margin:3rem auto;padding:0 1.4rem}img{max-width:100%;height:auto}figure{margin:2rem 0}h1,h2,h3{line-height:1.2}table{border-collapse:collapse;width:100%;font-size:16px}th,td{padding:.5rem;border-bottom:1px solid #dce6eb;text-align:left}.table-scroll{overflow:auto}pre{padding:1rem;background:#eaf1f4;overflow:auto}a{color:#007a80}blockquote{border-left:4px solid #008f83;padding-left:1rem}</style><body><nav><a href="../../articles.html#lid-storage-node">← Article</a> · <a href="models/lid_active_chain.zip">Download six models</a></nav><h1>'+title+'</h1>'+rendered+support+'</body></html>'
 tutorial=(GUI/'docs/manual/tutorials/t10_lid_active_chain.md').read_text().split('\n',1)[1]
 tutorial=re.sub(r'\\fig\{([^,]+), ([^}]+)\}',lambda m:'!['+m[2]+'](assets/'+m[1].replace('t10_','')+')',tutorial)
-tutorial=tutorial.replace('t10_network.gif','assets/network.gif').replace('t10_pollutant-fate.gif','assets/pollutant-fate.gif')
+tutorial=tutorial.replace('t10_network.gif','assets/network.gif').replace('t10_pollutant-fate.gif','assets/pollutant-fate.gif').replace('t10_resaturation.gif','assets/resaturation.gif')
 tutorial=re.sub(r'\\ref (\w+)',lambda m:'[SWMMVis manual](https://hydrocouple.github.io/openswmm.gui/'+m[1]+'.html)',tutorial)
-tutorial=re.sub(r'\]\((0\d_[^)]*\.inp)\)',r'](models/\1)',tutorial)
+tutorial=re.sub(r'\]\(((?:0\d_[^)]*|lid_resaturation)\.inp)\)',r'](models/\1)',tutorial)
 (article/'tutorial.html').write_text(page('T10 — Distributed LIDs: Active Control and Backwater',tutorial))
 validation=(SOURCE/'validation.md').read_text().split('\n',1)[1]
 (article/'validation.html').write_text(page('Validation and reproducibility',validation))

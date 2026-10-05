@@ -2,9 +2,9 @@
   OPENSWMM ENGINE - VERSION 6.0.0-alpha.4
   ------------------------------------------------------------
 
-  Chained storage-node LIDs: 01_passive_free 
-  Synthetic research example; parameters are not calibrated design values. 
-  
+  Chained storage-node LIDs: 01_passive_free
+  Synthetic research example; parameters are not calibrated design values.
+
   ****************
   Analysis Options
   ****************
@@ -28,8 +28,8 @@
   Maximum Trials ........... 8
   Number of Threads ........ 1
   Head Tolerance ........... 0.005000 ft
-  
-  
+
+
   **************************        Volume        Volume
   Flow Routing Continuity        acre-feet      10^6 gal
   **************************     ---------     ---------
@@ -45,8 +45,8 @@
   Initial Stored Volume ....         0.007         0.002
   Final Stored Volume ......         0.009         0.003
   Continuity Error (%) .....         0.000
-  
-  
+
+
   **************************      REACTIVE        TRACER
   Quality Routing Continuity           lbs           lbs
   **************************    ----------    ----------
@@ -62,28 +62,28 @@
   Initial Stored Mass ......         0.000         0.000
   Final Stored Mass ........         0.041         0.269
   Continuity Error (%) .....         0.000         0.000
-  
-  
+
+
   *************************
   Highest Continuity Errors
   *************************
-  Node B (-55.37%)
-  
-  
-  
-  
+  Node B (-54.30%)
+
+
+
+
   ********************************
   Highest Flow Instability Indexes
   ********************************
   All links are stable.
-  
-  
+
+
   *********************************
   Most Frequent Nonconverging Nodes
   *********************************
-  Node B (1.16%)
-  
-  
+  Convergence obtained at all time steps.
+
+
   *************************
   Routing Time Step Summary
   *************************
@@ -91,19 +91,19 @@
   Average Time Step           :     0.10 sec
   Maximum Time Step           :     0.10 sec
   % of Time in Steady State   :     0.00
-  Average Iterations per Step :     2.11
-  % of Steps Not Converging   :     1.16
-  
-  
+  Average Iterations per Step :     2.00
+  % of Steps Not Converging   :     0.00
+
+
   *********************
   Control Actions Taken
   *********************
-  
-  
-  
-  
-  
-  
+
+
+
+
+
+
   ******************
   Node Depth Summary
   ******************
@@ -113,13 +113,13 @@
                                    Depth    Depth      HGL   Occurrence   Max Depth
   Node                 Type         Feet     Feet     Feet  days hr:min        Feet
   ---------------------------------------------------------------------------------
-  A                    STORAGE      0.15     0.84     1.14     0  02:21        0.84
-  B                    STORAGE      0.16     1.00     1.00     0  06:16        0.94
+  A                    STORAGE      0.16     0.89     1.19     0  02:33        0.89
+  B                    STORAGE      0.16     1.00     1.00     0  06:15        0.96
   R                    OUTFALL      0.00     0.00     0.00     0  00:00        0.00
   FA                   OUTFALL      2.00     2.00     2.00     0  00:00        2.00
   FB                   OUTFALL      2.00     2.00     2.00     0  00:00        2.00
-  
-  
+
+
   *******************
   Node Inflow Summary
   *******************
@@ -130,27 +130,27 @@
                                    Inflow   Inflow   Occurrence      Volume      Volume       Error
   Node                 Type           CFS      CFS  days hr:min    10^6 gal    10^6 gal     Percent
   -------------------------------------------------------------------------------------------------
-  A                    STORAGE       0.30     0.13     0  01:11     0.00808     0.00316     -60.940
-  B                    STORAGE       0.00     0.07     0  02:21           0     0.00541     -35.637
-  R                    OUTFALL       0.00     0.04     0  06:16           0     0.00506       0.000
-  FA                   OUTFALL       0.00     0.13     0  01:11           0     0.00253       0.000
+  A                    STORAGE       0.30     0.12     0  01:11     0.00808     0.00305     -62.276
+  B                    STORAGE       0.00     0.07     0  02:33           0     0.00552     -35.190
+  R                    OUTFALL       0.00     0.04     0  06:15           0     0.00517       0.000
+  FA                   OUTFALL       0.00     0.12     0  01:11           0     0.00243       0.000
   FB                   OUTFALL       0.00     0.00     0  00:00           0           0       0.000 gal
-  
-  
+
+
   **********************
   Node Surcharge Summary
   **********************
-  
+
   No nodes were surcharged.
-  
-  
+
+
   *********************
   Node Flooding Summary
   *********************
-  
+
   No nodes were flooded.
-  
-  
+
+
 
   LID Storage Moisture Profile: A
   Layer      Bottom         Top     Moisture
@@ -160,7 +160,7 @@
       2      1.4000      1.6000     0.200000
       2      1.2000      1.4000     0.200000
       2      1.0000      1.2000     0.200000
-      3      0.0000      1.0000     0.058305
+      3      0.0000      1.0000     0.058085
 
 
   LID Storage Moisture Profile: B
@@ -171,7 +171,7 @@
       2      1.4000      1.6000     0.117000
       2      1.2000      1.4000     0.117000
       2      1.0000      1.2000     0.117000
-      3      0.0000      1.0000     0.003878
+      3      0.0000      1.0000     0.003880
 
   **********************
   Storage Volume Summary
@@ -182,26 +182,26 @@
                           Volume   Pcnt   Pcnt   Pcnt      Volume   Pcnt     Occurrence    Outflow
   Storage Unit          1000 ft³   Full   Loss   Loss    1000 ft³   Full    days hr:min        CFS
   ------------------------------------------------------------------------------------------------
-  A                        0.056    5.2    0.0    0.0       0.303   28.5       0  02:21       0.16
-  B                        0.036    3.0    0.0    0.0       0.397   33.7       0  06:16       0.10
-  
-  
+  A                        0.057    5.4    0.0    0.0       0.322   30.3       0  02:33       0.16
+  B                        0.036    3.0    0.0    0.0       0.397   33.7       0  06:15       0.10
+
+
   ***********************
   Outfall Loading Summary
   ***********************
- 
-  --------------------------------------------------------------------------------------- 
-                         Flow       Avg       Max       Total         Total         Total 
-                         Freq      Flow      Flow      Volume      REACTIVE        TRACER 
-  Outfall Node           Pcnt       CFS       CFS    10^6 gal           lbs           lbs 
+
   ---------------------------------------------------------------------------------------
-  R                     46.23      0.02      0.04       0.005         0.420         0.656
-  FA                     6.02      0.07      0.13       0.003         0.423         0.423
-  FB                     0.00      0.00      0.00       0.000         0.000         0.000 
+                         Flow       Avg       Max       Total         Total         Total
+                         Freq      Flow      Flow      Volume      REACTIVE        TRACER
+  Outfall Node           Pcnt       CFS       CFS    10^6 gal           lbs           lbs
   ---------------------------------------------------------------------------------------
-  System                17.42      0.08      0.13       0.008         0.842         1.078
-  
-  
+  R                     46.68      0.02      0.04       0.005         0.437         0.674
+  FA                     5.66      0.07      0.12       0.002         0.405         0.405
+  FB                     0.00      0.00      0.00       0.000         0.000         0.000
+  ---------------------------------------------------------------------------------------
+  System                17.45      0.08      0.12       0.008         0.842         1.078
+
+
   ********************
   Link Flow Summary
   ********************
@@ -211,44 +211,44 @@
                                   |Flow|   Occurrence   |Veloc|    Full    Full
   Link                 Type          CFS  days hr:min    ft/sec    Flow   Depth
   -----------------------------------------------------------------------------
-  V_AB                 ORIFICE      0.07     0  02:21                      1.00
-  V_BR                 ORIFICE      0.04     0  06:16                      1.00
-  W_A                  WEIR         0.13     0  01:11                      0.36
+  V_AB                 ORIFICE      0.07     0  02:33                      1.00
+  V_BR                 ORIFICE      0.04     0  06:15                      1.00
+  W_A                  WEIR         0.12     0  01:11                      0.36
   W_B                  WEIR         0.00     0  00:00                      0.00
-  
-  
+
+
   ***************************
   Flow Classification Summary
   ***************************
 
   -------------------------------------------------------------------------------------
-                      Adjusted    ---------- Fraction of Time in Flow Class ---------- 
-                       /Actual         Up    Down  Sub   Sup   Up    Down  Norm  Inlet 
-  Conduit               Length    Dry  Dry   Dry   Crit  Crit  Crit  Crit  Ltd   Ctrl  
+                      Adjusted    ---------- Fraction of Time in Flow Class ----------
+                       /Actual         Up    Down  Sub   Sup   Up    Down  Norm  Inlet
+  Conduit               Length    Dry  Dry   Dry   Crit  Crit  Crit  Crit  Ltd   Ctrl
   -------------------------------------------------------------------------------------
-  
+
   *************************
   Conduit Surcharge Summary
   *************************
-  
+
   No conduits were surcharged.
-  
-  
+
+
   ***************************
   Link Pollutant Load Summary
   ***************************
- 
-  ------------------------------------------------ 
-                                      REACTIVE        TRACER 
-  Link                                     lbs           lbs 
-  ------------------------------------------------
-  V_AB                                   0.633         0.803
-  V_BR                                   0.420         0.656
-  W_A                                    0.423         0.423
-  W_B                                    0.000         0.000
-  
-  
 
-  Analysis begun on:  Sun Oct  4 23:27:13 2026
-  Analysis ended on:  Sun Oct  4 23:27:19 2026
-  Total elapsed time: 00:00:06
+  ------------------------------------------------
+                                      REACTIVE        TRACER
+  Link                                     lbs           lbs
+  ------------------------------------------------
+  V_AB                                   0.647         0.818
+  V_BR                                   0.438         0.674
+  W_A                                    0.405         0.405
+  W_B                                    0.000         0.000
+
+
+
+  Analysis begun on:  Mon Oct  5 01:16:07 2026
+  Analysis ended on:  Mon Oct  5 01:16:12 2026
+  Total elapsed time: 00:00:05

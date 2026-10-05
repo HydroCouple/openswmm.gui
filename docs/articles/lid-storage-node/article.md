@@ -15,9 +15,13 @@ These questions have motivated the new LID Storage node implementation in Open-S
 
 ## Why the network matters
 
-Conventional SWMM LIDs remain useful for describing rainfall, infiltration and drainage within a subcatchment. SWMM can also represent treatment trains by routing runoff between dedicated subcatchments; LIDs within one subcatchment are treated in parallel. The new development addresses a different modeling need: make the layered facility an explicit part of the hydraulic network, with connected ports, downstream heads and controllable outlets. See the [EPA SWMM 5.2 User's Manual](https://nepis.epa.gov/Exe/ZyPURL.cgi?Dockey=P10145M6.TXT).
+Conventional SWMM LIDs describe rainfall, infiltration and drainage within a subcatchment. SWMM can also represent treatment trains by routing runoff between dedicated subcatchments; LIDs within one subcatchment are treated in parallel. See the [EPA SWMM 5.2 User's Manual](https://nepis.epa.gov/Exe/ZyPURL.cgi?Dockey=P10145M6.TXT).
 
-That makes it possible to explore questions such as:
+**SWMM 5 already provides LID drain controls.** Version **5.1.013 (August 2018)** added separate drain opening and closing water levels and a control curve that adjusts nominal drain discharge as a function of the head above the drain outlet. These controls respond to water levels within the LID; the conventional LID underdrain calculation does not include the receiving node's downstream head. [EPA release notes](https://github.com/USEPA/Stormwater-Management-Model/releases/tag/v5.1.13); [EPA LID underdrain implementation](https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/lidproc.c).
+
+The new work connects the layered LID directly to SWMM's existing hydraulic network and control rules. **Its outlet flow responds to both the facility's head and the downstream head**, allowing backwater to restrict drainage and, where the link permits it, reverse flow into the facility. Controls can also respond to receiving-water levels. This couples the layered water stores and treatment processes to the surrounding network.
+
+For the layered facility, this supports questions such as:
 
 - Does detention at an upstream facility reduce a downstream peak, or move it into the peak from another tributary?
 - How does downstream backwater change available storage, flow direction and exposure to treatment media?
@@ -62,17 +66,17 @@ The Q terms and evaporation **E** are volume rates, with incoming and outgoing d
 
 ### Moisture-dependent drainage meets a head-driven network
 
-The intercell flux is a **gravity-only Darcy–Buckingham approximation**, with a moisture-dependent conductivity and a field-capacity cutoff. It does not evaluate the total-head gradient across adjacent media cells. For a downward-positive coordinate **ξ**, the general one-dimensional Darcy–Buckingham relation is:
+The intercell flux is a **gravity-only Darcy–Buckingham approximation**, with the exponential conductivity law used by legacy SWMM LIDs and a field-capacity cutoff. For a downward-positive coordinate **ξ**, the general one-dimensional relation is:
 
 > q = K(θ) [1 − ∂ψ/∂ξ]
 
-Setting the matric-head gradient to zero gives the unit-gradient result **q = K(θ)**. The implementation uses the donor cell's properties:
+Setting the matric-head gradient to zero gives the unit-gradient result **q = K(θ)**. For unsaturated MEDIA, the implementation uses the donor cell's properties:
 
-> qᵢ = Kₛ,ᵢ [clamp(θᵢ / φᵢ, 0, 1)]ⁿᵢ when θᵢ > θ_FC,ᵢ; otherwise qᵢ = 0
+> qᵢ = Kₛ,ᵢ exp[−mᵢ (φᵢ − θᵢ)] when θᵢ > θ_FC,ᵢ; otherwise qᵢ = 0
 >
 > Qᵢ = Aᵢ qᵢ
 
-**qᵢ** has units of length/time, **Qᵢ** volume/time, **Aᵢ = Gᵢ / Δzᵢ** is the donor's mean area, **Kₛ,ᵢ** saturated conductivity and **nᵢ** the authored conductivity exponent. This power law uses θ/φ, not residual-moisture-normalized effective saturation. The receiver's conductivity and matric head are not combined with the donor's to form an interface conductivity. For example, Kₛ = 10 mm/h, θ = 0.30, φ = 0.45, n = 3 and θ_FC = 0.20 give q = **2.96 mm/h**. A drier receiving cell does not increase this trial flux; its empty pore volume limits the accepted transfer. Unsaturated aggregate cells use the same power-law branch with field capacity zero and the current default exponent of three.
+**qᵢ** has units of length/time, **Qᵢ** volume/time, **Aᵢ = Gᵢ / Δzᵢ** is the donor's mean area, **Kₛ,ᵢ** saturated conductivity and **mᵢ** the dimensionless conductivity slope. Increasing the slope reduces drainage at a given moisture deficit; zero slope gives constant Kₛ above field capacity. The GUI's **Conductivity slope** now has this legacy meaning; the earlier node kernel incorrectly treated it as a power-law exponent. For Kₛ = 10 mm/h, θ = 0.30, φ = 0.45, m = 10 and θ_FC = 0.20, the trial flux is **2.23 mm/h**. Receiving moisture limits accepted volume but does not supply an intercell matric-head gradient. Unsaturated AGGREGATE drains at its specified conductivity, bounded by its available water and receiving space, with field capacity zero. The soil law and entry routine follow the [EPA SWMM LID source](https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/lidproc.c).
 
 For a substep **δt**, no longer than one second and no longer than the remaining routing interval, the accepted volume is:
 
@@ -80,15 +84,17 @@ For a substep **δt**, no longer than one second and no longer than the remainin
 
 The last bound applies when the receiving cell is entirely above the mobile water table. All trial transfers are computed from the same pre-update moisture state; then the donor loses ΔVᵢ and the receiver gains that exact volume. Consequently, receiving space freed by its own outflow becomes available on the next substep. Water entering a cell intersected by the water table, or leaving the bottom retained cell, is transferred to mobile storage instead; the retained receiver-capacity bound is omitted. Cells whose bottoms are below the mobile water table skip this free-drainage update. The calculation is a bounded, explicit cell-water balance, with routing-step refinement still needed to check timing.
 
-Surface-to-media entry uses a separate suction-enhanced closure:
+Surface entry into the first MEDIA layer now reuses SWMM's **modified Green–Ampt** routine. It represents suction at a downward wetting front. In the ponded, infiltration-limited branch, the instantaneous capacity is:
 
-> q_inf = K_b [1 + ψ_b max(φ_b − θ_b, 0) / max(ψ_b + h_s, ε)]
+> f_cap = Kₛ [1 + (ψ_f + h_s) Δθ / F]
+>
+> h_s = θ_s Δz_s / φ_s
 
-Subscript **b** denotes the receiving cell; **ψ_b** is its suction parameter, **h_s = θ_s Δz_s** is retained surface-water volume per unit footprint and **ε** is a denominator guard. The trial volume uses the surface donor's area and is bounded by its available water and the receiver's capacity. This empirical entry closure does not track a wetting front or solve a pressure difference across the interface. Evaporation withdraws water from the top downward without taking media below wilting point.
+**ψ_f** is the positive wetting-front suction head, **h_s** actual ponded depth, **Δθ** the front's moisture deficit and **F** cumulative infiltration depth in the active front history. This relation applies for F > 0; the routine handles initial wetting, integrated infiltration and supply-limited transitions rather than dividing by zero at F = 0. Increasing ponded head increases capacity at the same front state. Actual infiltration remains bounded by available surface water and receiving capacity. Only the **accepted** depth advances F and the upper-zone wetness history; rejected potential infiltration does not wet the soil. Dry-period recovery is constrained by the moisture actually remaining in the cells. Surface-to-aggregate entry uses the aggregate conductivity directly. Evaporation withdraws water from the top downward without taking media below wilting point. See the [EPA SWMM infiltration source](https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/infil.c).
 
 ![Intercell donor conductivity, accepted transfer bounds and comparison with a matric-gradient formulation](assets/interlayer-flux.png)
 
-*Figure 3. The implemented flux depends on donor moisture and is limited by donor water and receiving space. The comparison uses downward-positive ξ: matric-head differences can augment, oppose or reverse gravity flow in the fuller formulation. Arrows are conceptual; the numerical example is an equation calculation, not an additional simulation.*
+*Figure 3. Media drainage uses the legacy exponential conductivity law; surface entry uses modified Green–Ampt history. Accepted flux is limited by donor water and receiving space. The comparison uses downward-positive ξ: matric-head differences can augment, oppose or reverse gravity flow in the fuller formulation. Arrows are conceptual; the numerical example is an equation calculation, not an additional simulation.*
 
 Network discharge depends on the heads at the actual link ports. For a fully submerged orifice with no flap gate, the familiar limiting relation is:
 
@@ -100,13 +106,25 @@ Network discharge depends on the heads at the actual link ports. For a fully sub
 
 *Figure 4. An analytical illustration of the submerged-orifice equation, using a 0.10-ft opening and C_d = 0.6. Both heads share a datum. The four states explain the mechanism; they do not replay the tutorial's rule timing or replace its simulated hydrographs. Moving arrows indicate direction. [Static figure](assets/hydraulic-control-static.png).*
 
+### Backwater can wet the facility from below
+
+A rising downstream stage can reverse a link and bring water into its actual port. A media port first fills the local retained capacity; hydraulically connected water raises the mobile water table and fills the remaining submerged pores. These are conservative transfers, with incoming pollutant mass included when the returning water carries pollutant.
+
+Green–Ampt was devised for downward infiltration, so a network-connected LID needs an explicit adaptation. The node reconciles its finite upper-zone moisture deficit with retained moisture and the submerged fraction after accepted backwater or media-port wetting. That wetting reduces the deficit and raises upper-zone wetness, **without counting reverse inflow as surface infiltration**. When the media top is fully submerged, the previous downward front is cleared. During recession, the history follows the moisture left behind, including field-capacity retention in previously submerged cells, until accepted surface infiltration starts a new approximate front. A later storm therefore encounters wetted media rather than a reset dry profile. Recovery is suppressed while an empty surface overlies an upper zone intersected by backwater.
+
+![Native simulation of reverse inflow, media resaturation, recession and a second storm, showing water-table elevation and infiltration deficit](assets/resaturation.gif)
+
+*Figure 5. A separate six-minute, 10 ft² test uses an open reversible orifice, a receiving-stage pulse and a surface inflow at minutes 3–4. The native run reaches full media resaturation, drains after the boundary falls, then infiltrates the second event. The upper-zone deficit falls to zero during full submergence and is reconstructed from remaining moisture on recession. The plots are simulated values; arrows indicate direction. Geometry differs from the 24-hour chain. [Static figure](assets/resaturation-static.png).*
+
+This is a finite-zone history reconciliation, not a solution of colliding wetting fronts or upward capillary redistribution. Native V10 hotstarts preserve the infiltration history as well as retained moisture and pollutant mass. Compatible older files reconstruct the missing history from moisture and issue a warning that exact continuation is unavailable.
+
 ### What is simplified from Richards' equation—and when that is useful
 
 For constant-density water and an isotropic soil, the mixed-form Richards equation can be written:
 
 > ∂θ/∂t = ∇·[K(θ) ∇(ψ + z)] − S
 
-**ψ** is matric pressure head, **z** upward-positive elevation and **S** a distributed water sink. A full solution resolves both gravity and matric-pressure gradients, using water-retention and conductivity relationships. The present formulation replaces that soil-pressure solve with predominantly vertical, gravity-driven redistribution, a moisture-dependent conductivity law and an explicit field-capacity cutoff. Suction affects surface infiltration; intercell capillary diffusion, lateral unsaturated flow and retention hysteresis are not resolved. Evaporation is a bounded withdrawal, rather than a resolved root-uptake field. The connected saturated zone has a shared hydraulic head rather than a spatial pore-pressure solution.
+**ψ** is matric pressure head, **z** upward-positive elevation and **S** a distributed water sink. A full solution resolves both gravity and matric-pressure gradients, using water-retention and conductivity relationships. The present formulation replaces that soil-pressure solve with predominantly vertical, gravity-driven redistribution, a moisture-dependent conductivity law and an explicit field-capacity cutoff. Modified Green–Ampt tracks an approximate downward infiltration history; intercell capillary diffusion, lateral unsaturated flow and retention hysteresis are not resolved. Evaporation is a bounded withdrawal, rather than a resolved root-uptake field. The connected saturated zone has a shared hydraulic head rather than a spatial pore-pressure solution.
 
 This can be a useful modeling choice for shallow, coarse, relatively uniform engineered LID media when gravity drainage and outlet/backwater conditions dominate the questions being asked. It limits parameter demands and computational cost when many facilities must be assessed together. **Its appropriateness is conditional, not a property of every LID.** Fine or layered media with capillary barriers, strong upward capillary supply, preferential flow or detailed soil-moisture objectives may need a richer vadose-zone model and comparison against measurements. Performance of the chosen approximation must be checked against observations or a richer soil model for the facility being studied.
 
@@ -114,11 +132,11 @@ This can be a useful modeling choice for shallow, coarse, relatively uniform eng
 
 Tu, Wadzuk and Traver (2020, Sections 2.1–2.3) also use connected, internally uniform soil blocks, but retain both gravity **K(θ)** and matric-driven redistribution through **D(θ) = K(θ) dψ/dθ**. With downward-positive ξ, the corresponding flux is **q = K(θ) − D(θ) ∂θ/∂ξ**. They implement those components with SWMM pumps and controls, use van Genuchten relationships, allow movement in both directions and convert moisture through equal-matric-head “emulators” across different soil textures. [Tu et al., 2020](https://doi.org/10.1371/journal.pone.0235528).
 
-The current storage-node kernel retains the gravity component but omits intercell matric-gradient transport and the texture conversion. Its field-capacity cutoff is an additional restriction. More media cells improve the resolution of this chosen drainage approximation; they do not restore capillary redistribution. Network backflow can raise the connected mobile water table, but that is distinct from upward capillary flow above it. The paper's comparisons with HYDRUS therefore cannot be transferred as validation of this implementation. For contrasting media/native-soil textures or capillary-controlled treatment exposure, extending the flux law would require retention curves, interface-head treatment and separate validation.
+The adapted storage-node kernel uses the legacy exponential gravity-drainage law and modified Green–Ampt entry. Between media cells, it retains only the gravity component and omits matric-gradient transport and texture conversion. Its field-capacity cutoff is an additional restriction. More media cells improve the resolution of this chosen drainage approximation; they do not restore capillary redistribution. Network backflow can raise the connected mobile water table, but that is distinct from upward capillary flow above it. The paper's comparisons with HYDRUS therefore cannot be transferred as validation of this implementation. For contrasting media/native-soil textures or capillary-controlled treatment exposure, extending the flux law would require retention curves, interface-head treatment and separate validation.
 
 ![Comparison of gravity and matric-pressure terms in Richards’ equation with the reduced vertical drainage and shared-head formulation](assets/richards-approximation.png)
 
-*Figure 5. The reduced formulation retains cell water balances and network backwater while omitting the distributed matric-pressure solve. Downward arrows represent gravity drainage; amber arrows represent matric-pressure-driven redistribution in the fuller soil model. Suitability depends on media, boundary conditions and the assessment objective.*
+*Figure 6. The reduced formulation retains cell water balances and network backwater while omitting the distributed matric-pressure solve. Downward arrows represent gravity drainage; amber arrows represent matric-pressure-driven redistribution in the fuller soil model. Suitability depends on media, boundary conditions and the assessment objective.*
 
 ### Treatment conserves mass before it changes concentration
 
@@ -132,7 +150,7 @@ The background and layer decay rates use the same time unit as **Δt**. For mobi
 
 ![Pollutant mass compartments and first-order decay illustrating exposure-time effects and layer-exit treatment](assets/treatment-formulation.png)
 
-*Figure 6. The decay curves describe a closed parcel with no inflow or outflow and k = 2/day. Its half-life is ln(2)/k = 0.347 day, or **8.3 hours**. Longer exposure necessarily produces more modeled reaction under this assumption; the network experiment determines exposure, release, bypass and remaining inventory. The assumed rate is not evidence of a particular field treatment mechanism.*
+*Figure 7. The decay curves describe a closed parcel with no inflow or outflow and k = 2/day. Its half-life is ln(2)/k = 0.347 day, or **8.3 hours**. Longer exposure necessarily produces more modeled reaction under this assumption; the network experiment determines exposure, release, bypass and remaining inventory. The assumed rate is not evidence of a particular field treatment mechanism.*
 
 ## Six small experiments with one common system
 
@@ -155,17 +173,17 @@ The head guard closes a valve when its downstream head exceeds 1.25 ft and keeps
 
 ![Outlet hydrographs showing how backwater and active control shift the release](assets/release-hydrograph.png)
 
-*Figure 7. Receiving-outlet flow for the first-storm cases. Negative discharge represents backflow. The plot uses an outlet scale; the inlet peaks at 0.30 cfs. Emergency bypass is evaluated separately.*
+*Figure 8. Receiving-outlet flow for the first-storm cases. Negative discharge represents backflow. The plot uses an outlet scale; the inlet peaks at 0.30 cfs. Emergency bypass is evaluated separately.*
 
 ## Longer detention can help treatment—and change the risk
 
 <!-- START RESULTS_TABLE -->
 | First-storm strategy | V_BR peak (cfs) | Tracer 50% export (h) | Reacted by 24 h |
 |---|---|---|---|
-| Passive / free outlet | 0.0369 | 5.08 | 33.9% |
-| Passive / backwater | 0.0389 | 10.33 | 43.9% |
-| Timed hold | 0.0345 | 10.04 | 42.6% |
-| Hold + head guard | 0.0345 | 10.04 | 42.6% |
+| Passive / free outlet | 0.0368 | 4.83 | 34.4% |
+| Passive / backwater | 0.0389 | 10.18 | 43.6% |
+| Timed hold | 0.0345 | 10.05 | 42.7% |
+| Hold + head guard | 0.0345 | 10.05 | 42.7% |
 <!-- END RESULTS_TABLE -->
 
 
@@ -177,9 +195,9 @@ In this storm, timed and guarded control produce the same results: the additiona
 
 ![Animation comparing cumulative tracer export and final pollutant fate](assets/pollutant-fate.gif)
 
-*Figure 8. Curves progressively reveal cumulative tracer export from sampled link flows and concentrations. The adjacent bars always show the final 24-hour reactive-mass budget; they are not time-varying inventories. All exits and any flooding loss are included. A low export at an intermediate time can mean temporary storage. [Static figure](assets/pollutant-fate-static.png).*
+*Figure 9. Curves progressively reveal cumulative tracer export from sampled link flows and concentrations. The adjacent bars always show the final 24-hour reactive-mass budget; they are not time-varying inventories. All exits and any flooding loss are included. A low export at an intermediate time can mean temporary storage. [Static figure](assets/pollutant-fate-static.png).*
 
-The repeated-storm and stuck-valve cases make that distinction concrete. A zero controlled-outlet flow does not mean zero discharge to the environment. Emergency overflow and flooding can carry pollutant out, while an inventory remains in the facilities. Count every destination before reporting cumulative treatment. In the corrected two-storm guarded case, the engine records approximately 1,208 ft³ of emergency-weir discharge; with both valves stuck closed, that volume rises to approximately 2,007 ft³. Neither case has a flooding loss in these runs. The emergency weirs now drain perched surface water at the intended crest; earlier totals based on incorrect layer selection have been replaced. These cumulative totals include brief overflows that coarse snapshots can miss.
+The repeated-storm and stuck-valve cases make that distinction concrete. A zero controlled-outlet flow does not mean zero discharge to the environment. Emergency overflow and flooding can carry pollutant out, while an inventory remains in the facilities. Count every destination before reporting cumulative treatment. In the corrected two-storm guarded case, the engine records approximately 1,189 ft³ of emergency-weir discharge; with both valves stuck closed, that volume rises to approximately 2,007 ft³. Neither case has a flooding loss in these runs. The emergency weirs drain perched surface water at the intended crest. These totals have been rerun with the revised hydrology. These cumulative totals include brief overflows that coarse snapshots can miss.
 
 ## A pollutant balance before a performance claim
 
@@ -192,7 +210,7 @@ Storage includes retained pore water as well as mobile water. In a reversing sys
 Developing these tests exposed two accounting problems: returning boundary pollutant was not booked as an external source, and a nearly dry LID could lose the load of water that percolated and drained during the same routing step. The correction carries the same accepted transfer concentration to the donating and receiving compartments, resolves the connected mobile mixtures consistently and books treatment once. Overflow ports also use their physical weir crest when selecting the supplying layer. A separate roundoff error at a nonzero node invert could place a crest intended at the surface/media interface in the media cell, causing the weir to miss perched ponding. Corrected elevation arithmetic and a shared, roundoff-tolerant interface rule now select the intended head, water source and pollutant treatment layer.
 
 <!-- START VALIDATION -->
-The six decks were run at fixed routing steps of 0.5, 0.25, 0.1 and 0.025 seconds, with additional 0.05-second runs for both passive cases: 26 distinct case/step combinations. All passed the 0.5% water/quality continuity criterion without engine warnings; pollutant errors were below 0.001%. Figures and tables use the 0.025-second runs. Continuity alone did not establish performance convergence: the passive 0.1-second runs shifted the sampled half-export time by up to 9.5 minutes and the reacted fraction by up to 0.7 percentage points relative to the finer results. The passive 0.05- and 0.025-second runs agree in half-export time at the 30-second sampling resolution and reacted fraction at report precision; their receiving-outlet peaks differ by less than 0.01%. Cumulative engine budgets are used for overflow and flooding. The seven engine regression suites passed 141 tests, including three interface-roundoff regressions and eight full-chain mass-conservation variants.
+The six decks were rerun with the revised hydrology at 0.1, 0.05 and 0.025-second routing steps, with 2 additional second-storm refinements: 20 distinct case/step combinations. All passed the 0.5% water/quality continuity criterion without engine warnings; the maximum reported error was below 0.001%. Figures use each case’s finest recorded step. Comparing each case’s two finest steps, sampled half-export times agree at the 30-second sampling resolution, reacted fractions differ by 0.074 percentage points, receiving-outlet peaks by 0.025% and cumulative emergency-weir volumes by 0.007%. Tracer timing is sampled at 30 seconds and reaction budgets are rounded by the engine report. These are measured sensitivity limits, not a universal convergence guarantee. Cumulative engine budgets are used for bypass and flooding. Nine engine regression suites passed 241 tests, including legacy infiltration/LID paths, gradual resaturation–recession, second-event entry and restart history.
 <!-- END VALIDATION -->
 
 A small water-balance error alone is not sufficient evidence of correct pollutant routing. We check a conservative tracer, the reacting constituent and routing-step sensitivity before interpreting treatment. The supplied kinetics, footprints, conductivities, storm pulses and boundary stages remain illustrative. Field applications require site data and pollutant-process calibration.
@@ -201,7 +219,7 @@ A small water-balance error alone is not sufficient evidence of correct pollutan
 
 Open **04_head_guard.inp** from the example bundle, then inspect storage A or B in the Object Browser. Its **LID Control** is **Train** and **LID Initial Saturation (%)** is **10**.
 
-Open the LID Controls editor from **Model → LID Control** and select Train. **Media / aggregate layers** reads **2**. **Ordered layers** contains SURFACE, MEDIA and AGGREGATE, plus the optional BOTTOM boundary. Under **Physical properties**, verify the thicknesses, porosities and conductivity values supplied in the deck; this CFS project displays inches and inches/hour. Under **Pollutant treatment**, select each porous layer, choose REACTIVE, set **Removal (%)** to **0** and **Decay (1/day)** to **2**, and leave **Expression** empty. Use **Apply layers and treatment**, then save the project.
+Open the LID Controls editor from **Model → LID Control** and select Train. **Media / aggregate layers** reads **2**. **Ordered layers** contains SURFACE, MEDIA and AGGREGATE, plus the optional BOTTOM boundary. Under **Physical properties**, verify the thicknesses, porosities and conductivity values supplied in the deck; this CFS project displays inches and inches/hour. Under **Pollutant treatment**, select each porous layer, choose REACTIVE, set **Removal (%)** to **0** and **Decay (1/day)** to **2**, and leave **Expression** empty. Use **Apply layers and treatment**, then save the project. For the published first-storm comparison, set the fixed routing step to **0.025 s** in **Model → Simulation Options…**; the tutorial also documents the finer second-storm checks.
 
 Inspect V_BR's layer-3 bottom anchor and the surface-overflow anchors. V_AB joins two LID nodes and uses explicit offsets. Open **Model → Data Objects → Control Rules…** to inspect the timed, head-isolation and depth-relief rules. Run the six files separately and compare depths, valve settings, signed link flows, concentrations and both continuity reports. The full [T10 tutorial](tutorial.html) supplies parameter tables, rules and interpretation steps; [download all six models](models/lid_active_chain.zip).
 
@@ -223,7 +241,9 @@ OpenAI Codex assisted with drafting and editing this article and developing the 
 
 ## References
 
+- U.S. EPA (2018). *SWMM Build 5.1.013 release notes*, underdrain control additions. [EPA release notes](https://github.com/USEPA/Stormwater-Management-Model/releases/tag/v5.1.13).
 - U.S. EPA (2022). *Storm Water Management Model User's Manual, Version 5.2*. EPA/600/R-22/030. [EPA manual](https://nepis.epa.gov/Exe/ZyPURL.cgi?Dockey=P10145M6.TXT).
+- U.S. EPA. *SWMM solver source: LID fluxes and infiltration*. [lidproc.c](https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/lidproc.c); [infil.c](https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/infil.c).
 - Rossman, L. A. (2017). *Storm Water Management Model Reference Manual, Volume II: Hydraulics*. EPA/600/R-17/111. [EPA hydraulics reference](https://nepis.epa.gov/Exe/ZyPURL.cgi?Dockey=P100S9AS.txt).
 - Tu, M.-c., Wadzuk, B., and Traver, R. (2020). Methodology to simulate unsaturated zone hydrology in Storm Water Management Model (SWMM) for green infrastructure design and evaluation. *PLOS ONE*, 15(7), e0235528. [doi:10.1371/journal.pone.0235528](https://doi.org/10.1371/journal.pone.0235528).
 - Rossman, L. A., and Huber, W. C. (2016). *Storm Water Management Model Reference Manual, Volume III: Water Quality*. EPA/600/R-16/093. [EPA reference](https://nepis.epa.gov/Exe/ZyPURL.cgi?Dockey=P100P2NY.txt).

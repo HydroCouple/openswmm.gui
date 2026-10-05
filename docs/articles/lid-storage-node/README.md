@@ -3,7 +3,7 @@
 - `article.md`: full website article, Markdown first, with primary references.
 - `linkedin-article.md`: identical full article for LinkedIn, derived from `article.md`.
 - `linkedin-post.md`: companion announcement post.
-- `assets/`: three GIF animations, eight PNG posters/plots and editable SVGs.
+- `assets/`: four GIF animations, nine PNG posters/plots and editable SVGs.
 - `validation.md`: solver corrections, test evidence and interpretation limits.
 - `results/`: sampled CSVs, reports, main run provenance and overflow-statistics check.
 - `figures/`: example generation, validation, rendering and website staging scripts.
@@ -30,6 +30,15 @@ published to the live website.
 The formulation section includes water-store, interlayer-flux, Richards-approximation and
 pollutant-reaction diagrams plus an analytical orifice animation. Reproduce
 them with `python3 figures/make_formulation_figures.py`. The network/fate
-figures now use accepted 0.025-second runs and record perched ponding
+figures use the finest accepted run for each case (0.025 s for the
+first-storm comparisons; additional refinement for the second storm) and record perched ponding
 separately from the mobile water-table head. See `validation.md` for the
 nonzero-invert crest correction and routing-step sensitivity.
+
+The revised kernel uses legacy exponential conductivity and modified
+Green–Ampt entry, with finite-zone history reconciliation for backwater.
+`models/lid_resaturation.inp` and `results/resaturation_cycle.csv` reproduce
+the supplemental reversal–resaturation–recession–second-event animation;
+run the engine's `LidNodes.RoutedReversalResaturationRecessionAndSecondEventConserve`
+test to regenerate its one-second CSV. Provenance is in
+`results/resaturation_cycle.json`. The six 24-hour decks remain separate.

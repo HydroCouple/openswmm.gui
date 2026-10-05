@@ -1,10 +1,13 @@
 """Reproducible formulation diagrams and an analytical orifice animation.
 
-These are explanatory illustrations, not additional SWMM simulation results.
+Diagrams are explanatory. The resaturation animation uses native engine samples.
 Uses standard-library SVG, rsvg-convert, and ImageMagick. No AI image model.
 """
 from pathlib import Path
 import html
+import csv
+import json
+import hashlib
 import math
 import subprocess
 import shutil
@@ -256,7 +259,7 @@ def richards():
           text(1046, 441, 'Network', 18, 'blue'),
           text(632, 471, 'Downward K(θ) flux; shared mobile head', 22, 'muted'),
           text(632, 508, 'Gᵢ dθᵢ/dt = Q_in,ᵢ − Q_out,ᵢ − Eᵢ', 25),
-          text(632, 549, 'Suction at entry; drainage stops at field capacity.', 20, 'muted'),
+          text(632, 549, 'Green–Ampt entry; field-capacity drainage cutoff.', 20, 'muted'),
           rect(28, 611, 554, 179, '#eaf1f4', 12), rect(608, 611, 564, 179, '#eaf1f4', 12),
           text(52, 650, 'Useful when', 25, 'teal', 'bold'),
           text(52, 691, 'Vertical gravity drainage dominates in coarse,', 22, 'muted'),
@@ -282,14 +285,14 @@ def interlayer_flux():
               text(x+15, 367, 'Receiver i + 1', 22, weight='bold'),
               text(x+15, 403, 'Moisture θᵢ₊₁', 22)]
     p += [line(157, 285, 157, 324, 'teal', 6, arrow=True),
-          text(287, 228, 'qᵢ = Kₛ,ᵢ (θᵢ / φᵢ)ⁿᵢ', 23, 'teal', 'bold'),
+          text(287, 228, 'qᵢ = Kₛ exp[−m (φ − θ)]', 21, 'teal', 'bold'),
           text(287, 269, 'Above field capacity;', 20, 'muted'),
           text(287, 299, 'otherwise zero.', 20, 'muted'),
           text(287, 365, 'Receiver limits volume,', 20, 'muted'),
           text(287, 395, 'not the trial conductivity.', 20, 'muted'),
           text(52, 471, 'No adjacent-cell matric-head calculation.', 22, 'muted'),
-          text(52, 508, '10 × (0.30 / 0.45)³ = 2.96 mm/h', 24, 'teal', 'bold'),
-          text(52, 550, 'Ks = 10 mm/h; θFC = 0.20; n = 3', 21, 'muted'),
+          text(52, 508, '10 × exp[−10 (0.45 − 0.30)] = 2.23 mm/h', 21, 'teal', 'bold'),
+          text(52, 550, 'Ks = 10 mm/h; θFC = 0.20; slope m = 10', 21, 'muted'),
           line(732, 287, 732, 326, 'teal', 5, arrow=True),
           line(770, 325, 770, 286, 'amber', 5, arrow=True),
           text(867, 223, 'q = K(θ) − D(θ) ∂θ/∂ξ', 24, 'amber', 'bold'),
@@ -301,12 +304,71 @@ def interlayer_flux():
           text(632, 508, 'Different textures: match matric head', 22, 'muted'),
           text(632, 550, 'Implemented with SWMM pumps and controls', 21, 'muted'),
           rect(28, 607, 1144, 183, '#eaf1f4', 12),
-          text(52, 646, 'The accepted transfer conserves water', 26, 'teal', 'bold'),
-          text(52, 687, 'ΔVᵢ = min(Qᵢ δt, donor water above field capacity, receiving pore space)', 25),
-          text(52, 726, 'Donor loses ΔVᵢ; receiver gains ΔVᵢ. Explicit substeps: δt ≤ 1 s.', 23, 'muted'),
-          text(52, 763, 'A water-table-intersected receiver routes to mobile storage instead of retained pores.', 21, 'muted')]
+          text(52, 646, 'Surface → media: modified Green–Ampt entry', 26, 'teal', 'bold'),
+          text(52, 687, 'f_cap = Ks [1 + (suction + ponded head) Δθ / F]     (existing front, F > 0)', 25),
+          text(52, 726, 'ΔV = min(potential volume, donor water, receiving space); δt ≤ 1 s.', 23, 'muted'),
+          text(52, 763, 'Accepted entry advances F. A submerged receiver routes to shared mobile storage.', 21, 'muted')]
     return p
 
+
+
+def resaturation_frame(frame):
+    root = ASSETS.parent / 'results'
+    meta = json.loads((root/'resaturation_cycle.json').read_text())
+    assert hashlib.sha256((root/'resaturation_cycle.csv').read_bytes()).hexdigest() == meta['csv_sha256']
+    rows = [{k:float(v) for k,v in r.items()} for r in csv.DictReader((root/'resaturation_cycle.csv').open())]
+    index = round(frame/63*(len(rows)-1)); r = rows[index]; sec = r['seconds']
+    stage = min(2, sec/10) if sec <= 100 else max(0, 2-(sec-100)/10)
+    phase = 'Reverse inflow wets media' if sec < 100 else ('Boundary falls; mobile water drains' if sec < 180 else ('Second surface pulse infiltrates' if sec < 241 else 'Recession after the second event'))
+    p = [text(36,48,'Backwater, recession, second storm: one continuous history.',30,weight='bold'),
+         text(36,84,'Native six-minute test · 10 ft² facility · clean reverse water · 0.1-s routing',22,'muted'),
+         rect(28,112,514,635,rx=14),rect(566,112,606,635,rx=14),
+         text(52,150,f'{sec/60:.2f} min: {phase}',19,'teal','bold')]
+    x, y, w, scale = 100, 195, 150, 150
+    bottom = y+300
+    p += [rect(x,y,w,75,'#eef4e5'),rect(x,y+75,w,150,'#e2d5bd'),rect(x,y+225,w,75,'#b7c5cc'),
+          text(266,y+38,'Surface',20),text(266,y+126,'Media',20),text(266,y+254,'Aggregate',20),
+          rect(x,bottom-min(2,r['head'])*scale,w,min(2,r['head'])*scale,'blue',opacity=.55),
+          rect(x,y,w,300,'none',stroke='ink'),
+          line(x-24,y+75,x+w+13,y+75,'amber',2,'6 4'),
+          text(52,526,'Blue: connected water below mobile table',18,'blue'),
+          text(52,562,f"Media retained θ = {r['media_theta']:.3f}",22),
+          text(52,597,f"Upper-zone deficit Δθ = {r['IMD']:.3f}",22,'amber','bold'),
+          text(52,633,f"Surface front history F = {r['F_ft']:.4f} ft",20,'teal'),
+          text(52,669,'Backflow does not increment F.',21,'muted'),
+          text(52,707,'Full resaturation clears the old front.',21,'muted')]
+    # Physical bottom port; flow sign is from the native engine, not stage alone.
+    p += [rect(431,y,65,300,'#edf5f8'),rect(431,bottom-stage*scale,65,stage*scale,'blue',opacity=.45),
+          text(464,181,'O',21,'blue','bold',anchor='middle'),
+          text(431,521,f'{stage:.2f} ft',18,'blue')]
+    sign = 1 if r['flow_cfs']>=0 else -1
+    c = 'blue' if sign>0 else 'amber'
+    if abs(r['flow_cfs']) > .00001:
+        start,end = (250,423) if sign>0 else (423,250)
+        p += [line(start,bottom-12,end,bottom-12,c,4,arrow=True)]
+        dot = 250+(frame*.27%1)*173
+        if sign<0: dot=673-dot
+        p += [circle(dot,bottom-12,4,c)]
+    p += [text(342,465,f"D: {r['flow_cfs']:+.3f} cfs",17,c,'bold',anchor='middle')]
+    px,pw=639,490
+    def xx(s):return px+s/360*pw
+    for gy,gh,key,maximum,label,c in [(183,202,'head',2,'Mobile water-table depth (ft)','blue'),(490,170,'IMD',.4,'Green–Ampt upper-zone deficit','amber')]:
+        def yy(v):return gy+gh*(1-v/maximum)
+        p += [text(591,gy-20,label,23,weight='bold'),rect(xx(180),gy,xx(241)-xx(180),gh,'teal',opacity=.06)]
+        for v in [0,maximum/2,maximum]:
+            p += [line(px,yy(v),px+pw,yy(v),'gray',1),text(px-14,yy(v)+5,f'{v:g}',17,'muted',anchor='end')]
+        for minute in range(7):
+            p += [text(xx(minute*60),gy+gh+27,str(minute),17,'muted',anchor='middle')]
+        all_points=' '.join(f'{xx(q["seconds"]):.2f},{yy(q[key]):.2f}' for q in rows)
+        past_points=' '.join(f'{xx(q["seconds"]):.2f},{yy(q[key]):.2f}' for q in rows[:index+1])
+        p += [f'<polyline points="{all_points}" fill="none" stroke="#dce6eb" stroke-width="2"/>',
+              f'<polyline points="{past_points}" fill="none" stroke="{color(c)}" stroke-width="4"/>',
+              line(xx(sec),gy,xx(sec),gy+gh,'ink',1,'4 4'),circle(xx(sec),yy(r[key]),5,c)]
+        if key=='head':
+            p += [line(px,yy(1.5),px+pw,yy(1.5),'amber',2,'6 4'),text(px+pw-5,yy(1.5)-9,'Media top = 1.5 ft',17,'amber',anchor='end')]
+    p += [text(884,722,'Elapsed time (min); shaded band = second inflow',19,'muted',anchor='middle'),
+          text(36,785,'Finite-zone reconciliation follows physical wetness; it does not resolve upward capillary flow.',22,'muted')]
+    return p
 
 def main():
     save('water-stores', water_stores())
@@ -318,14 +380,18 @@ def main():
     frames = [save(f'frame-{i:03d}', hydraulic_frame(i), directory=FRAMES) for i in range(64)]
     subprocess.run(['magick', '-delay', '16', *map(str, frames), '-loop', '0',
                     '-layers', 'Optimize', str(ASSETS/'hydraulic-control.gif')], check=True)
+    save('resaturation-static', resaturation_frame(37))
+    cycle_frames = [save(f'cycle-{i:03d}', resaturation_frame(i), directory=FRAMES) for i in range(64)]
+    subprocess.run(['magick', '-delay', '16', *map(str, cycle_frames), '-loop', '0', '-layers', 'Optimize', str(ASSETS/'resaturation.gif')], check=True)
     manual=ASSETS.parents[2]/'manual/images'
-    for stem in ['water-stores','interlayer-flux','richards-approximation','treatment-formulation','hydraulic-control-static']:
+    for stem in ['water-stores','interlayer-flux','richards-approximation','treatment-formulation','hydraulic-control-static','resaturation-static']:
         shutil.copy2(ASSETS/(stem+'.png'),manual/('t10_'+stem+'.png'))
     shutil.copy2(ASSETS/'hydraulic-control.gif',manual/'t10_hydraulic-control.gif')
+    shutil.copy2(ASSETS/'resaturation.gif',manual/'t10_resaturation.gif')
     assert math.isclose(.20*1000, 200)
     assert math.isclose(.40*1000*.70, 280)
     assert math.isclose(100*(1-math.exp(-2*6/24)), 39.3469340287, abs_tol=1e-8)
-    print('Created five formulation figures and a 10.24-second GIF with a static alternative.')
+    print('Created six formulation figures and two 10.24-second GIFs with static alternatives.')
 
 
 if __name__ == '__main__':

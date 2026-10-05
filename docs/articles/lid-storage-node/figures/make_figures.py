@@ -9,10 +9,12 @@ RESULTS=HERE.parent/'results'; ASSETS=HERE.parent/'assets'; ASSETS.mkdir(exist_o
 FRAMES=Path('/tmp/lid_article_frames'); FRAMES.mkdir(exist_ok=True)
 COLORS={'ink':'#123047','muted':'#557080','blue':'#188fb6','teal':'#008f83','amber':'#db8b24','red':'#b84e5b','paper':'#f7fafb','gray':'#dce6eb'}
 LABELS=['Passive / free outlet','Passive / backwater','Timed hold / backwater','Hold + head guard','Second storm / guard','Both valves stuck closed']
-summary=json.loads((RESULTS/'summary.json').read_text()); figure_step=min(r['step_seconds'] for r in summary['runs'])
-runs=[r for r in summary['runs'] if r['step_seconds']==figure_step]
-assert len(runs)==6 and all(r['accepted'] for r in runs), 'Publish only a complete set of accepted finest-step runs'
-data={r['case']:[{k:float(v) for k,v in row.items()} for row in csv.DictReader((RESULTS/(r['case']+f'_dt{figure_step:g}.csv')).open())] for r in runs}
+summary=json.loads((RESULTS/'summary.json').read_text())
+cases=sorted({r['case'] for r in summary['runs']})
+runs=[min((r for r in summary['runs'] if r['case']==case),key=lambda r:r['step_seconds']) for case in cases]
+assert len(runs)==6 and all(r['accepted'] for r in summary['runs']), 'Publish only accepted runs'
+data={r['case']:[{k:float(v) for k,v in row.items()} for row in csv.DictReader((RESULTS/(r['case']+f'_dt{r["step_seconds"]:g}.csv')).open())] for r in runs}
+
 def t(x,y,s,size=18,color='ink',weight='normal',anchor='start'):
  return f'<text x="{x}" y="{y}" font-size="{size}" fill="{COLORS.get(color,color)}" font-weight="{weight}" text-anchor="{anchor}">{html.escape(str(s))}</text>'
 def rect(x,y,w,h,fill,rx=0,opacity=1,stroke='none'):

@@ -1,163 +1,202 @@
-"""Insert accepted-run metrics and write the article's reproducibility notes."""
+"""Publish measured metrics, provenance and explicit routing-step sensitivity."""
 from pathlib import Path
-import json, hashlib, re
+import json, re
 HERE=Path(__file__).resolve().parent; ROOT=HERE.parents[3]; ARTICLE=HERE.parent
-s=json.loads((ARTICLE/'results/summary.json').read_text()); figure_step=min(r['step_seconds'] for r in s['runs']); runs=[r for r in s['runs'] if r['step_seconds']==figure_step]
+s=json.loads((ARTICLE/'results/summary.json').read_text())
+cases=sorted({r['case'] for r in s['runs']})
+runs=[min((r for r in s['runs'] if r['case']==case),key=lambda r:r['step_seconds']) for case in cases]
 assert len(runs)==6 and all(r['accepted'] for r in s['runs'])
 def insert(text,key,value):
  block='<!-- START '+key+' -->\n'+value.rstrip()+'\n<!-- END '+key+' -->'
  pattern=r'<!-- START '+key+r' -->.*?<!-- END '+key+r' -->'
  if re.search(pattern,text,re.S): return re.sub(pattern,lambda _:block,text,flags=re.S)
  return text.replace('<!-- '+key+' -->',block)
-
 labels=['Passive / free outlet','Passive / backwater','Timed hold','Hold + head guard','Second storm / guard','Valves stuck closed']
 table='| First-storm strategy | V_BR peak (cfs) | Tracer 50% export (h) | Reacted by 24 h |\n|---|---|---|---|\n'
-for i,r in enumerate(runs[:4]):table+=f'| {labels[i]} | {r["peak_receiving_cfs"]:.4f} | {round(r["tracer_half_export_hour"],8):.2f} | {r["reacted_percent"]:.1f}% |\n'
-validation='The six decks were run at fixed routing steps of 0.5, 0.25, 0.1 and 0.025 seconds, with additional 0.05-second runs for both passive cases: 26 distinct case/step combinations. All passed the 0.5% water/quality continuity criterion without engine warnings; pollutant errors were below 0.001%. Figures and tables use the 0.025-second runs. Continuity alone did not establish performance convergence: the passive 0.1-second runs shifted the sampled half-export time by up to 9.5 minutes and the reacted fraction by up to 0.7 percentage points relative to the finer results. The passive 0.05- and 0.025-second runs agree in half-export time at the 30-second sampling resolution and reacted fraction at report precision; their receiving-outlet peaks differ by less than 0.01%. Cumulative engine budgets are used for overflow and flooding. The seven engine regression suites passed 141 tests, including three interface-roundoff regressions and eight full-chain mass-conservation variants.'
+for i,r in enumerate(runs[:4]):table+=f'| {labels[i]} | {r["peak_receiving_cfs"]:.4f} | {r["tracer_half_export_hour"]:.2f} | {r["reacted_percent"]:.1f}% |\n'
+pairs=[]
+for case in cases:
+ records=sorted((r for r in s['runs'] if r['case']==case),key=lambda r:r['step_seconds'])
+ fine,coarse=records[:2]
+ pairs.append(dict(case=case,fine=fine,coarse=coarse,
+  minutes=abs(fine['tracer_half_export_hour']-coarse['tracer_half_export_hour'])*60,
+  reaction=abs(fine['reacted_percent']-coarse['reacted_percent']),
+  peak=100*abs(fine['peak_receiving_cfs']-coarse['peak_receiving_cfs'])/fine['peak_receiving_cfs'] if fine['peak_receiving_cfs'] else 0,
+  bypass=100*abs(fine['bypass_ft3_engine']-coarse['bypass_ft3_engine'])/fine['bypass_ft3_engine']))
+maxerror=max(abs(r[k]) for r in s['runs'] for k in ['flow_error_percent','reactive_error_percent','tracer_error_percent'])
+extra=len(s['runs'])-18
+validation=f'The six decks were rerun with the revised hydrology at 0.1, 0.05 and 0.025-second routing steps'+(f', with {extra} additional second-storm refinements' if extra else '')+f': {len(s["runs"])} distinct case/step combinations. All passed the 0.5% water/quality continuity criterion without engine warnings; the maximum reported error was below 0.001%. Figures use each case’s finest recorded step. Comparing each case’s two finest steps, sampled half-export times agree at the 30-second sampling resolution, reacted fractions differ by {max(q["reaction"] for q in pairs):.3f} percentage points, receiving-outlet peaks by {max(q["peak"] for q in pairs):.3f}% and cumulative emergency-weir volumes by {max(q["bypass"] for q in pairs):.3f}%. Tracer timing is sampled at 30 seconds and reaction budgets are rounded by the engine report. These are measured sensitivity limits, not a universal convergence guarantee. Cumulative engine budgets are used for bypass and flooding. Nine engine regression suites passed 241 tests, including legacy infiltration/LID paths, gradual resaturation–recession, second-event entry and restart history.'
 for p in [ARTICLE/'article.md',ROOT/'docs/manual/tutorials/t10_lid_active_chain.md']:
  text=insert(p.read_text(),'RESULTS_TABLE',table)
  text=insert(text,'VALIDATION',validation)
+ text=re.sub(r'(?<=engine records approximately )[\d,]+(?= ft³ of emergency-weir discharge)',f'{runs[4]["bypass_ft3_engine"]:,.0f}',text)
+ text=re.sub(r'(?<=two-storm run conveys approximately )[\d,]+(?= ft³)',f'{runs[4]["bypass_ft3_engine"]:,.0f}',text)
+ text=re.sub(r'(?<=that volume rises to approximately )[\d,]+(?= ft³)',f'{runs[5]["bypass_ft3_engine"]:,.0f}',text)
+ text=re.sub(r'(?<=stuck-closed run conveys approximately )[\d,]+(?= ft³)',f'{runs[5]["bypass_ft3_engine"]:,.0f}',text)
+ if p.name.startswith('t10_'):
+  text=re.sub(r'At (?:its finest )?[0-9.]+-second\nstep the guarded two-storm run',f'At its finest {runs[4]["step_seconds"]:g}-second\nstep the guarded two-storm run',text)
  p.write_text(text)
 (ARTICLE/'linkedin-article.md').write_text((ARTICLE/'article.md').read_text())
-notes='''# Validation and reproducibility — distributed LID examples
+notes=f'''# Validation and reproducibility — distributed LID examples
 
-Validated locally on October 4, 2026 against the native engine library below.
-The engine and GUI checkouts contain other local development changes. This
-library hash identifies the actual binary used; a repository HEAD alone would
-not identify the uncommitted pollutant corrections. Website files are prepared
-locally, without pushing or publishing.
+Validated locally on October 5, 2026 with the legacy-hydrology adaptation.
+The engine checkout includes other development work; this binary hash
+identifies the actual library tested rather than claiming a clean HEAD build.
+These results supersede the previous power-law node-kernel runs.
 
-'''+f'Library: `{s["library_filename"]}`\n\nSHA-256: `{s["library_sha256"]}`\n\n'+'''## Reproduce
+Library: `{s["library_filename"]}`
 
-From the GUI checkout:
+SHA-256: `{s["library_sha256"]}`
+
+## Reproduce
+
+From the GUI checkout, using the rebuilt native library:
 
 ```text
 python3 docs/articles/lid-storage-node/figures/generate_examples.py
-python3 docs/articles/lid-storage-node/figures/run_examples.py --library /absolute/path/to/current/libopenswmm.engine.dylib --steps 0.5 0.25 0.1
-python3 docs/articles/lid-storage-node/figures/run_examples.py --library /absolute/path/to/current/libopenswmm.engine.dylib --steps 0.025 --append
-python3 docs/articles/lid-storage-node/figures/run_examples.py --library /absolute/path/to/current/libopenswmm.engine.dylib --cases 01_passive_free 02_passive_backwater --steps 0.05 --append
+python3 docs/articles/lid-storage-node/figures/run_examples.py --library /absolute/path/to/current/libopenswmm.engine.dylib --steps 0.1 0.05 0.025
+'''
+if extra:
+ steps=sorted({r['step_seconds'] for r in s['runs'] if r['step_seconds']<.025},reverse=True)
+ notes+='python3 docs/articles/lid-storage-node/figures/run_examples.py --library /absolute/path/to/current/libopenswmm.engine.dylib --cases 05_repeat_storm --steps '+' '.join(f'{v:g}' for v in steps)+' --append\n'
+notes+='''python3 docs/articles/lid-storage-node/figures/finalize_text.py
 python3 docs/articles/lid-storage-node/figures/make_figures.py
 python3 docs/articles/lid-storage-node/figures/make_formulation_figures.py
+python3 docs/articles/lid-storage-node/figures/stage_site.py
 ```
 
-The runner uses the native C API through Python's standard-library ctypes.
-It records 30-second snapshots, report files, continuity queries and a binary
-hash. It requires all runs to have no engine warnings and water and pollutant
-continuity errors below 0.5%. It retains results under `results/` and deletes
-expanded temporary decks and binary result files after each successful run.
-The figures use the 0.025-second runs. The runner also records retained surface moisture to distinguish perched ponding from mobile water-table head in the network diagram. SVG sources, PNG posters and three 64-frame
-GIFs are generated with rsvg-convert and ImageMagick. Moving arrowheads indicate
-flow direction only. The pollutant-fate bars show final 24-hour engine totals;
-they do not animate inferred intermediate inventories.
+The runner uses the native C API through standard-library ctypes. CSVs have
+30-second samples; report files and cumulative continuity/statistics queries
+supply the budgets. All accepted runs have no engine warnings and absolute
+water/pollutant continuity errors below 0.5%. Append rejects a different
+binary hash. The finest available step is selected independently per case.
+All six decks use CFS, Dynamic Wave and Legacy quality; bottom seepage,
+evaporation and initial pollutant mass are zero. Reverse boundary water is
+clean, so external water includes tailwater receipts but no imported mass.
 
 '''+validation+'\n\n'+table+'''
-## Second-event and failure budgets
+## Finest-step performance sensitivity
 
-The table uses cumulative engine totals, rather than summing aliased overflow
-snapshots. Pollutant totals are rounded to 0.001 lb by the report. Mass-fate
-bar lengths can therefore differ slightly from 100% after rounding.
+Every pair below uses the same library. Differences are absolute, with
+percent differences referenced to the finer result. Good mass closure does
+not prove stable performance. First-order reaction is assumed, not calibrated.
 
-| Case | Incoming reactive mass (lb) | Exported (lb) | Flood loss (lb) | Reacted (lb) | Stored at 24 h (lb) | Flood water (ft³) |
-|---|---|---|---|---|---|---|
+| Case | Coarser/finer steps (s) | Half-export difference (min) | Reaction difference (percentage points) | Receiving-peak difference (%) | Bypass difference (%) |
+|---|---|---|---|---|---|
 '''
-for i,r in enumerate(runs):notes+=f'| {labels[i]} | {r["mass_in_lbs"][0]:.3f} | {r["mass_out_lbs"][0]:.3f} | {r["mass_flood_lbs"][0]:.3f} | {r["mass_reacted_lbs"][0]:.3f} | {r["mass_final_lbs"][0]:.3f} | {r["flood_ft3"]:.2f} |\n'
+for q in pairs:
+ notes+=f'| {q["case"]} | {q["coarse"]["step_seconds"]:g} / {q["fine"]["step_seconds"]:g} | {q["minutes"]:.2f} | {q["reaction"]:.3f} | {q["peak"]:.3f} | {q["bypass"]:.3f} |\n'
 notes+='''
-Seepage, evaporation and initial pollutant mass are zero in these decks.
-The BOTTOM boundary is closed. External water totals can include clean
-backflow from the receiver; pulse volume alone is not the full boundary budget.
-For field work, account for all transfers over a common assessment horizon.
-These synthetic models do not simulate receiving-water ecology or groundwater
-pollutant fate. Tracer export time is not mean hydraulic residence time.
+## Mass and overflow budgets at each case’s finest step
 
-## Pollutant correction
+Emergency-weir totals come from cumulative engine flow statistics rather
+than summing aliased snapshots. The weirs have no reverse flow. Pollutant
+reports round totals to 0.001 lb, so rounded fate bars may not sum to 100%.
 
-- Boundary water carrying LAST concentration into a LID is now booked as an
-  external pollutant source. ZERO boundary mode explicitly supplies clean water.
-- Zero-volume links connected to LIDs use consistently solved current mobile
-  mixtures for donor and recipient mass. Provisional iterations restore mass
-  inventories and counters; outlet treatment is booked only once.
-- The LID dry-node path retains the concentration needed to export freshly
-  percolated water even when final mobile volume is below the legacy dry cutoff.
-- Weir and rating-outlet ports use their physical subtype crest, including
-  layer-anchor synchronization, rather than an unrelated generic offset.
-- Crest conversion adds the difference between node datums to the authored
-  offset, avoiding cancellation at a nonzero node invert. Interface selection
-  tolerates only roundoff-sized differences (32 machine epsilons times a local
-  elevation scale), and is shared by hydraulic and pollutant ports. This fixes
-  a surface weir seeing media head and treatment instead of perched ponding.
-  Three new regressions cover ponded withdrawal, one-ULP perturbations versus
-  physical offsets, and mobile-outlet treatment at a layer interface.
-- Floating-point cancellation of a fully captured external load is clamped
-  only within 64 machine epsilons; it is not treated as a negative source.
-- A failed coupled quality iteration warns explicitly. Passing these tests is
-  not a universal accuracy guarantee for arbitrary networks or treatment rules.
+| Case | Step (s) | Reactive input (lb) | Exported (lb) | Flood loss (lb) | Reacted (lb) | Stored at 24 h (lb) | Emergency bypass (ft³) | Flood water (ft³) |
+|---|---|---|---|---|---|---|---|---|
+'''
+for i,r in enumerate(runs):
+ notes+=f'| {labels[i]} | {r["step_seconds"]:g} | {r["mass_in_lbs"][0]:.3f} | {r["mass_out_lbs"][0]:.3f} | {r["mass_flood_lbs"][0]:.3f} | {r["mass_reacted_lbs"][0]:.3f} | {r["mass_final_lbs"][0]:.3f} | {r["bypass_ft3_engine"]:.2f} | {r["flood_ft3"]:.2f} |\n'
+notes+='''
+For field studies, include all destinations over a common horizon; retained
+mass is not treated mass. Tracer half-export time is not mean hydraulic
+residence time. These decks do not simulate groundwater fate or receiving
+water ecology. Holding increases modeled reaction directly under the assumed
+2/day first-order law (half-life 8.3 h).
 
-The pre-correction diagnostic had about −21% conservative-tracer continuity
-error in an aggregate/backwater train, and about +10.6% in a media-drainage
-case. Those were separate diagnostic decks, not the final tutorial geometry.
-They motivated the regression fixtures and are not used as before/after
-performance comparisons in the article.
+## Resaturation example and animation
 
-## Interface-roundoff reproduction
+`models/lid_resaturation.inp` is the separate six-minute native regression
+fixture: a 10 ft² facility, an open reversible orifice, rising/falling
+receiving stage and surface inflow at minutes 3–4. The engine test
+`LidNodes.RoutedReversalResaturationRecessionAndSecondEventConserve` writes
+one-second samples of head, stores, signed flow and infiltration history.
+Copy its `resaturation_second_event.csv` to `results/resaturation_cycle.csv`
+and record hashes in `results/resaturation_cycle.json` before rendering.
+The JSON identifies the library, fixture and samples used in the animation.
+The fixture is also shipped in the GUI tutorial models. It closes water
+within 0.005 ft³ and conservative-tracer mass at each step within 0.1% of
+incoming mass, with no warnings. Internal GA history is shown from the native
+test export; it is not inferred from GUI depth outputs.
 
-With a storage invert of 0.30 ft and a 2.00-ft local weir crest,
-`(0.3 + 2.0) - 0.3` evaluates to `1.9999999999999998` in binary floating
-point. A strict interval comparison therefore selected MEDIA below the
-intended SURFACE boundary. In the regression, the underlying mobile water
-table was 0.50 ft and surface ponding supplied a 2.20-ft local head. Before
-the correction, the weir saw 0.50 ft and a trial withdrawal drew from media.
-Afterward, it sees 2.20 ft and debits the surface cell. Physical offsets
-1e-8 ft below an interface remain below it; only roundoff-sized differences
-are treated as the interface. The rule is also used for outlet quality, so
-hydraulic and pollutant routing cannot disagree on the donating layer.
+The four 64-frame looping GIFs have static PNG alternatives. Network/fate
+animations use sampled 24-hour native runs. The resaturation GIF uses the
+six-minute fixture; its pale lines show the rest of the sampled trajectory.
+The orifice animation is analytical. Arrow motion shows flow direction,
+not particle tracking. Formulation diagrams are explanatory SVGs rendered
+with rsvg-convert; ImageMagick assembles GIFs. No image-generation model
+produces the simulated data.
+
+## Hydrology implementation checks
+
+- MEDIA uses `Ks * exp(-slope * (porosity - theta))` above field capacity;
+  the existing conductivity-slope parameter no longer acts as a power exponent.
+- SURFACE → first MEDIA reuses modified Green–Ampt. Only accepted infiltration
+  increments F/Fu; zero Ks or zero climate multiplier is impermeable.
+- Backwater/accepted media-port wetting changes the finite-zone deficit/wetness
+  without becoming surface infiltration. Fully submerged media clears the old
+  front. Gradual recession tracks physical wetness until accepted surface
+  entry starts the subsequent front. Dry recovery respects remaining water.
+- Hydraulic trial/reset calls do not advance history. Native V10 preserves
+  it exactly; compatible V9 reconstruction warns explicitly.
+- The implementation does not compute intercell matric gradients, upward
+  capillary redistribution or intersecting wetting-front dynamics. Tu, Wadzuk
+  and Traver’s gravity-plus-diffusivity model and HYDRUS comparisons are not
+  validation of this reduced kernel.
+
+## Prior pollutant and interface corrections retained
+
+- LAST-quality outfall backflow is an external pollutant source; ZERO supplies
+  clean water. Zero-volume LID connections solve consistent donor/recipient
+  mobile mixtures; provisional iterations restore counters and inventories.
+- Nearly dry nodes export freshly percolated pollutant even when final mobile
+  volume is below the legacy dry cutoff. Layer treatment is booked once.
+- Physical weir/rating crests and layer anchors select their actual water
+  source. Difference-of-datums arithmetic avoids `(0.3 + 2.0) - 0.3`
+  classifying a 2.00-ft surface crest in MEDIA. Interface tolerance is only
+  32 machine epsilons times local elevation scale; physical offsets remain
+  distinct. Hydraulic and quality ports share the rule.
+- Failed quality iteration warns rather than hiding a continuity problem.
 
 ## Engine regression results
 
 | Suite | Tests passed |
 |---|---|
-| LID nodes | 28 |
+| LID nodes | 40 |
 | Quality routing | 21 |
 | Treatment | 32 |
 | Hotstart | 39 |
 | Outfall backflow | 5 |
 | LID water age | 6 |
 | LID heat | 10 |
-| Total | 141 |
+| Infiltration | 33 |
+| Conventional LID | 55 |
+| Total | 241 |
 
-The new chain regression covers MEDIA / AGGREGATE × low / high tailwater ×
-ZERO / LAST boundary quality. It checks final balances for both constituents,
-and conservative-tracer inventory during every routing step to 0.1% of input
-mass. Separate focused cases cover sub-litre percolation drainage and weir
-anchor changes. Existing ordinary-node quality paths remain on their prior
-routing branch.
+The full-chain regressions cover MEDIA / AGGREGATE × low / high tailwater ×
+ZERO / LAST quality and per-step tracer closure. Focused cases cover sub-litre
+drainage, surface weir roundoff and accepted-history/restart behavior.
+The shared conventional infiltration and LID implementations were not edited.
 
 ## Source scope and further reading
 
-Current native implementation: engine `src/engine/hydrology/LidNode.cpp`,
-`LidNodeTreatment.cpp`, `quality/QualityRouting.cpp`, and
-`core/SWMMEngine.cpp`. Engine `plans/LID_StorageNode_Redesign.md` contains
-superseded proposals as well as the implementation design; current Chapter 6
-and the supplied decks describe the actual syntax.
+Current kernel: engine `src/engine/hydrology/LidNode.cpp`,
+`LidNodeTreatment.cpp`, `hydrology/Infiltration.cpp` and `core/HotStartManager.cpp`.
+The hydraulics reference Chapter 2 documents the adapter; water-quality
+reference Chapters 5 and 6 document mass transport and treatment. Engine
+Chapter 6 describes syntax, lifecycle and limits. GUI T9/T10 describe editing
+and running the supplied cases. Repository redesign plans contain superseded
+proposals and are not authoritative descriptions of this runtime.
 
-Groundwater closing remarks are based on the local engine input reference:
-`[2D_AQUIFER_OPTIONS]`, `[2D_AQUIFER]`, `[2D_AQUIFER_NODE]` and
-`[2D_AQUIFER_LINKS]`. MESH mode represents one aquifer cell beneath each mesh
-cell, with lateral flow and configurable surface/network exchanges. The
-article proposes future investigations rather than claiming a validated
-coupled LID–groundwater or groundwater treatment demonstration here.
-
-Article research references are linked directly to EPA, the journal DOI and
-the published ASCE paper and the PLOS ONE unsaturated-zone study. Their findings
-motivate the questions. The network and fate animations use synthetic example
-runs; the additional formulation figures are explicitly labeled schematics or
-analytical illustrations, rather than additional engine results.
+Groundwater closing remarks describe future investigations using spatial
+`[2D_AQUIFER_OPTIONS]` / `[2D_AQUIFER]` / node/link exchanges. These closed-bottom
+decks do not demonstrate coupled groundwater treatment. The article links
+EPA primary sources, Tu et al.’s PLOS ONE study and the published ASCE valve
+control paper; the local implementation sources belong here rather than the
+article’s research-reference list.
 '''
-overflow=ARTICLE/'results/overflow_totals.json'
-if overflow.exists():
- extra=json.loads(overflow.read_text())
- section='## Overflow convergence check\n\nFour entries from the complete run set compare cumulative emergency-weir flow statistics, avoiding aliasing of 30-second snapshots. They use the same engine binary. The weirs have no reverse flow. Bypass totals differ by less than 0.1% between the 0.1 and 0.025-second steps; flooding is zero in both cases. See `overflow_totals.json`.\n\n| Case | Step (s) | Emergency-weir volume (ft³) | Flooding (ft³) |\n|---|---|---|---|\n'
- for r in extra['runs']:
-  section+=f'| {r["case"]} | {r["step_seconds"]:.2f} | {r["bypass_ft3_engine"]:.2f} | {r["flood_ft3"]:.2f} |\n'
- notes=notes.replace('## Pollutant correction',section+'\n## Pollutant correction')
 (ARTICLE/'validation.md').write_text(notes)
-print('Inserted accepted-run metrics and wrote validation.md')
+overflow={'library_sha256':s['library_sha256'],'source':'cumulative engine emergency-weir flow statistics','runs':[{k:r[k] for k in ['case','step_seconds','bypass_ft3_engine','flood_ft3']} for r in s['runs'] if r['case'] in cases[4:]]}
+(ARTICLE/'results/overflow_totals.json').write_text(json.dumps(overflow,indent=2)+'\n')
+print('Published measured metrics for',len(s['runs']),'runs; 241 engine tests.')

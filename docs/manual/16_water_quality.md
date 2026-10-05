@@ -449,6 +449,39 @@ and a message appears once per token in the **Message Logs** panel.
 ### Treatment in storage-node LID layers
 
 Layered NODE controls support fixed removal, first-order decay and optional
-treatment expressions for each pollutant and physical layer. Open the control,
-select a layer and use **Pollutant treatment**. See \ref tutorial_lid_storage
-for units, combined-rate behavior, persistence and a worked example.
+expressions for each pollutant and physical layer. Open **Model → LID Control**,
+select a layer and use **Pollutant treatment**. Storage-node LID quality
+currently requires **Dynamic Wave** with the **Legacy** quality solver.
+
+Each retained cell carries pollutant mass; connected mobile water uses one
+mixed storage reactor. In consistent units, `C = M / V`. Accepted water
+transfers remove `C_source * accepted_volume` from the donor and credit the
+treated remainder to the receiver. Evaporation leaves solute behind.
+
+Fixed removal gives `C_exit = (1 - removal_fraction) * C_source`; an optional
+R/C expression follows and cannot create mass. It acts once at a physical
+layer exit, not at every numerical MEDIA interface. Retained resident decay
+is `M_after = M_before * exp(-(k_background + k_layer) * dt)` in consistent
+time units. Mobile layer decay is weighted by the connected volume in each
+layer. Surface bypass does not receive all underlying treatment rules and
+saturated layers do not become separate plug-flow reactors.
+
+The tutorial's assumed 2/day porous-layer decay has an **8.3-hour half-life**.
+More exposure gives more calculated reaction by construction. It is not a
+calibrated field treatment prediction.
+
+Reverse link flow imports its donor concentration at the physical port.
+Outfall **LAST** backflow is an external pollutant source; **ZERO** is clean
+water. Backwater resaturation and recession conserve retained/mobile water
+and mass. Infiltration history reconciliation alone does not create mass.
+Check `initial + incoming = outfall + flooding + seepage + reacted + final stored`
+for every pollutant, including retained stores and every emergency bypass.
+A closed valve or low concentration does not prove treatment; still-stored
+mass is not reacted mass. Use cumulative budgets for brief overflow and
+repeat with smaller routing steps to check treatment and peak-flow sensitivity.
+
+Native V10 hotstarts save retained mass, moisture and infiltration history;
+compatible older files reconstruct missing history with a warning.
+See \ref tutorial_lid_storage for layer editing and expression units,
+\ref tutorial_lid_active_chain for control experiments and the resaturation
+animation, and \ref manual_hydraulics for the accepted water-flux formulation.
