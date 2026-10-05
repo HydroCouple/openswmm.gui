@@ -27,6 +27,13 @@
 #include "ui/properties/xsectshapegeom.h"
 
 #include "ui/properties/nodecompoundeditref.h"
+#include "ui/properties/swmmsubcatchpropertyadapter.h"
+#include "ui/properties/dataobjectref.h"
+#include "ui/dialogs/snowpackeditordialog.h"
+#include "snowpack/snowpackregistry.h"
+#include <QTimer>
+#include <QDialogButtonBox>
+#include <QPushButton>
 
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_inflows.h>
@@ -337,6 +344,53 @@ private slots:
         const double slope = model.data(idx, Qt::DisplayRole).toDouble(&ok);
         QVERIFY(ok);
         QVERIFY(slope > 0.0);   // fixture drops 5 ft over 1000 ft
+    }
+
+    void snowPackPickerSharesAssignmentWithProperties()
+    {
+        auto layer = openLayer(); QVERIFY(layer);
+        SWMM_Engine eng = layer->engine();
+        QCOMPARE(swmm_snowpack_add(eng, "Snow1"), SWMM_OK);
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), SWMMModelLayer::CatSubcatchments);
+        const int c = colFor(model.columnSpecs(), QStringLiteral("Snow pack"));
+        QVERIFY(c >= 0); QVERIFY(model.rowCount() > 0);
+        const auto idx = model.index(0, c);
+        auto ref = model.data(idx, Qt::EditRole).value<DataObjectRef>();
+        QCOMPARE(ref.kind, DataObjectRef::Snowpack);
+        ref.currentName = "Snow1";
+        QVERIFY(model.setData(idx, QVariant::fromValue(ref), Qt::EditRole));
+        const auto sub = layer->objectNameAt(SWMMModelLayer::CatSubcatchments, 0);
+        SWMMSubcatchPropertyAdapter adapter(eng, sub);
+        QCOMPARE(adapter.snowPackRef().currentName, QStringLiteral("Snow1"));
+        auto* registry = qobject_cast<openswmmvis::snowpack::SnowpackRegistry*>(layer->ensureSnowpackRegistry());
+        QVERIFY(registry);
+        bool selected = false;
+        QTimer::singleShot(0, [&] {
+            auto* dialog = qobject_cast<openswmmvis::ui::SnowpackEditorDialog*>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            auto* buttons = dialog->findChild<QDialogButtonBox*>();
+            if (!buttons) { dialog->reject(); return; }
+            auto* use = buttons->button(QDialogButtonBox::Close);
+            selected = use && use->text() == QStringLiteral("Use Snow Pack");
+            if (use) QTest::mouseClick(use, Qt::LeftButton);
+            else dialog->reject();
+        });
+        QCOMPARE(openswmmvis::ui::SnowpackEditorDialog::pickSnowpack(registry, layer.get(), "Snow1"), QStringLiteral("Snow1"));
+        QVERIFY(selected);
+        registerDataObjectRefConverter();
+        QTableView view;
+        view.setModel(&model);
+        for (int k = 0; k < model.columnCount(); ++k)
+            view.setColumnHidden(k, k != c && model.columnSpecs()[k].key != QStringLiteral("Name"));
+        view.resize(640, 240); view.setWindowTitle(QStringLiteral("Subcatchment snow-pack assignment"));
+        view.show(); view.resizeColumnsToContents(); QTest::qWait(30);
+        const QString out = QDir(dataDir()).filePath(QStringLiteral("surface_r1_out"));
+        QVERIFY(QDir().mkpath(out));
+        QVERIFY(view.grab().save(QDir(out).filePath(QStringLiteral("snowpack-assignment.png"))));
+        ref.currentName.clear(); adapter.setSnowPackRef(ref);
+        model.refreshObject(sub);
+        QVERIFY(model.data(idx, Qt::EditRole).value<DataObjectRef>().currentName.isEmpty());
     }
 
     void subcatchmentExposesTag()

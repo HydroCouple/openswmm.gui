@@ -59,13 +59,22 @@ private slots:
     {
         int pending = 0;
         for (const CellParamSpec &s : cellParamSpecs()) {
-            if (s.enabled) continue;
+            if (s.enabled || !s.key.startsWith("gw.")) continue;
             ++pending;
             QVERIFY2(s.key.startsWith("gw."), s.key.constData());
             QVERIFY2(!s.tooltip.isEmpty(),
                      "a disabled entry must explain why it is disabled");
         }
         QVERIFY2(pending >= 5, "the draft [2D_AQUIFER] parameter set");
+    }
+
+    void snowParametersAreVisibleButPending()
+    {
+        for (const char* key : {"snow.pack", "snow.forestCover", "snow.drift", "snow.qg", "snow.aep", "snow.slope", "snow.aspect"}) {
+            const auto* s = cellParamSpec(key);
+            QVERIFY(s); QVERIFY(!s->enabled); QVERIFY(!s->tooltip.isEmpty());
+            QVERIFY(std::isnan(cellParamValue(sampleMesh(), 0, key)));
+        }
     }
 
     void registry_lookupByKey()

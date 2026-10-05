@@ -53,6 +53,29 @@ private slots:
     // Slice TA — tag round-trip
     // ====================================================================
 
+    void snowPackAssignmentUsesEngineAndSurvivesRename()
+    {
+        SWMM_Engine e = buildTwoSubcatchFixture(); QVERIFY(e);
+        QCOMPARE(swmm_snowpack_add(e, "Pack"), SWMM_OK);
+        SWMMSubcatchPropertyAdapter a(e, QStringLiteral("S1"));
+        DataObjectRef r = a.snowPackRef(); QCOMPARE(r.kind, DataObjectRef::Snowpack);
+        QVERIFY(r.currentName.isEmpty()); r.currentName = "Pack";
+        QSignalSpy spy(&a, &SWMMSubcatchPropertyAdapter::changed);
+        a.setSnowPackRef(r); QCOMPARE(spy.count(), 1);
+        QCOMPARE(a.snowPackRef().currentName, QStringLiteral("Pack"));
+        QCOMPARE(QString::fromUtf8(swmm_subcatch_get_snowpack(e, 1)), QString{});
+        a.setSnowPackRef(r); QCOMPARE(spy.count(), 1); // no-edit
+        r.currentName = "Missing"; a.setSnowPackRef(r); QCOMPARE(spy.count(), 1);
+        QCOMPARE(a.snowPackRef().currentName, QStringLiteral("Pack"));
+        QCOMPARE(swmm_snowpack_rename(e, 0, "Renamed"), SWMM_OK);
+        QCOMPARE(a.snowPackRef().currentName, QStringLiteral("Renamed"));
+        r.currentName.clear(); a.setSnowPackRef(r); QCOMPARE(spy.count(), 2);
+        QVERIFY(a.snowPackRef().currentName.isEmpty());
+        QVERIFY(!a.displayLabelFor("snowPack").isEmpty());
+        QVERIFY(a.metaObject()->indexOfProperty("snowPack") >= 0);
+        swmm_engine_destroy(e);
+    }
+
     void tagRoundTrip()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();

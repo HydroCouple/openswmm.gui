@@ -51,6 +51,10 @@ public:
         SWMMModelLayer *layer,
         QWidget *parent = nullptr);
 
+    static QString pickSnowpack(openswmmvis::snowpack::SnowpackRegistry*,
+                                SWMMModelLayer*, const QString& currentName,
+                                QWidget* parent = nullptr);
+
     Mode mode() const noexcept { return m_mode; }
     openswmmvis::snowpack::SnowpackProvider *currentProvider() const noexcept;
 

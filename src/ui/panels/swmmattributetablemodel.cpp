@@ -914,6 +914,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // Parameter columns are always present (no per-row greying in the
             // table); they read/write the active model's shared param store.
             compoundCol("Rain gage", "Rain Gage",  "subcatch_rain_gage_ref"),
+            compoundCol("Snow pack", "Snow Pack", "subcatch_snowpack_ref"),
             compoundCol("Outlet",    "Outlet",     "subcatch_outlet_ref"),
             enumCol("Infil. model",  "Infiltration Model",
                                                    "subcatch_infil_model",
@@ -2728,6 +2729,16 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             return QVariant::fromValue(dref);
         }
 
+        if (spec.setter == QStringLiteral("subcatch_snowpack_ref")) {
+            const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+            if (sIdx < 0) return {};
+            DataObjectRef ref;
+            ref.engine = eng; ref.layer = m_layer; ref.kind = DataObjectRef::Snowpack;
+            if (const char* id = swmm_subcatch_get_snowpack(eng, sIdx))
+                ref.currentName = QString::fromUtf8(id);
+            return QVariant::fromValue(ref);
+        }
+
         // G3 — receiving-aquifer picker. Mirrors
         // SWMMSubcatchPropertyAdapter::aquiferRef; write in commitValueDirect.
         if (spec.setter == QStringLiteral("subcatch_aquifer_ref")) {
@@ -3279,6 +3290,10 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
             const int g = swmm_gage_index(eng, dref.currentName.toUtf8().constData());
             if (g < 0) return false;
             rc = swmm_subcatch_set_gage(eng, sIdx, g);
+        } else if (spec.setter == QStringLiteral("subcatch_snowpack_ref")) {
+            const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+            if (sIdx < 0) return false;
+            rc = swmm_subcatch_set_snowpack(eng, sIdx, dref.currentName.toUtf8().constData());
         } else if (spec.setter == QStringLiteral("subcatch_aquifer_ref")) {
             // G3 — receiving aquifer. Mirrors
             // SWMMSubcatchPropertyAdapter::setAquiferRef: an empty pick
