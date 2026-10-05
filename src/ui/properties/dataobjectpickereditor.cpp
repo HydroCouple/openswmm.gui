@@ -10,6 +10,8 @@
 #include "curve/curveregistry.h"
 #include "layers/swmmmodellayer.h"
 #include "pattern/patternregistry.h"
+#include "snowpack/snowpackregistry.h"
+#include "ui/dialogs/snowpackeditordialog.h"
 #include "timeseries/timeseriesregistry.h"
 #include "ui/dialogs/aquifereditordialog.h"
 #include "ui/dialogs/curveeditordialog.h"
@@ -175,6 +177,12 @@ void DataObjectPickerEditor::repopulate()
             }
             break;
         }
+        case DataObjectRef::Snowpack: {
+            for (int i = 0; i < swmm_snowpack_count(m_ref.engine); ++i)
+                if (const char* id = swmm_snowpack_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            break;
+        }
         case DataObjectRef::Aquifer: {
             // [AQUIFERS] live in their own engine array (no table type).
             const int n = swmm_aquifer_count(m_ref.engine);
@@ -336,6 +344,7 @@ void DataObjectPickerEditor::onPickerClicked()
     case DataObjectRef::Subcatchment:   /* handled above */                   break;
     case DataObjectRef::LidControl:     dc = SWMMModelLayer::DataLIDControls; break;
     case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
+    case DataObjectRef::Snowpack:       dc = SWMMModelLayer::DataSnowpacks;   break;
     case DataObjectRef::Inlet:          /* handled above */                   break;
     case DataObjectRef::CaptureNode:    /* handled above */                   break;
     }
@@ -393,6 +402,13 @@ void DataObjectPickerEditor::onPickerClicked()
         if (!reg) return;
         chosen = CurveEditorDialog::pickCurve(
             reg, /*undoStack=*/nullptr, m_ref.currentName, this);
+        break;
+    }
+
+    case SWMMModelLayer::DataSnowpacks: {
+        auto* registry = qobject_cast<openswmmvis::snowpack::SnowpackRegistry*>(m_ref.layer->ensureSnowpackRegistry());
+        chosen = openswmmvis::ui::SnowpackEditorDialog::pickSnowpack(
+            registry, m_ref.layer, m_ref.currentName, this);
         break;
     }
 

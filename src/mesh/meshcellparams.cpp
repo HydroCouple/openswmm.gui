@@ -145,6 +145,19 @@ const QVector<CellParamSpec> &cellParamSpecs()
             v.append(s);
         }
 
+        // Approved snow parameter design, pending the UEB/mesh engine rounds.
+        const QString snowPending = tr("Mesh snow is planned in the surface–subsurface program. These fields become editable when the snow model is available.");
+        CellParamSpec pack;
+        pack.key = "snow.pack"; pack.label = tr("Snow Pack");
+        pack.kind = CellParamSpec::Kind::Enum; pack.enumLabels = {tr("Unassigned")};
+        pack.max = 1; pack.enabled = false; pack.tooltip = snowPending; v.append(pack);
+        v.append({"snow.forestCover", tr("Snow Forest Cover"), {}, false, 0, 1, 0.01, 0, 3, false, snowPending});
+        v.append({"snow.drift", tr("Snow Drift Factor"), {}, false, 0, 100, 0.1, 1, 3, false, snowPending});
+        v.append({"snow.qg", tr("Snow Ground Heat Flux (W/m²)"), {}, false, -1000, 1000, 1, 0, 3, false, snowPending});
+        v.append({"snow.aep", tr("Snow Albedo Extinction Depth"), {}, true, 0, 100, 0.01, 0.1, 4, false, snowPending});
+        v.append({"snow.slope", tr("Snow Surface Slope (degrees)"), {}, false, 0, 90, 1, 0, 2, false, snowPending});
+        v.append({"snow.aspect", tr("Snow Surface Aspect (degrees)"), {}, false, 0, 360, 1, 0, 2, false, snowPending});
+
         // Groundwater is authored through the common assignment workflow,
         // rather than these generic MeshTriangle fields.
         const QString pending =

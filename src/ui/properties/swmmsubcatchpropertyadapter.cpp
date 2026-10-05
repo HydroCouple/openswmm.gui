@@ -54,6 +54,7 @@ QString SWMMSubcatchPropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QLatin1String("rainScaleFactor")) return tr("Rainfall Scale Factor");
     if (property == QLatin1String("snowScaleFactor")) return tr("Snow Scale Factor");
     // Phase 3 — gage / outlet / infiltration.
+    if (property == QLatin1String("snowPack")) return tr("Snow Pack");
     if (property == QLatin1String("rainGage"))   return tr("Rain Gage");
     if (property == QLatin1String("outlet"))     return tr("Outlet");
     if (property == QLatin1String("infilModel")) return tr("Infil. Model");
@@ -533,6 +534,24 @@ SubcatchCompoundEditRef SWMMSubcatchPropertyAdapter::landUseRef() const
 }
 
 // --- Receiving aquifer (G3 picker over [AQUIFERS] names) -------------------
+DataObjectRef SWMMSubcatchPropertyAdapter::snowPackRef() const
+{
+    DataObjectRef r;
+    r.engine = m_engine; r.layer = m_layer; r.kind = DataObjectRef::Snowpack;
+    const int i = idx();
+    if (i >= 0)
+        if (const char* name = swmm_subcatch_get_snowpack(m_engine, i))
+            r.currentName = QString::fromUtf8(name);
+    return r;
+}
+void SWMMSubcatchPropertyAdapter::setSnowPackRef(const DataObjectRef &r)
+{
+    const int i = idx();
+    if (i < 0 || r.currentName == snowPackRef().currentName) return;
+    if (swmm_subcatch_set_snowpack(m_engine, i, r.currentName.toUtf8().constData()) == SWMM_OK)
+        emit changed();
+}
+
 DataObjectRef SWMMSubcatchPropertyAdapter::aquiferRef() const
 {
     DataObjectRef r;

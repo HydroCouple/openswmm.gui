@@ -99,6 +99,21 @@ SnowpackEditorDialog::SnowpackEditorDialog(SnowpackRegistry *registry,
     }
 }
 
+QString SnowpackEditorDialog::pickSnowpack(SnowpackRegistry* registry,
+        SWMMModelLayer* layer, const QString& currentName, QWidget* parent)
+{
+    if (!registry) return {};
+    SnowpackEditorDialog dialog(registry, layer, parent);
+    dialog.setWindowTitle(tr("Select Snow Pack"));
+    if (auto* buttons = dialog.findChild<QDialogButtonBox*>())
+        buttons->button(QDialogButtonBox::Close)->setText(tr("Use Snow Pack"));
+    if (auto* provider = registry->findByName(currentName))
+        dialog.selectProviderInList_(provider);
+    if (dialog.exec() != QDialog::Accepted || !dialog.currentProvider()) return {};
+    if (registry->saveToEngine() < 0) return {};
+    return dialog.currentProvider()->name();
+}
+
 SnowpackEditorDialog::~SnowpackEditorDialog() = default;
 
 void SnowpackEditorDialog::openForSnowpack(const QString &name)

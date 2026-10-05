@@ -56,6 +56,7 @@ class SWMMSubcatchPropertyAdapter : public QObject
 
     // Phase 3 — Subcatchment gaps (docs/ATTRIBUTE_EDITOR_WIRING_PLAN_2026-06-04.md).
     /*! Rain gage assignment (R3 picker over gage names). */
+    Q_PROPERTY(DataObjectRef snowPack READ snowPackRef WRITE setSnowPackRef NOTIFY changed)
     Q_PROPERTY(DataObjectRef rainGage READ rainGageRef WRITE setRainGageRef NOTIFY changed)
     /*! Outlet target — a node OR another subcatchment (cascade). Combined
      *  picker; the WRITE slot resolves the name to the right engine call. */
@@ -132,6 +133,7 @@ public:
     [[nodiscard]] double snowScaleFactor() const;
 
     // Phase 3 — picker / enum / infiltration param accessors.
+    [[nodiscard]] DataObjectRef snowPackRef() const;
     [[nodiscard]] DataObjectRef rainGageRef() const;
     [[nodiscard]] DataObjectRef outletRef()   const;
     [[nodiscard]] InfilModel    infilModel()  const;
@@ -181,6 +183,7 @@ public slots:
     void setSnowScaleFactor(double v);
 
     // Phase 3 — picker / enum / infiltration param write slots.
+    void setSnowPackRef(const DataObjectRef &r);
     void setRainGageRef(const DataObjectRef &r);
     void setOutletRef(const DataObjectRef &r);
     void setInfilModel(InfilModel m);
